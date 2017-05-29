@@ -1,0 +1,2 @@
+some_word 1.0 2.0 3.0 4.0
+some_other_word 4.0 3.0 2.0 1.0
