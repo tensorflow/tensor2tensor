@@ -128,7 +128,7 @@ def train(hparams, scope=None):
 
   if not hparams.attention:
     model_creator = nmt_model.Model
-  elif hparams.attention_architecture == "top":
+  elif hparams.attention_architecture == "standard":
     model_creator = attention_model.AttentionModel
   else:
     raise ValueError("Unknown model architecture")
