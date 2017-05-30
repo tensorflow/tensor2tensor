@@ -37,8 +37,8 @@ class BatchedInput(collections.namedtuple("BatchedInput",
 
 def get_infer_iterator(
     src_dataset, hparams, src_vocab_table, batch_size, src_max_len=None):
-  #  Add shuffling as an option.
-  #  make lookup default value the "unk" symbol?
+  # TODO(ebrevdo): Add shuffling as an option.
+  # TODO(ebrevdo): make lookup default value the "unk" symbol?
   src_eos_id = tf.cast(src_vocab_table.lookup(tf.constant(hparams.eos)),
                        tf.int32)
   source_reverse = hparams.source_reverse
@@ -82,8 +82,8 @@ def get_infer_iterator(
 def get_iterator(src_dataset, tgt_dataset, hparams,
                  src_vocab_table, tgt_vocab_table, batch_size,
                  src_max_len=None, tgt_max_len=None, bucket=True):
-  #  Add shuffling as an option.
-  #  make lookup default value the "unk" symbol?
+  # TODO(ebrevdo): Add shuffling as an option.
+  # TODO(ebrevdo): make lookup default value the "unk" symbol?
   src_eos_id = tf.cast(
       src_vocab_table.lookup(tf.constant(hparams.eos)),
       tf.int32)

@@ -25,10 +25,10 @@ import sys
 import numpy as np
 import tensorflow as tf
 
-import inference
-import train
-import utils.misc_utils as utils
-import utils.vocab_utils as vocab_utils
+from . import inference
+from . import train
+from .utils import misc_utils as utils
+from .utils import vocab_utils
 
 
 FLAGS = None

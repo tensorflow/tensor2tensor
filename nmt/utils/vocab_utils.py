@@ -23,9 +23,9 @@ import codecs
 
 import tensorflow as tf
 
-import utils.misc_utils as utils
+from ..utils import misc_utils as utils
 
-#  When we add code to load pretrained embeddings,
+# TODO(ebrevdo): When we add code to load pretrained embeddings,
 # ensure that the first three rows of the embedding correspond to UNK, SOS, EOS.
 UNK = "<unk>"
 SOS = "<s>"

@@ -24,14 +24,14 @@ import tensorflow as tf
 
 from tensorflow.python.ops import lookup_ops
 
-import attention_model
-import model as nmt_model
-import model_helper
-import inference
-import utils.iterator_utils as iterator_utils
-import utils.misc_utils as utils
-import utils.nmt_utils as nmt_utils
-import utils.vocab_utils as vocab_utils
+from . import attention_model
+from . import model as nmt_model
+from . import model_helper
+from . import inference
+from .utils import iterator_utils
+from .utils import misc_utils as utils
+from .utils import nmt_utils
+from .utils import vocab_utils
 
 __all__ = ["train"]
 
@@ -166,7 +166,7 @@ def train(hparams, scope=None):
     model_helper.create_or_load_model(train_model, out_dir, train_sess, hparams)
 
   # Create/Load model.
-  #  move this to create_or_load_model
+  # TODO(thangluong): move this to create_or_load_model
   global_step = train_model.global_step.eval(session=train_sess)
   epoch = 0
 
@@ -278,16 +278,16 @@ def train(hparams, scope=None):
           eval_src_file_placeholder: test_src_file,
           eval_tgt_file_placeholder: test_tgt_file
       })
-      #  run eval_graph.eval() until done
+      # TODO(ebrevdo): run eval_graph.eval() until done
       eval_sess.run(eval_iterator.initializer, feed_dict={
           eval_src_file_placeholder: dev_src_file,
           eval_tgt_file_placeholder: dev_tgt_file
       })
-      #  run eval_graph.eval() until done
+      # TODO(ebrevdo): run eval_graph.eval() until done
       infer_sess.run(infer_iterator.initializer, feed_dict={
           infer_src_placeholder: [""] * 100,  # 100 empty string examples
       })
-      #  fill in placeholder values above and run infer
+      # TODO(ebrevdo): fill in placeholder values above and run infer
       # graph until done.
 
     #   dev_ppl, test_ppl = _save_eval_decode(
@@ -433,7 +433,7 @@ def _external_eval(model, sess, hparams, prefix,
     for metric in hparams.metrics:
       utils.add_summary(summary_writer, global_step, "%s_%s" % (label, metric),
                         scores[metric])
-      #  make clear the semantic, larger is better
+      # TODO(thangluong): make clear the semantic, larger is better
       if save_on_best and scores[metric] > getattr(hparams, "best_" + metric):
         setattr(hparams, "best_" + metric, scores[metric])
         model.saver.save(

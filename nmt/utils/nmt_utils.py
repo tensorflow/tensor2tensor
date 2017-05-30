@@ -20,8 +20,8 @@ import time
 
 import tensorflow as tf
 
-import utils.evaluation_utils as evaluation_utils
-import utils.misc_utils as utils
+from ..utils import evaluation_utils
+from ..utils import misc_utils as utils
 
 __all__ = ["decode_and_evaluate", "get_translation", "print_translation"]
 
@@ -61,7 +61,7 @@ def decode_and_evaluate(name,
           break
 
   # Evaluation
-  #  Fix this for inference during training.
+  # TODO(rzhao): Fix this for inference during training.
   evaluation_scores = {}
   if ref_file and tf.gfile.Exists(trans_file):
     for metric in metrics:

@@ -20,8 +20,8 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-import model
-import model_helper
+from . import model
+from . import model_helper
 
 __all__ = ["AttentionModel"]
 
@@ -81,7 +81,7 @@ class AttentionModel(model.Model):
         alignment_history=hparams.alignment_history,
         name="attention")
 
-    #  do we need num_layers, num_gpus?
+    # TODO(thangluong): do we need num_layers, num_gpus?
     cell = tf.contrib.rnn.DeviceWrapper(
         cell, model_helper.get_device_str(num_layers - 1, num_gpus))
 

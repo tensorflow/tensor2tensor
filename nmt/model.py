@@ -25,9 +25,9 @@ import tensorflow as tf
 
 from tensorflow.python.layers import core as layers_core
 
-import model_helper
-import utils.iterator_utils as iterator_utils
-import utils.misc_utils as utils
+from . import model_helper
+from .utils import iterator_utils
+from .utils import misc_utils as utils
 
 
 __all__ = ["BaseModel", "Model"]
@@ -68,7 +68,7 @@ class BaseModel(object):
     tf.get_variable_scope().set_initializer(initializer)
 
     # Embeddings
-    #  Only do this if the mode is TRAIN?
+    # TODO(ebrevdo): Only do this if the mode is TRAIN?
     self.init_embeddings(hparams, scope)
 
     # Projection
@@ -291,14 +291,14 @@ class BaseModel(object):
     batch_size = iterator.source.shape[0].value or tf.shape(iterator.source)[0]
 
     # maximum_iteration: The maximum decoding steps.
-    #  move max_encoder_length to "else", will change
+    # TODO(thangluong): move max_encoder_length to "else", will change
     # tests
     max_encoder_length = tf.reduce_max(iterator.source_sequence_length)
     if hparams.tgt_max_len_infer:
       maximum_iterations = hparams.tgt_max_len_infer
       utils.print_out("  decoding maximum_iterations %d" % maximum_iterations)
     else:
-      #  add decoding_length_factor flag
+      # TODO(thangluong): add decoding_length_factor flag
       decoding_length_factor = 2.0
       maximum_iterations = tf.to_int32(tf.round(
           tf.to_float(max_encoder_length) * decoding_length_factor))

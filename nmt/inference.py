@@ -23,13 +23,13 @@ import tensorflow as tf
 
 from tensorflow.python.ops import lookup_ops
 
-import attention_model
-import model as nmt_model
-import model_helper
-import utils.iterator_utils as iterator_utils
-import utils.misc_utils as utils
-import utils.nmt_utils as nmt_utils
-import utils.vocab_utils as vocab_utils
+from . import attention_model
+from . import model as nmt_model
+from . import model_helper
+from .utils import iterator_utils
+from .utils import misc_utils as utils
+from .utils import nmt_utils
+from .utils import vocab_utils
 
 __all__ = ["create_infer_model", "load_inference_hparams", "inference"]
 

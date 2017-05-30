@@ -25,10 +25,10 @@ import numpy as np
 import tensorflow as tf
 
 from tensorflow.python.ops import lookup_ops
-import attention_model
-import model
-import utils.iterator_utils as iterator_utils
-import utils.common_test_utils as common_test_utils
+from . import attention_model
+from . import model
+from .utils import iterator_utils
+from .utils import common_test_utils
 
 float32 = np.float32
 int32 = np.int32

@@ -23,7 +23,7 @@ import tensorflow as tf
 
 from tensorflow.python.ops import lookup_ops
 
-import utils.iterator_utils as iterator_utils
+from ..utils import iterator_utils
 
 
 class IteratorUtilsTest(tf.test.TestCase):

@@ -21,8 +21,8 @@ import subprocess
 
 import tensorflow as tf
 
-import scripts.bleu as bleu
-import scripts.rouge as rouge
+from ..scripts import bleu
+from ..scripts import rouge
 
 
 __all__ = ["evaluate"]
@@ -140,7 +140,7 @@ def _moses_bleu(multi_bleu_script, tgt_test, trans_file, bpe_delimiter=None):
   if bpe_delimiter:
     debpe_tgt_test = tgt_test + ".debpe"
     if not os.path.exists(debpe_tgt_test):
-      #  not use shell=True, can be a security hazard
+      # TODO(thangluong): not use shell=True, can be a security hazard
       subprocess.call("cp %s %s" % (tgt_test, debpe_tgt_test), shell=True)
       subprocess.call("sed s/%s //g %s" % (bpe_delimiter, debpe_tgt_test),
                       shell=True)

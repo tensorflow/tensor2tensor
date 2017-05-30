@@ -23,8 +23,8 @@ import numpy as np
 
 import tensorflow as tf
 
-import utils.misc_utils as misc_utils
-import utils.nmt_utils as nmt_utils
+from ..utils import misc_utils
+from ..utils import nmt_utils
 
 
 class NmtUtilsTest(tf.test.TestCase):
@@ -86,7 +86,7 @@ class NmtUtilsTest(tf.test.TestCase):
   #                              "yeu yeu ay",
   #                              "em </s> hon",
   #                              "<unk> </s> </s>"]
-  #   #  fix the problem of dropping the last words
+  #   # TODO(thangluong): fix the problem of dropping the last words
   #   #   those longest sentences in a batch
   #   expected_decoder_inputs = ["<s> <s> <s>",
   #                              "i love she",
@@ -134,7 +134,7 @@ class NmtUtilsTest(tf.test.TestCase):
   #                              "em tinh ay",
   #                              "yeu </s> co",
   #                              "anh </s> </s>"]
-  #   #  fix the problem of dropping the last words
+  #   # TODO(thangluong): fix the problem of dropping the last words
   #   #   those longest sentences in a batch
   #   expected_decoder_inputs = ["<s> <s> <s>",
   #                              "i love she",

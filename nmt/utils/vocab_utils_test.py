@@ -21,7 +21,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-import utils.vocab_utils as vocab_utils
+from ..utils import vocab_utils
 
 
 class VocabUtilsTest(tf.test.TestCase):

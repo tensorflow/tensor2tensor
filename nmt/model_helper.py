@@ -5,7 +5,7 @@ import time
 
 import tensorflow as tf
 
-import utils.misc_utils as utils
+from .utils import misc_utils as utils
 
 
 __all__ = [
@@ -122,7 +122,7 @@ def create_emb_for_encoder_and_decoder(share_vocab,
   def get_pretrained_embeddings(vocab_size, embed_size, embed_trainable,
                                 embed_file, vocab_table):
     """Get pretrained embeddings."""
-    #  Start with a standard initializer; then assign
+    # TODO(ebrevdo): Start with a standard initializer; then assign
     # into rows containing vocab in the pretrained embeddings.
     data_initializer, variable_initializer = maybe_get_file_initializer(
         embed_file, vocab_size, embed_size, vocab_table)

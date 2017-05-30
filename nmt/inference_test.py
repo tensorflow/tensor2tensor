@@ -23,10 +23,10 @@ import os
 import numpy as np
 import tensorflow as tf
 
-import inference
-import nmt
-import utils.common_test_utils as common_test_utils
-import utils.evaluation_utils as evaluation_utils
+from . import inference
+from . import nmt
+from .utils import common_test_utils
+from .utils import evaluation_utils
 
 float32 = np.float32
 int32 = np.int32
@@ -138,7 +138,7 @@ class InferenceTest(tf.test.TestCase):
         attention_architecture="top",
         use_residual=False,
         inference_indices=[1, 2])
-    #  Make infer indices support batch_size > 1.
+    # TODO(rzhao): Make infer indices support batch_size > 1.
     hparams.batch_size = 1
     vocab_prefix = "nmt/testdata/test_infer_vocab"
     hparams.add_hparam("vocab_prefix", vocab_prefix)

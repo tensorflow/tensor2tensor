@@ -23,7 +23,7 @@ import tensorflow as tf
 
 from tensorflow.python.ops import lookup_ops
 
-import utils.iterator_utils as iterator_utils
+from ..utils import iterator_utils
 
 def create_test_hparams(unit_type="lstm",
                         encoder_type="uni",
@@ -37,7 +37,7 @@ def create_test_hparams(unit_type="lstm",
   """Create training and inference test hparams."""
   num_residual_layers = 0
   if use_residual:
-    #  Put num_residual_layers computation logic into
+    # TODO(rzhao): Put num_residual_layers computation logic into
     # `model_utils.py`, so we can also test it here.
     num_residual_layers = 2
 
@@ -106,7 +106,7 @@ def create_test_hparams(unit_type="lstm",
       tgt="tgt",
       src_max_len=400,
       tgt_eos_id=0,
-      #  Remove this after adding in-graph id to string lookup.
+      # TODO(rzhao): Remove this after adding in-graph id to string lookup.
       tgt_vocab=["eos", "test1", "test2", "test3", "test4", "test5"],
       ignore_map=None,
       src_max_len_infer=None,
