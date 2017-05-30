@@ -335,13 +335,18 @@ if __name__ == "__main__":
       """)
   parser.add_argument("--attention_type", type=str, default="softmax",
                       help="softmax | monotonic")
-  parser.add_argument("--attention_architecture", type=str,
-                      default="top", help="""\
-      top | bottom | gnmt | gnmt_new. top: use top layer to compute
-      attentionbottom: use bottom layer to compute attentiongnmt: GNMT style of
-      computing attention use previous  bottom layer to compute
-      attentiongnmt_new: GNMT style of computing attention use current  bottom
-      layer to compute attention\
+  parser.add_argument(
+      "--attention_architecture",
+      type=str,
+      default="standard",
+      help="""\
+      standard | bottom | gnmt | gnmt_new.
+      standard: use top layer to compute attention.
+      bottom: use bottom layer to compute attention.
+      gnmt: GNMT style of computing attention, use previous bottom layer to
+          compute attention. (Not Implemented)
+      gnmt_new: GNMT style of computing attention use current bottom
+          layer to compute attention. (Not Implemented)\
       """)
   parser.add_argument("--alignment_history", type="bool", nargs="?", const=True,
                       default=False,
@@ -505,7 +510,7 @@ if __name__ == "__main__":
                       help="Random seed (>0, set a specific seed).")
 
   # Job info
-  parser.add_argument("--jobid", type=int, default=-1,
+  parser.add_argument("--jobid", type=int, default=0,
                       help="Task id of the worker.")
   parser.add_argument("--num_workers", type=int, default=1,
                       help="Number of workers for the job.")

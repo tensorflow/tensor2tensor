@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
 """Tests for model.py."""
 
 from __future__ import absolute_import
@@ -125,14 +124,17 @@ class ModelTest(tf.test.TestCase):
         'UniEncoderBottomAttentionArchitecture/mem_layer_weight/shape': (5, 5),
         'UniEncoderBottomAttentionArchitecture/mem_layer_weight/sum':
             -0.44815454,
-        'UniEncoderTopAttentionArchitecture/last_dec_weight/shape': (10, 20),
-        'UniEncoderTopAttentionArchitecture/last_dec_weight/sum':
+        'UniEncoderStandardAttentionArchitecture/last_dec_weight/shape': (10,
+                                                                          20),
+        'UniEncoderStandardAttentionArchitecture/last_dec_weight/sum':
             0.058025002,
-        'UniEncoderTopAttentionArchitecture/last_enc_weight/shape': (10, 20),
-        'UniEncoderTopAttentionArchitecture/last_enc_weight/sum':
+        'UniEncoderStandardAttentionArchitecture/last_enc_weight/shape': (10,
+                                                                          20),
+        'UniEncoderStandardAttentionArchitecture/last_enc_weight/sum':
             0.058024883,
-        'UniEncoderTopAttentionArchitecture/mem_layer_weight/shape': (5, 5),
-        'UniEncoderTopAttentionArchitecture/mem_layer_weight/sum':
+        'UniEncoderStandardAttentionArchitecture/mem_layer_weight/shape': (5,
+                                                                           5),
+        'UniEncoderStandardAttentionArchitecture/mem_layer_weight/sum':
             -0.44815454
     }
 
@@ -148,7 +150,7 @@ class ModelTest(tf.test.TestCase):
         'NoAttentionNoResidualUniEncoder/loss': 8.8516064,
         'NoAttentionResidualBiEncoder/loss': 8.851984,
         'UniEncoderBottomAttentionArchitecture/loss': 8.8519087,
-        'UniEncoderTopAttentionArchitecture/loss': 8.8519087
+        'UniEncoderStandardAttentionArchitecture/loss': 8.8519087
     }
 
     cls.actual_eval_values = {}
@@ -173,8 +175,8 @@ class ModelTest(tf.test.TestCase):
         'NoAttentionResidualBiEncoder/predict_count': 11.0,
         'UniEncoderBottomAttentionArchitecture/loss': 8.844492,
         'UniEncoderBottomAttentionArchitecture/predict_count': 11.0,
-        'UniEncoderTopAttentionArchitecture/loss': 8.8517151,
-        'UniEncoderTopAttentionArchitecture/predict_count': 11.0
+        'UniEncoderStandardAttentionArchitecture/loss': 8.8517151,
+        'UniEncoderStandardAttentionArchitecture/predict_count': 11.0
     }
 
     cls.actual_infer_values = {}
@@ -189,7 +191,7 @@ class ModelTest(tf.test.TestCase):
         'NoAttentionNoResidualUniEncoder/logits_sum': -1.0808625,
         'NoAttentionResidualBiEncoder/logits_sum': -2.8147559,
         'UniEncoderBottomAttentionArchitecture/logits_sum': -0.97026241,
-        'UniEncoderTopAttentionArchitecture/logits_sum': -0.02665353
+        'UniEncoderStandardAttentionArchitecture/logits_sum': -0.02665353
     }
 
   @classmethod
@@ -277,8 +279,8 @@ class ModelTest(tf.test.TestCase):
     train_mode = tf.contrib.learn.ModeKeys.TRAIN
     train_iterator, src_vocab_table, tgt_vocab_table = common_test_utils.create_test_iterator(
         hparams, train_mode)
-    train_m = m_creator(hparams, train_mode, train_iterator,
-                        src_vocab_table, tgt_vocab_table, 'dynamic_seq2seq')
+    train_m = m_creator(hparams, train_mode, train_iterator, src_vocab_table,
+                        tgt_vocab_table, 'dynamic_seq2seq')
     sess.run(tf.global_variables_initializer())
     sess.run(tf.initialize_all_tables())
     sess.run(train_iterator.initializer)
@@ -340,15 +342,16 @@ class ModelTest(tf.test.TestCase):
         train_m = self._createTestTrainModel(model.Model, hparams, sess)
 
         m_vars = tf.trainable_variables()
-        self._assertModelVariableNames(
-            expected_var_names, [v.name for v in m_vars],
-            'NoAttentionNoResidualUniEncoder')
+        self._assertModelVariableNames(expected_var_names,
+                                       [v.name for v in m_vars],
+                                       'NoAttentionNoResidualUniEncoder')
 
         with tf.variable_scope('dynamic_seq2seq', reuse=True):
-          last_enc_weight = tf.get_variable('encoder/rnn/basic_lstm_cell/kernel')
+          last_enc_weight = tf.get_variable(
+              'encoder/rnn/basic_lstm_cell/kernel')
           last_dec_weight = tf.get_variable('decoder/basic_lstm_cell/kernel')
-        self._assertTrainStepsLoss(
-            train_m, sess, 'NoAttentionNoResidualUniEncoder')
+        self._assertTrainStepsLoss(train_m, sess,
+                                   'NoAttentionNoResidualUniEncoder')
         self._assertModelVariable(
             last_enc_weight, sess,
             'NoAttentionNoResidualUniEncoder/last_enc_weight')
@@ -358,17 +361,15 @@ class ModelTest(tf.test.TestCase):
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        eval_m = self._createTestEvalModel(
-            model.Model, hparams, sess)
-        self._assertEvalLossAndPredictCount(
-            eval_m, sess, 'NoAttentionNoResidualUniEncoder')
+        eval_m = self._createTestEvalModel(model.Model, hparams, sess)
+        self._assertEvalLossAndPredictCount(eval_m, sess,
+                                            'NoAttentionNoResidualUniEncoder')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        infer_m = self._createTestInferModel(
-            model.Model, hparams, sess)
-        self._assertInferLogits(
-            infer_m, sess, 'NoAttentionNoResidualUniEncoder')
+        infer_m = self._createTestInferModel(model.Model, hparams, sess)
+        self._assertInferLogits(infer_m, sess,
+                                'NoAttentionNoResidualUniEncoder')
 
   def testNoAttentionResidualBiEncoder(self):
     hparams = common_test_utils.create_test_hparams(
@@ -410,7 +411,8 @@ class ModelTest(tf.test.TestCase):
         train_m = self._createTestTrainModel(model.Model, hparams, sess)
 
         m_vars = tf.trainable_variables()
-        self._assertModelVariableNames(expected_var_names, [v.name for v in m_vars],
+        self._assertModelVariableNames(expected_var_names,
+                                       [v.name for v in m_vars],
                                        'NoAttentionResidualBiEncoder')
         with tf.variable_scope('dynamic_seq2seq', reuse=True):
           last_enc_weight = tf.get_variable(
@@ -418,23 +420,24 @@ class ModelTest(tf.test.TestCase):
           )
           last_dec_weight = tf.get_variable(
               'decoder/multi_rnn_cell/cell_3/basic_lstm_cell/kernel')
-        self._assertTrainStepsLoss(train_m, sess, 'NoAttentionResidualBiEncoder')
-        self._assertModelVariable(last_enc_weight, sess,
-                                  'NoAttentionResidualBiEncoder/last_enc_weight')
-        self._assertModelVariable(last_dec_weight, sess,
-                                  'NoAttentionResidualBiEncoder/last_dec_weight')
+        self._assertTrainStepsLoss(train_m, sess,
+                                   'NoAttentionResidualBiEncoder')
+        self._assertModelVariable(
+            last_enc_weight, sess,
+            'NoAttentionResidualBiEncoder/last_enc_weight')
+        self._assertModelVariable(
+            last_dec_weight, sess,
+            'NoAttentionResidualBiEncoder/last_dec_weight')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        eval_m = self._createTestEvalModel(
-            model.Model, hparams, sess)
+        eval_m = self._createTestEvalModel(model.Model, hparams, sess)
         self._assertEvalLossAndPredictCount(eval_m, sess,
                                             'NoAttentionResidualBiEncoder')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        infer_m = self._createTestInferModel(
-            model.Model, hparams, sess)
+        infer_m = self._createTestInferModel(model.Model, hparams, sess)
         self._assertInferLogits(infer_m, sess, 'NoAttentionResidualBiEncoder')
 
   ## Test attention mechanisms: luong, scaled_luong, bahdanau, normed_bahdanau
@@ -442,7 +445,7 @@ class ModelTest(tf.test.TestCase):
     hparams = common_test_utils.create_test_hparams(
         encoder_type='uni',
         attention='luong',
-        attention_architecture='top',
+        attention_architecture='standard',
         num_layers=2,
         use_residual=False,)
 
@@ -468,12 +471,13 @@ class ModelTest(tf.test.TestCase):
     # pylint: enable=line-too-long
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        train_m = self._createTestTrainModel(
-            attention_model.AttentionModel, hparams, sess)
+        train_m = self._createTestTrainModel(attention_model.AttentionModel,
+                                             hparams, sess)
 
         m_vars = tf.trainable_variables()
-        self._assertModelVariableNames(expected_var_names, [v.name for v in m_vars],
-                                       'AttentionMechanismLuong')
+        self._assertModelVariableNames(
+            expected_var_names, [v.name
+                                 for v in m_vars], 'AttentionMechanismLuong')
 
         with tf.variable_scope('dynamic_seq2seq', reuse=True):
           # pylint: disable=line-too-long
@@ -494,21 +498,22 @@ class ModelTest(tf.test.TestCase):
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        eval_m = self._createTestEvalModel(
-            attention_model.AttentionModel, hparams, sess)
-        self._assertEvalLossAndPredictCount(eval_m, sess, 'AttentionMechanismLuong')
+        eval_m = self._createTestEvalModel(attention_model.AttentionModel,
+                                           hparams, sess)
+        self._assertEvalLossAndPredictCount(eval_m, sess,
+                                            'AttentionMechanismLuong')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        infer_m = self._createTestInferModel(
-            attention_model.AttentionModel, hparams, sess)
+        infer_m = self._createTestInferModel(attention_model.AttentionModel,
+                                             hparams, sess)
         self._assertInferLogits(infer_m, sess, 'AttentionMechanismLuong')
 
   def testAttentionMechanismScaledLuong(self):
     hparams = common_test_utils.create_test_hparams(
         encoder_type='uni',
         attention='scaled_luong',
-        attention_architecture='top',
+        attention_architecture='standard',
         num_layers=2,
         use_residual=False,)
 
@@ -535,11 +540,12 @@ class ModelTest(tf.test.TestCase):
     # pylint: enable=line-too-long
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        train_m = self._createTestTrainModel(
-            attention_model.AttentionModel, hparams, sess)
+        train_m = self._createTestTrainModel(attention_model.AttentionModel,
+                                             hparams, sess)
 
         m_vars = tf.trainable_variables()
-        self._assertModelVariableNames(expected_var_names, [v.name for v in m_vars],
+        self._assertModelVariableNames(expected_var_names,
+                                       [v.name for v in m_vars],
                                        'AttentionMechanismScaledLuong')
 
         with tf.variable_scope('dynamic_seq2seq', reuse=True):
@@ -552,33 +558,36 @@ class ModelTest(tf.test.TestCase):
               'decoder/attention/attention_layer/kernel')
           # pylint: enable=line-too-long
 
-        self._assertTrainStepsLoss(train_m, sess, 'AttentionMechanismScaledLuong')
-        self._assertModelVariable(last_enc_weight, sess,
-                                  'AttentionMechanismScaledLuong/last_enc_weight')
-        self._assertModelVariable(last_dec_weight, sess,
-                                  'AttentionMechanismScaledLuong/last_dec_weight')
+        self._assertTrainStepsLoss(train_m, sess,
+                                   'AttentionMechanismScaledLuong')
+        self._assertModelVariable(
+            last_enc_weight, sess,
+            'AttentionMechanismScaledLuong/last_enc_weight')
+        self._assertModelVariable(
+            last_dec_weight, sess,
+            'AttentionMechanismScaledLuong/last_dec_weight')
         self._assertModelVariable(
             att_layer_weight, sess,
             'AttentionMechanismScaledLuong/att_layer_weight')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        eval_m = self._createTestEvalModel(
-            attention_model.AttentionModel, hparams, sess)
+        eval_m = self._createTestEvalModel(attention_model.AttentionModel,
+                                           hparams, sess)
         self._assertEvalLossAndPredictCount(eval_m, sess,
                                             'AttentionMechanismScaledLuong')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        infer_m = self._createTestInferModel(
-            attention_model.AttentionModel, hparams, sess)
+        infer_m = self._createTestInferModel(attention_model.AttentionModel,
+                                             hparams, sess)
         self._assertInferLogits(infer_m, sess, 'AttentionMechanismScaledLuong')
 
   def testAttentionMechanismBahdanau(self):
     hparams = common_test_utils.create_test_hparams(
         encoder_type='uni',
         attention='bahdanau',
-        attention_architecture='top',
+        attention_architecture='standard',
         num_layers=2,
         use_residual=False,)
 
@@ -606,12 +615,13 @@ class ModelTest(tf.test.TestCase):
     # pylint: enable=line-too-long
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        train_m = self._createTestTrainModel(
-            attention_model.AttentionModel, hparams, sess)
+        train_m = self._createTestTrainModel(attention_model.AttentionModel,
+                                             hparams, sess)
 
         m_vars = tf.trainable_variables()
-        self._assertModelVariableNames(expected_var_names, [v.name for v in m_vars],
-                                       'AttentionMechanismBahdanau')
+        self._assertModelVariableNames(
+            expected_var_names, [v.name
+                                 for v in m_vars], 'AttentionMechanismBahdanau')
 
         with tf.variable_scope('dynamic_seq2seq', reuse=True):
           # pylint: disable=line-too-long
@@ -632,22 +642,22 @@ class ModelTest(tf.test.TestCase):
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        eval_m = self._createTestEvalModel(
-            attention_model.AttentionModel, hparams, sess)
+        eval_m = self._createTestEvalModel(attention_model.AttentionModel,
+                                           hparams, sess)
         self._assertEvalLossAndPredictCount(eval_m, sess,
                                             'AttentionMechanismBahdanau')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        infer_m = self._createTestInferModel(
-            attention_model.AttentionModel, hparams, sess)
+        infer_m = self._createTestInferModel(attention_model.AttentionModel,
+                                             hparams, sess)
         self._assertInferLogits(infer_m, sess, 'AttentionMechanismBahdanau')
 
   def testAttentionMechanismNormedBahdanau(self):
     hparams = common_test_utils.create_test_hparams(
         encoder_type='uni',
         attention='normed_bahdanau',
-        attention_architecture='top',
+        attention_architecture='standard',
         num_layers=2,
         use_residual=False,)
 
@@ -678,11 +688,12 @@ class ModelTest(tf.test.TestCase):
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        train_m = self._createTestTrainModel(
-            attention_model.AttentionModel, hparams, sess)
+        train_m = self._createTestTrainModel(attention_model.AttentionModel,
+                                             hparams, sess)
 
         m_vars = tf.trainable_variables()
-        self._assertModelVariableNames(expected_var_names, [v.name for v in m_vars],
+        self._assertModelVariableNames(expected_var_names,
+                                       [v.name for v in m_vars],
                                        'AttentionMechanismNormedBahdanau')
 
         with tf.variable_scope('dynamic_seq2seq', reuse=True):
@@ -694,7 +705,8 @@ class ModelTest(tf.test.TestCase):
           att_layer_weight = tf.get_variable(
               'decoder/attention/attention_layer/kernel')
           # pylint: enable=line-too-long
-        self._assertTrainStepsLoss(train_m, sess, 'AttentionMechanismNormedBahdanau')
+        self._assertTrainStepsLoss(train_m, sess,
+                                   'AttentionMechanismNormedBahdanau')
         self._assertModelVariable(
             last_enc_weight, sess,
             'AttentionMechanismNormedBahdanau/last_enc_weight')
@@ -707,25 +719,26 @@ class ModelTest(tf.test.TestCase):
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        eval_m = self._createTestEvalModel(
-            attention_model.AttentionModel, hparams, sess)
+        eval_m = self._createTestEvalModel(attention_model.AttentionModel,
+                                           hparams, sess)
         self._assertEvalLossAndPredictCount(eval_m, sess,
                                             'AttentionMechanismNormedBahdanau')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        infer_m = self._createTestInferModel(
-            attention_model.AttentionModel, hparams, sess)
-        self._assertInferLogits(infer_m, sess, 'AttentionMechanismNormedBahdanau')
+        infer_m = self._createTestInferModel(attention_model.AttentionModel,
+                                             hparams, sess)
+        self._assertInferLogits(infer_m, sess,
+                                'AttentionMechanismNormedBahdanau')
 
   ## Test encoder vs. attention (all use residual):
-  # uni encoder, top attention
-  def testUniEncoderTopAttentionArchitecture(self):
+  # uni encoder, standard attention
+  def testUniEncoderStandardAttentionArchitecture(self):
     hparams = common_test_utils.create_test_hparams(
         encoder_type='uni',
         num_layers=4,
         attention='scaled_luong',
-        attention_architecture='top',
+        attention_architecture='standard',
         use_attention_layer=True,
         output_attention=True)
 
@@ -761,12 +774,13 @@ class ModelTest(tf.test.TestCase):
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        train_m = self._createTestTrainModel(
-            attention_model.AttentionModel, hparams, sess)
+        train_m = self._createTestTrainModel(attention_model.AttentionModel,
+                                             hparams, sess)
 
         m_vars = tf.trainable_variables()
-        self._assertModelVariableNames(expected_var_names, [v.name for v in m_vars],
-                                       'UniEncoderTopAttentionArchitecture')
+        self._assertModelVariableNames(expected_var_names, [
+            v.name for v in m_vars
+        ], 'UniEncoderStandardAttentionArchitecture')
         with tf.variable_scope('dynamic_seq2seq', reuse=True):
           last_enc_weight = tf.get_variable(
               'encoder/rnn/multi_rnn_cell/cell_3/basic_lstm_cell/kernel')
@@ -774,29 +788,30 @@ class ModelTest(tf.test.TestCase):
               'decoder/attention/multi_rnn_cell/cell_3/basic_lstm_cell/kernel')
           mem_layer_weight = tf.get_variable('decoder/memory_layer/kernel')
         self._assertTrainStepsLoss(train_m, sess,
-                                   'UniEncoderTopAttentionArchitecture')
+                                   'UniEncoderStandardAttentionArchitecture')
         self._assertModelVariable(
             last_enc_weight, sess,
-            'UniEncoderTopAttentionArchitecture/last_enc_weight')
+            'UniEncoderStandardAttentionArchitecture/last_enc_weight')
         self._assertModelVariable(
             last_dec_weight, sess,
-            'UniEncoderTopAttentionArchitecture/last_dec_weight')
+            'UniEncoderStandardAttentionArchitecture/last_dec_weight')
         self._assertModelVariable(
             mem_layer_weight, sess,
-            'UniEncoderTopAttentionArchitecture/mem_layer_weight')
+            'UniEncoderStandardAttentionArchitecture/mem_layer_weight')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        eval_m = self._createTestEvalModel(
-            attention_model.AttentionModel, hparams, sess)
-        self._assertEvalLossAndPredictCount(eval_m, sess,
-                                            'UniEncoderTopAttentionArchitecture')
+        eval_m = self._createTestEvalModel(attention_model.AttentionModel,
+                                           hparams, sess)
+        self._assertEvalLossAndPredictCount(
+            eval_m, sess, 'UniEncoderStandardAttentionArchitecture')
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
-        infer_m = self._createTestInferModel(
-            attention_model.AttentionModel, hparams, sess)
-        self._assertInferLogits(infer_m, sess, 'UniEncoderTopAttentionArchitecture')
+        infer_m = self._createTestInferModel(attention_model.AttentionModel,
+                                             hparams, sess)
+        self._assertInferLogits(infer_m, sess,
+                                'UniEncoderStandardAttentionArchitecture')
 
 
 if __name__ == '__main__':

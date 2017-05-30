@@ -58,7 +58,7 @@ class InferenceTest(tf.test.TestCase):
         encoder_type="uni",
         num_layers=1,
         attention="scaled_luong",
-        attention_architecture="top",
+        attention_architecture="standard",
         use_residual=False,)
     vocab_prefix = "nmt/testdata/test_infer_vocab"
     hparams.add_hparam("vocab_prefix", vocab_prefix)
@@ -76,7 +76,7 @@ class InferenceTest(tf.test.TestCase):
         encoder_type="uni",
         num_layers=2,
         attention="scaled_luong",
-        attention_architecture="top",
+        attention_architecture="standard",
         use_residual=False,)
     vocab_prefix = "nmt/testdata/test_infer_vocab"
     hparams.add_hparam("vocab_prefix", vocab_prefix)
@@ -135,7 +135,7 @@ class InferenceTest(tf.test.TestCase):
         encoder_type="uni",
         num_layers=1,
         attention="scaled_luong",
-        attention_architecture="top",
+        attention_architecture="standard",
         use_residual=False,
         inference_indices=[1, 2])
     # TODO(rzhao): Make infer indices support batch_size > 1.

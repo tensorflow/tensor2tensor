@@ -56,7 +56,7 @@ class AttentionModel(model.Model):
     attention_option = hparams.attention
     attention_architecture = hparams.attention_architecture
 
-    if attention_architecture != "top":
+    if attention_architecture != "standard":
       raise ValueError(
           "Unknown attention architecture %s" % attention_architecture)
 
