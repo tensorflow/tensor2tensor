@@ -1,6 +1,6 @@
 """ROUGE metric implementation.
 
-Copy from /third_party/tf_seq2seq/seq2seq/metrics/rouge.py.
+Copy from tf_seq2seq/seq2seq/metrics/rouge.py.
 This is a modified and slightly extended verison of
 https://github.com/miso-belica/sumy/blob/dev/sumy/evaluation/rouge.py.
 """
