@@ -397,15 +397,13 @@ def create_or_load_model(model, model_dir, session, hparams):
   return model
 
 
-def compute_perplexity(model, sess, batches, name):
-  """Subclass must implement this method.
-
-  Compute perplexity of the output of given batches.
+def compute_perplexity(model, sess, batch_size, name):
+  """Compute perplexity of the output of the model.
 
   Args:
     model: model for compute perplexity.
     sess: tensorflow session to use.
-    batches: data to eval for compute perplexity.
+    batch_size: batch size of the eval input iterator.
     name: name of the batch.
 
   Returns:
@@ -414,11 +412,14 @@ def compute_perplexity(model, sess, batches, name):
   total_loss = 0
   total_predict_count = 0
   start_time = time.time()
-  for batch in batches:
-    loss, predict_count = model.step(sess, batch,
-                                     tf.contrib.learn.ModeKeys.EVAL)
-    total_loss += (loss * batch["size"])
-    total_predict_count += predict_count
+
+  while True:
+    try:
+      loss, predict_count = model.eval(sess)
+      total_loss += loss * batch_size
+      total_predict_count += predict_count
+    except tf.errors.OutOfRangeError:
+      break
 
   perplexity = utils.safe_exp(total_loss / total_predict_count)
   utils.print_time("  eval %s: perplexity %.2f" % (name, perplexity),

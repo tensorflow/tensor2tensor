@@ -101,7 +101,7 @@ def create_hparams():
       # Misc
       forget_bias=FLAGS.forget_bias,
       num_gpus=FLAGS.num_gpus,
-      steps_per_checkpoint=FLAGS.steps_per_checkpoint,
+      steps_per_stats=FLAGS.steps_per_stats,
       steps_per_external_eval=FLAGS.steps_per_external_eval,
       share_vocab=FLAGS.share_vocab,
       metrics=FLAGS.metrics.split(","),
@@ -440,8 +440,12 @@ if __name__ == "__main__":
   parser.add_argument("--source_reverse", type="bool", nargs="?", const=True,
                       default=True, help="Reverse source sequence.")
   parser.add_argument("--batch_size", type=int, default=128, help="Batch size.")
-  parser.add_argument("--steps_per_checkpoint", type=int, default=100,
-                      help="How many training steps to do per checkpoint.")
+  parser.add_argument(
+      "--steps_per_stats",
+      type=int,
+      default=100,
+      help=("How many training steps to do per stats logging."
+            "Save checkpoint every 10x steps_per_stats"))
   parser.add_argument("--max_train", type=int, default=0,
                       help="Limit on the size of training data (0: no limit).")
   parser.add_argument("--num_buckets", type=int, default=5,

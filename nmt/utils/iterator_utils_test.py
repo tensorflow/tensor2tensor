@@ -86,19 +86,16 @@ class IteratorUtilsTest(tf.test.TestCase):
           sess.run((source, src_seq_len, target_input, target_output,
                     tgt_seq_len)))
       self.assertAllEqual(
-          [[-1, 3, 3],    # "d" == unknown, eos eos
-           [-1, -1, 0]],  # "f" == unknown, "e" == unknown, a
+          [[-1, -1, 0]],  # "f" == unknown, "e" == unknown, a
           source_v)
-      self.assertAllEqual([1, 3], src_len_v)
+      self.assertAllEqual([3], src_len_v)
       self.assertAllEqual(
-          [[4, 3, 3],   # sos eos eos
-           [4, 2, 2]],  # sos c c
+          [[4, 2, 2]],  # sos c c
           target_input_v)
       self.assertAllEqual(
-          [[3, 3, 3],   # eos eos eos
-           [2, 2, 3]],  # c c eos
+          [[2, 2, 3]],  # c c eos
           target_output_v)
-      self.assertAllEqual([1, 3], tgt_len_v)
+      self.assertAllEqual([3], tgt_len_v)
 
       with self.assertRaisesOpError("End of sequence"):
         sess.run(source)

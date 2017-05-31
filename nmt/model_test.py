@@ -244,7 +244,7 @@ class ModelTest(tf.test.TestCase):
 
   def _assertTrainStepsLoss(self, m, sess, name, num_steps=1):
     for _ in range(num_steps):
-      _, loss, _, _, _ = m.train(sess)
+      _, loss, _, _, _, _ = m.train(sess)
 
     print('{} {}-th step loss is: '.format(name, num_steps), loss)
     expected_loss = self.expected_train_values[name + '/loss']

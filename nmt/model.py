@@ -84,6 +84,9 @@ class BaseModel(object):
 
     if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
       self.train_loss = res[1]
+      self.word_count = tf.reduce_sum(
+          self.iterator.source_sequence_length) + tf.reduce_sum(
+              self.iterator.target_sequence_length)
     elif self.mode == tf.contrib.learn.ModeKeys.EVAL:
       self.eval_loss = res[1]
     elif self.mode == tf.contrib.learn.ModeKeys.INFER:
@@ -195,7 +198,8 @@ class BaseModel(object):
                      self.train_loss,
                      self.predict_count,
                      self.train_summary,
-                     self.global_step])
+                     self.global_step,
+                     self.word_count])
 
   def eval(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.EVAL

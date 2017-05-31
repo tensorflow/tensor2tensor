@@ -97,6 +97,11 @@ def get_iterator(src_dataset, tgt_dataset, hparams,
   src_dataset = src_dataset.map(lambda src: tf.string_split([src]).values)
   tgt_dataset = tgt_dataset.map(lambda tgt: tf.string_split([tgt]).values)
   src_tgt_dataset = tf.contrib.data.Dataset.zip((src_dataset, tgt_dataset))
+
+  # Filter zero length input sequences.
+  src_tgt_dataset = src_tgt_dataset.filter(
+      lambda src, tgt: tf.logical_and(tf.size(src) > 0, tf.size(tgt) > 0))
+
   if src_max_len:
     src_tgt_dataset = src_tgt_dataset.map(
         lambda src, tgt: (src[:src_max_len], tgt))

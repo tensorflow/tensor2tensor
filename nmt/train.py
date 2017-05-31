@@ -16,6 +16,7 @@
 """For training NMT models."""
 from __future__ import print_function
 
+import math
 import os
 import random
 import time
@@ -112,19 +113,20 @@ def train(hparams, scope=None):
   num_epochs = hparams.num_epochs
   batch_size = hparams.batch_size
   bpe_delimiter = hparams.bpe_delimiter
-  steps_per_checkpoint = hparams.steps_per_checkpoint
+  steps_per_stats = hparams.steps_per_stats
   steps_per_external_eval = hparams.steps_per_external_eval
-  steps_per_eval = 10 * steps_per_checkpoint
+  steps_per_eval = 10 * steps_per_stats
 
   # Load data
   #(train_set, train_total_size, train_bucket_sizes,
   # dev_batches, test_batches, infer_dev_batches, infer_test_batches) = (
   #     load_all_data(hparams))
 
-  test_src_file = "%s.%s" % (hparams.test_prefix, hparams.src)
-  test_tgt_file = "%s.%s" % (hparams.test_prefix, hparams.tgt)
   dev_src_file = "%s.%s" % (hparams.dev_prefix, hparams.src)
   dev_tgt_file = "%s.%s" % (hparams.dev_prefix, hparams.tgt)
+  if hparams.test_prefix:
+    test_src_file = "%s.%s" % (hparams.test_prefix, hparams.src)
+    test_tgt_file = "%s.%s" % (hparams.test_prefix, hparams.tgt)
 
   if not hparams.attention:
     model_creator = nmt_model.Model
@@ -139,9 +141,21 @@ def train(hparams, scope=None):
 
   train_graph, train_model, train_iterator = create_train_model(
       model_creator, hparams, src_vocab_file, tgt_vocab_file, scope)
+
   (eval_graph, eval_model, eval_src_file_placeholder,
    eval_tgt_file_placeholder, eval_iterator) = create_eval_model(
        model_creator, hparams, src_vocab_file, tgt_vocab_file, scope)
+
+  dev_iterator_feed_dict = {
+      eval_src_file_placeholder: dev_src_file,
+      eval_tgt_file_placeholder: dev_tgt_file
+  }
+  if hparams.test_prefix:
+    test_iterator_feed_dict = {
+        eval_src_file_placeholder: test_src_file,
+        eval_tgt_file_placeholder: test_tgt_file
+    }
+
   infer_graph, infer_model, infer_src_placeholder, infer_iterator = (
       inference.create_infer_model(model_creator, hparams, src_vocab_file,
                                    tgt_vocab_file, scope))
@@ -177,13 +191,18 @@ def train(hparams, scope=None):
   utils.print_out("Starting epoch 0")
 
   # First evaluation
-  # dev_ppl = _internal_eval(
-  #     model, sess, dev_iterator, "dev", global_step, summary_writer)
-  # test_ppl = _internal_eval(
-  #     model, sess, test_iterator, "test", global_step, summary_writer)
+  dev_ppl = _internal_eval(eval_model, eval_sess, eval_iterator,
+                           dev_iterator_feed_dict, batch_size, global_step,
+                           summary_writer, "dev")
+  test_ppl = None
+  if hparams.test_prefix:
+    test_ppl = _internal_eval(eval_model, eval_sess, eval_iterator,
+                              test_iterator_feed_dict, batch_size, global_step,
+                              summary_writer, "test")
+
   # dev_scores = _external_eval(
-  #     model,
-  #     sess,
+  #     infer_model,
+  #     infer_sess,
   #     hparams,
   #     infer_dev_iterator,
   #     "dev",
@@ -191,17 +210,17 @@ def train(hparams, scope=None):
   #     summary_writer,
   #     save_on_best=True)
   # test_scores = _external_eval(
-  #     model,
-  #     sess,
+  #     infer_model,
+  #     infer_sess,
   #     hparams,
   #     infer_test_iterator,
   #     "test",
   #     global_step,
   #     summary_writer,
   #     save_on_best=False)
-  # all_dev_perplexities = [dev_ppl]
-  # all_test_perplexities = [test_ppl]
-  # all_steps = [global_step]
+  all_dev_perplexities = [dev_ppl]
+  all_test_perplexities = [test_ppl]
+  all_steps = [global_step]
 
   # This is the training loop.
   step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
@@ -209,11 +228,11 @@ def train(hparams, scope=None):
   speed, train_ppl = 0.0, 0.0
   start_train_time = time.time()
   while epoch < num_epochs:
-    # Get a batch and make a step.
-    start_time = time.time()
-    # utils.print_out("# Start epoch %d, step %d, lr %g, %s" %
-    #                 (epoch, global_step, model.learning_rate.eval(),
-    #                  time.ctime()), log_f)
+    utils.print_out(
+        "# Start epoch %d, step %d, lr %g, %s" %
+        (epoch, global_step, train_model.learning_rate.eval(session=train_sess),
+         time.ctime()),
+        log_f)
     # utils.print_out("  sample train data:")
     # nmt_utils.print_translation(
     #     batch["encoder_inputs"][:, -1],
@@ -228,9 +247,8 @@ def train(hparams, scope=None):
     model_step = 0
     while True:
       ### Run a step ###
+      start_time = time.time()
       try:
-        utils.print_out("Train step: %d.  Global step: %d"
-                        % (model_step, global_step))
         step_result = train_model.train(train_sess)
         model_step += 1
       except tf.errors.OutOfRangeError:
@@ -239,7 +257,8 @@ def train(hparams, scope=None):
         epoch += 1
         break
 
-      _, step_loss, _, step_summary, global_step = step_result
+      (_, step_loss, step_predict_count, step_summary, global_step,
+       step_word_count) = step_result
 
       # Write step summary.
       summary_writer.add_summary(step_summary, global_step)
@@ -247,57 +266,39 @@ def train(hparams, scope=None):
       # update statistics
       step_time += (time.time() - start_time)
 
-  #   checkpoint_loss += (step_loss * batch["size"])
-  #   checkpoint_predict_count += step_predict_count
-  #   checkpoint_total_count += np.sum(batch["encoder_lengths"])
-  #   if "decoder_lengths" in batch:
-  #     checkpoint_total_count += np.sum(batch["decoder_lengths"])
-  #   global_step += 1
+      checkpoint_loss += (step_loss * batch_size)
+      checkpoint_predict_count += step_predict_count
+      checkpoint_total_count += float(step_word_count)
 
-  # Once in a while, we save checkpoint, print statistics, and run evals.
-    if global_step % steps_per_checkpoint == 0:
-      # Print statistics for the previous epoch.
-      avg_step_time = step_time / steps_per_checkpoint
-      train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
-      speed = checkpoint_total_count / (1000 * step_time)
-      utils.print_out("  epoch %d step %d lr %g "
-                      "step-time %.2fs wps %.2fK ppl %.2f %s" %
-                      (epoch,
-                       global_step,
-                       train_model.learning_rate.eval(session=train_sess),
-                       avg_step_time, speed, train_ppl,
-                       _get_best_results(hparams)), log_f)
+      # Once in a while, we print statistics.
+      if global_step % steps_per_stats == 0:
+        # Print statistics for the previous epoch.
+        avg_step_time = step_time / steps_per_stats
+        train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
+        speed = checkpoint_total_count / (1000 * step_time)
+        utils.print_out(
+            "  epoch %d global step %d lr %g "
+            "step-time %.2fs wps %.2fK ppl %.2f %s" %
+            (epoch, global_step,
+             train_model.learning_rate.eval(session=train_sess), avg_step_time,
+             speed, train_ppl, _get_best_results(hparams)),
+            log_f)
 
-      # Reset timer and loss.
-      step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
-      checkpoint_total_count = 0.0
+        # Reset timer and loss.
+        step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
+        checkpoint_total_count = 0.0
 
-    # Evaluate on dev / test
-    if global_step % steps_per_eval == 0:
-      eval_sess.run(eval_iterator.initializer, feed_dict={
-          eval_src_file_placeholder: test_src_file,
-          eval_tgt_file_placeholder: test_tgt_file
-      })
-      # TODO(ebrevdo): run eval_graph.eval() until done
-      eval_sess.run(eval_iterator.initializer, feed_dict={
-          eval_src_file_placeholder: dev_src_file,
-          eval_tgt_file_placeholder: dev_tgt_file
-      })
-      # TODO(ebrevdo): run eval_graph.eval() until done
-      infer_sess.run(infer_iterator.initializer, feed_dict={
-          infer_src_placeholder: [""] * 100,  # 100 empty string examples
-      })
-      # TODO(ebrevdo): fill in placeholder values above and run infer
-      # graph until done.
-
-    #   dev_ppl, test_ppl = _save_eval_decode(
-    #       model, sess, hparams, train_ppl,
-    #       dev_batches, test_batches, infer_dev_batches,
-    #       global_step, summary_writer)
-    #   all_dev_perplexities.append(dev_ppl)
-    #   all_test_perplexities.append(test_ppl)
-    #   all_steps.append(global_step)
-    #   if math.isnan(dev_ppl): break
+      # Evaluate on dev / test
+      if global_step % steps_per_eval == 0:
+        dev_ppl, test_ppl = _save_eval(eval_model, eval_sess, hparams.out_dir, train_ppl,
+                                       eval_iterator, dev_iterator_feed_dict,
+                                       test_iterator_feed_dict, batch_size,
+                                       global_step, summary_writer)
+        # TODO(rzhao): Add a sample decode run here.
+        all_dev_perplexities.append(dev_ppl)
+        all_test_perplexities.append(test_ppl)
+        all_steps.append(global_step)
+        if math.isnan(dev_ppl): break
 
     # if global_step % steps_per_external_eval == 0:
     #   dev_scores, test_scores = _external_eval(
@@ -342,36 +343,30 @@ def _get_best_results(hparams):
   return ", ".join(tokens)
 
 
-def _save_eval_decode(model, sess, hparams, train_ppl,
-                      dev_batches, test_batches, infer_dev_batches,
-                      global_step, summary_writer):
+def _save_eval(model, sess, out_dir, train_ppl, eval_iterator, dev_feed_dict,
+               test_feed_dict, batch_size, global_step, summary_writer):
   """Save checkpoint, compute perplexity, and sample decode."""
-  utils.print_out("# Save eval decode, global step %d" % global_step)
+  utils.print_out("# Save eval, global step %d" % global_step)
   utils.add_summary(summary_writer, global_step, "train_ppl", train_ppl)
 
   # Save checkpoint
-  model.saver.save(sess, os.path.join(hparams.out_dir, "translate.ckpt"),
+  model.saver.save(sess, os.path.join(out_dir, "translate.ckpt"),
                    global_step=model.global_step)
 
   # Internal evaluation
-  dev_ppl, test_ppl = _internal_eval(
-      model, sess, dev_batches, test_batches, global_step, summary_writer)
-
-  # Sample decoding
-  _sample_decode(model, sess, hparams, infer_dev_batches,
-                 global_step, summary_writer)
+  dev_ppl, test_ppl = _internal_eval(model, sess, eval_iterator, dev_feed_dict,
+                                     test_feed_dict, batch_size, global_step,
+                                     summary_writer)
 
   return dev_ppl, test_ppl
 
 
-def _internal_eval(model, sess, iterator, label,
-                   global_step, summary_writer):
+def _internal_eval(model, sess, iterator, iterator_feed_dict, batch_size,
+                   global_step, summary_writer, label):
   """Computing perplexity."""
-  # Compute perplexity
-  ppl = model_helper.compute_perplexity(model, sess, iterator, label)
-  # Summary
+  sess.run(iterator.initializer, feed_dict=iterator_feed_dict)
+  ppl = model_helper.compute_perplexity(model, sess, batch_size, label)
   utils.add_summary(summary_writer, global_step, "%s_ppl" % label, ppl)
-
   return ppl
 
 
