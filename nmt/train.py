@@ -55,9 +55,14 @@ def create_train_model(model_creator,
     train_src_dataset = tf.contrib.data.TextLineDataset(train_src_file)
     train_tgt_dataset = tf.contrib.data.TextLineDataset(train_tgt_file)
     train_iterator = iterator_utils.get_iterator(
-        train_src_dataset, train_tgt_dataset, hparams,
-        src_vocab_table, tgt_vocab_table, hparams.batch_size,
-        src_max_len=hparams.src_max_len, tgt_max_len=hparams.tgt_max_len)
+        train_src_dataset,
+        train_tgt_dataset,
+        hparams,
+        src_vocab_table,
+        tgt_vocab_table,
+        hparams.batch_size,
+        src_max_len=hparams.src_max_len,
+        tgt_max_len=hparams.tgt_max_len)
     train_model = model_creator(
         hparams,
         iterator=train_iterator,
@@ -93,8 +98,8 @@ def create_eval_model(model_creator,
         src_vocab_table,
         tgt_vocab_table,
         hparams.batch_size,
-        src_max_len=hparams.src_max_len,
-        tgt_max_len=hparams.tgt_max_len)
+        src_max_len=hparams.src_max_len_infer,
+        tgt_max_len=hparams.tgt_max_len_infer)
     eval_model = model_creator(
         hparams,
         iterator=eval_iterator,

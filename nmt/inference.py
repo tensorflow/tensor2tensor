@@ -53,7 +53,7 @@ def create_infer_model(
     infer_iterator = iterator_utils.get_infer_iterator(
         infer_src_dataset, hparams,
         src_vocab_table, hparams.batch_size,
-        src_max_len=hparams.src_max_len)
+        src_max_len=hparams.src_max_len_infer)
     infer_model = model_creator(
         hparams,
         iterator=infer_iterator,
