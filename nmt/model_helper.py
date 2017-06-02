@@ -394,7 +394,8 @@ def create_or_load_model(model, model_dir, session, hparams):
 
   session.run(tf.initialize_all_tables())
 
-  return model
+  global_step = model.global_step.eval(session=session)
+  return model, global_step
 
 
 def compute_perplexity(model, sess, batch_size, name):

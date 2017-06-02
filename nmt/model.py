@@ -37,17 +37,23 @@ class BaseModel(object):
   """Sequence-to-sequence base class.
   """
 
-  def __init__(self, hparams, mode, iterator,
-               source_vocab_table, target_vocab_table, scope=None):
+  def __init__(self,
+               hparams,
+               mode,
+               iterator,
+               source_vocab_table,
+               target_vocab_table,
+               reverse_target_vocab_table=None,
+               scope=None):
     """Create the model.
 
     Args:
       hparams: Hyperparameter configurations.
-      train_iterator: Dataset Iterator that feeds training data.
-      eval_iterator: Dataset Iterator that feeds eval data.
-      infer_iterator: Dataset Iterator that feeds inference data.
+      iterator: Dataset Iterator that feeds data.
       source_vocab_table: Lookup table mapping source words to ids.
       target_vocab_table: Lookup table mapping target words to ids.
+      reverse_target_vocab_table: Lookup table mapping ids to target words. Only
+        required in INFER mode. Defaults to None.
       scope: scope of the model.
     """
     assert isinstance(iterator, iterator_utils.BatchedInput)
@@ -75,9 +81,7 @@ class BaseModel(object):
     with tf.variable_scope(scope or "build_network"):
       with tf.variable_scope("decoder/output_projection"):
         self.output_layer = layers_core.Dense(
-            hparams.tgt_vocab_size,
-            use_bias=False,
-            name="output_projection")
+            hparams.tgt_vocab_size, use_bias=False, name="output_projection")
 
     ## Train graph
     res = self.build_graph(hparams, scope=scope)
@@ -91,6 +95,8 @@ class BaseModel(object):
       self.eval_loss = res[1]
     elif self.mode == tf.contrib.learn.ModeKeys.INFER:
       self.infer_logits, _, self.final_context_state, self.sample_id = res
+      self.sample_words = reverse_target_vocab_table.lookup(
+          tf.to_int64(self.sample_id))
 
     if self.mode != tf.contrib.learn.ModeKeys.INFER:
       ## Count the number of predicted words for compute ppl.
@@ -270,7 +276,6 @@ class BaseModel(object):
     return model_helper.create_rnn_cell(
         hparams, num_layers, num_residual_layers, self.mode, base_gpu=base_gpu)
 
-
   def _build_decoder(self, encoder_outputs, encoder_state, hparams):
     """Build and run a RNN decoder with a final projection layer.
 
@@ -421,9 +426,11 @@ class BaseModel(object):
 
   def infer(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.INFER
-    return sess.run([self.infer_logits, self.infer_summary, self.sample_id])
+    return sess.run([
+        self.infer_logits, self.infer_summary, self.sample_id, self.sample_words
+    ])
 
-  def decode(self, sess, tgt_eos_id=None):
+  def decode(self, sess):
     """Decode a batch.
 
     Args:
@@ -433,12 +440,12 @@ class BaseModel(object):
       A tuple consiting of outputs, infer_summary.
         outputs: of size [batch_size, time]
     """
-    _, infer_summary, sample_ids = self.infer(sess)
+    _, infer_summary, _, sample_words = self.infer(sess)
 
     # make sure outputs is of shape [batch_size, time]
     if self.time_major:
-      sample_ids = sample_ids.transpose()
-    return sample_ids, infer_summary
+      sample_words = sample_words.transpose()
+    return sample_words, infer_summary
 
 
 class Model(BaseModel):

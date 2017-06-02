@@ -36,14 +36,21 @@ class AttentionModel(model.Model):
   support for dropout.
   """
 
-  def __init__(self, hparams, mode, iterator,
-               source_vocab_table, target_vocab_table, scope=None):
+  def __init__(self,
+               hparams,
+               mode,
+               iterator,
+               source_vocab_table,
+               target_vocab_table,
+               reverse_target_vocab_table=None,
+               scope=None):
     super(AttentionModel, self).__init__(
         hparams=hparams,
         mode=mode,
         iterator=iterator,
         source_vocab_table=source_vocab_table,
         target_vocab_table=target_vocab_table,
+        reverse_target_vocab_table=reverse_target_vocab_table,
         scope=scope)
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
       self.infer_summary = (

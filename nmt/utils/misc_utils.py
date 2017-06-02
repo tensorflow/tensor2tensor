@@ -141,29 +141,29 @@ def load_list_map(path):
       return value_map
 
 
-def int2text(indices, vocab, ignore_map=None):
-  """Convert a sequence of integers into words using a vocab."""
-  if (not hasattr(indices, "__len__") and  # for numpy array
-      not isinstance(indices, collections.Iterable)):
-    indices = [indices]
+def format_text(words, ignore_map=None):
+  """Convert a sequence words into sentence."""
+  if (not hasattr(words, "__len__") and  # for numpy array
+      not isinstance(words, collections.Iterable)):
+    words = [words]
 
+  outputs = []
   if not ignore_map:
-    words = [vocab[index] for index in indices]
+    outputs = words
   else:
-    for index in indices:
-      if vocab[index] in ignore_map:
+    for word in words:
+      if word in ignore_map:
         continue
-      words.append(vocab[index])
-  return " ".join(words)
+      outputs.append(word)
+  return " ".join(outputs)
 
 
-def bpe_int2text(indices, vocab, ignore_map=None, delimiter="@@"):
-  """Convert a sequence of integers into words using a vocab."""
+def format_bpe_text(symbols, ignore_map=None, delimiter="@@"):
+  """Convert a sequence of bpe words into sentence."""
   words = []
   word = ""
   delimiter_len = len(delimiter)
-  for index in indices:
-    symbol = vocab[index]
+  for symbol in symbols:
     if len(symbol) >= delimiter_len and symbol[-delimiter_len:] == delimiter:
       word += symbol[:-delimiter_len]
     else:  # end of a word

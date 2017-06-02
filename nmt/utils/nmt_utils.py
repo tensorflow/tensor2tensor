@@ -79,8 +79,7 @@ def decode_and_evaluate(name,
 
 def get_translation(nmt_outputs, sent_id, hparams):
   """Given batch decoding outputs, select a sentence and turn to text."""
-  tgt_vocab = hparams.tgt_vocab
-  tgt_eos_id = hparams.tgt_eos_id
+  tgt_eos = hparams.eos
   bpe_delimiter = hparams.bpe_delimiter
   ignore_map = hparams.ignore_map
 
@@ -94,20 +93,17 @@ def get_translation(nmt_outputs, sent_id, hparams):
     output = nmt_outputs[sent_id, :].tolist()
 
     # If there is an eos symbol in outputs, cut them at that point.
-    if tgt_eos_id and tgt_eos_id in output:
-      output = output[:output.index(tgt_eos_id)]
+    if tgt_eos and tgt_eos in output:
+      output = output[:output.index(tgt_eos)]
   else:
     raise ValueError("Unknown task %s" % hparams.task)
 
   # Turn integers into text
   if not bpe_delimiter:
-    translation = utils.int2text(
-        output, tgt_vocab, ignore_map=ignore_map)
+    translation = utils.format_text(output, ignore_map=ignore_map)
   else:  # BPE
-    translation = utils.bpe_int2text(
-        output, tgt_vocab,
-        ignore_map=ignore_map,
-        delimiter=bpe_delimiter)
+    translation = utils.format_bpe_text(
+        output, ignore_map=ignore_map, delimiter=bpe_delimiter)
 
   return translation
 

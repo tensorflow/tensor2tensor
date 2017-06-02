@@ -223,10 +223,7 @@ class ModelTest(tf.test.TestCase):
     print('{} variable names are: '.format(name), model_var_names)
 
     self.assertEqual(len(expected_var_names), len(model_var_names))
-
-    for expected_var_name, model_var_name in zip(
-        sorted(expected_var_names), sorted(model_var_names)):
-      self.assertEqual(expected_var_name, model_var_name)
+    self.assertEqual(sorted(expected_var_names), sorted(model_var_names))
 
   def _assertModelVariable(self, variable, sess, name):
     var_shape = tuple(variable.get_shape().as_list())
@@ -279,8 +276,13 @@ class ModelTest(tf.test.TestCase):
     train_mode = tf.contrib.learn.ModeKeys.TRAIN
     train_iterator, src_vocab_table, tgt_vocab_table = common_test_utils.create_test_iterator(
         hparams, train_mode)
-    train_m = m_creator(hparams, train_mode, train_iterator, src_vocab_table,
-                        tgt_vocab_table, 'dynamic_seq2seq')
+    train_m = m_creator(
+        hparams,
+        train_mode,
+        train_iterator,
+        src_vocab_table,
+        tgt_vocab_table,
+        scope='dynamic_seq2seq')
     sess.run(tf.global_variables_initializer())
     sess.run(tf.initialize_all_tables())
     sess.run(train_iterator.initializer)
@@ -290,18 +292,29 @@ class ModelTest(tf.test.TestCase):
     eval_mode = tf.contrib.learn.ModeKeys.EVAL
     eval_iterator, src_vocab_table, tgt_vocab_table = common_test_utils.create_test_iterator(
         hparams, eval_mode)
-    eval_m = m_creator(hparams, eval_mode, eval_iterator, src_vocab_table,
-                       tgt_vocab_table, 'dynamic_seq2seq')
+    eval_m = m_creator(
+        hparams,
+        eval_mode,
+        eval_iterator,
+        src_vocab_table,
+        tgt_vocab_table,
+        scope='dynamic_seq2seq')
     sess.run(tf.initialize_all_tables())
     sess.run(eval_iterator.initializer)
     return eval_m
 
   def _createTestInferModel(self, m_creator, hparams, sess):
     infer_mode = tf.contrib.learn.ModeKeys.INFER
-    infer_iterator, src_vocab_table, tgt_vocab_table = common_test_utils.create_test_iterator(
-        hparams, infer_mode)
-    infer_m = m_creator(hparams, infer_mode, infer_iterator, src_vocab_table,
-                        tgt_vocab_table, 'dynamic_seq2seq')
+    infer_iterator, src_vocab_table, tgt_vocab_table, reverse_tgt_vocab_table = (
+        common_test_utils.create_test_iterator(hparams, infer_mode))
+    infer_m = m_creator(
+        hparams,
+        infer_mode,
+        infer_iterator,
+        src_vocab_table,
+        tgt_vocab_table,
+        reverse_tgt_vocab_table,
+        scope='dynamic_seq2seq')
     sess.run(tf.initialize_all_tables())
     sess.run(infer_iterator.initializer)
     return infer_m

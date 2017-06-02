@@ -118,24 +118,28 @@ def create_test_hparams(unit_type="lstm",
 def create_test_iterator(hparams, mode):
   src_vocab_table = lookup_ops.index_table_from_tensor(
       tf.constant([hparams.eos, "a", "b", "c", "d"]))
-  tgt_vocab_table = lookup_ops.index_table_from_tensor(
-      tf.constant([hparams.sos, hparams.eos, "a", "b", "c"]))
+  tgt_vocab_mapping = tf.constant([hparams.sos, hparams.eos, "a", "b", "c"])
+  tgt_vocab_table = lookup_ops.index_table_from_tensor(tgt_vocab_mapping)
+  if mode == tf.contrib.learn.ModeKeys.INFER:
+    reverse_tgt_vocab_table = lookup_ops.index_to_string_table_from_tensor(
+        tgt_vocab_mapping)
+
   src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
       tf.constant(["a a b b c", "a b b"]))
 
   if mode != tf.contrib.learn.ModeKeys.INFER:
     tgt_dataset = tf.contrib.data.Dataset.from_tensor_slices(
-      tf.constant(["a b c b c", "a b c b"]))
+        tf.constant(["a b c b c", "a b c b"]))
     return iterator_utils.get_iterator(
-      src_dataset=src_dataset,
-      tgt_dataset=tgt_dataset,
-      hparams=hparams,
-      src_vocab_table=src_vocab_table,
-      tgt_vocab_table=tgt_vocab_table,
-      batch_size=2), src_vocab_table, tgt_vocab_table
+        src_dataset=src_dataset,
+        tgt_dataset=tgt_dataset,
+        hparams=hparams,
+        src_vocab_table=src_vocab_table,
+        tgt_vocab_table=tgt_vocab_table,
+        batch_size=2), src_vocab_table, tgt_vocab_table
   else:
     return iterator_utils.get_infer_iterator(
-      src_dataset=src_dataset,
-      hparams=hparams,
-      src_vocab_table=src_vocab_table,
-      batch_size=2), src_vocab_table, tgt_vocab_table
+        src_dataset=src_dataset,
+        hparams=hparams,
+        src_vocab_table=src_vocab_table,
+        batch_size=2), src_vocab_table, tgt_vocab_table, reverse_tgt_vocab_table

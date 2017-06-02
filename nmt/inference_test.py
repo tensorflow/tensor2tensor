@@ -24,9 +24,7 @@ import numpy as np
 import tensorflow as tf
 
 from . import inference
-from . import nmt
 from .utils import common_test_utils
-from .utils import evaluation_utils
 
 float32 = np.float32
 int32 = np.int32

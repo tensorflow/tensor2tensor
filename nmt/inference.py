@@ -47,6 +47,8 @@ def create_infer_model(
         src_vocab_file, default_value=vocab_utils.UNK_ID)
     tgt_vocab_table = lookup_ops.index_table_from_file(
         tgt_vocab_file, default_value=vocab_utils.UNK_ID)
+    reverse_tgt_vocab_table = lookup_ops.index_to_string_table_from_file(
+        tgt_vocab_file, default_value=vocab_utils.UNK)
     infer_src_placeholder = tf.placeholder(shape=[None], dtype=tf.string)
     infer_src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
         infer_src_placeholder)
@@ -60,6 +62,7 @@ def create_infer_model(
         mode=tf.contrib.learn.ModeKeys.INFER,
         source_vocab_table=src_vocab_table,
         target_vocab_table=tgt_vocab_table,
+        reverse_target_vocab_table=reverse_tgt_vocab_table,
         scope=scope)
   return (infer_graph, infer_model, infer_src_placeholder,
           infer_iterator)
@@ -117,12 +120,12 @@ def _decode_inference_indices(model, sess, output_infer,
   utils.print_time("  done", start_time)
 
 
-def _load_data(inference_input_file, hparams):
+def load_data(inference_input_file, hparams=None):
   """Load inference data."""
   with codecs.getreader("utf-8")(tf.gfile.GFile(inference_input_file, mode="r")) as f:
     inference_data = f.read().splitlines()
 
-  if hparams.inference_indices:
+  if hparams and hparams.inference_indices:
     inference_data = [ inference_data[i] for i in hparams.inference_indices ]
 
   return inference_data
@@ -157,7 +160,7 @@ def _single_worker_inference(model_dir,
   output_infer = inference_output_file
 
   # Read data
-  infer_data = _load_data(inference_input_file, hparams)
+  infer_data = load_data(inference_input_file, hparams)
 
   assert hparams.vocab_prefix
   src_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.src)
@@ -201,7 +204,7 @@ def _multi_worker_inference(model_dir,
   output_infer_done = "%s_done_%d" % (inference_output_file, jobid)
 
   # Read data
-  infer_data = _load_data(inference_input_file, hparams)
+  infer_data = load_data(inference_input_file, hparams)
 
   # Split data to multiple workers
   total_load = len(infer_data)
