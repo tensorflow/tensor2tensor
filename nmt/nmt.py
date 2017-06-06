@@ -329,7 +329,7 @@ if __name__ == "__main__":
                       help="Whether to keep data in time-major format.")
 
   # attention mechanisms
-  parser.add_argument("--attention", type=str, default="luong", help="""\
+  parser.add_argument("--attention", type=str, default="", help="""\
       luong | scaled_luong | bahdanau | normed_bahdanau or set to "" for no
       attention\
       """)
