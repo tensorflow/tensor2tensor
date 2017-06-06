@@ -78,7 +78,7 @@ def _bleu(ref_file, trans_file, ignore_map=None, bpe_delimiter=None):
   reference_text = []
   for reference_filename in ref_files:
     with codecs.getreader("utf-8")(
-        tf.gfile.GFile(reference_filename, "r")) as fh:
+        tf.gfile.GFile(reference_filename, "rb")) as fh:
       reference_text.append(fh.readlines())
 
   per_segment_references = []
@@ -90,7 +90,7 @@ def _bleu(ref_file, trans_file, ignore_map=None, bpe_delimiter=None):
     per_segment_references.append(reference_list)
 
   translations = []
-  with codecs.getreader("utf-8")(tf.gfile.GFile(trans_file, "r")) as fh:
+  with codecs.getreader("utf-8")(tf.gfile.GFile(trans_file, "rb")) as fh:
     for line in fh:
       line = _clean(line, ignore_map, bpe_delimiter)
       translations.append(line.split(" "))
@@ -105,12 +105,13 @@ def _rouge(ref_file, summarization_file, ignore_map=None, bpe_delimiter=None):
   """Compute ROUGE scores, ignoring tokens in ignore map and handling BPE."""
 
   references = []
-  with codecs.getreader("utf-8")(tf.gfile.GFile(ref_file, "r")) as fh:
+  with codecs.getreader("utf-8")(tf.gfile.GFile(ref_file, "rb")) as fh:
     for line in fh:
       references.append(_clean(line, ignore_map, bpe_delimiter))
 
   hypotheses = []
-  with codecs.getreader("utf-8")(tf.gfile.GFile(summarization_file, "r")) as fh:
+  with codecs.getreader("utf-8")(
+      tf.gfile.GFile(summarization_file, "rb")) as fh:
     for line in fh:
       hypotheses.append(_clean(line, ignore_map, bpe_delimiter))
 
@@ -121,8 +122,8 @@ def _rouge(ref_file, summarization_file, ignore_map=None, bpe_delimiter=None):
 def _accuracy(label_file, pred_file):
   """Compute accuracy, each line contains a label."""
 
-  with codecs.getreader("utf-8")(tf.gfile.GFile(label_file, "r")) as label_fh:
-    with codecs.getreader("utf-8")(tf.gfile.GFile(pred_file, "r")) as pred_fh:
+  with codecs.getreader("utf-8")(tf.gfile.GFile(label_file, "rb")) as label_fh:
+    with codecs.getreader("utf-8")(tf.gfile.GFile(pred_file, "rb")) as pred_fh:
       count = 0.0
       match = 0.0
       for label in label_fh:

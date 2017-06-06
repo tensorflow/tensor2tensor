@@ -27,8 +27,6 @@ import time
 import numpy as np
 import tensorflow as tf
 
-sys.stdout = codecs.getwriter("utf-8")(sys.stdout)
-
 
 def safe_exp(value):
   """Exponentiation with catching of overflow error."""
@@ -48,17 +46,18 @@ def print_time(s, start_time):
 
 def print_out(s, f=None, new_line=True):
   """Similar to print but with support to flush and output to a file."""
+  if isinstance(s, bytes):
+    s = s.decode()
+
   if f:
+    f.write(s.encode("utf-8"))
     if new_line:
-      f.write("%s\n" % s)
-    else:
-      f.write("%s" % s)
+      f.write(b"\n")
 
   # stdout
+  sys.stdout.write(s)
   if new_line:
-    sys.stdout.write("%s\n" % s)
-  else:
-    sys.stdout.write("%s" % s)
+    sys.stdout.write("\n")
   sys.stdout.flush()
 
 
@@ -158,10 +157,12 @@ def format_text(words, ignore_map=None):
   return " ".join(outputs)
 
 
-def format_bpe_text(symbols, ignore_map=None, delimiter="@@"):
+def format_bpe_text(symbols, ignore_map=None, delimiter=b"@@"):
   """Convert a sequence of bpe words into sentence."""
   words = []
-  word = ""
+  word = b""
+  if isinstance(symbols, str):
+    symbols = symbols.encode()
   delimiter_len = len(delimiter)
   for symbol in symbols:
     if len(symbol) >= delimiter_len and symbol[-delimiter_len:] == delimiter:
@@ -170,8 +171,8 @@ def format_bpe_text(symbols, ignore_map=None, delimiter="@@"):
       word += symbol
       if not ignore_map or word not in ignore_map:
         words.append(word)
-      word = ""
-  return " ".join(words)
+      word = b""
+  return b" ".join(words)
 
 
 def build_buckets(max_seq_len, num_buckets):

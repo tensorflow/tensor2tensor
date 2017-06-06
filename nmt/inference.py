@@ -122,11 +122,12 @@ def _decode_inference_indices(model, sess, output_infer,
 
 def load_data(inference_input_file, hparams=None):
   """Load inference data."""
-  with codecs.getreader("utf-8")(tf.gfile.GFile(inference_input_file, mode="r")) as f:
+  with codecs.getreader("utf-8")(
+      tf.gfile.GFile(inference_input_file, mode="rb")) as f:
     inference_data = f.read().splitlines()
 
   if hparams and hparams.inference_indices:
-    inference_data = [ inference_data[i] for i in hparams.inference_indices ]
+    inference_data = [inference_data[i] for i in hparams.inference_indices]
 
   return inference_data
 
@@ -252,7 +253,7 @@ def _multi_worker_inference(model_dir,
           time.sleep(10)
 
         with codecs.getreader("utf-8")(
-            tf.gfile.GFile(worker_infer_done, mode="r")) as f:
+            tf.gfile.GFile(worker_infer_done, mode="rb")) as f:
           for translation in f:
             final_f.write("%s" % translation)
         tf.gfile.Remove(worker_infer_done)
