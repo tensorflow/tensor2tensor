@@ -73,6 +73,7 @@ def create_test_hparams(unit_type="lstm",
       decay_steps=100,
       colocate_gradients_with_ops=True,
       batch_size=128,
+      num_buckets=5,
 
       # Infer
       tgt_max_len_infer=100,

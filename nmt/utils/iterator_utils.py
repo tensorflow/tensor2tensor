@@ -79,9 +79,16 @@ def get_infer_iterator(
       target_sequence_length=None)
 
 
-def get_iterator(src_dataset, tgt_dataset, hparams,
-                 src_vocab_table, tgt_vocab_table, batch_size,
-                 src_max_len=None, tgt_max_len=None, bucket=True):
+def get_iterator(src_dataset,
+                 tgt_dataset,
+                 hparams,
+                 src_vocab_table,
+                 tgt_vocab_table,
+                 batch_size,
+                 src_max_len=None,
+                 tgt_max_len=None,
+                 num_threads=4,
+                 output_buffer_size=1280):
   # TODO(ebrevdo): Add shuffling as an option.
   # TODO(ebrevdo): make lookup default value the "unk" symbol?
   src_eos_id = tf.cast(
@@ -94,9 +101,13 @@ def get_iterator(src_dataset, tgt_dataset, hparams,
       tgt_vocab_table.lookup(tf.constant(hparams.eos)),
       tf.int32)
   source_reverse = hparams.source_reverse
-  src_dataset = src_dataset.map(lambda src: tf.string_split([src]).values)
-  tgt_dataset = tgt_dataset.map(lambda tgt: tf.string_split([tgt]).values)
+
   src_tgt_dataset = tf.contrib.data.Dataset.zip((src_dataset, tgt_dataset))
+  src_tgt_dataset = src_tgt_dataset.map(
+      lambda src, tgt: (
+          tf.string_split([src]).values, tf.string_split([tgt]).values),
+      num_threads=num_threads,
+      output_buffer_size=output_buffer_size)
 
   # Filter zero length input sequences.
   src_tgt_dataset = src_tgt_dataset.filter(
@@ -104,28 +115,38 @@ def get_iterator(src_dataset, tgt_dataset, hparams,
 
   if src_max_len:
     src_tgt_dataset = src_tgt_dataset.map(
-        lambda src, tgt: (src[:src_max_len], tgt))
+        lambda src, tgt: (src[:src_max_len], tgt),
+        num_threads=num_threads,
+        output_buffer_size=output_buffer_size)
   if tgt_max_len:
     src_tgt_dataset = src_tgt_dataset.map(
-        lambda src, tgt: (src, tgt[:tgt_max_len]))
+        lambda src, tgt: (src, tgt[:tgt_max_len]),
+        num_threads=num_threads,
+        output_buffer_size=output_buffer_size)
   if source_reverse:
     src_tgt_dataset = src_tgt_dataset.map(
-        lambda src, tgt: (tf.reverse(src, axis=[0]), tgt))
+        lambda src, tgt: (tf.reverse(src, axis=[0]), tgt),
+        num_threads=num_threads,
+        output_buffer_size=output_buffer_size)
   # Convert the word strings to ids.  Word strings that are not in the
   # vocab get the lookup table's default_value integer.
   src_tgt_dataset = src_tgt_dataset.map(
       lambda src, tgt: (tf.cast(src_vocab_table.lookup(src), tf.int32),
-                   tf.cast(tgt_vocab_table.lookup(tgt), tf.int32)))
+                        tf.cast(tgt_vocab_table.lookup(tgt), tf.int32)),
+      num_threads=num_threads, output_buffer_size=output_buffer_size)
   # Create a tgt_input prefixed with <sos> and a tgt_output suffixed with <eos>.
   src_tgt_dataset = src_tgt_dataset.map(
       lambda src, tgt: (src,
-                   tf.concat(([tgt_sos_id], tgt), 0),
-                   tf.concat((tgt, [tgt_eos_id]), 0)))
+                        tf.concat(([tgt_sos_id], tgt), 0),
+                        tf.concat((tgt, [tgt_eos_id]), 0)),
+      num_threads=num_threads, output_buffer_size=output_buffer_size)
   # Add in the word counts.  Subtract one from the target to avoid counting
   # the target_input <eos> tag (resp. target_output <sos> tag).
   src_tgt_dataset = src_tgt_dataset.map(
       lambda src, tgt_in, tgt_out: (
-          src, tgt_in, tgt_out, tf.size(src), tf.size(tgt_in)))
+          src, tgt_in, tgt_out, tf.size(src), tf.size(tgt_in)),
+      num_threads=num_threads,
+      output_buffer_size=output_buffer_size)
   # Bucket by source sequence length (buckets for lengths 0-9, 10-19, ...)
   def batching_func(x):
     return x.padded_batch(
@@ -146,14 +167,22 @@ def get_iterator(src_dataset, tgt_dataset, hparams,
                         tgt_eos_id,  # tgt_output
                         0,           # src_len -- unused
                         0))          # tgt_len -- unused
-  if bucket:
-    def key_func(unused_1, unused_2, unused_3, src_len, unused_4):
-      # Bucket sentence pairs by the length of their source sentence.
-      # Pairs with source length [0, 10) go to bucket 0, source
-      # length [10, 20) go to bucket 1, etc.
-      # Pairs with source length over 100 words all go into an
-      # "overflow" bucket 10.
-      return tf.to_int64(tf.minimum(10, src_len // 10))
+  if hparams.num_buckets > 1:
+    def key_func(unused_1, unused_2, unused_3, src_len, tgt_len):
+      # Calculate bucket_width by maximum source sequence length.
+      # Pairs with length [0, bucket_width) go to bucket 0, length
+      # [bucket_width, 2 * bucket_width) go to bucket 1, etc.  Pairs with length
+      # over ((num_bucket-1) * bucket_width) words all go into the last bucket.
+      num_buckets = hparams.num_buckets
+      if src_max_len:
+        bucket_width = (src_max_len + num_buckets - 1) // num_buckets
+      else:
+        bucket_width = 10
+
+      # Bucket sentence pairs by the length of their source sentence and target
+      # sentence.
+      bucket_id = tf.maximum(src_len // bucket_width, tgt_len // bucket_width)
+      return tf.to_int64(tf.minimum(num_buckets, bucket_id))
     def reduce_func(unused_key, windowed_data):
       return batching_func(windowed_data)
     batched_dataset = src_tgt_dataset.group_by_window(

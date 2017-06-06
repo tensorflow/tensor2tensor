@@ -36,6 +36,7 @@ class IteratorUtilsTest(tf.test.TestCase):
     tgt_dataset = tf.contrib.data.Dataset.from_tensor_slices(
         tf.constant(["a b", "b c", "", "c c"]))
     hparams = tf.contrib.training.HParams(
+        num_buckets=5,
         source_reverse=False,
         eos="eos",
         sos="sos")
