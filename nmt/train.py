@@ -115,8 +115,7 @@ def train(hparams, scope=None):
   """Train a translation model."""
   log_device_placement = hparams.log_device_placement
   out_dir = hparams.out_dir
-  num_epochs = hparams.num_epochs
-  batch_size = hparams.batch_size
+  num_train_steps = hparams.num_train_steps
   bpe_delimiter = hparams.bpe_delimiter
   steps_per_stats = hparams.steps_per_stats
   steps_per_external_eval = hparams.steps_per_external_eval
@@ -193,12 +192,12 @@ def train(hparams, scope=None):
   summary_writer = tf.summary.FileWriter(
       os.path.join(out_dir, "train_log"), train_graph)
 
-  utils.print_out("Starting epoch 0")
+  utils.print_out("Starting steps %s" % global_step)
 
   # First evaluation
   dev_ppl = _internal_eval(eval_model, eval_graph, eval_sess, hparams,
                            eval_iterator, dev_eval_iterator_feed_dict,
-                           batch_size, summary_writer, "dev")
+                           summary_writer, "dev")
   dev_scores = _external_eval(
       infer_model,
       infer_graph,
@@ -215,7 +214,7 @@ def train(hparams, scope=None):
   if hparams.test_prefix:
     test_ppl = _internal_eval(eval_model, eval_graph, eval_sess, hparams,
                               eval_iterator, test_eval_iterator_feed_dict,
-                              batch_size, summary_writer, "test")
+                              summary_writer, "test")
     test_scores = _external_eval(
         infer_model,
         infer_graph,
@@ -237,7 +236,7 @@ def train(hparams, scope=None):
   checkpoint_total_count = 0.0
   speed, train_ppl = 0.0, 0.0
   start_train_time = time.time()
-  while epoch < num_epochs:
+  while global_step < num_train_steps:
     utils.print_out(
         "# Start epoch %d, step %d, lr %g, %s" %
         (epoch, global_step, train_model.learning_rate.eval(session=train_sess),
@@ -268,7 +267,7 @@ def train(hparams, scope=None):
         break
 
       (_, step_loss, step_predict_count, step_summary, global_step,
-       step_word_count) = step_result
+       step_word_count, batch_size) = step_result
 
       # Write step summary.
       summary_writer.add_summary(step_summary, global_step)
@@ -311,13 +310,13 @@ def train(hparams, scope=None):
         # Evaluate on dev/test
         dev_ppl = _internal_eval(eval_model, eval_graph, eval_sess, hparams,
                                  eval_iterator, dev_eval_iterator_feed_dict,
-                                 batch_size, summary_writer, "dev")
+                                 summary_writer, "dev")
 
         test_ppl = None
         if hparams.test_prefix:
           test_ppl = _internal_eval(eval_model, eval_graph, eval_sess, hparams,
                                     eval_iterator, test_eval_iterator_feed_dict,
-                                    batch_size, summary_writer, "test")
+                                    summary_writer, "test")
 
         # TODO(rzhao): Add a sample decode run here.
         all_dev_perplexities.append(dev_ppl)
@@ -398,13 +397,13 @@ def _get_best_results(hparams):
 
 
 def _internal_eval(model, graph, sess, hparams, iterator, iterator_feed_dict,
-                   batch_size, summary_writer, label):
+                   summary_writer, label):
   """Computing perplexity."""
   with graph.as_default():
     model, global_step = model_helper.create_or_load_model(
         model, hparams.out_dir, sess, hparams)
   sess.run(iterator.initializer, feed_dict=iterator_feed_dict)
-  ppl = model_helper.compute_perplexity(model, sess, batch_size, label)
+  ppl = model_helper.compute_perplexity(model, sess, label)
   utils.add_summary(summary_writer, global_step, "%s_ppl" % label, ppl)
   return ppl
 

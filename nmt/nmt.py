@@ -63,7 +63,7 @@ def create_hparams():
 
       # Train
       optimizer=FLAGS.optimizer,
-      num_epochs=FLAGS.num_epochs,
+      num_train_steps=FLAGS.num_train_steps,
       batch_size=FLAGS.batch_size,
       init_weight=FLAGS.init_weight,
       gradient_clip_value=FLAGS.gradient_clip_value,
@@ -362,7 +362,8 @@ if __name__ == "__main__":
                       help="How frequent we decay")
   parser.add_argument("--decay_factor", type=float, default=0.98,
                       help="How much we decay.")
-  parser.add_argument("--num_epochs", type=int, default=10, help="Num epochs.")
+  parser.add_argument(
+      "--num_train_steps", type=int, default=12000, help="Num steps to train.")
   parser.add_argument("--colocate_gradients_with_ops", type="bool", nargs="?",
                       const=True,
                       default=True,

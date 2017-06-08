@@ -77,6 +77,11 @@ class BaseModel(object):
     # TODO(ebrevdo): Only do this if the mode is TRAIN?
     self.init_embeddings(hparams, scope)
 
+    source = iterator.source
+    if self.time_major:
+      source = tf.transpose(source)
+    self.batch_size = self.get_batch_size(source)
+
     # Projection
     with tf.variable_scope(scope or "build_network"):
       with tf.variable_scope("decoder/output_projection"):
@@ -205,12 +210,14 @@ class BaseModel(object):
                      self.predict_count,
                      self.train_summary,
                      self.global_step,
-                     self.word_count])
+                     self.word_count,
+                     self.batch_size])
 
   def eval(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.EVAL
     return sess.run([self.eval_loss,
-                     self.predict_count
+                     self.predict_count,
+                     self.batch_size
                      ])
 
   def build_graph(self, hparams, scope=None):
@@ -297,7 +304,6 @@ class BaseModel(object):
     num_gpus = hparams.num_gpus
 
     iterator = self.iterator
-    batch_size = iterator.source.shape[0].value or tf.shape(iterator.source)[0]
 
     # maximum_iteration: The maximum decoding steps.
     # TODO(thangluong): move max_encoder_length to "else", will change
@@ -360,7 +366,7 @@ class BaseModel(object):
         # Helper
         helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
             self.embedding_decoder,
-            tf.fill([batch_size], tgt_sos_id), tgt_eos_id)
+            tf.fill([self.batch_size], tgt_sos_id), tgt_eos_id)
 
         # Decoder
         my_decoder = tf.contrib.seq2seq.BasicDecoder(
@@ -411,7 +417,6 @@ class BaseModel(object):
     target_output = self.iterator.target_output
     if self.time_major:
       target_output = tf.transpose(target_output)
-    batch_size = self.get_batch_size(target_output)
     max_time = self.get_max_time(target_output)
     crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
         labels=target_output, logits=logits)
@@ -421,7 +426,7 @@ class BaseModel(object):
       target_weights = tf.transpose(target_weights)
 
     loss = tf.reduce_sum(
-        crossent * target_weights) / tf.to_float(batch_size)
+        crossent * target_weights) / tf.to_float(self.batch_size)
     return loss
 
   def infer(self, sess):

@@ -398,13 +398,12 @@ def create_or_load_model(model, model_dir, session, hparams):
   return model, global_step
 
 
-def compute_perplexity(model, sess, batch_size, name):
+def compute_perplexity(model, sess, name):
   """Compute perplexity of the output of the model.
 
   Args:
     model: model for compute perplexity.
     sess: tensorflow session to use.
-    batch_size: batch size of the eval input iterator.
     name: name of the batch.
 
   Returns:
@@ -416,7 +415,7 @@ def compute_perplexity(model, sess, batch_size, name):
 
   while True:
     try:
-      loss, predict_count = model.eval(sess)
+      loss, predict_count, batch_size = model.eval(sess)
       total_loss += loss * batch_size
       total_predict_count += predict_count
     except tf.errors.OutOfRangeError:
