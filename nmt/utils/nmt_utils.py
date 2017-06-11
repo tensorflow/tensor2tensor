@@ -51,7 +51,6 @@ def decode_and_evaluate(name,
         try:
           nmt_outputs, _ = model.decode(sess)
           num_sentences += len(nmt_outputs)
-          print("num output", len(nmt_outputs))
           for sent_id in range(len(nmt_outputs)):
             translation = get_translation(nmt_outputs, sent_id, hparams)
             trans_f.write("%s\n" % translation)

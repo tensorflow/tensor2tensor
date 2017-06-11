@@ -373,24 +373,20 @@ def apply_grad_multiplier(vs, gs, grad_scale):
   return final_grad_in_order
 
 
-def create_or_load_model(model, model_dir, session, hparams):
+def create_or_load_model(model, model_dir, session, hparams, name):
   """Create translation model and initialize or load parameters in session."""
-  utils.print_out("# Creating model, model_dir %s" % model_dir)
-  utils.print_out("  num layers=%d, num units=%d, unit_type=%s, attention=%s,"
-                  " num_gpus=%d, attention_type=%s" %
-                  (hparams.num_layers, hparams.num_units, hparams.unit_type,
-                   hparams.attention, hparams.num_gpus, hparams.attention_type))
   start_time = time.time()
-
   ckpt = tf.train.get_checkpoint_state(model_dir)
   if ckpt and ckpt.model_checkpoint_path:
-    utils.print_out(
-        "  nmt model parameters from %s" % ckpt.model_checkpoint_path)
     model.saver.restore(session, ckpt.model_checkpoint_path)
+    utils.print_out(
+        "  loaded %s model parameters from %s, time %.2fs" %
+        (name, ckpt.model_checkpoint_path, time.time() - start_time))
   else:
-    utils.print_out("  created model with fresh parameters, time %.2fs." %
-                    (time.time() - start_time))
+    utils.print_out("  created %s model with fresh parameters, time %.2fs." %
+                    (name, time.time() - start_time))
     session.run(tf.global_variables_initializer())
+    model.saver.save(session, hparams.out_dir, global_step=0)
 
   session.run(tf.initialize_all_tables())
 

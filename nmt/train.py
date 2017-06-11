@@ -42,6 +42,7 @@ def create_train_model(model_creator,
                        src_vocab_file,
                        tgt_vocab_file,
                        scope=None):
+  """Create train graph, model, and iterator."""
   train_src_file = "%s.%s" % (hparams.train_prefix, hparams.src)
   train_tgt_file = "%s.%s" % (hparams.train_prefix, hparams.tgt)
 
@@ -73,11 +74,13 @@ def create_train_model(model_creator,
 
   return train_graph, train_model, train_iterator
 
+
 def create_eval_model(model_creator,
                       hparams,
                       src_vocab_file,
                       tgt_vocab_file,
                       scope=None):
+  """Create train graph, model, src/tgt file holders, and iterator."""
   eval_graph = tf.Graph()
 
   with eval_graph.as_default():
@@ -166,7 +169,6 @@ def train(hparams, scope=None):
         infer_src_placeholder: inference.load_data(test_src_file)
     }
 
-
   # Log and output files
   log_file = os.path.join(out_dir, "log")
   log_f = tf.gfile.GFile(log_file, mode="w")
@@ -184,48 +186,65 @@ def train(hparams, scope=None):
 
   with train_graph.as_default():
     train_model, global_step = model_helper.create_or_load_model(
-        train_model, out_dir, train_sess, hparams)
-
-  epoch = 0
+        train_model, out_dir, train_sess, hparams, "train")
 
   # Summary writer
   summary_writer = tf.summary.FileWriter(
       os.path.join(out_dir, "train_log"), train_graph)
 
-  utils.print_out("Starting steps %s" % global_step)
+  # For internal evaluation (perplexity)
+  def run_internal_eval():
+    """Compute internal evaluation for both dev / test."""
+    with eval_graph.as_default():
+      loaded_eval_model, global_step = model_helper.create_or_load_model(
+          eval_model, hparams.out_dir, eval_sess, hparams, "eval")
 
-  # First evaluation
-  dev_ppl = _internal_eval(eval_model, eval_graph, eval_sess, hparams,
-                           eval_iterator, dev_eval_iterator_feed_dict,
-                           summary_writer, "dev")
-  dev_scores = _external_eval(
-      infer_model,
-      infer_graph,
-      infer_sess,
-      hparams,
-      infer_iterator,
-      dev_infer_iterator_feed_dict,
-      dev_tgt_file,
-      "dev",
-      summary_writer,
-      save_on_best=True)
+    dev_ppl = _internal_eval(loaded_eval_model, global_step, eval_sess,
+                             eval_iterator, dev_eval_iterator_feed_dict,
+                             summary_writer, "dev")
+    test_ppl = None
+    if hparams.test_prefix:
+      test_ppl = _internal_eval(loaded_eval_model, global_step, eval_sess,
+                                eval_iterator, test_eval_iterator_feed_dict,
+                                summary_writer, "test")
+    return dev_ppl, test_ppl
 
-  test_ppl = None
-  if hparams.test_prefix:
-    test_ppl = _internal_eval(eval_model, eval_graph, eval_sess, hparams,
-                              eval_iterator, test_eval_iterator_feed_dict,
-                              summary_writer, "test")
-    test_scores = _external_eval(
-        infer_model,
-        infer_graph,
+  # For external evaluation (bleu, roughe, etc.)
+  def run_external_eval():
+    """Compute external evaluation for both dev / test."""
+    with infer_graph.as_default():
+      loaded_infer_model, global_step = model_helper.create_or_load_model(
+          infer_model, hparams.out_dir, infer_sess, hparams, "infer")
+
+    dev_scores = _external_eval(
+        loaded_infer_model,
+        global_step,
         infer_sess,
         hparams,
         infer_iterator,
-        test_infer_iterator_feed_dict,
-        test_tgt_file,
-        "test",
+        dev_infer_iterator_feed_dict,
+        dev_tgt_file,
+        "dev",
         summary_writer,
-        save_on_best=False)
+        save_on_best=True)
+    test_scores = None
+    if hparams.test_prefix:
+      test_scores = _external_eval(
+          loaded_infer_model,
+          global_step,
+          infer_sess,
+          hparams,
+          infer_iterator,
+          test_infer_iterator_feed_dict,
+          test_tgt_file,
+          "test",
+          summary_writer,
+          save_on_best=False)
+    return dev_scores, test_scores
+
+  # First evaluation
+  dev_ppl, test_ppl = run_internal_eval()
+  dev_scores, test_scores = run_external_eval()
 
   all_dev_perplexities = [dev_ppl]
   all_test_perplexities = [test_ppl]
@@ -236,6 +255,8 @@ def train(hparams, scope=None):
   checkpoint_total_count = 0.0
   speed, train_ppl = 0.0, 0.0
   start_train_time = time.time()
+  epoch = 0
+  utils.print_out("Starting steps %s" % global_step)
   while global_step < num_train_steps:
     utils.print_out(
         "# Start epoch %d, step %d, lr %g, %s" %
@@ -263,6 +284,7 @@ def train(hparams, scope=None):
       except tf.errors.OutOfRangeError:
         # Finished going through the training dataset.  Go to next epoch.
         utils.print_out("Finished epoch %d.  Step %d." % (epoch, model_step))
+        dev_scores, test_scores = run_external_eval()
         epoch += 1
         break
 
@@ -308,15 +330,7 @@ def train(hparams, scope=None):
             global_step=global_step)
 
         # Evaluate on dev/test
-        dev_ppl = _internal_eval(eval_model, eval_graph, eval_sess, hparams,
-                                 eval_iterator, dev_eval_iterator_feed_dict,
-                                 summary_writer, "dev")
-
-        test_ppl = None
-        if hparams.test_prefix:
-          test_ppl = _internal_eval(eval_model, eval_graph, eval_sess, hparams,
-                                    eval_iterator, test_eval_iterator_feed_dict,
-                                    summary_writer, "test")
+        dev_ppl, test_ppl = run_internal_eval()
 
         # TODO(rzhao): Add a sample decode run here.
         all_dev_perplexities.append(dev_ppl)
@@ -330,30 +344,7 @@ def train(hparams, scope=None):
             train_sess,
             os.path.join(out_dir, "translate.ckpt"),
             global_step=global_step)
-
-        dev_scores = _external_eval(
-            infer_model,
-            infer_graph,
-            infer_sess,
-            hparams,
-            infer_iterator,
-            dev_infer_iterator_feed_dict,
-            dev_tgt_file,
-            "dev",
-            summary_writer,
-            save_on_best=True)
-        if hparams.test_prefix:
-          test_scores = _external_eval(
-              infer_model,
-              infer_graph,
-              infer_sess,
-              hparams,
-              infer_iterator,
-              test_infer_iterator_feed_dict,
-              test_tgt_file,
-              "test",
-              summary_writer,
-              save_on_best=False)
+        dev_scores, test_scores = run_external_eval()
 
   # Done training
   utils.print_out("# Best %s" % _get_best_results(hparams))
@@ -396,12 +387,9 @@ def _get_best_results(hparams):
   return ", ".join(tokens)
 
 
-def _internal_eval(model, graph, sess, hparams, iterator, iterator_feed_dict,
+def _internal_eval(model, global_step, sess, iterator, iterator_feed_dict,
                    summary_writer, label):
   """Computing perplexity."""
-  with graph.as_default():
-    model, global_step = model_helper.create_or_load_model(
-        model, hparams.out_dir, sess, hparams)
   sess.run(iterator.initializer, feed_dict=iterator_feed_dict)
   ppl = model_helper.compute_perplexity(model, sess, label)
   utils.add_summary(summary_writer, global_step, "%s_ppl" % label, ppl)
@@ -436,14 +424,10 @@ def _sample_decode(model, sess, hparams, infer_dev_batches,
     summary_writer.add_summary(attention_summary, global_step)
 
 
-def _external_eval(model, graph, sess, hparams, iterator, iterator_feed_dict,
+def _external_eval(model, global_step, sess, hparams, iterator, iterator_feed_dict,
                    tgt_file, label, summary_writer, save_on_best):
   """External evaluation such as BLEU and ROUGE scores."""
   out_dir = hparams.out_dir
-  with graph.as_default():
-    model, global_step = model_helper.create_or_load_model(
-        model, out_dir, sess, hparams)
-
   decode = global_step > 0
   if decode:
     utils.print_out("# External evaluation, global step %d" % global_step)

@@ -176,7 +176,8 @@ def _single_worker_inference(model_dir,
       create_infer_model(model_creator, hparams, src_vocab_file, tgt_vocab_file,
                          scope))
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
-    model_helper.create_or_load_model(infer_model, model_dir, sess, hparams)
+    model_helper.create_or_load_model(infer_model, model_dir, sess, hparams,
+                                      "infer")
     sess.run(
         infer_iterator.initializer,
         feed_dict={infer_src_placeholder.name: infer_data})
@@ -228,7 +229,8 @@ def _multi_worker_inference(model_dir,
                          scope))
 
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
-    model_helper.create_or_load_model(infer_model, model_dir, sess, hparams)
+    model_helper.create_or_load_model(infer_model, model_dir, sess, hparams,
+                                      "infer")
     sess.run(infer_iterator.initializer,
              {infer_src_placeholder.name: infer_data})
     # Decode
