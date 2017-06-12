@@ -76,11 +76,7 @@ class BaseModel(object):
     # Embeddings
     # TODO(ebrevdo): Only do this if the mode is TRAIN?
     self.init_embeddings(hparams, scope)
-
-    source = iterator.source
-    if self.time_major:
-      source = tf.transpose(source)
-    self.batch_size = self.get_batch_size(source)
+    self.batch_size = tf.size(self.iterator.source_sequence_length)
 
     # Projection
     with tf.variable_scope(scope or "build_network"):
@@ -386,10 +382,6 @@ class BaseModel(object):
         logits = outputs.rnn_output
 
     return logits, outputs.sample_id, final_context_state
-
-  def get_batch_size(self, tensor):
-    batch_axis = 1 if self.time_major else 0
-    return tensor.shape[batch_axis].value or tf.shape(tensor)[batch_axis]
 
   def get_max_time(self, tensor):
     time_axis = 0 if self.time_major else 1

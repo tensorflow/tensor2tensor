@@ -213,8 +213,8 @@ class ModelTest(tf.test.TestCase):
     sys.stdout.flush()
 
   def assertAllClose(self, *args, **kwargs):
-    kwargs['atol'] = 1e-2
-    kwargs['rtol'] = 1e-2
+    kwargs['atol'] = 5e-2
+    kwargs['rtol'] = 5e-2
     return super(ModelTest, self).assertAllClose(*args, **kwargs)
 
   def _assertModelVariableNames(self, expected_var_names, model_var_names,

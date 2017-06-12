@@ -326,7 +326,7 @@ if __name__ == "__main__":
                       help="Whether to add residual connections.")
   parser.add_argument("--time_major", type="bool", nargs="?", const=True,
                       default=True,
-                      help="Whether to keep data in time-major format.")
+                      help="Whether to use time-major mode for dynamic RNN.")
 
   # attention mechanisms
   parser.add_argument("--attention", type=str, default="", help="""\

@@ -92,8 +92,7 @@ class AttentionModel(model.Model):
     cell = tf.contrib.rnn.DeviceWrapper(
         cell, model_helper.get_device_str(num_layers - 1, num_gpus))
 
-    batch_size = self.get_batch_size(encoder_outputs)
-    decoder_initial_state = cell.zero_state(batch_size, dtype).clone(
+    decoder_initial_state = cell.zero_state(self.batch_size, dtype).clone(
         cell_state=encoder_state)
 
     return cell, decoder_initial_state
