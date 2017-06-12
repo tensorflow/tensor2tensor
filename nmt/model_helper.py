@@ -28,10 +28,6 @@ def create_emb_for_encoder_and_decoder(share_vocab,
                                        tgt_vocab_size,
                                        src_embed_size,
                                        tgt_embed_size,
-                                       src_embed_file,
-                                       tgt_embed_file,
-                                       src_embed_trainable,
-                                       tgt_embed_trainable,
                                        src_vocab_table,
                                        tgt_vocab_table,
                                        dtype=tf.float32,
@@ -53,146 +49,37 @@ def create_emb_for_encoder_and_decoder(share_vocab,
   Returns:
     embedding_encoder: Encoder's embedding matrix.
     embedding_decoder: Decoder's embedding matrix.
-    trainable_embed_vars: A list of all trainable embedding variables.
+    embed_vars: A list of all embedding variables.
 
   Raises:
     ValueError: if use share_vocab but source and target have different vocab
       size.
   """
-  def maybe_get_file_initializer(embed_file, vocab_size, embed_size,
-                                 vocab_table):
-    """Returns a variable initializer and an initializer for *that*.
-
-    Args:
-      embed_file: may be None.
-      vocab_size: Python integer.
-      embed_size: Python integer.
-      vocab_table: A Lookup table that maps incoming words to ids.
-
-    Returns:
-      A tuple (data_initializer, variable_initializer), where:
-
-      - data_initializer is an Operation that initializes the underlying data.
-      - variable_initizlier returns a Tensor with the initial variable value.
-        Note: data_initializer must be executed before this tensor is accessed.
-    """
-    if embed_file is None:
-      return tf.no_op(), tf.zeros_initializer()
-    else:
-      def from_file_initializer(shape, dtype, partition_info):
-        """Variable initializer that loads floating point values from a file."""
-        del partition_info  # Unused
-        assert shape == [vocab_size, embed_size]
-        # Read the whole file into a string.
-        data = tf.read_file(embed_file)
-        # Split the data by spaces/newlines to get a bunch of string tensors.
-        lines = tf.string_split([data], "\n").values
-        # Convert number strings to floating point types.
-        values = tf.decode_csv(
-            lines, [[tf.string]] + [[dtype]] * embed_size,
-            field_delim=" ", use_quote_delim=False)
-        words = values[0]
-        word_ids = vocab_table.lookup(words)  # Maps embedding lines -> ids
-        neg_order_word_ids, vocabulary_to_embedding_line_order = tf.nn.top_k(
-            -word_ids, k=vocab_size)  # Negate to get increasing order vocab id.
-        order_word_ids = -neg_order_word_ids
-        missing_vocab_ids = tf.setdiff1d(
-            tf.range(0, vocab_size), order_word_ids)
-        with tf.control_dependencies([
-            tf.assert_equal(
-                tf.size(missing_vocab_ids), 0,
-                message=("Pretrained embedding does not contain all required "
-                         "words from the vocabulary.  Missing vocab ids: "),
-                data=[missing_vocab_ids],
-                summarize=100)]):
-          vocabulary_to_embedding_line_order = tf.identity(
-              vocabulary_to_embedding_line_order)
-
-        # Need to map ids -> embedding vectors
-        embedding_values = tf.transpose(tf.stack(values[1:]))
-        embedding_values.shape.assert_is_compatible_with(
-            tf.TensorShape([vocab_size, embed_size]))
-        reordered_values = tf.gather(
-            embedding_values, vocabulary_to_embedding_line_order)
-        # For each id in the vocabulary, identify the associated row
-        # in the embedding file.
-        return reordered_values
-      return tf.no_op(), from_file_initializer
-
-  def get_pretrained_embeddings(vocab_size, embed_size, embed_trainable,
-                                embed_file, vocab_table):
-    """Get pretrained embeddings."""
-    # TODO(ebrevdo): Start with a standard initializer; then assign
-    # into rows containing vocab in the pretrained embeddings.
-    data_initializer, variable_initializer = maybe_get_file_initializer(
-        embed_file, vocab_size, embed_size, vocab_table)
-    with tf.control_dependencies([data_initializer]):
-      pretrained_embeddings = tf.get_variable(
-          "embedding",
-          [vocab_size, embed_size],
-          dtype,
-          variable_initializer,
-          trainable=embed_trainable)
-    return pretrained_embeddings, data_initializer
-
-  trainable_embed_vars = []
+  embed_vars = []
   with tf.variable_scope(
       scope or "embeddings", dtype=dtype) as scope:
     # Share embedding
     if share_vocab:
-      # Pretrained embeddings
-      assert not src_embed_file, "Loading pre-trained embeddings not supported"
-      if src_embed_file:
-        (embedding, embedding_init) = get_pretrained_embeddings(
-            src_vocab_size, src_embed_size, src_embed_file,
-            src_embed_trainable, src_vocab_table)
-        embedding_encoder_init = embedding_init
-        embedding_decoder_init = embedding_init
-        if src_embed_trainable:
-          trainable_embed_vars.append(embedding)
-      else:
-        if src_vocab_size != tgt_vocab_size:
-          raise ValueError("Share embedding but different src/tgt vocab sizes"
-                           " %d vs. %d" % (src_vocab_size, tgt_vocab_size))
-        utils.print_out("# Use the same source embeddings for target")
-        embedding = tf.get_variable(
-            "embedding_share", [src_vocab_size, src_embed_size], dtype)
-        embedding_encoder_init = None
-        embedding_decoder_init = None
-        trainable_embed_vars.append(embedding)
+      if src_vocab_size != tgt_vocab_size:
+        raise ValueError("Share embedding but different src/tgt vocab sizes"
+                         " %d vs. %d" % (src_vocab_size, tgt_vocab_size))
+      utils.print_out("# Use the same source embeddings for target")
+      embedding = tf.get_variable(
+          "embedding_share", [src_vocab_size, src_embed_size], dtype)
+      embed_vars.append(embedding)
       embedding_encoder = embedding
       embedding_decoder = embedding
     else:
       with tf.variable_scope("encoder"):
-        assert not src_embed_file, "Loading pre-trained embeddings not supported"
-        if src_embed_file:
-          (embedding_encoder,
-           embedding_encoder_init) = get_pretrained_embeddings(
-               src_vocab_size, src_embed_size, src_embed_trainable,
-               src_embed_file, src_vocab_table)
-          if src_embed_trainable:
-            trainable_embed_vars.append(embedding_encoder)
-        else:
-          embedding_encoder = tf.get_variable(
-              "embedding_encoder", [src_vocab_size, src_embed_size], dtype)
-          embedding_encoder_init = None
-          trainable_embed_vars.append(embedding_encoder)
+        embedding_encoder = tf.get_variable(
+            "embedding_encoder", [src_vocab_size, src_embed_size], dtype)
+        embed_vars.append(embedding_encoder)
 
       with tf.variable_scope("decoder"):
-        assert not tgt_embed_file, "Loading pre-trained embeddings not supported"
-        if tgt_embed_file:
-          (embedding_decoder, embedding_decoder_init) = get_pretrained_embeddings(
-              tgt_vocab_size, tgt_embed_size, tgt_embed_trainable,
-              tgt_embed_file, tgt_vocab_table)
-        else:
-          embedding_decoder = tf.get_variable(
-              "embedding_decoder", [tgt_vocab_size, tgt_embed_size], dtype)
-          embedding_decoder_init = None
-        if tgt_embed_trainable:
-          trainable_embed_vars.append(embedding_decoder)
-
-  return (embedding_encoder, embedding_decoder, trainable_embed_vars,
-          embedding_encoder_init, embedding_decoder_init)
+        embedding_decoder = tf.get_variable(
+            "embedding_decoder", [tgt_vocab_size, tgt_embed_size], dtype)
+        embed_vars.append(embedding_decoder)
+  return (embedding_encoder, embedding_decoder, embed_vars)
 
 
 def _single_cell(hparams, mode, residual_connection=False, device_str=None):
@@ -376,12 +263,12 @@ def apply_grad_multiplier(vs, gs, grad_scale):
 def create_or_load_model(model, model_dir, session, hparams, name):
   """Create translation model and initialize or load parameters in session."""
   start_time = time.time()
-  ckpt = tf.train.get_checkpoint_state(model_dir)
-  if ckpt and ckpt.model_checkpoint_path:
-    model.saver.restore(session, ckpt.model_checkpoint_path)
+  latest_ckpt = tf.train.latest_checkpoint(model_dir)
+  if latest_ckpt:
+    model.saver.restore(session, latest_ckpt)
     utils.print_out(
         "  loaded %s model parameters from %s, time %.2fs" %
-        (name, ckpt.model_checkpoint_path, time.time() - start_time))
+        (name, latest_ckpt, time.time() - start_time))
   else:
     utils.print_out("  created %s model with fresh parameters, time %.2fs." %
                     (name, time.time() - start_time))

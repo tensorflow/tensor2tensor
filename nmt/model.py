@@ -168,36 +168,16 @@ class BaseModel(object):
   def init_embeddings(self, hparams, scope):
     """Init embeddings."""
     with tf.device("/gpu:0"):
-      if hparams.src_embed_file:  # If pretrained embeddings available.
-        src_embed_matrix = np.array(hparams.src_embed_matrix)
-        src_embed_size = src_embed_matrix.shape[1]
-      else:
-        src_embed_size = hparams.num_units
-      if hparams.tgt_embed_file:
-        tgt_embed_matrix = np.array(hparams.tgt_embed_matrix)
-        tgt_embed_size = tgt_embed_matrix.shape[1]
-      else:
-        tgt_embed_size = hparams.num_units
-      (embedding_encoder, embedding_decoder, self.emb_vars,
-       embedding_encoder_init, embedding_decoder_init) = (
-           model_helper.create_emb_for_encoder_and_decoder(
-               share_vocab=hparams.share_vocab,
-               src_vocab_size=self.src_vocab_size,
-               tgt_vocab_size=self.tgt_vocab_size,
-               src_embed_file=hparams.src_embed_file,
-               tgt_embed_file=hparams.tgt_embed_file,
-               src_embed_size=src_embed_size,
-               tgt_embed_size=tgt_embed_size,
-               src_embed_trainable=hparams.src_embed_trainable,
-               tgt_embed_trainable=hparams.tgt_embed_trainable,
-               src_vocab_table=self.src_vocab_table,
-               tgt_vocab_table=self.tgt_vocab_table,
-               scope=scope,))
-
-    self.embedding_encoder = embedding_encoder
-    self.embedding_decoder = embedding_decoder
-    self.embedding_encoder_init = embedding_encoder_init
-    self.embedding_decoder_init = embedding_decoder_init
+      (self.embedding_encoder, self.embedding_decoder,
+       self.emb_vars) = (model_helper.create_emb_for_encoder_and_decoder(
+           share_vocab=hparams.share_vocab,
+           src_vocab_size=self.src_vocab_size,
+           tgt_vocab_size=self.tgt_vocab_size,
+           src_embed_size=hparams.num_units,
+           tgt_embed_size=hparams.num_units,
+           src_vocab_table=self.src_vocab_table,
+           tgt_vocab_table=self.tgt_vocab_table,
+           scope=scope,))
 
   def train(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.TRAIN
