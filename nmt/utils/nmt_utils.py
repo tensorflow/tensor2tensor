@@ -97,7 +97,6 @@ def get_translation(nmt_outputs, sent_id, hparams):
   else:
     raise ValueError("Unknown task %s" % hparams.task)
 
-  # Turn integers into text
   if not bpe_delimiter:
     translation = utils.format_text(output, ignore_map=ignore_map)
   else:  # BPE
@@ -105,36 +104,3 @@ def get_translation(nmt_outputs, sent_id, hparams):
         output, ignore_map=ignore_map, delimiter=bpe_delimiter)
 
   return translation
-
-
-def print_translation(batch, sent_id, nmt_outputs, src_vocab, tgt_vocab,
-                      hparams, bpe_delimiter=None):
-  """Print translation in text format (sent_id=-1 means last)."""
-  # src
-  src = batch["encoder_inputs"][:, sent_id]
-  if hparams.source_reverse:
-    utils.print_out(
-        "    src_reverse: %s" % utils.int2text(reversed(src), src_vocab))
-  else:
-    utils.print_out("    src: %s" % utils.int2text(src, src_vocab))
-
-  # ref
-  if "decoder_outputs" in batch:
-    if hparams.task == "seq2label":
-      ref = batch["decoder_outputs"][sent_id]
-    elif hparams.task == "seq2seq":
-      ref = batch["decoder_outputs"][:, sent_id]
-    else:
-      raise ValueError("Unknown task %s" % hparams.task)
-
-    utils.print_out("    ref: %s" % utils.int2text(ref, tgt_vocab))
-
-  if nmt_outputs is not None:
-    # BPE
-    if bpe_delimiter:
-      assert hparams.task == "seq2seq"
-      nmt = nmt_outputs[sent_id, :].tolist()
-      utils.print_out("    bpe: %s" % utils.int2text(nmt, tgt_vocab))
-
-    translation = get_translation(nmt_outputs, sent_id, hparams)
-    utils.print_out("    nmt: %s" % translation)

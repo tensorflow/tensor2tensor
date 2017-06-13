@@ -47,7 +47,7 @@ def print_time(s, start_time):
 def print_out(s, f=None, new_line=True):
   """Similar to print but with support to flush and output to a file."""
   if isinstance(s, bytes):
-    s = s.decode()
+    s = s.decode("utf-8")
 
   if f:
     f.write(s.encode("utf-8"))
@@ -55,7 +55,7 @@ def print_out(s, f=None, new_line=True):
       f.write(b"\n")
 
   # stdout
-  sys.stdout.write(s)
+  print(s.encode("utf-8"), end="", file=sys.stdout)
   if new_line:
     sys.stdout.write("\n")
   sys.stdout.flush()

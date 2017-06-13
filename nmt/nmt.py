@@ -59,7 +59,6 @@ def create_hparams():
       attention=FLAGS.attention,
       attention_type=FLAGS.attention_type,
       attention_architecture=FLAGS.attention_architecture,
-      alignment_history=FLAGS.alignment_history,
 
       # Train
       optimizer=FLAGS.optimizer,
@@ -81,9 +80,12 @@ def create_hparams():
       max_train=FLAGS.max_train,
       src_max_len=FLAGS.src_max_len,
       tgt_max_len=FLAGS.tgt_max_len,
+      source_reverse=FLAGS.source_reverse,
+
+      # Inference
       src_max_len_infer=FLAGS.src_max_len_infer,
       tgt_max_len_infer=FLAGS.tgt_max_len_infer,
-      source_reverse=FLAGS.source_reverse,
+      infer_batch_size=FLAGS.infer_batch_size,
 
       # Vocab
       sos=FLAGS.sos if FLAGS.sos else vocab_utils.SOS,
@@ -348,9 +350,6 @@ if __name__ == "__main__":
       gnmt_new: GNMT style of computing attention use current bottom
           layer to compute attention. (Not Implemented)\
       """)
-  parser.add_argument("--alignment_history", type="bool", nargs="?", const=True,
-                      default=False,
-                      help="Whether to generate alignment visualization.")
 
   # optimizer
   parser.add_argument("--optimizer", type=str, default="sgd", help="sgd | adam")
@@ -441,12 +440,11 @@ if __name__ == "__main__":
   parser.add_argument("--source_reverse", type="bool", nargs="?", const=True,
                       default=True, help="Reverse source sequence.")
   parser.add_argument("--batch_size", type=int, default=128, help="Batch size.")
-  parser.add_argument(
-      "--steps_per_stats",
-      type=int,
-      default=100,
-      help=("How many training steps to do per stats logging."
-            "Save checkpoint every 10x steps_per_stats"))
+  parser.add_argument("--infer_batch_size", type=int, default=32,
+                      help="Batch size for inference mode.")
+  parser.add_argument("--steps_per_stats", type=int, default=100,
+                      help=("How many training steps to do per stats logging."
+                            "Save checkpoint every 10x steps_per_stats"))
   parser.add_argument("--max_train", type=int, default=0,
                       help="Limit on the size of training data (0: no limit).")
   parser.add_argument("--num_buckets", type=int, default=5,

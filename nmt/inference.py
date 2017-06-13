@@ -49,12 +49,15 @@ def create_infer_model(
         tgt_vocab_file, default_value=vocab_utils.UNK_ID)
     reverse_tgt_vocab_table = lookup_ops.index_to_string_table_from_file(
         tgt_vocab_file, default_value=vocab_utils.UNK)
+
     infer_src_placeholder = tf.placeholder(shape=[None], dtype=tf.string)
+    infer_batch_size_placeholder = tf.placeholder(shape=[], dtype=tf.int64)
+
     infer_src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
         infer_src_placeholder)
     infer_iterator = iterator_utils.get_infer_iterator(
         infer_src_dataset, hparams,
-        src_vocab_table, hparams.batch_size,
+        src_vocab_table, infer_batch_size_placeholder,
         src_max_len=hparams.src_max_len_infer)
     infer_model = model_creator(
         hparams,
@@ -65,7 +68,7 @@ def create_infer_model(
         reverse_target_vocab_table=reverse_tgt_vocab_table,
         scope=scope)
   return (infer_graph, infer_model, infer_src_placeholder,
-          infer_iterator)
+          infer_batch_size_placeholder, infer_iterator)
 
 
 def load_inference_hparams(model_dir, inference_list=None):
@@ -172,15 +175,18 @@ def _single_worker_inference(model_dir,
   else:
     model_creator = attention_model.AttentionModel
 
-  infer_graph, infer_model, infer_src_placeholder, infer_iterator = (
-      create_infer_model(model_creator, hparams, src_vocab_file, tgt_vocab_file,
-                         scope))
+  (infer_graph, infer_model, infer_src_placeholder,
+   infer_batch_size_placeholder, infer_iterator) = (create_infer_model(
+       model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
     model_helper.create_or_load_model(infer_model, model_dir, sess, hparams,
                                       "infer")
     sess.run(
         infer_iterator.initializer,
-        feed_dict={infer_src_placeholder.name: infer_data})
+        feed_dict={
+            infer_src_placeholder: infer_data,
+            infer_batch_size_placeholder: hparams.infer_batch_size
+        })
     # Decode
     utils.print_out("# Start decoding")
     if hparams.inference_indices:
@@ -224,7 +230,7 @@ def _multi_worker_inference(model_dir,
   else:
     model_creator = attention_model.AttentionModel
 
-  infer_graph, infer_model, infer_src_placeholder, infer_iterator = (
+  infer_graph, infer_model, infer_src_placeholder, infer_batch_size_placeholder, infer_iterator = (
       create_infer_model(model_creator, hparams, src_vocab_file, tgt_vocab_file,
                          scope))
 
@@ -232,10 +238,12 @@ def _multi_worker_inference(model_dir,
     model_helper.create_or_load_model(infer_model, model_dir, sess, hparams,
                                       "infer")
     sess.run(infer_iterator.initializer,
-             {infer_src_placeholder.name: infer_data})
+             {
+                 infer_src_placeholder: infer_data,
+                 infer_batch_size_placeholder: hparams.infer_batch_size
+             })
     # Decode
     utils.print_out("# Start decoding")
-    worker_sorted_indices = None  # for worker, no worry about sorted indices
     nmt_utils.decode_and_evaluate("infer", infer_model, sess, output_infer,
                                   None, hparams)
 

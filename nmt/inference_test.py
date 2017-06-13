@@ -141,7 +141,7 @@ class InferenceTest(tf.test.TestCase):
         use_residual=False,
         inference_indices=[1, 2])
     # TODO(rzhao): Make infer indices support batch_size > 1.
-    hparams.batch_size = 1
+    hparams.infer_batch_size = 1
     vocab_prefix = "nmt/testdata/test_infer_vocab"
     hparams.add_hparam("vocab_prefix", vocab_prefix)
 

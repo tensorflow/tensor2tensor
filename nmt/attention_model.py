@@ -54,8 +54,7 @@ class AttentionModel(model.Model):
         scope=scope)
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
       self.infer_summary = (
-          _create_attention_images_summary(self.final_context_state,
-                                           hparams.alignment_history))
+          _create_attention_images_summary(self.final_context_state))
 
   def _build_decoder_cell(self, hparams, encoder_outputs, encoder_state,
                           source_sequence_length):
@@ -85,7 +84,7 @@ class AttentionModel(model.Model):
         cell,
         attention_mechanism,
         attention_layer_size=num_units,
-        alignment_history=hparams.alignment_history,
+        alignment_history=(self.mode == tf.contrib.learn.ModeKeys.INFER),
         name="attention")
 
     # TODO(thangluong): do we need num_layers, num_gpus?
@@ -135,14 +134,10 @@ def create_attention_mechanism(attention_option, num_units, encoder_outputs,
   return attention_mechanism
 
 
-def _create_attention_images_summary(final_context_state, alignment_history):
+def _create_attention_images_summary(final_context_state):
   """create attention image and attention summary."""
-  if alignment_history:
-    attention_images = (
-        final_context_state.alignment_history.stack())
-  else:
-    attention_images = tf.zeros([1, 1, 1])
-
+  attention_images = (
+      final_context_state.alignment_history.stack())
   # Reshape to (batch, src_seq_len, tgt_seq_len,1)
   attention_images = tf.expand_dims(
       tf.transpose(attention_images, [1, 2, 0]), -1)

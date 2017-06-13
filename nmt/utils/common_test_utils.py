@@ -57,7 +57,6 @@ def create_test_hparams(unit_type="lstm",
       attention_type="softmax",
       attention_architecture=attention_architecture,
       output_attention=output_attention,
-      alignment_history=False,
       use_attention_layer=use_attention_layer,
 
       # Train
@@ -77,6 +76,7 @@ def create_test_hparams(unit_type="lstm",
 
       # Infer
       tgt_max_len_infer=100,
+      infer_batch_size=32,
 
       # Misc
       forget_bias=0.0,

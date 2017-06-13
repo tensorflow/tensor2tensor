@@ -149,16 +149,20 @@ def train(hparams, scope=None):
   (eval_graph, eval_model, eval_src_file_placeholder,
    eval_tgt_file_placeholder, eval_iterator) = create_eval_model(
        model_creator, hparams, src_vocab_file, tgt_vocab_file, scope)
-  infer_graph, infer_model, infer_src_placeholder, infer_iterator = (
-      inference.create_infer_model(model_creator, hparams, src_vocab_file,
-                                   tgt_vocab_file, scope))
+  (infer_graph, infer_model, infer_src_placeholder,
+   infer_batch_size_placeholder,
+   infer_iterator) = (inference.create_infer_model(
+       model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
 
   dev_eval_iterator_feed_dict = {
       eval_src_file_placeholder: dev_src_file,
       eval_tgt_file_placeholder: dev_tgt_file
   }
+  dev_src_data = inference.load_data(dev_src_file)
+  dev_tgt_data = inference.load_data(dev_tgt_file)
   dev_infer_iterator_feed_dict = {
-      infer_src_placeholder: inference.load_data(dev_src_file)
+      infer_src_placeholder: dev_src_data,
+      infer_batch_size_placeholder: hparams.infer_batch_size,
   }
   if hparams.test_prefix:
     test_eval_iterator_feed_dict = {
@@ -166,7 +170,8 @@ def train(hparams, scope=None):
         eval_tgt_file_placeholder: test_tgt_file
     }
     test_infer_iterator_feed_dict = {
-        infer_src_placeholder: inference.load_data(test_src_file)
+        infer_src_placeholder: inference.load_data(test_src_file),
+        infer_batch_size_placeholder: hparams.infer_batch_size,
     }
 
   # Log and output files
@@ -216,6 +221,11 @@ def train(hparams, scope=None):
       loaded_infer_model, global_step = model_helper.create_or_load_model(
           infer_model, hparams.out_dir, infer_sess, hparams, "infer")
 
+    _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
+                   infer_iterator, dev_src_data, dev_tgt_data,
+                   infer_src_placeholder, infer_batch_size_placeholder,
+                   summary_writer)
+
     dev_scores = _external_eval(
         loaded_infer_model,
         global_step,
@@ -263,14 +273,6 @@ def train(hparams, scope=None):
         (epoch, global_step, train_model.learning_rate.eval(session=train_sess),
          time.ctime()),
         log_f)
-    # utils.print_out("  sample train data:")
-    # nmt_utils.print_translation(
-    #     batch["encoder_inputs"][:, -1],
-    #     batch["decoder_outputs"][:, -1],
-    #     None,
-    #     src_vocab, tgt_vocab, source_reverse,
-    #     bpe_delimiter=bpe_delimiter
-    # )
 
     # Initialize all of the iterators
     train_sess.run(train_iterator.initializer)
@@ -396,36 +398,34 @@ def _internal_eval(model, global_step, sess, iterator, iterator_feed_dict,
   return ppl
 
 
-def _sample_decode(model, sess, hparams, infer_dev_batches,
-                   global_step, summary_writer):
+def _sample_decode(model, global_step, sess, hparams, iterator, src_data,
+                   tgt_data, iterator_src_placeholder,
+                   iterator_batch_size_placeholder, summary_writer):
   """Pick a sentence and decode."""
-  src_vocab = hparams.src_vocab
-  tgt_vocab = hparams.tgt_vocab
-  bpe_delimiter = hparams.bpe_delimiter
-  source_reverse = hparams.source_reverse
-
-  # Pick a sent to decode
-  decode_id = random.randint(0, len(infer_dev_batches) - 1)
+  decode_id = random.randint(0, len(src_data)-1)
   utils.print_out("  # %d" % decode_id)
-  sample_ids, attention_summary = model.decode(sess)
 
-  # Print translation
-  nmt_utils.print_translation(
-      infer_dev_batches[decode_id]["encoder_inputs"][:, 0],
-      infer_dev_batches[decode_id]["decoder_outputs"][:, 0],
-      sample_ids,
-      src_vocab, tgt_vocab,
-      source_reverse,
-      bpe_delimiter=bpe_delimiter
-  )
+  iterator_feed_dict = {
+      iterator_src_placeholder: [src_data[decode_id]],
+      iterator_batch_size_placeholder: 1,
+  }
+  sess.run(iterator.initializer, feed_dict=iterator_feed_dict)
+
+  nmt_outputs, attention_summary = model.decode(sess)
+
+  translation = nmt_utils.get_translation(nmt_outputs, 0, hparams)
+  utils.print_out("    src: %s" % src_data[decode_id])
+  utils.print_out("    ref: %s" % tgt_data[decode_id])
+  utils.print_out("    nmt: %s" % translation)
 
   # Summary
   if attention_summary is not None:
     summary_writer.add_summary(attention_summary, global_step)
 
 
-def _external_eval(model, global_step, sess, hparams, iterator, iterator_feed_dict,
-                   tgt_file, label, summary_writer, save_on_best):
+def _external_eval(model, global_step, sess, hparams, iterator,
+                   iterator_feed_dict, tgt_file, label, summary_writer,
+                   save_on_best):
   """External evaluation such as BLEU and ROUGE scores."""
   out_dir = hparams.out_dir
   decode = global_step > 0
