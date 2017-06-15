@@ -49,14 +49,15 @@ example, downloading data, generating vocabulary files, etc.
 
 Some examples:
 
-*   [Algorithmic generators](https://github.com/tensorflow/tensor2tensor/tree/master/data_generators/algorithmic.py)
-    and their [unit tests](https://github.com/tensorflow/tensor2tensor/tree/master/data_generators/algorithmic_test.py)
-*   [WMT generators](https://github.com/tensorflow/tensor2tensor/tree/master/data_generators/wmt.py)
-    and their [unit tests](https://github.com/tensorflow/tensor2tensor/tree/master/data_generators/wmt_test.py)
+*   [Algorithmic generators](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/algorithmic.py)
+    and their [unit tests](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/algorithmic_test.py)
+*   [WMT generators](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt.py)
+    and their [unit tests](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt_test.py)
 
 When your python generator is ready and tested, add it to the
-`_SUPPORTED_PROBLEM_GENERATORS` dictionary in
-[generator.py](https://github.com/tensorflow/tensor2tensor/tree/master/data_generators/generator.py).
+`_SUPPORTED_PROBLEM_GENERATORS` dictionary in the
+[data
+generator](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/t2t-datagen).
 The keys are problem names, and the values are pairs of (training-set-generator
 function, dev-set-generator function). For the generator above, one could add
 the following lines:
