@@ -229,7 +229,10 @@ class SubwordTextEncoder(TextEncoder):
         self._all_subtoken_strings[subtoken]):
       return self._all_subtoken_strings[subtoken]
     else:
-      return 'ID%d_' % subtoken
+      if 0 <= subtoken < self._num_reserved_ids:
+        return '%s_' % RESERVED_TOKENS[subtoken]
+      else:
+        return 'ID%d_' % subtoken
 
   def _escaped_token_to_subtokens(self, escaped_token):
     """Converts an escaped token string to a list of subtokens.

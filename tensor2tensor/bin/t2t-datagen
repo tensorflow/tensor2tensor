@@ -47,8 +47,8 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("data_dir", "", "Data directory.")
-flags.DEFINE_string("tmp_dir",
-                    tempfile.gettempdir(), "Temporary storage directory.")
+flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
+                    "Temporary storage directory.")
 flags.DEFINE_string("problem", "",
                     "The name of the problem to generate data for.")
 flags.DEFINE_integer("num_shards", 1, "How many shards to use.")

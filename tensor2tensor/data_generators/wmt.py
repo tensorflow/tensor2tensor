@@ -203,17 +203,19 @@ def _compile_data(tmp_dir, datasets, filename):
   with tf.gfile.GFile(filename + ".lang1", mode="w") as lang1_file:
     i = 0
     while i <= len(lang1_lines):
-      lang1_file.writelines(
-          lang1_lines[i * write_chunk_size:(i + 1) * write_chunk_size])
+      for line in lang1_lines[i * write_chunk_size:(i + 1) * write_chunk_size]:
+        lang1_file.write(line)
       i += 1
-    lang1_file.writelines(lang1_lines[i * write_chunk_size:])
+    for line in lang1_lines[i * write_chunk_size:]:
+      lang1_file.write(line)
   with tf.gfile.GFile(filename + ".lang2", mode="w") as lang2_file:
     i = 0
     while i <= len(lang2_lines):
-      lang2_file.writelines(
-          lang2_lines[i * write_chunk_size:(i + 1) * write_chunk_size])
+      for line in lang2_lines[i * write_chunk_size:(i + 1) * write_chunk_size]:
+        lang2_file.write(line)
       i += 1
-    lang2_file.writelines(lang2_lines[i * write_chunk_size:])
+    for line in lang2_lines[i * write_chunk_size:]:
+      lang2_file.write(line)
   return filename
 
 

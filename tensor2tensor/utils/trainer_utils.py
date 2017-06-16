@@ -656,8 +656,7 @@ def run_locally(data_dir, model, output_dir, train_steps, eval_steps):
       base_filename = FLAGS.decode_from_file
     decode_filename = (
         base_filename + "." + FLAGS.model + "." + FLAGS.hparams_set + ".beam" +
-        str(FLAGS.beam_size) + ".a" + str(FLAGS.alpha) + ".alpha" +
-        str(FLAGS.alpha) + ".decodes")
+        str(FLAGS.beam_size) + ".alpha" + str(FLAGS.alpha) + ".decodes")
     tf.logging.info("Writing decodes into %s" % decode_filename)
     outfile = tf.gfile.Open(decode_filename, "w")
     for index in range(len(sorted_inputs)):
