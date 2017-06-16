@@ -17,14 +17,14 @@ issues](https://github.com/tensorflow/tensor2tensor/issues).
 ```
 pip install tensor2tensor
 
-DATA_DIR=$HOME/t2t_data
-TMP_DIR=/tmp/t2t_datagen
 PROBLEM=wmt_ende_tokens_32k
 MODEL=transformer
 HPARAMS=transformer_base
-TRAIN_DIR=$HOME/t2t_train/$PROBLEM_$MODEL_$HPARAMS
+DATA_DIR=$HOME/t2t_data
+TMP_DIR=/tmp/t2t_datagen
+TRAIN_DIR=$HOME/t2t_train/$PROBLEM/$MODEL-$HPARAMS
 
-mkdir $DATA_DIR $TMP_DIR $TRAIN_DIR
+mkdir -p $DATA_DIR $TMP_DIR $TRAIN_DIR
 
 # Generate data
 t2t-datagen \
@@ -68,6 +68,10 @@ cat $DECODE_FILE.$MODEL.$HPARAMS.beam$BEAM_SIZE.alpha$ALPHA.decodes
 
 T2T modularizes training into several components, each of which can be seen in
 use in the above commands.
+
+See the models, problems, and hyperparameter sets that are available:
+
+`t2t-trainer --registry_help`
 
 ### Datasets
 
@@ -118,7 +122,8 @@ The **trainer** binary is the main entrypoint for training, evaluation, and
 inference. Users can easily switch between problems, models, and hyperparameter
 sets by using the `--model`, `--problems`, and `--hparams_set` flags. Specific
 hyperparameters can be overriden with the `--hparams` flag. `--schedule` and
-related flags control local and distributed training/evaluation.
+related flags control local and distributed training/evaluation
+([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/docs/distributed_training.md)).
 
 ## Adding a dataset
 

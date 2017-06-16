@@ -126,7 +126,7 @@ def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
 
 def create_experiment(output_dir, data_dir, model_name, train_steps,
                       eval_steps):
-  hparams = create_hparams(FLAGS.hparams_set, FLAGS.data_dir)
+  hparams = create_hparams(FLAGS.hparams_set, data_dir)
   estimator, input_fns = create_experiment_components(
       hparams=hparams,
       output_dir=output_dir,

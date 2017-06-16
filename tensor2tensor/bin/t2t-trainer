@@ -42,7 +42,6 @@ def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   utils.log_registry()
   utils.validate_flags()
-  # TODO(rsepassi): Document distributed training
   utils.run(
       data_dir=FLAGS.data_dir,
       model=FLAGS.model,
