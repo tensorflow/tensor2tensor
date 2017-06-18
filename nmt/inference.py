@@ -145,17 +145,37 @@ def inference(model_dir,
   if hparams.inference_indices:
     assert num_workers == 1
 
+  if not hparams.attention:
+    model_creator = nmt_model.Model
+  elif hparams.attention_architecture == "standard":
+    model_creator = attention_model.AttentionModel
+  elif hparams.attention_architecture == "gnmt":
+    model_creator = gnmt_model.GNMTModel
+  else:
+    raise ValueError("Unknown model architecture")
+
   if num_workers == 1:
     _single_worker_inference(
-        model_dir, inference_input_file, inference_output_file, hparams,
+        model_creator,
+        model_dir,
+        inference_input_file,
+        inference_output_file,
+        hparams,
         scope=scope)
   else:
     _multi_worker_inference(
-        model_dir, inference_input_file, inference_output_file, hparams,
-        num_workers=num_workers, jobid=jobid, scope=scope)
+        model_creator,
+        model_dir,
+        inference_input_file,
+        inference_output_file,
+        hparams,
+        num_workers=num_workers,
+        jobid=jobid,
+        scope=scope)
 
 
-def _single_worker_inference(model_dir,
+def _single_worker_inference(model_creator,
+                             model_dir,
                              inference_input_file,
                              inference_output_file,
                              hparams,
@@ -169,11 +189,6 @@ def _single_worker_inference(model_dir,
   assert hparams.vocab_prefix
   src_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.src)
   tgt_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.tgt)
-
-  if hparams.attention == "":
-    model_creator = nmt_model.Model
-  else:
-    model_creator = attention_model.AttentionModel
 
   (infer_graph, infer_model, infer_src_placeholder,
    infer_batch_size_placeholder, infer_iterator) = (create_infer_model(
@@ -197,7 +212,8 @@ def _single_worker_inference(model_dir,
                                     None, hparams)
 
 
-def _multi_worker_inference(model_dir,
+def _multi_worker_inference(model_creator,
+                            model_dir,
                             inference_input_file,
                             inference_output_file,
                             hparams,
@@ -225,14 +241,9 @@ def _multi_worker_inference(model_dir,
   src_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.src)
   tgt_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.tgt)
 
-  if hparams.attention == "":
-    model_creator = nmt_model.Model
-  else:
-    model_creator = attention_model.AttentionModel
-
-  infer_graph, infer_model, infer_src_placeholder, infer_batch_size_placeholder, infer_iterator = (
-      create_infer_model(model_creator, hparams, src_vocab_file, tgt_vocab_file,
-                         scope))
+  (infer_graph, infer_model, infer_src_placeholder,
+   infer_batch_size_placeholder, infer_iterator) = (create_infer_model(
+       model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
 
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
     model_helper.create_or_load_model(infer_model, model_dir, sess, hparams,

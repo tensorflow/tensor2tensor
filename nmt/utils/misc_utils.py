@@ -28,6 +28,11 @@ import numpy as np
 import tensorflow as tf
 
 
+def check_tensorflow_version():
+  if tf.__version__ < "1.2":
+    raise EnvironmentError("Tensorflow version must >= 1.2")
+
+
 def safe_exp(value):
   """Exponentiation with catching of overflow error."""
   try:

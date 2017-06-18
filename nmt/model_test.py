@@ -23,10 +23,9 @@ import sys
 import numpy as np
 import tensorflow as tf
 
-from tensorflow.python.ops import lookup_ops
 from . import attention_model
 from . import model
-from .utils import iterator_utils
+from . import gnmt_model
 from .utils import common_test_utils
 
 float32 = np.float32
@@ -76,33 +75,15 @@ class ModelTest(tf.test.TestCase):
         'AttentionMechanismScaledLuong/last_enc_weight/shape': (10, 20),
         'AttentionMechanismScaledLuong/last_enc_weight/sum':
             0.058028102,
-        'GNMTEncoderGNMTAttentionArchitecture/last_dec_weight/shape': (15, 20),
-        'GNMTEncoderGNMTAttentionArchitecture/last_dec_weight/sum':
+        'GNMTModel/last_dec_weight/shape': (15, 20),
+        'GNMTModel/last_dec_weight/sum':
             -0.43950042,
-        'GNMTEncoderGNMTAttentionArchitecture/last_enc_weight/shape': (10, 20),
-        'GNMTEncoderGNMTAttentionArchitecture/last_enc_weight/sum':
+        'GNMTModel/last_enc_weight/shape': (10, 20),
+        'GNMTModel/last_enc_weight/sum':
             0.058523536,
-        'GNMTEncoderGNMTAttentionArchitecture/mem_layer_weight/shape': (5, 5),
-        'GNMTEncoderGNMTAttentionArchitecture/mem_layer_weight/sum':
+        'GNMTModel/mem_layer_weight/shape': (5, 5),
+        'GNMTModel/mem_layer_weight/sum':
             -0.4481546,
-        'GNMTEncoderGNMTAttentionNoResidual/last_dec_weight/shape': (15, 20),
-        'GNMTEncoderGNMTAttentionNoResidual/last_dec_weight/sum':
-            -0.4863537,
-        'GNMTEncoderGNMTAttentionNoResidual/last_enc_weight/shape': (10, 20),
-        'GNMTEncoderGNMTAttentionNoResidual/last_enc_weight/sum':
-            0.058024943,
-        'GNMTEncoderGNMTNewAttentionArchitecture/last_dec_weight/shape': (15,
-                                                                          20),
-        'GNMTEncoderGNMTNewAttentionArchitecture/last_dec_weight/sum':
-            -0.44023126,
-        'GNMTEncoderGNMTNewAttentionArchitecture/last_enc_weight/shape': (10,
-                                                                          20),
-        'GNMTEncoderGNMTNewAttentionArchitecture/last_enc_weight/sum':
-            0.058626056,
-        'GNMTEncoderGNMTNewAttentionArchitecture/mem_layer_weight/shape': (5,
-                                                                           5),
-        'GNMTEncoderGNMTNewAttentionArchitecture/mem_layer_weight/sum':
-            -0.44815457,
         'NoAttentionNoResidualUniEncoder/last_dec_weight/shape': (10, 20),
         'NoAttentionNoResidualUniEncoder/last_dec_weight/sum':
             0.057424068,
@@ -135,7 +116,7 @@ class ModelTest(tf.test.TestCase):
         'UniEncoderStandardAttentionArchitecture/mem_layer_weight/shape': (5,
                                                                            5),
         'UniEncoderStandardAttentionArchitecture/mem_layer_weight/sum':
-            -0.44815454
+            -0.44815454,
     }
 
     cls.actual_train_values = {}
@@ -144,12 +125,9 @@ class ModelTest(tf.test.TestCase):
         'AttentionMechanismLuong/loss': 8.8519039,
         'AttentionMechanismNormedBahdanau/loss': 8.851902,
         'AttentionMechanismScaledLuong/loss': 8.8519039,
-        'GNMTEncoderGNMTAttentionArchitecture/loss': 8.5208139,
-        'GNMTEncoderGNMTAttentionNoResidual/loss': 8.8519096,
-        'GNMTEncoderGNMTNewAttentionArchitecture/loss': 8.5211048,
+        'GNMTModel/loss': 8.5208139,
         'NoAttentionNoResidualUniEncoder/loss': 8.8516064,
         'NoAttentionResidualBiEncoder/loss': 8.851984,
-        'UniEncoderBottomAttentionArchitecture/loss': 8.8519087,
         'UniEncoderStandardAttentionArchitecture/loss': 8.8519087
     }
 
@@ -163,12 +141,8 @@ class ModelTest(tf.test.TestCase):
         'AttentionMechanismNormedBahdanau/predict_count': 11.0,
         'AttentionMechanismScaledLuong/loss': 8.8517132,
         'AttentionMechanismScaledLuong/predict_count': 11.0,
-        'GNMTEncoderGNMTAttentionArchitecture/loss': 8.1876411,
-        'GNMTEncoderGNMTAttentionArchitecture/predict_count': 11.0,
-        'GNMTEncoderGNMTAttentionNoResidual/loss': 8.8445024,
-        'GNMTEncoderGNMTAttentionNoResidual/predict_count': 11.0,
-        'GNMTEncoderGNMTNewAttentionArchitecture/loss': 8.1882153,
-        'GNMTEncoderGNMTNewAttentionArchitecture/predict_count': 11.0,
+        'GNMTModel/loss': 8.8443422,
+        'GNMTModel/predict_count': 11.0,
         'NoAttentionNoResidualUniEncoder/loss': 8.8440113,
         'NoAttentionNoResidualUniEncoder/predict_count': 11.0,
         'NoAttentionResidualBiEncoder/loss': 8.8291245,
@@ -185,9 +159,7 @@ class ModelTest(tf.test.TestCase):
         'AttentionMechanismLuong/logits_sum': -0.026374735,
         'AttentionMechanismNormedBahdanau/logits_sum': -0.026376063,
         'AttentionMechanismScaledLuong/logits_sum': -0.026374735,
-        'GNMTEncoderGNMTAttentionArchitecture/logits_sum': -12.783271,
-        'GNMTEncoderGNMTAttentionNoResidual/logits_sum': -0.96752787,
-        'GNMTEncoderGNMTNewAttentionArchitecture/logits_sum': -12.767529,
+        'GNMTModel/logits_sum': -0.9888710,
         'NoAttentionNoResidualUniEncoder/logits_sum': -1.0808625,
         'NoAttentionResidualBiEncoder/logits_sum': -2.8147559,
         'UniEncoderBottomAttentionArchitecture/logits_sum': -0.97026241,
@@ -751,9 +723,7 @@ class ModelTest(tf.test.TestCase):
         encoder_type='uni',
         num_layers=4,
         attention='scaled_luong',
-        attention_architecture='standard',
-        use_attention_layer=True,
-        output_attention=True)
+        attention_architecture='standard',)
 
     workers, _ = tf.test.create_local_cluster(1, 0)
     worker = workers[0]
@@ -825,6 +795,79 @@ class ModelTest(tf.test.TestCase):
                                              hparams, sess)
         self._assertInferLogits(infer_m, sess,
                                 'UniEncoderStandardAttentionArchitecture')
+
+  # Test gnmt model.
+  def testGNMTModel(self):
+    hparams = common_test_utils.create_test_hparams(
+        encoder_type='gnmt',
+        num_layers=4,
+        attention='scaled_luong',
+        attention_architecture='gnmt')
+
+    workers, _ = tf.test.create_local_cluster(1, 0)
+    worker = workers[0]
+
+    # pylint: disable=line-too-long
+    expected_var_names = [
+        'dynamic_seq2seq/encoder/embedding_encoder:0',
+        'dynamic_seq2seq/decoder/embedding_decoder:0',
+        'dynamic_seq2seq/encoder/bidirectional_rnn/fw/basic_lstm_cell/kernel:0',
+        'dynamic_seq2seq/encoder/bidirectional_rnn/fw/basic_lstm_cell/bias:0',
+        'dynamic_seq2seq/encoder/bidirectional_rnn/bw/basic_lstm_cell/kernel:0',
+        'dynamic_seq2seq/encoder/bidirectional_rnn/bw/basic_lstm_cell/bias:0',
+        'dynamic_seq2seq/encoder/rnn/multi_rnn_cell/cell_0/basic_lstm_cell/kernel:0',
+        'dynamic_seq2seq/encoder/rnn/multi_rnn_cell/cell_0/basic_lstm_cell/bias:0',
+        'dynamic_seq2seq/encoder/rnn/multi_rnn_cell/cell_1/basic_lstm_cell/kernel:0',
+        'dynamic_seq2seq/encoder/rnn/multi_rnn_cell/cell_1/basic_lstm_cell/bias:0',
+        'dynamic_seq2seq/encoder/rnn/multi_rnn_cell/cell_2/basic_lstm_cell/kernel:0',
+        'dynamic_seq2seq/encoder/rnn/multi_rnn_cell/cell_2/basic_lstm_cell/bias:0',
+        'dynamic_seq2seq/decoder/memory_layer/kernel:0',
+        'dynamic_seq2seq/decoder/multi_rnn_cell/cell_0_attention/attention/basic_lstm_cell/kernel:0',
+        'dynamic_seq2seq/decoder/multi_rnn_cell/cell_0_attention/attention/basic_lstm_cell/bias:0',
+        'dynamic_seq2seq/decoder/multi_rnn_cell/cell_0_attention/attention/luong_attention/attention_g:0',
+        'dynamic_seq2seq/decoder/multi_rnn_cell/cell_1/basic_lstm_cell/kernel:0',
+        'dynamic_seq2seq/decoder/multi_rnn_cell/cell_1/basic_lstm_cell/bias:0',
+        'dynamic_seq2seq/decoder/multi_rnn_cell/cell_2/basic_lstm_cell/kernel:0',
+        'dynamic_seq2seq/decoder/multi_rnn_cell/cell_2/basic_lstm_cell/bias:0',
+        'dynamic_seq2seq/decoder/multi_rnn_cell/cell_3/basic_lstm_cell/kernel:0',
+        'dynamic_seq2seq/decoder/multi_rnn_cell/cell_3/basic_lstm_cell/bias:0',
+        'dynamic_seq2seq/decoder/output_projection/kernel:0'
+    ]
+    # pylint: enable=line-too-long
+
+    with tf.Graph().as_default():
+      with tf.Session(worker.target, config=self._get_session_config()) as sess:
+        train_m = self._createTestTrainModel(gnmt_model.GNMTModel, hparams,
+                                             sess)
+
+        m_vars = tf.trainable_variables()
+        self._assertModelVariableNames(expected_var_names,
+                                       [v.name for v in m_vars], 'GNMTModel')
+        with tf.variable_scope('dynamic_seq2seq', reuse=True):
+          last_enc_weight = tf.get_variable(
+              'encoder/rnn/multi_rnn_cell/cell_2/basic_lstm_cell/kernel')
+          last_dec_weight = tf.get_variable(
+              'decoder/multi_rnn_cell/cell_3/basic_lstm_cell/kernel')
+          mem_layer_weight = tf.get_variable('decoder/memory_layer/kernel')
+        self._assertTrainStepsLoss(train_m, sess, 'GNMTModel')
+
+        self._assertModelVariable(last_enc_weight, sess,
+                                  'GNMTModel/last_enc_weight')
+        self._assertModelVariable(last_dec_weight, sess,
+                                  'GNMTModel/last_dec_weight')
+        self._assertModelVariable(mem_layer_weight, sess,
+                                  'GNMTModel/mem_layer_weight')
+
+    with tf.Graph().as_default():
+      with tf.Session(worker.target, config=self._get_session_config()) as sess:
+        eval_m = self._createTestEvalModel(gnmt_model.GNMTModel, hparams, sess)
+        self._assertEvalLossAndPredictCount(eval_m, sess, 'GNMTModel')
+
+    with tf.Graph().as_default():
+      with tf.Session(worker.target, config=self._get_session_config()) as sess:
+        infer_m = self._createTestInferModel(gnmt_model.GNMTModel, hparams,
+                                             sess)
+        self._assertInferLogits(infer_m, sess, 'GNMTModel')
 
 
 if __name__ == '__main__':

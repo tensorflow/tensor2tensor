@@ -26,6 +26,7 @@ import tensorflow as tf
 from tensorflow.python.ops import lookup_ops
 
 from . import attention_model
+from . import gnmt_model
 from . import inference
 from . import model as nmt_model
 from . import model_helper
@@ -33,6 +34,8 @@ from .utils import iterator_utils
 from .utils import misc_utils as utils
 from .utils import nmt_utils
 from .utils import vocab_utils
+
+utils.check_tensorflow_version()
 
 __all__ = ["train"]
 
@@ -136,6 +139,8 @@ def train(hparams, scope=None):
     model_creator = nmt_model.Model
   elif hparams.attention_architecture == "standard":
     model_creator = attention_model.AttentionModel
+  elif hparams.attention_architecture == "gnmt":
+    model_creator = gnmt_model.GNMTModel
   else:
     raise ValueError("Unknown model architecture")
 

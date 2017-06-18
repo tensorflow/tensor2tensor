@@ -53,8 +53,7 @@ class AttentionModel(model.Model):
         reverse_target_vocab_table=reverse_target_vocab_table,
         scope=scope)
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
-      self.infer_summary = (
-          _create_attention_images_summary(self.final_context_state))
+      self.infer_summary = self._get_infer_summary()
 
   def _build_decoder_cell(self, hparams, encoder_outputs, encoder_state,
                           source_sequence_length):
@@ -96,6 +95,8 @@ class AttentionModel(model.Model):
 
     return cell, decoder_initial_state
 
+  def _get_infer_summary(self):
+    return _create_attention_images_summary(self.final_context_state)
 
 def create_attention_mechanism(attention_option, num_units, encoder_outputs,
                                time_major, source_sequence_length):

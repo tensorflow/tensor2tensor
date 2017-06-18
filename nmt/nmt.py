@@ -30,6 +30,7 @@ from . import train
 from .utils import misc_utils as utils
 from .utils import vocab_utils
 
+utils.check_tensorflow_version()
 
 FLAGS = None
 
@@ -126,9 +127,9 @@ def extend_hparams(hparams):
   if hparams.encoder_type == "bi" and hparams.num_layers % 2 != 0:
     raise ValueError("For bi, num_layers %d should be even" %
                      hparams.num_layers)
-  if (hparams.attention_architecture in ["gnmt", "bottom", "gnmt_new"] and
+  if (hparams.attention_architecture in ["gnmt"] and
       hparams.num_layers < 2):
-    raise ValueError("For gnmt, bottom, and gnmt_new attention, "
+    raise ValueError("For gnmt attention architecture, "
                      "num_layers %d should be >= 2" % hparams.num_layers)
   if hparams.task == "seq2label" and hparams.source_reverse:
     raise ValueError("For seq2label tasks, "
@@ -155,15 +156,6 @@ def extend_hparams(hparams):
   else:
     num_residual_layers = 0
   hparams.add_hparam("num_residual_layers", num_residual_layers)
-
-  # Set output_attention & use_attention_layer
-  output_attention = True
-  use_attention_layer = True
-  if hparams.attention_architecture in ["gnmt", "bottom", "gnmt_new"]:
-    output_attention = False
-    use_attention_layer = False
-  hparams.add_hparam("output_attention", output_attention)
-  hparams.add_hparam("use_attention_layer", use_attention_layer)
 
   # Ignore map
   ignore_map = None
@@ -342,13 +334,10 @@ if __name__ == "__main__":
       type=str,
       default="standard",
       help="""\
-      standard | bottom | gnmt | gnmt_new.
+      standard | gnmt.
       standard: use top layer to compute attention.
-      bottom: use bottom layer to compute attention.
       gnmt: GNMT style of computing attention, use previous bottom layer to
-          compute attention. (Not Implemented)
-      gnmt_new: GNMT style of computing attention use current bottom
-          layer to compute attention. (Not Implemented)\
+          compute attention.\
       """)
 
   # optimizer

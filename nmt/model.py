@@ -29,6 +29,7 @@ from . import model_helper
 from .utils import iterator_utils
 from .utils import misc_utils as utils
 
+utils.check_tensorflow_version()
 
 __all__ = ["BaseModel", "Model"]
 
@@ -154,7 +155,7 @@ class BaseModel(object):
       ] + gradient_norm_summary)
 
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
-      self.infer_summary = tf.no_op()
+      self.infer_summary = self._get_infer_summary()
 
     # Saver
     self.saver = tf.train.Saver(tf.global_variables())
@@ -193,8 +194,7 @@ class BaseModel(object):
     assert self.mode == tf.contrib.learn.ModeKeys.EVAL
     return sess.run([self.eval_loss,
                      self.predict_count,
-                     self.batch_size
-                     ])
+                     self.batch_size])
 
   def build_graph(self, hparams, scope=None):
     """Subclass must implement this method.
@@ -282,15 +282,13 @@ class BaseModel(object):
     iterator = self.iterator
 
     # maximum_iteration: The maximum decoding steps.
-    # TODO(thangluong): move max_encoder_length to "else", will change
-    # tests
-    max_encoder_length = tf.reduce_max(iterator.source_sequence_length)
     if hparams.tgt_max_len_infer:
       maximum_iterations = hparams.tgt_max_len_infer
       utils.print_out("  decoding maximum_iterations %d" % maximum_iterations)
     else:
       # TODO(thangluong): add decoding_length_factor flag
       decoding_length_factor = 2.0
+      max_encoder_length = tf.reduce_max(iterator.source_sequence_length)
       maximum_iterations = tf.to_int32(tf.round(
           tf.to_float(max_encoder_length) * decoding_length_factor))
 
@@ -400,6 +398,9 @@ class BaseModel(object):
     loss = tf.reduce_sum(
         crossent * target_weights) / tf.to_float(self.batch_size)
     return loss
+
+  def _get_infer_summary(self):
+    return tf.no_op()
 
   def infer(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.INFER

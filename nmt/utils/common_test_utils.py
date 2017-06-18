@@ -31,8 +31,6 @@ def create_test_hparams(unit_type="lstm",
                         attention="",
                         attention_architecture=None,
                         use_residual=False,
-                        output_attention=True,
-                        use_attention_layer=True,
                         inference_indices=None):
   """Create training and inference test hparams."""
   num_residual_layers = 0
@@ -56,8 +54,6 @@ def create_test_hparams(unit_type="lstm",
       attention=attention,
       attention_type="softmax",
       attention_architecture=attention_architecture,
-      output_attention=output_attention,
-      use_attention_layer=use_attention_layer,
 
       # Train
       optimizer="sgd",
