@@ -285,7 +285,7 @@ class SubwordTextEncoder(TextEncoder):
     subtokenizer.build_from_token_counts(token_counts, store_filename,
                                          present_count, num_iterations)
 
-    if min_val == max_val or subtokenizer.vocab_size == target_size:
+    if min_val >= max_val or subtokenizer.vocab_size == target_size:
       return subtokenizer
     elif subtokenizer.vocab_size > target_size:
       other_subtokenizer = cls.build_to_target_size(
