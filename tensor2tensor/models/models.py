@@ -21,9 +21,11 @@ from __future__ import print_function
 # Dependency imports
 
 # pylint: disable=unused-import
+
 from tensor2tensor.models import attention_lm
-from tensor2tensor.models import baseline
+from tensor2tensor.models import attention_lm_moe
 from tensor2tensor.models import bytenet
+from tensor2tensor.models import lstm
 from tensor2tensor.models import multimodel
 from tensor2tensor.models import neural_gpu
 from tensor2tensor.models import slicenet

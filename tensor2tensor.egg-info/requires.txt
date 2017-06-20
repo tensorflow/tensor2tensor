@@ -1,0 +1,4 @@
+numpy
+sympy
+six
+tensorflow-gpu>=1.2.0rc1

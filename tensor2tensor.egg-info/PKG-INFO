@@ -1,0 +1,16 @@
+Metadata-Version: 1.1
+Name: tensor2tensor
+Version: 1.0.3
+Summary: Tensor2Tensor
+Home-page: http://github.com/tensorflow/tensor2tensor
+Author: Google Inc.
+Author-email: no-reply@google.com
+License: Apache 2.0
+Description: UNKNOWN
+Keywords: tensorflow
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence

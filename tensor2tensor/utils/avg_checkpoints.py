@@ -40,13 +40,13 @@ def checkpoint_exists(path):
           tf.gfile.Exists(path + ".index"))
 
 
-def main(unused_argv):
+def main(_):
   # Get the checkpoints list from flags and run some basic checks.
   checkpoints = [c.strip() for c in FLAGS.checkpoints.split(",")]
   checkpoints = [c for c in checkpoints if c]
   if not checkpoints:
     raise ValueError("No checkpoints provided for averaging.")
-  if flags.FLAGS.prefix:
+  if FLAGS.prefix:
     checkpoints = [FLAGS.prefix + c for c in checkpoints]
   checkpoints = [c for c in checkpoints if checkpoint_exists(c)]
   if not checkpoints:
@@ -89,9 +89,9 @@ def main(unused_argv):
                                            six.iteritems(var_values)):
       sess.run(assign_op, {p: value})
     # Use the built saver to save the averaged checkpoint.
-    saver.save(sess, flags.FLAGS.output_path, global_step=global_step)
+    saver.save(sess, FLAGS.output_path, global_step=global_step)
 
-  tf.logging.info("Averaged checkpoints saved in %s", flags.FLAGS.output_path)
+  tf.logging.info("Averaged checkpoints saved in %s", FLAGS.output_path)
 
 
 if __name__ == "__main__":
