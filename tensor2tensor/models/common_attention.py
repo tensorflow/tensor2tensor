@@ -127,6 +127,42 @@ def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
   return x
 
 
+def add_positional_embedding_nd(x, max_length, name):
+  """Add n-dimensional positional embedding.
+
+  Adds embeddings to represent the positional dimensions of the tensor.
+  The input tensor has n positional dimensions - i.e. 1 for text, 2 for images,
+  3 for video, etc.
+
+  Args:
+    x: a Tensor with shape [batch, p1 ... pn, depth]
+    max_length: an integer.  static maximum size of any dimension.
+    name: a name for this layer.
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+  static_shape = x.get_shape().as_list()
+  dynamic_shape = tf.shape(x)
+  num_dims = len(static_shape) - 2
+  depth = static_shape[-1]
+  base_shape = [1] * (num_dims + 1) + [depth]
+  base_start = [0] * (num_dims + 2)
+  base_size = [-1] + [1] * num_dims + [depth]
+  for i in xrange(num_dims):
+    shape = base_shape[:]
+    start = base_start[:]
+    size = base_size[:]
+    shape[i + 1] = max_length
+    size[i + 1] = dynamic_shape[i + 1]
+    var = (tf.get_variable(
+        name + "_%d" % i, shape,
+        initializer=tf.random_normal_initializer(0, depth ** -0.5))
+           * (depth ** 0.5))
+    x += tf.slice(var, start, size)
+  return x
+
+
 def embedding_to_padding(emb):
   """Input embeddings -> is_padding.
 
@@ -230,11 +266,15 @@ def combine_heads(x):
   return combine_last_two_dimensions(tf.transpose(x, [0, 2, 1, 3]))
 
 
-def attention_image_summary(attn):
+def attention_image_summary(attn, image_shapes=None):
   """Compute color image summary.
 
   Args:
     attn: a Tensor with shape [batch, num_heads, query_length, memory_length]
+    image_shapes: optional quadruple of integer scalars.
+      If the query positions and memory positions represent the
+      pixels of a flattened image, then pass in their dimensions:
+        (query_rows, query_cols, memory_rows, memory_cols).
   """
   num_heads = attn.get_shape().as_list()[1]
   # [batch, query_length, memory_length, num_heads]
@@ -245,6 +285,11 @@ def attention_image_summary(attn):
   image = tf.pad(image, [[0, 0], [0, 0], [0, 0], [0, -num_heads % 3]])
   image = split_last_dimension(image, 3)
   image = tf.reduce_max(image, 4)
+  if image_shapes is not None:
+    q_rows, q_cols, m_rows, m_cols = list(image_shapes)
+    image = tf.reshape(image, [-1, q_rows, q_cols, m_rows, m_cols, 3])
+    image = tf.transpose(image, [0, 1, 3, 2, 4, 5])
+    image = tf.reshape(image, [-1, q_rows * m_rows, q_cols * m_cols, 3])
   tf.summary.image("attention", image, max_outputs=1)
 
 
@@ -254,6 +299,7 @@ def dot_product_attention(q,
                           bias,
                           dropout_rate=0.0,
                           summaries=False,
+                          image_shapes=None,
                           name=None):
   """dot-product attention.
 
@@ -264,6 +310,10 @@ def dot_product_attention(q,
     bias: bias Tensor (see attention_bias())
     dropout_rate: a floating point number
     summaries: a boolean
+    image_shapes: optional quadruple of integer scalars for image summary.
+      If the query positions and memory positions represent the
+      pixels of a flattened image, then pass in their dimensions:
+        (query_rows, query_cols, memory_rows, memory_cols).
     name: an optional string
 
   Returns:
@@ -279,7 +329,7 @@ def dot_product_attention(q,
     # dropping out the attention links for each of the heads
     weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
     if summaries and not tf.get_variable_scope().reuse:
-      attention_image_summary(weights)
+      attention_image_summary(weights, image_shapes)
     return tf.matmul(weights, v)
 
 
@@ -292,6 +342,7 @@ def multihead_attention(query_antecedent,
                         num_heads,
                         dropout_rate,
                         summaries=False,
+                        image_shapes=None,
                         name=None):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -305,6 +356,10 @@ def multihead_attention(query_antecedent,
     num_heads: an integer dividing total_key_depth and total_value_depth
     dropout_rate: a floating point number
     summaries: a boolean
+    image_shapes: optional quadruple of integer scalars for image summary.
+      If the query positions and memory positions represent the
+      pixels of a flattened image, then pass in their dimensions:
+        (query_rows, query_cols, memory_rows, memory_cols).
     name: an optional string
 
   Returns:
@@ -338,7 +393,8 @@ def multihead_attention(query_antecedent,
     v = split_heads(v, num_heads)
     key_depth_per_head = total_key_depth // num_heads
     q *= key_depth_per_head**-0.5
-    x = dot_product_attention(q, k, v, bias, dropout_rate, summaries)
+    x = dot_product_attention(
+        q, k, v, bias, dropout_rate, summaries, image_shapes)
     x = combine_heads(x)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
     return x

@@ -110,7 +110,6 @@ class TokenTextEncoder(TextEncoder):
   def __init__(self, vocab_filename, reverse=False, num_reserved_ids=2):
     """Initialize from a file, one token per line."""
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
-
     self._reverse = reverse
     if vocab_filename is not None:
       self._load_vocab_from_file(vocab_filename)

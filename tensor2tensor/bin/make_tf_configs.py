@@ -32,6 +32,7 @@ import json
 
 # Dependency imports
 
+import six
 import tensorflow as tf
 
 flags = tf.flags
@@ -50,7 +51,7 @@ def main(_):
 
   cluster = {"ps": ps, "worker": workers}
 
-  for task_type, jobs in [("worker", workers), ("ps", ps)]:
+  for task_type, jobs in six.iteritems(cluster):
     for idx, job in enumerate(jobs):
       if task_type == "worker":
         cmd_line_flags = " ".join([

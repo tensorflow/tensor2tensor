@@ -161,6 +161,8 @@ def problem_hparams(problem_name, model_hparams):
     p.target_space_id = input_space_id
     # Mark that p was reversed.
     p.was_reversed = True
+    if p.was_reversed and "image_cifar10" in base_name:
+      p.loss_multiplier = 1.
   if was_copy:
     # Duplicate input modality.
     p.target_modality = p.input_modality["inputs"]
@@ -195,8 +197,8 @@ def algorithmic(vocab_size, model_hparams):
   }
   p.target_modality = modality.SymbolModality(model_hparams, vocab_size)
   p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(num_reserved_ids=1),
-      "targets": text_encoder.TextEncoder(num_reserved_ids=1),
+      "inputs": text_encoder.TextEncoder(),
+      "targets": text_encoder.TextEncoder(),
   }
   p.input_space_id = 10
   p.target_space_id = 11

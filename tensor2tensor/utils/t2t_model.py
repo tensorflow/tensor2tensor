@@ -80,7 +80,7 @@ class T2TModel(object):
 
   @property
   def has_input(self):
-    return self._input_modality
+    return self._problem_hparams.input_modality
 
   def infer(self,
             features=None,
@@ -105,6 +105,11 @@ class T2TModel(object):
     Returns:
        samples: an integer `Tensor`.
     """
+    if not self.has_input:
+      # since there is no input, it is more interesting to see randomly
+      # generated sequences, than to see the most likely sequence repeatedly.
+      beam_size = 1
+      self._hparams.sampling_method = "random"
     if beam_size == 1:
       tf.logging.info("Greedy Decoding")
       return self._greedy_infer(features, decode_length, last_position_only)
@@ -203,6 +208,8 @@ class T2TModel(object):
     if "inputs" in features and len(features["inputs"].shape) < 4:
       inputs_old = features["inputs"]
       features["inputs"] = tf.expand_dims(features["inputs"], 2)
+    if not self.has_input:
+      features["partial_targets"] = tf.to_int64(features["inputs"])
 
     def infer_step(recent_output, _):
       """Inference step."""

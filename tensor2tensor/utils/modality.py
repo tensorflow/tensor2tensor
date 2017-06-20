@@ -159,6 +159,24 @@ class Modality(object):
     return sharded_logits, loss
 
 
+class IdentityModality(Modality):
+  """Does nothing."""
+
+  def __init__(self, model_hparams, vocab_size):
+    super(IdentityModality, self).__init__(model_hparams)
+    self._vocab_size = vocab_size
+
+  @property
+  def targets_dimensionality(self):
+    return self._vocab_size
+
+  def inputs_bottom_simple(self, inputs):
+    return tf.to_float(inputs)
+
+  def targets_top_simple(self, body_output, _):
+    return body_output
+
+
 class SymbolModality(Modality):
   """Modality for sets of discrete symbols.
 
@@ -285,31 +303,28 @@ class SmallImageModality(Modality):
 
   def targets_bottom_simple(self, inputs):
     with tf.variable_scope(self.name):
-      inputs = common_layers.standardize_images(inputs)
-      if self._model_hparams.compress_steps > 0:
-        kernel, strides = (2, 2), (2, 2)  # Crucial to not leak!
-      else:
-        kernel, strides = (1, 1), (1, 1)
-      return common_layers.conv_block(
-          inputs,
-          self._body_input_depth, [((1, 1), kernel)],
-          first_relu=False,
-          strides=strides,
-          force2d=True,
-          name="small_image_conv")
+      # Reshape inputs to 2-d tensor and embed the RGB pixel values.
+      inputs = common_layers.flatten4d3d(inputs)
+      ret = common_layers.embedding(inputs, self.targets_dimensionality,
+                                    self._body_input_depth,
+                                    name="input_rgb_embedding")
+      if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
+        ret *= self._body_input_depth**0.5
+      return ret
 
-  def targets_top_simple(self, body_output, targets):
-    with tf.variable_scope(self.name):
-      if self._model_hparams.compress_steps == 0:
-        targets_shape = tf.shape(targets)
-        channels = targets.shape.as_list()[-1]
-        outputs = tf.layers.dense(body_output, 256 * channels)
-        return tf.reshape(outputs, [
-            targets_shape[0], targets_shape[1], targets_shape[2], 3, 256
-        ])
-      dilations_kernels = [((1, 1), (3, 1)), ((2, 1), (3, 1)), ((4, 1), (3, 1))]
-      return common_layers.decompress_seqcnn(
-          body_output, targets, 256, dilations_kernels, 2, is_2d=True)
+  def targets_top_simple(self, body_output, _):
+    with tf.variable_scope("rgb_softmax"):
+      var = tf.get_variable("output_rgb_embedding",
+                            [self.targets_dimensionality,
+                             self._body_input_depth],
+                            initializer=tf.random_normal_initializer(
+                                0.0, self._body_input_depth**-0.5))
+      body_output = tf.reshape(body_output, [-1, self._body_input_depth])
+      logits = tf.matmul(body_output, var, transpose_b=True)
+      # Reshape logits to conform to CIFAR image shapes (32 by 32 by 3)
+      logits = tf.reshape(logits, [-1, 32, 32, 3, 256])
+
+      return logits
 
   def targets_top_sharded(self,
                           sharded_body_output,
