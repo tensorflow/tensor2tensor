@@ -109,11 +109,11 @@ class TokenTextEncoder(TextEncoder):
 
   def __init__(self, vocab_filename, reverse=False, num_reserved_ids=2):
     """Initialize from a file, one token per line."""
-    self._reverse = reverse
-    if vocab_filename is None:
-      self._load_vocab_from_file(vocab_filename)
-
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
+
+    self._reverse = reverse
+    if vocab_filename is not None:
+      self._load_vocab_from_file(vocab_filename)
 
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""
