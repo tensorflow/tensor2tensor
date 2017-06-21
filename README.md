@@ -191,6 +191,44 @@ related flags control local and distributed training/evaluation
 
 ---
 
+## Adding your own components
+
+T2T's components are registered using a central registration mechanism that
+enables easily adding new ones and easily swapping amongst them by command-line
+flag. You can add your own components without editing the T2T codebase by
+specifying the `--t2t_usr_dir` flag in `t2t-trainer`.
+
+You can currently do so for models, hyperparameter sets, and modalities. Please
+do submit a pull request if your component might be useful to others.
+
+Here's an example with a new hyperparameter set:
+
+```python
+# In ~/usr/t2t_usr/my_registrations.py
+
+from tensor2tensor.models import transformer
+from tensor2tensor.utils import registry
+
+@registry.register_hparams
+def transformer_my_very_own_hparams_set():
+  hparams = transformer.transformer_base()
+  hparams.hidden_size = 1024
+  ...
+```
+
+```python
+# In ~/usr/t2t_usr/__init__.py
+import my_registrations
+```
+
+```
+t2t-trainer --t2t_usr_dir=~/usr/t2t_usr --registry_help
+```
+
+You'll see under the registered HParams your
+`transformer_my_very_own_hparams_set`, which you can directly use on the command
+line with the `--hparams_set` flag.
+
 ## Adding a dataset
 
 See the [data generators
