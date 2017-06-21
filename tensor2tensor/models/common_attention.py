@@ -398,3 +398,72 @@ def multihead_attention(query_antecedent,
     x = combine_heads(x)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
     return x
+
+
+def parameter_attention(x,
+                        total_key_depth,
+                        total_value_depth,
+                        output_depth,
+                        memory_rows,
+                        num_heads,
+                        dropout_rate,
+                        name=None):
+  """Attention over parameters.
+
+  We use the same multi-headed attention as in the other layers, but the memory
+  keys and values are model parameters.  There are no linear transformation
+  on the keys or values.
+
+  We are also a bit more careful about memory usage, since the number of
+  memory positions may be very large.
+
+  Args:
+    x: a Tensor with shape [batch, length_q, channels]
+    total_key_depth: an integer
+    total_value_depth: an integer
+    output_depth: an integer
+    memory_rows: an integer
+    num_heads: an integer dividing total_key_depth and total_value_depth
+    dropout_rate: a floating point number
+    name: an optional string
+
+  Returns:
+    A Tensor.
+  """
+  with tf.variable_scope(name, default_name="parameter_attention",
+                         values=[x]):
+    head_size_k = total_key_depth // num_heads
+    head_size_v = total_value_depth // num_heads
+    var_shape_k = [num_heads, memory_rows, head_size_k]
+    var_shape_v = [num_heads, memory_rows, head_size_v]
+    k = tf.get_variable(
+        "k", var_shape_k,
+        initializer=tf.random_normal_initializer(
+            0, output_depth ** -0.5)) * (num_heads ** 0.5)
+    v = tf.get_variable(
+        "v", var_shape_v,
+        initializer=tf.random_normal_initializer(
+            0, output_depth ** -0.5)) * (output_depth ** 0.5)
+    batch_size = tf.shape(x)[0]
+    length = tf.shape(x)[1]
+    q = common_layers.conv1d(x, total_key_depth, 1, name="q_transform")
+    if dropout_rate:
+      # This is a cheaper form of attention dropout where we use to use
+      # the same dropout decisions across batch elemets and query positions,
+      # but different decisions across heads and memory positions.
+      v = tf.nn.dropout(v, 1.0 - dropout_rate,
+                        noise_shape=[num_heads, memory_rows, 1])
+    # query is [batch, length, hidden_size]
+    # reshape and transpose it to [heads, batch * length, head_size]
+    q = tf.reshape(q, [batch_size, length, num_heads, head_size_k])
+    q = tf.transpose(q, [2, 0, 1, 3])
+    q = tf.reshape(q, [num_heads, batch_size * length, head_size_k])
+    weights = tf.matmul(q, k, transpose_b=True)
+    weights = tf.nn.softmax(weights)
+    y = tf.matmul(weights, v)
+    y = tf.reshape(y, [num_heads, batch_size, length, head_size_v])
+    y = tf.transpose(y, [1, 2, 0, 3])
+    y = tf.reshape(y, [batch_size, length, total_value_depth])
+    y.set_shape([None, None, total_value_depth])
+    y = common_layers.conv1d(y, output_depth, 1, name="output_transform")
+    return y
