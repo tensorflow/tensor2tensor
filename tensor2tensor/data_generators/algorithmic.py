@@ -43,7 +43,7 @@ def identity_generator(nbr_symbols, max_length, nbr_cases):
   for _ in xrange(nbr_cases):
     l = np.random.randint(max_length) + 1
     inputs = [np.random.randint(nbr_symbols) + 2 for _ in xrange(l)]
-    yield {"inputs": inputs, "targets": inputs}
+    yield {"inputs": inputs, "targets": inputs + [1]}  # [1] for EOS
 
 
 def shift_generator(nbr_symbols, shift, max_length, nbr_cases):
@@ -66,7 +66,8 @@ def shift_generator(nbr_symbols, shift, max_length, nbr_cases):
   for _ in xrange(nbr_cases):
     l = np.random.randint(max_length) + 1
     inputs = [np.random.randint(nbr_symbols - shift) + 2 for _ in xrange(l)]
-    yield {"inputs": inputs, "targets": [i + shift for i in inputs]}
+    yield {"inputs": inputs,
+           "targets": [i + shift for i in inputs] + [1]}  # [1] for EOS
 
 
 def reverse_generator(nbr_symbols, max_length, nbr_cases):
@@ -88,7 +89,8 @@ def reverse_generator(nbr_symbols, max_length, nbr_cases):
   for _ in xrange(nbr_cases):
     l = np.random.randint(max_length) + 1
     inputs = [np.random.randint(nbr_symbols) + 2 for _ in xrange(l)]
-    yield {"inputs": inputs, "targets": list(reversed(inputs))}
+    yield {"inputs": inputs,
+           "targets": list(reversed(inputs)) + [1]}  # [1] for EOS
 
 
 def lower_endian_to_number(l, base):
@@ -141,7 +143,7 @@ def addition_generator(base, max_length, nbr_cases):
     # We shift digits by 1 on input and output to leave 0 for padding.
     inputs = [i + 2 for i in n1] + [base + 2] + [i + 2 for i in n2]
     targets = [i + 2 for i in number_to_lower_endian(result, base)]
-    yield {"inputs": inputs, "targets": targets}
+    yield {"inputs": inputs, "targets": targets + [1]}  # [1] for EOS
 
 
 def multiplication_generator(base, max_length, nbr_cases):
@@ -175,4 +177,4 @@ def multiplication_generator(base, max_length, nbr_cases):
     # We shift digits by 1 on input and output to leave 0 for padding.
     inputs = [i + 2 for i in n1] + [base + 2] + [i + 2 for i in n2]
     targets = [i + 2 for i in number_to_lower_endian(result, base)]
-    yield {"inputs": inputs, "targets": targets}
+    yield {"inputs": inputs, "targets": targets + [1]}  # [1] for EOS

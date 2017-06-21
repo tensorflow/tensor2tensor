@@ -16,7 +16,6 @@
 
 encoder: [Self-Attention, Feed-forward] x n
 decoder: [Self-Attention, Source-Target-Attention, Feed-forward] x n
-
 """
 
 from __future__ import absolute_import
@@ -278,11 +277,63 @@ def transformer_base():
 
 
 @registry.register_hparams
-def transformer_single_gpu():
+def transformer_big():
+  """HParams for transfomer big model on WMT."""
+  hparams = transformer_base()
+  hparams.hidden_size = 1024
+  hparams.filter_size = 4096
+  hparams.num_heads = 16
+  hparams.batching_mantissa_bits = 2
+  hparams.residual_dropout = 0.3
+  return hparams
+
+
+@registry.register_hparams
+def transformer_big_single_gpu():
+  """HParams for transformer big model for single gpu."""
+  hparams = transformer_big()
+  hparams.residual_dropout = 0.1
+  hparams.learning_rate_warmup_steps = 16000
+  hparams.optimizer_adam_beta2 = 0.998
+  hparams.batching_mantissa_bits = 3
+  return hparams
+
+
+@registry.register_hparams
+def transformer_base_single_gpu():
+  """HParams for transformer base model for single gpu."""
   hparams = transformer_base()
   hparams.batch_size = 8192
   hparams.learning_rate_warmup_steps = 16000
   hparams.batching_mantissa_bits = 2
+  return hparams
+
+
+@registry.register_hparams
+def transformer_parsing_base():
+  """Hparams for parsing on wsj only."""
+  hparams = transformer_base()
+  hparams.attention_dropout = 0.2
+  hparams.residual_dropout = 0.2
+  hparams.max_length = 512
+  hparams.learning_rate_warmup_steps = 16000
+  hparams.hidden_size = 1024
+  hparams.learning_rate = 0.05
+  hparams.residual_dropout = 0.1
+  hparams.shared_embedding_and_softmax_weights = int(False)
+  return hparams
+
+
+@registry.register_hparams
+def transformer_parsing_big():
+  """HParams for parsing on wsj semi-supervised."""
+  hparams = transformer_big()
+  hparams.max_length = 512
+  hparams.shared_source_target_embedding = int(False)
+  hparams.learning_rate_warmup_steps = 4000
+  hparams.residual_dropout = 0.1
+  hparams.batch_size = 2048
+  hparams.learning_rate = 0.05
   return hparams
 
 
@@ -438,48 +489,6 @@ def transformer_big_enfr():
 def transformer_big_dr2():
   hparams = transformer_big_dr1()
   hparams.residual_dropout = 0.2
-  return hparams
-
-
-@registry.register_hparams
-def transformer_big_dr3():
-  hparams = transformer_big_dr1()
-  hparams.residual_dropout = 0.3
-  return hparams
-
-
-@registry.register_hparams
-def transformer_big_single_gpu():
-  hparams = transformer_big_dr1()
-  hparams.learning_rate_warmup_steps = 16000
-  hparams.optimizer_adam_beta2 = 0.998
-  hparams.batching_mantissa_bits = 3
-  return hparams
-
-
-@registry.register_hparams
-def transformer_parsing_base_dr6():
-  """hparams for parsing on wsj only."""
-  hparams = transformer_base()
-  hparams.attention_dropout = 0.2
-  hparams.residual_dropout = 0.2
-  hparams.max_length = 512
-  hparams.learning_rate_warmup_steps = 16000
-  hparams.hidden_size = 1024
-  hparams.learning_rate = 0.5
-  hparams.shared_embedding_and_softmax_weights = int(False)
-  return hparams
-
-
-@registry.register_hparams
-def transformer_parsing_big():
-  """HParams for parsing on wsj semi-supervised."""
-  hparams = transformer_big_dr1()
-  hparams.max_length = 512
-  hparams.shared_source_target_embedding = int(False)
-  hparams.learning_rate_warmup_steps = 4000
-  hparams.batch_size = 2048
-  hparams.learning_rate = 0.5
   return hparams
 
 

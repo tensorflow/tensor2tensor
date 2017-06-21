@@ -28,8 +28,9 @@ class ProblemHparamsTest(tf.test.TestCase):
 
   def testParseProblemName(self):
     problem_name = "base"
-    self.assertEqual(problem_hparams.parse_problem_name(problem_name),
-                     ("base", False, False))
+    self.assertEqual(
+        problem_hparams.parse_problem_name(problem_name), ("base", False,
+                                                           False))
     problem_name = "base_rev"
     self.assertEqual(
         problem_hparams.parse_problem_name(problem_name), ("base", True, False))

@@ -148,29 +148,21 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
 
 def create_experiment_components(hparams, output_dir, data_dir, model_name):
   """Constructs and returns Estimator and train/eval input functions."""
-  hparams.problems = [
-      problem_hparams.problem_hparams(problem, hparams)
-      for problem in FLAGS.problems.split("-")
-  ]
-
-  num_datashards = data_parallelism().n
-
   tf.logging.info("Creating experiment, storing model files in %s", output_dir)
 
-  train_problems_data = get_datasets_for_mode(data_dir,
-                                              tf.contrib.learn.ModeKeys.TRAIN)
+  num_datashards = data_parallelism().n
   train_input_fn = get_input_fn(
       mode=tf.contrib.learn.ModeKeys.TRAIN,
       hparams=hparams,
-      data_file_patterns=train_problems_data,
+      data_file_patterns=get_datasets_for_mode(data_dir,
+                                               tf.contrib.learn.ModeKeys.TRAIN),
       num_datashards=num_datashards)
 
-  eval_problems_data = get_datasets_for_mode(data_dir,
-                                             tf.contrib.learn.ModeKeys.EVAL)
   eval_input_fn = get_input_fn(
       mode=tf.contrib.learn.ModeKeys.EVAL,
       hparams=hparams,
-      data_file_patterns=eval_problems_data,
+      data_file_patterns=get_datasets_for_mode(data_dir,
+                                               tf.contrib.learn.ModeKeys.EVAL),
       num_datashards=num_datashards)
   estimator = tf.contrib.learn.Estimator(
       model_fn=model_builder(model_name, hparams=hparams),
@@ -210,6 +202,13 @@ def create_hparams(params_id, data_dir):
   # Command line flags override any of the preceding hyperparameter values.
   if FLAGS.hparams:
     hparams = hparams.parse(FLAGS.hparams)
+
+  # Add hparams for the problems
+  hparams.problems = [
+      problem_hparams.problem_hparams(problem, hparams)
+      for problem in FLAGS.problems.split("-")
+  ]
+
   return hparams
 
 
