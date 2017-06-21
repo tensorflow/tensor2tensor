@@ -11,8 +11,8 @@ from .utils import misc_utils as utils
 
 __all__ = [
     "get_device_str", "create_emb_for_encoder_and_decoder", "create_rnn_cell",
-    "count_embeddings", "gradient_clip", "apply_grad_multiplier",
-    "create_or_load_model", "compute_perplexity"
+    "count_embeddings", "gradient_clip", "create_or_load_model",
+    "compute_perplexity"
 ]
 
 
@@ -29,8 +29,6 @@ def create_emb_for_encoder_and_decoder(share_vocab,
                                        tgt_vocab_size,
                                        src_embed_size,
                                        tgt_embed_size,
-                                       src_vocab_table,
-                                       tgt_vocab_table,
                                        dtype=tf.float32,
                                        scope=None):
   """Create embedding matrix for both encoder and decoder.
@@ -50,15 +48,12 @@ def create_emb_for_encoder_and_decoder(share_vocab,
   Returns:
     embedding_encoder: Encoder's embedding matrix.
     embedding_decoder: Decoder's embedding matrix.
-    embed_vars: A list of all embedding variables.
 
   Raises:
     ValueError: if use share_vocab but source and target have different vocab
       size.
   """
-  embed_vars = []
-  with tf.variable_scope(
-      scope or "embeddings", dtype=dtype) as scope:
+  with tf.variable_scope(scope or "embeddings", dtype=dtype) as scope:
     # Share embedding
     if share_vocab:
       if src_vocab_size != tgt_vocab_size:
@@ -67,20 +62,18 @@ def create_emb_for_encoder_and_decoder(share_vocab,
       utils.print_out("# Use the same source embeddings for target")
       embedding = tf.get_variable(
           "embedding_share", [src_vocab_size, src_embed_size], dtype)
-      embed_vars.append(embedding)
       embedding_encoder = embedding
       embedding_decoder = embedding
     else:
       with tf.variable_scope("encoder"):
         embedding_encoder = tf.get_variable(
             "embedding_encoder", [src_vocab_size, src_embed_size], dtype)
-        embed_vars.append(embedding_encoder)
 
       with tf.variable_scope("decoder"):
         embedding_decoder = tf.get_variable(
             "embedding_decoder", [tgt_vocab_size, tgt_embed_size], dtype)
-        embed_vars.append(embedding_decoder)
-  return (embedding_encoder, embedding_decoder, embed_vars)
+
+  return embedding_encoder, embedding_decoder
 
 
 def _single_cell(hparams, mode, residual_connection=False, device_str=None):
@@ -184,16 +177,8 @@ def count_embeddings(embs, grads):
   return tf.cast(tf.add_n(num_ids), embs[0].dtype)
 
 
-def gradient_clip(gradients, params, emb_vars, hparams):
+def gradient_clip(gradients, params, hparams):
   """Clipping gradients of a model."""
-  # Prepare clipping by embedding and other gradient separately.
-  # Note: model_helper.count_embeddings can't be called after tf.clip_by_value
-  if emb_vars and hparams.max_emb_gradient_norm is not None:
-    emb_grads = gradients[:len(emb_vars)]
-    # To caculate avg_emb_norm depending on how many words in a mini-batch.
-    emb_count = tf.sqrt(count_embeddings(emb_vars, emb_grads))
-
-  # Clip by values.
   if hparams.gradient_clip_value is not None:
     pattern = hparams.gradient_clip_pattern
     clip_value = hparams.gradient_clip_value
@@ -207,58 +192,13 @@ def gradient_clip(gradients, params, emb_vars, hparams):
         clipped_gradients.append(grad)
     gradients = clipped_gradients
 
-  # Clip by norm.
-  if emb_vars and hparams.max_emb_gradient_norm is not None:
-    emb_grads = gradients[:len(emb_vars)]
-    other_grads = gradients[len(emb_vars):]
-
-    avg_emb_grad_norm = tf.global_norm(emb_grads) / emb_count
-    emb_grads_scale = tf.minimum(
-        1.0, (hparams.max_emb_gradient_norm / avg_emb_grad_norm))
-
-    other_grad_norm = tf.global_norm(other_grads)
-    other_grads_scale = tf.minimum(
-        1.0, (hparams.max_gradient_norm / other_grad_norm))
-
-    grads_scale = tf.minimum(emb_grads_scale, other_grads_scale)
-
-    clipped_gradients = apply_grad_multiplier(
-        params, gradients, grads_scale)
-
-    gradient_norm_summary = [
-        tf.summary.scalar("emb_grads_scale", emb_grads_scale),
-        tf.summary.scalar("other_grads_scale", other_grads_scale),
-        tf.summary.scalar("grads_scale", grads_scale),
-        tf.summary.scalar("avg_emb_grad_norm", avg_emb_grad_norm),
-        tf.summary.scalar("other_grad_norm", other_grad_norm)
-    ]
-  else:
-    clipped_gradients, gradient_norm = tf.clip_by_global_norm(
-        gradients, hparams.max_gradient_norm)
-    gradient_norm_summary = [tf.summary.scalar("grad_norm", gradient_norm)]
+  clipped_gradients, gradient_norm = tf.clip_by_global_norm(
+      gradients, hparams.max_gradient_norm)
+  gradient_norm_summary = [tf.summary.scalar("grad_norm", gradient_norm)]
   gradient_norm_summary.append(
       tf.summary.scalar("clipped_gradient", tf.global_norm(clipped_gradients)))
 
   return clipped_gradients, gradient_norm_summary
-
-
-def apply_grad_multiplier(vs, gs, grad_scale):
-  """Scales all gradients by grad_scale."""
-  final_grad_in_order = []
-  assert len(vs) == len(gs)
-  for var, grad in zip(vs, gs):
-    assert grad is not None, ("No grad found for ", var.name)
-    with tf.device(var.device):
-      if isinstance(grad, tf.IndexedSlices):
-        final_grad_in_order.append(tf.IndexedSlices(
-            grad_scale * tf.check_numerics(grad.values, "%s is not finite." %
-                                           var.name), grad.indices,
-            grad.dense_shape))
-      else:
-        final_grad_in_order.append(
-            grad_scale *
-            tf.check_numerics(grad, "%s is not finite." % var.name))
-  return final_grad_in_order
 
 
 def create_or_load_model(model, model_dir, session, hparams, name):

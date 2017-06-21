@@ -111,8 +111,7 @@ class BaseModel(object):
                                hparams.decay_steps, hparams.decay_factor))
     self.global_step = tf.Variable(0, trainable=False)
 
-    params = (self.emb_vars
-              + [v for v in tf.trainable_variables() if v not in self.emb_vars])
+    params = tf.trainable_variables()
 
     # Gradients and SGD update operation for training the model.
     # Arrage for the embedding vars to appear at the beginning.
@@ -142,8 +141,8 @@ class BaseModel(object):
           params,
           colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
-      (clipped_gradients, gradient_norm_summary) = (model_helper.gradient_clip(
-          gradients, params, self.emb_vars, hparams))
+      clipped_gradients, gradient_norm_summary = model_helper.gradient_clip(
+          gradients, params, hparams)
 
       self.update = opt.apply_gradients(
           zip(clipped_gradients, params), global_step=self.global_step)
@@ -168,17 +167,14 @@ class BaseModel(object):
 
   def init_embeddings(self, hparams, scope):
     """Init embeddings."""
-    with tf.device("/gpu:0"):
-      (self.embedding_encoder, self.embedding_decoder,
-       self.emb_vars) = (model_helper.create_emb_for_encoder_and_decoder(
-           share_vocab=hparams.share_vocab,
-           src_vocab_size=self.src_vocab_size,
-           tgt_vocab_size=self.tgt_vocab_size,
-           src_embed_size=hparams.num_units,
-           tgt_embed_size=hparams.num_units,
-           src_vocab_table=self.src_vocab_table,
-           tgt_vocab_table=self.tgt_vocab_table,
-           scope=scope,))
+    self.embedding_encoder, self.embedding_decoder = (
+        model_helper.create_emb_for_encoder_and_decoder(
+            share_vocab=hparams.share_vocab,
+            src_vocab_size=self.src_vocab_size,
+            tgt_vocab_size=self.tgt_vocab_size,
+            src_embed_size=hparams.num_units,
+            tgt_embed_size=hparams.num_units,
+            scope=scope,))
 
   def train(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.TRAIN

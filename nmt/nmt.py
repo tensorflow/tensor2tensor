@@ -69,7 +69,6 @@ def create_hparams():
       gradient_clip_value=FLAGS.gradient_clip_value,
       gradient_clip_pattern=FLAGS.gradient_clip_pattern,
       max_gradient_norm=FLAGS.max_gradient_norm,
-      max_emb_gradient_norm=FLAGS.max_emb_gradient_norm,
       learning_rate=FLAGS.learning_rate,
       start_decay_step=FLAGS.start_decay_step,
       decay_factor=FLAGS.decay_factor,
@@ -419,11 +418,6 @@ if __name__ == "__main__":
                       help="To select specific parameters to clip, e.g. lstm.")
   parser.add_argument("--max_gradient_norm", type=float, default=5.0,
                       help="Clip gradients to this norm.")
-  parser.add_argument("--max_emb_gradient_norm", type=float, default=None,
-                      help="""\
-      Clip embedding variables' gradients to this norm. If None,clip all
-      gradients to max_gradent_norm\
-      """)
   parser.add_argument("--init_weight", type=float, default=0.1,
                       help="Initial weights from [-this, this].")
   parser.add_argument("--source_reverse", type="bool", nargs="?", const=True,
