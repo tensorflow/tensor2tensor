@@ -441,8 +441,8 @@ class IdentityModality(modality.Modality):
   def targets_dimensionality(self):
     return self._vocab_size
 
-  def inputs_bottom_simple(self, inputs):
-    return tf.to_float(inputs)
+  def bottom(self, x):
+    return tf.to_float(x)
 
-  def targets_top_simple(self, body_output, _):
+  def top(self, body_output, _):
     return body_output

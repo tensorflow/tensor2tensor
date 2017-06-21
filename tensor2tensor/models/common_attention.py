@@ -271,10 +271,14 @@ def attention_image_summary(attn, image_shapes=None):
 
   Args:
     attn: a Tensor with shape [batch, num_heads, query_length, memory_length]
-    image_shapes: optional quadruple of integer scalars.
+    image_shapes: optional tuple of integer scalars.
       If the query positions and memory positions represent the
-      pixels of a flattened image, then pass in their dimensions:
+      pixels of flattened images, then pass in their dimensions:
         (query_rows, query_cols, memory_rows, memory_cols).
+      If the query positions and memory positions represent the
+      pixels x channels of flattened images, then pass in their dimensions:
+        (query_rows, query_cols, query_channels,
+         memory_rows, memory_cols, memory_channels).
   """
   num_heads = attn.get_shape().as_list()[1]
   # [batch, query_length, memory_length, num_heads]
@@ -286,10 +290,20 @@ def attention_image_summary(attn, image_shapes=None):
   image = split_last_dimension(image, 3)
   image = tf.reduce_max(image, 4)
   if image_shapes is not None:
-    q_rows, q_cols, m_rows, m_cols = list(image_shapes)
-    image = tf.reshape(image, [-1, q_rows, q_cols, m_rows, m_cols, 3])
-    image = tf.transpose(image, [0, 1, 3, 2, 4, 5])
-    image = tf.reshape(image, [-1, q_rows * m_rows, q_cols * m_cols, 3])
+    if len(image_shapes) == 4:
+      q_rows, q_cols, m_rows, m_cols = list(image_shapes)
+      image = tf.reshape(image, [-1, q_rows, q_cols, m_rows, m_cols, 3])
+      image = tf.transpose(image, [0, 1, 3, 2, 4, 5])
+      image = tf.reshape(image, [-1, q_rows * m_rows, q_cols * m_cols, 3])
+    else:
+      assert len(image_shapes) == 6
+      q_rows, q_cols, q_channnels, m_rows, m_cols, m_channels = list(
+          image_shapes)
+      image = tf.reshape(image, [-1, q_rows, q_cols, q_channnels,
+                                 m_rows, m_cols, m_channels, 3])
+      image = tf.transpose(image, [0, 1, 4, 3, 2, 5, 6, 7])
+      image = tf.reshape(image, [-1, q_rows * m_rows * q_channnels,
+                                 q_cols * m_cols * m_channels, 3])
   tf.summary.image("attention", image, max_outputs=1)
 
 
@@ -310,10 +324,8 @@ def dot_product_attention(q,
     bias: bias Tensor (see attention_bias())
     dropout_rate: a floating point number
     summaries: a boolean
-    image_shapes: optional quadruple of integer scalars for image summary.
-      If the query positions and memory positions represent the
-      pixels of a flattened image, then pass in their dimensions:
-        (query_rows, query_cols, memory_rows, memory_cols).
+    image_shapes: optional tuple of integer scalars.
+      see comments for attention_image_summary()
     name: an optional string
 
   Returns:
@@ -356,10 +368,8 @@ def multihead_attention(query_antecedent,
     num_heads: an integer dividing total_key_depth and total_value_depth
     dropout_rate: a floating point number
     summaries: a boolean
-    image_shapes: optional quadruple of integer scalars for image summary.
-      If the query positions and memory positions represent the
-      pixels of a flattened image, then pass in their dimensions:
-        (query_rows, query_cols, memory_rows, memory_cols).
+    image_shapes: optional tuple of integer scalars.
+      see comments for attention_image_summary()
     name: an optional string
 
   Returns:
