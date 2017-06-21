@@ -97,7 +97,7 @@ class DiagonalNeuralGPU(t2t_model.T2TModel):
     return diagonal_neural_gpu(features["inputs"], self._hparams, train)
 
 
-@registry.register_hparams("neural_gpu1")
+@registry.register_hparams("neuralgpu_1")
 def neural_gpu_params1():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()

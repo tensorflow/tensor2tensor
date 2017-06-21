@@ -28,8 +28,7 @@ from tensor2tensor.utils import bleu_hook
 
 import tensorflow as tf
 
-flags = tf.flags
-FLAGS = flags.FLAGS
+FLAGS = tf.flags.FLAGS
 
 
 def padded_accuracy_topk(predictions,

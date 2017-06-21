@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.0.2',
+    version='1.0.4',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -26,4 +26,4 @@ setup(
         'License :: OSI Approved :: Apache Software License',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
     ],
-    keywords='tensorflow',)
+    keywords='tensorflow machine learning',)

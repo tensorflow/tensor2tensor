@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Baseline models tests."""
+"""LSTMSeq2Seq models tests."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -23,13 +23,13 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models import baseline
 from tensor2tensor.models import common_hparams
+from tensor2tensor.models import lstm
 
 import tensorflow as tf
 
 
-class BaselineTest(tf.test.TestCase):
+class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2Seq(self):
     vocab_size = 9
@@ -43,7 +43,7 @@ class BaselineTest(tf.test.TestCase):
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),
       }
-      model = baseline.LSTMSeq2Seq(hparams, p_hparams)
+      model = lstm.LSTMSeq2Seq(hparams, p_hparams)
       sharded_logits, _, _ = model.model_fn(features, True)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())

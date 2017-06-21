@@ -75,8 +75,8 @@ class TextEncoder(object):
       if 0 <= id_ < self._num_reserved_ids:
         decoded_ids.append(RESERVED_TOKENS[int(id_)])
       else:
-        decoded_ids.append(id_)
-    return '%s' % decoded_ids
+        decoded_ids.append(id_ - self._num_reserved_ids)
+    return ' '.join([str(d) for d in decoded_ids])
 
   @property
   def vocab_size(self):
@@ -109,11 +109,10 @@ class TokenTextEncoder(TextEncoder):
 
   def __init__(self, vocab_filename, reverse=False, num_reserved_ids=2):
     """Initialize from a file, one token per line."""
-    self._reverse = reverse
-    if vocab_filename is None:
-      self._load_vocab_from_file(vocab_filename)
-
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
+    self._reverse = reverse
+    if vocab_filename is not None:
+      self._load_vocab_from_file(vocab_filename)
 
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""
@@ -285,7 +284,7 @@ class SubwordTextEncoder(TextEncoder):
     subtokenizer.build_from_token_counts(token_counts, store_filename,
                                          present_count, num_iterations)
 
-    if min_val == max_val or subtokenizer.vocab_size == target_size:
+    if min_val >= max_val or subtokenizer.vocab_size == target_size:
       return subtokenizer
     elif subtokenizer.vocab_size > target_size:
       other_subtokenizer = cls.build_to_target_size(

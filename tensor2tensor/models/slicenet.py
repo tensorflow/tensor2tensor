@@ -303,7 +303,7 @@ _DILATION_SCHEMES = {
 }
 
 
-@registry.register_hparams("slicenet1")
+@registry.register_hparams("slicenet_1")
 def slicenet_params1():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
@@ -349,7 +349,7 @@ def slicenet_params1():
   return hparams
 
 
-@registry.register_hparams("slicenet1noam")
+@registry.register_hparams("slicenet_1noam")
 def slicenet_params1_noam():
   """Version with Noam's decay scheme."""
   hparams = slicenet_params1()
@@ -363,7 +363,7 @@ def slicenet_params1_noam():
   return hparams
 
 
-@registry.register_hparams("slicenet1tiny")
+@registry.register_hparams("slicenet_1tiny")
 def slicenet_params1_tiny():
   """Version for fast local runs."""
   hparams = slicenet_params1()

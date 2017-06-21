@@ -145,7 +145,7 @@ def attention_lm_base():
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.learning_rate_decay_scheme = "noam"
-  hparams.learning_rate = 1.0
+  hparams.learning_rate = 0.1
   hparams.learning_rate_warmup_steps = 1000
   hparams.initializer_gain = 1.0
   hparams.num_hidden_layers = 6
@@ -154,7 +154,7 @@ def attention_lm_base():
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
   hparams.num_sampled_classes = 0
-  hparams.label_smoothing = 0.1
+  hparams.label_smoothing = 0.0
   hparams.shared_embedding_and_softmax_weights = int(False)
 
   hparams.add_hparam("filter_size", 4096)  # Add new ones like this.

@@ -28,7 +28,7 @@ def identity_generator(nbr_symbols, max_length, nbr_cases):
   """Generator for the identity (copy) task on sequences of symbols.
 
   The length of the sequence is drawn uniformly at random from [1, max_length]
-  and then symbols are drawn uniformly at random from [1, nbr_symbols] until
+  and then symbols are drawn uniformly at random from [2, nbr_symbols] until
   nbr_cases sequences have been produced.
 
   Args:
@@ -42,15 +42,15 @@ def identity_generator(nbr_symbols, max_length, nbr_cases):
   """
   for _ in xrange(nbr_cases):
     l = np.random.randint(max_length) + 1
-    inputs = [np.random.randint(nbr_symbols) + 1 for _ in xrange(l)]
-    yield {"inputs": inputs, "targets": inputs}
+    inputs = [np.random.randint(nbr_symbols) + 2 for _ in xrange(l)]
+    yield {"inputs": inputs, "targets": inputs + [1]}  # [1] for EOS
 
 
 def shift_generator(nbr_symbols, shift, max_length, nbr_cases):
   """Generator for the shift task on sequences of symbols.
 
   The length of the sequence is drawn uniformly at random from [1, max_length]
-  and then symbols are drawn uniformly at random from [1, nbr_symbols - shift]
+  and then symbols are drawn uniformly at random from [2, nbr_symbols - shift]
   until nbr_cases sequences have been produced (output[i] = input[i] + shift).
 
   Args:
@@ -65,15 +65,16 @@ def shift_generator(nbr_symbols, shift, max_length, nbr_cases):
   """
   for _ in xrange(nbr_cases):
     l = np.random.randint(max_length) + 1
-    inputs = [np.random.randint(nbr_symbols - shift) + 1 for _ in xrange(l)]
-    yield {"inputs": inputs, "targets": [i + shift for i in inputs]}
+    inputs = [np.random.randint(nbr_symbols - shift) + 2 for _ in xrange(l)]
+    yield {"inputs": inputs,
+           "targets": [i + shift for i in inputs] + [1]}  # [1] for EOS
 
 
 def reverse_generator(nbr_symbols, max_length, nbr_cases):
   """Generator for the reversing task on sequences of symbols.
 
   The length of the sequence is drawn uniformly at random from [1, max_length]
-  and then symbols are drawn uniformly at random from [1, nbr_symbols] until
+  and then symbols are drawn uniformly at random from [2, nbr_symbols] until
   nbr_cases sequences have been produced.
 
   Args:
@@ -87,8 +88,9 @@ def reverse_generator(nbr_symbols, max_length, nbr_cases):
   """
   for _ in xrange(nbr_cases):
     l = np.random.randint(max_length) + 1
-    inputs = [np.random.randint(nbr_symbols) + 1 for _ in xrange(l)]
-    yield {"inputs": inputs, "targets": list(reversed(inputs))}
+    inputs = [np.random.randint(nbr_symbols) + 2 for _ in xrange(l)]
+    yield {"inputs": inputs,
+           "targets": list(reversed(inputs)) + [1]}  # [1] for EOS
 
 
 def lower_endian_to_number(l, base):
@@ -139,9 +141,9 @@ def addition_generator(base, max_length, nbr_cases):
     n2 = random_number_lower_endian(l2, base)
     result = lower_endian_to_number(n1, base) + lower_endian_to_number(n2, base)
     # We shift digits by 1 on input and output to leave 0 for padding.
-    inputs = [i + 1 for i in n1] + [base + 1] + [i + 1 for i in n2]
-    targets = [i + 1 for i in number_to_lower_endian(result, base)]
-    yield {"inputs": inputs, "targets": targets}
+    inputs = [i + 2 for i in n1] + [base + 2] + [i + 2 for i in n2]
+    targets = [i + 2 for i in number_to_lower_endian(result, base)]
+    yield {"inputs": inputs, "targets": targets + [1]}  # [1] for EOS
 
 
 def multiplication_generator(base, max_length, nbr_cases):
@@ -173,6 +175,6 @@ def multiplication_generator(base, max_length, nbr_cases):
     n2 = random_number_lower_endian(l2, base)
     result = lower_endian_to_number(n1, base) * lower_endian_to_number(n2, base)
     # We shift digits by 1 on input and output to leave 0 for padding.
-    inputs = [i + 1 for i in n1] + [base + 1] + [i + 1 for i in n2]
-    targets = [i + 1 for i in number_to_lower_endian(result, base)]
-    yield {"inputs": inputs, "targets": targets}
+    inputs = [i + 2 for i in n1] + [base + 2] + [i + 2 for i in n2]
+    targets = [i + 2 for i in number_to_lower_endian(result, base)]
+    yield {"inputs": inputs, "targets": targets + [1]}  # [1] for EOS

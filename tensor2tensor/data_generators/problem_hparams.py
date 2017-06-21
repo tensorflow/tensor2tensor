@@ -24,9 +24,103 @@ import os
 # Dependency imports
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.utils import modality
+from tensor2tensor.models import modalities  # pylint: disable=unused-import
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
+
+def problem_hparams(problem_name, model_hparams):
+  """Generate problem hyperparameters based on problem name.
+
+  Args:
+    problem_name: a string
+    model_hparams: a tf.contrib.training.HParams
+
+  Returns:
+    a tf.contrib.training.HParams
+
+  Raises:
+    ValueError: if problem_name is unknown.
+  """
+  base_name, was_reversed, was_copy = parse_problem_name(problem_name)
+  p = _lookup_problem_hparams_fn(base_name)(model_hparams)
+  if was_reversed:
+    _reverse_problem_hparams(p)
+    if "image_cifar10" in base_name:
+      p.loss_multiplier = 1.
+  if was_copy:
+    _copy_problem_hparams(p)
+  return p
+
+
+def parse_problem_name(problem_name):
+  """Determines if problem_name specifies a copy and/or reversal.
+
+  Args:
+    problem_name: A string containing a single problem name from FLAGS.problems.
+
+  Returns:
+    base_name: A string with the base problem name.
+    was_reversed: A boolean.
+    was_copy: A boolean.
+  """
+  # Recursively strip tags until we reach a base name.
+  if len(problem_name) > 4 and problem_name[-4:] == "_rev":
+    base, _, was_copy = parse_problem_name(problem_name[:-4])
+    return base, True, was_copy
+  elif len(problem_name) > 5 and problem_name[-5:] == "_copy":
+    base, was_reversed, _ = parse_problem_name(problem_name[:-5])
+    return base, was_reversed, True
+  else:
+    return problem_name, False, False
+
+
+def _lookup_problem_hparams_fn(name):
+  if name not in PROBLEM_HPARAMS_MAP:
+    map_str = "\n* ".join(PROBLEM_HPARAMS_MAP.keys())
+    error_msg = "%s not in the supported set of problems:\n%s" % (name, map_str)
+    raise ValueError(error_msg)
+  return PROBLEM_HPARAMS_MAP.get(name)
+
+
+def _copy_problem_hparams(p_hparams):
+  """Use input modality, vocab, and space id for target."""
+  p = p_hparams
+  # Duplicate input modality.
+  p.target_modality = p.input_modality["inputs"]
+  # Duplicate input vocabulary.
+  p.vocabulary["targets"] = p.vocabulary["inputs"]
+  # Duplicate input space ids.
+  p.target_space_id = p.input_space_id
+  # Mark that p was reversed.
+  p.was_copy = True
+
+
+def _reverse_problem_hparams(p_hparams):
+  """Swap input/output modalities, vocab, and space ids."""
+  p = p_hparams
+
+  # Swap modalities.
+  input_modality = p.input_modality["inputs"]
+  target_modality = p.target_modality
+  p.input_modality["inputs"] = target_modality
+  p.target_modality = input_modality
+
+  # Swap vocabularies.
+  input_vocabulary = p.vocabulary["inputs"]
+  target_vocabulary = p.vocabulary["targets"]
+  p.vocabulary["inputs"] = target_vocabulary
+  p.vocabulary["targets"] = input_vocabulary
+
+  # Swap input/target space ids.
+  input_space_id = p.input_space_id
+  target_space_id = p.target_space_id
+  p.input_space_id = target_space_id
+  p.target_space_id = input_space_id
+
+  # Mark that p was reversed.
+  p.was_reversed = True
 
 
 def default_problem_hparams():
@@ -53,10 +147,15 @@ def default_problem_hparams():
       max_expected_batch_size_per_shard=64,
 
       # Modalities used to map from input features to a space compatible with
-      # chosen model architecture.  One modality per feature key.
+      # chosen model architecture.  One modality spec (which is a 2-tuple,
+      # (modality_full_name, vocab_size)) per feature key. modality_full_name is
+      # a string type:name, e.g. class_label:class_label_2d. Leaving off the
+      # name uses the default modality for that type (e.g. class_label ==
+      # class_label:default).
       input_modality={},
 
       # Modality used to map from hidden representation to the target space.
+      # Specified as a modality spec, a 2-tuple described above.
       target_modality=None,
 
       # Identifiers used to tell the model which input/target space will be
@@ -85,7 +184,7 @@ def default_problem_hparams():
       # Vocabulary per feature key.
       #   a vocabulary converts to/from human-readable strings.
       # E.g. {"inputs": text_encoder.ByteTextEncoder(),
-      #       "targets": wordpiece.WordpieceVocab("vocab_filename.txt")}
+      #       "targets": text_encoder.SubwordTextEncoder("vocab_filename.txt")}
       vocabulary={
           "inputs": text_encoder.TextEncoder(),
           "targets": text_encoder.TextEncoder()
@@ -101,85 +200,12 @@ def default_problem_hparams():
       was_copy=False,)
 
 
-def parse_problem_name(problem_name):
-  """Determines if problem_name specifies a copy and/or reversal.
-
-  Args:
-    problem_name: A string containing a single problem name from FLAGS.problems.
-
-  Returns:
-    base_name: A string with the base problem name.
-    was_reversed: A boolean.
-    was_copy: A boolean.
-  """
-  # Recursively strip tags until we reach a base name.
-  if len(problem_name) > 4 and problem_name[-4:] == "_rev":
-    base, _, was_copy = parse_problem_name(problem_name[:-4])
-    return base, True, was_copy
-  elif len(problem_name) > 5 and problem_name[-5:] == "_copy":
-    base, was_reversed, _ = parse_problem_name(problem_name[:-5])
-    return base, was_reversed, True
-  else:
-    return problem_name, False, False
-
-
-def problem_hparams(problem_name, model_hparams):
-  """Generate problem hyperparameters based on problem name.
-
-  Args:
-    problem_name: a string
-    model_hparams: a tf.contrib.training.HParams
-
-  Returns:
-    a tf.contrib.training.HParams
-
-  Raises:
-    ValueError: if problem_name is unknown.
-  """
-  base_name, was_reversed, was_copy = parse_problem_name(problem_name)
-  if base_name not in _problem_hparams_map:
-    map_str = "\n* ".join(_problem_hparams_map.keys())
-    error_msg = "%s not in the supported set of problems:\n%s" % (base_name,
-                                                                  map_str)
-    raise ValueError(error_msg)
-  p = _problem_hparams_map.get(base_name)(model_hparams)
-  if was_reversed:
-    # Swap modalities.
-    input_modality = p.input_modality["inputs"]
-    target_modality = p.target_modality
-    p.input_modality["inputs"] = target_modality
-    p.target_modality = input_modality
-    # Swap vocabularies.
-    input_vocabulary = p.vocabulary["inputs"]
-    target_vocabulary = p.vocabulary["targets"]
-    p.vocabulary["inputs"] = target_vocabulary
-    p.vocabulary["targets"] = input_vocabulary
-    # Swap input/target space ids.
-    input_space_id = p.input_space_id
-    target_space_id = p.target_space_id
-    p.input_space_id = target_space_id
-    p.target_space_id = input_space_id
-    # Mark that p was reversed.
-    p.was_reversed = True
-  if was_copy:
-    # Duplicate input modality.
-    p.target_modality = p.input_modality["inputs"]
-    # Duplicate input vocabulary.
-    p.vocabulary["targets"] = p.vocabulary["inputs"]
-    # Duplicate input space ids.
-    p.target_space_id = p.input_space_id
-    # Mark that p was reversed.
-    p.was_copy = True
-  return p
-
-
-def test_problem_hparams(model_hparams, input_vocab_size, target_vocab_size):
+def test_problem_hparams(unused_model_hparams, input_vocab_size,
+                         target_vocab_size):
   """Problem hparams for testing model bodies."""
   p = default_problem_hparams()
-  p.input_modality = {
-      "inputs": modality.SymbolModality(model_hparams, input_vocab_size)
-  }
-  p.target_modality = modality.SymbolModality(model_hparams, target_vocab_size)
+  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, input_vocab_size)}
+  p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
   p.vocabulary = {
       "inputs": text_encoder.TextEncoder(),
       "targets": text_encoder.TextEncoder()
@@ -187,29 +213,27 @@ def test_problem_hparams(model_hparams, input_vocab_size, target_vocab_size):
   return p
 
 
-def algorithmic(vocab_size, model_hparams):
+def algorithmic(vocab_size, unused_model_hparams):
   """Default parameters for algorithmic tasks."""
   p = default_problem_hparams()
-  p.input_modality = {
-      "inputs": modality.SymbolModality(model_hparams, vocab_size)
-  }
-  p.target_modality = modality.SymbolModality(model_hparams, vocab_size)
+  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
+  p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
   p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(num_reserved_ids=1),
-      "targets": text_encoder.TextEncoder(num_reserved_ids=1),
+      "inputs": text_encoder.TextEncoder(),
+      "targets": text_encoder.TextEncoder(),
   }
   p.input_space_id = 10
   p.target_space_id = 11
   return p
 
 
-def audio_timit_characters(model_hparams):
+def audio_timit_characters(unused_model_hparams):
   """English audio transcription benchmark."""
   p = default_problem_hparams()
   p.input_modality = {
-      "inputs": modality.AudioModality(model_hparams),
+      "inputs": (registry.Modalities.AUDIO, None),
   }
-  p.target_modality = modality.SymbolModality(model_hparams, 256)
+  p.target_modality = (registry.Modalities.SYMBOL, 256)
   p.vocabulary = {
       "inputs": text_encoder.TextEncoder(),
       "targets": text_encoder.ByteTextEncoder(),
@@ -238,10 +262,9 @@ def audio_timit_tokens(model_hparams, wrong_vocab_size):
                                 "tokens.vocab.%d" % wrong_vocab_size)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   p.input_modality = {
-      "inputs": modality.AudioModality(model_hparams),
+      "inputs": (registry.Modalities.AUDIO, None),
   }
-  p.target_modality = modality.SymbolModality(model_hparams,
-                                              subtokenizer.vocab_size)
+  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   p.vocabulary = {
       "inputs": text_encoder.TextEncoder(),
       "targets": subtokenizer,
@@ -253,13 +276,13 @@ def audio_timit_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def audio_wsj_characters(model_hparams):
+def audio_wsj_characters(unused_model_hparams):
   """English audio transcription benchmark."""
   p = default_problem_hparams()
   p.input_modality = {
-      "inputs": modality.AudioSpectralModality(model_hparams),
+      "inputs": (registry.Modalities.AUDIO, None),
   }
-  p.target_modality = modality.SymbolModality(model_hparams, 256)
+  p.target_modality = (registry.Modalities.SYMBOL, 256)
   p.vocabulary = {
       "inputs": text_encoder.TextEncoder(),
       "targets": text_encoder.ByteTextEncoder(),
@@ -288,10 +311,9 @@ def audio_wsj_tokens(model_hparams, wrong_vocab_size):
                                 "tokens.vocab.%d" % wrong_vocab_size)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   p.input_modality = {
-      "inputs": modality.AudioModality(model_hparams),
+      "inputs": (registry.Modalities.AUDIO, None),
   }
-  p.target_modality = modality.SymbolModality(model_hparams,
-                                              subtokenizer.vocab_size)
+  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   p.vocabulary = {
       "inputs": text_encoder.TextEncoder(),
       "targets": subtokenizer,
@@ -308,7 +330,7 @@ def lm1b_16k(model_hparams):
   p = default_problem_hparams()
   p.perplexity_exponent = 1.184206
   p.input_modality = {}
-  p.target_modality = modality.SymbolModality(model_hparams, 16384)
+  p.target_modality = (registry.Modalities.SYMBOL, 16384)
   p.vocabulary = {
       "targets":
           text_encoder.SubwordTextEncoder(
@@ -324,7 +346,7 @@ def lm1b_64k(model_hparams):
   p = default_problem_hparams()
   p.perplexity_exponent = 1.067068
   p.input_modality = {}
-  p.target_modality = modality.SymbolModality(model_hparams, 65536)
+  p.target_modality = (registry.Modalities.SYMBOL, 65536)
   p.vocabulary = {
       "targets":
           text_encoder.SubwordTextEncoder(
@@ -335,11 +357,11 @@ def lm1b_64k(model_hparams):
   return p
 
 
-def wmt_enfr_characters(model_hparams):
+def wmt_enfr_characters(unused_model_hparams):
   """English to French translation benchmark."""
   p = default_problem_hparams()
-  p.input_modality = {"inputs": modality.SymbolModality(model_hparams, 256)}
-  p.target_modality = modality.SymbolModality(model_hparams, 256)
+  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
+  p.target_modality = (registry.Modalities.SYMBOL, 256)
   p.vocabulary = {
       "inputs": text_encoder.ByteTextEncoder(),
       "targets": text_encoder.ByteTextEncoder(),
@@ -367,10 +389,9 @@ def wmt_enfr_tokens(model_hparams, wrong_vocab_size):
                                 "tokens.vocab.%d" % wrong_vocab_size)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   p.input_modality = {
-      "inputs": modality.SymbolModality(model_hparams, subtokenizer.vocab_size)
+      "inputs": (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   }
-  p.target_modality = modality.SymbolModality(model_hparams,
-                                              subtokenizer.vocab_size)
+  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   p.vocabulary = {
       "inputs": subtokenizer,
       "targets": subtokenizer,
@@ -383,12 +404,10 @@ def wmt_enfr_tokens(model_hparams, wrong_vocab_size):
 def wmt_ende_bpe32k(model_hparams):
   """English to German translation benchmark."""
   p = default_problem_hparams()
-  # single modality object enables embedding sharing between inputs and target
-  # when model_hparams.shared_source_target_embedding is True.
   vocab_size = 40960
-  m = modality.SymbolModality(model_hparams, vocab_size)
-  p.input_modality = {"inputs": m}
-  p.target_modality = m
+  modality_spec = (registry.Modalities.SYMBOL, vocab_size)
+  p.input_modality = {"inputs": modality_spec}
+  p.target_modality = modality_spec
   # This vocab file must be present within the data directory.
   vocab_filename = os.path.join(model_hparams.data_dir, "vocab.bpe.32000")
   p.vocabulary = {
@@ -401,11 +420,11 @@ def wmt_ende_bpe32k(model_hparams):
   return p
 
 
-def wmt_ende_characters(model_hparams):
+def wmt_ende_characters(unused_model_hparams):
   """English to German translation benchmark."""
   p = default_problem_hparams()
-  p.input_modality = {"inputs": modality.SymbolModality(model_hparams, 256)}
-  p.target_modality = modality.SymbolModality(model_hparams, 256)
+  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
+  p.target_modality = (registry.Modalities.SYMBOL, 256)
   p.vocabulary = {
       "inputs": text_encoder.ByteTextEncoder(),
       "targets": text_encoder.ByteTextEncoder(),
@@ -424,10 +443,9 @@ def wmt_ende_tokens(model_hparams, wrong_vocab_size):
                                 "tokens.vocab.%d" % wrong_vocab_size)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   p.input_modality = {
-      "inputs": modality.SymbolModality(model_hparams, subtokenizer.vocab_size)
+      "inputs": (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   }
-  p.target_modality = modality.SymbolModality(model_hparams,
-                                              subtokenizer.vocab_size)
+  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   p.vocabulary = {
       "inputs": subtokenizer,
       "targets": subtokenizer,
@@ -445,10 +463,8 @@ def wmt_ende_v2(model_hparams, vocab_size):
                                        "wmt_ende_v2.en.vocab.%d" % vocab_size)
   target_vocab_filename = os.path.join(model_hparams.data_dir,
                                        "wmt_ende_v2.de.vocab.%d" % vocab_size)
-  p.input_modality = {
-      "inputs": modality.SymbolModality(model_hparams, vocab_size)
-  }
-  p.target_modality = modality.SymbolModality(model_hparams, vocab_size)
+  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
+  p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
   p.vocabulary = {
       "inputs": text_encoder.SubwordTextEncoder(source_vocab_filename),
       "targets": text_encoder.SubwordTextEncoder(target_vocab_filename),
@@ -467,16 +483,16 @@ def wmt_concat(model_hparams, wrong_vocab_size):
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   vocab_size = subtokenizer.vocab_size
   p.input_modality = {}
-  p.target_modality = modality.SymbolModality(model_hparams, vocab_size)
+  p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
   p.vocabulary = {"targets": subtokenizer}
   return p
 
 
-def wmt_parsing_characters(model_hparams):
+def wmt_parsing_characters(unused_model_hparams):
   """English to parse tree translation benchmark."""
   p = default_problem_hparams()
-  p.input_modality = {"inputs": modality.SymbolModality(model_hparams, 256)}
-  p.target_modality = modality.SymbolModality(model_hparams, 256)
+  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
+  p.target_modality = (registry.Modalities.SYMBOL, 256)
   p.vocabulary = {
       "inputs": text_encoder.ByteTextEncoder(),
       "targets": text_encoder.ByteTextEncoder(),
@@ -504,10 +520,9 @@ def wmt_parsing_tokens(model_hparams, wrong_vocab_size):
                                 "tokens.vocab.%d" % wrong_vocab_size)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   p.input_modality = {
-      "inputs": modality.SymbolModality(model_hparams, subtokenizer.vocab_size)
+      "inputs": (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   }
-  p.target_modality = modality.SymbolModality(model_hparams,
-                                              subtokenizer.vocab_size)
+  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   p.vocabulary = {
       "inputs": subtokenizer,
       "targets": subtokenizer,
@@ -540,16 +555,13 @@ def wsj_parsing_tokens(model_hparams, wrong_source_vocab_size,
   target_vocab_filename = os.path.join(
       model_hparams.data_dir,
       "wsj_target.tokens.vocab.%d" % wrong_target_vocab_size)
-  source_subtokenizer = text_encoder.SubwordTextEncoder(
-      source_vocab_filename)
-  target_subtokenizer = text_encoder.SubwordTextEncoder(
-      target_vocab_filename)
+  source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
+  target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
   p.input_modality = {
-      "inputs": modality.SymbolModality(model_hparams,
-                                        source_subtokenizer.vocab_size)
+      "inputs": (registry.Modalities.SYMBOL, source_subtokenizer.vocab_size)
   }
-  p.target_modality = modality.SymbolModality(model_hparams,
-                                              target_subtokenizer.vocab_size)
+  p.target_modality = (registry.Modalities.SYMBOL,
+                       target_subtokenizer.vocab_size)
   p.vocabulary = {
       "inputs": source_subtokenizer,
       "targets": target_subtokenizer,
@@ -559,11 +571,13 @@ def wsj_parsing_tokens(model_hparams, wrong_source_vocab_size,
   return p
 
 
-def image_cifar10(model_hparams):
+def image_cifar10(unused_model_hparams):
   """CIFAR-10."""
   p = default_problem_hparams()
-  p.input_modality = {"inputs": modality.SmallImageModality(model_hparams)}
-  p.target_modality = modality.ClassLabelModality(model_hparams, 10)
+  p.input_modality = {
+      "inputs": ("%s:small_image_modality" % registry.Modalities.IMAGE, None)
+  }
+  p.target_modality = (registry.Modalities.CLASS_LABEL, 10)
   p.batch_size_multiplier = 4
   p.max_expected_batch_size_per_shard = 8
   p.loss_multiplier = 3.0
@@ -572,11 +586,11 @@ def image_cifar10(model_hparams):
   return p
 
 
-def image_mnist(model_hparams):
+def image_mnist(unused_model_hparams):
   """MNIST."""
   p = default_problem_hparams()
-  p.input_modality = {"inputs": modality.SymbolModality(model_hparams, 256)}
-  p.target_modality = modality.ClassLabelModality(model_hparams, 10)
+  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
+  p.target_modality = (registry.Modalities.CLASS_LABEL, 10)
   p.batch_size_multiplier = 4
   p.max_expected_batch_size_per_shard = 8
   p.loss_multiplier = 3.0
@@ -589,10 +603,12 @@ def image_imagenet(model_hparams):
   """ImageNet."""
   p = default_problem_hparams()
   p.input_modality = {
-      "inputs": modality.ImageModality(model_hparams),
+      "inputs": (registry.Modalities.IMAGE, None),
   }
-  p.target_modality = modality.ClassLabelModality(
-      model_hparams, 1000, is2d=model_hparams.imagenet_use_2d)
+  target_modality = ("%s:class_label_2d" % registry.Modalities.CLASS_LABEL
+                     if model_hparams.imagenet_use_2d else
+                     registry.Modalities.CLASS_LABEL)
+  p.target_modality = (target_modality, 1000)
   p.batch_size_multiplier = 256
   p.max_expected_batch_size_per_shard = 2
   p.loss_multiplier = 0.7
@@ -601,11 +617,11 @@ def image_imagenet(model_hparams):
   return p
 
 
-def image_mscoco_characters(model_hparams):
+def image_mscoco_characters(unused_model_hparams):
   """COCO image captioning with captions as characters."""
   p = default_problem_hparams()
-  p.input_modality = {"inputs": modality.ImageModality(model_hparams)}
-  p.target_modality = modality.SymbolModality(model_hparams, 256)
+  p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+  p.target_modality = (registry.Modalities.SYMBOL, 256)
   p.vocabulary = {
       "inputs": text_encoder.TextEncoder(),
       "targets": text_encoder.ByteTextEncoder(),
@@ -621,13 +637,12 @@ def image_mscoco_characters(model_hparams):
 def image_mscoco_tokens(model_hparams, vocab_count):
   """COCO image captioning with captions as tokens."""
   p = default_problem_hparams()
-  p.input_modality = {"inputs": modality.ImageModality(model_hparams)}
+  p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
   # This vocab file must be present within the data directory.
   vocab_filename = os.path.join(model_hparams.data_dir,
                                 "tokens.vocab.%d" % vocab_count)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
-  p.target_modality = modality.SymbolModality(model_hparams,
-                                              subtokenizer.vocab_size)
+  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   p.vocabulary = {
       "inputs": text_encoder.TextEncoder(),
       "targets": subtokenizer,
@@ -641,16 +656,16 @@ def image_mscoco_tokens(model_hparams, vocab_count):
 
 # Dictionary of named hyperparameter settings for various problems.
 # This is only accessed through the problem_hparams function below.
-_problem_hparams_map = {
-    "algorithmic_addition_binary40": lambda p: algorithmic(3, p),
-    "algorithmic_addition_decimal40": lambda p: algorithmic(11, p),
-    "algorithmic_identity_binary40": lambda p: algorithmic(3, p),
-    "algorithmic_identity_decimal40": lambda p: algorithmic(11, p),
-    "algorithmic_multiplication_binary40": lambda p: algorithmic(3, p),
-    "algorithmic_multiplication_decimal40": lambda p: algorithmic(11, p),
-    "algorithmic_reverse_binary40": lambda p: algorithmic(3, p),
-    "algorithmic_reverse_decimal40": lambda p: algorithmic(11, p),
-    "algorithmic_shift_decimal40": lambda p: algorithmic(21, p),
+PROBLEM_HPARAMS_MAP = {
+    "algorithmic_addition_binary40": lambda p: algorithmic(4, p),
+    "algorithmic_addition_decimal40": lambda p: algorithmic(12, p),
+    "algorithmic_identity_binary40": lambda p: algorithmic(4, p),
+    "algorithmic_identity_decimal40": lambda p: algorithmic(12, p),
+    "algorithmic_multiplication_binary40": lambda p: algorithmic(4, p),
+    "algorithmic_multiplication_decimal40": lambda p: algorithmic(12, p),
+    "algorithmic_reverse_binary40": lambda p: algorithmic(4, p),
+    "algorithmic_reverse_decimal40": lambda p: algorithmic(12, p),
+    "algorithmic_shift_decimal40": lambda p: algorithmic(22, p),
     "audio_timit_characters_tune": audio_timit_characters,
     "audio_timit_characters_test": audio_timit_characters,
     "audio_timit_tokens_8k_tune": lambda p: audio_timit_tokens(p, 2**13),

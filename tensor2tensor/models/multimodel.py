@@ -20,6 +20,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.models import common_layers
+from tensor2tensor.models import modalities
 from tensor2tensor.models import slicenet
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import registry
@@ -104,8 +105,8 @@ class MultiModel(t2t_model.T2TModel):
         mask=inputs_mask)
 
     # If we're just predicing a class, there is no use for a decoder, return.
-    target_modality = hparams.problems[self._problem_idx].target_modality
-    if "class_label_modality" in target_modality.name:
+    if isinstance(hparams.problems[self._problem_idx].target_modality,
+                  modalities.ClassLabelModality):
       return inputs_encoded, tf.reduce_mean(expert_loss)
 
     # Do the middle part.
@@ -144,7 +145,7 @@ class MultiModel(t2t_model.T2TModel):
     return decoder_final, total_loss
 
 
-@registry.register_hparams("multimodel1p8")
+@registry.register_hparams("multimodel_1p8")
 def multimodel_params1_p8():
   """Version for eight problem runs."""
   hparams = slicenet.slicenet_params1()
