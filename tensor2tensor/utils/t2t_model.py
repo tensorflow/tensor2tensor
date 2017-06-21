@@ -27,6 +27,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import modality
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -77,6 +78,40 @@ class T2TModel(object):
     self._ps_devices = ps_devices
     self._problem_hparams = problem_hparams
     self._problem_idx = problem_idx
+    self._create_modalities(problem_hparams, hparams)
+
+  def _create_modalities(self, problem_hparams, hparams):
+    """Construct modalities in problem_hparams."""
+
+    input_modality_overrides = {}
+    for override_str in hparams.input_modalities.split(";"):
+      parts = override_str.split(":")
+      feature_name = parts[0]
+      modality_name = ":".join(parts[1:])
+      input_modality_overrides[feature_name] = modality_name
+
+    target_modality_name = None
+    if hparams.target_modality:
+      target_modality_name = hparams.target_modality
+
+    input_modality = {}
+    for f, modality_spec in six.iteritems(problem_hparams.input_modality):
+      if isinstance(modality_spec, modality.Modality):
+        return
+      if f in input_modality_overrides:
+        _warn_changed_modality_type(input_modality_overrides[f],
+                                    modality_spec[0], f)
+        modality_spec = (input_modality_overrides[f], modality_spec[1])
+      input_modality[f] = registry.create_modality(modality_spec, hparams)
+    problem_hparams.input_modality = input_modality
+
+    target_modality_spec = problem_hparams.target_modality
+    if target_modality_name:
+      _warn_changed_modality_type(target_modality_name, target_modality_spec[0],
+                                  "target")
+      target_modality_spec = (target_modality_name, target_modality_spec[1])
+    target_modality = registry.create_modality(target_modality_spec, hparams)
+    problem_hparams.target_modality = target_modality
 
   @property
   def has_input(self):
@@ -168,7 +203,7 @@ class T2TModel(object):
                                     [s[0] * s[1], s[2], s[3], s[4]])
 
     target_modality = self._hparams.problems[self._problem_idx].target_modality
-    vocab_size = target_modality.targets_dimensionality
+    vocab_size = target_modality.top_dimensionality
     # Setting decode length to input length + decode_length
     decode_length = tf.shape(features["inputs"])[1] + tf.constant(decode_length)
     ids, scores = beam_search.beam_search(symbols_to_logits_fn, initial_ids,
@@ -329,7 +364,7 @@ class T2TModel(object):
       all_previous_modalities.extend(previous_modalities)
       do_reuse = input_modality.name in all_previous_modalities
       with tf.variable_scope(input_modality.name, reuse=do_reuse):
-        transformed_features[key] = input_modality.inputs_bottom_sharded(
+        transformed_features[key] = input_modality.bottom_sharded(
             sharded_features[key], dp)
       all_previous_modalities.append(input_modality.name)
 
@@ -361,7 +396,7 @@ class T2TModel(object):
 
     with tf.variable_scope(target_modality.name, reuse=target_reuse):
       if not last_position_only:
-        sharded_logits, training_loss = (target_modality.targets_top_sharded(
+        sharded_logits, training_loss = (target_modality.top_sharded(
             body_outputs, sharded_features["targets"], self._data_parallelism))
 
         training_loss *= self._problem_hparams.loss_multiplier
@@ -376,7 +411,7 @@ class T2TModel(object):
             tf.expand_dims(target_shard[:, -1:, :, :], axis=[1])
             for target_shard in sharded_features["targets"]
         ]
-        sharded_logits, training_loss = (target_modality.targets_top_sharded(
+        sharded_logits, training_loss = (target_modality.top_sharded(
             last_position_body_outputs, last_position_targets,
             self._data_parallelism))
 
@@ -434,3 +469,12 @@ class T2TModel(object):
   @property
   def hparams(self):
     return self._hparams
+
+
+def _warn_changed_modality_type(new_name, old_name, feature_name):
+  new_type, new_name = registry.parse_modality_name(new_name)
+  old_type, old_name = registry.parse_modality_name(old_name)
+  if new_type != old_type:
+    tf.logging.warning("%s has a designated modality type %s (%s) but has been "
+                       "overriden with a modality of type %s (%s).",
+                       feature_name, old_type, old_name, new_type, new_name)

@@ -75,8 +75,8 @@ class TextEncoder(object):
       if 0 <= id_ < self._num_reserved_ids:
         decoded_ids.append(RESERVED_TOKENS[int(id_)])
       else:
-        decoded_ids.append(id_)
-    return '%s' % decoded_ids
+        decoded_ids.append(id_ - self._num_reserved_ids)
+    return ' '.join([str(d) for d in decoded_ids])
 
   @property
   def vocab_size(self):

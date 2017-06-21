@@ -11,7 +11,9 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 [T2T](https://github.com/tensorflow/tensor2tensor) is a modular and extensible
 library and binaries for supervised learning with TensorFlow and with support
 for sequence tasks. It is actively used and maintained by researchers and
-engineers within the Google Brain team.
+engineers within the Google Brain team. You can read more about Tensor2Tensor in
+the recent [Google Research Blog post introducing
+it](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html).
 
 We're eager to collaborate with you on extending T2T, so please feel
 free to [open an issue on
@@ -50,6 +52,7 @@ mkdir -p $DATA_DIR $TMP_DIR $TRAIN_DIR
 t2t-datagen \
   --data_dir=$DATA_DIR \
   --tmp_dir=$TMP_DIR \
+  --num_shards=100 \
   --problem=$PROBLEM
 
 mv $TMP_DIR/tokens.vocab.32768 $DATA_DIR

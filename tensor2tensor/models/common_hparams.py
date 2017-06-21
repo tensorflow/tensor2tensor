@@ -27,7 +27,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-@registry.register_hparams("basic1")
+@registry.register_hparams("basic_1")
 def basic_params1():
   """A set of basic hyperparameters."""
   return tf.contrib.training.HParams(
@@ -72,7 +72,15 @@ def basic_params1():
       # You can also share the input embeddings with the output embeddings
       # by using a problem_hparams that uses the same modality object for
       # the input_modality and target_modality.
-      shared_embedding_and_softmax_weights=int(False),)
+      shared_embedding_and_softmax_weights=int(False),
+      # For each feature for which you want to override the default input
+      # modality, add an entry to this semicolon-separated string. Entries are
+      # formatted "feature_name:modality_type:modality_name", e.g.
+      # "inputs:image:small_image_modality;other_inputs:audio:identity".
+      input_modalities="",
+      # To override the default target modality, specify
+      # "modality_type:modality_name", e.g. "image:small_image_modality".
+      target_modality="")
 
 
 class RangedHParams(object):

@@ -21,8 +21,8 @@ from __future__ import print_function
 
 import numpy as np
 
+from tensor2tensor.models import modalities
 from tensor2tensor.utils import expert_utils
-from tensor2tensor.utils import modality
 
 import tensorflow as tf
 
@@ -42,12 +42,12 @@ class ModalityTest(tf.test.TestCase):
         shared_embedding_and_softmax_weights=0)
     x = -1 + np.random.random_integers(vocab_size, size=(
         batch_size, length, 1, 1))
-    m = modality.SymbolModality(model_hparams, vocab_size)
+    m = modalities.SymbolModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(
         ["/device:CPU:0"] * num_datashards, reuse=True)
     with self.test_session() as session:
       xs = tf.split(x, num_datashards)
-      sharded_output = m.inputs_bottom_sharded(xs, data_parallelism)
+      sharded_output = m.bottom_sharded(xs, data_parallelism)
       output = tf.concat(sharded_output, 0)
       session.run(tf.global_variables_initializer())
       res = session.run(output)
@@ -69,13 +69,13 @@ class ModalityTest(tf.test.TestCase):
         100, size=(batch_size, length, height, hidden_size))
     targets = -1 + np.random.random_integers(
         vocab_size, size=(batch_size, length, height, 1))
-    m = modality.SymbolModality(model_hparams, vocab_size)
+    m = modalities.SymbolModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(
         ["/device:CPU:0"] * num_datashards, reuse=True)
     with self.test_session() as session:
       sharded_body_output = tf.split(tf.to_float(body_output), num_datashards)
       sharded_targets = tf.split(targets, num_datashards)
-      sharded_logits, train_loss = m.targets_top_sharded(
+      sharded_logits, train_loss = m.top_sharded(
           sharded_body_output, sharded_targets, data_parallelism)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())
