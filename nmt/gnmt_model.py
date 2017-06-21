@@ -118,12 +118,28 @@ class GNMTModel(attention_model.AttentionModel):
     num_units = hparams.num_units
     num_layers = hparams.num_layers
     num_residual_layers = hparams.num_residual_layers
+    beam_width = hparams.beam_width
 
     dtype = tf.float32
 
+    if self.time_major:
+      memory = tf.transpose(encoder_outputs, [1, 0, 2])
+    else:
+      memory = encoder_outputs
+
+    if self.mode == tf.contrib.learn.ModeKeys.INFER and beam_width > 0:
+      memory = tf.contrib.seq2seq.tile_batch(
+          memory, multiplier=beam_width)
+      source_sequence_length = tf.contrib.seq2seq.tile_batch(
+          source_sequence_length, multiplier=beam_width)
+      encoder_state = tf.contrib.seq2seq.tile_batch(
+          encoder_state, multiplier=beam_width)
+      batch_size = self.batch_size * beam_width
+    else:
+      batch_size = self.batch_size
+
     attention_mechanism = attention_model.create_attention_mechanism(
-        attention_option, num_units, encoder_outputs, self.time_major,
-        source_sequence_length)
+        attention_option, num_units, memory, source_sequence_length)
 
     cell_list = model_helper._cell_list(
         hparams, num_layers, num_residual_layers, self.mode)
@@ -131,12 +147,15 @@ class GNMTModel(attention_model.AttentionModel):
     # Only wrap the bottom layer with the attention mechanism.
     attention_cell = cell_list.pop(0)
 
+    # Only generate alignment in greedy INFER mode.
+    alignment_history = (self.mode == tf.contrib.learn.ModeKeys.INFER and
+                         beam_width == 0)
     attention_cell = tf.contrib.seq2seq.AttentionWrapper(
         attention_cell,
         attention_mechanism,
         attention_layer_size=None,  # don't use attenton layer.
         output_attention=False,
-        alignment_history=(self.mode == tf.contrib.learn.ModeKeys.INFER),
+        alignment_history=alignment_history,
         name="attention")
 
     if attention_architecture == "gnmt":
@@ -150,11 +169,13 @@ class GNMTModel(attention_model.AttentionModel):
         zs.clone(cell_state=es)
         if isinstance(zs, tf.contrib.seq2seq.AttentionWrapperState) else es
         for zs, es in zip(
-            cell.zero_state(self.batch_size, dtype), encoder_state))
+            cell.zero_state(batch_size, dtype), encoder_state))
 
     return cell, decoder_initial_state
 
-  def _get_infer_summary(self):
+  def _get_infer_summary(self, hparams):
+    if hparams.beam_width > 0:
+      return tf.no_op()
     return attention_model._create_attention_images_summary(
         self.final_context_state[0])
 

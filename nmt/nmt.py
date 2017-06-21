@@ -109,6 +109,7 @@ def create_hparams():
       metrics=FLAGS.metrics.split(","),
       log_device_placement=FLAGS.log_device_placement,
       random_seed=FLAGS.random_seed,
+      beam_width=FLAGS.beam_width,
 
       # Experimental
       ignore_list_file=FLAGS.ignore_list_file,
@@ -248,7 +249,7 @@ def load_train_hparams(out_dir):
         hparams.add_hparam(key, new_config[key])
 
     # Make sure that the loaded model has latest values for the below keys
-    updated_keys = ["out_dir", "num_gpus", "test_prefix"]
+    updated_keys = ["out_dir", "num_gpus", "test_prefix", "beam_width"]
     for key in updated_keys:
       if getattr(hparams, key) != new_config[key]:
         utils.print_out("# Updating hparams.%s: %s -> %s" %
@@ -462,6 +463,11 @@ if __name__ == "__main__":
       """)
   parser.add_argument("--scope", type=str, default=None,
                       help="scope to put variables under")
+  parser.add_argument("--beam_width", type=int, default=0,
+                      help=("""\
+      beam width when using beam search decoder. If 0 (default), use standard
+      decoder with greedy helper.\
+      """))
 
   # Test
   parser.add_argument("--model_dir", type=str, default="",

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
 """Attention-based sequence-to-sequence model with dynamic RNN support."""
 from __future__ import absolute_import
 from __future__ import division
@@ -53,7 +52,7 @@ class AttentionModel(model.Model):
         reverse_target_vocab_table=reverse_target_vocab_table,
         scope=scope)
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
-      self.infer_summary = self._get_infer_summary()
+      self.infer_summary = self._get_infer_summary(hparams)
 
   def _build_decoder_cell(self, hparams, encoder_outputs, encoder_state,
                           source_sequence_length):
@@ -69,64 +68,78 @@ class AttentionModel(model.Model):
     num_layers = hparams.num_layers
     num_residual_layers = hparams.num_residual_layers
     num_gpus = hparams.num_gpus
+    beam_width = hparams.beam_width
 
     dtype = tf.float32
 
+    if self.time_major:
+      memory = tf.transpose(encoder_outputs, [1, 0, 2])
+    else:
+      memory = encoder_outputs
+
+    if self.mode == tf.contrib.learn.ModeKeys.INFER and beam_width > 0:
+      memory = tf.contrib.seq2seq.tile_batch(
+          memory, multiplier=beam_width)
+      source_sequence_length = tf.contrib.seq2seq.tile_batch(
+          source_sequence_length, multiplier=beam_width)
+      encoder_state = tf.contrib.seq2seq.tile_batch(
+          encoder_state, multiplier=beam_width)
+      batch_size = self.batch_size * beam_width
+    else:
+      batch_size = self.batch_size
+
     attention_mechanism = create_attention_mechanism(
-        attention_option, num_units, encoder_outputs, self.time_major,
-        source_sequence_length)
+        attention_option, num_units, memory, source_sequence_length)
 
-    cell = model_helper.create_rnn_cell(
-        hparams, num_layers, num_residual_layers, self.mode)
+    cell = model_helper.create_rnn_cell(hparams, num_layers,
+                                        num_residual_layers, self.mode)
 
+    # Only generate alignment in greedy INFER mode.
+    alignment_history = (self.mode == tf.contrib.learn.ModeKeys.INFER and
+                         beam_width == 0)
     cell = tf.contrib.seq2seq.AttentionWrapper(
         cell,
         attention_mechanism,
         attention_layer_size=num_units,
-        alignment_history=(self.mode == tf.contrib.learn.ModeKeys.INFER),
+        alignment_history=alignment_history,
         name="attention")
 
     # TODO(thangluong): do we need num_layers, num_gpus?
-    cell = tf.contrib.rnn.DeviceWrapper(
-        cell, model_helper.get_device_str(num_layers - 1, num_gpus))
+    cell = tf.contrib.rnn.DeviceWrapper(cell,
+                                        model_helper.get_device_str(
+                                            num_layers - 1, num_gpus))
 
-    decoder_initial_state = cell.zero_state(self.batch_size, dtype).clone(
+    decoder_initial_state = cell.zero_state(batch_size, dtype).clone(
         cell_state=encoder_state)
 
     return cell, decoder_initial_state
 
-  def _get_infer_summary(self):
+  def _get_infer_summary(self, hparams):
+    if hparams.beam_width > 0:
+      return tf.no_op()
     return _create_attention_images_summary(self.final_context_state)
 
-def create_attention_mechanism(attention_option, num_units, encoder_outputs,
-                               time_major, source_sequence_length):
-  """Create attention mechanism based on the attention_option."""
-  if time_major:
-    attention_states = tf.transpose(encoder_outputs, [1, 0, 2])
-  else:
-    attention_states = encoder_outputs
 
+def create_attention_mechanism(attention_option, num_units, memory,
+                               source_sequence_length):
+  """Create attention mechanism based on the attention_option."""
   # Mechanism
   if attention_option == "luong":
     attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-        num_units,
-        attention_states,
-        memory_sequence_length=source_sequence_length)
+        num_units, memory, memory_sequence_length=source_sequence_length)
   elif attention_option == "scaled_luong":
     attention_mechanism = tf.contrib.seq2seq.LuongAttention(
         num_units,
-        attention_states,
+        memory,
         memory_sequence_length=source_sequence_length,
         scale=True)
   elif attention_option == "bahdanau":
     attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
-        num_units,
-        attention_states,
-        memory_sequence_length=source_sequence_length)
+        num_units, memory, memory_sequence_length=source_sequence_length)
   elif attention_option == "normed_bahdanau":
     attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
         num_units,
-        attention_states,
+        memory,
         memory_sequence_length=source_sequence_length,
         normalize=True)
   else:
@@ -137,8 +150,7 @@ def create_attention_mechanism(attention_option, num_units, encoder_outputs,
 
 def _create_attention_images_summary(final_context_state):
   """create attention image and attention summary."""
-  attention_images = (
-      final_context_state.alignment_history.stack())
+  attention_images = (final_context_state.alignment_history.stack())
   # Reshape to (batch, src_seq_len, tgt_seq_len,1)
   attention_images = tf.expand_dims(
       tf.transpose(attention_images, [1, 2, 0]), -1)

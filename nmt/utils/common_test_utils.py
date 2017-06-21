@@ -40,7 +40,6 @@ def create_test_hparams(unit_type="lstm",
     num_residual_layers = 2
 
   return tf.contrib.training.HParams(
-
       # Networks
       num_units=5,
       num_layers=num_layers,
@@ -73,6 +72,7 @@ def create_test_hparams(unit_type="lstm",
       # Infer
       tgt_max_len_infer=100,
       infer_batch_size=32,
+      beam_width=0,
 
       # Misc
       forget_bias=0.0,

@@ -50,6 +50,11 @@ def decode_and_evaluate(name,
       while True:
         try:
           nmt_outputs, _ = model.decode(sess)
+
+          if hparams.beam_width > 0:
+            # get the top translation.
+            nmt_outputs = nmt_outputs[0]
+
           num_sentences += len(nmt_outputs)
           for sent_id in range(len(nmt_outputs)):
             translation = get_translation(nmt_outputs, sent_id, hparams)

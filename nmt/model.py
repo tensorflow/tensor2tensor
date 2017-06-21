@@ -20,7 +20,6 @@ from __future__ import print_function
 
 import abc
 
-import numpy as np
 import tensorflow as tf
 
 from tensorflow.python.layers import core as layers_core
@@ -154,7 +153,7 @@ class BaseModel(object):
       ] + gradient_norm_summary)
 
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
-      self.infer_summary = self._get_infer_summary()
+      self.infer_summary = self._get_infer_summary(hparams)
 
     # Saver
     self.saver = tf.train.Saver(tf.global_variables())
@@ -321,6 +320,8 @@ class BaseModel(object):
             swap_memory=True,
             scope=decoder_scope)
 
+        sample_id = outputs.sample_id
+
         # Note: there's a subtle difference here between train and inference.
         # We could have set output_layer when create my_decoder
         #   and shared more code between train and inference.
@@ -333,18 +334,32 @@ class BaseModel(object):
 
       ## Inference
       else:
-        # Helper
-        helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-            self.embedding_decoder,
-            tf.fill([self.batch_size], tgt_sos_id), tgt_eos_id)
+        beam_width = hparams.beam_width
+        start_tokens = tf.fill([self.batch_size], tgt_sos_id)
+        end_token = tgt_eos_id
 
-        # Decoder
-        my_decoder = tf.contrib.seq2seq.BasicDecoder(
-            cell,
-            helper,
-            decoder_initial_state,
-            output_layer=self.output_layer  # applied per timestep
-        )
+        if beam_width > 0:
+          my_decoder = tf.contrib.seq2seq.BeamSearchDecoder(
+              cell=cell,
+              embedding=self.embedding_decoder,
+              start_tokens=start_tokens,
+              end_token=end_token,
+              initial_state=decoder_initial_state,
+              beam_width=beam_width,
+              output_layer=self.output_layer,
+              length_penalty_weight=0.0)
+        else:
+          # Helper
+          helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+              self.embedding_decoder, start_tokens, end_token)
+
+          # Decoder
+          my_decoder = tf.contrib.seq2seq.BasicDecoder(
+              cell,
+              helper,
+              decoder_initial_state,
+              output_layer=self.output_layer  # applied per timestep
+          )
 
         # Dynamic decoding
         outputs, final_context_state, _ = tf.contrib.seq2seq.dynamic_decode(
@@ -353,9 +368,15 @@ class BaseModel(object):
             output_time_major=self.time_major,
             swap_memory=True,
             scope=decoder_scope)
-        logits = outputs.rnn_output
 
-    return logits, outputs.sample_id, final_context_state
+        if beam_width > 0:
+          logits = tf.no_op()
+          sample_id = outputs.predicted_ids
+        else:
+          logits = outputs.rnn_output
+          sample_id = outputs.sample_id
+
+    return logits, sample_id, final_context_state
 
   def get_max_time(self, tensor):
     time_axis = 0 if self.time_major else 1
@@ -395,7 +416,7 @@ class BaseModel(object):
         crossent * target_weights) / tf.to_float(self.batch_size)
     return loss
 
-  def _get_infer_summary(self):
+  def _get_infer_summary(self, hparams):
     return tf.no_op()
 
   def infer(self, sess):
@@ -539,6 +560,12 @@ class Model(BaseModel):
 
     cell = model_helper.create_rnn_cell(
         hparams, num_layers, num_residual_layers, self.mode)
-    decoder_initial_state = encoder_state
+
+    # For beam search, we need to replicate encoder infos beam_width times
+    if self.mode == tf.contrib.learn.ModeKeys.INFER and hparams.beam_width > 0:
+      decoder_initial_state = tf.contrib.seq2seq.tile_batch(
+          encoder_state, multiplier=hparams.beam_width)
+    else:
+      decoder_initial_state = encoder_state
 
     return cell, decoder_initial_state
