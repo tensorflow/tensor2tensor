@@ -1212,7 +1212,6 @@ def SampledSoftmaxLoss(features, sampler, num_classes, target_classes,
   Args:
     features: a Tensor with shape [batch_size, hidden_size]
     sampler: a candidate sampler object
-      (see learning/brain/google/python/ops/candidate_sampling.py)
     num_classes: an integer
     target_classes: an integer Tensor with shape [batch_size]
     target_params: a Tensor with shape [batch_size, hidden_size]
@@ -1261,7 +1260,6 @@ def ParallelSampledSoftmaxLoss(params,
     target_classes: A list of num_datashards integer Tensors each with shape
        [batch_size_i]
     sampler: a candidate sampler object
-      (see learning/brain/google/python/ops/candidate_sampling.py)
     num_classes: an Integer
     data_parallelism: a Parallelism object
     target_weights: an optional list of num_datashards Tensors each with
