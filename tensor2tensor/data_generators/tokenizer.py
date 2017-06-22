@@ -45,29 +45,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import array
 import string
 
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
-
+from collections import defaultdict
 
 class Tokenizer(object):
   """Vocab for breaking words into wordpieces.
   """
 
-  def __init__(self):
-    self._separator_chars = string.punctuation + string.whitespace
-    self._separator_char_mask = array.array(
-        "l", [chr(i) in self._separator_chars for i in xrange(256)])
-    self.token_counts = dict()
+  _SEPARATOR_CHAR_SET = set(string.punctuation + string.whitespace)
 
-  def _increment_token_count(self, token):
-    if token in self.token_counts:
-      self.token_counts[token] += 1
-    else:
-      self.token_counts[token] = 1
+  def __init__(self):
+    self.token_counts = defaultdict(int)
 
   def encode(self, raw_text):
     """Encode a raw string as a list of tokens.
@@ -87,11 +79,11 @@ class Tokenizer(object):
         token = raw_text[token_start:pos]
         if token != " " or token_start == 0:
           ret.append(token)
-          self._increment_token_count(token)
+          self.token_counts[token] += 1
         token_start = pos
     final_token = raw_text[token_start:]
     ret.append(final_token)
-    self._increment_token_count(final_token)
+    self.token_counts[final_token] += 1
     return ret
 
   def decode(self, tokens):
@@ -111,7 +103,7 @@ class Tokenizer(object):
     return ret
 
   def _is_separator_char(self, c):
-    return self._separator_char_mask[ord(c)]
+    return c in self._SEPARATOR_CHAR_SET
 
   def _is_word_char(self, c):
-    return not self._is_separator_char(c)
+    return c not in self._SEPARATOR_CHAR_SET
