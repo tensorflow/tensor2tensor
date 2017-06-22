@@ -12,5 +12,5 @@ To add a model to the built-in set, create a new file (see, e.g.,
 `neural_gpu.py`) and write your model class inheriting from `T2TModel` there and
 decorate it with `registry.register_model`. Import it in `models.py`.
 
-It is now available to use with the trainer binary (`t2t-trainer`) using the
+It is now avaialable to use with the trainer binary (`t2t-trainer`) using the
 `--model=model_name` flag.

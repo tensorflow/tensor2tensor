@@ -342,7 +342,6 @@ def transformer_parsing_base():
   hparams.learning_rate_warmup_steps = 16000
   hparams.hidden_size = 1024
   hparams.learning_rate = 0.05
-  hparams.residual_dropout = 0.1
   hparams.shared_embedding_and_softmax_weights = int(False)
   return hparams
 
