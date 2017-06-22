@@ -38,7 +38,7 @@ cd $DATADIR
 tar xvf 1-billion-word-language-modeling-benchmark-r13output.tar.gz
 
 # replace oov words with UNK
-./blaze-bin/third_party/py/tensor2tensor/data_generators/replace_oov \
+$BINARYDIR/replace_oov \
 --vocab_file=$DATADIR/vocab-2016-09-10.txt \
 --in_filepattern=\
 $DATADIR/1-billion-word-language-modeling-benchmark-r13output/\
