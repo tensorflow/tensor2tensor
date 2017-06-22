@@ -94,12 +94,6 @@ def create_hparams():
       src_max_vocab_size=FLAGS.src_max_vocab_size,
       tgt_max_vocab_size=FLAGS.tgt_max_vocab_size,
 
-      # Seq2label
-      cl_num_classes=FLAGS.cl_num_classes,
-      cl_num_layers=FLAGS.cl_num_layers,
-      cl_hidden_size=FLAGS.cl_hidden_size,
-      cl_dropout=FLAGS.cl_dropout,
-
       # Misc
       forget_bias=FLAGS.forget_bias,
       num_gpus=FLAGS.num_gpus,
@@ -131,9 +125,6 @@ def extend_hparams(hparams):
       hparams.num_layers < 2):
     raise ValueError("For gnmt attention architecture, "
                      "num_layers %d should be >= 2" % hparams.num_layers)
-  if hparams.task == "seq2label" and hparams.source_reverse:
-    raise ValueError("For seq2label tasks, "
-                     "we don't expect source_reverse to be True")
 
   # Flags
   utils.print_out("# hparams:")
@@ -408,7 +399,7 @@ if __name__ == "__main__":
   # Default settings works well (rarely need to change)
   parser.add_argument("--unit_type", type=str, default="lstm",
                       help="lstm | gru")
-  parser.add_argument("--forget_bias", type=float, default=0.0,
+  parser.add_argument("--forget_bias", type=float, default=1.0,
                       help="Forget bias for BasicLSTMCell.")
   parser.add_argument("--dropout", type=float, default=0.2,
                       help="Dropout rate (not keep_prob)")
@@ -422,7 +413,7 @@ if __name__ == "__main__":
   parser.add_argument("--init_weight", type=float, default=0.1,
                       help="Initial weights from [-this, this].")
   parser.add_argument("--source_reverse", type="bool", nargs="?", const=True,
-                      default=True, help="Reverse source sequence.")
+                      default=False, help="Reverse source sequence.")
   parser.add_argument("--batch_size", type=int, default=128, help="Batch size.")
   parser.add_argument("--infer_batch_size", type=int, default=32,
                       help="Batch size for inference mode.")
@@ -437,16 +428,6 @@ if __name__ == "__main__":
   # BPE
   parser.add_argument("--bpe_delimiter", type=str, default=None,
                       help="Set to @@ to activate BPE")
-
-  # Seq2label for classification tasks
-  parser.add_argument("--cl_num_classes", type=int, default=2,
-                      help="Number of layers for classification.")
-  parser.add_argument("--cl_num_layers", type=int, default=1,
-                      help="Number of hidden layers for classification.")
-  parser.add_argument("--cl_hidden_size", type=int, default=256,
-                      help="Number of hidden units per layer.")
-  parser.add_argument("--cl_dropout", type=float, default=0.2,
-                      help="The amount of dropout (= 1 - keep_prob).")
 
   # Misc
   parser.add_argument("--num_gpus", type=int, default=1,

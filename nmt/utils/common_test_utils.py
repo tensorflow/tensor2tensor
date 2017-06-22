@@ -79,7 +79,6 @@ def create_test_hparams(unit_type="lstm",
       num_gpus=1,
       share_vocab=False,
       random_seed=3,
-      compatible=None,
 
       # Vocab
       src_vocab_size=5,

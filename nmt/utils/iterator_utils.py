@@ -38,19 +38,16 @@ class BatchedInput(collections.namedtuple("BatchedInput",
 def get_infer_iterator(
     src_dataset, src_vocab_table, batch_size,
     source_reverse, eos, src_max_len=None):
-  # TODO(ebrevdo): Add shuffling as an option.
-  # TODO(ebrevdo): make lookup default value the "unk" symbol?
-
-  src_eos_id = tf.cast(src_vocab_table.lookup(tf.constant(eos)),
-                       tf.int32)
+  src_eos_id = tf.cast(src_vocab_table.lookup(tf.constant(eos)), tf.int32)
   src_dataset = src_dataset.map(lambda src: tf.string_split([src]).values)
-  if source_reverse:
-    src_dataset = src_dataset.map(lambda src: tf.reverse(src, axis=[0]))
+
   if src_max_len:
     src_dataset = src_dataset.map(lambda src: src[:src_max_len])
   # Convert the word strings to ids
   src_dataset = src_dataset.map(
       lambda src: tf.cast(src_vocab_table.lookup(src), tf.int32))
+  if source_reverse:
+    src_dataset = src_dataset.map(lambda src: tf.reverse(src, axis=[0]))
   # Add in the word counts.
   src_dataset = src_dataset.map(lambda src: (src, tf.size(src)))
 
