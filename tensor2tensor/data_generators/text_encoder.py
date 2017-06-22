@@ -78,7 +78,7 @@ class TextEncoder(object):
     decoded_ids = []
     for id_ in ids:
       if 0 <= id_ < self._num_reserved_ids:
-        decoded_ids.append(RESERVED_TOKENS[id_])
+        decoded_ids.append(RESERVED_TOKENS[int(id_)])
       else:
         decoded_ids.append(id_ - self._num_reserved_ids)
     return ' '.join([str(d) for d in decoded_ids])
@@ -122,11 +122,7 @@ class TokenTextEncoder(TextEncoder):
     """Initialize from a file, one token per line."""
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
     self._reverse = reverse
-    if vocab_filename is not None:
-      self._load_vocab_from_file(vocab_filename)
-    else:
-      self._token_to_id = {}
-      self._id_to_token = {}
+    self._load_vocab_from_file(vocab_filename)
 
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""

@@ -56,13 +56,10 @@ class Tokenizer(object):
   """Vocab for breaking words into wordpieces.
   """
 
-  def __init__(self):
-    self._separator_chars = string.punctuation + string.whitespace
-    self._separator_char_set = set(self._separator_chars)
-    self.token_counts = defaultdict(int)
+  _SEPARATOR_CHAR_SET = set(string.punctuation + string.whitespace)
 
-  def _increment_token_count(self, token):
-    self.token_counts[token] += 1
+  def __init__(self):
+    self.token_counts = defaultdict(int)
 
   def encode(self, raw_text):
     """Encode a raw string as a list of tokens.
@@ -82,11 +79,11 @@ class Tokenizer(object):
         token = raw_text[token_start:pos]
         if token != " " or token_start == 0:
           ret.append(token)
-          self._increment_token_count(token)
+          self.token_counts[token] += 1
         token_start = pos
     final_token = raw_text[token_start:]
     ret.append(final_token)
-    self._increment_token_count(final_token)
+    self.token_counts[final_token] += 1
     return ret
 
   def decode(self, tokens):
@@ -106,7 +103,7 @@ class Tokenizer(object):
     return ret
 
   def _is_separator_char(self, c):
-    return c in self._separator_char_set
+    return c in self._SEPARATOR_CHAR_SET
 
   def _is_word_char(self, c):
-    return c not in self._separator_char_set
+    return c not in self._SEPARATOR_CHAR_SET
