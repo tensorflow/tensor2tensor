@@ -27,6 +27,7 @@ from __future__ import print_function
 
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
+from collections import defaultdict
 from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
@@ -36,6 +37,10 @@ PAD = '<pad>'
 EOS = '<EOS>'
 RESERVED_TOKENS = [PAD, EOS]
 
+# Character that will be used instead of those with
+# ordinal numbers > 255
+UNK_CHAR = '×' # ordinal 215
+ORD_UNK_CHAR = ord(UNK_CHAR)
 
 class TextEncoder(object):
   """Base class for converting from ints to/from human readable strings."""
@@ -73,7 +78,7 @@ class TextEncoder(object):
     decoded_ids = []
     for id_ in ids:
       if 0 <= id_ < self._num_reserved_ids:
-        decoded_ids.append(RESERVED_TOKENS[int(id_)])
+        decoded_ids.append(RESERVED_TOKENS[id_])
       else:
         decoded_ids.append(id_ - self._num_reserved_ids)
     return ' '.join([str(d) for d in decoded_ids])
@@ -86,22 +91,28 @@ class TextEncoder(object):
 class ByteTextEncoder(TextEncoder):
   """Encodes each byte to an id. For 8-bit strings only."""
 
+  BYTE_MAX = 2 ** 8 # 256
+
   def encode(self, s):
-    return [ord(c) + self._num_reserved_ids for c in s]
+    numres = self._num_reserved_ids
+    byte_max = self.BYTE_MAX
+    # Characters with ordinals >= BYTE_MAX (256) will be mapped to UNK_CHAR
+    return [ord(c) + numres if ord(c) < byte_max else ORD_UNK_CHAR + numres for c in s]
 
   def decode(self, ids):
+    numres = self._num_reserved_ids
     decoded_ids = []
     for id_ in ids:
-      if 0 <= id_ < self._num_reserved_ids:
-        decoded_ids.append(RESERVED_TOKENS[int(id_)])
+      if 0 <= id_ < numres:
+        decoded_ids.append(RESERVED_TOKENS[id_])
       else:
-        decoded_ids.append(chr(id_))
+        decoded_ids.append(chr(id_ - numres))
 
     return ''.join(decoded_ids)
 
   @property
   def vocab_size(self):
-    return 2**8 + self._num_reserved_ids
+    return self.BYTE_MAX + self._num_reserved_ids
 
 
 class TokenTextEncoder(TextEncoder):
@@ -113,18 +124,18 @@ class TokenTextEncoder(TextEncoder):
     self._reverse = reverse
     if vocab_filename is not None:
       self._load_vocab_from_file(vocab_filename)
+    else:
+      self._token_to_id = {}
+      self._id_to_token = {}
 
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""
     ret = [self._token_to_id[tok] for tok in sentence.strip().split()]
-    if self._reverse:
-      ret = ret[::-1]
-    return ret
+    return ret[::-1] if self._reverse else ret
 
   def decode(self, ids):
-    if self._reverse:
-      ids = ids[::-1]
-    return ' '.join([self._safe_id_to_token(i) for i in ids])
+    seq = reversed(ids) if self._reverse else ids
+    return ' '.join([self._safe_id_to_token(i) for i in seq])
 
   @property
   def vocab_size(self):
@@ -243,15 +254,21 @@ class SubwordTextEncoder(TextEncoder):
     """
     ret = []
     pos = 0
-    while pos < len(escaped_token):
-      end = len(escaped_token)
-      while True:
+    lesc = len(escaped_token)
+    while pos < lesc:
+      end = lesc
+      while end > pos:
         subtoken = self._subtoken_string_to_id.get(escaped_token[pos:end], -1)
         if subtoken != -1:
           break
         end -= 1
       ret.append(subtoken)
-      pos = end
+      if end > pos:
+        pos = end
+      else:
+        # This kinda should not happen
+        print("Unable to find subtoken in string '{0}'".format(escaped_token))
+        pos += 1
     return ret
 
   @classmethod
@@ -322,13 +339,14 @@ class SubwordTextEncoder(TextEncoder):
     # then count the resulting potential subtokens, keeping the ones
     # with high enough counts for our new vocabulary.
     for i in xrange(num_iterations):
-      counts = {}
+      print("build_from_token_counts(min_count={0}): iteration {1}".format(min_count, i))
+      counts = defaultdict(int)
       for token, count in six.iteritems(token_counts):
         escaped_token = self._escape_token(token)
         # we will count all tails of the escaped_token, starting from boundaries
         # determined by our current segmentation.
         if i == 0:
-          starts = list(range(len(escaped_token)))
+          starts = xrange(len(escaped_token))
         else:
           subtokens = self._escaped_token_to_subtokens(escaped_token)
           pos = 0
@@ -337,31 +355,36 @@ class SubwordTextEncoder(TextEncoder):
             starts.append(pos)
             pos += len(self.subtoken_to_subtoken_string(subtoken))
         for start in starts:
-          for end in xrange(start + 1, len(escaped_token) + 1):
+          for end in xrange(start + 1, len(escaped_token)):
             subtoken_string = escaped_token[start:end]
-            counts[subtoken_string] = counts.get(subtoken_string, 0) + count
+            counts[subtoken_string] += count
+      print("{0} counts constructed".format(len(counts)))
       # array of lists of candidate subtoken strings, by length
       len_to_subtoken_strings = []
       for subtoken_string, count in six.iteritems(counts):
-        if count < min_count or len(subtoken_string) <= 1:
+        lsub = len(subtoken_string)
+        # all subtoken strings of length 1 are included regardless of count
+        if count < min_count and lsub != 1:
           continue
-        while len(len_to_subtoken_strings) <= len(subtoken_string):
+        while len(len_to_subtoken_strings) <= lsub:
           len_to_subtoken_strings.append([])
-        len_to_subtoken_strings[len(subtoken_string)].append(subtoken_string)
+        len_to_subtoken_strings[lsub].append(subtoken_string)
       new_subtoken_strings = []
       # consider the candidates longest to shortest, so that if we accept
       # a longer subtoken string, we can decrement the counts of its prefixes.
+      print("starting identification of subtoken strings, list length is {0}"
+        .format(len(len_to_subtoken_strings)))
       for subtoken_strings in len_to_subtoken_strings[::-1]:
         for subtoken_string in subtoken_strings:
           count = counts[subtoken_string]
-          if count < min_count:
+          if count < min_count and len(subtoken_string) != 1:
+            # subtoken strings of length 1 are included regardless of count
             continue
           new_subtoken_strings.append((-count, subtoken_string))
           for l in xrange(1, len(subtoken_string)):
             counts[subtoken_string[:l]] -= count
-      # make sure we have all single characters.
-      new_subtoken_strings.extend([(-counts.get(chr(i), 0), chr(i))
-                                   for i in xrange(2**8)])
+      # Make sure to include the underscore as a subtoken string
+      new_subtoken_strings.append((0, '_'))
       new_subtoken_strings.sort()
       self._init_from_list([''] * self._num_reserved_ids +
                            [p[1] for p in new_subtoken_strings])
@@ -390,13 +413,19 @@ class SubwordTextEncoder(TextEncoder):
     subtoken_strings = []
     with tf.gfile.Open(filename) as f:
       for line in f:
-        subtoken_strings.append(line.strip()[1:-1].decode('string-escape'))
+        if six.PY2:
+          subtoken_strings.append(line.strip()[1:-1].decode('string-escape'))
+        else:
+          subtoken_strings.append(line.strip()[1:-1])
     self._init_from_list(subtoken_strings)
 
   def _store_to_file(self, filename):
     with tf.gfile.Open(filename, 'w') as f:
       for subtoken_string in self._all_subtoken_strings:
-        f.write('\'' + subtoken_string.encode('string-escape') + '\'\n')
+        if six.PY2:
+          f.write('\'' + subtoken_string.encode('string-escape') + '\'\n')
+        else:
+          f.write('\'' + subtoken_string + '\'\n')
 
   def _escape_token(self, token):
     r"""Translate '\'->'\\' and '_'->'\u', then append '_'.

@@ -45,13 +45,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import array
 import string
 
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
-
+from collections import defaultdict
 
 class Tokenizer(object):
   """Vocab for breaking words into wordpieces.
@@ -59,15 +58,11 @@ class Tokenizer(object):
 
   def __init__(self):
     self._separator_chars = string.punctuation + string.whitespace
-    self._separator_char_mask = array.array(
-        "l", [chr(i) in self._separator_chars for i in xrange(256)])
-    self.token_counts = dict()
+    self._separator_char_set = set(self._separator_chars)
+    self.token_counts = defaultdict(int)
 
   def _increment_token_count(self, token):
-    if token in self.token_counts:
-      self.token_counts[token] += 1
-    else:
-      self.token_counts[token] = 1
+    self.token_counts[token] += 1
 
   def encode(self, raw_text):
     """Encode a raw string as a list of tokens.
@@ -111,7 +106,7 @@ class Tokenizer(object):
     return ret
 
   def _is_separator_char(self, c):
-    return self._separator_char_mask[ord(c)]
+    return c in self._separator_char_set
 
   def _is_word_char(self, c):
-    return not self._is_separator_char(c)
+    return c not in self._separator_char_set

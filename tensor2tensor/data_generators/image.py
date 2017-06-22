@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import cPickle
 import gzip
 import io
 import json
@@ -32,6 +31,8 @@ import zipfile
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
+from six.moves import cPickle
+
 from tensor2tensor.data_generators import generator_utils
 
 import tensorflow as tf
