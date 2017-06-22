@@ -204,7 +204,7 @@ def train(hparams, scope=None):
 
   with train_graph.as_default():
     train_model, global_step = model_helper.create_or_load_model(
-        train_model, out_dir, train_sess, hparams, "train")
+        train_model, out_dir, train_sess, hparams.out_dir, "train")
 
   # Summary writer
   summary_writer = tf.summary.FileWriter(
@@ -215,7 +215,7 @@ def train(hparams, scope=None):
     """Compute internal evaluation for both dev / test."""
     with eval_graph.as_default():
       loaded_eval_model, global_step = model_helper.create_or_load_model(
-          eval_model, hparams.out_dir, eval_sess, hparams, "eval")
+          eval_model, hparams.out_dir, eval_sess, hparams.out_dir, "eval")
 
     dev_ppl = _internal_eval(loaded_eval_model, global_step, eval_sess,
                              eval_iterator, dev_eval_iterator_feed_dict,
@@ -232,7 +232,7 @@ def train(hparams, scope=None):
     """Compute external evaluation for both dev / test."""
     with infer_graph.as_default():
       loaded_infer_model, global_step = model_helper.create_or_load_model(
-          infer_model, hparams.out_dir, infer_sess, hparams, "infer")
+          infer_model, hparams.out_dir, infer_sess, hparams.out_dir, "infer")
 
     _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
                    infer_iterator, dev_src_data, dev_tgt_data,
@@ -426,7 +426,13 @@ def _sample_decode(model, global_step, sess, hparams, iterator, src_data,
 
   nmt_outputs, attention_summary = model.decode(sess)
 
-  translation = nmt_utils.get_translation(nmt_outputs, 0, hparams)
+  translation = nmt_utils.get_translation(
+      nmt_outputs,
+      sent_id=0,
+      tgt_eos=hparams.eos,
+      bpe_delimiter=hparams.bpe_delimiter,
+      ignore_map=hparams.ignore_map,
+      task=hparams.task)
   utils.print_out("    src: %s" % src_data[decode_id])
   utils.print_out("    ref: %s" % tgt_data[decode_id])
   utils.print_out("    nmt: %s" % translation)
@@ -449,7 +455,18 @@ def _external_eval(model, global_step, sess, hparams, iterator,
 
   output = os.path.join(out_dir, "output_%s" % label)
   scores = nmt_utils.decode_and_evaluate(
-      label, model, sess, output, tgt_file, hparams, decode=decode)
+      label,
+      model,
+      sess,
+      output,
+      ref_file=tgt_file,
+      metrics=hparams.metrics,
+      bpe_delimiter=hparams.bpe_delimiter,
+      ignore_map=hparams.ignore_map,
+      beam_width=hparams.beam_width,
+      tgt_eos=hparams.eos,
+      task=hparams.task,
+      decode=decode)
   # Save on best metrics
   if decode:
     for metric in hparams.metrics:

@@ -97,9 +97,13 @@ def load_inference_hparams(model_dir, inference_list=None):
 
 
 def _decode_inference_indices(model, sess, output_infer,
-                              output_infer_summary_prefix, hparams):
+                              output_infer_summary_prefix,
+                              inference_indices,
+                              tgt_eos,
+                              bpe_delimiter,
+                              ignore_map,
+                              task):
   """Decoding only a specific set of sentences."""
-  inference_indices = hparams.inference_indices
   utils.print_out("  decoding to output %s , num sents %d." %
                   (output_infer, len(inference_indices)))
   start_time = time.time()
@@ -111,7 +115,13 @@ def _decode_inference_indices(model, sess, output_infer,
 
       # get text translation
       assert nmt_outputs.shape[0] == 1
-      translation = nmt_utils.get_translation(nmt_outputs, 0, hparams)
+      translation = nmt_utils.get_translation(
+          nmt_outputs,
+          sent_id=0,
+          tgt_eos=tgt_eos,
+          bpe_delimiter=bpe_delimiter,
+          ignore_map=ignore_map,
+          task=task)
 
       if infer_summary is not None:  # Attention models
         image_file = output_infer_summary_prefix + str(decode_id) + ".png"
@@ -197,8 +207,8 @@ def _single_worker_inference(model_creator,
    infer_batch_size_placeholder, infer_iterator) = (create_infer_model(
        model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
-    model_helper.create_or_load_model(infer_model, model_dir, sess, hparams,
-                                      "infer")
+    model_helper.create_or_load_model(
+        infer_model, model_dir, sess, hparams.out_dir, "infer")
     sess.run(
         infer_iterator.initializer,
         feed_dict={
@@ -208,11 +218,29 @@ def _single_worker_inference(model_creator,
     # Decode
     utils.print_out("# Start decoding")
     if hparams.inference_indices:
-      _decode_inference_indices(infer_model, sess, output_infer, output_infer,
-                                hparams)
+      _decode_inference_indices(
+          infer_model,
+          sess,
+          output_infer=output_infer,
+          output_infer_summary_prefix=output_infer,
+          inference_indices=hparams.inference_indices,
+          tgt_eos=hparams.eos,
+          bpe_delimiter=hparams.bpe_delimiter,
+          ignore_map=hparams.ignore_map,
+          task=hparams.task)
     else:
-      nmt_utils.decode_and_evaluate("infer", infer_model, sess, output_infer,
-                                    None, hparams)
+      nmt_utils.decode_and_evaluate(
+          "infer",
+          infer_model,
+          sess,
+          output_infer,
+          ref_file=None,
+          metrics=hparams.metrics,
+          bpe_delimiter=hparams.bpe_delimiter,
+          ignore_map=hparams.ignore_map,
+          beam_width=hparams.beam_width,
+          tgt_eos=hparams.eos,
+          task=hparams.task)
 
 
 def _multi_worker_inference(model_creator,
@@ -249,8 +277,8 @@ def _multi_worker_inference(model_creator,
        model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
 
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
-    model_helper.create_or_load_model(infer_model, model_dir, sess, hparams,
-                                      "infer")
+    model_helper.create_or_load_model(
+        infer_model, model_dir, sess, hparams.out_dir, "infer")
     sess.run(infer_iterator.initializer,
              {
                  infer_src_placeholder: infer_data,
@@ -258,8 +286,18 @@ def _multi_worker_inference(model_creator,
              })
     # Decode
     utils.print_out("# Start decoding")
-    nmt_utils.decode_and_evaluate("infer", infer_model, sess, output_infer,
-                                  None, hparams)
+    nmt_utils.decode_and_evaluate(
+        "infer",
+        infer_model,
+        sess,
+        output_infer,
+        ref_file=None,
+        metrics=hparams.metrics,
+        bpe_delimiter=hparams.bpe_delimiter,
+        ignore_map=hparams.ignore_map,
+        beam_width=hparams.beam_width,
+        tgt_eos=hparams.eos,
+        task=hparams.task)
 
     # Change file name to indicate the file writting is completed.
     tf.gfile.Rename(output_infer, output_infer_done, overwrite=True)

@@ -91,8 +91,15 @@ class AttentionModel(model.Model):
     attention_mechanism = create_attention_mechanism(
         attention_option, num_units, memory, source_sequence_length)
 
-    cell = model_helper.create_rnn_cell(hparams, num_layers,
-                                        num_residual_layers, self.mode)
+    cell = model_helper.create_rnn_cell(
+        unit_type=hparams.unit_type,
+        num_units=num_units,
+        num_layers=num_layers,
+        num_residual_layers=num_residual_layers,
+        forget_bias=hparams.forget_bias,
+        dropout=hparams.dropout,
+        num_gpus=num_gpus,
+        mode=self.mode)
 
     # Only generate alignment in greedy INFER mode.
     alignment_history = (self.mode == tf.contrib.learn.ModeKeys.INFER and

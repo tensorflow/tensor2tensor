@@ -31,13 +31,14 @@ def decode_and_evaluate(name,
                         sess,
                         trans_file,
                         ref_file,
-                        hparams,
+                        metrics,
+                        bpe_delimiter,
+                        ignore_map,
+                        beam_width,
+                        tgt_eos,
+                        task,
                         decode=True):
   """Decode a test set and compute a score according to the evaluation task."""
-  metrics = hparams.metrics
-  bpe_delimiter = hparams.bpe_delimiter
-  ignore_map = hparams.ignore_map
-
   # Decode
   if decode:
     utils.print_out("  decoding to output %s." % trans_file)
@@ -51,13 +52,19 @@ def decode_and_evaluate(name,
         try:
           nmt_outputs, _ = model.decode(sess)
 
-          if hparams.beam_width > 0:
+          if beam_width > 0:
             # get the top translation.
             nmt_outputs = nmt_outputs[0]
 
           num_sentences += len(nmt_outputs)
           for sent_id in range(len(nmt_outputs)):
-            translation = get_translation(nmt_outputs, sent_id, hparams)
+            translation = get_translation(
+                nmt_outputs,
+                sent_id,
+                tgt_eos=tgt_eos,
+                bpe_delimiter=bpe_delimiter,
+                ignore_map=ignore_map,
+                task=task)
             trans_f.write("%s\n" % translation)
         except tf.errors.OutOfRangeError:
           utils.print_time("  done, num sentences %d" % num_sentences,
@@ -81,26 +88,23 @@ def decode_and_evaluate(name,
   return evaluation_scores
 
 
-def get_translation(nmt_outputs, sent_id, hparams):
+def get_translation(
+    nmt_outputs, sent_id, tgt_eos, bpe_delimiter, ignore_map, task):
   """Given batch decoding outputs, select a sentence and turn to text."""
-  tgt_eos = hparams.eos
-  bpe_delimiter = hparams.bpe_delimiter
-  ignore_map = hparams.ignore_map
-
   # Select a sentence
-  if hparams.task == "seq2label":
+  if task == "seq2label":
     if hasattr(nmt_outputs, "__len__"):  # for numpy array
       output = nmt_outputs[sent_id]
     else:  # single-sent batch
       output = nmt_outputs
-  elif hparams.task == "seq2seq":
+  elif task == "seq2seq":
     output = nmt_outputs[sent_id, :].tolist()
 
     # If there is an eos symbol in outputs, cut them at that point.
     if tgt_eos and tgt_eos in output:
       output = output[:output.index(tgt_eos)]
   else:
-    raise ValueError("Unknown task %s" % hparams.task)
+    raise ValueError("Unknown task %s" % task)
 
   if not bpe_delimiter:
     translation = utils.format_text(output, ignore_map=ignore_map)

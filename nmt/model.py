@@ -141,7 +141,10 @@ class BaseModel(object):
           colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
       clipped_gradients, gradient_norm_summary = model_helper.gradient_clip(
-          gradients, params, hparams)
+          gradients, params,
+          clip_value=hparams.gradient_clip_value,
+          pattern=hparams.gradient_clip_pattern,
+          max_gradient_norm=hparams.max_gradient_norm)
 
       self.update = opt.apply_gradients(
           zip(clipped_gradients, params), global_step=self.global_step)
@@ -252,7 +255,15 @@ class BaseModel(object):
     """Build a multi-layer RNN cell that can be used by encoder."""
 
     return model_helper.create_rnn_cell(
-        hparams, num_layers, num_residual_layers, self.mode, base_gpu=base_gpu)
+        unit_type=hparams.unit_type,
+        num_units=hparams.num_units,
+        num_layers=num_layers,
+        num_residual_layers=num_residual_layers,
+        forget_bias=hparams.forget_bias,
+        dropout=hparams.dropout,
+        num_gpus=hparams.num_gpus,
+        mode=self.mode,
+        base_gpu=base_gpu)
 
   def _build_decoder(self, encoder_outputs, encoder_state, hparams):
     """Build and run a RNN decoder with a final projection layer.
@@ -559,7 +570,14 @@ class Model(BaseModel):
     num_residual_layers = hparams.num_residual_layers
 
     cell = model_helper.create_rnn_cell(
-        hparams, num_layers, num_residual_layers, self.mode)
+        unit_type=hparams.unit_type,
+        num_units=hparams.num_units,
+        num_layers=num_layers,
+        num_residual_layers=num_residual_layers,
+        forget_bias=hparams.forget_bias,
+        dropout=hparams.dropout,
+        num_gpus=hparams.num_gpus,
+        mode=self.mode)
 
     # For beam search, we need to replicate encoder infos beam_width times
     if self.mode == tf.contrib.learn.ModeKeys.INFER and hparams.beam_width > 0:

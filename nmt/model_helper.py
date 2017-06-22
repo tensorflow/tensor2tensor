@@ -76,14 +76,10 @@ def create_emb_for_encoder_and_decoder(share_vocab,
   return embedding_encoder, embedding_decoder
 
 
-def _single_cell(hparams, mode, residual_connection=False, device_str=None):
+def _single_cell(unit_type, num_units, forget_bias, dropout,
+                 residual_connection=False, device_str=None):
   """Create an instance of a single RNN cell."""
   # dropout (= 1 - keep_prob) is set to 0 during eval and infer
-  dropout = hparams.dropout if mode == tf.contrib.learn.ModeKeys.TRAIN else 0.0
-
-  unit_type = hparams.unit_type
-  num_units = hparams.num_units
-  forget_bias = hparams.forget_bias
 
   # Cell Type
   if unit_type == "lstm":
@@ -118,31 +114,19 @@ def _single_cell(hparams, mode, residual_connection=False, device_str=None):
   return single_cell
 
 
-def _cell_list(hparams, num_layers, num_residual_layers, mode, base_gpu=0):
-  """Create a list of RNN cells.
-
-  Args:
-    hparams: arguments to create an RNN cell.
-    num_layers: number of cells.
-    num_residual_layers: Number of residual layers from top to bottom. For
-      example, if `num_layers=4` and `num_residual_layers=2`, the last 2 RNN
-      cells in the returned list will be wrapped with `ResidualWrapper`.
-    mode: either tf.contrib.learn.TRAIN/EVAL/INFER
-    base_gpu: The gpu device id to use for the first RNN cell in the
-      returned list. The i-th RNN cell will use `(base_gpu + i) % num_gpus`
-      as its device id.
-
-  Returns:
-    A list of RNN cells.
-  """
-  num_gpus = hparams.num_gpus
-
+def _cell_list(unit_type, num_units, num_layers, num_residual_layers,
+               forget_bias, dropout, mode, num_gpus, base_gpu=0):
+  """Create a list of RNN cells."""
   # Multi-GPU
   cell_list = []
   for i in range(num_layers):
     utils.print_out("  cell %d" % i, new_line=False)
+    dropout = dropout if mode == tf.contrib.learn.ModeKeys.TRAIN else 0.0
     single_cell = _single_cell(
-        hparams, mode,
+        unit_type=unit_type,
+        num_units=num_units,
+        forget_bias=forget_bias,
+        dropout=dropout,
         residual_connection=(i >= num_layers - num_residual_layers),
         device_str=get_device_str(i + base_gpu, num_gpus),
     )
@@ -152,10 +136,39 @@ def _cell_list(hparams, num_layers, num_residual_layers, mode, base_gpu=0):
   return cell_list
 
 
-def create_rnn_cell(hparams, num_layers, num_residual_layers, mode, base_gpu=0):
-  """Create multi-layer RNN cell."""
+def create_rnn_cell(unit_type, num_units, num_layers, num_residual_layers,
+                    forget_bias, dropout, mode, num_gpus, base_gpu=0):
+  """Create multi-layer RNN cell.
 
-  cell_list = _cell_list(hparams, num_layers, num_residual_layers, mode,
+  Args:
+    unit_type: string representing the unit type, i.e. "lstm".
+    num_units: the depth of each unit.
+    num_layers: number of cells.
+    num_residual_layers: Number of residual layers from top to bottom. For
+      example, if `num_layers=4` and `num_residual_layers=2`, the last 2 RNN
+      cells in the returned list will be wrapped with `ResidualWrapper`.
+    forget_bias: the initial forget bias of the RNNCell(s).
+    dropout: floating point value between 0.0 and 1.0:
+      the probability of dropout.  this is ignored if `mode != TRAIN`.
+    mode: either tf.contrib.learn.TRAIN/EVAL/INFER
+    num_gpus: The number of gpus to use when performing round-robin
+      placement of layers.
+    base_gpu: The gpu device id to use for the first RNN cell in the
+      returned list. The i-th RNN cell will use `(base_gpu + i) % num_gpus`
+      as its device id.
+
+  Returns:
+    An `RNNCell` instance.
+  """
+
+  cell_list = _cell_list(unit_type=unit_type,
+                         num_units=num_units,
+                         num_layers=num_layers,
+                         num_residual_layers=num_residual_layers,
+                         forget_bias=forget_bias,
+                         dropout=dropout,
+                         mode=mode,
+                         num_gpus=num_gpus,
                          base_gpu=base_gpu)
 
   if len(cell_list) == 1:  # Single layer.
@@ -177,11 +190,11 @@ def count_embeddings(embs, grads):
   return tf.cast(tf.add_n(num_ids), embs[0].dtype)
 
 
-def gradient_clip(gradients, params, hparams):
+def gradient_clip(gradients, params,
+                  clip_value, pattern,
+                  max_gradient_norm):
   """Clipping gradients of a model."""
-  if hparams.gradient_clip_value is not None:
-    pattern = hparams.gradient_clip_pattern
-    clip_value = hparams.gradient_clip_value
+  if clip_value is not None:
     clipped_gradients = []
     for (param, grad) in zip(params, gradients):
       if not pattern or pattern in param.name:  # clip everything or pattern
@@ -193,7 +206,7 @@ def gradient_clip(gradients, params, hparams):
     gradients = clipped_gradients
 
   clipped_gradients, gradient_norm = tf.clip_by_global_norm(
-      gradients, hparams.max_gradient_norm)
+      gradients, max_gradient_norm)
   gradient_norm_summary = [tf.summary.scalar("grad_norm", gradient_norm)]
   gradient_norm_summary.append(
       tf.summary.scalar("clipped_gradient", tf.global_norm(clipped_gradients)))
@@ -201,7 +214,7 @@ def gradient_clip(gradients, params, hparams):
   return clipped_gradients, gradient_norm_summary
 
 
-def create_or_load_model(model, model_dir, session, hparams, name):
+def create_or_load_model(model, model_dir, session, out_dir, name):
   """Create translation model and initialize or load parameters in session."""
   start_time = time.time()
   latest_ckpt = tf.train.latest_checkpoint(model_dir)
@@ -215,7 +228,7 @@ def create_or_load_model(model, model_dir, session, hparams, name):
                     (name, time.time() - start_time))
     session.run(tf.global_variables_initializer())
     model.saver.save(
-        session, os.path.join(hparams.out_dir, "translate.ckpt"), global_step=0)
+        session, os.path.join(out_dir, "translate.ckpt"), global_step=0)
 
   session.run(tf.initialize_all_tables())
 

@@ -88,11 +88,15 @@ class GNMTModel(attention_model.AttentionModel):
       )
 
       uni_cell = model_helper.create_rnn_cell(
-          hparams,
-          num_uni_layers,
-          num_residual_layers,
-          self.mode,
-          base_gpu=1)
+          unit_type=hparams.unit_type,
+          num_units=hparams.num_units,
+          num_layers=num_uni_layers,
+          num_residual_layers=num_residual_layers,
+          forget_bias=hparams.forget_bias,
+          dropout=hparams.dropout,
+          num_gpus=hparams.num_gpus,
+          base_gpu=1,
+          mode=self.mode)
 
       # encoder_outputs: size [max_time, batch_size, num_units]
       #   when time_major = True
@@ -141,8 +145,15 @@ class GNMTModel(attention_model.AttentionModel):
     attention_mechanism = attention_model.create_attention_mechanism(
         attention_option, num_units, memory, source_sequence_length)
 
-    cell_list = model_helper._cell_list(
-        hparams, num_layers, num_residual_layers, self.mode)
+    cell_list = model_helper._cell_list(  # pylint: disable=protected-access
+        unit_type=hparams.unit_type,
+        num_units=num_units,
+        num_layers=num_layers,
+        num_residual_layers=num_residual_layers,
+        forget_bias=hparams.forget_bias,
+        dropout=hparams.dropout,
+        num_gpus=hparams.num_gpus,
+        mode=self.mode)
 
     # Only wrap the bottom layer with the attention mechanism.
     attention_cell = cell_list.pop(0)
