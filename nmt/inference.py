@@ -56,8 +56,11 @@ def create_infer_model(
     infer_src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
         infer_src_placeholder)
     infer_iterator = iterator_utils.get_infer_iterator(
-        infer_src_dataset, hparams,
-        src_vocab_table, infer_batch_size_placeholder,
+        infer_src_dataset,
+        src_vocab_table,
+        batch_size=infer_batch_size_placeholder,
+        eos=hparams.eos,
+        source_reverse=hparams.source_reverse,
         src_max_len=hparams.src_max_len_infer)
     infer_model = model_creator(
         hparams,

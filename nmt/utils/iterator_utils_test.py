@@ -46,10 +46,14 @@ class IteratorUtilsTest(tf.test.TestCase):
     iterator = iterator_utils.get_iterator(
         src_dataset=src_dataset,
         tgt_dataset=tgt_dataset,
-        hparams=hparams,
         src_vocab_table=src_vocab_table,
         tgt_vocab_table=tgt_vocab_table,
         batch_size=batch_size,
+        sos=hparams.sos,
+        eos=hparams.eos,
+        source_reverse=hparams.source_reverse,
+        random_seed=hparams.random_seed,
+        num_buckets=hparams.num_buckets,
         src_max_len=src_max_len)
     table_initializer = tf.initialize_all_tables()
     source = iterator.source
@@ -116,9 +120,10 @@ class IteratorUtilsTest(tf.test.TestCase):
     src_max_len = 3
     iterator = iterator_utils.get_infer_iterator(
         src_dataset=src_dataset,
-        hparams=hparams,
         src_vocab_table=src_vocab_table,
         batch_size=batch_size,
+        eos=hparams.eos,
+        source_reverse=hparams.source_reverse,
         src_max_len=src_max_len)
     table_initializer = tf.initialize_all_tables()
     source = iterator.source

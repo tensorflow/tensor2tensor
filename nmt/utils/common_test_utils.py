@@ -127,16 +127,28 @@ def create_test_iterator(hparams, mode):
   if mode != tf.contrib.learn.ModeKeys.INFER:
     tgt_dataset = tf.contrib.data.Dataset.from_tensor_slices(
         tf.constant(["a b c b c", "a b c b"]))
-    return iterator_utils.get_iterator(
-        src_dataset=src_dataset,
-        tgt_dataset=tgt_dataset,
-        hparams=hparams,
-        src_vocab_table=src_vocab_table,
-        tgt_vocab_table=tgt_vocab_table,
-        batch_size=2), src_vocab_table, tgt_vocab_table
+    return (
+        iterator_utils.get_iterator(
+            src_dataset=src_dataset,
+            tgt_dataset=tgt_dataset,
+            src_vocab_table=src_vocab_table,
+            tgt_vocab_table=tgt_vocab_table,
+            batch_size=hparams.batch_size,
+            sos=hparams.sos,
+            eos=hparams.eos,
+            source_reverse=hparams.source_reverse,
+            random_seed=hparams.random_seed,
+            num_buckets=hparams.num_buckets),
+        src_vocab_table,
+        tgt_vocab_table)
   else:
-    return iterator_utils.get_infer_iterator(
-        src_dataset=src_dataset,
-        hparams=hparams,
-        src_vocab_table=src_vocab_table,
-        batch_size=2), src_vocab_table, tgt_vocab_table, reverse_tgt_vocab_table
+    return (
+        iterator_utils.get_infer_iterator(
+            src_dataset=src_dataset,
+            src_vocab_table=src_vocab_table,
+            eos=hparams.eos,
+            source_reverse=hparams.source_reverse,
+            batch_size=hparams.batch_size),
+        src_vocab_table,
+        tgt_vocab_table,
+        reverse_tgt_vocab_table)

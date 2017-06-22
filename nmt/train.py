@@ -61,10 +61,14 @@ def create_train_model(model_creator,
     train_iterator = iterator_utils.get_iterator(
         train_src_dataset,
         train_tgt_dataset,
-        hparams,
         src_vocab_table,
         tgt_vocab_table,
-        hparams.batch_size,
+        batch_size=hparams.batch_size,
+        sos=hparams.sos,
+        eos=hparams.eos,
+        source_reverse=hparams.source_reverse,
+        random_seed=hparams.random_seed,
+        num_buckets=hparams.num_buckets,
         src_max_len=hparams.src_max_len,
         tgt_max_len=hparams.tgt_max_len)
     train_model = model_creator(
@@ -100,10 +104,14 @@ def create_eval_model(model_creator,
     eval_iterator = iterator_utils.get_iterator(
         eval_src_dataset,
         eval_tgt_dataset,
-        hparams,
         src_vocab_table,
         tgt_vocab_table,
         hparams.batch_size,
+        sos=hparams.sos,
+        eos=hparams.eos,
+        source_reverse=hparams.source_reverse,
+        random_seed=hparams.random_seed,
+        num_buckets=hparams.num_buckets,
         src_max_len=hparams.src_max_len_infer,
         tgt_max_len=hparams.tgt_max_len_infer)
     eval_model = model_creator(
