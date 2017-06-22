@@ -266,8 +266,9 @@ class SubwordTextEncoder(TextEncoder):
       if end > pos:
         pos = end
       else:
-        # This kinda should not happen
-        print("Unable to find subtoken in string '{0}'".format(escaped_token))
+        # This kinda should not happen, but it does. Cop out by skipping the
+        # nonexistent subtoken from the returned list.
+        # print("Unable to find subtoken in string '{0}'".format(escaped_token))
         pos += 1
     return ret
 
@@ -339,7 +340,6 @@ class SubwordTextEncoder(TextEncoder):
     # then count the resulting potential subtokens, keeping the ones
     # with high enough counts for our new vocabulary.
     for i in xrange(num_iterations):
-      print("build_from_token_counts(min_count={0}): iteration {1}".format(min_count, i))
       counts = defaultdict(int)
       for token, count in six.iteritems(token_counts):
         escaped_token = self._escape_token(token)
@@ -358,7 +358,6 @@ class SubwordTextEncoder(TextEncoder):
           for end in xrange(start + 1, len(escaped_token)):
             subtoken_string = escaped_token[start:end]
             counts[subtoken_string] += count
-      print("{0} counts constructed".format(len(counts)))
       # array of lists of candidate subtoken strings, by length
       len_to_subtoken_strings = []
       for subtoken_string, count in six.iteritems(counts):
@@ -372,8 +371,6 @@ class SubwordTextEncoder(TextEncoder):
       new_subtoken_strings = []
       # consider the candidates longest to shortest, so that if we accept
       # a longer subtoken string, we can decrement the counts of its prefixes.
-      print("starting identification of subtoken strings, list length is {0}"
-        .format(len(len_to_subtoken_strings)))
       for subtoken_strings in len_to_subtoken_strings[::-1]:
         for subtoken_string in subtoken_strings:
           count = counts[subtoken_string]
