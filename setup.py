@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.0.3',
+    version='1.0.5',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -17,8 +17,11 @@ setup(
         'numpy',
         'sympy',
         'six',
-        'tensorflow-gpu>=1.2.0rc1',
     ],
+    extras_require={
+        'tensorflow': ['tensorflow>=1.2.0rc1'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.2.0rc1'],
+    },
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',

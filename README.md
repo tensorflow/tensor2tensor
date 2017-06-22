@@ -98,7 +98,14 @@ cat $DECODE_FILE.$MODEL.$HPARAMS.beam$BEAM_SIZE.alpha$ALPHA.decodes
 ## Installation
 
 ```
+# Assumes tensorflow or tensorflow-gpu installed
 pip install tensor2tensor
+
+# Installs with tensorflow-gpu requirement
+pip install tensor2tensor[tensorflow_gpu]
+
+# Installs with tensorflow (cpu) requirement
+pip install tensor2tensor[tensorflow]
 ```
 
 Binaries:
