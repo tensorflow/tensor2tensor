@@ -17,7 +17,7 @@ setup(
         'numpy',
         'sympy',
         'six',
-        'tensorflow-gpu>=1.2.0rc1',
+        'tensorflow>=1.2.0rc1',
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
