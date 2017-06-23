@@ -167,12 +167,7 @@ def transformer_encoder(encoder_input,
                 hparams.attention_dropout,
                 summaries=summaries,
                 name="encoder_self_attention"))
-        x = residual_fn(x,
-                        common_layers.conv_hidden_relu(
-                            x,
-                            hparams.filter_size,
-                            hparams.hidden_size,
-                            dropout=hparams.relu_dropout))
+        x = residual_fn(x, transformer_ffn_layer(x, hparams))
   return x
 
 
@@ -231,13 +226,38 @@ def transformer_decoder(decoder_input,
                 hparams.attention_dropout,
                 summaries=summaries,
                 name="encdec_attention"))
-        x = residual_fn(x,
-                        common_layers.conv_hidden_relu(
-                            x,
-                            hparams.filter_size,
-                            hparams.hidden_size,
-                            dropout=hparams.relu_dropout))
+        x = residual_fn(x, transformer_ffn_layer(x, hparams))
   return x
+
+
+def transformer_ffn_layer(x, hparams):
+  """Feed-forward layer in the transformer.
+
+  Args:
+    x: a Tensor of shape [batch_size, length, hparams.hidden_size]
+    hparams: hyperparmeters for model
+
+  Returns:
+    a Tensor of shape [batch_size, length, hparams.hidden_size]
+  """
+  if hparams.ffn_layer == "conv_hidden_relu":
+    return common_layers.conv_hidden_relu(
+        x,
+        hparams.filter_size,
+        hparams.hidden_size,
+        dropout=hparams.relu_dropout)
+  elif hparams.ffn_layer == "parameter_attention":
+    return common_attention.parameter_attention(
+        x,
+        hparams.parameter_attention_key_channels or hparams.hidden_size,
+        hparams.parameter_attention_value_channels or hparams.hidden_size,
+        hparams.hidden_size,
+        hparams.filter_size,
+        hparams.num_heads,
+        hparams.attention_dropout)
+  else:
+    assert hparams.ffn_layer == "none"
+    return x
 
 
 @registry.register_hparams
@@ -268,6 +288,9 @@ def transformer_base():
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("attention_key_channels", 0)
   hparams.add_hparam("attention_value_channels", 0)
+  hparams.add_hparam("ffn_layer", "conv_hidden_relu")
+  hparams.add_hparam("parameter_attention_key_channels", 0)
+  hparams.add_hparam("parameter_attention_value_channels", 0)
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
@@ -489,6 +512,25 @@ def transformer_big_enfr():
 def transformer_big_dr2():
   hparams = transformer_big_dr1()
   hparams.residual_dropout = 0.2
+  return hparams
+
+
+@registry.register_hparams
+def transformer_parameter_attention_a():
+  hparams = transformer_base()
+  hparams.ffn_layer = "parameter_attention"
+  hparams.filter_size = 1536
+  return hparams
+
+
+@registry.register_hparams
+def transformer_parameter_attention_b():
+  hparams = transformer_base()
+  hparams.ffn_layer = "parameter_attention"
+  hparams.filter_size = 512
+  hparams.parameter_attention_key_channels = 1024
+  hparams.parameter_attention_value_channels = 1024
+  hparams.num_heads = 16
   return hparams
 
 

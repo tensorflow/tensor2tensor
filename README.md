@@ -6,6 +6,7 @@ version](https://badge.fury.io/py/tensor2tensor.svg)](https://badge.fury.io/py/t
 Issues](https://img.shields.io/github/issues/tensorflow/tensor2tensor.svg)](https://github.com/tensorflow/tensor2tensor/issues)
 [![Contributions
 welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Gitter](https://img.shields.io/gitter/room/nwjs/nw.js.svg)](https://gitter.im/tensor2tensor/Lobby)
 [![License](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 
 [T2T](https://github.com/tensorflow/tensor2tensor) is a modular and extensible
@@ -22,6 +23,8 @@ send along a pull request to add your data-set or model.
 See [our contribution
 doc](CONTRIBUTING.md) for details and our [open
 issues](https://github.com/tensorflow/tensor2tensor/issues).
+And chat with us and other users on
+[Gitter](https://gitter.im/tensor2tensor/Lobby).
 
 ---
 
@@ -95,7 +98,14 @@ cat $DECODE_FILE.$MODEL.$HPARAMS.beam$BEAM_SIZE.alpha$ALPHA.decodes
 ## Installation
 
 ```
+# Assumes tensorflow or tensorflow-gpu installed
 pip install tensor2tensor
+
+# Installs with tensorflow-gpu requirement
+pip install tensor2tensor[tensorflow_gpu]
+
+# Installs with tensorflow (cpu) requirement
+pip install tensor2tensor[tensorflow]
 ```
 
 Binaries:
@@ -190,6 +200,44 @@ related flags control local and distributed training/evaluation
 ([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/docs/distributed_training.md)).
 
 ---
+
+## Adding your own components
+
+T2T's components are registered using a central registration mechanism that
+enables easily adding new ones and easily swapping amongst them by command-line
+flag. You can add your own components without editing the T2T codebase by
+specifying the `--t2t_usr_dir` flag in `t2t-trainer`.
+
+You can currently do so for models, hyperparameter sets, and modalities. Please
+do submit a pull request if your component might be useful to others.
+
+Here's an example with a new hyperparameter set:
+
+```python
+# In ~/usr/t2t_usr/my_registrations.py
+
+from tensor2tensor.models import transformer
+from tensor2tensor.utils import registry
+
+@registry.register_hparams
+def transformer_my_very_own_hparams_set():
+  hparams = transformer.transformer_base()
+  hparams.hidden_size = 1024
+  ...
+```
+
+```python
+# In ~/usr/t2t_usr/__init__.py
+import my_registrations
+```
+
+```
+t2t-trainer --t2t_usr_dir=~/usr/t2t_usr --registry_help
+```
+
+You'll see under the registered HParams your
+`transformer_my_very_own_hparams_set`, which you can directly use on the command
+line with the `--hparams_set` flag.
 
 ## Adding a dataset
 
