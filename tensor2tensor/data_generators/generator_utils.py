@@ -143,7 +143,9 @@ def maybe_download(directory, filename, url):
   filepath = os.path.join(directory, filename)
   if not tf.gfile.Exists(filepath):
     tf.logging.info("Downloading %s to %s" % (url, filepath))
-    filepath, _ = urllib.urlretrieve(url, filepath)
+    inprogress_filepath = filepath + ".incomplete"
+    inprogress_filepath, _ = urllib.urlretrieve(url, inprogress_filepath)
+    tf.gfile.Rename(inprogress_filepath, filepath)
     statinfo = os.stat(filepath)
     tf.logging.info("Succesfully downloaded %s, %s bytes." % (filename,
                                                               statinfo.st_size))
