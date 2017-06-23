@@ -3,3 +3,7 @@
 
 # Python egg metadata, regenerated from source files by setuptools.
 /*.egg-info
+
+# PyPI distribution artificats
+build/
+dist/
