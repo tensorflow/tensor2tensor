@@ -36,11 +36,10 @@ import tensorflow as tf
 PAD = '<pad>'
 EOS = '<EOS>'
 RESERVED_TOKENS = [PAD, EOS]
-
-# Character that will be used instead of those with
-# ordinal numbers > 255
-UNK_CHAR = '×' # ordinal 215
-ORD_UNK_CHAR = ord(UNK_CHAR)
+if six.PY2:
+  RESERVED_TOKENS_BYTES = RESERVED_TOKENS
+else:
+  RESERVED_TOKENS_BYTES = [bytes(PAD, 'ascii'), bytes(EOS, 'ascii')]
 
 class TextEncoder(object):
   """Base class for converting from ints to/from human readable strings."""
@@ -91,28 +90,30 @@ class TextEncoder(object):
 class ByteTextEncoder(TextEncoder):
   """Encodes each byte to an id. For 8-bit strings only."""
 
-  BYTE_MAX = 2 ** 8 # 256
-
   def encode(self, s):
     numres = self._num_reserved_ids
-    byte_max = self.BYTE_MAX
-    # Characters with ordinals >= BYTE_MAX (256) will be mapped to UNK_CHAR
-    return [ord(c) + numres if ord(c) < byte_max else ORD_UNK_CHAR + numres for c in s]
+    if six.PY2:
+      return [ord(c) + numres for c in s]
+    # Python3: explicitly convert to UTF-8
+    return [c + numres for c in s.encode("utf-8")]
 
   def decode(self, ids):
     numres = self._num_reserved_ids
     decoded_ids = []
+    int2byte = six.int2byte
     for id_ in ids:
       if 0 <= id_ < numres:
-        decoded_ids.append(RESERVED_TOKENS[id_])
+        decoded_ids.append(RESERVED_TOKENS_BYTES[int(id_)])
       else:
-        decoded_ids.append(chr(id_ - numres))
-
-    return ''.join(decoded_ids)
+        decoded_ids.append(int2byte(id_ - numres))
+    if six.PY2:
+      return ''.join(decoded_ids)
+    # Python3: join byte arrays and then decode string
+    return b''.join(decoded_ids).decode("utf-8")
 
   @property
   def vocab_size(self):
-    return self.BYTE_MAX + self._num_reserved_ids
+    return 2**8 + self._num_reserved_ids
 
 
 class TokenTextEncoder(TextEncoder):
