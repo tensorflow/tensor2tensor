@@ -127,15 +127,15 @@ def generate_files(generator,
 
 
 def download_report_hook(count, block_size, total_size):
-  """Report hook for download progress
+  """Report hook for download progress.
 
   Args:
     count: current block number
     block_size: block size
     total_size: total size
   """
-  percent = int(count*block_size*100/total_size)
-  print("\r%d%%" % percent + ' completed', end='\r')
+  percent = int(count * block_size * 100 / total_size)
+  print("\r%d%%" % percent + " completed", end="\r")
 
 
 def maybe_download(directory, filename, url):
@@ -155,11 +155,12 @@ def maybe_download(directory, filename, url):
   filepath = os.path.join(directory, filename)
   if not tf.gfile.Exists(filepath):
     tf.logging.info("Downloading %s to %s" % (url, filepath))
-    filepath, _ = urllib.urlretrieve(url, filepath,
-                                     reporthook=download_report_hook)
-
+    inprogress_filepath = filepath + ".incomplete"
+    inprogress_filepath, _ = urllib.urlretrieve(url, inprogress_filepath,
+                                                reporthook=download_report_hook)
     # Print newline to clear the carriage return from the download progress
     print()
+    tf.gfile.Rename(inprogress_filepath, filepath)
     statinfo = os.stat(filepath)
     tf.logging.info("Succesfully downloaded %s, %s bytes." % (filename,
                                                               statinfo.st_size))
