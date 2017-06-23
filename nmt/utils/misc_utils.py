@@ -88,6 +88,19 @@ def load_hparams(model_dir):
     return None
 
 
+def maybe_parse_standard_hparams(hparams, path_to_standard_hparams):
+  """Override hparams values with existing standard hparams config."""
+  if not path_to_standard_hparams:
+    return hparams
+
+  if tf.gfile.Exists(path_to_standard_hparams):
+    print_out("# Loading standard hparams from %s" % path_to_standard_hparams)
+    with tf.gfile.GFile(path_to_standard_hparams, "r") as f:
+      hparams.parse_json(f.read())
+
+  return hparams
+
+
 def save_hparams(out_dir, hparams):
   """Save hparams."""
   hparams_file = os.path.join(out_dir, "hparams")

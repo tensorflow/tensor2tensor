@@ -92,12 +92,7 @@ def get_translation(
     nmt_outputs, sent_id, tgt_eos, bpe_delimiter, ignore_map, task):
   """Given batch decoding outputs, select a sentence and turn to text."""
   # Select a sentence
-  if task == "seq2label":
-    if hasattr(nmt_outputs, "__len__"):  # for numpy array
-      output = nmt_outputs[sent_id]
-    else:  # single-sent batch
-      output = nmt_outputs
-  elif task == "seq2seq":
+  if task == "seq2seq":
     output = nmt_outputs[sent_id, :].tolist()
 
     # If there is an eos symbol in outputs, cut them at that point.

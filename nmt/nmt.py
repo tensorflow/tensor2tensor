@@ -186,22 +186,14 @@ def extend_hparams(hparams):
     tgt_vocab_file = src_vocab_file
     tgt_vocab_size = src_vocab_size
   else:
-    if hparams.task == "seq2label":
-      # We don't want to have unk, sos, eos in the vocab
-      tgt_vocab_size = vocab_utils.check_and_extract_vocab(
-          tgt_vocab_file,
-          hparams.train_prefix + "." + hparams.tgt,
-          max_vocab_size=hparams.tgt_max_vocab_size,
-      )
-    else:
-      tgt_vocab_size = vocab_utils.check_and_extract_vocab(
-          tgt_vocab_file,
-          hparams.train_prefix + "." + hparams.tgt,
-          sos=hparams.sos,
-          eos=hparams.eos,
-          unk=vocab_utils.UNK,
-          max_vocab_size=hparams.tgt_max_vocab_size,
-      )
+    tgt_vocab_size = vocab_utils.check_and_extract_vocab(
+        tgt_vocab_file,
+        hparams.train_prefix + "." + hparams.tgt,
+        sos=hparams.sos,
+        eos=hparams.eos,
+        unk=vocab_utils.UNK,
+        max_vocab_size=hparams.tgt_max_vocab_size,
+    )
   hparams.add_hparam("src_vocab_size", src_vocab_size)
   hparams.add_hparam("tgt_vocab_size", tgt_vocab_size)
 
@@ -227,7 +219,10 @@ def load_train_hparams(out_dir):
   """Load training hparams."""
   hparams = utils.load_hparams(out_dir)
   new_hparams = create_hparams()
+  new_hparams = utils.maybe_parse_standard_hparams(
+      new_hparams, FLAGS.path_to_standard_hparams)
   new_hparams = extend_hparams(new_hparams)
+
   if not hparams:
     hparams = new_hparams
   else:
@@ -449,6 +444,9 @@ if __name__ == "__main__":
       beam width when using beam search decoder. If 0 (default), use standard
       decoder with greedy helper.\
       """))
+  parser.add_argument("--path_to_standard_hparams", type=str, default=None,
+                      help=("Path to standard hparams json file that overrides"
+                            "hparams values from FLAGS."))
 
   # Test
   parser.add_argument("--model_dir", type=str, default="",
