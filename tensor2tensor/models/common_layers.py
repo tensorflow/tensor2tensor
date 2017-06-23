@@ -1079,6 +1079,7 @@ def conv_hidden_relu(inputs,
                      hidden_size,
                      output_size,
                      kernel_size=(1, 1),
+                     second_kernel_size=(1, 1),
                      summaries=True,
                      dropout=0.0,
                      **kwargs):
@@ -1090,7 +1091,8 @@ def conv_hidden_relu(inputs,
       inputs = tf.expand_dims(inputs, 2)
     else:
       is_3d = False
-    h = conv(
+    conv_f1 = conv if kernel_size == (1, 1) else separable_conv
+    h = conv_f1(
         inputs,
         hidden_size,
         kernel_size,
@@ -1103,7 +1105,8 @@ def conv_hidden_relu(inputs,
       tf.summary.histogram("hidden_density_logit",
                            relu_density_logit(
                                h, list(range(inputs.shape.ndims - 1))))
-    ret = conv(h, output_size, (1, 1), name="conv2", **kwargs)
+    conv_f2 = conv if second_kernel_size == (1, 1) else separable_conv
+    ret = conv_f2(h, output_size, second_kernel_size, name="conv2", **kwargs)
     if is_3d:
       ret = tf.squeeze(ret, 2)
     return ret

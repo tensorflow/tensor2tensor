@@ -255,6 +255,15 @@ def transformer_ffn_layer(x, hparams):
         hparams.filter_size,
         hparams.num_heads,
         hparams.attention_dropout)
+  elif hparams.ffn_layer == "conv_hidden_relu_with_sepconv":
+    return common_layers.conv_hidden_relu(
+        x,
+        hparams.filter_size,
+        hparams.hidden_size,
+        kernel_size=(3, 1),
+        second_kernel_size=(31, 1),
+        padding="LEFT",
+        dropout=hparams.relu_dropout)
   else:
     assert hparams.ffn_layer == "none"
     return x
