@@ -26,6 +26,20 @@ issues](https://github.com/tensorflow/tensor2tensor/issues).
 And chat with us and other users on
 [Gitter](https://gitter.im/tensor2tensor/Lobby).
 
+### Contents
+
+* [Walkthrough](#walkthrough)
+* [Installation](#installation)
+* [Features](#features)
+* [T2T Overview](#t2t-overview)
+  * [Datasets](#datasets)
+  * [Problems and Modalities](#problems-and-modalities)
+  * [Models](#models)
+  * [Hyperparameter Sets](#hyperparameter-sets)
+  * [Trainer](#trainer)
+* [Adding your own components](#adding-your-own-components)
+* [Adding a dataset](#adding-a-dataset)
+
 ---
 
 ## Walkthrough
