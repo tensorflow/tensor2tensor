@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Xception tests."""
+"""BlueNet tests."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -23,18 +23,18 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models import xception
+from tensor2tensor.models import bluenet
 
 import tensorflow as tf
 
 
-class XceptionTest(tf.test.TestCase):
+class BlueNetTest(tf.test.TestCase):
 
-  def testXception(self):
+  def testBlueNet(self):
     vocab_size = 9
     x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
     y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 1, 1, 1))
-    hparams = xception.xception_tiny()
+    hparams = bluenet.bluenet_tiny()
     p_hparams = problem_hparams.test_problem_hparams(hparams, vocab_size,
                                                      vocab_size)
     with self.test_session() as session:
@@ -42,7 +42,7 @@ class XceptionTest(tf.test.TestCase):
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),
       }
-      model = xception.Xception(hparams, p_hparams)
+      model = bluenet.BlueNet(hparams, p_hparams)
       sharded_logits, _, _ = model.model_fn(features, True)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())

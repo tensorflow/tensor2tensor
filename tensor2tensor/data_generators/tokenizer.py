@@ -45,12 +45,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from collections import defaultdict
 import string
 
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
-from collections import defaultdict
+
 
 class Tokenizer(object):
   """Vocab for breaking words into wordpieces.
