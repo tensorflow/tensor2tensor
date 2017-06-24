@@ -130,7 +130,6 @@ def train(hparams, scope=None):
   log_device_placement = hparams.log_device_placement
   out_dir = hparams.out_dir
   num_train_steps = hparams.num_train_steps
-  bpe_delimiter = hparams.bpe_delimiter
   steps_per_stats = hparams.steps_per_stats
   steps_per_external_eval = hparams.steps_per_external_eval
   steps_per_eval = 10 * steps_per_stats
@@ -278,33 +277,30 @@ def train(hparams, scope=None):
   checkpoint_total_count = 0.0
   speed, train_ppl = 0.0, 0.0
   start_train_time = time.time()
-  epoch = 0
   utils.print_out("Starting steps %s" % global_step)
   while global_step < num_train_steps:
     utils.print_out(
-        "# Start epoch %d, step %d, lr %g, %s" %
-        (epoch, global_step, train_model.learning_rate.eval(session=train_sess),
+        "# Start step %d, lr %g, %s" %
+        (global_step, train_model.learning_rate.eval(session=train_sess),
          time.ctime()),
         log_f)
 
     # Initialize all of the iterators
     train_sess.run(train_iterator.initializer)
-    model_step = 0
     while True:
       ### Run a step ###
       start_time = time.time()
       try:
         step_result = train_model.train(train_sess)
-        model_step += 1
+        (_, step_loss, step_predict_count, step_summary, global_step,
+         step_word_count, batch_size) = step_result
       except tf.errors.OutOfRangeError:
         # Finished going through the training dataset.  Go to next epoch.
-        utils.print_out("Finished epoch %d.  Step %d." % (epoch, model_step))
+        utils.print_out(
+            "# Finished an epoch, step %d. Perform external evaluation" %
+            global_step)
         dev_scores, test_scores = run_external_eval()
-        epoch += 1
         break
-
-      (_, step_loss, step_predict_count, step_summary, global_step,
-       step_word_count, batch_size) = step_result
 
       # Write step summary.
       summary_writer.add_summary(step_summary, global_step)
@@ -323,11 +319,10 @@ def train(hparams, scope=None):
         train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
         speed = checkpoint_total_count / (1000 * step_time)
         utils.print_out(
-            "  epoch %d global step %d lr %g "
+            "  global step %d lr %g "
             "step-time %.2fs wps %.2fK ppl %.2f %s" %
-            (epoch, global_step,
-             train_model.learning_rate.eval(session=train_sess), avg_step_time,
-             speed, train_ppl, _get_best_results(hparams)),
+            (global_step, train_model.learning_rate.eval(session=train_sess),
+             avg_step_time, speed, train_ppl, _get_best_results(hparams)),
             log_f)
 
         # Reset timer and loss.
@@ -374,9 +369,9 @@ def train(hparams, scope=None):
                                            hparams.metrics)
 
   utils.print_out(
-      "# Final, epoch %d step %d lr %g "
+      "# Final, step %d lr %g "
       "step-time %.2f wps %.2fK ppl %.2f, %s, %s" %
-      (epoch, global_step, train_model.learning_rate.eval(session=train_sess),
+      (global_step, train_model.learning_rate.eval(session=train_sess),
        avg_step_time, speed, train_ppl, eval_results, time.ctime()),
       log_f)
   summary_writer.close()
