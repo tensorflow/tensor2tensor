@@ -28,6 +28,7 @@ import urllib
 
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
+import six.moves.urllib_request
 
 from tensor2tensor.data_generators.text_encoder import SubwordTextEncoder
 from tensor2tensor.data_generators.tokenizer import Tokenizer
