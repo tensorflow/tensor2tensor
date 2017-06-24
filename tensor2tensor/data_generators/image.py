@@ -32,8 +32,6 @@ import numpy as np
 from six.moves import cPickle
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
-from six.moves import cPickle
-
 from tensor2tensor.data_generators import generator_utils
 
 import tensorflow as tf
