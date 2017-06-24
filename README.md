@@ -19,7 +19,7 @@ it](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.
 We're eager to collaborate with you on extending T2T, so please feel
 free to [open an issue on
 GitHub](https://github.com/tensorflow/tensor2tensor/issues) or
-send along a pull request to add your data-set or model.
+send along a pull request to add your dataset or model.
 See [our contribution
 doc](CONTRIBUTING.md) for details and our [open
 issues](https://github.com/tensorflow/tensor2tensor/issues).
