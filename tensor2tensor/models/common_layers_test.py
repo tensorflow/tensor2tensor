@@ -65,6 +65,15 @@ class CommonLayersTest(tf.test.TestCase):
       res = session.run(y)
     self.assertEqual(res.shape, (3, 5, 16))
 
+  def testShakeShake(self):
+    x = np.random.rand(5, 7)
+    with self.test_session() as session:
+      x = tf.constant(x, dtype=tf.float32)
+      y = common_layers.shakeshake([x, x, x, x, x])
+      session.run(tf.global_variables_initializer())
+      inp, res = session.run([x, y])
+    self.assertAllClose(res, inp)
+
   def testConv(self):
     x = np.random.rand(5, 7, 1, 11)
     with self.test_session() as session:

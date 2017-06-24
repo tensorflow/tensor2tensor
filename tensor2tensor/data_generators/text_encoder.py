@@ -23,6 +23,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from collections import defaultdict
+
 # Dependency imports
 
 import six
@@ -40,6 +42,7 @@ if six.PY2:
   RESERVED_TOKENS_BYTES = RESERVED_TOKENS
 else:
   RESERVED_TOKENS_BYTES = [bytes(PAD, 'ascii'), bytes(EOS, 'ascii')]
+
 
 class TextEncoder(object):
   """Base class for converting from ints to/from human readable strings."""
@@ -95,7 +98,7 @@ class ByteTextEncoder(TextEncoder):
     if six.PY2:
       return [ord(c) + numres for c in s]
     # Python3: explicitly convert to UTF-8
-    return [c + numres for c in s.encode("utf-8")]
+    return [c + numres for c in s.encode('utf-8')]
 
   def decode(self, ids):
     numres = self._num_reserved_ids
@@ -109,7 +112,7 @@ class ByteTextEncoder(TextEncoder):
     if six.PY2:
       return ''.join(decoded_ids)
     # Python3: join byte arrays and then decode string
-    return b''.join(decoded_ids).decode("utf-8")
+    return b''.join(decoded_ids).decode('utf-8')
 
   @property
   def vocab_size(self):

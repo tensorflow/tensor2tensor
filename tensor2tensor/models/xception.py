@@ -87,3 +87,13 @@ def xception_base():
   hparams.optimizer_adam_beta2 = 0.997
   hparams.add_hparam("imagenet_use_2d", True)
   return hparams
+
+
+@registry.register_hparams
+def xception_tiny():
+  hparams = xception_base()
+  hparams.batch_size = 1024
+  hparams.hidden_size = 128
+  hparams.num_hidden_layers = 4
+  hparams.learning_rate_decay_scheme = "none"
+  return hparams

@@ -58,6 +58,52 @@ def inverse_exp_decay(max_step, min_value=0.01):
   return inv_base**tf.maximum(float(max_step) - step, 0.0)
 
 
+def shakeshake2_py(x, y, equal=False):
+  """The shake-shake sum of 2 tensors, python version."""
+  alpha = 0.5 if equal else tf.random_uniform([])
+  return alpha * x + (1.0 - alpha) * y
+
+
+@function.Defun()
+def shakeshake2_grad(x1, x2, dy):
+  """Overriding gradient for shake-shake of 2 tensors."""
+  y = shakeshake2_py(x1, x2)
+  dx = tf.gradients(ys=[y], xs=[x1, x2], grad_ys=[dy])
+  return dx
+
+
+@function.Defun()
+def shakeshake2_equal_grad(x1, x2, dy):
+  """Overriding gradient for shake-shake of 2 tensors."""
+  y = shakeshake2_py(x1, x2, equal=True)
+  dx = tf.gradients(ys=[y], xs=[x1, x2], grad_ys=[dy])
+  return dx
+
+
+@function.Defun(grad_func=shakeshake2_grad)
+def shakeshake2(x1, x2):
+  """The shake-shake function with a different alpha for forward/backward."""
+  return shakeshake2_py(x1, x2)
+
+
+@function.Defun(grad_func=shakeshake2_equal_grad)
+def shakeshake2_eqgrad(x1, x2):
+  """The shake-shake function with a different alpha for forward/backward."""
+  return shakeshake2_py(x1, x2)
+
+
+def shakeshake(xs, equal_grad=False):
+  """Multi-argument shake-shake, currently approximated by sums of 2."""
+  if len(xs) == 1:
+    return xs[0]
+  div = (len(xs) + 1) // 2
+  arg1 = shakeshake(xs[:div], equal_grad=equal_grad)
+  arg2 = shakeshake(xs[div:], equal_grad=equal_grad)
+  if equal_grad:
+    return shakeshake2_eqgrad(arg1, arg2)
+  return shakeshake2(arg1, arg2)
+
+
 def standardize_images(x):
   """Image standardization on batches (tf.image.per_image_standardization)."""
   with tf.name_scope("standardize_images", [x]):
@@ -1079,6 +1125,7 @@ def conv_hidden_relu(inputs,
                      hidden_size,
                      output_size,
                      kernel_size=(1, 1),
+                     second_kernel_size=(1, 1),
                      summaries=True,
                      dropout=0.0,
                      **kwargs):
@@ -1090,7 +1137,8 @@ def conv_hidden_relu(inputs,
       inputs = tf.expand_dims(inputs, 2)
     else:
       is_3d = False
-    h = conv(
+    conv_f1 = conv if kernel_size == (1, 1) else separable_conv
+    h = conv_f1(
         inputs,
         hidden_size,
         kernel_size,
@@ -1103,7 +1151,8 @@ def conv_hidden_relu(inputs,
       tf.summary.histogram("hidden_density_logit",
                            relu_density_logit(
                                h, list(range(inputs.shape.ndims - 1))))
-    ret = conv(h, output_size, (1, 1), name="conv2", **kwargs)
+    conv_f2 = conv if second_kernel_size == (1, 1) else separable_conv
+    ret = conv_f2(h, output_size, second_kernel_size, name="conv2", **kwargs)
     if is_3d:
       ret = tf.squeeze(ret, 2)
     return ret
