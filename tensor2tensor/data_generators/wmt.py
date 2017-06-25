@@ -28,8 +28,12 @@ from tensor2tensor.data_generators import text_encoder
 
 import tensorflow as tf
 
+# End-of-sentence marker (should correspond to the position of EOS in the
+# RESERVED_TOKENS list in text_encoder.py)
+EOS = 1
 
-def character_generator(source_path, target_path, eos=None):
+
+def character_generator(source_path, target_path, token_vocab=None, eos=None):
   """Generator for sequence-to-sequence tasks that just uses characters.
 
   This generator assumes the files at source_path and target_path have
@@ -51,8 +55,15 @@ def character_generator(source_path, target_path, eos=None):
     with tf.gfile.GFile(target_path, mode="r") as target_file:
       source, target = source_file.readline(), target_file.readline()
       while source and target:
-        source_ints = [ord(c) for c in source.strip()] + eos_list
-        target_ints = [ord(c) for c in target.strip()] + eos_list
+        if token_vocab is None:
+          # Straight-through encoding of characters
+          # If using this, be careful about potential clashes between
+          # character ordinals, pad bytes (0) and EOS markers
+          source_ints = [ord(c) for c in source.strip()] + eos_list
+          target_ints = [ord(c) for c in target.strip()] + eos_list
+        else:
+          source_ints = token_vocab.encode(source.strip()) + eos_list
+          target_ints = token_vocab.encode(target.strip()) + eos_list
         yield {"inputs": source_ints, "targets": target_ints}
         source, target = source_file.readline(), target_file.readline()
 
@@ -226,14 +237,16 @@ def ende_wordpiece_token_generator(tmp_dir, train, vocab_size):
   tag = "train" if train else "dev"
   data_path = _compile_data(tmp_dir, datasets, "wmt_ende_tok_%s" % tag)
   return token_generator(data_path + ".lang1", data_path + ".lang2",
-                         symbolizer_vocab, 1)
+                         symbolizer_vocab, EOS)
 
 
 def ende_character_generator(tmp_dir, train):
+  character_vocab = text_encoder.ByteTextEncoder()
   datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
   tag = "train" if train else "dev"
   data_path = _compile_data(tmp_dir, datasets, "wmt_ende_chr_%s" % tag)
-  return character_generator(data_path + ".lang1", data_path + ".lang2", 1)
+  return character_generator(data_path + ".lang1", data_path + ".lang2",
+                             character_vocab, EOS)
 
 
 def enfr_wordpiece_token_generator(tmp_dir, train, vocab_size):
@@ -244,22 +257,26 @@ def enfr_wordpiece_token_generator(tmp_dir, train, vocab_size):
   tag = "train" if train else "dev"
   data_path = _compile_data(tmp_dir, datasets, "wmt_enfr_tok_%s" % tag)
   return token_generator(data_path + ".lang1", data_path + ".lang2",
-                         symbolizer_vocab, 1)
+                         symbolizer_vocab, EOS)
 
 
 def enfr_character_generator(tmp_dir, train):
   """Instance of character generator for the WMT en->fr task."""
+  character_vocab = text_encoder.ByteTextEncoder()
   datasets = _ENFR_TRAIN_DATASETS if train else _ENFR_TEST_DATASETS
   tag = "train" if train else "dev"
   data_path = _compile_data(tmp_dir, datasets, "wmt_enfr_chr_%s" % tag)
-  return character_generator(data_path + ".lang1", data_path + ".lang2", 1)
+  return character_generator(data_path + ".lang1", data_path + ".lang2",
+                             character_vocab, EOS)
 
 
 def parsing_character_generator(tmp_dir, train):
+  character_vocab = text_encoder.ByteTextEncoder()
   filename = "parsing_%s" % ("train" if train else "dev")
   text_filepath = os.path.join(tmp_dir, filename + ".text")
   tags_filepath = os.path.join(tmp_dir, filename + ".tags")
-  return character_generator(text_filepath, tags_filepath, 1)
+  return character_generator(text_filepath, tags_filepath,
+                             character_vocab, EOS)
 
 
 def parsing_token_generator(tmp_dir, train, vocab_size):
@@ -268,4 +285,4 @@ def parsing_token_generator(tmp_dir, train, vocab_size):
   filename = "parsing_%s" % ("train" if train else "dev")
   text_filepath = os.path.join(tmp_dir, filename + ".text")
   tags_filepath = os.path.join(tmp_dir, filename + ".tags")
-  return token_generator(text_filepath, tags_filepath, symbolizer_vocab, 1)
+  return token_generator(text_filepath, tags_filepath, symbolizer_vocab, EOS)
