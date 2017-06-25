@@ -22,7 +22,6 @@ import gzip
 import io
 import os
 import tarfile
-import urllib
 
 # Dependency imports
 
