@@ -22,13 +22,12 @@ import gzip
 import io
 import os
 import tarfile
-import urllib
 
 # Dependency imports
 
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
-import six.moves.urllib_request
+import six.moves.urllib_request as urllib # Imports urllib on Python2, urllib.request on Python3
 
 from tensor2tensor.data_generators.text_encoder import SubwordTextEncoder
 from tensor2tensor.data_generators.tokenizer import Tokenizer
