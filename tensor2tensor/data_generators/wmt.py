@@ -33,7 +33,7 @@ import tensorflow as tf
 EOS = 1
 
 
-def character_generator(source_path, target_path, token_vocab, eos=None):
+def character_generator(source_path, target_path, character_vocab, eos=None):
   """Generator for sequence-to-sequence tasks that just uses characters.
 
   This generator assumes the files at source_path and target_path have
@@ -55,8 +55,8 @@ def character_generator(source_path, target_path, token_vocab, eos=None):
     with tf.gfile.GFile(target_path, mode="r") as target_file:
       source, target = source_file.readline(), target_file.readline()
       while source and target:
-        source_ints = token_vocab.encode(source.strip()) + eos_list
-        target_ints = token_vocab.encode(target.strip()) + eos_list
+        source_ints = character_vocab.encode(source.strip()) + eos_list
+        target_ints = character_vocab.encode(target.strip()) + eos_list
         yield {"inputs": source_ints, "targets": target_ints}
         source, target = source_file.readline(), target_file.readline()
 
