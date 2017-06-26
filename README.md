@@ -1,7 +1,7 @@
 # Neural Machine Translation (seq2seq) Tutorial
 
 *Status: On-going*\
-*Authors: thangluong@, ebrevdo@, rzhao@*\
+*Authors: Thang Luong, Eugene Brevdo, Rui Zhao*\
 *Last Updated: 2017-6-19*
 
 
@@ -88,7 +88,7 @@ source sentence, understand its meaning, and then produce a translation. Neural
 Machine Translation (NMT) mimics that!
 
 <div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:100%" src="img/encdec.jpg" />
+<img style="width:100%" src="g3doc/img/encdec.jpg" />
 <br>
 
 Figure 1. <b>Encoder-decoder architecture</b> – example of a general approach for
@@ -134,7 +134,7 @@ to [Luong (2016)](https://github.com/lmthang/thesis) which this tutorial is
 based on.
 
 <div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:60%; margin-left:20%" src="img/seq2seq.jpg" />
+<img style="width:60%; margin-left:20%" src="g3doc/img/seq2seq.jpg" />
 <br>
 
 Figure 2. <b>Neural machine translation</b> – example of a deep recurrent
@@ -410,7 +410,7 @@ The idea is simple and we illustrate it in Figure 3:
    an output symbol (refer as *tgt_eos_id* in our code).
 
 <div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:50%; margin-left:25%" src="img/greedy_dec.jpg" />
+<img style="width:50%; margin-left:25%" src="g3doc/img/greedy_dec.jpg" />
 <br>
 
 Figure 3. <b>Greedy decoding</b> – example of how a trained NMT model produces a
@@ -481,7 +481,7 @@ easy-to-visualize alignment matrix between the source and target sentences (as
 shown in Figure 4).
 
 <div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:50%; margin-left:25%" src="img/attention_vis.jpg" />
+<img style="width:50%; margin-left:25%" src="g3doc/img/attention_vis.jpg" />
 <br>
 
 Figure 4. <b>Attention visualization</b> – example of the alignments between source
@@ -510,7 +510,7 @@ seq2seq API in this tutorial. We will also provide connections to other variants
 of the attention mechanism.
 
 <div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:60%; margin-left:20%" src="img/attention_mechanism.jpg" />
+<img style="width:60%; margin-left:20%" src="g3doc/img/attention_mechanism.jpg" />
 <br>
 
 Figure 5. <b>Attention mechanism</b> – example of an attention-based NMT system
@@ -533,7 +533,7 @@ time step.  It consists of the following stages:
    feeding*).  The first three steps can be summarized by the equations below:
 
 <div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:100%" src="img/attention_equation_0.jpg" />
+<img style="width:100%" src="g3doc/img/attention_equation_0.jpg" />
 <br>
 </div>
 
@@ -547,7 +547,7 @@ target hidden state at the top layer of a vanilla seq2seq model. The function
 `f` can also take other forms.
 
 <div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:100%" src="img/attention_equation_1.jpg" />
+<img style="width:100%" src="g3doc/img/attention_equation_1.jpg" />
 <br>
 </div>
 
