@@ -57,8 +57,6 @@ def create_test_hparams(unit_type="lstm",
       # Train
       optimizer="sgd",
       init_weight=0.1,
-      gradient_clip_value=None,
-      gradient_clip_pattern=None,
       max_gradient_norm=5.0,
       max_emb_gradient_norm=None,
       learning_rate=1.0,
@@ -85,15 +83,6 @@ def create_test_hparams(unit_type="lstm",
       tgt_vocab_size=5,
       eos="eos",
       sos="sos",
-
-      # Pretrained embeddings
-      src_embed_file=None,
-      tgt_embed_file=None,
-      src_embed_trainable=False,
-      tgt_embed_trainable=False,
-
-      # Seq2label
-      task="seq2seq",
 
       # For inference.py test
       source_reverse=False,

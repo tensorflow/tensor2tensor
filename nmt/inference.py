@@ -101,8 +101,7 @@ def _decode_inference_indices(model, sess, output_infer,
                               inference_indices,
                               tgt_eos,
                               bpe_delimiter,
-                              ignore_map,
-                              task):
+                              ignore_map):
   """Decoding only a specific set of sentences."""
   utils.print_out("  decoding to output %s , num sents %d." %
                   (output_infer, len(inference_indices)))
@@ -120,8 +119,7 @@ def _decode_inference_indices(model, sess, output_infer,
           sent_id=0,
           tgt_eos=tgt_eos,
           bpe_delimiter=bpe_delimiter,
-          ignore_map=ignore_map,
-          task=task)
+          ignore_map=ignore_map)
 
       if infer_summary is not None:  # Attention models
         image_file = output_infer_summary_prefix + str(decode_id) + ".png"
@@ -226,8 +224,7 @@ def _single_worker_inference(model_creator,
           inference_indices=hparams.inference_indices,
           tgt_eos=hparams.eos,
           bpe_delimiter=hparams.bpe_delimiter,
-          ignore_map=hparams.ignore_map,
-          task=hparams.task)
+          ignore_map=hparams.ignore_map)
     else:
       nmt_utils.decode_and_evaluate(
           "infer",
@@ -239,8 +236,7 @@ def _single_worker_inference(model_creator,
           bpe_delimiter=hparams.bpe_delimiter,
           ignore_map=hparams.ignore_map,
           beam_width=hparams.beam_width,
-          tgt_eos=hparams.eos,
-          task=hparams.task)
+          tgt_eos=hparams.eos)
 
 
 def _multi_worker_inference(model_creator,
@@ -296,8 +292,7 @@ def _multi_worker_inference(model_creator,
         bpe_delimiter=hparams.bpe_delimiter,
         ignore_map=hparams.ignore_map,
         beam_width=hparams.beam_width,
-        tgt_eos=hparams.eos,
-        task=hparams.task)
+        tgt_eos=hparams.eos)
 
     # Change file name to indicate the file writting is completed.
     tf.gfile.Rename(output_infer, output_infer_done, overwrite=True)

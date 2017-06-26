@@ -66,8 +66,6 @@ def create_hparams():
       num_train_steps=FLAGS.num_train_steps,
       batch_size=FLAGS.batch_size,
       init_weight=FLAGS.init_weight,
-      gradient_clip_value=FLAGS.gradient_clip_value,
-      gradient_clip_pattern=FLAGS.gradient_clip_pattern,
       max_gradient_norm=FLAGS.max_gradient_norm,
       learning_rate=FLAGS.learning_rate,
       start_decay_step=FLAGS.start_decay_step,
@@ -107,11 +105,6 @@ def create_hparams():
 
       # Experimental
       ignore_list_file=FLAGS.ignore_list_file,
-      src_embed_file=FLAGS.src_embed_file,
-      tgt_embed_file=FLAGS.tgt_embed_file,
-      src_embed_trainable=FLAGS.src_embed_trainable,
-      tgt_embed_trainable=FLAGS.tgt_embed_trainable,
-      task=FLAGS.task,
   )
 
 
@@ -398,11 +391,6 @@ if __name__ == "__main__":
                       help="Forget bias for BasicLSTMCell.")
   parser.add_argument("--dropout", type=float, default=0.2,
                       help="Dropout rate (not keep_prob)")
-  parser.add_argument("--gradient_clip_value", type=float, default=None,
-                      help=("Clip gradients to this value before "
-                            "clipping by norm."))
-  parser.add_argument("--gradient_clip_pattern", type=str, default=None,
-                      help="To select specific parameters to clip, e.g. lstm.")
   parser.add_argument("--max_gradient_norm", type=float, default=5.0,
                       help="Clip gradients to this norm.")
   parser.add_argument("--init_weight", type=float, default=0.1,
@@ -410,8 +398,7 @@ if __name__ == "__main__":
   parser.add_argument("--source_reverse", type="bool", nargs="?", const=True,
                       default=False, help="Reverse source sequence.")
   parser.add_argument("--batch_size", type=int, default=128, help="Batch size.")
-  parser.add_argument("--infer_batch_size", type=int, default=32,
-                      help="Batch size for inference mode.")
+
   parser.add_argument("--steps_per_stats", type=int, default=100,
                       help=("How many training steps to do per stats logging."
                             "Save checkpoint every 10x steps_per_stats"))
@@ -447,8 +434,10 @@ if __name__ == "__main__":
   parser.add_argument("--path_to_standard_hparams", type=str, default=None,
                       help=("Path to standard hparams json file that overrides"
                             "hparams values from FLAGS."))
+  parser.add_argument("--random_seed", type=int, default=None,
+                      help="Random seed (>0, set a specific seed).")
 
-  # Test
+  # Inference
   parser.add_argument("--model_dir", type=str, default="",
                       help="To load model for inference.")
   parser.add_argument("--inference_file", type=str, default=None,
@@ -456,29 +445,12 @@ if __name__ == "__main__":
   parser.add_argument("--inference_list", type=str, default=None,
                       help=("A comma-separated list of sentence indices "
                             "(0-based) to decode."))
+  parser.add_argument("--infer_batch_size", type=int, default=32,
+                      help="Batch size for inference mode.")
 
   # Experimental features
   parser.add_argument("--ignore_list_file", type=str, default=None,
                       help="Ignored tokens during BLEU computation")
-  parser.add_argument("--src_embed_file", type=str, default="",
-                      help="Pretrained embeddings file for src.")
-  parser.add_argument("--tgt_embed_file", type=str, default="",
-                      help="Pretrained embeddings file for tgt.")
-  parser.add_argument("--src_embed_trainable", type="bool", nargs="?",
-                      const=True, default=False,
-                      help="Whether pretrained embeddings for src can be"
-                      "further trained")
-  parser.add_argument("--tgt_embed_trainable", type="bool", nargs="?",
-                      const=True, default=False,
-                      help="Whether pretrained embeddings for tgt can be"
-                      "further trained")
-  parser.add_argument("--task", type=str, default="seq2seq",
-                      help="which task to use seq2seq (translation)"
-                           " or seq2label (classification).")
-
-  # Not tested
-  parser.add_argument("--random_seed", type=int, default=None,
-                      help="Random seed (>0, set a specific seed).")
 
   # Job info
   parser.add_argument("--jobid", type=int, default=0,

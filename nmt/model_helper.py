@@ -190,21 +190,8 @@ def count_embeddings(embs, grads):
   return tf.cast(tf.add_n(num_ids), embs[0].dtype)
 
 
-def gradient_clip(gradients, params,
-                  clip_value, pattern,
-                  max_gradient_norm):
+def gradient_clip(gradients, params, max_gradient_norm):
   """Clipping gradients of a model."""
-  if clip_value is not None:
-    clipped_gradients = []
-    for (param, grad) in zip(params, gradients):
-      if not pattern or pattern in param.name:  # clip everything or pattern
-        utils.print_out("  clip %s to value %g" % (param.name, clip_value))
-        clipped_gradients.append(
-            tf.clip_by_value(grad, -clip_value, clip_value))
-      else:
-        clipped_gradients.append(grad)
-    gradients = clipped_gradients
-
   clipped_gradients, gradient_norm = tf.clip_by_global_norm(
       gradients, max_gradient_norm)
   gradient_norm_summary = [tf.summary.scalar("grad_norm", gradient_norm)]

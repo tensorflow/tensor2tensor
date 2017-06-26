@@ -36,7 +36,6 @@ def decode_and_evaluate(name,
                         ignore_map,
                         beam_width,
                         tgt_eos,
-                        task,
                         decode=True):
   """Decode a test set and compute a score according to the evaluation task."""
   # Decode
@@ -63,8 +62,7 @@ def decode_and_evaluate(name,
                 sent_id,
                 tgt_eos=tgt_eos,
                 bpe_delimiter=bpe_delimiter,
-                ignore_map=ignore_map,
-                task=task)
+                ignore_map=ignore_map)
             trans_f.write("%s\n" % translation)
         except tf.errors.OutOfRangeError:
           utils.print_time("  done, num sentences %d" % num_sentences,
@@ -89,17 +87,14 @@ def decode_and_evaluate(name,
 
 
 def get_translation(
-    nmt_outputs, sent_id, tgt_eos, bpe_delimiter, ignore_map, task):
+    nmt_outputs, sent_id, tgt_eos, bpe_delimiter, ignore_map):
   """Given batch decoding outputs, select a sentence and turn to text."""
   # Select a sentence
-  if task == "seq2seq":
-    output = nmt_outputs[sent_id, :].tolist()
+  output = nmt_outputs[sent_id, :].tolist()
 
-    # If there is an eos symbol in outputs, cut them at that point.
-    if tgt_eos and tgt_eos in output:
-      output = output[:output.index(tgt_eos)]
-  else:
-    raise ValueError("Unknown task %s" % task)
+  # If there is an eos symbol in outputs, cut them at that point.
+  if tgt_eos and tgt_eos in output:
+    output = output[:output.index(tgt_eos)]
 
   if not bpe_delimiter:
     translation = utils.format_text(output, ignore_map=ignore_map)

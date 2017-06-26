@@ -142,8 +142,6 @@ class BaseModel(object):
 
       clipped_gradients, gradient_norm_summary = model_helper.gradient_clip(
           gradients, params,
-          clip_value=hparams.gradient_clip_value,
-          pattern=hparams.gradient_clip_pattern,
           max_gradient_norm=hparams.max_gradient_norm)
 
       self.update = opt.apply_gradients(
