@@ -43,8 +43,9 @@ class LSTMTest(tf.test.TestCase):
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),
       }
-      model = lstm.LSTMSeq2Seq(hparams, p_hparams)
-      sharded_logits, _, _ = model.model_fn(features, True)
+      model = lstm.LSTMSeq2Seq(
+          hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
+      sharded_logits, _, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

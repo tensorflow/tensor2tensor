@@ -30,12 +30,11 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def neural_gpu(inputs, hparams, train, name=None):
+def neural_gpu(inputs, hparams, name=None):
   """The core Neural GPU."""
   with tf.variable_scope(name, "neural_gpu"):
-
     def step(state, inp):  # pylint: disable=missing-docstring
-      x = tf.nn.dropout(state, 1.0 - hparams.dropout * tf.to_float(train))
+      x = tf.nn.dropout(state, 1.0 - hparams.dropout)
       for layer in xrange(hparams.num_hidden_layers):
         x = common_layers.conv_gru(
             x, (hparams.kernel_height, hparams.kernel_width),
@@ -57,11 +56,11 @@ def neural_gpu(inputs, hparams, train, name=None):
 @registry.register_model
 class NeuralGPU(t2t_model.T2TModel):
 
-  def model_fn_body(self, features, train):
-    return neural_gpu(features["inputs"], self._hparams, train)
+  def model_fn_body(self, features):
+    return neural_gpu(features["inputs"], self._hparams)
 
 
-def diagonal_neural_gpu(inputs, hparams, train, name=None):
+def diagonal_neural_gpu(inputs, hparams, name=None):
   """Improved Neural GPU as in https://arxiv.org/abs/1702.08727."""
   with tf.variable_scope(name, "diagonal_neural_gpu"):
 
@@ -73,7 +72,6 @@ def diagonal_neural_gpu(inputs, hparams, train, name=None):
         x, new_loss = common_layers.diagonal_conv_gru(
             x, (hparams.kernel_height, hparams.kernel_width),
             hparams.hidden_size,
-            train,
             dropout=hparams.dropout,
             name="dcgru_%d" % layer)
       # Padding input is zeroed-out in the modality, we check this by summing.
@@ -93,8 +91,8 @@ def diagonal_neural_gpu(inputs, hparams, train, name=None):
 @registry.register_model
 class DiagonalNeuralGPU(t2t_model.T2TModel):
 
-  def model_fn_body(self, features, train):
-    return diagonal_neural_gpu(features["inputs"], self._hparams, train)
+  def model_fn_body(self, features):
+    return diagonal_neural_gpu(features["inputs"], self._hparams)
 
 
 @registry.register_hparams("neuralgpu_1")

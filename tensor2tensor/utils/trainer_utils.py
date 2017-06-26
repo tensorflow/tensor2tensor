@@ -384,7 +384,8 @@ def model_builder(model, hparams):
     def nth_model(n):
       """Build the model for the n-th problem, plus some added variables."""
       model_class = registry.model(model)(
-          hparams, hparams.problems[n], n, dp, _ps_devices(all_workers=True))
+          hparams, mode, hparams.problems[n],
+          n, dp, _ps_devices(all_workers=True))
       if mode == tf.contrib.learn.ModeKeys.INFER:
         return model_class.infer(
             features,
@@ -402,7 +403,7 @@ def model_builder(model, hparams):
       # TODO(lukaszkaiser): why is this hack needed for variables init? Repair.
       skip_this_one = skip_this_one and (FLAGS.worker_id != 0 or n > 1)
       sharded_logits, training_loss, extra_loss = model_class.model_fn(
-          features, train, skip=(skipping_is_on and skip_this_one))
+          features, skip=(skipping_is_on and skip_this_one))
       with tf.variable_scope("losses_avg", reuse=True):
         loss_moving_avg = tf.get_variable("problem_%d/training_loss" % n)
         o1 = loss_moving_avg.assign(loss_moving_avg * 0.9 + training_loss * 0.1)
