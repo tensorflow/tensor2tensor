@@ -33,7 +33,7 @@ import tensorflow as tf
 EOS = 1
 
 
-def character_generator(source_path, target_path, token_vocab=None, eos=None):
+def character_generator(source_path, target_path, token_vocab, eos=None):
   """Generator for sequence-to-sequence tasks that just uses characters.
 
   This generator assumes the files at source_path and target_path have
@@ -55,15 +55,8 @@ def character_generator(source_path, target_path, token_vocab=None, eos=None):
     with tf.gfile.GFile(target_path, mode="r") as target_file:
       source, target = source_file.readline(), target_file.readline()
       while source and target:
-        if token_vocab is None:
-          # Straight-through encoding of characters
-          # If using this, be careful about potential clashes between
-          # character ordinals, pad bytes (0) and EOS markers
-          source_ints = [ord(c) for c in source.strip()] + eos_list
-          target_ints = [ord(c) for c in target.strip()] + eos_list
-        else:
-          source_ints = token_vocab.encode(source.strip()) + eos_list
-          target_ints = token_vocab.encode(target.strip()) + eos_list
+        source_ints = token_vocab.encode(source.strip()) + eos_list
+        target_ints = token_vocab.encode(target.strip()) + eos_list
         yield {"inputs": source_ints, "targets": target_ints}
         source, target = source_file.readline(), target_file.readline()
 
@@ -275,8 +268,7 @@ def parsing_character_generator(tmp_dir, train):
   filename = "parsing_%s" % ("train" if train else "dev")
   text_filepath = os.path.join(tmp_dir, filename + ".text")
   tags_filepath = os.path.join(tmp_dir, filename + ".tags")
-  return character_generator(text_filepath, tags_filepath,
-                             character_vocab, EOS)
+  return character_generator(text_filepath, tags_filepath, character_vocab, EOS)
 
 
 def parsing_token_generator(tmp_dir, train, vocab_size):
