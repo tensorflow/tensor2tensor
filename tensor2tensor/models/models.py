@@ -24,6 +24,7 @@ from __future__ import print_function
 
 from tensor2tensor.models import attention_lm
 from tensor2tensor.models import attention_lm_moe
+from tensor2tensor.models import bluenet
 from tensor2tensor.models import bytenet
 from tensor2tensor.models import lstm
 from tensor2tensor.models import modalities

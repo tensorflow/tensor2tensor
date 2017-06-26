@@ -276,8 +276,8 @@ class T2TModel(object):
     # input shape, so we confuse it about the input shape.
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               tf.shape(initial_output))
-    if isinstance(self._hparams.problems[self._problem_idx].target_modality,
-                  modality.ClassLabelModality):
+    if (self._hparams.problems[self._problem_idx].target_modality is
+        registry.Modalities.CLASS_LABEL):
       decode_length = 1
     else:
       decode_length = tf.shape(features["inputs"])[1] + decode_length

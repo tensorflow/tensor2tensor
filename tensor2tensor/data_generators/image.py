@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import cPickle
 import gzip
 import io
 import json
@@ -30,6 +29,7 @@ import zipfile
 # Dependency imports
 
 import numpy as np
+from six.moves import cPickle
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils
@@ -200,10 +200,6 @@ def cifar10_generator(tmp_dir, training, how_many, start_from=0):
     ])
     labels = data["labels"]
     all_labels.extend([labels[j] for j in xrange(num_images)])
-  # Shuffle the data to make sure classes are well distributed.
-  data = zip(all_images, all_labels)
-  random.shuffle(data)
-  all_images, all_labels = zip(*data)
   return image_generator(all_images[start_from:start_from + how_many],
                          all_labels[start_from:start_from + how_many])
 
