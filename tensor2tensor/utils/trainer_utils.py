@@ -642,7 +642,9 @@ def decode_from_file(estimator, filename):
 
   decodes = []
   for _ in range(num_decode_batches):
-    result_iter = estimator.predict(input_fn=input_fn.next, as_iterable=True)
+    result_iter = estimator.predict(
+        input_fn=input_fn.next if six.PY2 else input_fn.__next__,
+        as_iterable=True)
     for result in result_iter:
 
       def log_fn(inputs, outputs):
