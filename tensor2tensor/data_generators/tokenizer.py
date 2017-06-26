@@ -47,17 +47,31 @@ from __future__ import print_function
 
 from collections import defaultdict
 import string
+import unicodedata
+import sys
+import re
 
 # Dependency imports
 
+from six import PY2
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
 
+# Regular expression that matches Unicode whitespace characters
+# (including ASCII whitespace) as defined in the Python run-time library
+_RE_WHITESPACE = re.compile(r"^\s$", re.UNICODE)
+
+
 class Tokenizer(object):
-  """Vocab for breaking words into wordpieces.
+  """Vocab for breaking words into Unicode wordpieces.
   """
 
-  _SEPARATOR_CHAR_SET = set(string.punctuation + string.whitespace)
+  _UNICODE_PUNCTUATION = set(unichr(i) for i in xrange(sys.maxunicode)
+                             if unicodedata.category(unichr(i)).startswith('P'))
+  _UNICODE_WHITESPACE = set(unichr(i) for i in xrange(sys.maxunicode)
+                            if _RE_WHITESPACE.match(unichr(i)))
+  #_SEPARATOR_CHAR_SET = set(string.punctuation + string.whitespace)
+  _SEPARATOR_CHAR_SET = _UNICODE_WHITESPACE | _UNICODE_PUNCTUATION
 
   def __init__(self):
     self.token_counts = defaultdict(int)
@@ -66,19 +80,21 @@ class Tokenizer(object):
     """Encode a raw string as a list of tokens.
 
     Args:
-      raw_text: a string
+      raw_text: a (Python2 or Python3 native) string
     Returns:
-      a list of stirngs.
+      a list of Unicode strings
     """
     if not raw_text:
       return []
     ret = []
     token_start = 0
+    if PY2:
+      raw_text = raw_text.decode('utf-8') # Convert to Unicode
+    is_sep = [self._is_separator_char(c) for c in raw_text]
     for pos in xrange(1, len(raw_text)):
-      if (self._is_separator_char(raw_text[pos]) !=
-          self._is_separator_char(raw_text[pos - 1])):
+      if (is_sep[pos] != is_sep[pos-1]):
         token = raw_text[token_start:pos]
-        if token != " " or token_start == 0:
+        if token != u" " or token_start == 0:
           ret.append(token)
           self.token_counts[token] += 1
         token_start = pos
@@ -91,17 +107,17 @@ class Tokenizer(object):
     """Decode a list of tokens to a string.
 
     Args:
-      tokens: a list of stirngs
+      tokens: a list of Unicode strings
     Returns:
-      a string.
+      a (Python2 or Python3 native) string
     """
-    ret = ""
+    ret = u""
+    is_word = [self._is_word_char(t[0]) for t in tokens]
     for i, token in enumerate(tokens):
-      if (i > 0 and self._is_word_char(tokens[i - 1][0]) and
-          self._is_word_char(token[0])):
-        ret += " "
+      if i > 0 and is_word[i - 1] and is_word[i]:
+        ret += u" "
       ret += token
-    return ret
+    return ret.encode('utf-8') if PY2 else ret
 
   def _is_separator_char(self, c):
     return c in self._SEPARATOR_CHAR_SET

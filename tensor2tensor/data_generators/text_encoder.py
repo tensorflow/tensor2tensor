@@ -234,14 +234,13 @@ class SubwordTextEncoder(TextEncoder):
 
   def subtoken_to_subtoken_string(self, subtoken):
     """Subtoken_String (string) corresponding to the given subtoken (id)."""
-    if (subtoken >= 0 and subtoken < self.vocab_size and
-        self._all_subtoken_strings[subtoken]):
-      return self._all_subtoken_strings[subtoken]
-    else:
-      if 0 <= subtoken < self._num_reserved_ids:
-        return '%s_' % RESERVED_TOKENS[subtoken]
-      else:
-        return 'ID%d_' % subtoken
+    if 0 <= subtoken < self.vocab_size:
+      subtoken_string = self._all_subtoken_strings[subtoken]
+      if subtoken_string:
+        return subtoken_string
+    if 0 <= subtoken < self._num_reserved_ids:
+      return '%s_' % RESERVED_TOKENS[subtoken]
+    return 'ID%d_' % subtoken
 
   def _escaped_token_to_subtokens(self, escaped_token):
     """Converts an escaped token string to a list of subtokens.
@@ -265,9 +264,16 @@ class SubwordTextEncoder(TextEncoder):
       if end > pos:
         pos = end
       else:
-        # This kinda should not happen, but it does. Cop out by skipping the
-        # nonexistent subtoken from the returned list.
-        # print("Unable to find subtoken in string '{0}'".format(escaped_token))
+        if subtoken == -1:
+          # No subtoken found: warn once for every 10000 occurrences
+          tf.logging.log_every_n(tf.logging.WARN,
+                                 "Subtoken not found within escaped token '%s'",
+                                 10000, escaped_token)
+          self.dump()
+          print("Already found: {0}".format(ret))
+          print("pos is {0}".format(pos))
+          print("Can't match from '{0}'".format(escaped_token[pos:]))
+        # Ensure that the outer loop continues
         pos += 1
     return ret
 
@@ -303,24 +309,19 @@ class SubwordTextEncoder(TextEncoder):
 
     if min_val >= max_val or subtokenizer.vocab_size == target_size:
       return subtokenizer
-    elif subtokenizer.vocab_size > target_size:
+    if subtokenizer.vocab_size > target_size:
       other_subtokenizer = cls.build_to_target_size(
           target_size, token_counts, store_filename, present_count + 1, max_val,
           num_iterations)
-      if (abs(other_subtokenizer.vocab_size - target_size) <
-          abs(subtokenizer.vocab_size - target_size)):
-        return other_subtokenizer
-      else:
-        return subtokenizer
     else:
       other_subtokenizer = cls.build_to_target_size(
           target_size, token_counts, store_filename, min_val, present_count - 1,
           num_iterations)
-      if (abs(other_subtokenizer.vocab_size - target_size) <
-          abs(subtokenizer.vocab_size - target_size)):
-        return other_subtokenizer
-      else:
-        return subtokenizer
+    if (abs(other_subtokenizer.vocab_size - target_size) <
+        abs(subtokenizer.vocab_size - target_size)):
+      return other_subtokenizer
+    else:
+      return subtokenizer
 
   def build_from_token_counts(self,
                               token_counts,
@@ -339,6 +340,7 @@ class SubwordTextEncoder(TextEncoder):
     # then count the resulting potential subtokens, keeping the ones
     # with high enough counts for our new vocabulary.
     for i in xrange(num_iterations):
+      print("Iteration {0}".format(i))
       counts = defaultdict(int)
       for token, count in six.iteritems(token_counts):
         escaped_token = self._escape_token(token)
@@ -352,39 +354,63 @@ class SubwordTextEncoder(TextEncoder):
           starts = []
           for subtoken in subtokens:
             starts.append(pos)
-            pos += len(self.subtoken_to_subtoken_string(subtoken))
+            pos += len(self._all_subtoken_strings[subtoken])
+          if escaped_token == u"SubwordTextEncoder_":
+            for start, subtoken in zip(starts, subtokens):
+              print("Start {0}, fragment '{1}'".format(start, self._all_subtoken_strings[subtoken]))
+          # !!! There is a subtle bug here: if we are adding a subtoken of >= 2 characters here,
+          # !!! and it gets dropped later because it doesn't make the minimum count cut,
+          # !!! there is no guarantee that its individual characters have been added as
+          # !!! subtokens. Which then means that they might be missing in the end and that
+          # !!! the token is thus not representable as a sequence of subtokens.
+          # !!! Note that this can only happen in iterations after the first one,
+          # !!! since the first iteration automatically adds all characters at some point.
+          # !!! Subsequent iterations however do not have the same guarantee.
         for start in starts:
           for end in xrange(start + 1, len(escaped_token)):
             subtoken_string = escaped_token[start:end]
             counts[subtoken_string] += count
-      # array of lists of candidate subtoken strings, by length
+      # array of sets of candidate subtoken strings, by length
       len_to_subtoken_strings = []
       for subtoken_string, count in six.iteritems(counts):
         lsub = len(subtoken_string)
+        assert lsub >= 1
         # all subtoken strings of length 1 are included regardless of count
         if count < min_count and lsub != 1:
           continue
         while len(len_to_subtoken_strings) <= lsub:
-          len_to_subtoken_strings.append([])
-        len_to_subtoken_strings[lsub].append(subtoken_string)
+          len_to_subtoken_strings.append(set())
+        len_to_subtoken_strings[lsub].add(subtoken_string)
       new_subtoken_strings = []
       # consider the candidates longest to shortest, so that if we accept
       # a longer subtoken string, we can decrement the counts of its prefixes.
-      for subtoken_strings in len_to_subtoken_strings[::-1]:
+      # First, look at all subtoken strings >= 2 characters long
+      for subtoken_strings in reversed(len_to_subtoken_strings[2:]):
         for subtoken_string in subtoken_strings:
           count = counts[subtoken_string]
-          if count < min_count and len(subtoken_string) != 1:
-            # subtoken strings of length 1 are included regardless of count
+          if count < min_count:
             continue
-          new_subtoken_strings.append((-count, subtoken_string))
+          new_subtoken_strings.append((count, subtoken_string))
           for l in xrange(1, len(subtoken_string)):
             counts[subtoken_string[:l]] -= count
+      # Sort what we've got so far in decreasing order by count
+      new_subtoken_strings.sort(reverse = True)
+      # Add the single-character subtokens at the end of the list,
+      # if their final count is nonzero
+      for subtoken_string in len_to_subtoken_strings[1]:
+        count = counts[subtoken_string]
+        if count:
+          new_subtoken_strings.append((0, subtoken_string))
+        else:
+          print(u"Cutting single-char subtoken '{0}'".format(subtoken_string))
       # Make sure to include the underscore as a subtoken string
-      new_subtoken_strings.append((0, '_'))
-      new_subtoken_strings.sort()
-      self._init_from_list([''] * self._num_reserved_ids +
+      assert u'_' not in len_to_subtoken_strings[1] # Should not already be there
+      new_subtoken_strings.append((0, u'_'))
+      # Now we have a candidate vocabulary
+      self._init_from_list([u''] * self._num_reserved_ids +
                            [p[1] for p in new_subtoken_strings])
-      print('vocab_size = %d' % self.vocab_size)
+      tf.logging.info('vocab_size = %d' % self.vocab_size)
+      self.dump()
 
     original = 'This sentence was encoded by the SubwordTextEncoder.'
     encoded = self.encode(original)
@@ -393,16 +419,17 @@ class SubwordTextEncoder(TextEncoder):
     decoded = self.decode(encoded)
     print(decoded)
     assert decoded == original
-    self._store_to_file(store_filename)
+    if store_filename is not None:
+      self._store_to_file(store_filename)
+
+  def dump(self):
+    subtoken_strings = [(i, s) for s, i in self._subtoken_string_to_id.iteritems()]
+    print(u", ".join(u"{0} : '{1}'".format(i, s) for i, s in sorted(subtoken_strings)))
 
   def _init_from_list(self, subtoken_strings):
     """Initialize from a list of subtoken strings."""
     self._all_subtoken_strings = subtoken_strings
-    self._subtoken_string_to_id = {}
-    for i in xrange(len(subtoken_strings)):
-      subtoken_string = subtoken_strings[i]
-      if subtoken_string:
-        self._subtoken_string_to_id[subtoken_string] = i
+    self._subtoken_string_to_id = { s : i for i, s in enumerate(subtoken_strings) if s }
 
   def _load_from_file(self, filename):
     """Load from a file."""
@@ -410,7 +437,7 @@ class SubwordTextEncoder(TextEncoder):
     with tf.gfile.Open(filename) as f:
       for line in f:
         if six.PY2:
-          subtoken_strings.append(line.strip()[1:-1].decode('string-escape'))
+          subtoken_strings.append(line.strip()[1:-1].decode('utf-8'))
         else:
           subtoken_strings.append(line.strip()[1:-1])
     self._init_from_list(subtoken_strings)
@@ -419,7 +446,7 @@ class SubwordTextEncoder(TextEncoder):
     with tf.gfile.Open(filename, 'w') as f:
       for subtoken_string in self._all_subtoken_strings:
         if six.PY2:
-          f.write('\'' + subtoken_string.encode('string-escape') + '\'\n')
+          f.write('\'' + subtoken_string.encode('utf-8') + '\'\n')
         else:
           f.write('\'' + subtoken_string + '\'\n')
 
@@ -436,28 +463,13 @@ class SubwordTextEncoder(TextEncoder):
   def _unescape_token(self, escaped_token):
     r"""Remove '_' from end, then translate '\\'->'\' and '\u'->'_'.
 
-    TODO(noam): There must be some better way to do this with regexps.
-
     Args:
       escaped_token: a string
     Returns:
       token: a string
     """
     assert escaped_token[-1] == '_'
-    escaped_token = escaped_token[:-1]
-    if '\\' not in escaped_token:
-      return escaped_token
-    ret = ''
-    pos = 0
-    while pos < len(escaped_token):
-      if escaped_token[pos] == '\\' and pos + 1 < len(escaped_token):
-        if escaped_token[pos + 1] == 'u':
-          ret += '_'
-        else:
-          ret += escaped_token[pos + 1]
-        pos += 1
-      pos += 1
-    return ret
+    return escaped_token[:-1].replace('\\u', '_').replace('\\\\', '\\')
 
   @classmethod
   def get_token_counts(cls, text_filepattern, corpus_max_lines):
