@@ -30,7 +30,7 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def residual_module(x, hparams, train, n, sep):
+def residual_module(x, hparams, n, sep):
   """A stack of convolution blocks with residual connection."""
   k = (hparams.kernel_height, hparams.kernel_width)
   dilations_and_kernels = [((1, 1), k) for _ in xrange(n)]
@@ -43,56 +43,55 @@ def residual_module(x, hparams, train, n, sep):
         separability=sep,
         name="block")
     x = common_layers.layer_norm(x + y, hparams.hidden_size, name="lnorm")
-  return tf.nn.dropout(x, 1.0 - hparams.dropout * tf.to_float(train))
+  return tf.nn.dropout(x, 1.0 - hparams.dropout)
 
 
-def residual_module1(x, hparams, train):
-  return residual_module(x, hparams, train, 1, 1)
+def residual_module1(x, hparams):
+  return residual_module(x, hparams, 1, 1)
 
 
-def residual_module1_sep(x, hparams, train):
-  return residual_module(x, hparams, train, 1, 0)
+def residual_module1_sep(x, hparams):
+  return residual_module(x, hparams, 1, 0)
 
 
-def residual_module2(x, hparams, train):
-  return residual_module(x, hparams, train, 2, 1)
+def residual_module2(x, hparams):
+  return residual_module(x, hparams, 2, 1)
 
 
-def residual_module2_sep(x, hparams, train):
-  return residual_module(x, hparams, train, 2, 0)
+def residual_module2_sep(x, hparams):
+  return residual_module(x, hparams, 2, 0)
 
 
-def residual_module3(x, hparams, train):
-  return residual_module(x, hparams, train, 3, 1)
+def residual_module3(x, hparams):
+  return residual_module(x, hparams, 3, 1)
 
 
-def residual_module3_sep(x, hparams, train):
-  return residual_module(x, hparams, train, 3, 0)
+def residual_module3_sep(x, hparams):
+  return residual_module(x, hparams, 3, 0)
 
 
-def norm_module(x, hparams, train):
-  del train  # Unused.
+def norm_module(x, hparams):
   return common_layers.layer_norm(x, hparams.hidden_size, name="norm_module")
 
 
-def identity_module(x, hparams, train):
-  del hparams, train  # Unused.
+def identity_module(x, hparams):
+  del hparams  # Unused.
   return x
 
 
-def run_modules(blocks, cur, hparams, train, dp):
+def run_modules(blocks, cur, hparams, dp):
   """Run blocks in parallel using dp as data_parallelism."""
   assert len(blocks) % dp.n == 0
   res = []
   for i in xrange(len(blocks) // dp.n):
-    res.extend(dp(blocks[i * dp.n:(i + 1) * dp.n], cur, hparams, train))
+    res.extend(dp(blocks[i * dp.n:(i + 1) * dp.n], cur, hparams))
   return res
 
 
 @registry.register_model
 class BlueNet(t2t_model.T2TModel):
 
-  def model_fn_body_sharded(self, sharded_features, train):
+  def model_fn_body_sharded(self, sharded_features):
     dp = self._data_parallelism
     dp._reuse = False  # pylint:disable=protected-access
     hparams = self._hparams
@@ -106,7 +105,7 @@ class BlueNet(t2t_model.T2TModel):
     cur_shape = cur.get_shape()
     for i in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % i):
-        processed = run_modules(blocks, cur, hparams, train, dp)
+        processed = run_modules(blocks, cur, hparams, dp)
         cur = common_layers.shakeshake(processed)
         cur.set_shape(cur_shape)
 

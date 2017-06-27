@@ -67,6 +67,7 @@ def lstm_seq2seq_internal(inputs, targets, hparams, train):
 @registry.register_model("baseline_lstm_seq2seq")
 class LSTMSeq2Seq(t2t_model.T2TModel):
 
-  def model_fn_body(self, features, train):
+  def model_fn_body(self, features):
+    train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
     return lstm_seq2seq_internal(features["inputs"], features["targets"],
                                  self._hparams, train)

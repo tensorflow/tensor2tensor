@@ -41,13 +41,9 @@ import tensorflow as tf
 class Transformer(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
-  def model_fn_body(self, features, train):
+  def model_fn_body(self, features):
     # Remove dropout if not training
     hparams = copy.copy(self._hparams)
-    if not train:
-      hparams.attention_dropout = 0.
-      hparams.relu_dropout = 0.
-      hparams.residual_dropout = 0.
     targets = features["targets"]
     inputs = features.get("inputs")
     target_space = features.get("target_space_id")
@@ -300,10 +296,12 @@ def transformer_base():
   hparams.add_hparam("ffn_layer", "conv_hidden_relu")
   hparams.add_hparam("parameter_attention_key_channels", 0)
   hparams.add_hparam("parameter_attention_value_channels", 0)
+  # All hyperparameters ending in "dropout" are automatically set to 0.0
+  # when not in training mode.
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
-  hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("residual_dropout", 0.1)
+  hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
   return hparams
 

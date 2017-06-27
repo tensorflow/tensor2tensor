@@ -28,6 +28,7 @@ from tensor2tensor.data_generators import text_encoder
 
 import tensorflow as tf
 
+
 # End-of-sentence marker (should correspond to the position of EOS in the
 # RESERVED_TOKENS list in text_encoder.py)
 EOS = 1
@@ -44,6 +45,7 @@ def character_generator(source_path, target_path, character_vocab, eos=None):
   Args:
     source_path: path to the file with source sentences.
     target_path: path to the file with target sentences.
+    character_vocab: a TextEncoder to encode the characters.
     eos: integer to append at the end of each sequence (default: None).
 
   Yields:
