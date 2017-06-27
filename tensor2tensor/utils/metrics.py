@@ -142,7 +142,7 @@ def create_evaluation_metrics(problems):
   # TODO(nikip): Extend this to support use of custom metrics for problems.
   for problem in problems:
     if "wmt" in problem:
-      metrics_list.append(("bleu_score", bleu_hook.padded_bleu_score))
+      metrics_list.append(("approx_bleu_score", bleu_hook.padded_bleu_score))
 
   for metric in metrics_list:
     append_metric_fns(metric, eval_metrics)
