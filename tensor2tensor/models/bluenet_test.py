@@ -38,6 +38,7 @@ class BlueNetTest(tf.test.TestCase):
     p_hparams = problem_hparams.test_problem_hparams(hparams, vocab_size,
                                                      vocab_size)
     with self.test_session() as session:
+      tf.train.get_or_create_global_step()
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),

@@ -30,48 +30,22 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def residual_module(x, hparams, n, sep):
-  """A stack of convolution blocks with residual connection."""
-  k = (hparams.kernel_height, hparams.kernel_width)
-  dilations_and_kernels = [((1, 1), k) for _ in xrange(n)]
-  with tf.variable_scope("residual_module%d_sep%d" % (n, sep)):
-    y = common_layers.subseparable_conv_block(
-        x,
-        hparams.hidden_size,
-        dilations_and_kernels,
-        padding="SAME",
-        separability=sep,
-        name="block")
-    x = common_layers.layer_norm(x + y, hparams.hidden_size, name="lnorm")
-  return tf.nn.dropout(x, 1.0 - hparams.dropout)
+def conv_module(kw, kh, sep, div):
+  def convfn(x, hparams):
+    return common_layers.subseparable_conv(
+        x, hparams.hidden_size // div, (kw, kh),
+        padding="SAME", separability=sep,
+        name="conv_%d%d_sep%d_div%d" % (kw, kh, sep, div))
+  return convfn
 
 
-def residual_module1(x, hparams):
-  return residual_module(x, hparams, 1, 1)
+def layernorm_module(x, hparams):
+  return common_layers.layer_norm(x, hparams.hidden_size, name="layer_norm")
 
 
-def residual_module1_sep(x, hparams):
-  return residual_module(x, hparams, 1, 0)
-
-
-def residual_module2(x, hparams):
-  return residual_module(x, hparams, 2, 1)
-
-
-def residual_module2_sep(x, hparams):
-  return residual_module(x, hparams, 2, 0)
-
-
-def residual_module3(x, hparams):
-  return residual_module(x, hparams, 3, 1)
-
-
-def residual_module3_sep(x, hparams):
-  return residual_module(x, hparams, 3, 0)
-
-
-def norm_module(x, hparams):
-  return common_layers.layer_norm(x, hparams.hidden_size, name="norm_module")
+def noamnorm_module(x, hparams):
+  del hparams  # Unused.
+  return common_layers.noam_norm(x)
 
 
 def identity_module(x, hparams):
@@ -79,37 +53,122 @@ def identity_module(x, hparams):
   return x
 
 
-def run_modules(blocks, cur, hparams, dp):
-  """Run blocks in parallel using dp as data_parallelism."""
-  assert len(blocks) % dp.n == 0
-  res = []
-  for i in xrange(len(blocks) // dp.n):
-    res.extend(dp(blocks[i * dp.n:(i + 1) * dp.n], cur, hparams))
-  return res
+def first_binary_module(x, y, hparams):
+  del y, hparams  # Unused.
+  return x
+
+
+def second_binary_module(x, y, hparams):
+  del x, hparams  # Unused.
+  return y
+
+
+def sum_binary_module(x, y, hparams):
+  del hparams  # Unused.
+  return x + y
+
+
+def shakeshake_binary_module(x, y, hparams):
+  del hparams  # Unused.
+  return common_layers.shakeshake2(x, y)
+
+
+def run_binary_modules(modules, cur1, cur2, hparams):
+  """Run binary modules."""
+  selection_var = tf.get_variable("selection", [len(modules)],
+                                  initializer=tf.zeros_initializer())
+  inv_t = 100.0 * common_layers.inverse_exp_decay(100000, min_value=0.01)
+  selected_weights = tf.nn.softmax(selection_var * inv_t)
+  all_res = [modules[n](cur1, cur2, hparams) for n in xrange(len(modules))]
+  all_res = tf.concat([tf.expand_dims(r, axis=0) for r in all_res], axis=0)
+  res = all_res * tf.reshape(selected_weights, [-1, 1, 1, 1, 1])
+  return tf.reduce_sum(res, axis=0)
+
+
+def run_unary_modules_basic(modules, cur, hparams):
+  """Run unary modules."""
+  selection_var = tf.get_variable("selection", [len(modules)],
+                                  initializer=tf.zeros_initializer())
+  inv_t = 100.0 * common_layers.inverse_exp_decay(100000, min_value=0.01)
+  selected_weights = tf.nn.softmax(selection_var * inv_t)
+  all_res = [modules[n](cur, hparams) for n in xrange(len(modules))]
+  all_res = tf.concat([tf.expand_dims(r, axis=0) for r in all_res], axis=0)
+  res = all_res * tf.reshape(selected_weights, [-1, 1, 1, 1, 1])
+  return tf.reduce_sum(res, axis=0)
+
+
+def run_unary_modules_sample(modules, cur, hparams, k):
+  """Run modules, sampling k."""
+  selection_var = tf.get_variable("selection", [len(modules)],
+                                  initializer=tf.zeros_initializer())
+  selection = tf.multinomial(tf.expand_dims(selection_var, axis=0), k)
+  selection = tf.squeeze(selection, axis=0)   # [k] selected classes.
+  to_run = tf.one_hot(selection, len(modules))  # [k x nmodules] one-hot.
+  to_run = tf.reduce_sum(to_run, axis=0)  # [nmodules], 0=not run, 1=run.
+  all_res = [tf.cond(tf.less(to_run[n], 0.1),
+                     lambda: tf.zeros_like(cur),
+                     lambda i=n: modules[i](cur, hparams))
+             for n in xrange(len(modules))]
+  inv_t = 100.0 * common_layers.inverse_exp_decay(100000, min_value=0.01)
+  selected_weights = tf.nn.softmax(selection_var * inv_t - 1e9 * (1.0 - to_run))
+  all_res = tf.concat([tf.expand_dims(r, axis=0) for r in all_res], axis=0)
+  res = all_res * tf.reshape(selected_weights, [-1, 1, 1, 1, 1])
+  return tf.reduce_sum(res, axis=0)
+
+
+def run_unary_modules(modules, cur, hparams):
+  if len(modules) < 5:
+    return run_unary_modules_basic(modules, cur, hparams)
+  return run_unary_modules_sample(modules, cur, hparams, 4)
 
 
 @registry.register_model
 class BlueNet(t2t_model.T2TModel):
 
-  def model_fn_body_sharded(self, sharded_features):
-    dp = self._data_parallelism
-    dp._reuse = False  # pylint:disable=protected-access
+  def model_fn_body(self, features):
     hparams = self._hparams
-    blocks = [identity_module, norm_module,
-              residual_module1, residual_module1_sep,
-              residual_module2, residual_module2_sep,
-              residual_module3, residual_module3_sep]
-    inputs = sharded_features["inputs"]
+    conv_modules = [conv_module(kw, kw, sep, div)
+                    for kw in [3, 5, 7]
+                    for sep in [0, 1]
+                    for div in [1]] + [identity_module]
+    activation_modules = [identity_module,
+                          lambda x, _: tf.nn.relu(x),
+                          lambda x, _: tf.nn.elu(x),
+                          lambda x, _: tf.tanh(x)]
+    norm_modules = [identity_module, layernorm_module, noamnorm_module]
+    binary_modules = [first_binary_module, second_binary_module,
+                      sum_binary_module, shakeshake_binary_module]
+    inputs = features["inputs"]
 
-    cur = tf.concat(inputs, axis=0)
-    cur_shape = cur.get_shape()
+    def run_unary(x, name):
+      """A single step of unary modules."""
+      with tf.variable_scope(name):
+        with tf.variable_scope("activation"):
+          x = run_unary_modules(activation_modules, x, hparams)
+          x.set_shape(cur_shape)
+        with tf.variable_scope("conv"):
+          x = run_unary_modules(conv_modules, x, hparams)
+          x.set_shape(cur_shape)
+        with tf.variable_scope("norm"):
+          x = run_unary_modules(norm_modules, x, hparams)
+          x.set_shape(cur_shape)
+      return x
+
+    cur1, cur2 = inputs, inputs
+    cur_shape = inputs.get_shape()
     for i in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % i):
-        processed = run_modules(blocks, cur, hparams, dp)
-        cur = common_layers.shakeshake(processed)
-        cur.set_shape(cur_shape)
+        cur1 = run_unary(cur1, "unary1")
+        cur2 = run_unary(cur2, "unary2")
+        with tf.variable_scope("binary1"):
+          next1 = run_binary_modules(binary_modules, cur1, cur2, hparams)
+          next1.set_shape(cur_shape)
+        with tf.variable_scope("binary2"):
+          next2 = run_binary_modules(binary_modules, cur1, cur2, hparams)
+          next2.set_shape(cur_shape)
+        cur1, cur2 = next1, next2
 
-    return list(tf.split(cur, len(inputs), axis=0)), 0.0
+    return cur1
 
 
 @registry.register_hparams
@@ -117,7 +176,7 @@ def bluenet_base():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
   hparams.batch_size = 4096
-  hparams.hidden_size = 768
+  hparams.hidden_size = 256
   hparams.dropout = 0.2
   hparams.symbol_dropout = 0.2
   hparams.label_smoothing = 0.1
