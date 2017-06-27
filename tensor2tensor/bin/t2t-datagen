@@ -40,7 +40,6 @@ from tensor2tensor.data_generators import image
 from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import wsj_parsing
-from tensor2tensor.data_generators import ptb
 
 import tensorflow as tf
 
@@ -87,16 +86,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_multiplication_decimal40": (
         lambda: algorithmic.multiplication_generator(10, 40, 100000),
         lambda: algorithmic.multiplication_generator(10, 400, 10000)),
-    "algorithmic_reverse_nlplike_decimal8K": (
-        lambda: algorithmic.reverse_generator_nlplike(8000, 70, 100000,
-                                                      10, 1.300),
-        lambda: algorithmic.reverse_generator_nlplike(8000, 700, 10000,
-                                                      10, 1.300)),
-    "algorithmic_reverse_nlplike_decimal32K": (
-        lambda: algorithmic.reverse_generator_nlplike(32000, 70, 100000,
-                                                      10, 1.050),
-        lambda: algorithmic.reverse_generator_nlplike(32000, 700, 10000,
-                                                      10, 1.050)),
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
@@ -318,12 +307,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
             626,
             vocab_filename="tokens.vocab.%d" % 2**15,
             vocab_size=2**15)),
-    "lmptb_10k": (
-      lambda: ptb.train_generator(
-            FLAGS.tmp_dir,
-            FLAGS.data_dir,
-            False),
-      lambda: ptb.valid_generator()),
 }
 
 # pylint: enable=g-long-lambda

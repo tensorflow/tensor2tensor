@@ -196,10 +196,7 @@ class T2TModel(object):
       if last_position_only:
         return tf.squeeze(logits, axis=[1, 2, 3])
       current_output_position = tf.shape(ids)[1] - 1  # -1 due to the pad above.
-      if current_output_position.shape.ndims >= 1:
-        logits = logits[:, current_output_position, :, :]
-      else:
-        logits = logits[:, -1 , :, :]
+      logits = logits[:, current_output_position, :, :]
       return tf.squeeze(logits, axis=[1, 2])
 
     batch_size = tf.shape(features["inputs"])[0]
@@ -272,11 +269,7 @@ class T2TModel(object):
       if last_position_only:
         cur_sample = samples[:, -1, :, :]
       else:
-        #Avoid the out of index Error
-        if tf.shape(recent_output).shape.ndims >= 2:
-          cur_sample = samples[:, tf.shape(recent_output)[1], :, :]
-        else:
-          cur_sample = samples[:, -1, :, :]
+        cur_sample = samples[:, tf.shape(recent_output)[1], :, :]
       cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
       samples = tf.concat([recent_output, cur_sample], axis=1)
       samples.set_shape([None, None, None, 1])

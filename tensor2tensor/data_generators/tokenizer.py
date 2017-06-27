@@ -14,26 +14,24 @@
 
 """A simple invertible tokenizer.
 
-Converts from a raw string to a list of tokens (represented as
-Unicode strings).
+Converts from a raw string to a list of tokens (strings).
 
 This tokenizer has the following desirable properties:
  - It is invertible.
  - Punctuation is broken away from adjacent letters.
  - A single space between words does not produce an extra token.
- - The full Unicode punctuation and separator set is recognized.
 
 The tokenization algorithm is as follows:
 
-0.  We classify the input characters into "word characters" and
+0.  We classify the 256 characters into "word characters" and
     "separator characters".  Separator characters are defined as the union of
-    Unicode punctuation and separators/white space.  All other characters are
+    string.punctuation and string.whitespace.  All other characters are
     "word characters".
 
 1.  Split the text into a list of tokens, splitting at every boundary of a
     "word character" and a "separator character".  This produces a list which
-    alternates between "word tokens" (strings of word codepoints) and
-    "separator tokens" (strings of of separator/punctuation codepoints).
+    alternates between "word tokens" (strings of word characters) and
+    "separator tokens" (strings of of separator characters).
 
 2.  Remove every token consisting of a single space, unless it is
     the very first or very last token in the list.  These tokens are now
@@ -49,35 +47,17 @@ from __future__ import print_function
 
 from collections import defaultdict
 import string
-import unicodedata
-import sys
-import re
 
 # Dependency imports
 
-from six import PY2, unichr  # pylint: disable=redefined-builtin
 from six.moves import xrange  # pylint: disable=redefined-builtin
-
-# Regular expression that matches Unicode whitespace characters
-# (including ASCII whitespace) as defined in the Python run-time library
-_RE_WHITESPACE = re.compile(r"^\s$", re.UNICODE)
-
-# Set of Unicode whitespace code points
-UNICODE_WHITESPACE = set(unichr(i) for i in xrange(sys.maxunicode)
-                          if _RE_WHITESPACE.match(unichr(i)))
-# Set of Unicode punctuation code points
-UNICODE_PUNCTUATION = set(unichr(i) for i in xrange(sys.maxunicode)
-                          if unicodedata.category(unichr(i)).startswith("P"))
-# Conversion between Unicode and UTF-8, if required (on Python2)
-_decode_string = (lambda s: s.decode("utf-8")) if PY2 else (lambda s: s)
-_encode_string = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
 
 
 class Tokenizer(object):
-  """Vocab for breaking words into Unicode wordpieces.
+  """Vocab for breaking words into wordpieces.
   """
 
-  _SEPARATOR_CHAR_SET = UNICODE_WHITESPACE | UNICODE_PUNCTUATION
+  _SEPARATOR_CHAR_SET = set(string.punctuation + string.whitespace)
 
   def __init__(self):
     self.token_counts = defaultdict(int)
@@ -86,25 +66,23 @@ class Tokenizer(object):
     """Encode a raw string as a list of tokens.
 
     Args:
-      raw_text: a (Python2 or Python3 native) string
+      raw_text: a string
     Returns:
-      a list of tokens as Unicode strings
+      a list of stirngs.
     """
     if not raw_text:
       return []
     ret = []
     token_start = 0
-    unicode_text = _decode_string(raw_text)
-    # Classify each character in the input string
-    is_sep = [c in self._SEPARATOR_CHAR_SET for c in unicode_text]
-    for pos in xrange(1, len(unicode_text)):
-      if is_sep[pos] != is_sep[pos - 1]:
-        token = unicode_text[token_start:pos]
-        if token != u" " or token_start == 0:
+    for pos in xrange(1, len(raw_text)):
+      if (self._is_separator_char(raw_text[pos]) !=
+          self._is_separator_char(raw_text[pos - 1])):
+        token = raw_text[token_start:pos]
+        if token != " " or token_start == 0:
           ret.append(token)
           self.token_counts[token] += 1
         token_start = pos
-    final_token = unicode_text[token_start:]
+    final_token = raw_text[token_start:]
     ret.append(final_token)
     self.token_counts[final_token] += 1
     return ret
@@ -113,15 +91,20 @@ class Tokenizer(object):
     """Decode a list of tokens to a string.
 
     Args:
-      tokens: a list of Unicode strings
+      tokens: a list of stirngs
     Returns:
-      a (Python2 or Python3 native) string
+      a string.
     """
-    ret = u""
-    is_word = [t[0] not in self._SEPARATOR_CHAR_SET for t in tokens]
+    ret = ""
     for i, token in enumerate(tokens):
-      if i > 0 and is_word[i - 1] and is_word[i]:
-        ret += u" "
+      if (i > 0 and self._is_word_char(tokens[i - 1][0]) and
+          self._is_word_char(token[0])):
+        ret += " "
       ret += token
-    return _encode_string(ret)
+    return ret
 
+  def _is_separator_char(self, c):
+    return c in self._SEPARATOR_CHAR_SET
+
+  def _is_word_char(self, c):
+    return c not in self._SEPARATOR_CHAR_SET

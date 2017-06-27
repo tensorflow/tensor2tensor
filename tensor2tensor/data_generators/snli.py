@@ -136,14 +136,14 @@ def _get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
   if tf.gfile.Exists(vocab_filepath):
     gs = text_encoder.SubwordTextEncoder(vocab_filepath)
     return gs
-  example_file = os.path.join(tmp_dir, _EXAMPLES_FILE)
-  gs = text_encoder.SubwordTextEncoder()
-  token_counts = text_encoder.SubwordTextEncoder.get_token_counts(
-      example_file, corpus_max_lines=1000000)
-  gs = gs.build_to_target_size(
-      vocab_size, token_counts, min_val=1, max_val=1e3)
-  gs.store_to_file(vocab_filepath)
-  return gs
+  else:
+    example_file = os.path.join(tmp_dir, _EXAMPLES_FILE)
+    gs = text_encoder.SubwordTextEncoder()
+    token_counts = text_encoder.SubwordTextEncoder.get_token_counts(
+        example_file, corpus_max_lines=1000000)
+    gs = gs.build_to_target_size(
+        vocab_size, token_counts, vocab_filepath, min_val=1, max_val=1e3)
+    return gs
 
 
 def snli_token_generator(tmp_dir, train, vocab_size):
