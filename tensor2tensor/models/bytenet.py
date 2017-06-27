@@ -30,7 +30,7 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def residual_dilated_conv(x, repeat, padding, name, hparams, train):
+def residual_dilated_conv(x, repeat, padding, name, hparams):
   """A stack of convolution blocks with residual connections."""
   with tf.variable_scope(name):
     k = (hparams.kernel_height, hparams.kernel_width)
@@ -45,11 +45,11 @@ def residual_dilated_conv(x, repeat, padding, name, hparams, train):
             padding=padding,
             name="residual_conv")
         x = common_layers.layer_norm(x + y, hparams.hidden_size, name="lnorm")
-        x = tf.nn.dropout(x, 1.0 - hparams.dropout * tf.to_float(train))
+        x = tf.nn.dropout(x, hparams.dropout)
     return x
 
 
-def bytenet_internal(inputs, targets, hparams, train):
+def bytenet_internal(inputs, targets, hparams):
   """ByteNet, main step used for training."""
   with tf.variable_scope("bytenet"):
     # Flatten inputs and extend length by 50%.
@@ -63,7 +63,7 @@ def bytenet_internal(inputs, targets, hparams, train):
     inputs, targets = common_layers.pad_to_same_length(
         inputs, targets, final_length_divisible_by=50)
     final_encoder = residual_dilated_conv(
-        inputs, hparams.num_block_repeat, "SAME", "encoder", hparams, train)
+        inputs, hparams.num_block_repeat, "SAME", "encoder", hparams)
 
     shifted_targets = common_layers.shift_left(targets)
     kernel = (hparams.kernel_height, hparams.kernel_width)
@@ -74,15 +74,15 @@ def bytenet_internal(inputs, targets, hparams, train):
 
     return residual_dilated_conv(
         decoder_start, hparams.num_block_repeat,
-        "LEFT", "decoder", hparams, train)
+        "LEFT", "decoder", hparams)
 
 
 @registry.register_model
 class ByteNet(t2t_model.T2TModel):
 
-  def model_fn_body(self, features, train):
+  def model_fn_body(self, features):
     return bytenet_internal(features["inputs"], features["targets"],
-                            self._hparams, train)
+                            self._hparams)
 
 
 @registry.register_hparams

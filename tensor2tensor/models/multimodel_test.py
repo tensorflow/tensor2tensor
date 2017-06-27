@@ -43,8 +43,9 @@ class MultiModelTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = multimodel.MultiModel(hparams, p_hparams)
-      sharded_logits, _, _ = model.model_fn(features, True)
+      model = multimodel.MultiModel(
+          hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
+      sharded_logits, _, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

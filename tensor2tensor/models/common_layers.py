@@ -1211,7 +1211,6 @@ def conv_lstm(x,
 def diagonal_conv_gru(x,
                       kernel_size,
                       filters,
-                      train,
                       dropout=0.0,
                       name=None,
                       reuse=None):
@@ -1234,8 +1233,7 @@ def diagonal_conv_gru(x,
     gate, gate_cost = hard_sigmoid(do_conv(x, "gate", 0.7))
     candidate = tf.tanh(do_conv(reset * x, "candidate", 0.0))
 
-    # Dropout if training.
-    if dropout > 0.0 and train:
+    if dropout > 0.0:
       candidate = tf.nn.dropout(candidate, 1.0 - dropout)
 
     # Diagonal shift.

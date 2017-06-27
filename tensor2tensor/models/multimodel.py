@@ -70,7 +70,8 @@ def experts(xs, moe_n1, moe_n2, hidden_size, filter_size, dp, ps, train):
 @registry.register_model
 class MultiModel(t2t_model.T2TModel):
 
-  def model_fn_body_sharded(self, sharded_features, train):
+  def model_fn_body_sharded(self, sharded_features):
+    train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
     dp = self._data_parallelism
     hparams = self._hparams
     targets = sharded_features["targets"]
@@ -86,7 +87,7 @@ class MultiModel(t2t_model.T2TModel):
       inputs = common_layers.add_timing_signal(inputs)
       return slicenet.multi_conv_res(inputs, "SAME", "encoder1",
                                      hparams.num_hidden_layers // 2,
-                                     hparams, train, mask=inputs_mask)
+                                     hparams, mask=inputs_mask)
 
     target_space_emb = dp(slicenet.embed_target_space,
                           sharded_features["target_space_id"],
@@ -101,7 +102,7 @@ class MultiModel(t2t_model.T2TModel):
       expert_loss *= hparams.moe_loss_coef
     inputs_encoded = dp(
         slicenet.multi_conv_res, inputs_encoded, "SAME",
-        "encoder2", hparams.num_hidden_layers, hparams, train,
+        "encoder2", hparams.num_hidden_layers, hparams,
         mask=inputs_mask)
 
     # If we're just predicing a class, there is no use for a decoder, return.
@@ -112,7 +113,7 @@ class MultiModel(t2t_model.T2TModel):
     # Do the middle part.
     decoder_start, similarity_loss = dp(
         slicenet.slicenet_middle, inputs_encoded, targets,
-        target_space_emb, inputs_mask, hparams, train)
+        target_space_emb, inputs_mask, hparams)
 
     # Decode.
     decoder_half = dp(
@@ -137,7 +138,6 @@ class MultiModel(t2t_model.T2TModel):
         "decoder2",
         hparams.num_hidden_layers // 2,
         hparams,
-        train,
         mask=inputs_mask,
         source=inputs_encoded)
 

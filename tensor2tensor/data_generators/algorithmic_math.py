@@ -570,11 +570,16 @@ def calculus_integrate(alphabet_size=26,
 
   functions = {"log": "L"}
   alg_cfg = math_dataset_init(alphabet_size, digits=5, functions=functions)
-  for _ in xrange(nbr_cases):
-    sample, target = generate_calculus_integrate_sample(
-        alg_cfg.vlist,
-        list(alg_cfg.ops.values()), min_depth, max_depth, alg_cfg.functions)
-    yield {
-        "inputs": alg_cfg.int_encoder(sample),
-        "targets": alg_cfg.int_encoder(target)
-    }
+  nbr_case = 0
+  while nbr_case < nbr_cases:
+    try:
+      sample, target = generate_calculus_integrate_sample(
+          alg_cfg.vlist,
+          list(alg_cfg.ops.values()), min_depth, max_depth, alg_cfg.functions)
+      yield {
+          "inputs": alg_cfg.int_encoder(sample),
+          "targets": alg_cfg.int_encoder(target)
+      }
+    except:  # pylint:disable=bare-except
+      continue
+    nbr_case += 1
