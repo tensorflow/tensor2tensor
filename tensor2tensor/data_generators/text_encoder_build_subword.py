@@ -59,8 +59,9 @@ def main(unused_argv):
     raise ValueError('Must provide --corpus_filepattern')
   token_counts = text_encoder.SubwordTextEncoder.get_token_counts(
       FLAGS.corpus_filepattern, FLAGS.corpus_max_lines)
-  gs.build_from_token_counts(token_counts, FLAGS.output_fn, FLAGS.min_count,
+  gs.build_from_token_counts(token_counts, FLAGS.min_count,
                              FLAGS.num_iterations)
+  gs.store_to_file(FLAGS.output_fn)
 
 
 if __name__ == '__main__':

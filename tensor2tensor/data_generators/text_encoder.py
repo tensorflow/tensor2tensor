@@ -260,19 +260,16 @@ class SubwordTextEncoder(TextEncoder):
         if subtoken != -1:
           break
         end -= 1
-      ret.append(subtoken)
       if end > pos:
+        ret.append(subtoken)
         pos = end
       else:
-        if subtoken == -1:
-          # No subtoken found: warn once for every 10000 occurrences
-          tf.logging.log_every_n(tf.logging.WARN,
-                                 "Subtoken not found within escaped token '%s'",
-                                 10000, escaped_token)
-          self.dump()
-          print("Already found: {0}".format(ret))
-          print("pos is {0}".format(pos))
-          print("Can't match from '{0}'".format(escaped_token[pos:]))
+        # No subtoken in the vocabulary matches excaped_token[pos].
+        # This can happen if the token contains a Unicode character
+        # that did not occur in the vocabulary training set.
+        # The id self.vocab_size - 1 is decoded as Unicode uFFFD,
+        # REPLACEMENT_CHARACTER.
+        ret.append(self.vocab_size - 1)
         # Ensure that the outer loop continues
         pos += 1
     return ret
@@ -281,7 +278,6 @@ class SubwordTextEncoder(TextEncoder):
   def build_to_target_size(cls,
                            target_size,
                            token_counts,
-                           store_filename,
                            min_val,
                            max_val,
                            num_iterations=4):
@@ -304,18 +300,18 @@ class SubwordTextEncoder(TextEncoder):
     present_count = (max_val + min_val) // 2
     tf.logging.info('Trying min_count %d' % present_count)
     subtokenizer = cls()
-    subtokenizer.build_from_token_counts(token_counts, store_filename,
+    subtokenizer.build_from_token_counts(token_counts,
                                          present_count, num_iterations)
 
     if min_val >= max_val or subtokenizer.vocab_size == target_size:
       return subtokenizer
     if subtokenizer.vocab_size > target_size:
       other_subtokenizer = cls.build_to_target_size(
-          target_size, token_counts, store_filename, present_count + 1, max_val,
+          target_size, token_counts, present_count + 1, max_val,
           num_iterations)
     else:
       other_subtokenizer = cls.build_to_target_size(
-          target_size, token_counts, store_filename, min_val, present_count - 1,
+          target_size, token_counts, min_val, present_count - 1,
           num_iterations)
     if (abs(other_subtokenizer.vocab_size - target_size) <
         abs(subtokenizer.vocab_size - target_size)):
@@ -325,7 +321,6 @@ class SubwordTextEncoder(TextEncoder):
 
   def build_from_token_counts(self,
                               token_counts,
-                              store_filename,
                               min_count,
                               num_iterations=4):
     """Train a SubwordTextEncoder based on a dictionary of word counts.
@@ -340,7 +335,7 @@ class SubwordTextEncoder(TextEncoder):
     # then count the resulting potential subtokens, keeping the ones
     # with high enough counts for our new vocabulary.
     for i in xrange(num_iterations):
-      print("Iteration {0}".format(i))
+      tf.logging.info("Iteration {0}".format(i))
       counts = defaultdict(int)
       for token, count in six.iteritems(token_counts):
         escaped_token = self._escape_token(token)
@@ -355,29 +350,24 @@ class SubwordTextEncoder(TextEncoder):
           for subtoken in subtokens:
             starts.append(pos)
             pos += len(self._all_subtoken_strings[subtoken])
-          if escaped_token == u"SubwordTextEncoder_":
-            for start, subtoken in zip(starts, subtokens):
-              print("Start {0}, fragment '{1}'".format(start, self._all_subtoken_strings[subtoken]))
-          # !!! There is a subtle bug here: if we are adding a subtoken of >= 2 characters here,
-          # !!! and it gets dropped later because it doesn't make the minimum count cut,
-          # !!! there is no guarantee that its individual characters have been added as
-          # !!! subtokens. Which then means that they might be missing in the end and that
-          # !!! the token is thus not representable as a sequence of subtokens.
-          # !!! Note that this can only happen in iterations after the first one,
-          # !!! since the first iteration automatically adds all characters at some point.
-          # !!! Subsequent iterations however do not have the same guarantee.
         for start in starts:
           for end in xrange(start + 1, len(escaped_token)):
             subtoken_string = escaped_token[start:end]
             counts[subtoken_string] += count
-      # array of sets of candidate subtoken strings, by length
+      # Array of sets of candidate subtoken strings, by length
       len_to_subtoken_strings = []
+      eliminated_chars = defaultdict(int)
       for subtoken_string, count in six.iteritems(counts):
         lsub = len(subtoken_string)
-        assert lsub >= 1
-        # all subtoken strings of length 1 are included regardless of count
-        if count < min_count and lsub != 1:
+        # All subtoken strings of length 1 are included regardless of count
+        if count < min_count and lsub > 1:
+          # If eliminating a string, make sure that its individual characters
+          # beyond the first one (which has already been accounted for)
+          # are counted as subtoken strings
+          for c in subtoken_string[1:]:
+            eliminated_chars[c] += count
           continue
+        # Add this subtoken string to its length set
         while len(len_to_subtoken_strings) <= lsub:
           len_to_subtoken_strings.append(set())
         len_to_subtoken_strings[lsub].add(subtoken_string)
@@ -395,22 +385,30 @@ class SubwordTextEncoder(TextEncoder):
             counts[subtoken_string[:l]] -= count
       # Sort what we've got so far in decreasing order by count
       new_subtoken_strings.sort(reverse = True)
+      # Make sure that we include characters from subtokens
+      # that didn't survive the minimum count cutoff in
+      # the final vocabulary
+      for c, count in six.iteritems(eliminated_chars):
+        len_to_subtoken_strings[1].add(c)
+        counts[c] += count
       # Add the single-character subtokens at the end of the list,
       # if their final count is nonzero
       for subtoken_string in len_to_subtoken_strings[1]:
         count = counts[subtoken_string]
         if count:
           new_subtoken_strings.append((0, subtoken_string))
-        else:
-          print(u"Cutting single-char subtoken '{0}'".format(subtoken_string))
       # Make sure to include the underscore as a subtoken string
       assert u'_' not in len_to_subtoken_strings[1] # Should not already be there
       new_subtoken_strings.append((0, u'_'))
+      # Also include the Unicode REPLACEMENT CHARACTER to use
+      # when encountering previously unseen Unicode characters in the input
+      # (i.e. input external to the tokenizer training set).
+      # This must be the last entry in the subtoken vocabulary list.
+      new_subtoken_strings.append((0, u'\uFFFD'))
       # Now we have a candidate vocabulary
       self._init_from_list([u''] * self._num_reserved_ids +
                            [p[1] for p in new_subtoken_strings])
       tf.logging.info('vocab_size = %d' % self.vocab_size)
-      self.dump()
 
     original = 'This sentence was encoded by the SubwordTextEncoder.'
     encoded = self.encode(original)
@@ -419,11 +417,10 @@ class SubwordTextEncoder(TextEncoder):
     decoded = self.decode(encoded)
     print(decoded)
     assert decoded == original
-    if store_filename is not None:
-      self._store_to_file(store_filename)
 
   def dump(self):
-    subtoken_strings = [(i, s) for s, i in self._subtoken_string_to_id.iteritems()]
+    """ Debugging dump of the current subtoken vocabulary """
+    subtoken_strings = [(i, s) for s, i in six.iteritems(self._subtoken_string_to_id)]
     print(u", ".join(u"{0} : '{1}'".format(i, s) for i, s in sorted(subtoken_strings)))
 
   def _init_from_list(self, subtoken_strings):
@@ -442,7 +439,7 @@ class SubwordTextEncoder(TextEncoder):
           subtoken_strings.append(line.strip()[1:-1])
     self._init_from_list(subtoken_strings)
 
-  def _store_to_file(self, filename):
+  def store_to_file(self, filename):
     with tf.gfile.Open(filename, 'w') as f:
       for subtoken_string in self._all_subtoken_strings:
         if six.PY2:
@@ -475,7 +472,7 @@ class SubwordTextEncoder(TextEncoder):
   def get_token_counts(cls, text_filepattern, corpus_max_lines):
     """Read the corpus and compute a dictionary of word counts."""
     tok = tokenizer.Tokenizer()
-    token_counts = {}
+    token_counts = defaultdict(int)
     lines_read = 0
     filenames = tf.gfile.Glob(text_filepattern)
     for text_filename in filenames:
@@ -483,7 +480,7 @@ class SubwordTextEncoder(TextEncoder):
         for line in f:
           tokens = tok.encode(line.strip())
           for t in tokens:
-            token_counts[t] = token_counts.get(t, 0) + 1
+            token_counts[t] += 1
           lines_read += 1
           if corpus_max_lines > 0 and lines_read > corpus_max_lines:
             return token_counts

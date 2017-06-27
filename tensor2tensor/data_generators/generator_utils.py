@@ -258,7 +258,8 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
           _ = tokenizer.encode(line)
 
   vocab = SubwordTextEncoder.build_to_target_size(
-      vocab_size, tokenizer.token_counts, vocab_filepath, 1, 1e3)
+      vocab_size, tokenizer.token_counts, 1, 1e3)
+  vocab.store_to_file(vocab_filepath)
   return vocab
 
 
