@@ -269,6 +269,7 @@ class T2TModel(object):
       if last_position_only:
         cur_sample = samples[:, -1, :, :]
       else:
+        #Avoid the out of index Error
         if len(tf.shape(recent_output)) >= 2:
           cur_sample = samples[:, tf.shape(recent_output)[1], :, :]
         else:
