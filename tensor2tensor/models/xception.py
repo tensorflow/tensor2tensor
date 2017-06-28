@@ -30,7 +30,7 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def residual_block(x, hparams, train):
+def residual_block(x, hparams):
   """A stack of convolution blocks with residual connection."""
   k = (hparams.kernel_height, hparams.kernel_width)
   dilations_and_kernels = [((1, 1), k) for _ in xrange(3)]
@@ -42,24 +42,24 @@ def residual_block(x, hparams, train):
       separability=0,
       name="residual_block")
   x = common_layers.layer_norm(x + y, hparams.hidden_size, name="lnorm")
-  return tf.nn.dropout(x, 1.0 - hparams.dropout * tf.to_float(train))
+  return tf.nn.dropout(x, 1.0 - hparams.dropout)
 
 
-def xception_internal(inputs, hparams, train):
+def xception_internal(inputs, hparams):
   """Xception body."""
   with tf.variable_scope("xception"):
     cur = inputs
     for i in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % i):
-        cur = residual_block(cur, hparams, train)
+        cur = residual_block(cur, hparams)
     return cur
 
 
 @registry.register_model
 class Xception(t2t_model.T2TModel):
 
-  def model_fn_body(self, features, train):
-    return xception_internal(features["inputs"], self._hparams, train)
+  def model_fn_body(self, features):
+    return xception_internal(features["inputs"], self._hparams)
 
 
 @registry.register_hparams

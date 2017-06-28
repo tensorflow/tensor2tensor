@@ -24,8 +24,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
-
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -43,13 +41,9 @@ import tensorflow as tf
 class AttentionLM(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
-  def model_fn_body(self, features, train):
+  def model_fn_body(self, features):
     # Remove dropout if not training
-    hparams = copy.copy(self._hparams)
-    if not train:
-      hparams.attention_dropout = 0.
-      hparams.relu_dropout = 0.
-      hparams.residual_dropout = 0.
+    hparams = self._hparams
     targets = features["targets"]
     targets = tf.squeeze(targets, 2)
 
@@ -162,8 +156,10 @@ def attention_lm_base():
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("attention_key_channels", 0)
   hparams.add_hparam("attention_value_channels", 0)
+  # All hyperparameters ending in "dropout" are automatically set to 0.0
+  # when not in training mode.
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
-  hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("residual_dropout", 0.1)
+  hparams.add_hparam("pos", "timing")  # timing, none
   return hparams

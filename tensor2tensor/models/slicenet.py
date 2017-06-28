@@ -46,8 +46,7 @@ def get_norm(hparams):
                    "'noam', 'none'.")
 
 
-def attention(targets_shifted, inputs_encoded, norm_fn, hparams, train,
-              bias=None):
+def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):
   """Complete attention layer with preprocessing."""
   separabilities = [hparams.separability, hparams.separability]
   if hparams.separability < 0:
@@ -71,7 +70,6 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, train,
         tf.shape(inputs_encoded)[1]
     ])
 
-    attention_dropout = hparams.attention_dropout * tf.to_float(train)
     qv = common_attention.multihead_attention(
         targets_timed,
         None,
@@ -80,7 +78,7 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, train,
         hparams.hidden_size,
         hparams.hidden_size,
         hparams.num_heads,
-        attention_dropout,
+        hparams.attention_dropout,
         name="self_attention",
         summaries=False)
     qv = common_attention.multihead_attention(
@@ -91,7 +89,7 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, train,
         hparams.hidden_size,
         hparams.hidden_size,
         hparams.num_heads,
-        attention_dropout,
+        hparams.attention_dropout,
         name="encdec_attention",
         summaries=False)
     return tf.expand_dims(qv, 2)
@@ -101,7 +99,7 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, train,
     return norm_fn(targets_shifted + targets_with_attention, name="attn_norm")
 
 
-def multi_conv_res(x, padding, name, layers, hparams, train,
+def multi_conv_res(x, padding, name, layers, hparams,
                    mask=None, source=None):
   """A stack of separable convolution blocks with residual connections."""
   with tf.variable_scope(name):
@@ -152,10 +150,10 @@ def multi_conv_res(x, padding, name, layers, hparams, train,
             separabilities=separabilities2,
             name="residual2") + y
         if source is not None and hparams.attention_type != "none":
-          x += attention(x, source, norm_fn, hparams, train, bias=padding_bias)
+          x += attention(x, source, norm_fn, hparams, bias=padding_bias)
         if mask is not None:
           x *= mask
-    return tf.nn.dropout(x, 1.0 - hparams.dropout * tf.to_float(train))
+    return tf.nn.dropout(x, 1.0 - hparams.dropout)
 
 
 def rank_loss(sentence_emb, image_emb, margin=0.2):
@@ -188,8 +186,7 @@ def similarity_cost(inputs_encoded, targets_encoded):
   return rank_loss(x, y)
 
 
-def slicenet_middle(inputs_encoded, targets, target_space_emb, mask,
-                    hparams, train):
+def slicenet_middle(inputs_encoded, targets, target_space_emb, mask, hparams):
   """Middle part of slicenet, connecting encoder and decoder."""
   norm_fn = get_norm(hparams)
 
@@ -204,7 +201,7 @@ def slicenet_middle(inputs_encoded, targets, target_space_emb, mask,
     extra_layers = int(hparams.num_hidden_layers * 1.5)
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       targets_encoded = multi_conv_res(targets_timed, "SAME", "encoder",
-                                       extra_layers, hparams, train)
+                                       extra_layers, hparams)
     with tf.variable_scope("similarity_loss"):
       similarity_loss = similarity_cost(inputs_encoded, targets_encoded)
       similarity_loss *= hparams.sim_loss_mult
@@ -219,7 +216,7 @@ def slicenet_middle(inputs_encoded, targets, target_space_emb, mask,
   else:
     inputs_padding_bias = (1.0 - mask) * -1e9  # Bias to not attend to padding.
     targets_with_attention = attention(
-        targets_shifted, inputs_encoded, norm_fn, hparams, train,
+        targets_shifted, inputs_encoded, norm_fn, hparams,
         bias=inputs_padding_bias)
 
   # Positional targets: merge attention and raw.
@@ -247,8 +244,7 @@ def embedding_to_padding(emb):
   return tf.to_float(tf.equal(emb_sum, 0.0))
 
 
-def slicenet_internal(inputs, targets, target_space,
-                      problem_idx, hparams, train):
+def slicenet_internal(inputs, targets, target_space, problem_idx, hparams):
   """The slicenet model, main step used for training."""
   with tf.variable_scope("slicenet"):
     # Flatten inputs and encode.
@@ -258,14 +254,14 @@ def slicenet_internal(inputs, targets, target_space,
     target_space_emb = embed_target_space(target_space, hparams.hidden_size)
     extra_layers = int(hparams.num_hidden_layers * 1.5)
     inputs_encoded = multi_conv_res(inputs, "SAME", "encoder", extra_layers,
-                                    hparams, train, mask=inputs_mask)
+                                    hparams, mask=inputs_mask)
     target_modality_name = hparams.problems[problem_idx].target_modality.name
     if "class_label_modality" in target_modality_name:
       # If we're just predicing a class, there is no use for a decoder.
       return inputs_encoded
     # Do the middle part.
     decoder_start, similarity_loss = slicenet_middle(
-        inputs_encoded, targets, target_space_emb, inputs_mask, hparams, train)
+        inputs_encoded, targets, target_space_emb, inputs_mask, hparams)
     # Decode.
     decoder_final = multi_conv_res(
         decoder_start,
@@ -273,7 +269,6 @@ def slicenet_internal(inputs, targets, target_space,
         "decoder",
         hparams.num_hidden_layers,
         hparams,
-        train,
         mask=inputs_mask,
         source=inputs_encoded)
     return decoder_final, tf.reduce_mean(similarity_loss)
@@ -282,10 +277,10 @@ def slicenet_internal(inputs, targets, target_space,
 @registry.register_model
 class SliceNet(t2t_model.T2TModel):
 
-  def model_fn_body(self, features, train):
+  def model_fn_body(self, features):
     return slicenet_internal(features["inputs"], features["targets"],
                              features["target_space_id"], self._problem_idx,
-                             self._hparams, train)
+                             self._hparams)
 
 _KERNEL_SCHEMES = {
     "3.3.3.3": [(3, 1), (3, 1), (3, 1), (3, 1)],

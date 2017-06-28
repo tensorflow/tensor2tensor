@@ -45,6 +45,8 @@ def basic_params1():
       kernel_width=1,
       hidden_size=64,
       compress_steps=0,
+      # All hyperparameters ending in "dropout" are automatically set to 0.0
+      # when not in training mode.
       dropout=0.2,
       clip_grad_norm=2.0,
       initializer="orthogonal",

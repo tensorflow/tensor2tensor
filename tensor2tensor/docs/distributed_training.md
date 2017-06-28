@@ -35,7 +35,7 @@ os.environ['TF_CONFIG'] = json.dumps({
 The following T2T command-line flags must also be set on the workers for
 distributed training:
 
-- `--master=$ADDRESS`
+- `--master=grpc://$ADDRESS`
 - `--worker_replicas=$NUM_WORKERS`
 - `--worker_gpu=$NUM_GPUS_PER_WORKER`
 - `--worker_id=$WORKER_ID`
@@ -54,6 +54,17 @@ Parameter servers only need `--schedule=run_std_server`.
 [`bin/make_tf_configs.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/make_tf_configs.py))
 generates the `TF_CONFIG` json strings and the above-mentioned command-line
 flags for the workers and parameter servers.
+
+Given a set of worker and parameter server addresses, the script outputs, for
+each job, a line with the `TF_CONFIG` environment variable and the command-line
+flags necessary for distributed training. For each job, you should invoke the
+`t2t-trainer` with the `TF_CONFIG` value and flags that are output.
+
+For example:
+
+```
+TF_CONFIG=$JOB_TF_CONFIG t2t-trainer $JOB_FLAGS --model=transformer ...
+```
 
 ## Command-line flags for eval jobs
 
