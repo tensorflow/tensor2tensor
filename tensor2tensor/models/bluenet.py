@@ -117,7 +117,7 @@ def run_unary_modules_sample(modules, cur, hparams, k):
 
 
 def run_unary_modules(modules, cur, hparams):
-  if len(modules) < 5:
+  if len(modules) < 8:
     return run_unary_modules_basic(modules, cur, hparams)
   return run_unary_modules_sample(modules, cur, hparams, 4)
 
@@ -142,16 +142,17 @@ class BlueNet(t2t_model.T2TModel):
 
     def run_unary(x, name):
       """A single step of unary modules."""
+      x_shape = x.get_shape()
       with tf.variable_scope(name):
-        with tf.variable_scope("activation"):
-          x = run_unary_modules(activation_modules, x, hparams)
-          x.set_shape(cur_shape)
-        with tf.variable_scope("conv"):
-          x = run_unary_modules(conv_modules, x, hparams)
-          x.set_shape(cur_shape)
         with tf.variable_scope("norm"):
           x = run_unary_modules(norm_modules, x, hparams)
-          x.set_shape(cur_shape)
+          x.set_shape(x_shape)
+        with tf.variable_scope("activation"):
+          x = run_unary_modules(activation_modules, x, hparams)
+          x.set_shape(x_shape)
+        with tf.variable_scope("conv"):
+          x = run_unary_modules(conv_modules, x, hparams)
+          x.set_shape(x_shape)
       return x
 
     cur1, cur2 = inputs, inputs

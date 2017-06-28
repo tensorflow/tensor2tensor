@@ -78,6 +78,9 @@ flags.DEFINE_bool("experimental_optimize_placement", False,
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
 flags.DEFINE_string("schedule", "local_run",
                     "Method of tf.contrib.learn.Experiment to run.")
+flags.DEFINE_bool("locally_shard_to_cpu", False,
+                  "Use CPU as a sharding device runnning locally. This allows "
+                  "to test sharded model construction on a machine with 1 GPU.")
 flags.DEFINE_bool("daisy_chain_variables", True,
                   "copy variables around in a daisy chain")
 flags.DEFINE_bool("sync", False, "Sync compute on PS.")
@@ -1243,6 +1246,8 @@ def data_parallelism(all_workers=False):
   if FLAGS.schedule == "local_run":
     assert not FLAGS.sync
     datashard_devices = ["gpu:%d" % d for d in _gpu_order(FLAGS.worker_gpu)]
+    if FLAGS.locally_shard_to_cpu:
+      datashard_devices += ["cpu:0"]
     caching_devices = None
   elif FLAGS.sync:
     assert FLAGS.ps_replicas > 0
