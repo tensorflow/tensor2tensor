@@ -212,6 +212,15 @@ def train(hparams, scope=None):
   # For internal evaluation (perplexity)
   def run_internal_eval():
     """Compute internal evaluation for both dev / test."""
+    with infer_graph.as_default():
+      loaded_infer_model, global_step = model_helper.create_or_load_model(
+          infer_model, hparams.out_dir, infer_sess, hparams.out_dir, "infer")
+
+    _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
+                   infer_iterator, dev_src_data, dev_tgt_data,
+                   infer_src_placeholder, infer_batch_size_placeholder,
+                   summary_writer)
+
     with eval_graph.as_default():
       loaded_eval_model, global_step = model_helper.create_or_load_model(
           eval_model, hparams.out_dir, eval_sess, hparams.out_dir, "eval")
@@ -226,7 +235,7 @@ def train(hparams, scope=None):
                                 summary_writer, "test")
     return dev_ppl, test_ppl
 
-  # For external evaluation (bleu, roughe, etc.)
+  # For external evaluation (bleu, rouge, etc.)
   def run_external_eval():
     """Compute external evaluation for both dev / test."""
     with infer_graph.as_default():
@@ -277,91 +286,96 @@ def train(hparams, scope=None):
   checkpoint_total_count = 0.0
   speed, train_ppl = 0.0, 0.0
   start_train_time = time.time()
-  utils.print_out("Starting steps %s" % global_step)
+
+  utils.print_out(
+      "# Start step %d, lr %g, %s" %
+      (global_step, train_model.learning_rate.eval(session=train_sess),
+       time.ctime()),
+      log_f)
+
+  # Initialize all of the iterators
+  train_sess.run(train_iterator.initializer)
   while global_step < num_train_steps:
-    utils.print_out(
-        "# Start step %d, lr %g, %s" %
-        (global_step, train_model.learning_rate.eval(session=train_sess),
-         time.ctime()),
-        log_f)
+    ### Run a step ###
+    start_time = time.time()
+    try:
+      step_result = train_model.train(train_sess)
+      (_, step_loss, step_predict_count, step_summary, global_step,
+       step_word_count, batch_size) = step_result
+    except tf.errors.OutOfRangeError:
+      # Finished going through the training dataset.  Go to next epoch.
+      utils.print_out(
+          "# Finished an epoch, step %d. Perform external evaluation" %
+          global_step)
+      dev_scores, test_scores = run_external_eval()
+      train_sess.run(train_iterator.initializer)
+      continue
 
-    # Initialize all of the iterators
-    train_sess.run(train_iterator.initializer)
-    while True:
-      ### Run a step ###
-      start_time = time.time()
-      try:
-        step_result = train_model.train(train_sess)
-        (_, step_loss, step_predict_count, step_summary, global_step,
-         step_word_count, batch_size) = step_result
-      except tf.errors.OutOfRangeError:
-        # Finished going through the training dataset.  Go to next epoch.
-        utils.print_out(
-            "# Finished an epoch, step %d. Perform external evaluation" %
-            global_step)
-        dev_scores, test_scores = run_external_eval()
-        break
+    # Write step summary.
+    summary_writer.add_summary(step_summary, global_step)
 
-      # Write step summary.
-      summary_writer.add_summary(step_summary, global_step)
+    # update statistics
+    step_time += (time.time() - start_time)
 
-      # update statistics
-      step_time += (time.time() - start_time)
+    checkpoint_loss += (step_loss * batch_size)
+    checkpoint_predict_count += step_predict_count
+    checkpoint_total_count += float(step_word_count)
 
-      checkpoint_loss += (step_loss * batch_size)
-      checkpoint_predict_count += step_predict_count
-      checkpoint_total_count += float(step_word_count)
+    # Once in a while, we print statistics.
+    if global_step % steps_per_stats == 0:
+      # Print statistics for the previous epoch.
+      avg_step_time = step_time / steps_per_stats
+      train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
+      speed = checkpoint_total_count / (1000 * step_time)
+      utils.print_out(
+          "  global step %d lr %g "
+          "step-time %.2fs wps %.2fK ppl %.2f %s" %
+          (global_step, train_model.learning_rate.eval(session=train_sess),
+           avg_step_time, speed, train_ppl, _get_best_results(hparams)),
+          log_f)
+      if math.isnan(train_ppl): break
 
-      # Once in a while, we print statistics.
-      if global_step % steps_per_stats == 0:
-        # Print statistics for the previous epoch.
-        avg_step_time = step_time / steps_per_stats
-        train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
-        speed = checkpoint_total_count / (1000 * step_time)
-        utils.print_out(
-            "  global step %d lr %g "
-            "step-time %.2fs wps %.2fK ppl %.2f %s" %
-            (global_step, train_model.learning_rate.eval(session=train_sess),
-             avg_step_time, speed, train_ppl, _get_best_results(hparams)),
-            log_f)
+      # Reset timer and loss.
+      step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
+      checkpoint_total_count = 0.0
 
-        # Reset timer and loss.
-        step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
-        checkpoint_total_count = 0.0
+    if global_step % steps_per_eval == 0:
+      utils.print_out("# Save eval, global step %d" % global_step)
+      utils.add_summary(summary_writer, global_step, "train_ppl", train_ppl)
 
-      if global_step % steps_per_eval == 0:
-        utils.print_out("# Save eval, global step %d" % global_step)
-        utils.add_summary(summary_writer, global_step, "train_ppl", train_ppl)
+      # Save checkpoint
+      train_model.saver.save(
+          train_sess,
+          os.path.join(out_dir, "translate.ckpt"),
+          global_step=global_step)
 
-        # Save checkpoint
-        train_model.saver.save(
-            train_sess,
-            os.path.join(out_dir, "translate.ckpt"),
-            global_step=global_step)
+      # Evaluate on dev/test
+      dev_ppl, test_ppl = run_internal_eval()
 
-        # Evaluate on dev/test
-        dev_ppl, test_ppl = run_internal_eval()
+      all_dev_perplexities.append(dev_ppl)
+      all_test_perplexities.append(test_ppl)
+      all_steps.append(global_step)
 
-        # TODO(rzhao): Add a sample decode run here.
-        all_dev_perplexities.append(dev_ppl)
-        all_test_perplexities.append(test_ppl)
-        all_steps.append(global_step)
-        if math.isnan(dev_ppl): break
-
-      if global_step % steps_per_external_eval == 0:
-        # Save checkpoint
-        train_model.saver.save(
-            train_sess,
-            os.path.join(out_dir, "translate.ckpt"),
-            global_step=global_step)
-        dev_scores, test_scores = run_external_eval()
+    if global_step % steps_per_external_eval == 0:
+      # Save checkpoint
+      train_model.saver.save(
+          train_sess,
+          os.path.join(out_dir, "translate.ckpt"),
+          global_step=global_step)
+      dev_scores, test_scores = run_external_eval()
 
   # Done training
-  utils.print_out("# Best %s" % _get_best_results(hparams))
   train_model.saver.save(
       train_sess,
       os.path.join(out_dir, "translate.ckpt"),
       global_step=global_step)
+  dev_ppl, test_ppl = run_internal_eval()
+  dev_scores, test_scores = run_external_eval()
+  utils.print_out("# Best %s" % _get_best_results(hparams))
+
+  all_dev_perplexities.append(dev_ppl)
+  all_test_perplexities.append(test_ppl)
+  all_steps.append(global_step)
 
   eval_results = _format_results("dev", dev_ppl, dev_scores, hparams.metrics)
   if hparams.test_prefix:
