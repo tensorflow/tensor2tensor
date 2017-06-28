@@ -123,7 +123,12 @@ def zipf_random_sample(distr_map, sample_len):
 
   """
   u = np.random.random(sample_len)
-  return [t+1 for t in np.searchsorted(distr_map, u)] # 0 pad and 1 EOS
+  # Random produces values in range [0.0,1.0); even if it is almost
+  # improbable(but possible) that it can generate a clear 0.000..0,
+  # we have made a sanity check to overcome this issue. On the other hand,
+  # t+1 is enough from saving us to generate PAD(0) and EOS(1) which are
+  # reservated symbols.
+  return [t+1 if t > 0 else t+2 for t in np.searchsorted(distr_map, u)]
 
 
 def reverse_generator_nlplike(nbr_symbols, max_length, nbr_cases, \
