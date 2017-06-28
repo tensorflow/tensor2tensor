@@ -14,20 +14,21 @@
       - [Encoder](#encoder)
       - [Decoder](#decoder)
       - [Loss](#loss)
-      - [Gradient computation & optimization](#gradient-computation--optimization)
-   - [Hands-on – Let's train an NMT model](#hands-on-–-let's-train-an-nmt-model)
+      - [Gradient computation & optimization](#gradient-computation-optimization)
+   - [Hands-on – Let's train an NMT model](#hands-on-–-lets-train-an-nmt-model)
    - [Inference – How to generate translations](#inference-–-how-to-generate-translations)
 - [Intermediate](#intermediate)
    - [Background on the Attention Mechanism](#background-on-the-attention-mechanism)
    - [Attention Wrapper API](#attention-wrapper-api)
    - [Hands-on – building an attention-based NMT model](#hands-on-–-building-an-attention-based-nmt-model)
-- [Tips & Tricks](#tips--tricks)
+- [Tips & Tricks](#tips-tricks)
    - [Building Training, Eval, and Inference Graphs](#building-training-eval-and-inference-graphs)
    - [Data Input Pipeline](#data-input-pipeline)
    - [Other details for better NMT models](#other-details-for-better-nmt-models)
       - [Bidirectional RNNs](#bidirectional-rnns)
       - [Beam search](#beam-search)
       - [Hyperparameters](#hyperparameters)
+      - [Multi-GPU training](#multi-gpu-training)
 - [Benchmarks](#benchmarks)
    - [IWSLT'15 English-Vietnamese](#iwslt'15-english-vietnamese)
    - [WMT'15 German-English](#wmt'15-german-english)
@@ -204,7 +205,7 @@ same weights; however, in practice, we often use two different RNN parameters
 
 ```
 # Build RNN cell
-encoder_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units, ...)
+encoder_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units)
 
 # Run Dynamic RNN
 #   encoder_outpus: [max_time, batch_size, num_units]
@@ -230,7 +231,7 @@ word "student" to the decoder side.
 
 ```
 # Build RNN cell
-decoder_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units, ...)
+decoder_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units)
 ```
 
 ```
@@ -937,8 +938,8 @@ example of how to build an encoder with a single bidirectional layer:
 
 ```
 # Construct forward and backward cells
-forward_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units, ...)
-backward_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units, ...)
+forward_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units)
+backward_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units)
 
 bi_outputs, encoder_state = tf.nn.bidirectional_dynamic_rnn(
     forward_cell, backward_cell, encoder_emb_inp,
@@ -1011,9 +1012,54 @@ different settings. For this tutorial code, we recommend using the two improved
 variants of Luong & Bahdanau-style attentions: *scaled_luong* & *normed
 bahdanau*.
 
-***Misc***: for BasicLSTMCell, we explicitly set *forget_bias* to 0, which seems
-to work better. We also do source reversing, similar to (Sutskever et al.,
-2014).
+### Multi-GPU training
+
+Training a NMT model may take several days. Placing different RNN layers on
+different GPUs can improve the training speed. Here’s an example to create
+RNN layers on multiple GPUs.
+
+```
+cells = []
+for i in range(num_layers):
+  cells.append(tf.contrib.rnn.DeviceWrapper(
+      tf.contrib.rnn.LSTMCell(num_units),
+      "/gpu:%d" % (num_layers % num_gpus)))
+cell = tf.contrib.rnn.MultiRNNCell(cells)
+```
+
+In addition, we need to enable the `colocate_gradients_with_ops` option in
+`tf.gradients` to parallelize the gradients computation.
+
+You may notice the speed improvement of the attention based NMT model is very
+small as the number of GPUs increases. One major drawback of the standard
+attention architecture is using the top (final) layer’s output to query
+attention at each time step. That means each decoding step must wait its
+previous step completely finished; hence, we can’t parallelize the decoding
+process by simply placing RNN layers on multiple GPUs.
+
+The [GNMT attention architecture](https://arxiv.org/pdf/1609.08144.pdf)
+parallelizes the decoder's computation by using the bottom (first) layer’s
+output to query attention. Therefore, each decoding step can start as soon as
+its previous step's first layer and attention computation finished. We
+implemented the architecture in
+[GNMTAttentionMultiCell](gnmt_model.py),
+a subclass of *tf.contrib.rnn.MultiRNNCell*. Here’s an example of how to create
+a decoder cell with the *GNMTAttentionMultiCell*.
+
+```
+cells = []
+for i in range(num_layers):
+  cells.append(tf.contrib.rnn.DeviceWrapper(
+      tf.contrib.rnn.LSTMCell(num_units),
+      "/gpu:%d" % (num_layers % num_gpus)))
+attention_cell = cells.pop(0)
+attention_cell = tf.contrib.seq2seq.AttentionWrapper(
+    attention_cell,
+    attention_mechanism,
+    attention_layer_size=None,  # don't add an additional dense layer.
+    output_attention=False,)
+cell = GNMTAttentionMultiCell(attention_cell, cells)
+```
 
 # Benchmarks
 
