@@ -30,16 +30,15 @@ class EvaluationUtilsTest(tf.test.TestCase):
     output = "nmt/testdata/deen_output"
     ref_bpe = "nmt/testdata/deen_ref_bpe"
 
-    ignore_map = None
     bpe_delimiter = "@@"
 
     expected_blue_score = 22.5855084573
     expected_rouge_score = 50.8429782599
 
     bleu_score = evaluation_utils.evaluate(
-        ref_bpe, output, "bleu", ignore_map, bpe_delimiter)
+        ref_bpe, output, "bleu", bpe_delimiter)
     rouge_score = evaluation_utils.evaluate(
-        ref_bpe, output, "rouge", ignore_map, bpe_delimiter)
+        ref_bpe, output, "rouge", bpe_delimiter)
 
     self.assertAlmostEqual(expected_blue_score, bleu_score)
     self.assertAlmostEqual(expected_rouge_score, rouge_score)

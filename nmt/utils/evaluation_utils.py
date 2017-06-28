@@ -28,18 +28,15 @@ from ..scripts import rouge
 __all__ = ["evaluate"]
 
 
-def evaluate(ref_file, trans_file, metric,
-             ignore_map=None, bpe_delimiter=None):
+def evaluate(ref_file, trans_file, metric, bpe_delimiter=None):
   """Pick a metric and evaluate depending on task."""
   # BLEU scores for translation task
   if metric.lower() == "bleu":
     evaluation_score = _bleu(ref_file, trans_file,
-                             ignore_map=ignore_map,
                              bpe_delimiter=bpe_delimiter)
   # ROUGE scores for summarization tasks
   elif metric.lower() == "rouge":
     evaluation_score = _rouge(ref_file, trans_file,
-                              ignore_map=ignore_map,
                               bpe_delimiter=bpe_delimiter)
   elif metric.lower() == "accuracy":
     evaluation_score = _accuracy(ref_file, trans_file)
@@ -49,28 +46,20 @@ def evaluate(ref_file, trans_file, metric,
   return evaluation_score
 
 
-def _clean(sentence, ignore_map, bpe_delimiter):
-  """Clean, handle BPE delimiter, and ignore tokens in ignore map."""
+def _clean(sentence, bpe_delimiter):
+  """Clean and handle BPE delimiter."""
   sentence = sentence.strip()
 
   # BPE
   if bpe_delimiter:
     sentence = re.sub(bpe_delimiter + " ", "", sentence)
 
-  # Ignore map
-  if ignore_map:
-    tokens = []
-    for token in sentence.strip().split(" "):
-      if token not in ignore_map:
-        tokens.append(token)
-    sentence = " ".join(tokens)
-
   return sentence
 
 
 # Follow //transconsole/localization/machine_translation/metrics/bleu_calc.py
-def _bleu(ref_file, trans_file, ignore_map=None, bpe_delimiter=None):
-  """Compute BLEU scores, ignoring tokens in ignore map and handling BPE."""
+def _bleu(ref_file, trans_file, bpe_delimiter=None):
+  """Compute BLEU scores and handling BPE."""
   max_order = 4
   smooth = False
 
@@ -85,14 +74,14 @@ def _bleu(ref_file, trans_file, ignore_map=None, bpe_delimiter=None):
   for references in zip(*reference_text):
     reference_list = []
     for reference in references:
-      reference = _clean(reference, ignore_map, bpe_delimiter)
+      reference = _clean(reference, bpe_delimiter)
       reference_list.append(reference.split(" "))
     per_segment_references.append(reference_list)
 
   translations = []
   with codecs.getreader("utf-8")(tf.gfile.GFile(trans_file, "rb")) as fh:
     for line in fh:
-      line = _clean(line, ignore_map, bpe_delimiter)
+      line = _clean(line, bpe_delimiter)
       translations.append(line.split(" "))
 
   # bleu_score, precisions, bp, ratio, translation_length, reference_length
@@ -101,19 +90,19 @@ def _bleu(ref_file, trans_file, ignore_map=None, bpe_delimiter=None):
   return 100 * bleu_score
 
 
-def _rouge(ref_file, summarization_file, ignore_map=None, bpe_delimiter=None):
-  """Compute ROUGE scores, ignoring tokens in ignore map and handling BPE."""
+def _rouge(ref_file, summarization_file, bpe_delimiter=None):
+  """Compute ROUGE scores and handling BPE."""
 
   references = []
   with codecs.getreader("utf-8")(tf.gfile.GFile(ref_file, "rb")) as fh:
     for line in fh:
-      references.append(_clean(line, ignore_map, bpe_delimiter))
+      references.append(_clean(line, bpe_delimiter))
 
   hypotheses = []
   with codecs.getreader("utf-8")(
       tf.gfile.GFile(summarization_file, "rb")) as fh:
     for line in fh:
-      hypotheses.append(_clean(line, ignore_map, bpe_delimiter))
+      hypotheses.append(_clean(line, bpe_delimiter))
 
   rouge_score_map = rouge.rouge(hypotheses, references)
   return 100 * rouge_score_map["rouge_l/f_score"]

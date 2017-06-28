@@ -146,18 +146,3 @@ def filter_vocab(freq_hash, freq, max_vocab_size, sos=None, eos=None, unk=None):
     utils.print_out("  update vocab: new vocab size=%d" % len(vocab))
 
   return vocab, vocab_hash
-
-
-def check_header(embed_file):
-  """Check the first line to see if it's a header line."""
-  with codecs.getreader("utf-8")(tf.gfile.GFile(embed_file, "r")) as inf:
-    tokens = inf.readline().strip().split()
-    if len(tokens) == 2:  # Header
-      num_words = int(tokens[0])
-      num_dim = int(tokens[1])
-      utils.print_out("  header: num words %d, num dimensions %d" % (num_words,
-                                                                     num_dim))
-    else:
-      num_dim = len(tokens) - 1
-      utils.print_out("  no header: num dimensions %d" % (num_dim))
-    return num_dim

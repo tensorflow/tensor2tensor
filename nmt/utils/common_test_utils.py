@@ -93,7 +93,6 @@ def create_test_hparams(unit_type="lstm",
       tgt_eos_id=0,
       # TODO(rzhao): Remove this after adding in-graph id to string lookup.
       tgt_vocab=["eos", "test1", "test2", "test3", "test4", "test5"],
-      ignore_map=None,
       src_max_len_infer=None,
       inference_indices=inference_indices,
       metrics=["bleu"],

@@ -425,8 +425,7 @@ def _sample_decode(model, global_step, sess, hparams, iterator, src_data,
       nmt_outputs,
       sent_id=0,
       tgt_eos=hparams.eos,
-      bpe_delimiter=hparams.bpe_delimiter,
-      ignore_map=hparams.ignore_map)
+      bpe_delimiter=hparams.bpe_delimiter)
   utils.print_out("    src: %s" % src_data[decode_id])
   utils.print_out("    ref: %s" % tgt_data[decode_id])
   utils.print_out("    nmt: %s" % translation)
@@ -456,7 +455,6 @@ def _external_eval(model, global_step, sess, hparams, iterator,
       ref_file=tgt_file,
       metrics=hparams.metrics,
       bpe_delimiter=hparams.bpe_delimiter,
-      ignore_map=hparams.ignore_map,
       beam_width=hparams.beam_width,
       tgt_eos=hparams.eos,
       decode=decode)

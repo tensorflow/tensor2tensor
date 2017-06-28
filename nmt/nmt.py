@@ -102,9 +102,6 @@ def create_hparams():
       log_device_placement=FLAGS.log_device_placement,
       random_seed=FLAGS.random_seed,
       beam_width=FLAGS.beam_width,
-
-      # Experimental
-      ignore_list_file=FLAGS.ignore_list_file,
   )
 
 
@@ -140,12 +137,6 @@ def extend_hparams(hparams):
   else:
     num_residual_layers = 0
   hparams.add_hparam("num_residual_layers", num_residual_layers)
-
-  # Ignore map
-  ignore_map = None
-  if hparams.ignore_list_file:
-    ignore_map = utils.load_list_map(hparams.ignore_list_file)
-  hparams.add_hparam("ignore_map", ignore_map)
 
   ## Vocab
   # Get vocab file names first
@@ -447,10 +438,6 @@ if __name__ == "__main__":
                             "(0-based) to decode."))
   parser.add_argument("--infer_batch_size", type=int, default=32,
                       help="Batch size for inference mode.")
-
-  # Experimental features
-  parser.add_argument("--ignore_list_file", type=str, default=None,
-                      help="Ignored tokens during BLEU computation")
 
   # Job info
   parser.add_argument("--jobid", type=int, default=0,

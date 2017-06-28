@@ -33,7 +33,6 @@ def decode_and_evaluate(name,
                         ref_file,
                         metrics,
                         bpe_delimiter,
-                        ignore_map,
                         beam_width,
                         tgt_eos,
                         decode=True):
@@ -61,8 +60,7 @@ def decode_and_evaluate(name,
                 nmt_outputs,
                 sent_id,
                 tgt_eos=tgt_eos,
-                bpe_delimiter=bpe_delimiter,
-                ignore_map=ignore_map)
+                bpe_delimiter=bpe_delimiter)
             trans_f.write("%s\n" % translation)
         except tf.errors.OutOfRangeError:
           utils.print_time("  done, num sentences %d" % num_sentences,
@@ -78,7 +76,6 @@ def decode_and_evaluate(name,
           ref_file,
           trans_file,
           metric,
-          ignore_map=ignore_map,
           bpe_delimiter=bpe_delimiter)
       evaluation_scores[metric] = score
       utils.print_out("  %s %s: %.1f" % (metric, name, score))
@@ -86,8 +83,7 @@ def decode_and_evaluate(name,
   return evaluation_scores
 
 
-def get_translation(
-    nmt_outputs, sent_id, tgt_eos, bpe_delimiter, ignore_map):
+def get_translation(nmt_outputs, sent_id, tgt_eos, bpe_delimiter):
   """Given batch decoding outputs, select a sentence and turn to text."""
   # Select a sentence
   output = nmt_outputs[sent_id, :].tolist()
@@ -97,9 +93,8 @@ def get_translation(
     output = output[:output.index(tgt_eos)]
 
   if not bpe_delimiter:
-    translation = utils.format_text(output, ignore_map=ignore_map)
+    translation = utils.format_text(output)
   else:  # BPE
-    translation = utils.format_bpe_text(
-        output, ignore_map=ignore_map, delimiter=bpe_delimiter)
+    translation = utils.format_bpe_text(output, delimiter=bpe_delimiter)
 
   return translation
