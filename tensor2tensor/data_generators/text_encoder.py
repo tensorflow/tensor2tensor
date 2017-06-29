@@ -130,6 +130,7 @@ class TokenTextEncoder(TextEncoder):
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""
     ret = [self._token_to_id[tok] for tok in sentence.strip().split()]
+
     return ret[::-1] if self._reverse else ret
 
   def decode(self, ids):
