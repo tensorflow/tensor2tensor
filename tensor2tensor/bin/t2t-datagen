@@ -311,7 +311,7 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "lmptb_10k": (
       lambda: ptb.train_generator(
             FLAGS.tmp_dir,
-            10000,
+            FLAGS.data_dir,
             False),
       lambda: ptb.valid_generator()),
 }

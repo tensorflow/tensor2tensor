@@ -345,10 +345,16 @@ def lmptb_10k(model_hparams):
   p = default_problem_hparams()
   p.input_modality = {}
   p.target_modality = (registry.Modalities.SYMBOL, 10000)
+
+  vocabulary = text_encoder.TokenTextEncoder(
+                  os.path.join(model_hparams.data_dir,
+                    "lmptb_10k.vocab"))
+
   p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(),
-      "targets": text_encoder.TextEncoder()
+      "inputs": vocabulary,
+      "targets": vocabulary,
   }
+
   p.input_space_id = 3
   p.target_space_id = 3
   return p
@@ -367,7 +373,6 @@ def lm1b_64k(model_hparams):
   }
   p.target_space_id = 3
   return p
-
 
 def wmt_enfr_characters(unused_model_hparams):
   """English to French translation benchmark."""

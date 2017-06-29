@@ -48,17 +48,16 @@ def _read_words(filename):
        
        
 
-def _build_vocab(filename, vocab_path, vocab_size, exclude=[]):
+def _build_vocab(filename, vocab_path, vocab_size):
   """Reads a file a build a vocabulary of `vocab_size` words to
      as a list of words to `filename`
      The vocabulary is sorted by occurence count and has one word per line
      Originally from:
      https://github.com/tensorflow/models/blob/master/tutorials/rnn/ptb/reader.py
   """
-  data = [w for w in _read_words(filename) if w not in exclude]
+  data = _read_words(filename)
 
   counter = collections.Counter(data)
-
   count_pairs = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
   words, _ = list(zip(*count_pairs))   
   words = words[:vocab_size]
@@ -66,24 +65,25 @@ def _build_vocab(filename, vocab_path, vocab_size, exclude=[]):
   with open(vocab_path, 'w') as f:
     f.write("\n".join(words))
 
-def _get_token_encoder(tmp_dir, filename, vocab_size):
+def _get_token_encoder(vocab_dir, filename):
   """Reads from file and returns a `TokenTextEncoder` based on the vocabulary
   """
-  vocab_name = "ptb.vocab.%d" % vocab_size
-  vocab_path = os.path.join(tmp_dir, vocab_name)
+  vocab_name = "lmptb_10k.vocab"
+  vocab_path = os.path.join(vocab_dir, vocab_name)
 
-  exclude = ['<eos>', '<unk>']
-  _build_vocab(filename, vocab_path, vocab_size, exclude)
 
-  return text_encoder.TokenTextEncoder(vocab_path, 
-                                      unk="<unk>")
+  _build_vocab(filename, vocab_path, 10000)
+
+  return text_encoder.TokenTextEncoder(vocab_path)
   
 
 class PTB(object):
-  def __init__(self, tmp_dir, vocab_size, char=False):
+  def __init__(self, tmp_dir, data_dir, char=False):
+    assert not char, "char mode for PTB is not yet implemented"
     self.char = char
+    self.data_dir = data_dir
     #self.num_steps = num_steps
-    
+
     url = PTB_URL
    
     filename = os.path.basename(url)
@@ -121,7 +121,7 @@ class PTB(object):
     assert hasattr(self, "train"), "Training file not found"
     assert hasattr(self, "valid"), "Validation file not found"
     
-    self.encoder = _get_token_encoder(tmp_dir, self.train, vocab_size)
+    self.encoder = _get_token_encoder(data_dir, self.train)
 
   def train_generator(self):
     return self._generator(self.train)

@@ -121,24 +121,15 @@ class ByteTextEncoder(TextEncoder):
 class TokenTextEncoder(TextEncoder):
   """Encoder based on a user-supplied vocabulary."""
 
-  def __init__(self, vocab_filename, reverse=False, num_reserved_ids=2, unk=None):
+  def __init__(self, vocab_filename, reverse=False, num_reserved_ids=2):
     """Initialize from a file, one token per line."""
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
-
-    assert unk is None or type(unk) == str, "unk must be a string or None"
-    if unk is not None:
-      RESERVED_TOKENS.append(unk)
-      num_reserved_ids += 1
-    self._unk = unk
-
     self._reverse = reverse
     self._load_vocab_from_file(vocab_filename)
 
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""
-    ret = [self._token_to_id[tok] if tok in self._token_to_id
-                                  else self._token_to_id[self.unk]
-                                  for tok in sentence.strip().split()]
+    ret = [self._token_to_id[tok] for tok in sentence.strip().split()]
 
     return ret[::-1] if self._reverse else ret
 
@@ -149,13 +140,6 @@ class TokenTextEncoder(TextEncoder):
   @property
   def vocab_size(self):
     return len(self._id_to_token)
-
-  @property
-  def unk(self):
-    if self._unk is None:
-      raise ValueError("Unknown token")
-    elif type(self._unk) == str:
-      return self._unk
 
   def _safe_id_to_token(self, idx):
     return self._id_to_token.get(idx, 'ID_%d' % idx)
