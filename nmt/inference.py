@@ -24,6 +24,7 @@ import tensorflow as tf
 from tensorflow.python.ops import lookup_ops
 
 from . import attention_model
+from . import gnmt_model
 from . import model as nmt_model
 from . import model_helper
 from .utils import iterator_utils
@@ -40,6 +41,7 @@ def create_infer_model(
     src_vocab_file,
     tgt_vocab_file,
     scope=None):
+  """Create inference model."""
   infer_graph = tf.Graph()
 
   with infer_graph.as_default():
@@ -151,6 +153,7 @@ def inference(model_dir,
               num_workers=1,
               jobid=0,
               scope=None):
+  """Perform translation."""
   if hparams.inference_indices:
     assert num_workers == 1
 

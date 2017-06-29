@@ -29,6 +29,7 @@ from . import inference
 from . import train
 from .utils import misc_utils as utils
 from .utils import vocab_utils
+from .utils import evaluation_utils
 
 utils.check_tensorflow_version()
 
@@ -199,38 +200,47 @@ def extend_hparams(hparams):
   return hparams
 
 
-def load_train_hparams(out_dir):
-  """Load training hparams."""
-  hparams = utils.load_hparams(out_dir)
+def ensure_compatible_hparams(hparams):
+  """Make sure the loaded hparams is compatible with new changes."""
   new_hparams = create_hparams()
   new_hparams = utils.maybe_parse_standard_hparams(
       new_hparams, FLAGS.path_to_standard_hparams)
-  new_hparams = extend_hparams(new_hparams)
+
+  # For compatible reason, if there are new fields in new_hparams,
+  #   we add them to the current hparams
+  new_config = new_hparams.values()
+  config = hparams.values()
+  for key in new_config:
+    if key not in config:
+      hparams.add_hparam(key, new_config[key])
+
+  # Make sure that the loaded model has latest values for the below keys
+  updated_keys = ["out_dir", "num_gpus", "test_prefix", "beam_width"]
+  for key in updated_keys:
+    if key in new_config and getattr(hparams, key) != new_config[key]:
+      utils.print_out("# Updating hparams.%s: %s -> %s" %
+                      (key, str(getattr(hparams, key)), str(new_config[key])))
+      setattr(hparams, key, new_config[key])
+  return hparams
+
+
+def load_train_hparams(out_dir):
+  """Load training hparams."""
+  hparams = utils.load_hparams(out_dir)
 
   if not hparams:
-    hparams = new_hparams
+    hparams = create_hparams()
+    hparams = utils.maybe_parse_standard_hparams(
+        hparams, FLAGS.path_to_standard_hparams)
+    hparams = extend_hparams(hparams)
   else:
-    # For compatible reason, if there are new fields in new_hparams,
-    #   we add them to the current hparams
-    new_config = new_hparams.values()
-    config = hparams.values()
-    for key in new_config:
-      if key not in config:
-        hparams.add_hparam(key, new_config[key])
-
-    # Make sure that the loaded model has latest values for the below keys
-    updated_keys = ["out_dir", "num_gpus", "test_prefix", "beam_width"]
-    for key in updated_keys:
-      if getattr(hparams, key) != new_config[key]:
-        utils.print_out("# Updating hparams.%s: %s -> %s" %
-                        (key, str(getattr(hparams, key)), str(new_config[key])))
-        setattr(hparams, key, new_config[key])
+    hparams = ensure_compatible_hparams(hparams)
 
   # Save HParams
   utils.save_hparams(out_dir, hparams)
 
   # Print HParams
-  utils.print_hparams(hparams, skip_patterns=["vocab", "embed_matrix"])
+  utils.print_hparams(hparams)
   return hparams
 
 
@@ -249,7 +259,7 @@ def main(unused_argv):
 
   ## Train / Decode
   out_dir = FLAGS.out_dir
-  if FLAGS.inference_file:
+  if FLAGS.inference_input_file:
     # Model dir
     if FLAGS.model_dir:
       model_dir = FLAGS.model_dir
@@ -260,11 +270,26 @@ def main(unused_argv):
     hparams = inference.load_inference_hparams(
         model_dir,
         inference_list=FLAGS.inference_list)
+    hparams = ensure_compatible_hparams(hparams)
+    utils.print_hparams(hparams)
 
     # Inference
-    inference.inference(model_dir, FLAGS.inference_file, out_dir, hparams,
-                        num_workers, jobid)
+    trans_file = FLAGS.inference_output_file
+    inference.inference(model_dir, FLAGS.inference_input_file,
+                        trans_file, hparams, num_workers, jobid)
+
+    # Evaluation
+    ref_file = FLAGS.inference_ref_file
+    if ref_file and tf.gfile.Exists(trans_file):
+      for metric in hparams.metrics:
+        score = evaluation_utils.evaluate(
+            ref_file,
+            trans_file,
+            metric)
+        utils.print_out("  %s: %.1f" % (metric, score))
   else:
+    if not tf.gfile.Exists(out_dir): tf.gfile.MakeDirs(out_dir)
+
     # Load hparams.
     hparams = load_train_hparams(out_dir)
 
@@ -431,13 +456,17 @@ if __name__ == "__main__":
   # Inference
   parser.add_argument("--model_dir", type=str, default="",
                       help="To load model for inference.")
-  parser.add_argument("--inference_file", type=str, default=None,
+  parser.add_argument("--inference_input_file", type=str, default=None,
                       help="Set to the text to decode.")
   parser.add_argument("--inference_list", type=str, default=None,
                       help=("A comma-separated list of sentence indices "
                             "(0-based) to decode."))
   parser.add_argument("--infer_batch_size", type=int, default=32,
                       help="Batch size for inference mode.")
+  parser.add_argument("--inference_output_file", type=str, default=None,
+                      help="Output file to store decoding results.")
+  parser.add_argument("--inference_ref_file", type=str, default=None,
+                      help="To compute evaluation scores if provided.")
 
   # Job info
   parser.add_argument("--jobid", type=int, default=0,
