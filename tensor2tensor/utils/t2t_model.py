@@ -44,6 +44,14 @@ def _with_timing(fn, msg):
   return fn_with_timing
 
 
+def _is_class_modality(mod):
+  # TODO(lukaszkaiser): should be based on type, like CLASS_LABEL, not string.
+  prefix = "class_label_modality_"
+  if len(mod.name) < len(prefix):
+    return False
+  return mod.name[:len(prefix)] == prefix
+
+
 class T2TModel(object):
   """Abstract base class for models.
 
@@ -155,6 +163,9 @@ class T2TModel(object):
       # generated sequences, than to see the most likely sequence repeatedly.
       beam_size = 1
       self._hparams.sampling_method = "random"
+    if _is_class_modality(
+        self._hparams.problems[self._problem_idx].target_modality):
+      beam_size = 1  # No use to run beam-search for a single class.
     if beam_size == 1:
       tf.logging.info("Greedy Decoding")
       return self._greedy_infer(features, decode_length, last_position_only)
@@ -196,10 +207,7 @@ class T2TModel(object):
       if last_position_only:
         return tf.squeeze(logits, axis=[1, 2, 3])
       current_output_position = tf.shape(ids)[1] - 1  # -1 due to the pad above.
-      if current_output_position.shape.ndims >= 1:
-        logits = logits[:, current_output_position, :, :]
-      else:
-        logits = logits[:, -1 , :, :]
+      logits = logits[:, current_output_position, :, :]
       return tf.squeeze(logits, axis=[1, 2])
 
     batch_size = tf.shape(features["inputs"])[0]
@@ -272,11 +280,7 @@ class T2TModel(object):
       if last_position_only:
         cur_sample = samples[:, -1, :, :]
       else:
-        #Avoid the out of index Error
-        if tf.shape(recent_output).shape.ndims >= 2:
-          cur_sample = samples[:, tf.shape(recent_output)[1], :, :]
-        else:
-          cur_sample = samples[:, -1, :, :]
+        cur_sample = samples[:, tf.shape(recent_output)[1], :, :]
       cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
       samples = tf.concat([recent_output, cur_sample], axis=1)
       samples.set_shape([None, None, None, 1])
@@ -293,8 +297,8 @@ class T2TModel(object):
     # input shape, so we confuse it about the input shape.
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               tf.shape(initial_output))
-    if (self._hparams.problems[self._problem_idx].target_modality is
-        registry.Modalities.CLASS_LABEL):
+    if _is_class_modality(
+        self._hparams.problems[self._problem_idx].target_modality):
       decode_length = 1
     else:
       decode_length = tf.shape(features["inputs"])[1] + decode_length

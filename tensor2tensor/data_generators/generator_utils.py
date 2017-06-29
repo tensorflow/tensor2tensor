@@ -244,7 +244,8 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
       if ".gz" in lang_file:
         new_filepath = os.path.join(tmp_dir, lang_file[:-3])
         if os.path.exists(new_filepath):
-          tf.logging.info("Subdirectory %s already exists, skipping unpacking" % filepath)
+          tf.logging.info("Subdirectory %s already exists, skipping unpacking"
+                          % filepath)
         else:
           tf.logging.info("Unpacking subdirectory %s" % filepath)
           gunzip_file(filepath, new_filepath)

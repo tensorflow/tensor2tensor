@@ -340,24 +340,6 @@ def lm1b_16k(model_hparams):
   p.target_space_id = 3
   return p
 
-def lmptb_10k(model_hparams):
-  """Penn Tree Bank language-modeling benchmark, 10k token vocabulary."""
-  p = default_problem_hparams()
-  p.input_modality = {}
-  p.target_modality = (registry.Modalities.SYMBOL, 10000)
-
-  vocabulary = text_encoder.TokenTextEncoder(
-                  os.path.join(model_hparams.data_dir,
-                    "lmptb_10k.vocab"))
-
-  p.vocabulary = {
-      "inputs": vocabulary,
-      "targets": vocabulary,
-  }
-
-  p.input_space_id = 3
-  p.target_space_id = 3
-  return p
 
 def lm1b_64k(model_hparams):
   """Billion-word language-modeling benchmark, 64k subtoken vocabulary."""
@@ -373,6 +355,22 @@ def lm1b_64k(model_hparams):
   }
   p.target_space_id = 3
   return p
+
+
+def lmptb_10k(model_hparams):
+  """Penn Tree Bank language-modeling benchmark, 10k token vocabulary."""
+  p = default_problem_hparams()
+  p.input_modality = {}
+  p.target_modality = (registry.Modalities.SYMBOL, 10000)
+  vocabulary = text_encoder.TokenTextEncoder(
+      os.path.join(model_hparams.data_dir, "lmptb_10k.vocab"))
+  p.vocabulary = {
+      "targets": vocabulary,
+  }
+  p.input_space_id = 3
+  p.target_space_id = 3
+  return p
+
 
 def wmt_enfr_characters(unused_model_hparams):
   """English to French translation benchmark."""

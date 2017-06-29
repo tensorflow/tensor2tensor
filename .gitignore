@@ -1,7 +1,5 @@
 # Compiled python modules.
 *.pyc
-# Byte-compiled
-__pycache__/
 
 # Python egg metadata, regenerated from source files by setuptools.
 /*.egg-info

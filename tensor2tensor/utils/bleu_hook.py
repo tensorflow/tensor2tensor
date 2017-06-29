@@ -111,9 +111,20 @@ def compute_bleu(reference_corpus,
   return np.float32(bleu)
 
 
-def padded_bleu_score(predictions,
-                      labels, **unused_kwargs):
-  """Bleu score computation between labels and predictions on non-0s."""
+def bleu_score(predictions, labels, **unused_kwargs):
+  """BLEU score computation between labels and predictions.
+
+  An approximate BLEU scoring method since we do not glue word pieces or
+  decode the ids and tokenize the output. By default, we use ngram order of 4
+  and use brevity penalty. Also, this does not have beam search.
+
+  Args:
+    predictions: tensor, model predicitons
+    labels: tensor, gold output.
+
+  Returns:
+    bleu: int, approx bleu score
+  """
   outputs = tf.to_int32(tf.argmax(predictions, axis=-1))
   # Convert the outputs and labels to a [batch_size, input_length] tensor.
   outputs = tf.squeeze(outputs)

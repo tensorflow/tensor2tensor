@@ -292,9 +292,8 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
     padding = [[0, 0], [height_padding, 0], [width_padding, 0], [0, 0]]
     inputs = tf.pad(inputs, padding)
     kwargs["padding"] = "VALID"
-  force2d = False  # Special argument we use to force 2d kernels (see below).
-  if "force2d" in kwargs:
-    force2d = kwargs["force2d"]
+  # Special argument we use to force 2d kernels (see below).
+  force2d = kwargs.get("force2d", True)
 
   def conv2d_kernel(kernel_size_arg, name_suffix):
     """Call conv2d but add suffix to name."""
