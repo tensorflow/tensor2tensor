@@ -78,6 +78,8 @@ flags.DEFINE_bool("experimental_optimize_placement", False,
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
 flags.DEFINE_string("schedule", "local_run",
                     "Method of tf.contrib.learn.Experiment to run.")
+flags.DEFINE_integer("local_eval_frequency", 2000,
+                     "Run evaluation every this steps during local training.")
 flags.DEFINE_bool("locally_shard_to_cpu", False,
                   "Use CPU as a sharding device runnning locally. This allows "
                   "to test sharded model construction on a machine with 1 GPU.")
@@ -146,6 +148,7 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
       eval_metrics=metrics.create_evaluation_metrics(FLAGS.problems.split("-")),
       train_steps=train_steps,
       eval_steps=eval_steps,
+      min_eval_frequency=FLAGS.local_eval_frequency,
       train_monitors=[])
 
 
@@ -530,12 +533,7 @@ def run_locally(exp):
   if exp.train_steps > 0:
     # Train
     tf.logging.info("Performing local training.")
-    exp.train()
-
-  if exp.eval_steps > 0:
-    # Evaluate
-    tf.logging.info("Performing local evaluation.")
-    unused_metrics = exp.evaluate(delay_secs=0)
+    exp.train_and_evaluate()
 
   # Predict
   estimator = exp.estimator
