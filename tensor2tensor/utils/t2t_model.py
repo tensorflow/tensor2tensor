@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import time
 
 # Dependency imports
@@ -51,6 +52,7 @@ class T2TModel(object):
 
   def __init__(self,
                hparams,
+               mode,
                problem_hparams,
                problem_idx=0,
                data_parallelism=None,
@@ -59,6 +61,7 @@ class T2TModel(object):
 
     Args:
       hparams: a hyperparameters object.
+      mode: The execution mode, as defined in tf.contrib.learn.ModeKeys.
       problem_hparams: a hyperparameters object.
       problem_idx: an integer.
       data_parallelism: a expert_utils.parallelism
@@ -72,6 +75,13 @@ class T2TModel(object):
       data_parallelism = eu.Parallelism([""])
     if ps_devices is None:
       ps_devices = [""]
+    hparams = copy.copy(hparams)
+    hparams.add_hparam("mode", mode)
+    # when not in training mode, set all forms of dropout to zero.
+    if mode != tf.contrib.learn.ModeKeys.TRAIN:
+      for key in hparams.values():
+        if key[-len("dropout"):] == "dropout":
+          setattr(hparams, key, 0.0)
     self._hparams = hparams
     self._data_parallelism = data_parallelism
     self._num_datashards = data_parallelism.n
@@ -259,7 +269,11 @@ class T2TModel(object):
       if last_position_only:
         cur_sample = samples[:, -1, :, :]
       else:
-        cur_sample = samples[:, tf.shape(recent_output)[1], :, :]
+        #Avoid the out of index Error
+        if len(tf.shape(recent_output)) >= 2:
+          cur_sample = samples[:, tf.shape(recent_output)[1], :, :]
+        else:
+          cur_sample = samples[:, -1, :, :]
       cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
       samples = tf.concat([recent_output, cur_sample], axis=1)
       samples.set_shape([None, None, None, 1])
@@ -332,12 +346,11 @@ class T2TModel(object):
                                                        0))
     return sharded_features
 
-  def model_fn(self, features, train, skip=False, last_position_only=False):
+  def model_fn(self, features, skip=False, last_position_only=False):
     """Computes the entire model and produces sharded logits and training loss.
 
     Args:
       features: A dictionary of feature name to tensor.
-      train: a boolean `Scalar` (whether we are in training mode).
       skip: a boolean, if we're just dummy-calling and actually skip this model
         (but we need to create variables to not confuse distributed training).
       last_position_only: a boolean, compute logits for only the last position.
@@ -392,7 +405,7 @@ class T2TModel(object):
         body_outputs, extra_loss = transformed_features["targets"], 0.0
       else:
         body_outputs, extra_loss = self.model_fn_body_sharded(
-            transformed_features, train)
+            transformed_features)
 
     with tf.variable_scope(target_modality.name, reuse=target_reuse):
       if not last_position_only:
@@ -420,7 +433,7 @@ class T2TModel(object):
     tf.logging.info("This model_fn took %.3f sec." % (time.time() - start_time))
     return sharded_logits, training_loss, extra_loss
 
-  def model_fn_body_sharded(self, sharded_features, train):
+  def model_fn_body_sharded(self, sharded_features):
     """Mixture-of-experts models will override this function.
 
     Compute model body on all datashards.
@@ -428,7 +441,6 @@ class T2TModel(object):
     Args:
       sharded_features: map from string to list of Tensors each with shape
          [batch, ?, ?, body_input_size]
-      train: A boolean `Scalar` (whether we are in training mode).
 
     Returns:
       sharded_body_output:
@@ -442,7 +454,7 @@ class T2TModel(object):
       } for d in xrange(self._num_datashards)]
       output = self._data_parallelism(
           _with_timing(self.model_fn_body, "model_fn_body"),
-          datashard_to_features, train)
+          datashard_to_features)
       if isinstance(output, tuple):
         loss = tf.reduce_mean(output[1])
         output = output[0]
@@ -450,7 +462,7 @@ class T2TModel(object):
         loss = 0.0
       return output, loss
 
-  def model_fn_body(self, features, train):
+  def model_fn_body(self, features):
     """Most models will override this function.
 
     Compute label logits for one shard as a function of the transformed
@@ -459,7 +471,6 @@ class T2TModel(object):
     Args:
       features: A dictionary of key to Tensor.  Each Tensor has shape
          `[batch_size, ?, ?, hidden_size]`.
-      train: A boolean `Scalar` (whether we are in training mode).
 
     Returns:
       a `Tensor` of logits with shape `[batch_size, O, P, body_output_size]`.

@@ -55,7 +55,7 @@ def main(_):
     for idx, job in enumerate(jobs):
       if task_type == "worker":
         cmd_line_flags = " ".join([
-            "--master=%s" % job,
+            "--master=grpc://%s" % job,
             "--ps_replicas=%d" % len(ps),
             "--worker_replicas=%d" % len(workers),
             "--worker_gpu=1",
@@ -66,6 +66,7 @@ def main(_):
         ])
       else:
         cmd_line_flags = " ".join([
+            "--master=grpc://%s" % job,
             "--schedule=run_std_server",
         ])
 

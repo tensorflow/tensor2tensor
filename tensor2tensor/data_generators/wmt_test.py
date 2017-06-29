@@ -25,8 +25,8 @@ import tempfile
 # Dependency imports
 
 import six
-from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import wmt
 
 import tensorflow as tf
 
@@ -40,7 +40,7 @@ class WMTTest(tf.test.TestCase):
     if six.PY2:
       enc_f = lambda s: s
     else:
-      enc_f = lambda s: s.encode('utf-8')
+      enc_f = lambda s: s.encode("utf-8")
     with io.open(tmp_file_path + ".src", "wb") as src_file:
       src_file.write(enc_f("source1\n"))
       src_file.write(enc_f("source2\n"))
@@ -51,16 +51,15 @@ class WMTTest(tf.test.TestCase):
     # Call character generator on the generated files.
     results_src, results_tgt = [], []
     character_vocab = text_encoder.ByteTextEncoder()
-    for dictionary in wmt.character_generator(tmp_file_path + ".src",
-                                              tmp_file_path + ".tgt",
-                                              character_vocab):
+    for dictionary in wmt.character_generator(
+        tmp_file_path + ".src", tmp_file_path + ".tgt", character_vocab):
       self.assertEqual(sorted(list(dictionary)), ["inputs", "targets"])
       results_src.append(dictionary["inputs"])
       results_tgt.append(dictionary["targets"])
 
     # Check that the results match the files.
     # First check that the results match the encoded original strings;
-    # this is a comparison of integer arrays
+    # this is a comparison of integer arrays.
     self.assertEqual(len(results_src), 2)
     self.assertEqual(results_src[0],
                      character_vocab.encode("source1"))
