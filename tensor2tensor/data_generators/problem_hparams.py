@@ -340,6 +340,24 @@ def lm1b_16k(model_hparams):
   p.target_space_id = 3
   return p
 
+def lmptb_10k(model_hparams):
+  """Penn Tree Bank language-modeling benchmark, 10k token vocabulary."""
+  p = default_problem_hparams()
+  p.input_modality = {}
+  p.target_modality = (registry.Modalities.SYMBOL, 10000)
+
+  vocabulary = text_encoder.TokenTextEncoder(
+                  os.path.join(model_hparams.data_dir,
+                    "lmptb_10k.vocab"))
+
+  p.vocabulary = {
+      "inputs": vocabulary,
+      "targets": vocabulary,
+  }
+
+  p.input_space_id = 3
+  p.target_space_id = 3
+  return p
 
 def lm1b_64k(model_hparams):
   """Billion-word language-modeling benchmark, 64k subtoken vocabulary."""
@@ -355,7 +373,6 @@ def lm1b_64k(model_hparams):
   }
   p.target_space_id = 3
   return p
-
 
 def wmt_enfr_characters(unused_model_hparams):
   """English to French translation benchmark."""
@@ -676,6 +693,7 @@ PROBLEM_HPARAMS_MAP = {
     "audio_wsj_tokens_8k_test": lambda p: audio_wsj_tokens(p, 2**13),
     "lm1b_16k": lm1b_16k,
     "lm1b_64k": lm1b_64k,
+    "lmptb_10k": lmptb_10k,
     "wmt_parsing_characters": wmt_parsing_characters,
     "wmt_parsing_tokens_8k": lambda p: wmt_parsing_tokens(p, 2**13),
     "wsj_parsing_tokens_16k": lambda p: wsj_parsing_tokens(p, 2**14, 2**9),
