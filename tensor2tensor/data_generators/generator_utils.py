@@ -242,9 +242,12 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
 
       # For some datasets a second extraction is necessary.
       if ".gz" in lang_file:
-        tf.logging.info("Unpacking subdirectory %s" % filepath)
         new_filepath = os.path.join(tmp_dir, lang_file[:-3])
-        gunzip_file(filepath, new_filepath)
+        if os.path.exists(new_filepath):
+          tf.logging.info("Subdirectory %s already exists, skipping unpacking" % filepath)
+        else:
+          tf.logging.info("Unpacking subdirectory %s" % filepath)
+          gunzip_file(filepath, new_filepath)
         filepath = new_filepath
 
       # Use Tokenizer to count the word occurrences.
@@ -258,7 +261,8 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
           _ = tokenizer.encode(line)
 
   vocab = SubwordTextEncoder.build_to_target_size(
-      vocab_size, tokenizer.token_counts, vocab_filepath, 1, 1e3)
+      vocab_size, tokenizer.token_counts, 1, 1e3)
+  vocab.store_to_file(vocab_filepath)
   return vocab
 
 
