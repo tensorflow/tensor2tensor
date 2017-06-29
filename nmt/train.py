@@ -56,8 +56,11 @@ def create_train_model(model_creator,
         src_vocab_file, default_value=vocab_utils.UNK_ID)
     tgt_vocab_table = lookup_ops.index_table_from_file(
         tgt_vocab_file, default_value=vocab_utils.UNK_ID)
+
     train_src_dataset = tf.contrib.data.TextLineDataset(train_src_file)
     train_tgt_dataset = tf.contrib.data.TextLineDataset(train_tgt_file)
+    train_skip_count_placeholder = tf.placeholder(shape=(), dtype=tf.int64)
+
     train_iterator = iterator_utils.get_iterator(
         train_src_dataset,
         train_tgt_dataset,
@@ -70,7 +73,8 @@ def create_train_model(model_creator,
         random_seed=hparams.random_seed,
         num_buckets=hparams.num_buckets,
         src_max_len=hparams.src_max_len,
-        tgt_max_len=hparams.tgt_max_len)
+        tgt_max_len=hparams.tgt_max_len,
+        skip_count=train_skip_count_placeholder)
     train_model = model_creator(
         hparams,
         iterator=train_iterator,
@@ -79,7 +83,7 @@ def create_train_model(model_creator,
         target_vocab_table=tgt_vocab_table,
         scope=scope)
 
-  return train_graph, train_model, train_iterator
+  return train_graph, train_model, train_iterator, train_skip_count_placeholder
 
 
 def create_eval_model(model_creator,
@@ -155,8 +159,9 @@ def train(hparams, scope=None):
   src_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.src)
   tgt_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.tgt)
 
-  train_graph, train_model, train_iterator = create_train_model(
-      model_creator, hparams, src_vocab_file, tgt_vocab_file, scope)
+  (train_graph, train_model, train_iterator, train_skip_count_placeholder) = (
+      create_train_model(
+          model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
 
   (eval_graph, eval_model, eval_src_file_placeholder,
    eval_tgt_file_placeholder, eval_iterator) = create_eval_model(
@@ -294,7 +299,14 @@ def train(hparams, scope=None):
       log_f)
 
   # Initialize all of the iterators
-  train_sess.run(train_iterator.initializer)
+  skip_count = hparams.batch_size * hparams.epoch_step
+  utils.print_out("# Init train iterator, skipping %d elements" % skip_count)
+  train_sess.run(
+      train_iterator.initializer,
+      feed_dict={
+          train_skip_count_placeholder: skip_count
+      })
+
   while global_step < num_train_steps:
     ### Run a step ###
     start_time = time.time()
@@ -302,13 +314,19 @@ def train(hparams, scope=None):
       step_result = train_model.train(train_sess)
       (_, step_loss, step_predict_count, step_summary, global_step,
        step_word_count, batch_size) = step_result
+      hparams.epoch_step += 1
     except tf.errors.OutOfRangeError:
       # Finished going through the training dataset.  Go to next epoch.
+      hparams.epoch_step = 0
       utils.print_out(
           "# Finished an epoch, step %d. Perform external evaluation" %
           global_step)
       dev_scores, test_scores = run_external_eval()
-      train_sess.run(train_iterator.initializer)
+      train_sess.run(
+          train_iterator.initializer,
+          feed_dict={
+              train_skip_count_placeholder: 0
+          })
       continue
 
     # Write step summary.

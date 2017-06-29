@@ -96,6 +96,7 @@ def create_hparams():
       # Misc
       forget_bias=FLAGS.forget_bias,
       num_gpus=FLAGS.num_gpus,
+      epoch_step=0,  # record where we were within an epoch.
       steps_per_stats=FLAGS.steps_per_stats,
       steps_per_external_eval=FLAGS.steps_per_external_eval,
       share_vocab=FLAGS.share_vocab,

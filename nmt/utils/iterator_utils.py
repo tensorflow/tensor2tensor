@@ -90,8 +90,8 @@ def get_iterator(src_dataset,
                  src_max_len=None,
                  tgt_max_len=None,
                  num_threads=4,
-                 output_buffer_size=12800):
-  # TODO(ebrevdo): make lookup default value the "unk" symbol?
+                 output_buffer_size=12800,
+                 skip_count=None):
   src_eos_id = tf.cast(
       src_vocab_table.lookup(tf.constant(eos)),
       tf.int32)
@@ -103,6 +103,10 @@ def get_iterator(src_dataset,
       tf.int32)
 
   src_tgt_dataset = tf.contrib.data.Dataset.zip((src_dataset, tgt_dataset))
+
+  if skip_count is not None:
+    src_tgt_dataset = src_tgt_dataset.skip(skip_count)
+
   src_tgt_dataset = src_tgt_dataset.shuffle(
       output_buffer_size, random_seed)
 
