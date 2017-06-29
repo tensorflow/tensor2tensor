@@ -67,10 +67,10 @@ UNICODE_WHITESPACE = set(unichr(i) for i in xrange(sys.maxunicode)
                           if _RE_WHITESPACE.match(unichr(i)))
 # Set of Unicode punctuation code points
 UNICODE_PUNCTUATION = set(unichr(i) for i in xrange(sys.maxunicode)
-                          if unicodedata.category(unichr(i)).startswith('P'))
+                          if unicodedata.category(unichr(i)).startswith("P"))
 # Conversion between Unicode and UTF-8, if required (on Python2)
-_decode_string = (lambda s: s.decode('utf-8')) if PY2 else (lambda s: s)
-_encode_string = (lambda s: s.encode('utf-8')) if PY2 else (lambda s: s)
+_decode_string = (lambda s: s.decode("utf-8")) if PY2 else (lambda s: s)
+_encode_string = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
 
 
 class Tokenizer(object):
@@ -95,6 +95,7 @@ class Tokenizer(object):
     ret = []
     token_start = 0
     unicode_text = _decode_string(raw_text)
+    # Classify each character in the input string
     is_sep = [c in self._SEPARATOR_CHAR_SET for c in unicode_text]
     for pos in xrange(1, len(unicode_text)):
       if is_sep[pos] != is_sep[pos - 1]:
