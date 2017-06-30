@@ -109,6 +109,14 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "wmt_parsing_characters": (
         lambda: wmt.parsing_character_generator(FLAGS.tmp_dir, True),
         lambda: wmt.parsing_character_generator(FLAGS.tmp_dir, False)),
+    "ice_parsing_tokens": (
+        lambda: wmt.tabbed_parsing_token_generator(FLAGS.tmp_dir,
+            True, "ice", 2**13, 2**8),
+        lambda: wmt.tabbed_parsing_token_generator(FLAGS.tmp_dir,
+            False, "ice", 2**13, 2**8)),
+    "ice_parsing_characters": (
+        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, True),
+        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, False)),
     "wmt_parsing_tokens_8k": (
         lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, True, 2**13),
         lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, False, 2**13)),

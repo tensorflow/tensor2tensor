@@ -349,6 +349,8 @@ class SubwordTextEncoder(TextEncoder):
     # We build iteratively.  On each iteration, we segment all the words,
     # then count the resulting potential subtokens, keeping the ones
     # with high enough counts for our new vocabulary.
+    if min_count < 1:
+      min_count = 1
     for i in xrange(num_iterations):
       tf.logging.info("Iteration {0}".format(i))
       counts = defaultdict(int)
@@ -408,13 +410,13 @@ class SubwordTextEncoder(TextEncoder):
                            [p[1] for p in new_subtoken_strings])
       tf.logging.info('vocab_size = %d' % self.vocab_size)
 
-    original = 'This sentence was encoded by the SubwordTextEncoder.'
-    encoded = self.encode(original)
-    print(encoded)
-    print([self.subtoken_to_subtoken_string(s) for s in encoded])
-    decoded = self.decode(encoded)
-    print(decoded)
-    assert decoded == original
+    #original = 'This sentence was encoded by the SubwordTextEncoder.'
+    #encoded = self.encode(original)
+    #print(encoded)
+    #print([self.subtoken_to_subtoken_string(s) for s in encoded])
+    #decoded = self.decode(encoded)
+    #print(decoded)
+    #assert decoded == original
 
   def dump(self):
     """ Debugging dump of the current subtoken vocabulary """
