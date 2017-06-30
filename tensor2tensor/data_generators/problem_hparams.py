@@ -78,7 +78,7 @@ def parse_problem_name(problem_name):
 
 def _lookup_problem_hparams_fn(name):
   if name not in PROBLEM_HPARAMS_MAP:
-    map_str = "\n* ".join(PROBLEM_HPARAMS_MAP.keys())
+    map_str = "* " + "\n* ".join(sorted(PROBLEM_HPARAMS_MAP.keys()))
     error_msg = "%s not in the supported set of problems:\n%s" % (name, map_str)
     raise ValueError(error_msg)
   return PROBLEM_HPARAMS_MAP.get(name)
