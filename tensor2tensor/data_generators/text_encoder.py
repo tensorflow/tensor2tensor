@@ -321,10 +321,10 @@ class SubwordTextEncoder(TextEncoder):
         other_subtokenizer = bisect(present_count + 1, max_val)
       else:
         other_subtokenizer = bisect(min_val, present_count - 1)
-        if (abs(other_subtokenizer.vocab_size - target_size) <
-            abs(subtokenizer.vocab_size - target_size)):
-          return other_subtokenizer
-        return subtokenizer
+      if (abs(other_subtokenizer.vocab_size - target_size) <
+          abs(subtokenizer.vocab_size - target_size)):
+        return other_subtokenizer
+      return subtokenizer
 
     return bisect(min_val, max_val)
 
