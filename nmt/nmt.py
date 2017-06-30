@@ -157,9 +157,10 @@ def extend_hparams(hparams):
     tgt_vocab_file = hparams.train_prefix + tgt_vocab_str + hparams.tgt
 
   # Source vocab
-  src_vocab_size = vocab_utils.check_and_extract_vocab(
+  src_vocab_size, src_vocab_file = vocab_utils.check_and_extract_vocab(
       src_vocab_file,
       hparams.train_prefix + "." + hparams.src,
+      hparams.out_dir,
       sos=hparams.sos,
       eos=hparams.eos,
       unk=vocab_utils.UNK,
@@ -171,9 +172,10 @@ def extend_hparams(hparams):
     tgt_vocab_file = src_vocab_file
     tgt_vocab_size = src_vocab_size
   else:
-    tgt_vocab_size = vocab_utils.check_and_extract_vocab(
+    tgt_vocab_size, tgt_vocab_file = vocab_utils.check_and_extract_vocab(
         tgt_vocab_file,
         hparams.train_prefix + "." + hparams.tgt,
+        hparams.out_dir,
         sos=hparams.sos,
         eos=hparams.eos,
         unk=vocab_utils.UNK,
@@ -181,6 +183,8 @@ def extend_hparams(hparams):
     )
   hparams.add_hparam("src_vocab_size", src_vocab_size)
   hparams.add_hparam("tgt_vocab_size", tgt_vocab_size)
+  hparams.add_hparam("src_vocab_file", src_vocab_file)
+  hparams.add_hparam("tgt_vocab_file", tgt_vocab_file)
 
   # Check out_dir
   if not tf.gfile.Exists(hparams.out_dir):
@@ -202,6 +206,7 @@ def ensure_compatible_hparams(hparams):
   new_hparams = create_hparams()
   new_hparams = utils.maybe_parse_standard_hparams(
       new_hparams, FLAGS.path_to_standard_hparams)
+  hparams = extend_hparams(hparams)
 
   # For compatible reason, if there are new fields in new_hparams,
   #   we add them to the current hparams

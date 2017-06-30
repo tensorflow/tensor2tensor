@@ -38,11 +38,11 @@ __all__ = ["create_infer_model", "load_inference_hparams", "inference"]
 def create_infer_model(
     model_creator,
     hparams,
-    src_vocab_file,
-    tgt_vocab_file,
     scope=None):
   """Create inference model."""
   infer_graph = tf.Graph()
+  src_vocab_file = hparams.src_vocab_file
+  tgt_vocab_file = hparams.tgt_vocab_file
 
   with infer_graph.as_default():
     src_vocab_table = lookup_ops.index_table_from_file(
@@ -198,13 +198,9 @@ def _single_worker_inference(model_creator,
   # Read data
   infer_data = load_data(inference_input_file, hparams)
 
-  assert hparams.vocab_prefix
-  src_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.src)
-  tgt_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.tgt)
-
   (infer_graph, infer_model, infer_src_placeholder,
    infer_batch_size_placeholder, infer_iterator) = (create_infer_model(
-       model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
+       model_creator, hparams, scope))
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
     model_helper.create_or_load_model(
         infer_model, model_dir, sess, hparams.out_dir, "infer")
@@ -263,13 +259,9 @@ def _multi_worker_inference(model_creator,
   end_position = min(start_position + load_per_worker, total_load)
   infer_data = infer_data[start_position:end_position]
 
-  assert hparams.vocab_prefix
-  src_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.src)
-  tgt_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.tgt)
-
   (infer_graph, infer_model, infer_src_placeholder,
    infer_batch_size_placeholder, infer_iterator) = (create_infer_model(
-       model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
+       model_creator, hparams, scope))
 
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
     model_helper.create_or_load_model(

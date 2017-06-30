@@ -42,12 +42,12 @@ __all__ = ["train"]
 
 def create_train_model(model_creator,
                        hparams,
-                       src_vocab_file,
-                       tgt_vocab_file,
                        scope=None):
   """Create train graph, model, and iterator."""
   train_src_file = "%s.%s" % (hparams.train_prefix, hparams.src)
   train_tgt_file = "%s.%s" % (hparams.train_prefix, hparams.tgt)
+  src_vocab_file = hparams.src_vocab_file
+  tgt_vocab_file = hparams.tgt_vocab_file
 
   train_graph = tf.Graph()
 
@@ -88,10 +88,10 @@ def create_train_model(model_creator,
 
 def create_eval_model(model_creator,
                       hparams,
-                      src_vocab_file,
-                      tgt_vocab_file,
                       scope=None):
   """Create train graph, model, src/tgt file holders, and iterator."""
+  src_vocab_file = hparams.src_vocab_file
+  tgt_vocab_file = hparams.tgt_vocab_file
   eval_graph = tf.Graph()
 
   with eval_graph.as_default():
@@ -155,21 +155,16 @@ def train(hparams, scope=None):
   else:
     raise ValueError("Unknown model architecture")
 
-  assert hparams.vocab_prefix
-  src_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.src)
-  tgt_vocab_file = "%s.%s" % (hparams.vocab_prefix, hparams.tgt)
-
   (train_graph, train_model, train_iterator, train_skip_count_placeholder) = (
-      create_train_model(
-          model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
+      create_train_model(model_creator, hparams, scope))
 
   (eval_graph, eval_model, eval_src_file_placeholder,
    eval_tgt_file_placeholder, eval_iterator) = create_eval_model(
-       model_creator, hparams, src_vocab_file, tgt_vocab_file, scope)
+       model_creator, hparams, scope)
   (infer_graph, infer_model, infer_src_placeholder,
    infer_batch_size_placeholder,
    infer_iterator) = (inference.create_infer_model(
-       model_creator, hparams, src_vocab_file, tgt_vocab_file, scope))
+       model_creator, hparams, scope))
 
   dev_eval_iterator_feed_dict = {
       eval_src_file_placeholder: dev_src_file,

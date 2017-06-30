@@ -81,8 +81,12 @@ def load_hparams(model_dir):
   if tf.gfile.Exists(hparams_file):
     print_out("# Loading hparams from %s" % hparams_file)
     with codecs.getreader("utf-8")(tf.gfile.GFile(hparams_file, "r")) as f:
-      hparams_values = json.load(f)
-      hparams = tf.contrib.training.HParams(**hparams_values)
+      try:
+        hparams_values = json.load(f)
+        hparams = tf.contrib.training.HParams(**hparams_values)
+      except ValueError:
+        print_out("  can't load hparams file")
+        return None
     return hparams
   else:
     return None

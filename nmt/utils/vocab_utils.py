@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import codecs
-
+import os
 import tensorflow as tf
 
 from ..utils import misc_utils as utils
@@ -67,27 +67,47 @@ def save_vocab(path, vocab):
 
 def check_and_extract_vocab(vocab_file,
                             corpus_file,
+                            out_dir,
                             freq=None,
                             max_vocab_size=None,
                             sos=None,
                             eos=None,
                             unk=None):
-  """Check if vocab_file doesn't exist, create from corpus_file.
-
-  Returns the vocab size.
-  """
+  """Check if vocab_file doesn't exist, create from corpus_file."""
   if tf.gfile.Exists(vocab_file):
     utils.print_out("# Vocab file %s exists" % vocab_file)
+    vocab = []
+    with codecs.getreader("utf-8")(tf.gfile.GFile(vocab_file, "rb")) as f:
+      vocab_size = 0
+      for word in f:
+        vocab_size += 1
+        vocab.append(word.strip())
+
+    # Verify if the vocab starts with unk, sos, eos
+    # If not, prepend those tokens & generate a new vocab file
+    if not unk: unk = UNK
+    if not sos: sos = SOS
+    if not eos: eos = EOS
+    assert len(vocab) >= 3
+    if vocab[0] != unk or vocab[1] != sos or vocab[2] != eos:
+      utils.print_out("The first 3 vocab words [%s, %s, %s]"
+                      " are not [%s, %s, %s]" %
+                      (vocab[0], vocab[1], vocab[2], unk, sos, eos))
+      vocab = [unk, sos, eos] + vocab
+      vocab_size += 3
+      new_vocab_file = os.path.join(out_dir, os.path.basename(vocab_file))
+      with codecs.getreader("utf-8")(tf.gfile.GFile(new_vocab_file, "w")) as f:
+        for word in vocab:
+          f.write("%s\n" % word)
+      vocab_file = new_vocab_file
   else:
     vocab, _ = extract_corpus_vocab(
         corpus_file, sos=sos, eos=eos, unk=unk,
         freq=freq, max_vocab_size=max_vocab_size)
     save_vocab(vocab_file, vocab)
-  vocab_size = 0
-  with tf.gfile.GFile(vocab_file) as f:
-    for _ in f:
-      vocab_size += 1
-  return vocab_size
+
+  vocab_size = len(vocab)
+  return vocab_size, vocab_file
 
 
 def extract_corpus_vocab(path,
