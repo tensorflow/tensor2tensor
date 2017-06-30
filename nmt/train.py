@@ -193,7 +193,7 @@ def train(hparams, scope=None):
 
   # Log and output files
   log_file = os.path.join(out_dir, "log")
-  log_f = tf.gfile.GFile(log_file, mode="w")
+  log_f = tf.gfile.GFile(log_file, mode="a")
   utils.print_out("# log_file=%s" % log_file, log_f)
 
   avg_step_time = 0.0
@@ -389,7 +389,7 @@ def train(hparams, scope=None):
       global_step=global_step)
   dev_ppl, test_ppl = run_internal_eval()
   dev_scores, test_scores = run_external_eval()
-  utils.print_out("# Best %s" % _get_best_results(hparams))
+  utils.print_out("# Best dev %s" % _get_best_results(hparams))
 
   all_dev_perplexities.append(dev_ppl)
   all_test_perplexities.append(test_ppl)
@@ -495,7 +495,7 @@ def _external_eval(model, global_step, sess, hparams, iterator,
     for metric in hparams.metrics:
       utils.add_summary(summary_writer, global_step, "%s_%s" % (label, metric),
                         scores[metric])
-      # TODO(thangluong): make clear the semantic, larger is better
+      # metric: larger is better
       if save_on_best and scores[metric] > getattr(hparams, "best_" + metric):
         setattr(hparams, "best_" + metric, scores[metric])
         model.saver.save(

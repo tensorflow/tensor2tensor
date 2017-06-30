@@ -189,14 +189,11 @@ def extend_hparams(hparams):
     tf.gfile.MakeDirs(hparams.out_dir)
 
   # Evaluation
-  hparams.add_hparam("best_ppl", 1e10)  # smaller is better
-  hparams.add_hparam("best_ppl_dir", os.path.join(hparams.out_dir, "best_ppl"))
-  tf.gfile.MakeDirs(hparams.best_ppl_dir)
   for metric in hparams.metrics:
     hparams.add_hparam("best_" + metric, 0)  # larger is better
-    hparams.add_hparam("best_" + metric + "_dir", os.path.join(
-        hparams.out_dir, "best_" + metric))
-    tf.gfile.MakeDirs(getattr(hparams, "best_" + metric + "_dir"))
+    best_metric_dir = os.path.join(hparams.out_dir, "best_" + metric)
+    hparams.add_hparam("best_" + metric + "_dir", best_metric_dir)
+    tf.gfile.MakeDirs(best_metric_dir)
 
   return hparams
 
@@ -239,6 +236,8 @@ def load_train_hparams(out_dir):
 
   # Save HParams
   utils.save_hparams(out_dir, hparams)
+  for metric in hparams.metrics:
+    utils.save_hparams(getattr(hparams, "best_" + metric + "_dir"), hparams)
 
   # Print HParams
   utils.print_hparams(hparams)
