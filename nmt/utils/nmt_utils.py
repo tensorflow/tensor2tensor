@@ -68,7 +68,6 @@ def decode_and_evaluate(name,
           break
 
   # Evaluation
-  # TODO(rzhao): Fix this for inference during training.
   evaluation_scores = {}
   if ref_file and tf.gfile.Exists(trans_file):
     for metric in metrics:

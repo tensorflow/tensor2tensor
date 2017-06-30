@@ -59,7 +59,6 @@ def create_hparams():
 
       # Attention mechanisms
       attention=FLAGS.attention,
-      attention_type=FLAGS.attention_type,
       attention_architecture=FLAGS.attention_architecture,
 
       # Train
@@ -322,8 +321,6 @@ if __name__ == "__main__":
       luong | scaled_luong | bahdanau | normed_bahdanau or set to "" for no
       attention\
       """)
-  parser.add_argument("--attention_type", type=str, default="softmax",
-                      help="softmax | monotonic")
   parser.add_argument(
       "--attention_architecture",
       type=str,

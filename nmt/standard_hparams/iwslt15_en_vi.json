@@ -1,7 +1,6 @@
 {
   "attention": "scaled_luong",
   "attention_architecture": "standard",
-  "attention_type": "softmax",
   "batch_size": 128,
   "bpe_delimiter": null,
   "colocate_gradients_with_ops": true,
@@ -11,7 +10,6 @@
   "encoder_type": "bi",
   "eos": "</s>",
   "forget_bias": 1.0,
-  "ignore_list_file": null,
   "infer_batch_size": 32,
   "init_weight": 0.1,
   "learning_rate": 1.0,
@@ -33,7 +31,6 @@
   "start_decay_step": 8000,
   "steps_per_external_eval": null,
   "steps_per_stats": 100,
-  "task": "seq2seq",
   "tgt": "vi",
   "tgt_max_len": 50,
   "tgt_max_len_infer": null,

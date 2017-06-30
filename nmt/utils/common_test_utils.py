@@ -51,7 +51,6 @@ def create_test_hparams(unit_type="lstm",
 
       # Attention mechanisms
       attention=attention,
-      attention_type="softmax",
       attention_architecture=attention_architecture,
 
       # Train
