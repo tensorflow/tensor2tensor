@@ -310,6 +310,7 @@ class SubwordTextEncoder(TextEncoder):
     tf.logging.info("Alphabet contains %d characters" % len(alphabet_set))
 
     def bisect(min_val, max_val):
+      """Bisection to find the right size."""
       present_count = (max_val + min_val) // 2
       tf.logging.info("Trying min_count %d" % present_count)
       subtokenizer = cls()
@@ -317,14 +318,16 @@ class SubwordTextEncoder(TextEncoder):
                                            present_count, num_iterations)
       if min_val >= max_val or subtokenizer.vocab_size == target_size:
         return subtokenizer
+
       if subtokenizer.vocab_size > target_size:
         other_subtokenizer = bisect(present_count + 1, max_val)
       else:
         other_subtokenizer = bisect(min_val, present_count - 1)
-        if (abs(other_subtokenizer.vocab_size - target_size) <
-            abs(subtokenizer.vocab_size - target_size)):
-          return other_subtokenizer
-        return subtokenizer
+
+      if (abs(other_subtokenizer.vocab_size - target_size) <
+          abs(subtokenizer.vocab_size - target_size)):
+        return other_subtokenizer
+      return subtokenizer
 
     return bisect(min_val, max_val)
 
