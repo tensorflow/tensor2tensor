@@ -14,8 +14,7 @@
 
 """A simple invertible tokenizer.
 
-Converts from a raw string to a list of tokens (represented as
-Unicode strings).
+Converts from a raw string to a list of tokens (represented as Unicode strings).
 
 This tokenizer has the following desirable properties:
  - It is invertible.
@@ -48,28 +47,36 @@ from __future__ import division
 from __future__ import print_function
 
 from collections import defaultdict
-import string
-import unicodedata
-import sys
 import re
+import sys
+import unicodedata
 
 # Dependency imports
 
-from six import PY2, unichr  # pylint: disable=redefined-builtin
+from six import PY2
+from six import unichr  # pylint: disable=redefined-builtin
 from six.moves import xrange  # pylint: disable=redefined-builtin
+
 
 # Regular expression that matches Unicode whitespace characters
 # (including ASCII whitespace) as defined in the Python run-time library
 _RE_WHITESPACE = re.compile(r"^\s$", re.UNICODE)
 
+
 # Set of Unicode whitespace code points
 UNICODE_WHITESPACE = set(unichr(i) for i in xrange(sys.maxunicode)
-                          if _RE_WHITESPACE.match(unichr(i)))
+                         if _RE_WHITESPACE.match(unichr(i)))
+
+
 # Set of Unicode punctuation code points
 UNICODE_PUNCTUATION = set(unichr(i) for i in xrange(sys.maxunicode)
                           if unicodedata.category(unichr(i)).startswith("P"))
+
+
 # Conversion between Unicode and UTF-8, if required (on Python2)
 _decode_string = (lambda s: s.decode("utf-8")) if PY2 else (lambda s: s)
+
+
 _encode_string = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
 
 
@@ -124,4 +131,3 @@ class Tokenizer(object):
         ret += u" "
       ret += token
     return _encode_string(ret)
-

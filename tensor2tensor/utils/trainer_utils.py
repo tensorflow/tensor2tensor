@@ -78,6 +78,11 @@ flags.DEFINE_bool("experimental_optimize_placement", False,
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
 flags.DEFINE_string("schedule", "local_run",
                     "Method of tf.contrib.learn.Experiment to run.")
+flags.DEFINE_integer("local_eval_frequency", 2000,
+                     "Run evaluation every this steps during local training.")
+flags.DEFINE_bool("locally_shard_to_cpu", False,
+                  "Use CPU as a sharding device runnning locally. This allows "
+                  "to test sharded model construction on a machine with 1 GPU.")
 flags.DEFINE_bool("daisy_chain_variables", True,
                   "copy variables around in a daisy chain")
 flags.DEFINE_bool("sync", False, "Sync compute on PS.")
@@ -143,6 +148,7 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
       eval_metrics=metrics.create_evaluation_metrics(FLAGS.problems.split("-")),
       train_steps=train_steps,
       eval_steps=eval_steps,
+      min_eval_frequency=FLAGS.local_eval_frequency,
       train_monitors=[])
 
 
@@ -417,7 +423,8 @@ def model_builder(model, hparams):
             "problem_%d_steps" % n, initializer=0, trainable=False)
         o4 = problem_steps.assign_add(1)
       with tf.control_dependencies([o1, o2, o3, o4]):  # Make sure the ops run.
-        total_loss = tf.identity(total_loss)
+        # Ensure the loss is a scalar here.
+        total_loss = tf.reshape(total_loss, [], name="total_loss_control_id")
       return [total_loss] + sharded_logits  # Need to flatten for cond later.
 
     result_list = _cond_on_index(nth_model, features["problem_choice"], 0,
@@ -472,15 +479,13 @@ def model_builder(model, hparams):
                           tf.to_float(nth_steps) / (global_step + 1.0))
 
     # Log trainable weights and add decay.
-    total_size, total_embedding, weight_decay_loss = 0, 0, 0.0
+    total_size, weight_decay_loss = 0, 0.0
     all_weights = {v.name: v for v in tf.trainable_variables()}
     for v_name in sorted(list(all_weights)):
       v = all_weights[v_name]
       v_size = int(np.prod(np.array(v.shape.as_list())))
       tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
                       v.name[:-2].ljust(80), str(v.shape).ljust(20), v_size)
-      if "embedding" in v_name:
-        total_embedding += v_size
       total_size += v_size
       if hparams.weight_decay > 0.0 and len(v.shape.as_list()) > 1:
         # Add weight regularization if set and the weight is not a bias (dim>1).
@@ -497,10 +502,9 @@ def model_builder(model, hparams):
         with tf.control_dependencies([noise_op]):
           total_loss = tf.identity(total_loss)
     tf.logging.info("Total trainable variables size: %d", total_size)
-    tf.logging.info("Total embedding variables size: %d", total_embedding)
-    tf.logging.info("Total non-embedding variables size: %d",
-                    total_size - total_embedding)
-    total_loss += weight_decay_loss * hparams.weight_decay
+    if hparams.weight_decay > 0.0:
+      total_loss += weight_decay_loss * hparams.weight_decay
+    total_loss = tf.identity(total_loss, name="total_loss")
 
     # Define the train_op for the TRAIN mode.
     opt = _ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
@@ -529,12 +533,7 @@ def run_locally(exp):
   if exp.train_steps > 0:
     # Train
     tf.logging.info("Performing local training.")
-    exp.train()
-
-  if exp.eval_steps > 0:
-    # Evaluate
-    tf.logging.info("Performing local evaluation.")
-    unused_metrics = exp.evaluate(delay_secs=0)
+    exp.train_and_evaluate()
 
   # Predict
   estimator = exp.estimator
@@ -1126,8 +1125,7 @@ def get_input_fn(mode,
 class _ConditionalOptimizer(tf.train.Optimizer):
   """Conditional optimizer."""
 
-  def __init__(self, optimizer_name, lr, hparams, skip_condition_tensor=False):
-    self._skip_condition = skip_condition_tensor
+  def __init__(self, optimizer_name, lr, hparams):
     if optimizer_name == "Adam":
       # We change the default epsilon for Adam and re-scale lr.
       # Using LazyAdam as it's much faster for large vocabulary embeddings.
@@ -1147,18 +1145,8 @@ class _ConditionalOptimizer(tf.train.Optimizer):
         loss, var_list, colocate_gradients_with_ops=colocate_gradients_with_ops)
 
   def apply_gradients(self, gradients, global_step=None, name=None):
-
-    def opt_gradients():
-      return self._opt.apply_gradients(
-          gradients, global_step=global_step, name=name)
-
-    if self._skip_condition is False:
-      return opt_gradients()
-    return tf.cond(
-        self._skip_condition,
-        tf.no_op,
-        opt_gradients,
-        name="conditional_optimizer_gradients_skip_cond")
+    return self._opt.apply_gradients(
+        gradients, global_step=global_step, name=name)
 
 
 def _sqrt_decay(step):
@@ -1256,6 +1244,8 @@ def data_parallelism(all_workers=False):
   if FLAGS.schedule == "local_run":
     assert not FLAGS.sync
     datashard_devices = ["gpu:%d" % d for d in _gpu_order(FLAGS.worker_gpu)]
+    if FLAGS.locally_shard_to_cpu:
+      datashard_devices += ["cpu:0"]
     caching_devices = None
   elif FLAGS.sync:
     assert FLAGS.ps_replicas > 0

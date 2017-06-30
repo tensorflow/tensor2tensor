@@ -37,10 +37,10 @@ from tensor2tensor.data_generators import algorithmic_math
 from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image
+from tensor2tensor.data_generators import ptb
 from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import wsj_parsing
-from tensor2tensor.data_generators import ptb
 
 import tensorflow as tf
 
@@ -319,11 +319,11 @@ _SUPPORTED_PROBLEM_GENERATORS = {
             vocab_filename="tokens.vocab.%d" % 2**15,
             vocab_size=2**15)),
     "lmptb_10k": (
-      lambda: ptb.train_generator(
+        lambda: ptb.train_generator(
             FLAGS.tmp_dir,
             FLAGS.data_dir,
             False),
-      lambda: ptb.valid_generator()),
+        ptb.valid_generator),
 }
 
 # pylint: enable=g-long-lambda

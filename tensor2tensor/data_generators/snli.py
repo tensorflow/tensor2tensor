@@ -130,6 +130,7 @@ def _parse_dataset(file_path, tmp_dir, train):
 
 
 def _get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
+  """Read or create vocabulary."""
   vocab_filepath = os.path.join(tmp_dir, vocab_filename)
   print('Vocab file written to: ' + vocab_filepath)
 
