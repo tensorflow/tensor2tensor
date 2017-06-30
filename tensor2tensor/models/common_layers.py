@@ -135,9 +135,14 @@ def image_augmentation(images, do_colors=False):
 def cifar_image_augmentation(images):
   """Image augmentation suitable for CIFAR-10/100.
 
-  As described in https://arxiv.org/pdf/1608.06993v3.pdf (page 5)."""
-  images = tf.image.resize_image_with_crop_or_pad(
-      images, 40, 40)
+  As described in https://arxiv.org/pdf/1608.06993v3.pdf (page 5).
+
+  Args:
+    images: a Tensor.
+  Returns:
+    Tensor of the same shape as images.
+  """
+  images = tf.image.resize_image_with_crop_or_pad(images, 40, 40)
   images = tf.random_crop(images, [32, 32, 3])
   images = tf.image.random_flip_left_right(images)
   return images
