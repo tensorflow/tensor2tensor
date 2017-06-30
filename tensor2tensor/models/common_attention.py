@@ -410,6 +410,75 @@ def multihead_attention(query_antecedent,
     return x
 
 
+def ffn_self_attention_layer(x,
+                             filter_depth,
+                             output_depth,
+                             num_parts,
+                             dropout_rate,
+                             share_kv=False,
+                             name=None):
+  """Self-attention feedforward layer.
+
+  We use self-attention to do feedforward computations. We apply this function
+  positionwise where for each position, we linearly transform the output to have
+  depth filter_depth, and break up the result depth-wise into num_parts
+  contiguous parts.  The parts self-attentd, we concatenate the results
+  depth-wise, and we linearly transform to a depth of output_depth. The
+  goal is to get multiplicative interactions between components of a
+  representation.
+
+  Args:
+    x: a Tensor with shape [batch, length, channels]
+    filter_depth: an integer
+    output_depth: an integer
+    num_parts: an integer dividing filter depth
+    dropout_rate: a floating point number
+    share_kv: Share the key value transform
+    name: an optional string
+
+  Returns:
+    A Tensor.
+  """
+
+  with tf.variable_scope(name, default_name="feedforward_self_attention",
+                         values=[x]):
+    x_shape = tf.shape(x)
+    part_depth = filter_depth // num_parts
+    if not share_kv:
+      combined = common_layers.conv1d(
+          x,
+          filter_depth * 3,
+          1,
+          name="qkv_transform")
+      combined = tf.expand_dims(combined, axis=2)
+      q, k, v = tf.split(combined, 3, axis=3)
+    else:
+      q = tf.expand_dims(common_layers.conv1d(
+          x,
+          filter_depth,
+          1,
+          name="q_transform"), axis=2)
+      kv_combined = tf.expand_dims(common_layers.conv1d(
+          tf.concat([x, x], axis=1),
+          filter_depth,
+          1,
+          name="kv_transform"), axis=2)
+      k, v = tf.split(kv_combined, [x_shape[1], x_shape[1]], axis=1)
+
+    batch_q = tf.reshape(q, [-1, 1, num_parts, part_depth])
+    batch_k = tf.reshape(k, [-1, 1, num_parts, part_depth])
+    batch_v = tf.reshape(v, [-1, 1, num_parts, part_depth])
+
+    batch_q *= part_depth**-0.5
+    # non-masked bias
+    bias = None
+    x = dot_product_attention(
+        batch_q, batch_k, batch_v, bias, dropout_rate)
+    x = tf.reshape(x, [x_shape[0], x_shape[1], filter_depth])
+    x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
+    return x
+
+
 def parameter_attention(x,
                         total_key_depth,
                         total_value_depth,

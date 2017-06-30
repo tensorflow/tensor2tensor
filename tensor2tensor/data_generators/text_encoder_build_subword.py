@@ -59,7 +59,7 @@ def main(unused_argv):
     raise ValueError('Must provide --corpus_filepattern')
   token_counts = text_encoder.SubwordTextEncoder.get_token_counts(
       FLAGS.corpus_filepattern, FLAGS.corpus_max_lines)
-  alphabet_set = SubwordTextEncoder.alphabet(token_counts)
+  alphabet_set = text_encoder.SubwordTextEncoder.alphabet(token_counts)
   gs.build_from_token_counts(token_counts, alphabet_set,
                              FLAGS.min_count,
                              FLAGS.num_iterations)

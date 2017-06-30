@@ -102,7 +102,7 @@ def zipf_distribution(nbr_symbols, alpha):
       Usually for modelling natural text distribution is in
       the range [1.1-1.6].
 
-  Return:
+  Returns:
     distr_map: list of float, Zipf's distribution over nbr_symbols.
 
   """
@@ -118,7 +118,7 @@ def zipf_random_sample(distr_map, sample_len):
     distr_map: list of float, Zipf's distribution over nbr_symbols.
     sample_len: integer, length of sequence to generate.
 
-  Return:
+  Returns:
     sample: list of integer, Zipf's random sample over nbr_symbols.
 
   """
@@ -131,8 +131,8 @@ def zipf_random_sample(distr_map, sample_len):
   return [t+1 if t > 0 else t+2 for t in np.searchsorted(distr_map, u)]
 
 
-def reverse_generator_nlplike(nbr_symbols, max_length, nbr_cases, \
-  scale_std_dev=100, alpha=1.5):
+def reverse_generator_nlplike(nbr_symbols, max_length, nbr_cases,
+                              scale_std_dev=100, alpha=1.5):
   """Generator for the reversing nlp-like task on sequences of symbols.
 
   The length of the sequence is drawn from a Gaussian(Normal) distribution
@@ -141,6 +141,7 @@ def reverse_generator_nlplike(nbr_symbols, max_length, nbr_cases, \
   nbr_cases sequences have been produced.
 
   Args:
+    nbr_symbols: integer, number of symbols.
     max_length: integer, maximum length of sequences to generate.
     nbr_cases: the number of cases to generate.
     scale_std_dev: float, Normal distribution's standard deviation scale factor

@@ -41,14 +41,13 @@ class AlgorithmicTest(tf.test.TestCase):
       self.assertEqual(list(reversed(d["inputs"])) + [1], d["targets"])
     self.assertEqual(counter, 10)
 
-  def  testZipfDistribution(self):
-  # Following Zipf's Law with alpha equals 1: the first in rank is two times
-  # more probable/frequent that the second in rank, three times more prob/freq
-  # that the third in rank and so on.
+  def testZipfDistribution(self):
+    # Following Zipf's Law with alpha equals 1: the first in rank is two times
+    # more probable/frequent that the second in rank, three times more prob/freq
+    # that the third in rank and so on.
     d = algorithmic.zipf_distribution(10, 1.0001)
     for i in xrange(len(d[1:])-1):
-      self.assertEqual("%.4f" % (abs(d[i+1]-d[i+2])*(i+2)), \
-       "%.4f" % d[1])
+      self.assertEqual("%.4f" % (abs(d[i+1]-d[i+2])*(i+2)), "%.4f" % d[1])
 
   def testReverseGeneratorNlpLike(self):
     counter = 0

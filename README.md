@@ -57,7 +57,7 @@ t2t-trainer --registry_help
 
 PROBLEM=wmt_ende_tokens_32k
 MODEL=transformer
-HPARAMS=transformer_base
+HPARAMS=transformer_base_single_gpu
 
 DATA_DIR=$HOME/t2t_data
 TMP_DIR=/tmp/t2t_datagen
@@ -209,7 +209,7 @@ and hyperparameter set functions can compose other hyperparameter set functions.
 The **trainer** binary is the main entrypoint for training, evaluation, and
 inference. Users can easily switch between problems, models, and hyperparameter
 sets by using the `--model`, `--problems`, and `--hparams_set` flags. Specific
-hyperparameters can be overriden with the `--hparams` flag. `--schedule` and
+hyperparameters can be overridden with the `--hparams` flag. `--schedule` and
 related flags control local and distributed training/evaluation
 ([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/docs/distributed_training.md)).
 

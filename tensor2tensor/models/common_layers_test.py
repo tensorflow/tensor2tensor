@@ -77,7 +77,7 @@ class CommonLayersTest(tf.test.TestCase):
   def testConv(self):
     x = np.random.rand(5, 7, 1, 11)
     with self.test_session() as session:
-      y = common_layers.conv(tf.constant(x, dtype=tf.float32), 13, (3, 3))
+      y = common_layers.conv(tf.constant(x, dtype=tf.float32), 13, (3, 1))
       session.run(tf.global_variables_initializer())
       res = session.run(y)
     self.assertEqual(res.shape, (5, 5, 1, 13))
@@ -86,7 +86,7 @@ class CommonLayersTest(tf.test.TestCase):
     x = np.random.rand(5, 7, 1, 11)
     with self.test_session() as session:
       y = common_layers.separable_conv(
-          tf.constant(x, dtype=tf.float32), 13, (3, 3))
+          tf.constant(x, dtype=tf.float32), 13, (3, 1))
       session.run(tf.global_variables_initializer())
       res = session.run(y)
     self.assertEqual(res.shape, (5, 5, 1, 13))
@@ -97,7 +97,7 @@ class CommonLayersTest(tf.test.TestCase):
       with self.test_session() as session:
         with tf.variable_scope("sep_%d" % sep):
           y = common_layers.subseparable_conv(
-              tf.constant(x, dtype=tf.float32), 16, (3, 3), separability=sep)
+              tf.constant(x, dtype=tf.float32), 16, (3, 1), separability=sep)
         session.run(tf.global_variables_initializer())
         res = session.run(y)
       self.assertEqual(res.shape, (5, 5, 1, 16))
@@ -283,7 +283,7 @@ class CommonLayersTest(tf.test.TestCase):
           tf.constant(x1, dtype=tf.float32), 4, 16)
       session.run(tf.global_variables_initializer())
       actual = session.run(a[0])
-    self.assertEqual(actual.shape, (5, 2, 1, 16))
+    self.assertEqual(actual.shape, (5, 2, 0, 16))
 
   def testDeconvStride2MultiStep(self):
     x1 = np.random.rand(5, 2, 1, 11)
