@@ -111,7 +111,7 @@ class ByteTextEncoder(TextEncoder):
     if six.PY2:
       return "".join(decoded_ids)
     # Python3: join byte arrays and then decode string
-    return b"".join(decoded_ids).decode("utf-8")
+    return b"".join(decoded_ids).decode("utf-8", "replace")
 
   @property
   def vocab_size(self):
