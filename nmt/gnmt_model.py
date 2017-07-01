@@ -176,11 +176,15 @@ class GNMTModel(attention_model.AttentionModel):
       raise ValueError(
           "Unknown attention_architecture %s" % attention_architecture)
 
-    decoder_initial_state = tuple(
-        zs.clone(cell_state=es)
-        if isinstance(zs, tf.contrib.seq2seq.AttentionWrapperState) else es
-        for zs, es in zip(
-            cell.zero_state(batch_size, dtype), encoder_state))
+
+    if hparams.pass_hidden_state:
+      decoder_initial_state = tuple(
+          zs.clone(cell_state=es)
+          if isinstance(zs, tf.contrib.seq2seq.AttentionWrapperState) else es
+          for zs, es in zip(
+              cell.zero_state(batch_size, dtype), encoder_state))
+    else:
+      decoder_initial_state = cell.zero_state(batch_size, dtype)
 
     return cell, decoder_initial_state
 

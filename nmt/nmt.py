@@ -60,6 +60,7 @@ def create_hparams():
       # Attention mechanisms
       attention=FLAGS.attention,
       attention_architecture=FLAGS.attention_architecture,
+      pass_hidden_state=FLAGS.pass_hidden_state,
 
       # Train
       optimizer=FLAGS.optimizer,
@@ -206,7 +207,7 @@ def ensure_compatible_hparams(hparams):
   new_hparams = create_hparams()
   new_hparams = utils.maybe_parse_standard_hparams(
       new_hparams, FLAGS.path_to_standard_hparams)
-  hparams = extend_hparams(hparams)
+  new_hparams = extend_hparams(new_hparams)
 
   # For compatible reason, if there are new fields in new_hparams,
   #   we add them to the current hparams
@@ -335,6 +336,13 @@ if __name__ == "__main__":
       standard: use top layer to compute attention.
       gnmt: GNMT style of computing attention, use previous bottom layer to
           compute attention.\
+      """)
+  parser.add_argument(
+      "--pass_hidden_state", type="bool", nargs="?", const=True,
+      default=True,
+      help="""\
+      Whether to pass encoder's hidden state to decoder when using an attention
+      based model.\
       """)
 
   # optimizer

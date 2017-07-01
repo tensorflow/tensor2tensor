@@ -116,8 +116,11 @@ class AttentionModel(model.Model):
                                         model_helper.get_device_str(
                                             num_layers - 1, num_gpus))
 
-    decoder_initial_state = cell.zero_state(batch_size, dtype).clone(
-        cell_state=encoder_state)
+    if hparams.pass_hidden_state:
+      decoder_initial_state = cell.zero_state(batch_size, dtype).clone(
+          cell_state=encoder_state)
+    else:
+      decoder_initial_state = cell.zero_state(batch_size, dtype)
 
     return cell, decoder_initial_state
 
