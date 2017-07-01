@@ -330,11 +330,16 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   inputs._shape = tf.TensorShape([static_shape[0], None, None, static_shape[3]])  # pylint: disable=protected-access
   if kernel_size[1] == 1 or force2d:
     # Avoiding the cond below can speed up graph and gradient construction.
-    return conv2d_kernel(kernel_size, "single")
-  return tf.cond(
+    c = conv2d_kernel(kernel_size, "single")
+  else: 
+    c = tf.cond(
       tf.equal(tf.shape(inputs)[2],
                1), lambda: conv2d_kernel((kernel_size[0], 1), "small"),
       lambda: conv2d_kernel(kernel_size, "std"))
+  # Restore the shape to maintain invariance
+  inputs.set_shape(static_shape)
+  c.set_shape(static_shape)
+  return c
 
 
 def conv(inputs, filters, kernel_size, **kwargs):
