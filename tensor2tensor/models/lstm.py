@@ -21,6 +21,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.models import common_layers
+from tensor2tensor.models import common_hparams
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -193,7 +194,8 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state, attn_sta
         input_keep_prob=1.0 - hparams.dropout * tf.to_float(train))
 
   layers = [dropout_lstm_cell() for _ in range(hparams.num_hidden_layers)]
-  cell = ExternalAttentionCellWrapper(tf.nn.rnn_cell.MultiRNNCell(layers), attn_states)
+  cell = ExternalAttentionCellWrapper(tf.nn.rnn_cell.MultiRNNCell(layers), attn_states, 
+         attn_vec_size=hparams.attn_vec_size)
   initial_state = cell.combine_state(initial_state)
   with tf.variable_scope(name):
     return tf.nn.dynamic_rnn(
@@ -254,3 +256,15 @@ class LSTMSeq2SeqAttention(t2t_model.T2TModel):
     train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
     return lstm_seq2seq_internal_attention(features["inputs"], features["targets"],
                                  self._hparams, train)
+
+@registry.register_hparams
+def lstm_attention():
+  """hparams for LSTM with attention."""
+  hparams = common_hparams.basic_params1()
+  hparams.batch_size = 128
+  hparams.hidden_size = 128
+  hparams.num_hidden_layers = 2
+
+  # Attention
+  hparams.add_hparam("attn_vec_size", hparams.hidden_size)
+  return hparams

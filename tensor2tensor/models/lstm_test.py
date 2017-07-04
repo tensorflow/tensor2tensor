@@ -55,7 +55,8 @@ class LSTMTest(tf.test.TestCase):
     vocab_size = 9
     x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
     y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
-    hparams = common_hparams.basic_params1()
+    hparams = lstm.lstm_attention()
+
     p_hparams = problem_hparams.test_problem_hparams(hparams, vocab_size,
                                                      vocab_size)
     x = tf.constant(x, dtype=tf.int32)
