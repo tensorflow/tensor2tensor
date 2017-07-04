@@ -1,9 +1,16 @@
 # Compiled python modules.
 *.pyc
 
+# Byte-compiled
+_pycache__/
+
 # Python egg metadata, regenerated from source files by setuptools.
 /*.egg-info
 
-# PyPI distribution artificats
+# PyPI distribution artifacts.
 build/
 dist/
+
+# Sublime project files
+*.sublime-project
+*.sublime-workspace
