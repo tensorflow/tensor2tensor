@@ -293,7 +293,7 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   static_shape = inputs.get_shape()
   if not static_shape or len(static_shape) != 4:
     raise ValueError("Inputs to conv must have statically known rank 4.")
-  inputs.set_shape([static_shape[0], None, None, static_shape[3]])
+  #inputs.set_shape([static_shape[0], None, None, static_shape[3]])
   # Add support for left padding.
   if "padding" in kwargs and kwargs["padding"] == "LEFT":
     dilation_rate = (1, 1)
@@ -307,9 +307,9 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
     width_padding = 0 if static_shape[2] == 1 else cond_padding
     padding = [[0, 0], [height_padding, 0], [width_padding, 0], [0, 0]]
     inputs = tf.pad(inputs, padding)
+    # Set middle two dimensions to None to prevent convolution from complaining
+    inputs.set_shape([static_shape[0], None, None, static_shape[3]])
     kwargs["padding"] = "VALID"
-  # Special argument we use to force 2d kernels (see below).
-  force2d = kwargs.get("force2d", True)
 
   def conv2d_kernel(kernel_size_arg, name_suffix):
     """Call conv2d but add suffix to name."""
@@ -329,17 +329,7 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
       kwargs["force2d"] = original_force2d
     return result
 
-  # Manually setting the shape to be unknown in the middle two dimensions so
-  # that the `tf.cond` below won't throw an error based on the convolution
-  # kernels being too large for the data.
-  inputs._shape = tf.TensorShape([static_shape[0], None, None, static_shape[3]])  # pylint: disable=protected-access
-  if kernel_size[1] == 1 or force2d:
-    # Avoiding the cond below can speed up graph and gradient construction.
-    return conv2d_kernel(kernel_size, "single")
-  return tf.cond(
-      tf.equal(tf.shape(inputs)[2],
-               1), lambda: conv2d_kernel((kernel_size[0], 1), "small"),
-      lambda: conv2d_kernel(kernel_size, "std"))
+  return conv2d_kernel(kernel_size, "single")
 
 
 def conv(inputs, filters, kernel_size, **kwargs):
@@ -566,20 +556,8 @@ def pool(inputs, window_size, pooling_type, padding, strides=(1, 1)):
       inputs = tf.pad(inputs, padding_)
       inputs.set_shape([static_shape[0], None, None, static_shape[3]])
       padding = "VALID"
-    window_size_small = (window_size[0], 1)
-    strides_small = (strides[0], 1)
-    # Manually setting the shape to be unknown in the middle two dimensions so
-    # that the `tf.cond` below won't throw an error based on the convolution
-    # kernels being too large for the data.
-    inputs._shape = tf.TensorShape(  # pylint: disable=protected-access
-        [static_shape[0], None, None, static_shape[3]])
-    return tf.cond(
-        tf.equal(tf.shape(inputs)[2], 1),
-        lambda: tf.nn.pool(  # pylint: disable=g-long-lambda
-            inputs, window_size_small, pooling_type, padding,
-            strides=strides_small),
-        lambda: tf.nn.pool(  # pylint: disable=g-long-lambda
-            inputs, window_size, pooling_type, padding, strides=strides))
+
+    return tf.nn.pool(inputs, window_size, pooling_type, padding, strides=strides)
 
 
 def conv_block_downsample(x,
