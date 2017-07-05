@@ -203,12 +203,10 @@ def input_pipeline(data_file_pattern, capacity, mode):
             lambda img=inputs: resize(img))
       else:
         examples["inputs"] = tf.to_int64(resize(inputs))
-
     elif ("image_cifar10" in data_file_pattern
-        and mode == tf.contrib.learn.ModeKeys.TRAIN):
+          and mode == tf.contrib.learn.ModeKeys.TRAIN):
       examples["inputs"] = common_layers.cifar_image_augmentation(
           examples["inputs"])
-
   elif "audio" in data_file_pattern:
     # Reshape audio to proper shape
     sample_count = tf.to_int32(examples.pop("audio/sample_count"))
