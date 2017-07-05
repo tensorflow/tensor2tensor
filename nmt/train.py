@@ -150,7 +150,7 @@ def train(hparams, scope=None):
     model_creator = nmt_model.Model
   elif hparams.attention_architecture == "standard":
     model_creator = attention_model.AttentionModel
-  elif hparams.attention_architecture == "gnmt":
+  elif hparams.attention_architecture in ["gnmt", "gnmt_v2"]:
     model_creator = gnmt_model.GNMTModel
   else:
     raise ValueError("Unknown model architecture")

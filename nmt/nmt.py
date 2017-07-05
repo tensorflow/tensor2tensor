@@ -332,10 +332,12 @@ if __name__ == "__main__":
       type=str,
       default="standard",
       help="""\
-      standard | gnmt.
+      standard | gnmt | gnmt_v2.
       standard: use top layer to compute attention.
       gnmt: GNMT style of computing attention, use previous bottom layer to
-          compute attention.\
+          compute attention.
+      gnmt_v2: similar to gnmt, but use current bottom layer to compute
+          attention.\
       """)
   parser.add_argument(
       "--pass_hidden_state", type="bool", nargs="?", const=True,

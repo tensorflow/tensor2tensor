@@ -75,15 +75,24 @@ class ModelTest(tf.test.TestCase):
         'AttentionMechanismScaledLuong/last_enc_weight/shape': (10, 20),
         'AttentionMechanismScaledLuong/last_enc_weight/sum':
             0.058028102,
-        'GNMTModel/last_dec_weight/shape': (15, 20),
-        'GNMTModel/last_dec_weight/sum':
-            -0.43950042,
-        'GNMTModel/last_enc_weight/shape': (10, 20),
-        'GNMTModel/last_enc_weight/sum':
-            0.058523536,
-        'GNMTModel/mem_layer_weight/shape': (5, 5),
-        'GNMTModel/mem_layer_weight/sum':
-            -0.4481546,
+        'GNMTModel_gnmt/last_dec_weight/shape': (15, 20),
+        'GNMTModel_gnmt/last_dec_weight/sum':
+            -0.48634407,
+        'GNMTModel_gnmt/last_enc_weight/shape': (10, 20),
+        'GNMTModel_gnmt/last_enc_weight/sum':
+            0.058025002,
+        'GNMTModel_gnmt/mem_layer_weight/shape': (5, 5),
+        'GNMTModel_gnmt/mem_layer_weight/sum':
+            -0.44815454,
+        'GNMTModel_gnmt_v2/last_dec_weight/shape': (15, 20),
+        'GNMTModel_gnmt_v2/last_dec_weight/sum':
+            -0.48634392,
+        'GNMTModel_gnmt_v2/last_enc_weight/shape': (10, 20),
+        'GNMTModel_gnmt_v2/last_enc_weight/sum':
+            0.058024824,
+        'GNMTModel_gnmt_v2/mem_layer_weight/shape': (5, 5),
+        'GNMTModel_gnmt_v2/mem_layer_weight/sum':
+            -0.44815454,
         'NoAttentionNoResidualUniEncoder/last_dec_weight/shape': (10, 20),
         'NoAttentionNoResidualUniEncoder/last_dec_weight/sum':
             0.057424068,
@@ -125,7 +134,8 @@ class ModelTest(tf.test.TestCase):
         'AttentionMechanismLuong/loss': 8.8519039,
         'AttentionMechanismNormedBahdanau/loss': 8.851902,
         'AttentionMechanismScaledLuong/loss': 8.8519039,
-        'GNMTModel/loss': 8.5208139,
+        'GNMTModel_gnmt/loss': 8.8519087,
+        'GNMTModel_gnmt_v2/loss': 8.8519087,
         'NoAttentionNoResidualUniEncoder/loss': 8.8516064,
         'NoAttentionResidualBiEncoder/loss': 8.851984,
         'UniEncoderStandardAttentionArchitecture/loss': 8.8519087
@@ -141,8 +151,10 @@ class ModelTest(tf.test.TestCase):
         'AttentionMechanismNormedBahdanau/predict_count': 11.0,
         'AttentionMechanismScaledLuong/loss': 8.8517132,
         'AttentionMechanismScaledLuong/predict_count': 11.0,
-        'GNMTModel/loss': 8.8443422,
-        'GNMTModel/predict_count': 11.0,
+        'GNMTModel_gnmt/loss': 8.8443403,
+        'GNMTModel_gnmt/predict_count': 11.0,
+        'GNMTModel_gnmt_v2/loss': 8.8443756,
+        'GNMTModel_gnmt_v2/predict_count': 11.0,
         'NoAttentionNoResidualUniEncoder/loss': 8.8440113,
         'NoAttentionNoResidualUniEncoder/predict_count': 11.0,
         'NoAttentionResidualBiEncoder/loss': 8.8291245,
@@ -159,7 +171,8 @@ class ModelTest(tf.test.TestCase):
         'AttentionMechanismLuong/logits_sum': -0.026374735,
         'AttentionMechanismNormedBahdanau/logits_sum': -0.026376063,
         'AttentionMechanismScaledLuong/logits_sum': -0.026374735,
-        'GNMTModel/logits_sum': -0.9888710,
+        'GNMTModel_gnmt/logits_sum': -0.98668635,
+        'GNMTModel_gnmt_v2/logits_sum': -0.98513138,
         'NoAttentionNoResidualUniEncoder/logits_sum': -1.0808625,
         'NoAttentionResidualBiEncoder/logits_sum': -2.8147559,
         'UniEncoderBottomAttentionArchitecture/logits_sum': -0.97026241,
@@ -840,12 +853,12 @@ class ModelTest(tf.test.TestCase):
                                 'UniEncoderStandardAttentionArchitecture')
 
   # Test gnmt model.
-  def testGNMTModel(self):
+  def _testGNMTModel(self, architecture):
     hparams = common_test_utils.create_test_hparams(
         encoder_type='gnmt',
         num_layers=4,
         attention='scaled_luong',
-        attention_architecture='gnmt')
+        attention_architecture=architecture)
 
     workers, _ = tf.test.create_local_cluster(1, 0)
     worker = workers[0]
@@ -878,6 +891,7 @@ class ModelTest(tf.test.TestCase):
     ]
     # pylint: enable=line-too-long
 
+    test_prefix = 'GNMTModel_%s' % architecture
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
         train_m = self._createTestTrainModel(gnmt_model.GNMTModel, hparams,
@@ -885,32 +899,38 @@ class ModelTest(tf.test.TestCase):
 
         m_vars = tf.trainable_variables()
         self._assertModelVariableNames(expected_var_names,
-                                       [v.name for v in m_vars], 'GNMTModel')
+                                       [v.name for v in m_vars], test_prefix)
         with tf.variable_scope('dynamic_seq2seq', reuse=True):
           last_enc_weight = tf.get_variable(
               'encoder/rnn/multi_rnn_cell/cell_2/basic_lstm_cell/kernel')
           last_dec_weight = tf.get_variable(
               'decoder/multi_rnn_cell/cell_3/basic_lstm_cell/kernel')
           mem_layer_weight = tf.get_variable('decoder/memory_layer/kernel')
-        self._assertTrainStepsLoss(train_m, sess, 'GNMTModel')
+        self._assertTrainStepsLoss(train_m, sess, test_prefix)
 
         self._assertModelVariable(last_enc_weight, sess,
-                                  'GNMTModel/last_enc_weight')
+                                  '%s/last_enc_weight' % test_prefix)
         self._assertModelVariable(last_dec_weight, sess,
-                                  'GNMTModel/last_dec_weight')
+                                  '%s/last_dec_weight' % test_prefix)
         self._assertModelVariable(mem_layer_weight, sess,
-                                  'GNMTModel/mem_layer_weight')
+                                  '%s/mem_layer_weight' % test_prefix)
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
         eval_m = self._createTestEvalModel(gnmt_model.GNMTModel, hparams, sess)
-        self._assertEvalLossAndPredictCount(eval_m, sess, 'GNMTModel')
+        self._assertEvalLossAndPredictCount(eval_m, sess, test_prefix)
 
     with tf.Graph().as_default():
       with tf.Session(worker.target, config=self._get_session_config()) as sess:
         infer_m = self._createTestInferModel(gnmt_model.GNMTModel, hparams,
                                              sess)
-        self._assertInferLogits(infer_m, sess, 'GNMTModel')
+        self._assertInferLogits(infer_m, sess, test_prefix)
+
+  def testGNMTModel(self):
+    self._testGNMTModel('gnmt')
+
+  def testGNMTModelV2(self):
+    self._testGNMTModel('gnmt_v2')
 
   # Test beam search.
   def testBeamSearchBasicModel(self):

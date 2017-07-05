@@ -172,6 +172,9 @@ class GNMTModel(attention_model.AttentionModel):
     if attention_architecture == "gnmt":
       cell = GNMTAttentionMultiCell(
           attention_cell, cell_list)
+    elif attention_architecture == "gnmt_v2":
+      cell = GNMTAttentionMultiCell(
+          attention_cell, cell_list, use_new_attention=True)
     else:
       raise ValueError(
           "Unknown attention_architecture %s" % attention_architecture)
@@ -198,14 +201,17 @@ class GNMTModel(attention_model.AttentionModel):
 class GNMTAttentionMultiCell(tf.nn.rnn_cell.MultiRNNCell):
   """A MultiCell with GNMT attention style."""
 
-  def __init__(self, attention_cell, cells):
+  def __init__(self, attention_cell, cells, use_new_attention=False):
     """Creates a GNMTAttentionMultiCell.
 
     Args:
       attention_cell: An instance of AttentionWrapper.
       cells: A list of RNNCell wrapped with AttentionInputWrapper.
+      use_new_attention: Whether to use the attention generated from current
+        step bottom layer's output. Default is False.
     """
     cells = [attention_cell] + cells
+    self.use_new_attention = use_new_attention
     super(GNMTAttentionMultiCell, self).__init__(cells, state_is_tuple=True)
 
   def __call__(self, inputs, state, scope=None):
@@ -233,8 +239,13 @@ class GNMTAttentionMultiCell(tf.nn.rnn_cell.MultiRNNCell):
           if not isinstance(cur_state, tf.contrib.rnn.LSTMStateTuple):
             raise TypeError("`state[{}]` must be a LSTMStateTuple".format(i))
 
-          cur_state = cur_state._replace(h=tf.concat(
-              [cur_state.h, attention_state.attention], 1))
+          if self.use_new_attention:
+            cur_state = cur_state._replace(h=tf.concat(
+                [cur_state.h, new_attention_state.attention], 1))
+          else:
+            cur_state = cur_state._replace(h=tf.concat(
+                [cur_state.h, attention_state.attention], 1))
+
           cur_inp, new_state = cell(cur_inp, cur_state)
           new_states.append(new_state)
 
