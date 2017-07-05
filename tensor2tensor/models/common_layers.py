@@ -1302,16 +1302,13 @@ def pad_to_same_length(x, y, final_length_divisible_by=1, axis=1):
     return res_x, res_y
 
 
-def pad_with_zeros(logits, labels, return_logits=False):
+def pad_with_zeros(logits, labels):
   """Pad labels on the length dimension to match logits length."""
   with tf.name_scope("pad_with_zeros", [logits, labels]):
     logits, labels = pad_to_same_length(logits, labels)
     if len(labels.shape.as_list()) == 3:  # 2-d labels.
       logits, labels = pad_to_same_length(logits, labels, axis=2)
-    if return_logits:
-      return logits, labels
-    else: 
-      return labels
+    return labels
 
 
 def weights_nonzero(labels):
@@ -1377,8 +1374,8 @@ def padded_cross_entropy(logits,
   confidence = 1.0 - label_smoothing
   vocab_size = tf.shape(logits)[-1]
   with tf.name_scope("padded_cross_entropy", [logits, labels]):
-    pad_logits, pad_labels = pad_with_zeros(logits, labels, return_logits=True)
-    xent = smoothing_cross_entropy(pad_logits, pad_labels, vocab_size, confidence)
+    pad_labels = pad_with_zeros(logits, labels)
+    xent = smoothing_cross_entropy(logits, pad_labels, vocab_size, confidence)
     weights = weights_fn(pad_labels)
     if not reduce_sum:
       return xent * weights, weights
