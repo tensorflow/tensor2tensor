@@ -331,7 +331,6 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
 
   return conv2d_kernel(kernel_size, "single")
 
-
 def conv(inputs, filters, kernel_size, **kwargs):
   return conv_internal(tf.layers.conv2d, inputs, filters, kernel_size, **kwargs)
 
