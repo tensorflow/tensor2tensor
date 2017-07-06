@@ -46,13 +46,10 @@ def to_example(dictionary):
     elif isinstance(v[0], float):
       features[k] = tf.train.Feature(float_list=tf.train.FloatList(value=v))
     elif isinstance(v[0], six.string_types):
-      v = [bytes(x, 'utf-8') for x in v]
-      features[k] = tf.train.Feature(bytes_list=tf.train.BytesList(value=v))
-    elif isinstance(v[0], bytes):
       features[k] = tf.train.Feature(bytes_list=tf.train.BytesList(value=v))
     else:
-      raise ValueError("Value for %s is neither an int nor a float; v: %s type: %s" %
-                       (k, str(v[0]), str(type(v[0]))))
+      raise ValueError("Value is neither an int nor a float; v: %s type: %s" %
+                       (str(v[0]), str(type(v[0]))))
   return tf.train.Example(features=tf.train.Features(feature=features))
 
 
