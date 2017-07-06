@@ -29,7 +29,7 @@ import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import six.moves.urllib_request as urllib  # Imports urllib on Python2, urllib.request on Python3
 
-from tensor2tensor.data_generators.text_encoder import SubwordTextEncoder
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators.tokenizer import Tokenizer
 
 import tensorflow as tf
@@ -218,15 +218,18 @@ _DATA_FILE_URLS = [
 ]
 
 
-def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
-  """Generate a vocabulary from the datasets listed in _DATA_FILE_URLS."""
+def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
+  """Generate a vocabulary from the datasets in sources (_DATA_FILE_URLS)."""
   vocab_filepath = os.path.join(tmp_dir, vocab_filename)
   if os.path.exists(vocab_filepath):
-    vocab = SubwordTextEncoder(vocab_filepath)
+    tf.logging.info("Found vocab file: %s", vocab_filepath)
+    vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
     return vocab
 
+  sources = sources or _DATA_FILE_URLS
+  tf.logging.info("Generating vocab from: %s", str(sources))
   tokenizer = Tokenizer()
-  for source in _DATA_FILE_URLS:
+  for source in sources:
     url = source[0]
     filename = os.path.basename(url)
     read_type = "r:gz" if "tgz" in filename else "r"
@@ -259,9 +262,9 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
             break
           line = line.strip()
           file_byte_budget -= len(line)
-          _ = tokenizer.encode(line)
+          _ = tokenizer.encode(text_encoder.native_to_unicode(line))
 
-  vocab = SubwordTextEncoder.build_to_target_size(
+  vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
       vocab_size, tokenizer.token_counts, 1, 1e3)
   vocab.store_to_file(vocab_filepath)
   return vocab

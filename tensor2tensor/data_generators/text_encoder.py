@@ -36,10 +36,10 @@ import tensorflow as tf
 
 
 # Conversion between Unicode and UTF-8, if required (on Python2)
-_native_to_unicode = (lambda s: s.decode("utf-8")) if PY2 else (lambda s: s)
+native_to_unicode = (lambda s: s.decode("utf-8")) if PY2 else (lambda s: s)
 
 
-_unicode_to_native = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
+unicode_to_native = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
 
 
 # Reserved tokens for things like padding and EOS symbols.
@@ -220,7 +220,7 @@ class SubwordTextEncoder(TextEncoder):
       a list of integers in the range [0, vocab_size)
     """
     return self._tokens_to_subtokens(self._tokenizer.encode(
-        _native_to_unicode(raw_text)))
+        native_to_unicode(raw_text)))
 
   def decode(self, subtokens):
     """Converts a sequence of subtoken ids to a native string.
@@ -230,7 +230,7 @@ class SubwordTextEncoder(TextEncoder):
     Returns:
       a native string
     """
-    return _unicode_to_native(self._tokenizer.decode(
+    return unicode_to_native(self._tokenizer.decode(
         self._subtokens_to_tokens(subtokens)))
 
   @property
@@ -334,6 +334,9 @@ class SubwordTextEncoder(TextEncoder):
         other_subtokenizer = bisect(present_count + 1, max_val)
       else:
         other_subtokenizer = bisect(min_val, present_count - 1)
+
+      if other_subtokenizer is None:
+        return subtokenizer
 
       if (abs(other_subtokenizer.vocab_size - target_size) <
           abs(subtokenizer.vocab_size - target_size)):
@@ -449,13 +452,13 @@ class SubwordTextEncoder(TextEncoder):
     subtoken_strings = []
     with tf.gfile.Open(filename) as f:
       for line in f:
-        subtoken_strings.append(_native_to_unicode(line.strip()[1:-1]))
+        subtoken_strings.append(native_to_unicode(line.strip()[1:-1]))
     self._init_from_list(subtoken_strings)
 
   def store_to_file(self, filename):
     with tf.gfile.Open(filename, "w") as f:
       for subtoken_string in self._all_subtoken_strings:
-        f.write("'" + _unicode_to_native(subtoken_string) + "'\n")
+        f.write("'" + unicode_to_native(subtoken_string) + "'\n")
 
   def _escape_token(self, token):
     r"""Escape away underscores and OOV characters and append '_'.
@@ -524,7 +527,7 @@ class SubwordTextEncoder(TextEncoder):
       with tf.gfile.Open(text_filename) as f:
         for line in f:
           # The tokenizer updates token_counts in encode()
-          tok.encode(_native_to_unicode(line.strip()))
+          tok.encode(native_to_unicode(line.strip()))
           lines_read += 1
           if corpus_max_lines > 0 and lines_read > corpus_max_lines:
             return tok.token_counts
