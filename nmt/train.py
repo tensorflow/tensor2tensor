@@ -129,7 +129,7 @@ def create_eval_model(model_creator,
           eval_tgt_file_placeholder, eval_iterator)
 
 
-def train(hparams, scope=None):
+def train(hparams, eval_only=False, scope=None):
   """Train a translation model."""
   log_device_placement = hparams.log_device_placement
   out_dir = hparams.out_dir
@@ -186,8 +186,18 @@ def train(hparams, scope=None):
         infer_batch_size_placeholder: hparams.infer_batch_size,
     }
 
+  if eval_only:
+    if len(hparams.metrics) != 1:
+      raise ValueError("Expect exactly 1 metric in eval_only mode.")
+
+    summary_name = "eval_log"
+    model_dir = getattr(hparams, "best_" + hparams.metrics[0] + "_dir")
+  else:
+    summary_name = "train_log"
+    model_dir = hparams.out_dir
+
   # Log and output files
-  log_file = os.path.join(out_dir, "log")
+  log_file = os.path.join(out_dir, "log_%d" % time.time())
   log_f = tf.gfile.GFile(log_file, mode="a")
   utils.print_out("# log_file=%s" % log_file, log_f)
 
@@ -203,18 +213,18 @@ def train(hparams, scope=None):
 
   with train_graph.as_default():
     train_model, global_step = model_helper.create_or_load_model(
-        train_model, out_dir, train_sess, hparams.out_dir, "train")
+        train_model, model_dir, train_sess, hparams.out_dir, "train")
 
   # Summary writer
   summary_writer = tf.summary.FileWriter(
-      os.path.join(out_dir, "train_log"), train_graph)
+      os.path.join(out_dir, summary_name), train_graph)
 
   # For internal evaluation (perplexity)
   def run_internal_eval():
     """Compute internal evaluation for both dev / test."""
     with infer_graph.as_default():
       loaded_infer_model, global_step = model_helper.create_or_load_model(
-          infer_model, hparams.out_dir, infer_sess, hparams.out_dir, "infer")
+          infer_model, model_dir, infer_sess, hparams.out_dir, "infer")
 
     _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
                    infer_iterator, dev_src_data, dev_tgt_data,
@@ -223,7 +233,7 @@ def train(hparams, scope=None):
 
     with eval_graph.as_default():
       loaded_eval_model, global_step = model_helper.create_or_load_model(
-          eval_model, hparams.out_dir, eval_sess, hparams.out_dir, "eval")
+          eval_model, model_dir, eval_sess, hparams.out_dir, "eval")
 
     dev_ppl = _internal_eval(loaded_eval_model, global_step, eval_sess,
                              eval_iterator, dev_eval_iterator_feed_dict,
@@ -240,7 +250,7 @@ def train(hparams, scope=None):
     """Compute external evaluation for both dev / test."""
     with infer_graph.as_default():
       loaded_infer_model, global_step = model_helper.create_or_load_model(
-          infer_model, hparams.out_dir, infer_sess, hparams.out_dir, "infer")
+          infer_model, model_dir, infer_sess, hparams.out_dir, "infer")
 
     _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
                    infer_iterator, dev_src_data, dev_tgt_data,
@@ -257,7 +267,7 @@ def train(hparams, scope=None):
         dev_tgt_file,
         "dev",
         summary_writer,
-        save_on_best=True)
+        save_on_best=(not eval_only))
     test_scores = None
     if hparams.test_prefix:
       test_scores = _external_eval(
@@ -302,7 +312,7 @@ def train(hparams, scope=None):
           train_skip_count_placeholder: skip_count
       })
 
-  while global_step < num_train_steps:
+  while global_step < num_train_steps and not eval_only:
     ### Run a step ###
     start_time = time.time()
     try:
@@ -378,12 +388,15 @@ def train(hparams, scope=None):
       dev_scores, test_scores = run_external_eval()
 
   # Done training
-  train_model.saver.save(
-      train_sess,
-      os.path.join(out_dir, "translate.ckpt"),
-      global_step=global_step)
-  dev_ppl, test_ppl = run_internal_eval()
-  dev_scores, test_scores = run_external_eval()
+  if not eval_only:
+    train_model.saver.save(
+        train_sess,
+        os.path.join(out_dir, "translate.ckpt"),
+        global_step=global_step)
+
+    dev_ppl, test_ppl = run_internal_eval()
+    dev_scores, test_scores = run_external_eval()
+
   utils.print_out("# Best dev %s" % _get_best_results(hparams))
 
   all_dev_perplexities.append(dev_ppl)

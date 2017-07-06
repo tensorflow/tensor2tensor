@@ -241,6 +241,7 @@ def load_train_hparams(out_dir):
 
   # Save HParams
   utils.save_hparams(out_dir, hparams)
+
   for metric in hparams.metrics:
     utils.save_hparams(getattr(hparams, "best_" + metric + "_dir"), hparams)
 
@@ -300,7 +301,7 @@ def main(unused_argv):
     hparams = load_train_hparams(out_dir)
 
     # Train
-    train.train(hparams)
+    train.train(hparams, FLAGS.eval_only)
 
 
 if __name__ == "__main__":
@@ -465,6 +466,15 @@ if __name__ == "__main__":
                             "hparams values from FLAGS."))
   parser.add_argument("--random_seed", type=int, default=None,
                       help="Random seed (>0, set a specific seed).")
+
+  # Single flag to do inference based on training settings
+  parser.add_argument("--eval_only", type="bool", nargs="?",
+                      const=True, default=False,
+                      help=("""\
+      Automaticlly take the best model, run eval over dev/test sets
+      which were specified during training. No need to specify
+      other arguments.\
+      """))
 
   # Inference
   parser.add_argument("--model_dir", type=str, default="",
