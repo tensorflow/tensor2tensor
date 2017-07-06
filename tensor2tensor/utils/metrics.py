@@ -37,10 +37,10 @@ def padded_accuracy_topk(predictions,
                          weights_fn=common_layers.weights_nonzero):
   """Percentage of times that top-k predictions matches labels on non-0s."""
   with tf.variable_scope("padded_accuracy_topk", values=[predictions, labels]):
-    padded_predictions, padded_labels = common_layers.pad_with_zeros(predictions, labels)
+    padded_labels = common_layers.pad_with_zeros(predictions, labels)
     weights = weights_fn(padded_labels)
-    effective_k = tf.minimum(k, tf.shape(padded_predictions)[-1])
-    _, outputs = tf.nn.top_k(padded_predictions, k=effective_k)
+    effective_k = tf.minimum(k, tf.shape(predictions)[-1])
+    _, outputs = tf.nn.top_k(predictions, k=effective_k)
     outputs = tf.to_int32(outputs)
     padded_labels = tf.expand_dims(padded_labels, axis=-1)
     padded_labels += tf.zeros_like(outputs)  # Pad to same shape.
@@ -61,9 +61,9 @@ def padded_sequence_accuracy(predictions,
   """Percentage of times that predictions matches labels everywhere (non-0)."""
   with tf.variable_scope(
       "padded_sequence_accuracy", values=[predictions, labels]):
-    paded_predictions, padded_labels = common_layers.pad_with_zeros(predictions, labels)
+    padded_labels = common_layers.pad_with_zeros(predictions, labels)
     weights = weights_fn(padded_labels)
-    outputs = tf.to_int32(tf.argmax(paded_predictions, axis=-1))
+    outputs = tf.to_int32(tf.argmax(predictions, axis=-1))
     not_correct = tf.to_float(tf.not_equal(outputs, padded_labels)) * weights
     axis = list(range(1, len(outputs.get_shape())))
     correct_seq = 1.0 - tf.minimum(1.0, tf.reduce_sum(not_correct, axis=axis))
@@ -84,9 +84,9 @@ def padded_accuracy(predictions,
                     weights_fn=common_layers.weights_nonzero):
   """Percentage of times that predictions matches labels on non-0s."""
   with tf.variable_scope("padded_accuracy", values=[predictions, labels]):
-    padded_predictions, padded_labels = common_layers.pad_with_zeros(predictions, labels)
+    padded_labels = common_layers.pad_with_zeros(predictions, labels)
     weights = weights_fn(padded_labels)
-    outputs = tf.to_int32(tf.argmax(padded_predictions, axis=-1))
+    outputs = tf.to_int32(tf.argmax(predictions, axis=-1))
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
 

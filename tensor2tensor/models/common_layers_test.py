@@ -277,13 +277,13 @@ class CommonLayersTest(tf.test.TestCase):
     self.assertAllEqual(actual, expected)
 
   def testConvStride2MultiStep(self):
-    x1 = np.random.rand(5, 32, 16, 11)
+    x1 = np.random.rand(5, 32, 1, 11)
     with self.test_session() as session:
       a = common_layers.conv_stride2_multistep(
           tf.constant(x1, dtype=tf.float32), 4, 16)
       session.run(tf.global_variables_initializer())
       actual = session.run(a[0])
-    self.assertEqual(actual.shape, (5, 2, 1, 16))
+    self.assertEqual(actual.shape, (5, 2, 0, 16))
 
   def testDeconvStride2MultiStep(self):
     x1 = np.random.rand(5, 2, 1, 11)
