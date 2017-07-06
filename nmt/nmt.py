@@ -290,7 +290,8 @@ def main(unused_argv):
         score = evaluation_utils.evaluate(
             ref_file,
             trans_file,
-            metric)
+            metric,
+            hparams.bpe_delimiter)
         utils.print_out("  %s: %.1f" % (metric, score))
   else:
     if not tf.gfile.Exists(out_dir): tf.gfile.MakeDirs(out_dir)
