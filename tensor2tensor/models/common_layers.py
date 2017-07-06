@@ -293,7 +293,6 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   static_shape = inputs.get_shape()
   if not static_shape or len(static_shape) != 4:
     raise ValueError("Inputs to conv must have statically known rank 4.")
-  #inputs.set_shape([static_shape[0], None, None, static_shape[3]])
   # Add support for left padding.
   if "padding" in kwargs and kwargs["padding"] == "LEFT":
     dilation_rate = (1, 1)
@@ -330,6 +329,7 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
     return result
 
   return conv2d_kernel(kernel_size, "single")
+
 
 def conv(inputs, filters, kernel_size, **kwargs):
   return conv_internal(tf.layers.conv2d, inputs, filters, kernel_size, **kwargs)
@@ -556,7 +556,7 @@ def pool(inputs, window_size, pooling_type, padding, strides=(1, 1)):
       inputs.set_shape([static_shape[0], None, None, static_shape[3]])
       padding = "VALID"
 
-    return tf.nn.pool(inputs, window_size, pooling_type, padding, strides=strides)
+  return tf.nn.pool(inputs, window_size, pooling_type, padding, strides=strides)
 
 
 def conv_block_downsample(x,
@@ -1352,7 +1352,8 @@ def padded_cross_entropy(logits,
   vocab_size = tf.shape(logits)[-1]
   with tf.name_scope("padded_cross_entropy", [logits, labels]):
     pad_logits, pad_labels = pad_with_zeros(logits, labels)
-    xent = smoothing_cross_entropy(pad_logits, pad_labels, vocab_size, confidence)
+    xent = smoothing_cross_entropy(pad_logits, pad_labels,
+                                   vocab_size, confidence)
     weights = weights_fn(pad_labels)
     if not reduce_sum:
       return xent * weights, weights

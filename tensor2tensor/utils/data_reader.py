@@ -130,6 +130,52 @@ def examples_queue(data_sources,
     }
 
 
+def preprocessing(examples, data_file_pattern, mode):
+  """Preprocessing of examples."""
+  if "image" in data_file_pattern:
+    # Small single-example pre-processing for images.
+    def resize(img, size):
+      return tf.to_int64(tf.image.resize_images(img, [size, size]))
+    def preprocess(img):
+      img = tf.image.resize_images(img, [360, 360])
+      img = common_layers.image_augmentation(tf.to_float(img) / 255.)
+      return tf.to_int64(img * 255.)
+    if ("image_imagenet" in data_file_pattern or
+        "image_mscoco" in data_file_pattern):
+      examples["inputs"] = tf.cast(examples["inputs"], tf.int64)
+      # For imagnet/coco, resize images to 299x299 as is standard.
+      inputs = examples["inputs"]
+      if mode == tf.contrib.learn.ModeKeys.TRAIN:
+        examples["inputs"] = tf.cond(  # Preprocess 80% of the time.
+            tf.less(tf.random_uniform([]), 0.8),
+            lambda img=inputs: preprocess(img),
+            lambda img=inputs: resize(img, 299))
+      else:
+        examples["inputs"] = tf.to_int64(resize(inputs, 299))
+    elif ("image_cifar10" in data_file_pattern
+          and mode == tf.contrib.learn.ModeKeys.TRAIN):
+      examples["inputs"] = common_layers.cifar_image_augmentation(
+          examples["inputs"])
+    elif "img2img" in data_file_pattern:
+      inputs = examples["inputs"]
+      examples["inputs"] = resize(inputs, 16)
+      examples["targets"] = resize(inputs, 64)
+
+  elif "audio" in data_file_pattern:
+    # Reshape audio to proper shape
+    sample_count = tf.to_int32(examples.pop("audio/sample_count"))
+    sample_width = tf.to_int32(examples.pop("audio/sample_width"))
+    channel_count = 1
+    examples["inputs"] = tf.reshape(examples["inputs"],
+                                    [sample_count, sample_width, channel_count])
+    if "wsj" in data_file_pattern:
+      examples["inputs"] = tf.bitcast(examples["inputs"], tf.int32)
+  elif "a2q_20161229" in data_file_pattern:
+    # we forgot the EOS when we preprocessed this data.
+    examples["targets"] = tf.concat([examples["targets"], [1]], 0)
+  return examples
+
+
 def input_pipeline(data_file_pattern, capacity, mode):
   """Input pipeline, returns a dictionary of tensors from queues."""
   # Read from image TFRecords if the file has "image" in its name.
@@ -181,44 +227,7 @@ def input_pipeline(data_file_pattern, capacity, mode):
       capacity=capacity,
       data_items_to_decoders=data_items_to_decoders)
 
-  if "image" in data_file_pattern:
-    # Small single-example pre-processing for images.
-    examples["inputs"] = tf.cast(examples["inputs"], tf.int64)
-    if ("image_imagenet" in data_file_pattern or
-        "image_mscoco" in data_file_pattern):
-      # For imagnet/coco, resize images to 299x299 as is standard.
-      def resize(img):
-        return tf.to_int64(tf.image.resize_images(img, [299, 299]))
-
-      def preprocess(img):
-        img = tf.image.resize_images(img, [360, 360])
-        img = common_layers.image_augmentation(tf.to_float(img) / 255.)
-        return tf.to_int64(img * 255.)
-
-      inputs = examples["inputs"]
-      if mode == tf.contrib.learn.ModeKeys.TRAIN:
-        examples["inputs"] = tf.cond(  # Preprocess 80% of the time.
-            tf.less(tf.random_uniform([]), 0.8),
-            lambda img=inputs: preprocess(img),
-            lambda img=inputs: resize(img))
-      else:
-        examples["inputs"] = tf.to_int64(resize(inputs))
-    elif ("image_cifar10" in data_file_pattern
-          and mode == tf.contrib.learn.ModeKeys.TRAIN):
-      examples["inputs"] = common_layers.cifar_image_augmentation(
-          examples["inputs"])
-  elif "audio" in data_file_pattern:
-    # Reshape audio to proper shape
-    sample_count = tf.to_int32(examples.pop("audio/sample_count"))
-    sample_width = tf.to_int32(examples.pop("audio/sample_width"))
-    channel_count = 1
-    examples["inputs"] = tf.reshape(examples["inputs"],
-                                    [sample_count, sample_width, channel_count])
-    if "wsj" in data_file_pattern:
-      examples["inputs"] = tf.bitcast(examples["inputs"], tf.int32)
-  elif "a2q_20161229" in data_file_pattern:
-    # we forgot the EOS when we preprocessed this data.
-    examples["targets"] = tf.concat([examples["targets"], [1]], 0)
+  examples = preprocessing(examples, data_file_pattern, mode)
 
   # We do not want int64s as they do are not supported on GPUs.
   return {k: tf.to_int32(v) for (k, v) in six.iteritems(examples)}

@@ -24,7 +24,6 @@ import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import multimodel
-from tensor2tensor.models import slicenet
 
 import tensorflow as tf
 
@@ -34,7 +33,7 @@ class MultiModelTest(tf.test.TestCase):
   def testMultiModel(self):
     x = np.random.random_integers(0, high=255, size=(3, 5, 4, 3))
     y = np.random.random_integers(0, high=9, size=(3, 5, 1, 1))
-    hparams = slicenet.slicenet_params1_tiny()
+    hparams = multimodel.multimodel_tiny()
     p_hparams = problem_hparams.image_cifar10(hparams)
     hparams.problems = [p_hparams]
     with self.test_session() as session:

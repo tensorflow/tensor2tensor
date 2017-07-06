@@ -19,52 +19,66 @@ from __future__ import print_function
 
 # Dependency imports
 
+from tensor2tensor.models import common_attention
+from tensor2tensor.models import common_hparams
 from tensor2tensor.models import common_layers
 from tensor2tensor.models import modalities
 from tensor2tensor.models import slicenet
-from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
 
-def experts(xs, moe_n1, moe_n2, hidden_size, filter_size, dp, ps, train):
-  """Mixture-of-Experts layer."""
-  # Set up the hyperparameters for the gating networks.
-  primary_gating_hp = eu.NoisyTopKGatingParams()
-  primary_gating_hp.num_experts = moe_n1
-  if moe_n2:
-    # Hierarchical MoE containing moe_n1 groups of moe_n2 experts.
-    assert moe_n2 > 1
-    secondary_gating_hp = eu.NoisyTopKGatingParams()
-    secondary_gating_hp.num_experts = moe_n2
-  else:
-    # Flat mixture of moe_n1 experts.
-    secondary_gating_hp = None
-  # Set up the hyperparameters for the expert networks.
-  # Each expert contains a hidden RELU layer of size filter_size
-  expert_hp = eu.FeedForwardExpertParams()
-  expert_hp.hidden_layer_sizes = [filter_size]
-  # Create the mixture of experts.
-  moe = eu.DistributedMixtureOfExperts(primary_gating_hp, secondary_gating_hp,
-                                       expert_hp, hidden_size, hidden_size, ps,
-                                       "moe")
-  # MoE expects input tensors to be 2d.  Flatten out spatial dimensions.
-  xs_2d = dp(tf.reshape, xs, [[-1, hidden_size]] * dp.n)
-  # Call the MoE
-  moe_out_2d, importance, load, _, _ = moe.Eval(
-      dp.devices, xs_2d, train, summaries=False, identifiers=None)
-  # Reshape the output to the original shape.
-  moe_out = dp(tf.reshape, moe_out_2d, dp(tf.shape, xs))
-  # These losses encourage equal load on the different experts.
-  loss = eu.CVSquared(importance) + eu.CVSquared(load)
+def conv_res_step(x, hparams, padding, mask):
+  """One step of convolutions and mid-residual."""
+  k = (hparams.kernel_height, hparams.kernel_width)
+  k2 = (hparams.large_kernel_size, 1)
+  dilations_and_kernels1 = [((1, 1), k), ((1, 1), k)]
+  dilations_and_kernels2 = [((1, 1), k2), ((4, 4), k2)]
+  with tf.variable_scope("conv_res_step"):
+    y = common_layers.subseparable_conv_block(
+        x, hparams.filter_size, dilations_and_kernels1,
+        padding=padding, mask=mask, separabilities=0, name="residual1")
+    y = tf.nn.dropout(y, 1.0 - hparams.dropout)
+    return common_layers.subseparable_conv_block(
+        y, hparams.hidden_size, dilations_and_kernels2,
+        padding=padding, mask=mask, separabilities=0, name="residual2")
 
-  # Apply residual and normalize.
-  def add_and_normalize(x, y):
-    return common_layers.layer_norm(x + y, hidden_size, name="moe_norm")
 
-  return dp(add_and_normalize, xs, moe_out), loss
+def residual_fn2(x, y, hparams):
+  y = tf.nn.dropout(y, 1.0 - hparams.dropout)
+  return common_layers.layer_norm(x + y)
+
+
+def residual_fn3(x, y, z, hparams):
+  y = tf.nn.dropout(y, 1.0 - hparams.dropout)
+  z = tf.nn.dropout(z, 1.0 - hparams.dropout)
+  return common_layers.layer_norm(x + y + z)
+
+
+def conv_experts(xs, hparams, dp, ps, padding, mask, layer_id):
+  """Convolutions + Mixture-of-Experts layer."""
+  del layer_id  # Unused.
+  train = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
+  conv_out = dp(conv_res_step, xs, hparams, padding, mask)
+  loss = 0.0
+  moe_out, loss = common_layers.moe_layer(
+      dp, ps, xs, train, hparams.hidden_size, hparams.filter_size,
+      hparams.moe_n1, hparams.moe_n2, 1.0)
+  return dp(residual_fn3, xs, moe_out, conv_out, hparams), loss
+
+
+def prepare_decoder(targets, target_space_emb):
+  """Prepare decoder."""
+  decoder_self_attention_bias = (
+      common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
+  target_space_emb = tf.reshape(target_space_emb, [1, 1, -1])
+  target_space_emb = tf.tile(target_space_emb, [tf.shape(targets)[0], 1, 1])
+  decoder_input = common_layers.shift_left_3d(
+      targets, pad_value=target_space_emb)
+  decoder_input = common_attention.add_timing_signal_1d(decoder_input)
+  return (decoder_input, decoder_self_attention_bias)
 
 
 @registry.register_model
@@ -74,87 +88,119 @@ class MultiModel(t2t_model.T2TModel):
     train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
     dp = self._data_parallelism
     hparams = self._hparams
-    targets = sharded_features["targets"]
 
     def flatten(inputs):
       return tf.expand_dims(common_layers.flatten4d3d(inputs), axis=2)
 
     inputs = dp(flatten, sharded_features["inputs"])
-
-    # Encode inputs.
-    def encode_half(inputs, inputs_mask, hparams):
-      # Add timing and encode.
-      inputs = common_layers.add_timing_signal(inputs)
-      return slicenet.multi_conv_res(inputs, "SAME", "encoder1",
-                                     hparams.num_hidden_layers // 2,
-                                     hparams, mask=inputs_mask)
-
-    target_space_emb = dp(slicenet.embed_target_space,
-                          sharded_features["target_space_id"],
-                          hparams.hidden_size)
     inputs_pad = dp(slicenet.embedding_to_padding, inputs)
     inputs_mask = dp(lambda x: 1.0 - x, inputs_pad)
-    inputs_encoded = dp(encode_half, inputs, inputs_mask, hparams)
-    with tf.variable_scope("experts_enc"):
-      inputs_encoded, expert_loss = experts(
-          inputs_encoded, hparams.moe_n1, hparams.moe_n2, hparams.hidden_size,
-          hparams.hidden_size, dp, self._ps_devices, train)
-      expert_loss *= hparams.moe_loss_coef
-    inputs_encoded = dp(
-        slicenet.multi_conv_res, inputs_encoded, "SAME",
-        "encoder2", hparams.num_hidden_layers, hparams,
-        mask=inputs_mask)
+    inputs_encoded = dp(common_layers.add_timing_signal, inputs)
+    expert_loss = 0.0
+    for i in xrange(hparams.num_hidden_layers):
+      with tf.variable_scope("enc_layer_%d" % i):
+        inputs_encoded, moe_loss = conv_experts(
+            inputs_encoded, hparams, dp, self._ps_devices, "SAME",
+            inputs_mask, i)
+        expert_loss += tf.reduce_mean(moe_loss) * hparams.moe_loss_coef
 
     # If we're just predicing a class, there is no use for a decoder, return.
     if isinstance(hparams.problems[self._problem_idx].target_modality,
                   modalities.ClassLabelModality):
       return inputs_encoded, tf.reduce_mean(expert_loss)
 
-    # Do the middle part.
-    decoder_start, similarity_loss = dp(
-        slicenet.slicenet_middle, inputs_encoded, targets,
-        target_space_emb, inputs_mask, hparams)
+    # Decoder.
+    inputs3d = dp(tf.squeeze, inputs, 2)
+    inputs_encoded3d = dp(tf.squeeze, inputs_encoded, 2)
+    encoder_padding = dp(common_attention.embedding_to_padding, inputs3d)
+    encoder_attention_bias = dp(
+        common_attention.attention_bias_ignore_padding, encoder_padding)
+    targets = dp(common_layers.flatten4d3d, sharded_features["targets"])
+    target_space_emb = dp(slicenet.embed_target_space,
+                          sharded_features["target_space_id"],
+                          hparams.hidden_size)
 
-    # Decode.
-    decoder_half = dp(
-        slicenet.multi_conv_res,
-        decoder_start,
-        "LEFT",
-        "decoder1",
-        hparams.num_hidden_layers // 2,
-        hparams,
-        train,
-        mask=inputs_mask,
-        source=inputs_encoded)
-    with tf.variable_scope("experts_dec"):
-      decoder_half, expert_dec_loss = experts(
-          decoder_half, hparams.moe_n1, hparams.moe_n2, hparams.hidden_size,
-          hparams.hidden_size, dp, self._ps_devices, train)
-      expert_loss += expert_dec_loss * hparams.moe_loss_coef
-    decoder_final = dp(
-        slicenet.multi_conv_res,
-        decoder_half,
-        "LEFT",
-        "decoder2",
-        hparams.num_hidden_layers // 2,
-        hparams,
-        mask=inputs_mask,
-        source=inputs_encoded)
+    (decoder_input, decoder_self_attention_bias) = dp(
+        prepare_decoder, targets, target_space_emb)
 
-    total_loss = tf.reduce_mean(expert_loss) + tf.reduce_mean(similarity_loss)
-    return decoder_final, total_loss
+    x = dp(tf.nn.dropout, decoder_input, 1.0 - hparams.dropout)
+    for layer in xrange(hparams.num_hidden_layers):
+      with tf.variable_scope("dec_layer_%d" % layer):
+        with tf.variable_scope("attention"):
+          y = dp(common_attention.multihead_attention,
+                 x,
+                 None,
+                 decoder_self_attention_bias,
+                 hparams.hidden_size,
+                 hparams.hidden_size,
+                 hparams.hidden_size,
+                 hparams.num_heads,
+                 hparams.attention_dropout,
+                 summaries=False,
+                 name="decoder_self_attention")
+          z = dp(common_attention.multihead_attention,
+                 y,
+                 inputs_encoded3d,
+                 encoder_attention_bias,
+                 hparams.hidden_size,
+                 hparams.hidden_size,
+                 hparams.hidden_size,
+                 hparams.num_heads,
+                 hparams.attention_dropout,
+                 summaries=False,
+                 name="encdec_attention")
+          x = dp(residual_fn3, x, y, z, hparams)
+        with tf.variable_scope("ffn"):
+          if str(layer) in hparams.moe_layers.split(","):
+            y, moe_loss = common_layers.moe_layer(
+                dp, self._ps_devices, x, train,
+                hparams.hidden_size, hparams.filter_size,
+                hparams.moe_n1, hparams.moe_n2, hparams.moe_loss_coef)
+            expert_loss += tf.reduce_mean(moe_loss)
+          else:
+            y = dp(common_layers.conv_hidden_relu,
+                   x,
+                   hparams.filter_size,
+                   hparams.hidden_size,
+                   dropout=hparams.dropout)
+          x = dp(residual_fn2, x, y, hparams)
+
+    x = dp(tf.expand_dims, x, 2)
+    return x, tf.reduce_mean(expert_loss)
 
 
-@registry.register_hparams("multimodel_1p8")
-def multimodel_params1_p8():
-  """Version for eight problem runs."""
-  hparams = slicenet.slicenet_params1()
-  hparams.problem_choice = "distributed"
-  hparams.attention_type = "simple"  # TODO(lukaszkaiser): add transformer.
-  hparams.hidden_size = 1536
-  hparams.moe_n1 = 120
-  hparams.shared_embedding_and_softmax_weights = int(False)
+@registry.register_hparams
+def multimodel_base():
+  """Base parameters for MultiModel."""
+  hparams = common_hparams.basic_params1()
+  hparams.hidden_size = 512
+  hparams.batch_size = 2048
+  hparams.num_hidden_layers = 4
+  hparams.learning_rate_decay_scheme = "noam"
+  hparams.learning_rate = 0.1
+  hparams.learning_rate_warmup_steps = 4000
+  hparams.initializer_gain = 1.0
   hparams.dropout = 0.1
-  hparams.attention_dropout = 0.1
-  hparams.learning_rate_decay_scheme = "exp500k"
+  hparams.add_hparam("filter_size", 2048)  # Add new ones like this.
+  hparams.add_hparam("large_kernel_size", 15)
+  hparams.add_hparam("attention_dropout", 0.1)
+  hparams.add_hparam("num_heads", 8)
+  hparams.add_hparam("moe_n1", 30)
+  hparams.add_hparam("moe_n2", 0)
+  hparams.add_hparam("moe_layers", "2")
+  hparams.add_hparam("moe_loss_coef", 1e-2)
+  hparams.add_hparam("imagenet_use_2d", int(True))
+  return hparams
+
+
+@registry.register_hparams
+def multimodel_tiny():
+  """Tiny parameters for MultiModel."""
+  hparams = multimodel_base()
+  hparams.hidden_size = 128
+  hparams.filter_size = 512
+  hparams.batch_size = 512
+  hparams.num_hidden_layers = 2
+  hparams.moe_n1 = 10
+  hparams.moe_layers = "0"
   return hparams

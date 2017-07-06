@@ -18,9 +18,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
+
 # Dependency imports
 
-import collections
+import numpy as np
+
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensor2tensor.models import common_hparams
@@ -28,8 +31,8 @@ from tensor2tensor.models import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import numpy as np
 import tensorflow as tf
+
 
 # var:          1d tensor, raw weights for each choice
 # tempered_var: raw weights with temperature applied
@@ -37,7 +40,8 @@ import tensorflow as tf
 # normalized:   same shape as var, but where each item is between 0 and 1, and
 #               the sum is 1
 SelectionWeights = collections.namedtuple(
-    'SelectionWeights', ['var', 'tempered_var', 'inv_t', 'normalized'])
+    "SelectionWeights", ["var", "tempered_var", "inv_t", "normalized"])
+
 
 def create_selection_weights(name,
                              type_,
@@ -50,19 +54,20 @@ def create_selection_weights(name,
 
   Args:
     name: Name for the underlying variable containing the unnormalized weights.
-    type_: 'softmax' or 'sigmoid' or ('softmax_topk', k) where k is an int.
+    type_: "softmax" or "sigmoid" or ("softmax_topk", k) where k is an int.
     shape: Shape for the variable.
+    inv_t: Inverse of the temperature to use in normalization.
     initializer: Initializer for the variable, passed to `tf.get_variable`.
     regularizer: Regularizer for the variable. A callable which accepts
       `tempered_var` and `normalized`.
-    inv_t: Inverse of the temperature to use in normalization.
     names: Name of each selection.
 
   Returns:
     The created SelectionWeights tuple.
+
+  Raises:
+    ValueError: if type_ is not in the supported range.
   """
-
-
   var = tf.get_variable(name, shape, initializer=initializer)
 
   if callable(inv_t):
@@ -72,22 +77,21 @@ def create_selection_weights(name,
   else:
     tempered_var = var * inv_t
 
-  if type_ == 'softmax':
+  if type_ == "softmax":
     weights = tf.nn.softmax(tempered_var)
-  elif type_ == 'sigmoid':
+  elif type_ == "sigmoid":
     weights = tf.nn.sigmoid(tempered_var)
-  elif isinstance(type_, (list, tuple)) and type_[0] == 'softmax_topk':
+  elif isinstance(type_, (list, tuple)) and type_[0] == "softmax_topk":
     assert len(shape) == 1
-
     # TODO(rshin): Change this to select without replacement?
-    selection = tf.multinomial(tf.expand_dims(var, axis=0), k)
+    selection = tf.multinomial(tf.expand_dims(var, axis=0), 4)
     selection = tf.squeeze(selection, axis=0)   # [k] selected classes.
     to_run = tf.one_hot(selection, shape[0])  # [k x nmodules] one-hot.
     # [nmodules], 0=not run, 1=run.
     to_run = tf.minimum(tf.reduce_sum(to_run, axis=0), 1)
     weights = tf.nn.softmax(tempered_var - 1e9 * (1.0 - to_run))
   else:
-    return ValueError(type)
+    raise ValueError("Unknown type: %s" % type_)
 
   if regularizer is not None:
     loss = regularizer(tempered_var, weights)
@@ -95,10 +99,10 @@ def create_selection_weights(name,
       tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, loss)
 
   if names is not None:
-    tf.get_collection_ref('selection_weight_names/' + var.name).extend(
+    tf.get_collection_ref("selection_weight_names/" + var.name).extend(
         names.flatten()
         if isinstance(names, np.ndarray) else names)
-    tf.add_to_collection('selection_weight_names_tensor/' + var.name,
+    tf.add_to_collection("selection_weight_names_tensor/" + var.name,
                          tf.constant(names))
 
   return SelectionWeights(
@@ -110,7 +114,7 @@ def create_selection_weights(name,
 
 def kernel_premultiplier(max_kernel_size, kernel_sizes, input_channels,
                          kernel_selection_weights, channel_selection_weights):
-  '''Get weights to multiply the kernel with, before convolving.
+  """Get weights to multiply the kernel with, before convolving.
 
   Args:
     max_kernel_size: (int, int) tuple giving the largest kernel size.
@@ -122,9 +126,10 @@ def kernel_premultiplier(max_kernel_size, kernel_sizes, input_channels,
       among kernel sizes.
     channel_selection_weights: SelectionWeights object to use for choosing
       among which input channels to use.
-  '''
 
-
+  Returns:
+    The multiplier.
+  """
   kernel_weights = []
   for kernel_i, (h, w) in enumerate(kernel_sizes):
     top = (max_kernel_size[0] - h) // 2
@@ -153,6 +158,7 @@ def kernel_premultiplier(max_kernel_size, kernel_sizes, input_channels,
                 tf.reshape(channel_weight, (1, 1, -1, 1)))
   return multiplier
 
+
 def make_subseparable_kernel(
     kernel_size,
     input_channels,
@@ -160,7 +166,7 @@ def make_subseparable_kernel(
     separability,
     kernel_initializer,
     kernel_regularizer):
-  '''Make a kernel to do subseparable convolution wiht  `tf.nn.conv2d`.
+  """Make a kernel to do subseparable convolution wiht  `tf.nn.conv2d`.
 
   Args:
     kernel_size: (height, width) tuple.
@@ -172,12 +178,11 @@ def make_subseparable_kernel(
 
   Returns:
     A 4D tensor.
-  '''
-
+  """
   if separability == 1:
     # Non-separable convolution
     return tf.get_variable(
-        'kernel',
+        "kernel",
         kernel_size + (input_channels, filters),
         initializer=kernel_initializer,
         regularizer=kernel_regularizer)
@@ -186,13 +191,13 @@ def make_subseparable_kernel(
     # Separable convolution
     # TODO(rshin): Check initialization is as expected, as these are not 4D.
     depthwise_kernel = tf.get_variable(
-        'depthwise_kernel',
+        "depthwise_kernel",
         kernel_size + (input_channels,),
         initializer=kernel_initializer,
         regularizer=kernel_regularizer)
 
     pointwise_kernel = tf.get_variable(
-        'pointwise_kernel',
+        "pointwise_kernel",
         (input_channels, filters),
         initializer=kernel_initializer,
         regularizer=kernel_regularizer)
@@ -230,22 +235,16 @@ def multi_subseparable_conv(
     kernel_sizes,
     input_channels,
     separabilities,
-
     kernel_selection_weights=None,
     channel_selection_weights=None,
     separability_selection_weights=None,
-
-    kernel_selection_weights_params={},
-    channel_selection_weights_params={},
-    separability_selection_weights_params={},
-
+    kernel_selection_weights_params=None,
+    channel_selection_weights_params=None,
+    separability_selection_weights_params=None,
     kernel_initializer=None,
     kernel_regularizer=None,
-
     scope=None):
-  '''
-  Simultaneously compute different kinds of convolutions on
-  different subsets of the input.
+  """Simultaneously compute different kinds of convolutions on subsets of input.
 
   Args:
     inputs: 4D tensor containing the input, in NHWC format.
@@ -254,30 +253,38 @@ def multi_subseparable_conv(
       different kernel sizes to use.
     input_channels: A list of (begin, end) pairs of integers, which describe
       which channels in the input to use.
-
+    separabilities: An integer or a list, how separable are the convolutions.
     kernel_selection_weights: SelectionWeights object to use for choosing
       among kernel sizes.
     channel_selection_weights: SelectionWeights object to use for choosing
       among which input channels to use.
-
-    kernel_size_seletion_weights_params: dict with up to three keys
+    separability_selection_weights: SelectionWeights object to use for choosing
+      separability.
+    kernel_selection_weights_params: dict with up to three keys
       - initializer
       - regularizer
       - inv_t
-    channel_seletion_weights_params: dict with up to three keys
+    channel_selection_weights_params: dict with up to three keys
       - initializer
       - regularizer
       - inv_t
-
+    separability_selection_weights_params: dict with up to three keys
+      - initializer
+      - regularizer
+      - inv_t
     kernel_initializer: Initializer to use for kernels.
     kernel_regularizer: Regularizer to use for kernels.
+    scope: the scope to use.
 
   Returns:
     Result of convolution.
+  """
+  kernel_selection_weights_params = kernel_selection_weights_params or {}
+  channel_selection_weights_params = channel_selection_weights_params or {}
+  if separability_selection_weights_params is None:
+    separability_selection_weights_params = {}
 
-  '''
-
-  # Get input image size
+  # Get input image size.
   input_shape = inputs.get_shape().as_list()
   assert len(input_shape) == 4
   in_channels = input_shape[3]
@@ -285,41 +292,38 @@ def multi_subseparable_conv(
 
   max_kernel_size = tuple(np.max(kernel_sizes, axis=0))
   max_num_channels = np.max(input_channels) - np.min(input_channels)
-  # kernel height x kernel width x
-  # number of input channels x number of output channels
-  max_kernel_shape = max_kernel_size + (max_num_channels, filters)
 
-  with tf.variable_scope('selection_weights'):
+  with tf.variable_scope(scope or "selection_weights"):
     if kernel_selection_weights is None:
       kernel_selection_weights = create_selection_weights(
-          'kernels',
-          'softmax', (len(kernel_sizes),),
+          "kernels",
+          "softmax", (len(kernel_sizes),),
           names=[
-              'kernel_h{}_w{}'.format(h, w) for h, w in kernel_sizes
+              "kernel_h{}_w{}".format(h, w) for h, w in kernel_sizes
           ],
           **kernel_selection_weights_params)
 
     if channel_selection_weights is None:
       channel_selection_weights = create_selection_weights(
-          'channels',
-          'softmax', (len(input_channels),),
+          "channels",
+          "softmax", (len(input_channels),),
           names=[
-              'channels_{}_{}'.format(c1, c2) for c1, c2 in input_channels
+              "channels_{}_{}".format(c1, c2) for c1, c2 in input_channels
           ],
           **channel_selection_weights_params)
 
     if separability_selection_weights is None:
       separability_selection_weights = create_selection_weights(
-          'separability',
-          'softmax', (len(separabilities),),
+          "separability",
+          "softmax", (len(separabilities),),
           names=[
-              'separability_{}'.format(s) for s in separabilities
+              "separability_{}".format(s) for s in separabilities
           ],
           **separability_selection_weights_params)
 
   kernels = []
   for separability in separabilities:
-    with tf.variable_scope('separablity_{}'.format(separability)):
+    with tf.variable_scope("separablity_{}".format(separability)):
       kernel = make_subseparable_kernel(
           max_kernel_size,
           max_num_channels,
@@ -347,9 +351,9 @@ def multi_subseparable_conv(
       inputs,
       filter=kernel,
       strides=[1, 1, 1, 1],
-      padding='SAME',
-      data_format='NHWC',
-      name='conv2d')
+      padding="SAME",
+      data_format="NHWC",
+      name="conv2d")
 
 
 def conv_module(kw, kh, sep, div):
@@ -360,12 +364,13 @@ def conv_module(kw, kh, sep, div):
         name="conv_%d%d_sep%d_div%d" % (kw, kh, sep, div))
   return convfn
 
+
 def multi_conv_module(kernel_sizes, seps):
   def convfn(x, hparams):
     return multi_subseparable_conv(x, hparams.hidden_size, kernel_sizes,
                                    [(0, hparams.hidden_size)], seps)
-
   return convfn
+
 
 def layernorm_module(x, hparams):
   return common_layers.layer_norm(x, hparams.hidden_size, name="layer_norm")
@@ -404,12 +409,11 @@ def shakeshake_binary_module(x, y, hparams):
 def run_binary_modules(modules, cur1, cur2, hparams):
   """Run binary modules."""
   selection_weights = create_selection_weights(
-      'selection',
-      'softmax',
+      "selection",
+      "softmax",
       shape=[len(modules)],
       inv_t=100.0 * common_layers.inverse_exp_decay(
           hparams.anneal_until, min_value=0.01))
-
   all_res = [modules[n](cur1, cur2, hparams) for n in xrange(len(modules))]
   all_res = tf.concat([tf.expand_dims(r, axis=0) for r in all_res], axis=0)
   res = all_res * tf.reshape(selection_weights.normalized, [-1, 1, 1, 1, 1])
@@ -419,12 +423,11 @@ def run_binary_modules(modules, cur1, cur2, hparams):
 def run_unary_modules_basic(modules, cur, hparams):
   """Run unary modules."""
   selection_weights = create_selection_weights(
-      'selection',
-      'softmax',
+      "selection",
+      "softmax",
       shape=[len(modules)],
       inv_t=100.0 * common_layers.inverse_exp_decay(
           hparams.anneal_until, min_value=0.01))
-
   all_res = [modules[n](cur, hparams) for n in xrange(len(modules))]
   all_res = tf.concat([tf.expand_dims(r, axis=0) for r in all_res], axis=0)
   res = all_res * tf.reshape(selection_weights.normalized, [-1, 1, 1, 1, 1])
@@ -434,12 +437,11 @@ def run_unary_modules_basic(modules, cur, hparams):
 def run_unary_modules_sample(modules, cur, hparams, k):
   """Run modules, sampling k."""
   selection_weights = create_selection_weights(
-      'selection',
-      ('softmax_topk', k),
+      "selection",
+      ("softmax_topk", k),
       shape=[len(modules)],
       inv_t=100.0 * common_layers.inverse_exp_decay(
           hparams.anneal_until, min_value=0.01))
-
   all_res = [tf.cond(tf.less(selection_weights.normalized[n], 1e-6),
                      lambda: tf.zeros_like(cur),
                      lambda i=n: modules[i](cur, hparams))
@@ -468,12 +470,10 @@ class BlueNet(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
     hparams = self._hparams
-    # TODO(rshin): Add back div.
     # TODO(rshin): Give identity_module lower weight by default.
-    conv_modules = [
-        multi_conv_module(
-            kernel_sizes=[(3, 3), (5, 5), (7, 7)], seps=[0, 1]), identity_module
-    ]
+    multi_conv = multi_conv_module(
+        kernel_sizes=[(3, 3), (5, 5), (7, 7)], seps=[0, 1])
+    conv_modules = [multi_conv, identity_module]
     activation_modules = [identity_module,
                           lambda x, _: tf.nn.relu(x),
                           lambda x, _: tf.nn.elu(x),
@@ -498,20 +498,24 @@ class BlueNet(t2t_model.T2TModel):
           x.set_shape(x_shape)
       return tf.nn.dropout(x, 1.0 - hparams.dropout), batch_deviation(x)
 
-    cur1, cur2, extra_loss = inputs, inputs, 0.0
+    cur1, cur2, cur3, extra_loss = inputs, inputs, inputs, 0.0
     cur_shape = inputs.get_shape()
     for i in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % i):
         cur1, loss1 = run_unary(cur1, "unary1")
         cur2, loss2 = run_unary(cur2, "unary2")
-        extra_loss += (loss1 + loss2) / float(hparams.num_hidden_layers)
+        cur3, loss3 = run_unary(cur2, "unary3")
+        extra_loss += (loss1 + loss2 + loss3) / float(hparams.num_hidden_layers)
         with tf.variable_scope("binary1"):
           next1 = run_binary_modules(binary_modules, cur1, cur2, hparams)
           next1.set_shape(cur_shape)
         with tf.variable_scope("binary2"):
-          next2 = run_binary_modules(binary_modules, cur1, cur2, hparams)
+          next2 = run_binary_modules(binary_modules, cur1, cur3, hparams)
           next2.set_shape(cur_shape)
-        cur1, cur2 = next1, next2
+        with tf.variable_scope("binary3"):
+          next3 = run_binary_modules(binary_modules, cur2, cur3, hparams)
+          next3.set_shape(cur_shape)
+        cur1, cur2, cur3 = next1, next2, next3
 
     anneal = common_layers.inverse_exp_decay(hparams.anneal_until)
     extra_loss *= hparams.batch_deviation_loss_factor * anneal
@@ -525,7 +529,7 @@ def bluenet_base():
   hparams.batch_size = 4096
   hparams.hidden_size = 256
   hparams.dropout = 0.2
-  hparams.symbol_dropout = 0.2
+  hparams.symbol_dropout = 0.5
   hparams.label_smoothing = 0.1
   hparams.clip_grad_norm = 2.0
   hparams.num_hidden_layers = 8
@@ -543,7 +547,7 @@ def bluenet_base():
   hparams.optimizer_adam_beta2 = 0.997
   hparams.add_hparam("imagenet_use_2d", True)
   hparams.add_hparam("anneal_until", 40000)
-  hparams.add_hparam("batch_deviation_loss_factor", 0.001)
+  hparams.add_hparam("batch_deviation_loss_factor", 5.0)
   return hparams
 
 

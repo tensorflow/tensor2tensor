@@ -51,7 +51,7 @@ class LSTMTest(tf.test.TestCase):
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 6, 1, 1, vocab_size))
 
-  def testLSTMSeq2Seq_attention(self):
+  def testLSTMSeq2SeqAttention(self):
     vocab_size = 9
     x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
     y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
@@ -61,7 +61,7 @@ class LSTMTest(tf.test.TestCase):
                                                      vocab_size)
     x = tf.constant(x, dtype=tf.int32)
     x._shape = tf.TensorShape([None, None, 1, 1])
-    
+
     with self.test_session() as session:
       features = {
           "inputs": x,
@@ -74,6 +74,7 @@ class LSTMTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 6, 1, 1, vocab_size))
+
 
 if __name__ == "__main__":
   tf.test.main()
