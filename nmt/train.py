@@ -461,6 +461,10 @@ def _sample_decode(model, global_step, sess, hparams, iterator, src_data,
 
   nmt_outputs, attention_summary = model.decode(sess)
 
+  if hparams.beam_width > 0:
+    # get the top translation.
+    nmt_outputs = nmt_outputs[0]
+
   translation = nmt_utils.get_translation(
       nmt_outputs,
       sent_id=0,

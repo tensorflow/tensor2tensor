@@ -104,6 +104,7 @@ def create_hparams():
       log_device_placement=FLAGS.log_device_placement,
       random_seed=FLAGS.random_seed,
       beam_width=FLAGS.beam_width,
+      length_penalty_weight=FLAGS.length_penalty_weight,
   )
 
 
@@ -218,7 +219,10 @@ def ensure_compatible_hparams(hparams):
       hparams.add_hparam(key, new_config[key])
 
   # Make sure that the loaded model has latest values for the below keys
-  updated_keys = ["out_dir", "num_gpus", "test_prefix", "beam_width"]
+  updated_keys = [
+      "out_dir", "num_gpus", "test_prefix", "beam_width",
+      "length_penalty_weight"
+  ]
   for key in updated_keys:
     if key in new_config and getattr(hparams, key) != new_config[key]:
       utils.print_out("# Updating hparams.%s: %s -> %s" %
@@ -461,6 +465,8 @@ if __name__ == "__main__":
       beam width when using beam search decoder. If 0 (default), use standard
       decoder with greedy helper.\
       """))
+  parser.add_argument("--length_penalty_weight", type=float, default=0.0,
+                      help="Length penalty for beam search.")
   parser.add_argument("--path_to_standard_hparams", type=str, default=None,
                       help=("Path to standard hparams json file that overrides"
                             "hparams values from FLAGS."))

@@ -344,6 +344,7 @@ class BaseModel(object):
       ## Inference
       else:
         beam_width = hparams.beam_width
+        length_penalty_weight = hparams.length_penalty_weight
         start_tokens = tf.fill([self.batch_size], tgt_sos_id)
         end_token = tgt_eos_id
 
@@ -356,7 +357,7 @@ class BaseModel(object):
               initial_state=decoder_initial_state,
               beam_width=beam_width,
               output_layer=self.output_layer,
-              length_penalty_weight=0.0)
+              length_penalty_weight=length_penalty_weight)
         else:
           # Helper
           helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(

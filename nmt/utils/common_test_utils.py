@@ -71,6 +71,7 @@ def create_test_hparams(unit_type="lstm",
       tgt_max_len_infer=100,
       infer_batch_size=32,
       beam_width=0,
+      length_penalty_weight=0.0,
 
       # Misc
       forget_bias=0.0,
