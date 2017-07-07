@@ -682,8 +682,17 @@ def image_mscoco_tokens(model_hparams, vocab_count):
   }
   p.batch_size_multiplier = 256
   p.max_expected_batch_size_per_shard = 2
+
+
+def img2img_imagenet(unused_model_hparams):
+  """Image 2 Image for imagenet dataset."""
+  p = default_problem_hparams()
+  p.input_modality = {"inputs": ("image:identity", None)}
+  p.target_modality = ("image:identity", None)
+  p.batch_size_multiplier = 256
+  p.max_expected_batch_size_per_shard = 4
   p.input_space_id = 1
-  p.target_space_id = 3
+  p.target_space_id = 1
   return p
 
 
@@ -752,4 +761,5 @@ PROBLEM_HPARAMS_MAP = {
     "image_mscoco_tokens_128k_tune": lambda p: image_mscoco_tokens(p, 2**17),
     "image_mscoco_tokens_128k_test": lambda p: image_mscoco_tokens(p, 2**17),
     "image_imagenet": image_imagenet,
+    "img2img_imagenet": img2img_imagenet,
 }

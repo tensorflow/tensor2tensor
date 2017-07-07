@@ -23,7 +23,6 @@ import random
 
 # Dependency imports
 
-import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 
@@ -35,29 +34,28 @@ class TokenizerTest(tf.test.TestCase):
   def testEncode(self):
     t = tokenizer.Tokenizer()
     self.assertEqual(
-        t.encode("Dude - that's so cool."),
-        ["Dude", " - ", "that", "'", "s", "so", "cool", "."])
-    # TODO(lukaszkaiser): make it work again with Unicode.
-    # self.assertEqual(
-    #     t.encode("Łukasz est né en 1981."),
-    #     ["Łukasz", "est", "né", "en", "1981", "."])
+        t.encode(u"Dude - that's so cool."),
+        [u"Dude", u" - ", u"that", u"'", u"s", u"so", u"cool", u"."])
     self.assertEqual(
-        t.encode(" Spaces at the ends "),
-        [" ", "Spaces", "at", "the", "ends", " "])
-    self.assertEqual(t.encode("802.11b"), ["802", ".", "11b"])
-    self.assertEqual(t.encode("two. \nlines"), ["two", ". \n", "lines"])
+        t.encode(u"Łukasz est né en 1981."),
+        [u"Łukasz", u"est", u"né", u"en", u"1981", u"."])
+    self.assertEqual(
+        t.encode(u" Spaces at the ends "),
+        [u" ", u"Spaces", u"at", u"the", u"ends", u" "])
+    self.assertEqual(t.encode(u"802.11b"), [u"802", u".", u"11b"])
+    self.assertEqual(t.encode(u"two. \nlines"), [u"two", u". \n", u"lines"])
 
   def testDecode(self):
     t = tokenizer.Tokenizer()
     self.assertEqual(
-        t.decode(["Dude", " - ", "that", "'", "s", "so", "cool", "."]),
-        "Dude - that's so cool.")
+        t.decode([u"Dude", u" - ", u"that", u"'", u"s", u"so", u"cool", u"."]),
+        u"Dude - that's so cool.")
 
   def testInvertibilityOnRandomStrings(self):
     t = tokenizer.Tokenizer()
     random.seed(123)
-    for _ in xrange(0):  # TODO(lukaszkaiser): make it work again with Unicode.
-      s = "".join([six.int2byte(random.randint(0, 255)) for _ in xrange(10)])
+    for _ in xrange(1000):
+      s = u"".join([unichr(random.randint(0, 65535)) for _ in xrange(10)])
       self.assertEqual(s, t.decode(t.encode(s)))
 
 
