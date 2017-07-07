@@ -91,6 +91,37 @@ def token_generator(source_path, target_path, token_vocab, eos=None):
         yield {"inputs": source_ints, "targets": target_ints}
         source, target = source_file.readline(), target_file.readline()
 
+def bi_vocabs_token_generator(source_path, target_path,
+                              source_token_vocab,
+                              target_token_vocab,
+                              eos=None):
+  """Generator for sequence-to-sequence tasks that uses tokens.
+
+  This generator assumes the files at source_path and target_path have
+  the same number of lines and yields dictionaries of "inputs" and "targets"
+  where inputs are token ids from the " "-split source (and target, resp.) lines
+  converted to integers using the token_map.
+
+  Args:
+    source_path: path to the file with source sentences.
+    target_path: path to the file with target sentences.
+    source_token_vocab: text_encoder.TextEncoder object.
+    target_token_vocab: text_encoder.TextEncoder object.
+    eos: integer to append at the end of each sequence (default: None).
+
+  Yields:
+    A dictionary {"inputs": source-line, "targets": target-line} where
+    the lines are integer lists converted from tokens in the file lines.
+  """
+  eos_list = [] if eos is None else [eos]
+  with tf.gfile.GFile(source_path, mode="r") as source_file:
+    with tf.gfile.GFile(target_path, mode="r") as target_file:
+      source, target = source_file.readline(), target_file.readline()
+      while source and target:
+        source_ints = source_token_vocab.encode(source.strip()) + eos_list
+        target_ints = target_token_vocab.encode(target.strip()) + eos_list
+        yield {"inputs": source_ints, "targets": target_ints}
+        source, target = source_file.readline(), target_file.readline()
 
 def _get_wmt_ende_dataset(directory, filename):
   """Extract the WMT en-de corpus `filename` to directory unless it's there."""
@@ -115,6 +146,18 @@ def ende_bpe_token_generator(tmp_dir, train):
   token_vocab = text_encoder.TokenTextEncoder(vocab_filename=token_path)
   return token_generator(train_path + ".en", train_path + ".de", token_vocab, 1)
 
+def zhen_bpe_token_generator(tmp_dir, train, src, tgt):
+  """Instance of token generator for the WMT zh->en task, training set."""
+  dataset_path = ("train" if train else "valid")
+  train_path = os.path.join(tmp_dir, dataset_path)
+  source_token_path = os.path.join(tmp_dir, "vocab.%s" % src)
+  target_token_path = os.path.join(tmp_dir, "vocab.%s" % tgt)
+  source_token_vocab = text_encoder.TokenTextEncoder(vocab_filename=source_token_path)
+  target_token_vocab = text_encoder.TokenTextEncoder(vocab_filename=target_token_path)
+  return bi_vocabs_token_generator(train_path + ".%s" % src,
+                                   train_path + ".%s" % tgt,
+                                   source_token_vocab,
+                                   target_token_vocab, 1)
 
 _ENDE_TRAIN_DATASETS = [
     [

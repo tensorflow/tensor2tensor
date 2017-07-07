@@ -155,6 +155,12 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**17),
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**17)
     ),
+    "wmt_zhen_bpe_32k": (
+        lambda: wmt.zhen_bpe_token_generator(FLAGS.tmp_dir, True, 2**13,
+                                             "zh", "en"), 
+        lambda: wmt.zhen_bpe_token_generator(FLAGS.tmp_dir, False, 2**13,
+                                             "zh", "en"), 
+    )
     "image_mnist_tune": (
         lambda: image.mnist_generator(FLAGS.tmp_dir, True, 55000),
         lambda: image.mnist_generator(FLAGS.tmp_dir, True, 5000, 55000)),
