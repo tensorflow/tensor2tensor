@@ -55,7 +55,7 @@ class IteratorUtilsTest(tf.test.TestCase):
         random_seed=hparams.random_seed,
         num_buckets=hparams.num_buckets,
         src_max_len=src_max_len)
-    table_initializer = tf.initialize_all_tables()
+    table_initializer = tf.tables_initializer()
     source = iterator.source
     target_input = iterator.target_input
     target_output = iterator.target_output
@@ -136,7 +136,7 @@ class IteratorUtilsTest(tf.test.TestCase):
         num_buckets=hparams.num_buckets,
         src_max_len=src_max_len,
         skip_count=skip_count)
-    table_initializer = tf.initialize_all_tables()
+    table_initializer = tf.tables_initializer()
     source = iterator.source
     target_input = iterator.target_input
     target_output = iterator.target_output
@@ -228,7 +228,7 @@ class IteratorUtilsTest(tf.test.TestCase):
         eos=hparams.eos,
         source_reverse=hparams.source_reverse,
         src_max_len=src_max_len)
-    table_initializer = tf.initialize_all_tables()
+    table_initializer = tf.tables_initializer()
     source = iterator.source
     seq_len = iterator.source_sequence_length
     self.assertEqual([None, None], source.shape.as_list())

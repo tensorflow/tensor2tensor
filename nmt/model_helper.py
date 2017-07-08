@@ -217,7 +217,7 @@ def create_or_load_model(model, model_dir, session, out_dir, name):
     model.saver.save(
         session, os.path.join(out_dir, "translate.ckpt"), global_step=0)
 
-  session.run(tf.initialize_all_tables())
+  session.run(tf.tables_initializer())
 
   global_step = model.global_step.eval(session=session)
   return model, global_step

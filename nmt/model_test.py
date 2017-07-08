@@ -309,7 +309,7 @@ class ModelTest(tf.test.TestCase):
         tgt_vocab_table,
         scope='dynamic_seq2seq')
     sess.run(tf.global_variables_initializer())
-    sess.run(tf.initialize_all_tables())
+    sess.run(tf.tables_initializer())
     sess.run(train_iterator.initializer)
     return train_m
 
@@ -324,7 +324,7 @@ class ModelTest(tf.test.TestCase):
         src_vocab_table,
         tgt_vocab_table,
         scope='dynamic_seq2seq')
-    sess.run(tf.initialize_all_tables())
+    sess.run(tf.tables_initializer())
     sess.run(eval_iterator.initializer)
     return eval_m
 
@@ -343,7 +343,7 @@ class ModelTest(tf.test.TestCase):
         scope='dynamic_seq2seq')
     if init_global_vars:
       sess.run(tf.global_variables_initializer())
-    sess.run(tf.initialize_all_tables())
+    sess.run(tf.tables_initializer())
     sess.run(infer_iterator.initializer)
     return infer_m
 
