@@ -138,20 +138,6 @@ def _get_wmt_ende_dataset(directory, filename):
   return train_path
 
 
-def _get_wmt_zhen_dataset(directory, filename):
-  """Extract the WMT 2017 zh-en corpus `filename` to directory unless it's there."""
-  train_path = os.path.join(directory, filename)
-  if not (tf.gfile.Exists(train_path + ".zh") and
-          tf.gfile.Exists(train_path + ".en")):
-    # We expect that this file has been downloaded from:
-    # https://drive.google.com/open?id=0B_bZck-ksdkpM25jRUN2X2UxMm8 and placed
-    # in `directory`.
-    corpus_file = os.path.join(directory, "wmt17_zh_en.tar.gz")
-    with tarfile.open(corpus_file, "r:gz") as corpus_tar:
-      corpus_tar.extractall(directory)
-  return train_path
-
-
 def ende_bpe_token_generator(tmp_dir, train):
   """Instance of token generator for the WMT en->de task, training set."""
   dataset_path = ("train.tok.clean.bpe.32000"
@@ -161,19 +147,6 @@ def ende_bpe_token_generator(tmp_dir, train):
   token_vocab = text_encoder.TokenTextEncoder(vocab_filename=token_path)
   return token_generator(train_path + ".en", train_path + ".de", token_vocab, 1)
 
-
-def zhen_bpe_token_generator(tmp_dir, train):
-  """Instance of token generator for the WMT zh->en task, training set."""
-  dataset_path = ("train" if train else "valid")
-  train_path = _get_wmt_zhen_dataset(tmp_dir, dataset_path)
-  source_token_path = os.path.join(tmp_dir, "vocab.bpe.32000.zh")
-  target_token_path = os.path.join(tmp_dir, "vocab.bpe.32000.en")
-  source_token_vocab = text_encoder.TokenTextEncoder(vocab_filename=source_token_path)
-  target_token_vocab = text_encoder.TokenTextEncoder(vocab_filename=target_token_path)
-  return bi_vocabs_token_generator("%s.zh" % train_path,
-                                   "%s.en" % train_path,
-                                   source_token_vocab,
-                                   target_token_vocab, 1)
 
 _ENDE_TRAIN_DATASETS = [
     [
@@ -229,15 +202,17 @@ _ENFR_TEST_DATASETS = [
 
 _ZHEN_TRAIN_DATASETS = [
     [
-        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
-        ("dev/")
+        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",
+        ("training/news-commentary-v12.zh-en.zh",
+         "training/news-commentary-v12.zh-en.en")
     ]
 ]
 
 _ZHEN_TEST_DATASETS = [
     [
         "http://data.statmt.org/wmt17/translation-task/dev.tgz",
-        ("dev/")
+        ("dev/newsdev2017-zhen-src.zh.sgm",
+         "dev/newsdev2017-zhen-ref.en.sgm")
     ]
 ]
 
@@ -314,6 +289,25 @@ def ende_character_generator(tmp_dir, train):
   data_path = _compile_data(tmp_dir, datasets, "wmt_ende_chr_%s" % tag)
   return character_generator(data_path + ".lang1", data_path + ".lang2",
                              character_vocab, EOS)
+
+
+def zhen_wordpiece_token_generator(tmp_dir, train,
+                                   source_vocab_size, 
+                                   target_vocab_size):
+  datasets = _ZHEN_TRAIN_DATASETS if train else _ZHEN_TEST_DATASETS
+  source_datasets = [[item[0], [item[1][0]]] for item in datasets]
+  target_datasets = [[item[0], [item[1][1]]] for item in datasets]
+  source_vocab = generator_utils.get_or_generate_vocab(
+      tmp_dir, "tokens.vocab.zh.%d" % source_vocab_size,
+      source_vocab_size, source_datasets)
+  target_vocab = generator_utils.get_or_generate_vocab(
+      tmp_dir, "tokens.vocab.en.%d" % target_vocab_size,
+      target_vocab_size, target_datasets)
+  tag = "train" if train else "dev"
+  data_path = _compile_data(tmp_dir, datasets, "wmt_zhen_tok_%s" % tag)
+  return bi_vocabs_token_generator(data_path + ".lang1",
+                                   data_path + ".lang2",
+                                   source_vocab, target_vocab,  EOS)
 
 
 def enfr_wordpiece_token_generator(tmp_dir, train, vocab_size):

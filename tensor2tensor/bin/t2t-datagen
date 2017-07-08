@@ -31,6 +31,8 @@ import tempfile
 # Dependency imports
 
 import numpy as np
+import os, sys
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
 
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import algorithmic_math
@@ -155,10 +157,12 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**17),
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**17)
     ),
-    "wmt_zhen_bpe_32k": (
-        lambda: wmt.zhen_bpe_token_generator(FLAGS.tmp_dir, True, 2**13),
-        lambda: wmt.zhen_bpe_token_generator(FLAGS.tmp_dir, False, 2**13)
-    )
+    "wmt_zhen_tokens_32k": (
+        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, True,
+                                                   2**15, 2**15),
+        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, False,
+                                                   2**15, 2**15)
+    ),
     "image_mnist_tune": (
         lambda: image.mnist_generator(FLAGS.tmp_dir, True, 55000),
         lambda: image.mnist_generator(FLAGS.tmp_dir, True, 5000, 55000)),
