@@ -91,6 +91,7 @@ def token_generator(source_path, target_path, token_vocab, eos=None):
         yield {"inputs": source_ints, "targets": target_ints}
         source, target = source_file.readline(), target_file.readline()
 
+
 def bi_vocabs_token_generator(source_path, target_path,
                               source_token_vocab,
                               target_token_vocab,
@@ -137,6 +138,20 @@ def _get_wmt_ende_dataset(directory, filename):
   return train_path
 
 
+def _get_wmt_zhen_dataset(directory, filename):
+  """Extract the WMT 2017 zh-en corpus `filename` to directory unless it's there."""
+  train_path = os.path.join(directory, filename)
+  if not (tf.gfile.Exists(train_path + ".zh") and
+          tf.gfile.Exists(train_path + ".en")):
+    # We expect that this file has been downloaded from:
+    # https://drive.google.com/open?id=0B_bZck-ksdkpM25jRUN2X2UxMm8 and placed
+    # in `directory`.
+    corpus_file = os.path.join(directory, "wmt17_zh_en.tar.gz")
+    with tarfile.open(corpus_file, "r:gz") as corpus_tar:
+      corpus_tar.extractall(directory)
+  return train_path
+
+
 def ende_bpe_token_generator(tmp_dir, train):
   """Instance of token generator for the WMT en->de task, training set."""
   dataset_path = ("train.tok.clean.bpe.32000"
@@ -146,16 +161,17 @@ def ende_bpe_token_generator(tmp_dir, train):
   token_vocab = text_encoder.TokenTextEncoder(vocab_filename=token_path)
   return token_generator(train_path + ".en", train_path + ".de", token_vocab, 1)
 
-def zhen_bpe_token_generator(tmp_dir, train, src, tgt):
+
+def zhen_bpe_token_generator(tmp_dir, train):
   """Instance of token generator for the WMT zh->en task, training set."""
   dataset_path = ("train" if train else "valid")
-  train_path = os.path.join(tmp_dir, dataset_path)
-  source_token_path = os.path.join(tmp_dir, "vocab.%s" % src)
-  target_token_path = os.path.join(tmp_dir, "vocab.%s" % tgt)
+  train_path = _get_wmt_zhen_dataset(tmp_dir, dataset_path)
+  source_token_path = os.path.join(tmp_dir, "vocab.bpe.32000.zh")
+  target_token_path = os.path.join(tmp_dir, "vocab.bpe.32000.en")
   source_token_vocab = text_encoder.TokenTextEncoder(vocab_filename=source_token_path)
   target_token_vocab = text_encoder.TokenTextEncoder(vocab_filename=target_token_path)
-  return bi_vocabs_token_generator(train_path + ".%s" % src,
-                                   train_path + ".%s" % tgt,
+  return bi_vocabs_token_generator("%s.zh" % train_path,
+                                   "%s.en" % train_path,
                                    source_token_vocab,
                                    target_token_vocab, 1)
 
@@ -211,6 +227,19 @@ _ENFR_TEST_DATASETS = [
     ],
 ]
 
+_ZHEN_TRAIN_DATASETS = [
+    [
+        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
+        ("dev/")
+    ]
+]
+
+_ZHEN_TEST_DATASETS = [
+    [
+        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
+        ("dev/")
+    ]
+]
 
 def _compile_data(tmp_dir, datasets, filename):
   """Concatenate all `datasets` and save to `filename`."""
