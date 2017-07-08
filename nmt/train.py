@@ -129,7 +129,7 @@ def create_eval_model(model_creator,
           eval_tgt_file_placeholder, eval_iterator)
 
 
-def train(hparams, eval_only=False, scope=None):
+def train(hparams, eval_only=False, scope=None, target_session=""):
   """Train a translation model."""
   log_device_placement = hparams.log_device_placement
   out_dir = hparams.out_dir
@@ -207,9 +207,12 @@ def train(hparams, eval_only=False, scope=None):
   config_proto = utils.get_config_proto(
       log_device_placement=log_device_placement)
 
-  train_sess = tf.Session(config=config_proto, graph=train_graph)
-  eval_sess = tf.Session(config=config_proto, graph=eval_graph)
-  infer_sess = tf.Session(config=config_proto, graph=infer_graph)
+  train_sess = tf.Session(
+      target=target_session, config=config_proto, graph=train_graph)
+  eval_sess = tf.Session(
+      target=target_session, config=config_proto, graph=eval_graph)
+  infer_sess = tf.Session(
+      target=target_session, config=config_proto, graph=infer_graph)
 
   with train_graph.as_default():
     train_model, global_step = model_helper.create_or_load_model(
@@ -286,10 +289,6 @@ def train(hparams, eval_only=False, scope=None):
   # First evaluation
   dev_ppl, test_ppl = run_internal_eval()
   dev_scores, test_scores = run_external_eval()
-
-  all_dev_perplexities = [dev_ppl]
-  all_test_perplexities = [test_ppl]
-  all_steps = [global_step]
 
   # This is the training loop.
   step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
@@ -375,10 +374,6 @@ def train(hparams, eval_only=False, scope=None):
       # Evaluate on dev/test
       dev_ppl, test_ppl = run_internal_eval()
 
-      all_dev_perplexities.append(dev_ppl)
-      all_test_perplexities.append(test_ppl)
-      all_steps.append(global_step)
-
     if global_step % steps_per_external_eval == 0:
       # Save checkpoint
       train_model.saver.save(
@@ -399,10 +394,6 @@ def train(hparams, eval_only=False, scope=None):
 
   utils.print_out("# Best dev %s" % _get_best_results(hparams))
 
-  all_dev_perplexities.append(dev_ppl)
-  all_test_perplexities.append(test_ppl)
-  all_steps.append(global_step)
-
   eval_results = _format_results("dev", dev_ppl, dev_scores, hparams.metrics)
   if hparams.test_prefix:
     eval_results += ", " + _format_results("test", test_ppl, test_scores,
@@ -417,7 +408,7 @@ def train(hparams, eval_only=False, scope=None):
   summary_writer.close()
   utils.print_time("# Done training!", start_train_time)
 
-  return all_dev_perplexities, all_test_perplexities, all_steps
+  return (dev_scores, test_scores, dev_ppl, test_ppl, global_step)
 
 
 def _format_results(name, ppl, scores, metrics):
