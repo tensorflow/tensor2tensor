@@ -31,8 +31,6 @@ import tempfile
 # Dependency imports
 
 import numpy as np
-import os, sys
-sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
 
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import algorithmic_math
