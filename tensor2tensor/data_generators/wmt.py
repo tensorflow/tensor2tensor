@@ -211,8 +211,8 @@ _ZHEN_TRAIN_DATASETS = [
 _ZHEN_TEST_DATASETS = [
     [
         "http://data.statmt.org/wmt17/translation-task/dev.tgz",
-        ("dev/newsdev2017-zhen-src.zh.sgm",
-         "dev/newsdev2017-zhen-ref.en.sgm")
+        ("dev/newsdev2017-zhen-src.zh",
+         "dev/newsdev2017-zhen-ref.en")
     ]
 ]
 
