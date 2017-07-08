@@ -46,12 +46,13 @@ def to_example(dictionary):
     elif isinstance(v[0], float):
       features[k] = tf.train.Feature(float_list=tf.train.FloatList(value=v))
     elif isinstance(v[0], six.string_types):
-      v = [bytes(x, 'utf-8') for x in v]
+      if not six.PY2:  # Convert in python 3.
+        v = [bytes(x, "utf-8") for x in v]
       features[k] = tf.train.Feature(bytes_list=tf.train.BytesList(value=v))
     elif isinstance(v[0], bytes):
       features[k] = tf.train.Feature(bytes_list=tf.train.BytesList(value=v))
     else:
-      raise ValueError("Value for %s is neither an int nor a float; v: %s type: %s" %
+      raise ValueError("Value for %s is not a recognized type; v: %s type: %s" %
                        (k, str(v[0]), str(type(v[0]))))
   return tf.train.Example(features=tf.train.Features(feature=features))
 
@@ -114,7 +115,7 @@ def generate_files(generator,
 
   counter, shard = 0, 0
   for case in generator:
-    if counter % 100000 == 0:
+    if counter > 0 and counter % 100000 == 0:
       tf.logging.info("Generating case %d for %s." % (counter, output_name))
     counter += 1
     if max_cases and counter > max_cases:
@@ -179,6 +180,9 @@ def gunzip_file(gz_path, new_path):
     gz_path: path to the zipped file.
     new_path: path to where the file will be unzipped.
   """
+  if tf.gfile.Exists(new_path):
+    tf.logging.info("File %s already exists, skipping unpacking" % new_path)
+    return
   tf.logging.info("Unpacking %s to %s" % (gz_path, new_path))
   with gzip.open(gz_path, "rb") as gz_file:
     with io.open(new_path, "wb") as new_file:
@@ -224,7 +228,7 @@ _DATA_FILE_URLS = [
 def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
   """Generate a vocabulary from the datasets in sources (_DATA_FILE_URLS)."""
   vocab_filepath = os.path.join(tmp_dir, vocab_filename)
-  if os.path.exists(vocab_filepath):
+  if tf.gfile.Exists(vocab_filepath):
     tf.logging.info("Found vocab file: %s", vocab_filepath)
     vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
     return vocab
@@ -249,7 +253,7 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
       # For some datasets a second extraction is necessary.
       if ".gz" in lang_file:
         new_filepath = os.path.join(tmp_dir, lang_file[:-3])
-        if os.path.exists(new_filepath):
+        if tf.gfile.Exists(new_filepath):
           tf.logging.info("Subdirectory %s already exists, skipping unpacking"
                           % filepath)
         else:
@@ -278,7 +282,7 @@ def read_records(filename):
   records = []
   for record in reader:
     records.append(record)
-    if len(records) % 10000 == 0:
+    if len(records) % 100000 == 0:
       tf.logging.info("read: %d", len(records))
   return records
 
@@ -287,6 +291,6 @@ def write_records(records, out_filename):
   writer = tf.python_io.TFRecordWriter(out_filename)
   for count, record in enumerate(records):
     writer.write(record)
-    if count % 10000 == 0:
+    if count > 0 and count % 100000 == 0:
       tf.logging.info("write: %d", count)
   writer.close()

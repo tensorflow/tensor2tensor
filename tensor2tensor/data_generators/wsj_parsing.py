@@ -23,6 +23,12 @@ from tensor2tensor.data_generators import generator_utils
 import tensorflow as tf
 
 
+tf.flags.DEFINE_string("parsing_path", "", "Path to parsing files in tmp_dir.")
+
+
+FLAGS = tf.flags.FLAGS
+
+
 def words_and_tags_from_wsj_tree(tree_string):
   """Generates linearized trees and tokens from the wsj tree format.
 
@@ -84,9 +90,8 @@ def parsing_token_generator(tmp_dir, train, source_vocab_size,
                             target_vocab_size):
   """Generator for parsing as a sequence-to-sequence task that uses tokens.
 
-  This generator assumes the files parsing_{train,dev}.wsj, which contain trees
-  in wsj format and wsj_{source,target}.tokens.vocab.<vocab_size> exist in
-  tmp_dir.
+  This generator assumes the files parsing_{train,dev}.trees, which contain
+  trees in wsj format.
 
   Args:
     tmp_dir: path to the file with source sentences.
@@ -103,7 +108,7 @@ def parsing_token_generator(tmp_dir, train, source_vocab_size,
   target_symbolizer_vocab = generator_utils.get_or_generate_vocab(
       tmp_dir, "wsj_target.tokens.vocab.%d" % target_vocab_size,
       target_vocab_size)
-  filename = "parsing_%s.trees" % ("train" if train else "dev")
+  filename = "%s_%s.trees" % (FLAGS.parsing_path, "train" if train else "dev")
   tree_filepath = os.path.join(tmp_dir, filename)
   return token_generator(tree_filepath, source_symbolizer_vocab,
                          target_symbolizer_vocab, 1)
