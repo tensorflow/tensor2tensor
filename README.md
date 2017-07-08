@@ -338,7 +338,7 @@ Run the following command to start the training:
 
 ```
 mkdir /tmp/nmt_model
-python nmt/nmt.py -- \
+python -m nmt.nmt \
     --src=vi --tgt=en \
     --vocab_prefix=/tmp/nmt_data/vocab  \
     --train_prefix=/tmp/nmt_data/train \
@@ -456,7 +456,7 @@ sentences:
 cat > /tmp/my_infer_file.vi
 # (copy and paste some sentences from /tmp/nmt_data/tst2013.vi)
 
-python nmt/nmt.py -- \
+python -m nmt.nmt \
     --model_dir=/tmp/nmt_model \
     --inference_input_file=/tmp/my_infer_file.vi \
     --inference_output_file=/tmp/nmt_model/output_infer
@@ -640,7 +640,7 @@ Run the following command to start the training:
 ```
 mkdir /tmp/nmt_attention_model
 
-python nmt/nmt.py -- \
+python -m nmt.nmt \
     --attention=scaled_luong \
     --src=vi --tgt=en \
     --vocab_prefix=/tmp/nmt_data/vocab  \
@@ -660,7 +660,7 @@ After training, we can use the same inference command with the new model_dir for
 inference:
 
 ```
-python nmt/nmt.py -- \
+python -m nmt.nmt \
     --model_dir=/tmp/nmt_attention_model \
     --inference_input_file=/tmp/my_infer_file.vi \
     --inference_output_file=/tmp/nmt_attention_model/output_infer
@@ -1087,11 +1087,7 @@ NMT (beam=10) | | | 23.2 | | 25.5
 ## WMT'15 German-English
 
 Train: 4.5M examples, dev=newstest2013, test=newstest2015\
-TODO(rzhao): Try the data downloading script to download data.\
-*Train*: ...\
-*Dev*: ...\
-*Test*: ...\
-*Vocab*: ...\
+[download script](nmt/scripts/wmt16_en_de.sh)
 
 ***Training details***. Our training hyperparameters are similar to the
 English-Vietnamese experiments except for the following details. The data is
