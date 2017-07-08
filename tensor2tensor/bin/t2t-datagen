@@ -90,25 +90,16 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_reverse_nlplike_decimal8K": (
         lambda: algorithmic.reverse_generator_nlplike(8000, 70, 100000,
                                                       10, 1.300),
-        lambda: algorithmic.reverse_generator_nlplike(8000, 700, 10000,
+        lambda: algorithmic.reverse_generator_nlplike(8000, 70, 10000,
                                                       10, 1.300)),
     "algorithmic_reverse_nlplike_decimal32K": (
         lambda: algorithmic.reverse_generator_nlplike(32000, 70, 100000,
                                                       10, 1.050),
-        lambda: algorithmic.reverse_generator_nlplike(32000, 700, 10000,
+        lambda: algorithmic.reverse_generator_nlplike(32000, 70, 10000,
                                                       10, 1.050)),
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
-    "algorithmic_algebra_simplify": (
-        lambda: algorithmic_math.algebra_simplify(8, 0, 2, 100000),
-        lambda: algorithmic_math.algebra_simplify(8, 3, 3, 10000)),
-    "algorithmic_calculus_integrate": (
-        lambda: algorithmic_math.calculus_integrate(8, 0, 2, 100000),
-        lambda: algorithmic_math.calculus_integrate(8, 3, 3, 10000)),
-    "wmt_parsing_characters": (
-        lambda: wmt.parsing_character_generator(FLAGS.tmp_dir, True),
-        lambda: wmt.parsing_character_generator(FLAGS.tmp_dir, False)),
     "wmt_parsing_tokens_8k": (
         lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, True, 2**13),
         lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, False, 2**13)),
@@ -133,10 +124,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: wmt.enfr_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: wmt.enfr_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**15)
     ),
-    "wmt_enfr_tokens_128k": (
-        lambda: wmt.enfr_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**17),
-        lambda: wmt.enfr_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**17)
-    ),
     "wmt_ende_characters": (
         lambda: wmt.ende_character_generator(FLAGS.tmp_dir, True),
         lambda: wmt.ende_character_generator(FLAGS.tmp_dir, False)),
@@ -150,10 +137,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "wmt_ende_tokens_32k": (
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**15)
-    ),
-    "wmt_ende_tokens_128k": (
-        lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**17),
-        lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**17)
     ),
     "image_mnist_tune": (
         lambda: image.mnist_generator(FLAGS.tmp_dir, True, 55000),
@@ -227,33 +210,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
             40000,
             vocab_filename="tokens.vocab.%d" % 2**15,
             vocab_size=2**15)),
-    "image_mscoco_tokens_128k_tune": (
-        lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            70000,
-            vocab_filename="tokens.vocab.%d" % 2**17,
-            vocab_size=2**17),
-        lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            10000,
-            70000,
-            vocab_filename="tokens.vocab.%d" % 2**17,
-            vocab_size=2**17)),
-    "image_mscoco_tokens_128k_test": (
-        lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            80000,
-            vocab_filename="tokens.vocab.%d" % 2**17,
-            vocab_size=2**17),
-        lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            False,
-            40000,
-            vocab_filename="tokens.vocab.%d" % 2**17,
-            vocab_size=2**17)),
     "snli_32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),
@@ -340,10 +296,31 @@ def set_random_seed():
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-  if FLAGS.problem not in _SUPPORTED_PROBLEM_GENERATORS:
+
+  # Calculate the list of problems to generate.
+  problems = list(sorted(_SUPPORTED_PROBLEM_GENERATORS))
+  if FLAGS.problem and FLAGS.problem[-1] == "*":
+    problems = [p for p in problems if p.startswith(FLAGS.problem[:-1])]
+  elif FLAGS.problem:
+    problems = [p for p in problems if p == FLAGS.problem]
+  else:
+    problems = []
+  # Remove TIMIT if paths are not given.
+  if not FLAGS.timit_paths:
+    problems = [p for p in problems if "timit" not in p]
+  # Remove parsing if paths are not given.
+  if not FLAGS.parsing_path:
+    problems = [p for p in problems if "parsing" not in p]
+  # Remove en-de BPE if paths are not given.
+  if not FLAGS.ende_bpe_path:
+    problems = [p for p in problems if "ende_bpe" not in p]
+
+  if not problems:
     problems_str = "\n  * ".join(sorted(_SUPPORTED_PROBLEM_GENERATORS))
     error_msg = ("You must specify one of the supported problems to "
                  "generate data for:\n  * " + problems_str + "\n")
+    error_msg += ("TIMIT, ende_bpe and parsing need data_sets specified with "
+                  "--timit_paths, --ende_bpe_path and --parsing_path.")
     raise ValueError(error_msg)
 
   if not FLAGS.data_dir:
@@ -352,26 +329,28 @@ def main(_):
                        "Data will be written to default data_dir=%s.",
                        FLAGS.data_dir)
 
-  set_random_seed()
+  tf.logging.info("Generating problems:\n  * %s\n" % "\n  * ".join(problems))
+  for problem in problems:
+    set_random_seed()
 
-  training_gen, dev_gen = _SUPPORTED_PROBLEM_GENERATORS[FLAGS.problem]
+    training_gen, dev_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
 
-  tf.logging.info("Generating training data for %s.", FLAGS.problem)
-  train_output_files = generator_utils.generate_files(
-      training_gen(), FLAGS.problem + UNSHUFFLED_SUFFIX + "-train",
-      FLAGS.data_dir, FLAGS.num_shards, FLAGS.max_cases)
+    tf.logging.info("Generating training data for %s.", problem)
+    train_output_files = generator_utils.generate_files(
+        training_gen(), problem + UNSHUFFLED_SUFFIX + "-train",
+        FLAGS.data_dir, FLAGS.num_shards, FLAGS.max_cases)
 
-  tf.logging.info("Generating development data for %s.", FLAGS.problem)
-  dev_output_files = generator_utils.generate_files(
-      dev_gen(), FLAGS.problem + UNSHUFFLED_SUFFIX + "-dev", FLAGS.data_dir, 1)
+    tf.logging.info("Generating development data for %s.", problem)
+    dev_output_files = generator_utils.generate_files(
+        dev_gen(), problem + UNSHUFFLED_SUFFIX + "-dev", FLAGS.data_dir, 1)
 
-  tf.logging.info("Shuffling data...")
-  for fname in train_output_files + dev_output_files:
-    records = generator_utils.read_records(fname)
-    random.shuffle(records)
-    out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
-    generator_utils.write_records(records, out_fname)
-    tf.gfile.Remove(fname)
+    tf.logging.info("Shuffling data...")
+    for fname in train_output_files + dev_output_files:
+      records = generator_utils.read_records(fname)
+      random.shuffle(records)
+      out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
+      generator_utils.write_records(records, out_fname)
+      tf.gfile.Remove(fname)
 
 
 if __name__ == "__main__":

@@ -582,4 +582,6 @@ def calculus_integrate(alphabet_size=26,
       }
     except:  # pylint:disable=bare-except
       continue
+    if nbr_case % 10000 == 0:
+      print(" calculus_integrate: generating case %d." % nbr_case)
     nbr_case += 1
