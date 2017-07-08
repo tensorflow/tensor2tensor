@@ -138,7 +138,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**15)
     ),
-<<<<<<< HEAD
     "wmt_ende_tokens_128k": (
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**17),
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**17)
@@ -149,8 +148,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, False,
                                                    2**15, 2**15)
     ),
-=======
->>>>>>> upstream/master
     "image_mnist_tune": (
         lambda: image.mnist_generator(FLAGS.tmp_dir, True, 55000),
         lambda: image.mnist_generator(FLAGS.tmp_dir, True, 5000, 55000)),
