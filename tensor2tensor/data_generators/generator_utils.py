@@ -277,7 +277,7 @@ def get_or_generate_tabbed_vocab(tmp_dir, source_filename, index, vocab_filename
   parameter specifies 0 for the source or 1 for the target."""
   vocab_filepath = os.path.join(tmp_dir, vocab_filename)
   if os.path.exists(vocab_filepath):
-    vocab = SubwordTextEncoder(vocab_filepath)
+    vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
     return vocab
 
   tokenizer = Tokenizer()
@@ -290,9 +290,9 @@ def get_or_generate_tabbed_vocab(tmp_dir, source_filename, index, vocab_filename
       if line and '\t' in line:
         parts = line.split('\t', maxsplit = 1)
         part = parts[index].strip()
-        _ = tokenizer.encode(part)
+        _ = tokenizer.encode(text_encoder.native_to_unicode(part))
 
-  vocab = SubwordTextEncoder.build_to_target_size(
+  vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
       vocab_size, tokenizer.token_counts, 1, 1e3)
   vocab.store_to_file(vocab_filepath)
   return vocab

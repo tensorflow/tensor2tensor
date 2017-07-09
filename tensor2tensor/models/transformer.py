@@ -354,6 +354,17 @@ def transformer_parsing_base():
 
 
 @registry.register_hparams
+def transformer_parsing_ice():
+  """Hparams for parsing Icelandic text."""
+  hparams = transformer_parsing_base()
+  hparams.batch_size = 4096
+  hparams.batching_mantissa_bits = 2
+  #hparams.max_length = 256
+  #hparams.hidden_size = 128
+  return hparams
+
+
+@registry.register_hparams
 def transformer_parsing_big():
   """HParams for parsing on wsj semi-supervised."""
   hparams = transformer_big()
