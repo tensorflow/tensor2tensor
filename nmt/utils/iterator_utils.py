@@ -90,8 +90,9 @@ def get_iterator(src_dataset,
                  src_max_len=None,
                  tgt_max_len=None,
                  num_threads=4,
-                 output_buffer_size=12800,
+                 output_buffer_size=None,
                  skip_count=None):
+  if not output_buffer_size: output_buffer_size = batch_size * 1000
   src_eos_id = tf.cast(
       src_vocab_table.lookup(tf.constant(eos)),
       tf.int32)
