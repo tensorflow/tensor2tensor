@@ -124,6 +124,10 @@ class SymbolModality(modality.Modality):
 class SmallImageModality(modality.Modality):
   """Performs strided conv compressions for small image data."""
 
+  def __init__(self, model_hparams, vocab_size):
+    super(SmallImageModality, self).__init__(model_hparams, vocab_size)
+    self._channels = 3
+
   @property
   def top_dimensionality(self):
     return 256
@@ -161,15 +165,30 @@ class SmallImageModality(modality.Modality):
 
   def top(self, body_output, _):
     with tf.variable_scope("rgb_softmax"):
-      var = tf.get_variable(
+      # seperate embedding for each channel
+      # assuming the body output returns a tensor of shape
+      # [batch_size, rows, cols, channels, self._body_input_depth]
+      body_output_split = tf.split(body_output, self._channels, axis=3)
+      output_rgb_embedding_var = tf.get_variable(
           "output_rgb_embedding",
-          [self.top_dimensionality, self._body_input_depth],
+          [self._channels, self.top_dimensionality, self._body_input_depth],
           initializer=tf.random_normal_initializer(0.0, self._body_input_depth
                                                    **-0.5))
-      body_output = tf.reshape(body_output, [-1, self._body_input_depth])
-      logits = tf.matmul(body_output, var, transpose_b=True)
+      # compute logits separately for each channel
+      rgb_channel_logits = []
+      for i in self._channels:
+        shape = tf.shape(body_output_split[i])[:-1]
+        body_output = tf.reshape(body_output_split[i],
+                                 [-1, self._body_input_depth])
+        channel_logits = tf.matmul(body_output,
+                                   output_rgb_embedding_var[i],
+                                   transpose_b=True)
+        rgb_channel_logits.append(tf.reshape(
+            channel_logits, tf.concat([shape, [self.top_dimensionality]],
+                                      0)))
+
+      logits = tf.concat(rgb_channel_logits, axis=3)
       # Reshape logits to conform to CIFAR image shapes (32 by 32 by 3)
-      logits = tf.reshape(logits, [-1, 32, 32, 3, 256])
 
       return logits
 

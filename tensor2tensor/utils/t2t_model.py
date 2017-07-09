@@ -124,6 +124,8 @@ class T2TModel(object):
     problem_hparams.input_modality = input_modality
 
     target_modality_spec = problem_hparams.target_modality
+    if isinstance(target_modality_spec, modality.Modality):
+      return
     if target_modality_name:
       _warn_changed_modality_type(target_modality_name, target_modality_spec[0],
                                   "target")

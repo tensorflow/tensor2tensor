@@ -48,8 +48,8 @@ class Transformer(t2t_model.T2TModel):
     inputs = features.get("inputs")
     target_space = features.get("target_space_id")
 
-    inputs = tf.squeeze(inputs, 2)
-    targets = tf.squeeze(targets, 2)
+    inputs = common_layers.flatten4d3d(inputs)
+    targets = common_layers.flatten4d3d(targets)
 
     (encoder_input, encoder_attention_bias, _) = (transformer_prepare_encoder(
         inputs, target_space, hparams))

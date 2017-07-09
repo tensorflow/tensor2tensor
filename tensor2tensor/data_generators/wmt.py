@@ -25,8 +25,17 @@ import tarfile
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import wsj_parsing
 
 import tensorflow as tf
+
+
+tf.flags.DEFINE_string("ende_bpe_path", "", "Path to BPE files in tmp_dir."
+                       "Download from https://drive.google.com/open?"
+                       "id=0B_bZck-ksdkpM25jRUN2X2UxMm8")
+
+
+FLAGS = tf.flags.FLAGS
 
 
 # End-of-sentence marker (should correspond to the position of EOS in the
@@ -129,7 +138,7 @@ def _get_wmt_ende_dataset(directory, filename):
     # We expect that this file has been downloaded from:
     # https://drive.google.com/open?id=0B_bZck-ksdkpM25jRUN2X2UxMm8 and placed
     # in `directory`.
-    corpus_file = os.path.join(directory, "wmt16_en_de.tar.gz")
+    corpus_file = os.path.join(directory, FLAGS.ende_bpe_path)
     with tarfile.open(corpus_file, "r:gz") as corpus_tar:
       corpus_tar.extractall(directory)
   return train_path
@@ -293,7 +302,6 @@ def enfr_character_generator(tmp_dir, train):
   return character_generator(data_path + ".lang1", data_path + ".lang2",
                              character_vocab, EOS)
 
-
 def parsing_character_generator(tmp_dir, train):
   character_vocab = text_encoder.ByteTextEncoder()
   filename = "parsing_%s" % ("train" if train else "dev")
@@ -330,7 +338,7 @@ def tabbed_parsing_character_generator(tmp_dir, train):
 def parsing_token_generator(tmp_dir, train, vocab_size):
   symbolizer_vocab = generator_utils.get_or_generate_vocab(
       tmp_dir, "tokens.vocab.%d" % vocab_size, vocab_size)
-  filename = "parsing_%s" % ("train" if train else "dev")
-  text_filepath = os.path.join(tmp_dir, filename + ".text")
-  tags_filepath = os.path.join(tmp_dir, filename + ".tags")
-  return token_generator(text_filepath, tags_filepath, symbolizer_vocab, EOS)
+  filename = "%s_%s.trees" % (FLAGS.parsing_path, "train" if train else "dev")
+  tree_filepath = os.path.join(tmp_dir, filename)
+  return wsj_parsing.token_generator(tree_filepath,
+                                     symbolizer_vocab, symbolizer_vocab, EOS)
