@@ -508,7 +508,10 @@ class SubwordTextEncoder(TextEncoder):
           if semicolon_pos == -1:
             continue
           try:
-            ret += unichr(int(escaped_token[pos:semicolon_pos]))
+            if six.PY2:
+              ret += unichr(int(escaped_token[pos:semicolon_pos]))
+            else:
+              ret += chr(int(escaped_token[pos:semicolon_pos]))
             pos = semicolon_pos + 1
           except (ValueError, OverflowError) as _:
             pass
