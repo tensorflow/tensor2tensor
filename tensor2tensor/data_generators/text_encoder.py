@@ -29,6 +29,7 @@ from collections import defaultdict
 
 import six
 from six import PY2
+from six import unichr
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 
