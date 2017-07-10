@@ -24,7 +24,6 @@ import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import transformer
-from tensor2tensor.models import transformer_alternative
 
 import tensorflow as tf
 

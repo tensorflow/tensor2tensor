@@ -341,8 +341,10 @@ def main(_):
         FLAGS.data_dir, FLAGS.num_shards, FLAGS.max_cases)
 
     tf.logging.info("Generating development data for %s.", problem)
+    dev_shards = 10 if "coco" in problem else 1
     dev_output_files = generator_utils.generate_files(
-        dev_gen(), problem + UNSHUFFLED_SUFFIX + "-dev", FLAGS.data_dir, 1)
+        dev_gen(), problem + UNSHUFFLED_SUFFIX + "-dev",
+        FLAGS.data_dir, dev_shards)
 
     tf.logging.info("Shuffling data...")
     for fname in train_output_files + dev_output_files:
