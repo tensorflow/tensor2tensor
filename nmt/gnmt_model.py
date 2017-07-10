@@ -20,6 +20,9 @@ from __future__ import print_function
 
 import tensorflow as tf
 
+# TODO(rzhao): Use tf.contrib.framework.nest once 1.3 is out.
+from tensorflow.python.util import nest
+
 from . import attention_model
 from . import model_helper
 from .utils import misc_utils as utils
@@ -216,7 +219,7 @@ class GNMTAttentionMultiCell(tf.nn.rnn_cell.MultiRNNCell):
 
   def __call__(self, inputs, state, scope=None):
     """Run the cell with bottom layer's attention copied to all upper layers."""
-    if not tf.contrib.framework.nest.is_sequence(state):
+    if not nest.is_sequence(state):
       raise ValueError(
           "Expected state to be a tuple of length %d, but received: %s"
           % (len(self.state_size), state))
