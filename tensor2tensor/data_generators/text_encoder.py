@@ -29,6 +29,7 @@ from collections import defaultdict
 
 import six
 from six import PY2
+from six import unichr
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 
@@ -508,10 +509,7 @@ class SubwordTextEncoder(TextEncoder):
           if semicolon_pos == -1:
             continue
           try:
-            if six.PY2:
-              ret += unichr(int(escaped_token[pos:semicolon_pos]))
-            else:
-              ret += chr(int(escaped_token[pos:semicolon_pos]))
+            ret += unichr(int(escaped_token[pos:semicolon_pos]))
             pos = semicolon_pos + 1
           except (ValueError, OverflowError) as _:
             pass
