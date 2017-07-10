@@ -294,6 +294,73 @@ class CommonLayersTest(tf.test.TestCase):
       actual = session.run(a)
     self.assertEqual(actual.shape, (5, 32, 1, 16))
 
+  def testGetNormLayerFn(self):
+    norm_type = "layer"
+    with self.test_session() as session:
+      a = common_layers.get_norm(norm_type)
+      x1 = np.random.rand(5, 2, 1, 11)
+      x2 = a(tf.constant(x1, dtype=tf.float32), name="layer", filters=11)
+      session.run(tf.global_variables_initializer())
+      actual = session.run(x2)
+    self.assertEqual(actual.shape, (5, 2, 1, 11))
+
+  def testGetNormNoamFn(self):
+    norm_type = "noam"
+    with self.test_session() as session:
+      a = common_layers.get_norm(norm_type)
+      x1 = np.random.rand(5, 2, 1, 11)
+      x2 = a(tf.constant(x1, dtype=tf.float32), name="noam")
+      session.run(tf.global_variables_initializer())
+      actual = session.run(x2)
+    self.assertEqual(actual.shape, (5, 2, 1, 11))
+
+  def testGetNormBatchFn(self):
+    norm_type = "batch"
+    with self.test_session() as session:
+      a = common_layers.get_norm(norm_type)
+      x1 = np.random.rand(5, 2, 1, 11)
+      x2 = a(tf.constant(x1, dtype=tf.float32), name="batch")
+      session.run(tf.global_variables_initializer())
+      actual = session.run(x2)
+    self.assertEqual(actual.shape, (5, 2, 1, 11))
+
+  def testGetNormNoneFn(self):
+    norm_type = "none"
+    with self.test_session() as session:
+      a = common_layers.get_norm(norm_type)
+      x1 = np.random.rand(5, 2, 1, 11)
+      x2 = a(tf.constant(x1, dtype=tf.float32), name="none")
+      session.run(tf.global_variables_initializer())
+      actual = session.run(x2)
+    self.assertEqual(actual.shape, (5, 2, 1, 11))
+    self.assertAllClose(actual, x1, atol=1e-03)
+
+  def testResidualFn(self):
+    norm_type = "batch"
+    with self.test_session() as session:
+      x1 = np.random.rand(5, 2, 1, 11)
+      x2 = np.random.rand(5, 2, 1, 11)
+      x3 = common_layers.residual_fn(
+          tf.constant(x1, dtype=tf.float32),
+          tf.constant(x2, dtype=tf.float32),
+          norm_type, 0.1)
+      session.run(tf.global_variables_initializer())
+      actual = session.run(x3)
+    self.assertEqual(actual.shape, (5, 2, 1, 11))
+
+  def testResidualFnWithLayerNorm(self):
+    norm_type = "layer"
+    with self.test_session() as session:
+      x1 = np.random.rand(5, 2, 1, 11)
+      x2 = np.random.rand(5, 2, 1, 11)
+      x3 = common_layers.residual_fn(
+          tf.constant(x1, dtype=tf.float32),
+          tf.constant(x2, dtype=tf.float32),
+          norm_type, 0.1, epsilon=0.1)
+      session.run(tf.global_variables_initializer())
+      actual = session.run(x3)
+    self.assertEqual(actual.shape, (5, 2, 1, 11))
+
 
 if __name__ == "__main__":
   tf.test.main()

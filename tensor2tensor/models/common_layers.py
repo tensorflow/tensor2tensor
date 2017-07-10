@@ -433,24 +433,48 @@ def noam_norm(x, name=None):
             tf.sqrt(tf.to_float(shape[-1])))
 
 
-def residual_function(hparams):
+def get_norm(norm_type):
+  """Get the normalizer function."""
+  if norm_type == "layer":
+    return lambda x, name, filters=None, epsilon=1e-6: layer_norm(  # pylint: disable=g-long-lambda
+        x, filters=filters, epsilon=epsilon, name=name)
+  if norm_type == "batch":
+    return tf.layers.batch_normalization
+  if norm_type == "noam":
+    return noam_norm
+  if norm_type == "none":
+    return lambda x, name: x
+  raise ValueError("Parameter normalizer_fn must be one of: 'layer', 'batch',"
+                   "'noam', 'none'.")
+
+
+def residual_fn(x, y, norm_type, residual_dropout,
+                filters=None,
+                epsilon=1e-16,
+                name="residual"):
   """Returns a function for combining layer input and layer output.
 
   The returned function on x (layer input) and y (layer output) computes:
-    norm_function(x + t
+    norm_function(x + dropout(y))
 
   Args:
-    hparams: model hyperparameters
+    x: tensor, input layer
+    y: tensor, output layer
+    norm_type: string, type of normalizer function
+    residual_dropout: integer, dropout value for residual connection
+    filters: integer, dimension for layer norm, optional
+    epsilon: integer, value of layer norm epsilon
+    name: string, name
 
   Returns:
-    a function from x=<layer input> and y=<layer output> to computed output
+    residual layer output with applied norm_fn.
   """
-
-  def residual_fn(x, y):
-    return hparams.norm_function(x + tf.nn.dropout(
-        y, 1.0 - hparams.residual_dropout))
-
-  return residual_fn
+  norm_fn = get_norm(norm_type)
+  res = x + tf.nn.dropout(y, 1.0 - residual_dropout)
+  if norm_type == "layer":
+    return norm_fn(res, name=name, filters=filters, epsilon=epsilon)
+  else:
+    return norm_fn(res, name=name)
 
 
 def conv_block_internal(conv_fn,
