@@ -221,7 +221,7 @@ def ensure_compatible_hparams(hparams):
   # Make sure that the loaded model has latest values for the below keys
   updated_keys = [
       "out_dir", "num_gpus", "test_prefix", "beam_width",
-      "length_penalty_weight"
+      "length_penalty_weight", "num_train_steps"
   ]
   for key in updated_keys:
     if key in new_config and getattr(hparams, key) != new_config[key]:
