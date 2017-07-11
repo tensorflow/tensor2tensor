@@ -30,16 +30,15 @@ import six
 # pylint: disable=redefined-builtin
 from six.moves import input
 from six.moves import xrange
-from six.moves import zip
 # pylint: enable=redefined-builtin
 
 from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.data_generators.text_encoder import EOS_TOKEN
 from tensor2tensor.models import models  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python.ops import init_ops
@@ -118,6 +117,16 @@ flags.DEFINE_bool("decode_return_beams", False,
                   "Whether to return 1 (False) or all (True) beams. The \n "
                   "output file will have the format "
                   "<beam1>\t<beam2>..\t<input>")
+
+
+def _save_until_eos(hyp):
+  """ Strips everything after the first <EOS> token, which is normally 1 """
+  try:
+    index = list(hyp).index(EOS_TOKEN)
+    return hyp[0:index]
+  except ValueError:
+    # No EOS_TOKEN: return the array as-is
+    return hyp
 
 
 def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
@@ -279,7 +288,6 @@ def session_config():
         rewrite_options=rewrite_options, infer_shapes=True)
   config = tf.ConfigProto(
       allow_soft_placement=True, graph_options=graph_options)
-
   return config
 
 
@@ -345,6 +353,7 @@ def model_builder(model, hparams):
         lambda: decay,
         name="learning_rate_decay_warump_cond")
 
+  
   def model_fn(features, targets, mode):
     """Creates the prediction, loss, and train ops.
 
@@ -356,10 +365,11 @@ def model_builder(model, hparams):
     Returns:
       A tuple consisting of the prediction, loss, and train_op.
     """
-    if mode == tf.contrib.learn.ModeKeys.INFER and FLAGS.decode_interactive:
-      features = _interactive_input_tensor_to_features_dict(features, hparams)
-    if mode == tf.contrib.learn.ModeKeys.INFER and FLAGS.decode_from_file:
-      features = _decode_input_tensor_to_features_dict(features, hparams)
+    if mode == tf.contrib.learn.ModeKeys.INFER:
+      if FLAGS.decode_interactive:
+        features = _interactive_input_tensor_to_features_dict(features, hparams)
+      elif FLAGS.decode_from_file:
+        features = _decode_input_tensor_to_features_dict(features, hparams)
     # A dictionary containing:
     #  - problem_choice: A Tensor containing an integer indicating which problem
     #                    was selected for this run.
@@ -579,12 +589,14 @@ def decode_from_dataset(estimator):
                                  "%s_prediction_%d.jpg" % (problem, j))
         show_and_save_image(inputs / 255., save_path)
       elif inputs_vocab:
-        decoded_inputs = inputs_vocab.decode(inputs.flatten())
+        decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
         tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
-      decoded_outputs = targets_vocab.decode(outputs.flatten())
-      decoded_targets = targets_vocab.decode(targets.flatten())
+      decoded_outputs = targets_vocab.decode(_save_until_eos(outputs.flatten()))
       tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
+      decoded_targets = targets_vocab.decode(_save_until_eos(targets.flatten()))
+      tf.logging.info("Inference results TARGET: %s" % decoded_targets)
+
       if FLAGS.decode_to_file:
         output_filepath = FLAGS.decode_to_file + ".outputs." + problem
         output_file = tf.gfile.Open(output_filepath, "a")
@@ -599,27 +611,16 @@ def decode_from_dataset(estimator):
     # iterator to log inputs and decodes.
     if FLAGS.decode_endless:
       tf.logging.info("Warning: Decoding endlessly")
-      for j, result in enumerate(result_iter):
-        inputs, targets, outputs = (result["inputs"], result["targets"],
-                                    result["outputs"])
-        if FLAGS.decode_return_beams:
-          output_beams = np.split(outputs, FLAGS.decode_beam_size, axis=0)
-          for k, beam in enumerate(output_beams):
-            tf.logging.info("BEAM %d:" % k)
-            log_fn(inputs, targets, beam, problem, j)
-        else:
-          log_fn(inputs, targets, outputs, problem, j)
-    else:
-      for j, (inputs, targets, outputs) in enumerate(
-          zip(result_iter["inputs"], result_iter["targets"], result_iter[
-              "outputs"])):
-        if FLAGS.decode_return_beams:
-          output_beams = np.split(outputs, FLAGS.decode_beam_size, axis=0)
-          for k, beam in enumerate(output_beams):
-            tf.logging.info("BEAM %d:" % k)
-            log_fn(inputs, targets, beam, problem, j)
-        else:
-          log_fn(inputs, targets, outputs, problem, j)
+    for j, result in enumerate(result_iter):
+      inputs, targets, outputs = (result["inputs"], result["targets"],
+                                  result["outputs"])
+      if FLAGS.decode_return_beams:
+        output_beams = np.split(outputs, FLAGS.decode_beam_size, axis=0)
+        for k, beam in enumerate(output_beams):
+          tf.logging.info("BEAM %d:" % k)
+          log_fn(inputs, targets, beam, problem, j)
+      else:
+        log_fn(inputs, targets, outputs, problem, j)
 
 
 def decode_from_file(estimator, filename):
@@ -628,21 +629,11 @@ def decode_from_file(estimator, filename):
   problem_id = FLAGS.decode_problem_id
   inputs_vocab = hparams.problems[problem_id].vocabulary["inputs"]
   targets_vocab = hparams.problems[problem_id].vocabulary["targets"]
-  tf.logging.info("Performing Decoding from a file.")
+  tf.logging.info("Performing decoding from a file.")
   sorted_inputs, sorted_keys = _get_sorted_inputs(filename)
   num_decode_batches = (len(sorted_inputs) - 1) // FLAGS.decode_batch_size + 1
   input_fn = _decode_batch_input_fn(problem_id, num_decode_batches,
                                     sorted_inputs, inputs_vocab)
-
-  # strips everything after the first <EOS> id, which is assumed to be 1
-  def _save_until_eos(hyp):  #  pylint: disable=missing-docstring
-    ret = []
-    index = 0
-    # until you reach <EOS> id
-    while index < len(hyp) and hyp[index] != 1:
-      ret.append(hyp[index])
-      index += 1
-    return np.array(ret)
 
   decodes = []
   for _ in range(num_decode_batches):
@@ -655,8 +646,7 @@ def decode_from_file(estimator, filename):
         decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
         tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
-        decoded_outputs = targets_vocab.decode(
-            _save_until_eos(outputs.flatten()))
+        decoded_outputs = targets_vocab.decode(_save_until_eos(outputs.flatten()))
         tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
         return decoded_outputs
 
@@ -667,7 +657,7 @@ def decode_from_file(estimator, filename):
         for k, beam in enumerate(output_beams):
           tf.logging.info("BEAM %d:" % k)
           beam_decodes.append(log_fn(result["inputs"], beam))
-        decodes.append(str.join("\t", beam_decodes))
+        decodes.append("\t".join(beam_decodes))
 
       else:
         decodes.append(log_fn(result["inputs"], result["outputs"]))
@@ -709,11 +699,11 @@ def decode_interactively(estimator):
           tf.logging.info("BEAM %d:" % k)
           if scores is not None:
             tf.logging.info("%s\tScore:%f" %
-                            (targets_vocab.decode(beam.flatten()), scores[k]))
+                            (targets_vocab.decode(_save_until_eos(beam.flatten())), scores[k]))
           else:
-            tf.logging.info(targets_vocab.decode(beam.flatten()))
+            tf.logging.info(targets_vocab.decode(_save_until_eos(beam.flatten())))
       else:
-        tf.logging.info(targets_vocab.decode(result["outputs"].flatten()))
+        tf.logging.info(targets_vocab.decode(_save_until_eos(result["outputs"].flatten())))
 
 
 def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
@@ -726,10 +716,10 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
     tf.logging.info("Deocding batch %d" % b)
     batch_length = 0
     batch_inputs = []
-    for inputs in sorted_inputs[b * FLAGS.decode_batch_size:(
-        b + 1) * FLAGS.decode_batch_size]:
+    for inputs in sorted_inputs[b * FLAGS.decode_batch_size:
+        (b + 1) * FLAGS.decode_batch_size]:
       input_ids = vocabulary.encode(inputs)
-      input_ids.append(1)  # Assuming EOS=1.
+      input_ids.append(EOS_TOKEN)
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
@@ -822,7 +812,7 @@ def _interactive_input_fn(hparams):
       if input_type == "text":
         input_ids = vocabulary.encode(input_string)
         if has_input:
-          input_ids.append(1)  # assume 1 means end-of-source
+          input_ids.append(EOS_TOKEN)
         x = [num_samples, decode_length, len(input_ids)] + input_ids
         assert len(x) < const_array_size
         x += [0] * (const_array_size - len(x))
@@ -1089,7 +1079,7 @@ def get_input_fn(mode,
         problem_choice = tf.to_int32(FLAGS.worker_id % problem_count)
       else:
         raise ValueError("Value of hparams.problem_choice is %s and must be "
-                         "one of [uniform, adaptive, distributed]",
+                         "one of [uniform, adaptive, distributed]" %
                          hparams.problem_choice)
 
       # Inputs and targets conditional on problem_choice.

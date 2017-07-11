@@ -37,8 +37,6 @@ import tensorflow as tf
 
 # Conversion between Unicode and UTF-8, if required (on Python2)
 native_to_unicode = (lambda s: s.decode("utf-8")) if PY2 else (lambda s: s)
-
-
 unicode_to_native = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
 
 
@@ -46,11 +44,13 @@ unicode_to_native = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
 PAD = "<pad>"
 EOS = "<EOS>"
 RESERVED_TOKENS = [PAD, EOS]
+PAD_TOKEN = RESERVED_TOKENS.index(PAD) # Normally 0
+EOS_TOKEN = RESERVED_TOKENS.index(EOS) # Normally 1
+
 if six.PY2:
   RESERVED_TOKENS_BYTES = RESERVED_TOKENS
 else:
   RESERVED_TOKENS_BYTES = [bytes(PAD, "ascii"), bytes(EOS, "ascii")]
-
 
 class TextEncoder(object):
   """Base class for converting from ints to/from human readable strings."""

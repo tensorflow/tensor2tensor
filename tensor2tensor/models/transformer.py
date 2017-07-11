@@ -359,6 +359,7 @@ def transformer_parsing_ice():
   hparams = transformer_parsing_base()
   hparams.batch_size = 4096
   hparams.batching_mantissa_bits = 2
+  hparams.hidden_size = 512
   #hparams.max_length = 256
   #hparams.hidden_size = 128
   return hparams
