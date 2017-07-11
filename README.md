@@ -72,7 +72,7 @@ t2t-datagen \
   --num_shards=100 \
   --problem=$PROBLEM
 
-mv $TMP_DIR/tokens.vocab.32768 $DATA_DIR
+cp $TMP_DIR/tokens.vocab.* $DATA_DIR
 
 # Train
 # *  If you run out of memory, add --hparams='batch_size=2048' or even 1024.

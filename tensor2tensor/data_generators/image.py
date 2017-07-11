@@ -68,7 +68,7 @@ def image_generator(images, labels):
         yield {
             "image/encoded": [enc_string],
             "image/format": ["png"],
-            "image/class/label": [label],
+            "image/class/label": [int(label)],
             "image/height": [height],
             "image/width": [width]
         }

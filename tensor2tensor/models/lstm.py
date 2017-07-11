@@ -268,7 +268,7 @@ class LSTMSeq2SeqAttention(t2t_model.T2TModel):
 def lstm_attention():
   """hparams for LSTM with attention."""
   hparams = common_hparams.basic_params1()
-  hparams.batch_size = 128
+  hparams.batch_size = 1024
   hparams.hidden_size = 128
   hparams.num_hidden_layers = 2
 
