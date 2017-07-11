@@ -27,6 +27,7 @@ from tensor2tensor.models import slicenet
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
+from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
 
