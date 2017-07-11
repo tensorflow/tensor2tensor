@@ -43,6 +43,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python.ops import init_ops
+from tensorflow.python import debug as tf_debug
 
 # Number of samples to draw for an image input (in such cases as captioning)
 IMAGE_DECODE_LENGTH = 100

@@ -177,7 +177,7 @@ def default_problem_hparams():
       #   13: Audio spectral domain
       #   14: Parse characters
       #   15: Parse tokens
-      #   16: Chinese bpe tokens
+      #   16: Chinese tokens
       # Add more above if needed.
       input_space_id=0,
       target_space_id=0,
