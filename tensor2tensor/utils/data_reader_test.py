@@ -45,8 +45,9 @@ class DataReaderTest(tf.test.TestCase):
       for i in xrange(100):
         yield {"inputs": [i], "targets": [i], "floats": [i + 0.5]}
 
-    generator_utils.generate_files(test_generator(), tmp_file_name, tmp_dir)
-    self.assertTrue(tf.gfile.Exists(tmp_file_path + "-00000-of-00001"))
+    filenames = generator_utils.train_data_filenames(tmp_file_name, tmp_dir, 1)
+    generator_utils.generate_files(test_generator(), filenames)
+    self.assertTrue(tf.gfile.Exists(tmp_file_path + "-train-00000-of-00001"))
 
     examples_train = data_reader.examples_queue(
         [tmp_file_path + "*"], {
@@ -82,7 +83,7 @@ class DataReaderTest(tf.test.TestCase):
       self.assertTrue(is_shuffled)
 
     # Clean up.
-    os.remove(tmp_file_path + "-00000-of-00001")
+    os.remove(tmp_file_path + "-train-00000-of-00001")
     os.remove(tmp_file_path)
 
   # TODO(rsepassi): fix and reenable test
@@ -97,8 +98,9 @@ class DataReaderTest(tf.test.TestCase):
       for i in xrange(100):
         yield {"inputs": [i + 1 for _ in xrange(i + 1)], "targets": [i + 1]}
 
-    generator_utils.generate_files(test_generator(), tmp_file_name, tmp_dir)
-    self.assertTrue(tf.gfile.Exists(tmp_file_path + "-00000-of-00001"))
+    filenames = generator_utils.train_data_filenames(tmp_file_name, tmp_dir, 1)
+    generator_utils.generate_files(test_generator(), filenames)
+    self.assertTrue(tf.gfile.Exists(tmp_file_path + "-train-00000-of-00001"))
 
     examples_train = data_reader.examples_queue([tmp_file_path + "*"], {
         "inputs": tf.VarLenFeature(tf.int64),
@@ -140,7 +142,7 @@ class DataReaderTest(tf.test.TestCase):
     # Clean up.
     coord.request_stop()
     coord.join()
-    os.remove(tmp_file_path + "-00000-of-00001")
+    os.remove(tmp_file_path + "-train-00000-of-00001")
     os.remove(tmp_file_path)
 
 

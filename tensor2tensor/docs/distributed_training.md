@@ -51,7 +51,7 @@ Parameter servers only need `--schedule=run_std_server`.
 
 ## Utility to produce `TF_CONFIG` and flags
 
-[`bin/make_tf_configs.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/make_tf_configs.py))
+[`t2t-make-tf-configs`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/t2t-make-tf-configs))
 generates the `TF_CONFIG` json strings and the above-mentioned command-line
 flags for the workers and parameter servers.
 

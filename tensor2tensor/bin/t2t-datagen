@@ -37,8 +37,10 @@ from tensor2tensor.data_generators import algorithmic_math
 from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image
+from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import ptb
 from tensor2tensor.data_generators import snli
+from tensor2tensor.data_generators import wiki
 from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import wsj_parsing
 
@@ -137,6 +139,14 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "wmt_ende_tokens_32k": (
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**15)
+    ),
+    "lm1b_32k": (
+        lambda: lm1b.generator(FLAGS.tmp_dir, True),
+        lambda: lm1b.generator(FLAGS.tmp_dir, False)
+    ),
+    "wiki_32k": (
+        lambda: wiki.generator(FLAGS.tmp_dir, True),
+        1000
     ),
     "image_mnist_tune": (
         lambda: image.mnist_generator(FLAGS.tmp_dir, True, 55000),
@@ -335,17 +345,33 @@ def main(_):
 
     training_gen, dev_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
 
-    tf.logging.info("Generating training data for %s.", problem)
-    train_output_files = generator_utils.generate_files(
-        training_gen(), problem + UNSHUFFLED_SUFFIX + "-train",
-        FLAGS.data_dir, FLAGS.num_shards, FLAGS.max_cases)
-
-    tf.logging.info("Generating development data for %s.", problem)
-    dev_output_files = generator_utils.generate_files(
-        dev_gen(), problem + UNSHUFFLED_SUFFIX + "-dev", FLAGS.data_dir, 1)
+    if isinstance(dev_gen, int):
+      # The dev set and test sets are generated as extra shards using the
+      # training generator.  The integer specifies the number of training
+      # shards.  FLAGS.num_shards is ignored.
+      num_training_shards = dev_gen
+      tf.logging.info("Generating data for %s.", problem)
+      all_output_files = generator_utils.combined_data_filenames(
+          problem + UNSHUFFLED_SUFFIX, FLAGS.data_dir, num_training_shards)
+      generator_utils.generate_files(
+          training_gen(), all_output_files, FLAGS.max_cases)
+    else:
+      # usual case - train data and dev data are generated using separate
+      # generators.
+      tf.logging.info("Generating training data for %s.", problem)
+      train_output_files = generator_utils.train_data_filenames(
+          problem + UNSHUFFLED_SUFFIX, FLAGS.data_dir, FLAGS.num_shards)
+      generator_utils.generate_files(
+          training_gen(), train_output_files, FLAGS.max_cases)
+      tf.logging.info("Generating development data for %s.", problem)
+      dev_shards = 10 if "coco" in problem else 1
+      dev_output_files = generator_utils.dev_data_filenames(
+          problem + UNSHUFFLED_SUFFIX, FLAGS.data_dir, dev_shards)
+      generator_utils.generate_files(dev_gen(), dev_output_files)
+      all_output_files = train_output_files + dev_output_files
 
     tf.logging.info("Shuffling data...")
-    for fname in train_output_files + dev_output_files:
+    for fname in all_output_files:
       records = generator_utils.read_records(fname)
       random.shuffle(records)
       out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")

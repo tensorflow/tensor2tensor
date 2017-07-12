@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # Copyright 2017 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +17,7 @@
 
 Usage:
 
-`make_tf_configs.py --workers="server1:1234" --ps="server3:2134,server4:2334"`
+`t2t-make-tf-configs --workers="server1:1234" --ps="server3:2134,server4:2334"`
 
 Outputs 1 line per job to stdout, first the workers, then the parameter servers.
 Each line has the TF_CONFIG, then a tab, then the command line flags for that
@@ -74,7 +75,8 @@ def main(_):
           "task": {
               "type": task_type,
               "index": idx
-          }
+          },
+          "environment": "cloud",
       })
       print("'%s'\t%s" % (tf_config, cmd_line_flags))
 

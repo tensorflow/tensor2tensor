@@ -325,33 +325,35 @@ def audio_wsj_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def lm1b_16k(model_hparams):
-  """Billion-word language-modeling benchmark, 16k subtoken vocabulary."""
+def lm1b_32k(model_hparams):
+  """Billion-word language-modeling benchmark, 32k subword vocabulary."""
   p = default_problem_hparams()
-  p.perplexity_exponent = 1.184206
+  # ratio of dev tokens (including eos) to dev words (including eos)
+  # 176884 / 159658 = 1.107893
+  p.perplexity_exponent = 1.107893
   p.input_modality = {}
-  p.target_modality = (registry.Modalities.SYMBOL, 16384)
+  encoder = text_encoder.SubwordTextEncoder(
+      os.path.join(model_hparams.data_dir, "lm1b_32k.subword_text_encoder"))
+  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
   p.vocabulary = {
-      "targets":
-          text_encoder.SubwordTextEncoder(
-              os.path.join(model_hparams.data_dir,
-                           "lm1b_16k.subword_text_encoder"))
+      "targets": encoder
   }
   p.target_space_id = 3
   return p
 
 
-def lm1b_64k(model_hparams):
-  """Billion-word language-modeling benchmark, 64k subtoken vocabulary."""
+def wiki_32k(model_hparams):
+  """Wikipedia title to article.  32k subtoken vocabulary."""
   p = default_problem_hparams()
-  p.perplexity_exponent = 1.067068
-  p.input_modality = {}
-  p.target_modality = (registry.Modalities.SYMBOL, 65536)
+  encoder = text_encoder.SubwordTextEncoder(
+      os.path.join(model_hparams.data_dir, "wiki_32k.subword_text_encoder"))
+  p.input_modality = {
+      "inputs": (registry.Modalities.SYMBOL, encoder.vocab_size)
+  }
+  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
   p.vocabulary = {
-      "targets":
-          text_encoder.SubwordTextEncoder(
-              os.path.join(model_hparams.data_dir,
-                           "lm1b_64k.subword_text_encoder"))
+      "inputs": encoder,
+      "targets": encoder
   }
   p.target_space_id = 3
   return p
@@ -700,8 +702,8 @@ PROBLEM_HPARAMS_MAP = {
     "audio_wsj_characters_test": audio_wsj_characters,
     "audio_wsj_tokens_8k_tune": lambda p: audio_wsj_tokens(p, 2**13),
     "audio_wsj_tokens_8k_test": lambda p: audio_wsj_tokens(p, 2**13),
-    "lm1b_16k": lm1b_16k,
-    "lm1b_64k": lm1b_64k,
+    "lm1b_32k": lm1b_32k,
+    "wiki_32k": wiki_32k,
     "lmptb_10k": lmptb_10k,
     "wmt_parsing_characters": wmt_parsing_characters,
     "wmt_parsing_tokens_8k": lambda p: wmt_parsing_tokens(p, 2**13),
