@@ -75,7 +75,8 @@ def main(_):
           "task": {
               "type": task_type,
               "index": idx
-          }
+          },
+          "environment": "cloud",
       })
       print("'%s'\t%s" % (tf_config, cmd_line_flags))
 
