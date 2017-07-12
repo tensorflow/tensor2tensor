@@ -88,15 +88,13 @@ outputs and was not quite like how we, humans, translate. We read the entire
 source sentence, understand its meaning, and then produce a translation. Neural
 Machine Translation (NMT) mimics that!
 
-<div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:100%" src="nmt/g3doc/img/encdec.jpg" />
+<p align="center">
+<img width="80%" src="nmt/g3doc/img/encdec.jpg" />
 <br>
-
 Figure 1. <b>Encoder-decoder architecture</b> – example of a general approach for
 NMT. An encoder converts a source sentence into a "meaning" vector which is
 passed through a <i>decoder</i> to produce a translation.
-
-</div>
+</p>
 
 Specifically, an NMT system first reads the source sentence using an *encoder*
 to build
@@ -134,16 +132,14 @@ For more information, we refer readers
 to [Luong (2016)](https://github.com/lmthang/thesis) which this tutorial is
 based on.
 
-<div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:60%; margin-left:20%" src="nmt/g3doc/img/seq2seq.jpg" />
+<p align="center">
+<img width="48%" src="nmt/g3doc/img/seq2seq.jpg" />
 <br>
-
 Figure 2. <b>Neural machine translation</b> – example of a deep recurrent
 architecture proposed by for translating a source sentence "I am a student" into
-a target sentence "Je suis étudiant". Here, `<s>` marks the start of the
-decoding process while `</s>` tells the decoder to stop.
-
-</div>
+a target sentence "Je suis étudiant". Here, "&lts&gt" marks the start of the
+decoding process while "&lt/s&gt" tells the decoder to stop.
+</p>
 
 ## Installing the Tutorial
 
@@ -424,14 +420,12 @@ The idea is simple and we illustrate it in Figure 3:
 4. The process continues until the end-of-sentence marker "\</s\>" is produced as
    an output symbol (refer as *tgt_eos_id* in our code).
 
-<div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:50%; margin-left:25%" src="nmt/g3doc/img/greedy_dec.jpg" />
+<p align="center">
+<img width="40%" src="nmt/g3doc/img/greedy_dec.jpg" />
 <br>
-
 Figure 3. <b>Greedy decoding</b> – example of how a trained NMT model produces a
 translation for a source sentence "Je suis étudiant" using greedy search.
-
-</div>
+</p>
 
 Step 3 is what makes inference different from training. Instead of always
 feeding the correct target words as an input, inference uses words predicted by
@@ -495,14 +489,12 @@ content as we translate. A nice byproduct of the attention mechanism is an
 easy-to-visualize alignment matrix between the source and target sentences (as
 shown in Figure 4).
 
-<div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:50%; margin-left:25%" src="nmt/g3doc/img/attention_vis.jpg" />
+<p align="center">
+<img width="40%" src="nmt/g3doc/img/attention_vis.jpg" />
 <br>
-
 Figure 4. <b>Attention visualization</b> – example of the alignments between source
 and target sentences. Image is taken from (Bahdanau et al., 2015).
-
-</div>
+</p>
 
 Remember that in the vanilla seq2seq model, we pass the last source state from
 the encoder to the decoder when starting the decoding process. This works well
@@ -524,16 +516,14 @@ open-source toolkits such as [OpenNMT](http://opennmt.net/about/) and in the TF
 seq2seq API in this tutorial. We will also provide connections to other variants
 of the attention mechanism.
 
-<div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:60%; margin-left:20%" src="nmt/g3doc/img/attention_mechanism.jpg" />
+<p align="center">
+<img width="48%" src="nmt/g3doc/img/attention_mechanism.jpg" />
 <br>
-
 Figure 5. <b>Attention mechanism</b> – example of an attention-based NMT system
 as described in (Luong et al., 2015) . We highlight in detail the first step of
 the attention computation. For clarity, we don't show the embedding and
 projection layers in Figure (2).
-
-</div>
+</p>
 
 As illustrated in Figure 5, the attention computation happens at every decoder
 time step.  It consists of the following stages:
@@ -547,10 +537,10 @@ time step.  It consists of the following stages:
 1. The attention vector is fed as an input to the next time step (*input
    feeding*).  The first three steps can be summarized by the equations below:
 
-<div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:100%" src="nmt/g3doc/img/attention_equation_0.jpg" />
+<p align="center">
+<img width="80%" src="nmt/g3doc/img/attention_equation_0.jpg" />
 <br>
-</div>
+</p>
 
 Here, the function `score` is used to compared the target hidden state $$h_t$$
 with each of the source hidden states $$\overline{h}_s$$, and the result is normalized to
@@ -561,10 +551,10 @@ vector $$a_t$$ is used to derive the softmax logit and loss.  This is similar to
 target hidden state at the top layer of a vanilla seq2seq model. The function
 `f` can also take other forms.
 
-<div style="width:80%; margin:auto; margin-bottom:10px; margin-top:20px;">
-<img style="width:100%" src="nmt/g3doc/img/attention_equation_1.jpg" />
+<p align="center">
+<img width="80%" src="nmt/g3doc/img/attention_equation_1.jpg" />
 <br>
-</div>
+</p>
 
 Various implementations of attention mechanisms can be found
 in
