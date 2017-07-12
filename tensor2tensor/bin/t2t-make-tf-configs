@@ -17,13 +17,13 @@
 
 Usage:
 
-`t2t-make-tf-configs --workers="server1:1234" --ps="server3:2134,server4:2334"`
+`t2t-make-tf-configs --masters="server1:1234" --ps="server3:2134,server4:2334"`
 
-Outputs 1 line per job to stdout, first the workers, then the parameter servers.
+Outputs 1 line per job to stdout, first the masters, then the parameter servers.
 Each line has the TF_CONFIG, then a tab, then the command line flags for that
 job.
 
-If there is a single worker, workers will have the `--sync` flag.
+If there is a single master, it will have the `--sync` flag.
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -38,31 +38,32 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("workers", "", "Comma-separated list of worker addresses")
+flags.DEFINE_string("masters", "", "Comma-separated list of master addresses")
 flags.DEFINE_string("ps", "", "Comma-separated list of ps addresses")
 
 
 def main(_):
-  if not (FLAGS.workers and FLAGS.ps):
-    raise ValueError("Must provide --workers and --ps")
+  if not (FLAGS.masters and FLAGS.ps):
+    raise ValueError("Must provide --masters and --ps")
 
-  workers = FLAGS.workers.split(",")
+  masters = FLAGS.masters.split(",")
   ps = FLAGS.ps.split(",")
 
-  cluster = {"ps": ps, "worker": workers}
+  cluster = {"ps": ps, "master": masters}
 
-  for task_type, jobs in (("worker", workers), ("ps", ps)):
+  for task_type, jobs in (("master", masters), ("ps", ps)):
     for idx, job in enumerate(jobs):
-      if task_type == "worker":
+      if task_type == "master":
         cmd_line_flags = " ".join([
             "--master=grpc://%s" % job,
             "--ps_replicas=%d" % len(ps),
-            "--worker_replicas=%d" % len(workers),
+            "--worker_replicas=%d" % len(masters),
             "--worker_gpu=1",
             "--worker_id=%d" % idx,
+            "--worker_job='/job:master'",
             "--ps_gpu=1",
             "--schedule=train",
-            "--sync" if len(workers) == 1 else "",
+            "--sync" if len(masters) == 1 else "",
         ])
       else:
         cmd_line_flags = " ".join([

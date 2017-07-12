@@ -91,6 +91,8 @@ flags.DEFINE_string("worker_job", "/job:worker", "name of worker job")
 flags.DEFINE_integer("worker_gpu", 1, "How many GPUs to use.")
 flags.DEFINE_integer("worker_replicas", 1, "How many workers to use.")
 flags.DEFINE_integer("worker_id", 0, "Which worker task are we.")
+flags.DEFINE_float("worker_gpu_memory_fraction", 1.,
+                   "Fraction of GPU memory to allocate.")
 flags.DEFINE_integer("ps_gpu", 0, "How many GPUs to use per ps.")
 flags.DEFINE_string("gpu_order", "", "Optional order for daisy-chaining gpus."
                     " e.g. \"1 3 2 4\"")
@@ -177,6 +179,7 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
       config=tf.contrib.learn.RunConfig(
           master=FLAGS.master,
           model_dir=output_dir,
+          gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction,
           session_config=session_config(),
           keep_checkpoint_max=FLAGS.keep_checkpoint_max))
   # Store the hparams in the estimator as well
@@ -270,6 +273,7 @@ def session_config():
   """The TensorFlow Session config to use."""
   graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
       opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
+
   if FLAGS.experimental_optimize_placement:
     rewrite_options = tf.RewriterConfig(optimize_tensor_layout=True)
     rewrite_options.optimizers.append("pruning")
@@ -277,9 +281,13 @@ def session_config():
     rewrite_options.optimizers.append("layout")
     graph_options = tf.GraphOptions(
         rewrite_options=rewrite_options, infer_shapes=True)
-  config = tf.ConfigProto(
-      allow_soft_placement=True, graph_options=graph_options)
 
+  gpu_options = tf.GPUOptions(
+      per_process_gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction)
+
+  config = tf.ConfigProto(allow_soft_placement=True,
+                          graph_options=graph_options,
+                          gpu_options=gpu_options)
   return config
 
 
