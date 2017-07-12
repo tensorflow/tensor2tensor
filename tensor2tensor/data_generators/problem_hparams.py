@@ -177,6 +177,7 @@ def default_problem_hparams():
       #   13: Audio spectral domain
       #   14: Parse characters
       #   15: Parse tokens
+      #   16: Chinese tokens
       # Add more above if needed.
       input_space_id=0,
       target_space_id=0,
@@ -472,6 +473,32 @@ def wmt_ende_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
+def wmt_zhen_tokens(model_hparams, wrong_vocab_size):
+  """Chinese to English translation benchmark."""
+  p = default_problem_hparams()
+  # This vocab file must be present within the data directory.
+  if model_hparams.shared_embedding_and_softmax_weights == 1:
+    model_hparams.shared_embedding_and_softmax_weights = 0
+  source_vocab_filename = os.path.join(model_hparams.data_dir,
+                                       "tokens.vocab.zh.%d" % wrong_vocab_size)
+  target_vocab_filename = os.path.join(model_hparams.data_dir,
+                                       "tokens.vocab.en.%d" % wrong_vocab_size)
+  source_token = text_encoder.SubwordTextEncoder(source_vocab_filename)
+  target_token = text_encoder.SubwordTextEncoder(target_vocab_filename)
+  p.input_modality = {
+      "inputs": (registry.Modalities.SYMBOL, source_token.vocab_size)
+  }
+  p.target_modality = (registry.Modalities.SYMBOL, target_token.vocab_size)
+  p.vocabulary = {
+      "inputs": source_token,
+      "targets": target_token,
+  }
+  p.loss_multiplier = 1.4
+  p.input_space_id = 16
+  p.target_space_id = 4
+  return p
+
+
 def wmt_ende_v2(model_hparams, vocab_size):
   """English to German translation benchmark with separate vocabularies."""
   p = default_problem_hparams()
@@ -730,6 +757,7 @@ PROBLEM_HPARAMS_MAP = {
     "wmt_ende_bpe32k_160": wmt_ende_bpe32k,
     "wmt_ende_v2_32k_combined": lambda p: wmt_ende_v2(p, 2**15),
     "wmt_ende_v2_16k_combined": lambda p: wmt_ende_v2(p, 2**14),
+    "wmt_zhen_tokens_32k": lambda p: wmt_zhen_tokens(p, 2**15),
     "image_cifar10_tune": image_cifar10,
     "image_cifar10_test": image_cifar10,
     "image_mnist_tune": image_mnist,
