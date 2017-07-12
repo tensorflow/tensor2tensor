@@ -6,6 +6,7 @@
 - [Introduction](#introduction)
 - [Basic](#basic)
    - [Background on Neural Machine Translation](#background-on-neural-machine-translation)
+   - [Installing the Tutorial](#installing-the-tutorial)
    - [Training – *How to build our first NMT system*](#training-–-how-to-build-our-first-nmt-system)
       - [Embedding](#embedding)
       - [Encoder](#encoder)
@@ -143,6 +144,20 @@ decoding process while "&lt/s&gt" tells the decoder to stop.
 
 </div>
 
+## Installing the Tutorial
+
+To install this tutorial, you need to have TensorFlow installed on your system.
+This tutorial requires the most recent version of TensorFlow as of time of
+writing (version **1.2.1**).  To install TensorFlow, follow the
+[installation instructions here](https://www.tensorflow.org/install/).
+
+Once TensorFlow is installed, you can download the source code of this tutorial
+by running:
+
+``` shell
+git clone https://github.com/tensorflow/nmt/
+```
+
 ## Training – How to build our first NMT system
 
 Let's first dive into the heart of building an NMT model with concrete code
@@ -176,7 +191,7 @@ treated as unique.  All other words are converted to an "unknown" token and all
 get the same embedding.  The embedding weights, one set per language, are
 usually learned during training.
 
-```
+``` python
 # Embedding
 embedding_encoder = variable_scope.get_variable(
     "embedding_encoder", [src_vocab_size, embedding_size], ...)
@@ -201,7 +216,7 @@ same weights; however, in practice, we often use two different RNN parameters
 (such models do a better job when fitting large training datasets). The
 *encoder* RNN uses zero vectors as its starting states and is built as follows:
 
-```
+``` python
 # Build RNN cell
 encoder_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units)
 
@@ -227,12 +242,12 @@ simple way to achieve that is to initialize it with the last hidden state of the
 encoder, *encoder_state*. In Figure 2, we pass the hidden state at the source
 word "student" to the decoder side.
 
-```
+``` python
 # Build RNN cell
 decoder_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units)
 ```
 
-```
+``` python
 # Helper
 helper = tf.contrib.seq2seq.TrainingHelper(
     decoder_emb_inp, decoder_lengths, time_major=True)
@@ -257,7 +272,7 @@ Lastly, we haven't mentioned *projection_layer* which is a dense matrix to turn
 the top hidden states to logit vectors of dimension V. We illustrate this
 process at the top of Figure 2.
 
-```
+``` python
 projection_layer = layers_core.Dense(
     tgt_vocab_size, use_bias=False)
 ```
@@ -266,7 +281,7 @@ projection_layer = layers_core.Dense(
 
 Given the *logits* above, we are now ready to compute our training loss:
 
-```
+``` python
 crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
     labels=decoder_outputs, logits=logits)
 train_loss = (tf.reduce_sum(crossent * target_weights) /
@@ -290,7 +305,7 @@ smaller learning rate of 1 / *num_time_steps*.
 We have now defined the forward pass of our NMT model. Computing the
 backpropagation pass is just a matter of a few lines of code:
 
-```
+``` python
 # Calculate and clip gradients
 parameters = tf.trainable_variables()
 gradients = tf.gradients(train_loss, params)
@@ -305,7 +320,7 @@ common choice.  We also select a learning rate.  The value of *learning_rate*
 can is usually in the range 0.0001 to 0.001; and can be set to decrease as
 training progresses.
 
-```
+``` python
 # Optimization
 optimizer = tf.train.AdamOptimizer(learning_rate)
 update_step = optimizer.apply_gradients(
@@ -334,7 +349,7 @@ Run the following command to download the data for training NMT model:\
 
 Run the following command to start the training:
 
-```
+``` shell
 mkdir /tmp/nmt_model
 python -m nmt.nmt \
     --src=vi --tgt=en \
@@ -375,7 +390,7 @@ See [**train.py**](train.py) for more details.
 
 We can start Tensorboard to view the summary of the model during training:
 
-```
+``` shell
 tensorboard --port 22222 --logdir /tmp/nmt_model/
 ```
 
@@ -422,7 +437,7 @@ feeding the correct target words as an input, inference uses words predicted by
 the model. Here's the code to achieve greedy decoding.  It is very similar to
 the training decoder.
 
-```
+``` python
 # Helper
 helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
     embedding_decoder,
@@ -443,14 +458,14 @@ not know the target sequence lengths in advance, we use *maximum_iterations* to
 limit the translation lengths. One heuristic is to decode up to two times the
 source sentence lengths.
 
-```
+``` python
 maximum_iterations = tf.round(tf.reduce_max(source_sequence_length) * 2)
 ```
 
 Having trained a model, we can now create an inference file and translate some
 sentences:
 
-```
+``` shell
 cat > /tmp/my_infer_file.vi
 # (copy and paste some sentences from /tmp/nmt_data/tst2013.vi)
 
@@ -595,7 +610,7 @@ file [**attention_model.py**](attention_model.py)
 First, we need to define an attention mechanism, e.g., from (Luong et al.,
 2015):
 
-```
+``` python
 # attention_states: [batch_size, max_time, num_units]
 attention_states = tf.transpose(encoder_outputs, [1, 0, 2])
 
@@ -617,7 +632,7 @@ positions only).
 Having defined an attention mechanism, we use *AttentionWrapper* to wrap the
 decoding cell:
 
-```
+``` python
 decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
     decoder_cell, attention_mechanism,
     attention_layer_size=num_units)
@@ -635,7 +650,7 @@ previously trained basic NMT model.
 
 Run the following command to start the training:
 
-```
+``` shell
 mkdir /tmp/nmt_attention_model
 
 python -m nmt.nmt \
@@ -657,7 +672,7 @@ python -m nmt.nmt \
 After training, we can use the same inference command with the new model_dir for
 inference:
 
-```
+``` shell
 python -m nmt.nmt \
     --model_dir=/tmp/nmt_attention_model \
     --inference_input_file=/tmp/my_infer_file.vi \
@@ -713,7 +728,7 @@ example below shows the main differences between the two approaches.
 
 **Before: Three models in a single graph and sharing a single Session**
 
-```
+``` python
 with tf.variable_scope('root'):
   train_inputs = tf.placeholder()
   train_op, loss = BuildTrainModel(train_inputs)
@@ -746,7 +761,7 @@ for i in itertools.count():
 
 **After: Three models in three graphs, with three Sessions sharing the same Variables**
 
-```
+``` python
 train_graph = tf.Graph()
 eval_graph = tf.Graph()
 infer_graph = tf.Graph()
@@ -830,7 +845,7 @@ provide efficiency and multithreading by leveraging the TensorFlow C++ runtime.
 A **dataset** can be created from a batch data Tensor, a filename, or a Tensor
 containing multiple filenames.  Some examples:
 
-```
+``` python
 # Training dataset consists of multiple files.
 train_dataset = tf.contrib.data.TextLineDataset(train_files)
 
@@ -851,14 +866,14 @@ filtering, and batching.
 To convert each sentence into vectors of word strings, for example, we use the
 dataset map transformation:
 
-```
+``` python
 dataset = dataset.map(lambda string: tf.string_split([string]).values)
 ```
 
 We can then switch each sentence vector into a tuple containing both the vector
 and its dynamic length:
 
-```
+``` python
 dataset = dataset.map(lambda words: (words, tf.size(words))
 ```
 
@@ -867,7 +882,7 @@ table object table, this map converts the first tuple elements from a vector of
 strings to a vector of integers.
 
 
-```
+``` python
 dataset = dataset.map(lambda words, size: (table.lookup(words), size))
 ```
 
@@ -875,7 +890,7 @@ Joining two datasets is also easy.  If two files contain line-by-line
 translations of each other and each one is read into its own dataset, then a new
 dataset containing the tuples of the zipped lines can be created via:
 
-```
+``` python
 source_target_dataset = tf.contrib.data.Dataset.zip((source_dataset, target_dataset))
 ```
 
@@ -884,7 +899,7 @@ transformation batches *batch_size* elements from *source_target_dataset*, and
 respectively pads the source and target vectors to the length of the longest
 source and target vector in each batch.
 
-```
+``` python
 batched_dataset = source_target_dataset.padded_batch(
         batch_size,
         padded_shapes=((tf.TensorShape([None]),  # source vectors of unknown size
@@ -914,7 +929,7 @@ more details and the full implementation.
 Reading data from a Dataset requires three lines of code: create the iterator,
 get its values, and initialize it.
 
-```
+``` python
 batched_iterator = batched_dataset.make_initializable_iterator()
 
 ((source, source_lengths), (target, target_lenghts)) = batched_iterator.get_next()
@@ -934,7 +949,7 @@ Bidirectionality on the encoder side generally gives better performance (with
 some degradation in speed as more layers are used). Here, we give a simplified
 example of how to build an encoder with a single bidirectional layer:
 
-```
+``` python
 # Construct forward and backward cells
 forward_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units)
 backward_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units)
@@ -961,7 +976,7 @@ more information, we refer readers to Section 7.2.3
 of [Neubig, (2017)](https://arxiv.org/abs/1703.01619). Here's an example of how
 beam search can be done:
 
-```
+``` python
 # Replicate encoder infos beam_width times
 decoder_initial_state = tf.contrib.seq2seq.tile_batch(
     encoder_state, multiplier=hparams.beam_width)
@@ -985,7 +1000,7 @@ Note that the same *dynamic_decode()* API call is used, similar to the
 Section [Decoder](#decoder). Once decoded, we can access the translations as
 follows:
 
-```
+``` python
 translations = outputs.predicted_ids
 # Make sure translations shape is [batch_size, beam_width, time]
 if self.time_major:
@@ -1016,7 +1031,7 @@ Training a NMT model may take several days. Placing different RNN layers on
 different GPUs can improve the training speed. Here’s an example to create
 RNN layers on multiple GPUs.
 
-```
+``` python
 cells = []
 for i in range(num_layers):
   cells.append(tf.contrib.rnn.DeviceWrapper(
@@ -1044,7 +1059,7 @@ implemented the architecture in
 a subclass of *tf.contrib.rnn.MultiRNNCell*. Here’s an example of how to create
 a decoder cell with the *GNMTAttentionMultiCell*.
 
-```
+``` python
 cells = []
 for i in range(num_layers):
   cells.append(tf.contrib.rnn.DeviceWrapper(
