@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,7 +30,6 @@ from tensor2tensor.models import lstm
 from tensor2tensor.models import modalities
 from tensor2tensor.models import multimodel
 from tensor2tensor.models import neural_gpu
-from tensor2tensor.models import shake_shake
 from tensor2tensor.models import slicenet
 from tensor2tensor.models import transformer
 from tensor2tensor.models import transformer_alternative

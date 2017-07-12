@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -102,14 +102,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
-    "ice_parsing_tokens": (
-        lambda: wmt.tabbed_parsing_token_generator(FLAGS.tmp_dir,
-            True, "ice", 2**13, 2**8),
-        lambda: wmt.tabbed_parsing_token_generator(FLAGS.tmp_dir,
-            False, "ice", 2**13, 2**8)),
-    "ice_parsing_characters": (
-        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, True),
-        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, False)),
     "wmt_parsing_tokens_8k": (
         lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, True, 2**13),
         lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, False, 2**13)),
@@ -147,12 +139,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "wmt_ende_tokens_32k": (
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**15)
-    ),
-    "wmt_zhen_tokens_32k": (
-        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, True,
-                                                   2**15, 2**15),
-        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, False,
-                                                   2**15, 2**15)
     ),
     "lm1b_32k": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True),

@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,32 +37,27 @@ import tensorflow as tf
 
 
 # Conversion between Unicode and UTF-8, if required (on Python2)
-if PY2:
-  native_to_unicode = lambda s: s if isinstance(s, unicode) else s.decode("utf-8")
-  unicode_to_native = lambda s: s.encode("utf-8")
-else:
-  # No conversion required on Python3
-  native_to_unicode = lambda s: s
-  unicode_to_native = lambda s: s
+def native_to_unicode(s):
+  return s.decode("utf-8") if (PY2 and not isinstance(s, unicode)) else s
+
+
+unicode_to_native = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
 
 
 # Reserved tokens for things like padding and EOS symbols.
 PAD = "<pad>"
 EOS = "<EOS>"
 RESERVED_TOKENS = [PAD, EOS]
-NUM_RESERVED_TOKENS = len(RESERVED_TOKENS)
-PAD_TOKEN = RESERVED_TOKENS.index(PAD) # Normally 0
-EOS_TOKEN = RESERVED_TOKENS.index(EOS) # Normally 1
-
-if PY2:
+if six.PY2:
   RESERVED_TOKENS_BYTES = RESERVED_TOKENS
 else:
   RESERVED_TOKENS_BYTES = [bytes(PAD, "ascii"), bytes(EOS, "ascii")]
 
+
 class TextEncoder(object):
   """Base class for converting from ints to/from human readable strings."""
 
-  def __init__(self, num_reserved_ids=NUM_RESERVED_TOKENS):
+  def __init__(self, num_reserved_ids=2):
     self._num_reserved_ids = num_reserved_ids
 
   def encode(self, s):
@@ -110,7 +105,7 @@ class ByteTextEncoder(TextEncoder):
 
   def encode(self, s):
     numres = self._num_reserved_ids
-    if PY2:
+    if six.PY2:
       return [ord(c) + numres for c in s]
     # Python3: explicitly convert to UTF-8
     return [c + numres for c in s.encode("utf-8")]
@@ -124,10 +119,10 @@ class ByteTextEncoder(TextEncoder):
         decoded_ids.append(RESERVED_TOKENS_BYTES[int(id_)])
       else:
         decoded_ids.append(int2byte(id_ - numres))
-    if PY2:
+    if six.PY2:
       return "".join(decoded_ids)
     # Python3: join byte arrays and then decode string
-    return b"".join(decoded_ids).decode("utf-8", "replace")
+    return b"".join(decoded_ids).decode("utf-8")
 
   @property
   def vocab_size(self):
@@ -137,7 +132,7 @@ class ByteTextEncoder(TextEncoder):
 class TokenTextEncoder(TextEncoder):
   """Encoder based on a user-supplied vocabulary."""
 
-  def __init__(self, vocab_filename, reverse=False, num_reserved_ids=NUM_RESERVED_TOKENS):
+  def __init__(self, vocab_filename, reverse=False, num_reserved_ids=2):
     """Initialize from a file, one token per line."""
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
     self._reverse = reverse
@@ -350,7 +345,7 @@ class SubwordTextEncoder(TextEncoder):
                               token_counts,
                               min_count,
                               num_iterations=4,
-                              num_reserved_ids=NUM_RESERVED_TOKENS):
+                              num_reserved_ids=2):
     """Train a SubwordTextEncoder based on a dictionary of word counts.
 
     Args:
@@ -376,8 +371,6 @@ class SubwordTextEncoder(TextEncoder):
     # We build iteratively.  On each iteration, we segment all the words,
     # then count the resulting potential subtokens, keeping the ones
     # with high enough counts for our new vocabulary.
-    if min_count < 1:
-      min_count = 1
     for i in xrange(num_iterations):
       tf.logging.info("Iteration {0}".format(i))
       counts = defaultdict(int)
@@ -469,7 +462,7 @@ class SubwordTextEncoder(TextEncoder):
         f.write("'" + unicode_to_native(subtoken_string) + "'\n")
 
   def _escape_token(self, token):
-    """Escape away underscores and OOV characters and append '_'.
+    r"""Escape away underscores and OOV characters and append '_'.
 
     This allows the token to be experessed as the concatenation of a list
     of subtokens from the vocabulary.  The underscore acts as a sentinel
@@ -480,7 +473,7 @@ class SubwordTextEncoder(TextEncoder):
     Returns:
       escaped_token: a unicode string
     """
-    assert isinstance(token, six.text_type)
+    assert isinstance(token, unicode)
     token = token.replace(u"\\", u"\\\\").replace(u"_", u"\\u") + u"_"
     ret = u""
     for c in token:
@@ -491,7 +484,7 @@ class SubwordTextEncoder(TextEncoder):
     return ret
 
   def _unescape_token(self, escaped_token):
-    """Inverse of _escape_token().
+    r"""Inverse of _escape_token().
 
     Args:
       escaped_token: a unicode string

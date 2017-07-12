@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -283,34 +283,6 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
           file_byte_budget -= len(line)
           for tok in tokenizer.encode(text_encoder.native_to_unicode(line)):
             token_counts[tok] += 1
-
-  vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
-      vocab_size, token_counts, 1, 1e3)
-  vocab.store_to_file(vocab_filepath)
-  return vocab
-
-
-def get_or_generate_tabbed_vocab(tmp_dir, source_filename, index, vocab_filename, vocab_size):
-  """Generate a vocabulary from the source file. This is assumed to be
-  a file of source, target pairs, where each line contains a source string
-  and a target string, separated by a tab ('\t') character. The index
-  parameter specifies 0 for the source or 1 for the target."""
-  vocab_filepath = os.path.join(tmp_dir, vocab_filename)
-  if os.path.exists(vocab_filepath):
-    vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
-    return vocab
-
-  # Use Tokenizer to count the word occurrences.
-  token_counts = defaultdict(int)
-  filepath = os.path.join(tmp_dir, source_filename)
-  with tf.gfile.GFile(filepath, mode="r") as source_file:
-    for line in source_file:
-      line = line.strip()
-      if line and '\t' in line:
-        parts = line.split('\t', maxsplit = 1)
-        part = parts[index].strip()
-        for tok in tokenizer.encode(text_encoder.native_to_unicode(part)):
-          token_counts[tok] += 1
 
   vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
       vocab_size, token_counts, 1, 1e3)

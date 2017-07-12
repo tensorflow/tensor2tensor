@@ -242,7 +242,7 @@ def transformer_my_very_own_hparams_set():
 
 ```python
 # In ~/usr/t2t_usr/__init__.py
-import my_registrations
+from . import my_registrations
 ```
 
 ```

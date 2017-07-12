@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -66,13 +66,14 @@ def parse_problem_name(problem_name):
     was_copy: A boolean.
   """
   # Recursively strip tags until we reach a base name.
-  if problem_name.endswith("_rev"):
+  if len(problem_name) > 4 and problem_name[-4:] == "_rev":
     base, _, was_copy = parse_problem_name(problem_name[:-4])
     return base, True, was_copy
-  if problem_name.endswith("_copy"):
+  elif len(problem_name) > 5 and problem_name[-5:] == "_copy":
     base, was_reversed, _ = parse_problem_name(problem_name[:-5])
     return base, was_reversed, True
-  return problem_name, False, False
+  else:
+    return problem_name, False, False
 
 
 def _lookup_problem_hparams_fn(name):
@@ -176,10 +177,6 @@ def default_problem_hparams():
       #   13: Audio spectral domain
       #   14: Parse characters
       #   15: Parse tokens
-      #   16: Chinese tokens
-      #   17: Icelandic characters
-      #   18: Icelandic tokens
-      #   19: Icelandic parse tokens
       # Add more above if needed.
       input_space_id=0,
       target_space_id=0,
@@ -200,8 +197,7 @@ def default_problem_hparams():
       # the targets. For instance `problem_copy` will copy the inputs, but
       # `problem_rev_copy` will copy the targets.
       was_reversed=False,
-      was_copy=False,
-    )
+      was_copy=False,)
 
 
 def test_problem_hparams(unused_model_hparams, input_vocab_size,
@@ -476,32 +472,6 @@ def wmt_ende_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def wmt_zhen_tokens(model_hparams, wrong_vocab_size):
-  """Chinese to English translation benchmark."""
-  p = default_problem_hparams()
-  # This vocab file must be present within the data directory.
-  if model_hparams.shared_embedding_and_softmax_weights == 1:
-    model_hparams.shared_embedding_and_softmax_weights = 0
-  source_vocab_filename = os.path.join(model_hparams.data_dir,
-                                       "tokens.vocab.zh.%d" % wrong_vocab_size)
-  target_vocab_filename = os.path.join(model_hparams.data_dir,
-                                       "tokens.vocab.en.%d" % wrong_vocab_size)
-  source_token = text_encoder.SubwordTextEncoder(source_vocab_filename)
-  target_token = text_encoder.SubwordTextEncoder(target_vocab_filename)
-  p.input_modality = {
-      "inputs": (registry.Modalities.SYMBOL, source_token.vocab_size)
-  }
-  p.target_modality = (registry.Modalities.SYMBOL, target_token.vocab_size)
-  p.vocabulary = {
-      "inputs": source_token,
-      "targets": target_token,
-  }
-  p.loss_multiplier = 1.4
-  p.input_space_id = 16
-  p.target_space_id = 4
-  return p
-
-
 def wmt_ende_v2(model_hparams, vocab_size):
   """English to German translation benchmark with separate vocabularies."""
   p = default_problem_hparams()
@@ -535,7 +505,7 @@ def wmt_concat(model_hparams, wrong_vocab_size):
   return p
 
 
-def wmt_parsing_characters(model_hparams):
+def wmt_parsing_characters(unused_model_hparams):
   """English to parse tree translation benchmark."""
   p = default_problem_hparams()
   p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
@@ -579,8 +549,7 @@ def wmt_parsing_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def wsj_parsing_tokens(model_hparams, prefix,
-                       wrong_source_vocab_size,
+def wsj_parsing_tokens(model_hparams, wrong_source_vocab_size,
                        wrong_target_vocab_size):
   """English to parse tree translation benchmark.
 
@@ -599,10 +568,10 @@ def wsj_parsing_tokens(model_hparams, prefix,
   # This vocab file must be present within the data directory.
   source_vocab_filename = os.path.join(
       model_hparams.data_dir,
-      prefix + "_source.tokens.vocab.%d" % wrong_source_vocab_size)
+      "wsj_source.tokens.vocab.%d" % wrong_source_vocab_size)
   target_vocab_filename = os.path.join(
       model_hparams.data_dir,
-      prefix + "_target.tokens.vocab.%d" % wrong_target_vocab_size)
+      "wsj_target.tokens.vocab.%d" % wrong_target_vocab_size)
   source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
   target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
   p.input_modality = {
@@ -616,37 +585,6 @@ def wsj_parsing_tokens(model_hparams, prefix,
   }
   p.input_space_id = 3
   p.target_space_id = 15
-  return p
-
-
-def ice_parsing_tokens(model_hparams, wrong_source_vocab_size):
-  """Icelandic to parse tree translation benchmark.
-
-  Args:
-    model_hparams: a tf.contrib.training.HParams
-  Returns:
-    a tf.contrib.training.HParams
-  """
-  p = default_problem_hparams()
-  # This vocab file must be present within the data directory.
-  source_vocab_filename = os.path.join(
-      model_hparams.data_dir,
-      "ice_source.tokens.vocab.%d" % wrong_source_vocab_size)
-  target_vocab_filename = os.path.join(
-      model_hparams.data_dir,
-      "ice_target.tokens.vocab.256")
-  source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
-  target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
-  p.input_modality = {
-      "inputs": (registry.Modalities.SYMBOL, source_subtokenizer.vocab_size)
-  }
-  p.target_modality = (registry.Modalities.SYMBOL, 256)
-  p.vocabulary = {
-      "inputs": source_subtokenizer,
-      "targets": target_subtokenizer,
-  }
-  p.input_space_id = 18 # Icelandic tokens
-  p.target_space_id = 19 # Icelandic parse tokens
   return p
 
 
@@ -768,11 +706,9 @@ PROBLEM_HPARAMS_MAP = {
     "wiki_32k": wiki_32k,
     "lmptb_10k": lmptb_10k,
     "wmt_parsing_characters": wmt_parsing_characters,
-    "ice_parsing_characters": wmt_parsing_characters,
-    "ice_parsing_tokens": lambda p: ice_parsing_tokens(p, 2**13),
     "wmt_parsing_tokens_8k": lambda p: wmt_parsing_tokens(p, 2**13),
-    "wsj_parsing_tokens_16k": lambda p: wsj_parsing_tokens(p, "wsj", 2**14, 2**9),
-    "wsj_parsing_tokens_32k": lambda p: wsj_parsing_tokens(p, "wsj", 2**15, 2**9),
+    "wsj_parsing_tokens_16k": lambda p: wsj_parsing_tokens(p, 2**14, 2**9),
+    "wsj_parsing_tokens_32k": lambda p: wsj_parsing_tokens(p, 2**15, 2**9),
     "wmt_enfr_characters": wmt_enfr_characters,
     "wmt_enfr_tokens_8k": lambda p: wmt_enfr_tokens(p, 2**13),
     "wmt_enfr_tokens_32k": lambda p: wmt_enfr_tokens(p, 2**15),
@@ -794,7 +730,6 @@ PROBLEM_HPARAMS_MAP = {
     "wmt_ende_bpe32k_160": wmt_ende_bpe32k,
     "wmt_ende_v2_32k_combined": lambda p: wmt_ende_v2(p, 2**15),
     "wmt_ende_v2_16k_combined": lambda p: wmt_ende_v2(p, 2**14),
-    "wmt_zhen_tokens_32k": lambda p: wmt_zhen_tokens(p, 2**15),
     "image_cifar10_tune": image_cifar10,
     "image_cifar10_test": image_cifar10,
     "image_mnist_tune": image_mnist,

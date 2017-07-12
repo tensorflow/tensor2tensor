@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,8 +38,9 @@ tf.flags.DEFINE_string("ende_bpe_path", "", "Path to BPE files in tmp_dir."
 FLAGS = tf.flags.FLAGS
 
 
-# End-of-sentence marker
-EOS = text_encoder.EOS_TOKEN
+# End-of-sentence marker (should correspond to the position of EOS in the
+# RESERVED_TOKENS list in text_encoder.py)
+EOS = 1
 
 
 def character_generator(source_path, target_path, character_vocab, eos=None):
@@ -71,35 +72,6 @@ def character_generator(source_path, target_path, character_vocab, eos=None):
         source, target = source_file.readline(), target_file.readline()
 
 
-def tabbed_generator(source_path, source_vocab, target_vocab, eos=None):
-  """Generator for sequence-to-sequence tasks using tokens derived from
-    text files where each line contains both a source and a target string.
-    The two strings are separated by a tab character ('\t'). It yields
-    dictionaries of "inputs" and "targets" where inputs are characters
-    from the source lines converted to integers, and targets are
-    characters from the target lines, also converted to integers.
-
-  Args:
-    source_path: path to the file with source and target sentences.
-    source_vocab: a SunwordTextEncoder to encode the source string.
-    target_vocab: a SunwordTextEncoder to encode the target string.
-    eos: integer to append at the end of each sequence (default: None).
-
-  Yields:
-    A dictionary {"inputs": source-line, "targets": target-line} where
-    the lines are integer lists converted from characters in the file lines.
-  """
-  eos_list = [] if eos is None else [eos]
-  with tf.gfile.GFile(source_path, mode="r") as source_file:
-    for line in source_file:
-      if line and '\t' in line:
-        parts = line.split('\t', maxsplit = 1)
-        source, target = parts[0].strip(), parts[1].strip()
-        source_ints = source_vocab.encode(source) + eos_list
-        target_ints = source_vocab.encode(target) + eos_list
-        yield {"inputs": source_ints, "targets": target_ints}
-
-
 def token_generator(source_path, target_path, token_vocab, eos=None):
   """Generator for sequence-to-sequence tasks that uses tokens.
 
@@ -129,38 +101,6 @@ def token_generator(source_path, target_path, token_vocab, eos=None):
         source, target = source_file.readline(), target_file.readline()
 
 
-def bi_vocabs_token_generator(source_path, target_path,
-                              source_token_vocab,
-                              target_token_vocab,
-                              eos=None):
-  """Generator for sequence-to-sequence tasks that uses tokens.
-
-  This generator assumes the files at source_path and target_path have
-  the same number of lines and yields dictionaries of "inputs" and "targets"
-  where inputs are token ids from the " "-split source (and target, resp.) lines
-  converted to integers using the token_map.
-
-  Args:
-    source_path: path to the file with source sentences.
-    target_path: path to the file with target sentences.
-    source_token_vocab: text_encoder.TextEncoder object.
-    target_token_vocab: text_encoder.TextEncoder object.
-    eos: integer to append at the end of each sequence (default: None).
-
-  Yields:
-    A dictionary {"inputs": source-line, "targets": target-line} where
-    the lines are integer lists converted from tokens in the file lines.
-  """
-  eos_list = [] if eos is None else [eos]
-  with tf.gfile.GFile(source_path, mode="r") as source_file:
-    with tf.gfile.GFile(target_path, mode="r") as target_file:
-      source, target = source_file.readline(), target_file.readline()
-      while source and target:
-        source_ints = source_token_vocab.encode(source.strip()) + eos_list
-        target_ints = target_token_vocab.encode(target.strip()) + eos_list
-        yield {"inputs": source_ints, "targets": target_ints}
-        source, target = source_file.readline(), target_file.readline()
-
 def _get_wmt_ende_dataset(directory, filename):
   """Extract the WMT en-de corpus `filename` to directory unless it's there."""
   train_path = os.path.join(directory, filename)
@@ -182,7 +122,7 @@ def ende_bpe_token_generator(tmp_dir, train):
   train_path = _get_wmt_ende_dataset(tmp_dir, dataset_path)
   token_path = os.path.join(tmp_dir, "vocab.bpe.32000")
   token_vocab = text_encoder.TokenTextEncoder(vocab_filename=token_path)
-  return token_generator(train_path + ".en", train_path + ".de", token_vocab, EOS)
+  return token_generator(train_path + ".en", train_path + ".de", token_vocab, 1)
 
 
 _ENDE_TRAIN_DATASETS = [
@@ -237,21 +177,6 @@ _ENFR_TEST_DATASETS = [
     ],
 ]
 
-_ZHEN_TRAIN_DATASETS = [
-    [
-        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",
-        ("training/news-commentary-v12.zh-en.zh",
-         "training/news-commentary-v12.zh-en.en")
-    ]
-]
-
-_ZHEN_TEST_DATASETS = [
-    [
-        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
-        ("dev/newsdev2017-zhen-src.zh",
-         "dev/newsdev2017-zhen-ref.en")
-    ]
-]
 
 def _compile_data(tmp_dir, datasets, filename):
   """Concatenate all `datasets` and save to `filename`."""
@@ -328,25 +253,6 @@ def ende_character_generator(tmp_dir, train):
                              character_vocab, EOS)
 
 
-def zhen_wordpiece_token_generator(tmp_dir, train,
-                                   source_vocab_size, 
-                                   target_vocab_size):
-  datasets = _ZHEN_TRAIN_DATASETS if train else _ZHEN_TEST_DATASETS
-  source_datasets = [[item[0], [item[1][0]]] for item in datasets]
-  target_datasets = [[item[0], [item[1][1]]] for item in datasets]
-  source_vocab = generator_utils.get_or_generate_vocab(
-      tmp_dir, "tokens.vocab.zh.%d" % source_vocab_size,
-      source_vocab_size, source_datasets)
-  target_vocab = generator_utils.get_or_generate_vocab(
-      tmp_dir, "tokens.vocab.en.%d" % target_vocab_size,
-      target_vocab_size, target_datasets)
-  tag = "train" if train else "dev"
-  data_path = _compile_data(tmp_dir, datasets, "wmt_zhen_tok_%s" % tag)
-  return bi_vocabs_token_generator(data_path + ".lang1",
-                                   data_path + ".lang2",
-                                   source_vocab, target_vocab,  EOS)
-
-
 def enfr_wordpiece_token_generator(tmp_dir, train, vocab_size):
   """Instance of token generator for the WMT en->fr task."""
   symbolizer_vocab = generator_utils.get_or_generate_vocab(
@@ -366,38 +272,6 @@ def enfr_character_generator(tmp_dir, train):
   data_path = _compile_data(tmp_dir, datasets, "wmt_enfr_chr_%s" % tag)
   return character_generator(data_path + ".lang1", data_path + ".lang2",
                              character_vocab, EOS)
-
-def parsing_character_generator(tmp_dir, train):
-  character_vocab = text_encoder.ByteTextEncoder()
-  filename = "parsing_%s" % ("train" if train else "dev")
-  text_filepath = os.path.join(tmp_dir, filename + ".text")
-  tags_filepath = os.path.join(tmp_dir, filename + ".tags")
-  return character_generator(text_filepath, tags_filepath, character_vocab, EOS)
-
-
-def tabbed_parsing_token_generator(tmp_dir, train, prefix, source_vocab_size, target_vocab_size):
-  """Generate source and target data from a single file with source/target pairs
-  separated by a tab character ('\t')"""
-  source_vocab = generator_utils.get_or_generate_tabbed_vocab(
-      tmp_dir, "parsing_train.pairs", 0,
-      prefix + "_source.tokens.vocab.%d" % source_vocab_size,
-      source_vocab_size)
-  target_vocab = generator_utils.get_or_generate_tabbed_vocab(
-      tmp_dir, "parsing_train.pairs", 1,
-      prefix + "_target.tokens.vocab.%d" % target_vocab_size,
-      target_vocab_size)
-  filename = "parsing_%s" % ("train" if train else "dev")
-  pair_filepath = os.path.join(tmp_dir, filename + ".pairs")
-  return tabbed_generator(pair_filepath, source_vocab, target_vocab, EOS)
-
-
-def tabbed_parsing_character_generator(tmp_dir, train):
-  """Generate source and target data from a single file with source/target pairs
-  separated by a tab character ('\t')"""
-  character_vocab = text_encoder.ByteTextEncoder()
-  filename = "parsing_%s" % ("train" if train else "dev")
-  pair_filepath = os.path.join(tmp_dir, filename + ".pairs")
-  return tabbed_generator(pair_filepath, character_vocab, character_vocab, EOS)
 
 
 def parsing_token_generator(tmp_dir, train, vocab_size):
