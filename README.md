@@ -56,7 +56,8 @@ with the latest research ideas. We achieve this goal by:
    [API](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/contrib/seq2seq/python/ops),
    TensorFlow 1.2 data iterator
 1. Incorporating our strong expertise in building recurrent and seq2seq models
-1. Providing tips and tricks for building the very best NMT models
+1. Providing tips and tricks for building the very best NMT models and replicating
+   [Google’s NMT (GNMT) system](https://research.google.com/pubs/pub45610.html).
 
 We believe that it is important to provide benchmarks that people can easily
 replicate. As a result, we have provided full experimental results and
