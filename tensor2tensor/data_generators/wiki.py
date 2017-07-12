@@ -25,6 +25,7 @@ import os
 # Dependency imports
 
 import six
+from six import PY2
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import tokenizer
@@ -60,7 +61,7 @@ def page_generator(tmp_dir, max_docs=None):
   count = 0
   corpus_filepath = _maybe_download_corpus(tmp_dir)
   for line in bz2.BZ2File(corpus_filepath, "r"):
-    line = unicode(line, "utf-8")
+    line = unicode(line, "utf-8") if PY2 else line.decode("utf-8")
     if not doc and line != u"  <page>\n":
       continue
     doc += line
