@@ -6,18 +6,18 @@
 - [Introduction](#introduction)
 - [Basic](#basic)
    - [Background on Neural Machine Translation](#background-on-neural-machine-translation)
-   - [Training – How to build our first NMT system](#training-–-how-to-build-our-first-nmt-system)
+   - [Training – *How to build our first NMT system*](#training-–-how-to-build-our-first-nmt-system)
       - [Embedding](#embedding)
       - [Encoder](#encoder)
       - [Decoder](#decoder)
       - [Loss](#loss)
       - [Gradient computation & optimization](#gradient-computation-optimization)
-   - [Hands-on – Let's train an NMT model](#hands-on-–-lets-train-an-nmt-model)
-   - [Inference – How to generate translations](#inference-–-how-to-generate-translations)
+   - [Hands-on – *Let's train an NMT model*](#hands-on-–-lets-train-an-nmt-model)
+   - [Inference – *How to generate translations*](#inference-–-how-to-generate-translations)
 - [Intermediate](#intermediate)
    - [Background on the Attention Mechanism](#background-on-the-attention-mechanism)
    - [Attention Wrapper API](#attention-wrapper-api)
-   - [Hands-on – building an attention-based NMT model](#hands-on-–-building-an-attention-based-nmt-model)
+   - [Hands-on – *Building an attention-based NMT model*](#hands-on-–-building-an-attention-based-nmt-model)
 - [Tips & Tricks](#tips-tricks)
    - [Building Training, Eval, and Inference Graphs](#building-training-eval-and-inference-graphs)
    - [Data Input Pipeline](#data-input-pipeline)
@@ -29,6 +29,7 @@
 - [Benchmarks](#benchmarks)
    - [IWSLT English-Vietnamese](#iwslt-english-vietnamese)
    - [WMT German-English](#wmt-german-english)
+   - [WMT English-German &mdash; *Full Comparison*](#wmt-english-german-full-comparison)
 - [Other resources](#other-resources)
 - [Acknowledgment](#acknowledgment)
 - [References](#references)
@@ -1084,7 +1085,7 @@ Systems | tst2012 (dev) | test2013 (test)
 --- | :---: | :---:
 NMT (greedy) | 23.2 | 25.5
 NMT (beam=10) | 23.8 | **26.1**
-[(Luong & Manning, 2015)](http://stanford.edu/~lmthang/data/papers/iwslt15.pdf) | | 23.3
+[(Luong & Manning, 2015)](http://stanford.edu/~lmthang/data/papers/iwslt15.pdf) | - | 23.3
 
 **Training Speed**: (0.37s step-time, 15.3K wps) on *K40m* & (0.17s step-time, 32.2K wps) on *TitanX*.\
 Here, step-time means the time taken to run one mini-batch (of size 128). For wps, we count words on both the source and target.
@@ -1115,7 +1116,7 @@ Systems | newstest2013 (dev) | newstest2015
 NMT (greedy) | 27.1 | 27.6
 NMT (beam=10) | 28.0 | 28.9
 NMT + GNMT attention (beam=10) | 29.0 | **29.9**
-[WMT SOTA](http://matrix.statmt.org/) | | 29.3
+[WMT SOTA](http://matrix.statmt.org/) | - | 29.3
 
 These results show that our code builds strong baseline systems for NMT.\
 (Note that WMT systems generally utilize a huge amount monolingual data which we currently do not.)
@@ -1133,6 +1134,21 @@ NMT + GNMT attention (8 layers) | 4.2s, 1.7K | - | 1.9s, 3.8K
 These results show that without GNMT attention, the gains from using multiple gpus are minimal.\
 With GNMT attention, we obtain from 50%-100% speed-ups with multiple gpus.
 
+## WMT English-German &mdash; Full Comparison
+The first 2 rows are our models with GNMT attention: [model 1 (4 layers)](LINK),
+[model 2 (8 layers)](LINK).
+
+Systems | newstest2014 | newstest2015
+--- | :---: | :---:
+*Ours* &mdash; NMT + GNMT attention (4 layers) | 23.7 | 26.5
+*Ours* &mdash; NMT + GNMT attention (8 layers) | 24.4 | **27.6**
+[WMT SOTA](http://matrix.statmt.org/) | 20.6 | 24.9
+OpenNMT [(Klein et al., 2017)](https://arxiv.org/abs/1701.02810) | 19.3 | -
+tf-seq2seq [(Britz et al., 2017)](https://arxiv.org/abs/1703.03906) | 22.2 | 25.2
+GNMT [(Wu et al., 2016)](https://research.google.com/pubs/pub45610.html) | **24.6** | -
+
+The above results show our models are very competitive among models of similar architectures.\
+[Note that OpenNMT uses smaller models and the current best result (as of this writing) is 28.4 obtained by the Transformer network [(Vaswani et al., 2017)](https://arxiv.org/abs/1706.03762) which has a significantly different architecture.]
 
 # Other resources
 
@@ -1157,11 +1173,7 @@ Nemantus
 OpenNMT [http://opennmt.net/](http://opennmt.net/) *[Torch]*
 
 # Acknowledgment
-
-Special thanks to Lukasz Kaiser for the initial guidance on the original TF
-seq2seq tutorial; Denny Britz & Anna Goldie for allowing us to reuse the
-rouge.py & wmt16_en_de.sh scripts in the tf-seq2seq codebase; Quoc Le &
-colleagues at Google for comments and feedback on the project.
+We would like to thank Denny Britz, Anna Goldie, Derek Murray, and Cinjon Resnick for their work bringing new features to TensorFlow and the seq2seq library. Additional thanks go to Lukasz Kaiser for the initial help on the seq2seq codebase; Quoc Le for the suggestion to replicate GNMT; Yonghui Wu and Zhifeng Chen for details on the GNMT systems; as well as the Google Brain team for their support and feedback!
 
 # References
 
