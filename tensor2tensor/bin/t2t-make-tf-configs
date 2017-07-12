@@ -17,7 +17,7 @@
 
 Usage:
 
-`make_tf_configs.py --workers="server1:1234" --ps="server3:2134,server4:2334"`
+`t2t-make-tf-configs --workers="server1:1234" --ps="server3:2134,server4:2334"`
 
 Outputs 1 line per job to stdout, first the workers, then the parameter servers.
 Each line has the TF_CONFIG, then a tab, then the command line flags for that
