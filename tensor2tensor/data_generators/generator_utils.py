@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from collections import defaultdict
 import gzip
 import io
 import os
@@ -30,7 +31,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import six.moves.urllib_request as urllib  # Imports urllib on Python2, urllib.request on Python3
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators.tokenizer import Tokenizer
+from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
 
@@ -84,10 +85,34 @@ def generate_files_distributed(generator,
   return output_file
 
 
+def _data_filenames(output_name, output_dir, num_shards):
+  return [os.path.join(
+      output_dir, "%s-%.5d-of-%.5d" % (output_name, shard, num_shards))
+          for shard in xrange(num_shards)]
+
+
+def train_data_filenames(problem, output_dir, num_shards):
+  return _data_filenames(
+      problem + "-train", output_dir, num_shards)
+
+
+def dev_data_filenames(problem, output_dir, num_shards):
+  return _data_filenames(problem + "-dev", output_dir, num_shards)
+
+
+def test_data_filenames(problem, output_dir, num_shards):
+  return _data_filenames(problem + "-test", output_dir, num_shards)
+
+
+def combined_data_filenames(problem, output_dir, num_training_shards):
+  return (
+      train_data_filenames(problem, output_dir, num_training_shards) +
+      dev_data_filenames(problem, output_dir, 1) +
+      test_data_filenames(problem, output_dir, 1))
+
+
 def generate_files(generator,
-                   output_name,
-                   output_dir,
-                   num_shards=1,
+                   output_filenames,
                    max_cases=None):
   """Generate cases from a generator and save as TFRecord files.
 
@@ -96,27 +121,16 @@ def generate_files(generator,
 
   Args:
     generator: a generator yielding (string -> int/float/str list) dictionaries.
-    output_name: the file name prefix under which output will be saved.
-    output_dir: directory to save the output to.
-    num_shards: how many shards to use (defaults to 1).
+    output_filenames: List of output file paths.
     max_cases: maximum number of cases to get from the generator;
       if None (default), we use the generator until StopIteration is raised.
-
-  Returns:
-    List of output file paths.
   """
-  writers = []
-  output_files = []
-  for shard in xrange(num_shards):
-    output_filename = "%s-%.5d-of-%.5d" % (output_name, shard, num_shards)
-    output_file = os.path.join(output_dir, output_filename)
-    output_files.append(output_file)
-    writers.append(tf.python_io.TFRecordWriter(output_file))
-
+  num_shards = len(output_filenames)
+  writers = [tf.python_io.TFRecordWriter(fname) for fname in output_filenames]
   counter, shard = 0, 0
   for case in generator:
     if counter > 0 and counter % 100000 == 0:
-      tf.logging.info("Generating case %d for %s." % (counter, output_name))
+      tf.logging.info("Generating case %d." % counter)
     counter += 1
     if max_cases and counter > max_cases:
       break
@@ -126,8 +140,6 @@ def generate_files(generator,
 
   for writer in writers:
     writer.close()
-
-  return output_files
 
 
 def download_report_hook(count, block_size, total_size):
@@ -235,7 +247,7 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
 
   sources = sources or _DATA_FILE_URLS
   tf.logging.info("Generating vocab from: %s", str(sources))
-  tokenizer = Tokenizer()
+  token_counts = defaultdict(int)
   for source in sources:
     url = source[0]
     filename = os.path.basename(url)
@@ -269,10 +281,11 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
             break
           line = line.strip()
           file_byte_budget -= len(line)
-          _ = tokenizer.encode(text_encoder.native_to_unicode(line))
+          for tok in tokenizer.encode(text_encoder.native_to_unicode(line)):
+            token_counts[tok] += 1
 
   vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
-      vocab_size, tokenizer.token_counts, 1, 1e3)
+      vocab_size, token_counts, 1, 1e3)
   vocab.store_to_file(vocab_filepath)
   return vocab
 

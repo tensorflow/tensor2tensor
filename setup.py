@@ -5,14 +5,18 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.0.12',
+    version='1.0.13',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
     url='http://github.com/tensorflow/tensor2tensor',
     license='Apache 2.0',
     packages=find_packages(),
-    scripts=['tensor2tensor/bin/t2t-trainer', 'tensor2tensor/bin/t2t-datagen'],
+    scripts=[
+        'tensor2tensor/bin/t2t-trainer',
+        'tensor2tensor/bin/t2t-datagen',
+        'tensor2tensor/bin/t2t-make-tf-configs',
+    ],
     install_requires=[
         'numpy',
         'sympy',

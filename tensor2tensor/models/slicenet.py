@@ -31,21 +31,6 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def get_norm(hparams):
-  """Get the normalizer function."""
-  if hparams.normalizer_fn == "layer":
-    return lambda x, name: common_layers.layer_norm(  # pylint: disable=g-long-lambda
-        x, hparams.hidden_size, name=name)
-  if hparams.normalizer_fn == "batch":
-    return tf.layers.batch_normalization
-  if hparams.normalizer_fn == "noam":
-    return common_layers.noam_norm
-  if hparams.normalizer_fn == "none":
-    return lambda x, name: x
-  raise ValueError("Parameter normalizer_fn must be one of: 'layer', 'batch',"
-                   "'noam', 'none'.")
-
-
 def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):
   """Complete attention layer with preprocessing."""
   separabilities = [hparams.separability, hparams.separability]
@@ -128,7 +113,7 @@ def multi_conv_res(x, padding, name, layers, hparams,
           hparams.separability - i
           for i in reversed(range(len(dilations_and_kernels2)))
       ]
-    norm_fn = get_norm(hparams)
+    norm_fn = common_layers.get_norm(hparams.norm_type)
     for layer in xrange(layers):
       with tf.variable_scope("layer_%d" % layer):
         y = common_layers.subseparable_conv_block(
@@ -188,7 +173,7 @@ def similarity_cost(inputs_encoded, targets_encoded):
 
 def slicenet_middle(inputs_encoded, targets, target_space_emb, mask, hparams):
   """Middle part of slicenet, connecting encoder and decoder."""
-  norm_fn = get_norm(hparams)
+  norm_fn = common_layers.get_norm(hparams.norm_type)
 
   # Flatten targets and embed target_space_id.
   targets_flat = tf.expand_dims(common_layers.flatten4d3d(targets), axis=2)
@@ -311,7 +296,7 @@ def slicenet_params1():
   hparams.num_hidden_layers = 4
   hparams.kernel_height = 3
   hparams.kernel_width = 1
-  hparams.add_hparam("normalizer_fn", "layer")  # New ones are added like this.
+  hparams.norm_type = "layer"
   hparams.learning_rate_decay_scheme = "exp50k"
   hparams.learning_rate = 0.05
   hparams.learning_rate_warmup_steps = 3000
@@ -322,7 +307,7 @@ def slicenet_params1():
   hparams.optimizer_adam_epsilon = 1e-6
   hparams.optimizer_adam_beta1 = 0.85
   hparams.optimizer_adam_beta2 = 0.997
-  hparams.add_hparam("large_kernel_size", 15)
+  hparams.add_hparam("large_kernel_size", 15)  # New ones are added like this.
   hparams.add_hparam("separability", -2)
   # A dilation scheme, one of _DILATION_SCHEMES.
   hparams.add_hparam("dilation_scheme", "1.1.1.1")
