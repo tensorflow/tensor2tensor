@@ -140,6 +140,12 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**15)
     ),
+    "wmt_zhen_tokens_32k": (
+        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, True,
+                                                   2**15, 2**15),
+        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, False,
+                                                   2**15, 2**15)
+    ),
     "lm1b_32k": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False)
