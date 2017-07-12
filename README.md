@@ -1,11 +1,8 @@
 # Neural Machine Translation (seq2seq) Tutorial
 
-*Status: On-going*\
-*Authors: Thang Luong, Eugene Brevdo, Rui Zhao*\
-*Last Updated: 2017-6-19*
+*Authors: Thang Luong, Eugene Brevdo, Rui Zhao*
 
 
-- [Neural Machine Translation (seq2seq) Tutorial](#neural-machine-translation-seq2seq-tutorial)
 - [Introduction](#introduction)
 - [Basic](#basic)
    - [Background on Neural Machine Translation](#background-on-neural-machine-translation)
@@ -30,8 +27,8 @@
       - [Hyperparameters](#hyperparameters)
       - [Multi-GPU training](#multi-gpu-training)
 - [Benchmarks](#benchmarks)
-   - [IWSLT'15 English-Vietnamese](#iwslt'15-english-vietnamese)
-   - [WMT'15 German-English](#wmt'15-german-english)
+   - [IWSLT English-Vietnamese](#iwslt-english-vietnamese)
+   - [WMT German-English](#wmt-german-english)
 - [Other resources](#other-resources)
 - [Acknowledgment](#acknowledgment)
 - [References](#references)
@@ -66,9 +63,9 @@ pretrained on models on the following publicly available datasets:
 1. *Small-scale*: English-Vietnamese parallel corpus of TED talks (133K sentence
    pairs) provided by
    the
-   [IWSLT 2015 Evaluation Campaign](https://sites.google.com/site/iwsltevaluation2015/).
+   [IWSLT Evaluation Campaign](https://sites.google.com/site/iwsltevaluation2015/).
 1. *Large-scale*: German-English parallel corpus (4.5M sentence pairs) provided
-   by the [WMT 2015 Evaluation Campaign](http://www.statmt.org/wmt15/).
+   by the [WMT Evaluation Campaign](http://www.statmt.org/wmt16/translation-task.html).
 
 We first build up some basic knowledge about seq2seq models for NMT, explaining
 how to build and train a vanilla NMT model. The second part will go into details
@@ -1063,7 +1060,7 @@ cell = GNMTAttentionMultiCell(attention_cell, cells)
 
 # Benchmarks
 
-## IWSLT'15 English-Vietnamese
+## IWSLT English-Vietnamese
 
 Train: 133K examples, dev=tst2012, test=tst2013,
 [download script](nmt/scripts/download_iwslt15.sh).
@@ -1071,20 +1068,28 @@ Train: 133K examples, dev=tst2012, test=tst2013,
 ***Training details***. We train 2-layer LSTMs of 512 units with bidirectional
 encoder (i.e., 1 bidirectional layers for the encoder), embedding dim
 is 512. LuongAttention (scale=True) is used together with dropout keep_prob of
-0.8. All parameters are uniformly We use SGD with learning rate 1.0 as follows:
+0.8. All parameters are uniformly. We use SGD with learning rate 1.0 as follows:
 train for 12K steps (~ 12 epochs); after 8K steps, we start halving learning
-rate every 1K step. Forget bias in BasicLSTMCell is set to 0 and we reverse
-source sentences.
+rate every 1K step.
 
-***Trained model***. TODO(rzhao): add public URL for envi trained model.
+***Results***.
+TODO(rzhao): add URL for English-Vietnamese trained model.
 
-Systems | Training Speed | Dev ppl | Dev BLEU | Test ppl | Test BLEU
---- | --- | --- | --- | --- | ---
-NMT (greedy) | 15.3K, 0.37s (K40m)<br/> 32.2K, 0.17s (TitanX) | 11.9 | 22.7 | 11.2 | 24.8
-NMT (beam=10) | | | 23.2 | | 25.5
-[(Luong & Manning, 2015)](http://stanford.edu/~lmthang/data/papers/iwslt15.pdf) | | | | | 23.3
+Below are the averaged results of 2 models
+([model 1](LINK),
+[model 2](LINK)).\
+We measure the translation quality in terms of BLEU scores [(Papineni et al., 2002)](http://www.aclweb.org/anthology/P02-1040.pdf).
 
-## WMT'15 German-English
+Systems | tst2012 (dev) | test2013 (test)
+--- | :---: | :---:
+NMT (greedy) | 23.2 | 25.5
+NMT (beam=10) | 23.8 | **26.1**
+[(Luong & Manning, 2015)](http://stanford.edu/~lmthang/data/papers/iwslt15.pdf) | | 23.3
+
+**Training Speed**: (0.37s step-time, 15.3K wps) on *K40m* & (0.17s step-time, 32.2K wps) on *TitanX*.\
+Here, step-time means the time taken to run one mini-batch (of size 128). For wps, we count words on both the source and target.
+
+## WMT German-English
 
 Train: 4.5M examples, dev=newstest2013, test=newstest2015\
 [download script](nmt/scripts/wmt16_en_de.sh)
@@ -1097,13 +1102,37 @@ encoder (i.e., 2 bidirectional layers for the encoder), embedding dim
 is 1024. We train for 350K steps (~ 10 epochs); after 170K steps, we start
 halving learning rate every 17K step.
 
-***Trained model***. TODO(rzhao): add public URL for envi trained model.
+***Results***.
+TODO(rzhao): add URL for German-English trained model.
 
-Systems | Training Speed | Dev ppl | Dev BLEU | Test ppl | Test BLEU
---- | --- | --- | --- | --- | ---
-NMT + BPE.32K (greedy) | 2.0s, 3.5K (K40m)<br/> 0.7s, 8.7K (TitanX) | 6.5 | 25.8 | 6.7 | 26.7
-NMT + BPE.32K (beam=10) |  |  | 26.8 | | 27.8
-[WMT SOTA](http://matrix.statmt.org/matrix/systems_list/1779) | | | | | 29.3
+The first 2 rows are the averaged results of 2 models
+([model 1](LINK),
+[model 2](LINK)).
+Results in the third row is with GNMT attention ([model] (LINK)) ran on 4 GPUs.
+
+Systems | newstest2013 (dev) | newstest2015
+--- | :---: | :---:
+NMT (greedy) | 27.1 | 27.6
+NMT (beam=10) | 28.0 | 28.9
+NMT + GNMT attention (beam=10) | 29.0 | **29.9**
+[WMT SOTA](http://matrix.statmt.org/) | | 29.3
+
+These results show that our code builds strong baseline systems for NMT.\
+(Note that WMT systems generally utilize a huge amount monolingual data which we currently do not.)
+
+**Training Speed**: (2.1s step-time, 3.4K wps) on *Nvidia K40m* & (0.7s step-time, 8.7K wps) on *Nvidia TitanX* for standard models.\
+To see the speed-ups with GNMT attention, we benchmark on *K40m* only:
+
+Systems | 1 gpu | 4 gpus | 8 gpus
+--- | :---: | :---: | :---:
+NMT (4 layers) | 2.2s, 3.4K | 1.9s, 3.9K | -
+NMT (8 layers) | 3.5s, 2.0K | - | 2.9s, 2.4K
+NMT + GNMT attention (4 layers) | 2.6s, 2.8K | 1.7s, 4.3K | -
+NMT + GNMT attention (8 layers) | 4.2s, 1.7K | - | 1.9s, 3.8K
+
+These results show that without GNMT attention, the gains from using multiple gpus are minimal.\
+With GNMT attention, we obtain from 50%-100% speed-ups with multiple gpus.
+
 
 # Other resources
 
