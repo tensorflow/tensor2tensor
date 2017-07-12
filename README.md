@@ -164,7 +164,7 @@ Let's first dive into the heart of building an NMT model with concrete code
 snippets through which we will explain Figure 2 in more detail. We defer data
 preparation and the full code to later. This part refers to
 file
-[**model.py**](model.py).
+[**model.py**](nmt/model.py).
 
 At the bottom layer, the encoder and decoder RNNs receive as input the
 following: first, the source sentence, then a boundary marker "\<s\>" which
@@ -266,7 +266,7 @@ receives *decoder_cell* (similar to encoder_cell), a *helper*, and the previous
 different codebases, e.g., *TrainingHelper* can be substituted with
 *GreedyEmbeddingHelper* to do greedy decoding. See more
 in
-[helper.py](helper.py).
+[helper.py](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/seq2seq/python/ops/helper.py).
 
 Lastly, we haven't mentioned *projection_layer* which is a dense matrix to turn
 the top hidden states to logit vectors of dimension V. We illustrate this
@@ -336,7 +336,7 @@ the [benchmarks](#benchmarks).
 Let's train our very first NMT model, translating from Vietnamese to English!
 The entry point of our code
 is
-[**nmt.py**](nmt.py).
+[**nmt.py**](nmt/nmt.py).
 
 We will use a *small-scale parallel corpus of TED talks* (133K training
 examples) for this exercise. All data we used here can be found
@@ -386,7 +386,7 @@ perplexity values as we train.
   epoch 0 step 500 lr 1 step-time 0.95s wps 5.89K ppl 205.85 bleu 0.00
 ```
 
-See [**train.py**](train.py) for more details.
+See [**train.py**](nmt/train.py) for more details.
 
 We can start Tensorboard to view the summary of the model during training:
 
@@ -479,7 +479,7 @@ cat /tmp/nmt_model/output_infer # To view the inference as output
 
 Note the above commands can also be run while the model is still being trained
 as long as there exists a training
-checkpoint. See [**inference.py**](inference.py) for more details.
+checkpoint. See [**inference.py**](nmt/inference.py) for more details.
 
 # Intermediate
 
@@ -605,7 +605,7 @@ forms of attention!
 
 Thanks to the attention wrapper, extending our vanilla seq2seq code with
 attention is trivial. This part refers to
-file [**attention_model.py**](attention_model.py)
+file [**attention_model.py**](nmt/attention_model.py)
 
 First, we need to define an attention mechanism, e.g., from (Luong et al.,
 2015):
@@ -923,7 +923,7 @@ leftmost dimension of size *batch_size*.  The structure will be:
 Finally, bucketing that batches similarly-sized source sentences together is
 also possible.  Please see the
 file
-[utils/iterator_utils.py](utils/iterator_utils.py) for
+[utils/iterator_utils.py](nmt/utils/iterator_utils.py) for
 more details and the full implementation.
 
 Reading data from a Dataset requires three lines of code: create the iterator,
@@ -962,7 +962,7 @@ encoder_outputs = tf.concat(bi_outputs, -1)
 
 The variables *encoder_outputs* and *encoder_state* can be used in the same way
 as in Section Encoder. Note that, for multiple bidirectional layers, we need to
-manipulate the encoder_state a bit, see [model.py](model.py), method
+manipulate the encoder_state a bit, see [model.py](nmt/model.py), method
 *_build_bidirectional_rnn()* for more details.
 
 ### Beam search
@@ -1007,7 +1007,7 @@ if self.time_major:
    translations = tf.transpose(translations, perm=[1, 2, 0])
 ```
 
-See [model.py](model.py), method *_build_decoder()* for more details.
+See [model.py](nmt/model.py), method *_build_decoder()* for more details.
 
 ### Hyperparameters
 
@@ -1055,7 +1055,7 @@ parallelizes the decoder's computation by using the bottom (first) layer’s
 output to query attention. Therefore, each decoding step can start as soon as
 its previous step's first layer and attention computation finished. We
 implemented the architecture in
-[GNMTAttentionMultiCell](gnmt_model.py),
+[GNMTAttentionMultiCell](nmt/gnmt_model.py),
 a subclass of *tf.contrib.rnn.MultiRNNCell*. Here’s an example of how to create
 a decoder cell with the *GNMTAttentionMultiCell*.
 
