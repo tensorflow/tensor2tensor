@@ -92,14 +92,14 @@ def load_hparams(model_dir):
     return None
 
 
-def maybe_parse_standard_hparams(hparams, path_to_standard_hparams):
+def maybe_parse_standard_hparams(hparams, hparams_path):
   """Override hparams values with existing standard hparams config."""
-  if not path_to_standard_hparams:
+  if not hparams_path:
     return hparams
 
-  if tf.gfile.Exists(path_to_standard_hparams):
-    print_out("# Loading standard hparams from %s" % path_to_standard_hparams)
-    with tf.gfile.GFile(path_to_standard_hparams, "r") as f:
+  if tf.gfile.Exists(hparams_path):
+    print_out("# Loading standard hparams from %s" % hparams_path)
+    with tf.gfile.GFile(hparams_path, "r") as f:
       hparams.parse_json(f.read())
 
   return hparams

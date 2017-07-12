@@ -85,13 +85,13 @@ def create_hparams():
       src_max_len_infer=FLAGS.src_max_len_infer,
       tgt_max_len_infer=FLAGS.tgt_max_len_infer,
       infer_batch_size=FLAGS.infer_batch_size,
+      beam_width=FLAGS.beam_width,
+      length_penalty_weight=FLAGS.length_penalty_weight,
 
       # Vocab
       sos=FLAGS.sos if FLAGS.sos else vocab_utils.SOS,
       eos=FLAGS.eos if FLAGS.eos else vocab_utils.EOS,
       bpe_delimiter=FLAGS.bpe_delimiter,
-      src_max_vocab_size=FLAGS.src_max_vocab_size,
-      tgt_max_vocab_size=FLAGS.tgt_max_vocab_size,
 
       # Misc
       forget_bias=FLAGS.forget_bias,
@@ -103,8 +103,6 @@ def create_hparams():
       metrics=FLAGS.metrics.split(","),
       log_device_placement=FLAGS.log_device_placement,
       random_seed=FLAGS.random_seed,
-      beam_width=FLAGS.beam_width,
-      length_penalty_weight=FLAGS.length_penalty_weight,
   )
 
 
@@ -146,27 +144,16 @@ def extend_hparams(hparams):
   if hparams.vocab_prefix:
     src_vocab_file = hparams.vocab_prefix + "." + hparams.src
     tgt_vocab_file = hparams.vocab_prefix + "." + hparams.tgt
-  else:  # Create from train files
-    if hparams.src_max_vocab_size:
-      src_vocab_str = ".vocab.%d." % hparams.src_max_vocab_size
-    else:
-      src_vocab_str = ".vocab."
-    if hparams.tgt_max_vocab_size:
-      tgt_vocab_str = ".vocab.%d." % hparams.tgt_max_vocab_size
-    else:
-      tgt_vocab_str = ".vocab."
-    src_vocab_file = hparams.train_prefix + src_vocab_str + hparams.src
-    tgt_vocab_file = hparams.train_prefix + tgt_vocab_str + hparams.tgt
+  else:
+    raise ValueError("hparams.vocab_prefix must be provided.")
 
   # Source vocab
-  src_vocab_size, src_vocab_file = vocab_utils.check_and_extract_vocab(
+  src_vocab_size, src_vocab_file = vocab_utils.check_vocab(
       src_vocab_file,
-      hparams.train_prefix + "." + hparams.src,
       hparams.out_dir,
       sos=hparams.sos,
       eos=hparams.eos,
-      unk=vocab_utils.UNK,
-      max_vocab_size=hparams.src_max_vocab_size)
+      unk=vocab_utils.UNK)
 
   # Target vocab
   if hparams.share_vocab:
@@ -174,15 +161,12 @@ def extend_hparams(hparams):
     tgt_vocab_file = src_vocab_file
     tgt_vocab_size = src_vocab_size
   else:
-    tgt_vocab_size, tgt_vocab_file = vocab_utils.check_and_extract_vocab(
+    tgt_vocab_size, tgt_vocab_file = vocab_utils.check_vocab(
         tgt_vocab_file,
-        hparams.train_prefix + "." + hparams.tgt,
         hparams.out_dir,
         sos=hparams.sos,
         eos=hparams.eos,
-        unk=vocab_utils.UNK,
-        max_vocab_size=hparams.tgt_max_vocab_size,
-    )
+        unk=vocab_utils.UNK)
   hparams.add_hparam("src_vocab_size", src_vocab_size)
   hparams.add_hparam("tgt_vocab_size", tgt_vocab_size)
   hparams.add_hparam("src_vocab_file", src_vocab_file)
@@ -207,7 +191,7 @@ def ensure_compatible_hparams(hparams):
   """Make sure the loaded hparams is compatible with new changes."""
   new_hparams = create_hparams()
   new_hparams = utils.maybe_parse_standard_hparams(
-      new_hparams, FLAGS.path_to_standard_hparams)
+      new_hparams, FLAGS.hparams_path)
   new_hparams = extend_hparams(new_hparams)
 
   # For compatible reason, if there are new fields in new_hparams,
@@ -238,7 +222,7 @@ def load_train_hparams(out_dir):
   if not hparams:
     hparams = create_hparams()
     hparams = utils.maybe_parse_standard_hparams(
-        hparams, FLAGS.path_to_standard_hparams)
+        hparams, FLAGS.hparams_path)
     hparams = extend_hparams(hparams)
   else:
     hparams = ensure_compatible_hparams(hparams)
@@ -305,7 +289,7 @@ def main(unused_argv):
     hparams = load_train_hparams(out_dir)
 
     # Train
-    train.train(hparams, FLAGS.eval_only)
+    train.train(hparams)
 
 
 if __name__ == "__main__":
@@ -390,10 +374,6 @@ if __name__ == "__main__":
       Vocab prefix, expect files with src/tgt suffixes.If None, extract from
       train files.\
       """)
-  parser.add_argument("--src_max_vocab_size", type=int, default=None,
-                      help="To limit vocabs if extract from train files.")
-  parser.add_argument("--tgt_max_vocab_size", type=int, default=None,
-                      help="To limit vocabs if extract from train files.")
   parser.add_argument("--sos", type=str, default="<s>",
                       help="Start-of-sentence symbol.")
   parser.add_argument("--eos", type=str, default="</s>",
@@ -460,27 +440,12 @@ if __name__ == "__main__":
       """)
   parser.add_argument("--scope", type=str, default=None,
                       help="scope to put variables under")
-  parser.add_argument("--beam_width", type=int, default=0,
-                      help=("""\
-      beam width when using beam search decoder. If 0 (default), use standard
-      decoder with greedy helper.\
-      """))
-  parser.add_argument("--length_penalty_weight", type=float, default=0.0,
-                      help="Length penalty for beam search.")
-  parser.add_argument("--path_to_standard_hparams", type=str, default=None,
+  parser.add_argument("--hparams_path", type=str, default=None,
                       help=("Path to standard hparams json file that overrides"
                             "hparams values from FLAGS."))
   parser.add_argument("--random_seed", type=int, default=None,
                       help="Random seed (>0, set a specific seed).")
 
-  # Single flag to do inference based on training settings
-  parser.add_argument("--eval_only", type="bool", nargs="?",
-                      const=True, default=False,
-                      help=("""\
-      Automaticlly take the best model, run eval over dev/test sets
-      which were specified during training. No need to specify
-      other arguments.\
-      """))
 
   # Inference
   parser.add_argument("--model_dir", type=str, default="",
@@ -496,12 +461,19 @@ if __name__ == "__main__":
                       help="Output file to store decoding results.")
   parser.add_argument("--inference_ref_file", type=str, default=None,
                       help="To compute evaluation scores if provided.")
+  parser.add_argument("--beam_width", type=int, default=0,
+                      help=("""\
+      beam width when using beam search decoder. If 0 (default), use standard
+      decoder with greedy helper.\
+      """))
+  parser.add_argument("--length_penalty_weight", type=float, default=0.0,
+                      help="Length penalty for beam search.")
 
   # Job info
   parser.add_argument("--jobid", type=int, default=0,
                       help="Task id of the worker.")
   parser.add_argument("--num_workers", type=int, default=1,
-                      help="Number of workers for the job.")
+                      help="Number of workers (inference only).")
 
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)

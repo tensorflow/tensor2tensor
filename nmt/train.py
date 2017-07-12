@@ -129,7 +129,7 @@ def create_eval_model(model_creator,
           eval_tgt_file_placeholder, eval_iterator)
 
 
-def train(hparams, eval_only=False, scope=None, target_session=""):
+def train(hparams, scope=None, target_session=""):
   """Train a translation model."""
   log_device_placement = hparams.log_device_placement
   out_dir = hparams.out_dir
@@ -186,15 +186,8 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
         infer_batch_size_placeholder: hparams.infer_batch_size,
     }
 
-  if eval_only:
-    if len(hparams.metrics) != 1:
-      raise ValueError("Expect exactly 1 metric in eval_only mode.")
-
-    summary_name = "eval_log"
-    model_dir = getattr(hparams, "best_" + hparams.metrics[0] + "_dir")
-  else:
-    summary_name = "train_log"
-    model_dir = hparams.out_dir
+  summary_name = "train_log"
+  model_dir = hparams.out_dir
 
   # Log and output files
   log_file = os.path.join(out_dir, "log_%d" % time.time())
@@ -223,7 +216,7 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
       os.path.join(out_dir, summary_name), train_graph)
 
   # For internal evaluation (perplexity)
-  def run_internal_eval():
+  def run_internal_eval(model_dir):
     """Compute internal evaluation for both dev / test."""
     with infer_graph.as_default():
       loaded_infer_model, global_step = model_helper.create_or_load_model(
@@ -249,7 +242,7 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
     return dev_ppl, test_ppl
 
   # For external evaluation (bleu, rouge, etc.)
-  def run_external_eval():
+  def run_external_eval(model_dir, save_best_dev=True):
     """Compute external evaluation for both dev / test."""
     with infer_graph.as_default():
       loaded_infer_model, global_step = model_helper.create_or_load_model(
@@ -270,7 +263,7 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
         dev_tgt_file,
         "dev",
         summary_writer,
-        save_on_best=(not eval_only))
+        save_on_best=save_best_dev)
     test_scores = None
     if hparams.test_prefix:
       test_scores = _external_eval(
@@ -287,8 +280,8 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
     return dev_scores, test_scores
 
   # First evaluation
-  dev_ppl, test_ppl = run_internal_eval()
-  dev_scores, test_scores = run_external_eval()
+  dev_ppl, test_ppl = run_internal_eval(model_dir)
+  dev_scores, test_scores = run_external_eval(model_dir)
 
   # This is the training loop.
   step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
@@ -311,7 +304,7 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
           train_skip_count_placeholder: skip_count
       })
 
-  while global_step < num_train_steps and not eval_only:
+  while global_step < num_train_steps:
     ### Run a step ###
     start_time = time.time()
     try:
@@ -325,7 +318,7 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
       utils.print_out(
           "# Finished an epoch, step %d. Perform external evaluation" %
           global_step)
-      dev_scores, test_scores = run_external_eval()
+      dev_scores, test_scores = run_external_eval(model_dir)
       train_sess.run(
           train_iterator.initializer,
           feed_dict={
@@ -372,7 +365,7 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
           global_step=global_step)
 
       # Evaluate on dev/test
-      dev_ppl, test_ppl = run_internal_eval()
+      dev_ppl, test_ppl = run_internal_eval(model_dir)
 
     if global_step % steps_per_external_eval == 0:
       # Save checkpoint
@@ -380,17 +373,16 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
           train_sess,
           os.path.join(out_dir, "translate.ckpt"),
           global_step=global_step)
-      dev_scores, test_scores = run_external_eval()
+      dev_scores, test_scores = run_external_eval(model_dir)
 
   # Done training
-  if not eval_only:
-    train_model.saver.save(
-        train_sess,
-        os.path.join(out_dir, "translate.ckpt"),
-        global_step=global_step)
+  train_model.saver.save(
+      train_sess,
+      os.path.join(out_dir, "translate.ckpt"),
+      global_step=global_step)
 
-    dev_ppl, test_ppl = run_internal_eval()
-    dev_scores, test_scores = run_external_eval()
+  dev_ppl, test_ppl = run_internal_eval(model_dir)
+  dev_scores, test_scores = run_external_eval(model_dir)
 
   utils.print_out("# Best dev %s" % _get_best_results(hparams))
 
@@ -405,9 +397,26 @@ def train(hparams, eval_only=False, scope=None, target_session=""):
       (global_step, train_model.learning_rate.eval(session=train_sess),
        avg_step_time, speed, train_ppl, eval_results, time.ctime()),
       log_f)
-  summary_writer.close()
   utils.print_time("# Done training!", start_train_time)
 
+  utils.print_out("# Start evaluating saved best models.")
+  for metric in hparams.metrics:
+    best_model_dir = getattr(hparams, "best_" + metric + "_dir")
+    best_dev_ppl, best_test_ppl = run_internal_eval(best_model_dir)
+    best_dev_scores, best_test_scores = run_external_eval(
+        best_model_dir, save_best_dev=False)
+    eval_results = _format_results(
+        "dev", best_dev_ppl, best_dev_scores, hparams.metrics)
+    if hparams.test_prefix:
+      eval_results += ", " + _format_results(
+          "test", best_test_ppl, best_test_scores, hparams.metrics)
+
+    utils.print_out("# Best %s, step %d "
+                    "step-time %.2f wps %.2fK, %s, %s" %
+                    (metric, global_step, avg_step_time, speed, eval_results,
+                     time.ctime()), log_f)
+
+  summary_writer.close()
   return (dev_scores, test_scores, dev_ppl, test_ppl, global_step)
 
 

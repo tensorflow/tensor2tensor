@@ -41,8 +41,8 @@ class VocabUtilsTest(tf.test.TestCase):
     # Call vocab_utils
     out_dir = os.path.join(tf.test.get_temp_dir(), "out_dir")
     os.makedirs(out_dir)
-    vocab_size, new_vocab_file = vocab_utils.check_and_extract_vocab(
-        vocab_file, None, out_dir)
+    vocab_size, new_vocab_file = vocab_utils.check_vocab(
+        vocab_file, out_dir)
 
     # Assert: we expect the code to add  <unk>, <s>, </s> and
     # create a new vocab file

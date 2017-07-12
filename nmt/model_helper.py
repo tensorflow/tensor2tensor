@@ -214,8 +214,6 @@ def create_or_load_model(model, model_dir, session, out_dir, name):
     utils.print_out("  created %s model with fresh parameters, time %.2fs." %
                     (name, time.time() - start_time))
     session.run(tf.global_variables_initializer())
-    model.saver.save(
-        session, os.path.join(out_dir, "translate.ckpt"), global_step=0)
 
   session.run(tf.tables_initializer())
 
