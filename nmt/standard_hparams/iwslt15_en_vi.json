@@ -27,14 +27,13 @@
   "src": "en",
   "src_max_len": 50,
   "src_max_len_infer": null,
-  "src_max_vocab_size": null,
   "start_decay_step": 8000,
   "steps_per_external_eval": null,
   "steps_per_stats": 100,
   "tgt": "vi",
   "tgt_max_len": 50,
   "tgt_max_len_infer": null,
-  "tgt_max_vocab_size": null,
   "time_major": true,
-  "unit_type": "lstm"
+  "unit_type": "lstm",
+  "beam_width": 10
 }
