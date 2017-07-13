@@ -473,7 +473,7 @@ class SubwordTextEncoder(TextEncoder):
     Returns:
       escaped_token: a unicode string
     """
-    assert isinstance(token, unicode)
+    assert isinstance(token, six.text_type)
     token = token.replace(u"\\", u"\\\\").replace(u"_", u"\\u") + u"_"
     ret = u""
     for c in token:
