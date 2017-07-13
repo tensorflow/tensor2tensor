@@ -465,3 +465,31 @@ class IdentityModality(modality.Modality):
 
   def top(self, body_output, _):
     return body_output
+
+
+@registry.register_image_modality("identity_no_pad")
+class IdentityModalityNoPad(modality.Modality):
+  """Does nothing except making sure that there is no padding in cross-ent."""
+
+  @property
+  def targets_dimensionality(self):
+    return self._vocab_size
+
+  def bottom(self, x):
+    return tf.to_float(x)
+
+  def top(self, body_output, _):
+    return body_output
+
+  def top_sharded(self,
+                  sharded_body_output,
+                  sharded_targets,
+                  data_parallelism,
+                  weights_fn=common_layers.weights_all):
+    # Call the default implementation, but weight 1.0 on 0s by default.
+    # (Since we're processing images and so have no padding and some pixel 0s.)
+    return super(IdentityModalityNoPad, self).top_sharded(
+        sharded_body_output,
+        sharded_targets,
+        data_parallelism,
+        weights_fn=weights_fn)
