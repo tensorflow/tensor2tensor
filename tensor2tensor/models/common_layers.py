@@ -1416,6 +1416,36 @@ def global_pool_1d(inputs, pooling_type='MAX', mask=None):
     
   return output
   
+
+def running_global_pool_1d(inputs):
+  """
+  Same global pool, but only for the elements up to the current element. Useful
+  for outputs where the state of future elements is not known.
+  Takes no mask as all elements up to the current element are assumed to exist.
+  Currently only supports maximum.
+  
+  Args
+      inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+        containing the sequences of input vectors.
+  Outputs
+      output: A tensor of dimensions batch_size x sequence_length x input_dims
+        dimension containing the running 'totals'.
+  """
+  
+  with tf.name_scope("running_global_pool", [inputs]):
+    scan_fct = tf.maximum
+    
+    # Permute inputs so seq_length is first
+    elems = tf.transpose(inputs, [1, 0, 2])
+	
+	# Perform scan
+    cumulatives = tf.scan(scan_fct, elems, swap_memory=True)
+	
+    # Permute output to get back to original order
+    output  = tf.transpose(cumulatives, [1, 0, 2])
+    
+  return output
+  
   
 def linear_set_layer(layer_size,
                      inputs,
@@ -1455,7 +1485,8 @@ def linear_set_layer(layer_size,
     if context is not None:
       # Unfortunately tf doesn't support broadcasting via concat, but we can
       #  simply add the transformed context to get the same effect
-      context = tf.expand_dims(context, axis=1)
+      if len(context.get_shape().as_list())==2:
+        context = tf.expand_dims(context, axis=1)
       #context_size = context.get_shape().as_list()[-1]
       cont_tfm = conv1d(context, layer_size, 1,
           activation=None, name="cont_conv")

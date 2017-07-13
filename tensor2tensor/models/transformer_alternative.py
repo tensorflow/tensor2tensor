@@ -45,8 +45,7 @@ import tensorflow as tf
 class TransformerAlt(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
-    #
-  
+
     # Remove dropout if not training
     hparams = copy.copy(self._hparams)
     targets = features["targets"]
@@ -61,11 +60,8 @@ class TransformerAlt(t2t_model.T2TModel):
     (decoder_input, decoder_self_attention_bias) = transformer.\
         transformer_prepare_decoder(targets, hparams)
     
-    # We need masks of the form batch size x input sequences
-    # Biases seem to be of the form batch_size x 1 x input sequences x vec dim
-    #  Squeeze out dim one, and get the first element of each vector
-    encoder_mask = tf.squeeze(encoder_attention_bias, [1])[:,:,0]
-    decoder_mask = tf.squeeze(decoder_self_attention_bias, [1])[:,:,0]
+    encoder_mask = bias_to_mask(encoder_attention_bias)
+    decoder_mask = bias_to_mask(decoder_self_attention_bias)
 
     def residual_fn(x, y):
       return common_layers.layer_norm(x + tf.nn.dropout(
@@ -86,7 +82,7 @@ class TransformerAlt(t2t_model.T2TModel):
     
     
     
-def composite_layer(inputs, mask, hparams):
+def composite_layer(inputs, mask, hparams, for_output=False):
   x = inputs
   
   # Applies ravanbakhsh on top of each other
@@ -97,26 +93,29 @@ def composite_layer(inputs, mask, hparams):
                 hparams.hidden_size,
                 x,
                 mask=mask,
-                dropout=0.0)
+                dropout=hparams.relu_dropout)
   
   # Transforms elements to get a context, and then uses this in a final layer
   elif hparams.composite_layer_type == "reembedding":
     initial_elems = x
     # Transform elements n times and then pool
     for layer in xrange(hparams.layers_per_layer):
-      with tf.variable_scope(".%d" % layer):
+      with tf.variable_scope("sub_layer_%d" % layer):
         x = common_layers.linear_set_layer(
                 hparams.hidden_size,
                 x,
-                dropout=0.0)
-    context = common_layers.global_pool_1d(x, mask=mask)
+                dropout=hparams.relu_dropout)
+        if for_output:
+          context = common_layers.running_global_pool_1d(x)
+        else:
+          context = common_layers.global_pool_1d(x, mask=mask)
      
     #Final layer
     x = common_layers.linear_set_layer(
             hparams.hidden_size,
             x,
             context=context,
-            dropout=0.0)
+            dropout=hparams.relu_dropout)
                  
   return x
     
@@ -169,12 +168,19 @@ def alt_transformer_decoder(decoder_input,
                  summaries=summaries,
                  name="encdec_attention")
 
-        x_ = residual_fn(x_, composite_layer(x_, mask, hparams))
+        x_ = residual_fn(x_, composite_layer(x_, mask, hparams, for_output=True))
         x = residual_fn(x, x_)
         
   return x
 
-
+def bias_to_mask(bias):
+    # We need masks of the form batch size x input sequences
+    # Biases seem to be of the form batch_size x 1 x input sequences x vec dim
+    #  Squeeze out dim one, and get the first element of each vector
+    bias = tf.squeeze(bias, [1])[:,:,0]
+    bias = - tf.clip_by_value(bias, -1.0, 1.0)
+    mask = 1 - bias
+    return mask
 
 
 
@@ -182,7 +188,7 @@ def alt_transformer_decoder(decoder_input,
 def transformer_alt():
   """Set of hyperparameters."""
   hparams = transformer.transformer_base()
-  hparams.batch_size = 64
+  hparams.batch_size = 2048
   hparams.add_hparam("layers_per_layer", 4)
   #hparams.add_hparam("composite_layer_type", "ravanbakhsh") #ravanbakhsh or reembedding
   hparams.add_hparam("composite_layer_type", "reembedding")
