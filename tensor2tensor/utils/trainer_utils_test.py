@@ -38,10 +38,12 @@ class TrainerUtilsTest(tf.test.TestCase):
     FLAGS.problems = "algorithmic_addition_binary40"
     TrainerUtilsTest.data_dir = tf.test.get_temp_dir()
     gen = algorithmic.identity_generator(2, 10, 300)
-    generator_utils.generate_files(gen, FLAGS.problems + "-train",
-                                   TrainerUtilsTest.data_dir, 1, 100)
-    generator_utils.generate_files(gen, FLAGS.problems + "-dev",
-                                   TrainerUtilsTest.data_dir, 1, 100)
+    train_filenames = generator_utils.train_data_filenames(
+        FLAGS.problems, TrainerUtilsTest.data_dir, 1)
+    dev_filenames = generator_utils.dev_data_filenames(
+        FLAGS.problems, TrainerUtilsTest.data_dir, 1)
+    generator_utils.generate_files(gen, train_filenames, 100)
+    generator_utils.generate_files(gen, dev_filenames, 100)
 
   def testModelsImported(self):
     models = registry.list_models()

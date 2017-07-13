@@ -19,6 +19,8 @@ from __future__ import print_function
 
 # Dependency imports
 
+from six.moves import xrange  # pylint: disable=redefined-builtin
+
 from tensor2tensor.models import common_attention
 from tensor2tensor.models import common_hparams
 from tensor2tensor.models import common_layers

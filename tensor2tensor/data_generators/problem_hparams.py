@@ -176,9 +176,10 @@ def default_problem_hparams():
       #   13: Audio spectral domain
       #   14: Parse characters
       #   15: Parse tokens
-      #   16: Icelandic characters
-      #   17: Icelandic tokens
-      #   18: Icelandic parse tokens
+      #   16: Chinese tokens
+      #   17: Icelandic characters
+      #   18: Icelandic tokens
+      #   19: Icelandic parse tokens
       # Add more above if needed.
       input_space_id=0,
       target_space_id=0,
@@ -328,34 +329,35 @@ def audio_wsj_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def lm1b_16k(model_hparams):
-  """Billion-word language-modeling benchmark, 16k subtoken vocabulary."""
+def lm1b_32k(model_hparams):
+  """Billion-word language-modeling benchmark, 32k subword vocabulary."""
   p = default_problem_hparams()
-  p.perplexity_exponent = 1.184206
+  # ratio of dev tokens (including eos) to dev words (including eos)
+  # 176884 / 159658 = 1.107893
+  p.perplexity_exponent = 1.107893
   p.input_modality = {}
-  p.target_modality = (registry.Modalities.SYMBOL, 16384)
+  encoder = text_encoder.SubwordTextEncoder(
+      os.path.join(model_hparams.data_dir, "lm1b_32k.subword_text_encoder"))
+  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
   p.vocabulary = {
-      "targets":
-          text_encoder.SubwordTextEncoder(
-              os.path.join(model_hparams.data_dir,
-                           "lm1b_16k.subword_text_encoder"))
+      "targets": encoder
   }
   p.target_space_id = 3
   return p
 
 
-
-def lm1b_64k(model_hparams):
-  """Billion-word language-modeling benchmark, 64k subtoken vocabulary."""
+def wiki_32k(model_hparams):
+  """Wikipedia title to article.  32k subtoken vocabulary."""
   p = default_problem_hparams()
-  p.perplexity_exponent = 1.067068
-  p.input_modality = {}
-  p.target_modality = (registry.Modalities.SYMBOL, 65536)
+  encoder = text_encoder.SubwordTextEncoder(
+      os.path.join(model_hparams.data_dir, "wiki_32k.subword_text_encoder"))
+  p.input_modality = {
+      "inputs": (registry.Modalities.SYMBOL, encoder.vocab_size)
+  }
+  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
   p.vocabulary = {
-      "targets":
-          text_encoder.SubwordTextEncoder(
-              os.path.join(model_hparams.data_dir,
-                           "lm1b_64k.subword_text_encoder"))
+      "inputs": encoder,
+      "targets": encoder
   }
   p.target_space_id = 3
   return p
@@ -471,6 +473,32 @@ def wmt_ende_tokens(model_hparams, wrong_vocab_size):
   }
   p.input_space_id = 3
   p.target_space_id = 8
+  return p
+
+
+def wmt_zhen_tokens(model_hparams, wrong_vocab_size):
+  """Chinese to English translation benchmark."""
+  p = default_problem_hparams()
+  # This vocab file must be present within the data directory.
+  if model_hparams.shared_embedding_and_softmax_weights == 1:
+    model_hparams.shared_embedding_and_softmax_weights = 0
+  source_vocab_filename = os.path.join(model_hparams.data_dir,
+                                       "tokens.vocab.zh.%d" % wrong_vocab_size)
+  target_vocab_filename = os.path.join(model_hparams.data_dir,
+                                       "tokens.vocab.en.%d" % wrong_vocab_size)
+  source_token = text_encoder.SubwordTextEncoder(source_vocab_filename)
+  target_token = text_encoder.SubwordTextEncoder(target_vocab_filename)
+  p.input_modality = {
+      "inputs": (registry.Modalities.SYMBOL, source_token.vocab_size)
+  }
+  p.target_modality = (registry.Modalities.SYMBOL, target_token.vocab_size)
+  p.vocabulary = {
+      "inputs": source_token,
+      "targets": target_token,
+  }
+  p.loss_multiplier = 1.4
+  p.input_space_id = 16
+  p.target_space_id = 4
   return p
 
 
@@ -617,8 +645,8 @@ def ice_parsing_tokens(model_hparams, wrong_source_vocab_size):
       "inputs": source_subtokenizer,
       "targets": target_subtokenizer,
   }
-  p.input_space_id = 17 # Icelandic tokens
-  p.target_space_id = 18 # Icelandic parse tokens
+  p.input_space_id = 18 # Icelandic tokens
+  p.target_space_id = 19 # Icelandic parse tokens
   return p
 
 
@@ -736,8 +764,8 @@ PROBLEM_HPARAMS_MAP = {
     "audio_wsj_characters_test": audio_wsj_characters,
     "audio_wsj_tokens_8k_tune": lambda p: audio_wsj_tokens(p, 2**13),
     "audio_wsj_tokens_8k_test": lambda p: audio_wsj_tokens(p, 2**13),
-    "lm1b_16k": lm1b_16k,
-    "lm1b_64k": lm1b_64k,
+    "lm1b_32k": lm1b_32k,
+    "wiki_32k": wiki_32k,
     "lmptb_10k": lmptb_10k,
     "wmt_parsing_characters": wmt_parsing_characters,
     "ice_parsing_characters": wmt_parsing_characters,
@@ -766,6 +794,7 @@ PROBLEM_HPARAMS_MAP = {
     "wmt_ende_bpe32k_160": wmt_ende_bpe32k,
     "wmt_ende_v2_32k_combined": lambda p: wmt_ende_v2(p, 2**15),
     "wmt_ende_v2_16k_combined": lambda p: wmt_ende_v2(p, 2**14),
+    "wmt_zhen_tokens_32k": lambda p: wmt_zhen_tokens(p, 2**15),
     "image_cifar10_tune": image_cifar10,
     "image_cifar10_test": image_cifar10,
     "image_mnist_tune": image_mnist,

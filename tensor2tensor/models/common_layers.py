@@ -292,7 +292,8 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   """Conditional conv_fn making kernel 1d or 2d depending on inputs shape."""
   static_shape = inputs.get_shape()
   if not static_shape or len(static_shape) != 4:
-    raise ValueError("Inputs to conv must have statically known rank 4.")
+    raise ValueError("Inputs to conv must have statically known rank 4. "
+                     "Shape: " + str(static_shape))
   # Add support for left padding.
   if "padding" in kwargs and kwargs["padding"] == "LEFT":
     dilation_rate = (1, 1)
@@ -433,24 +434,48 @@ def noam_norm(x, name=None):
             tf.sqrt(tf.to_float(shape[-1])))
 
 
-def residual_function(hparams):
+def get_norm(norm_type):
+  """Get the normalizer function."""
+  if norm_type == "layer":
+    return lambda x, name, filters=None, epsilon=1e-6: layer_norm(  # pylint: disable=g-long-lambda
+        x, filters=filters, epsilon=epsilon, name=name)
+  if norm_type == "batch":
+    return tf.layers.batch_normalization
+  if norm_type == "noam":
+    return noam_norm
+  if norm_type == "none":
+    return lambda x, name: x
+  raise ValueError("Parameter normalizer_fn must be one of: 'layer', 'batch',"
+                   "'noam', 'none'.")
+
+
+def residual_fn(x, y, norm_type, residual_dropout,
+                filters=None,
+                epsilon=1e-16,
+                name="residual"):
   """Returns a function for combining layer input and layer output.
 
   The returned function on x (layer input) and y (layer output) computes:
-    norm_function(x + t
+    norm_function(x + dropout(y))
 
   Args:
-    hparams: model hyperparameters
+    x: tensor, input layer
+    y: tensor, output layer
+    norm_type: string, type of normalizer function
+    residual_dropout: integer, dropout value for residual connection
+    filters: integer, dimension for layer norm, optional
+    epsilon: integer, value of layer norm epsilon
+    name: string, name
 
   Returns:
-    a function from x=<layer input> and y=<layer output> to computed output
+    residual layer output with applied norm_fn.
   """
-
-  def residual_fn(x, y):
-    return hparams.norm_function(x + tf.nn.dropout(
-        y, 1.0 - hparams.residual_dropout))
-
-  return residual_fn
+  norm_fn = get_norm(norm_type)
+  res = x + tf.nn.dropout(y, 1.0 - residual_dropout)
+  if norm_type == "layer":
+    return norm_fn(res, name=name, filters=filters, epsilon=epsilon)
+  else:
+    return norm_fn(res, name=name)
 
 
 def conv_block_internal(conv_fn,
@@ -1378,3 +1403,127 @@ def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
     xentropy = tf.nn.softmax_cross_entropy_with_logits(
         logits=logits, labels=soft_targets)
     return xentropy - normalizing
+
+
+def global_pool_1d(inputs, pooling_type="MAX", mask=None):
+  """Pool elements across the last dimension.
+
+  Useful to convert a list of vectors into a single vector so as
+  to get a representation of a set.
+
+  Args:
+    inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+      containing the sequences of input vectors.
+    pooling_type: the pooling type to use, MAX or AVR
+    mask: A tensor of dimensions batch_size x sequence_length containing a
+      mask for the inputs with 1's for existing elements, and 0's elsewhere.
+
+  Returns:
+    output: A tensor of dimensions batch_size x input_dims
+      dimension containing the sequences of transformed vectors.
+  """
+  with tf.name_scope("global_pool", [inputs]):
+    if mask is not None:
+      mask = tf.expand_dims(mask, axis=2)
+      inputs = tf.multiply(inputs, mask)
+
+    if pooling_type == "MAX":
+      # A tf.pool can be used here, but reduce is cleaner
+      output = tf.reduce_max(inputs, axis=1)
+    elif pooling_type == "AVR":
+      if mask is not None:
+        # Some elems are dummy elems so we can't just reduce the average.
+        output = tf.reduce_sum(inputs, axis=1)
+        num_elems = tf.reduce_sum(mask, axis=1, keep_dims=True)
+        output = tf.div(output, tf.maximum(num_elems, 1))
+      else:
+        output = tf.reduce_mean(inputs, axis=1)
+
+  return output
+
+
+def linear_set_layer(layer_size,
+                     inputs,
+                     context=None,
+                     activation_fn=tf.nn.relu,
+                     dropout=0.0,
+                     name=None):
+  """Basic layer type for doing funky things with sets.
+
+  Applies a linear transformation to each element in the input set.
+  If a context is supplied, it is concatenated with the inputs.
+    e.g. One can use global_pool_1d to get a representation of the set which
+    can then be used as the context for the next layer.
+
+  TODO: Add bias add (or control the biases used).
+
+  Args:
+    layer_size: Dimension to transform the input vectors to.
+    inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+      containing the sequences of input vectors.
+    context: A tensor of dimensions batch_size x context_dims
+      containing a global statistic about the set.
+    activation_fn: The activation function to use.
+    dropout: Dropout probability.
+    name: name.
+
+  Returns:
+    output: A tensor of dimensions batch_size x sequence_length x output_dims
+      dimension containing the sequences of transformed vectors.
+  """
+  with tf.variable_scope(name, "linear_set_layer", [inputs]):
+    # Apply 1D convolution to apply linear filter to each element
+    # along the 2nd dimension.
+    outputs = conv1d(inputs, layer_size, 1, activation=None, name="set_conv")
+
+    # Apply the context if it exists.
+    if context is not None:
+      # Unfortunately tf doesn't support broadcasting via concat, but we can
+      # simply add the transformed context to get the same effect.
+      context = tf.expand_dims(context, axis=1)
+      cont_tfm = conv1d(context, layer_size, 1,
+                        activation=None, name="cont_conv")
+      outputs += cont_tfm
+
+    if activation_fn is not None:
+      outputs = activation_fn(outputs)
+
+    if dropout != 0.0:
+      outputs = tf.nn.dropout(outputs, 1.0 - dropout)
+
+    return outputs
+
+
+def ravanbakhsh_set_layer(layer_size,
+                          inputs,
+                          mask=None,
+                          activation_fn=tf.nn.tanh,
+                          dropout=0.0,
+                          name=None):
+  """Layer from Deep Sets paper: https://arxiv.org/abs/1611.04500 .
+
+  More parameter-efficient verstion of a linear-set-layer with context.
+
+  Args:
+    layer_size: Dimension to transform the input vectors to.
+    inputs: A tensor of dimensions batch_size x sequence_length x vector
+      containing the sequences of input vectors.
+    mask: A tensor of dimensions batch_size x sequence_length containing a
+      mask for the inputs with 1's for existing elements, and 0's elsewhere.
+    activation_fn: The activation function to use.
+    dropout: dropout.
+    name: name.
+
+  Returns:
+    output: A tensor of dimensions batch_size x sequence_length x vector
+      dimension containing the sequences of transformed vectors.
+  """
+  with tf.variable_scope(name, "ravanbakhsh_set_layer", [inputs]):
+    output = linear_set_layer(
+        layer_size,
+        inputs - tf.expand_dims(global_pool_1d(inputs, mask=mask), axis=1),
+        activation_fn=activation_fn,
+        dropout=dropout,
+        name=name)
+
+    return output
