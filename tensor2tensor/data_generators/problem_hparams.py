@@ -178,6 +178,7 @@ def default_problem_hparams():
       #   15: Parse tokens
       #   16: Icelandic characters
       #   17: Icelandic tokens
+      #   18: Icelandic parse tokens
       # Add more above if needed.
       input_space_id=0,
       target_space_id=0,
@@ -550,20 +551,6 @@ def wmt_parsing_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def wmt_tabbed_parsing_characters(model_hparams):
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
-  p.target_modality = (registry.Modalities.SYMBOL, 256)
-  p.vocabulary = {
-      "inputs": text_encoder.ByteTextEncoder(),
-      "targets": text_encoder.ByteTextEncoder(),
-  }
-  p.loss_multiplier = 2.0
-  p.input_space_id = 2
-  p.target_space_id = 14
-  return p
-
-
 def wsj_parsing_tokens(model_hparams, prefix,
                        wrong_source_vocab_size,
                        wrong_target_vocab_size):
@@ -601,6 +588,37 @@ def wsj_parsing_tokens(model_hparams, prefix,
   }
   p.input_space_id = 3
   p.target_space_id = 15
+  return p
+
+
+def ice_parsing_tokens(model_hparams, wrong_source_vocab_size):
+  """Icelandic to parse tree translation benchmark.
+
+  Args:
+    model_hparams: a tf.contrib.training.HParams
+  Returns:
+    a tf.contrib.training.HParams
+  """
+  p = default_problem_hparams()
+  # This vocab file must be present within the data directory.
+  source_vocab_filename = os.path.join(
+      model_hparams.data_dir,
+      "ice_source.tokens.vocab.%d" % wrong_source_vocab_size)
+  target_vocab_filename = os.path.join(
+      model_hparams.data_dir,
+      "ice_target.tokens.vocab.256")
+  source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
+  target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
+  p.input_modality = {
+      "inputs": (registry.Modalities.SYMBOL, source_subtokenizer.vocab_size)
+  }
+  p.target_modality = (registry.Modalities.SYMBOL, 256)
+  p.vocabulary = {
+      "inputs": source_subtokenizer,
+      "targets": target_subtokenizer,
+  }
+  p.input_space_id = 17 # Icelandic tokens
+  p.target_space_id = 18 # Icelandic parse tokens
   return p
 
 
@@ -723,7 +741,7 @@ PROBLEM_HPARAMS_MAP = {
     "lmptb_10k": lmptb_10k,
     "wmt_parsing_characters": wmt_parsing_characters,
     "ice_parsing_characters": wmt_parsing_characters,
-    "ice_parsing_tokens": lambda p: wsj_parsing_tokens(p, "ice", 2**13, 2**8),
+    "ice_parsing_tokens": lambda p: ice_parsing_tokens(p, 2**13),
     "wmt_parsing_tokens_8k": lambda p: wmt_parsing_tokens(p, 2**13),
     "wsj_parsing_tokens_16k": lambda p: wsj_parsing_tokens(p, "wsj", 2**14, 2**9),
     "wsj_parsing_tokens_32k": lambda p: wsj_parsing_tokens(p, "wsj", 2**15, 2**9),

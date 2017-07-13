@@ -44,6 +44,7 @@ unicode_to_native = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
 PAD = "<pad>"
 EOS = "<EOS>"
 RESERVED_TOKENS = [PAD, EOS]
+NUM_RESERVED_TOKENS = len(RESERVED_TOKENS)
 PAD_TOKEN = RESERVED_TOKENS.index(PAD) # Normally 0
 EOS_TOKEN = RESERVED_TOKENS.index(EOS) # Normally 1
 
@@ -55,7 +56,7 @@ else:
 class TextEncoder(object):
   """Base class for converting from ints to/from human readable strings."""
 
-  def __init__(self, num_reserved_ids=2):
+  def __init__(self, num_reserved_ids=NUM_RESERVED_TOKENS):
     self._num_reserved_ids = num_reserved_ids
 
   def encode(self, s):
@@ -130,7 +131,7 @@ class ByteTextEncoder(TextEncoder):
 class TokenTextEncoder(TextEncoder):
   """Encoder based on a user-supplied vocabulary."""
 
-  def __init__(self, vocab_filename, reverse=False, num_reserved_ids=2):
+  def __init__(self, vocab_filename, reverse=False, num_reserved_ids=NUM_RESERVED_TOKENS):
     """Initialize from a file, one token per line."""
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
     self._reverse = reverse
@@ -203,7 +204,7 @@ class SubwordTextEncoder(TextEncoder):
 
   """
 
-  def __init__(self, filename=None, num_reserved_ids=2):
+  def __init__(self, filename=None, num_reserved_ids=NUM_RESERVED_TOKENS):
     """Initialize and read from a file, if provided."""
     self._tokenizer = tokenizer.Tokenizer()
     if filename is not None:

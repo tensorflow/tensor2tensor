@@ -300,7 +300,8 @@ def get_or_generate_tabbed_vocab(tmp_dir, source_filename, index, vocab_filename
         _ = tokenizer.encode(text_encoder.native_to_unicode(part))
 
   vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
-      vocab_size, tokenizer.token_counts, 1, 1e3)
+      vocab_size, tokenizer.token_counts, 1,
+      min(1e3, vocab_size + text_encoder.NUM_RESERVED_TOKENS))
   vocab.store_to_file(vocab_filepath)
   return vocab
 
