@@ -82,8 +82,8 @@ class ShakeShake(t2t_model.T2TModel):
     blocks_per_stage = (hparams.num_hidden_layers - 2) // 6
 
     # For canonical Shake-Shake, the entry flow is a 3x3 convolution with 16
-    # filters then a batch norm. Instead we use the one in SmallImageModality,
-    # which also seems to include a layer norm.
+    # filters then a batch norm. Instead we will rely on the one in
+    # SmallImageModality, which seems to instead use a layer norm.
     x = inputs
     mode = hparams.mode
     with tf.variable_scope('shake_shake_stage_1'):
@@ -97,7 +97,7 @@ class ShakeShake(t2t_model.T2TModel):
 
     # For canonical Shake-Shake, we should perform 8x8 average pooling and then
     # have a fully-connected layer (which produces the logits for each class).
-    # Instead, we just use the Xception exit flow in ClassLabelModality.
+    # Instead, we rely on the Xception exit flow in ClassLabelModality.
     #
     # Also, this model_fn does not return an extra_loss. However, TensorBoard
     # reports an exponential moving average for extra_loss, where the initial
