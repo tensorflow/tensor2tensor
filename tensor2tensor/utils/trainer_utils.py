@@ -43,6 +43,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python.ops import init_ops
+from tensor2tensor.utils.yellowfin import YellowFinOptimizer
 
 # Number of samples to draw for an image input (in such cases as captioning)
 IMAGE_DECODE_LENGTH = 100
@@ -1141,6 +1142,10 @@ class _ConditionalOptimizer(tf.train.Optimizer):
     elif optimizer_name == "Momentum":
       self._opt = tf.train.MomentumOptimizer(
           lr, momentum=hparams.optimizer_momentum_momentum)
+    elif optimizer_name == "YellowFin":
+      tf.logging.info("Init YellowFin Optimizer.")
+      self._opt = YellowFinOptimizer(
+          learning_rate=lr, momentum=hparams.optimizer_momentum_momentum)
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
