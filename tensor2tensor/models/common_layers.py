@@ -58,7 +58,7 @@ def inverse_exp_decay(max_step, min_value=0.01):
   return inv_base**tf.maximum(float(max_step) - step, 0.0)
 
 
-def shakeshake2_py(x, y, equal=False):
+def shakeshake2_py(x, y, equal=False, individual=False):
   """The shake-shake sum of 2 tensors, python version."""
   alpha = 0.5 if equal else tf.random_uniform([])
   return alpha * x + (1.0 - alpha) * y
@@ -84,6 +84,11 @@ def shakeshake2_equal_grad(x1, x2, dy):
 def shakeshake2(x1, x2):
   """The shake-shake function with a different alpha for forward/backward."""
   return shakeshake2_py(x1, x2)
+
+@function.Defun(grad_func=shakeshake2_grad)
+def shakeshake2_eqforward(x1, x2):
+  """The shake-shake function with a different alpha for forward/backward."""
+  return shakeshake2_py(x1, x2, equal=True)
 
 
 @function.Defun(grad_func=shakeshake2_equal_grad)
