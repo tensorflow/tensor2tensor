@@ -36,7 +36,7 @@ class AlgorithmicIdentityBinary40(problem.Problem):
   def num_symbols(self):
     return 2
 
-  def generate_data(self, data_dir):
+  def generate_data(self, data_dir, _):
     utils.generate_files(
         identity_generator(self.num_symbols, 40, 100000),
         self.training_filepaths(data_dir, 100))

@@ -101,6 +101,14 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
+    "ice_parsing_tokens": (
+        lambda: wmt.tabbed_parsing_token_generator(FLAGS.tmp_dir,
+                                                   True, "ice", 2**13, 2**8),
+        lambda: wmt.tabbed_parsing_token_generator(FLAGS.tmp_dir,
+                                                   False, "ice", 2**13, 2**8)),
+    "ice_parsing_characters": (
+        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, True),
+        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, False)),
     "wmt_parsing_tokens_8k": (
         lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, True, 2**13),
         lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, False, 2**13)),
@@ -109,11 +117,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
                                                     2**14, 2**9),
         lambda: wsj_parsing.parsing_token_generator(FLAGS.tmp_dir, False,
                                                     2**14, 2**9)),
-    "wsj_parsing_tokens_32k": (
-        lambda: wsj_parsing.parsing_token_generator(FLAGS.tmp_dir, True,
-                                                    2**15, 2**9),
-        lambda: wsj_parsing.parsing_token_generator(FLAGS.tmp_dir, False,
-                                                    2**15, 2**9)),
     "wmt_enfr_characters": (
         lambda: wmt.enfr_character_generator(FLAGS.tmp_dir, True),
         lambda: wmt.enfr_character_generator(FLAGS.tmp_dir, False)),
@@ -139,6 +142,12 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: wmt.ende_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**15)
     ),
+    "wmt_zhen_tokens_32k": (
+        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, True,
+                                                   2**15, 2**15),
+        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, False,
+                                                   2**15, 2**15)
+    ),
     "lm1b_32k": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False)
@@ -159,26 +168,9 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "image_cifar10_test": (
         lambda: image.cifar10_generator(FLAGS.tmp_dir, True, 50000),
         lambda: image.cifar10_generator(FLAGS.tmp_dir, False, 10000)),
-    "image_mscoco_characters_tune": (
-        lambda: image.mscoco_generator(FLAGS.tmp_dir, True, 70000),
-        lambda: image.mscoco_generator(FLAGS.tmp_dir, True, 10000, 70000)),
     "image_mscoco_characters_test": (
         lambda: image.mscoco_generator(FLAGS.tmp_dir, True, 80000),
         lambda: image.mscoco_generator(FLAGS.tmp_dir, False, 40000)),
-    "image_mscoco_tokens_8k_tune": (
-        lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            70000,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13),
-        lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            10000,
-            70000,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13)),
     "image_mscoco_tokens_8k_test": (
         lambda: image.mscoco_generator(
             FLAGS.tmp_dir,
@@ -192,20 +184,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
             40000,
             vocab_filename="tokens.vocab.%d" % 2**13,
             vocab_size=2**13)),
-    "image_mscoco_tokens_32k_tune": (
-        lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            70000,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15),
-        lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            10000,
-            70000,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15)),
     "image_mscoco_tokens_32k_test": (
         lambda: image.mscoco_generator(
             FLAGS.tmp_dir,
@@ -386,7 +364,7 @@ def generate_data_for_problem(problem):
 
 def generate_data_for_registered_problem(problem_name):
   problem = registry.problem(problem_name)
-  problem.generate_data(FLAGS.data_dir)
+  problem.generate_data(FLAGS.data_dir, FLAGS.tmp_dir)
 
 
 if __name__ == "__main__":

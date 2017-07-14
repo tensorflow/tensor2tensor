@@ -59,6 +59,14 @@ class SpaceID(object):
   PARSE_CHR = 14
   # Parse tokens
   PARSE_TOK = 15
+  # Chinese tokens
+  ZH_TOK = 16
+  # Icelandic characters
+  ICE_CHAR = 17
+  # Icelandic tokens
+  ICE_TOK = 18
+  # Icelandic parse tokens
+  ICE_PARSE_TOK = 19
 
 
 class Problem(object):
@@ -97,7 +105,7 @@ class Problem(object):
   # BEGIN SUBCLASS INTERFACE
   # ============================================================================
 
-  def generate_data(self, data_dir):
+  def generate_data(self, data_dir, tmp_dir):
     raise NotImplementedError()
 
   def hparams(self, defaults, model_hparams):

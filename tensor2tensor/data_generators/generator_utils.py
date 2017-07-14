@@ -300,6 +300,46 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
   return vocab
 
 
+def get_or_generate_tabbed_vocab(tmp_dir, source_filename,
+                                 index, vocab_filename, vocab_size):
+  r"""Generate a vocabulary from a tabbed source file.
+
+  The source is a file of source, target pairs, where each line contains
+  a source string and a target string, separated by a tab ('\t') character.
+  The index parameter specifies 0 for the source or 1 for the target.
+
+  Args:
+    tmp_dir: path to the temporary directory.
+    source_filename: the name of the tab-separated source file.
+    index: index.
+    vocab_filename: the name of the vocabulary file.
+    vocab_size: vocabulary size.
+
+  Returns:
+    The vocabulary.
+  """
+  vocab_filepath = os.path.join(tmp_dir, vocab_filename)
+  if os.path.exists(vocab_filepath):
+    vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
+    return vocab
+
+  # Use Tokenizer to count the word occurrences.
+  filepath = os.path.join(tmp_dir, source_filename)
+  with tf.gfile.GFile(filepath, mode="r") as source_file:
+    for line in source_file:
+      line = line.strip()
+      if line and "\t" in line:
+        parts = line.split("\t", maxsplit=1)
+        part = parts[index].strip()
+        _ = tokenizer.encode(text_encoder.native_to_unicode(part))
+
+  vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
+      vocab_size, tokenizer.token_counts, 1,
+      min(1e3, vocab_size + text_encoder.NUM_RESERVED_TOKENS))
+  vocab.store_to_file(vocab_filepath)
+  return vocab
+
+
 def read_records(filename):
   reader = tf.python_io.tf_record_iterator(filename)
   records = []

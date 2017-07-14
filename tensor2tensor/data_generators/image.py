@@ -33,6 +33,9 @@ from six.moves import cPickle
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -300,3 +303,47 @@ def mscoco_generator(tmp_dir,
             "image/height": [height],
             "image/width": [width]
         }
+
+# French street names dataset.
+
+
+@registry.register_problem
+class ImageFSNS(problem.Problem):
+  """Problem spec for French Street Name recognition."""
+
+  def generate_data(self, data_dir, tmp_dir):
+    list_url = ("https://raw.githubusercontent.com/tensorflow/models/master/"
+                "street/python/fsns_urls.txt")
+    fsns_urls = generator_utils.maybe_download(
+        tmp_dir, "fsns_urls.txt", list_url)
+    fsns_files = [f.strip() for f in open(fsns_urls, "r")
+                  if f.startswith("http://")]
+    for url in fsns_files:
+      if "/train/train" in url:
+        generator_utils.maybe_download(
+            data_dir, "image_fsns-train" + url[-len("-00100-of-00512"):], url)
+      elif "/validation/validation" in url:
+        generator_utils.maybe_download(
+            data_dir, "image_fsns-dev" + url[-len("-00100-of-00512"):], url)
+      elif "charset" in url:
+        generator_utils.maybe_download(
+            data_dir, "charset_size134.txt", url)
+
+  def hparams(self, defaults, model_hparams):
+    p = defaults
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    # This vocab file must be present within the data directory.
+    vocab_filename = os.path.join(model_hparams.data_dir, "charset_size134.txt")
+    subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
+    p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
+    p.vocabulary = {
+        "inputs": text_encoder.TextEncoder(),
+        "targets": subtokenizer,
+    }
+    p.batch_size_multiplier = 256
+    p.max_expected_batch_size_per_shard = 2
+    vocab_size = 144
+    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
+    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
+    p.input_space_id = problem.SpaceID.DIGIT_0
+    p.target_space_id = problem.SpaceID.DIGIT_1
