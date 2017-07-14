@@ -300,9 +300,8 @@ def get_or_generate_tabbed_vocab(tmp_dir, source_filename, index, vocab_filename
     vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
     return vocab
 
-  tokenizer = Tokenizer()
-
   # Use Tokenizer to count the word occurrences.
+  token_counts = defaultdict(int)
   filepath = os.path.join(tmp_dir, source_filename)
   with tf.gfile.GFile(filepath, mode="r") as source_file:
     for line in source_file:
@@ -310,11 +309,11 @@ def get_or_generate_tabbed_vocab(tmp_dir, source_filename, index, vocab_filename
       if line and '\t' in line:
         parts = line.split('\t', maxsplit = 1)
         part = parts[index].strip()
-        _ = tokenizer.encode(text_encoder.native_to_unicode(part))
+        for tok in tokenizer.encode(text_encoder.native_to_unicode(part)):
+          token_counts[tok] += 1
 
   vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
-      vocab_size, tokenizer.token_counts, 1,
-      min(1e3, vocab_size + text_encoder.NUM_RESERVED_TOKENS))
+      vocab_size, token_counts, 1, 1e3)
   vocab.store_to_file(vocab_filepath)
   return vocab
 

@@ -54,7 +54,7 @@ NUM_RESERVED_TOKENS = len(RESERVED_TOKENS)
 PAD_TOKEN = RESERVED_TOKENS.index(PAD) # Normally 0
 EOS_TOKEN = RESERVED_TOKENS.index(EOS) # Normally 1
 
-if six.PY2:
+if PY2:
   RESERVED_TOKENS_BYTES = RESERVED_TOKENS
 else:
   RESERVED_TOKENS_BYTES = [bytes(PAD, "ascii"), bytes(EOS, "ascii")]
@@ -110,7 +110,7 @@ class ByteTextEncoder(TextEncoder):
 
   def encode(self, s):
     numres = self._num_reserved_ids
-    if six.PY2:
+    if PY2:
       return [ord(c) + numres for c in s]
     # Python3: explicitly convert to UTF-8
     return [c + numres for c in s.encode("utf-8")]
@@ -124,7 +124,7 @@ class ByteTextEncoder(TextEncoder):
         decoded_ids.append(RESERVED_TOKENS_BYTES[int(id_)])
       else:
         decoded_ids.append(int2byte(id_ - numres))
-    if six.PY2:
+    if PY2:
       return "".join(decoded_ids)
     # Python3: join byte arrays and then decode string
     return b"".join(decoded_ids).decode("utf-8", "replace")
@@ -469,7 +469,7 @@ class SubwordTextEncoder(TextEncoder):
         f.write("'" + unicode_to_native(subtoken_string) + "'\n")
 
   def _escape_token(self, token):
-    r"""Escape away underscores and OOV characters and append '_'.
+    """Escape away underscores and OOV characters and append '_'.
 
     This allows the token to be experessed as the concatenation of a list
     of subtokens from the vocabulary.  The underscore acts as a sentinel
@@ -491,7 +491,7 @@ class SubwordTextEncoder(TextEncoder):
     return ret
 
   def _unescape_token(self, escaped_token):
-    r"""Inverse of _escape_token().
+    """Inverse of _escape_token().
 
     Args:
       escaped_token: a unicode string
