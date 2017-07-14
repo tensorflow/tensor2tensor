@@ -321,6 +321,9 @@ def model_builder(model, hparams):
           (step + 1) * warmup_steps**-1.5, (step + 1)**-0.5)
     elif hparams.learning_rate_decay_scheme == "exp100k":
       return 0.94**(step // 100000)
+    elif hparams.learning_rate_decay_scheme == "cosine":
+      cycle_steps = hparams.learning_rate_cosine_cycle_steps
+      return 0.5 * (1 + tf.cos(np.pi * (step % cycle_steps) / cycle_steps))
 
     inv_base = tf.exp(tf.log(0.01) / warmup_steps)
     inv_decay = inv_base**(warmup_steps - step)
