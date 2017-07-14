@@ -140,7 +140,7 @@ def attention_lm_base():
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.learning_rate_decay_scheme = "noam"
   hparams.learning_rate = 0.1
-  hparams.learning_rate_warmup_steps = 1000
+  hparams.learning_rate_warmup_steps = 2000
   hparams.initializer_gain = 1.0
   hparams.num_hidden_layers = 6
   hparams.initializer = "uniform_unit_scaling"
@@ -162,4 +162,23 @@ def attention_lm_base():
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("residual_dropout", 0.1)
   hparams.add_hparam("pos", "timing")  # timing, none
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_small():
+  """Cheap model.
+
+  on lm1b_32k:
+     45M params
+     2 steps/sec on  [GeForce GTX TITAN X]
+
+  Returns:
+    an hparams object.
+  """
+  hparams = attention_lm_base()
+  hparams.num_hidden_layers = 4
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.residual_dropout = 0.5
   return hparams
