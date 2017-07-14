@@ -37,9 +37,13 @@ import tensorflow as tf
 
 
 # Conversion between Unicode and UTF-8, if required (on Python2)
-def native_to_unicode(s):
-  return s.decode("utf-8") if (PY2 and not isinstance(s, unicode)) else s
-unicode_to_native = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
+if PY2:
+  native_to_unicode = lambda s: s if isinstance(s, unicode) else s.decode("utf-8")
+  unicode_to_native = lambda s: s.encode("utf-8")
+else:
+  # No conversion required on Python3
+  native_to_unicode = lambda s: s
+  unicode_to_native = lambda s: s
 
 
 # Reserved tokens for things like padding and EOS symbols.
@@ -346,7 +350,7 @@ class SubwordTextEncoder(TextEncoder):
                               token_counts,
                               min_count,
                               num_iterations=4,
-                              num_reserved_ids=2):
+                              num_reserved_ids=NUM_RESERVED_TOKENS):
     """Train a SubwordTextEncoder based on a dictionary of word counts.
 
     Args:
