@@ -22,6 +22,7 @@ from __future__ import print_function
 
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.models import transformer
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_utils as utils  # pylint: disable=unused-import
 
@@ -30,20 +31,37 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 
+@registry.register_problem
+class TinyAlgo(algorithmic.AlgorithmicIdentityBinary40):
+
+  def generate_data(self, data_dir):
+    generator_utils.generate_files(
+        algorithmic.identity_generator(self.num_symbols, 40, 100000),
+        self.training_filepaths(data_dir, 1), 100)
+    generator_utils.generate_files(
+        algorithmic.identity_generator(self.num_symbols, 400, 10000),
+        self.dev_filepaths(data_dir, 1), 100)
+
+
+@registry.register_hparams
+def transformer_test():
+  hparams = transformer.transformer_base()
+  hparams.batch_size = 10
+  hparams.hidden_size = 10
+  hparams.num_hidden_layers = 1
+  hparams.num_heads = 2
+  hparams.max_length = 16
+  return hparams
+
+
 class TrainerUtilsTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
     # Generate a small test dataset
-    FLAGS.problems = "algorithmic_addition_binary40"
+    FLAGS.problems = "tiny_algo"
     TrainerUtilsTest.data_dir = tf.test.get_temp_dir()
-    gen = algorithmic.identity_generator(2, 10, 300)
-    train_filenames = generator_utils.train_data_filenames(
-        FLAGS.problems, TrainerUtilsTest.data_dir, 1)
-    dev_filenames = generator_utils.dev_data_filenames(
-        FLAGS.problems, TrainerUtilsTest.data_dir, 1)
-    generator_utils.generate_files(gen, train_filenames, 100)
-    generator_utils.generate_files(gen, dev_filenames, 100)
+    registry.problem(FLAGS.problems).generate_data(TrainerUtilsTest.data_dir)
 
   def testModelsImported(self):
     models = registry.list_models()
@@ -55,10 +73,7 @@ class TrainerUtilsTest(tf.test.TestCase):
 
   def testSingleStep(self):
     model_name = "transformer"
-    FLAGS.hparams_set = "transformer_base"
-    # Shrink the test model down
-    FLAGS.hparams = ("batch_size=10,hidden_size=10,num_heads=2,max_length=16,"
-                     "num_hidden_layers=1")
+    FLAGS.hparams_set = "transformer_test"
     exp = utils.create_experiment(
         output_dir=tf.test.get_temp_dir(),
         data_dir=TrainerUtilsTest.data_dir,

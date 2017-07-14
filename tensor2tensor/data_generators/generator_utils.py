@@ -22,6 +22,7 @@ from collections import defaultdict
 import gzip
 import io
 import os
+import random
 import tarfile
 
 # Dependency imports
@@ -34,6 +35,8 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
+
+UNSHUFFLED_SUFFIX = "-unshuffled"
 
 
 def to_example(dictionary):
@@ -66,7 +69,7 @@ def generate_files_distributed(generator,
                                task_id=0):
   """generate_files but with a single writer writing to shard task_id."""
   assert task_id < num_shards
-  output_filename = "%s-%.5d-of-%.5d" % (output_name, task_id, num_shards)
+  output_filename = sharded_name(output_name, task_id, num_shards)
   output_file = os.path.join(output_dir, output_filename)
   tf.logging.info("Writing to file %s", output_file)
   writer = tf.python_io.TFRecordWriter(output_file)
@@ -86,14 +89,14 @@ def generate_files_distributed(generator,
 
 
 def _data_filenames(output_name, output_dir, num_shards):
-  return [os.path.join(
-      output_dir, "%s-%.5d-of-%.5d" % (output_name, shard, num_shards))
-          for shard in xrange(num_shards)]
+  return [
+      os.path.join(output_dir, fname)
+      for fname in shard_filepath(output_name, num_shards)
+  ]
 
 
 def train_data_filenames(problem, output_dir, num_shards):
-  return _data_filenames(
-      problem + "-train", output_dir, num_shards)
+  return _data_filenames(problem + "-train", output_dir, num_shards)
 
 
 def dev_data_filenames(problem, output_dir, num_shards):
@@ -105,15 +108,22 @@ def test_data_filenames(problem, output_dir, num_shards):
 
 
 def combined_data_filenames(problem, output_dir, num_training_shards):
-  return (
-      train_data_filenames(problem, output_dir, num_training_shards) +
-      dev_data_filenames(problem, output_dir, 1) +
-      test_data_filenames(problem, output_dir, 1))
+  return (train_data_filenames(problem, output_dir, num_training_shards) +
+          dev_data_filenames(problem, output_dir, 1) + test_data_filenames(
+              problem, output_dir, 1))
 
 
-def generate_files(generator,
-                   output_filenames,
-                   max_cases=None):
+def sharded_name(base_name, shard, total_shards):
+  return "%s-%.5d-of-%.5d" % (base_name, shard, total_shards)
+
+
+def shard_filepath(fname, num_shards):
+  return [
+      sharded_name(fname, shard, num_shards) for shard in xrange(num_shards)
+  ]
+
+
+def generate_files(generator, output_filenames, max_cases=None):
   """Generate cases from a generator and save as TFRecord files.
 
   Generated cases are transformed to tf.Example protos and saved as TFRecords
@@ -172,8 +182,8 @@ def maybe_download(directory, filename, url):
   if not tf.gfile.Exists(filepath):
     tf.logging.info("Downloading %s to %s" % (url, filepath))
     inprogress_filepath = filepath + ".incomplete"
-    inprogress_filepath, _ = urllib.urlretrieve(url, inprogress_filepath,
-                                                reporthook=download_report_hook)
+    inprogress_filepath, _ = urllib.urlretrieve(
+        url, inprogress_filepath, reporthook=download_report_hook)
     # Print newline to clear the carriage return from the download progress
     print()
     tf.gfile.Rename(inprogress_filepath, filepath)
@@ -266,8 +276,8 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
       if ".gz" in lang_file:
         new_filepath = os.path.join(tmp_dir, lang_file[:-3])
         if tf.gfile.Exists(new_filepath):
-          tf.logging.info("Subdirectory %s already exists, skipping unpacking"
-                          % filepath)
+          tf.logging.info(
+              "Subdirectory %s already exists, skipping unpacking" % filepath)
         else:
           tf.logging.info("Unpacking subdirectory %s" % filepath)
           gunzip_file(filepath, new_filepath)
@@ -307,3 +317,13 @@ def write_records(records, out_filename):
     if count > 0 and count % 100000 == 0:
       tf.logging.info("write: %d", count)
   writer.close()
+
+
+def shuffle_dataset(filenames):
+  tf.logging.info("Shuffling data...")
+  for fname in filenames:
+    records = read_records(fname)
+    random.shuffle(records)
+    out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
+    write_records(records, out_fname)
+    tf.gfile.Remove(fname)

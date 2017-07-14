@@ -54,6 +54,7 @@ import six
 _MODELS = {}
 _HPARAMS = {}
 _RANGED_HPARAMS = {}
+_PROBLEMS = {}
 
 
 class Modalities(object):
@@ -182,6 +183,63 @@ def ranged_hparams(name):
 
 def list_ranged_hparams():
   return list(_RANGED_HPARAMS)
+
+
+def register_problem(name=None):
+  """Register a Problem. name defaults to cls name snake-cased."""
+
+  def decorator(p_cls, registration_name=None):
+    """Registers & returns p_cls with registration_name or default name."""
+    p_name = registration_name or _default_name(p_cls)
+    if p_name in _PROBLEMS:
+      raise ValueError("Problem %s already registered." % p_name)
+
+    _PROBLEMS[p_name] = p_cls
+    p_cls.name = p_name
+    return p_cls
+
+  # Handle if decorator was used without parens
+  if callable(name):
+    p_cls = name
+    return decorator(p_cls, registration_name=_default_name(p_cls))
+
+  return lambda p_cls: decorator(p_cls, name)
+
+
+def problem(name):
+  """Retrieve a problem by name."""
+
+  def parse_problem_name(problem_name):
+    """Determines if problem_name specifies a copy and/or reversal.
+
+    Args:
+      problem_name: A string containing a single problem name from
+        FLAGS.problems.
+
+    Returns:
+      base_name: A string with the base problem name.
+      was_reversed: A boolean.
+      was_copy: A boolean.
+    """
+    # Recursively strip tags until we reach a base name.
+    if len(problem_name) > 4 and problem_name[-4:] == "_rev":
+      base, _, was_copy = parse_problem_name(problem_name[:-4])
+      return base, True, was_copy
+    elif len(problem_name) > 5 and problem_name[-5:] == "_copy":
+      base, was_reversed, _ = parse_problem_name(problem_name[:-5])
+      return base, was_reversed, True
+    else:
+      return problem_name, False, False
+
+  base_name, was_reversed, was_copy = parse_problem_name(name)
+
+  if base_name not in _PROBLEMS:
+    raise ValueError("Problem %s never registered." % name)
+  return _PROBLEMS[base_name](was_reversed, was_copy)
+
+
+def list_problems():
+  return list(_PROBLEMS)
 
 
 def _internal_get_modality(name, mod_collection, collection_str):
@@ -345,11 +403,16 @@ Registry contents:
   RangedHParams: %s
 
   Modalities: %s
+
+  Problems: %s
   """
-  m, rhp, mod = [
+  m, rhp, mod, probs = [
       sorted(entries)
-      for entries in [list_models(),
-                      list_ranged_hparams(),
-                      list_modalities()]
+      for entries in [
+          list_models(),
+          list_ranged_hparams(),
+          list_modalities(),
+          list_problems()
+      ]
   ]
-  return help_str % (m, _hparams_help_string(), rhp, mod)
+  return help_str % (m, _hparams_help_string(), rhp, mod, probs)

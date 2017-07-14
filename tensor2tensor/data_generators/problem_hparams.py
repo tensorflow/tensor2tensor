@@ -685,8 +685,6 @@ def img2img_imagenet(unused_model_hparams):
 PROBLEM_HPARAMS_MAP = {
     "algorithmic_addition_binary40": lambda p: algorithmic(4, p),
     "algorithmic_addition_decimal40": lambda p: algorithmic(12, p),
-    "algorithmic_identity_binary40": lambda p: algorithmic(4, p),
-    "algorithmic_identity_decimal40": lambda p: algorithmic(12, p),
     "algorithmic_multiplication_binary40": lambda p: algorithmic(4, p),
     "algorithmic_multiplication_decimal40": lambda p: algorithmic(12, p),
     "algorithmic_reverse_binary40": lambda p: algorithmic(4, p),

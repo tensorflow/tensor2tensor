@@ -45,8 +45,8 @@ unicode_to_native = (lambda s: s.encode("utf-8")) if PY2 else (lambda s: s)
 
 
 # Reserved tokens for things like padding and EOS symbols.
-PAD = "<pad>"
-EOS = "<EOS>"
+PAD, PAD_ID = "<pad>", 0
+EOS, EOS_ID = "<EOS>", 1
 RESERVED_TOKENS = [PAD, EOS]
 if six.PY2:
   RESERVED_TOKENS_BYTES = RESERVED_TOKENS
@@ -59,6 +59,10 @@ class TextEncoder(object):
 
   def __init__(self, num_reserved_ids=2):
     self._num_reserved_ids = num_reserved_ids
+
+  @property
+  def num_reserved_ids(self):
+    return self._num_reserved_ids
 
   def encode(self, s):
     """Transform a human-readable string into a sequence of int ids.

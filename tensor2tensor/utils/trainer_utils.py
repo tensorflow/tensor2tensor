@@ -33,6 +33,7 @@ from six.moves import xrange
 from six.moves import zip
 # pylint: enable=redefined-builtin
 
+from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import models  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
@@ -214,10 +215,15 @@ def create_hparams(params_id, data_dir):
     hparams = hparams.parse(FLAGS.hparams)
 
   # Add hparams for the problems
-  hparams.problems = [
-      problem_hparams.problem_hparams(problem, hparams)
-      for problem in FLAGS.problems.split("-")
-  ]
+  hparams.problems = []
+  for problem_name in FLAGS.problems.split("-"):
+    try:
+      problem = registry.problem(problem_name)
+      p_hparams = problem.internal_hparams(hparams)
+    except ValueError:
+      p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+
+    hparams.problems.append(p_hparams)
 
   return hparams
 
