@@ -36,7 +36,7 @@ def downsampling_residual_branch(x, conv_filters):
   return tf.concat([x1, x2], axis=3)
 
 
-def shake_shake_block(x, conv_filters, stride, mode):
+def shake_shake_block(x, conv_filters, stride, hparams):
   with tf.variable_scope('branch_1'):
     branch1 = shake_shake_block_branch(x, conv_filters, stride)
   with tf.variable_scope('branch_2'):
@@ -47,21 +47,28 @@ def shake_shake_block(x, conv_filters, stride, mode):
     skip = downsampling_residual_branch(x, conv_filters)
 
   # TODO(rshin): Use different alpha for each image in batch.
-  if mode == tf.contrib.learn.ModeKeys.TRAIN:
-    shaken = common_layers.shakeshake2(branch1, branch2)
+  if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN:
+    if hparams.shakeshake_type == 'batch':
+      shaken = common_layers.shakeshake2(branch1, branch2)
+    elif hparams.shakeshake_type == 'image':
+      shaken = common_layers.shakeshake2_indiv(branch1, branch2)
+    elif hparams.shakeshake_type == 'equal':
+      shaken = common_layers.shakeshake2_py(branch1, branch2, equal=True)
+    else:
+      raise ValueError('Invalid shakeshake_type: {!r}'.format(shaken))
   else:
-    shaken = common_layers.shakeshake2_eqforward(branch1, branch2)
+    shaken = common_layers.shakeshake2_py(branch1, branch2, equal=True)
   shaken.set_shape(branch1.get_shape())
 
   return skip + shaken
 
 
-def shake_shake_stage(x, num_blocks, conv_filters, initial_stride, mode):
+def shake_shake_stage(x, num_blocks, conv_filters, initial_stride, hparams):
   with tf.variable_scope('block_0'):
-    x = shake_shake_block(x, conv_filters, initial_stride, mode)
+    x = shake_shake_block(x, conv_filters, initial_stride, hparams)
   for i in xrange(1, num_blocks):
     with tf.variable_scope('block_{}'.format(i)):
-      x = shake_shake_block(x, conv_filters, 1, mode)
+      x = shake_shake_block(x, conv_filters, 1, hparams)
   return x
 
 
@@ -76,6 +83,7 @@ class ShakeShake(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
     hparams = self._hparams
+    print(hparams.learning_rate)
 
     inputs = features["inputs"]
     assert (hparams.num_hidden_layers - 2) % 6 == 0
@@ -87,13 +95,14 @@ class ShakeShake(t2t_model.T2TModel):
     x = inputs
     mode = hparams.mode
     with tf.variable_scope('shake_shake_stage_1'):
-      x = shake_shake_stage(x, blocks_per_stage, hparams.base_filters, 1, mode)
+      x = shake_shake_stage(x, blocks_per_stage, hparams.base_filters, 1,
+                            hparams)
     with tf.variable_scope('shake_shake_stage_2'):
       x = shake_shake_stage(x, blocks_per_stage, hparams.base_filters * 2, 2,
-                            mode)
+                            hparams)
     with tf.variable_scope('shake_shake_stage_3'):
       x = shake_shake_stage(x, blocks_per_stage, hparams.base_filters * 4, 2,
-                            mode)
+                            hparams)
 
     # For canonical Shake-Shake, we should perform 8x8 average pooling and then
     # have a fully-connected layer (which produces the logits for each class).
@@ -130,4 +139,5 @@ def shakeshake_cifar10():
   hparams.optimizer = "Momentum"
   hparams.optimizer_momentum_momentum = 0.9
   hparams.add_hparam('base_filters', 16)
+  hparams.add_hparam('shakeshake_type', 'batch')
   return hparams

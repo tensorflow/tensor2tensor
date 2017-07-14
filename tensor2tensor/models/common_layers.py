@@ -60,7 +60,13 @@ def inverse_exp_decay(max_step, min_value=0.01):
 
 def shakeshake2_py(x, y, equal=False, individual=False):
   """The shake-shake sum of 2 tensors, python version."""
-  alpha = 0.5 if equal else tf.random_uniform([])
+  if equal:
+    alpha = 0.5
+  if individual:
+    alpha = tf.random_uniform(tf.get_shape(x)[:1])
+  else:
+    alpha = tf.random_uniform([])
+
   return alpha * x + (1.0 - alpha) * y
 
 
@@ -68,6 +74,14 @@ def shakeshake2_py(x, y, equal=False, individual=False):
 def shakeshake2_grad(x1, x2, dy):
   """Overriding gradient for shake-shake of 2 tensors."""
   y = shakeshake2_py(x1, x2)
+  dx = tf.gradients(ys=[y], xs=[x1, x2], grad_ys=[dy])
+  return dx
+
+
+@function.Defun()
+def shakeshake2_indiv_grad(x1, x2, dy):
+  """Overriding gradient for shake-shake of 2 tensors."""
+  y = shakeshake2_py(x1, x2, individual=True)
   dx = tf.gradients(ys=[y], xs=[x1, x2], grad_ys=[dy])
   return dx
 
@@ -85,10 +99,10 @@ def shakeshake2(x1, x2):
   """The shake-shake function with a different alpha for forward/backward."""
   return shakeshake2_py(x1, x2)
 
-@function.Defun(grad_func=shakeshake2_grad)
-def shakeshake2_eqforward(x1, x2):
-  """The shake-shake function with a different alpha for forward/backward."""
-  return shakeshake2_py(x1, x2, equal=True)
+
+@function.Defun(grad_func=shakeshake2_indiv_grad)
+def shakeshake2_indiv(x1, x2):
+  return shakeshake2_py(x1, x2, individual=True)
 
 
 @function.Defun(grad_func=shakeshake2_equal_grad)
