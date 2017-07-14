@@ -24,18 +24,62 @@ import tarfile
 # Dependency imports
 
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import wsj_parsing
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
 
 tf.flags.DEFINE_string("ende_bpe_path", "", "Path to BPE files in tmp_dir."
                        "Download from https://drive.google.com/open?"
                        "id=0B_bZck-ksdkpM25jRUN2X2UxMm8")
 
-
 FLAGS = tf.flags.FLAGS
+
+
+@registry.register_problem("wmt_ende_tokens_8k")
+class WMTEnDeTokens8k(problem.Problem):
+  """Problem spec for WMT En-De translation."""
+
+  @property
+  def target_vocab_size(self):
+    return 2**13  # 8192
+
+  def feature_encoders(self, data_dir):
+    return _default_wmt_feature_encoders(data_dir, self.target_vocab_size)
+
+  def generate_data(self, data_dir, tmp_dir):
+    generator_utils.generate_dataset_and_shuffle(
+        ende_wordpiece_token_generator(tmp_dir, True, self.target_vocab_size),
+        self.training_filepaths(data_dir, 100, shuffled=False),
+        ende_wordpiece_token_generator(tmp_dir, False, self.target_vocab_size),
+        self.dev_filepaths(data_dir, 1, shuffled=False))
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    vocab_size = self._encoders["inputs"].vocab_size
+    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
+    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
+    p.input_space_id = problem.SpaceID.EN_TOK
+    p.target_space_id = problem.SpaceID.DE_TOK
+
+
+@registry.register_problem("wmt_ende_tokens_32k")
+class WMTEnDeTokens32k(WMTEnDeTokens8k):
+
+  @property
+  def target_vocab_size(self):
+    return 2**15  # 32768
+
+
+def _default_wmt_feature_encoders(data_dir, target_vocab_size):
+  vocab_filename = os.path.join(data_dir, "tokens.vocab.%d" % target_vocab_size)
+  subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
+  return {
+      "inputs": subtokenizer,
+      "targets": subtokenizer,
+  }
 
 
 # End-of-sentence marker.
@@ -130,7 +174,8 @@ def token_generator(source_path, target_path, token_vocab, eos=None):
         source, target = source_file.readline(), target_file.readline()
 
 
-def bi_vocabs_token_generator(source_path, target_path,
+def bi_vocabs_token_generator(source_path,
+                              target_path,
                               source_token_vocab,
                               target_token_vocab,
                               eos=None):
@@ -184,8 +229,8 @@ def ende_bpe_token_generator(tmp_dir, train):
   train_path = _get_wmt_ende_dataset(tmp_dir, dataset_path)
   token_path = os.path.join(tmp_dir, "vocab.bpe.32000")
   token_vocab = text_encoder.TokenTextEncoder(vocab_filename=token_path)
-  return token_generator(train_path + ".en", train_path + ".de",
-                         token_vocab, EOS)
+  return token_generator(train_path + ".en", train_path + ".de", token_vocab,
+                         EOS)
 
 
 _ENDE_TRAIN_DATASETS = [
@@ -240,22 +285,15 @@ _ENFR_TEST_DATASETS = [
     ],
 ]
 
-_ZHEN_TRAIN_DATASETS = [
-    [
-        ("http://data.statmt.org/wmt17/translation-task/"
-         "training-parallel-nc-v12.tgz"),
-        ("training/news-commentary-v12.zh-en.zh",
-         "training/news-commentary-v12.zh-en.en")
-    ]
-]
+_ZHEN_TRAIN_DATASETS = [[("http://data.statmt.org/wmt17/translation-task/"
+                          "training-parallel-nc-v12.tgz"),
+                         ("training/news-commentary-v12.zh-en.zh",
+                          "training/news-commentary-v12.zh-en.en")]]
 
-_ZHEN_TEST_DATASETS = [
-    [
-        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
-        ("dev/newsdev2017-zhen-src.zh",
-         "dev/newsdev2017-zhen-ref.en")
-    ]
-]
+_ZHEN_TEST_DATASETS = [[
+    "http://data.statmt.org/wmt17/translation-task/dev.tgz",
+    ("dev/newsdev2017-zhen-src.zh", "dev/newsdev2017-zhen-ref.en")
+]]
 
 
 def _compile_data(tmp_dir, datasets, filename):
@@ -317,23 +355,21 @@ def ende_character_generator(tmp_dir, train):
                              character_vocab, EOS)
 
 
-def zhen_wordpiece_token_generator(tmp_dir, train,
-                                   source_vocab_size,
+def zhen_wordpiece_token_generator(tmp_dir, train, source_vocab_size,
                                    target_vocab_size):
   """Wordpiece generator for the WMT'17 zh-en dataset."""
   datasets = _ZHEN_TRAIN_DATASETS if train else _ZHEN_TEST_DATASETS
   source_datasets = [[item[0], [item[1][0]]] for item in datasets]
   target_datasets = [[item[0], [item[1][1]]] for item in datasets]
   source_vocab = generator_utils.get_or_generate_vocab(
-      tmp_dir, "tokens.vocab.zh.%d" % source_vocab_size,
-      source_vocab_size, source_datasets)
+      tmp_dir, "tokens.vocab.zh.%d" % source_vocab_size, source_vocab_size,
+      source_datasets)
   target_vocab = generator_utils.get_or_generate_vocab(
-      tmp_dir, "tokens.vocab.en.%d" % target_vocab_size,
-      target_vocab_size, target_datasets)
+      tmp_dir, "tokens.vocab.en.%d" % target_vocab_size, target_vocab_size,
+      target_datasets)
   tag = "train" if train else "dev"
   data_path = _compile_data(tmp_dir, datasets, "wmt_zhen_tok_%s" % tag)
-  return bi_vocabs_token_generator(data_path + ".lang1",
-                                   data_path + ".lang2",
+  return bi_vocabs_token_generator(data_path + ".lang1", data_path + ".lang2",
                                    source_vocab, target_vocab, EOS)
 
 
@@ -366,17 +402,15 @@ def parsing_character_generator(tmp_dir, train):
   return character_generator(text_filepath, tags_filepath, character_vocab, EOS)
 
 
-def tabbed_parsing_token_generator(tmp_dir, train, prefix,
-                                   source_vocab_size, target_vocab_size):
+def tabbed_parsing_token_generator(tmp_dir, train, prefix, source_vocab_size,
+                                   target_vocab_size):
   """Generate source and target data from a single file."""
   source_vocab = generator_utils.get_or_generate_tabbed_vocab(
       tmp_dir, "parsing_train.pairs", 0,
-      prefix + "_source.tokens.vocab.%d" % source_vocab_size,
-      source_vocab_size)
+      prefix + "_source.tokens.vocab.%d" % source_vocab_size, source_vocab_size)
   target_vocab = generator_utils.get_or_generate_tabbed_vocab(
       tmp_dir, "parsing_train.pairs", 1,
-      prefix + "_target.tokens.vocab.%d" % target_vocab_size,
-      target_vocab_size)
+      prefix + "_target.tokens.vocab.%d" % target_vocab_size, target_vocab_size)
   filename = "parsing_%s" % ("train" if train else "dev")
   pair_filepath = os.path.join(tmp_dir, filename + ".pairs")
   return tabbed_generator(pair_filepath, source_vocab, target_vocab, EOS)
@@ -395,5 +429,5 @@ def parsing_token_generator(tmp_dir, train, vocab_size):
       tmp_dir, "tokens.vocab.%d" % vocab_size, vocab_size)
   filename = "%s_%s.trees" % (FLAGS.parsing_path, "train" if train else "dev")
   tree_filepath = os.path.join(tmp_dir, filename)
-  return wsj_parsing.token_generator(tree_filepath,
-                                     symbolizer_vocab, symbolizer_vocab, EOS)
+  return wsj_parsing.token_generator(tree_filepath, symbolizer_vocab,
+                                     symbolizer_vocab, EOS)

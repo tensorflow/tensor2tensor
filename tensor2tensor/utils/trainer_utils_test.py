@@ -34,13 +34,13 @@ FLAGS = tf.flags.FLAGS
 @registry.register_problem
 class TinyAlgo(algorithmic.AlgorithmicIdentityBinary40):
 
-  def generate_data(self, data_dir):
+  def generate_data(self, data_dir, _):
     generator_utils.generate_files(
         algorithmic.identity_generator(self.num_symbols, 40, 100000),
-        self.training_filepaths(data_dir, 1), 100)
+        self.training_filepaths(data_dir, 1, shuffled=True), 100)
     generator_utils.generate_files(
         algorithmic.identity_generator(self.num_symbols, 400, 10000),
-        self.dev_filepaths(data_dir, 1), 100)
+        self.dev_filepaths(data_dir, 1, shuffled=True), 100)
 
 
 @registry.register_hparams
@@ -61,7 +61,8 @@ class TrainerUtilsTest(tf.test.TestCase):
     # Generate a small test dataset
     FLAGS.problems = "tiny_algo"
     TrainerUtilsTest.data_dir = tf.test.get_temp_dir()
-    registry.problem(FLAGS.problems).generate_data(TrainerUtilsTest.data_dir)
+    registry.problem(FLAGS.problems).generate_data(TrainerUtilsTest.data_dir,
+                                                   None)
 
   def testModelsImported(self):
     models = registry.list_models()

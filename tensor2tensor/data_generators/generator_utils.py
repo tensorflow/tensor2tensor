@@ -359,6 +359,17 @@ def write_records(records, out_filename):
   writer.close()
 
 
+def generate_dataset_and_shuffle(train_gen,
+                                 train_paths,
+                                 dev_gen,
+                                 dev_paths,
+                                 shuffle=True):
+  generate_files(train_gen, train_paths)
+  generate_files(dev_gen, dev_paths)
+  if shuffle:
+    shuffle_dataset(train_paths + dev_paths)
+
+
 def shuffle_dataset(filenames):
   tf.logging.info("Shuffling data...")
   for fname in filenames:

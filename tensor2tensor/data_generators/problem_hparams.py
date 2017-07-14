@@ -456,26 +456,6 @@ def wmt_ende_characters(unused_model_hparams):
   return p
 
 
-def wmt_ende_tokens(model_hparams, wrong_vocab_size):
-  """English to German translation benchmark."""
-  p = default_problem_hparams()
-  # This vocab file must be present within the data directory.
-  vocab_filename = os.path.join(model_hparams.data_dir,
-                                "tokens.vocab.%d" % wrong_vocab_size)
-  subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
-  p.input_modality = {
-      "inputs": (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
-  }
-  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
-  p.vocabulary = {
-      "inputs": subtokenizer,
-      "targets": subtokenizer,
-  }
-  p.input_space_id = 3
-  p.target_space_id = 8
-  return p
-
-
 def wmt_zhen_tokens(model_hparams, wrong_vocab_size):
   """Chinese to English translation benchmark."""
   p = default_problem_hparams()
@@ -751,9 +731,6 @@ PROBLEM_HPARAMS_MAP = {
     "wmt_enfr_tokens_32k_combined": lambda p: wmt_enfr_tokens(p, 2**15),
     "wmt_enfr_tokens_128k": lambda p: wmt_enfr_tokens(p, 2**17),
     "wmt_ende_characters": wmt_ende_characters,
-    "wmt_ende_tokens_8k": lambda p: wmt_ende_tokens(p, 2**13),
-    "wmt_ende_tokens_32k": lambda p: wmt_ende_tokens(p, 2**15),
-    "wmt_ende_tokens_128k": lambda p: wmt_ende_tokens(p, 2**17),
     "wmt_ende_bpe32k": wmt_ende_bpe32k,
     "wmt_zhen_tokens_32k": lambda p: wmt_zhen_tokens(p, 2**15),
     "image_cifar10_tune": image_cifar10,

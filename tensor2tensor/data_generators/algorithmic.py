@@ -37,12 +37,12 @@ class AlgorithmicIdentityBinary40(problem.Problem):
     return 2
 
   def generate_data(self, data_dir, _):
-    utils.generate_files(
+    utils.generate_dataset_and_shuffle(
         identity_generator(self.num_symbols, 40, 100000),
-        self.training_filepaths(data_dir, 100))
-    utils.generate_files(
+        self.training_filepaths(data_dir, 100, shuffled=True),
         identity_generator(self.num_symbols, 400, 10000),
-        self.dev_filepaths(data_dir, 1))
+        self.dev_filepaths(data_dir, 1, shuffled=True),
+        shuffle=False)
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults

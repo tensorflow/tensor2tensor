@@ -78,12 +78,18 @@ class Problem(object):
   New problems are specified by the following methods:
 
   Data generation:
-    * generate_data(data_dir)
+    * generate_data(data_dir, tmp_dir)
         - Generate training and dev datasets into data_dir.
         - Additonal files, e.g. vocabulary files, should also be written to
           data_dir.
+        - Downloads and other files can be written to tmp_dir
+        - If you have a training and dev generator, you can generate the
+          training and dev datasets with
+          generator_utils.generate_dataset_and_shuffle.
         - Use the self.training_filepaths and self.dev_filepaths functions to
-          get sharded filenames.
+          get sharded filenames. If shuffled=False, the filenames will contain
+          an "unshuffled" suffix; you should then shuffle the data
+          shard-by-shard with generator_utils.shuffle_dataset.
         - Subclasses must override
     * dataset_filename()
         - Base filename for problem.
@@ -125,13 +131,17 @@ class Problem(object):
   # END SUBCLASS INTERFACE
   # ============================================================================
 
-  def training_filepaths(self, data_dir, num_shards):
-    return utils.train_data_filenames(self.dataset_filename(), data_dir,
-                                      num_shards)
+  def training_filepaths(self, data_dir, num_shards, shuffled):
+    file_basename = self.dataset_filename()
+    if not shuffled:
+      file_basename += utils.UNSHUFFLED_SUFFIX
+    return utils.train_data_filenames(file_basename, data_dir, num_shards)
 
-  def dev_filepaths(self, data_dir, num_shards):
-    return utils.dev_data_filenames(self.dataset_filename(), data_dir,
-                                    num_shards)
+  def dev_filepaths(self, data_dir, num_shards, shuffled):
+    file_basename = self.dataset_filename()
+    if not shuffled:
+      file_basename += utils.UNSHUFFLED_SUFFIX
+    return utils.dev_data_filenames(file_basename, data_dir, num_shards)
 
   def __init__(self, was_reversed=False, was_copy=False):
     """Create a Problem.
