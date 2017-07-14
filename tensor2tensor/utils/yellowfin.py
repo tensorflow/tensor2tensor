@@ -1,35 +1,27 @@
-# MIT License
+# Copyright 2017 The Tensor2Tensor Authors.
 #
-# Copyright (c) 2017 JianGoForIt
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-"""YellowFin for TensorFlow."""
+"""YellowFin for TensorFlow. Thanks Jian Zhang: zjian [@] stanford [.] edu."""
+
+from __future__ import absolute_import
+from __future__ import division
 from __future__ import print_function
 
+# Dependency imports
+
 import numpy as np
-from math import ceil, floor
 import tensorflow as tf
-from tensorflow.python.training import momentum
-from tensorflow.python.ops import variable_scope
-from tensorflow.python.ops import variables
-from tensorflow.python.ops import state_ops
 from tensorflow.python.framework import ops
 
 
@@ -41,8 +33,8 @@ GATE_GRAPH = 2
 
 class YellowFinOptimizer(tf.train.Optimizer):
   """Optimizer that implements the YellowFin algorithm.
-    See [Zhang et. al., 2017](https://arxiv.org/abs/1706.03471)
-    ([pdf](https://arxiv.org/pdf/1706.03471.pdf)).
+
+  See [Zhang et. al., 2017](https://arxiv.org/abs/1706.03471) for details.
   """
 
   def __init__(self,
@@ -87,7 +79,7 @@ class YellowFinOptimizer(tf.train.Optimizer):
     self._lr = learning_rate
     self._mu = momentum
 
-    # Set lr and mu tensor
+    # Set lr and mu tensor.
     self._lr_var = tf.Variable(learning_rate,
                                dtype=tf.float32,
                                name="YF_lr",
@@ -97,13 +89,13 @@ class YellowFinOptimizer(tf.train.Optimizer):
                                name="YF_mu",
                                trainable=False)
 
-    # Tuning factor for learning rates step or decaying scheme
+    # Tuning factor for learning rates step or decaying scheme.
     self.lr_factor = tf.Variable(1.0,
                                  dtype=tf.float32,
                                  name="YF_lr_factor",
                                  trainable=False)
 
-    # Gradient Clipping Threshold
+    # Gradient Clipping Threshold.
     if clip_thresh is not None:
       self._clip_thresh_var = tf.Variable(clip_thresh,
                                           dtype=tf.float32,
@@ -112,63 +104,63 @@ class YellowFinOptimizer(tf.train.Optimizer):
     else:
       self._clip_thresh_var = None
 
-    # Set initial lr and mu for momentum
+    # Set initial lr and mu for momentum.
     self._lr_m = self._lr_var * self.lr_factor
     self._mu_m = self._mu_var + delta_mu
 
-    # Init momentum optimizer
-    self._momentum_optimizer = \
-      tf.train.MomentumOptimizer(self._lr_m, self._mu_m)
+    # Init momentum optimizer.
+    self._momentum_optimizer = tf.train.MomentumOptimizer(
+        self._lr_m, self._mu_m)
 
-    # Moving average for statistics
+    # Moving average for statistics.
     self._beta = beta
     self._moving_averager = None
 
-    # Step counting
+    # Step counting.
     self._step = tf.Variable(0,
                              dtype=tf.int32,
                              name="YF_step",
                              trainable=False)
-    # YF_step + 1 op
+    # YF_step + 1 op.
     self._increment_step_op = None
 
-    # For conditional tuning
+    # For conditional tuning.
     self._do_tune = tf.greater(self._step, tf.constant(0))
 
-    # Moving-averages
+    # Moving-averages.
     self._zero_debias = zero_debias
 
-    # For curvature range
+    # For curvature range.
     self.curvature_window_width = curvature_window_width
     self._curv_win = None
 
-    # Gradients and Variables
+    # Gradients and Variables.
     self._grad = None
     self._vars = None
 
-    # Get per var g**2, norm**2 and mean(norm**2)
+    # Get per var g**2, norm**2 and mean(norm**2).
     self._grad_squared = None
     self._grad_norm_squared = None
     self._grad_norm_squared_avg = None
 
-    # Mean(grad) and Mean(grad**2) to compute Variance
+    # Mean(grad) and Mean(grad**2) to compute Variance.
     self._grad_avg = None
     self._grad_avg_squared = None
 
-    # Max and Min curvature variations
+    # Max and Min curvature variations.
     self._h_max_t = None
     self._h_min_t = None
     self._h_min = None
     self._h_max = None
 
-    # Gradient Expected Variance
+    # Gradient Expected Variance.
     self._grad_var = None
 
-    # Gradient Norm and Mean(Gradient Norm)
+    # Gradient Norm and Mean(Gradient Norm).
     self._grad_norm = None
     self._grad_norm_avg = None
 
-    # Distance to optimum and Mean(Distance to optimum)
+    # Distance to optimum and Mean(Distance to optimum).
     self._d_t = None
     self._dist_to_opt_avg = None
 
@@ -177,31 +169,27 @@ class YellowFinOptimizer(tf.train.Optimizer):
     # and (zero_devias) moving-averages.
     self._moving_averager = None
 
-
   def _curvature_range(self):
-    """Curvature range
+    """Curvature range.
 
     Returns:
       h_max_t, h_min_t ops
     """
-    self._curv_win = \
-      tf.Variable(np.zeros([self.curvature_window_width, ]),
-                  dtype=tf.float32,
-                  name="curv_win",
-                  trainable=False)
+    self._curv_win = tf.Variable(np.zeros([self.curvature_window_width,]),
+                                 dtype=tf.float32,
+                                 name="curv_win",
+                                 trainable=False)
 
-    self._curv_win = \
-      tf.scatter_update(self._curv_win,
-                        self._step % self.curvature_window_width,
-                        self._grad_norm_squared)
+    self._curv_win = tf.scatter_update(self._curv_win,
+                                       self._step % self.curvature_window_width,
+                                       self._grad_norm_squared)
     # Note here the iterations start from iteration 0
     valid_window = tf.slice(self._curv_win,
-                            tf.constant([0, ]),
+                            tf.constant([0,]),
                             tf.expand_dims(
-                              tf.minimum(
-                                tf.constant(self.curvature_window_width),
-                                self._step + 1),
-                              dim=0))
+                                tf.minimum(
+                                    tf.constant(self.curvature_window_width),
+                                    self._step + 1), axis=0))
     self._h_min_t = tf.reduce_min(valid_window)
     self._h_max_t = tf.reduce_max(valid_window)
 
@@ -212,24 +200,23 @@ class YellowFinOptimizer(tf.train.Optimizer):
         self._h_min = tf.identity(self._moving_averager.average(self._h_min_t))
         self._h_max = tf.identity(self._moving_averager.average(self._h_max_t))
     curv_range_ops.append(avg_op)
-    return curv_range_ops # h_max_t, h_min_t
-
+    return curv_range_ops  # h_max_t, h_min_t
 
   def _grad_variance(self):
-    """Estimate of gradient Variance
+    """Estimate of gradient Variance.
 
     Returns:
-      C_t ops
+      C_t ops.
     """
     grad_var_ops = []
     tensor_to_avg = []
     for t, g in zip(self._vars, self._grad):
-      if isinstance(g, ops.IndexedSlices):
-        tensor_to_avg.append( \
-          tf.reshape(tf.unsorted_segment_sum(g.values,
-                                             g.indices,
-                                             g.dense_shape[0]),
-                     shape=t.get_shape()))
+      if isinstance(g, tf.IndexedSlices):
+        tensor_to_avg.append(
+            tf.reshape(tf.unsorted_segment_sum(g.values,
+                                               g.indices,
+                                               g.dense_shape[0]),
+                       shape=t.get_shape()))
       else:
         tensor_to_avg.append(g)
     avg_op = self._moving_averager.apply(tensor_to_avg)
@@ -244,9 +231,8 @@ class YellowFinOptimizer(tf.train.Optimizer):
     self._grad_var = self._grad_norm_squared_avg - self._grad_avg_squared
     return grad_var_ops  # C_t
 
-
   def _dist_to_opt(self):
-    """Distance to optimum
+    """Distance to optimum.
 
     Returns:
       D_t ops
@@ -254,7 +240,7 @@ class YellowFinOptimizer(tf.train.Optimizer):
     dist_to_opt_ops = []
     # Running average of the norm of gradeint
     self._grad_norm = tf.sqrt(self._grad_norm_squared)
-    avg_op = self._moving_averager.apply([self._grad_norm, ])
+    avg_op = self._moving_averager.apply([self._grad_norm,])
     dist_to_opt_ops.append(avg_op)
     with tf.control_dependencies([avg_op]):
       self._grad_norm_avg = self._moving_averager.average(self._grad_norm)
@@ -265,21 +251,19 @@ class YellowFinOptimizer(tf.train.Optimizer):
     avg_op = self._moving_averager.apply([self._d_t])
     dist_to_opt_ops.append(avg_op)
     with tf.control_dependencies([avg_op]):
-      self._dist_to_opt_avg = \
-        tf.identity(self._moving_averager.average(self._d_t))
+      self._dist_to_opt_avg = tf.identity(
+          self._moving_averager.average(self._d_t))
     return dist_to_opt_ops  # D_t
 
-
   def _prepare_variables(self):
-    """Prepare Variables for YellowFin
+    """Prepare Variables for YellowFin.
 
     Returns:
       Grad**2, Norm, Norm**2, Mean(Norm**2) ops
     """
-    self._moving_averager =  \
-      tf.train.ExponentialMovingAverage(decay=self._beta,
-                                        zero_debias=self._zero_debias)
-    assert self._grad != None and len(self._grad) > 0
+    self._moving_averager = tf.train.ExponentialMovingAverage(
+        decay=self._beta, zero_debias=self._zero_debias)
+    assert self._grad
     # List for the returned Operations
     prepare_variables_op = []
 
@@ -293,39 +277,37 @@ class YellowFinOptimizer(tf.train.Optimizer):
       with ops.colocate_with(v):
         self._grad_squared.append(tf.square(g))
 
-    # Norm squared
-    self._grad_norm_squared = [tf.reduce_sum(g_sq) \
-                              for g_sq in self._grad_squared]
+    # Norm squared.
+    self._grad_norm_squared = [tf.reduce_sum(g_sq)
+                               for g_sq in self._grad_squared]
 
     # The following running average on squared norm of gradient
     # is shared by grad_var and dist_to_opt
     avg_op = self._moving_averager.apply(self._grad_norm_squared)
 
     with tf.control_dependencies([avg_op]):
-      self._grad_norm_squared_avg = \
-        [self._moving_averager.average(val) for val in self._grad_norm_squared]
+      self._grad_norm_squared_avg = [self._moving_averager.average(val)
+                                     for val in self._grad_norm_squared]
       self._grad_norm_squared = tf.add_n(self._grad_norm_squared)
       self._grad_norm_squared_avg = tf.add_n(self._grad_norm_squared_avg)
 
     prepare_variables_op.append(avg_op)
     return tf.group(*prepare_variables_op)
 
-
   def _get_lr_tensor(self):
-    """Get lr minimzing the surrogate
+    """Get lr minimzing the surrogate.
 
     Returns:
-      lr_t
+      The lr_t.
     """
-    lr = (1.0 - tf.sqrt(self._mu) )**2 / self._h_min
+    lr = (1.0 - tf.sqrt(self._mu))**2 / self._h_min
     return lr
 
-
   def _get_mu_tensor(self):
-    """Get the min mu which minimize the surrogate
+    """Get the min mu which minimize the surrogate.
 
     Returns:
-      mu_t
+      The mu_t.
     """
     const_fact = self._dist_to_opt_avg**2 * self._h_min**2 / 2 / self._grad_var
     coef = tf.Variable([-1.0, 3.0, 0.0, 1.0],
@@ -340,28 +322,23 @@ class YellowFinOptimizer(tf.train.Optimizer):
                        stateful=False)
 
     # Filter out the correct root
-    root_idx = \
-      tf.logical_and(
+    root_idx = tf.logical_and(
         tf.logical_and(
-          tf.greater(tf.real(roots), tf.constant(0.0)),
-          tf.less(tf.real(roots), tf.constant(1.0))),
+            tf.greater(tf.real(roots), tf.constant(0.0)),
+            tf.less(tf.real(roots), tf.constant(1.0))),
         tf.less(tf.abs(tf.imag(roots)), 1e-5))
 
     # In case there are two duplicated roots satisfying the above condition
     root = tf.reshape(tf.gather(tf.gather(roots, tf.where(root_idx)),
-                      tf.constant(0)),
+                                tf.constant(0)),
                       shape=[])
-
-    # Never Evaluated
-    #tf.assert_equal(tf.size(root), tf.constant(1))
 
     dr = self._h_max / self._h_min
     mu = tf.maximum(tf.real(root)**2, ((tf.sqrt(dr) - 1)/(tf.sqrt(dr) + 1))**2)
     return mu
 
-
   def _yellowfin(self):
-    """YellowFin auto-tuning optimizer based on momentum SGD
+    """YellowFin auto-tuning optimizer based on momentum SGD.
 
     Returns:
       YF ops
@@ -371,16 +348,16 @@ class YellowFinOptimizer(tf.train.Optimizer):
          Single-Step,
          Auto-Tuning)
     """
-    # List for the returned Operations
+    # List for the returned Operations.
     yellowfin_ops = []
 
-    # Curvature range ops
+    # Curvature range ops.
     curv_range_ops = self._curvature_range()
     yellowfin_ops += curv_range_ops
-    # Estimate of gradient Variance ops
+    # Estimate of gradient Variance ops.
     grad_var_ops = self._grad_variance()
     yellowfin_ops += grad_var_ops
-    # Distance to optimum ops
+    # Distance to optimum ops.
     dist_to_opt_ops = self._dist_to_opt()
     yellowfin_ops += dist_to_opt_ops
 
@@ -388,15 +365,14 @@ class YellowFinOptimizer(tf.train.Optimizer):
     # squared distance from the optimum of a local quadratic
     # approximation after a single step while keeping all directions in the
     # robust region.
-    self._mu = \
-      tf.identity(tf.cond(self._do_tune, lambda: self._get_mu_tensor(),
-                  lambda: self._mu_var))
+    self._mu = tf.identity(tf.cond(self._do_tune, self._get_mu_tensor,
+                                   lambda: self._mu_var))
     with tf.control_dependencies([self._mu]):
-      self._lr = \
-        tf.identity(tf.cond(self._do_tune, lambda: self._get_lr_tensor(),
-                    lambda: self._lr_var))
+      self._lr = tf.identity(tf.cond(self._do_tune,
+                                     self._get_lr_tensor,
+                                     lambda: self._lr_var))
 
-    # Tune learning rate and momentum
+    # Tune learning rate and momentum.
     with tf.control_dependencies([self._mu, self._lr]):
       self._mu = self._beta * self._mu_var + (1 - self._beta) * self._mu
       self._lr = self._beta * self._lr_var + (1 - self._beta) * self._lr
@@ -406,9 +382,8 @@ class YellowFinOptimizer(tf.train.Optimizer):
     yellowfin_ops = tf.group(*yellowfin_ops)
     return yellowfin_ops
 
-
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
-    """Applying gradients aand tune hyperparams with YellowFin
+    """Applying gradients aand tune hyperparams with YellowFin.
 
     Args:
       grads_and_vars: List of (gradient, variable) pairs as returned by
@@ -429,22 +404,20 @@ class YellowFinOptimizer(tf.train.Optimizer):
     self._grad, self._vars = zip(*[(g, t)
                                    for g, t in grads_and_vars if g is not None])
 
-    # Var Update with Momentum
+    # Var update with Momentum.
     with tf.variable_scope("apply_updates"):
       # Gradient Clipping?
       if self._clip_thresh_var is not None:
-        self._grads_clip, self._grads_norm = \
-          tf.clip_by_global_norm(self._grad, self._clip_thresh_var)
+        self._grads_clip, self._grads_norm = tf.clip_by_global_norm(
+            self._grad, self._clip_thresh_var)
 
-        apply_grad_op = \
-          self._momentum_optimizer.apply_gradients( \
+        apply_grad_op = self._momentum_optimizer.apply_gradients(
             zip(self._grads_clip, self._vars), global_step=global_step)
       else:
-        apply_grad_op = \
-          self._momentum_optimizer.apply_gradients( \
+        apply_grad_op = self._momentum_optimizer.apply_gradients(
             zip(self._grad, self._vars), global_step=global_step)
 
-    # Begin lr and mu tuning
+    # Begin lr and mu tuning.
     with tf.variable_scope("prepare_yellowFin_variables"):
       prepare_variables_op = self._prepare_variables()
 
@@ -452,22 +425,14 @@ class YellowFinOptimizer(tf.train.Optimizer):
       with tf.control_dependencies([prepare_variables_op]):
         yellowfin_op = self._yellowfin()
 
-    # Update YellowFin step variable
+    # Update YellowFin step variable.
     with tf.control_dependencies([yellowfin_op]):
-      self._increment_step_op = state_ops.assign_add(self._step, 1).op
-
-    # # Global_step variable Update. Commented because the update is made by self._momentum_optimizer
-    # if global_step is not None:
-    #   with tf.control_dependencies([yellowfin_op]):
-    #     with ops.colocate_with(global_step):
-    #       global_step_op = state_ops.assign_add(global_step, 1).op
+      self._increment_step_op = tf.assign_add(self._step, 1).op
 
     return tf.group(apply_grad_op,
                     prepare_variables_op,
                     yellowfin_op,
                     self._increment_step_op)
-                    # global_step_op)
-
 
   def compute_gradients(self,
                         loss,
@@ -478,7 +443,7 @@ class YellowFinOptimizer(tf.train.Optimizer):
                         colocate_gradients_with_ops=False,
                         name=None,
                         grad_loss=None):
-    """Compute gradients through momentum optimizer
+    """Compute gradients through momentum optimizer.
 
     Args:
       loss: A Tensor containing the value to minimize.
@@ -501,14 +466,13 @@ class YellowFinOptimizer(tf.train.Optimizer):
       A list of (gradient, variable) pairs. Variable is always present,
         but gradient can be None.
     """
-    return self._momentum_optimizer.compute_gradients( \
-      loss,
-      var_list=var_list,
-      gate_gradients=gate_gradients,
-      aggregation_method=aggregation_method,
-      colocate_gradients_with_ops=colocate_gradients_with_ops,
-      grad_loss=grad_loss)
-
+    return self._momentum_optimizer.compute_gradients(
+        loss,
+        var_list=var_list,
+        gate_gradients=gate_gradients,
+        aggregation_method=aggregation_method,
+        colocate_gradients_with_ops=colocate_gradients_with_ops,
+        grad_loss=grad_loss)
 
   def minimize(self,
                loss,
@@ -519,7 +483,8 @@ class YellowFinOptimizer(tf.train.Optimizer):
                colocate_gradients_with_ops=False,
                name=None,
                grad_loss=None):
-    """Adapted from Tensorflow Optimizer base class member function:
+    """Adapted from Tensorflow Optimizer base class member function.
+
     Add operations to minimize `loss` by updating `var_list`.
     This method simply combines calls `compute_gradients()` and
     `apply_gradients()`. If you want to process the gradient before applying
@@ -545,9 +510,11 @@ class YellowFinOptimizer(tf.train.Optimizer):
     Returns:
       An Operation that updates the variables in var_list.
         If global_step was not None, that operation also increments global_step.
+
+    Raises:
+      ValueError: if no gradients are provided for any variable.
     """
-    grads_and_vars =  \
-      self._optimizer.compute_gradients( \
+    grads_and_vars = self._optimizer.compute_gradients(
         loss,
         var_list=var_list,
         gate_gradients=gate_gradients,

@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -115,6 +115,9 @@ class T2TModel(object):
     input_modality = {}
     for f, modality_spec in six.iteritems(problem_hparams.input_modality):
       if isinstance(modality_spec, modality.Modality):
+        # This function has been previously run (e.g. for training and now is
+        # being called for eval) and the modalities have already been
+        # constructed. Return.
         return
       if f in input_modality_overrides:
         _warn_changed_modality_type(input_modality_overrides[f],

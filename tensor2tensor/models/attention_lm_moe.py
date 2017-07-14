@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -117,9 +117,9 @@ def attention_lm_moe_base():
   """Set of hyperparameters.
 
   suitable for 1 gpu.
-  on lm1b_16k:
-     ~337M params
-     1.1 steps/sec on  [GeForce GTX TITAN X]
+  on lm1b_32k:
+     ~229M params
+     0.9 steps/sec on  [GeForce GTX TITAN X]
 
   Returns:
     a hparams object
@@ -133,7 +133,7 @@ def attention_lm_moe_base():
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.learning_rate_decay_scheme = "noam"
   hparams.learning_rate = 0.1
-  hparams.learning_rate_warmup_steps = 1000
+  hparams.learning_rate_warmup_steps = 2000
   hparams.initializer_gain = 1.0
   hparams.num_hidden_layers = 4
   hparams.initializer = "uniform_unit_scaling"
@@ -143,14 +143,14 @@ def attention_lm_moe_base():
   hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.0
   hparams.shared_embedding_and_softmax_weights = int(False)
-  hparams.add_hparam("filter_size", 2948)  # Add new ones like this.
+  hparams.add_hparam("filter_size", 2048)  # Add new ones like this.
   # comma-separated list of layer numbers.
   # At each of these layers, we replace the ffn with a mixture of experts.
   hparams.add_hparam("moe_layers", "2")
   # If moe_n2 is None, then use a flat MoE with moe_n1 experts.
   # If moe_n2 is an integer, then use a hierarchical MoE
   #   consisting of moe_n1 groups of moe_n2 experts each.
-  hparams.add_hparam("moe_n1", 64)
+  hparams.add_hparam("moe_n1", 32)
   hparams.add_hparam("moe_n2", 0)
   hparams.add_hparam("moe_hidden_size", 2048)
   hparams.add_hparam("moe_loss_coef", 1e-2)
@@ -171,9 +171,11 @@ def attention_lm_moe_base():
 def attention_lm_moe_small():
   """Cheap model for single-gpu training.
 
-  on lm1b_16k:
-     ~295M params
-     2 steps/sec on  [GeForce GTX TITAN X]
+  on lm1b_32k:
+     ~312M params
+     1.6 steps/sec on  [GeForce GTX TITAN X]
+     After 50K steps on 8 GPUs (synchronous):
+        eval_log_ppl_per_token = 3.31
 
   Returns:
     an hparams object.
@@ -189,11 +191,34 @@ def attention_lm_moe_small():
 
 
 @registry.register_hparams
+def attention_lm_no_moe_small():
+  """Without the mixture of experts (for comparison).
+
+  on lm1b_32k:
+     ~45M params
+     2 steps/sec on  [GeForce GTX TITAN X]
+     After 50K steps on 8 GPUs (synchronous):
+        eval_log_ppl_per_token = 3.51
+
+  Returns:
+    an hparams object.
+  """
+  hparams = attention_lm_moe_small()
+  hparams.moe_layers = ""
+  return hparams
+
+
+@registry.register_hparams
 def attention_lm_moe_large():
   """Large model for distributed training.
 
   Over 1B parameters, so requires multi-gpu training due to memory
    requirements.
+
+  on lm1b_32k:
+     After 45K steps on 8 GPUs (synchronous):
+        eval_log_ppl_per_token = 3.18
+        eval_ppl_per_word = exp(1.107893 * eval_log_ppl_per_token) = 33.9
 
   Returns:
     an hparams object.

@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,17 +32,19 @@ from six.moves import input
 from six.moves import xrange
 # pylint: enable=redefined-builtin
 
+from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.data_generators.text_encoder import EOS_TOKEN
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.models import models  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import yellowfin
+
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python.ops import init_ops
-from tensor2tensor.utils.yellowfin import YellowFinOptimizer
 
 # Number of samples to draw for an image input (in such cases as captioning)
 IMAGE_DECODE_LENGTH = 100
@@ -91,6 +93,8 @@ flags.DEFINE_string("worker_job", "/job:worker", "name of worker job")
 flags.DEFINE_integer("worker_gpu", 1, "How many GPUs to use.")
 flags.DEFINE_integer("worker_replicas", 1, "How many workers to use.")
 flags.DEFINE_integer("worker_id", 0, "Which worker task are we.")
+flags.DEFINE_float("worker_gpu_memory_fraction", 1.,
+                   "Fraction of GPU memory to allocate.")
 flags.DEFINE_integer("ps_gpu", 0, "How many GPUs to use per ps.")
 flags.DEFINE_string("gpu_order", "", "Optional order for daisy-chaining gpus."
                     " e.g. \"1 3 2 4\"")
@@ -102,7 +106,6 @@ flags.DEFINE_bool("decode_use_last_position_only", False,
                   "In inference, use last position only for speedup.")
 flags.DEFINE_bool("decode_interactive", False,
                   "Interactive local inference mode.")
-flags.DEFINE_bool("decode_endless", False, "Run decoding endlessly. Temporary.")
 flags.DEFINE_bool("decode_save_images", False, "Save inference input images.")
 flags.DEFINE_string("decode_from_file", None, "Path to decode file")
 flags.DEFINE_string("decode_to_file", None, "Path to inference output file")
@@ -121,12 +124,12 @@ flags.DEFINE_bool("decode_return_beams", False,
 
 
 def _save_until_eos(hyp):
-  """ Strips everything after the first <EOS> token, which is normally 1 """
+  """Strips everything after the first <EOS> token, which is normally 1."""
   try:
-    index = list(hyp).index(EOS_TOKEN)
+    index = list(hyp).index(text_encoder.EOS_TOKEN)
     return hyp[0:index]
   except ValueError:
-    # No EOS_TOKEN: return the array as-is
+    # No EOS_TOKEN: return the array as-is.
     return hyp
 
 
@@ -187,6 +190,7 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
       config=tf.contrib.learn.RunConfig(
           master=FLAGS.master,
           model_dir=output_dir,
+          gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction,
           session_config=session_config(),
           keep_checkpoint_max=FLAGS.keep_checkpoint_max))
   # Store the hparams in the estimator as well
@@ -221,10 +225,15 @@ def create_hparams(params_id, data_dir):
     hparams = hparams.parse(FLAGS.hparams)
 
   # Add hparams for the problems
-  hparams.problems = [
-      problem_hparams.problem_hparams(problem, hparams)
-      for problem in FLAGS.problems.split("-")
-  ]
+  hparams.problems = []
+  for problem_name in FLAGS.problems.split("-"):
+    try:
+      problem = registry.problem(problem_name)
+      p_hparams = problem.internal_hparams(hparams)
+    except ValueError:
+      p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+
+    hparams.problems.append(p_hparams)
 
   return hparams
 
@@ -280,6 +289,7 @@ def session_config():
   """The TensorFlow Session config to use."""
   graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
       opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
+
   if FLAGS.experimental_optimize_placement:
     rewrite_options = tf.RewriterConfig(optimize_tensor_layout=True)
     rewrite_options.optimizers.append("pruning")
@@ -287,8 +297,13 @@ def session_config():
     rewrite_options.optimizers.append("layout")
     graph_options = tf.GraphOptions(
         rewrite_options=rewrite_options, infer_shapes=True)
-  config = tf.ConfigProto(
-      allow_soft_placement=True, graph_options=graph_options)
+
+  gpu_options = tf.GPUOptions(
+      per_process_gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction)
+
+  config = tf.ConfigProto(allow_soft_placement=True,
+                          graph_options=graph_options,
+                          gpu_options=gpu_options)
   return config
 
 
@@ -357,7 +372,6 @@ def model_builder(model, hparams):
         lambda: decay,
         name="learning_rate_decay_warump_cond")
 
-  
   def model_fn(features, targets, mode):
     """Creates the prediction, loss, and train ops.
 
@@ -578,7 +592,7 @@ def decode_from_dataset(estimator):
         num_datashards=data_parallelism().n,
         fixed_problem=i)
     result_iter = estimator.predict(
-        input_fn=infer_input_fn, as_iterable=FLAGS.decode_endless)
+        input_fn=infer_input_fn, as_iterable=False)
 
     def log_fn(inputs,
                targets,
@@ -610,11 +624,7 @@ def decode_from_dataset(estimator):
         target_file.write(decoded_targets + "\n")
 
     # The function predict() returns an iterable over the network's
-    # predictions from the test input. if FLAGS.decode_endless is set, it will
-    # decode over the dev set endlessly, looping over it. We use the returned
-    # iterator to log inputs and decodes.
-    if FLAGS.decode_endless:
-      tf.logging.info("Warning: Decoding endlessly")
+    # predictions from the test input. We use it to log inputs and decodes.
     for j, result in enumerate(result_iter):
       inputs, targets, outputs = (result["inputs"], result["targets"],
                                   result["outputs"])
@@ -650,7 +660,8 @@ def decode_from_file(estimator, filename):
         decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
         tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
-        decoded_outputs = targets_vocab.decode(_save_until_eos(outputs.flatten()))
+        decoded_outputs = targets_vocab.decode(
+            _save_until_eos(outputs.flatten()))
         tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
         return decoded_outputs
 
@@ -701,13 +712,14 @@ def decode_interactively(estimator):
           scores = np.split(result["scores"], FLAGS.decode_beam_size, axis=0)
         for k, beam in enumerate(beams):
           tf.logging.info("BEAM %d:" % k)
+          beam_string = targets_vocab.decode(_save_until_eos(beam.flatten()))
           if scores is not None:
-            tf.logging.info("%s\tScore:%f" %
-                            (targets_vocab.decode(_save_until_eos(beam.flatten())), scores[k]))
+            tf.logging.info("%s\tScore:%f" % (beam_string, scores[k]))
           else:
-            tf.logging.info(targets_vocab.decode(_save_until_eos(beam.flatten())))
+            tf.logging.info(beam_string)
       else:
-        tf.logging.info(targets_vocab.decode(_save_until_eos(result["outputs"].flatten())))
+        tf.logging.info(targets_vocab.decode(_save_until_eos(
+            result["outputs"].flatten())))
 
 
 def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
@@ -717,13 +729,13 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
   # you'll see it in the first batch
   sorted_inputs.reverse()
   for b in range(num_decode_batches):
-    tf.logging.info("Deocding batch %d" % b)
+    tf.logging.info("Decoding batch %d" % b)
     batch_length = 0
     batch_inputs = []
     for inputs in sorted_inputs[b * FLAGS.decode_batch_size:
-        (b + 1) * FLAGS.decode_batch_size]:
+                                (b + 1) * FLAGS.decode_batch_size]:
       input_ids = vocabulary.encode(inputs)
-      input_ids.append(EOS_TOKEN)
+      input_ids.append(text_encoder.EOS_TOKEN)
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
@@ -816,7 +828,7 @@ def _interactive_input_fn(hparams):
       if input_type == "text":
         input_ids = vocabulary.encode(input_string)
         if has_input:
-          input_ids.append(EOS_TOKEN)
+          input_ids.append(text_encoder.EOS_TOKEN)
         x = [num_samples, decode_length, len(input_ids)] + input_ids
         assert len(x) < const_array_size
         x += [0] * (const_array_size - len(x))
@@ -1137,7 +1149,7 @@ class _ConditionalOptimizer(tf.train.Optimizer):
           lr, momentum=hparams.optimizer_momentum_momentum)
     elif optimizer_name == "YellowFin":
       tf.logging.info("Init YellowFin Optimizer.")
-      self._opt = YellowFinOptimizer(
+      self._opt = yellowfin.YellowFinOptimizer(
           learning_rate=lr, momentum=hparams.optimizer_momentum_momentum)
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)

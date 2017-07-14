@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,9 +36,30 @@ from tensor2tensor.data_generators import tokenizer
 import tensorflow as tf
 
 
+# Reserved tokens for things like padding and EOS symbols.
+PAD = "<pad>"
+EOS = "<EOS>"
+RESERVED_TOKENS = [PAD, EOS]
+NUM_RESERVED_TOKENS = len(RESERVED_TOKENS)
+PAD_TOKEN = RESERVED_TOKENS.index(PAD)  # Normally 0
+EOS_TOKEN = RESERVED_TOKENS.index(EOS)  # Normally 1
+
+if PY2:
+  RESERVED_TOKENS_BYTES = RESERVED_TOKENS
+else:
+  RESERVED_TOKENS_BYTES = [bytes(PAD, "ascii"), bytes(EOS, "ascii")]
+
+
+def native_to_unicode_py2(s):
+  """Python 2: transform native string to Unicode."""
+  if isinstance(s, unicode):
+    return s
+  return s.decode("utf-8")
+
+
 # Conversion between Unicode and UTF-8, if required (on Python2)
 if PY2:
-  native_to_unicode = lambda s: s if isinstance(s, unicode) else s.decode("utf-8")
+  native_to_unicode = native_to_unicode_py2
   unicode_to_native = lambda s: s.encode("utf-8")
 else:
   # No conversion required on Python3
@@ -46,24 +67,15 @@ else:
   unicode_to_native = lambda s: s
 
 
-# Reserved tokens for things like padding and EOS symbols.
-PAD = "<pad>"
-EOS = "<EOS>"
-RESERVED_TOKENS = [PAD, EOS]
-NUM_RESERVED_TOKENS = len(RESERVED_TOKENS)
-PAD_TOKEN = RESERVED_TOKENS.index(PAD) # Normally 0
-EOS_TOKEN = RESERVED_TOKENS.index(EOS) # Normally 1
-
-if PY2:
-  RESERVED_TOKENS_BYTES = RESERVED_TOKENS
-else:
-  RESERVED_TOKENS_BYTES = [bytes(PAD, "ascii"), bytes(EOS, "ascii")]
-
 class TextEncoder(object):
   """Base class for converting from ints to/from human readable strings."""
 
   def __init__(self, num_reserved_ids=NUM_RESERVED_TOKENS):
     self._num_reserved_ids = num_reserved_ids
+
+  @property
+  def num_reserved_ids(self):
+    return self._num_reserved_ids
 
   def encode(self, s):
     """Transform a human-readable string into a sequence of int ids.
@@ -137,7 +149,8 @@ class ByteTextEncoder(TextEncoder):
 class TokenTextEncoder(TextEncoder):
   """Encoder based on a user-supplied vocabulary."""
 
-  def __init__(self, vocab_filename, reverse=False, num_reserved_ids=NUM_RESERVED_TOKENS):
+  def __init__(self, vocab_filename, reverse=False,
+               num_reserved_ids=NUM_RESERVED_TOKENS):
     """Initialize from a file, one token per line."""
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
     self._reverse = reverse

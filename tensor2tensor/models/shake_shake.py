@@ -1,6 +1,24 @@
+# Copyright 2017 The Tensor2Tensor Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Shake-shake model for CIFAR."""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+# Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
@@ -15,31 +33,29 @@ import tensorflow as tf
 def shake_shake_block_branch(x, conv_filters, stride):
   x = tf.nn.relu(x)
   x = tf.layers.conv2d(
-      x, conv_filters, (3, 3), strides=(stride, stride), padding='SAME')
+      x, conv_filters, (3, 3), strides=(stride, stride), padding="SAME")
   x = tf.layers.batch_normalization(x)
   x = tf.nn.relu(x)
-  x = tf.layers.conv2d(x, conv_filters, (3, 3), strides=(1, 1), padding='SAME')
+  x = tf.layers.conv2d(x, conv_filters, (3, 3), strides=(1, 1), padding="SAME")
   x = tf.layers.batch_normalization(x)
   return x
 
 
 def downsampling_residual_branch(x, conv_filters):
   x = tf.nn.relu(x)
-
   x1 = tf.layers.average_pooling2d(x, pool_size=(1, 1), strides=(2, 2))
-  x1 = tf.layers.conv2d(x1, conv_filters / 2, (1, 1), padding='SAME')
-
+  x1 = tf.layers.conv2d(x1, conv_filters / 2, (1, 1), padding="SAME")
   x2 = tf.pad(x[:, 1:, 1:], [[0, 0], [0, 1], [0, 1], [0, 0]])
   x2 = tf.layers.average_pooling2d(x2, pool_size=(1, 1), strides=(2, 2))
-  x2 = tf.layers.conv2d(x2, conv_filters / 2, (1, 1), padding='SAME')
-
+  x2 = tf.layers.conv2d(x2, conv_filters / 2, (1, 1), padding="SAME")
   return tf.concat([x1, x2], axis=3)
 
 
 def shake_shake_block(x, conv_filters, stride, hparams):
-  with tf.variable_scope('branch_1'):
+  """A shake-shake block."""
+  with tf.variable_scope("branch_1"):
     branch1 = shake_shake_block_branch(x, conv_filters, stride)
-  with tf.variable_scope('branch_2'):
+  with tf.variable_scope("branch_2"):
     branch2 = shake_shake_block_branch(x, conv_filters, stride)
   if x.shape[-1] == conv_filters:
     skip = tf.identity(x)
@@ -48,14 +64,14 @@ def shake_shake_block(x, conv_filters, stride, hparams):
 
   # TODO(rshin): Use different alpha for each image in batch.
   if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN:
-    if hparams.shakeshake_type == 'batch':
+    if hparams.shakeshake_type == "batch":
       shaken = common_layers.shakeshake2(branch1, branch2)
-    elif hparams.shakeshake_type == 'image':
+    elif hparams.shakeshake_type == "image":
       shaken = common_layers.shakeshake2_indiv(branch1, branch2)
-    elif hparams.shakeshake_type == 'equal':
+    elif hparams.shakeshake_type == "equal":
       shaken = common_layers.shakeshake2_py(branch1, branch2, equal=True)
     else:
-      raise ValueError('Invalid shakeshake_type: {!r}'.format(shaken))
+      raise ValueError("Invalid shakeshake_type: {!r}".format(shaken))
   else:
     shaken = common_layers.shakeshake2_py(branch1, branch2, equal=True)
   shaken.set_shape(branch1.get_shape())
@@ -64,22 +80,22 @@ def shake_shake_block(x, conv_filters, stride, hparams):
 
 
 def shake_shake_stage(x, num_blocks, conv_filters, initial_stride, hparams):
-  with tf.variable_scope('block_0'):
+  with tf.variable_scope("block_0"):
     x = shake_shake_block(x, conv_filters, initial_stride, hparams)
   for i in xrange(1, num_blocks):
-    with tf.variable_scope('block_{}'.format(i)):
+    with tf.variable_scope("block_{}".format(i)):
       x = shake_shake_block(x, conv_filters, 1, hparams)
   return x
 
 
 @registry.register_model
 class ShakeShake(t2t_model.T2TModel):
-  '''Implements the Shake-Shake architecture.
+  """Implements the Shake-Shake architecture.
 
   From <https://arxiv.org/pdf/1705.07485.pdf>
   This is intended to match the CIFAR-10 version, and correspond to
   "Shake-Shake-Batch" in Table 1.
-  '''
+  """
 
   def model_fn_body(self, features):
     hparams = self._hparams
@@ -93,14 +109,13 @@ class ShakeShake(t2t_model.T2TModel):
     # filters then a batch norm. Instead we will rely on the one in
     # SmallImageModality, which seems to instead use a layer norm.
     x = inputs
-    mode = hparams.mode
-    with tf.variable_scope('shake_shake_stage_1'):
+    with tf.variable_scope("shake_shake_stage_1"):
       x = shake_shake_stage(x, blocks_per_stage, hparams.base_filters, 1,
                             hparams)
-    with tf.variable_scope('shake_shake_stage_2'):
+    with tf.variable_scope("shake_shake_stage_2"):
       x = shake_shake_stage(x, blocks_per_stage, hparams.base_filters * 2, 2,
                             hparams)
-    with tf.variable_scope('shake_shake_stage_3'):
+    with tf.variable_scope("shake_shake_stage_3"):
       x = shake_shake_stage(x, blocks_per_stage, hparams.base_filters * 4, 2,
                             hparams)
 
@@ -117,6 +132,7 @@ class ShakeShake(t2t_model.T2TModel):
 
 @registry.register_hparams
 def shakeshake_cifar10():
+  """Parameters for CIFAR-10."""
   hparams = common_hparams.basic_params1()
   # This leads to effective batch size 128 when number of GPUs is 1
   hparams.batch_size = 4096 * 8
@@ -138,6 +154,6 @@ def shakeshake_cifar10():
   hparams.weight_decay = 3.0
   hparams.optimizer = "Momentum"
   hparams.optimizer_momentum_momentum = 0.9
-  hparams.add_hparam('base_filters', 16)
-  hparams.add_hparam('shakeshake_type', 'batch')
+  hparams.add_hparam("base_filters", 16)
+  hparams.add_hparam("shakeshake_type", "batch")
   return hparams

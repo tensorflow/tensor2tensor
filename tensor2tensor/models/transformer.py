@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -354,15 +354,6 @@ def transformer_parsing_base():
 
 
 @registry.register_hparams
-def transformer_parsing_ice():
-  """Hparams for parsing Icelandic text."""
-  hparams = transformer_base_single_gpu()
-  hparams.batch_size = 4096
-  hparams.shared_embedding_and_softmax_weights = int(False)
-  return hparams
-
-
-@registry.register_hparams
 def transformer_parsing_big():
   """HParams for parsing on wsj semi-supervised."""
   hparams = transformer_big()
@@ -372,6 +363,15 @@ def transformer_parsing_big():
   hparams.residual_dropout = 0.1
   hparams.batch_size = 2048
   hparams.learning_rate = 0.05
+  return hparams
+
+
+@registry.register_hparams
+def transformer_parsing_ice():
+  """Hparams for parsing Icelandic text."""
+  hparams = transformer_base_single_gpu()
+  hparams.batch_size = 4096
+  hparams.shared_embedding_and_softmax_weights = int(False)
   return hparams
 
 

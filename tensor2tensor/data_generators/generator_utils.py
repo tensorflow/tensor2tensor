@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ from collections import defaultdict
 import gzip
 import io
 import os
+import random
 import tarfile
 
 # Dependency imports
@@ -34,6 +35,8 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
+
+UNSHUFFLED_SUFFIX = "-unshuffled"
 
 
 def to_example(dictionary):
@@ -66,7 +69,7 @@ def generate_files_distributed(generator,
                                task_id=0):
   """generate_files but with a single writer writing to shard task_id."""
   assert task_id < num_shards
-  output_filename = "%s-%.5d-of-%.5d" % (output_name, task_id, num_shards)
+  output_filename = sharded_name(output_name, task_id, num_shards)
   output_file = os.path.join(output_dir, output_filename)
   tf.logging.info("Writing to file %s", output_file)
   writer = tf.python_io.TFRecordWriter(output_file)
@@ -86,14 +89,14 @@ def generate_files_distributed(generator,
 
 
 def _data_filenames(output_name, output_dir, num_shards):
-  return [os.path.join(
-      output_dir, "%s-%.5d-of-%.5d" % (output_name, shard, num_shards))
-          for shard in xrange(num_shards)]
+  return [
+      os.path.join(output_dir, fname)
+      for fname in shard_filepath(output_name, num_shards)
+  ]
 
 
 def train_data_filenames(problem, output_dir, num_shards):
-  return _data_filenames(
-      problem + "-train", output_dir, num_shards)
+  return _data_filenames(problem + "-train", output_dir, num_shards)
 
 
 def dev_data_filenames(problem, output_dir, num_shards):
@@ -105,15 +108,22 @@ def test_data_filenames(problem, output_dir, num_shards):
 
 
 def combined_data_filenames(problem, output_dir, num_training_shards):
-  return (
-      train_data_filenames(problem, output_dir, num_training_shards) +
-      dev_data_filenames(problem, output_dir, 1) +
-      test_data_filenames(problem, output_dir, 1))
+  return (train_data_filenames(problem, output_dir, num_training_shards) +
+          dev_data_filenames(problem, output_dir, 1) + test_data_filenames(
+              problem, output_dir, 1))
 
 
-def generate_files(generator,
-                   output_filenames,
-                   max_cases=None):
+def sharded_name(base_name, shard, total_shards):
+  return "%s-%.5d-of-%.5d" % (base_name, shard, total_shards)
+
+
+def shard_filepath(fname, num_shards):
+  return [
+      sharded_name(fname, shard, num_shards) for shard in xrange(num_shards)
+  ]
+
+
+def generate_files(generator, output_filenames, max_cases=None):
   """Generate cases from a generator and save as TFRecord files.
 
   Generated cases are transformed to tf.Example protos and saved as TFRecords
@@ -172,8 +182,8 @@ def maybe_download(directory, filename, url):
   if not tf.gfile.Exists(filepath):
     tf.logging.info("Downloading %s to %s" % (url, filepath))
     inprogress_filepath = filepath + ".incomplete"
-    inprogress_filepath, _ = urllib.urlretrieve(url, inprogress_filepath,
-                                                reporthook=download_report_hook)
+    inprogress_filepath, _ = urllib.urlretrieve(
+        url, inprogress_filepath, reporthook=download_report_hook)
     # Print newline to clear the carriage return from the download progress
     print()
     tf.gfile.Rename(inprogress_filepath, filepath)
@@ -266,8 +276,8 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
       if ".gz" in lang_file:
         new_filepath = os.path.join(tmp_dir, lang_file[:-3])
         if tf.gfile.Exists(new_filepath):
-          tf.logging.info("Subdirectory %s already exists, skipping unpacking"
-                          % filepath)
+          tf.logging.info(
+              "Subdirectory %s already exists, skipping unpacking" % filepath)
         else:
           tf.logging.info("Unpacking subdirectory %s" % filepath)
           gunzip_file(filepath, new_filepath)
@@ -290,30 +300,42 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
   return vocab
 
 
-def get_or_generate_tabbed_vocab(tmp_dir, source_filename, index, vocab_filename, vocab_size):
-  """Generate a vocabulary from the source file. This is assumed to be
-  a file of source, target pairs, where each line contains a source string
-  and a target string, separated by a tab ('\t') character. The index
-  parameter specifies 0 for the source or 1 for the target."""
+def get_or_generate_tabbed_vocab(tmp_dir, source_filename,
+                                 index, vocab_filename, vocab_size):
+  r"""Generate a vocabulary from a tabbed source file.
+
+  The source is a file of source, target pairs, where each line contains
+  a source string and a target string, separated by a tab ('\t') character.
+  The index parameter specifies 0 for the source or 1 for the target.
+
+  Args:
+    tmp_dir: path to the temporary directory.
+    source_filename: the name of the tab-separated source file.
+    index: index.
+    vocab_filename: the name of the vocabulary file.
+    vocab_size: vocabulary size.
+
+  Returns:
+    The vocabulary.
+  """
   vocab_filepath = os.path.join(tmp_dir, vocab_filename)
   if os.path.exists(vocab_filepath):
     vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
     return vocab
 
   # Use Tokenizer to count the word occurrences.
-  token_counts = defaultdict(int)
   filepath = os.path.join(tmp_dir, source_filename)
   with tf.gfile.GFile(filepath, mode="r") as source_file:
     for line in source_file:
       line = line.strip()
-      if line and '\t' in line:
-        parts = line.split('\t', maxsplit = 1)
+      if line and "\t" in line:
+        parts = line.split("\t", maxsplit=1)
         part = parts[index].strip()
-        for tok in tokenizer.encode(text_encoder.native_to_unicode(part)):
-          token_counts[tok] += 1
+        _ = tokenizer.encode(text_encoder.native_to_unicode(part))
 
   vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
-      vocab_size, token_counts, 1, 1e3)
+      vocab_size, tokenizer.token_counts, 1,
+      min(1e3, vocab_size + text_encoder.NUM_RESERVED_TOKENS))
   vocab.store_to_file(vocab_filepath)
   return vocab
 
@@ -335,3 +357,24 @@ def write_records(records, out_filename):
     if count > 0 and count % 100000 == 0:
       tf.logging.info("write: %d", count)
   writer.close()
+
+
+def generate_dataset_and_shuffle(train_gen,
+                                 train_paths,
+                                 dev_gen,
+                                 dev_paths,
+                                 shuffle=True):
+  generate_files(train_gen, train_paths)
+  generate_files(dev_gen, dev_paths)
+  if shuffle:
+    shuffle_dataset(train_paths + dev_paths)
+
+
+def shuffle_dataset(filenames):
+  tf.logging.info("Shuffling data...")
+  for fname in filenames:
+    records = read_records(fname)
+    random.shuffle(records)
+    out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
+    write_records(records, out_fname)
+    tf.gfile.Remove(fname)

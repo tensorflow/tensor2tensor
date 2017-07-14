@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,12 +23,50 @@ import numpy as np
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
+from tensor2tensor.data_generators import generator_utils as utils
+from tensor2tensor.data_generators import problem
+from tensor2tensor.utils import registry
+
+
+@registry.register_problem
+class AlgorithmicIdentityBinary40(problem.Problem):
+  """Problem spec for algorithmic binary identity task."""
+
+  @property
+  def num_symbols(self):
+    return 2
+
+  def generate_data(self, data_dir, _):
+    utils.generate_dataset_and_shuffle(
+        identity_generator(self.num_symbols, 40, 100000),
+        self.training_filepaths(data_dir, 100, shuffled=True),
+        identity_generator(self.num_symbols, 400, 10000),
+        self.dev_filepaths(data_dir, 1, shuffled=True),
+        shuffle=False)
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    vocab_size = self.num_symbols + self._encoders["inputs"].num_reserved_ids
+    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
+    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
+    p.input_space_id = problem.SpaceID.DIGIT_0
+    p.target_space_id = problem.SpaceID.DIGIT_1
+
+
+@registry.register_problem
+class AlgorithmicIdentityDecimal40(AlgorithmicIdentityBinary40):
+  """Problem spec for algorithmic decimal identity task."""
+
+  @property
+  def num_symbols(self):
+    return 10
+
 
 def identity_generator(nbr_symbols, max_length, nbr_cases):
   """Generator for the identity (copy) task on sequences of symbols.
 
   The length of the sequence is drawn uniformly at random from [1, max_length]
-  and then symbols are drawn uniformly at random from [2, nbr_symbols] until
+  and then symbols are drawn uniformly at random from [2, nbr_symbols + 2) until
   nbr_cases sequences have been produced.
 
   Args:
@@ -66,8 +104,10 @@ def shift_generator(nbr_symbols, shift, max_length, nbr_cases):
   for _ in xrange(nbr_cases):
     l = np.random.randint(max_length) + 1
     inputs = [np.random.randint(nbr_symbols - shift) + 2 for _ in xrange(l)]
-    yield {"inputs": inputs,
-           "targets": [i + shift for i in inputs] + [1]}  # [1] for EOS
+    yield {
+        "inputs": inputs,
+        "targets": [i + shift for i in inputs] + [1]
+    }  # [1] for EOS
 
 
 def reverse_generator(nbr_symbols, max_length, nbr_cases):
@@ -89,8 +129,10 @@ def reverse_generator(nbr_symbols, max_length, nbr_cases):
   for _ in xrange(nbr_cases):
     l = np.random.randint(max_length) + 1
     inputs = [np.random.randint(nbr_symbols) + 2 for _ in xrange(l)]
-    yield {"inputs": inputs,
-           "targets": list(reversed(inputs)) + [1]}  # [1] for EOS
+    yield {
+        "inputs": inputs,
+        "targets": list(reversed(inputs)) + [1]
+    }  # [1] for EOS
 
 
 def zipf_distribution(nbr_symbols, alpha):
@@ -106,7 +148,7 @@ def zipf_distribution(nbr_symbols, alpha):
     distr_map: list of float, Zipf's distribution over nbr_symbols.
 
   """
-  tmp = np.power(np.arange(1, nbr_symbols+1), -alpha)
+  tmp = np.power(np.arange(1, nbr_symbols + 1), -alpha)
   zeta = np.r_[0.0, np.cumsum(tmp)]
   return [x / zeta[-1] for x in zeta]
 
@@ -128,11 +170,14 @@ def zipf_random_sample(distr_map, sample_len):
   # we have made a sanity check to overcome this issue. On the other hand,
   # t+1 is enough from saving us to generate PAD(0) and EOS(1) which are
   # reservated symbols.
-  return [t+1 if t > 0 else t+2 for t in np.searchsorted(distr_map, u)]
+  return [t + 1 if t > 0 else t + 2 for t in np.searchsorted(distr_map, u)]
 
 
-def reverse_generator_nlplike(nbr_symbols, max_length, nbr_cases,
-                              scale_std_dev=100, alpha=1.5):
+def reverse_generator_nlplike(nbr_symbols,
+                              max_length,
+                              nbr_cases,
+                              scale_std_dev=100,
+                              alpha=1.5):
   """Generator for the reversing nlp-like task on sequences of symbols.
 
   The length of the sequence is drawn from a Gaussian(Normal) distribution
@@ -157,10 +202,12 @@ def reverse_generator_nlplike(nbr_symbols, max_length, nbr_cases,
   std_dev = max_length / scale_std_dev
   distr_map = zipf_distribution(nbr_symbols, alpha)
   for _ in xrange(nbr_cases):
-    l = int(abs(np.random.normal(loc=max_length/2, scale=std_dev)) + 1)
+    l = int(abs(np.random.normal(loc=max_length / 2, scale=std_dev)) + 1)
     inputs = zipf_random_sample(distr_map, l)
-    yield {"inputs": inputs,
-           "targets": list(reversed(inputs)) + [1]}  # [1] for EOS
+    yield {
+        "inputs": inputs,
+        "targets": list(reversed(inputs)) + [1]
+    }  # [1] for EOS
 
 
 def lower_endian_to_number(l, base):
