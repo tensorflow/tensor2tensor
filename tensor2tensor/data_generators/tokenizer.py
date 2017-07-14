@@ -141,6 +141,7 @@ def corpus_token_counts(text_filepattern, corpus_max_lines,
           if corpus_max_lines > 0 and lines_read > corpus_max_lines:
             return docs
     return docs
+
   counts = defaultdict(int)
   for doc in read_corpus():
     for tok in encode(_native_to_unicode(doc)):
