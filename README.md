@@ -304,7 +304,7 @@ backpropagation pass is just a matter of a few lines of code:
 
 ``` python
 # Calculate and clip gradients
-parameters = tf.trainable_variables()
+params = tf.trainable_variables()
 gradients = tf.gradients(train_loss, params)
 clipped_gradients, _ = tf.clip_by_global_norm(
     gradients, max_gradient_norm)
