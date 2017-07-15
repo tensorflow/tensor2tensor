@@ -69,7 +69,7 @@ def print_out(s, f=None, new_line=True):
 def print_hparams(hparams, skip_patterns=None):
   """Print hparams, can skip keys based on pattern."""
   values = hparams.values()
-  for key in sorted(values.iterkeys()):
+  for key in sorted(values.keys()):
     if not skip_patterns or all(
         [skip_pattern not in key for skip_pattern in skip_patterns]):
       print_out("  %s=%s" % (key, str(values[key])))
@@ -80,7 +80,7 @@ def load_hparams(model_dir):
   hparams_file = os.path.join(model_dir, "hparams")
   if tf.gfile.Exists(hparams_file):
     print_out("# Loading hparams from %s" % hparams_file)
-    with codecs.getreader("utf-8")(tf.gfile.GFile(hparams_file, "r")) as f:
+    with codecs.getreader("utf-8")(tf.gfile.GFile(hparams_file, "rb")) as f:
       try:
         hparams_values = json.load(f)
         hparams = tf.contrib.training.HParams(**hparams_values)
@@ -143,7 +143,7 @@ def format_text(words):
   if (not hasattr(words, "__len__") and  # for numpy array
       not isinstance(words, collections.Iterable)):
     words = [words]
-  return " ".join(words)
+  return b" ".join(words)
 
 
 def format_bpe_text(symbols, delimiter=b"@@"):
