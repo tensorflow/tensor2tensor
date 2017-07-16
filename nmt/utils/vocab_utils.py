@@ -56,7 +56,7 @@ def check_vocab(vocab_file, out_dir, sos=None, eos=None, unk=None):
       vocab = [unk, sos, eos] + vocab
       vocab_size += 3
       new_vocab_file = os.path.join(out_dir, os.path.basename(vocab_file))
-      with codecs.getreader("utf-8")(tf.gfile.GFile(new_vocab_file, "w")) as f:
+      with codecs.getwriter("utf-8")(tf.gfile.GFile(new_vocab_file, "wb")) as f:
         for word in vocab:
           f.write("%s\n" % word)
       vocab_file = new_vocab_file
