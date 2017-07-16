@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@ from __future__ import print_function
 
 # Dependency imports
 
+from six.moves import xrange  # pylint: disable=redefined-builtin
+
 from tensor2tensor.models import common_attention
 from tensor2tensor.models import common_hparams
 from tensor2tensor.models import common_layers
@@ -27,7 +29,6 @@ from tensor2tensor.models import slicenet
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
 

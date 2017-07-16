@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,16 +21,11 @@ of the size you want.
 Example usage:
 
 python data_generators/text_encoder_build_subword.py \
-    --corpus_filepattern=$LM1B_DIR/train-unk-* \
-    --corpus_max_lines=17500 \
-    --output_fn=$DATA_DIR/lm1b16k.subword_text_encoder \
+    --corpus_filepattern=$DATA_DIR/my_problem-train-* \
+    --corpus_max_lines=12345 \
+    --output_fn=$DATA_DIR/my_problem.subword_text_encoder \
     --logtostderr
 
-python data_generators/text_encoder_build_subword.py \
-    --corpus_filepattern=$LM1B_DIR/train-unk-* \
-    --corpus_max_lines=270000 \
-    --output_fn=$DATA_DIR/lm1b64k.subword_text_encoder \
-    --logtostderr
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -39,6 +34,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
 
@@ -50,6 +46,7 @@ tf.app.flags.DEFINE_integer('min_count', 5, 'Minimum subtoken count in corpus')
 tf.app.flags.DEFINE_integer('corpus_max_lines', 10000,
                             'How many lines of corpus to read')
 tf.app.flags.DEFINE_integer('num_iterations', 4, 'Number of iterations')
+tf.app.flags.DEFINE_bool('split_on_newlines', True, 'Break corpus into lines.')
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -57,8 +54,9 @@ def main(unused_argv):
   gs = text_encoder.SubwordTextEncoder()
   if not FLAGS.corpus_filepattern:
     raise ValueError('Must provide --corpus_filepattern')
-  token_counts = text_encoder.SubwordTextEncoder.get_token_counts(
-      FLAGS.corpus_filepattern, FLAGS.corpus_max_lines)
+  token_counts = tokenizer.corpus_token_counts(
+      FLAGS.corpus_filepattern, FLAGS.corpus_max_lines,
+      split_on_newlines=FLAGS.split_on_newlines)
   gs.build_from_token_counts(token_counts,
                              FLAGS.min_count,
                              FLAGS.num_iterations)

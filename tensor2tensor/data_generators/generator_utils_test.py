@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,11 +41,12 @@ class GeneratorUtilsTest(tf.test.TestCase):
     def test_generator():
       yield {"inputs": [1], "target": [1]}
 
-    generator_utils.generate_files(test_generator(), tmp_file_name, tmp_dir)
-    self.assertTrue(tf.gfile.Exists(tmp_file_path + "-00000-of-00001"))
+    filenames = generator_utils.train_data_filenames(tmp_file_name, tmp_dir, 1)
+    generator_utils.generate_files(test_generator(), filenames)
+    self.assertTrue(tf.gfile.Exists(tmp_file_path + "-train-00000-of-00001"))
 
     # Clean up.
-    os.remove(tmp_file_path + "-00000-of-00001")
+    os.remove(tmp_file_path + "-train-00000-of-00001")
     os.remove(tmp_file_path)
 
   def testMaybeDownload(self):

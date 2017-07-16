@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import common_layers
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -352,7 +353,10 @@ def get_datasets(problems, data_dir, mode):
   """Return the location of a dataset for a given mode."""
   datasets = []
   for problem in problems.split("-"):
-    problem, _, _ = problem_hparams.parse_problem_name(problem)
+    try:
+      problem = registry.problem(problem).dataset_filename()
+    except ValueError:
+      problem, _, _ = problem_hparams.parse_problem_name(problem)
     path = os.path.join(data_dir, problem)
     if mode == tf.contrib.learn.ModeKeys.TRAIN:
       datasets.append("%s-train*" % path)

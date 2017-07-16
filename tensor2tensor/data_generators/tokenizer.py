@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,61 +49,102 @@ import unicodedata
 
 # Dependency imports
 
+from six import PY2
 from six import unichr  # pylint: disable=redefined-builtin
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
+import tensorflow as tf
 
-class Tokenizer(object):
-  """Vocab for breaking words into Unicode wordpieces.
+
+# Conversion between Unicode and UTF-8, if required (on Python2)
+_native_to_unicode = (lambda s: s.decode("utf-8")) if PY2 else (lambda s: s)
+
+
+# This set contains all letter and number characters.
+_ALPHANUMERIC_CHAR_SET = set(
+    unichr(i) for i in xrange(sys.maxunicode)
+    if (unicodedata.category(unichr(i)).startswith("L") or
+        unicodedata.category(unichr(i)).startswith("N")))
+
+
+def encode(text):
+  """Encode a unicode string as a list of tokens.
+
+  Args:
+    text: a unicode string
+  Returns:
+    a list of tokens as Unicode strings
   """
+  if not text:
+    return []
+  ret = []
+  token_start = 0
+  # Classify each character in the input string
+  is_alnum = [c in _ALPHANUMERIC_CHAR_SET for c in text]
+  for pos in xrange(1, len(text)):
+    if is_alnum[pos] != is_alnum[pos - 1]:
+      token = text[token_start:pos]
+      if token != u" " or token_start == 0:
+        ret.append(token)
+      token_start = pos
+  final_token = text[token_start:]
+  ret.append(final_token)
+  return ret
 
-  # This set contains all letter and number characters.
-  _ALPHANUMERIC_CHAR_SET = set(
-      unichr(i) for i in xrange(sys.maxunicode)
-      if (unicodedata.category(unichr(i)).startswith("L") or
-          unicodedata.category(unichr(i)).startswith("N")))
 
-  def __init__(self):
-    self.token_counts = defaultdict(int)
+def decode(tokens):
+  """Decode a list of tokens to a unicode string.
 
-  def encode(self, text):
-    """Encode a unicode string as a list of tokens.
+  Args:
+    tokens: a list of Unicode strings
+  Returns:
+    a unicode string
+  """
+  ret = u""
+  token_is_alnum = [t[0] in _ALPHANUMERIC_CHAR_SET for t in tokens]
+  for i, token in enumerate(tokens):
+    if i > 0 and token_is_alnum[i - 1] and token_is_alnum[i]:
+      ret += u" "
+    ret += token
+  return ret
 
-    Args:
-      text: a unicode string
-    Returns:
-      a list of tokens as Unicode strings
-    """
-    if not text:
-      return []
-    ret = []
-    token_start = 0
-    # Classify each character in the input string
-    is_alnum = [c in self._ALPHANUMERIC_CHAR_SET for c in text]
-    for pos in xrange(1, len(text)):
-      if is_alnum[pos] != is_alnum[pos - 1]:
-        token = text[token_start:pos]
-        if token != u" " or token_start == 0:
-          ret.append(token)
-          self.token_counts[token] += 1
-        token_start = pos
-    final_token = text[token_start:]
-    ret.append(final_token)
-    self.token_counts[final_token] += 1
-    return ret
 
-  def decode(self, tokens):
-    """Decode a list of tokens to a unicode string.
+def corpus_token_counts(text_filepattern, corpus_max_lines,
+                        split_on_newlines=True):
+  """Read the corpus and compute a dictionary of token counts.
 
-    Args:
-      tokens: a list of Unicode strings
-    Returns:
-      a unicode string
-    """
-    ret = u""
-    token_is_alnum = [t[0] in self._ALPHANUMERIC_CHAR_SET for t in tokens]
-    for i, token in enumerate(tokens):
-      if i > 0 and token_is_alnum[i - 1] and token_is_alnum[i]:
-        ret += u" "
-      ret += token
-    return ret
+  Args:
+    text_filepattern: a pattern matching one or more files
+    corpus_max_lines: an integer - maximum total lines to read.
+    split_on_newlines: a boolean.  If true, then split files by lines and strip
+      leading and trailing whitespace from each line.
+
+  Returns:
+    a dictionary from token to count.
+  """
+  def read_corpus():
+    """Read the corpus."""
+    docs = []
+    lines_read = 0
+    filenames = tf.gfile.Glob(text_filepattern)
+    for text_filename in filenames:
+      with tf.gfile.Open(text_filename) as f:
+        if not split_on_newlines:
+          docs.append("")
+        for line in f:
+          if split_on_newlines:
+            # The tokenizer updates token_counts in encode()
+            docs.append(line.strip())
+          else:
+            docs[-1] += line
+          lines_read += 1
+          if corpus_max_lines > 0 and lines_read > corpus_max_lines:
+            return docs
+    return docs
+
+  counts = defaultdict(int)
+  for doc in read_corpus():
+    for tok in encode(_native_to_unicode(doc)):
+      counts[tok] += 1
+  return counts
+

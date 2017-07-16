@@ -12,27 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Models defined in T2T. Imports here force registration."""
-
+"""Imports for problem modules."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
 # pylint: disable=unused-import
-
-from tensor2tensor.models import attention_lm
-from tensor2tensor.models import attention_lm_moe
-from tensor2tensor.models import bluenet
-from tensor2tensor.models import bytenet
-from tensor2tensor.models import lstm
-from tensor2tensor.models import modalities
-from tensor2tensor.models import multimodel
-from tensor2tensor.models import neural_gpu
-from tensor2tensor.models import shake_shake
-from tensor2tensor.models import slicenet
-from tensor2tensor.models import transformer
-from tensor2tensor.models import transformer_alternative
-from tensor2tensor.models import xception
+from tensor2tensor.data_generators import algorithmic
+from tensor2tensor.data_generators import algorithmic_math
+from tensor2tensor.data_generators import audio
+from tensor2tensor.data_generators import image
+from tensor2tensor.data_generators import lm1b
+from tensor2tensor.data_generators import ptb
+from tensor2tensor.data_generators import snli
+from tensor2tensor.data_generators import wiki
+from tensor2tensor.data_generators import wmt
+from tensor2tensor.data_generators import wsj_parsing
 # pylint: enable=unused-import

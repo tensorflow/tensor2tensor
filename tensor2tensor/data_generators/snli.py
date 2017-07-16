@@ -1,4 +1,4 @@
-# Copyright 2017 Google Inc.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import zipfile
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
 
@@ -139,7 +140,7 @@ def _get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
     return gs
   example_file = os.path.join(tmp_dir, _EXAMPLES_FILE)
   gs = text_encoder.SubwordTextEncoder()
-  token_counts = text_encoder.SubwordTextEncoder.get_token_counts(
+  token_counts = tokenizer.corpus_token_counts(
       example_file, corpus_max_lines=1000000)
   gs = gs.build_to_target_size(
       vocab_size, token_counts, min_val=1, max_val=1e3)
