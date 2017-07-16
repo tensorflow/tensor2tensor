@@ -685,7 +685,7 @@ three separate graphs:
 
 -  The Eval graph, which:
     -  Batches and buckets input data from a set of files/external inputs.
-    -  Includes a the training forward ops, and additional evaluation ops that
+    -  Includes the training forward ops, and additional evaluation ops that
        aren't used for training.
 
 -  The Inference graph, which:
