@@ -27,9 +27,9 @@ import tensorflow as tf
 
 from . import inference
 from . import train
+from .utils import evaluation_utils
 from .utils import misc_utils as utils
 from .utils import vocab_utils
-from .utils import evaluation_utils
 
 utils.check_tensorflow_version()
 
@@ -215,8 +215,8 @@ def ensure_compatible_hparams(hparams):
   return hparams
 
 
-def load_train_hparams(out_dir):
-  """Load training hparams."""
+def create_or_load_hparams(out_dir):
+  """Create hparams or load hparams from out_dir."""
   hparams = utils.load_hparams(out_dir)
 
   if not hparams:
@@ -253,23 +253,21 @@ def main(unused_argv):
 
   ## Train / Decode
   out_dir = FLAGS.out_dir
-  if FLAGS.inference_input_file:
-    # Model dir
-    if FLAGS.model_dir:
-      model_dir = FLAGS.model_dir
-    else:
-      model_dir = out_dir
+  if not tf.gfile.Exists(out_dir): tf.gfile.MakeDirs(out_dir)
 
-    # Load hparams.
-    hparams = inference.load_inference_hparams(
-        model_dir,
-        inference_list=FLAGS.inference_list)
-    hparams = ensure_compatible_hparams(hparams)
-    utils.print_hparams(hparams)
+  # Load hparams.
+  hparams = create_or_load_hparams(out_dir)
+
+  if FLAGS.inference_input_file:
+    # Inference indices
+    hparams.inference_indices = None
+    if FLAGS.inference_list:
+      (hparams.inference_indices) = (
+          [int(token)  for token in FLAGS.inference_list.split(",")])
 
     # Inference
     trans_file = FLAGS.inference_output_file
-    inference.inference(model_dir, FLAGS.inference_input_file,
+    inference.inference(FLAGS.ckpt, FLAGS.inference_input_file,
                         trans_file, hparams, num_workers, jobid)
 
     # Evaluation
@@ -283,11 +281,6 @@ def main(unused_argv):
             hparams.bpe_delimiter)
         utils.print_out("  %s: %.1f" % (metric, score))
   else:
-    if not tf.gfile.Exists(out_dir): tf.gfile.MakeDirs(out_dir)
-
-    # Load hparams.
-    hparams = load_train_hparams(out_dir)
-
     # Train
     train.train(hparams)
 
@@ -448,8 +441,8 @@ if __name__ == "__main__":
 
 
   # Inference
-  parser.add_argument("--model_dir", type=str, default="",
-                      help="To load model for inference.")
+  parser.add_argument("--ckpt", type=str, default="",
+                      help="Checkpoint file to load a model for inference.")
   parser.add_argument("--inference_input_file", type=str, default=None,
                       help="Set to the text to decode.")
   parser.add_argument("--inference_list", type=str, default=None,
@@ -460,7 +453,9 @@ if __name__ == "__main__":
   parser.add_argument("--inference_output_file", type=str, default=None,
                       help="Output file to store decoding results.")
   parser.add_argument("--inference_ref_file", type=str, default=None,
-                      help="To compute evaluation scores if provided.")
+                      help=("""\
+      Reference file to compute evaluation scores (if provided).\
+      """))
   parser.add_argument("--beam_width", type=int, default=0,
                       help=("""\
       beam width when using beam search decoder. If 0 (default), use standard

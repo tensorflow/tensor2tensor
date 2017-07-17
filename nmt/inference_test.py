@@ -23,6 +23,10 @@ import os
 import numpy as np
 import tensorflow as tf
 
+from . import attention_model
+from . import model_helper
+from . import model as nmt_model
+from . import gnmt_model
 from . import inference
 from .utils import common_test_utils
 
@@ -32,6 +36,26 @@ array = np.array
 
 
 class InferenceTest(tf.test.TestCase):
+
+  def _createTestInferCheckpoint(self, hparams, out_dir):
+    if not hparams.attention:
+      model_creator = nmt_model.Model
+    elif hparams.attention_architecture == "standard":
+      model_creator = attention_model.AttentionModel
+    elif hparams.attention_architecture in ["gnmt", "gnmt_v2"]:
+      model_creator = gnmt_model.GNMTModel
+    else:
+      raise ValueError("Unknown model architecture")
+
+    graph, model, _, _, _ = inference.create_infer_model(
+        model_creator, hparams)
+    with self.test_session(graph=graph) as sess:
+      model, global_step = model_helper.create_or_load_model(
+          model, out_dir, sess, "infer_name")
+      ckpt = model.saver.save(
+          sess, os.path.join(out_dir, "translate.ckpt"),
+          global_step=global_step)
+    return ckpt
 
   def testBasicModel(self):
     hparams = common_test_utils.create_test_hparams(
@@ -49,7 +73,8 @@ class InferenceTest(tf.test.TestCase):
     hparams.add_hparam("out_dir", out_dir)
     os.makedirs(out_dir)
     output_infer = os.path.join(out_dir, "output_infer")
-    inference.inference(out_dir, infer_file, output_infer, hparams)
+    ckpt = self._createTestInferCheckpoint(hparams, out_dir)
+    inference.inference(ckpt, infer_file, output_infer, hparams)
     with open(output_infer) as f:
       self.assertEqual(5, len(list(f)))
 
@@ -69,7 +94,8 @@ class InferenceTest(tf.test.TestCase):
     hparams.add_hparam("out_dir", out_dir)
     os.makedirs(out_dir)
     output_infer = os.path.join(out_dir, "output_infer")
-    inference.inference(out_dir, infer_file, output_infer, hparams)
+    ckpt = self._createTestInferCheckpoint(hparams, out_dir)
+    inference.inference(ckpt, infer_file, output_infer, hparams)
     with open(output_infer) as f:
       self.assertEqual(5, len(list(f)))
 
@@ -97,19 +123,17 @@ class InferenceTest(tf.test.TestCase):
     # cases.
     hparams.batch_size = 3
 
-    with tf.variable_scope("job_1"):
-      inference.inference(
-          out_dir, infer_file, output_infer, hparams, num_workers, jobid=1)
+    ckpt = self._createTestInferCheckpoint(hparams, out_dir)
+    inference.inference(
+        ckpt, infer_file, output_infer, hparams, num_workers, jobid=1)
 
-    with tf.variable_scope("job_2"):
-      inference.inference(
-          out_dir, infer_file, output_infer, hparams, num_workers, jobid=2)
+    inference.inference(
+        ckpt, infer_file, output_infer, hparams, num_workers, jobid=2)
 
     # Note: Need to start job 0 at the end; otherwise, it will block the testing
     # thread.
-    with tf.variable_scope("job_0"):
-      inference.inference(
-          out_dir, infer_file, output_infer, hparams, num_workers, jobid=0)
+    inference.inference(
+        ckpt, infer_file, output_infer, hparams, num_workers, jobid=0)
 
     with open(output_infer) as f:
       self.assertEqual(5, len(list(f)))
@@ -131,7 +155,8 @@ class InferenceTest(tf.test.TestCase):
     hparams.add_hparam("out_dir", out_dir)
     os.makedirs(out_dir)
     output_infer = os.path.join(out_dir, "output_infer")
-    inference.inference(out_dir, infer_file, output_infer, hparams)
+    ckpt = self._createTestInferCheckpoint(hparams, out_dir)
+    inference.inference(ckpt, infer_file, output_infer, hparams)
     with open(output_infer) as f:
       self.assertEqual(1, len(list(f)))
 
@@ -155,7 +180,8 @@ class InferenceTest(tf.test.TestCase):
     hparams.add_hparam("out_dir", out_dir)
     os.makedirs(out_dir)
     output_infer = os.path.join(out_dir, "output_infer")
-    inference.inference(out_dir, infer_file, output_infer, hparams)
+    ckpt = self._createTestInferCheckpoint(hparams, out_dir)
+    inference.inference(ckpt, infer_file, output_infer, hparams)
     with open(output_infer) as f:
       self.assertEqual(2, len(list(f)))
     self.assertTrue(os.path.exists(output_infer+str(1)+".png"))

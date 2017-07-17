@@ -76,28 +76,6 @@ def create_infer_model(
           infer_batch_size_placeholder, infer_iterator)
 
 
-def load_inference_hparams(model_dir, inference_list=None):
-  """Load hparams for inference.
-
-  Args:
-    model_dir: directory of trained model.
-    inference_list: optional, comma-separated list of sentence ids.
-
-  Returns:
-    hparams: A tf.HParams() used for inference.
-  """
-  hparams = utils.load_hparams(model_dir)
-  assert hparams
-
-  # Inference indices
-  hparams.inference_indices = None
-  if inference_list:
-    (hparams.inference_indices) = (
-        [int(token)  for token in inference_list.split(",")])
-
-  return hparams
-
-
 def _decode_inference_indices(model, sess, output_infer,
                               output_infer_summary_prefix,
                               inference_indices,
@@ -146,7 +124,7 @@ def load_data(inference_input_file, hparams=None):
   return inference_data
 
 
-def inference(model_dir,
+def inference(ckpt,
               inference_input_file,
               inference_output_file,
               hparams,
@@ -169,7 +147,7 @@ def inference(model_dir,
   if num_workers == 1:
     _single_worker_inference(
         model_creator,
-        model_dir,
+        ckpt,
         inference_input_file,
         inference_output_file,
         hparams,
@@ -177,7 +155,7 @@ def inference(model_dir,
   else:
     _multi_worker_inference(
         model_creator,
-        model_dir,
+        ckpt,
         inference_input_file,
         inference_output_file,
         hparams,
@@ -187,7 +165,7 @@ def inference(model_dir,
 
 
 def _single_worker_inference(model_creator,
-                             model_dir,
+                             ckpt,
                              inference_input_file,
                              inference_output_file,
                              hparams,
@@ -202,8 +180,7 @@ def _single_worker_inference(model_creator,
    infer_batch_size_placeholder, infer_iterator) = (create_infer_model(
        model_creator, hparams, scope))
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
-    model_helper.create_or_load_model(
-        infer_model, model_dir, sess, hparams.out_dir, "infer")
+    model_helper.load_model(infer_model, ckpt, sess, "infer")
     sess.run(
         infer_iterator.initializer,
         feed_dict={
@@ -235,7 +212,7 @@ def _single_worker_inference(model_creator,
 
 
 def _multi_worker_inference(model_creator,
-                            model_dir,
+                            ckpt,
                             inference_input_file,
                             inference_output_file,
                             hparams,
@@ -264,8 +241,7 @@ def _multi_worker_inference(model_creator,
        model_creator, hparams, scope))
 
   with tf.Session(graph=infer_graph, config=utils.get_config_proto()) as sess:
-    model_helper.create_or_load_model(
-        infer_model, model_dir, sess, hparams.out_dir, "infer")
+    model_helper.load_model(infer_model, ckpt, sess, "infer")
     sess.run(infer_iterator.initializer,
              {
                  infer_src_placeholder: infer_data,

@@ -209,7 +209,7 @@ def train(hparams, scope=None, target_session=""):
 
   with train_graph.as_default():
     train_model, global_step = model_helper.create_or_load_model(
-        train_model, model_dir, train_sess, hparams.out_dir, "train")
+        train_model, model_dir, train_sess, "train")
 
   # Summary writer
   summary_writer = tf.summary.FileWriter(
@@ -220,7 +220,7 @@ def train(hparams, scope=None, target_session=""):
     """Compute internal evaluation for both dev / test."""
     with infer_graph.as_default():
       loaded_infer_model, global_step = model_helper.create_or_load_model(
-          infer_model, model_dir, infer_sess, hparams.out_dir, "infer")
+          infer_model, model_dir, infer_sess, "infer")
 
     _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
                    infer_iterator, dev_src_data, dev_tgt_data,
@@ -229,7 +229,7 @@ def train(hparams, scope=None, target_session=""):
 
     with eval_graph.as_default():
       loaded_eval_model, global_step = model_helper.create_or_load_model(
-          eval_model, model_dir, eval_sess, hparams.out_dir, "eval")
+          eval_model, model_dir, eval_sess, "eval")
 
     dev_ppl = _internal_eval(loaded_eval_model, global_step, eval_sess,
                              eval_iterator, dev_eval_iterator_feed_dict,
@@ -246,7 +246,7 @@ def train(hparams, scope=None, target_session=""):
     """Compute external evaluation for both dev / test."""
     with infer_graph.as_default():
       loaded_infer_model, global_step = model_helper.create_or_load_model(
-          infer_model, model_dir, infer_sess, hparams.out_dir, "infer")
+          infer_model, model_dir, infer_sess, "infer")
 
     _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
                    infer_iterator, dev_src_data, dev_tgt_data,

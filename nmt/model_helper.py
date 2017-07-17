@@ -11,8 +11,7 @@ from .utils import misc_utils as utils
 
 __all__ = [
     "get_device_str", "create_emb_for_encoder_and_decoder", "create_rnn_cell",
-    "count_embeddings", "gradient_clip", "create_or_load_model",
-    "compute_perplexity"
+    "gradient_clip", "create_or_load_model", "load_model", "compute_perplexity"
 ]
 
 
@@ -177,19 +176,6 @@ def create_rnn_cell(unit_type, num_units, num_layers, num_residual_layers,
     return tf.contrib.rnn.MultiRNNCell(cell_list)
 
 
-def count_embeddings(embs, grads):
-  """Returns the number of embedding lookups."""
-  assert len(embs) > 1
-  assert len(embs) == len(grads)
-  num_ids = []
-  for var, grad in zip(embs, grads):
-    assert grad is not None, ("No grad found for ", var.name)
-    with tf.device(grad.device):
-      assert isinstance(grad, tf.IndexedSlices)
-      num_ids.append(tf.shape(grad.indices)[0])
-  return tf.cast(tf.add_n(num_ids), embs[0].dtype)
-
-
 def gradient_clip(gradients, params, max_gradient_norm):
   """Clipping gradients of a model."""
   clipped_gradients, gradient_norm = tf.clip_by_global_norm(
@@ -201,21 +187,27 @@ def gradient_clip(gradients, params, max_gradient_norm):
   return clipped_gradients, gradient_norm_summary
 
 
-def create_or_load_model(model, model_dir, session, out_dir, name):
-  """Create translation model and initialize or load parameters in session."""
+def load_model(model, ckpt, session, name):
   start_time = time.time()
+  model.saver.restore(session, ckpt)
+  session.run(tf.tables_initializer())
+  utils.print_out(
+      "  loaded %s model parameters from %s, time %.2fs" %
+      (name, ckpt, time.time() - start_time))
+  return model
+
+
+def create_or_load_model(model, model_dir, session, name):
+  """Create translation model and initialize or load parameters in session."""
   latest_ckpt = tf.train.latest_checkpoint(model_dir)
   if latest_ckpt:
-    model.saver.restore(session, latest_ckpt)
-    utils.print_out(
-        "  loaded %s model parameters from %s, time %.2fs" %
-        (name, latest_ckpt, time.time() - start_time))
+    model = load_model(model, latest_ckpt, session, name)
   else:
-    utils.print_out("  created %s model with fresh parameters, time %.2fs." %
-                    (name, time.time() - start_time))
+    start_time = time.time()
     session.run(tf.global_variables_initializer())
-
-  session.run(tf.tables_initializer())
+    session.run(tf.tables_initializer())
+    utils.print_out("  created %s model with fresh parameters, time %.2fs" %
+                    (name, time.time() - start_time))
 
   global_step = model.global_step.eval(session=session)
   return model, global_step

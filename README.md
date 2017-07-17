@@ -75,7 +75,7 @@ how to build and train a vanilla NMT model. The second part will go into details
 of building a competitive NMT model with attention mechanism. We then discuss
 tips and tricks to build the best possible NMT models (both in speed and
 translation quality) such as TensorFlow best practices (batching, bucketing),
-bidirectional RNNs, and beam search.
+bidirectional RNNs, beam search, as well as scaling up to multiple GPUs using GNMT attention.
 
 # Basic
 
@@ -1069,8 +1069,9 @@ cell = GNMTAttentionMultiCell(attention_cell, cells)
 
 ## IWSLT English-Vietnamese
 
-Train: 133K examples, dev=tst2012, test=tst2013,
-[download script](nmt/scripts/download_iwslt15.sh).
+Train: 133K examples, vocab=vocab.(vi|en), train=train.(vi|en)
+dev=tst2012.(vi|en),
+test=tst2013.(vi|en), [download script](nmt/scripts/download_iwslt15.sh).
 
 ***Training details***. We train 2-layer LSTMs of 512 units with bidirectional
 encoder (i.e., 1 bidirectional layers for the encoder), embedding dim
@@ -1098,7 +1099,9 @@ Here, step-time means the time taken to run one mini-batch (of size 128). For wp
 
 ## WMT German-English
 
-Train: 4.5M examples, dev=newstest2013, test=newstest2015\
+Train: 4.5M examples, vocab=vocab.bpe.32000.(de|en),
+train=train.tok.clean.bpe.32000.(de|en), dev=newstest2013.tok.bpe.32000.(de|en),
+test=newstest2015.tok.bpe.32000.(de|en),
 [download script](nmt/scripts/wmt16_en_de.sh)
 
 ***Training details***. Our training hyperparameters are similar to the
@@ -1156,6 +1159,50 @@ GNMT [(Wu et al., 2016)](https://research.google.com/pubs/pub45610.html) | **24.
 The above results show our models are very competitive among models of similar architectures.\
 [Note that OpenNMT uses smaller models and the current best result (as of this writing) is 28.4 obtained by the Transformer network [(Vaswani et al., 2017)](https://arxiv.org/abs/1706.03762) which has a significantly different architecture.]
 
+
+## Standard HParams
+
+We have provided
+[a set of standard hparams](nmt/standard_hparams/) 
+for using pre-trained checkpoint for inference or training NMT architectures
+used in the Benchmark.
+
+We will use the WMT16 German-English data, you can download the data by the
+following command.
+
+```
+nmt/scripts/wmt16_en_de.sh /tmp/wmt16
+```
+
+Here is an example command for loading the pre-trained GNMT WMT German-English
+checkpoint for inference.
+
+```
+python -m nmt.nmt \
+    --src=de --tgt=en \
+    --ckpt=/path/to/checkpoint/translate.ckpt-275000 \
+    --hparams_path=nmt/standard_hparams/wmt16_gnmt_4_layer.json \
+    --out_dir=/tmp/deen_gnmt \
+    --vocab_prefix=/tmp/wmt16/vocab.bpe.32000 \
+    --inference_input_file=/tmp/wmt16/newstest2014.tok.bpe.32000.de \
+    --inference_output_file=/tmp/deen_gnmt/output_infer \
+    --inference_ref_file=/tmp/wmt16/newstest2014.tok.bpe.32000.en
+```
+
+Here is an example command for training the GNMT WMT German-English model.
+
+```
+python -m nmt.nmt \
+    --src=de --tgt=en \
+    --hparams_path=nmt/standard_hparams/wmt16_gnmt_4_layer.json \
+    --out_dir=/tmp/deen_gnmt \
+    --vocab_prefix=/tmp/wmt16/vocab.bpe.32000 \
+    --train_prefix=/tmp/wmt16/train.tok.clean.bpe.32000 \
+    --dev_prefix=/tmp/wmt16/newstest2013.tok.bpe.32000 \
+    --test_prefix=/tmp/wmt16/newstest2015.tok.bpe.32000
+```
+
+
 # Other resources
 
 For deeper reading on Neural Machine Translation and sequence-to-sequence
@@ -1176,7 +1223,10 @@ tf-seq2seq
 Nemantus
 [https://github.com/rsennrich/nematus](https://github.com/rsennrich/nematus)
 *[Theano]* \
-OpenNMT [http://opennmt.net/](http://opennmt.net/) *[Torch]*
+OpenNMT [http://opennmt.net/](http://opennmt.net/) *[Torch]*\
+OpenNMT-py [https://github.com/OpenNMT/OpenNMT-py](https://github.com/OpenNMT/OpenNMT-py) *[PyTorch]*
+
+
 
 # Acknowledgment
 We would like to thank Denny Britz, Anna Goldie, Derek Murray, and Cinjon Resnick for their work bringing new features to TensorFlow and the seq2seq library. Additional thanks go to Lukasz Kaiser for the initial help on the seq2seq codebase; Quoc Le for the suggestion to replicate GNMT; Yonghui Wu and Zhifeng Chen for details on the GNMT systems; as well as the Google Brain team for their support and feedback!
