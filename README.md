@@ -31,6 +31,7 @@
    - [IWSLT English-Vietnamese](#iwslt-english-vietnamese)
    - [WMT German-English](#wmt-german-english)
    - [WMT English-German &mdash; *Full Comparison*](#wmt-english-german--full-comparison)
+   - [Standard HParams](#standard-hparams)
 - [Other resources](#other-resources)
 - [Acknowledgment](#acknowledgment)
 - [References](#references)
@@ -665,7 +666,7 @@ inference:
 
 ``` shell
 python -m nmt.nmt \
-    --model_dir=/tmp/nmt_attention_model \
+    --out_dir=/tmp/nmt_attention_model \
     --inference_input_file=/tmp/my_infer_file.vi \
     --inference_output_file=/tmp/nmt_attention_model/output_infer
 ```
@@ -1084,8 +1085,8 @@ rate every 1K step.
 TODO(rzhao): add URL for English-Vietnamese trained model.
 
 Below are the averaged results of 2 models
-([model 1](LINK),
-[model 2](LINK)).\
+([model 1](https://download.tensorflow.org/models/nmt/envi_model_1.zip),
+[model 2](https://download.tensorflow.org/models/nmt/envi_model_2.zip)).\
 We measure the translation quality in terms of BLEU scores [(Papineni et al., 2002)](http://www.aclweb.org/anthology/P02-1040.pdf).
 
 Systems | tst2012 (dev) | test2013 (test)
@@ -1116,9 +1117,11 @@ halving learning rate every 17K step.
 TODO(rzhao): add URL for German-English trained model.
 
 The first 2 rows are the averaged results of 2 models
-([model 1](LINK),
-[model 2](LINK)).
-Results in the third row is with GNMT attention ([model] (LINK)) ran on 4 GPUs.
+([model 1](https://download.tensorflow.org/models/nmt/deen_model_1.zip),
+[model 2](https://download.tensorflow.org/models/nmt/deen_model_2.zip)).
+Results in the third row is with GNMT attention
+([model](https://download.tensorflow.org/models/nmt/deen_gnmt_model_4_layer.zip))
+; trained with 4 GPUs.
 
 Systems | newstest2013 (dev) | newstest2015
 --- | :---: | :---:
@@ -1144,8 +1147,10 @@ These results show that without GNMT attention, the gains from using multiple gp
 With GNMT attention, we obtain from 50%-100% speed-ups with multiple gpus.
 
 ## WMT English-German &mdash; Full Comparison
-The first 2 rows are our models with GNMT attention: [model 1 (4 layers)](LINK),
-[model 2 (8 layers)](LINK).
+The first 2 rows are our models with GNMT
+attention:
+[model 1 (4 layers)](https://download.tensorflow.org/models/nmt/ende_gnmt_model_4_layer.zip),
+[model 2 (8 layers)](https://download.tensorflow.org/models/nmt/ende_gnmt_model_8_layer.zip).
 
 Systems | newstest2014 | newstest2015
 --- | :---: | :---:
@@ -1163,7 +1168,7 @@ The above results show our models are very competitive among models of similar a
 ## Standard HParams
 
 We have provided
-[a set of standard hparams](nmt/standard_hparams/) 
+[a set of standard hparams](nmt/standard_hparams/)
 for using pre-trained checkpoint for inference or training NMT architectures
 used in the Benchmark.
 
@@ -1180,7 +1185,7 @@ checkpoint for inference.
 ```
 python -m nmt.nmt \
     --src=de --tgt=en \
-    --ckpt=/path/to/checkpoint/translate.ckpt-275000 \
+    --ckpt=/path/to/checkpoint/translate.ckpt \
     --hparams_path=nmt/standard_hparams/wmt16_gnmt_4_layer.json \
     --out_dir=/tmp/deen_gnmt \
     --vocab_prefix=/tmp/wmt16/vocab.bpe.32000 \

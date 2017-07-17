@@ -267,7 +267,10 @@ def main(unused_argv):
 
     # Inference
     trans_file = FLAGS.inference_output_file
-    inference.inference(FLAGS.ckpt, FLAGS.inference_input_file,
+    ckpt = FLAGS.ckpt
+    if not ckpt:
+      ckpt = tf.train.latest_checkpoint(out_dir)
+    inference.inference(ckpt, FLAGS.inference_input_file,
                         trans_file, hparams, num_workers, jobid)
 
     # Evaluation
