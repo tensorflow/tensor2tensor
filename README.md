@@ -153,7 +153,7 @@ python -c "from tensor2tensor.models.transformer import Transformer"
   specification.
 * Support for multi-GPU machines and synchronous (1 master, many workers) and
   asynchrounous (independent workers synchronizing through a parameter server)
-  [distributed training](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/docs/distributed_training.md).
+  [distributed training](https://github.com/tensorflow/tensor2tensor/tree/master/docs/distributed_training.md).
 * Easily swap amongst datasets and models by command-line flag with the data
   generation script `t2t-datagen` and the training script `t2t-trainer`.
 
@@ -213,7 +213,7 @@ inference. Users can easily switch between problems, models, and hyperparameter
 sets by using the `--model`, `--problems`, and `--hparams_set` flags. Specific
 hyperparameters can be overridden with the `--hparams` flag. `--schedule` and
 related flags control local and distributed training/evaluation
-([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/docs/distributed_training.md)).
+([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/docs/distributed_training.md)).
 
 ---
 
