@@ -244,11 +244,6 @@ _DATA_FILE_URLS = [
         "http://www.statmt.org/wmt13/training-parallel-un.tgz",
         ["un/undoc.2000.fr-en.en", "un/undoc.2000.fr-en.fr"]
     ],
-    # Macedonian-English
-    [
-        "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.train.tgz",  # pylint: disable=line-too-long
-        ["train.mk", "train.en"]
-    ],
 ]
 
 
@@ -329,7 +324,6 @@ def get_or_generate_tabbed_vocab(tmp_dir, source_filename,
     return vocab
 
   # Use Tokenizer to count the word occurrences.
-  token_counts = defaultdict(int)
   filepath = os.path.join(tmp_dir, source_filename)
   with tf.gfile.GFile(filepath, mode="r") as source_file:
     for line in source_file:
@@ -337,11 +331,11 @@ def get_or_generate_tabbed_vocab(tmp_dir, source_filename,
       if line and "\t" in line:
         parts = line.split("\t", maxsplit=1)
         part = parts[index].strip()
-        for tok in tokenizer.encode(text_encoder.native_to_unicode(part)):
-          token_counts[tok] += 1
+        _ = tokenizer.encode(text_encoder.native_to_unicode(part))
 
   vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
-      vocab_size, token_counts, 1, 1e3)
+      vocab_size, tokenizer.token_counts, 1,
+      min(1e3, vocab_size + text_encoder.NUM_RESERVED_TOKENS))
   vocab.store_to_file(vocab_filepath)
   return vocab
 

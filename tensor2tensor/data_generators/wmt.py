@@ -49,10 +49,10 @@ class WMTEnDeTokens8k(problem.Problem):
   def feature_encoders(self, data_dir):
     return _default_wmt_feature_encoders(data_dir, self.target_vocab_size)
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=100):
+  def generate_data(self, data_dir, tmp_dir):
     generator_utils.generate_dataset_and_shuffle(
         ende_wordpiece_token_generator(tmp_dir, True, self.target_vocab_size),
-        self.training_filepaths(data_dir, num_shards, shuffled=False),
+        self.training_filepaths(data_dir, 100, shuffled=False),
         ende_wordpiece_token_generator(tmp_dir, False, self.target_vocab_size),
         self.dev_filepaths(data_dir, 1, shuffled=False))
 
@@ -81,31 +81,6 @@ def _default_wmt_feature_encoders(data_dir, target_vocab_size):
       "targets": subtokenizer,
   }
 
-@registry.register_problem("setimes_mken_tokens_32k")
-class SETimesMkEnTokens32k(problem.Problem):
-  """Problem spec for SETimes Mk-En translation."""
-
-  @property
-  def target_vocab_size(self):
-    return 2**15  # 32768
-
-  def feature_encoders(self, data_dir):
-    return _default_wmt_feature_encoders(data_dir, self.target_vocab_size)
-
-  def generate_data(self, data_dir, tmp_dir, num_shards=100):
-    generator_utils.generate_dataset_and_shuffle(
-        mken_wordpiece_token_generator(tmp_dir, True, self.target_vocab_size),
-        self.training_filepaths(data_dir, num_shards, shuffled=False),
-        mken_wordpiece_token_generator(tmp_dir, False, self.target_vocab_size),
-        self.dev_filepaths(data_dir, 1, shuffled=False))
-
-  def hparams(self, defaults, unused_model_hparams):
-    p = defaults
-    vocab_size = self._encoders["inputs"].vocab_size
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
-    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
-    p.input_space_id = problem.SpaceID.MK_TOK
-    p.target_space_id = problem.SpaceID.EN_TOK
 
 # End-of-sentence marker.
 EOS = text_encoder.EOS_TOKEN
@@ -320,21 +295,6 @@ _ZHEN_TEST_DATASETS = [[
     ("dev/newsdev2017-zhen-src.zh", "dev/newsdev2017-zhen-ref.en")
 ]]
 
-# For Macedonian-English the SETimes corpus
-# from http://nlp.ffzg.hr/resources/corpora/setimes/ is used.
-# The original dataset has 207,777 parallel sentences.
-# For training the first 205,777 sentences are used.
-_MKEN_TRAIN_DATASETS = [[
-    "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.train.tgz",  # pylint: disable=line-too-long
-    ("train.mk", "train.en")
-]]
-
-# For development 1000 parallel sentences are used.
-_MKEN_TEST_DATASETS = [[
-    "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.dev.tgz",  # pylint: disable=line-too-long
-    ("dev.mk", "dev.en")
-]]
-
 
 def _compile_data(tmp_dir, datasets, filename):
   """Concatenate all `datasets` and save to `filename`."""
@@ -432,19 +392,6 @@ def enfr_character_generator(tmp_dir, train):
   data_path = _compile_data(tmp_dir, datasets, "wmt_enfr_chr_%s" % tag)
   return character_generator(data_path + ".lang1", data_path + ".lang2",
                              character_vocab, EOS)
-
-def mken_wordpiece_token_generator(tmp_dir, train, vocab_size):
-  """Wordpiece generator for the SETimes Mk-En dataset."""
-  datasets = _MKEN_TRAIN_DATASETS if train else _MKEN_TEST_DATASETS
-  source_datasets = [[item[0], [item[1][0]]] for item in datasets]
-  target_datasets = [[item[0], [item[1][1]]] for item in datasets]
-  symbolizer_vocab = generator_utils.get_or_generate_vocab(
-      tmp_dir, "tokens.vocab.%d" % vocab_size, vocab_size,
-      source_datasets + target_datasets)
-  tag = "train" if train else "dev"
-  data_path = _compile_data(tmp_dir, datasets, "setimes_mken_tok_%s" % tag)
-  return token_generator(data_path + ".lang1", data_path + ".lang2",
-                         symbolizer_vocab, EOS)
 
 
 def parsing_character_generator(tmp_dir, train):
