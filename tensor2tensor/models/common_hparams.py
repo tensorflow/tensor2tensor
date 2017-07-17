@@ -72,6 +72,9 @@ def basic_params1():
       # setting the max length in a minibatch. 0 means default behavior,
       # max_length = hparams.batch_size * length_multiplier
       max_length=0,
+      # If set to True, drop sequences longer than max_length during eval.
+      # This affects the validity of the evaluation metrics.
+      eval_drop_long_sequences=int(False),
       # in SymbolModality, share the output embeddings and the softmax
       # variables.
       # You can also share the input embeddings with the output embeddings

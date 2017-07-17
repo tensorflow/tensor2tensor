@@ -280,13 +280,13 @@ def attention_image_summary(attn, image_shapes=None):
         (query_rows, query_cols, query_channels,
          memory_rows, memory_cols, memory_channels).
   """
-  num_heads = attn.get_shape().as_list()[1]
+  num_heads = tf.shape(attn)[1]
   # [batch, query_length, memory_length, num_heads]
   image = tf.transpose(attn, [0, 2, 3, 1])
   image = tf.pow(image, 0.2)  # for high-dynamic-range
   # Each head will correspond to one of RGB.
   # pad the heads to be a multiple of 3
-  image = tf.pad(image, [[0, 0], [0, 0], [0, 0], [0, -num_heads % 3]])
+  image = tf.pad(image, [[0, 0], [0, 0], [0, 0], [0, tf.mod(-num_heads, 3)]])
   image = split_last_dimension(image, 3)
   image = tf.reduce_max(image, 4)
   if image_shapes is not None:
@@ -345,6 +345,95 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
+def masked_local_attention_1d(
+    q, k, v, block_length=128, summaries=True, name=None):
+  """Attention to the source position and a neigborhood to the left of it.
+
+  The sequence is divided into blocks of length block_size.
+  Attention for a given query position can only see memory positions
+  less than or equal to the query position, in the corresponding block
+  and the previous block.
+
+  If mask_right is True, then a target position cannot see greater source
+  positions.
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth_k]
+    k: a Tensor with shape [batch, heads, length, depth_k]
+    v: a Tensor with shape [batch, heads, length, depth_v]
+    block_length: an integer
+    summaries: a boolean
+    name: an optional string
+
+  Returns:
+    a Tensor of shape [batch, heads, length, depth_v]
+  """
+  with tf.variable_scope(name, default_name="local_attention_1d",
+                         values=[q, k, v]):
+    v_shape = v.get_shape()
+    batch = tf.shape(q)[0]
+    heads = tf.shape(q)[1]
+    length = tf.shape(q)[2]
+    # If (length < 2 * block_length), then we use only one block.
+    block_length = tf.where(tf.less(length, block_length * 2),
+                            length, block_length)
+    depth_k = tf.shape(q)[3]
+    depth_v = tf.shape(v)[3]
+    original_length = length
+    padding_size = tf.mod(-length, block_length)
+    length += padding_size
+    padding = [[0, 0], [0, 0], [0, padding_size], [0, 0]]
+    q = tf.pad(q, padding)
+    k = tf.pad(k, padding)
+    v = tf.pad(v, padding)
+    num_blocks = tf.div(length, block_length)
+
+    # compute attention for the first query block.
+    first_q = tf.slice(q, [0, 0, 0, 0], [-1, -1, block_length, -1])
+    first_k = tf.slice(k, [0, 0, 0, 0], [-1, -1, block_length, -1])
+    first_v = tf.slice(v, [0, 0, 0, 0], [-1, -1, block_length, -1])
+    first_output = dot_product_attention(
+        first_q, first_k, first_v, attention_bias_lower_triangle(block_length),
+        summaries=summaries, name="fist_block")
+
+    # compute attention for all subsequent query blocks.
+    q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
+    k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
+    v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
+
+    def local(x):
+      """Create a local version of the keys or values."""
+      prev_block = tf.slice(
+          x, [0, 0, 0, 0, 0], [-1, -1, num_blocks - 1, -1, -1])
+      cur_block = tf.slice(
+          x, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
+      return tf.concat([prev_block, cur_block], 3)
+    local_k = local(k)
+    local_v = local(v)
+    tail_q = tf.slice(q, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
+
+    local_length = tf.shape(local_k)[3]
+
+    # [batch, heads, num_blocks - 1, block_length, local_length]
+    attention = tf.matmul(tail_q, local_k, transpose_b=True)
+
+    # make sure source_pos <= target_pos
+    good_part = tf.matrix_band_part(
+        tf.ones([block_length, local_length]), -1, tf.to_int64(block_length))
+    mask = (1.0 - good_part) * -1e9
+    attention += tf.reshape(mask, [1, 1, 1, block_length, local_length])
+    attention = tf.nn.softmax(attention)
+    # TODO(noam): figure out how to show a summary for the remaining blocks.
+    # The naive way currently causes errors due to empty tensors.
+    # output: [batch, heads, num_blocks-1, block_length, depth_v]
+    output = tf.matmul(attention, local_v)
+    output = tf.reshape(output, [batch, heads, -1, depth_v])
+    output = tf.concat([first_output, output], axis=2)
+    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
+    output.set_shape(v_shape)
+    return output
+
+
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,
@@ -355,6 +444,8 @@ def multihead_attention(query_antecedent,
                         dropout_rate,
                         summaries=False,
                         image_shapes=None,
+                        attention_type="dot_product",
+                        block_length=128,
                         name=None):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -370,6 +461,8 @@ def multihead_attention(query_antecedent,
     summaries: a boolean
     image_shapes: optional tuple of integer scalars.
       see comments for attention_image_summary()
+    attention_type: a string, either "dot_product" or "local_mask_right"
+    block_length: an integer - relevent for "local_mask_right"
     name: an optional string
 
   Returns:
@@ -414,8 +507,14 @@ def multihead_attention(query_antecedent,
     v = split_heads(v, num_heads)
     key_depth_per_head = total_key_depth // num_heads
     q *= key_depth_per_head**-0.5
-    x = dot_product_attention(
-        q, k, v, bias, dropout_rate, summaries, image_shapes)
+    if attention_type == "dot_product":
+      x = dot_product_attention(
+          q, k, v, bias, dropout_rate, summaries, image_shapes)
+    else:
+      assert attention_type == "local_mask_right"
+      x = masked_local_attention_1d(q, k, v,
+                                    block_length=block_length,
+                                    summaries=summaries)
     x = combine_heads(x)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
     return x

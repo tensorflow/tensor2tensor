@@ -26,6 +26,7 @@ from tensor2tensor.models import attention_lm
 from tensor2tensor.models import attention_lm_moe
 from tensor2tensor.models import bluenet
 from tensor2tensor.models import bytenet
+from tensor2tensor.models import long_answer
 from tensor2tensor.models import lstm
 from tensor2tensor.models import modalities
 from tensor2tensor.models import multimodel

@@ -1034,7 +1034,10 @@ def get_input_fn(mode,
             capacity *= num_datashards
             examples = data_reader.input_pipeline(data_file_patterns[n],
                                                   capacity, mode)
-            drop_long_sequences = mode == tf.contrib.learn.ModeKeys.TRAIN
+            if mode == tf.contrib.learn.ModeKeys.TRAIN:
+              drop_long_sequences = True
+            else:
+              drop_long_sequences = hparams.eval_drop_long_sequences
             batch_size_multiplier = hparams.problems[n].batch_size_multiplier
             feature_map = data_reader.batch_examples(
                 examples,

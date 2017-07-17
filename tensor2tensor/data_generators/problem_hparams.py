@@ -351,10 +351,9 @@ def wiki_32k(model_hparams):
   p = default_problem_hparams()
   encoder = text_encoder.SubwordTextEncoder(
       os.path.join(model_hparams.data_dir, "wiki_32k.subword_text_encoder"))
-  p.input_modality = {
-      "inputs": (registry.Modalities.SYMBOL, encoder.vocab_size)
-  }
-  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
+  modality_spec = (registry.Modalities.SYMBOL, encoder.vocab_size)
+  p.input_modality = {"inputs": modality_spec}
+  p.target_modality = modality_spec
   p.vocabulary = {
       "inputs": encoder,
       "targets": encoder
