@@ -29,12 +29,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import importlib
-import os
-import sys
-
 # Dependency imports
 
+from tensor2tensor.utils import registry_utils
 from tensor2tensor.utils import trainer_utils as utils
 
 import tensorflow as tf
@@ -50,24 +47,9 @@ flags.DEFINE_string("t2t_usr_dir", "",
                     "available to the t2t-trainer.")
 
 
-def import_usr_dir():
-  """Import module at FLAGS.t2t_usr_dir, if provided."""
-  if not FLAGS.t2t_usr_dir:
-    return
-  dir_path = os.path.expanduser(FLAGS.t2t_usr_dir)
-  if dir_path[-1] == "/":
-    dir_path = dir_path[:-1]
-  containing_dir, module_name = os.path.split(dir_path)
-  tf.logging.info("Importing user module %s from path %s", module_name,
-                  containing_dir)
-  sys.path.insert(0, containing_dir)
-  importlib.import_module(module_name)
-  sys.path.pop(0)
-
-
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-  import_usr_dir()
+  registry_utils.import_usr_dir(FLAGS.t2t_usr_dir)
   utils.log_registry()
   utils.validate_flags()
   utils.run(

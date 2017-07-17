@@ -48,6 +48,7 @@ from tensor2tensor.data_generators import wiki
 from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import wsj_parsing
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import registry_utils
 
 import tensorflow as tf
 
@@ -63,6 +64,12 @@ flags.DEFINE_integer("num_shards", 10, "How many shards to use.")
 flags.DEFINE_integer("max_cases", 0,
                      "Maximum number of cases to generate (unbounded if 0).")
 flags.DEFINE_integer("random_seed", 429459, "Random seed to use.")
+flags.DEFINE_string("t2t_usr_dir", "",
+                    "Path to a Python module that will be imported. The "
+                    "__init__.py file should include the necessary imports. "
+                    "The imported files should contain registrations, "
+                    "e.g. @registry.register_problem calls, that will then be "
+                    "available to t2t-datagen.")
 
 # Mapping from problems that we can generate data for to their generators.
 # pylint: disable=g-long-lambda
@@ -273,6 +280,7 @@ def set_random_seed():
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
+  registry_utils.import_usr_dir(FLAGS.t2t_usr_dir)
 
   # Calculate the list of problems to generate.
   problems = sorted(
