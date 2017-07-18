@@ -164,7 +164,8 @@ class MultiModel(t2t_model.T2TModel):
                    x,
                    hparams.filter_size,
                    hparams.hidden_size,
-                   dropout=hparams.dropout)
+                   dropout=hparams.dropout,
+                   summaries=False)
           x = dp(residual_fn2, x, y, hparams)
 
     x = dp(tf.expand_dims, x, 2)

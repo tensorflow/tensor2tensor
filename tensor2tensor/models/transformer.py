@@ -60,8 +60,6 @@ class Transformer(t2t_model.T2TModel):
       return common_layers.layer_norm(x + tf.nn.dropout(
           y, 1.0 - hparams.residual_dropout))
 
-    # encoder_input = tf.squeeze(encoder_input, 2)
-    # decoder_input = tf.squeeze(decoder_input, 2)
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
     decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
     encoder_output = transformer_encoder(encoder_input, residual_fn,
@@ -146,7 +144,7 @@ def transformer_encoder(encoder_input,
   """
   x = encoder_input
   # Summaries don't work in multi-problem setting yet.
-  summaries = "problems" not in hparams.values() or len(hparams.problems) == 1
+  summaries = len(hparams.problems) < 2
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -192,7 +190,7 @@ def transformer_decoder(decoder_input,
   """
   x = decoder_input
   # Summaries don't work in multi-problem setting yet.
-  summaries = "problems" not in hparams.values() or len(hparams.problems) == 1
+  summaries = len(hparams.problems) < 2
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -236,12 +234,15 @@ def transformer_ffn_layer(x, hparams):
   Returns:
     a Tensor of shape [batch_size, length, hparams.hidden_size]
   """
+  # Summaries don't work in multi-problem setting yet.
+  summaries = len(hparams.problems) < 2
   if hparams.ffn_layer == "conv_hidden_relu":
     return common_layers.conv_hidden_relu(
         x,
         hparams.filter_size,
         hparams.hidden_size,
-        dropout=hparams.relu_dropout)
+        dropout=hparams.relu_dropout,
+        summaries=summaries)
   elif hparams.ffn_layer == "parameter_attention":
     return common_attention.parameter_attention(
         x,
@@ -259,7 +260,8 @@ def transformer_ffn_layer(x, hparams):
         kernel_size=(3, 1),
         second_kernel_size=(31, 1),
         padding="LEFT",
-        dropout=hparams.relu_dropout)
+        dropout=hparams.relu_dropout,
+        summaries=summaries)
   else:
     assert hparams.ffn_layer == "none"
     return x

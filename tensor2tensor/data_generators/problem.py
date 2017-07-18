@@ -67,6 +67,8 @@ class SpaceID(object):
   ICE_TOK = 18
   # Icelandic parse tokens
   ICE_PARSE_TOK = 19
+  # Macedonian tokens
+  MK_TOK = 20
 
 
 class Problem(object):
@@ -90,6 +92,7 @@ class Problem(object):
           get sharded filenames. If shuffled=False, the filenames will contain
           an "unshuffled" suffix; you should then shuffle the data
           shard-by-shard with generator_utils.shuffle_dataset.
+        - Allows to specify the number of shards, optionally (can be omitted).
         - Subclasses must override
     * dataset_filename()
         - Base filename for problem.
@@ -111,7 +114,7 @@ class Problem(object):
   # BEGIN SUBCLASS INTERFACE
   # ============================================================================
 
-  def generate_data(self, data_dir, tmp_dir):
+  def generate_data(self, data_dir, tmp_dir, num_shards=None):
     raise NotImplementedError()
 
   def hparams(self, defaults, model_hparams):

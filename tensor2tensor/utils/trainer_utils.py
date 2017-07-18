@@ -585,6 +585,7 @@ def decode_from_dataset(estimator):
     tf.logging.info("Performing local inference.")
     infer_problems_data = get_datasets_for_mode(hparams.data_dir,
                                                 tf.contrib.learn.ModeKeys.INFER)
+
     infer_input_fn = get_input_fn(
         mode=tf.contrib.learn.ModeKeys.INFER,
         hparams=hparams,
@@ -625,9 +626,11 @@ def decode_from_dataset(estimator):
 
     # The function predict() returns an iterable over the network's
     # predictions from the test input. We use it to log inputs and decodes.
-    for j, result in enumerate(result_iter):
-      inputs, targets, outputs = (result["inputs"], result["targets"],
-                                  result["outputs"])
+    inputs_iter = result_iter["inputs"]
+    targets_iter = result_iter["targets"]
+    outputs_iter = result_iter["outputs"]
+    for j, result in enumerate(zip(inputs_iter, targets_iter, outputs_iter)):
+      inputs, targets, outputs = result
       if FLAGS.decode_return_beams:
         output_beams = np.split(outputs, FLAGS.decode_beam_size, axis=0)
         for k, beam in enumerate(output_beams):
