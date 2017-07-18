@@ -19,22 +19,12 @@ import sys
 import importlib
 import tensorflow as tf
 
-flags = tf.flags
-FLAGS = flags.FLAGS
 
-flags.DEFINE_string("t2t_usr_dir", "",
-                    "Path to a Python module that will be imported. The "
-                    "__init__.py file should include the necessary imports. "
-                    "The imported files should contain registrations, "
-                    "e.g. @registry.register_model calls, that will then be "
-                    "available to the t2t-trainer.")
-
-
-def import_usr_dir():
-  """Import module at FLAGS.t2t_usr_dir, if provided."""
-  if not FLAGS.t2t_usr_dir:
+def import_usr_dir(usr_dir):
+  """Import user module, if provided."""
+  if not usr_dir:
     return
-  dir_path = os.path.expanduser(FLAGS.t2t_usr_dir)
+  dir_path = os.path.expanduser(usr_dir)
   if dir_path[-1] == "/":
     dir_path = dir_path[:-1]
   containing_dir, module_name = os.path.split(dir_path)
