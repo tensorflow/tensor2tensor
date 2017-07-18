@@ -36,7 +36,7 @@ class AlgorithmicIdentityBinary40(problem.Problem):
   def num_symbols(self):
     return 2
 
-  def generate_data(self, data_dir, _, num_shards=100):
+  def generate_data(self, data_dir, tmp_dir, num_shards=100):
     utils.generate_dataset_and_shuffle(
         identity_generator(self.num_symbols, 40, 100000),
         self.training_filepaths(data_dir, num_shards, shuffled=True),
