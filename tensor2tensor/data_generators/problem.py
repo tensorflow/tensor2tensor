@@ -67,6 +67,8 @@ class SpaceID(object):
   ICE_TOK = 18
   # Icelandic parse tokens
   ICE_PARSE_TOK = 19
+  # Macedonian tokens
+  MK_TOK = 20
 
 
 class Problem(object):
