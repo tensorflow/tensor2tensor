@@ -31,8 +31,8 @@ from __future__ import print_function
 
 # Dependency imports
 
-from tensor2tensor.utils import registry_utils
 from tensor2tensor.utils import trainer_utils as utils
+from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
 
@@ -49,7 +49,7 @@ flags.DEFINE_string("t2t_usr_dir", "",
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-  registry_utils.import_usr_dir(FLAGS.t2t_usr_dir)
+  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   utils.log_registry()
   utils.validate_flags()
   utils.run(

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities for the t2t registry."""
+"""Utility to load code from an external user-supplied directory."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
