@@ -24,6 +24,7 @@ from __future__ import division
 from __future__ import print_function
 
 from collections import defaultdict
+import re
 
 # Dependency imports
 
@@ -225,6 +226,7 @@ class SubwordTextEncoder(TextEncoder):
 
   def __init__(self, filename=None):
     """Initialize and read from a file, if provided."""
+    self._alphabet = set()
     if filename is not None:
       self._load_from_file(filename)
     super(SubwordTextEncoder, self).__init__(num_reserved_ids=None)
@@ -503,6 +505,12 @@ class SubwordTextEncoder(TextEncoder):
         ret += u"\\%d;" % ord(c)
     return ret
 
+  # Regular expression for unescaping token strings
+  # '\u' is converted to '_'
+  # '\\' is converted to '\'
+  # '\213;' is converted to unichr(213)
+  _UNESCAPE_REGEX = re.compile(u'|'.join([r"\\u", r"\\\\", r"\\([0-9]+);"]))
+
   def _unescape_token(self, escaped_token):
     """Inverse of _escape_token().
 
@@ -511,32 +519,14 @@ class SubwordTextEncoder(TextEncoder):
     Returns:
       token: a unicode string
     """
-    ret = u""
-    escaped_token = escaped_token[:-1]
-    pos = 0
-    while pos < len(escaped_token):
-      c = escaped_token[pos]
-      if c == "\\":
-        pos += 1
-        if pos >= len(escaped_token):
-          break
-        c = escaped_token[pos]
-        if c == u"u":
-          ret += u"_"
-          pos += 1
-        elif c == "\\":
-          ret += u"\\"
-          pos += 1
-        else:
-          semicolon_pos = escaped_token.find(u";", pos)
-          if semicolon_pos == -1:
-            continue
-          try:
-            ret += unichr(int(escaped_token[pos:semicolon_pos]))
-            pos = semicolon_pos + 1
-          except (ValueError, OverflowError) as _:
-            pass
-      else:
-        ret += c
-        pos += 1
-    return ret
+    def match(m):
+      if m.group(1) is not None:
+        # Convert '\213;' to unichr(213)
+        try:
+          return unichr(int(m.group(1)))
+        except (ValueError, OverflowError) as _:
+          return ""
+      # Convert '\u' to '_' and '\\' to '\'
+      return u"_" if m.group(0) == u"\\u" else u"\\"
+    # Cut off the trailing underscore and apply the regex substitution
+    return self._UNESCAPE_REGEX.sub(match, escaped_token[:-1])
