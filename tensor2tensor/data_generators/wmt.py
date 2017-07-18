@@ -49,10 +49,10 @@ class WMTEnDeTokens8k(problem.Problem):
   def feature_encoders(self, data_dir):
     return _default_wmt_feature_encoders(data_dir, self.target_vocab_size)
 
-  def generate_data(self, data_dir, tmp_dir):
+  def generate_data(self, data_dir, tmp_dir, num_shards=100):
     generator_utils.generate_dataset_and_shuffle(
         ende_wordpiece_token_generator(tmp_dir, True, self.target_vocab_size),
-        self.training_filepaths(data_dir, 100, shuffled=False),
+        self.training_filepaths(data_dir, num_shards, shuffled=False),
         ende_wordpiece_token_generator(tmp_dir, False, self.target_vocab_size),
         self.dev_filepaths(data_dir, 1, shuffled=False))
 
