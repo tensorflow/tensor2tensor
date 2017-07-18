@@ -192,7 +192,6 @@ def ensure_compatible_hparams(hparams):
   new_hparams = create_hparams()
   new_hparams = utils.maybe_parse_standard_hparams(
       new_hparams, FLAGS.hparams_path)
-  new_hparams = extend_hparams(new_hparams)
 
   # For compatible reason, if there are new fields in new_hparams,
   #   we add them to the current hparams
