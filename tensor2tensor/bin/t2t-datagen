@@ -356,7 +356,7 @@ def generate_data_for_problem(problem):
 
 def generate_data_for_registered_problem(problem_name):
   problem = registry.problem(problem_name)
-  problem.generate_data(FLAGS.data_dir, FLAGS.tmp_dir)
+  problem.generate_data(FLAGS.data_dir, FLAGS.tmp_dir, FLAGS.num_shards)
 
 
 if __name__ == "__main__":

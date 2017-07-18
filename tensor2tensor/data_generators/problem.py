@@ -113,7 +113,7 @@ class Problem(object):
   # BEGIN SUBCLASS INTERFACE
   # ============================================================================
 
-  def generate_data(self, data_dir, tmp_dir):
+  def generate_data(self, data_dir, tmp_dir, num_shards=100):
     raise NotImplementedError()
 
   def hparams(self, defaults, model_hparams):
