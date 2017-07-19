@@ -320,6 +320,29 @@ _MKEN_TEST_DATASETS = [[
     ("dev.mk", "dev.en")
 ]]
 
+# English-Czech datasets
+_ENCS_TRAIN_DATASETS = [
+    [
+        "http://data.statmt.org/wmt16/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
+        ("training-parallel-nc-v11/news-commentary-v11.cs-en.en",
+         "training-parallel-nc-v11/news-commentary-v11.cs-en.cs")
+    ],
+    [
+        "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
+        ("commoncrawl.cs-en.en", "commoncrawl.cs-en.cs")
+    ],
+    [
+        "http://www.statmt.org/wmt13/training-parallel-europarl-v7.tgz",
+        ("training/europarl-v7.cs-en.en", "training/europarl-v7.cs-en.cs")
+    ],
+]
+_ENCS_TEST_DATASETS = [
+    [
+        "http://data.statmt.org/wmt16/translation-task/dev.tgz",
+        ("dev/newstest2013.en", "dev/newstest2013.cs")
+    ],
+]
+
 
 # Generators.
 
@@ -591,6 +614,65 @@ class SETimesMkEnTokens32k(WMTProblem):
   @property
   def target_space_id(self):
     return problem.SpaceID.EN_TOK
+
+@registry.register_problem("wmt_encs_tokens_32k")
+class WMTEnCsTokens32k(problem.Problem):
+  """Problem spec for WMT English-Czech translation."""
+
+  @property
+  def target_vocab_size(self):
+    return 2**15  # 32768
+
+  @property
+  def vocab_name(self):
+    return "tokens.vocab-en-cs"
+
+  def train_generator(self, tmp_dir, train):
+    datasets = _ENCS_TRAIN_DATASETS if train else _ENCS_TEST_DATASETS
+    source_datasets = [[item[0], [item[1][0]]] for item in datasets]
+    target_datasets = [[item[0], [item[1][1]]] for item in datasets]
+    vocab_size = self.targeted_vocab_size
+    symbolizer_vocab = generator_utils.get_or_generate_vocab(
+        tmp_dir, "tokens.vocab-en-cs.%d" % vocab_size, vocab_size,
+        source_datasets + target_datasets)
+    tag = "train" if train else "dev"
+    data_path = _compile_data(tmp_dir, datasets, "wmt_encs_tok_%s" % tag)
+    return token_generator(data_path + ".lang1", data_path + ".lang2",
+                            symbolizer_vocab, EOS)
+
+  @property
+  def input_space_id(self):
+    return problem.SpaceID.EN_TOK
+
+  @property
+  def target_space_id(self):
+    return problem.SpaceID.CS_TOK
+
+
+@registry.register_problem("wmt_encs_characters")
+class WMTEnCsCharacters(WMTProblem):
+  """Problem spec for WMT En-Cs character-based translation."""
+
+  @property
+  def is_character_level(self):
+    return True
+
+  def train_generator(self, tmp_dir, train):
+    character_vocab = text_encoder.ByteTextEncoder()
+    datasets = _ENCS_TRAIN_DATASETS if train else _ENCS_TEST_DATASETS
+    tag = "train" if train else "dev"
+    data_path = _compile_data(tmp_dir, datasets, "wmt_encs_chr_%s" % tag)
+    return character_generator(data_path + ".lang1", data_path + ".lang2",
+                                character_vocab, EOS)
+
+  @property
+  def input_space_id(self):
+    return problem.SpaceID.EN_CHR
+
+  @property
+  def target_space_id(self):
+    return problem.SpaceID.CS_CHR
+
 
 
 # TODO This function is not used anywhere.
