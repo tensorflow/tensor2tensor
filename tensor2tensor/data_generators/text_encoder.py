@@ -530,4 +530,4 @@ class SubwordTextEncoder(TextEncoder):
       # Convert '\u' to '_' and '\\' to '\'
       return u"_" if m.group(0) == u"\\u" else u"\\"
     # Cut off the trailing underscore and apply the regex substitution
-    return self._UNESCAPE_REGEX.sub(match, escaped_token[:-1])
+    return _UNESCAPE_REGEX.sub(match, escaped_token[:-1])
