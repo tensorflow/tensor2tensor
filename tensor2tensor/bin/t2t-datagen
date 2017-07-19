@@ -28,6 +28,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import random
 import tempfile
 
@@ -320,7 +321,9 @@ def generate_data_for_problem(problem):
 
 def generate_data_for_registered_problem(problem_name):
   problem = registry.problem(problem_name)
-  problem.generate_data(FLAGS.data_dir, FLAGS.tmp_dir, FLAGS.num_shards)
+  problem.generate_data(os.path.expanduser(FLAGS.data_dir),
+                        os.path.expanduser(FLAGS.tmp_dir),
+                        FLAGS.num_shards)
 
 
 if __name__ == "__main__":
