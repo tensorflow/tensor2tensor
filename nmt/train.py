@@ -37,7 +37,8 @@ from .utils import vocab_utils
 
 utils.check_tensorflow_version()
 
-__all__ = ["train"]
+__all__ = ["create_train_model", "create_eval_model", "run_sample_decode",
+           "run_internal_eval", "run_external_eval", "train"]
 
 
 def create_train_model(model_creator,
@@ -129,6 +130,76 @@ def create_eval_model(model_creator,
           eval_tgt_file_placeholder, eval_iterator)
 
 
+def run_sample_decode(infer_graph, infer_model, infer_sess, infer_iterator,
+                      infer_src_placeholder, infer_batch_size_placeholder,
+                      model_dir, hparams, summary_writer, src_data, tgt_data):
+  """Sample decode a random sentence from src_data."""
+  with infer_graph.as_default():
+    loaded_infer_model, global_step = model_helper.create_or_load_model(
+        infer_model, model_dir, infer_sess, "infer")
+
+  _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
+                 infer_iterator, src_data, tgt_data, infer_src_placeholder,
+                 infer_batch_size_placeholder, summary_writer)
+
+
+def run_internal_eval(
+    eval_graph, eval_model, eval_sess, eval_iterator, model_dir, hparams,
+    summary_writer, dev_eval_iterator_feed_dict, test_eval_iterator_feed_dict):
+  """Compute internal evaluation (perplexity) for both dev / test."""
+  with eval_graph.as_default():
+    loaded_eval_model, global_step = model_helper.create_or_load_model(
+        eval_model, model_dir, eval_sess, "eval")
+
+  dev_ppl = _internal_eval(loaded_eval_model, global_step, eval_sess,
+                           eval_iterator, dev_eval_iterator_feed_dict,
+                           summary_writer, "dev")
+  test_ppl = None
+  if hparams.test_prefix:
+    test_ppl = _internal_eval(loaded_eval_model, global_step, eval_sess,
+                              eval_iterator, test_eval_iterator_feed_dict,
+                              summary_writer, "test")
+  return dev_ppl, test_ppl
+
+
+def run_external_eval(infer_graph, infer_model, infer_sess, infer_iterator,
+                      model_dir, hparams, summary_writer,
+                      dev_infer_iterator_feed_dict, dev_tgt_file,
+                      test_infer_iterator_feed_dict, test_tgt_file,
+                      save_best_dev=True):
+  """Compute external evaluation (bleu, rouge, etc.) for both dev / test."""
+  with infer_graph.as_default():
+    loaded_infer_model, global_step = model_helper.create_or_load_model(
+        infer_model, model_dir, infer_sess, "infer")
+
+  dev_scores = _external_eval(
+      loaded_infer_model,
+      global_step,
+      infer_sess,
+      hparams,
+      infer_iterator,
+      dev_infer_iterator_feed_dict,
+      dev_tgt_file,
+      "dev",
+      summary_writer,
+      save_on_best=save_best_dev)
+
+  test_scores = None
+  if hparams.test_prefix:
+    test_scores = _external_eval(
+        loaded_infer_model,
+        global_step,
+        infer_sess,
+        hparams,
+        infer_iterator,
+        test_infer_iterator_feed_dict,
+        test_tgt_file,
+        "test",
+        summary_writer,
+        save_on_best=False)
+  return dev_scores, test_scores, global_step
+
+
 def train(hparams, scope=None, target_session=""):
   """Train a translation model."""
   log_device_placement = hparams.log_device_placement
@@ -215,73 +286,22 @@ def train(hparams, scope=None, target_session=""):
   summary_writer = tf.summary.FileWriter(
       os.path.join(out_dir, summary_name), train_graph)
 
-  # For internal evaluation (perplexity)
-  def run_internal_eval(model_dir):
-    """Compute internal evaluation for both dev / test."""
-    with infer_graph.as_default():
-      loaded_infer_model, global_step = model_helper.create_or_load_model(
-          infer_model, model_dir, infer_sess, "infer")
-
-    _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
-                   infer_iterator, dev_src_data, dev_tgt_data,
-                   infer_src_placeholder, infer_batch_size_placeholder,
-                   summary_writer)
-
-    with eval_graph.as_default():
-      loaded_eval_model, global_step = model_helper.create_or_load_model(
-          eval_model, model_dir, eval_sess, "eval")
-
-    dev_ppl = _internal_eval(loaded_eval_model, global_step, eval_sess,
-                             eval_iterator, dev_eval_iterator_feed_dict,
-                             summary_writer, "dev")
-    test_ppl = None
-    if hparams.test_prefix:
-      test_ppl = _internal_eval(loaded_eval_model, global_step, eval_sess,
-                                eval_iterator, test_eval_iterator_feed_dict,
-                                summary_writer, "test")
-    return dev_ppl, test_ppl
-
-  # For external evaluation (bleu, rouge, etc.)
-  def run_external_eval(model_dir, save_best_dev=True):
-    """Compute external evaluation for both dev / test."""
-    with infer_graph.as_default():
-      loaded_infer_model, global_step = model_helper.create_or_load_model(
-          infer_model, model_dir, infer_sess, "infer")
-
-    _sample_decode(loaded_infer_model, global_step, infer_sess, hparams,
-                   infer_iterator, dev_src_data, dev_tgt_data,
-                   infer_src_placeholder, infer_batch_size_placeholder,
-                   summary_writer)
-
-    dev_scores = _external_eval(
-        loaded_infer_model,
-        global_step,
-        infer_sess,
-        hparams,
-        infer_iterator,
-        dev_infer_iterator_feed_dict,
-        dev_tgt_file,
-        "dev",
-        summary_writer,
-        save_on_best=save_best_dev)
-    test_scores = None
-    if hparams.test_prefix:
-      test_scores = _external_eval(
-          loaded_infer_model,
-          global_step,
-          infer_sess,
-          hparams,
-          infer_iterator,
-          test_infer_iterator_feed_dict,
-          test_tgt_file,
-          "test",
-          summary_writer,
-          save_on_best=False)
-    return dev_scores, test_scores
-
   # First evaluation
-  dev_ppl, test_ppl = run_internal_eval(model_dir)
-  dev_scores, test_scores = run_external_eval(model_dir)
+  run_sample_decode(infer_graph, infer_model, infer_sess, infer_iterator,
+                    infer_src_placeholder, infer_batch_size_placeholder,
+                    model_dir, hparams, summary_writer, dev_src_data,
+                    dev_tgt_data)
+  dev_ppl, test_ppl = run_internal_eval(
+      eval_graph, eval_model, eval_sess, eval_iterator, model_dir, hparams,
+      summary_writer, dev_eval_iterator_feed_dict, test_eval_iterator_feed_dict)
+  dev_scores, test_scores, _ = run_external_eval(
+      infer_graph, infer_model, infer_sess, infer_iterator, model_dir, hparams,
+      summary_writer, dev_infer_iterator_feed_dict, dev_tgt_file,
+      test_infer_iterator_feed_dict, test_tgt_file)
+
+  last_stats_step = global_step
+  last_eval_step = global_step
+  last_external_eval_step = global_step
 
   # This is the training loop.
   step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
@@ -318,7 +338,14 @@ def train(hparams, scope=None, target_session=""):
       utils.print_out(
           "# Finished an epoch, step %d. Perform external evaluation" %
           global_step)
-      dev_scores, test_scores = run_external_eval(model_dir)
+      run_sample_decode(infer_graph, infer_model, infer_sess, infer_iterator,
+                        infer_src_placeholder, infer_batch_size_placeholder,
+                        model_dir, hparams, summary_writer, dev_src_data,
+                        dev_tgt_data)
+      dev_scores, test_scores, _ = run_external_eval(
+          infer_graph, infer_model, infer_sess, infer_iterator, model_dir,
+          hparams, summary_writer, dev_infer_iterator_feed_dict, dev_tgt_file,
+          test_infer_iterator_feed_dict, test_tgt_file)
       train_sess.run(
           train_iterator.initializer,
           feed_dict={
@@ -337,7 +364,9 @@ def train(hparams, scope=None, target_session=""):
     checkpoint_total_count += float(step_word_count)
 
     # Once in a while, we print statistics.
-    if global_step % steps_per_stats == 0:
+    if global_step - last_stats_step >= steps_per_stats:
+      last_stats_step = global_step
+
       # Print statistics for the previous epoch.
       avg_step_time = step_time / steps_per_stats
       train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
@@ -354,7 +383,9 @@ def train(hparams, scope=None, target_session=""):
       step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
       checkpoint_total_count = 0.0
 
-    if global_step % steps_per_eval == 0:
+    if global_step - last_eval_step >= steps_per_eval:
+      last_eval_step = global_step
+
       utils.print_out("# Save eval, global step %d" % global_step)
       utils.add_summary(summary_writer, global_step, "train_ppl", train_ppl)
 
@@ -365,15 +396,31 @@ def train(hparams, scope=None, target_session=""):
           global_step=global_step)
 
       # Evaluate on dev/test
-      dev_ppl, test_ppl = run_internal_eval(model_dir)
+      run_sample_decode(infer_graph, infer_model, infer_sess, infer_iterator,
+                        infer_src_placeholder, infer_batch_size_placeholder,
+                        model_dir, hparams, summary_writer, dev_src_data,
+                        dev_tgt_data)
+      dev_ppl, test_ppl = run_internal_eval(
+          eval_graph, eval_model, eval_sess, eval_iterator, model_dir, hparams,
+          summary_writer, dev_eval_iterator_feed_dict,
+          test_eval_iterator_feed_dict)
 
-    if global_step % steps_per_external_eval == 0:
+    if global_step - last_external_eval_step >= steps_per_external_eval:
+      last_external_eval_step = global_step
+
       # Save checkpoint
       train_model.saver.save(
           train_sess,
           os.path.join(out_dir, "translate.ckpt"),
           global_step=global_step)
-      dev_scores, test_scores = run_external_eval(model_dir)
+      run_sample_decode(infer_graph, infer_model, infer_sess, infer_iterator,
+                        infer_src_placeholder, infer_batch_size_placeholder,
+                        model_dir, hparams, summary_writer, dev_src_data,
+                        dev_tgt_data)
+      dev_scores, test_scores, _ = run_external_eval(
+          infer_graph, infer_model, infer_sess, infer_iterator, model_dir,
+          hparams, summary_writer, dev_infer_iterator_feed_dict, dev_tgt_file,
+          test_infer_iterator_feed_dict, test_tgt_file)
 
   # Done training
   train_model.saver.save(
@@ -381,8 +428,17 @@ def train(hparams, scope=None, target_session=""):
       os.path.join(out_dir, "translate.ckpt"),
       global_step=global_step)
 
-  dev_ppl, test_ppl = run_internal_eval(model_dir)
-  dev_scores, test_scores = run_external_eval(model_dir)
+  run_sample_decode(infer_graph, infer_model, infer_sess, infer_iterator,
+                    infer_src_placeholder, infer_batch_size_placeholder,
+                    model_dir, hparams, summary_writer, dev_src_data,
+                    dev_tgt_data)
+  dev_ppl, test_ppl = run_internal_eval(
+      eval_graph, eval_model, eval_sess, eval_iterator, model_dir, hparams,
+      summary_writer, dev_eval_iterator_feed_dict, test_eval_iterator_feed_dict)
+  dev_scores, test_scores, _ = run_external_eval(
+      infer_graph, infer_model, infer_sess, infer_iterator, model_dir, hparams,
+      summary_writer, dev_infer_iterator_feed_dict, dev_tgt_file,
+      test_infer_iterator_feed_dict, test_tgt_file)
 
   utils.print_out("# Best dev %s" % _get_best_results(hparams))
 
@@ -402,9 +458,18 @@ def train(hparams, scope=None, target_session=""):
   utils.print_out("# Start evaluating saved best models.")
   for metric in hparams.metrics:
     best_model_dir = getattr(hparams, "best_" + metric + "_dir")
-    best_dev_ppl, best_test_ppl = run_internal_eval(best_model_dir)
-    best_dev_scores, best_test_scores = run_external_eval(
-        best_model_dir, save_best_dev=False)
+    run_sample_decode(infer_graph, infer_model, infer_sess, infer_iterator,
+                      infer_src_placeholder, infer_batch_size_placeholder,
+                      best_model_dir, hparams, summary_writer, dev_src_data,
+                      dev_tgt_data)
+    best_dev_ppl, best_test_ppl = run_internal_eval(
+        eval_graph, eval_model, eval_sess, eval_iterator, best_model_dir,
+        hparams, summary_writer, dev_eval_iterator_feed_dict,
+        test_eval_iterator_feed_dict)
+    best_dev_scores, best_test_scores, best_global_step = run_external_eval(
+        infer_graph, infer_model, infer_sess, infer_iterator, best_model_dir,
+        hparams, summary_writer, dev_infer_iterator_feed_dict, dev_tgt_file,
+        test_infer_iterator_feed_dict, test_tgt_file, save_best_dev=False)
     eval_results = _format_results(
         "dev", best_dev_ppl, best_dev_scores, hparams.metrics)
     if hparams.test_prefix:
@@ -413,8 +478,8 @@ def train(hparams, scope=None, target_session=""):
 
     utils.print_out("# Best %s, step %d "
                     "step-time %.2f wps %.2fK, %s, %s" %
-                    (metric, global_step, avg_step_time, speed, eval_results,
-                     time.ctime()), log_f)
+                    (metric, best_global_step, avg_step_time, speed,
+                     eval_results, time.ctime()), log_f)
 
   summary_writer.close()
   return (dev_scores, test_scores, dev_ppl, test_ppl, global_step)
