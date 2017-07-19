@@ -312,7 +312,6 @@ def dot_product_attention(q,
                           v,
                           bias,
                           dropout_rate=0.0,
-                          summaries=False,
                           image_shapes=None,
                           name=None):
   """dot-product attention.
@@ -323,7 +322,6 @@ def dot_product_attention(q,
     v: a Tensor with shape [batch, heads, length_kv, depth_v]
     bias: bias Tensor (see attention_bias())
     dropout_rate: a floating point number
-    summaries: a boolean
     image_shapes: optional tuple of integer scalars.
       see comments for attention_image_summary()
     name: an optional string
@@ -340,13 +338,13 @@ def dot_product_attention(q,
     weights = tf.nn.softmax(logits, name="attention_weights")
     # dropping out the attention links for each of the heads
     weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
-    if summaries and not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse:
       attention_image_summary(weights, image_shapes)
     return tf.matmul(weights, v)
 
 
 def masked_local_attention_1d(
-    q, k, v, block_length=128, summaries=True, name=None):
+    q, k, v, block_length=128, name=None):
   """Attention to the source position and a neigborhood to the left of it.
 
   The sequence is divided into blocks of length block_size.
@@ -362,7 +360,6 @@ def masked_local_attention_1d(
     k: a Tensor with shape [batch, heads, length, depth_k]
     v: a Tensor with shape [batch, heads, length, depth_v]
     block_length: an integer
-    summaries: a boolean
     name: an optional string
 
   Returns:
@@ -394,7 +391,7 @@ def masked_local_attention_1d(
     first_v = tf.slice(v, [0, 0, 0, 0], [-1, -1, block_length, -1])
     first_output = dot_product_attention(
         first_q, first_k, first_v, attention_bias_lower_triangle(block_length),
-        summaries=summaries, name="fist_block")
+        name="fist_block")
 
     # compute attention for all subsequent query blocks.
     q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
@@ -442,7 +439,6 @@ def multihead_attention(query_antecedent,
                         output_depth,
                         num_heads,
                         dropout_rate,
-                        summaries=False,
                         image_shapes=None,
                         attention_type="dot_product",
                         block_length=128,
@@ -458,7 +454,6 @@ def multihead_attention(query_antecedent,
     output_depth: an integer
     num_heads: an integer dividing total_key_depth and total_value_depth
     dropout_rate: a floating point number
-    summaries: a boolean
     image_shapes: optional tuple of integer scalars.
       see comments for attention_image_summary()
     attention_type: a string, either "dot_product" or "local_mask_right"
@@ -509,12 +504,10 @@ def multihead_attention(query_antecedent,
     q *= key_depth_per_head**-0.5
     if attention_type == "dot_product":
       x = dot_product_attention(
-          q, k, v, bias, dropout_rate, summaries, image_shapes)
+          q, k, v, bias, dropout_rate, image_shapes)
     else:
       assert attention_type == "local_mask_right"
-      x = masked_local_attention_1d(q, k, v,
-                                    block_length=block_length,
-                                    summaries=summaries)
+      x = masked_local_attention_1d(q, k, v, block_length=block_length)
     x = combine_heads(x)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
     return x

@@ -550,6 +550,13 @@ def model_builder(model, hparams):
         optimizer=opt,
         colocate_gradients_with_ops=True)
 
+    # Remove summaries that will fail to run because they are in conditionals.
+    # TODO(cwhipkey): Test with this code removed, later in 2017.
+    summaries = tf.get_collection_ref(tf.GraphKeys.SUMMARIES)
+    for i in range(len(summaries)-1, -1, -1):
+      if summaries[i].name.startswith("cond_"):
+        del summaries[i]
+
     tf.logging.info("Global model_fn finished.")
     return run_info, total_loss, train_op
 

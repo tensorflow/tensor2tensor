@@ -69,7 +69,6 @@ class AttentionLmMoe(t2t_model.T2TModel):
                  hparams.hidden_size,
                  hparams.num_heads,
                  hparams.attention_dropout,
-                 summaries=True,
                  name="decoder_self_attention")
           x = dp(residual_fn, x, y)
         with tf.variable_scope("ffn"):

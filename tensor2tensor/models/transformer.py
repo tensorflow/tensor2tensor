@@ -143,8 +143,6 @@ def transformer_encoder(encoder_input,
     y: a Tensors
   """
   x = encoder_input
-  # Summaries don't work in multi-problem setting yet.
-  summaries = len(hparams.problems) < 2
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -159,7 +157,6 @@ def transformer_encoder(encoder_input,
                 hparams.hidden_size,
                 hparams.num_heads,
                 hparams.attention_dropout,
-                summaries=summaries,
                 name="encoder_self_attention"))
         x = residual_fn(x, transformer_ffn_layer(x, hparams))
   return x
@@ -189,8 +186,6 @@ def transformer_decoder(decoder_input,
     y: a Tensors
   """
   x = decoder_input
-  # Summaries don't work in multi-problem setting yet.
-  summaries = len(hparams.problems) < 2
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -205,7 +200,6 @@ def transformer_decoder(decoder_input,
                 hparams.hidden_size,
                 hparams.num_heads,
                 hparams.attention_dropout,
-                summaries=summaries,
                 name="decoder_self_attention"))
         x = residual_fn(
             x,
@@ -218,7 +212,6 @@ def transformer_decoder(decoder_input,
                 hparams.hidden_size,
                 hparams.num_heads,
                 hparams.attention_dropout,
-                summaries=summaries,
                 name="encdec_attention"))
         x = residual_fn(x, transformer_ffn_layer(x, hparams))
   return x
@@ -234,15 +227,12 @@ def transformer_ffn_layer(x, hparams):
   Returns:
     a Tensor of shape [batch_size, length, hparams.hidden_size]
   """
-  # Summaries don't work in multi-problem setting yet.
-  summaries = len(hparams.problems) < 2
   if hparams.ffn_layer == "conv_hidden_relu":
     return common_layers.conv_hidden_relu(
         x,
         hparams.filter_size,
         hparams.hidden_size,
-        dropout=hparams.relu_dropout,
-        summaries=summaries)
+        dropout=hparams.relu_dropout)
   elif hparams.ffn_layer == "parameter_attention":
     return common_attention.parameter_attention(
         x,
@@ -260,8 +250,7 @@ def transformer_ffn_layer(x, hparams):
         kernel_size=(3, 1),
         second_kernel_size=(31, 1),
         padding="LEFT",
-        dropout=hparams.relu_dropout,
-        summaries=summaries)
+        dropout=hparams.relu_dropout)
   else:
     assert hparams.ffn_layer == "none"
     return x

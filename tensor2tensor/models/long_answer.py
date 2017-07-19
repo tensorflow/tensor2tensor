@@ -75,7 +75,6 @@ class LongAnswer(t2t_model.T2TModel):
                  hparams.hidden_size,
                  hparams.num_heads,
                  hparams.attention_dropout,
-                 summaries=True,
                  attention_type="local_mask_right",
                  block_length=hparams.block_length,
                  name="decoder_self_attention")

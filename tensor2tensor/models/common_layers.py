@@ -777,7 +777,7 @@ def moe_layer(data_parallelism,
     xs_2d = dp(tf.reshape, xs, [[-1, model_hidden_size]] * dp.n)
     # Call the MoE
     moe_out_2d, importance, load, _, _ = moe.Eval(
-        dp.devices, xs_2d, train, identifiers=None, summaries=True)
+        dp.devices, xs_2d, train, identifiers=None)
     # Reshape the output to the original shape.
     moe_out = dp(tf.reshape, moe_out_2d, dp(tf.shape, xs))
     # These losses encourage equal load on the different experts.
@@ -785,7 +785,7 @@ def moe_layer(data_parallelism,
     return moe_out, loss
 
 
-def simple_attention(target, source, bias=None, summaries=True):
+def simple_attention(target, source, bias=None):
   """A simple attention function.
 
   Args:
@@ -795,7 +795,6 @@ def simple_attention(target, source, bias=None, summaries=True):
      `[batch, source_timesteps_1, source_timesteps_2, depth]`
     bias: an optional `Tensor` with shape `[batch, timesteps, 1, 1]` used
      to mask the attention to not attend to padding of input.
-    summaries: Boolean, whether to output summaries.
 
   Returns:
     a `Tensor` with same shape as `target`
@@ -814,7 +813,7 @@ def simple_attention(target, source, bias=None, summaries=True):
     if bias is not None:
       attention += tf.expand_dims(tf.squeeze(bias, axis=[2, 3]), axis=1)
     attention = tf.nn.softmax(attention)
-    if summaries and not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse:
       tf.summary.image("attention", tf.expand_dims(attention, 3), max_outputs=5)
     attended = tf.matmul(attention, source)
     return tf.reshape(attended, target_shape)
@@ -861,8 +860,7 @@ def multiscale_conv_sum(inputs, output_size, dilation_rates_and_kernel_sizes,
 def multiscale_conv_and_attention(x,
                                   padding,
                                   hparams,
-                                  source=None,
-                                  summaries=True):
+                                  source=None):
   """A common part of t2t layers.
 
   First, do a linear multiscale convolution
@@ -875,7 +873,6 @@ def multiscale_conv_and_attention(x,
     padding: a padding type
     hparams: hyperparameters for model
     source: optional source tensor for attention. (encoder output)
-    summaries: Boolean, whether to output summaries.
 
   Returns:
     a Tensor.
@@ -893,7 +890,7 @@ def multiscale_conv_and_attention(x,
     x = conv(x, hparams.hidden_size, (1, 1))
   x = noam_norm(x + conv_sum)
   if source is not None:
-    x = noam_norm(x + simple_attention(x, source, summaries=summaries))
+    x = noam_norm(x + simple_attention(x, source))
   return x
 
 
@@ -930,8 +927,7 @@ def conv_with_pools(inputs, output_size, kernel_size, pool_sizes, pooling_type,
 def conv_with_pools_and_attention(x,
                                   padding,
                                   hparams,
-                                  source=None,
-                                  summaries=True):
+                                  source=None):
   """A common part of t2t layers.
 
   First, do conv_with_pools
@@ -944,7 +940,6 @@ def conv_with_pools_and_attention(x,
     padding: a padding type
     hparams: hyperparameters for model
     source: optional source tensor for attention. (encoder output)
-    summaries: Boolean, whether to output summaries.
 
   Returns:
     a Tensor.
@@ -959,7 +954,7 @@ def conv_with_pools_and_attention(x,
     conv_sum += x
   x = noam_norm(conv_sum)
   if source is not None:
-    x = noam_norm(x + simple_attention(x, source, summaries=summaries))
+    x = noam_norm(x + simple_attention(x, source))
   return x
 
 
@@ -1057,7 +1052,6 @@ def attention_1d_v0(source,
                     transform_source=True,
                     transform_target=True,
                     transform_output=True,
-                    summaries=True,
                     name=None):
   """multi-headed attention.
 
@@ -1075,7 +1069,6 @@ def attention_1d_v0(source,
     transform_source: a boolean
     transform_target: a boolean
     transform_output: a boolean
-    summaries: a boolean
     name: an optional string
 
   Returns:
@@ -1116,7 +1109,7 @@ def attention_1d_v0(source,
       mask = (1.0 - mask) * -1e9
       attention += mask
     attention = tf.nn.softmax(attention)
-    if summaries and not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse:
       # Compute a color image summary.
       image = tf.reshape(attention,
                          [batch, num_heads, target_length, source_length])
@@ -1162,7 +1155,6 @@ def conv_hidden_relu(inputs,
                      output_size,
                      kernel_size=(1, 1),
                      second_kernel_size=(1, 1),
-                     summaries=True,
                      dropout=0.0,
                      **kwargs):
   """Hidden layer with RELU activation followed by linear projection."""
@@ -1183,7 +1175,7 @@ def conv_hidden_relu(inputs,
         **kwargs)
     if dropout != 0.0:
       h = tf.nn.dropout(h, 1.0 - dropout)
-    if summaries and not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse:
       tf.summary.histogram("hidden_density_logit",
                            relu_density_logit(
                                h, list(range(inputs.shape.ndims - 1))))
