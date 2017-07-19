@@ -223,12 +223,12 @@ encoder_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units)
 #   encoder_state: [batch_size, num_units]
 encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
     encoder_cell, encoder_emb_inp,
-    sequence_length=source_seqence_length, time_major=True)
+    sequence_length=source_sequence_length, time_major=True)
 ```
 
 Note that sentences have different lengths to avoid wasting computation, we tell
 *dynamic_rnn* the exact source sentence lengths through
-*source_seqence_length*. Since our input is time major, we set
+*source_sequence_length*. Since our input is time major, we set
 *time_major=True*. Here, we build only a single layer LSTM, *encoder_cell*. We
 will describe how to build multi-layer LSTMs, add dropout, and use attention in
 a later section.
