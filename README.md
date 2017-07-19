@@ -1085,8 +1085,8 @@ rate every 1K step.
 TODO(rzhao): add URL for English-Vietnamese trained model.
 
 Below are the averaged results of 2 models
-([model 1](https://download.tensorflow.org/models/nmt/envi_model_1.zip),
-[model 2](https://download.tensorflow.org/models/nmt/envi_model_2.zip)).\
+([model 1](http://download.tensorflow.org/models/nmt/envi_model_1.zip),
+[model 2](http://download.tensorflow.org/models/nmt/envi_model_2.zip)).\
 We measure the translation quality in terms of BLEU scores [(Papineni et al., 2002)](http://www.aclweb.org/anthology/P02-1040.pdf).
 
 Systems | tst2012 (dev) | test2013 (test)
@@ -1117,10 +1117,10 @@ halving learning rate every 17K step.
 TODO(rzhao): add URL for German-English trained model.
 
 The first 2 rows are the averaged results of 2 models
-([model 1](https://download.tensorflow.org/models/nmt/deen_model_1.zip),
-[model 2](https://download.tensorflow.org/models/nmt/deen_model_2.zip)).
+([model 1](http://download.tensorflow.org/models/nmt/deen_model_1.zip),
+[model 2](http://download.tensorflow.org/models/nmt/deen_model_2.zip)).
 Results in the third row is with GNMT attention
-([model](https://download.tensorflow.org/models/nmt/deen_gnmt_model_4_layer.zip))
+([model](http://download.tensorflow.org/models/nmt/deen_gnmt_model_4_layer.zip))
 ; trained with 4 GPUs.
 
 Systems | newstest2013 (dev) | newstest2015
@@ -1149,8 +1149,8 @@ With GNMT attention, we obtain from 50%-100% speed-ups with multiple gpus.
 ## WMT English-German &mdash; Full Comparison
 The first 2 rows are our models with GNMT
 attention:
-[model 1 (4 layers)](https://download.tensorflow.org/models/nmt/ende_gnmt_model_4_layer.zip),
-[model 2 (8 layers)](https://download.tensorflow.org/models/nmt/ende_gnmt_model_8_layer.zip).
+[model 1 (4 layers)](http://download.tensorflow.org/models/nmt/ende_gnmt_model_4_layer.zip),
+[model 2 (8 layers)](http://download.tensorflow.org/models/nmt/ende_gnmt_model_8_layer.zip).
 
 Systems | newstest2014 | newstest2015
 --- | :---: | :---:
