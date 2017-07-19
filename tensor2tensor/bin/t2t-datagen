@@ -120,6 +120,9 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "image_mscoco_characters_test": (
         lambda: image.mscoco_generator(FLAGS.tmp_dir, True, 80000),
         lambda: image.mscoco_generator(FLAGS.tmp_dir, False, 40000)),
+    "image_celeba_tune": (
+        lambda: image.celeba_generator(FLAGS.tmp_dir, 162770),
+        lambda: image.celeba_generator(FLAGS.tmp_dir, 19867, 162770)),
     "image_mscoco_tokens_8k_test": (
         lambda: image.mscoco_generator(
             FLAGS.tmp_dir,

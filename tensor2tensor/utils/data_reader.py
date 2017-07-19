@@ -161,6 +161,10 @@ def preprocessing(examples, data_file_pattern, mode):
       inputs = examples["inputs"]
       examples["inputs"] = resize(inputs, 16)
       examples["targets"] = resize(inputs, 64)
+    elif "image_celeba" in data_file_pattern:
+      inputs = examples["inputs"]
+      examples["inputs"] = resize(inputs, 8)
+      examples["targets"] = resize(inputs, 32)
 
   elif "audio" in data_file_pattern:
     # Reshape audio to proper shape
