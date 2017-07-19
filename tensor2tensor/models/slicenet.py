@@ -64,8 +64,7 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):
         hparams.hidden_size,
         hparams.num_heads,
         hparams.attention_dropout,
-        name="self_attention",
-        summaries=False)
+        name="self_attention")
     qv = common_attention.multihead_attention(
         qv,
         inputs_encoded,
@@ -75,12 +74,11 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):
         hparams.hidden_size,
         hparams.num_heads,
         hparams.attention_dropout,
-        name="encdec_attention",
-        summaries=False)
+        name="encdec_attention")
     return tf.expand_dims(qv, 2)
   elif hparams.attention_type == "simple":
     targets_with_attention = common_layers.simple_attention(
-        targets_timed, inputs_encoded, bias=bias, summaries=False)
+        targets_timed, inputs_encoded, bias=bias)
     return norm_fn(targets_shifted + targets_with_attention, name="attn_norm")
 
 

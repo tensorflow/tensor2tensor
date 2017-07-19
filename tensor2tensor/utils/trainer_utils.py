@@ -550,6 +550,13 @@ def model_builder(model, hparams):
         optimizer=opt,
         colocate_gradients_with_ops=True)
 
+    # Remove summaries that will fail to run because they are in conditionals.
+    # TODO(cwhipkey): Test with this code removed, later in 2017.
+    summaries = tf.get_collection_ref(tf.GraphKeys.SUMMARIES)
+    for i in range(len(summaries)-1, -1, -1):
+      if summaries[i].name.startswith("cond_"):
+        del summaries[i]
+
     tf.logging.info("Global model_fn finished.")
     return run_info, total_loss, train_op
 
@@ -1037,7 +1044,10 @@ def get_input_fn(mode,
             capacity *= num_datashards
             examples = data_reader.input_pipeline(data_file_patterns[n],
                                                   capacity, mode)
-            drop_long_sequences = mode == tf.contrib.learn.ModeKeys.TRAIN
+            if mode == tf.contrib.learn.ModeKeys.TRAIN:
+              drop_long_sequences = True
+            else:
+              drop_long_sequences = hparams.eval_drop_long_sequences
             batch_size_multiplier = hparams.problems[n].batch_size_multiplier
             feature_map = data_reader.batch_examples(
                 examples,

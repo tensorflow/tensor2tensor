@@ -217,20 +217,6 @@ def test_problem_hparams(unused_model_hparams, input_vocab_size,
   return p
 
 
-def algorithmic(vocab_size, unused_model_hparams):
-  """Default parameters for algorithmic tasks."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
-  p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
-  p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(),
-      "targets": text_encoder.TextEncoder(),
-  }
-  p.input_space_id = 10
-  p.target_space_id = 11
-  return p
-
-
 def audio_timit_characters(unused_model_hparams):
   """English audio transcription benchmark."""
   p = default_problem_hparams()
@@ -351,10 +337,9 @@ def wiki_32k(model_hparams):
   p = default_problem_hparams()
   encoder = text_encoder.SubwordTextEncoder(
       os.path.join(model_hparams.data_dir, "wiki_32k.subword_text_encoder"))
-  p.input_modality = {
-      "inputs": (registry.Modalities.SYMBOL, encoder.vocab_size)
-  }
-  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
+  modality_spec = (registry.Modalities.SYMBOL, encoder.vocab_size)
+  p.input_modality = {"inputs": modality_spec}
+  p.target_modality = modality_spec
   p.vocabulary = {
       "inputs": encoder,
       "targets": encoder
@@ -378,50 +363,6 @@ def lmptb_10k(model_hparams):
   return p
 
 
-def wmt_enfr_characters(unused_model_hparams):
-  """English to French translation benchmark."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
-  p.target_modality = (registry.Modalities.SYMBOL, 256)
-  p.vocabulary = {
-      "inputs": text_encoder.ByteTextEncoder(),
-      "targets": text_encoder.ByteTextEncoder(),
-  }
-  p.loss_multiplier = 2.0
-  p.input_space_id = 2
-  p.target_space_id = 5
-  return p
-
-
-def wmt_enfr_tokens(model_hparams, wrong_vocab_size):
-  """English to French translation benchmark.
-
-  Args:
-    model_hparams: a tf.contrib.training.HParams
-    wrong_vocab_size: a number used in the filename indicating the approximate
-      vocabulary size.  This is not to be confused with the actual vocabulary
-      size.
-  Returns:
-    a tf.contrib.training.HParams
-  """
-  p = default_problem_hparams()
-  # This vocab file must be present within the data directory.
-  vocab_filename = os.path.join(model_hparams.data_dir,
-                                "tokens.vocab.%d" % wrong_vocab_size)
-  subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
-  p.input_modality = {
-      "inputs": (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
-  }
-  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
-  p.vocabulary = {
-      "inputs": subtokenizer,
-      "targets": subtokenizer,
-  }
-  p.input_space_id = 3
-  p.target_space_id = 6
-  return p
-
-
 def wmt_ende_bpe32k(model_hparams):
   """English to German translation benchmark."""
   p = default_problem_hparams()
@@ -438,47 +379,6 @@ def wmt_ende_bpe32k(model_hparams):
   p.loss_multiplier = 1.4
   p.input_space_id = 4
   p.target_space_id = 9
-  return p
-
-
-def wmt_ende_characters(unused_model_hparams):
-  """English to German translation benchmark."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
-  p.target_modality = (registry.Modalities.SYMBOL, 256)
-  p.vocabulary = {
-      "inputs": text_encoder.ByteTextEncoder(),
-      "targets": text_encoder.ByteTextEncoder(),
-  }
-  p.loss_multiplier = 2.0
-  p.input_space_id = 2
-  p.target_space_id = 7
-  return p
-
-
-def wmt_zhen_tokens(model_hparams, wrong_vocab_size):
-  """Chinese to English translation benchmark."""
-  p = default_problem_hparams()
-  # This vocab file must be present within the data directory.
-  if model_hparams.shared_embedding_and_softmax_weights == 1:
-    model_hparams.shared_embedding_and_softmax_weights = 0
-  source_vocab_filename = os.path.join(model_hparams.data_dir,
-                                       "tokens.vocab.zh.%d" % wrong_vocab_size)
-  target_vocab_filename = os.path.join(model_hparams.data_dir,
-                                       "tokens.vocab.en.%d" % wrong_vocab_size)
-  source_token = text_encoder.SubwordTextEncoder(source_vocab_filename)
-  target_token = text_encoder.SubwordTextEncoder(target_vocab_filename)
-  p.input_modality = {
-      "inputs": (registry.Modalities.SYMBOL, source_token.vocab_size)
-  }
-  p.target_modality = (registry.Modalities.SYMBOL, target_token.vocab_size)
-  p.vocabulary = {
-      "inputs": source_token,
-      "targets": target_token,
-  }
-  p.loss_multiplier = 1.4
-  p.input_space_id = 16
-  p.target_space_id = 4
   return p
 
 
@@ -699,15 +599,6 @@ def img2img_imagenet(unused_model_hparams):
 # Dictionary of named hyperparameter settings for various problems.
 # This is only accessed through the problem_hparams function below.
 PROBLEM_HPARAMS_MAP = {
-    "algorithmic_addition_binary40": lambda p: algorithmic(4, p),
-    "algorithmic_addition_decimal40": lambda p: algorithmic(12, p),
-    "algorithmic_multiplication_binary40": lambda p: algorithmic(4, p),
-    "algorithmic_multiplication_decimal40": lambda p: algorithmic(12, p),
-    "algorithmic_reverse_binary40": lambda p: algorithmic(4, p),
-    "algorithmic_reverse_decimal40": lambda p: algorithmic(12, p),
-    "algorithmic_reverse_nlplike_decimal8K": lambda p: algorithmic(8002, p),
-    "algorithmic_reverse_nlplike_decimal32K": lambda p: algorithmic(32002, p),
-    "algorithmic_shift_decimal40": lambda p: algorithmic(22, p),
     "audio_timit_characters_tune": audio_timit_characters,
     "audio_timit_characters_test": audio_timit_characters,
     "audio_timit_tokens_8k_tune": lambda p: audio_timit_tokens(p, 2**13),
@@ -724,15 +615,7 @@ PROBLEM_HPARAMS_MAP = {
     "wmt_parsing_tokens_8k": lambda p: wmt_parsing_tokens(p, 2**13),
     "wsj_parsing_tokens_16k": lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda
         p, "wsj", 2**14, 2**9),
-    "wmt_enfr_characters": wmt_enfr_characters,
-    "wmt_enfr_tokens_8k": lambda p: wmt_enfr_tokens(p, 2**13),
-    "wmt_enfr_tokens_32k": lambda p: wmt_enfr_tokens(p, 2**15),
-    "wmt_enfr_tokens_32k_shuffled": lambda p: wmt_enfr_tokens(p, 2**15),
-    "wmt_enfr_tokens_32k_combined": lambda p: wmt_enfr_tokens(p, 2**15),
-    "wmt_enfr_tokens_128k": lambda p: wmt_enfr_tokens(p, 2**17),
-    "wmt_ende_characters": wmt_ende_characters,
     "wmt_ende_bpe32k": wmt_ende_bpe32k,
-    "wmt_zhen_tokens_32k": lambda p: wmt_zhen_tokens(p, 2**15),
     "image_cifar10_tune": image_cifar10,
     "image_cifar10_test": image_cifar10,
     "image_mnist_tune": image_mnist,

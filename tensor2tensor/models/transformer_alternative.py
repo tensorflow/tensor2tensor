@@ -140,8 +140,6 @@ def alt_transformer_decoder(decoder_input,
   """Alternative decoder."""
   x = decoder_input
 
-  # Summaries don't work in multi-problem setting yet.
-  summaries = "problems" not in hparams.values() or len(hparams.problems) == 1
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -155,7 +153,6 @@ def alt_transformer_decoder(decoder_input,
             hparams.hidden_size,
             hparams.num_heads,
             hparams.attention_dropout,
-            summaries=summaries,
             name="encdec_attention")
 
         x_ = residual_fn(x_, composite_layer(x_, mask, hparams))

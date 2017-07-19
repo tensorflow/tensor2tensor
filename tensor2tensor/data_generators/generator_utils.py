@@ -244,7 +244,6 @@ _DATA_FILE_URLS = [
         "http://www.statmt.org/wmt13/training-parallel-un.tgz",
         ["un/undoc.2000.fr-en.en", "un/undoc.2000.fr-en.fr"]
     ],
-    # Macedonian-English
     [
         "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.train.tgz",  # pylint: disable=line-too-long
         ["train.mk", "train.en"]

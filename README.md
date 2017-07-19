@@ -153,7 +153,7 @@ python -c "from tensor2tensor.models.transformer import Transformer"
   specification.
 * Support for multi-GPU machines and synchronous (1 master, many workers) and
   asynchrounous (independent workers synchronizing through a parameter server)
-  distributed training.
+  [distributed training](https://github.com/tensorflow/tensor2tensor/tree/master/docs/distributed_training.md).
 * Easily swap amongst datasets and models by command-line flag with the data
   generation script `t2t-datagen` and the training script `t2t-trainer`.
 
@@ -173,8 +173,10 @@ and many common sequence datasets are already available for generation and use.
 
 **Problems** define training-time hyperparameters for the dataset and task,
 mainly by setting input and output **modalities** (e.g. symbol, image, audio,
-label) and vocabularies, if applicable. All problems are defined in
-[`problem_hparams.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem_hparams.py).
+label) and vocabularies, if applicable. All problems are defined either in
+[`problem_hparams.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem_hparams.py)
+or are registered with `@registry.register_problem` (run `t2t-datagen` to see
+the list of all available problems).
 **Modalities**, defined in
 [`modality.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/modality.py),
 abstract away the input and output data types so that **models** may deal with
@@ -211,7 +213,7 @@ inference. Users can easily switch between problems, models, and hyperparameter
 sets by using the `--model`, `--problems`, and `--hparams_set` flags. Specific
 hyperparameters can be overridden with the `--hparams` flag. `--schedule` and
 related flags control local and distributed training/evaluation
-([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/docs/distributed_training.md)).
+([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/docs/distributed_training.md)).
 
 ---
 
@@ -222,7 +224,7 @@ enables easily adding new ones and easily swapping amongst them by command-line
 flag. You can add your own components without editing the T2T codebase by
 specifying the `--t2t_usr_dir` flag in `t2t-trainer`.
 
-You can currently do so for models, hyperparameter sets, and modalities. Please
+You can do so for models, hyperparameter sets, modalities, and problems. Please
 do submit a pull request if your component might be useful to others.
 
 Here's an example with a new hyperparameter set:
@@ -253,9 +255,18 @@ You'll see under the registered HParams your
 `transformer_my_very_own_hparams_set`, which you can directly use on the command
 line with the `--hparams_set` flag.
 
+`t2t-datagen` also supports the `--t2t_usr_dir` flag for `Problem`
+registrations.
+
 ## Adding a dataset
 
-See the [data generators
+To add a new dataset, subclass
+[`Problem`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py)
+and register it with `@registry.register_problem`. See
+[`WMTEnDeTokens8k`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt.py)
+for an example.
+
+Also see the [data generators
 README](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/README.md).
 
 ---

@@ -12,16 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utility to load code from an external directory supplied by user."""
+"""Utility to load code from an external user-supplied directory."""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
+import importlib
 import os
 import sys
-import importlib
+
+# Dependency imports
+
 import tensorflow as tf
 
 
 def import_usr_dir(usr_dir):
-  """Import user module, if provided."""
+  """Import module at usr_dir, if provided."""
   if not usr_dir:
     return
   dir_path = os.path.expanduser(usr_dir)
