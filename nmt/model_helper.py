@@ -89,6 +89,13 @@ def _single_cell(unit_type, num_units, forget_bias, dropout,
   elif unit_type == "gru":
     utils.print_out("  GRU", new_line=False)
     single_cell = tf.contrib.rnn.GRUCell(num_units)
+  elif unit_type == "layer_norm_lstm":
+    utils.print_out("  Layer Normalized LSTM, forget_bias=%g" % forget_bias,
+                    new_line=False)
+    single_cell = tf.contrib.rnn.LayerNormBasicLSTMCell(
+        num_units,
+        forget_bias=forget_bias,
+        layer_norm=True)
   else:
     raise ValueError("Unknown unit type %s!" % unit_type)
 

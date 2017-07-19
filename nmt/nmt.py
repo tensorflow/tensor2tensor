@@ -144,7 +144,7 @@ def add_arguments(parser):
 
   # Default settings works well (rarely need to change)
   parser.add_argument("--unit_type", type=str, default="lstm",
-                      help="lstm | gru")
+                      help="lstm | gru | layer_norm_lstm")
   parser.add_argument("--forget_bias", type=float, default=1.0,
                       help="Forget bias for BasicLSTMCell.")
   parser.add_argument("--dropout", type=float, default=0.2,
