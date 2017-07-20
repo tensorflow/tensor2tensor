@@ -266,7 +266,7 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
   for source in sources:
     url = source[0]
     filename = os.path.basename(url)
-    read_type = "r:gz" if "tgz" in filename else "r"
+    read_type = "r:gz" if filename.endswith(".tgz") else "r"
 
     compressed_file = maybe_download(tmp_dir, filename, url)
 
@@ -278,7 +278,7 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
       filepath = os.path.join(tmp_dir, lang_file)
 
       # For some datasets a second extraction is necessary.
-      if ".gz" in lang_file:
+      if lang_file.endswith(".gz"):
         new_filepath = os.path.join(tmp_dir, lang_file[:-3])
         if tf.gfile.Exists(new_filepath):
           tf.logging.info(
