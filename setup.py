@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.1.0',
+    version='1.1.1',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
