@@ -324,7 +324,7 @@ def transformer_big_single_gpu():
 def transformer_base_single_gpu():
   """HParams for transformer base model for single gpu."""
   hparams = transformer_base()
-  hparams.batch_size = 8192
+  hparams.batch_size = 2048
   hparams.learning_rate_warmup_steps = 16000
   hparams.batching_mantissa_bits = 2
   return hparams

@@ -146,6 +146,12 @@ class Problem(object):
       file_basename += utils.UNSHUFFLED_SUFFIX
     return utils.dev_data_filenames(file_basename, data_dir, num_shards)
 
+  def test_filepaths(self, data_dir, num_shards, shuffled):
+    file_basename = self.dataset_filename()
+    if not shuffled:
+      file_basename += utils.UNSHUFFLED_SUFFIX
+    return utils.test_data_filenames(file_basename, data_dir, num_shards)
+
   def __init__(self, was_reversed=False, was_copy=False):
     """Create a Problem.
 

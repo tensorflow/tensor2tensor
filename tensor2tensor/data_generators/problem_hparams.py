@@ -249,7 +249,7 @@ def audio_timit_tokens(model_hparams, wrong_vocab_size):
   p = default_problem_hparams()
   # This vocab file must be present within the data directory.
   vocab_filename = os.path.join(model_hparams.data_dir,
-                                "tokens.vocab.%d" % wrong_vocab_size)
+                                "vocab.endefr.%d" % wrong_vocab_size)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   p.input_modality = {
       "inputs": (registry.Modalities.AUDIO, None),
@@ -298,7 +298,7 @@ def audio_wsj_tokens(model_hparams, wrong_vocab_size):
   p = default_problem_hparams()
   # This vocab file must be present within the data directory.
   vocab_filename = os.path.join(model_hparams.data_dir,
-                                "tokens.vocab.%d" % wrong_vocab_size)
+                                "vocab.endefr.%d" % wrong_vocab_size)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   p.input_modality = {
       "inputs": (registry.Modalities.AUDIO, None),
@@ -412,7 +412,7 @@ def wmt_parsing_tokens(model_hparams, wrong_vocab_size):
   p = default_problem_hparams()
   # This vocab file must be present within the data directory.
   vocab_filename = os.path.join(model_hparams.data_dir,
-                                "tokens.vocab.%d" % wrong_vocab_size)
+                                "vocab.endefr.%d" % wrong_vocab_size)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   p.input_modality = {
       "inputs": (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
@@ -449,10 +449,10 @@ def wsj_parsing_tokens(model_hparams,
   # This vocab file must be present within the data directory.
   source_vocab_filename = os.path.join(
       model_hparams.data_dir,
-      prefix + "_source.tokens.vocab.%d" % wrong_source_vocab_size)
+      prefix + "_source.vocab.%d" % wrong_source_vocab_size)
   target_vocab_filename = os.path.join(
       model_hparams.data_dir,
-      prefix + "_target.tokens.vocab.%d" % wrong_target_vocab_size)
+      prefix + "_target.vocab.%d" % wrong_target_vocab_size)
   source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
   target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
   p.input_modality = {
@@ -485,10 +485,10 @@ def ice_parsing_tokens(model_hparams, wrong_source_vocab_size):
   # This vocab file must be present within the data directory.
   source_vocab_filename = os.path.join(
       model_hparams.data_dir,
-      "ice_source.tokens.vocab.%d" % wrong_source_vocab_size)
+      "ice_source.vocab.%d" % wrong_source_vocab_size)
   target_vocab_filename = os.path.join(
       model_hparams.data_dir,
-      "ice_target.tokens.vocab.256")
+      "ice_target.vocab.256")
   source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
   target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
   p.input_modality = {
@@ -573,7 +573,7 @@ def image_mscoco_tokens(model_hparams, vocab_count):
   p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
   # This vocab file must be present within the data directory.
   vocab_filename = os.path.join(model_hparams.data_dir,
-                                "tokens.vocab.%d" % vocab_count)
+                                "vocab.endefr.%d" % vocab_count)
   subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
   p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
   p.vocabulary = {
@@ -589,6 +589,18 @@ def img2img_imagenet(unused_model_hparams):
   p = default_problem_hparams()
   p.input_modality = {"inputs": ("image:identity", None)}
   p.target_modality = ("image:identity", None)
+  p.batch_size_multiplier = 256
+  p.max_expected_batch_size_per_shard = 4
+  p.input_space_id = 1
+  p.target_space_id = 1
+  return p
+
+
+def image_celeba(unused_model_hparams):
+  """Image CelebA dataset."""
+  p = default_problem_hparams()
+  p.input_modality = {"inputs": ("image:identity_no_pad", None)}
+  p.target_modality = ("image:identity_no_pad", None)
   p.batch_size_multiplier = 256
   p.max_expected_batch_size_per_shard = 4
   p.input_space_id = 1
@@ -620,6 +632,7 @@ PROBLEM_HPARAMS_MAP = {
     "image_cifar10_test": image_cifar10,
     "image_mnist_tune": image_mnist,
     "image_mnist_test": image_mnist,
+    "image_celeba_tune": image_celeba,
     "image_mscoco_characters_tune": image_mscoco_characters,
     "image_mscoco_characters_test": image_mscoco_characters,
     "image_mscoco_tokens_8k_test": lambda p: image_mscoco_tokens(p, 2**13),
