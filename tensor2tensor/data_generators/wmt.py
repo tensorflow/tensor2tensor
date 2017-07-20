@@ -75,57 +75,6 @@ class WMTProblem(problem.Problem):
     """Generator; takes data_dir, tmp_dir, is_training, targeted_vocab_size."""
     raise NotImplementedError()
 
-
-@registry.register_problem("ice_parsing_tokens")
-class IceParsingTokens(problem.Problem):
-  """Problem spec for parsing tokenized Icelandic text to
-    constituency trees, also tokenized but to a smaller vocabulary."""
-
-  @property
-  def source_vocab_size(self):
-    return 2**13  # 8192
-
-  @property
-  def target_vocab_size(self):
-    return 2**8  # 256
-
-  def feature_encoders(self, data_dir):
-    source_vocab_filename = os.path.join(
-        data_dir, "ice_source.tokens.vocab.%d" % self.source_vocab_size)
-    target_vocab_filename = os.path.join(
-        data_dir, "ice_target.tokens.vocab.%d" % self.target_vocab_size)
-    source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
-    target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
-    return {
-        "inputs": source_subtokenizer,
-        "targets": target_subtokenizer,
-    }
-
-  def generate_data(self, data_dir, tmp_dir, num_shards=100):
-    generator_utils.generate_dataset_and_shuffle(
-        tabbed_parsing_token_generator(tmp_dir, True, "ice",
-                                       self.source_vocab_size,
-                                       self.target_vocab_size),
-        self.training_filepaths(data_dir, num_shards, shuffled=False),
-        tabbed_parsing_token_generator(tmp_dir, False, "ice",
-                                       self.source_vocab_size,
-                                       self.target_vocab_size),
-        self.dev_filepaths(data_dir, 1, shuffled=False))
-
-  def hparams(self, defaults, unused_model_hparams):
-    p = defaults
-    source_vocab_size = self._encoders["inputs"].vocab_size
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, source_vocab_size)}
-    p.target_modality = (registry.Modalities.SYMBOL, self.target_vocab_size)
-    p.input_space_id = problem.SpaceID.ICE_TOK
-    p.target_space_id = problem.SpaceID.ICE_PARSE_TOK
-    p.loss_multiplier = 2.5 # Rough estimate of avg number of tokens per word
-
-
-@registry.register_problem("setimes_mken_tokens_32k")
-class SETimesMkEnTokens32k(problem.Problem):
-  """Problem spec for SETimes Mk-En translation."""
-
   @property
   def dev_generator(self):
     return self.train_generator
@@ -734,3 +683,50 @@ def parsing_token_generator(data_dir, tmp_dir, train, vocab_size):
   tree_filepath = os.path.join(tmp_dir, filename)
   return wsj_parsing.token_generator(tree_filepath, symbolizer_vocab,
                                      symbolizer_vocab, EOS)
+
+
+@registry.register_problem("ice_parsing_tokens")
+class IceParsingTokens(problem.Problem):
+  """Problem spec for parsing tokenized Icelandic text to
+    constituency trees, also tokenized but to a smaller vocabulary."""
+
+  @property
+  def source_vocab_size(self):
+    return 2**13  # 8192
+
+  @property
+  def target_vocab_size(self):
+    return 2**8  # 256
+
+  def feature_encoders(self, data_dir):
+    source_vocab_filename = os.path.join(
+        data_dir, "ice_source.tokens.vocab.%d" % self.source_vocab_size)
+    target_vocab_filename = os.path.join(
+        data_dir, "ice_target.tokens.vocab.%d" % self.target_vocab_size)
+    source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
+    target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
+    return {
+        "inputs": source_subtokenizer,
+        "targets": target_subtokenizer,
+    }
+
+  def generate_data(self, data_dir, tmp_dir, num_shards=100):
+    generator_utils.generate_dataset_and_shuffle(
+        tabbed_parsing_token_generator(tmp_dir, True, "ice",
+                                       self.source_vocab_size,
+                                       self.target_vocab_size),
+        self.training_filepaths(data_dir, num_shards, shuffled=False),
+        tabbed_parsing_token_generator(tmp_dir, False, "ice",
+                                       self.source_vocab_size,
+                                       self.target_vocab_size),
+        self.dev_filepaths(data_dir, 1, shuffled=False))
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    source_vocab_size = self._encoders["inputs"].vocab_size
+    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, source_vocab_size)}
+    p.target_modality = (registry.Modalities.SYMBOL, self.target_vocab_size)
+    p.input_space_id = problem.SpaceID.ICE_TOK
+    p.target_space_id = problem.SpaceID.ICE_PARSE_TOK
+    p.loss_multiplier = 2.5 # Rough estimate of avg number of tokens per word
+
