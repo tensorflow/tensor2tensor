@@ -28,6 +28,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import random
 import tempfile
 
@@ -35,7 +36,6 @@ import tempfile
 
 import numpy as np
 
-from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import algorithmic_math
 from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
 from tensor2tensor.data_generators import audio
@@ -60,89 +60,45 @@ flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
                     "Temporary storage directory.")
 flags.DEFINE_string("problem", "",
                     "The name of the problem to generate data for.")
+flags.DEFINE_string("exclude_problems", "",
+                    "Comma-separates list of problems to exclude.")
 flags.DEFINE_integer("num_shards", 10, "How many shards to use.")
 flags.DEFINE_integer("max_cases", 0,
                      "Maximum number of cases to generate (unbounded if 0).")
 flags.DEFINE_integer("random_seed", 429459, "Random seed to use.")
-
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
                     "The imported files should contain registrations, "
-                    "e.g. @registry.register_model calls, that will then be "
-                    "available to the t2t-datagen.")
+                    "e.g. @registry.register_problem calls, that will then be "
+                    "available to t2t-datagen.")
 
 # Mapping from problems that we can generate data for to their generators.
 # pylint: disable=g-long-lambda
 _SUPPORTED_PROBLEM_GENERATORS = {
-    "algorithmic_shift_decimal40": (
-        lambda: algorithmic.shift_generator(20, 10, 40, 100000),
-        lambda: algorithmic.shift_generator(20, 10, 80, 10000)),
-    "algorithmic_reverse_binary40": (
-        lambda: algorithmic.reverse_generator(2, 40, 100000),
-        lambda: algorithmic.reverse_generator(2, 400, 10000)),
-    "algorithmic_reverse_decimal40": (
-        lambda: algorithmic.reverse_generator(10, 40, 100000),
-        lambda: algorithmic.reverse_generator(10, 400, 10000)),
-    "algorithmic_addition_binary40": (
-        lambda: algorithmic.addition_generator(2, 40, 100000),
-        lambda: algorithmic.addition_generator(2, 400, 10000)),
-    "algorithmic_addition_decimal40": (
-        lambda: algorithmic.addition_generator(10, 40, 100000),
-        lambda: algorithmic.addition_generator(10, 400, 10000)),
-    "algorithmic_multiplication_binary40": (
-        lambda: algorithmic.multiplication_generator(2, 40, 100000),
-        lambda: algorithmic.multiplication_generator(2, 400, 10000)),
-    "algorithmic_multiplication_decimal40": (
-        lambda: algorithmic.multiplication_generator(10, 40, 100000),
-        lambda: algorithmic.multiplication_generator(10, 400, 10000)),
-    "algorithmic_reverse_nlplike_decimal8K": (
-        lambda: algorithmic.reverse_generator_nlplike(8000, 70, 100000,
-                                                      10, 1.300),
-        lambda: algorithmic.reverse_generator_nlplike(8000, 70, 10000,
-                                                      10, 1.300)),
-    "algorithmic_reverse_nlplike_decimal32K": (
-        lambda: algorithmic.reverse_generator_nlplike(32000, 70, 100000,
-                                                      10, 1.050),
-        lambda: algorithmic.reverse_generator_nlplike(32000, 70, 10000,
-                                                      10, 1.050)),
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
     "ice_parsing_characters": (
-        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, True),
-        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, False)),
+        lambda: wmt.tabbed_parsing_character_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True),
+        lambda: wmt.tabbed_parsing_character_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False)),
     "wmt_parsing_tokens_8k": (
-        lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, True, 2**13),
-        lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, False, 2**13)),
+        lambda: wmt.parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13),
+        lambda: wmt.parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13)),
     "wsj_parsing_tokens_16k": (
-        lambda: wsj_parsing.parsing_token_generator(FLAGS.tmp_dir, True,
-                                                    2**14, 2**9),
-        lambda: wsj_parsing.parsing_token_generator(FLAGS.tmp_dir, False,
-                                                    2**14, 2**9)),
-    "wmt_enfr_characters": (
-        lambda: wmt.enfr_character_generator(FLAGS.tmp_dir, True),
-        lambda: wmt.enfr_character_generator(FLAGS.tmp_dir, False)),
-    "wmt_enfr_tokens_8k": (
-        lambda: wmt.enfr_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**13),
-        lambda: wmt.enfr_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**13)
-    ),
-    "wmt_enfr_tokens_32k": (
-        lambda: wmt.enfr_wordpiece_token_generator(FLAGS.tmp_dir, True, 2**15),
-        lambda: wmt.enfr_wordpiece_token_generator(FLAGS.tmp_dir, False, 2**15)
-    ),
-    "wmt_ende_characters": (
-        lambda: wmt.ende_character_generator(FLAGS.tmp_dir, True),
-        lambda: wmt.ende_character_generator(FLAGS.tmp_dir, False)),
+        lambda: wsj_parsing.parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 2**14, 2**9),
+        lambda: wsj_parsing.parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9)),
     "wmt_ende_bpe32k": (
-        lambda: wmt.ende_bpe_token_generator(FLAGS.tmp_dir, True),
-        lambda: wmt.ende_bpe_token_generator(FLAGS.tmp_dir, False)),
-    "wmt_zhen_tokens_32k": (
-        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, True,
-                                                   2**15, 2**15),
-        lambda: wmt.zhen_wordpiece_token_generator(FLAGS.tmp_dir, False,
-                                                   2**15, 2**15)
-    ),
+        lambda: wmt.ende_bpe_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True),
+        lambda: wmt.ende_bpe_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False)),
     "lm1b_32k": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False)
@@ -164,98 +120,50 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: image.cifar10_generator(FLAGS.tmp_dir, True, 50000),
         lambda: image.cifar10_generator(FLAGS.tmp_dir, False, 10000)),
     "image_mscoco_characters_test": (
-        lambda: image.mscoco_generator(FLAGS.tmp_dir, True, 80000),
-        lambda: image.mscoco_generator(FLAGS.tmp_dir, False, 40000)),
+        lambda: image.mscoco_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 80000),
+        lambda: image.mscoco_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 40000)),
+    "image_celeba_tune": (
+        lambda: image.celeba_generator(FLAGS.tmp_dir, 162770),
+        lambda: image.celeba_generator(FLAGS.tmp_dir, 19867, 162770)),
     "image_mscoco_tokens_8k_test": (
         lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            80000,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 80000,
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
         lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            False,
-            40000,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 40000,
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13)),
     "image_mscoco_tokens_32k_test": (
         lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            80000,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 80000,
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
         lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            False,
-            40000,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 40000,
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
     "snli_32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),
     ),
-    "audio_timit_characters_tune": (
-        lambda: audio.timit_generator(FLAGS.tmp_dir, True, 1374),
-        lambda: audio.timit_generator(FLAGS.tmp_dir, True, 344, 1374)),
     "audio_timit_characters_test": (
-        lambda: audio.timit_generator(FLAGS.tmp_dir, True, 1718),
-        lambda: audio.timit_generator(FLAGS.tmp_dir, False, 626)),
-    "audio_timit_tokens_8k_tune": (
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            1374,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 1718),
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            344,
-            1374,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 626)),
     "audio_timit_tokens_8k_test": (
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            1718,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            False,
-            626,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13)),
-    "audio_timit_tokens_32k_tune": (
-        lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            1374,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15),
-        lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            344,
-            1374,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13)),
     "audio_timit_tokens_32k_test": (
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            1718,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            False,
-            626,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
     "lmptb_10k": (
         lambda: ptb.train_generator(
             FLAGS.tmp_dir,
@@ -281,6 +189,9 @@ def main(_):
   # Calculate the list of problems to generate.
   problems = sorted(
       list(_SUPPORTED_PROBLEM_GENERATORS) + registry.list_problems())
+  for exclude in FLAGS.exclude_problems.split(","):
+    if exclude:
+      problems = [p for p in problems if exclude not in p]
   if FLAGS.problem and FLAGS.problem[-1] == "*":
     problems = [p for p in problems if p.startswith(FLAGS.problem[:-1])]
   elif FLAGS.problem:
@@ -360,7 +271,9 @@ def generate_data_for_problem(problem):
 
 def generate_data_for_registered_problem(problem_name):
   problem = registry.problem(problem_name)
-  problem.generate_data(FLAGS.data_dir, FLAGS.tmp_dir, FLAGS.num_shards)
+  problem.generate_data(os.path.expanduser(FLAGS.data_dir),
+                        os.path.expanduser(FLAGS.tmp_dir),
+                        FLAGS.num_shards)
 
 
 if __name__ == "__main__":

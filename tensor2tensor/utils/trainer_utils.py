@@ -126,10 +126,10 @@ flags.DEFINE_bool("decode_return_beams", False,
 def _save_until_eos(hyp):
   """Strips everything after the first <EOS> token, which is normally 1."""
   try:
-    index = list(hyp).index(text_encoder.EOS_TOKEN)
+    index = list(hyp).index(text_encoder.EOS_ID)
     return hyp[0:index]
   except ValueError:
-    # No EOS_TOKEN: return the array as-is.
+    # No EOS_ID: return the array as-is.
     return hyp
 
 
@@ -550,6 +550,13 @@ def model_builder(model, hparams):
         optimizer=opt,
         colocate_gradients_with_ops=True)
 
+    # Remove summaries that will fail to run because they are in conditionals.
+    # TODO(cwhipkey): Test with this code removed, later in 2017.
+    summaries = tf.get_collection_ref(tf.GraphKeys.SUMMARIES)
+    for i in range(len(summaries)-1, -1, -1):
+      if summaries[i].name.startswith("cond_"):
+        del summaries[i]
+
     tf.logging.info("Global model_fn finished.")
     return run_info, total_loss, train_op
 
@@ -738,7 +745,7 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
     for inputs in sorted_inputs[b * FLAGS.decode_batch_size:
                                 (b + 1) * FLAGS.decode_batch_size]:
       input_ids = vocabulary.encode(inputs)
-      input_ids.append(text_encoder.EOS_TOKEN)
+      input_ids.append(text_encoder.EOS_ID)
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
@@ -831,7 +838,7 @@ def _interactive_input_fn(hparams):
       if input_type == "text":
         input_ids = vocabulary.encode(input_string)
         if has_input:
-          input_ids.append(text_encoder.EOS_TOKEN)
+          input_ids.append(text_encoder.EOS_ID)
         x = [num_samples, decode_length, len(input_ids)] + input_ids
         assert len(x) < const_array_size
         x += [0] * (const_array_size - len(x))
@@ -1037,7 +1044,10 @@ def get_input_fn(mode,
             capacity *= num_datashards
             examples = data_reader.input_pipeline(data_file_patterns[n],
                                                   capacity, mode)
-            drop_long_sequences = mode == tf.contrib.learn.ModeKeys.TRAIN
+            if mode == tf.contrib.learn.ModeKeys.TRAIN:
+              drop_long_sequences = True
+            else:
+              drop_long_sequences = hparams.eval_drop_long_sequences
             batch_size_multiplier = hparams.problems[n].batch_size_multiplier
             feature_map = data_reader.batch_examples(
                 examples,

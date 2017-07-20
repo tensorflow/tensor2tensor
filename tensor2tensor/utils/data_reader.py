@@ -161,6 +161,10 @@ def preprocessing(examples, data_file_pattern, mode):
       inputs = examples["inputs"]
       examples["inputs"] = resize(inputs, 16)
       examples["targets"] = resize(inputs, 64)
+    elif "image_celeba" in data_file_pattern:
+      inputs = examples["inputs"]
+      examples["inputs"] = resize(inputs, 8)
+      examples["targets"] = resize(inputs, 32)
 
   elif "audio" in data_file_pattern:
     # Reshape audio to proper shape
@@ -181,10 +185,13 @@ def input_pipeline(data_file_pattern, capacity, mode):
   """Input pipeline, returns a dictionary of tensors from queues."""
   # Read from image TFRecords if the file has "image" in its name.
   if data_file_pattern and "image" in data_file_pattern:
+    label_key = "image/class/label"
+    if "fsns" in data_file_pattern:
+      label_key = "image/unpadded_label"
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
-        "image/class/label": tf.VarLenFeature(tf.int64)
+        label_key: tf.VarLenFeature(tf.int64)
     }
     data_items_to_decoders = {
         "inputs":
@@ -193,7 +200,7 @@ def input_pipeline(data_file_pattern, capacity, mode):
                 format_key="image/format",
                 channels=1 if "mnist" in data_file_pattern else 3),
         "targets":
-            tf.contrib.slim.tfexample_decoder.Tensor("image/class/label"),
+            tf.contrib.slim.tfexample_decoder.Tensor(label_key),
     }
   elif data_file_pattern and "audio" in data_file_pattern:
     data_type = tf.int64 if "timit" in data_file_pattern else tf.float32

@@ -28,4 +28,13 @@ from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wiki
 from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import wsj_parsing
+
+# Problem modules that require optional dependencies
+# pylint: disable=g-import-not-at-top
+try:
+  # Requires h5py
+  from tensor2tensor.data_generators import genetics
+except ImportError:
+  pass
+# pylint: enable=g-import-not-at-top
 # pylint: enable=unused-import

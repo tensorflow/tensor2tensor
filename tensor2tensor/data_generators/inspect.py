@@ -17,7 +17,7 @@ r"""Inspect a TFRecord file of tensorflow.Example and show tokenizations.
 python data_generators/inspect.py \
     --logtostderr \
     --print_targets \
-    --subword_text_encoder_filename=$DATA_DIR/tokens.vocab.8192 \
+    --subword_text_encoder_filename=$DATA_DIR/vocab.endefr.8192 \
     --input_filename=$DATA_DIR/wmt_ende_tokens_8k-train-00000-of-00100
 """
 

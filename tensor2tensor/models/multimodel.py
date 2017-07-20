@@ -138,7 +138,6 @@ class MultiModel(t2t_model.T2TModel):
                  hparams.hidden_size,
                  hparams.num_heads,
                  hparams.attention_dropout,
-                 summaries=False,
                  name="decoder_self_attention")
           z = dp(common_attention.multihead_attention,
                  y,
@@ -149,7 +148,6 @@ class MultiModel(t2t_model.T2TModel):
                  hparams.hidden_size,
                  hparams.num_heads,
                  hparams.attention_dropout,
-                 summaries=False,
                  name="encdec_attention")
           x = dp(residual_fn3, x, y, z, hparams)
         with tf.variable_scope("ffn"):

@@ -42,13 +42,20 @@ PAD = "<pad>"
 EOS = "<EOS>"
 RESERVED_TOKENS = [PAD, EOS]
 NUM_RESERVED_TOKENS = len(RESERVED_TOKENS)
-PAD_TOKEN = RESERVED_TOKENS.index(PAD)  # Normally 0
-EOS_TOKEN = RESERVED_TOKENS.index(EOS)  # Normally 1
+PAD_ID = RESERVED_TOKENS.index(PAD)  # Normally 0
+EOS_ID = RESERVED_TOKENS.index(EOS)  # Normally 1
 
 if PY2:
   RESERVED_TOKENS_BYTES = RESERVED_TOKENS
 else:
   RESERVED_TOKENS_BYTES = [bytes(PAD, "ascii"), bytes(EOS, "ascii")]
+
+
+# Regular expression for unescaping token strings.
+# '\u' is converted to '_'
+# '\\' is converted to '\'
+# '\213;' is converted to unichr(213)
+_UNESCAPE_REGEX = re.compile(u"|".join([r"\\u", r"\\\\", r"\\([0-9]+);"]))
 
 
 def native_to_unicode_py2(s):
@@ -505,12 +512,6 @@ class SubwordTextEncoder(TextEncoder):
         ret += u"\\%d;" % ord(c)
     return ret
 
-  # Regular expression for unescaping token strings
-  # '\u' is converted to '_'
-  # '\\' is converted to '\'
-  # '\213;' is converted to unichr(213)
-  _UNESCAPE_REGEX = re.compile(u'|'.join([r"\\u", r"\\\\", r"\\([0-9]+);"]))
-
   def _unescape_token(self, escaped_token):
     """Inverse of _escape_token().
 
@@ -529,4 +530,4 @@ class SubwordTextEncoder(TextEncoder):
       # Convert '\u' to '_' and '\\' to '\'
       return u"_" if m.group(0) == u"\\u" else u"\\"
     # Cut off the trailing underscore and apply the regex substitution
-    return self._UNESCAPE_REGEX.sub(match, escaped_token[:-1])
+    return _UNESCAPE_REGEX.sub(match, escaped_token[:-1])

@@ -12,11 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Self-attention based language model.
+"""Model to generate long answers to short questions.
 
-Like transformer.py, but no encoder
+E.g.  wiki_32k title->article dataset.
 
-decoder: [Self-Attention, Feed-forward] x n
+Variant on attention_lm_moe.py
+ - prepend the inputs to the targets.
+ - use masked local attention to avoid quadratic space and time blowup for
+   long sequences.
+
+This model is still highly experimental and under rapid iteration.
 
 """
 
@@ -38,7 +43,7 @@ import tensorflow as tf
 
 
 @registry.register_model
-class AttentionLmMoe(t2t_model.T2TModel):
+class LongAnswer(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
   def model_fn_body_sharded(self, sharded_features):
@@ -47,9 +52,10 @@ class AttentionLmMoe(t2t_model.T2TModel):
     dp = self._data_parallelism
     targets = sharded_features["targets"]
     targets = dp(tf.squeeze, targets, 2)
+    inputs = sharded_features["inputs"]
+    inputs = dp(tf.squeeze, inputs, 2)
 
-    (decoder_input, decoder_self_attention_bias) = dp(
-        attention_lm_moe_prepare_decoder, targets, hparams)
+    decoder_input = dp(long_answer_prepare_decoder, inputs, targets, hparams)
 
     def residual_fn(x, y):
       return common_layers.layer_norm(x + tf.nn.dropout(
@@ -63,12 +69,14 @@ class AttentionLmMoe(t2t_model.T2TModel):
           y = dp(common_attention.multihead_attention,
                  x,
                  None,
-                 decoder_self_attention_bias,
+                 None,
                  hparams.attention_key_channels or hparams.hidden_size,
                  hparams.attention_value_channels or hparams.hidden_size,
                  hparams.hidden_size,
                  hparams.num_heads,
                  hparams.attention_dropout,
+                 attention_type="local_mask_right",
+                 block_length=hparams.block_length,
                  name="decoder_self_attention")
           x = dp(residual_fn, x, y)
         with tf.variable_scope("ffn"):
@@ -87,38 +95,74 @@ class AttentionLmMoe(t2t_model.T2TModel):
                    hparams.hidden_size,
                    dropout=hparams.relu_dropout)
           x = dp(residual_fn, x, y)
-    decoder_output = dp(tf.expand_dims, x, 2)
-    return decoder_output, extra_loss
+    x = dp(long_answer_output, x, inputs)
+    return x, extra_loss
 
 
-def attention_lm_moe_prepare_decoder(targets, hparams):
+def long_answer_prepare_decoder(inputs, targets, hparams):
   """Prepare one shard of the model for the decoder.
+
+  Args:
+    inputs: a Tensor.
+    targets: a Tensor.
+    hparams: run hyperparameters
+
+  Returns:
+    decoder_input: a Tensor, bottom of decoder stack
+  """
+  decoder_input = tf.concat([
+      length_embedding(targets, hparams), inputs,
+      common_layers.shift_left_3d(targets)], 1)
+  if hparams.pos == "timing":
+    decoder_input = common_attention.add_timing_signal_1d(decoder_input)
+  return decoder_input
+
+
+def length_embedding(targets, hparams):
+  """An embedding indicating approximate target length.
+
+  This is a bit of a hack, where we want to be able to request a particular
+  target length during inference.
+  During training, we sometimes provide a target length.
+  During eval, we never provide a target length.
 
   Args:
     targets: a Tensor.
     hparams: run hyperparameters
 
   Returns:
-    decoder_input: a Tensor, bottom of decoder stack
-    decoder_self_attention_bias: a Tensor, containing large negative values
-    to implement masked attention and possibly baises for diagonal alignments
+    a Tensor with shape [batch, 1, hparams.hidden_size]
   """
-  decoder_self_attention_bias = (
-      common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
-  decoder_input = common_layers.shift_left_3d(targets)
-  if hparams.pos == "timing":
-    decoder_input = common_attention.add_timing_signal_1d(decoder_input)
-  return (decoder_input, decoder_self_attention_bias)
+  # encode the approx target length in case we want to specify it
+  # during inference.
+  batch = tf.shape(targets)[0]
+  padded_target_length = tf.shape(targets)[1]
+  if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN:
+    lengths = padded_target_length * tf.to_int32(
+        tf.less(tf.random_uniform([batch]),
+                hparams.answer_length_prob_train))
+  elif hparams.mode == tf.contrib.learn.ModeKeys.EVAL:
+    lengths = 0
+  else:
+    assert hparams.mode == tf.contrib.learn.ModeKeys.INFER
+    lengths = hparams.answer_length_infer
+  lengths = tf.to_int32(tf.log(tf.to_float(lengths + 1)))
+  lengths = tf.zeros([batch], dtype=tf.int32) + lengths
+  ret = tf.gather(
+      tf.get_variable("answer_length", [100, hparams.hidden_size]), lengths)
+  return tf.expand_dims(ret, 1)
+
+
+def long_answer_output(x, inputs):
+  """Strip initial part corresponding to the inputs and the length embedding."""
+  x = tf.slice(x, [0, tf.shape(inputs)[1] + 1, 0], [-1, -1, -1])
+  x = tf.expand_dims(x, 2)
+  return x
 
 
 @registry.register_hparams
-def attention_lm_moe_base():
+def long_answer_base():
   """Set of hyperparameters.
-
-  suitable for 1 gpu.
-  on lm1b_32k:
-     ~229M params
-     0.9 steps/sec on  [GeForce GTX TITAN X]
 
   Returns:
     a hparams object
@@ -126,13 +170,14 @@ def attention_lm_moe_base():
   hparams = common_hparams.basic_params1()
   hparams.hidden_size = 1024
   hparams.batch_size = 8192
-  hparams.max_length = 256
+  hparams.max_length = 8192
   hparams.dropout = 0.0
+  hparams.batching_mantissa_bits = 3
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.learning_rate_decay_scheme = "noam"
   hparams.learning_rate = 0.1
-  hparams.learning_rate_warmup_steps = 2000
+  hparams.learning_rate_warmup_steps = 1000
   hparams.initializer_gain = 1.0
   hparams.num_hidden_layers = 4
   hparams.initializer = "uniform_unit_scaling"
@@ -141,7 +186,8 @@ def attention_lm_moe_base():
   hparams.optimizer_adam_beta2 = 0.98
   hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.0
-  hparams.shared_embedding_and_softmax_weights = int(False)
+  hparams.shared_embedding_and_softmax_weights = int(True)
+  hparams.sampling_method = "random"
   hparams.add_hparam("filter_size", 2048)  # Add new ones like this.
   # comma-separated list of layer numbers.
   # At each of these layers, we replace the ffn with a mixture of experts.
@@ -149,7 +195,7 @@ def attention_lm_moe_base():
   # If moe_n2 is None, then use a flat MoE with moe_n1 experts.
   # If moe_n2 is an integer, then use a hierarchical MoE
   #   consisting of moe_n1 groups of moe_n2 experts each.
-  hparams.add_hparam("moe_n1", 32)
+  hparams.add_hparam("moe_n1", 64)
   hparams.add_hparam("moe_n2", 0)
   hparams.add_hparam("moe_hidden_size", 2048)
   hparams.add_hparam("moe_loss_coef", 1e-2)
@@ -161,25 +207,46 @@ def attention_lm_moe_base():
   # when not in training mode.
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
-  hparams.add_hparam("residual_dropout", 0.1)
+  hparams.add_hparam("residual_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
+  hparams.add_hparam("block_length", 512)
+  hparams.add_hparam("answer_length_prob_train", 0.5)
+  hparams.add_hparam("answer_length_infer", 1000)
+  # We cannot handle long sequence at this point, so drop them, during eval.
+  # This affects evaluation metrics.
+  # TODO(noam): find a different workaround
+  hparams.eval_drop_long_sequences = int(True)
   return hparams
 
 
 @registry.register_hparams
-def attention_lm_moe_small():
-  """Cheap model for single-gpu training.
-
-  on lm1b_32k:
-     ~312M params
-     1.6 steps/sec on  [GeForce GTX TITAN X]
-     After 50K steps on 8 GPUs (synchronous):
-        eval_log_ppl_per_token = 3.31
+def long_answer_tiny():
+  """Cheap model for validation.
 
   Returns:
     an hparams object.
   """
-  hparams = attention_lm_moe_base()
+  hparams = long_answer_base()
+  hparams.num_hidden_layers = 3
+  hparams.hidden_size = 512
+  hparams.filter_size = 1024
+  hparams.moe_layers = "2"
+  hparams.moe_hidden_size = 1024
+  hparams.block_length = 128
+  hparams.moe_n1 = 8
+  hparams.batch_size = 2048
+  hparams.max_length = 2048
+  return hparams
+
+
+@registry.register_hparams
+def long_answer_small():
+  """Cheap model for single-gpu training.
+
+  Returns:
+    an hparams object.
+  """
+  hparams = long_answer_base()
   hparams.num_hidden_layers = 4
   hparams.hidden_size = 512
   hparams.filter_size = 2048
@@ -190,45 +257,18 @@ def attention_lm_moe_small():
 
 
 @registry.register_hparams
-def attention_lm_no_moe_small():
-  """Without the mixture of experts (for comparison).
-
-  on lm1b_32k:
-     ~45M params
-     2 steps/sec on  [GeForce GTX TITAN X]
-     After 50K steps on 8 GPUs (synchronous):
-        eval_log_ppl_per_token = 3.51
-
-  Returns:
-    an hparams object.
-  """
-  hparams = attention_lm_moe_small()
-  hparams.moe_layers = ""
-  return hparams
-
-
-@registry.register_hparams
-def attention_lm_moe_large():
+def long_answer_large():
   """Large model for distributed training.
 
-  Over 1B parameters, so requires multi-gpu training due to memory
-   requirements.
-
-  on lm1b_32k:
-     After 45K steps on 8 GPUs (synchronous):
-        eval_log_ppl_per_token = 3.18
-        eval_ppl_per_word = exp(1.107893 * eval_log_ppl_per_token) = 33.9
-
   Returns:
     an hparams object.
   """
-  hparams = attention_lm_moe_base()
+  hparams = long_answer_base()
   hparams.num_hidden_layers = 5
   hparams.moe_layers = "3"
   hparams.hidden_size = 1024
-  hparams.num_heads = 16
   hparams.filter_size = 4096
   hparams.moe_hidden_size = 4096
   hparams.moe_n1 = 128
-  hparams.residual_dropout = 0.2
+  hparams.block_length = 1024
   return hparams
