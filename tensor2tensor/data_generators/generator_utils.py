@@ -244,16 +244,13 @@ _DATA_FILE_URLS = [
         "http://www.statmt.org/wmt13/training-parallel-un.tgz",
         ["un/undoc.2000.fr-en.en", "un/undoc.2000.fr-en.fr"]
     ],
-    [
-        "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.train.tgz",  # pylint: disable=line-too-long
-        ["train.mk", "train.en"]
-    ],
 ]
 
 
-def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
+def get_or_generate_vocab(data_dir, tmp_dir,
+                          vocab_filename, vocab_size, sources=None):
   """Generate a vocabulary from the datasets in sources (_DATA_FILE_URLS)."""
-  vocab_filepath = os.path.join(tmp_dir, vocab_filename)
+  vocab_filepath = os.path.join(data_dir, vocab_filename)
   if tf.gfile.Exists(vocab_filepath):
     tf.logging.info("Found vocab file: %s", vocab_filepath)
     vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
@@ -304,7 +301,7 @@ def get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size, sources=None):
   return vocab
 
 
-def get_or_generate_tabbed_vocab(tmp_dir, source_filename,
+def get_or_generate_tabbed_vocab(data_dir, tmp_dir, source_filename,
                                  index, vocab_filename, vocab_size):
   r"""Generate a vocabulary from a tabbed source file.
 
@@ -313,6 +310,7 @@ def get_or_generate_tabbed_vocab(tmp_dir, source_filename,
   The index parameter specifies 0 for the source or 1 for the target.
 
   Args:
+    data_dir: path to the data directory.
     tmp_dir: path to the temporary directory.
     source_filename: the name of the tab-separated source file.
     index: index.
@@ -322,7 +320,7 @@ def get_or_generate_tabbed_vocab(tmp_dir, source_filename,
   Returns:
     The vocabulary.
   """
-  vocab_filepath = os.path.join(tmp_dir, vocab_filename)
+  vocab_filepath = os.path.join(data_dir, vocab_filename)
   if os.path.exists(vocab_filepath):
     vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
     return vocab

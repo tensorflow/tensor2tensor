@@ -230,7 +230,8 @@ def _get_mscoco(directory):
       zipfile.ZipFile(path, "r").extractall(directory)
 
 
-def mscoco_generator(tmp_dir,
+def mscoco_generator(data_dir,
+                     tmp_dir,
                      training,
                      how_many,
                      start_from=0,
@@ -240,6 +241,7 @@ def mscoco_generator(tmp_dir,
   """Image generator for MSCOCO captioning problem with token-wise captions.
 
   Args:
+    data_dir: path to the data directory.
     tmp_dir: path to temporary storage directory.
     training: a Boolean; if true, we use the train set, otherwise the test set.
     how_many: how many images and labels to generate.
@@ -261,7 +263,7 @@ def mscoco_generator(tmp_dir,
   eos_list = [1] if eos_list is None else eos_list
   if vocab_filename is not None:
     vocab_symbolizer = generator_utils.get_or_generate_vocab(
-        tmp_dir, vocab_filename, vocab_size)
+        data_dir, tmp_dir, vocab_filename, vocab_size)
   _get_mscoco(tmp_dir)
   caption_filepath = (_MSCOCO_TRAIN_CAPTION_FILE
                       if training else _MSCOCO_EVAL_CAPTION_FILE)

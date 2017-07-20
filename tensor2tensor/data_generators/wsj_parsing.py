@@ -86,7 +86,7 @@ def token_generator(tree_path, source_token_vocab, target_token_vocab,
       tree_line = tree_file.readline()
 
 
-def parsing_token_generator(tmp_dir, train, source_vocab_size,
+def parsing_token_generator(data_dir, tmp_dir, train, source_vocab_size,
                             target_vocab_size):
   """Generator for parsing as a sequence-to-sequence task that uses tokens.
 
@@ -94,8 +94,9 @@ def parsing_token_generator(tmp_dir, train, source_vocab_size,
   trees in wsj format.
 
   Args:
-    tmp_dir: path to the file with source sentences.
-    train: path to the file with target sentences.
+    data_dir: path to the data directory.
+    tmp_dir: path to temporary storage directory.
+    train: whether we're training or not.
     source_vocab_size: source vocab size.
     target_vocab_size: target vocab size.
 
@@ -103,10 +104,10 @@ def parsing_token_generator(tmp_dir, train, source_vocab_size,
     A generator to a dictionary of inputs and outputs.
   """
   source_symbolizer_vocab = generator_utils.get_or_generate_vocab(
-      tmp_dir, "wsj_source.tokens.vocab.%d" % source_vocab_size,
+      data_dir, tmp_dir, "wsj_source.vocab.%d" % source_vocab_size,
       source_vocab_size)
   target_symbolizer_vocab = generator_utils.get_or_generate_vocab(
-      tmp_dir, "wsj_target.tokens.vocab.%d" % target_vocab_size,
+      data_dir, tmp_dir, "wsj_target.vocab.%d" % target_vocab_size,
       target_vocab_size)
   filename = "%s_%s.trees" % (FLAGS.parsing_path, "train" if train else "dev")
   tree_filepath = os.path.join(tmp_dir, filename)

@@ -97,7 +97,8 @@ def _get_text_data(filepath):
     return " ".join(words)
 
 
-def timit_generator(tmp_dir,
+def timit_generator(data_dir,
+                    tmp_dir,
                     training,
                     how_many,
                     start_from=0,
@@ -107,6 +108,7 @@ def timit_generator(tmp_dir,
   """Data generator for TIMIT transcription problem.
 
   Args:
+    data_dir: path to the data directory.
     tmp_dir: path to temporary storage directory.
     training: a Boolean; if true, we use the train set, otherwise the test set.
     how_many: how many inputs and labels to generate.
@@ -128,7 +130,7 @@ def timit_generator(tmp_dir,
   eos_list = [1] if eos_list is None else eos_list
   if vocab_filename is not None:
     vocab_symbolizer = generator_utils.get_or_generate_vocab(
-        tmp_dir, vocab_filename, vocab_size)
+        data_dir, tmp_dir, vocab_filename, vocab_size)
   _get_timit(tmp_dir)
   datasets = (_TIMIT_TRAIN_DATASETS if training else _TIMIT_TEST_DATASETS)
   i = 0

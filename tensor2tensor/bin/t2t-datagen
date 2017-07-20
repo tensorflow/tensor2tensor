@@ -80,24 +80,30 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
     "ice_parsing_tokens": (
-        lambda: wmt.tabbed_parsing_token_generator(FLAGS.tmp_dir,
-                                                   True, "ice", 2**13, 2**8),
-        lambda: wmt.tabbed_parsing_token_generator(FLAGS.tmp_dir,
-                                                   False, "ice", 2**13, 2**8)),
+        lambda: wmt.tabbed_parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True, "ice", 2**13, 2**8),
+        lambda: wmt.tabbed_parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False, "ice", 2**13, 2**8)),
     "ice_parsing_characters": (
-        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, True),
-        lambda: wmt.tabbed_parsing_character_generator(FLAGS.tmp_dir, False)),
+        lambda: wmt.tabbed_parsing_character_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True),
+        lambda: wmt.tabbed_parsing_character_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False)),
     "wmt_parsing_tokens_8k": (
-        lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, True, 2**13),
-        lambda: wmt.parsing_token_generator(FLAGS.tmp_dir, False, 2**13)),
+        lambda: wmt.parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13),
+        lambda: wmt.parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13)),
     "wsj_parsing_tokens_16k": (
-        lambda: wsj_parsing.parsing_token_generator(FLAGS.tmp_dir, True,
-                                                    2**14, 2**9),
-        lambda: wsj_parsing.parsing_token_generator(FLAGS.tmp_dir, False,
-                                                    2**14, 2**9)),
+        lambda: wsj_parsing.parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 2**14, 2**9),
+        lambda: wsj_parsing.parsing_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9)),
     "wmt_ende_bpe32k": (
-        lambda: wmt.ende_bpe_token_generator(FLAGS.tmp_dir, True),
-        lambda: wmt.ende_bpe_token_generator(FLAGS.tmp_dir, False)),
+        lambda: wmt.ende_bpe_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True),
+        lambda: wmt.ende_bpe_token_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False)),
     "lm1b_32k": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False)
@@ -119,101 +125,50 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: image.cifar10_generator(FLAGS.tmp_dir, True, 50000),
         lambda: image.cifar10_generator(FLAGS.tmp_dir, False, 10000)),
     "image_mscoco_characters_test": (
-        lambda: image.mscoco_generator(FLAGS.tmp_dir, True, 80000),
-        lambda: image.mscoco_generator(FLAGS.tmp_dir, False, 40000)),
+        lambda: image.mscoco_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 80000),
+        lambda: image.mscoco_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 40000)),
     "image_celeba_tune": (
         lambda: image.celeba_generator(FLAGS.tmp_dir, 162770),
         lambda: image.celeba_generator(FLAGS.tmp_dir, 19867, 162770)),
     "image_mscoco_tokens_8k_test": (
         lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            80000,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 80000,
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
         lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            False,
-            40000,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 40000,
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13)),
     "image_mscoco_tokens_32k_test": (
         lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            True,
-            80000,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 80000,
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
         lambda: image.mscoco_generator(
-            FLAGS.tmp_dir,
-            False,
-            40000,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 40000,
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
     "snli_32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),
     ),
-    "audio_timit_characters_tune": (
-        lambda: audio.timit_generator(FLAGS.tmp_dir, True, 1374),
-        lambda: audio.timit_generator(FLAGS.tmp_dir, True, 344, 1374)),
     "audio_timit_characters_test": (
-        lambda: audio.timit_generator(FLAGS.tmp_dir, True, 1718),
-        lambda: audio.timit_generator(FLAGS.tmp_dir, False, 626)),
-    "audio_timit_tokens_8k_tune": (
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            1374,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 1718),
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            344,
-            1374,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 626)),
     "audio_timit_tokens_8k_test": (
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            1718,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            False,
-            626,
-            vocab_filename="tokens.vocab.%d" % 2**13,
-            vocab_size=2**13)),
-    "audio_timit_tokens_32k_tune": (
-        lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            1374,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15),
-        lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            344,
-            1374,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
+            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13)),
     "audio_timit_tokens_32k_test": (
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            True,
-            1718,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15),
+            FLAGS.data_dir, FLAGS.tmp_dir, True, 1718,
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
         lambda: audio.timit_generator(
-            FLAGS.tmp_dir,
-            False,
-            626,
-            vocab_filename="tokens.vocab.%d" % 2**15,
-            vocab_size=2**15)),
+            FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
     "lmptb_10k": (
         lambda: ptb.train_generator(
             FLAGS.tmp_dir,

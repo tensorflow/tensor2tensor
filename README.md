@@ -26,6 +26,21 @@ issues](https://github.com/tensorflow/tensor2tensor/issues).
 And chat with us and other users on
 [Gitter](https://gitter.im/tensor2tensor/Lobby).
 
+Here is a one-command version that installs tensor2tensor, downloads the data,
+trains an English-German translation model, and lets you use it interactively:
+```
+pip install tensor2tensor && t2t-trainer \
+  --generate_data \
+  --data_dir=~/t2t_data \
+  --problems=wmt_ende_tokens_32k \
+  --model=transformer \
+  --hparams_set=transformer_base_single_gpu \
+  --output_dir=~/t2t_train/base \
+  --decode_interactive
+```
+
+See the [Walkthrough](#walkthrough) below for more details on each step.
+
 ### Contents
 
 * [Walkthrough](#walkthrough)
@@ -71,8 +86,6 @@ t2t-datagen \
   --tmp_dir=$TMP_DIR \
   --num_shards=100 \
   --problem=$PROBLEM
-
-cp $TMP_DIR/tokens.vocab.* $DATA_DIR
 
 # Train
 # *  If you run out of memory, add --hparams='batch_size=2048' or even 1024.
