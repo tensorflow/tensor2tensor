@@ -23,8 +23,6 @@ import time
 
 import tensorflow as tf
 
-from tensorflow.python.ops import lookup_ops
-
 from . import attention_model
 from . import gnmt_model
 from . import inference
@@ -59,10 +57,8 @@ def create_train_model(model_creator, hparams, scope=None):
   graph = tf.Graph()
 
   with graph.as_default():
-    src_vocab_table = lookup_ops.index_table_from_file(
-        src_vocab_file, default_value=vocab_utils.UNK_ID)
-    tgt_vocab_table = lookup_ops.index_table_from_file(
-        tgt_vocab_file, default_value=vocab_utils.UNK_ID)
+    src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
+        src_vocab_file, tgt_vocab_file, hparams.share_vocab)
 
     src_dataset = tf.contrib.data.TextLineDataset(src_file)
     tgt_dataset = tf.contrib.data.TextLineDataset(tgt_file)
@@ -111,10 +107,8 @@ def create_eval_model(model_creator, hparams, scope=None):
   graph = tf.Graph()
 
   with graph.as_default():
-    src_vocab_table = lookup_ops.index_table_from_file(
-        src_vocab_file, default_value=vocab_utils.UNK_ID)
-    tgt_vocab_table = lookup_ops.index_table_from_file(
-        tgt_vocab_file, default_value=vocab_utils.UNK_ID)
+    src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
+        src_vocab_file, tgt_vocab_file, hparams.share_vocab)
     src_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
     tgt_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
     src_dataset = tf.contrib.data.TextLineDataset(src_file_placeholder)

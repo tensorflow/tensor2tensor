@@ -53,10 +53,8 @@ def create_infer_model(
   tgt_vocab_file = hparams.tgt_vocab_file
 
   with graph.as_default():
-    src_vocab_table = lookup_ops.index_table_from_file(
-        src_vocab_file, default_value=vocab_utils.UNK_ID)
-    tgt_vocab_table = lookup_ops.index_table_from_file(
-        tgt_vocab_file, default_value=vocab_utils.UNK_ID)
+    src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
+        src_vocab_file, tgt_vocab_file, hparams.share_vocab)
     reverse_tgt_vocab_table = lookup_ops.index_to_string_table_from_file(
         tgt_vocab_file, default_value=vocab_utils.UNK)
 
