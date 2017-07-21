@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -121,6 +122,8 @@ flags.DEFINE_bool("decode_return_beams", False,
                   "Whether to return 1 (False) or all (True) beams. The \n "
                   "output file will have the format "
                   "<beam1>\t<beam2>..\t<input>")
+flags.DEFINE_integer("decode_max_input_size", -1,
+                     "Maximum number of ids in input. Or <= 0 for no max.")
 
 
 def _save_until_eos(hyp):
@@ -693,17 +696,22 @@ def decode_from_file(estimator, filename):
   decodes.reverse()
   # Dumping inputs and outputs to file filename.decodes in
   # format result\tinput in the same order as original inputs
-  if FLAGS.decode_shards > 1:
-    base_filename = filename + ("%.2d" % FLAGS.worker_id)
+  if FLAGS.decode_to_file:
+    output_filename = FLAGS.decode_to_file
   else:
-    base_filename = filename
+    output_filename = filename
+  if FLAGS.decode_shards > 1:
+    base_filename = output_filename + ("%.2d" % FLAGS.worker_id)
+  else:
+    base_filename = output_filename
   decode_filename = (base_filename + "." + FLAGS.model + "." + FLAGS.hparams_set
                      + ".beam" + str(FLAGS.decode_beam_size) + ".alpha" +
                      str(FLAGS.decode_alpha) + ".decodes")
   tf.logging.info("Writing decodes into %s" % decode_filename)
   outfile = tf.gfile.Open(decode_filename, "w")
   for index in range(len(sorted_inputs)):
-    outfile.write("%s\n" % (decodes[sorted_keys[index]]))
+    outfile.write("%s\t%s\n" % (decodes[sorted_keys[index]],
+                                sorted_inputs[sorted_keys[index]]))
 
 
 def decode_interactively(estimator):
@@ -744,6 +752,9 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
     for inputs in sorted_inputs[b * FLAGS.decode_batch_size:
                                 (b + 1) * FLAGS.decode_batch_size]:
       input_ids = vocabulary.encode(inputs)
+      if FLAGS.decode_max_input_size > 0:
+        # Subtract 1 for the EOS_ID.
+        input_ids = input_ids[:FLAGS.decode_max_input_size - 1]
       input_ids.append(text_encoder.EOS_ID)
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:

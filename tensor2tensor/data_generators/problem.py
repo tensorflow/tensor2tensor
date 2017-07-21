@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -69,10 +70,6 @@ class SpaceID(object):
   ICE_PARSE_TOK = 19
   # Macedonian tokens
   MK_TOK = 20
-  # Czech tokens
-  CS_TOK = 21
-  # Czech characters
-  CS_CHR = 22
 
 
 class Problem(object):
