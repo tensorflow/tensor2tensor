@@ -73,3 +73,36 @@ def magic_decoder(decoder_input,
         x = residual_fn(x, transformer.transformer_ffn_layer(x, hparams))
   return x
 ```
+
+```
+def sliding_window(q,
+                   k,
+                   v,
+                   bias,
+                   window_size=None,
+                   dropout_rate=0.0,
+                   summaries=False,
+                   name=None):
+                   
+  def single(index, size, q, k, v, **kwargs):
+    # q initially of form batch x heads x depth
+    
+    length = tf.shape(k)[2]
+    index_begin = tf.maximum(0, index-size)
+    index_end = tf.minimum(length-1, index+size)
+    
+    q = tf.expand_dims(q, 2)
+    k = k[:,:,index_begin:index_end,:]
+    v = v[:,:,index_begin:index_end,:]
+    out = dot_product_attention(q, k, v, **kwargs)
+    out = tf.squeeze(out, 2)
+    return out
+                   
+  q = tf.transpose(q, [2, 0, 1, 3])
+  indices = tf.range(tf.shape(q)[0])
+  
+  out = tf.map_fn(lambda ii: single(ii, 10, q[ii], k, v, bias=None), indices, dtype=tf.float32)
+  out = tf.transpose(out, [1, 2, 0, 3])
+    
+  return out
+```
