@@ -59,9 +59,8 @@ class TransformerAlt(t2t_model.T2TModel):
         transformer_prepare_encoder(inputs, target_space, hparams) )
     (decoder_input, decoder_self_attention_bias) = transformer.\
         transformer_prepare_decoder(targets, hparams)
-    
+
     encoder_mask = bias_to_mask(encoder_attention_bias)
-    decoder_mask = bias_to_mask(decoder_self_attention_bias)
 
     def residual_fn(x, y):
       return common_layers.layer_norm(x + tf.nn.dropout(
@@ -69,11 +68,12 @@ class TransformerAlt(t2t_model.T2TModel):
 
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
     decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
+
     encoder_output = alt_transformer_encoder(
         encoder_input, residual_fn, encoder_mask, hparams)
 
     decoder_output = alt_transformer_decoder(
-        decoder_input, encoder_output, residual_fn, decoder_mask,
+        decoder_input, encoder_output, residual_fn,
         encoder_attention_bias, hparams)
         
     decoder_output = tf.expand_dims(decoder_output, 2)
@@ -93,6 +93,7 @@ def composite_layer(inputs, mask, hparams, for_output=False):
                 hparams.hidden_size,
                 x,
                 mask=mask,
+                sequential=for_output,
                 dropout=hparams.relu_dropout)
   
   # Transforms elements to get a context, and then uses this in a final layer
@@ -127,12 +128,11 @@ def alt_transformer_encoder(encoder_input,
                             hparams,
                             name="encoder"):
 
-  x = encoder_input
-  
   # Summaries don't work in multi-problem setting yet.
   summaries = "problems" not in hparams.values() or len(hparams.problems) == 1
-  
+
   with tf.variable_scope(name):
+    x = encoder_input
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         x = residual_fn(x, composite_layer(x, mask, hparams))
@@ -143,16 +143,15 @@ def alt_transformer_encoder(encoder_input,
 def alt_transformer_decoder(decoder_input,
                             encoder_output,
                             residual_fn,
-                            mask,
                             encoder_decoder_attention_bias,
                             hparams,
                             name="decoder"):
 
-  x = decoder_input
-  
   # Summaries don't work in multi-problem setting yet.
   summaries = "problems" not in hparams.values() or len(hparams.problems) == 1
+
   with tf.variable_scope(name):
+    x = decoder_input
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         
@@ -168,7 +167,7 @@ def alt_transformer_decoder(decoder_input,
                  summaries=summaries,
                  name="encdec_attention")
 
-        x_ = residual_fn(x_, composite_layer(x_, mask, hparams, for_output=True))
+        x_ = residual_fn(x_, composite_layer(x_, None, hparams, for_output=True))
         x = residual_fn(x, x_)
         
   return x
@@ -177,6 +176,7 @@ def bias_to_mask(bias):
     # We need masks of the form batch size x input sequences
     # Biases seem to be of the form batch_size x 1 x input sequences x vec dim
     #  Squeeze out dim one, and get the first element of each vector
+
     bias = tf.squeeze(bias, [1])[:,:,0]
     bias = - tf.clip_by_value(bias, -1.0, 1.0)
     mask = 1 - bias
@@ -189,8 +189,9 @@ def transformer_alt():
   """Set of hyperparameters."""
   hparams = transformer.transformer_base()
   hparams.batch_size = 2048
+  hparams.num_hidden_layers = 3
   hparams.add_hparam("layers_per_layer", 4)
-  #hparams.add_hparam("composite_layer_type", "ravanbakhsh") #ravanbakhsh or reembedding
-  hparams.add_hparam("composite_layer_type", "reembedding")
+  hparams.add_hparam("composite_layer_type", "ravanbakhsh") #ravanbakhsh or reembedding
+  #hparams.add_hparam("composite_layer_type", "reembedding")
   return hparams
 

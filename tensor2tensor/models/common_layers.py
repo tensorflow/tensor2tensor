@@ -1379,11 +1379,13 @@ def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
         logits=logits, labels=soft_targets)
     return xentropy - normalizing
 
+
    
 def global_pool_1d(inputs, pooling_type='MAX', mask=None):
   """
   Pools elements across the last dimension. Useful to a list of vectors into a
   single vector to get a representation of a set.
+  Concatenating 
   
   Args
       inputs: A tensor of dimensions batch_size x sequence_length x input_dims
@@ -1415,18 +1417,19 @@ def global_pool_1d(inputs, pooling_type='MAX', mask=None):
         output = tf.reduce_mean(inputs, axis=1) 
     
   return output
-  
 
-def running_global_pool_1d(inputs):
+
+def running_global_pool_1d(inputs, pooling_type='MAX'):
   """
   Same global pool, but only for the elements up to the current element. Useful
   for outputs where the state of future elements is not known.
   Takes no mask as all elements up to the current element are assumed to exist.
-  Currently only supports maximum.
+  Currently only supports maximum. Equivalent to using a lower triangle bias.
   
   Args
       inputs: A tensor of dimensions batch_size x sequence_length x input_dims
         containing the sequences of input vectors.
+      pooling_type: Pooling type to use. Currently only supports 'MAX'.
   Outputs
       output: A tensor of dimensions batch_size x sequence_length x input_dims
         dimension containing the running 'totals'.
@@ -1438,7 +1441,7 @@ def running_global_pool_1d(inputs):
     # Permute inputs so seq_length is first
     elems = tf.transpose(inputs, [1, 0, 2])
 	
-	# Perform scan
+	  # Perform scan
     cumulatives = tf.scan(scan_fct, elems, swap_memory=True)
 	
     # Permute output to get back to original order
@@ -1446,7 +1449,7 @@ def running_global_pool_1d(inputs):
     
   return output
   
-  
+
 def linear_set_layer(layer_size,
                      inputs,
                      context=None,
@@ -1464,15 +1467,14 @@ def linear_set_layer(layer_size,
       layer_size: Dimension to transform the input vectors to
       inputs: A tensor of dimensions batch_size x sequence_length x input_dims
         containing the sequences of input vectors.
-      context: A tensor of dimensions batch_size x context_dims
-        containing a global statistic about the set.
+      context: A tensor of dimensions batch_size x context_dims or batch_size x
+        sequence_length x  context_dims containing a global statistic about the
+        set.
       dropout: Dropout probability.
       activation_fn: The activation function to use.
   Outputs
       output: A tensor of dimensions batch_size x sequence_length x output_dims
         dimension containing the sequences of transformed vectors.
-        
-  TODO: Add bias add.
   """
     
   with tf.variable_scope(name, "linear_set_layer", [inputs]):
@@ -1500,10 +1502,12 @@ def linear_set_layer(layer_size,
         
     return outputs
     
-    
+
+
 def ravanbakhsh_set_layer(layer_size,
                           inputs,
                           mask=None,
+                          sequential=False,
                           activation_fn=tf.nn.tanh,
                           dropout=0.0,
                           name=None):
@@ -1518,18 +1522,27 @@ def ravanbakhsh_set_layer(layer_size,
         containing the sequences of input vectors.
       mask: A tensor of dimensions batch_size x sequence_length containing a
         mask for the inputs with 1's for existing elements, and 0's elsewhere.
-      activation_fn: The activation function to use.
+      sequential: If true, will use a running global pool so each element will
+        only depend on those before it. Set true if this layer is being used in
+        an ouput sequence. 
   Outputs
       output: A tensor of dimensions batch_size x sequence_length x vector
         dimension containing the sequences of transformed vectors.
   """
     
   with tf.variable_scope(name, "ravanbakhsh_set_layer", [inputs]):
-    output = linear_set_layer(
-        layer_size,
-        inputs - tf.expand_dims(global_pool_1d(inputs, mask=mask), axis=1),
-        activation_fn=activation_fn,
-        name=name)
+    if sequential:
+      output = linear_set_layer(
+          layer_size,
+          inputs - running_global_pool_1d(inputs),
+          activation_fn=activation_fn,
+          name=name)
+    else:
+      output = linear_set_layer(
+          layer_size,
+          inputs - tf.expand_dims(global_pool_1d(inputs, mask=mask), axis=1),
+          activation_fn=activation_fn,
+          name=name)
         
     return output
 

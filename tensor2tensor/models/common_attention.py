@@ -345,6 +345,57 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
+def sliding_window_attention(window_size,
+                             q,
+                             k,
+                             v,
+                             bias,
+                             *args):
+  """ Sliding window wrapper for dot product attention. Each element only
+  attends to the elements (window_size/2) before and after it. This reduces
+  the computational complexity for long sequences at the expense of eliminating
+  long-term dependencies.
+
+  N.B: For short input sequences this is much slower than just using
+    un-windowed attention. use only for long sequences.
+
+  Args:
+    window_size: an integer
+    q: a Tensor with shape [batch, heads, length_q, depth_k]
+    k: a Tensor with shape [batch, heads, length_kv, depth_k]
+    v: a Tensor with shape [batch, heads, length_kv, depth_v]
+    bias: bias Tensor (see attention_bias())
+
+  Returns:
+    A Tensor.
+  """
+
+  half_size = window_size // 2
+
+  # Wrapper function for dot product attention with a single query vector
+  def single(index, size, q, k, v, bias, **kwargs):
+    length_kv = tf.shape(k)[2]
+    index_begin = tf.maximum(0, index-size)
+    index_end = tf.minimum(length_kv-1, index+size)
+    q = tf.expand_dims(q, 2)
+    bias = tf.expand_dims(bias, 3)
+    k = k[:,:,index_begin:index_end,:]
+    v = v[:,:,index_begin:index_end,:]
+    out = dot_product_attention(q, k, v, bias, *args)
+    out = tf.squeeze(out, 2)
+    return out
+  
+  # We'll loop over each element of q, computing it's corresponding output.
+  q = tf.transpose(q, [2, 0, 1, 3])
+  indices = tf.range(tf.shape(q)[0])
+  out = tf.map_fn(
+          lambda ii: single(ii, half_size, q[ii], k, v, bias[:,:,:,ii]),
+          indices, 
+          dtype=tf.float32)
+  out = tf.transpose(out, [1, 2, 0, 3])
+  return out
+
+
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,
@@ -355,6 +406,7 @@ def multihead_attention(query_antecedent,
                         dropout_rate,
                         summaries=False,
                         image_shapes=None,
+                        window_size=None,
                         name=None):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -370,6 +422,8 @@ def multihead_attention(query_antecedent,
     summaries: a boolean
     image_shapes: optional tuple of integer scalars.
       see comments for attention_image_summary()
+    window_size: option size of window for attention. Useful only for very long
+      sequence lengths.
     name: an optional string
 
   Returns:
@@ -403,8 +457,12 @@ def multihead_attention(query_antecedent,
     v = split_heads(v, num_heads)
     key_depth_per_head = total_key_depth // num_heads
     q *= key_depth_per_head**-0.5
-    x = dot_product_attention(
-        q, k, v, bias, dropout_rate, summaries, image_shapes)
+    if window_size is None:
+      x = dot_product_attention(
+          q, k, v, bias, dropout_rate, summaries, image_shapes)
+    else:
+      x = sliding_window_attention(
+          window_size, q, k, v, bias, dropout_rate, False, image_shapes)
     x = combine_heads(x)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
     return x
