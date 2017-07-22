@@ -243,12 +243,12 @@ def run_full_eval(model_dir, infer_model, infer_sess, eval_model, eval_sess,
   dev_scores, test_scores, global_step = run_external_eval(
       infer_model, infer_sess, model_dir, hparams, summary_writer)
 
-  eval_results = _format_results("dev", dev_ppl, dev_scores, hparams.metrics)
+  result_summary = _format_results("dev", dev_ppl, dev_scores, hparams.metrics)
   if hparams.test_prefix:
-    eval_results += ", " + _format_results("test", test_ppl, test_scores,
-                                           hparams.metrics)
+    result_summary += ", " + _format_results("test", test_ppl, test_scores,
+                                             hparams.metrics)
 
-  return eval_results, global_step
+  return result_summary, global_step, dev_scores, test_scores, dev_ppl, test_ppl
 
 
 def train(hparams, scope=None, target_session=""):
@@ -312,10 +312,11 @@ def train(hparams, scope=None, target_session=""):
       os.path.join(out_dir, summary_name), train_model.graph)
 
   # First evaluation
-  eval_results, _ = run_full_eval(model_dir, infer_model, infer_sess,
-                                  eval_model, eval_sess, hparams,
-                                  summary_writer, sample_src_data,
-                                  sample_tgt_data)
+  run_full_eval(
+      model_dir, infer_model, infer_sess,
+      eval_model, eval_sess, hparams,
+      summary_writer, sample_src_data,
+      sample_tgt_data)
 
   last_stats_step = global_step
   last_eval_step = global_step
@@ -437,28 +438,29 @@ def train(hparams, scope=None, target_session=""):
       os.path.join(out_dir, "translate.ckpt"),
       global_step=global_step)
 
-  eval_results, _ = run_full_eval(model_dir, infer_model, infer_sess,
-                                  eval_model, eval_sess, hparams,
-                                  summary_writer, sample_src_data,
-                                  sample_tgt_data)
+  result_summary, _, dev_scores, test_scores, dev_ppl, test_ppl = run_full_eval(
+      model_dir, infer_model, infer_sess,
+      eval_model, eval_sess, hparams,
+      summary_writer, sample_src_data,
+      sample_tgt_data)
   utils.print_out(
       "# Final, step %d lr %g "
       "step-time %.2f wps %.2fK ppl %.2f, %s, %s" %
       (global_step, loaded_train_model.learning_rate.eval(session=train_sess),
-       avg_step_time, speed, train_ppl, eval_results, time.ctime()),
+       avg_step_time, speed, train_ppl, result_summary, time.ctime()),
       log_f)
   utils.print_time("# Done training!", start_train_time)
 
   utils.print_out("# Start evaluating saved best models.")
   for metric in hparams.metrics:
     best_model_dir = getattr(hparams, "best_" + metric + "_dir")
-    eval_results, best_global_step = run_full_eval(
+    result_summary, best_global_step, _, _, _, _ = run_full_eval(
         best_model_dir, infer_model, infer_sess, eval_model, eval_sess, hparams,
         summary_writer, sample_src_data, sample_tgt_data)
     utils.print_out("# Best %s, step %d "
                     "step-time %.2f wps %.2fK, %s, %s" %
                     (metric, best_global_step, avg_step_time, speed,
-                     eval_results, time.ctime()), log_f)
+                     result_summary, time.ctime()), log_f)
 
   summary_writer.close()
   return (dev_scores, test_scores, dev_ppl, test_ppl, global_step)
