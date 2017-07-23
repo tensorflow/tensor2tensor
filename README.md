@@ -466,7 +466,7 @@ cat > /tmp/my_infer_file.vi
 # (copy and paste some sentences from /tmp/nmt_data/tst2013.vi)
 
 python -m nmt.nmt \
-    --model_dir=/tmp/nmt_model \
+    --out_dir=/tmp/nmt_model \
     --inference_input_file=/tmp/my_infer_file.vi \
     --inference_output_file=/tmp/nmt_model/output_infer
 
@@ -661,7 +661,7 @@ python -m nmt.nmt \
     --metrics=bleu
 ```
 
-After training, we can use the same inference command with the new model_dir for
+After training, we can use the same inference command with the new out_dir for
 inference:
 
 ``` shell
