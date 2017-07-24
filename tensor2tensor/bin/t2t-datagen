@@ -67,6 +67,7 @@ flags.DEFINE_integer("num_shards", 10, "How many shards to use.")
 flags.DEFINE_integer("max_cases", 0,
                      "Maximum number of cases to generate (unbounded if 0).")
 flags.DEFINE_integer("random_seed", 429459, "Random seed to use.")
+flags.DEFINE_integer("task_id", -1, "For distributed data generation.")
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
@@ -277,9 +278,11 @@ def generate_data_for_problem(problem):
 
 def generate_data_for_registered_problem(problem_name):
   problem = registry.problem(problem_name)
+  task_id = None if FLAGS.task_id < 0 else FLAGS.task_id
   problem.generate_data(os.path.expanduser(FLAGS.data_dir),
                         os.path.expanduser(FLAGS.tmp_dir),
-                        FLAGS.num_shards)
+                        FLAGS.num_shards,
+                        task_id=task_id)
 
 
 if __name__ == "__main__":
