@@ -31,7 +31,7 @@ import tensorflow as tf
 from tensorflow.python.framework import function
 
 # This is a global setting. When turned off, no @function.Defun is used.
-allow_defun = True
+allow_defun = False
 
 
 def saturating_sigmoid(x):
