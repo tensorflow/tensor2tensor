@@ -69,6 +69,10 @@ class SpaceID(object):
   ICE_PARSE_TOK = 19
   # Macedonian tokens
   MK_TOK = 20
+  # Czech tokens
+  CS_TOK = 21
+  # Czech characters
+  CS_CHR = 22
 
 
 class Problem(object):
