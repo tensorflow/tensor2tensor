@@ -63,7 +63,7 @@ def _original_vocab(tmp_dir):
 def _replace_oov(original_vocab, line):
   """Replace out-of-vocab words with "UNK".
 
-  This maintains compatability with published results.
+  This maintains compatibility with published results.
 
   Args:
     original_vocab: a set of strings (The standard vocabulary for the dataset)
@@ -138,12 +138,13 @@ def _get_or_build_subword_text_encoder(tmp_dir):
   return ret
 
 
-def generator(tmp_dir, train):
+def generator(tmp_dir, train, characters=False):
   """Generator for lm1b sentences.
 
   Args:
     tmp_dir: a string.
     train: a boolean.
+    characters: a boolean
 
   Yields:
     A dictionary {"inputs": [0], "targets": [<subword ids>]}
@@ -152,7 +153,10 @@ def generator(tmp_dir, train):
   original_vocab = _original_vocab(tmp_dir)
   files = (_train_data_filenames(tmp_dir) if train
            else [_dev_data_filename(tmp_dir)])
-  encoder = _get_or_build_subword_text_encoder(tmp_dir)
+  if characters:
+    encoder = text_encoder.ByteTextEncoder()
+  else:
+    encoder = _get_or_build_subword_text_encoder(tmp_dir)
   for filepath in files:
     tf.logging.info("filepath = %s", filepath)
     for line in tf.gfile.Open(filepath):

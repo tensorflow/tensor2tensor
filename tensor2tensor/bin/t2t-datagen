@@ -110,6 +110,10 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: lm1b.generator(FLAGS.tmp_dir, True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False)
     ),
+    "lm1b_characters": (
+        lambda: lm1b.generator(FLAGS.tmp_dir, True, characters=True),
+        lambda: lm1b.generator(FLAGS.tmp_dir, False, characters=True)
+    ),
     "wiki_32k": (
         lambda: wiki.generator(FLAGS.tmp_dir, True),
         1000

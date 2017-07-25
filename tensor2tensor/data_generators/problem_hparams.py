@@ -336,6 +336,22 @@ def lm1b_32k(model_hparams):
   return p
 
 
+def lm1b_characters(unused_model_hparams):
+  """Billion-word language-modeling benchmark, 32k subword vocabulary."""
+  p = default_problem_hparams()
+  # ratio of dev tokens (including eos) to dev words (including eos)
+  # 826189 / 159658 = 5.174742
+  p.perplexity_exponent = 5.174742
+  p.input_modality = {}
+  encoder = text_encoder.ByteTextEncoder()
+  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
+  p.vocabulary = {
+      "targets": encoder
+  }
+  p.target_space_id = 2
+  return p
+
+
 def wiki_32k(model_hparams):
   """Wikipedia title to article.  32k subtoken vocabulary."""
   p = default_problem_hparams()
@@ -623,6 +639,7 @@ PROBLEM_HPARAMS_MAP = {
     "audio_wsj_characters_test": audio_wsj_characters,
     "audio_wsj_tokens_8k_tune": lambda p: audio_wsj_tokens(p, 2**13),
     "audio_wsj_tokens_8k_test": lambda p: audio_wsj_tokens(p, 2**13),
+    "lm1b_characters": lm1b_characters,
     "lm1b_32k": lm1b_32k,
     "wiki_32k": wiki_32k,
     "lmptb_10k": lmptb_10k,
