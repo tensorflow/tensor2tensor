@@ -307,14 +307,38 @@ def mscoco_generator(data_dir,
             "image/width": [width]
         }
 
+
+class ImageProblem(problem.Problem):
+
+  def example_reading_spec(self, label_key=None):
+    if label_key is None:
+      label_key = "image/class/label"
+
+    data_fields = {
+        "image/encoded": tf.FixedLenFeature((), tf.string),
+        "image/format": tf.FixedLenFeature((), tf.string),
+        label_key: tf.VarLenFeature(tf.int64)
+    }
+    data_items_to_decoders = {
+        "inputs":
+            tf.contrib.slim.tfexample_decoder.Image(
+                image_key="image/encoded",
+                format_key="image/format",
+                channels=3),
+        "targets":
+            tf.contrib.slim.tfexample_decoder.Tensor(label_key),
+    }
+
+    return data_fields, data_items_to_decoders
+
 # French street names dataset.
 
 
 @registry.register_problem
-class ImageFSNS(problem.Problem):
+class ImageFSNS(ImageProblem):
   """Problem spec for French Street Name recognition."""
 
-  def generate_data(self, data_dir, tmp_dir):
+  def generate_data(self, data_dir, tmp_dir, num_shards=None, task_id=-1):
     list_url = ("https://raw.githubusercontent.com/tensorflow/models/master/"
                 "street/python/fsns_urls.txt")
     fsns_urls = generator_utils.maybe_download(
@@ -351,6 +375,10 @@ class ImageFSNS(problem.Problem):
     p.input_space_id = problem.SpaceID.DIGIT_0
     p.target_space_id = problem.SpaceID.DIGIT_1
 
+  def example_reading_spec(self):
+    label_key = "image/unpadded_label"
+    return super(ImageFSNS, self).example_reading_spec(self,
+                                                       label_key=label_key)
 
 # Filename for CELEBA data.
 _CELEBA_NAME = "img_align_celeba"

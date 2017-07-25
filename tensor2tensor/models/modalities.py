@@ -181,12 +181,11 @@ class SmallImageModality(modality.Modality):
         shape = tf.shape(body_output_split[i])[:-1]
         body_output = tf.reshape(body_output_split[i],
                                  [-1, self._body_input_depth])
-        channel_logits = tf.matmul(body_output,
-                                   output_rgb_embedding_var[i],
-                                   transpose_b=True)
-        rgb_channel_logits.append(tf.reshape(
-            channel_logits, tf.concat([shape, [self.top_dimensionality]],
-                                      0)))
+        channel_logits = tf.matmul(
+            body_output, output_rgb_embedding_var[i], transpose_b=True)
+        rgb_channel_logits.append(
+            tf.reshape(channel_logits,
+                       tf.concat([shape, [self.top_dimensionality]], 0)))
 
       logits = tf.concat(rgb_channel_logits, axis=3)
       # Reshape logits to conform to CIFAR image shapes (32 by 32 by 3)
@@ -466,6 +465,33 @@ class IdentityModality(modality.Modality):
 
   def top(self, body_output, _):
     return body_output
+
+
+@registry.register_generic_modality("real")
+class RealModality(modality.Modality):
+  """Modality for real (i.e. float) vectors."""
+
+  def bottom(self, x):
+    with tf.variable_scope("real"):
+      return tf.layers.dense(x, self._body_input_depth)
+
+  def top(self, body_output, _):
+    with tf.variable_scope("real"):
+      return tf.layers.dense(body_output, self._vocab_size)
+
+  def top_sharded(self,
+                  sharded_body_output,
+                  sharded_targets,
+                  data_parallelism,
+                  weights_fn=common_layers.weights_nonzero):
+    sharded_predictions = data_parallelism(self.top, sharded_body_output,
+                                           sharded_targets)
+
+    def l2_loss(predictions, targets):
+      return tf.reduce_mean(tf.pow(predictions - targets, 2))
+
+    loss = data_parallelism(l2_loss, sharded_predictions, sharded_targets)
+    return sharded_predictions, tf.add_n(loss)
 
 
 @registry.register_image_modality("identity_no_pad")

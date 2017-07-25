@@ -35,6 +35,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import itertools
 import multiprocessing as mp
 import os
 
@@ -50,19 +51,13 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import registry
 
+import tensorflow as tf
+
 _bases = list("ACTG")
-BASE_TO_ID = dict(zip(_bases, range(len(_bases))))
-ID_TO_BASE = dict(zip(range(len(_bases)), _bases))
-UNK_ID = len(_bases)
 
 
-# TODO(rsepassi):
-# * DataEncoder for genetic bases
-# * GeneticModality and problem hparams
-# * Training preprocessing
-
-
-class GeneticsProblem(problem.Problem):
+class GeneExpressionProblem(problem.Problem):
+  """Base Problem for gene expression datasets."""
 
   @property
   def download_url(self):
@@ -72,13 +67,35 @@ class GeneticsProblem(problem.Problem):
   def h5_file(self):
     raise NotImplementedError()
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=None):
+  @property
+  def num_output_predictions(self):
+    """Number of float predictions per timestep."""
+    return 10
+
+  @property
+  def chunk_size(self):
+    return 4
+
+  def feature_encoders(self, data_dir):
+    del data_dir
+    return {
+        "inputs": GeneticBaseEncoder(chunk_size=self.chunk_size),
+        # TODO(rsepassi): RealEncoder?
+        "targets": text_encoder.TextEncoder()
+    }
+
+  def generate_data(self, data_dir, tmp_dir, num_shards=None, task_id=-1):
     if num_shards is None:
       num_shards = 100
 
-    # Download source data
-    h5_filepath = generator_utils.maybe_download(tmp_dir, self.h5_file,
-                                                 self.download_url)
+    try:
+      # Download source data if download_url specified
+      h5_filepath = generator_utils.maybe_download(tmp_dir, self.h5_file,
+                                                   self.download_url)
+    except NotImplementedError:
+      # Otherwise, look for it locally
+      h5_filepath = os.path.join(tmp_dir, self.h5_file)
+
     with h5py.File(h5_filepath, "r") as h5_file:
       num_train_examples = h5_file["train_in"].len()
       num_dev_examples = h5_file["valid_in"].len()
@@ -100,7 +117,8 @@ class GeneticsProblem(problem.Problem):
           outfiles, num_examples):
         p = mp.Process(
             target=generate_dataset,
-            args=(h5_filepath, key_prefix, [outfile], start_idx, end_idx))
+            args=(h5_filepath, key_prefix, [outfile], self.chunk_size,
+                  start_idx, end_idx))
         processes.append(p)
 
     # Start and wait for processes
@@ -113,9 +131,36 @@ class GeneticsProblem(problem.Problem):
     # Shuffle
     generator_utils.shuffle_dataset(all_filepaths)
 
+  def hparams(self, defaults, model_hparams):
+    p = defaults
+    vocab_size = self._encoders["inputs"].vocab_size
+    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
+    p.target_modality = ("%s:real" % registry.Modalities.GENERIC,
+                         self.num_output_predictions)
+    p.input_space_id = problem.SpaceID.DNA
+    p.target_space_id = problem.SpaceID.REAL
+
+  def example_reading_spec(self):
+    # TODO(rsepassi): propagate and apply targets_mask to output RealModality.
+    data_fields = {
+        "inputs": tf.VarLenFeature(tf.int64),
+        "targets_mask": tf.VarLenFeature(tf.float32),
+        "targets": tf.VarLenFeature(tf.float32),
+    }
+    data_items_to_decoders = None
+    return (data_fields, data_items_to_decoders)
+
+  def preprocess_examples(self, examples, mode):
+    del mode
+
+    examples["targets"] = tf.reshape(examples["targets"],
+                                     [-1, 1, self.num_output_predictions])
+
+    return examples
+
 
 @registry.register_problem("genetics_cage10")
-class GeneticsCAGE10(GeneticsProblem):
+class GeneticsCAGE10(GeneExpressionProblem):
 
   @property
   def download_url(self):
@@ -127,7 +172,7 @@ class GeneticsCAGE10(GeneticsProblem):
 
 
 @registry.register_problem("genetics_gm12878")
-class GeneticsGM12878(GeneticsProblem):
+class GeneticsGM12878(GeneExpressionProblem):
 
   @property
   def download_url(self):
@@ -136,6 +181,14 @@ class GeneticsGM12878(GeneticsProblem):
   @property
   def h5_file(self):
     return "gm12878.h5"
+
+
+@registry.register_problem("genetics_l262k")
+class GeneticsL262k(GeneExpressionProblem):
+
+  @property
+  def h5_file(self):
+    return "l262k_w128.h5"
 
 
 def generate_shard_args(outfiles, num_examples):
@@ -152,16 +205,22 @@ def generate_shard_args(outfiles, num_examples):
 def generate_dataset(h5_filepath,
                      key_prefix,
                      out_filepaths,
+                     chunk_size=1,
                      start_idx=None,
                      end_idx=None):
   print("PID: %d, Key: %s, (Start, End): (%s, %s)" % (os.getpid(), key_prefix,
                                                       start_idx, end_idx))
   generator_utils.generate_files(
-      dataset_generator(h5_filepath, key_prefix, start_idx, end_idx),
-      out_filepaths)
+      dataset_generator(h5_filepath, key_prefix, chunk_size, start_idx,
+                        end_idx), out_filepaths)
 
 
-def dataset_generator(filepath, dataset, start_idx=None, end_idx=None):
+def dataset_generator(filepath,
+                      dataset,
+                      chunk_size=1,
+                      start_idx=None,
+                      end_idx=None):
+  encoder = GeneticBaseEncoder(chunk_size=chunk_size)
   with h5py.File(filepath, "r") as h5_file:
     # Get input keys from h5_file
     src_keys = [s % dataset for s in ["%s_in", "%s_na", "%s_out"]]
@@ -178,12 +237,13 @@ def dataset_generator(filepath, dataset, start_idx=None, end_idx=None):
       if i % 100 == 0:
         print("Generating example %d for %s" % (i, dataset))
       inputs, mask, outputs = inp_data[i], mask_data[i], out_data[i]
-      yield to_example_dict(inputs, mask, outputs)
+      yield to_example_dict(encoder, inputs, mask, outputs)
 
 
-def to_example_dict(inputs, mask, outputs):
+def to_example_dict(encoder, inputs, mask, outputs):
   """Convert single h5 record to an example dict."""
   # Inputs
+  bases = []
   input_ids = []
   last_idx = -1
   for row in np.argwhere(inputs):
@@ -192,11 +252,13 @@ def to_example_dict(inputs, mask, outputs):
     assert idx > last_idx  # if not, means 2 True values in 1 row
     # Some rows are all False. Those rows are mapped to UNK_ID.
     while idx != last_idx + 1:
-      input_ids.append(UNK_ID + text_encoder.NUM_RESERVED_TOKENS)
+      bases.append(encoder.UNK)
       last_idx += 1
-    input_ids.append(base_id + text_encoder.NUM_RESERVED_TOKENS)
+    bases.append(_bases[base_id])
     last_idx = idx
-  assert len(inputs) == len(input_ids)
+  assert len(inputs) == len(bases)
+
+  input_ids = encoder.encode(bases)
   input_ids.append(text_encoder.EOS_ID)
 
   # Targets: mask and output
@@ -211,3 +273,62 @@ def to_example_dict(inputs, mask, outputs):
   ex_dict = dict(
       zip(example_keys, [input_ids, targets_mask, targets, targets_shape]))
   return ex_dict
+
+
+class GeneticBaseEncoder(text_encoder.TextEncoder):
+  """ACTG strings to ints and back. Optionally chunks bases into single ids.
+
+  Uses 'X' as an unknown base.
+  """
+  UNK = "X"
+  PAD = "0"
+
+  def __init__(self,
+               chunk_size=1,
+               num_reserved_ids=text_encoder.NUM_RESERVED_TOKENS):
+    super(GeneticBaseEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
+    # Build a vocabulary of chunks of size chunk_size
+    self._chunk_size = chunk_size
+    chunks = []
+    for size in range(1, chunk_size + 1):
+      c = itertools.product(_bases + [GeneticBaseEncoder.UNK], repeat=size)
+      num_pad = chunk_size - size
+      padding = (GeneticBaseEncoder.PAD,) * num_pad
+      c = [el + padding for el in c]
+      chunks.extend(c)
+    chunks.sort()
+    ids = range(self._num_reserved_ids, len(chunks) + self._num_reserved_ids)
+    self._ids_to_chunk = dict(zip(ids, chunks))
+    self._chunks_to_ids = dict(zip(chunks, ids))
+
+  @property
+  def vocab_size(self):
+    return len(self._ids_to_chunk) + self._num_reserved_ids
+
+  def encode(self, s):
+    bases = list(s)
+    pad = [GeneticBaseEncoder.PAD] * (len(bases) % self._chunk_size)
+    bases.extend(pad)
+    assert (len(bases) % self._chunk_size) == 0
+    num_chunks = len(bases) // self._chunk_size
+    ids = []
+    for chunk_idx in xrange(num_chunks):
+      start_idx = chunk_idx * self._chunk_size
+      end_idx = start_idx + self._chunk_size
+      chunk = tuple(bases[start_idx:end_idx])
+      if chunk not in self._chunks_to_ids:
+        raise ValueError("Unrecognized chunk %s" % chunk)
+      ids.append(self._chunks_to_ids[chunk])
+    return ids
+
+  def decode(self, ids):
+    bases = []
+    for idx in ids:
+      if idx >= self._num_reserved_ids:
+        chunk = self._ids_to_chunk[idx]
+        if GeneticBaseEncoder.PAD in chunk:
+          chunk = chunk[:chunk.index(GeneticBaseEncoder.PAD)]
+      else:
+        chunk = [text_encoder.RESERVED_TOKENS[idx]]
+      bases.extend(chunk)
+    return "".join(bases)

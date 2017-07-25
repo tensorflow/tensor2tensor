@@ -30,21 +30,28 @@ import tensorflow as tf
 class GeneticsTest(tf.test.TestCase):
 
   def _oneHotBases(self, bases):
+    ref = ["A", "C", "T", "G"]
     one_hots = []
-    for base_id in bases:
+    for base in bases:
       one_hot = [False] * 4
-      if base_id < 4:
-        one_hot[base_id] = True
+      if base in ref:
+        one_hot[ref.index(base)] = True
       one_hots.append(one_hot)
     return np.array(one_hots)
 
   def testRecordToExample(self):
-    inputs = self._oneHotBases([0, 1, 3, 4, 1, 0])
+    encoder = genetics.GeneticBaseEncoder(chunk_size=2)
+    raw_inputs = ["A", "C", "G", "X", "C", "T"]
+
+    # Put in numpy arrays in the same format as in the h5 file
+    inputs = self._oneHotBases(raw_inputs)
     mask = np.array([True, False, True])
     outputs = np.array([[1.0, 2.0, 3.0], [5.0, 1.0, 0.2], [5.1, 2.3, 2.3]])
-    ex_dict = genetics.to_example_dict(inputs, mask, outputs)
+    # Convert to example dict
+    ex_dict = genetics.to_example_dict(encoder, inputs, mask, outputs)
 
-    self.assertAllEqual([2, 3, 5, 6, 3, 2, 1], ex_dict["inputs"])
+    self.assertEqual(len(raw_inputs) // 2 + 1, len(ex_dict["inputs"]))
+    self.assertAllEqual(encoder.encode(raw_inputs) + [1], ex_dict["inputs"])
     self.assertAllEqual([1.0, 0.0, 1.0], ex_dict["targets_mask"])
     self.assertAllEqual([1.0, 2.0, 3.0, 5.0, 1.0, 0.2, 5.1, 2.3, 2.3],
                         ex_dict["targets"])

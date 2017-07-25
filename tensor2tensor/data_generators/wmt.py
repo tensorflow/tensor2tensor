@@ -92,7 +92,7 @@ class WMTProblem(problem.Problem):
   def num_shards(self):
     return 100
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=None):
+  def generate_data(self, data_dir, tmp_dir, num_shards=None, task_id=-1):
     if num_shards is None:
       num_shards = self.num_shards
     if self.is_character_level:

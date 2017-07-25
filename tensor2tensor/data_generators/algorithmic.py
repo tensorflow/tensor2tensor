@@ -66,7 +66,7 @@ class AlgorithmicProblem(problem.Problem):
   def num_shards(self):
     return 10
 
-  def generate_data(self, data_dir, _, num_shards=None):
+  def generate_data(self, data_dir, _, num_shards=None, task_id=-1):
     if num_shards is None:
       num_shards = self.num_shards
 

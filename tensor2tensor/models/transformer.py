@@ -46,8 +46,8 @@ class Transformer(t2t_model.T2TModel):
     # Remove dropout if not training
     hparams = copy.copy(self._hparams)
     targets = features["targets"]
-    inputs = features.get("inputs")
-    target_space = features.get("target_space_id")
+    inputs = features["inputs"]
+    target_space = features["target_space_id"]
 
     inputs = common_layers.flatten4d3d(inputs)
     targets = common_layers.flatten4d3d(targets)

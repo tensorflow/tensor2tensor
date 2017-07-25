@@ -70,6 +70,10 @@ class SpaceID(object):
   ICE_PARSE_TOK = 19
   # Macedonian tokens
   MK_TOK = 20
+  # Genetic bases (ACTG)
+  DNA = 21
+  # Real numbers
+  REAL = 22
 
 
 class Problem(object):
@@ -130,6 +134,18 @@ class Problem(object):
         "inputs": text_encoder.TextEncoder(),
         "targets": text_encoder.TextEncoder()
     }
+
+  def example_reading_spec(self):
+    data_fields = {
+        "inputs": tf.VarLenFeature(tf.int64),
+        "targets": tf.VarLenFeature(tf.int64)
+    }
+    data_items_to_decoders = None
+    return (data_fields, data_items_to_decoders)
+
+  def preprocess_examples(self, examples, mode):
+    del mode
+    return examples
 
   # ============================================================================
   # END SUBCLASS INTERFACE
@@ -192,6 +208,17 @@ class Problem(object):
     if self._was_copy:
       _copy_problem_hparams(hp)
     return hp
+
+  def maybe_reverse_features(self, feature_map):
+    if not self._was_reversed:
+      return
+    inputs, targets = feature_map["inputs"], feature_map["targets"]
+    feature_map["inputs"], feature_map["targets"] = targets, inputs
+
+  def maybe_copy_features(self, feature_map):
+    if not self._was_copy:
+      return
+    feature_map["targets"] = feature_map["inputs"]
 
 
 def _copy_problem_hparams(p_hparams):

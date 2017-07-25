@@ -229,13 +229,16 @@ def create_hparams(params_id, data_dir):
 
   # Add hparams for the problems
   hparams.problems = []
+  hparams.problem_instances = []
   for problem_name in FLAGS.problems.split("-"):
     try:
       problem = registry.problem(problem_name)
       p_hparams = problem.internal_hparams(hparams)
     except ValueError:
+      problem = None
       p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
 
+    hparams.problem_instances.append(problem)
     hparams.problems.append(p_hparams)
 
   return hparams
@@ -304,9 +307,10 @@ def session_config():
   gpu_options = tf.GPUOptions(
       per_process_gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction)
 
-  config = tf.ConfigProto(allow_soft_placement=True,
-                          graph_options=graph_options,
-                          gpu_options=gpu_options)
+  config = tf.ConfigProto(
+      allow_soft_placement=True,
+      graph_options=graph_options,
+      gpu_options=gpu_options)
   return config
 
 
@@ -422,8 +426,12 @@ def model_builder(model, hparams):
     def nth_model(n):
       """Build the model for the n-th problem, plus some added variables."""
       model_class = registry.model(model)(
-          hparams, mode, hparams.problems[n],
-          n, dp, _ps_devices(all_workers=True))
+          hparams,
+          mode,
+          hparams.problems[n],
+          n,
+          dp,
+          _ps_devices(all_workers=True))
       if mode == tf.contrib.learn.ModeKeys.INFER:
         return model_class.infer(
             features,
@@ -485,8 +493,8 @@ def model_builder(model, hparams):
     if mode == tf.contrib.learn.ModeKeys.EVAL:
       logits = tf.concat(sharded_logits, 0)
       if FLAGS.eval_print:
-        logits = tf.Print(logits, [features["inputs"], logits],
-                          "EVAL PRINT", summarize=10000)
+        logits = tf.Print(
+            logits, [features["inputs"], logits], "EVAL PRINT", summarize=10000)
       # For evaluation, return the logits layer as our predictions.
       run_info["predictions"] = logits
       train_op = None
@@ -544,19 +552,24 @@ def model_builder(model, hparams):
     # Define the train_op for the TRAIN mode.
     opt = _ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
     tf.logging.info("Computing gradients for global model_fn.")
+    opt_summaries = ["learning_rate", "loss", "global_gradient_norm"]
+    if hparams.summarize_grads:
+      opt_summaries.extend(["gradients", "gradient_norm"])
     train_op = tf.contrib.layers.optimize_loss(
         name="training",
         loss=total_loss,
         global_step=tf.contrib.framework.get_global_step(),
         learning_rate=learning_rate,
         clip_gradients=hparams.clip_grad_norm or None,
+        gradient_noise_scale=hparams.grad_noise_scale or None,
         optimizer=opt,
+        summaries=opt_summaries,
         colocate_gradients_with_ops=True)
 
     # Remove summaries that will fail to run because they are in conditionals.
     # TODO(cwhipkey): Test with this code removed, later in 2017.
     summaries = tf.get_collection_ref(tf.GraphKeys.SUMMARIES)
-    for i in range(len(summaries)-1, -1, -1):
+    for i in range(len(summaries) - 1, -1, -1):
       if summaries[i].name.startswith("cond_"):
         del summaries[i]
 
@@ -602,8 +615,7 @@ def decode_from_dataset(estimator):
         data_file_patterns=infer_problems_data,
         num_datashards=data_parallelism().n,
         fixed_problem=i)
-    result_iter = estimator.predict(
-        input_fn=infer_input_fn, as_iterable=False)
+    result_iter = estimator.predict(input_fn=infer_input_fn, as_iterable=False)
 
     def log_fn(inputs,
                targets,
@@ -735,8 +747,8 @@ def decode_interactively(estimator):
           else:
             tf.logging.info(beam_string)
       else:
-        tf.logging.info(targets_vocab.decode(_save_until_eos(
-            result["outputs"].flatten())))
+        tf.logging.info(
+            targets_vocab.decode(_save_until_eos(result["outputs"].flatten())))
 
 
 def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
@@ -749,8 +761,8 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
     tf.logging.info("Decoding batch %d" % b)
     batch_length = 0
     batch_inputs = []
-    for inputs in sorted_inputs[b * FLAGS.decode_batch_size:
-                                (b + 1) * FLAGS.decode_batch_size]:
+    for inputs in sorted_inputs[b * FLAGS.decode_batch_size:(
+        b + 1) * FLAGS.decode_batch_size]:
       input_ids = vocabulary.encode(inputs)
       if FLAGS.decode_max_input_size > 0:
         # Subtract 1 for the EOS_ID.
@@ -1048,12 +1060,13 @@ def get_input_fn(mode,
       for n in xrange(problem_count):
         if fixed_problem is not None and n != fixed_problem:
           continue
+        problem_instance = hparams.problem_instances[n]
         with tf.name_scope("problem_%d" % n):
           with tf.device("/cpu:0"):  # Input queues are on CPU.
             capacity = hparams.problems[n].max_expected_batch_size_per_shard
             capacity *= num_datashards
-            examples = data_reader.input_pipeline(data_file_patterns[n],
-                                                  capacity, mode)
+            examples = data_reader.input_pipeline(
+                problem_instance, data_file_patterns[n], capacity, mode)
             if mode == tf.contrib.learn.ModeKeys.TRAIN:
               drop_long_sequences = True
             else:
@@ -1068,15 +1081,18 @@ def get_input_fn(mode,
                     length_multiplier=batch_size_multiplier))
 
         # Reverse inputs and targets features if the problem was reversed.
-        if hparams.problems[n].was_reversed:
-          inputs = feature_map["inputs"]
-          targets = feature_map["targets"]
-          feature_map["inputs"] = targets
-          feature_map["targets"] = inputs
-
-        # Use the inputs as the targets if the problem is a copy problem.
-        if hparams.problems[n].was_copy:
-          feature_map["targets"] = feature_map["inputs"]
+        if problem_instance is not None:
+          problem_instance.maybe_reverse_features(feature_map)
+          problem_instance.maybe_copy_features(feature_map)
+        else:
+          if hparams.problems[n].was_reversed:
+            inputs = feature_map["inputs"]
+            targets = feature_map["targets"]
+            feature_map["inputs"] = targets
+            feature_map["targets"] = inputs
+          # Use the inputs as the targets if the problem is a copy problem.
+          if hparams.problems[n].was_copy:
+            feature_map["targets"] = feature_map["inputs"]
 
         # Ensure inputs and targets are proper rank.
         while len(feature_map["inputs"].get_shape()) != 4:
@@ -1117,9 +1133,9 @@ def get_input_fn(mode,
         assert FLAGS.worker_replicas % problem_count == 0
         problem_choice = tf.to_int32(FLAGS.worker_id % problem_count)
       else:
-        raise ValueError("Value of hparams.problem_choice is %s and must be "
-                         "one of [uniform, adaptive, distributed]" %
-                         hparams.problem_choice)
+        raise ValueError(
+            "Value of hparams.problem_choice is %s and must be "
+            "one of [uniform, adaptive, distributed]" % hparams.problem_choice)
 
       # Inputs and targets conditional on problem_choice.
       rand_inputs, rand_target, choice, inp_id, tgt_id = _cond_on_index(

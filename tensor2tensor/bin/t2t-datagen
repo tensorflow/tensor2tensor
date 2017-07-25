@@ -281,7 +281,7 @@ def generate_data_for_registered_problem(problem_name):
   task_id = None if FLAGS.task_id < 0 else FLAGS.task_id
   problem.generate_data(os.path.expanduser(FLAGS.data_dir),
                         os.path.expanduser(FLAGS.tmp_dir),
-                        FLAGS.num_shards,
+                        num_shards=FLAGS.num_shards,
                         task_id=task_id)
 
 
