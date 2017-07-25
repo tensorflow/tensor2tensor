@@ -435,6 +435,91 @@ def masked_local_attention_1d(
     return output
 
 
+def unmasked_local_attention_1d(q, k, v, block_length=128, filter_width=100,
+                                name=None):
+  """strided block local self-attention.
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth_k]
+    k: a Tensor with shape [batch, heads, length, depth_k]
+    v: a Tensor with shape [batch, heads, length, depth_v]
+    block_length: an integer
+    filter_width: an integer indicating how much to look left.
+    name: an optional string
+
+  Returns:
+    a Tensor of shape [batch, heads, length, depth_v]
+  """
+  with tf.variable_scope(name, default_name="local_self_attention_1d",
+                         values=[q, k, v]):
+    v_shape = v.get_shape()
+    depth_v = tf.shape(v)[3]
+    batch_size = tf.shape(q)[0]
+    num_heads = tf.shape(q)[1]
+    original_length = tf.shape(q)[2]
+    # making sure q is a multiple of d
+    def pad_to_multiple(x, pad_length):
+      x_length = tf.shape(x)[2]
+      return tf.pad(x, [[0, 0], [0, 0], [0, -x_length % pad_length], [0, 0]])
+    def pad_l_and_r(x, pad_length):
+      return tf.pad(x, [[0, 0], [0, 0], [pad_length, pad_length], [0, 0]])
+    q = pad_to_multiple(q, block_length)
+    k = pad_to_multiple(k, block_length)
+    v = pad_to_multiple(v, block_length)
+
+    # Setting up q blocks
+    new_q_shape = tf.shape(q)
+    # Setting up q blocks
+    q = tf.reshape(q, [new_q_shape[0], new_q_shape[1],
+                       new_q_shape[2]//block_length,
+                       block_length, new_q_shape[3]])
+
+    # Setting up k and v values
+    k = pad_l_and_r(k, filter_width)
+    v = pad_l_and_r(v, filter_width)
+
+    length = tf.shape(k)[2]
+    full_filter_width = block_length + 2*filter_width
+    # getting gather indices
+    indices = tf.range(0, length, delta=1, name="index_range")
+    # making indices [1, length, 1] to appy convs
+    indices = tf.reshape(indices, [1, -1, 1])
+    kernel = tf.expand_dims(tf.eye(full_filter_width), axis=1)
+    gather_indices = tf.nn.conv1d(
+        tf.cast(indices, tf.float32),
+        kernel,
+        block_length,
+        padding="VALID",
+        name="gather_conv")
+
+    gather_indices = tf.squeeze(tf.cast(gather_indices, tf.int32), axis=0)
+
+    # [length, batch, heads, dim]
+    k_t = tf.transpose(k, [2, 0, 1, 3])
+    k_new = tf.gather(k_t, gather_indices)
+
+    # [batch, heads, blocks, block_length, dim]
+    k_new = tf.transpose(k_new, [2, 3, 0, 1, 4])
+
+    attention_bias = tf.expand_dims(
+        tf.to_float(embedding_to_padding(k_new)) * -1e9, axis=-2)
+
+    v_t = tf.transpose(v, [2, 0, 1, 3])
+    v_new = tf.gather(v_t, gather_indices)
+    v_new = tf.transpose(v_new, [2, 3, 0, 1, 4])
+
+    logits = tf.matmul(q, k_new, transpose_b=True)
+
+    attention = tf.nn.softmax(logits+attention_bias)
+    output = tf.matmul(attention, v_new)
+
+    output = tf.reshape(output, [batch_size, num_heads, -1, depth_v])
+    # Remove the padding if introduced
+    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
+    output.set_shape(v_shape)
+    return output
+
+
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,
@@ -460,8 +545,9 @@ def multihead_attention(query_antecedent,
     dropout_rate: a floating point number
     image_shapes: optional tuple of integer scalars.
       see comments for attention_image_summary()
-    attention_type: a string, either "dot_product" or "local_mask_right"
-    block_length: an integer - relevent for "local_mask_right"
+    attention_type: a string, either "dot_product" or "local_mask_right" or
+                    "local_unmasked"
+    block_length: an integer - relevant for "local_mask_right"
     name: an optional string
 
   Returns:
@@ -509,9 +595,11 @@ def multihead_attention(query_antecedent,
     if attention_type == "dot_product":
       x = dot_product_attention(
           q, k, v, bias, dropout_rate, image_shapes)
-    else:
-      assert attention_type == "local_mask_right"
+    elif attention_type == "local_mask_right":
       x = masked_local_attention_1d(q, k, v, block_length=block_length)
+    else:
+      assert attention_type == "local_unmasked"
+      x = unmasked_local_attention_1d(q, k, v, block_length=block_length)
     x = combine_heads(x)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
     return x
@@ -652,4 +740,5 @@ def parameter_attention(x,
     y = tf.reshape(y, [batch_size, length, total_value_depth])
     y.set_shape([None, None, total_value_depth])
     y = common_layers.conv1d(y, output_depth, 1, name="output_transform")
+
     return y
