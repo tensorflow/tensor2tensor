@@ -703,8 +703,7 @@ def decode_from_file(estimator, filename):
   tf.logging.info("Writing decodes into %s" % decode_filename)
   outfile = tf.gfile.Open(decode_filename, "w")
   for index in range(len(sorted_inputs)):
-    outfile.write("%s\t%s\n" % (decodes[sorted_keys[index]],
-                                sorted_inputs[sorted_keys[index]]))
+    outfile.write("%s\n" % (decodes[sorted_keys[index]]))
 
 
 def decode_interactively(estimator):
