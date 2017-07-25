@@ -66,6 +66,9 @@ def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
       tf.to_float(tf.range(num_timescales)) * -log_timescale_increment)
   scaled_time = tf.expand_dims(position, 1) * tf.expand_dims(inv_timescales, 0)
   signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=1)
+  signal = tf.reshape(signal, [length, 2, num_timescales])
+  signal = tf.transpose(signal, perm=[0, 2, 1])
+  signal = tf.reshape(signal, [length, channels])
   signal = tf.pad(signal, [[0, 0], [0, tf.mod(channels, 2)]])
   signal = tf.reshape(signal, [1, length, channels])
   return x + signal

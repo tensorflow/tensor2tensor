@@ -181,6 +181,9 @@ def default_problem_hparams():
       #   17: Icelandic characters
       #   18: Icelandic tokens
       #   19: Icelandic parse tokens
+      #   20: Macedonian tokens
+      #   21: Czech tokens
+      #   22: Czech characters
       # Add more above if needed.
       input_space_id=0,
       target_space_id=0,

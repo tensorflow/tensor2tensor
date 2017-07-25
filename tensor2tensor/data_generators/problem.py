@@ -70,10 +70,14 @@ class SpaceID(object):
   ICE_PARSE_TOK = 19
   # Macedonian tokens
   MK_TOK = 20
+  # Czech tokens
+  CS_TOK = 21
+  # Czech characters
+  CS_CHR = 22
   # Genetic bases (ACTG)
-  DNA = 21
+  DNA = 23
   # Real numbers
-  REAL = 22
+  REAL = 24
 
 
 class Problem(object):
