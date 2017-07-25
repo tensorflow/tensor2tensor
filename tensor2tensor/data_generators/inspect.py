@@ -34,6 +34,10 @@ import tensorflow as tf
 
 tf.app.flags.DEFINE_string("subword_text_encoder_filename", "",
                            "SubwordTextEncoder vocabulary file")
+tf.app.flags.DEFINE_string("token_text_encoder_filename", "",
+                           "TokenTextEncoder vocabulary file")
+tf.app.flags.DEFINE_bool("byte_text_encoder", False,
+                         "use a ByteTextEncoder")
 tf.app.flags.DEFINE_string("input_filename", "", "input filename")
 tf.app.flags.DEFINE_bool("print_inputs", False,
                          "Print decoded inputs to stdout")
@@ -48,6 +52,11 @@ def main(_):
   if FLAGS.subword_text_encoder_filename:
     encoder = text_encoder.SubwordTextEncoder(
         FLAGS.subword_text_encoder_filename)
+  elif FLAGS.token_text_encoder_filename:
+    encoder = text_encoder.TokenTextEncoder(
+        FLAGS.token_text_encoder_filename)
+  elif FLAGS.byte_text_encoder:
+    encoder = text_encoder.ByteTextEncoder()
   else:
     encoder = None
   reader = tf.python_io.tf_record_iterator(FLAGS.input_filename)
