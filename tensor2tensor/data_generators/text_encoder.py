@@ -30,11 +30,11 @@ import re
 # Dependency imports
 
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
 
+xrange = six.moves.xrange  # pylint: disable=redefined-builtin
 
 # Reserved tokens for things like padding and EOS symbols.
 PAD = "<pad>"
@@ -295,7 +295,7 @@ class SubwordTextEncoder(TextEncoder):
     Returns:
       a list of integers in the range [0, vocab_size)
     """
-    return self._tokens_to_subtokens(tokenizer.encode(
+    return self._tokens_to_subtoken_ids(tokenizer.encode(
         native_to_unicode(raw_text)))
 
   def decode(self, subtokens):
@@ -307,14 +307,14 @@ class SubwordTextEncoder(TextEncoder):
       a native string
     """
     return unicode_to_native(tokenizer.decode(
-        self._subtokens_to_tokens(subtokens)))
+        self._subtoken_ids_to_tokens(subtokens)))
 
   @property
   def vocab_size(self):
     """The subtoken vocabulary size."""
     return len(self._all_subtoken_strings)
 
-  def _tokens_to_subtokens(self, tokens):
+  def _tokens_to_subtoken_ids(self, tokens):
     """Converts a list of tokens to a list of subtoken ids.
 
     Args:
@@ -324,11 +324,11 @@ class SubwordTextEncoder(TextEncoder):
     """
     ret = []
     for token in tokens:
-      ret.extend(self._escaped_token_to_subtokens(
+      ret.extend(self._escaped_token_to_subtoken_ids(
           _escape_token(token, self._alphabet)))
     return ret
 
-  def _subtokens_to_tokens(self, subtokens):
+  def _subtoken_ids_to_tokens(self, subtokens):
     """Converts a list of subtoken ids to a list of tokens.
 
     Args:
@@ -337,44 +337,57 @@ class SubwordTextEncoder(TextEncoder):
       a list of strings.
     """
     concatenated = "".join(
-        [self._subtoken_to_subtoken_string(s) for s in subtokens])
+        [self._subtoken_id_to_subtoken_string(s) for s in subtokens])
     split = concatenated.split("_")
     return [_unescape_token(t + "_") for t in split if t]
 
-  def _subtoken_to_subtoken_string(self, subtoken):
-    """Subtoken_String (string) corresponding to the given subtoken (id)."""
+  def _subtoken_id_to_subtoken_string(self, subtoken):
+    """Converts a subtoken integer ID to a subtoken string."""
     if 0 <= subtoken < self.vocab_size:
       return self._all_subtoken_strings[subtoken]
     return u""
 
-  def _escaped_token_to_subtokens(self, escaped_token):
-    """Converts an escaped token string to a list of subtokens.
+  def _escaped_token_to_subtoken_strings(self, escaped_token):
+    """Converts an escaped token string to a list of subtoken strings.
 
     Args:
-      escaped_token: an escaped token
+      escaped_token: An escaped token as a unicode string.
     Returns:
-      a list of one or more integers.
+      A list of subtokens as unicode strings.
     """
+    # NOTE: This algorithm is greedy; it won't necessarily produce the "best"
+    # list of subtokens.
     ret = []
-    pos = 0
-    lesc = len(escaped_token)
-    while pos < lesc:
-      end = min(lesc, pos + self._max_subtoken_len)
-      while end > pos:
-        subtoken_id = self._subtoken_string_to_id.get(escaped_token[pos:end])
-        if subtoken_id is not None:
+    start = 0
+    token_len = len(escaped_token)
+    while start < token_len:
+      for end in xrange(
+          min(token_len, start + self._max_subtoken_len), start, -1):
+        subtoken = escaped_token[start:end]
+        if subtoken in self._subtoken_string_to_id:
+          ret.append(subtoken)
+          start = end
           break
-        end -= 1
 
-      # If there is no possible encoding of the escaped token then one of the
-      # characters in the token is not in the alphabet. This should be
-      # impossible and would be indicative of a bug.
-      assert subtoken_id is not None
-
-      ret.append(subtoken_id)
-      pos = end
+      else:  # Did not break
+        # If there is no possible encoding of the escaped token then one of the
+        # characters in the token is not in the alphabet. This should be
+        # impossible and would be indicative of a bug.
+        assert False, "Token substring not found in subtoken vocabulary."
 
     return ret
+
+  def _escaped_token_to_subtoken_ids(self, escaped_token):
+    """Converts an escaped token string to a list of subtoken IDs.
+
+    Args:
+      escaped_token: An escaped token as a unicode string.
+    Returns:
+      A list of subtoken IDs as integers.
+    """
+    return [
+        self._subtoken_string_to_id[subtoken]
+        for subtoken in self._escaped_token_to_subtoken_strings(escaped_token)]
 
   @classmethod
   def build_to_target_size(cls,
@@ -460,55 +473,51 @@ class SubwordTextEncoder(TextEncoder):
       min_count = 1
     for i in xrange(num_iterations):
       tf.logging.info("Iteration {0}".format(i))
-      counts = collections.defaultdict(int)
+
+      # Collect all substrings of the encoded token that break along current
+      # subtoken boundaries.
+      subtoken_counts = collections.defaultdict(int)
       for token, count in six.iteritems(token_counts):
         escaped_token = _escape_token(token, self._alphabet)
-        # we will count all tails of the escaped_token, starting from boundaries
-        # determined by our current segmentation.
-        if i == 0:
-          starts = six.moves.range(len(escaped_token))
-        else:
-          subtokens = self._escaped_token_to_subtokens(escaped_token)
-          pos = 0
-          starts = []
-          for subtoken in subtokens:
-            starts.append(pos)
-            pos += len(self._all_subtoken_strings[subtoken])
-        for start in starts:
+        subtokens = self._escaped_token_to_subtoken_strings(escaped_token)
+        start = 0
+        for subtoken in subtokens:
           for end in xrange(start + 1, len(escaped_token) + 1):
-            subtoken_string = escaped_token[start:end]
-            counts[subtoken_string] += count
-      # Array of sets of candidate subtoken strings, by length
+            new_subtoken = escaped_token[start:end]
+            subtoken_counts[new_subtoken] += count
+          start += len(subtoken)
+
+      # Array of sets of candidate subtoken strings, by length.
       len_to_subtoken_strings = []
-      for subtoken_string, count in six.iteritems(counts):
+      for subtoken_string, count in six.iteritems(subtoken_counts):
         lsub = len(subtoken_string)
-        # Always include all the alphabet characters or some strings will
-        # be unencodeable.
-        if count >= min_count or subtoken_string in self._alphabet:
-          # Add this subtoken string to its length set
+        if count >= min_count:
           while len(len_to_subtoken_strings) <= lsub:
             len_to_subtoken_strings.append(set())
           len_to_subtoken_strings[lsub].add(subtoken_string)
-      new_subtoken_strings = []
+
       # Consider the candidates longest to shortest, so that if we accept
       # a longer subtoken string, we can decrement the counts of its prefixes.
+      new_subtoken_strings = []
       for lsub in xrange(len(len_to_subtoken_strings)-1, 0, -1):
         subtoken_strings = len_to_subtoken_strings[lsub]
         for subtoken_string in subtoken_strings:
-          count = counts[subtoken_string]
-          if count >= min_count or subtoken_string in self._alphabet:
-            # Exclude alphabet tokens here, as they must be included later
+          count = subtoken_counts[subtoken_string]
+          if count >= min_count:
+            # Exclude alphabet tokens here, as they must be included later,
             # explicitly, regardless of count.
             if subtoken_string not in self._alphabet:
               new_subtoken_strings.append((count, subtoken_string))
             for l in xrange(1, lsub):
-              counts[subtoken_string[:l]] -= count
+              subtoken_counts[subtoken_string[:l]] -= count
+
+      # Include the alphabet explicitly to guarantee all strings are encodable.
+      new_subtoken_strings.extend(
+          (subtoken_counts.get(a, 0), a) for a in self._alphabet)
       new_subtoken_strings.sort(reverse=True)
 
-      # Reinitialize to the candidate vocabulary, including the alphabet
-      # explicitly as the highest priority.
+      # Reinitialize to the candidate vocabulary.
       self._init_subtokens_from_list(
-          list(self._alphabet) +
           [subtoken for _, subtoken in new_subtoken_strings],
           reserved=num_reserved_ids)
       tf.logging.info("vocab_size = %d" % self.vocab_size)
