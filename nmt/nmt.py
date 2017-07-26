@@ -33,8 +33,6 @@ from .utils import vocab_utils
 
 utils.check_tensorflow_version()
 
-FLAGS = None
-
 
 def add_arguments(parser):
   """Build ArgumentParser."""
@@ -221,73 +219,73 @@ def add_arguments(parser):
                       help="Number of workers (inference only).")
 
 
-def create_hparams():
+def create_hparams(flags):
   """Create training hparams."""
   return tf.contrib.training.HParams(
       # Data
-      src=FLAGS.src,
-      tgt=FLAGS.tgt,
-      train_prefix=FLAGS.train_prefix,
-      dev_prefix=FLAGS.dev_prefix,
-      test_prefix=FLAGS.test_prefix,
-      vocab_prefix=FLAGS.vocab_prefix,
-      out_dir=FLAGS.out_dir,
+      src=flags.src,
+      tgt=flags.tgt,
+      train_prefix=flags.train_prefix,
+      dev_prefix=flags.dev_prefix,
+      test_prefix=flags.test_prefix,
+      vocab_prefix=flags.vocab_prefix,
+      out_dir=flags.out_dir,
 
       # Networks
-      num_units=FLAGS.num_units,
-      num_layers=FLAGS.num_layers,
-      dropout=FLAGS.dropout,
-      unit_type=FLAGS.unit_type,
-      encoder_type=FLAGS.encoder_type,
-      residual=FLAGS.residual,
-      time_major=FLAGS.time_major,
+      num_units=flags.num_units,
+      num_layers=flags.num_layers,
+      dropout=flags.dropout,
+      unit_type=flags.unit_type,
+      encoder_type=flags.encoder_type,
+      residual=flags.residual,
+      time_major=flags.time_major,
 
       # Attention mechanisms
-      attention=FLAGS.attention,
-      attention_architecture=FLAGS.attention_architecture,
-      pass_hidden_state=FLAGS.pass_hidden_state,
+      attention=flags.attention,
+      attention_architecture=flags.attention_architecture,
+      pass_hidden_state=flags.pass_hidden_state,
 
       # Train
-      optimizer=FLAGS.optimizer,
-      num_train_steps=FLAGS.num_train_steps,
-      batch_size=FLAGS.batch_size,
-      init_weight=FLAGS.init_weight,
-      max_gradient_norm=FLAGS.max_gradient_norm,
-      learning_rate=FLAGS.learning_rate,
-      start_decay_step=FLAGS.start_decay_step,
-      decay_factor=FLAGS.decay_factor,
-      decay_steps=FLAGS.decay_steps,
-      colocate_gradients_with_ops=FLAGS.colocate_gradients_with_ops,
+      optimizer=flags.optimizer,
+      num_train_steps=flags.num_train_steps,
+      batch_size=flags.batch_size,
+      init_weight=flags.init_weight,
+      max_gradient_norm=flags.max_gradient_norm,
+      learning_rate=flags.learning_rate,
+      start_decay_step=flags.start_decay_step,
+      decay_factor=flags.decay_factor,
+      decay_steps=flags.decay_steps,
+      colocate_gradients_with_ops=flags.colocate_gradients_with_ops,
 
       # Data constraints
-      num_buckets=FLAGS.num_buckets,
-      max_train=FLAGS.max_train,
-      src_max_len=FLAGS.src_max_len,
-      tgt_max_len=FLAGS.tgt_max_len,
-      source_reverse=FLAGS.source_reverse,
+      num_buckets=flags.num_buckets,
+      max_train=flags.max_train,
+      src_max_len=flags.src_max_len,
+      tgt_max_len=flags.tgt_max_len,
+      source_reverse=flags.source_reverse,
 
       # Inference
-      src_max_len_infer=FLAGS.src_max_len_infer,
-      tgt_max_len_infer=FLAGS.tgt_max_len_infer,
-      infer_batch_size=FLAGS.infer_batch_size,
-      beam_width=FLAGS.beam_width,
-      length_penalty_weight=FLAGS.length_penalty_weight,
+      src_max_len_infer=flags.src_max_len_infer,
+      tgt_max_len_infer=flags.tgt_max_len_infer,
+      infer_batch_size=flags.infer_batch_size,
+      beam_width=flags.beam_width,
+      length_penalty_weight=flags.length_penalty_weight,
 
       # Vocab
-      sos=FLAGS.sos if FLAGS.sos else vocab_utils.SOS,
-      eos=FLAGS.eos if FLAGS.eos else vocab_utils.EOS,
-      bpe_delimiter=FLAGS.bpe_delimiter,
+      sos=flags.sos if flags.sos else vocab_utils.SOS,
+      eos=flags.eos if flags.eos else vocab_utils.EOS,
+      bpe_delimiter=flags.bpe_delimiter,
 
       # Misc
-      forget_bias=FLAGS.forget_bias,
-      num_gpus=FLAGS.num_gpus,
+      forget_bias=flags.forget_bias,
+      num_gpus=flags.num_gpus,
       epoch_step=0,  # record where we were within an epoch.
-      steps_per_stats=FLAGS.steps_per_stats,
-      steps_per_external_eval=FLAGS.steps_per_external_eval,
-      share_vocab=FLAGS.share_vocab,
-      metrics=FLAGS.metrics.split(","),
-      log_device_placement=FLAGS.log_device_placement,
-      random_seed=FLAGS.random_seed,
+      steps_per_stats=flags.steps_per_stats,
+      steps_per_external_eval=flags.steps_per_external_eval,
+      share_vocab=flags.share_vocab,
+      metrics=flags.metrics.split(","),
+      log_device_placement=flags.log_device_placement,
+      random_seed=flags.random_seed,
   )
 
 
@@ -372,10 +370,10 @@ def extend_hparams(hparams):
   return hparams
 
 
-def ensure_compatible_hparams(hparams, default_hparams):
+def ensure_compatible_hparams(hparams, default_hparams, hparams_path):
   """Make sure the loaded hparams is compatible with new changes."""
   default_hparams = utils.maybe_parse_standard_hparams(
-      default_hparams, FLAGS.hparams_path)
+      default_hparams, hparams_path)
 
   # For compatible reason, if there are new fields in default_hparams,
   #   we add them to the current hparams
@@ -398,16 +396,16 @@ def ensure_compatible_hparams(hparams, default_hparams):
   return hparams
 
 
-def create_or_load_hparams(out_dir, default_hparams):
+def create_or_load_hparams(out_dir, default_hparams, hparams_path):
   """Create hparams or load hparams from out_dir."""
   hparams = utils.load_hparams(out_dir)
   if not hparams:
     hparams = default_hparams
     hparams = utils.maybe_parse_standard_hparams(
-        hparams, FLAGS.hparams_path)
+        hparams, hparams_path)
     hparams = extend_hparams(hparams)
   else:
-    hparams = ensure_compatible_hparams(hparams, default_hparams)
+    hparams = ensure_compatible_hparams(hparams, default_hparams, hparams_path)
 
   # Save HParams
   utils.save_hparams(out_dir, hparams)
@@ -420,44 +418,44 @@ def create_or_load_hparams(out_dir, default_hparams):
   return hparams
 
 
-def main(unused_argv):
+def run_main(flags, default_hparams, train_fn, inference_fn):
+  """Run main."""
   # Job
-  jobid = FLAGS.jobid
-  num_workers = FLAGS.num_workers
+  jobid = flags.jobid
+  num_workers = flags.num_workers
   utils.print_out("# Job id %d" % jobid)
 
   # Random
-  random_seed = FLAGS.random_seed
+  random_seed = flags.random_seed
   if random_seed is not None and random_seed > 0:
     utils.print_out("# Set random seed to %d" % random_seed)
     random.seed(random_seed + jobid)
     np.random.seed(random_seed + jobid)
 
   ## Train / Decode
-  out_dir = FLAGS.out_dir
+  out_dir = flags.out_dir
   if not tf.gfile.Exists(out_dir): tf.gfile.MakeDirs(out_dir)
 
   # Load hparams.
-  default_hparams = create_hparams()
-  hparams = create_or_load_hparams(out_dir, default_hparams)
+  hparams = create_or_load_hparams(out_dir, default_hparams, flags.hparams_path)
 
-  if FLAGS.inference_input_file:
+  if flags.inference_input_file:
     # Inference indices
     hparams.inference_indices = None
-    if FLAGS.inference_list:
+    if flags.inference_list:
       (hparams.inference_indices) = (
-          [int(token)  for token in FLAGS.inference_list.split(",")])
+          [int(token)  for token in flags.inference_list.split(",")])
 
     # Inference
-    trans_file = FLAGS.inference_output_file
-    ckpt = FLAGS.ckpt
+    trans_file = flags.inference_output_file
+    ckpt = flags.ckpt
     if not ckpt:
       ckpt = tf.train.latest_checkpoint(out_dir)
-    inference.inference(ckpt, FLAGS.inference_input_file,
-                        trans_file, hparams, num_workers, jobid)
+    inference_fn(ckpt, flags.inference_input_file,
+                 trans_file, hparams, num_workers, jobid)
 
     # Evaluation
-    ref_file = FLAGS.inference_ref_file
+    ref_file = flags.inference_ref_file
     if ref_file and tf.gfile.Exists(trans_file):
       for metric in hparams.metrics:
         score = evaluation_utils.evaluate(
@@ -468,7 +466,14 @@ def main(unused_argv):
         utils.print_out("  %s: %.1f" % (metric, score))
   else:
     # Train
-    train.train(hparams)
+    train_fn(hparams)
+
+
+def main(unused_argv):
+  default_hparams = create_hparams(FLAGS)
+  train_fn = train.train
+  inference_fn = inference.inference
+  run_main(FLAGS, default_hparams, train_fn, inference_fn)
 
 
 if __name__ == "__main__":
