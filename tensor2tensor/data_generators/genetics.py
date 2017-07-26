@@ -36,6 +36,7 @@ from __future__ import division
 from __future__ import print_function
 
 import itertools
+import math
 import multiprocessing as mp
 import os
 
@@ -54,6 +55,7 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+MAX_CONCURRENT_PROCESSES = 10
 _bases = list("ACTG")
 
 
@@ -122,12 +124,19 @@ class GeneExpressionProblem(problem.Problem):
                   start_idx, end_idx))
         processes.append(p)
 
-    # Start and wait for processes
+    # Start and wait for processes in batches
     assert len(processes) == num_shards + 2  # 1 per training shard + dev + test
-    for p in processes:
-      p.start()
-    for p in processes:
-      p.join()
+
+    num_batches = int(
+        math.ceil(float(len(processes)) / MAX_CONCURRENT_PROCESSES))
+    for i in xrange(num_batches):
+      start = i * MAX_CONCURRENT_PROCESSES
+      end = start + MAX_CONCURRENT_PROCESSES
+      current = processes[start:end]
+      for p in current:
+        p.start()
+      for p in current:
+        p.join()
 
     # Shuffle
     generator_utils.shuffle_dataset(all_filepaths)
