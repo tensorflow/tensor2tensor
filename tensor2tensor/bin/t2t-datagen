@@ -281,6 +281,7 @@ def generate_data_for_problem(problem):
 
 
 def generate_data_for_registered_problem(problem_name):
+  tf.logging.info("Generating training data for %s.", problem_name)
   problem = registry.problem(problem_name)
   task_id = None if FLAGS.task_id < 0 else FLAGS.task_id
   problem.generate_data(os.path.expanduser(FLAGS.data_dir),

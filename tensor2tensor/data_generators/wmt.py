@@ -259,7 +259,7 @@ def bi_vocabs_token_generator(source_path,
 
 _ENDE_TRAIN_DATASETS = [
     [
-        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
+        "http://data.statmt.org/wmt16/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
         ("training-parallel-nc-v11/news-commentary-v11.de-en.en",
          "training-parallel-nc-v11/news-commentary-v11.de-en.de")
     ],

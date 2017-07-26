@@ -30,6 +30,7 @@ import re
 # Dependency imports
 
 import six
+from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
@@ -457,7 +458,7 @@ class SubwordTextEncoder(TextEncoder):
     # with high enough counts for our new vocabulary.
     if min_count < 1:
       min_count = 1
-    for i in six.moves.range(num_iterations):
+    for i in xrange(num_iterations):
       tf.logging.info("Iteration {0}".format(i))
       counts = collections.defaultdict(int)
       for token, count in six.iteritems(token_counts):
@@ -474,7 +475,7 @@ class SubwordTextEncoder(TextEncoder):
             starts.append(pos)
             pos += len(self._all_subtoken_strings[subtoken])
         for start in starts:
-          for end in six.moves.range(start + 1, len(escaped_token) + 1):
+          for end in xrange(start + 1, len(escaped_token) + 1):
             subtoken_string = escaped_token[start:end]
             counts[subtoken_string] += count
       # Array of sets of candidate subtoken strings, by length
@@ -491,7 +492,7 @@ class SubwordTextEncoder(TextEncoder):
       new_subtoken_strings = []
       # Consider the candidates longest to shortest, so that if we accept
       # a longer subtoken string, we can decrement the counts of its prefixes.
-      for lsub in six.moves.range(len(len_to_subtoken_strings)-1, 0, -1):
+      for lsub in xrange(len(len_to_subtoken_strings)-1, 0, -1):
         subtoken_strings = len_to_subtoken_strings[lsub]
         for subtoken_string in subtoken_strings:
           count = counts[subtoken_string]
@@ -500,7 +501,7 @@ class SubwordTextEncoder(TextEncoder):
             # explicitly, regardless of count.
             if subtoken_string not in self._alphabet:
               new_subtoken_strings.append((count, subtoken_string))
-            for l in six.moves.range(1, lsub):
+            for l in xrange(1, lsub):
               counts[subtoken_string[:l]] -= count
       new_subtoken_strings.sort(reverse=True)
 
