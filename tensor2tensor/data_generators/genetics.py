@@ -49,6 +49,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -141,7 +142,8 @@ class GeneExpressionProblem(problem.Problem):
     p.target_space_id = problem.SpaceID.REAL
 
   def example_reading_spec(self):
-    # TODO(rsepassi): propagate and apply targets_mask to output RealModality.
+    # TODO(rsepassi): propagate and apply targets_mask to output RealModality
+    # and to eval metrics (weights_fn?).
     data_fields = {
         "inputs": tf.VarLenFeature(tf.int64),
         "targets_mask": tf.VarLenFeature(tf.float32),
@@ -157,6 +159,9 @@ class GeneExpressionProblem(problem.Problem):
                                      [-1, 1, self.num_output_predictions])
 
     return examples
+
+  def eval_metrics(self):
+    return [metrics.Metrics.RMSE]
 
 
 @registry.register_problem("genetics_cage10")

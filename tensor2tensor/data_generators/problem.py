@@ -22,6 +22,7 @@ from __future__ import print_function
 
 from tensor2tensor.data_generators import generator_utils as utils
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import metrics
 
 import tensorflow as tf
 
@@ -111,6 +112,17 @@ class Problem(object):
     * hparams(defaults, model_hparams)
         - Specify the problem hyperparameters (see _default_hparams)
         - Mutate defaults as needed
+    * example_reading_spec
+        - Specify the names and types of the features on disk.
+        - Specify tf.contrib.slim.tfexample_decoder
+    * preprocess_examples(examples, mode)
+        - Preprocess the example feature dict from feature name to Tensor or
+          SparseTensor.
+        - Used in training, eval, and inference (specified by mode).
+
+  Eval:
+    * eval_metrics
+        - Specify the set of evaluation metrics for this problem.
 
   Inference:
     * feature_encoders(data_dir)
@@ -150,6 +162,12 @@ class Problem(object):
   def preprocess_examples(self, examples, mode):
     del mode
     return examples
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
+        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY
+    ]
 
   # ============================================================================
   # END SUBCLASS INTERFACE

@@ -28,6 +28,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import wsj_parsing
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -119,6 +120,13 @@ class WMTProblem(problem.Problem):
     p.target_space_id = self.target_space_id
     if self.is_character_level:
       p.loss_multiplier = 2.0
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
+        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY,
+        metrics.Metrics.APPROX_BLEU
+    ]
 
 
 # Generic generators used later for multiple problems.
@@ -657,6 +665,13 @@ class WMTEnCsTokens32k(problem.Problem):
   @property
   def target_space_id(self):
     return problem.SpaceID.CS_TOK
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
+        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY,
+        metrics.Metrics.APPROX_BLEU
+    ]
 
 
 @registry.register_problem("wmt_encs_characters")

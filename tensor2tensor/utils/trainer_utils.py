@@ -85,7 +85,7 @@ flags.DEFINE_string("schedule", "local_run",
 flags.DEFINE_integer("local_eval_frequency", 2000,
                      "Run evaluation every this steps during local training.")
 flags.DEFINE_bool("locally_shard_to_cpu", False,
-                  "Use CPU as a sharding device runnning locally. This allows "
+                  "Use CPU as a sharding device running locally. This allows "
                   "to test sharded model construction on a machine with 1 GPU.")
 flags.DEFINE_bool("daisy_chain_variables", True,
                   "copy variables around in a daisy chain")
@@ -103,6 +103,9 @@ flags.DEFINE_string("ps_job", "/job:ps", "name of ps job")
 flags.DEFINE_integer("ps_replicas", 0, "How many ps replicas.")
 
 # Decode flags
+# Set one of {decode_from_dataset, decode_interactive, decode_from_file} to
+# decode.
+flags.DEFINE_bool("decode_from_dataset", False, "Decode from dataset on disk.")
 flags.DEFINE_bool("decode_use_last_position_only", False,
                   "In inference, use last position only for speedup.")
 flags.DEFINE_bool("decode_interactive", False,
@@ -152,17 +155,24 @@ def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
 
 def create_experiment(output_dir, data_dir, model_name, train_steps,
                       eval_steps):
+  """Create Experiment."""
   hparams = create_hparams(FLAGS.hparams_set, data_dir)
   estimator, input_fns = create_experiment_components(
       hparams=hparams,
       output_dir=output_dir,
       data_dir=data_dir,
       model_name=model_name)
+  eval_metrics = metrics.create_evaluation_metrics(
+      zip(FLAGS.problems.split("-"), hparams.problem_instances))
+  if ("autotune" in FLAGS and FLAGS.autotune and
+      FLAGS.objective not in eval_metrics):
+    raise ValueError("Tuning objective %s not among evaluation metrics %s" %
+                     (FLAGS.objective, eval_metrics.keys()))
   return tf.contrib.learn.Experiment(
       estimator=estimator,
       train_input_fn=input_fns["train"],
       eval_input_fn=input_fns["eval"],
-      eval_metrics=metrics.create_evaluation_metrics(FLAGS.problems.split("-")),
+      eval_metrics=eval_metrics,
       train_steps=train_steps,
       eval_steps=eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
@@ -585,18 +595,18 @@ def run_locally(exp):
   Args:
     exp: Experiment.
   """
-  if exp.train_steps > 0:
-    # Train
-    tf.logging.info("Performing local training.")
+  if exp.train_steps > 0 or exp.eval_steps > 0:
+    tf.logging.info("Performing local training and evaluation.")
     exp.train_and_evaluate()
+  decode(exp.estimator)
 
-  # Predict
-  estimator = exp.estimator
+
+def decode(estimator):
   if FLAGS.decode_interactive:
     decode_interactively(estimator)
   elif FLAGS.decode_from_file is not None:
     decode_from_file(estimator, FLAGS.decode_from_file)
-  else:
+  elif FLAGS.decode_from_dataset:
     decode_from_dataset(estimator)
 
 
