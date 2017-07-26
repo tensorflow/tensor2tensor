@@ -26,10 +26,9 @@ import random
 # Dependency imports
 
 import six
+from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 import tensorflow as tf
-
-xrange = six.moves.xrange  # pylint: disable=redefined-builtin
 
 FLAGS = tf.app.flags.FLAGS
 

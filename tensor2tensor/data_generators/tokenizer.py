@@ -51,9 +51,8 @@ import unicodedata
 # Dependency imports
 
 import six
+from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
-
-xrange = six.moves.xrange  # pylint: disable=redefined-builtin
 
 # Conversion between Unicode and UTF-8, if required (on Python2)
 _native_to_unicode = (lambda s: s.decode("utf-8")) if six.PY2 else (lambda s: s)
