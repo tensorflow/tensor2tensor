@@ -45,6 +45,7 @@ from tensor2tensor.utils import yellowfin
 
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
+from tensorflow.python import debug
 from tensorflow.python.ops import init_ops
 
 # Number of samples to draw for an image input (in such cases as captioning)
@@ -55,6 +56,8 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_bool("registry_help", False,
                   "If True, logs the contents of the registry and exits.")
+flags.DEFINE_bool("tfdbg", False,
+                  "If True, use the TF debugger CLI on train/eval.")
 flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 flags.DEFINE_string("model", "", "Which model to use.")
 flags.DEFINE_string("hparams_set", "", "Which parameters to use.")
@@ -168,6 +171,12 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
       FLAGS.objective not in eval_metrics):
     raise ValueError("Tuning objective %s not among evaluation metrics %s" %
                      (FLAGS.objective, eval_metrics.keys()))
+  train_monitors = []
+  eval_hooks = []
+  if FLAGS.tfdbg:
+    hook = debug.LocalCLIDebugHook()
+    train_monitors.append(hook)
+    eval_hooks.append(hook)
   return tf.contrib.learn.Experiment(
       estimator=estimator,
       train_input_fn=input_fns["train"],
@@ -176,7 +185,8 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
       train_steps=train_steps,
       eval_steps=eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
-      train_monitors=[])
+      train_monitors=train_monitors,
+      eval_hooks=eval_hooks)
 
 
 def create_experiment_components(hparams, output_dir, data_dir, model_name):

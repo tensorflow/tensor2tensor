@@ -39,7 +39,7 @@ class Metrics(object):
   RMSE = "rmse"
 
 
-def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
+def padded_rmse(predictions, labels, weights_fn=common_layers.weights_nonzero):
   predictions, labels = common_layers.pad_with_zeros(predictions, labels)
   targets = labels
   weights = weights_fn(targets)

@@ -22,7 +22,7 @@ from __future__ import print_function
 
 import numpy as np
 
-from tensor2tensor.data_generators import genetics
+from tensor2tensor.data_generators import gene_expression
 
 import tensorflow as tf
 
@@ -40,7 +40,7 @@ class GeneticsTest(tf.test.TestCase):
     return np.array(one_hots)
 
   def testRecordToExample(self):
-    encoder = genetics.GeneticBaseEncoder(chunk_size=2)
+    encoder = gene_expression.DNAEncoder(chunk_size=2)
     raw_inputs = ["A", "C", "G", "X", "C", "T"]
 
     # Put in numpy arrays in the same format as in the h5 file
@@ -48,7 +48,7 @@ class GeneticsTest(tf.test.TestCase):
     mask = np.array([True, False, True])
     outputs = np.array([[1.0, 2.0, 3.0], [5.0, 1.0, 0.2], [5.1, 2.3, 2.3]])
     # Convert to example dict
-    ex_dict = genetics.to_example_dict(encoder, inputs, mask, outputs)
+    ex_dict = gene_expression.to_example_dict(encoder, inputs, mask, outputs)
 
     self.assertEqual(len(raw_inputs) // 2 + 1, len(ex_dict["inputs"]))
     self.assertAllEqual(encoder.encode(raw_inputs) + [1], ex_dict["inputs"])
@@ -61,7 +61,7 @@ class GeneticsTest(tf.test.TestCase):
     num_examples = 37
     num_shards = 4
     outfiles = [str(i) for i in range(num_shards)]
-    shard_args = genetics.generate_shard_args(outfiles, num_examples)
+    shard_args = gene_expression.generate_shard_args(outfiles, num_examples)
 
     starts, ends, fnames = zip(*shard_args)
     self.assertAllEqual([0, 9, 18, 27], starts)

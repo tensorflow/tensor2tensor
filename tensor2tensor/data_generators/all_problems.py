@@ -34,7 +34,7 @@ from tensor2tensor.data_generators import wsj_parsing
 # pylint: disable=g-import-not-at-top
 try:
   # Requires h5py
-  from tensor2tensor.data_generators import genetics
+  from tensor2tensor.data_generators import gene_expression
 except ImportError:
   pass
 # pylint: enable=g-import-not-at-top

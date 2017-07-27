@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Genetics problems.
+"""Gene expression problems.
 
 Inputs are bases ACTG (with indices assigned in that order).
 
@@ -82,7 +82,7 @@ class GeneExpressionProblem(problem.Problem):
   def feature_encoders(self, data_dir):
     del data_dir
     return {
-        "inputs": GeneticBaseEncoder(chunk_size=self.chunk_size),
+        "inputs": DNAEncoder(chunk_size=self.chunk_size),
         # TODO(rsepassi): RealEncoder?
         "targets": text_encoder.TextEncoder()
     }
@@ -166,8 +166,15 @@ class GeneExpressionProblem(problem.Problem):
   def preprocess_examples(self, examples, mode):
     del mode
 
+    # Reshape targets
     examples["targets"] = tf.reshape(examples["targets"],
                                      [-1, 1, self.num_output_predictions])
+    examples["targets_mask"] = tf.reshape(examples["targets_mask"], [-1, 1, 1])
+
+    # Set masked targets to 0 (i.e. pad) so that loss and metrics ignore them.
+    # Add epsilon because some unmasked labels are actually 0.
+    examples["targets"] += 1e-6
+    examples["targets"] *= examples["targets_mask"]
 
     return examples
 
@@ -175,8 +182,8 @@ class GeneExpressionProblem(problem.Problem):
     return [metrics.Metrics.RMSE]
 
 
-@registry.register_problem("genetics_cage10")
-class GeneticsCAGE10(GeneExpressionProblem):
+@registry.register_problem("gene_expression_cage10")
+class GeneExpressionCAGE10(GeneExpressionProblem):
 
   @property
   def download_url(self):
@@ -187,8 +194,8 @@ class GeneticsCAGE10(GeneExpressionProblem):
     return "cage10.h5"
 
 
-@registry.register_problem("genetics_gm12878")
-class GeneticsGM12878(GeneExpressionProblem):
+@registry.register_problem("gene_expression_gm12878")
+class GeneExpressionGM12878(GeneExpressionProblem):
 
   @property
   def download_url(self):
@@ -199,8 +206,8 @@ class GeneticsGM12878(GeneExpressionProblem):
     return "gm12878.h5"
 
 
-@registry.register_problem("genetics_l262k")
-class GeneticsL262k(GeneExpressionProblem):
+@registry.register_problem("gene_expression_l262k")
+class GeneExpressionL262k(GeneExpressionProblem):
 
   @property
   def h5_file(self):
@@ -236,7 +243,7 @@ def dataset_generator(filepath,
                       chunk_size=1,
                       start_idx=None,
                       end_idx=None):
-  encoder = GeneticBaseEncoder(chunk_size=chunk_size)
+  encoder = DNAEncoder(chunk_size=chunk_size)
   with h5py.File(filepath, "r") as h5_file:
     # Get input keys from h5_file
     src_keys = [s % dataset for s in ["%s_in", "%s_na", "%s_out"]]
@@ -291,7 +298,7 @@ def to_example_dict(encoder, inputs, mask, outputs):
   return ex_dict
 
 
-class GeneticBaseEncoder(text_encoder.TextEncoder):
+class DNAEncoder(text_encoder.TextEncoder):
   """ACTG strings to ints and back. Optionally chunks bases into single ids.
 
   Uses 'X' as an unknown base.
@@ -302,14 +309,14 @@ class GeneticBaseEncoder(text_encoder.TextEncoder):
   def __init__(self,
                chunk_size=1,
                num_reserved_ids=text_encoder.NUM_RESERVED_TOKENS):
-    super(GeneticBaseEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
+    super(DNAEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
     # Build a vocabulary of chunks of size chunk_size
     self._chunk_size = chunk_size
     chunks = []
     for size in range(1, chunk_size + 1):
-      c = itertools.product(_bases + [GeneticBaseEncoder.UNK], repeat=size)
+      c = itertools.product(_bases + [DNAEncoder.UNK], repeat=size)
       num_pad = chunk_size - size
-      padding = (GeneticBaseEncoder.PAD,) * num_pad
+      padding = (DNAEncoder.PAD,) * num_pad
       c = [el + padding for el in c]
       chunks.extend(c)
     chunks.sort()
@@ -323,7 +330,7 @@ class GeneticBaseEncoder(text_encoder.TextEncoder):
 
   def encode(self, s):
     bases = list(s)
-    pad = [GeneticBaseEncoder.PAD] * (len(bases) % self._chunk_size)
+    pad = [DNAEncoder.PAD] * (len(bases) % self._chunk_size)
     bases.extend(pad)
     assert (len(bases) % self._chunk_size) == 0
     num_chunks = len(bases) // self._chunk_size
@@ -342,8 +349,8 @@ class GeneticBaseEncoder(text_encoder.TextEncoder):
     for idx in ids:
       if idx >= self._num_reserved_ids:
         chunk = self._ids_to_chunk[idx]
-        if GeneticBaseEncoder.PAD in chunk:
-          chunk = chunk[:chunk.index(GeneticBaseEncoder.PAD)]
+        if DNAEncoder.PAD in chunk:
+          chunk = chunk[:chunk.index(DNAEncoder.PAD)]
       else:
         chunk = [text_encoder.RESERVED_TOKENS[idx]]
       bases.extend(chunk)
