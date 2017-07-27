@@ -404,14 +404,15 @@ def _compile_data(tmp_dir, datasets, filename):
           generator_utils.maybe_download(tmp_dir, compressed_filename, url)
         if not (os.path.exists(lang1_filepath) and
                 os.path.exists(lang2_filepath)):
-          mode = "r:gz" if "gz" in compressed_filepath else "r"
+          # For .tar.gz and .tgz files, we read compressed.
+          mode = "r:gz" if compressed_filepath.endswith("gz") else "r"
           with tarfile.open(compressed_filepath, mode) as corpus_tar:
             corpus_tar.extractall(tmp_dir)
-        if ".gz" in lang1_filepath:
+        if lang1_filepath.endswith(".gz"):
           new_filepath = lang1_filepath.strip(".gz")
           generator_utils.gunzip_file(lang1_filepath, new_filepath)
           lang1_filepath = new_filepath
-        if ".gz" in lang2_filepath:
+        if lang2_filepath.endswith(".gz"):
           new_filepath = lang2_filepath.strip(".gz")
           generator_utils.gunzip_file(lang2_filepath, new_filepath)
           lang2_filepath = new_filepath
