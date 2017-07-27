@@ -30,9 +30,10 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 import tensorflow as tf
 
-FLAGS = tf.app.flags.FLAGS
+FLAGS = tf.flags.FLAGS
 
-_TESTDATA = "google3/third_party/py/tensor2tensor/data_generators/test_data"
+pkg_dir, _ = os.path.split(__file__)
+_TESTDATA = os.path.join(pkg_dir, "test_data")
 
 
 class TokenizerTest(tf.test.TestCase):
@@ -41,18 +42,13 @@ class TokenizerTest(tf.test.TestCase):
     self.assertListEqual(
         [u"Dude", u" - ", u"that", u"'", u"s", u"so", u"cool", u"."],
         tokenizer.encode(u"Dude - that's so cool."))
-    self.assertListEqual(
-        [u"Łukasz", u"est", u"né", u"en", u"1981", u"."],
-        tokenizer.encode(u"Łukasz est né en 1981."))
-    self.assertListEqual(
-        [u" ", u"Spaces", u"at", u"the", u"ends", u" "],
-        tokenizer.encode(u" Spaces at the ends "))
-    self.assertListEqual(
-        [u"802", u".", u"11b"],
-        tokenizer.encode(u"802.11b"))
-    self.assertListEqual(
-        [u"two", u". \n", u"lines"],
-        tokenizer.encode(u"two. \nlines"))
+    self.assertListEqual([u"Łukasz", u"est", u"né", u"en", u"1981", u"."],
+                         tokenizer.encode(u"Łukasz est né en 1981."))
+    self.assertListEqual([u" ", u"Spaces", u"at", u"the", u"ends", u" "],
+                         tokenizer.encode(u" Spaces at the ends "))
+    self.assertListEqual([u"802", u".", u"11b"], tokenizer.encode(u"802.11b"))
+    self.assertListEqual([u"two", u". \n", u"lines"],
+                         tokenizer.encode(u"two. \nlines"))
 
   def test_decode(self):
     self.assertEqual(
@@ -62,8 +58,7 @@ class TokenizerTest(tf.test.TestCase):
 
   def test_invertibility_on_random_strings(self):
     for _ in xrange(1000):
-      s = u"".join(
-          six.unichr(random.randint(0, 65535)) for _ in xrange(10))
+      s = u"".join(six.unichr(random.randint(0, 65535)) for _ in xrange(10))
       self.assertEqual(s, tokenizer.decode(tokenizer.encode(s)))
 
 
@@ -71,10 +66,8 @@ class TestTokenCounts(tf.test.TestCase):
 
   def setUp(self):
     super(TestTokenCounts, self).setUp()
-    self.corpus_path = os.path.join(
-        FLAGS.test_srcdir, _TESTDATA, "corpus-*.txt")
-    self.vocab_path = os.path.join(
-        FLAGS.test_srcdir, _TESTDATA, "vocab-*.txt")
+    self.corpus_path = os.path.join(_TESTDATA, "corpus-*.txt")
+    self.vocab_path = os.path.join(_TESTDATA, "vocab-*.txt")
 
   def test_corpus_token_counts_split_on_newlines(self):
     token_counts = tokenizer.corpus_token_counts(
@@ -117,31 +110,33 @@ class TestTokenCounts(tf.test.TestCase):
 
     self.assertIn(u"slept", token_counts)
     self.assertNotIn(u"Mitch", token_counts)
-    self.assertDictContainsSubset(
-        {u".\n\n": 1, u"\n": 2, u".\n": 1}, token_counts)
+    self.assertDictContainsSubset({
+        u".\n\n": 1,
+        u"\n": 2,
+        u".\n": 1
+    }, token_counts)
 
   def test_vocab_token_counts(self):
-    token_counts = tokenizer.vocab_token_counts(
-        self.vocab_path, 0)
+    token_counts = tokenizer.vocab_token_counts(self.vocab_path, 0)
 
     expected = {
-        "lollipop": 8,
-        "reverberated": 12,
-        "kattywampus": 11,
-        "balderdash": 10,
-        "jiggery-pokery": 14,
+        u"lollipop": 8,
+        u"reverberated": 12,
+        u"kattywampus": 11,
+        u"balderdash": 10,
+        u"jiggery-pokery": 14,
     }
     self.assertDictEqual(expected, token_counts)
 
   def test_vocab_token_counts_with_max_lines(self):
-    token_counts = tokenizer.vocab_token_counts(
-        self.vocab_path, 4)
+    # vocab-1 has 2 lines, vocab-2 has 3
+    token_counts = tokenizer.vocab_token_counts(self.vocab_path, 4)
 
     expected = {
-        "lollipop": 8,
-        "reverberated": 12,
-        "kattywampus": 11,
-        "balderdash": 10,
+        u"lollipop": 8,
+        u"reverberated": 12,
+        u"kattywampus": 11,
+        u"balderdash": 10,
     }
     self.assertDictEqual(expected, token_counts)
 

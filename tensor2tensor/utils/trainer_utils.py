@@ -167,7 +167,7 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
       model_name=model_name)
   eval_metrics = metrics.create_evaluation_metrics(
       zip(FLAGS.problems.split("-"), hparams.problem_instances))
-  if ("autotune" in FLAGS and FLAGS.autotune and
+  if (hasattr(FLAGS, "autotune") and FLAGS.autotune and
       FLAGS.objective not in eval_metrics):
     raise ValueError("Tuning objective %s not among evaluation metrics %s" %
                      (FLAGS.objective, eval_metrics.keys()))
@@ -572,7 +572,7 @@ def model_builder(model, hparams):
     # Define the train_op for the TRAIN mode.
     opt = _ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
     tf.logging.info("Computing gradients for global model_fn.")
-    opt_summaries = ["learning_rate", "loss", "global_gradient_norm"]
+    opt_summaries = ["learning_rate", "loss"]
     if hparams.summarize_grads:
       opt_summaries.extend(["gradients", "gradient_norm"])
     train_op = tf.contrib.layers.optimize_loss(
