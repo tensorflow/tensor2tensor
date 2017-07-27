@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,7 +43,7 @@ class Modality(object):
   function targets_bottom represents the auto-regressive part of the network.
   It is applied to the already-generated part of an image, which is given to
   the decoder to generate the next part. In some cases, e.g., for text, it is
-  the same as the inputs_bottom function, as that is the default we use. But,
+  the same as the inputs_bottom function, and that is the default we use. But,
   e.g., for images, a different function might be needed to regress properly.
 
   All 3 functions have simple and sharded versions. A sub-class only needs

@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,6 +28,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import wsj_parsing
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -57,9 +59,9 @@ class WMTProblem(problem.Problem):
     """Generator of the training data."""
     raise NotImplementedError()
 
-  def dev_generator(self, data_dir, tmp_dir, is_training):
+  def dev_generator(self, data_dir, tmp_dir):
     """Generator of the development data."""
-    return self.train_generator(data_dir, tmp_dir, is_training)
+    return self.train_generator(data_dir, tmp_dir, False)
 
   @property
   def input_space_id(self):
@@ -81,26 +83,24 @@ class WMTProblem(problem.Problem):
   def vocab_file(self):
     return "%s.%d" % (self.vocab_name, self.targeted_vocab_size)
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=None):
-    if num_shards is None:
-      num_shards = self.num_shards
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
     generator_utils.generate_dataset_and_shuffle(
-      self.train_generator(data_dir, tmp_dir, True),
-      self.training_filepaths(data_dir, num_shards, shuffled=False),
-      self.dev_generator(data_dir, tmp_dir, False),
-      self.dev_filepaths(data_dir, 1, shuffled=False))
+        self.train_generator(data_dir, tmp_dir, True),
+        self.training_filepaths(data_dir, self.num_shards, shuffled=False),
+        self.dev_generator(data_dir, tmp_dir),
+        self.dev_filepaths(data_dir, 1, shuffled=False))
 
   def feature_encoders(self, data_dir):
     if self.is_character_level:
       return {
-        "inputs": text_encoder.ByteTextEncoder(),
-        "targets": text_encoder.ByteTextEncoder(),
+          "inputs": text_encoder.ByteTextEncoder(),
+          "targets": text_encoder.ByteTextEncoder(),
       }
     vocab_filename = os.path.join(data_dir, self.vocab_file)
     subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
     return {
-      "inputs": subtokenizer,
-      "targets": subtokenizer,
+        "inputs": subtokenizer,
+        "targets": subtokenizer,
     }
 
   def hparams(self, defaults, unused_model_hparams):
@@ -118,6 +118,13 @@ class WMTProblem(problem.Problem):
     p.target_space_id = self.target_space_id
     if self.is_character_level:
       p.loss_multiplier = 2.0
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
+        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY,
+        metrics.Metrics.APPROX_BLEU
+    ]
 
 
 # Generic generators used later for multiple problems.
@@ -265,7 +272,7 @@ _ENDE_TRAIN_DATASETS = [
 ]
 _ENDE_TEST_DATASETS = [
     [
-        "http://data.statmt.org/wmt16/translation-task/dev.tgz",
+        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
         ("dev/newstest2013.en", "dev/newstest2013.de")
     ],
 ]
@@ -295,7 +302,7 @@ _ENFR_TRAIN_DATASETS = [
 ]
 _ENFR_TEST_DATASETS = [
     [
-        "http://data.statmt.org/wmt16/translation-task/dev.tgz",
+        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
         ("dev/newstest2013.en", "dev/newstest2013.fr")
     ],
 ]
@@ -328,7 +335,7 @@ _MKEN_TEST_DATASETS = [[
 # English-Czech datasets
 _ENCS_TRAIN_DATASETS = [
     [
-        "http://data.statmt.org/wmt16/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
+        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
         ("training-parallel-nc-v11/news-commentary-v11.cs-en.en",
          "training-parallel-nc-v11/news-commentary-v11.cs-en.cs")
     ],
@@ -343,7 +350,7 @@ _ENCS_TRAIN_DATASETS = [
 ]
 _ENCS_TEST_DATASETS = [
     [
-        "http://data.statmt.org/wmt16/translation-task/dev.tgz",
+        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
         ("dev/newstest2013.en", "dev/newstest2013.cs")
     ],
 ]
@@ -433,7 +440,8 @@ class WMTEnDeTokens8k(WMTProblem):
     datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_ende_tok_%s" % tag)
-    return token_generator(data_path + ".lang1", data_path + ".lang2", symbolizer_vocab, EOS)
+    return token_generator(data_path + ".lang1", data_path + ".lang2",
+                           symbolizer_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -466,7 +474,7 @@ class WMTEnDeCharacters(WMTProblem):
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_ende_chr_%s" % tag)
     return character_generator(data_path + ".lang1", data_path + ".lang2",
-                                character_vocab, EOS)
+                               character_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -500,7 +508,7 @@ class WMTZhEnTokens8k(WMTProblem):
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_zhen_tok_%s" % tag)
     return bi_vocabs_token_generator(data_path + ".lang1", data_path + ".lang2",
-                                    source_vocab, target_vocab, EOS)
+                                     source_vocab, target_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -540,13 +548,14 @@ class WMTEnFrTokens8k(WMTProblem):
   def targeted_vocab_size(self):
     return 2**13  # 8192
 
-  def train_generator(self, tmp_dir, train):
+  def train_generator(self, data_dir, tmp_dir, train):
     symbolizer_vocab = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size)
     datasets = _ENFR_TRAIN_DATASETS if train else _ENFR_TEST_DATASETS
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_enfr_tok_%s" % tag)
-    return token_generator(data_path + ".lang1", data_path + ".lang2", symbolizer_vocab, EOS)
+    return token_generator(data_path + ".lang1", data_path + ".lang2",
+                           symbolizer_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -579,7 +588,7 @@ class WMTEnFrCharacters(WMTProblem):
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_enfr_chr_%s" % tag)
     return character_generator(data_path + ".lang1", data_path + ".lang2",
-                                character_vocab, EOS)
+                               character_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -612,7 +621,7 @@ class SETimesMkEnTokens32k(WMTProblem):
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "setimes_mken_tok_%s" % tag)
     return token_generator(data_path + ".lang1", data_path + ".lang2",
-                            symbolizer_vocab, EOS)
+                           symbolizer_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -621,6 +630,7 @@ class SETimesMkEnTokens32k(WMTProblem):
   @property
   def target_space_id(self):
     return problem.SpaceID.EN_TOK
+
 
 @registry.register_problem("wmt_encs_tokens_32k")
 class WMTEnCsTokens32k(problem.Problem):
@@ -644,7 +654,7 @@ class WMTEnCsTokens32k(problem.Problem):
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_encs_tok_%s" % tag)
     return token_generator(data_path + ".lang1", data_path + ".lang2",
-                            symbolizer_vocab, EOS)
+                           symbolizer_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -653,6 +663,13 @@ class WMTEnCsTokens32k(problem.Problem):
   @property
   def target_space_id(self):
     return problem.SpaceID.CS_TOK
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
+        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY,
+        metrics.Metrics.APPROX_BLEU
+    ]
 
 
 @registry.register_problem("wmt_encs_characters")
@@ -669,7 +686,7 @@ class WMTEnCsCharacters(WMTProblem):
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_encs_chr_%s" % tag)
     return character_generator(data_path + ".lang1", data_path + ".lang2",
-                                character_vocab, EOS)
+                               character_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -678,15 +695,6 @@ class WMTEnCsCharacters(WMTProblem):
   @property
   def target_space_id(self):
     return problem.SpaceID.CS_CHR
-
-
-# TODO This function is not used anywhere.
-def parsing_character_generator(tmp_dir, train):
-  character_vocab = text_encoder.ByteTextEncoder()
-  filename = "parsing_%s" % ("train" if train else "dev")
-  text_filepath = os.path.join(tmp_dir, filename + ".text")
-  tags_filepath = os.path.join(tmp_dir, filename + ".tags")
-  return character_generator(text_filepath, tags_filepath, character_vocab, EOS)
 
 
 def tabbed_parsing_token_generator(data_dir, tmp_dir, train, prefix,

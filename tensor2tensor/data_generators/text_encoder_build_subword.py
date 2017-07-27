@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,29 +39,43 @@ from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
 
-tf.app.flags.DEFINE_string('output_fn', '/tmp/my.subword_text_encoder',
-                           'where to store the SubwordTextEncoder')
-tf.app.flags.DEFINE_string('corpus_filepattern', '',
-                           'Corpus of one or more text files')
-tf.app.flags.DEFINE_integer('min_count', 5, 'Minimum subtoken count in corpus')
-tf.app.flags.DEFINE_integer('corpus_max_lines', 10000,
-                            'How many lines of corpus to read')
-tf.app.flags.DEFINE_integer('num_iterations', 4, 'Number of iterations')
-tf.app.flags.DEFINE_bool('split_on_newlines', True, 'Break corpus into lines.')
-FLAGS = tf.app.flags.FLAGS
+tf.flags.DEFINE_string('output_filename', '/tmp/my.subword_text_encoder',
+                       'where to store the SubwordTextEncoder')
+tf.flags.DEFINE_string('corpus_filepattern', '',
+                       'Corpus of one or more text files')
+tf.flags.DEFINE_string('vocab_filepattern', '', 'One or more vocabulary files '
+                       '(one word per line as "word,count")')
+tf.flags.DEFINE_integer('min_count', 5, 'Minimum subtoken count in corpus')
+tf.flags.DEFINE_integer('corpus_max_lines', 10000,
+                        'How many lines of corpus to read')
+tf.flags.DEFINE_integer('num_iterations', 4, 'Number of iterations')
+tf.flags.DEFINE_bool('split_on_newlines', True, 'Break corpus into lines.')
+FLAGS = tf.flags.FLAGS
 
 
 def main(unused_argv):
-  gs = text_encoder.SubwordTextEncoder()
-  if not FLAGS.corpus_filepattern:
-    raise ValueError('Must provide --corpus_filepattern')
-  token_counts = tokenizer.corpus_token_counts(
-      FLAGS.corpus_filepattern, FLAGS.corpus_max_lines,
-      split_on_newlines=FLAGS.split_on_newlines)
-  gs.build_from_token_counts(token_counts,
-                             FLAGS.min_count,
-                             FLAGS.num_iterations)
-  gs.store_to_file(FLAGS.output_fn)
+  if FLAGS.corpus_filepattern and FLAGS.vocab_filepattern:
+    raise ValueError(
+        'Must only provide one of --corpus_filepattern or --vocab_filepattern')
+
+  elif FLAGS.corpus_filepattern:
+    token_counts = tokenizer.corpus_token_counts(
+        FLAGS.corpus_filepattern,
+        FLAGS.corpus_max_lines,
+        split_on_newlines=FLAGS.split_on_newlines)
+
+  elif FLAGS.vocab_filepattern:
+    token_counts = tokenizer.vocab_token_counts(FLAGS.vocab_filepattern,
+                                                FLAGS.corpus_max_lines)
+
+  else:
+    raise ValueError(
+        'Must provide one of --corpus_filepattern or --vocab_filepattern')
+
+  encoder = text_encoder.SubwordTextEncoder()
+  encoder.build_from_token_counts(token_counts, FLAGS.min_count,
+                                  FLAGS.num_iterations)
+  encoder.store_to_file(FLAGS.output_fn)
 
 
 if __name__ == '__main__':

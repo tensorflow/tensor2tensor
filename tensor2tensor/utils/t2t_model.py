@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -163,6 +164,8 @@ class T2TModel(object):
     Returns:
        samples: an integer `Tensor`.
     """
+    # TODO(rsepassi): Make decoding work with real-valued model outputs
+    # (i.e. if the target modality is RealModality).
     if not self.has_input:
       # since there is no input, it is more interesting to see randomly
       # generated sequences, than to see the most likely sequence repeatedly.
@@ -499,5 +502,5 @@ def _warn_changed_modality_type(new_name, old_name, feature_name):
   old_type, old_name = registry.parse_modality_name(old_name)
   if new_type != old_type:
     tf.logging.warning("%s has a designated modality type %s (%s) but has been "
-                       "overriden with a modality of type %s (%s).",
+                       "overridden with a modality of type %s (%s).",
                        feature_name, old_type, old_name, new_type, new_name)

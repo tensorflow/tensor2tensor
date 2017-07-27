@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -165,7 +166,7 @@ class SmallImageModality(modality.Modality):
 
   def top(self, body_output, _):
     with tf.variable_scope("rgb_softmax"):
-      # seperate embedding for each channel
+      # separate embedding for each channel
       # assuming the body output returns a tensor of shape
       # [batch_size, rows, cols, channels, self._body_input_depth]
       body_output_split = tf.split(body_output, self._channels, axis=3)
@@ -180,12 +181,11 @@ class SmallImageModality(modality.Modality):
         shape = tf.shape(body_output_split[i])[:-1]
         body_output = tf.reshape(body_output_split[i],
                                  [-1, self._body_input_depth])
-        channel_logits = tf.matmul(body_output,
-                                   output_rgb_embedding_var[i],
-                                   transpose_b=True)
-        rgb_channel_logits.append(tf.reshape(
-            channel_logits, tf.concat([shape, [self.top_dimensionality]],
-                                      0)))
+        channel_logits = tf.matmul(
+            body_output, output_rgb_embedding_var[i], transpose_b=True)
+        rgb_channel_logits.append(
+            tf.reshape(channel_logits,
+                       tf.concat([shape, [self.top_dimensionality]], 0)))
 
       logits = tf.concat(rgb_channel_logits, axis=3)
       # Reshape logits to conform to CIFAR image shapes (32 by 32 by 3)
@@ -465,6 +465,38 @@ class IdentityModality(modality.Modality):
 
   def top(self, body_output, _):
     return body_output
+
+
+@registry.register_generic_modality("real")
+class RealModality(modality.Modality):
+  """Modality for real (i.e. float) vectors."""
+
+  def bottom(self, x):
+    with tf.variable_scope("real"):
+      return tf.layers.dense(x, self._body_input_depth)
+
+  def top(self, body_output, _):
+    with tf.variable_scope("real"):
+      return tf.layers.dense(body_output, self._vocab_size)
+
+  def top_sharded(self,
+                  sharded_body_output,
+                  sharded_targets,
+                  data_parallelism,
+                  weights_fn=common_layers.weights_nonzero):
+    sharded_predictions = data_parallelism(self.top, sharded_body_output,
+                                           sharded_targets)
+
+    def l2_loss(predictions, targets):
+      with tf.name_scope("l2"):
+        weights = weights_fn(targets)
+        l2 = tf.pow(predictions - targets, 2)
+        return tf.reduce_sum(l2 * weights), tf.reduce_sum(weights)
+
+    loss_num, loss_den = data_parallelism(l2_loss, sharded_predictions,
+                                          sharded_targets)
+    loss = tf.add_n(loss_num) / tf.maximum(1.0, tf.add_n(loss_den))
+    return sharded_predictions, loss
 
 
 @registry.register_image_modality("identity_no_pad")

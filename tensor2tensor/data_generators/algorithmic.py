@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -65,10 +66,7 @@ class AlgorithmicProblem(problem.Problem):
   def num_shards(self):
     return 10
 
-  def generate_data(self, data_dir, _, num_shards=None):
-    if num_shards is None:
-      num_shards = self.num_shards
-
+  def generate_data(self, data_dir, _, task_id=-1):
     def generator_eos(generator):
       """Shift by NUM_RESERVED_IDS and append EOS token."""
       for case in generator:
@@ -86,7 +84,7 @@ class AlgorithmicProblem(problem.Problem):
 
     utils.generate_dataset_and_shuffle(
         train_generator_eos(),
-        self.training_filepaths(data_dir, num_shards, shuffled=True),
+        self.training_filepaths(data_dir, self.num_shards, shuffled=True),
         dev_generator_eos(),
         self.dev_filepaths(data_dir, 1, shuffled=True),
         shuffle=False)
@@ -253,7 +251,7 @@ def zipf_distribution(nbr_symbols, alpha):
 
 
 def zipf_random_sample(distr_map, sample_len):
-  """Helper function: Generate a random Zipf sample of given lenght.
+  """Helper function: Generate a random Zipf sample of given length.
 
   Args:
     distr_map: list of float, Zipf's distribution over nbr_symbols.
@@ -286,7 +284,7 @@ def reverse_generator_nlplike(nbr_symbols,
     max_length: integer, maximum length of sequences to generate.
     nbr_cases: the number of cases to generate.
     scale_std_dev: float, Normal distribution's standard deviation scale factor
-      used to draw the lenght of sequence. Default = 1% of the max_length.
+      used to draw the length of sequence. Default = 1% of the max_length.
     alpha: float, Zipf's Law Distribution parameter. Default = 1.5.
       Usually for modelling natural text distribution is in
       the range [1.1-1.6].

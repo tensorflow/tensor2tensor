@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +22,7 @@ from __future__ import print_function
 
 from tensor2tensor.data_generators import generator_utils as utils
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import metrics
 
 import tensorflow as tf
 
@@ -73,6 +75,10 @@ class SpaceID(object):
   CS_TOK = 21
   # Czech characters
   CS_CHR = 22
+  # Genetic bases (ACTG)
+  DNA = 23
+  # Real numbers
+  REAL = 24
 
 
 class Problem(object):
@@ -106,6 +112,17 @@ class Problem(object):
     * hparams(defaults, model_hparams)
         - Specify the problem hyperparameters (see _default_hparams)
         - Mutate defaults as needed
+    * example_reading_spec
+        - Specify the names and types of the features on disk.
+        - Specify tf.contrib.slim.tfexample_decoder
+    * preprocess_examples(examples, mode)
+        - Preprocess the example feature dict from feature name to Tensor or
+          SparseTensor.
+        - Used in training, eval, and inference (specified by mode).
+
+  Eval:
+    * eval_metrics
+        - Specify the set of evaluation metrics for this problem.
 
   Inference:
     * feature_encoders(data_dir)
@@ -118,7 +135,7 @@ class Problem(object):
   # BEGIN SUBCLASS INTERFACE
   # ============================================================================
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=None):
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
     raise NotImplementedError()
 
   def hparams(self, defaults, model_hparams):
@@ -133,6 +150,24 @@ class Problem(object):
         "inputs": text_encoder.TextEncoder(),
         "targets": text_encoder.TextEncoder()
     }
+
+  def example_reading_spec(self):
+    data_fields = {
+        "inputs": tf.VarLenFeature(tf.int64),
+        "targets": tf.VarLenFeature(tf.int64)
+    }
+    data_items_to_decoders = None
+    return (data_fields, data_items_to_decoders)
+
+  def preprocess_examples(self, examples, mode):
+    del mode
+    return examples
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
+        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY
+    ]
 
   # ============================================================================
   # END SUBCLASS INTERFACE
@@ -195,6 +230,17 @@ class Problem(object):
     if self._was_copy:
       _copy_problem_hparams(hp)
     return hp
+
+  def maybe_reverse_features(self, feature_map):
+    if not self._was_reversed:
+      return
+    inputs, targets = feature_map["inputs"], feature_map["targets"]
+    feature_map["inputs"], feature_map["targets"] = targets, inputs
+
+  def maybe_copy_features(self, feature_map):
+    if not self._was_copy:
+      return
+    feature_map["targets"] = feature_map["inputs"]
 
 
 def _copy_problem_hparams(p_hparams):

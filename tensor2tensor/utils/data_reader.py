@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -137,10 +138,12 @@ def preprocessing(examples, data_file_pattern, mode):
     # Small single-example pre-processing for images.
     def resize(img, size):
       return tf.to_int64(tf.image.resize_images(img, [size, size]))
+
     def preprocess(img):
       img = tf.image.resize_images(img, [360, 360])
       img = common_layers.image_augmentation(tf.to_float(img) / 255.)
       return tf.to_int64(img * 255.)
+
     if ("image_imagenet" in data_file_pattern or
         "image_mscoco" in data_file_pattern):
       examples["inputs"] = tf.cast(examples["inputs"], tf.int64)
@@ -153,8 +156,8 @@ def preprocessing(examples, data_file_pattern, mode):
             lambda img=inputs: resize(img, 299))
       else:
         examples["inputs"] = tf.to_int64(resize(inputs, 299))
-    elif ("image_cifar10" in data_file_pattern
-          and mode == tf.contrib.learn.ModeKeys.TRAIN):
+    elif ("image_cifar10" in data_file_pattern and
+          mode == tf.contrib.learn.ModeKeys.TRAIN):
       examples["inputs"] = common_layers.cifar_image_augmentation(
           examples["inputs"])
     elif "img2img" in data_file_pattern:
@@ -181,8 +184,62 @@ def preprocessing(examples, data_file_pattern, mode):
   return examples
 
 
-def input_pipeline(data_file_pattern, capacity, mode):
+def problem_input_pipeline(problem, data_file_pattern, capacity, mode):
+  """Input pipeline for Problems."""
+  data_fields, data_items_to_decoders = problem.example_reading_spec()
+
+  # Create placeholders for input, rather than reading data from disk.
+  if data_file_pattern is None:
+    return feature_placeholders(data_fields)
+
+  # Now the non-trivial case construction.
+  examples = examples_queue(
+      [data_file_pattern],
+      data_fields,
+      training=(mode == tf.contrib.learn.ModeKeys.TRAIN),
+      capacity=capacity,
+      data_items_to_decoders=data_items_to_decoders)
+
+  examples = problem.preprocess_examples(examples, mode)
+
+  # We do not want int64s as they are not supported on GPUs.
+  examples = cast_int64_to_int32(examples)
+
+  return examples
+
+
+def cast_int64_to_int32(features):
+  f = {}
+  for k, v in six.iteritems(features):
+    if v.dtype == tf.int64:
+      v = tf.to_int32(v)
+    f[k] = v
+  return f
+
+
+def feature_placeholders(data_fields):
+  feature_map = {}
+  for (field, tp) in data_fields:
+    if not field.startswith("targets"):
+      feature_map[field] = tf.placeholder(
+          dtype=tp, shape=[None] * 4, name=field)
+  return feature_map
+
+
+def input_pipeline(problem, data_file_pattern, capacity, mode):
   """Input pipeline, returns a dictionary of tensors from queues."""
+
+  if problem is not None:
+    # problem is not None when the problem is specified with the Problem API,
+    # which handles Example decoding and preprocessing.
+    # Otherwise the problem is specified in problem_hparams and is dealt with
+    # below.
+    # As problems are ported to the Problem API, the special handling here will
+    # need to be moved to Problem.example_reading_spec and
+    # Problem.preprocessing.
+    return problem_input_pipeline(problem, data_file_pattern, capacity, mode)
+
+  data_items_to_decoders = None
   # Read from image TFRecords if the file has "image" in its name.
   if data_file_pattern and "image" in data_file_pattern:
     label_key = "image/class/label"
@@ -210,22 +267,15 @@ def input_pipeline(data_file_pattern, capacity, mode):
         "audio/sample_width": tf.FixedLenFeature((), tf.int64),
         "targets": tf.VarLenFeature(tf.int64),
     }
-    data_items_to_decoders = None
   else:
     data_fields = {
         "inputs": tf.VarLenFeature(tf.int64),
         "targets": tf.VarLenFeature(tf.int64)
     }
-    data_items_to_decoders = None
 
   # Create placeholders for input, rather than reading data from disk.
   if data_file_pattern is None:
-    feature_map = {}
-    for (field, tp) in data_fields:
-      if field != "targets":
-        feature_map[field] = tf.placeholder(
-            dtype=tp, shape=[None] * 4, name=field)
-    return feature_map
+    return feature_placeholders(data_fields)
 
   # Now the non-trivial case construction.
   examples = examples_queue(
@@ -237,8 +287,9 @@ def input_pipeline(data_file_pattern, capacity, mode):
 
   examples = preprocessing(examples, data_file_pattern, mode)
 
-  # We do not want int64s as they do are not supported on GPUs.
-  return {k: tf.to_int32(v) for (k, v) in six.iteritems(examples)}
+  # We do not want int64s as they are not supported on GPUs.
+  examples = cast_int64_to_int32(examples)
+  return examples
 
 
 def batch_examples(examples, batching_scheme):

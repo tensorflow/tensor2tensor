@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,6 +27,7 @@ from tensor2tensor.models import attention_lm
 from tensor2tensor.models import attention_lm_moe
 from tensor2tensor.models import bluenet
 from tensor2tensor.models import bytenet
+from tensor2tensor.models import gene_expression
 from tensor2tensor.models import long_answer
 from tensor2tensor.models import lstm
 from tensor2tensor.models import modalities

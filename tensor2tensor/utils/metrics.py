@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,8 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
-
 # Dependency imports
 
 import six
@@ -28,7 +27,24 @@ from tensor2tensor.utils import bleu_hook
 
 import tensorflow as tf
 
-FLAGS = tf.flags.FLAGS
+
+class Metrics(object):
+  """Available evaluation metrics."""
+  # Entries here should match the keys in METRICS_FN below
+  ACC = "accuracy"
+  ACC_TOP5 = "accuracy_top5"
+  ACC_PER_SEQ = "accuracy_per_sequence"
+  NEG_LOG_PERPLEXITY = "neg_log_perplexity"
+  APPROX_BLEU = "approx_bleu_score"
+  RMSE = "rmse"
+
+
+def padded_rmse(predictions, labels, weights_fn=common_layers.weights_nonzero):
+  predictions, labels = common_layers.pad_with_zeros(predictions, labels)
+  targets = labels
+  weights = weights_fn(targets)
+  error = tf.sqrt(tf.pow(predictions - labels, 2))
+  return tf.reduce_sum(error * weights), tf.reduce_sum(weights)
 
 
 def padded_accuracy_topk(predictions,
@@ -97,62 +113,76 @@ def create_evaluation_metrics(problems):
   """Creates the evaluation metrics for the model.
 
   Args:
-    problems: List of strings containing the name of the problems.
+    problems: List of tuples (problem name, problem instance).
 
   Returns:
     A dictionary with keys that are strings naming the evaluation
     metrics and values that are functions taking arguments of
     (predictions, targets), returning a tuple of a tensor of the
     metric's value together with an op to update the metric's value.
+
+  Raises:
+    ValueError: if the metrics specified by a problem are not recognized (i.e.
+      are not defined in the Metrics enum.
   """
 
-  def append_metric_fns(metric_tup, eval_metrics):
-    """Append problem-specific and global metrics to eval_metrics."""
-    metric_name, metric_function = metric_tup
-    def fn(predictions, labels, weights, idx, weights_fn):
-      # The 'weights' argument represents problem-choice here,
-      # we need to keep this name because MetricSpecs checks it.
+  def make_problem_specific_metric_fn(metric_fn, problem_idx, weights_fn):
+    """Create a metric fn conditioned on problem_idx."""
+
+    def problem_metric_fn(predictions, labels, weights):
       problem_choice = weights
       (scores, weights) = tf.cond(
-          tf.equal(idx, problem_choice),  # pylint: disable=cell-var-from-loop
-          lambda: metric_function(predictions, labels, weights_fn=weights_fn),
+          tf.equal(problem_idx, problem_choice),
+          lambda: metric_fn(predictions, labels, weights_fn=weights_fn),
           lambda: (tf.constant(0.0), tf.constant(0.0)))
       # The tf.metrics.mean function assures correct aggregation.
       return tf.metrics.mean(scores, weights)
 
-    for i, problem in enumerate(problems):
-      name = "metrics-%s/%s" % (problem, metric_name)
-      class_output = "image" in problem and "coco" not in problem
-      weights_fn = (common_layers.weights_all if class_output
-                    else common_layers.weights_nonzero)
-      eval_metrics[name] = functools.partial(fn, idx=i, weights_fn=weights_fn)
-
-    def global_fn(predictions, labels, weights):
-      (scores, weights) = metric_function(predictions, labels)
-      return tf.metrics.mean(scores, weights)
-
-    eval_metrics["metrics/%s" % metric_name] = global_fn
+    return problem_metric_fn
 
   eval_metrics = dict()
+  for problem_idx, (problem_name, problem_instance) in enumerate(problems):
+    if problem_instance is None:
+      # For problems in problem_hparams
+      metrics = [
+          Metrics.ACC, Metrics.ACC_TOP5, Metrics.ACC_PER_SEQ,
+          Metrics.NEG_LOG_PERPLEXITY
+      ]
+      if "wmt" in problem_name:
+        metrics.append(Metrics.APPROX_BLEU)
+    else:
+      # For registered Problems
+      metrics = problem_instance.eval_metrics()
+      if not all([m in METRICS_FNS for m in metrics]):
+        raise ValueError("Unrecognized metric. Problem %s specified metrics "
+                         "%s. Recognized metrics are %s." %
+                         (problem_name, metrics, METRICS_FNS.keys()))
 
-  # Metrics are functions that take predictions and labels and return
-  # a tensor of metrics and a tensor of weights.
-  # The results are passed to tf.metrics.mean to accumulate properly.
-  metrics_list = [("accuracy", padded_accuracy), ("accuracy_top5",
-                                                  padded_accuracy_top5),
-                  ("accuracy_per_sequence", padded_sequence_accuracy),
-                  ("neg_log_perplexity", padded_neg_log_perplexity)]
+    class_output = "image" in problem_name and "coco" not in problem_name
+    weights_fn = (common_layers.weights_all
+                  if class_output else common_layers.weights_nonzero)
 
-  # TODO(nikip): Extend this to support use of custom metrics for problems.
-  for problem in problems:
-    if "wmt" in problem:
-      metrics_list.append(("approx_bleu_score", bleu_hook.bleu_score))
-
-  for metric in metrics_list:
-    append_metric_fns(metric, eval_metrics)
+    for metric in metrics:
+      metric_fn = METRICS_FNS[metric]
+      problem_metric_fn = make_problem_specific_metric_fn(
+          metric_fn, problem_idx, weights_fn)
+      eval_metrics["metrics-%s/%s" % (problem_name, metric)] = problem_metric_fn
 
   return {
       k: tf.contrib.learn.MetricSpec(
           v, prediction_key="predictions", weight_key="problem_choice")
       for (k, v) in six.iteritems(eval_metrics)
   }
+
+
+# Metrics are functions that take predictions and labels and return
+# a tensor of metrics and a tensor of weights.
+# The results are passed to tf.metrics.mean to accumulate properly.
+METRICS_FNS = {
+    Metrics.ACC: padded_accuracy,
+    Metrics.ACC_TOP5: padded_accuracy_top5,
+    Metrics.ACC_PER_SEQ: padded_sequence_accuracy,
+    Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
+    Metrics.APPROX_BLEU: bleu_hook.bleu_score,
+    Metrics.RMSE: padded_rmse,
+}

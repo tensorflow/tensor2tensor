@@ -86,7 +86,6 @@ mkdir -p $DATA_DIR $TMP_DIR $TRAIN_DIR
 t2t-datagen \
   --data_dir=$DATA_DIR \
   --tmp_dir=$TMP_DIR \
-  --num_shards=100 \
   --problem=$PROBLEM
 
 # Train

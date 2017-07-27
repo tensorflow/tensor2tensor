@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,7 +30,7 @@ The tokenization algorithm is as follows:
     alphanumeric character and a non-alphanumeric character.  This produces
     a list which alternates between "alphanumeric tokens"
     (strings of alphanumeric characters) and "non-alphanumeric tokens"
-    (strings of of non-alphanumeric characters).
+    (strings of non-alphanumeric characters).
 
 2.  Remove every token consisting of a single space, unless it is
     the very first or very last token in the list.  These tokens are now
@@ -43,28 +44,25 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import defaultdict
+import collections
 import sys
 import unicodedata
 
 # Dependency imports
 
-from six import PY2
-from six import unichr  # pylint: disable=redefined-builtin
+import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
-
 import tensorflow as tf
 
-
 # Conversion between Unicode and UTF-8, if required (on Python2)
-_native_to_unicode = (lambda s: s.decode("utf-8")) if PY2 else (lambda s: s)
+_native_to_unicode = (lambda s: s.decode("utf-8")) if six.PY2 else (lambda s: s)
 
 
 # This set contains all letter and number characters.
 _ALPHANUMERIC_CHAR_SET = set(
-    unichr(i) for i in xrange(sys.maxunicode)
-    if (unicodedata.category(unichr(i)).startswith("L") or
-        unicodedata.category(unichr(i)).startswith("N")))
+    six.unichr(i) for i in xrange(sys.maxunicode)
+    if (unicodedata.category(six.unichr(i)).startswith("L") or
+        unicodedata.category(six.unichr(i)).startswith("N")))
 
 
 def encode(text):
@@ -100,51 +98,95 @@ def decode(tokens):
   Returns:
     a unicode string
   """
-  ret = u""
   token_is_alnum = [t[0] in _ALPHANUMERIC_CHAR_SET for t in tokens]
+  ret = []
   for i, token in enumerate(tokens):
     if i > 0 and token_is_alnum[i - 1] and token_is_alnum[i]:
-      ret += u" "
-    ret += token
-  return ret
+      ret.append(u" ")
+    ret.append(token)
+  return "".join(ret)
 
 
-def corpus_token_counts(text_filepattern, corpus_max_lines,
-                        split_on_newlines=True):
+def _read_filepattern(filepattern, max_lines=None, split_on_newlines=True):
+  """Reads files matching a wildcard pattern, yielding the contents.
+
+  Args:
+    filepattern: A wildcard pattern matching one or more files.
+    max_lines: If set, stop reading after reading this many lines.
+    split_on_newlines: A boolean. If true, then split files by lines and strip
+        leading and trailing whitespace from each line. Otherwise, treat each
+        file as a single string.
+
+  Yields:
+    The contents of the files as lines, if split_on_newlines is True, or
+    the entire contents of each file if False.
+  """
+  filenames = sorted(tf.gfile.Glob(filepattern))
+  lines_read = 0
+  for filename in filenames:
+    with tf.gfile.Open(filename) as f:
+      if split_on_newlines:
+        for line in f:
+          yield line.strip()
+          lines_read += 1
+          if max_lines and lines_read >= max_lines:
+            return
+
+      else:
+        if max_lines:
+          doc = []
+          for line in f:
+            doc.append(line)
+            lines_read += 1
+            if max_lines and lines_read >= max_lines:
+              yield "".join(doc)
+              return
+          yield "".join(doc)
+
+        else:
+          yield f.read()
+
+
+def corpus_token_counts(
+    text_filepattern, corpus_max_lines, split_on_newlines=True):
   """Read the corpus and compute a dictionary of token counts.
 
   Args:
-    text_filepattern: a pattern matching one or more files
-    corpus_max_lines: an integer - maximum total lines to read.
-    split_on_newlines: a boolean.  If true, then split files by lines and strip
-      leading and trailing whitespace from each line.
+    text_filepattern: A pattern matching one or more files.
+    corpus_max_lines: An integer; maximum total lines to read.
+    split_on_newlines: A boolean. If true, then split files by lines and strip
+        leading and trailing whitespace from each line. Otherwise, treat each
+        file as a single string.
 
   Returns:
-    a dictionary from token to count.
+    a dictionary mapping token to count.
   """
-  def read_corpus():
-    """Read the corpus."""
-    docs = []
-    lines_read = 0
-    filenames = tf.gfile.Glob(text_filepattern)
-    for text_filename in filenames:
-      with tf.gfile.Open(text_filename) as f:
-        if not split_on_newlines:
-          docs.append("")
-        for line in f:
-          if split_on_newlines:
-            # The tokenizer updates token_counts in encode()
-            docs.append(line.strip())
-          else:
-            docs[-1] += line
-          lines_read += 1
-          if corpus_max_lines > 0 and lines_read > corpus_max_lines:
-            return docs
-    return docs
+  counts = collections.Counter()
+  for doc in _read_filepattern(
+      text_filepattern,
+      max_lines=corpus_max_lines,
+      split_on_newlines=split_on_newlines):
+    counts.update(encode(_native_to_unicode(doc)))
 
-  counts = defaultdict(int)
-  for doc in read_corpus():
-    for tok in encode(_native_to_unicode(doc)):
-      counts[tok] += 1
   return counts
 
+
+def vocab_token_counts(text_filepattern, max_lines):
+  """Read a vocab file and return a dictionary of token counts.
+
+  Reads a two-column CSV file of tokens and their frequency in a dataset. The
+  tokens are presumed to be generated by encode() or the equivalent.
+
+  Args:
+    text_filepattern: A pattern matching one or more files.
+    max_lines: An integer; maximum total lines to read.
+
+  Returns:
+    a dictionary mapping token to count.
+  """
+  ret = {}
+  for line in _read_filepattern(text_filepattern, max_lines=max_lines):
+    token, count = line.rsplit(",", 1)
+    ret[_native_to_unicode(token)] = int(count)
+
+  return ret
