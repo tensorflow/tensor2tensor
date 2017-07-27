@@ -168,8 +168,8 @@ class GeneExpressionProblem(problem.Problem):
 
     # Reshape targets
     examples["targets"] = tf.reshape(examples["targets"],
-                                     [-1, 1, self.num_output_predictions])
-    examples["targets_mask"] = tf.reshape(examples["targets_mask"], [-1, 1, 1])
+                                     [-1, self.num_output_predictions])
+    examples["targets_mask"] = tf.reshape(examples["targets_mask"], [-1, 1])
 
     # Set masked targets to 0 (i.e. pad) so that loss and metrics ignore them.
     # Add epsilon because some unmasked labels are actually 0.
