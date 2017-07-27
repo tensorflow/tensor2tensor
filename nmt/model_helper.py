@@ -76,9 +76,10 @@ def create_emb_for_encoder_and_decoder(share_vocab,
 
 
 def _single_cell(unit_type, num_units, forget_bias, dropout,
-                 residual_connection=False, device_str=None):
+                 mode, residual_connection=False, device_str=None):
   """Create an instance of a single RNN cell."""
   # dropout (= 1 - keep_prob) is set to 0 during eval and infer
+  dropout = dropout if mode == tf.contrib.learn.ModeKeys.TRAIN else 0.0
 
   # Cell Type
   if unit_type == "lstm":
@@ -121,18 +122,22 @@ def _single_cell(unit_type, num_units, forget_bias, dropout,
 
 
 def _cell_list(unit_type, num_units, num_layers, num_residual_layers,
-               forget_bias, dropout, mode, num_gpus, base_gpu=0):
+               forget_bias, dropout, mode, num_gpus, base_gpu=0,
+               single_cell_fn=None):
   """Create a list of RNN cells."""
+  if not single_cell_fn:
+    single_cell_fn = _single_cell
+
   # Multi-GPU
   cell_list = []
   for i in range(num_layers):
     utils.print_out("  cell %d" % i, new_line=False)
-    dropout = dropout if mode == tf.contrib.learn.ModeKeys.TRAIN else 0.0
-    single_cell = _single_cell(
+    single_cell = single_cell_fn(
         unit_type=unit_type,
         num_units=num_units,
         forget_bias=forget_bias,
         dropout=dropout,
+        mode=mode,
         residual_connection=(i >= num_layers - num_residual_layers),
         device_str=get_device_str(i + base_gpu, num_gpus),
     )
@@ -143,7 +148,8 @@ def _cell_list(unit_type, num_units, num_layers, num_residual_layers,
 
 
 def create_rnn_cell(unit_type, num_units, num_layers, num_residual_layers,
-                    forget_bias, dropout, mode, num_gpus, base_gpu=0):
+                    forget_bias, dropout, mode, num_gpus, base_gpu=0,
+                    single_cell_fn=None):
   """Create multi-layer RNN cell.
 
   Args:
@@ -162,11 +168,11 @@ def create_rnn_cell(unit_type, num_units, num_layers, num_residual_layers,
     base_gpu: The gpu device id to use for the first RNN cell in the
       returned list. The i-th RNN cell will use `(base_gpu + i) % num_gpus`
       as its device id.
-
+    single_cell_fn: single_cell_fn: allow for adding customized cell.
+      When not specified, we default to model_helper._single_cell
   Returns:
     An `RNNCell` instance.
   """
-
   cell_list = _cell_list(unit_type=unit_type,
                          num_units=num_units,
                          num_layers=num_layers,
@@ -175,7 +181,8 @@ def create_rnn_cell(unit_type, num_units, num_layers, num_residual_layers,
                          dropout=dropout,
                          mode=mode,
                          num_gpus=num_gpus,
-                         base_gpu=base_gpu)
+                         base_gpu=base_gpu,
+                         single_cell_fn=single_cell_fn)
 
   if len(cell_list) == 1:  # Single layer.
     return cell_list[0]
@@ -183,7 +190,7 @@ def create_rnn_cell(unit_type, num_units, num_layers, num_residual_layers,
     return tf.contrib.rnn.MultiRNNCell(cell_list)
 
 
-def gradient_clip(gradients, params, max_gradient_norm):
+def gradient_clip(gradients, max_gradient_norm):
   """Clipping gradients of a model."""
   clipped_gradients, gradient_norm = tf.clip_by_global_norm(
       gradients, max_gradient_norm)

@@ -47,7 +47,7 @@ class TrainModel(
   pass
 
 
-def create_train_model(model_creator, hparams, scope=None):
+def create_train_model(model_creator, hparams, scope=None, single_cell_fn=None):
   """Create train graph, model, and iterator."""
   src_file = "%s.%s" % (hparams.train_prefix, hparams.src)
   tgt_file = "%s.%s" % (hparams.train_prefix, hparams.tgt)
@@ -84,7 +84,8 @@ def create_train_model(model_creator, hparams, scope=None):
         mode=tf.contrib.learn.ModeKeys.TRAIN,
         source_vocab_table=src_vocab_table,
         target_vocab_table=tgt_vocab_table,
-        scope=scope)
+        scope=scope,
+        single_cell_fn=single_cell_fn)
 
   return TrainModel(
       graph=graph,
@@ -100,7 +101,7 @@ class EvalModel(
   pass
 
 
-def create_eval_model(model_creator, hparams, scope=None):
+def create_eval_model(model_creator, hparams, scope=None, single_cell_fn=None):
   """Create train graph, model, src/tgt file holders, and iterator."""
   src_vocab_file = hparams.src_vocab_file
   tgt_vocab_file = hparams.tgt_vocab_file
@@ -132,7 +133,8 @@ def create_eval_model(model_creator, hparams, scope=None):
         mode=tf.contrib.learn.ModeKeys.EVAL,
         source_vocab_table=src_vocab_table,
         target_vocab_table=tgt_vocab_table,
-        scope=scope)
+        scope=scope,
+        single_cell_fn=single_cell_fn)
   return EvalModel(
       graph=graph,
       model=model,
@@ -251,7 +253,7 @@ def run_full_eval(model_dir, infer_model, infer_sess, eval_model, eval_sess,
   return result_summary, global_step, dev_scores, test_scores, dev_ppl, test_ppl
 
 
-def train(hparams, scope=None, target_session=""):
+def train(hparams, scope=None, target_session="", single_cell_fn=None):
   """Train a translation model."""
   log_device_placement = hparams.log_device_placement
   out_dir = hparams.out_dir
@@ -271,10 +273,12 @@ def train(hparams, scope=None, target_session=""):
   else:
     raise ValueError("Unknown model architecture")
 
-  train_model = create_train_model(model_creator, hparams, scope)
-
-  eval_model = create_eval_model(model_creator, hparams, scope)
-  infer_model = inference.create_infer_model(model_creator, hparams, scope)
+  train_model = create_train_model(model_creator, hparams, scope,
+                                   single_cell_fn)
+  eval_model = create_eval_model(model_creator, hparams, scope,
+                                 single_cell_fn)
+  infer_model = inference.create_infer_model(model_creator, hparams,
+                                             scope, single_cell_fn)
 
   # Preload data for sample decoding.
   dev_src_file = "%s.%s" % (hparams.dev_prefix, hparams.src)

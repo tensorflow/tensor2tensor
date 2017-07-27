@@ -42,7 +42,8 @@ class AttentionModel(model.Model):
                source_vocab_table,
                target_vocab_table,
                reverse_target_vocab_table=None,
-               scope=None):
+               scope=None,
+               single_cell_fn=None):
     super(AttentionModel, self).__init__(
         hparams=hparams,
         mode=mode,
@@ -50,7 +51,8 @@ class AttentionModel(model.Model):
         source_vocab_table=source_vocab_table,
         target_vocab_table=target_vocab_table,
         reverse_target_vocab_table=reverse_target_vocab_table,
-        scope=scope)
+        scope=scope,
+        single_cell_fn=single_cell_fn)
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
       self.infer_summary = self._get_infer_summary(hparams)
 
@@ -99,7 +101,8 @@ class AttentionModel(model.Model):
         forget_bias=hparams.forget_bias,
         dropout=hparams.dropout,
         num_gpus=num_gpus,
-        mode=self.mode)
+        mode=self.mode,
+        single_cell_fn=self.single_cell_fn)
 
     # Only generate alignment in greedy INFER mode.
     alignment_history = (self.mode == tf.contrib.learn.ModeKeys.INFER and

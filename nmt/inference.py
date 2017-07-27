@@ -43,10 +43,7 @@ class InferModel(
   pass
 
 
-def create_infer_model(
-    model_creator,
-    hparams,
-    scope=None):
+def create_infer_model(model_creator, hparams, scope=None, single_cell_fn=None):
   """Create inference model."""
   graph = tf.Graph()
   src_vocab_file = hparams.src_vocab_file
@@ -77,7 +74,8 @@ def create_infer_model(
         source_vocab_table=src_vocab_table,
         target_vocab_table=tgt_vocab_table,
         reverse_target_vocab_table=reverse_tgt_vocab_table,
-        scope=scope)
+        scope=scope,
+        single_cell_fn=single_cell_fn)
   return InferModel(
       graph=graph,
       model=model,
@@ -140,7 +138,8 @@ def inference(ckpt,
               hparams,
               num_workers=1,
               jobid=0,
-              scope=None):
+              scope=None,
+              single_cell_fn=None):
   """Perform translation."""
   if hparams.inference_indices:
     assert num_workers == 1
@@ -153,40 +152,37 @@ def inference(ckpt,
     model_creator = gnmt_model.GNMTModel
   else:
     raise ValueError("Unknown model architecture")
+  infer_model = create_infer_model(model_creator, hparams, scope,
+                                   single_cell_fn)
 
   if num_workers == 1:
     _single_worker_inference(
-        model_creator,
+        infer_model,
         ckpt,
         inference_input_file,
         inference_output_file,
-        hparams,
-        scope=scope)
+        hparams)
   else:
     _multi_worker_inference(
-        model_creator,
+        infer_model,
         ckpt,
         inference_input_file,
         inference_output_file,
         hparams,
         num_workers=num_workers,
-        jobid=jobid,
-        scope=scope)
+        jobid=jobid)
 
 
-def _single_worker_inference(model_creator,
+def _single_worker_inference(infer_model,
                              ckpt,
                              inference_input_file,
                              inference_output_file,
-                             hparams,
-                             scope=None):
+                             hparams):
   """Inference with a single worker."""
   output_infer = inference_output_file
 
   # Read data
   infer_data = load_data(inference_input_file, hparams)
-
-  infer_model = create_infer_model(model_creator, hparams, scope)
 
   with tf.Session(
       graph=infer_model.graph, config=utils.get_config_proto()) as sess:
@@ -222,14 +218,13 @@ def _single_worker_inference(model_creator,
           tgt_eos=hparams.eos)
 
 
-def _multi_worker_inference(model_creator,
+def _multi_worker_inference(infer_model,
                             ckpt,
                             inference_input_file,
                             inference_output_file,
                             hparams,
                             num_workers,
-                            jobid,
-                            scope=None):
+                            jobid):
   """Inference using multiple workers."""
   assert num_workers > 1
 
@@ -246,8 +241,6 @@ def _multi_worker_inference(model_creator,
   start_position = jobid * load_per_worker
   end_position = min(start_position + load_per_worker, total_load)
   infer_data = infer_data[start_position:end_position]
-
-  infer_model = create_infer_model(model_creator, hparams, scope)
 
   with tf.Session(
       graph=infer_model.graph, config=utils.get_config_proto()) as sess:

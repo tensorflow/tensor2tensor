@@ -41,7 +41,8 @@ class GNMTModel(attention_model.AttentionModel):
                source_vocab_table,
                target_vocab_table,
                reverse_target_vocab_table=None,
-               scope=None):
+               scope=None,
+               single_cell_fn=None):
     super(GNMTModel, self).__init__(
         hparams=hparams,
         mode=mode,
@@ -49,7 +50,8 @@ class GNMTModel(attention_model.AttentionModel):
         source_vocab_table=source_vocab_table,
         target_vocab_table=target_vocab_table,
         reverse_target_vocab_table=reverse_target_vocab_table,
-        scope=scope)
+        scope=scope,
+        single_cell_fn=single_cell_fn)
 
   def _build_encoder(self, hparams):
     """Build a GNMT encoder."""
@@ -99,7 +101,8 @@ class GNMTModel(attention_model.AttentionModel):
           dropout=hparams.dropout,
           num_gpus=hparams.num_gpus,
           base_gpu=1,
-          mode=self.mode)
+          mode=self.mode,
+          single_cell_fn=self.single_cell_fn)
 
       # encoder_outputs: size [max_time, batch_size, num_units]
       #   when time_major = True
@@ -156,7 +159,8 @@ class GNMTModel(attention_model.AttentionModel):
         forget_bias=hparams.forget_bias,
         dropout=hparams.dropout,
         num_gpus=hparams.num_gpus,
-        mode=self.mode)
+        mode=self.mode,
+        single_cell_fn=self.single_cell_fn)
 
     # Only wrap the bottom layer with the attention mechanism.
     attention_cell = cell_list.pop(0)
