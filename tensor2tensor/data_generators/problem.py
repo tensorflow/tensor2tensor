@@ -135,7 +135,7 @@ class Problem(object):
   # BEGIN SUBCLASS INTERFACE
   # ============================================================================
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=None, task_id=-1):
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
     raise NotImplementedError()
 
   def hparams(self, defaults, model_hparams):

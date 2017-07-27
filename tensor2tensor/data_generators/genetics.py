@@ -87,10 +87,11 @@ class GeneExpressionProblem(problem.Problem):
         "targets": text_encoder.TextEncoder()
     }
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=None, task_id=-1):
-    if num_shards is None:
-      num_shards = 100
+  @property
+  def num_shards(self):
+    return 100
 
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
     try:
       # Download source data if download_url specified
       h5_filepath = generator_utils.maybe_download(tmp_dir, self.h5_file,
@@ -109,7 +110,7 @@ class GeneExpressionProblem(problem.Problem):
     # Collect created shard processes to start and join
     processes = []
 
-    datasets = [(self.training_filepaths, num_shards, "train",
+    datasets = [(self.training_filepaths, self.num_shards, "train",
                  num_train_examples), (self.dev_filepaths, 1, "valid",
                                        num_dev_examples),
                 (self.test_filepaths, 1, "test", num_test_examples)]
@@ -124,9 +125,10 @@ class GeneExpressionProblem(problem.Problem):
                   start_idx, end_idx))
         processes.append(p)
 
-    # Start and wait for processes in batches
-    assert len(processes) == num_shards + 2  # 1 per training shard + dev + test
+    # 1 per training shard + dev + test
+    assert len(processes) == self.num_shards + 2
 
+    # Start and wait for processes in batches
     num_batches = int(
         math.ceil(float(len(processes)) / MAX_CONCURRENT_PROCESSES))
     for i in xrange(num_batches):

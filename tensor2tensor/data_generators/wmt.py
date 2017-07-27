@@ -83,12 +83,10 @@ class WMTProblem(problem.Problem):
   def vocab_file(self):
     return "%s.%d" % (self.vocab_name, self.targeted_vocab_size)
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=None, task_id=-1):
-    if num_shards is None:
-      num_shards = self.num_shards
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
     generator_utils.generate_dataset_and_shuffle(
         self.train_generator(data_dir, tmp_dir, True),
-        self.training_filepaths(data_dir, num_shards, shuffled=False),
+        self.training_filepaths(data_dir, self.num_shards, shuffled=False),
         self.dev_generator(data_dir, tmp_dir),
         self.dev_filepaths(data_dir, 1, shuffled=False))
 

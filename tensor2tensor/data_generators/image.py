@@ -338,7 +338,7 @@ class ImageProblem(problem.Problem):
 class ImageFSNS(ImageProblem):
   """Problem spec for French Street Name recognition."""
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=None, task_id=-1):
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
     list_url = ("https://raw.githubusercontent.com/tensorflow/models/master/"
                 "street/python/fsns_urls.txt")
     fsns_urls = generator_utils.maybe_download(
