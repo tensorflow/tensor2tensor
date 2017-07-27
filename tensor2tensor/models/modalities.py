@@ -96,12 +96,11 @@ class SymbolModality(modality.Modality):
     else:
       return self.bottom_simple(x, "target_emb", reuse=None)
 
-  def top(self, body_output, targets):
+  def top(self, body_output, _):
     """Generate logits.
 
     Args:
       body_output: A Tensor with shape [batch, p0, p1, body_input_depth]
-      targets: A Tensor with shape [batch, p0, p1, 1]
     Returns:
       logits: A Tensor with shape  [batch, p0, p1, ?, vocab_size].
     """
@@ -192,18 +191,11 @@ class SmallImageModality(modality.Modality):
 
       return logits
 
-  def top_sharded(self,
-                  sharded_body_output,
-                  sharded_targets,
-                  data_parallelism,
-                  weights_fn=common_layers.weights_all):
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.
     # (Since we're processing images and so have no padding and some pixel 0s.)
-    return super(SmallImageModality, self).top_sharded(
-        sharded_body_output,
-        sharded_targets,
-        data_parallelism,
-        weights_fn=weights_fn)
+    return super(SmallImageModality, self).loss(
+        top_out, targets, weights_fn=weights_fn)
 
 
 @registry.register_image_modality("default")
@@ -425,18 +417,11 @@ class ClassLabelModality(modality.Modality):
       res = common_layers.conv(x, self._vocab_size, (1, 1))
       return tf.expand_dims(res, 3)
 
-  def top_sharded(self,
-                  sharded_body_output,
-                  sharded_targets,
-                  data_parallelism,
-                  weights_fn=common_layers.weights_all):
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.
-    # (Since we're processing images and so have no padding and some labels 0.)
-    return super(ClassLabelModality, self).top_sharded(
-        sharded_body_output,
-        sharded_targets,
-        data_parallelism,
-        weights_fn=weights_fn)
+    # (Since we're processing images and so have no padding and some pixel 0s.)
+    return super(ClassLabelModality, self).loss(
+        top_out, targets, weights_fn=weights_fn)
 
 
 @registry.register_class_label_modality("class_label_2d")
@@ -479,24 +464,12 @@ class RealModality(modality.Modality):
     with tf.variable_scope("real"):
       return tf.layers.dense(body_output, self._vocab_size)
 
-  def top_sharded(self,
-                  sharded_body_output,
-                  sharded_targets,
-                  data_parallelism,
-                  weights_fn=common_layers.weights_nonzero):
-    sharded_predictions = data_parallelism(self.top, sharded_body_output,
-                                           sharded_targets)
-
-    def l2_loss(predictions, targets):
-      with tf.name_scope("l2"):
-        weights = weights_fn(targets)
-        l2 = tf.pow(predictions - targets, 2)
-        return tf.reduce_sum(l2 * weights), tf.reduce_sum(weights)
-
-    loss_num, loss_den = data_parallelism(l2_loss, sharded_predictions,
-                                          sharded_targets)
-    loss = tf.add_n(loss_num) / tf.maximum(1.0, tf.add_n(loss_den))
-    return sharded_predictions, loss
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_nonzero):
+    predictions = top_out
+    with tf.name_scope("l2"):
+      weights = weights_fn(targets)
+      l2 = tf.pow(predictions - targets, 2)
+      return tf.reduce_sum(l2 * weights), tf.reduce_sum(weights)
 
 
 @registry.register_image_modality("identity_no_pad")
@@ -513,15 +486,8 @@ class IdentityModalityNoPad(modality.Modality):
   def top(self, body_output, _):
     return body_output
 
-  def top_sharded(self,
-                  sharded_body_output,
-                  sharded_targets,
-                  data_parallelism,
-                  weights_fn=common_layers.weights_all):
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.
     # (Since we're processing images and so have no padding and some pixel 0s.)
-    return super(IdentityModalityNoPad, self).top_sharded(
-        sharded_body_output,
-        sharded_targets,
-        data_parallelism,
-        weights_fn=weights_fn)
+    return super(IdentityModalityNoPad, self).loss(
+        top_out, targets, weights_fn=weights_fn)

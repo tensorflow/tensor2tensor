@@ -424,8 +424,10 @@ class T2TModel(object):
 
     with tf.variable_scope(target_modality.name, reuse=target_reuse):
       if not last_position_only:
-        sharded_logits, training_loss = (target_modality.top_sharded(
-            body_outputs, sharded_features["targets"], self._data_parallelism))
+        sharded_logits = target_modality.top_sharded(
+            body_outputs, sharded_features["targets"], self._data_parallelism)
+        training_loss = target_modality.loss_sharded(
+            sharded_logits, sharded_features["targets"], self._data_parallelism)
 
         training_loss *= self._problem_hparams.loss_multiplier
       else:
@@ -439,10 +441,9 @@ class T2TModel(object):
             tf.expand_dims(target_shard[:, -1:, :, :], axis=[1])
             for target_shard in sharded_features["targets"]
         ]
-        sharded_logits, training_loss = (target_modality.top_sharded(
-            last_position_body_outputs, last_position_targets,
-            self._data_parallelism))
-
+        sharded_logits = target_modality.top_sharded(last_position_body_outputs,
+                                                     last_position_targets,
+                                                     self._data_parallelism)
         training_loss = None
 
     tf.logging.info("This model_fn took %.3f sec." % (time.time() - start_time))
