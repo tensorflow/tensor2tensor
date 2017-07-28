@@ -197,14 +197,14 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
   train_input_fn = get_input_fn(
       mode=tf.contrib.learn.ModeKeys.TRAIN,
       hparams=hparams,
-      data_file_patterns=get_datasets_for_mode(data_dir,
+      data_file_patterns=get_data_filepatterns(data_dir,
                                                tf.contrib.learn.ModeKeys.TRAIN),
       num_datashards=num_datashards)
 
   eval_input_fn = get_input_fn(
       mode=tf.contrib.learn.ModeKeys.EVAL,
       hparams=hparams,
-      data_file_patterns=get_datasets_for_mode(data_dir,
+      data_file_patterns=get_data_filepatterns(data_dir,
                                                tf.contrib.learn.ModeKeys.EVAL),
       num_datashards=num_datashards)
   estimator = tf.contrib.learn.Estimator(
@@ -626,7 +626,7 @@ def decode_from_dataset(estimator):
     inputs_vocab = hparams.problems[i].vocabulary.get("inputs", None)
     targets_vocab = hparams.problems[i].vocabulary["targets"]
     tf.logging.info("Performing local inference.")
-    infer_problems_data = get_datasets_for_mode(hparams.data_dir,
+    infer_problems_data = get_data_filepatterns(hparams.data_dir,
                                                 tf.contrib.learn.ModeKeys.INFER)
 
     infer_input_fn = get_input_fn(
@@ -801,8 +801,8 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
     }
 
 
-def get_datasets_for_mode(data_dir, mode):
-  return data_reader.get_datasets(FLAGS.problems, data_dir, mode)
+def get_data_filepatterns(data_dir, mode):
+  return data_reader.get_data_filepatterns(FLAGS.problems, data_dir, mode)
 
 
 def _cond_on_index(fn, index_tensor, cur_idx, max_idx):
@@ -1075,42 +1075,39 @@ def get_input_fn(mode,
       ValueError: if one of the parameters has an unsupported value.
     """
     problem_count, batches = len(data_file_patterns), []
-    with tf.name_scope("input_queues"):
+    with tf.name_scope("input_reader"):
       for n in xrange(problem_count):
         if fixed_problem is not None and n != fixed_problem:
           continue
         problem_instance = hparams.problem_instances[n]
+        p_hparams = hparams.problems[n]
         with tf.name_scope("problem_%d" % n):
-          with tf.device("/cpu:0"):  # Input queues are on CPU.
-            capacity = hparams.problems[n].max_expected_batch_size_per_shard
+          with tf.device("/cpu:0"):  # Input reading on CPU
+            capacity = p_hparams.max_expected_batch_size_per_shard
             capacity *= num_datashards
             examples = data_reader.input_pipeline(
                 problem_instance, data_file_patterns[n], capacity, mode)
-            if mode == tf.contrib.learn.ModeKeys.TRAIN:
-              drop_long_sequences = True
-            else:
-              drop_long_sequences = hparams.eval_drop_long_sequences
-            batch_size_multiplier = hparams.problems[n].batch_size_multiplier
             feature_map = data_reader.batch_examples(
                 examples,
                 data_reader.hparams_to_batching_scheme(
                     hparams,
                     shard_multiplier=num_datashards,
-                    drop_long_sequences=drop_long_sequences,
-                    length_multiplier=batch_size_multiplier))
+                    drop_long_sequences=(mode == tf.contrib.learn.ModeKeys.TRAIN
+                                         or hparams.eval_drop_long_sequences),
+                    length_multiplier=(p_hparams.batch_size_multiplier)))
 
         # Reverse inputs and targets features if the problem was reversed.
         if problem_instance is not None:
           problem_instance.maybe_reverse_features(feature_map)
           problem_instance.maybe_copy_features(feature_map)
         else:
-          if hparams.problems[n].was_reversed:
+          if p_hparams.was_reversed:
             inputs = feature_map["inputs"]
             targets = feature_map["targets"]
             feature_map["inputs"] = targets
             feature_map["targets"] = inputs
           # Use the inputs as the targets if the problem is a copy problem.
-          if hparams.problems[n].was_copy:
+          if p_hparams.was_copy:
             feature_map["targets"] = feature_map["inputs"]
 
         # Ensure inputs and targets are proper rank.
@@ -1122,8 +1119,8 @@ def get_input_fn(mode,
 
         batches.append(
             (feature_map["inputs"], feature_map["targets"], tf.constant(n),
-             tf.constant(hparams.problems[n].input_space_id),
-             tf.constant(hparams.problems[n].target_space_id)))
+             tf.constant(p_hparams.input_space_id),
+             tf.constant(p_hparams.target_space_id)))
 
     # We choose which problem to process.
     loss_moving_avgs = []  # Need loss moving averages for that.

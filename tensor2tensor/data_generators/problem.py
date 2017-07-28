@@ -18,11 +18,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 # Dependency imports
 
-from tensor2tensor.data_generators import generator_utils as utils
+from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -176,20 +179,23 @@ class Problem(object):
   def training_filepaths(self, data_dir, num_shards, shuffled):
     file_basename = self.dataset_filename()
     if not shuffled:
-      file_basename += utils.UNSHUFFLED_SUFFIX
-    return utils.train_data_filenames(file_basename, data_dir, num_shards)
+      file_basename += generator_utils.UNSHUFFLED_SUFFIX
+    return generator_utils.train_data_filenames(
+        file_basename, data_dir, num_shards)
 
   def dev_filepaths(self, data_dir, num_shards, shuffled):
     file_basename = self.dataset_filename()
     if not shuffled:
-      file_basename += utils.UNSHUFFLED_SUFFIX
-    return utils.dev_data_filenames(file_basename, data_dir, num_shards)
+      file_basename += generator_utils.UNSHUFFLED_SUFFIX
+    return generator_utils.dev_data_filenames(
+        file_basename, data_dir, num_shards)
 
   def test_filepaths(self, data_dir, num_shards, shuffled):
     file_basename = self.dataset_filename()
     if not shuffled:
-      file_basename += utils.UNSHUFFLED_SUFFIX
-    return utils.test_data_filenames(file_basename, data_dir, num_shards)
+      file_basename += generator_utils.UNSHUFFLED_SUFFIX
+    return generator_utils.test_data_filenames(
+        file_basename, data_dir, num_shards)
 
   def __init__(self, was_reversed=False, was_copy=False):
     """Create a Problem.
@@ -323,3 +329,97 @@ def _default_hparams():
       # class.
       input_space_id=SpaceID.GENERIC,
       target_space_id=SpaceID.GENERIC)
+
+
+class Text2TextProblem(Problem):
+  """Base class for text-to-text problems."""
+
+  @property
+  def is_character_level(self):
+    raise NotImplementedError()
+
+  @property
+  def targeted_vocab_size(self):
+    raise NotImplementedError()  # Not needed if self.is_character_level.
+
+  def train_generator(self, data_dir, tmp_dir, is_training):
+    """Generator of the training data."""
+    raise NotImplementedError()
+
+  def dev_generator(self, data_dir, tmp_dir):
+    """Generator of the development data."""
+    return self.train_generator(data_dir, tmp_dir, False)
+
+  @property
+  def input_space_id(self):
+    raise NotImplementedError()
+
+  @property
+  def target_space_id(self):
+    raise NotImplementedError()
+
+  @property
+  def num_shards(self):
+    raise NotImplementedError()
+
+  @property
+  def vocab_name(self):
+    raise NotImplementedError()
+
+  @property
+  def vocab_file(self):
+    return "%s.%d" % (self.vocab_name, self.targeted_vocab_size)
+
+  @property
+  def use_subword_tokenizer(self):
+    raise NotImplementedError()
+
+  @property
+  def has_inputs(self):
+    return True  # Set to False for language models.
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    generator_utils.generate_dataset_and_shuffle(
+        self.train_generator(data_dir, tmp_dir, True),
+        self.training_filepaths(data_dir, self.num_shards, shuffled=False),
+        self.dev_generator(data_dir, tmp_dir),
+        self.dev_filepaths(data_dir, 1, shuffled=False))
+
+  def feature_encoders(self, data_dir):
+    vocab_filename = os.path.join(data_dir, self.vocab_file)
+    if self.is_character_level:
+      encoder = text_encoder.ByteTextEncoder(),
+    elif self.use_subword_tokenizer:
+      encoder = text_encoder.SubwordTextEncoder(vocab_filename)
+    else:
+      encoder = text_encoder.TokenTextEncoder(vocab_filename)
+    if self.has_inputs:
+      return {"inputs": encoder, "targets": encoder}
+    return {"targets": encoder}
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    if self.is_character_level:
+      source_vocab_size = 256
+      target_vocab_size = 256
+    else:
+      target_vocab_size = self._encoders["targets"].vocab_size
+      if self.has_inputs:
+        source_vocab_size = self._encoders["inputs"].vocab_size
+
+    if self.has_inputs:
+      p.input_modality = {"inputs": (registry.Modalities.SYMBOL,
+                                     source_vocab_size)}
+    p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
+    if self.has_inputs:
+      p.input_space_id = self.input_space_id
+    p.target_space_id = self.target_space_id
+    if self.is_character_level:
+      p.loss_multiplier = 2.0
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
+        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY,
+        metrics.Metrics.APPROX_BLEU
+    ]

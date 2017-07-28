@@ -110,10 +110,10 @@ class GeneExpressionProblem(problem.Problem):
     # Collect created shard processes to start and join
     processes = []
 
-    datasets = [(self.training_filepaths, self.num_shards, "train",
-                 num_train_examples), (self.dev_filepaths, 1, "valid",
-                                       num_dev_examples),
-                (self.test_filepaths, 1, "test", num_test_examples)]
+    datasets = [
+        (self.training_filepaths, self.num_shards, "train", num_train_examples),
+        (self.dev_filepaths, 10, "valid", num_dev_examples),
+        (self.test_filepaths, 10, "test", num_test_examples)]
     for fname_fn, nshards, key_prefix, num_examples in datasets:
       outfiles = fname_fn(data_dir, nshards, shuffled=False)
       all_filepaths.extend(outfiles)
@@ -125,8 +125,8 @@ class GeneExpressionProblem(problem.Problem):
                   start_idx, end_idx))
         processes.append(p)
 
-    # 1 per training shard + dev + test
-    assert len(processes) == self.num_shards + 2
+    # 1 per training shard + 10 for dev + 10 for test
+    assert len(processes) == self.num_shards + 20
 
     # Start and wait for processes in batches
     num_batches = int(
@@ -168,8 +168,8 @@ class GeneExpressionProblem(problem.Problem):
 
     # Reshape targets
     examples["targets"] = tf.reshape(examples["targets"],
-                                     [-1, 1, self.num_output_predictions])
-    examples["targets_mask"] = tf.reshape(examples["targets_mask"], [-1, 1, 1])
+                                     [-1, self.num_output_predictions])
+    examples["targets_mask"] = tf.reshape(examples["targets_mask"], [-1, 1])
 
     # Set masked targets to 0 (i.e. pad) so that loss and metrics ignore them.
     # Add epsilon because some unmasked labels are actually 0.

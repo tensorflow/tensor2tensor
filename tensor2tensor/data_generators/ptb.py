@@ -27,7 +27,9 @@ import tarfile
 # Dependency imports
 
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -48,7 +50,7 @@ def _read_words(filename):
 def _build_vocab(filename, vocab_path, vocab_size):
   """Reads a file to build a vocabulary of `vocab_size` most common words.
 
-   The vocabulary is sorted by occurence count and has one word per line.
+   The vocabulary is sorted by occurrence count and has one word per line.
    Originally from:
    https://github.com/tensorflow/models/blob/master/tutorials/rnn/ptb/reader.py
 
@@ -66,26 +68,47 @@ def _build_vocab(filename, vocab_path, vocab_size):
     f.write("\n".join(words))
 
 
-def _get_token_encoder(vocab_dir, filename):
+def _get_token_encoder(vocab_dir, vocab_name, filename):
   """Reads from file and returns a `TokenTextEncoder` for the vocabulary."""
-  vocab_name = "lmptb_10k.vocab"
   vocab_path = os.path.join(vocab_dir, vocab_name)
-  _build_vocab(filename, vocab_path, 10000)
+  if not tf.gfile.Exists(vocab_path):
+    _build_vocab(filename, vocab_path, 10000)
   return text_encoder.TokenTextEncoder(vocab_path)
 
 
-class PTB(object):
+class PTBProblem(problem.Text2TextProblem):
   """A class for generating PTB data."""
 
-  def __init__(self, tmp_dir, data_dir, char=False):
-    assert not char, "char mode for PTB is not yet implemented"
-    self.char = char
-    self.data_dir = data_dir
+  @property
+  def has_inputs(self):
+    return False
 
-    url = PTB_URL
-    filename = os.path.basename(url)
+  @property
+  def target_space_id(self):
+    if self.is_character_level:
+      return problem.SpaceID.EN_CHR
+    return problem.SpaceID.EN_TOK
+
+  @property
+  def num_shards(self):
+    return 10
+
+  @property
+  def vocab_name(self):
+    return "vocab.lmptb_10k"
+
+  @property
+  def use_subword_tokenizer(self):
+    return False
+
+  @property
+  def targeted_vocab_size(self):
+    return 10000
+
+  def train_generator(self, data_dir, tmp_dir, train):
+    filename = os.path.basename(PTB_URL)
     compressed_filepath = generator_utils.maybe_download(
-        tmp_dir, filename, url)
+        tmp_dir, filename, PTB_URL)
     ptb_files = []
     ptb_char_files = []
     with tarfile.open(compressed_filepath, "r:gz") as tgz:
@@ -101,50 +124,52 @@ class PTB(object):
 
       tgz.extractall(tmp_dir, members=files)
 
-    if self.char:
+    if self.is_character_level:
       files = ptb_char_files
     else:
       files = ptb_files
-    files = files
 
+    train_file, valid_file = None, None
     for filename in files:
       if "train" in filename:
-        self.train = os.path.join(tmp_dir, filename)
+        train_file = os.path.join(tmp_dir, filename)
       elif "valid" in filename:
-        self.valid = os.path.join(tmp_dir, filename)
+        valid_file = os.path.join(tmp_dir, filename)
 
-    assert hasattr(self, "train"), "Training file not found"
-    assert hasattr(self, "valid"), "Validation file not found"
-    self.encoder = _get_token_encoder(data_dir, self.train)
+    assert train_file, "Training file not found"
+    assert valid_file, "Validation file not found"
 
-  def train_generator(self):
-    return self._generator(self.train)
+    if self.is_character_level:
+      encoder = text_encoder.ByteTextEncoder()
+    else:
+      encoder = _get_token_encoder(data_dir, self.vocab_file, train_file)
 
-  def valid_generator(self):
-    return self._generator(self.valid)
+    if train:
+      return self._generator(train_file, encoder)
+    return self._generator(valid_file, encoder)
 
-  def _generator(self, filename):
+  def _generator(self, filename, encoder):
     with tf.gfile.GFile(filename, "r") as f:
       for line in f:
         line = " ".join(line.replace("\n", EOS).split())
-        tok = self.encoder.encode(line)
-        yield {"inputs": tok[:-1], "targets": tok[1:]}
+        tok = encoder.encode(line)
+        if tok:
+          yield {"inputs": [0], "targets": tok}
 
 
-# Using a object "singleton"
-# `train_generator` must be called before
-# `valid_generator` in order to work
-_ptb = {}
+@registry.register_problem("lm_ptb_10k")
+class LmPtb10k(PTBProblem):
+  """A class for generating PTB data, 10k vocab."""
+
+  @property
+  def is_character_level(self):
+    return False
 
 
-def train_generator(*args, **kwargs):
-  """The train data generator to be called."""
-  global _ptb
-  _ptb = PTB(*args, **kwargs)
-  return _ptb.train_generator()
+@registry.register_problem
+class LmPtbCharacters(PTBProblem):
+  """A class for generating PTB data, character-level."""
 
-
-def valid_generator():
-  """Validation (aka. dev) data generator."""
-  global _ptb  # pylint:disable=global-variable-not-assigned
-  return _ptb.valid_generator()
+  @property
+  def is_character_level(self):
+    return True

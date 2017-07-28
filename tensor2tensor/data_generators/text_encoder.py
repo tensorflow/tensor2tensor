@@ -53,7 +53,7 @@ else:
 # '\u' is converted to '_'
 # '\\' is converted to '\'
 # '\213;' is converted to unichr(213)
-_UNESCAPE_REGEX = re.compile(ur"\\u|\\\\|\\([0-9]+);")
+_UNESCAPE_REGEX = re.compile(r"\\u|\\\\|\\([0-9]+);")
 _ESCAPE_CHARS = set(u"\\_;0123456789")
 
 
@@ -219,7 +219,7 @@ def _escape_token(token, alphabet):
 
   token = token.replace(u"\\", u"\\\\").replace(u"_", u"\\u")
   ret = [
-      c if c in alphabet and c != u"\n" else ur"\%d;" % ord(c)
+      c if c in alphabet and c != u"\n" else r"\%d;" % ord(c)
       for c in token]
   return u"".join(ret) + "_"
 

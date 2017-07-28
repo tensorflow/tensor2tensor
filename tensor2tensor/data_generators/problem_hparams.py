@@ -368,21 +368,6 @@ def wiki_32k(model_hparams):
   return p
 
 
-def lmptb_10k(model_hparams):
-  """Penn Tree Bank language-modeling benchmark, 10k token vocabulary."""
-  p = default_problem_hparams()
-  p.input_modality = {}
-  p.target_modality = (registry.Modalities.SYMBOL, 10000)
-  vocabulary = text_encoder.TokenTextEncoder(
-      os.path.join(model_hparams.data_dir, "lmptb_10k.vocab"))
-  p.vocabulary = {
-      "targets": vocabulary,
-  }
-  p.input_space_id = 3
-  p.target_space_id = 3
-  return p
-
-
 def wmt_ende_bpe32k(model_hparams):
   """English to German translation benchmark."""
   p = default_problem_hparams()
@@ -642,7 +627,6 @@ PROBLEM_HPARAMS_MAP = {
     "lm1b_characters": lm1b_characters,
     "lm1b_32k": lm1b_32k,
     "wiki_32k": wiki_32k,
-    "lmptb_10k": lmptb_10k,
     "ice_parsing_characters": wmt_parsing_characters,
     "ice_parsing_tokens": lambda p: ice_parsing_tokens(p, 2**13),
     "wmt_parsing_tokens_8k": lambda p: wmt_parsing_tokens(p, 2**13),

@@ -28,7 +28,6 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import wsj_parsing
-from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -44,32 +43,12 @@ FLAGS = tf.flags.FLAGS
 EOS = text_encoder.EOS_ID
 
 
-class WMTProblem(problem.Problem):
+class WMTProblem(problem.Text2TextProblem):
   """Base class for WMT problems."""
 
   @property
   def is_character_level(self):
     return False
-
-  @property
-  def targeted_vocab_size(self):
-    raise NotImplementedError()  # Not needed if self.is_character_level.
-
-  def train_generator(self, data_dir, tmp_dir, is_training):
-    """Generator of the training data."""
-    raise NotImplementedError()
-
-  def dev_generator(self, data_dir, tmp_dir):
-    """Generator of the development data."""
-    return self.train_generator(data_dir, tmp_dir, False)
-
-  @property
-  def input_space_id(self):
-    raise NotImplementedError()
-
-  @property
-  def target_space_id(self):
-    raise NotImplementedError()
 
   @property
   def num_shards(self):
@@ -80,51 +59,8 @@ class WMTProblem(problem.Problem):
     return "vocab.endefr"
 
   @property
-  def vocab_file(self):
-    return "%s.%d" % (self.vocab_name, self.targeted_vocab_size)
-
-  def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    generator_utils.generate_dataset_and_shuffle(
-        self.train_generator(data_dir, tmp_dir, True),
-        self.training_filepaths(data_dir, self.num_shards, shuffled=False),
-        self.dev_generator(data_dir, tmp_dir),
-        self.dev_filepaths(data_dir, 1, shuffled=False))
-
-  def feature_encoders(self, data_dir):
-    if self.is_character_level:
-      return {
-          "inputs": text_encoder.ByteTextEncoder(),
-          "targets": text_encoder.ByteTextEncoder(),
-      }
-    vocab_filename = os.path.join(data_dir, self.vocab_file)
-    subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
-    return {
-        "inputs": subtokenizer,
-        "targets": subtokenizer,
-    }
-
-  def hparams(self, defaults, unused_model_hparams):
-    p = defaults
-    if self.is_character_level:
-      source_vocab_size = 256
-      target_vocab_size = 256
-    else:
-      source_vocab_size = self._encoders["inputs"].vocab_size
-      target_vocab_size = self._encoders["targets"].vocab_size
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL,
-                                   source_vocab_size)}
-    p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
-    p.input_space_id = self.input_space_id
-    p.target_space_id = self.target_space_id
-    if self.is_character_level:
-      p.loss_multiplier = 2.0
-
-  def eval_metrics(self):
-    return [
-        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
-        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY,
-        metrics.Metrics.APPROX_BLEU
-    ]
+  def use_subword_tokenizer(self):
+    return True
 
 
 # Generic generators used later for multiple problems.
@@ -404,14 +340,15 @@ def _compile_data(tmp_dir, datasets, filename):
           generator_utils.maybe_download(tmp_dir, compressed_filename, url)
         if not (os.path.exists(lang1_filepath) and
                 os.path.exists(lang2_filepath)):
-          mode = "r:gz" if "gz" in compressed_filepath else "r"
+          # For .tar.gz and .tgz files, we read compressed.
+          mode = "r:gz" if compressed_filepath.endswith("gz") else "r"
           with tarfile.open(compressed_filepath, mode) as corpus_tar:
             corpus_tar.extractall(tmp_dir)
-        if ".gz" in lang1_filepath:
+        if lang1_filepath.endswith(".gz"):
           new_filepath = lang1_filepath.strip(".gz")
           generator_utils.gunzip_file(lang1_filepath, new_filepath)
           lang1_filepath = new_filepath
-        if ".gz" in lang2_filepath:
+        if lang2_filepath.endswith(".gz"):
           new_filepath = lang2_filepath.strip(".gz")
           generator_utils.gunzip_file(lang2_filepath, new_filepath)
           lang2_filepath = new_filepath
@@ -633,7 +570,7 @@ class SETimesMkEnTokens32k(WMTProblem):
 
 
 @registry.register_problem("wmt_encs_tokens_32k")
-class WMTEnCsTokens32k(problem.Problem):
+class WMTEnCsTokens32k(WMTProblem):
   """Problem spec for WMT English-Czech translation."""
 
   @property
@@ -663,13 +600,6 @@ class WMTEnCsTokens32k(problem.Problem):
   @property
   def target_space_id(self):
     return problem.SpaceID.CS_TOK
-
-  def eval_metrics(self):
-    return [
-        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
-        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY,
-        metrics.Metrics.APPROX_BLEU
-    ]
 
 
 @registry.register_problem("wmt_encs_characters")

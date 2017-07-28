@@ -59,6 +59,7 @@ def padded_accuracy_topk(predictions,
     effective_k = tf.minimum(k, tf.shape(padded_predictions)[-1])
     _, outputs = tf.nn.top_k(padded_predictions, k=effective_k)
     outputs = tf.to_int32(outputs)
+    padded_labels = tf.to_int32(padded_labels)
     padded_labels = tf.expand_dims(padded_labels, axis=-1)
     padded_labels += tf.zeros_like(outputs)  # Pad to same shape.
     same = tf.to_float(tf.equal(outputs, padded_labels))
@@ -82,6 +83,7 @@ def padded_sequence_accuracy(predictions,
         predictions, labels)
     weights = weights_fn(padded_labels)
     outputs = tf.to_int32(tf.argmax(padded_predictions, axis=-1))
+    padded_labels = tf.to_int32(padded_labels)
     not_correct = tf.to_float(tf.not_equal(outputs, padded_labels)) * weights
     axis = list(range(1, len(outputs.get_shape())))
     correct_seq = 1.0 - tf.minimum(1.0, tf.reduce_sum(not_correct, axis=axis))
@@ -106,6 +108,7 @@ def padded_accuracy(predictions,
         predictions, labels)
     weights = weights_fn(padded_labels)
     outputs = tf.to_int32(tf.argmax(padded_predictions, axis=-1))
+    padded_labels = tf.to_int32(padded_labels)
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
 

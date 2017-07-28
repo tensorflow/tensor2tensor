@@ -33,19 +33,15 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-def examples_queue(data_sources,
-                   data_fields_to_features,
-                   training,
-                   capacity=32,
-                   data_items_to_decoders=None,
-                   data_items_to_decode=None):
-  """Contruct a queue of training or evaluation examples.
+def examples_reader(data_sources,
+                    data_fields_to_features,
+                    training,
+                    capacity=32,
+                    data_items_to_decoders=None,
+                    data_items_to_decode=None):
+  """Reads Examples from data_sources and decodes to Tensors.
 
-  This function will create a reader from files given by data_sources,
-  then enqueue the tf.Examples from these files, shuffling if training
-  is true, and finally parse these tf.Examples to tensors.
-
-  The dictionary data_fields_to_features for an image dataset can be this:
+  The dictionary data_fields_to_features for an image dataset can be:
 
   data_fields_to_features = {
     'image/encoded': tf.FixedLenFeature((), tf.string, default_value=''),
@@ -54,7 +50,7 @@ def examples_queue(data_sources,
         [1], tf.int64, default_value=tf.zeros([1], dtype=tf.int64)),
   }
 
-  and for a simple algorithmic dataset with variable-length data it is this:
+  and for a simple algorithmic dataset with variable-length data it is:
 
   data_fields_to_features = {
     'inputs': tf.VarLenFeature(tf.int64),
@@ -63,7 +59,7 @@ def examples_queue(data_sources,
 
   The data_items_to_decoders dictionary argument can be left as None if there
   is no decoding to be performed. But, e.g. for images, it should be set so that
-  the images are decoded from the features, e.g., like this for MNIST:
+  the images are decoded from the features, e.g., for MNIST:
 
   data_items_to_decoders = {
     'image': tfexample_decoder.Image(
@@ -83,7 +79,7 @@ def examples_queue(data_sources,
     data_fields_to_features: a dictionary from data fields in the data sources
       to features, such as tf.VarLenFeature(tf.int64), see above for examples.
     training: a Boolean, whether to read for training or evaluation.
-    capacity: integer, queue capacity; set to 2 * max_batch_size or more.
+    capacity: integer, buffer capacity; set to 2 * max_batch_size or more.
     data_items_to_decoders: a dictionary mapping data items (that will be
       in the returned result) to decoders that will decode them using features
       defined in data_fields_to_features; see above for examples. By default
@@ -93,43 +89,42 @@ def examples_queue(data_sources,
 
   Returns:
     A dictionary mapping each data_field to a corresponding 1D int64 tensor
-    read from the created queue.
-
-  Raises:
-    ValueError: if no files are found with the provided data_prefix or no data
-      fields were provided.
+    read from the created Dataset.
   """
-  with tf.name_scope("examples_queue"):
-    # Read serialized examples using slim parallel_reader.
-    num_epochs = None if training else 1
-    data_files = tf.contrib.slim.parallel_reader.get_data_files(data_sources)
-    num_readers = min(4 if training else 1, len(data_files))
-    _, example_serialized = tf.contrib.slim.parallel_reader.parallel_read(
-        data_sources,
-        tf.TFRecordReader,
-        num_epochs=num_epochs,
-        shuffle=training,
-        capacity=2 * capacity,
-        min_after_dequeue=capacity,
-        num_readers=num_readers)
 
-    if data_items_to_decoders is None:
-      data_items_to_decoders = {
+  def decode_record(record):
+    """Serialized Example to dict of <feature name, Tensor>."""
+    example_serialized = record
+    item_decoders = data_items_to_decoders
+    if item_decoders is None:
+      item_decoders = {
           field: tf.contrib.slim.tfexample_decoder.Tensor(field)
           for field in data_fields_to_features
       }
 
     decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
-        data_fields_to_features, data_items_to_decoders)
+        data_fields_to_features, item_decoders)
 
-    if data_items_to_decode is None:
-      data_items_to_decode = list(data_items_to_decoders)
+    decode_items = data_items_to_decode
+    if decode_items is None:
+      decode_items = list(item_decoders)
 
-    decoded = decoder.decode(example_serialized, items=data_items_to_decode)
-    return {
-        field: tensor
-        for (field, tensor) in zip(data_items_to_decode, decoded)
-    }
+    decoded = decoder.decode(example_serialized, items=decode_items)
+    return dict(zip(decode_items, decoded))
+
+  with tf.name_scope("examples_in"):
+    # Read serialized examples using slim parallel_reader.
+    data_files = tf.contrib.slim.parallel_reader.get_data_files(data_sources)
+    num_readers = min(4 if training else 1, len(data_files))
+    _, example_serialized = tf.contrib.slim.parallel_reader.parallel_read(
+        data_sources,
+        tf.TFRecordReader,
+        num_epochs=None if training else 1,
+        shuffle=training,
+        capacity=2 * capacity,
+        min_after_dequeue=capacity,
+        num_readers=num_readers)
+    return decode_record(example_serialized)
 
 
 def preprocessing(examples, data_file_pattern, mode):
@@ -193,7 +188,7 @@ def problem_input_pipeline(problem, data_file_pattern, capacity, mode):
     return feature_placeholders(data_fields)
 
   # Now the non-trivial case construction.
-  examples = examples_queue(
+  examples = examples_reader(
       [data_file_pattern],
       data_fields,
       training=(mode == tf.contrib.learn.ModeKeys.TRAIN),
@@ -278,7 +273,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode):
     return feature_placeholders(data_fields)
 
   # Now the non-trivial case construction.
-  examples = examples_queue(
+  examples = examples_reader(
       [data_file_pattern],
       data_fields,
       training=(mode == tf.contrib.learn.ModeKeys.TRAIN),
@@ -296,7 +291,7 @@ def batch_examples(examples, batching_scheme):
   """Given a queue of examples, create batches of examples with similar lengths.
 
   We assume that examples is a dictionary with string keys and tensor values,
-  possibly coming from a queue, e.g., constructed by examples_queue above.
+  possibly coming from a queue, e.g., constructed by examples_reader above.
   Each tensor in examples is assumed to be 1D. We will put tensors of similar
   length into batches togeter. We return a dictionary with the same keys as
   examples, and with values being batches of size batch_size. If elements have
@@ -407,7 +402,7 @@ def constant_batching_scheme(constant_batch_size_in_sequences):
   }
 
 
-def get_datasets(problems, data_dir, mode):
+def get_data_filepatterns(problems, data_dir, mode):
   """Return the location of a dataset for a given mode."""
   datasets = []
   for problem in problems.split("-"):
