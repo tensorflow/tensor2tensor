@@ -130,6 +130,7 @@ flags.DEFINE_bool("decode_return_beams", False,
                   "<beam1>\t<beam2>..\t<input>")
 flags.DEFINE_integer("decode_max_input_size", -1,
                      "Maximum number of ids in input. Or <= 0 for no max.")
+flags.DEFINE_bool("identity_output", False, "To print the output as identity")
 
 
 def _save_until_eos(hyp):
@@ -766,8 +767,11 @@ def decode_interactively(estimator):
           else:
             tf.logging.info(beam_string)
       else:
-        tf.logging.info(
-            targets_vocab.decode(_save_until_eos(result["outputs"].flatten())))
+        if FLAGS.identity_output:
+          tf.logging.info(" ".join(map(str, result["outputs"].flatten())))
+        else:
+          tf.logging.info(targets_vocab.decode(_save_until_eos(
+              result["outputs"].flatten())))
 
 
 def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
@@ -843,7 +847,7 @@ def _interactive_input_fn(hparams):
   const_array_size = 10000
   while True:
     prompt = ("INTERACTIVE MODE  num_samples=%d  decode_length=%d  \n"
-              "  it=<input_type>     ('text' or 'image')\n"
+              "  it=<input_type>     ('text' or 'image' or 'label')\n"
               "  pr=<problem_num>    (set the problem number)\n"
               "  in=<input_problem>  (set the input problem number)\n"
               "  ou=<output_problem> (set the output problem number)\n"
@@ -892,6 +896,13 @@ def _interactive_input_fn(hparams):
         img = read_image(input_path)
         yield problem_id, {
             "inputs": img,
+            "problem_choice": np.array(problem_id)
+        }
+      elif input_type == "label":
+        input_ids = [int(input_string)]
+        x = [num_samples, decode_length, len(input_ids)] + input_ids
+        yield problem_id, {
+            "inputs": np.array(x),
             "problem_choice": np.array(problem_id)
         }
       else:
