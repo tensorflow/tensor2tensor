@@ -10,7 +10,6 @@ _pycache__/
 # PyPI distribution artifacts.
 build/
 dist/
-data/
 
 # Sublime project files
 *.sublime-project
