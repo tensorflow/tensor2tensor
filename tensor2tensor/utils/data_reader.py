@@ -20,7 +20,6 @@ from __future__ import print_function
 
 import math
 import os
-import random
 
 # Dependency imports
 
@@ -114,17 +113,18 @@ def examples_reader(data_sources,
     return dict(zip(decode_items, decoded))
 
   with tf.name_scope("examples_in"):
+    # Read serialized examples using slim parallel_reader.
     data_files = tf.contrib.slim.parallel_reader.get_data_files(data_sources)
-    if training:
-      random.shuffle(data_files)
-    dataset = tf.contrib.data.TFRecordDataset(data_files)
     num_readers = min(4 if training else 1, len(data_files))
-    dataset = dataset.map(decode_record, num_threads=num_readers)
-    if training:
-      dataset = dataset.shuffle(capacity)
-    dataset = dataset.repeat(None if training else 1)
-    it = dataset.make_one_shot_iterator()
-    return it.get_next()
+    _, example_serialized = tf.contrib.slim.parallel_reader.parallel_read(
+        data_sources,
+        tf.TFRecordReader,
+        num_epochs=None if training else 1,
+        shuffle=training,
+        capacity=2 * capacity,
+        min_after_dequeue=capacity,
+        num_readers=num_readers)
+    return decode_record(example_serialized)
 
 
 def preprocessing(examples, data_file_pattern, mode):
