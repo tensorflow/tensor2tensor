@@ -358,29 +358,6 @@ def transformer_parsing_big():
 
 
 @registry.register_hparams
-def transformer_parsing_ice():
-  """Hparams for parsing Icelandic text."""
-  hparams = transformer_base_single_gpu()
-  hparams.batch_size = 4096
-  hparams.shared_embedding_and_softmax_weights = int(False)
-  return hparams
-
-
-@registry.register_hparams
-def transformer_parsing_ice_big():
-  """Hparams for parsing Icelandic text, bigger model."""
-  hparams = transformer_parsing_ice()
-  hparams.batch_size = 2048 # 4096 gives Out-of-memory on 8 GB 1080 GTX GPU
-  hparams.attention_dropout = 0.2
-  hparams.residual_dropout = 0.2
-  hparams.max_length = 512
-  hparams.learning_rate_warmup_steps = 16000
-  hparams.hidden_size = 1024
-  hparams.learning_rate = 0.05
-  return hparams
-
-
-@registry.register_hparams
 def transformer_tiny():
   hparams = transformer_base()
   hparams.hidden_size = 64

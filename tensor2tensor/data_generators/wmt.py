@@ -162,36 +162,6 @@ def character_generator(source_path, target_path, character_vocab, eos=None):
         source, target = source_file.readline(), target_file.readline()
 
 
-def tabbed_generator(source_path, source_vocab, target_vocab, eos=None):
-  r"""Generator for sequence-to-sequence tasks using tabbed files.
-
-  Tokens are derived from text files where each line contains both
-  a source and a target string. The two strings are separated by a tab
-  character ('\t'). It yields dictionaries of "inputs" and "targets" where
-  inputs are characters from the source lines converted to integers, and
-  targets are characters from the target lines, also converted to integers.
-
-  Args:
-    source_path: path to the file with source and target sentences.
-    source_vocab: a SunwordTextEncoder to encode the source string.
-    target_vocab: a SunwordTextEncoder to encode the target string.
-    eos: integer to append at the end of each sequence (default: None).
-
-  Yields:
-    A dictionary {"inputs": source-line, "targets": target-line} where
-    the lines are integer lists converted from characters in the file lines.
-  """
-  eos_list = [] if eos is None else [eos]
-  with tf.gfile.GFile(source_path, mode="r") as source_file:
-    for line in source_file:
-      if line and "\t" in line:
-        parts = line.split("\t", maxsplit=1)
-        source, target = parts[0].strip(), parts[1].strip()
-        source_ints = source_vocab.encode(source) + eos_list
-        target_ints = target_vocab.encode(target) + eos_list
-        yield {"inputs": source_ints, "targets": target_ints}
-
-
 def token_generator(source_path, target_path, token_vocab, eos=None):
   """Generator for sequence-to-sequence tasks that uses tokens.
 
@@ -253,6 +223,36 @@ def bi_vocabs_token_generator(source_path,
         target_ints = target_token_vocab.encode(target.strip()) + eos_list
         yield {"inputs": source_ints, "targets": target_ints}
         source, target = source_file.readline(), target_file.readline()
+
+
+def tabbed_generator(source_path, source_vocab, target_vocab, eos=None):
+  r"""Generator for sequence-to-sequence tasks using tabbed files.
+
+  Tokens are derived from text files where each line contains both
+  a source and a target string. The two strings are separated by a tab
+  character ('\t'). It yields dictionaries of "inputs" and "targets" where
+  inputs are characters from the source lines converted to integers, and
+  targets are characters from the target lines, also converted to integers.
+
+  Args:
+    source_path: path to the file with source and target sentences.
+    source_vocab: a SunwordTextEncoder to encode the source string.
+    target_vocab: a SunwordTextEncoder to encode the target string.
+    eos: integer to append at the end of each sequence (default: None).
+
+  Yields:
+    A dictionary {"inputs": source-line, "targets": target-line} where
+    the lines are integer lists converted from characters in the file lines.
+  """
+  eos_list = [] if eos is None else [eos]
+  with tf.gfile.GFile(source_path, mode="r") as source_file:
+    for line in source_file:
+      if line and "\t" in line:
+        parts = line.split("\t", maxsplit=1)
+        source, target = parts[0].strip(), parts[1].strip()
+        source_ints = source_vocab.encode(source) + eos_list
+        target_ints = target_vocab.encode(target) + eos_list
+        yield {"inputs": source_ints, "targets": target_ints}
 
 
 # Data-set URLs.
@@ -654,28 +654,6 @@ def parsing_character_generator(tmp_dir, train):
   return character_generator(text_filepath, tags_filepath, character_vocab, EOS)
 
 
-def tabbed_parsing_token_generator(data_dir, tmp_dir, train, prefix,
-                                   source_vocab_size, target_vocab_size):
-  """Generate source and target data from a single file."""
-  source_vocab = generator_utils.get_or_generate_tabbed_vocab(
-      data_dir, tmp_dir, "parsing_train.pairs", 0,
-      prefix + "_source.vocab.%d" % source_vocab_size, source_vocab_size)
-  target_vocab = generator_utils.get_or_generate_tabbed_vocab(
-      data_dir, tmp_dir, "parsing_train.pairs", 1,
-      prefix + "_target.vocab.%d" % target_vocab_size, target_vocab_size)
-  filename = "parsing_%s" % ("train" if train else "dev")
-  pair_filepath = os.path.join(tmp_dir, filename + ".pairs")
-  return tabbed_generator(pair_filepath, source_vocab, target_vocab, EOS)
-
-
-def tabbed_parsing_character_generator(tmp_dir, train):
-  """Generate source and target data from a single file."""
-  character_vocab = text_encoder.ByteTextEncoder()
-  filename = "parsing_%s" % ("train" if train else "dev")
-  pair_filepath = os.path.join(tmp_dir, filename + ".pairs")
-  return tabbed_generator(pair_filepath, character_vocab, character_vocab, EOS)
-
-
 def parsing_token_generator(data_dir, tmp_dir, train, vocab_size):
   symbolizer_vocab = generator_utils.get_or_generate_vocab(
       data_dir, tmp_dir, "vocab.endefr.%d" % vocab_size, vocab_size)
@@ -684,49 +662,4 @@ def parsing_token_generator(data_dir, tmp_dir, train, vocab_size):
   return wsj_parsing.token_generator(tree_filepath, symbolizer_vocab,
                                      symbolizer_vocab, EOS)
 
-
-@registry.register_problem("ice_parsing_tokens")
-class IceParsingTokens(problem.Problem):
-  """Problem spec for parsing tokenized Icelandic text to
-    constituency trees, also tokenized but to a smaller vocabulary."""
-
-  @property
-  def source_vocab_size(self):
-    return 2**13  # 8192
-
-  @property
-  def target_vocab_size(self):
-    return 2**8  # 256
-
-  def feature_encoders(self, data_dir):
-    source_vocab_filename = os.path.join(
-        data_dir, "ice_source.tokens.vocab.%d" % self.source_vocab_size)
-    target_vocab_filename = os.path.join(
-        data_dir, "ice_target.tokens.vocab.%d" % self.target_vocab_size)
-    source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
-    target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
-    return {
-        "inputs": source_subtokenizer,
-        "targets": target_subtokenizer,
-    }
-
-  def generate_data(self, data_dir, tmp_dir, num_shards=100):
-    generator_utils.generate_dataset_and_shuffle(
-        tabbed_parsing_token_generator(tmp_dir, True, "ice",
-                                       self.source_vocab_size,
-                                       self.target_vocab_size),
-        self.training_filepaths(data_dir, num_shards, shuffled=False),
-        tabbed_parsing_token_generator(tmp_dir, False, "ice",
-                                       self.source_vocab_size,
-                                       self.target_vocab_size),
-        self.dev_filepaths(data_dir, 1, shuffled=False))
-
-  def hparams(self, defaults, unused_model_hparams):
-    p = defaults
-    source_vocab_size = self._encoders["inputs"].vocab_size
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, source_vocab_size)}
-    p.target_modality = (registry.Modalities.SYMBOL, self.target_vocab_size)
-    p.input_space_id = problem.SpaceID.ICE_TOK
-    p.target_space_id = problem.SpaceID.ICE_PARSE_TOK
-    p.loss_multiplier = 2.5 # Rough estimate of avg number of tokens per word
 
