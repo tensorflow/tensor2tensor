@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -95,12 +96,11 @@ class SymbolModality(modality.Modality):
     else:
       return self.bottom_simple(x, "target_emb", reuse=None)
 
-  def top(self, body_output, targets):
+  def top(self, body_output, _):
     """Generate logits.
 
     Args:
       body_output: A Tensor with shape [batch, p0, p1, body_input_depth]
-      targets: A Tensor with shape [batch, p0, p1, 1]
     Returns:
       logits: A Tensor with shape  [batch, p0, p1, ?, vocab_size].
     """
@@ -165,7 +165,7 @@ class SmallImageModality(modality.Modality):
 
   def top(self, body_output, _):
     with tf.variable_scope("rgb_softmax"):
-      # seperate embedding for each channel
+      # separate embedding for each channel
       # assuming the body output returns a tensor of shape
       # [batch_size, rows, cols, channels, self._body_input_depth]
       body_output_split = tf.split(body_output, self._channels, axis=3)
@@ -180,30 +180,22 @@ class SmallImageModality(modality.Modality):
         shape = tf.shape(body_output_split[i])[:-1]
         body_output = tf.reshape(body_output_split[i],
                                  [-1, self._body_input_depth])
-        channel_logits = tf.matmul(body_output,
-                                   output_rgb_embedding_var[i],
-                                   transpose_b=True)
-        rgb_channel_logits.append(tf.reshape(
-            channel_logits, tf.concat([shape, [self.top_dimensionality]],
-                                      0)))
+        channel_logits = tf.matmul(
+            body_output, output_rgb_embedding_var[i], transpose_b=True)
+        rgb_channel_logits.append(
+            tf.reshape(channel_logits,
+                       tf.concat([shape, [self.top_dimensionality]], 0)))
 
       logits = tf.concat(rgb_channel_logits, axis=3)
       # Reshape logits to conform to CIFAR image shapes (32 by 32 by 3)
 
       return logits
 
-  def top_sharded(self,
-                  sharded_body_output,
-                  sharded_targets,
-                  data_parallelism,
-                  weights_fn=common_layers.weights_all):
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.
     # (Since we're processing images and so have no padding and some pixel 0s.)
-    return super(SmallImageModality, self).top_sharded(
-        sharded_body_output,
-        sharded_targets,
-        data_parallelism,
-        weights_fn=weights_fn)
+    return super(SmallImageModality, self).loss(
+        top_out, targets, weights_fn=weights_fn)
 
 
 @registry.register_image_modality("default")
@@ -425,18 +417,11 @@ class ClassLabelModality(modality.Modality):
       res = common_layers.conv(x, self._vocab_size, (1, 1))
       return tf.expand_dims(res, 3)
 
-  def top_sharded(self,
-                  sharded_body_output,
-                  sharded_targets,
-                  data_parallelism,
-                  weights_fn=common_layers.weights_all):
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.
-    # (Since we're processing images and so have no padding and some labels 0.)
-    return super(ClassLabelModality, self).top_sharded(
-        sharded_body_output,
-        sharded_targets,
-        data_parallelism,
-        weights_fn=weights_fn)
+    # (Since we're processing images and so have no padding and some pixel 0s.)
+    return super(ClassLabelModality, self).loss(
+        top_out, targets, weights_fn=weights_fn)
 
 
 @registry.register_class_label_modality("class_label_2d")
@@ -467,6 +452,26 @@ class IdentityModality(modality.Modality):
     return body_output
 
 
+@registry.register_generic_modality("real")
+class RealModality(modality.Modality):
+  """Modality for real (i.e. float) vectors."""
+
+  def bottom(self, x):
+    with tf.variable_scope("real"):
+      return tf.layers.dense(x, self._body_input_depth)
+
+  def top(self, body_output, _):
+    with tf.variable_scope("real"):
+      return tf.layers.dense(body_output, self._vocab_size)
+
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_nonzero):
+    predictions = top_out
+    with tf.name_scope("l2"):
+      weights = weights_fn(targets)
+      l2 = tf.pow(predictions - targets, 2)
+      return tf.reduce_sum(l2 * weights), tf.reduce_sum(weights)
+
+
 @registry.register_image_modality("identity_no_pad")
 class IdentityModalityNoPad(modality.Modality):
   """Does nothing except making sure that there is no padding in cross-ent."""
@@ -481,15 +486,8 @@ class IdentityModalityNoPad(modality.Modality):
   def top(self, body_output, _):
     return body_output
 
-  def top_sharded(self,
-                  sharded_body_output,
-                  sharded_targets,
-                  data_parallelism,
-                  weights_fn=common_layers.weights_all):
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.
     # (Since we're processing images and so have no padding and some pixel 0s.)
-    return super(IdentityModalityNoPad, self).top_sharded(
-        sharded_body_output,
-        sharded_targets,
-        data_parallelism,
-        weights_fn=weights_fn)
+    return super(IdentityModalityNoPad, self).loss(
+        top_out, targets, weights_fn=weights_fn)

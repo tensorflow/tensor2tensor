@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -49,6 +50,8 @@ def basic_params1():
       # when not in training mode.
       dropout=0.2,
       clip_grad_norm=2.0,
+      grad_noise_scale=0.0,
+      summarize_grads=int(False),
       initializer="orthogonal",
       initializer_gain=1.5,
       label_smoothing=0.1,

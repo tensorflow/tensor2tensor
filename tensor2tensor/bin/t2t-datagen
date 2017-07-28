@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,7 +43,6 @@ from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image
 from tensor2tensor.data_generators import lm1b
-from tensor2tensor.data_generators import ptb
 from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wiki
 from tensor2tensor.data_generators import wmt
@@ -62,10 +62,12 @@ flags.DEFINE_string("problem", "",
                     "The name of the problem to generate data for.")
 flags.DEFINE_string("exclude_problems", "",
                     "Comma-separates list of problems to exclude.")
-flags.DEFINE_integer("num_shards", 10, "How many shards to use.")
+flags.DEFINE_integer("num_shards", 0, "How many shards to use. Ignored for "
+                     "registered Problems.")
 flags.DEFINE_integer("max_cases", 0,
                      "Maximum number of cases to generate (unbounded if 0).")
 flags.DEFINE_integer("random_seed", 429459, "Random seed to use.")
+flags.DEFINE_integer("task_id", -1, "For distributed data generation.")
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
@@ -102,6 +104,10 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "lm1b_32k": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False)
+    ),
+    "lm1b_characters": (
+        lambda: lm1b.generator(FLAGS.tmp_dir, True, characters=True),
+        lambda: lm1b.generator(FLAGS.tmp_dir, False, characters=True)
     ),
     "wiki_32k": (
         lambda: wiki.generator(FLAGS.tmp_dir, True),
@@ -164,12 +170,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
             vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
-    "lmptb_10k": (
-        lambda: ptb.train_generator(
-            FLAGS.tmp_dir,
-            FLAGS.data_dir,
-            False),
-        ptb.valid_generator),
 }
 
 # pylint: enable=g-long-lambda
@@ -241,7 +241,7 @@ def generate_data_for_problem(problem):
   if isinstance(dev_gen, int):
     # The dev set and test sets are generated as extra shards using the
     # training generator.  The integer specifies the number of training
-    # shards.  FLAGS.num_shards is ignored.
+    # shards. FLAGS.num_shards is ignored.
     num_training_shards = dev_gen
     tf.logging.info("Generating data for %s.", problem)
     all_output_files = generator_utils.combined_data_filenames(
@@ -252,10 +252,11 @@ def generate_data_for_problem(problem):
   else:
     # usual case - train data and dev data are generated using separate
     # generators.
+    num_shards = FLAGS.num_shards or 10
     tf.logging.info("Generating training data for %s.", problem)
     train_output_files = generator_utils.train_data_filenames(
         problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
-        FLAGS.num_shards)
+        num_shards)
     generator_utils.generate_files(training_gen(), train_output_files,
                                    FLAGS.max_cases)
     tf.logging.info("Generating development data for %s.", problem)
@@ -270,10 +271,14 @@ def generate_data_for_problem(problem):
 
 
 def generate_data_for_registered_problem(problem_name):
+  tf.logging.info("Generating training data for %s.", problem_name)
+  if FLAGS.num_shards:
+    raise ValueError("--num_shards should not be set for registered Problem.")
   problem = registry.problem(problem_name)
+  task_id = None if FLAGS.task_id < 0 else FLAGS.task_id
   problem.generate_data(os.path.expanduser(FLAGS.data_dir),
                         os.path.expanduser(FLAGS.tmp_dir),
-                        FLAGS.num_shards)
+                        task_id=task_id)
 
 
 if __name__ == "__main__":

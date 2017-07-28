@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -180,6 +181,9 @@ def default_problem_hparams():
       #   17: Icelandic characters
       #   18: Icelandic tokens
       #   19: Icelandic parse tokens
+      #   20: Macedonian tokens
+      #   21: Czech tokens
+      #   22: Czech characters
       # Add more above if needed.
       input_space_id=0,
       target_space_id=0,
@@ -332,6 +336,22 @@ def lm1b_32k(model_hparams):
   return p
 
 
+def lm1b_characters(unused_model_hparams):
+  """Billion-word language-modeling benchmark, 32k subword vocabulary."""
+  p = default_problem_hparams()
+  # ratio of dev tokens (including eos) to dev words (including eos)
+  # 826189 / 159658 = 5.174742
+  p.perplexity_exponent = 5.174742
+  p.input_modality = {}
+  encoder = text_encoder.ByteTextEncoder()
+  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
+  p.vocabulary = {
+      "targets": encoder
+  }
+  p.target_space_id = 2
+  return p
+
+
 def wiki_32k(model_hparams):
   """Wikipedia title to article.  32k subtoken vocabulary."""
   p = default_problem_hparams()
@@ -344,21 +364,6 @@ def wiki_32k(model_hparams):
       "inputs": encoder,
       "targets": encoder
   }
-  p.target_space_id = 3
-  return p
-
-
-def lmptb_10k(model_hparams):
-  """Penn Tree Bank language-modeling benchmark, 10k token vocabulary."""
-  p = default_problem_hparams()
-  p.input_modality = {}
-  p.target_modality = (registry.Modalities.SYMBOL, 10000)
-  vocabulary = text_encoder.TokenTextEncoder(
-      os.path.join(model_hparams.data_dir, "lmptb_10k.vocab"))
-  p.vocabulary = {
-      "targets": vocabulary,
-  }
-  p.input_space_id = 3
   p.target_space_id = 3
   return p
 
@@ -584,9 +589,9 @@ PROBLEM_HPARAMS_MAP = {
     "audio_wsj_characters_test": audio_wsj_characters,
     "audio_wsj_tokens_8k_tune": lambda p: audio_wsj_tokens(p, 2**13),
     "audio_wsj_tokens_8k_test": lambda p: audio_wsj_tokens(p, 2**13),
+    "lm1b_characters": lm1b_characters,
     "lm1b_32k": lm1b_32k,
     "wiki_32k": wiki_32k,
-    "lmptb_10k": lmptb_10k,
     "ice_parsing_characters": wmt_parsing_characters,
     "wmt_parsing_tokens_8k": lambda p: wmt_parsing_tokens(p, 2**13),
     "wsj_parsing_tokens_16k": lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda

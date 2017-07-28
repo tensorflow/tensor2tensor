@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,7 +31,7 @@ import tensorflow as tf
 from tensorflow.python.framework import function
 
 # This is a global setting. When turned off, no @function.Defun is used.
-allow_defun = True
+allow_defun = False
 
 
 def saturating_sigmoid(x):
@@ -468,7 +469,10 @@ def get_norm(norm_type):
                    "'noam', 'none'.")
 
 
-def residual_fn(x, y, norm_type, residual_dropout,
+def residual_fn(x,
+                y,
+                norm_type,
+                residual_dropout,
                 filters=None,
                 epsilon=1e-16,
                 name="residual"):
@@ -558,8 +562,14 @@ def conv_block_internal(conv_fn,
 
 
 def conv_block(inputs, filters, dilation_rates_and_kernel_sizes, **kwargs):
-  """A block of standard convolutions."""
+  """A block of standard 2d convolutions."""
   return conv_block_internal(conv, inputs, filters,
+                             dilation_rates_and_kernel_sizes, **kwargs)
+
+
+def conv1d_block(inputs, filters, dilation_rates_and_kernel_sizes, **kwargs):
+  """A block of standard 1d convolutions."""
+  return conv_block_internal(conv1d, inputs, filters,
                              dilation_rates_and_kernel_sizes, **kwargs)
 
 
@@ -857,10 +867,7 @@ def multiscale_conv_sum(inputs, output_size, dilation_rates_and_kernel_sizes,
     return tf.add_n(results) * (len(results)**-0.5)
 
 
-def multiscale_conv_and_attention(x,
-                                  padding,
-                                  hparams,
-                                  source=None):
+def multiscale_conv_and_attention(x, padding, hparams, source=None):
   """A common part of t2t layers.
 
   First, do a linear multiscale convolution
@@ -924,10 +931,7 @@ def conv_with_pools(inputs, output_size, kernel_size, pool_sizes, pooling_type,
     return tf.add_n(results) * (len(results)**-0.5)
 
 
-def conv_with_pools_and_attention(x,
-                                  padding,
-                                  hparams,
-                                  source=None):
+def conv_with_pools_and_attention(x, padding, hparams, source=None):
   """A common part of t2t layers.
 
   First, do conv_with_pools
@@ -1388,8 +1392,8 @@ def padded_cross_entropy(logits,
   vocab_size = tf.shape(logits)[-1]
   with tf.name_scope("padded_cross_entropy", [logits, labels]):
     pad_logits, pad_labels = pad_with_zeros(logits, labels)
-    xent = smoothing_cross_entropy(pad_logits, pad_labels,
-                                   vocab_size, confidence)
+    xent = smoothing_cross_entropy(pad_logits, pad_labels, vocab_size,
+                                   confidence)
     weights = weights_fn(pad_labels)
     if not reduce_sum:
       return xent * weights, weights
@@ -1492,8 +1496,8 @@ def linear_set_layer(layer_size,
       # Unfortunately tf doesn't support broadcasting via concat, but we can
       # simply add the transformed context to get the same effect.
       context = tf.expand_dims(context, axis=1)
-      cont_tfm = conv1d(context, layer_size, 1,
-                        activation=None, name="cont_conv")
+      cont_tfm = conv1d(
+          context, layer_size, 1, activation=None, name="cont_conv")
       outputs += cont_tfm
 
     if activation_fn is not None:

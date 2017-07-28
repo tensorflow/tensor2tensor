@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,7 +34,7 @@ concatenated mode:
               + subtokenizer.encode("target French Je t'aime.") + [1])
 }
 
-We add a dummy feature "inputs"=[0] for compatability with seq-to-seq models.
+We add a dummy feature "inputs"=[0] for compatibility with seq-to-seq models.
 
 If FLAGS.combine_to_length is nonzero, then we combine multiple examples into
 examples of a constant length, possibly with some padding at the end.
@@ -52,34 +53,33 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
 
-tf.app.flags.DEFINE_string("vocab_file", "",
-                           "SubwordTextEncoder vocabulary file")
+tf.flags.DEFINE_string("vocab_file", "", "SubwordTextEncoder vocabulary file")
 
-tf.app.flags.DEFINE_boolean(
+tf.flags.DEFINE_boolean(
     "random_reverse", False,
     "If true, write half of the example with source/target reversed")
 
-tf.app.flags.DEFINE_boolean(
+tf.flags.DEFINE_boolean(
     "count_everything", False,
     "If true, assign positive weights to designators, source and target. "
     "If false, assign positive weights only to target.")
 
-tf.app.flags.DEFINE_string("source_domain_string", "English", "")
-tf.app.flags.DEFINE_string("target_domain_string", "French", "")
+tf.flags.DEFINE_string("source_domain_string", "English", "")
+tf.flags.DEFINE_string("target_domain_string", "French", "")
 
-tf.app.flags.DEFINE_integer(
+tf.flags.DEFINE_integer(
     "combine_to_length", 0,
     "If positive, concatenate examples to form examples with target length "
     " equal to this value. Targets are padded with subtoken id=0.")
 
-tf.app.flags.DEFINE_string("in_file", "", "input filename")
+tf.flags.DEFINE_string("in_file", "", "input filename")
 
-tf.app.flags.DEFINE_string(
+tf.flags.DEFINE_string(
     "out_prefix", "/usr/local/google/tmp/concat",
     "The output filename is equal to out_prefix plus "
     "the last 15 characters of in_file. (e.g. -00001-of-00100)")
 
-FLAGS = tf.app.flags.FLAGS
+FLAGS = tf.flags.FLAGS
 
 
 def _make_example(ids, weights, raw_num_bytes):

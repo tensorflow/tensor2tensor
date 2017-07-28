@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,8 +41,8 @@ class ModalityTest(tf.test.TestCase):
         hidden_size=hidden_size,
         multiply_embedding_mode="sqrt_depth",
         shared_embedding_and_softmax_weights=0)
-    x = -1 + np.random.random_integers(vocab_size, size=(
-        batch_size, length, 1, 1))
+    x = -1 + np.random.random_integers(
+        vocab_size, size=(batch_size, length, 1, 1))
     m = modalities.SymbolModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(
         ["/device:CPU:0"] * num_datashards, reuse=True)
@@ -75,8 +76,10 @@ class ModalityTest(tf.test.TestCase):
     with self.test_session() as session:
       sharded_body_output = tf.split(tf.to_float(body_output), num_datashards)
       sharded_targets = tf.split(targets, num_datashards)
-      sharded_logits, train_loss = m.top_sharded(
-          sharded_body_output, sharded_targets, data_parallelism)
+      sharded_logits = m.top_sharded(sharded_body_output, sharded_targets,
+                                     data_parallelism)
+      train_loss = m.loss_sharded(sharded_logits, sharded_targets,
+                                  data_parallelism)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())
       res1, res2 = session.run((logits, train_loss))
