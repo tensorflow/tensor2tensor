@@ -115,7 +115,8 @@ def examples_reader(data_sources,
 
   with tf.name_scope("examples_in"):
     data_files = tf.contrib.slim.parallel_reader.get_data_files(data_sources)
-    random.shuffle(data_files)
+    if training:
+      random.shuffle(data_files)
     dataset = tf.contrib.data.TFRecordDataset(data_files)
     num_readers = min(4 if training else 1, len(data_files))
     dataset = dataset.map(decode_record, num_threads=num_readers)

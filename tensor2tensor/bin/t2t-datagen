@@ -43,7 +43,6 @@ from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image
 from tensor2tensor.data_generators import lm1b
-from tensor2tensor.data_generators import ptb
 from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wiki
 from tensor2tensor.data_generators import wmt
@@ -176,12 +175,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
             vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
-    "lmptb_10k": (
-        lambda: ptb.train_generator(
-            FLAGS.tmp_dir,
-            FLAGS.data_dir,
-            False),
-        ptb.valid_generator),
 }
 
 # pylint: enable=g-long-lambda
