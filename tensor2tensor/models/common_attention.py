@@ -345,55 +345,244 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
-def sliding_window_attention(window_size,
-                             q,
-                             k,
-                             v,
-                             bias,
-                             *args):
-  """ Sliding window wrapper for dot product attention. Each element only
-  attends to the elements (window_size/2) before and after it. This reduces
+def masked_local_attention_1d(
+    q, k, v, block_length=128, name=None):
+  """Attention to the source position and a neigborhood to the left of it.
+
+  The sequence is divided into blocks of length block_size.
+  Attention for a given query position can only see memory positions
+  less than or equal to the query position, in the corresponding block
+  and the previous block.
+
+  If mask_right is True, then a target position cannot see greater source
+  positions.
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth_k]
+    k: a Tensor with shape [batch, heads, length, depth_k]
+    v: a Tensor with shape [batch, heads, length, depth_v]
+    block_length: an integer
+    name: an optional string
+
+  Returns:
+    a Tensor of shape [batch, heads, length, depth_v]
+  """
+  with tf.variable_scope(name, default_name="local_attention_1d",
+                         values=[q, k, v]):
+    v_shape = v.get_shape()
+    batch = tf.shape(q)[0]
+    heads = tf.shape(q)[1]
+    length = tf.shape(q)[2]
+    # If (length < 2 * block_length), then we use only one block.
+    block_length = tf.where(tf.less(length, block_length * 2),
+                            length, block_length)
+    depth_k = tf.shape(q)[3]
+    depth_v = tf.shape(v)[3]
+    original_length = length
+    padding_size = tf.mod(-length, block_length)
+    length += padding_size
+    padding = [[0, 0], [0, 0], [0, padding_size], [0, 0]]
+    q = tf.pad(q, padding)
+    k = tf.pad(k, padding)
+    v = tf.pad(v, padding)
+    num_blocks = tf.div(length, block_length)
+
+    # compute attention for the first query block.
+    first_q = tf.slice(q, [0, 0, 0, 0], [-1, -1, block_length, -1])
+    first_k = tf.slice(k, [0, 0, 0, 0], [-1, -1, block_length, -1])
+    first_v = tf.slice(v, [0, 0, 0, 0], [-1, -1, block_length, -1])
+    first_output = dot_product_attention(
+        first_q, first_k, first_v, attention_bias_lower_triangle(block_length),
+        name="fist_block")
+
+    # compute attention for all subsequent query blocks.
+    q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
+    k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
+    v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
+
+    def local(x):
+      """Create a local version of the keys or values."""
+      prev_block = tf.slice(
+          x, [0, 0, 0, 0, 0], [-1, -1, num_blocks - 1, -1, -1])
+      cur_block = tf.slice(
+          x, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
+      return tf.concat([prev_block, cur_block], 3)
+    local_k = local(k)
+    local_v = local(v)
+    tail_q = tf.slice(q, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
+
+    local_length = tf.shape(local_k)[3]
+
+    # [batch, heads, num_blocks - 1, block_length, local_length]
+    attention = tf.matmul(tail_q, local_k, transpose_b=True)
+
+    # make sure source_pos <= target_pos
+    good_part = tf.matrix_band_part(
+        tf.ones([block_length, local_length]), -1, tf.to_int64(block_length))
+    mask = (1.0 - good_part) * -1e9
+    attention += tf.reshape(mask, [1, 1, 1, block_length, local_length])
+    attention = tf.nn.softmax(attention)
+    # TODO(noam): figure out how to show a summary for the remaining blocks.
+    # The naive way currently causes errors due to empty tensors.
+    # output: [batch, heads, num_blocks-1, block_length, depth_v]
+    output = tf.matmul(attention, local_v)
+    output = tf.reshape(output, [batch, heads, -1, depth_v])
+    output = tf.concat([first_output, output], axis=2)
+    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
+    output.set_shape(v_shape)
+    return output
+
+
+def unmasked_local_attention_1d(q, k, v, block_length=128, filter_width=100,
+                                name=None):
+  """strided block local self-attention.
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth_k]
+    k: a Tensor with shape [batch, heads, length, depth_k]
+    v: a Tensor with shape [batch, heads, length, depth_v]
+    block_length: an integer
+    filter_width: an integer indicating how much to look left.
+    name: an optional string
+
+  Returns:
+    a Tensor of shape [batch, heads, length, depth_v]
+  """
+  with tf.variable_scope(name, default_name="local_self_attention_1d",
+                         values=[q, k, v]):
+    v_shape = v.get_shape()
+    depth_v = tf.shape(v)[3]
+    batch_size = tf.shape(q)[0]
+    num_heads = tf.shape(q)[1]
+    original_length = tf.shape(q)[2]
+    # making sure q is a multiple of d
+    def pad_to_multiple(x, pad_length):
+      x_length = tf.shape(x)[2]
+      return tf.pad(x, [[0, 0], [0, 0], [0, -x_length % pad_length], [0, 0]])
+    def pad_l_and_r(x, pad_length):
+      return tf.pad(x, [[0, 0], [0, 0], [pad_length, pad_length], [0, 0]])
+    q = pad_to_multiple(q, block_length)
+    k = pad_to_multiple(k, block_length)
+    v = pad_to_multiple(v, block_length)
+
+    # Setting up q blocks
+    new_q_shape = tf.shape(q)
+    # Setting up q blocks
+    q = tf.reshape(q, [new_q_shape[0], new_q_shape[1],
+                       new_q_shape[2]//block_length,
+                       block_length, new_q_shape[3]])
+
+    # Setting up k and v values
+    k = pad_l_and_r(k, filter_width)
+    v = pad_l_and_r(v, filter_width)
+
+    length = tf.shape(k)[2]
+    full_filter_width = block_length + 2*filter_width
+    # getting gather indices
+    indices = tf.range(0, length, delta=1, name="index_range")
+    # making indices [1, length, 1] to appy convs
+    indices = tf.reshape(indices, [1, -1, 1])
+    kernel = tf.expand_dims(tf.eye(full_filter_width), axis=1)
+    gather_indices = tf.nn.conv1d(
+        tf.cast(indices, tf.float32),
+        kernel,
+        block_length,
+        padding="VALID",
+        name="gather_conv")
+
+    gather_indices = tf.squeeze(tf.cast(gather_indices, tf.int32), axis=0)
+
+    # [length, batch, heads, dim]
+    k_t = tf.transpose(k, [2, 0, 1, 3])
+    k_new = tf.gather(k_t, gather_indices)
+
+    # [batch, heads, blocks, block_length, dim]
+    k_new = tf.transpose(k_new, [2, 3, 0, 1, 4])
+
+    attention_bias = tf.expand_dims(
+        tf.to_float(embedding_to_padding(k_new)) * -1e9, axis=-2)
+
+    v_t = tf.transpose(v, [2, 0, 1, 3])
+    v_new = tf.gather(v_t, gather_indices)
+    v_new = tf.transpose(v_new, [2, 3, 0, 1, 4])
+
+    logits = tf.matmul(q, k_new, transpose_b=True)
+
+    attention = tf.nn.softmax(logits+attention_bias)
+    output = tf.matmul(attention, v_new)
+
+    output = tf.reshape(output, [batch_size, num_heads, -1, depth_v])
+    # Remove the padding if introduced
+    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
+    output.set_shape(v_shape)
+    return output
+
+
+def windowed_local_attention_1d(q,
+                                k,
+                                v,
+                                window_start,
+                                window_end,
+                                bias,
+                                *args):
+  """ Local window wrapper for dot product attention. Each element only
+  attends to the elements from window_start to window_end. This reduces
   the computational complexity for long sequences at the expense of eliminating
   long-term dependencies.
 
   N.B: For short input sequences this is much slower than just using
-    un-windowed attention. use only for long sequences.
+    un-windowed attention. Use only for long sequences.
 
   Args:
     window_size: an integer
     q: a Tensor with shape [batch, heads, length_q, depth_k]
     k: a Tensor with shape [batch, heads, length_kv, depth_k]
     v: a Tensor with shape [batch, heads, length_kv, depth_v]
+    window_start: an integer Tensor with shape [length_q]
+    window_end: an integer Tensor with shape [length_q]
     bias: bias Tensor (see attention_bias())
 
   Returns:
     A Tensor.
   """
+  with tf.name_scope("windowed"):
 
-  half_size = window_size // 2
-
-  # Wrapper function for dot product attention with a single query vector
-  def single(index, size, q, k, v, bias, **kwargs):
-    length_kv = tf.shape(k)[2]
-    index_begin = tf.maximum(0, index-size)
-    index_end = tf.minimum(length_kv-1, index+size)
-    q = tf.expand_dims(q, 2)
-    bias = tf.expand_dims(bias, 3)
-    k = k[:,:,index_begin:index_end,:]
-    v = v[:,:,index_begin:index_end,:]
-    out = dot_product_attention(q, k, v, bias, *args)
-    out = tf.squeeze(out, 2)
+    # Wrapper function for dot product attention with a single query vector
+    def single(index_begin, index_end, q, k, v, bias):
+      #Normalise range
+      #Reshape to right shape
+      q = tf.expand_dims(q, 2)
+      bias = tf.expand_dims(bias, 3)
+      #Get slices
+      k = k[:,:,index_begin:index_end,:]
+      v = v[:,:,index_begin:index_end,:]
+      out = dot_product_attention(q, k, v, bias, *args)
+      out = tf.squeeze(out, 2)
+      return out
+    
+    # We'll loop over each element of q, computing its corresponding output.
+    q = tf.transpose(q, [2, 0, 1, 3])
+    indices = tf.range(tf.shape(q)[0])
+    out = tf.map_fn(
+            lambda ii: single(
+                        window_start[ii],
+                        window_end[ii],
+                        q[ii],
+                        k,
+                        v,
+                        bias[:,:,:,ii]),
+            indices, 
+            dtype=tf.float32)
+    out = tf.transpose(out, [1, 2, 0, 3])
     return out
-  
-  # We'll loop over each element of q, computing it's corresponding output.
-  q = tf.transpose(q, [2, 0, 1, 3])
-  indices = tf.range(tf.shape(q)[0])
-  out = tf.map_fn(
-          lambda ii: single(ii, half_size, q[ii], k, v, bias[:,:,:,ii]),
-          indices, 
-          dtype=tf.float32)
-  out = tf.transpose(out, [1, 2, 0, 3])
-  return out
+
+
+def local_sliding_window(length, window_size, look_right=True):
+  indices = tf.range(length)
+  size = window_size
+  starts = tf.maximum(0, indices-size)
+  ends = tf.minimum(length-1, indices+size)
+  return starts, ends
 
 
 def multihead_attention(query_antecedent,
@@ -420,8 +609,6 @@ def multihead_attention(query_antecedent,
     num_heads: an integer dividing total_key_depth and total_value_depth
     dropout_rate: a floating point number
     summaries: a boolean
-    image_shapes: optional tuple of integer scalars.
-      see comments for attention_image_summary()
     window_size: option size of window for attention. Useful only for very long
       sequence lengths.
     name: an optional string
@@ -461,8 +648,10 @@ def multihead_attention(query_antecedent,
       x = dot_product_attention(
           q, k, v, bias, dropout_rate, summaries, image_shapes)
     else:
-      x = sliding_window_attention(
-          window_size, q, k, v, bias, dropout_rate, False, image_shapes)
+      length = tf.shape(k)[2]
+      window_start, window_end = local_sliding_window(length, window_size)
+      x = windowed_local_attention_1d(
+          q, k, v, window_start, window_end, bias, dropout_rate, False)
     x = combine_heads(x)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
     return x

@@ -162,8 +162,7 @@ def transformer_encoder(encoder_input,
                 hparams.num_heads,
                 hparams.attention_dropout,
                 summaries=summaries,
-                name="encoder_self_attention",
-                window_size=20))
+                name="encoder_self_attention"))
         x = residual_fn(x, transformer_ffn_layer(x, hparams))
   return x
 
