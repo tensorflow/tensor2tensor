@@ -427,7 +427,7 @@ class SubwordTextEncoder(TextEncoder):
           token_counts, present_count, num_iterations)
 
       # If min_val == max_val, we can't do any better than this.
-      if subtokenizer.vocab_size == target_size or min_val == max_val:
+      if subtokenizer.vocab_size == target_size or min_val >= max_val:
         return subtokenizer
 
       if subtokenizer.vocab_size > target_size:

@@ -88,10 +88,10 @@ def basic_params1():
       # modality, add an entry to this semicolon-separated string. Entries are
       # formatted "feature_name:modality_type:modality_name", e.g.
       # "inputs:image:small_image_modality;other_inputs:audio:identity".
-      input_modalities="",
+      input_modalities="default",  # We don't use empty string in params.
       # To override the default target modality, specify
       # "modality_type:modality_name", e.g. "image:small_image_modality".
-      target_modality="")
+      target_modality="default")
 
 
 class RangedHParams(object):

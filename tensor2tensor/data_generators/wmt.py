@@ -271,7 +271,7 @@ _MKEN_TEST_DATASETS = [[
 # English-Czech datasets
 _ENCS_TRAIN_DATASETS = [
     [
-        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
+        "http://data.statmt.org/wmt16/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
         ("training-parallel-nc-v11/news-commentary-v11.cs-en.en",
          "training-parallel-nc-v11/news-commentary-v11.cs-en.cs")
     ],
@@ -336,8 +336,7 @@ def _compile_data(tmp_dir, datasets, filename):
         lang1_filepath = os.path.join(tmp_dir, lang1_filename)
         lang2_filepath = os.path.join(tmp_dir, lang2_filename)
 
-        if not os.path.exists(compressed_filepath):
-          generator_utils.maybe_download(tmp_dir, compressed_filename, url)
+        generator_utils.maybe_download(tmp_dir, compressed_filename, url)
         if not (os.path.exists(lang1_filepath) and
                 os.path.exists(lang2_filepath)):
           # For .tar.gz and .tgz files, we read compressed.

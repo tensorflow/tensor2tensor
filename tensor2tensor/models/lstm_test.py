@@ -46,7 +46,7 @@ class LSTMTest(tf.test.TestCase):
       }
       model = lstm.LSTMSeq2Seq(
           hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
-      sharded_logits, _, _ = model.model_fn(features)
+      sharded_logits, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -70,7 +70,7 @@ class LSTMTest(tf.test.TestCase):
       }
       model = lstm.LSTMSeq2SeqAttention(
           hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
-      sharded_logits, _, _ = model.model_fn(features)
+      sharded_logits, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

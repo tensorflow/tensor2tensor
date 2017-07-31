@@ -23,8 +23,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
-
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -43,8 +41,7 @@ class Transformer(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
   def model_fn_body(self, features):
-    # Remove dropout if not training
-    hparams = copy.copy(self._hparams)
+    hparams = self._hparams
     targets = features["targets"]
     inputs = features["inputs"]
     target_space = features["target_space_id"]
@@ -541,13 +538,16 @@ def transformer_parameter_attention_b():
   return hparams
 
 
-@registry.register_ranged_hparams("transformer_big_single_gpu")
-def transformer_range1(rhp):
+@registry.register_ranged_hparams("transformer_base")
+def transformer_base_range(rhp):
   """Small range of hyperparameters."""
-  hparams = transformer_big_single_gpu()
+  hparams = transformer_base()
   common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
-
+  # After starting from base, set intervals for some parameters.
   rhp.set_float("learning_rate", 0.3, 3.0, scale=rhp.LOG_SCALE)
+  rhp.set_discrete("learning_rate_warmup_steps",
+                   [1000, 2000, 4000, 8000, 16000])
   rhp.set_float("initializer_gain", 0.5, 2.0)
+  rhp.set_float("optimizer_adam_beta2", 0.85, 0.95)
   rhp.set_float("optimizer_adam_beta2", 0.97, 0.99)
   rhp.set_float("weight_decay", 0.0, 2.0)

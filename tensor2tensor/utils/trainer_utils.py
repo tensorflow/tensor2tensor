@@ -228,6 +228,24 @@ def log_registry():
     sys.exit(0)
 
 
+def add_problem_hparams(hparams, problems):
+  """Add problem hparams for the problems."""
+  hparams.problems = []
+  hparams.problem_instances = []
+  for problem_name in problems.split("-"):
+    try:
+      problem = registry.problem(problem_name)
+      p_hparams = problem.internal_hparams(hparams)
+    except ValueError:
+      problem = None
+      p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+
+    hparams.problem_instances.append(problem)
+    hparams.problems.append(p_hparams)
+
+  return hparams
+
+
 def create_hparams(params_id, data_dir):
   """Returns hyperparameters, including any flag value overrides.
 
@@ -248,21 +266,7 @@ def create_hparams(params_id, data_dir):
   if FLAGS.hparams:
     hparams = hparams.parse(FLAGS.hparams)
 
-  # Add hparams for the problems
-  hparams.problems = []
-  hparams.problem_instances = []
-  for problem_name in FLAGS.problems.split("-"):
-    try:
-      problem = registry.problem(problem_name)
-      p_hparams = problem.internal_hparams(hparams)
-    except ValueError:
-      problem = None
-      p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
-
-    hparams.problem_instances.append(problem)
-    hparams.problems.append(p_hparams)
-
-  return hparams
+  return add_problem_hparams(hparams, FLAGS.problems)
 
 
 def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
@@ -469,21 +473,24 @@ def model_builder(model, hparams):
       # On worker 0 also build graph for problems <= 1.
       # TODO(lukaszkaiser): why is this hack needed for variables init? Repair.
       skip_this_one = skip_this_one and (FLAGS.worker_id != 0 or n > 1)
-      sharded_logits, training_loss, extra_loss = model_class.model_fn(
+      sharded_logits, losses_dict = model_class.model_fn(
           features, skip=(skipping_is_on and skip_this_one))
       with tf.variable_scope("losses_avg", reuse=True):
-        loss_moving_avg = tf.get_variable("problem_%d/training_loss" % n)
-        o1 = loss_moving_avg.assign(loss_moving_avg * 0.9 + training_loss * 0.1)
-        loss_moving_avg = tf.get_variable("problem_%d/extra_loss" % n)
-        o2 = loss_moving_avg.assign(loss_moving_avg * 0.9 + extra_loss * 0.1)
+        total_loss, ops = 0.0, []
+        for loss_key, loss_value in losses_dict.iteritems():
+          loss_moving_avg = tf.get_variable("problem_%d/%s_loss"
+                                            % (n, loss_key))
+          ops.append(loss_moving_avg.assign(
+              loss_moving_avg * 0.9 + loss_value * 0.1))
+          total_loss += loss_value
         loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n)
-        total_loss = training_loss + extra_loss
-        o3 = loss_moving_avg.assign(loss_moving_avg * 0.9 + total_loss * 0.1)
+        ops.append(loss_moving_avg.assign(
+            loss_moving_avg * 0.9 + total_loss * 0.1))
       with tf.variable_scope("train_stats"):  # Count steps for this problem.
         problem_steps = tf.get_variable(
             "problem_%d_steps" % n, initializer=0, trainable=False)
-        o4 = problem_steps.assign_add(1)
-      with tf.control_dependencies([o1, o2, o3, o4]):  # Make sure the ops run.
+        ops.append(problem_steps.assign_add(1))
+      with tf.control_dependencies(ops):  # Make sure the ops run.
         # Ensure the loss is a scalar here.
         total_loss = tf.reshape(total_loss, [], name="total_loss_control_id")
       return [total_loss] + sharded_logits  # Need to flatten for cond later.
