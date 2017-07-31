@@ -28,7 +28,6 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils as eu
-from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -116,11 +115,6 @@ class T2TModel(object):
 
     input_modality = {}
     for f, modality_spec in six.iteritems(problem_hparams.input_modality):
-      if isinstance(modality_spec, modality.Modality):
-        # This function has been previously run (e.g. for training and now is
-        # being called for eval) and the modalities have already been
-        # constructed. Return.
-        return
       if f in input_modality_overrides:
         _warn_changed_modality_type(input_modality_overrides[f],
                                     modality_spec[0], f)
@@ -129,8 +123,6 @@ class T2TModel(object):
     problem_hparams.input_modality = input_modality
 
     target_modality_spec = problem_hparams.target_modality
-    if isinstance(target_modality_spec, modality.Modality):
-      return
     if target_modality_name:
       _warn_changed_modality_type(target_modality_name, target_modality_spec[0],
                                   "target")

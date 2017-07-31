@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import math
 import operator
 import os
@@ -415,11 +416,22 @@ def model_builder(model, hparams):
     Returns:
       A tuple consisting of the prediction, loss, and train_op.
     """
+    # Deep-copy the model hparams between modes to eliminate
+    # side-effects caused by abuse of the linked problem_hparams
+    # objects which are used to share modality objects between
+    # problems.  We do not want to share the modality objects between
+    # modes, since the modality objects may decide to do something
+    # mode-specific.  A better fix would be to stop abusing the
+    # hparams in this way and instead use a separate dictionary to
+    # share the modality objects between problems.  This dictionary
+    # could be created once per mode and passed to the constructor of
+    # t2t_model.
+    my_hp = copy.deepcopy(hparams)
     if mode == tf.contrib.learn.ModeKeys.INFER:
       if FLAGS.decode_interactive:
-        features = _interactive_input_tensor_to_features_dict(features, hparams)
+        features = _interactive_input_tensor_to_features_dict(features, my_hp)
       elif FLAGS.decode_from_file:
-        features = _decode_input_tensor_to_features_dict(features, hparams)
+        features = _decode_input_tensor_to_features_dict(features, my_hp)
     # A dictionary containing:
     #  - problem_choice: A Tensor containing an integer indicating which problem
     #                    was selected for this run.
@@ -451,9 +463,9 @@ def model_builder(model, hparams):
     def nth_model(n):
       """Build the model for the n-th problem, plus some added variables."""
       model_class = registry.model(model)(
-          hparams,
+          my_hp,
           mode,
-          hparams.problems[n],
+          my_hp.problems[n],
           n,
           dp,
           _ps_devices(all_workers=True))
@@ -467,8 +479,8 @@ def model_builder(model, hparams):
             alpha=FLAGS.decode_alpha,
             decode_length=FLAGS.decode_extra_length)
       # In distributed mode, we build graph for problem=0 and problem=worker_id.
-      skipping_is_on = hparams.problem_choice == "distributed" and train
-      problem_worker_id = FLAGS.worker_id % len(hparams.problems)
+      skipping_is_on = my_hp.problem_choice == "distributed" and train
+      problem_worker_id = FLAGS.worker_id % len(my_hp.problems)
       skip_this_one = n != 0 and n % FLAGS.worker_replicas != problem_worker_id
       # On worker 0 also build graph for problems <= 1.
       # TODO(lukaszkaiser): why is this hack needed for variables init? Repair.
@@ -496,7 +508,7 @@ def model_builder(model, hparams):
       return [total_loss] + sharded_logits  # Need to flatten for cond later.
 
     result_list = _cond_on_index(nth_model, features["problem_choice"], 0,
-                                 len(hparams.problems) - 1)
+                                 len(my_hp.problems) - 1)
 
     if mode == tf.contrib.learn.ModeKeys.INFER:
       # Beam search in sequence model returns both decodes withe key "outputs"
@@ -532,11 +544,11 @@ def model_builder(model, hparams):
 
     # Some training statistics.
     with tf.name_scope("training_stats"):
-      learning_rate = hparams.learning_rate * learning_rate_decay()
+      learning_rate = my_hp.learning_rate * learning_rate_decay()
       learning_rate /= math.sqrt(float(FLAGS.worker_replicas))
       tf.summary.scalar("learning_rate", learning_rate)
       global_step = tf.to_float(tf.contrib.framework.get_global_step())
-      for n in xrange(len(hparams.problems)):
+      for n in xrange(len(my_hp.problems)):
         with tf.variable_scope("losses_avg", reuse=True):
           total_loss_var = tf.get_variable("problem_%d/total_loss" % n)
           training_loss_var = tf.get_variable("problem_%d/training_loss" % n)
@@ -558,27 +570,27 @@ def model_builder(model, hparams):
       tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
                       v.name[:-2].ljust(80), str(v.shape).ljust(20), v_size)
       total_size += v_size
-      if hparams.weight_decay > 0.0 and len(v.shape.as_list()) > 1:
+      if my_hp.weight_decay > 0.0 and len(v.shape.as_list()) > 1:
         # Add weight regularization if set and the weight is not a bias (dim>1).
         with tf.device(v._ref().device):  # pylint: disable=protected-access
           v_loss = tf.nn.l2_loss(v) / v_size
         weight_decay_loss += v_loss
       is_body = len(v_name) > 5 and v_name[:5] == "body/"
-      if hparams.weight_noise > 0.0 and is_body:
-        # Add weight noise if set in hparams.
+      if my_hp.weight_noise > 0.0 and is_body:
+        # Add weight noise if set in my_hp.
         with tf.device(v._ref().device):  # pylint: disable=protected-access
           scale = learning_rate * 0.001
-          noise = tf.truncated_normal(v.shape) * hparams.weight_noise * scale
+          noise = tf.truncated_normal(v.shape) * my_hp.weight_noise * scale
           noise_op = v.assign_add(noise)
         with tf.control_dependencies([noise_op]):
           total_loss = tf.identity(total_loss)
     tf.logging.info("Total trainable variables size: %d", total_size)
-    if hparams.weight_decay > 0.0:
-      total_loss += weight_decay_loss * hparams.weight_decay
+    if my_hp.weight_decay > 0.0:
+      total_loss += weight_decay_loss * my_hp.weight_decay
     total_loss = tf.identity(total_loss, name="total_loss")
 
     # Define the train_op for the TRAIN mode.
-    opt = _ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
+    opt = _ConditionalOptimizer(my_hp.optimizer, learning_rate, my_hp)
     tf.logging.info("Computing gradients for global model_fn.")
     opt_summaries = ["learning_rate", "loss"]
     if hparams.summarize_grads:
@@ -588,7 +600,7 @@ def model_builder(model, hparams):
         loss=total_loss,
         global_step=tf.contrib.framework.get_global_step(),
         learning_rate=learning_rate,
-        clip_gradients=hparams.clip_grad_norm or None,
+        clip_gradients=my_hp.clip_grad_norm or None,
         gradient_noise_scale=hparams.grad_noise_scale or None,
         optimizer=opt,
         summaries=opt_summaries,
