@@ -130,7 +130,7 @@ class TestTokenCounts(tf.test.TestCase):
 
   def test_vocab_token_counts_with_max_lines(self):
     # vocab-1 has 2 lines, vocab-2 has 3
-    token_counts = tokenizer.vocab_token_counts(self.vocab_path, 4)
+    token_counts = tokenizer.vocab_token_counts(self.vocab_path, 5)
 
     expected = {
         u"lollipop": 8,
