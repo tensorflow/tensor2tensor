@@ -386,12 +386,13 @@ class Text2TextProblem(Problem):
         self.dev_filepaths(data_dir, 1, shuffled=False))
 
   def feature_encoders(self, data_dir):
-    vocab_filename = os.path.join(data_dir, self.vocab_file)
     if self.is_character_level:
       encoder = text_encoder.ByteTextEncoder(),
     elif self.use_subword_tokenizer:
+      vocab_filename = os.path.join(data_dir, self.vocab_file)
       encoder = text_encoder.SubwordTextEncoder(vocab_filename)
     else:
+      vocab_filename = os.path.join(data_dir, self.vocab_file)
       encoder = text_encoder.TokenTextEncoder(vocab_filename)
     if self.has_inputs:
       return {"inputs": encoder, "targets": encoder}
