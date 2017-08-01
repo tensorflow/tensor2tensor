@@ -574,7 +574,7 @@ class WMTEnCsTokens32k(WMTProblem):
   """Problem spec for WMT English-Czech translation."""
 
   @property
-  def target_vocab_size(self):
+  def targeted_vocab_size(self):
     return 2**15  # 32768
 
   @property
