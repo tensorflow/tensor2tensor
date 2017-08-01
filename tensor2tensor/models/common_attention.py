@@ -345,24 +345,34 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
-def masked_local_attention_1d(
-    q, k, v, block_length=128, mask_right=False, name=None):
-  """Attention to the source position and a neigborhood to the left of it.
 
-  The sequence is divided into blocks of length block_size.
-  Attention for a given query position can only see memory positions
-  less than or equal to the query position, in the corresponding block
-  and the previous block.
+def local_attention_1d(q, k, v, bias=None,
+    block_length=128, look_right=True, use_whole_block=False, 
+    truncate_bias=True, name=None):
+  """Attention to the source position and a neigborhood around it.
 
-  If mask_right is True, then a target position cannot see greater source
+  The sequence is divided into blocks of length block_size. Attention for a
+  given query position can only see memory positions within a certain number
+  of positions before and behind it.
+
+  If look_right is True then each query will attend to block_length//2
+  positions either side, otherwise it will attend to block_length previous
   positions.
 
+  If use_whole_block is True then no mask will be applied to the local blocks
+  meaning the full blocks are used (if look_right is True then the elements to
+  the right of the current position are still masked out). This allows use to
+  attend to more elements without additional overhead, but means we have
+  inconsistent window positions and sizes.
+
   Args:
-    q: a Tensor with shape [batch, heads, length, depth_k]
-    k: a Tensor with shape [batch, heads, length, depth_k]
-    v: a Tensor with shape [batch, heads, length, depth_v]
+    q: a Tensor with shape [batch, heads, length_q, depth_k]
+    k: a Tensor with shape [batch, heads, length_kv, depth_k]
+    v: a Tensor with shape [batch, heads, length_kv, depth_v]
+    bias: Not currently used [batch, heads, length_q, length_k]
     block_length: an integer
-    mask_right: a bool
+    look_right: a bool
+    use_whole_block: a bool
     name: an optional string
 
   Returns:
@@ -379,8 +389,9 @@ def masked_local_attention_1d(
 
     original_length = length
 
-    # If (length < 2 * block_length), then we use only one block.
-    block_length = tf.where(tf.less(length, block_length * 2),
+    #Pad to desired length
+    #If (length < 2 * block_length), then we use only one block.
+    block_length = tf.where(tf.less(length, block_length),
                             length, block_length)
     padding_size = tf.mod(-length, block_length)
     length += padding_size
@@ -389,25 +400,27 @@ def masked_local_attention_1d(
     padding = [[0, 0], [0, 0], [0, padding_size], [0, 0]]
     q = tf.pad(q, padding)
 
-    if mask_right:
+    if not look_right:
       #Add extra padding so we son't have to do an initial query
       extra_padding = [[0, 0], [0, 0], [block_length, padding_size], [0, 0]]
+      bp = [[0, 0], [0, 0], [0, padding_size], [block_length, padding_size]]
     else:
       #We shift everything over by half a block so query is in centre
       pad_right = block_length // 2
       pad_left = block_length - pad_right
       extra_padding = [[0, 0], [0, 0], 
-          [pad_left,padding_size+pad_right], [0, 0]]
-
+          [pad_left, padding_size+pad_right], [0, 0]]
+      bp = [[0, 0], [0, 0], 
+          [0, padding_size], [pad_left, padding_size+pad_right]]
     k = tf.pad(k, extra_padding)
     v = tf.pad(v, extra_padding)
 
-
-    # compute attention for all subsequent query blocks.
+    # Reshape into blocks
     q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
     k = tf.reshape(k, [batch, heads, num_blocks+1, block_length, depth_k])
     v = tf.reshape(v, [batch, heads, num_blocks+1, block_length, depth_v])
 
+    # Get local blocks by slicing
     def local(x):
       """Create a local version of the keys or values."""
       prev_block = tf.slice(
@@ -415,105 +428,69 @@ def masked_local_attention_1d(
       cur_block = tf.slice(
           x, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
       return tf.concat([prev_block, cur_block], 3)
-
     local_k = local(k)
     local_v = local(v)
-
     local_length = tf.shape(local_k)[3]
 
     # [batch, heads, num_blocks, block_length, local_length]
     attention = tf.matmul(q, local_k, transpose_b=True)
-
-    good_part = tf.matrix_band_part(
-      tf.ones([block_length, local_length]), 0, tf.to_int64(block_length))
-
-    good_part = tf.cast(good_part, tf.float64)
-    attention *= tf.reshape(good_part, [1, 1, 1, block_length, local_length])
+    
+    # Apply bias (N.B: This is not currently working)
+    if bias is not None:
+      with tf.name_scope('bias'):
+        b_batch = tf.shape(bias)[0]
+        b_heads = tf.shape(bias)[1]
+        bias_ = bias
+        #bias = 1.0 + tf.clip_by_value(bias, -1.0, 1.0)
+        if truncate_bias:
+          # Use only the query dimension
+          bias = tf.expand_dims(bias[:,:,:,0], 2)
+          bias = tf.pad(bias, extra_padding, name='bias_pad_b')# 17, 5, 3
+          bias = tf.reshape(bias,
+              [b_batch, b_heads, 1, num_blocks+1, block_length],
+                name='divide_blocks')
+          local_b = tf.reshape(local(bias),
+              [b_batch, b_heads, num_blocks, 1, -1], name='reshape_local')
+        else:
+          bias = tf.pad(bias, bp, name='pad')
+          bias = tf.reshape(bias, 
+              [b_batch, b_heads, num_blocks, block_length,
+                num_blocks+1, block_length], name='divide_blocks')
+          bias = tf.transpose(bias, [4,2,0,1,3,5])
+          bias = tf.reshape(bias, 
+              [num_blocks*(num_blocks+1), b_batch, b_heads,
+                block_length, block_length], name='combine')
+          indices = (num_blocks+1)*tf.range(num_blocks)
+          prev_block = tf.gather(bias, indices)
+          cur_block = tf.gather(bias, indices+num_blocks)
+          local_b = tf.concat([prev_block, cur_block], 4)
+          local_b = tf.transpose(local_b, [1,2,0,3,4])
+          return l-local_b
+        attention += local_b
+        
     attention = tf.nn.softmax(attention)
+    
+    # Get local mask
+    if not use_whole_block:
+      good_part = tf.matrix_band_part(
+        tf.ones([block_length, local_length]), 0, tf.to_int64(block_length))
+    elif not look_right:
+      good_part = tf.matrix_band_part(
+        tf.ones([block_length, local_length]), -1, tf.to_int64(block_length))
+    else:
+      good_part = tf.ones([block_length, local_length])
 
+    #good_part = tf.cast(good_part, tf.float64)
+    attention *= tf.reshape(good_part, [1, 1, 1, block_length, local_length])
+
+ 
     output = tf.matmul(attention, local_v)
     output = tf.reshape(output, [batch, heads, -1, depth_v])
 
-    # remove added padding
+    # Remove added padding
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
     output.set_shape(v_shape)
     return output
-
-
-
-
-###############################################################################
-### Not used, left in for reference ###########################################
-
-def windowed_local_attention_1d(q,
-                                k,
-                                v,
-                                window_start,
-                                window_end,
-                                bias,
-                                *args):
-  """ Local window wrapper for dot product attention. Each element only
-  attends to the elements from window_start to window_end. This reduces
-  the computational complexity for long sequences at the expense of eliminating
-  long-term dependencies.
-
-  N.B: For short input sequences this is much slower than just using
-    un-windowed attention. Use only for long sequences.
-
-  Args:
-    window_size: an integer
-    q: a Tensor with shape [batch, heads, length_q, depth_k]
-    k: a Tensor with shape [batch, heads, length_kv, depth_k]
-    v: a Tensor with shape [batch, heads, length_kv, depth_v]
-    window_start: an integer Tensor with shape [length_q]
-    window_end: an integer Tensor with shape [length_q]
-    bias: bias Tensor (see attention_bias())
-
-  Returns:
-    A Tensor.
-  """
-  with tf.name_scope("windowed"):
-
-    # Wrapper function for dot product attention with a single query vector
-    def single(index_begin, index_end, q, k, v, bias):
-      #Normalise range
-      #Reshape to right shape
-      q = tf.expand_dims(q, 2)
-      bias = tf.expand_dims(bias, 3)
-      #Get slices
-      k = k[:,:,index_begin:index_end,:]
-      v = v[:,:,index_begin:index_end,:]
-      out = dot_product_attention(q, k, v, *args)
-      out = tf.squeeze(out, 2)
-      return out
-    
-    # We'll loop over each element of q, computing its corresponding output.
-    q = tf.transpose(q, [2, 0, 1, 3])
-    bias = tf.transpose(bias, [3, 0, 1, 2])
-    indices = tf.range(tf.shape(q)[0])
-    out = tf.map_fn(
-            lambda ii: single(
-                        window_start[ii],
-                        window_end[ii],
-                        q[ii],
-                        k,
-                        v,
-                        bias[ii]),
-            indices, 
-            dtype=tf.float32)
-    out = tf.transpose(out, [1, 2, 0, 3])
-    return out
-
-def local_sliding_window(length, window_size, look_right=True):
-  indices = tf.range(length)
-  size = window_size
-  starts = tf.maximum(0, indices-size)
-  ends = tf.minimum(length-1, indices+size)
-  return starts, ends
-
-###                                                                         ###
-###############################################################################
-
 
 
 
@@ -527,7 +504,8 @@ def multihead_attention(query_antecedent,
                         dropout_rate,
                         summaries=False,
                         image_shapes=None,
-                        window_size=None,
+                        attention_type="dot_product",
+                        block_length=128,
                         name=None):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -540,9 +518,11 @@ def multihead_attention(query_antecedent,
     output_depth: an integer
     num_heads: an integer dividing total_key_depth and total_value_depth
     dropout_rate: a floating point number
-    summaries: a boolean
-    window_size: option size of window for attention. Useful only for very long
-      sequence lengths.
+    image_shapes: optional tuple of integer scalars.
+      see comments for attention_image_summary()
+    attention_type: a string, either "dot_product" or "local" or
+                    "local_mask_right"
+    block_length: an integer - relevant for "local_mask_right"
     name: an optional string
 
   Returns:
@@ -576,14 +556,15 @@ def multihead_attention(query_antecedent,
     v = split_heads(v, num_heads)
     key_depth_per_head = total_key_depth // num_heads
     q *= key_depth_per_head**-0.5
-    if window_size is None:
+    if attention_type == "dot_product":
       x = dot_product_attention(
-          q, k, v, bias, dropout_rate, summaries, image_shapes)
+          q, k, v, bias, dropout_rate, image_shapes)
+    elif attention_type == "local":
+      x = local_attention_1d(q, k, v, block_length=block_length)
     else:
-      length = tf.shape(q)[2]
-      window_start, window_end = local_sliding_window(length, window_size)
-      x = windowed_local_attention_1d(
-          q, k, v, window_start, window_end, bias, dropout_rate, False)
+      assert attention_type == "local_mask_right"
+      x = local_attention_1d(
+          q, k, v, block_length=block_length, look_right=False)
     x = combine_heads(x)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
     return x

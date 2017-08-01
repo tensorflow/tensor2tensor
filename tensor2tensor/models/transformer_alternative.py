@@ -174,8 +174,9 @@ def alt_transformer_decoder(decoder_input,
 
 def bias_to_mask(bias):
     # We need masks of the form batch size x input sequences
-    # Biases seem to be of the form batch_size x 1 x input sequences x vec dim
-    #  Squeeze out dim one, and get the first element of each vector
+    # Biases are of the form batch_size x num_heads x input sequences x
+    #  output sequences. Squeeze out dim one, and get the first element of
+    #  each vector.
 
     bias = tf.squeeze(bias, [1])[:,:,0]
     bias = - tf.clip_by_value(bias, -1.0, 1.0)
@@ -189,7 +190,7 @@ def transformer_alt():
   """Set of hyperparameters."""
   hparams = transformer.transformer_base()
   hparams.batch_size = 2048
-  hparams.num_hidden_layers = 3
+  hparams.num_hidden_layers = 10
   hparams.add_hparam("layers_per_layer", 4)
   hparams.add_hparam("composite_layer_type", "ravanbakhsh") #ravanbakhsh or reembedding
   #hparams.add_hparam("composite_layer_type", "reembedding")
