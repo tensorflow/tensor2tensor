@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,8 +46,8 @@ class Transformer(t2t_model.T2TModel):
     # Remove dropout if not training
     hparams = copy.copy(self._hparams)
     targets = features["targets"]
-    inputs = features.get("inputs")
-    target_space = features.get("target_space_id")
+    inputs = features["inputs"]
+    target_space = features["target_space_id"]
 
     inputs = common_layers.flatten4d3d(inputs)
     targets = common_layers.flatten4d3d(targets)
@@ -60,8 +61,6 @@ class Transformer(t2t_model.T2TModel):
       return common_layers.layer_norm(x + tf.nn.dropout(
           y, 1.0 - hparams.residual_dropout))
 
-    # encoder_input = tf.squeeze(encoder_input, 2)
-    # decoder_input = tf.squeeze(decoder_input, 2)
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
     decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
     encoder_output = transformer_encoder(encoder_input, residual_fn,
@@ -145,8 +144,6 @@ def transformer_encoder(encoder_input,
     y: a Tensors
   """
   x = encoder_input
-  # Summaries don't work in multi-problem setting yet.
-  summaries = "problems" not in hparams.values() or len(hparams.problems) == 1
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -161,7 +158,6 @@ def transformer_encoder(encoder_input,
                 hparams.hidden_size,
                 hparams.num_heads,
                 hparams.attention_dropout,
-                summaries=summaries,
                 name="encoder_self_attention"))
         x = residual_fn(x, transformer_ffn_layer(x, hparams))
   return x
@@ -191,8 +187,6 @@ def transformer_decoder(decoder_input,
     y: a Tensors
   """
   x = decoder_input
-  # Summaries don't work in multi-problem setting yet.
-  summaries = "problems" not in hparams.values() or len(hparams.problems) == 1
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -207,7 +201,6 @@ def transformer_decoder(decoder_input,
                 hparams.hidden_size,
                 hparams.num_heads,
                 hparams.attention_dropout,
-                summaries=summaries,
                 name="decoder_self_attention"))
         x = residual_fn(
             x,
@@ -220,7 +213,6 @@ def transformer_decoder(decoder_input,
                 hparams.hidden_size,
                 hparams.num_heads,
                 hparams.attention_dropout,
-                summaries=summaries,
                 name="encdec_attention"))
         x = residual_fn(x, transformer_ffn_layer(x, hparams))
   return x
@@ -333,7 +325,7 @@ def transformer_big_single_gpu():
 def transformer_base_single_gpu():
   """HParams for transformer base model for single gpu."""
   hparams = transformer_base()
-  hparams.batch_size = 8192
+  hparams.batch_size = 2048
   hparams.learning_rate_warmup_steps = 16000
   hparams.batching_mantissa_bits = 2
   return hparams
@@ -363,6 +355,15 @@ def transformer_parsing_big():
   hparams.residual_dropout = 0.1
   hparams.batch_size = 2048
   hparams.learning_rate = 0.05
+  return hparams
+
+
+@registry.register_hparams
+def transformer_parsing_ice():
+  """Hparams for parsing Icelandic text."""
+  hparams = transformer_base_single_gpu()
+  hparams.batch_size = 4096
+  hparams.shared_embedding_and_softmax_weights = int(False)
   return hparams
 
 

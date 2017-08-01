@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -101,8 +102,6 @@ def attention_lm_decoder(decoder_input,
     y: a Tensors
   """
   x = decoder_input
-  # Summaries don't work in multi-problem setting yet.
-  summaries = "problems" not in hparams.values() or len(hparams.problems) == 1
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -117,7 +116,6 @@ def attention_lm_decoder(decoder_input,
                 hparams.hidden_size,
                 hparams.num_heads,
                 hparams.attention_dropout,
-                summaries=summaries,
                 name="decoder_self_attention"))
         x = residual_fn(x,
                         common_layers.conv_hidden_relu(
@@ -140,7 +138,7 @@ def attention_lm_base():
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.learning_rate_decay_scheme = "noam"
   hparams.learning_rate = 0.1
-  hparams.learning_rate_warmup_steps = 1000
+  hparams.learning_rate_warmup_steps = 2000
   hparams.initializer_gain = 1.0
   hparams.num_hidden_layers = 6
   hparams.initializer = "uniform_unit_scaling"
@@ -162,4 +160,23 @@ def attention_lm_base():
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("residual_dropout", 0.1)
   hparams.add_hparam("pos", "timing")  # timing, none
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_small():
+  """Cheap model.
+
+  on lm1b_32k:
+     45M params
+     2 steps/sec on  [GeForce GTX TITAN X]
+
+  Returns:
+    an hparams object.
+  """
+  hparams = attention_lm_base()
+  hparams.num_hidden_layers = 4
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.residual_dropout = 0.5
   return hparams

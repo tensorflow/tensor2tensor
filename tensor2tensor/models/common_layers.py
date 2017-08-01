@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,7 +31,7 @@ import tensorflow as tf
 from tensorflow.python.framework import function
 
 # This is a global setting. When turned off, no @function.Defun is used.
-allow_defun = True
+allow_defun = False
 
 
 def saturating_sigmoid(x):
@@ -58,9 +59,15 @@ def inverse_exp_decay(max_step, min_value=0.01):
   return inv_base**tf.maximum(float(max_step) - step, 0.0)
 
 
-def shakeshake2_py(x, y, equal=False):
+def shakeshake2_py(x, y, equal=False, individual=False):
   """The shake-shake sum of 2 tensors, python version."""
-  alpha = 0.5 if equal else tf.random_uniform([])
+  if equal:
+    alpha = 0.5
+  if individual:
+    alpha = tf.random_uniform(tf.get_shape(x)[:1])
+  else:
+    alpha = tf.random_uniform([])
+
   return alpha * x + (1.0 - alpha) * y
 
 
@@ -68,6 +75,14 @@ def shakeshake2_py(x, y, equal=False):
 def shakeshake2_grad(x1, x2, dy):
   """Overriding gradient for shake-shake of 2 tensors."""
   y = shakeshake2_py(x1, x2)
+  dx = tf.gradients(ys=[y], xs=[x1, x2], grad_ys=[dy])
+  return dx
+
+
+@function.Defun()
+def shakeshake2_indiv_grad(x1, x2, dy):
+  """Overriding gradient for shake-shake of 2 tensors."""
+  y = shakeshake2_py(x1, x2, individual=True)
   dx = tf.gradients(ys=[y], xs=[x1, x2], grad_ys=[dy])
   return dx
 
@@ -84,6 +99,11 @@ def shakeshake2_equal_grad(x1, x2, dy):
 def shakeshake2(x1, x2):
   """The shake-shake function with a different alpha for forward/backward."""
   return shakeshake2_py(x1, x2)
+
+
+@function.Defun(grad_func=shakeshake2_indiv_grad)
+def shakeshake2_indiv(x1, x2):
+  return shakeshake2_py(x1, x2, individual=True)
 
 
 @function.Defun(grad_func=shakeshake2_equal_grad)
@@ -292,7 +312,8 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   """Conditional conv_fn making kernel 1d or 2d depending on inputs shape."""
   static_shape = inputs.get_shape()
   if not static_shape or len(static_shape) != 4:
-    raise ValueError("Inputs to conv must have statically known rank 4. Shape:" +str(static_shape))
+    raise ValueError("Inputs to conv must have statically known rank 4. "
+                     "Shape: " + str(static_shape))
   # Add support for left padding.
   if "padding" in kwargs and kwargs["padding"] == "LEFT":
     dilation_rate = (1, 1)
@@ -433,24 +454,51 @@ def noam_norm(x, name=None):
             tf.sqrt(tf.to_float(shape[-1])))
 
 
-def residual_function(hparams):
+def get_norm(norm_type):
+  """Get the normalizer function."""
+  if norm_type == "layer":
+    return lambda x, name, filters=None, epsilon=1e-6: layer_norm(  # pylint: disable=g-long-lambda
+        x, filters=filters, epsilon=epsilon, name=name)
+  if norm_type == "batch":
+    return tf.layers.batch_normalization
+  if norm_type == "noam":
+    return noam_norm
+  if norm_type == "none":
+    return lambda x, name: x
+  raise ValueError("Parameter normalizer_fn must be one of: 'layer', 'batch',"
+                   "'noam', 'none'.")
+
+
+def residual_fn(x,
+                y,
+                norm_type,
+                residual_dropout,
+                filters=None,
+                epsilon=1e-16,
+                name="residual"):
   """Returns a function for combining layer input and layer output.
 
   The returned function on x (layer input) and y (layer output) computes:
-    norm_function(x + t
+    norm_function(x + dropout(y))
 
   Args:
-    hparams: model hyperparameters
+    x: tensor, input layer
+    y: tensor, output layer
+    norm_type: string, type of normalizer function
+    residual_dropout: integer, dropout value for residual connection
+    filters: integer, dimension for layer norm, optional
+    epsilon: integer, value of layer norm epsilon
+    name: string, name
 
   Returns:
-    a function from x=<layer input> and y=<layer output> to computed output
+    residual layer output with applied norm_fn.
   """
-
-  def residual_fn(x, y):
-    return hparams.norm_function(x + tf.nn.dropout(
-        y, 1.0 - hparams.residual_dropout))
-
-  return residual_fn
+  norm_fn = get_norm(norm_type)
+  res = x + tf.nn.dropout(y, 1.0 - residual_dropout)
+  if norm_type == "layer":
+    return norm_fn(res, name=name, filters=filters, epsilon=epsilon)
+  else:
+    return norm_fn(res, name=name)
 
 
 def conv_block_internal(conv_fn,
@@ -514,8 +562,14 @@ def conv_block_internal(conv_fn,
 
 
 def conv_block(inputs, filters, dilation_rates_and_kernel_sizes, **kwargs):
-  """A block of standard convolutions."""
+  """A block of standard 2d convolutions."""
   return conv_block_internal(conv, inputs, filters,
+                             dilation_rates_and_kernel_sizes, **kwargs)
+
+
+def conv1d_block(inputs, filters, dilation_rates_and_kernel_sizes, **kwargs):
+  """A block of standard 1d convolutions."""
+  return conv_block_internal(conv1d, inputs, filters,
                              dilation_rates_and_kernel_sizes, **kwargs)
 
 
@@ -733,7 +787,7 @@ def moe_layer(data_parallelism,
     xs_2d = dp(tf.reshape, xs, [[-1, model_hidden_size]] * dp.n)
     # Call the MoE
     moe_out_2d, importance, load, _, _ = moe.Eval(
-        dp.devices, xs_2d, train, identifiers=None, summaries=True)
+        dp.devices, xs_2d, train, identifiers=None)
     # Reshape the output to the original shape.
     moe_out = dp(tf.reshape, moe_out_2d, dp(tf.shape, xs))
     # These losses encourage equal load on the different experts.
@@ -741,7 +795,7 @@ def moe_layer(data_parallelism,
     return moe_out, loss
 
 
-def simple_attention(target, source, bias=None, summaries=True):
+def simple_attention(target, source, bias=None):
   """A simple attention function.
 
   Args:
@@ -751,7 +805,6 @@ def simple_attention(target, source, bias=None, summaries=True):
      `[batch, source_timesteps_1, source_timesteps_2, depth]`
     bias: an optional `Tensor` with shape `[batch, timesteps, 1, 1]` used
      to mask the attention to not attend to padding of input.
-    summaries: Boolean, whether to output summaries.
 
   Returns:
     a `Tensor` with same shape as `target`
@@ -770,7 +823,7 @@ def simple_attention(target, source, bias=None, summaries=True):
     if bias is not None:
       attention += tf.expand_dims(tf.squeeze(bias, axis=[2, 3]), axis=1)
     attention = tf.nn.softmax(attention)
-    if summaries and not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse:
       tf.summary.image("attention", tf.expand_dims(attention, 3), max_outputs=5)
     attended = tf.matmul(attention, source)
     return tf.reshape(attended, target_shape)
@@ -814,11 +867,7 @@ def multiscale_conv_sum(inputs, output_size, dilation_rates_and_kernel_sizes,
     return tf.add_n(results) * (len(results)**-0.5)
 
 
-def multiscale_conv_and_attention(x,
-                                  padding,
-                                  hparams,
-                                  source=None,
-                                  summaries=True):
+def multiscale_conv_and_attention(x, padding, hparams, source=None):
   """A common part of t2t layers.
 
   First, do a linear multiscale convolution
@@ -831,7 +880,6 @@ def multiscale_conv_and_attention(x,
     padding: a padding type
     hparams: hyperparameters for model
     source: optional source tensor for attention. (encoder output)
-    summaries: Boolean, whether to output summaries.
 
   Returns:
     a Tensor.
@@ -849,7 +897,7 @@ def multiscale_conv_and_attention(x,
     x = conv(x, hparams.hidden_size, (1, 1))
   x = noam_norm(x + conv_sum)
   if source is not None:
-    x = noam_norm(x + simple_attention(x, source, summaries=summaries))
+    x = noam_norm(x + simple_attention(x, source))
   return x
 
 
@@ -883,11 +931,7 @@ def conv_with_pools(inputs, output_size, kernel_size, pool_sizes, pooling_type,
     return tf.add_n(results) * (len(results)**-0.5)
 
 
-def conv_with_pools_and_attention(x,
-                                  padding,
-                                  hparams,
-                                  source=None,
-                                  summaries=True):
+def conv_with_pools_and_attention(x, padding, hparams, source=None):
   """A common part of t2t layers.
 
   First, do conv_with_pools
@@ -900,7 +944,6 @@ def conv_with_pools_and_attention(x,
     padding: a padding type
     hparams: hyperparameters for model
     source: optional source tensor for attention. (encoder output)
-    summaries: Boolean, whether to output summaries.
 
   Returns:
     a Tensor.
@@ -915,7 +958,7 @@ def conv_with_pools_and_attention(x,
     conv_sum += x
   x = noam_norm(conv_sum)
   if source is not None:
-    x = noam_norm(x + simple_attention(x, source, summaries=summaries))
+    x = noam_norm(x + simple_attention(x, source))
   return x
 
 
@@ -1013,7 +1056,6 @@ def attention_1d_v0(source,
                     transform_source=True,
                     transform_target=True,
                     transform_output=True,
-                    summaries=True,
                     name=None):
   """multi-headed attention.
 
@@ -1031,7 +1073,6 @@ def attention_1d_v0(source,
     transform_source: a boolean
     transform_target: a boolean
     transform_output: a boolean
-    summaries: a boolean
     name: an optional string
 
   Returns:
@@ -1072,7 +1113,7 @@ def attention_1d_v0(source,
       mask = (1.0 - mask) * -1e9
       attention += mask
     attention = tf.nn.softmax(attention)
-    if summaries and not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse:
       # Compute a color image summary.
       image = tf.reshape(attention,
                          [batch, num_heads, target_length, source_length])
@@ -1118,7 +1159,6 @@ def conv_hidden_relu(inputs,
                      output_size,
                      kernel_size=(1, 1),
                      second_kernel_size=(1, 1),
-                     summaries=True,
                      dropout=0.0,
                      **kwargs):
   """Hidden layer with RELU activation followed by linear projection."""
@@ -1139,7 +1179,7 @@ def conv_hidden_relu(inputs,
         **kwargs)
     if dropout != 0.0:
       h = tf.nn.dropout(h, 1.0 - dropout)
-    if summaries and not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse:
       tf.summary.histogram("hidden_density_logit",
                            relu_density_logit(
                                h, list(range(inputs.shape.ndims - 1))))
@@ -1352,8 +1392,8 @@ def padded_cross_entropy(logits,
   vocab_size = tf.shape(logits)[-1]
   with tf.name_scope("padded_cross_entropy", [logits, labels]):
     pad_logits, pad_labels = pad_with_zeros(logits, labels)
-    xent = smoothing_cross_entropy(pad_logits, pad_labels,
-                                   vocab_size, confidence)
+    xent = smoothing_cross_entropy(pad_logits, pad_labels, vocab_size,
+                                   confidence)
     weights = weights_fn(pad_labels)
     if not reduce_sum:
       return xent * weights, weights
@@ -1380,7 +1420,7 @@ def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
     return xentropy - normalizing
 
 
-   
+
 def global_pool_1d(inputs, pooling_type='MAX', mask=None):
   """
   Pools elements across the last dimension. Useful to a list of vectors into a
@@ -1393,30 +1433,29 @@ def global_pool_1d(inputs, pooling_type='MAX', mask=None):
       pooling_type: the pooling type to use, MAX or AVR
       mask: A tensor of dimensions batch_size x sequence_length containing a
         mask for the inputs with 1's for existing elements, and 0's elsewhere.
-  Outputs
+  Returns
       output: A tensor of dimensions batch_size x input_dims
         dimension containing the sequences of transformed vectors.
   """
-  
   with tf.name_scope("global_pool", [inputs]):
     if mask is not None:
       mask = tf.expand_dims(mask, axis=2)
       inputs = tf.multiply(inputs, mask)
-  
-    if pooling_type == 'MAX':
+
+    if pooling_type == "MAX":
       # A tf.pool can be used here, but reduce is cleaner
       output = tf.reduce_max(inputs, axis=1)
-    elif pooling_type == 'AVR':
+    elif pooling_type == "AVR":
       if mask is not None:
-        # Some elems are dummy elems so we can't just reduce the average
+        # Some elems are dummy elems so we can't just reduce the average.
         output = tf.reduce_sum(inputs, axis=1)
         num_elems = tf.reduce_sum(mask, axis=1, keep_dims=True)
-        output = tf.div(output, num_elems)
-        #N.B: this will cause a NaN if one batch contains no elements
+        output = tf.div(output, tf.maximum(num_elems, 1))
       else:
-        output = tf.reduce_mean(inputs, axis=1) 
-    
+        output = tf.reduce_mean(inputs, axis=1)
+
   return output
+
 
 
 def running_global_pool_1d(inputs, pooling_type='MAX'):
@@ -1430,7 +1469,7 @@ def running_global_pool_1d(inputs, pooling_type='MAX'):
       inputs: A tensor of dimensions batch_size x sequence_length x input_dims
         containing the sequences of input vectors.
       pooling_type: Pooling type to use. Currently only supports 'MAX'.
-  Outputs
+  Returns
       output: A tensor of dimensions batch_size x sequence_length x input_dims
         dimension containing the running 'totals'.
   """
@@ -1456,13 +1495,13 @@ def linear_set_layer(layer_size,
                      activation_fn=tf.nn.relu,
                      dropout=0.0,
                      name=None):
-  """ 
-  Basic layer type for doing funky things with sets.
+  """Basic layer type for doing funky things with sets.
+
   Applies a linear transformation to each element in the input set.
   If a context is supplied, it is concatenated with the inputs.
     e.g. One can use global_pool_1d to get a representation of the set which
     can then be used as the context for the next layer.
-    
+
   Args
       layer_size: Dimension to transform the input vectors to
       inputs: A tensor of dimensions batch_size x sequence_length x input_dims
@@ -1472,18 +1511,17 @@ def linear_set_layer(layer_size,
         set.
       dropout: Dropout probability.
       activation_fn: The activation function to use.
-  Outputs
+  Returns
       output: A tensor of dimensions batch_size x sequence_length x output_dims
         dimension containing the sequences of transformed vectors.
+
   """
-    
   with tf.variable_scope(name, "linear_set_layer", [inputs]):
-    # Apply 1D convolution to apply linear filter to each element along the 2nd
-    #  dimension
-    #in_size = inputs.get_shape().as_list()[-1]
+    # Apply 1D convolution to apply linear filter to each element
+    # along the 2nd dimension.
     outputs = conv1d(inputs, layer_size, 1, activation=None, name="set_conv")
 
-    # Apply the context if it exists
+    # Apply the context if it exists.
     if context is not None:
       # Unfortunately tf doesn't support broadcasting via concat, but we can
       #  simply add the transformed context to get the same effect
@@ -1493,15 +1531,14 @@ def linear_set_layer(layer_size,
       cont_tfm = conv1d(context, layer_size, 1,
           activation=None, name="cont_conv")
       outputs += cont_tfm
-    
+
     if activation_fn is not None:
       outputs = activation_fn(outputs)
-      
+
     if dropout != 0.0:
-      output = tf.nn.dropout(output, 1.0 - dropout)
-        
+      outputs = tf.nn.dropout(outputs, 1.0 - dropout)
+
     return outputs
-    
 
 
 def ravanbakhsh_set_layer(layer_size,
@@ -1511,11 +1548,10 @@ def ravanbakhsh_set_layer(layer_size,
                           activation_fn=tf.nn.tanh,
                           dropout=0.0,
                           name=None):
-  """
-  Layer from Deep Sets paper: https://arxiv.org/abs/1611.04500
+  """Layer from Deep Sets paper: https://arxiv.org/abs/1611.04500 .
+
   More parameter-efficient verstion of a linear-set-layer with context.
-  
-  
+
   Args
       layer_size: Dimension to transform the input vectors to.
       inputs: A tensor of dimensions batch_size x sequence_length x vector
@@ -1525,12 +1561,12 @@ def ravanbakhsh_set_layer(layer_size,
       sequential: If true, will use a running global pool so each element will
         only depend on those before it. Set true if this layer is being used in
         an ouput sequence. 
-  Outputs
+  Returns
       output: A tensor of dimensions batch_size x sequence_length x vector
         dimension containing the sequences of transformed vectors.
   """
-    
   with tf.variable_scope(name, "ravanbakhsh_set_layer", [inputs]):
+
     if sequential:
       output = linear_set_layer(
           layer_size,
@@ -1547,3 +1583,4 @@ def ravanbakhsh_set_layer(layer_size,
     return output
 
 
+    return output

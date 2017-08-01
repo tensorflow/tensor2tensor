@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -91,7 +92,6 @@ def compute_bleu(reference_corpus,
       matches_by_order[len(ngram) - 1] += overlap[ngram]
     for ngram in translation_ngram_counts:
       possible_matches_by_order[len(ngram)-1] += translation_ngram_counts[ngram]
-
   precisions = [0] * max_order
   for i in xrange(0, max_order):
     if possible_matches_by_order[i] > 0:
@@ -106,7 +106,6 @@ def compute_bleu(reference_corpus,
   if use_bp:
     ratio = translation_length / reference_length
     bp = math.exp(1 - 1. / ratio) if ratio < 1.0 else 1.0
-
   bleu = geo_mean * bp
   return np.float32(bleu)
 
@@ -127,8 +126,8 @@ def bleu_score(predictions, labels, **unused_kwargs):
   """
   outputs = tf.to_int32(tf.argmax(predictions, axis=-1))
   # Convert the outputs and labels to a [batch_size, input_length] tensor.
-  outputs = tf.squeeze(outputs)
-  labels = tf.squeeze(labels)
+  outputs = tf.squeeze(outputs, axis=[-1, -2])
+  labels = tf.squeeze(labels, axis=[-1, -2])
 
   bleu = tf.py_func(compute_bleu, (labels, outputs), tf.float32)
   return bleu, tf.constant(1.0)

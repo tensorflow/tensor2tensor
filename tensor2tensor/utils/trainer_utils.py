@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,18 +31,21 @@ import six
 # pylint: disable=redefined-builtin
 from six.moves import input
 from six.moves import xrange
-from six.moves import zip
 # pylint: enable=redefined-builtin
 
+from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.models import models  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import yellowfin
 
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
+from tensorflow.python import debug
 from tensorflow.python.ops import init_ops
 
 # Number of samples to draw for an image input (in such cases as captioning)
@@ -52,6 +56,8 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_bool("registry_help", False,
                   "If True, logs the contents of the registry and exits.")
+flags.DEFINE_bool("tfdbg", False,
+                  "If True, use the TF debugger CLI on train/eval.")
 flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 flags.DEFINE_string("model", "", "Which model to use.")
 flags.DEFINE_string("hparams_set", "", "Which parameters to use.")
@@ -82,7 +88,7 @@ flags.DEFINE_string("schedule", "local_run",
 flags.DEFINE_integer("local_eval_frequency", 2000,
                      "Run evaluation every this steps during local training.")
 flags.DEFINE_bool("locally_shard_to_cpu", False,
-                  "Use CPU as a sharding device runnning locally. This allows "
+                  "Use CPU as a sharding device running locally. This allows "
                   "to test sharded model construction on a machine with 1 GPU.")
 flags.DEFINE_bool("daisy_chain_variables", True,
                   "copy variables around in a daisy chain")
@@ -91,6 +97,8 @@ flags.DEFINE_string("worker_job", "/job:worker", "name of worker job")
 flags.DEFINE_integer("worker_gpu", 1, "How many GPUs to use.")
 flags.DEFINE_integer("worker_replicas", 1, "How many workers to use.")
 flags.DEFINE_integer("worker_id", 0, "Which worker task are we.")
+flags.DEFINE_float("worker_gpu_memory_fraction", 1.,
+                   "Fraction of GPU memory to allocate.")
 flags.DEFINE_integer("ps_gpu", 0, "How many GPUs to use per ps.")
 flags.DEFINE_string("gpu_order", "", "Optional order for daisy-chaining gpus."
                     " e.g. \"1 3 2 4\"")
@@ -98,11 +106,13 @@ flags.DEFINE_string("ps_job", "/job:ps", "name of ps job")
 flags.DEFINE_integer("ps_replicas", 0, "How many ps replicas.")
 
 # Decode flags
+# Set one of {decode_from_dataset, decode_interactive, decode_from_file} to
+# decode.
+flags.DEFINE_bool("decode_from_dataset", False, "Decode from dataset on disk.")
 flags.DEFINE_bool("decode_use_last_position_only", False,
                   "In inference, use last position only for speedup.")
 flags.DEFINE_bool("decode_interactive", False,
                   "Interactive local inference mode.")
-flags.DEFINE_bool("decode_endless", False, "Run decoding endlessly. Temporary.")
 flags.DEFINE_bool("decode_save_images", False, "Save inference input images.")
 flags.DEFINE_string("decode_from_file", None, "Path to decode file")
 flags.DEFINE_string("decode_to_file", None, "Path to inference output file")
@@ -118,6 +128,18 @@ flags.DEFINE_bool("decode_return_beams", False,
                   "Whether to return 1 (False) or all (True) beams. The \n "
                   "output file will have the format "
                   "<beam1>\t<beam2>..\t<input>")
+flags.DEFINE_integer("decode_max_input_size", -1,
+                     "Maximum number of ids in input. Or <= 0 for no max.")
+
+
+def _save_until_eos(hyp):
+  """Strips everything after the first <EOS> token, which is normally 1."""
+  try:
+    index = list(hyp).index(text_encoder.EOS_ID)
+    return hyp[0:index]
+  except ValueError:
+    # No EOS_ID: return the array as-is.
+    return hyp
 
 
 def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
@@ -136,21 +158,35 @@ def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
 
 def create_experiment(output_dir, data_dir, model_name, train_steps,
                       eval_steps):
+  """Create Experiment."""
   hparams = create_hparams(FLAGS.hparams_set, data_dir)
   estimator, input_fns = create_experiment_components(
       hparams=hparams,
       output_dir=output_dir,
       data_dir=data_dir,
       model_name=model_name)
+  eval_metrics = metrics.create_evaluation_metrics(
+      zip(FLAGS.problems.split("-"), hparams.problem_instances))
+  if (hasattr(FLAGS, "autotune") and FLAGS.autotune and
+      FLAGS.objective not in eval_metrics):
+    raise ValueError("Tuning objective %s not among evaluation metrics %s" %
+                     (FLAGS.objective, eval_metrics.keys()))
+  train_monitors = []
+  eval_hooks = []
+  if FLAGS.tfdbg:
+    hook = debug.LocalCLIDebugHook()
+    train_monitors.append(hook)
+    eval_hooks.append(hook)
   return tf.contrib.learn.Experiment(
       estimator=estimator,
       train_input_fn=input_fns["train"],
       eval_input_fn=input_fns["eval"],
-      eval_metrics=metrics.create_evaluation_metrics(FLAGS.problems.split("-")),
+      eval_metrics=eval_metrics,
       train_steps=train_steps,
       eval_steps=eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
-      train_monitors=[])
+      train_monitors=train_monitors,
+      eval_hooks=eval_hooks)
 
 
 def create_experiment_components(hparams, output_dir, data_dir, model_name):
@@ -161,14 +197,14 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
   train_input_fn = get_input_fn(
       mode=tf.contrib.learn.ModeKeys.TRAIN,
       hparams=hparams,
-      data_file_patterns=get_datasets_for_mode(data_dir,
+      data_file_patterns=get_data_filepatterns(data_dir,
                                                tf.contrib.learn.ModeKeys.TRAIN),
       num_datashards=num_datashards)
 
   eval_input_fn = get_input_fn(
       mode=tf.contrib.learn.ModeKeys.EVAL,
       hparams=hparams,
-      data_file_patterns=get_datasets_for_mode(data_dir,
+      data_file_patterns=get_data_filepatterns(data_dir,
                                                tf.contrib.learn.ModeKeys.EVAL),
       num_datashards=num_datashards)
   estimator = tf.contrib.learn.Estimator(
@@ -177,6 +213,7 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
       config=tf.contrib.learn.RunConfig(
           master=FLAGS.master,
           model_dir=output_dir,
+          gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction,
           session_config=session_config(),
           keep_checkpoint_max=FLAGS.keep_checkpoint_max))
   # Store the hparams in the estimator as well
@@ -211,10 +248,18 @@ def create_hparams(params_id, data_dir):
     hparams = hparams.parse(FLAGS.hparams)
 
   # Add hparams for the problems
-  hparams.problems = [
-      problem_hparams.problem_hparams(problem, hparams)
-      for problem in FLAGS.problems.split("-")
-  ]
+  hparams.problems = []
+  hparams.problem_instances = []
+  for problem_name in FLAGS.problems.split("-"):
+    try:
+      problem = registry.problem(problem_name)
+      p_hparams = problem.internal_hparams(hparams)
+    except ValueError:
+      problem = None
+      p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+
+    hparams.problem_instances.append(problem)
+    hparams.problems.append(p_hparams)
 
   return hparams
 
@@ -270,6 +315,7 @@ def session_config():
   """The TensorFlow Session config to use."""
   graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
       opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
+
   if FLAGS.experimental_optimize_placement:
     rewrite_options = tf.RewriterConfig(optimize_tensor_layout=True)
     rewrite_options.optimizers.append("pruning")
@@ -277,9 +323,14 @@ def session_config():
     rewrite_options.optimizers.append("layout")
     graph_options = tf.GraphOptions(
         rewrite_options=rewrite_options, infer_shapes=True)
-  config = tf.ConfigProto(
-      allow_soft_placement=True, graph_options=graph_options)
 
+  gpu_options = tf.GPUOptions(
+      per_process_gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction)
+
+  config = tf.ConfigProto(
+      allow_soft_placement=True,
+      graph_options=graph_options,
+      gpu_options=gpu_options)
   return config
 
 
@@ -320,6 +371,9 @@ def model_builder(model, hparams):
           (step + 1) * warmup_steps**-1.5, (step + 1)**-0.5)
     elif hparams.learning_rate_decay_scheme == "exp100k":
       return 0.94**(step // 100000)
+    elif hparams.learning_rate_decay_scheme == "cosine":
+      cycle_steps = hparams.learning_rate_cosine_cycle_steps
+      return 0.5 * (1 + tf.cos(np.pi * (step % cycle_steps) / cycle_steps))
 
     inv_base = tf.exp(tf.log(0.01) / warmup_steps)
     inv_decay = inv_base**(warmup_steps - step)
@@ -356,10 +410,11 @@ def model_builder(model, hparams):
     Returns:
       A tuple consisting of the prediction, loss, and train_op.
     """
-    if mode == tf.contrib.learn.ModeKeys.INFER and FLAGS.decode_interactive:
-      features = _interactive_input_tensor_to_features_dict(features, hparams)
-    if mode == tf.contrib.learn.ModeKeys.INFER and FLAGS.decode_from_file:
-      features = _decode_input_tensor_to_features_dict(features, hparams)
+    if mode == tf.contrib.learn.ModeKeys.INFER:
+      if FLAGS.decode_interactive:
+        features = _interactive_input_tensor_to_features_dict(features, hparams)
+      elif FLAGS.decode_from_file:
+        features = _decode_input_tensor_to_features_dict(features, hparams)
     # A dictionary containing:
     #  - problem_choice: A Tensor containing an integer indicating which problem
     #                    was selected for this run.
@@ -391,8 +446,12 @@ def model_builder(model, hparams):
     def nth_model(n):
       """Build the model for the n-th problem, plus some added variables."""
       model_class = registry.model(model)(
-          hparams, mode, hparams.problems[n],
-          n, dp, _ps_devices(all_workers=True))
+          hparams,
+          mode,
+          hparams.problems[n],
+          n,
+          dp,
+          _ps_devices(all_workers=True))
       if mode == tf.contrib.learn.ModeKeys.INFER:
         return model_class.infer(
             features,
@@ -454,8 +513,8 @@ def model_builder(model, hparams):
     if mode == tf.contrib.learn.ModeKeys.EVAL:
       logits = tf.concat(sharded_logits, 0)
       if FLAGS.eval_print:
-        logits = tf.Print(logits, [features["inputs"], logits],
-                          "EVAL PRINT", summarize=10000)
+        logits = tf.Print(
+            logits, [features["inputs"], logits], "EVAL PRINT", summarize=10000)
       # For evaluation, return the logits layer as our predictions.
       run_info["predictions"] = logits
       train_op = None
@@ -513,14 +572,26 @@ def model_builder(model, hparams):
     # Define the train_op for the TRAIN mode.
     opt = _ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
     tf.logging.info("Computing gradients for global model_fn.")
+    opt_summaries = ["learning_rate", "loss"]
+    if hparams.summarize_grads:
+      opt_summaries.extend(["gradients", "gradient_norm"])
     train_op = tf.contrib.layers.optimize_loss(
         name="training",
         loss=total_loss,
         global_step=tf.contrib.framework.get_global_step(),
         learning_rate=learning_rate,
         clip_gradients=hparams.clip_grad_norm or None,
+        gradient_noise_scale=hparams.grad_noise_scale or None,
         optimizer=opt,
+        summaries=opt_summaries,
         colocate_gradients_with_ops=True)
+
+    # Remove summaries that will fail to run because they are in conditionals.
+    # TODO(cwhipkey): Test with this code removed, later in 2017.
+    summaries = tf.get_collection_ref(tf.GraphKeys.SUMMARIES)
+    for i in range(len(summaries) - 1, -1, -1):
+      if summaries[i].name.startswith("cond_"):
+        del summaries[i]
 
     tf.logging.info("Global model_fn finished.")
     return run_info, total_loss, train_op
@@ -534,18 +605,18 @@ def run_locally(exp):
   Args:
     exp: Experiment.
   """
-  if exp.train_steps > 0:
-    # Train
-    tf.logging.info("Performing local training.")
+  if exp.train_steps > 0 or exp.eval_steps > 0:
+    tf.logging.info("Performing local training and evaluation.")
     exp.train_and_evaluate()
+  decode(exp.estimator)
 
-  # Predict
-  estimator = exp.estimator
+
+def decode(estimator):
   if FLAGS.decode_interactive:
     decode_interactively(estimator)
   elif FLAGS.decode_from_file is not None:
     decode_from_file(estimator, FLAGS.decode_from_file)
-  else:
+  elif FLAGS.decode_from_dataset:
     decode_from_dataset(estimator)
 
 
@@ -555,16 +626,16 @@ def decode_from_dataset(estimator):
     inputs_vocab = hparams.problems[i].vocabulary.get("inputs", None)
     targets_vocab = hparams.problems[i].vocabulary["targets"]
     tf.logging.info("Performing local inference.")
-    infer_problems_data = get_datasets_for_mode(hparams.data_dir,
+    infer_problems_data = get_data_filepatterns(hparams.data_dir,
                                                 tf.contrib.learn.ModeKeys.INFER)
+
     infer_input_fn = get_input_fn(
         mode=tf.contrib.learn.ModeKeys.INFER,
         hparams=hparams,
         data_file_patterns=infer_problems_data,
         num_datashards=data_parallelism().n,
         fixed_problem=i)
-    result_iter = estimator.predict(
-        input_fn=infer_input_fn, as_iterable=FLAGS.decode_endless)
+    result_iter = estimator.predict(input_fn=infer_input_fn, as_iterable=False)
 
     def log_fn(inputs,
                targets,
@@ -579,12 +650,14 @@ def decode_from_dataset(estimator):
                                  "%s_prediction_%d.jpg" % (problem, j))
         show_and_save_image(inputs / 255., save_path)
       elif inputs_vocab:
-        decoded_inputs = inputs_vocab.decode(inputs.flatten())
+        decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
         tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
-      decoded_outputs = targets_vocab.decode(outputs.flatten())
-      decoded_targets = targets_vocab.decode(targets.flatten())
+      decoded_outputs = targets_vocab.decode(_save_until_eos(outputs.flatten()))
       tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
+      decoded_targets = targets_vocab.decode(_save_until_eos(targets.flatten()))
+      tf.logging.info("Inference results TARGET: %s" % decoded_targets)
+
       if FLAGS.decode_to_file:
         output_filepath = FLAGS.decode_to_file + ".outputs." + problem
         output_file = tf.gfile.Open(output_filepath, "a")
@@ -594,32 +667,19 @@ def decode_from_dataset(estimator):
         target_file.write(decoded_targets + "\n")
 
     # The function predict() returns an iterable over the network's
-    # predictions from the test input. if FLAGS.decode_endless is set, it will
-    # decode over the dev set endlessly, looping over it. We use the returned
-    # iterator to log inputs and decodes.
-    if FLAGS.decode_endless:
-      tf.logging.info("Warning: Decoding endlessly")
-      for j, result in enumerate(result_iter):
-        inputs, targets, outputs = (result["inputs"], result["targets"],
-                                    result["outputs"])
-        if FLAGS.decode_return_beams:
-          output_beams = np.split(outputs, FLAGS.decode_beam_size, axis=0)
-          for k, beam in enumerate(output_beams):
-            tf.logging.info("BEAM %d:" % k)
-            log_fn(inputs, targets, beam, problem, j)
-        else:
-          log_fn(inputs, targets, outputs, problem, j)
-    else:
-      for j, (inputs, targets, outputs) in enumerate(
-          zip(result_iter["inputs"], result_iter["targets"], result_iter[
-              "outputs"])):
-        if FLAGS.decode_return_beams:
-          output_beams = np.split(outputs, FLAGS.decode_beam_size, axis=0)
-          for k, beam in enumerate(output_beams):
-            tf.logging.info("BEAM %d:" % k)
-            log_fn(inputs, targets, beam, problem, j)
-        else:
-          log_fn(inputs, targets, outputs, problem, j)
+    # predictions from the test input. We use it to log inputs and decodes.
+    inputs_iter = result_iter["inputs"]
+    targets_iter = result_iter["targets"]
+    outputs_iter = result_iter["outputs"]
+    for j, result in enumerate(zip(inputs_iter, targets_iter, outputs_iter)):
+      inputs, targets, outputs = result
+      if FLAGS.decode_return_beams:
+        output_beams = np.split(outputs, FLAGS.decode_beam_size, axis=0)
+        for k, beam in enumerate(output_beams):
+          tf.logging.info("BEAM %d:" % k)
+          log_fn(inputs, targets, beam, problem, j)
+      else:
+        log_fn(inputs, targets, outputs, problem, j)
 
 
 def decode_from_file(estimator, filename):
@@ -628,21 +688,11 @@ def decode_from_file(estimator, filename):
   problem_id = FLAGS.decode_problem_id
   inputs_vocab = hparams.problems[problem_id].vocabulary["inputs"]
   targets_vocab = hparams.problems[problem_id].vocabulary["targets"]
-  tf.logging.info("Performing Decoding from a file.")
+  tf.logging.info("Performing decoding from a file.")
   sorted_inputs, sorted_keys = _get_sorted_inputs(filename)
   num_decode_batches = (len(sorted_inputs) - 1) // FLAGS.decode_batch_size + 1
   input_fn = _decode_batch_input_fn(problem_id, num_decode_batches,
                                     sorted_inputs, inputs_vocab)
-
-  # strips everything after the first <EOS> id, which is assumed to be 1
-  def _save_until_eos(hyp):  #  pylint: disable=missing-docstring
-    ret = []
-    index = 0
-    # until you reach <EOS> id
-    while index < len(hyp) and hyp[index] != 1:
-      ret.append(hyp[index])
-      index += 1
-    return np.array(ret)
 
   decodes = []
   for _ in range(num_decode_batches):
@@ -667,7 +717,7 @@ def decode_from_file(estimator, filename):
         for k, beam in enumerate(output_beams):
           tf.logging.info("BEAM %d:" % k)
           beam_decodes.append(log_fn(result["inputs"], beam))
-        decodes.append(str.join("\t", beam_decodes))
+        decodes.append("\t".join(beam_decodes))
 
       else:
         decodes.append(log_fn(result["inputs"], result["outputs"]))
@@ -678,18 +728,21 @@ def decode_from_file(estimator, filename):
   decodes.reverse()
   # Dumping inputs and outputs to file filename.decodes in
   # format result\tinput in the same order as original inputs
-  if FLAGS.decode_shards > 1:
-    base_filename = filename + ("%.2d" % FLAGS.worker_id)
+  if FLAGS.decode_to_file:
+    output_filename = FLAGS.decode_to_file
   else:
-    base_filename = filename
+    output_filename = filename
+  if FLAGS.decode_shards > 1:
+    base_filename = output_filename + ("%.2d" % FLAGS.worker_id)
+  else:
+    base_filename = output_filename
   decode_filename = (base_filename + "." + FLAGS.model + "." + FLAGS.hparams_set
                      + ".beam" + str(FLAGS.decode_beam_size) + ".alpha" +
                      str(FLAGS.decode_alpha) + ".decodes")
   tf.logging.info("Writing decodes into %s" % decode_filename)
   outfile = tf.gfile.Open(decode_filename, "w")
   for index in range(len(sorted_inputs)):
-    outfile.write("%s\t%s\n" % (decodes[sorted_keys[index]],
-                                sorted_inputs[sorted_keys[index]]))
+    outfile.write("%s\n" % (decodes[sorted_keys[index]]))
 
 
 def decode_interactively(estimator):
@@ -707,13 +760,14 @@ def decode_interactively(estimator):
           scores = np.split(result["scores"], FLAGS.decode_beam_size, axis=0)
         for k, beam in enumerate(beams):
           tf.logging.info("BEAM %d:" % k)
+          beam_string = targets_vocab.decode(_save_until_eos(beam.flatten()))
           if scores is not None:
-            tf.logging.info("%s\tScore:%f" %
-                            (targets_vocab.decode(beam.flatten()), scores[k]))
+            tf.logging.info("%s\tScore:%f" % (beam_string, scores[k]))
           else:
-            tf.logging.info(targets_vocab.decode(beam.flatten()))
+            tf.logging.info(beam_string)
       else:
-        tf.logging.info(targets_vocab.decode(result["outputs"].flatten()))
+        tf.logging.info(
+            targets_vocab.decode(_save_until_eos(result["outputs"].flatten())))
 
 
 def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
@@ -723,13 +777,16 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
   # you'll see it in the first batch
   sorted_inputs.reverse()
   for b in range(num_decode_batches):
-    tf.logging.info("Deocding batch %d" % b)
+    tf.logging.info("Decoding batch %d" % b)
     batch_length = 0
     batch_inputs = []
     for inputs in sorted_inputs[b * FLAGS.decode_batch_size:(
         b + 1) * FLAGS.decode_batch_size]:
       input_ids = vocabulary.encode(inputs)
-      input_ids.append(1)  # Assuming EOS=1.
+      if FLAGS.decode_max_input_size > 0:
+        # Subtract 1 for the EOS_ID.
+        input_ids = input_ids[:FLAGS.decode_max_input_size - 1]
+      input_ids.append(text_encoder.EOS_ID)
       batch_inputs.append(input_ids)
       if len(input_ids) > batch_length:
         batch_length = len(input_ids)
@@ -744,8 +801,8 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
     }
 
 
-def get_datasets_for_mode(data_dir, mode):
-  return data_reader.get_datasets(FLAGS.problems, data_dir, mode)
+def get_data_filepatterns(data_dir, mode):
+  return data_reader.get_data_filepatterns(FLAGS.problems, data_dir, mode)
 
 
 def _cond_on_index(fn, index_tensor, cur_idx, max_idx):
@@ -822,7 +879,7 @@ def _interactive_input_fn(hparams):
       if input_type == "text":
         input_ids = vocabulary.encode(input_string)
         if has_input:
-          input_ids.append(1)  # assume 1 means end-of-source
+          input_ids.append(text_encoder.EOS_ID)
         x = [num_samples, decode_length, len(input_ids)] + input_ids
         assert len(x) < const_array_size
         x += [0] * (const_array_size - len(x))
@@ -1018,36 +1075,40 @@ def get_input_fn(mode,
       ValueError: if one of the parameters has an unsupported value.
     """
     problem_count, batches = len(data_file_patterns), []
-    with tf.name_scope("input_queues"):
+    with tf.name_scope("input_reader"):
       for n in xrange(problem_count):
         if fixed_problem is not None and n != fixed_problem:
           continue
+        problem_instance = hparams.problem_instances[n]
+        p_hparams = hparams.problems[n]
         with tf.name_scope("problem_%d" % n):
-          with tf.device("/cpu:0"):  # Input queues are on CPU.
-            capacity = hparams.problems[n].max_expected_batch_size_per_shard
+          with tf.device("/cpu:0"):  # Input reading on CPU
+            capacity = p_hparams.max_expected_batch_size_per_shard
             capacity *= num_datashards
-            examples = data_reader.input_pipeline(data_file_patterns[n],
-                                                  capacity, mode)
-            drop_long_sequences = mode == tf.contrib.learn.ModeKeys.TRAIN
-            batch_size_multiplier = hparams.problems[n].batch_size_multiplier
+            examples = data_reader.input_pipeline(
+                problem_instance, data_file_patterns[n], capacity, mode)
             feature_map = data_reader.batch_examples(
                 examples,
                 data_reader.hparams_to_batching_scheme(
                     hparams,
                     shard_multiplier=num_datashards,
-                    drop_long_sequences=drop_long_sequences,
-                    length_multiplier=batch_size_multiplier))
+                    drop_long_sequences=(mode == tf.contrib.learn.ModeKeys.TRAIN
+                                         or hparams.eval_drop_long_sequences),
+                    length_multiplier=(p_hparams.batch_size_multiplier)))
 
         # Reverse inputs and targets features if the problem was reversed.
-        if hparams.problems[n].was_reversed:
-          inputs = feature_map["inputs"]
-          targets = feature_map["targets"]
-          feature_map["inputs"] = targets
-          feature_map["targets"] = inputs
-
-        # Use the inputs as the targets if the problem is a copy problem.
-        if hparams.problems[n].was_copy:
-          feature_map["targets"] = feature_map["inputs"]
+        if problem_instance is not None:
+          problem_instance.maybe_reverse_features(feature_map)
+          problem_instance.maybe_copy_features(feature_map)
+        else:
+          if p_hparams.was_reversed:
+            inputs = feature_map["inputs"]
+            targets = feature_map["targets"]
+            feature_map["inputs"] = targets
+            feature_map["targets"] = inputs
+          # Use the inputs as the targets if the problem is a copy problem.
+          if p_hparams.was_copy:
+            feature_map["targets"] = feature_map["inputs"]
 
         # Ensure inputs and targets are proper rank.
         while len(feature_map["inputs"].get_shape()) != 4:
@@ -1058,8 +1119,8 @@ def get_input_fn(mode,
 
         batches.append(
             (feature_map["inputs"], feature_map["targets"], tf.constant(n),
-             tf.constant(hparams.problems[n].input_space_id),
-             tf.constant(hparams.problems[n].target_space_id)))
+             tf.constant(p_hparams.input_space_id),
+             tf.constant(p_hparams.target_space_id)))
 
     # We choose which problem to process.
     loss_moving_avgs = []  # Need loss moving averages for that.
@@ -1088,9 +1149,9 @@ def get_input_fn(mode,
         assert FLAGS.worker_replicas % problem_count == 0
         problem_choice = tf.to_int32(FLAGS.worker_id % problem_count)
       else:
-        raise ValueError("Value of hparams.problem_choice is %s and must be "
-                         "one of [uniform, adaptive, distributed]",
-                         hparams.problem_choice)
+        raise ValueError(
+            "Value of hparams.problem_choice is %s and must be "
+            "one of [uniform, adaptive, distributed]" % hparams.problem_choice)
 
       # Inputs and targets conditional on problem_choice.
       rand_inputs, rand_target, choice, inp_id, tgt_id = _cond_on_index(
@@ -1141,6 +1202,10 @@ class _ConditionalOptimizer(tf.train.Optimizer):
     elif optimizer_name == "Momentum":
       self._opt = tf.train.MomentumOptimizer(
           lr, momentum=hparams.optimizer_momentum_momentum)
+    elif optimizer_name == "YellowFin":
+      tf.logging.info("Init YellowFin Optimizer.")
+      self._opt = yellowfin.YellowFinOptimizer(
+          learning_rate=lr, momentum=hparams.optimizer_momentum_momentum)
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 

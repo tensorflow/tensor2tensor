@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,14 +32,14 @@ class AlgorithmicTest(tf.test.TestCase):
     counter = 0
     for d in algorithmic.identity_generator(3, 8, 10):
       counter += 1
-      self.assertEqual(d["inputs"] + [1], d["targets"])
+      self.assertEqual(d["inputs"], d["targets"])
     self.assertEqual(counter, 10)
 
   def testReverseGenerator(self):
     counter = 0
     for d in algorithmic.reverse_generator(3, 8, 10):
       counter += 1
-      self.assertEqual(list(reversed(d["inputs"])) + [1], d["targets"])
+      self.assertEqual(list(reversed(d["inputs"])), d["targets"])
     self.assertEqual(counter, 10)
 
   def testZipfDistribution(self):
@@ -53,7 +54,7 @@ class AlgorithmicTest(tf.test.TestCase):
     counter = 0
     for d in algorithmic.reverse_generator_nlplike(3, 8, 10):
       counter += 1
-      self.assertEqual(list(reversed(d["inputs"])) + [1], d["targets"])
+      self.assertEqual(list(reversed(d["inputs"])), d["targets"])
     self.assertEqual(counter, 10)
 
   def testLowerEndianToNumber(self):
@@ -78,20 +79,20 @@ class AlgorithmicTest(tf.test.TestCase):
     counter = 0
     for d in algorithmic.addition_generator(4, 8, 10):
       counter += 1
-      self.assertEqual(d["inputs"].count(6), 1)
-      self.assertEqual(d["inputs"].count(0), 0)
-      self.assertEqual(d["targets"].count(6), 0)
-      self.assertEqual(d["targets"].count(0), 0)
+      self.assertEqual(d["inputs"].count(4), 1)
+      self.assertEqual(d["inputs"].count(5), 0)
+      self.assertEqual(d["targets"].count(4), 0)
+      self.assertEqual(d["targets"].count(5), 0)
     self.assertEqual(counter, 10)
 
   def testMultiplicationGenerator(self):
     counter = 0
     for d in algorithmic.multiplication_generator(4, 8, 10):
       counter += 1
-      self.assertEqual(d["inputs"].count(6), 1)
-      self.assertEqual(d["inputs"].count(0), 0)
-      self.assertEqual(d["targets"].count(6), 0)
-      self.assertEqual(d["targets"].count(0), 0)
+      self.assertEqual(d["inputs"].count(4), 1)
+      self.assertEqual(d["inputs"].count(5), 0)
+      self.assertEqual(d["targets"].count(4), 0)
+      self.assertEqual(d["targets"].count(5), 0)
     self.assertEqual(counter, 10)
 
 

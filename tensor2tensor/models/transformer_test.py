@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +25,6 @@ import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import transformer
-from tensor2tensor.models import transformer_alternative
 
 import tensorflow as tf
 
@@ -39,6 +39,7 @@ class TransformerTest(tf.test.TestCase):
     hparams = transformer.transformer_tiny()
     p_hparams = problem_hparams.test_problem_hparams(hparams, vocab_size,
                                                      vocab_size)
+    hparams.problems = [p_hparams]
     inputs = -1 + np.random.random_integers(
         vocab_size, size=(batch_size, input_length, 1, 1))
     targets = -1 + np.random.random_integers(

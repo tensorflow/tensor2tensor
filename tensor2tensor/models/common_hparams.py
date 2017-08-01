@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,6 +50,8 @@ def basic_params1():
       # when not in training mode.
       dropout=0.2,
       clip_grad_norm=2.0,
+      grad_noise_scale=0.0,
+      summarize_grads=int(False),
       initializer="orthogonal",
       initializer_gain=1.5,
       label_smoothing=0.1,
@@ -61,14 +64,20 @@ def basic_params1():
       weight_noise=0.0,
       learning_rate_decay_scheme="none",
       learning_rate_warmup_steps=100,
+      learning_rate_cosine_cycle_steps=250000,
       learning_rate=0.1,
       sampling_method="argmax",  # "argmax" or "random"
       problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
       multiply_embedding_mode="sqrt_depth",
+      norm_type="none",  # "batch", layer", "noam", "none".
+      layer_norm_epsilon=1e-6,
       symbol_modality_num_shards=16,
       # setting the max length in a minibatch. 0 means default behavior,
       # max_length = hparams.batch_size * length_multiplier
       max_length=0,
+      # If set to True, drop sequences longer than max_length during eval.
+      # This affects the validity of the evaluation metrics.
+      eval_drop_long_sequences=int(False),
       # in SymbolModality, share the output embeddings and the softmax
       # variables.
       # You can also share the input embeddings with the output embeddings
@@ -200,4 +209,9 @@ def basic_range1(ranged_hparams):
   rhp.set_float("optimizer_adam_beta1", 0.8, 0.9)
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)
   rhp.set_categorical("optimizer",
-                      ["Adam", "Adagrad", "Momentum", "RMSProp", "SGD"])
+                      ["Adam",
+                       "Adagrad",
+                       "Momentum",
+                       "RMSProp",
+                       "SGD",
+                       "YellowFin"])

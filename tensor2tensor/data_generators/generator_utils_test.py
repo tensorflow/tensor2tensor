@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,11 +42,12 @@ class GeneratorUtilsTest(tf.test.TestCase):
     def test_generator():
       yield {"inputs": [1], "target": [1]}
 
-    generator_utils.generate_files(test_generator(), tmp_file_name, tmp_dir)
-    self.assertTrue(tf.gfile.Exists(tmp_file_path + "-00000-of-00001"))
+    filenames = generator_utils.train_data_filenames(tmp_file_name, tmp_dir, 1)
+    generator_utils.generate_files(test_generator(), filenames)
+    self.assertTrue(tf.gfile.Exists(tmp_file_path + "-train-00000-of-00001"))
 
     # Clean up.
-    os.remove(tmp_file_path + "-00000-of-00001")
+    os.remove(tmp_file_path + "-train-00000-of-00001")
     os.remove(tmp_file_path)
 
   def testMaybeDownload(self):
@@ -83,6 +85,27 @@ class GeneratorUtilsTest(tf.test.TestCase):
     os.remove(tmp_file_path + ".txt")
     os.remove(tmp_file_path)
 
+  def testGetOrGenerateTxtVocab(self):
+    data_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    test_file = os.path.join(self.get_temp_dir(), "test.txt")
+    with tf.gfile.Open(test_file, "w") as outfile:
+      outfile.write("a b c\n")
+      outfile.write("d e f\n")
+    # Create a vocab over the test file.
+    vocab1 = generator_utils.get_or_generate_txt_vocab(
+        data_dir, "test.voc", 20, test_file)
+    self.assertTrue(tf.gfile.Exists(os.path.join(data_dir, "test.voc")))
+    self.assertIsNotNone(vocab1)
+
+    # Append a new line to the test file which would change the vocab if
+    # the vocab were not being read from file.
+    with tf.gfile.Open(test_file, "a") as outfile:
+      outfile.write("g h i\n")
+    vocab2 = generator_utils.get_or_generate_txt_vocab(
+        data_dir, "test.voc", 20, test_file)
+    self.assertTrue(tf.gfile.Exists(os.path.join(data_dir, "test.voc")))
+    self.assertIsNotNone(vocab2)
+    self.assertEqual(vocab1.dump(), vocab2.dump())
 
 if __name__ == "__main__":
   tf.test.main()

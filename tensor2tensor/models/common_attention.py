@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -280,13 +281,13 @@ def attention_image_summary(attn, image_shapes=None):
         (query_rows, query_cols, query_channels,
          memory_rows, memory_cols, memory_channels).
   """
-  num_heads = attn.get_shape().as_list()[1]
+  num_heads = tf.shape(attn)[1]
   # [batch, query_length, memory_length, num_heads]
   image = tf.transpose(attn, [0, 2, 3, 1])
   image = tf.pow(image, 0.2)  # for high-dynamic-range
   # Each head will correspond to one of RGB.
   # pad the heads to be a multiple of 3
-  image = tf.pad(image, [[0, 0], [0, 0], [0, 0], [0, -num_heads % 3]])
+  image = tf.pad(image, [[0, 0], [0, 0], [0, 0], [0, tf.mod(-num_heads, 3)]])
   image = split_last_dimension(image, 3)
   image = tf.reduce_max(image, 4)
   if image_shapes is not None:
@@ -312,7 +313,6 @@ def dot_product_attention(q,
                           v,
                           bias,
                           dropout_rate=0.0,
-                          summaries=False,
                           image_shapes=None,
                           name=None):
   """dot-product attention.
@@ -323,7 +323,6 @@ def dot_product_attention(q,
     v: a Tensor with shape [batch, heads, length_kv, depth_v]
     bias: bias Tensor (see attention_bias())
     dropout_rate: a floating point number
-    summaries: a boolean
     image_shapes: optional tuple of integer scalars.
       see comments for attention_image_summary()
     name: an optional string
@@ -340,10 +339,9 @@ def dot_product_attention(q,
     weights = tf.nn.softmax(logits, name="attention_weights")
     # dropping out the attention links for each of the heads
     weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
-    if summaries and not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse:
       attention_image_summary(weights, image_shapes)
     return tf.matmul(weights, v)
-
 
 
 def local_attention_1d(q, k, v, bias=None,
@@ -390,7 +388,7 @@ def local_attention_1d(q, k, v, bias=None,
     original_length = length
 
     #Pad to desired length
-    #If (length < 2 * block_length), then we use only one block.
+    #If (length < block_length), then we use only one block.
     block_length = tf.where(tf.less(length, block_length),
                             length, block_length)
     padding_size = tf.mod(-length, block_length)
@@ -493,7 +491,6 @@ def local_attention_1d(q, k, v, bias=None,
     return output
 
 
-
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,
@@ -502,7 +499,6 @@ def multihead_attention(query_antecedent,
                         output_depth,
                         num_heads,
                         dropout_rate,
-                        summaries=False,
                         image_shapes=None,
                         attention_type="dot_product",
                         block_length=128,
@@ -527,7 +523,18 @@ def multihead_attention(query_antecedent,
 
   Returns:
     A Tensor.
+
+  Raises:
+    ValueError: if the key depth or value depth are not divisible by the
+      number of attention heads.
   """
+  if total_key_depth % num_heads != 0:
+    raise ValueError("Key depth (%d) must be divisible by the number of "
+                     "attention heads (%d)." % (total_key_depth, num_heads))
+  if total_value_depth % num_heads != 0:
+    raise ValueError("Value depth (%d) must be divisible by the number of "
+                     "attention heads (%d)." % (total_value_depth, num_heads))
+
   with tf.variable_scope(
       name,
       default_name="multihead_attention",
@@ -705,4 +712,5 @@ def parameter_attention(x,
     y = tf.reshape(y, [batch_size, length, total_value_depth])
     y.set_shape([None, None, total_value_depth])
     y = common_layers.conv1d(y, output_depth, 1, name="output_transform")
+
     return y

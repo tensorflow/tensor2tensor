@@ -1,4 +1,5 @@
-# Copyright 2017 Google Inc.
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +34,9 @@ from six.moves import cPickle
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -227,7 +231,8 @@ def _get_mscoco(directory):
       zipfile.ZipFile(path, "r").extractall(directory)
 
 
-def mscoco_generator(tmp_dir,
+def mscoco_generator(data_dir,
+                     tmp_dir,
                      training,
                      how_many,
                      start_from=0,
@@ -237,6 +242,7 @@ def mscoco_generator(tmp_dir,
   """Image generator for MSCOCO captioning problem with token-wise captions.
 
   Args:
+    data_dir: path to the data directory.
     tmp_dir: path to temporary storage directory.
     training: a Boolean; if true, we use the train set, otherwise the test set.
     how_many: how many images and labels to generate.
@@ -258,7 +264,7 @@ def mscoco_generator(tmp_dir,
   eos_list = [1] if eos_list is None else eos_list
   if vocab_filename is not None:
     vocab_symbolizer = generator_utils.get_or_generate_vocab(
-        tmp_dir, vocab_filename, vocab_size)
+        data_dir, tmp_dir, vocab_filename, vocab_size)
   _get_mscoco(tmp_dir)
   caption_filepath = (_MSCOCO_TRAIN_CAPTION_FILE
                       if training else _MSCOCO_EVAL_CAPTION_FILE)
@@ -300,3 +306,113 @@ def mscoco_generator(tmp_dir,
             "image/height": [height],
             "image/width": [width]
         }
+
+
+class ImageProblem(problem.Problem):
+
+  def example_reading_spec(self, label_key=None):
+    if label_key is None:
+      label_key = "image/class/label"
+
+    data_fields = {
+        "image/encoded": tf.FixedLenFeature((), tf.string),
+        "image/format": tf.FixedLenFeature((), tf.string),
+        label_key: tf.VarLenFeature(tf.int64)
+    }
+    data_items_to_decoders = {
+        "inputs":
+            tf.contrib.slim.tfexample_decoder.Image(
+                image_key="image/encoded",
+                format_key="image/format",
+                channels=3),
+        "targets":
+            tf.contrib.slim.tfexample_decoder.Tensor(label_key),
+    }
+
+    return data_fields, data_items_to_decoders
+
+# French street names dataset.
+
+
+@registry.register_problem
+class ImageFSNS(ImageProblem):
+  """Problem spec for French Street Name recognition."""
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    list_url = ("https://raw.githubusercontent.com/tensorflow/models/master/"
+                "street/python/fsns_urls.txt")
+    fsns_urls = generator_utils.maybe_download(
+        tmp_dir, "fsns_urls.txt", list_url)
+    fsns_files = [f.strip() for f in open(fsns_urls, "r")
+                  if f.startswith("http://")]
+    for url in fsns_files:
+      if "/train/train" in url:
+        generator_utils.maybe_download(
+            data_dir, "image_fsns-train" + url[-len("-00100-of-00512"):], url)
+      elif "/validation/validation" in url:
+        generator_utils.maybe_download(
+            data_dir, "image_fsns-dev" + url[-len("-00100-of-00512"):], url)
+      elif "charset" in url:
+        generator_utils.maybe_download(
+            data_dir, "charset_size134.txt", url)
+
+  def hparams(self, defaults, model_hparams):
+    p = defaults
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    # This vocab file must be present within the data directory.
+    vocab_filename = os.path.join(model_hparams.data_dir, "charset_size134.txt")
+    subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
+    p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
+    p.vocabulary = {
+        "inputs": text_encoder.TextEncoder(),
+        "targets": subtokenizer,
+    }
+    p.batch_size_multiplier = 256
+    p.max_expected_batch_size_per_shard = 2
+    vocab_size = 144
+    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
+    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
+    p.input_space_id = problem.SpaceID.DIGIT_0
+    p.target_space_id = problem.SpaceID.DIGIT_1
+
+  def example_reading_spec(self):
+    label_key = "image/unpadded_label"
+    return super(ImageFSNS, self).example_reading_spec(self,
+                                                       label_key=label_key)
+
+# Filename for CELEBA data.
+_CELEBA_NAME = "img_align_celeba"
+
+
+def _get_celeba(directory):
+  """Download and extract CELEBA to directory unless it is there."""
+  path = os.path.join(directory, _CELEBA_NAME)
+  if not tf.gfile.Exists(path):
+    # We expect that this file has been downloaded from:
+    # https://drive.google.com/uc?export=download&id=0B7EVK8r0v71pZjFTYXZWM3FlRnM
+    # and placed in `directory`.
+    zipfile.ZipFile(path+".zip", "r").extractall(directory)
+
+
+def celeba_generator(tmp_dir, how_many, start_from=0):
+  """Image generator for CELEBA dataset.
+
+  Args:
+    tmp_dir: path to temporary storage directory.
+    how_many: how many images and labels to generate.
+    start_from: from which image to start.
+
+  Yields:
+    A dictionary representing the images with the following fields:
+    * image/encoded: the string encoding the image as JPEG,
+    * image/format: the string "jpeg" representing image format,
+  """
+  _get_celeba(tmp_dir)
+  image_files = tf.gfile.Glob(tmp_dir + "/*.jpg")
+  for filename in image_files[start_from:start_from+how_many]:
+    with tf.gfile.Open(filename, "r") as f:
+      encoded_image_data = f.read()
+      yield {
+          "image/encoded": [encoded_image_data],
+          "image/format": ["jpeg"],
+      }
