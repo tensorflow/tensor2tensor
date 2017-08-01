@@ -205,6 +205,20 @@ def attention_bias_ignore_padding(memory_padding):
   return tf.expand_dims(tf.expand_dims(ret, 1), 1)
 
 
+def attention_bias_proximal(length):
+  """Bias for self-attention to encourage attention to close positions.
+
+  Args:
+    length: an integer scalar.
+
+  Returns:
+    a Tensor with shape [1, 1, length, length]
+  """
+  r = tf.to_float(tf.range(length))
+  diff = tf.expand_dims(r, 0) - tf.expand_dims(r, 1)
+  return tf.expand_dims(tf.expand_dims(-tf.log(1 + tf.abs(diff)), 0), 0)
+
+
 def split_last_dimension(x, n):
   """Reshape x so that the last dimension becomes two dimensions.
 

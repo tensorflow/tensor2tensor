@@ -49,8 +49,10 @@ class Transformer(t2t_model.T2TModel):
     inputs = common_layers.flatten4d3d(inputs)
     targets = common_layers.flatten4d3d(targets)
 
-    (encoder_input, encoder_attention_bias, _) = (transformer_prepare_encoder(
-        inputs, target_space, hparams))
+    (encoder_input,
+     encoder_self_attention_bias,
+     encoder_decoder_attention_bias) = (
+         transformer_prepare_encoder(inputs, target_space, hparams))
     (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
         targets, hparams)
 
@@ -61,11 +63,11 @@ class Transformer(t2t_model.T2TModel):
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
     decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
     encoder_output = transformer_encoder(encoder_input, residual_fn,
-                                         encoder_attention_bias, hparams)
+                                         encoder_self_attention_bias, hparams)
 
     decoder_output = transformer_decoder(
         decoder_input, encoder_output, residual_fn, decoder_self_attention_bias,
-        encoder_attention_bias, hparams)
+        encoder_decoder_attention_bias, hparams)
     decoder_output = tf.expand_dims(decoder_output, 2)
 
     return decoder_output
@@ -81,17 +83,20 @@ def transformer_prepare_encoder(inputs, target_space, hparams):
 
   Returns:
     encoder_input: a Tensor, bottom of encoder stack
-    encoder_self_attention_bias: a Tensor, containing large negative values
-      to implement masked attention and possibly baises for diagonal
-      alignments
-    encoder_padding: a Tensor
+    encoder_self_attention_bias: a bias tensor for use in encoder self-attention
+    encoder_decoder_attention_bias: a bias tensor for use in encoder-decoder
+      attention
   """
-  # Flatten inputs.
   ishape_static = inputs.shape.as_list()
   encoder_input = inputs
   encoder_padding = common_attention.embedding_to_padding(encoder_input)
-  encoder_self_attention_bias = common_attention.attention_bias_ignore_padding(
+  ignore_padding = common_attention.attention_bias_ignore_padding(
       encoder_padding)
+  encoder_self_attention_bias = ignore_padding
+  encoder_decoder_attention_bias = ignore_padding
+  if hparams.proximity_bias:
+    encoder_self_attention_bias += common_attention.attention_bias_proximal(
+        tf.shape(inputs)[1])
   # Append target_space_id embedding to inputs.
   emb_target_space = common_layers.embedding(
       target_space, 32, ishape_static[-1], name="target_space_embedding")
@@ -99,7 +104,9 @@ def transformer_prepare_encoder(inputs, target_space, hparams):
   encoder_input += emb_target_space
   if hparams.pos == "timing":
     encoder_input = common_attention.add_timing_signal_1d(encoder_input)
-  return (encoder_input, encoder_self_attention_bias, encoder_padding)
+  return (encoder_input,
+          encoder_self_attention_bias,
+          encoder_decoder_attention_bias)
 
 
 def transformer_prepare_decoder(targets, hparams):
@@ -111,11 +118,13 @@ def transformer_prepare_decoder(targets, hparams):
 
   Returns:
     decoder_input: a Tensor, bottom of decoder stack
-    decoder_self_attention_bias: a Tensor, containing large negative values
-    to implement masked attention and possibly baises for diagonal alignments
+    decoder_self_attention_bias: a bias tensor for use in encoder self-attention
   """
   decoder_self_attention_bias = (
       common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
+  if hparams.proximity_bias:
+    decoder_self_attention_bias += common_attention.attention_bias_proximal(
+        tf.shape(targets)[1])
   decoder_input = common_layers.shift_left_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
@@ -292,6 +301,7 @@ def transformer_base():
   hparams.add_hparam("residual_dropout", 0.1)
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
+  hparams.add_hparam("proximity_bias", int(False))
   return hparams
 
 
