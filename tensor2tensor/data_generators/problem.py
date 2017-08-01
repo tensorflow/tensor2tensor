@@ -400,17 +400,12 @@ class Text2TextProblem(Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    if self.is_character_level:
-      source_vocab_size = 256
-      target_vocab_size = 256
-    else:
-      target_vocab_size = self._encoders["targets"].vocab_size
-      if self.has_inputs:
-        source_vocab_size = self._encoders["inputs"].vocab_size
 
     if self.has_inputs:
+      source_vocab_size = self._encoders["inputs"].vocab_size
       p.input_modality = {"inputs": (registry.Modalities.SYMBOL,
                                      source_vocab_size)}
+    target_vocab_size = self._encoders["targets"].vocab_size
     p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
     if self.has_inputs:
       p.input_space_id = self.input_space_id
