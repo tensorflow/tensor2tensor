@@ -23,8 +23,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
-
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -43,8 +41,7 @@ class Transformer(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
   def model_fn_body(self, features):
-    # Remove dropout if not training
-    hparams = copy.copy(self._hparams)
+    hparams = self._hparams
     targets = features["targets"]
     inputs = features["inputs"]
     target_space = features["target_space_id"]
@@ -52,23 +49,28 @@ class Transformer(t2t_model.T2TModel):
     inputs = common_layers.flatten4d3d(inputs)
     targets = common_layers.flatten4d3d(targets)
 
-    (encoder_input, encoder_attention_bias, _) = (transformer_prepare_encoder(
-        inputs, target_space, hparams))
+    (encoder_input,
+     encoder_self_attention_bias,
+     encoder_decoder_attention_bias) = (
+         transformer_prepare_encoder(inputs, target_space, hparams))
     (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
         targets, hparams)
 
     def residual_fn(x, y):
-      return common_layers.layer_norm(x + tf.nn.dropout(
-          y, 1.0 - hparams.residual_dropout))
+      return common_layers.residual_fn(x, y,
+                                       hparams.norm_type,
+                                       hparams.residual_dropout,
+                                       hparams.hidden_size,
+                                       epsilon=hparams.layer_norm_epsilon)
 
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
     decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
     encoder_output = transformer_encoder(encoder_input, residual_fn,
-                                         encoder_attention_bias, hparams)
+                                         encoder_self_attention_bias, hparams)
 
     decoder_output = transformer_decoder(
         decoder_input, encoder_output, residual_fn, decoder_self_attention_bias,
-        encoder_attention_bias, hparams)
+        encoder_decoder_attention_bias, hparams)
     decoder_output = tf.expand_dims(decoder_output, 2)
 
     return decoder_output
@@ -84,17 +86,20 @@ def transformer_prepare_encoder(inputs, target_space, hparams):
 
   Returns:
     encoder_input: a Tensor, bottom of encoder stack
-    encoder_self_attention_bias: a Tensor, containing large negative values
-      to implement masked attention and possibly baises for diagonal
-      alignments
-    encoder_padding: a Tensor
+    encoder_self_attention_bias: a bias tensor for use in encoder self-attention
+    encoder_decoder_attention_bias: a bias tensor for use in encoder-decoder
+      attention
   """
-  # Flatten inputs.
   ishape_static = inputs.shape.as_list()
   encoder_input = inputs
   encoder_padding = common_attention.embedding_to_padding(encoder_input)
-  encoder_self_attention_bias = common_attention.attention_bias_ignore_padding(
+  ignore_padding = common_attention.attention_bias_ignore_padding(
       encoder_padding)
+  encoder_self_attention_bias = ignore_padding
+  encoder_decoder_attention_bias = ignore_padding
+  if hparams.proximity_bias:
+    encoder_self_attention_bias += common_attention.attention_bias_proximal(
+        tf.shape(inputs)[1])
   # Append target_space_id embedding to inputs.
   emb_target_space = common_layers.embedding(
       target_space, 32, ishape_static[-1], name="target_space_embedding")
@@ -102,7 +107,9 @@ def transformer_prepare_encoder(inputs, target_space, hparams):
   encoder_input += emb_target_space
   if hparams.pos == "timing":
     encoder_input = common_attention.add_timing_signal_1d(encoder_input)
-  return (encoder_input, encoder_self_attention_bias, encoder_padding)
+  return (encoder_input,
+          encoder_self_attention_bias,
+          encoder_decoder_attention_bias)
 
 
 def transformer_prepare_decoder(targets, hparams):
@@ -114,11 +121,13 @@ def transformer_prepare_decoder(targets, hparams):
 
   Returns:
     decoder_input: a Tensor, bottom of decoder stack
-    decoder_self_attention_bias: a Tensor, containing large negative values
-    to implement masked attention and possibly baises for diagonal alignments
+    decoder_self_attention_bias: a bias tensor for use in encoder self-attention
   """
   decoder_self_attention_bias = (
       common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
+  if hparams.proximity_bias:
+    decoder_self_attention_bias += common_attention.attention_bias_proximal(
+        tf.shape(targets)[1])
   decoder_input = common_layers.shift_left_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
@@ -261,6 +270,7 @@ def transformer_ffn_layer(x, hparams):
 def transformer_base():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
+  hparams.norm_type = "layer"
   hparams.hidden_size = 512
   hparams.batch_size = 4096
   hparams.max_length = 256
@@ -295,6 +305,7 @@ def transformer_base():
   hparams.add_hparam("residual_dropout", 0.1)
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
+  hparams.add_hparam("proximity_bias", int(False))
   return hparams
 
 
@@ -541,13 +552,16 @@ def transformer_parameter_attention_b():
   return hparams
 
 
-@registry.register_ranged_hparams("transformer_big_single_gpu")
-def transformer_range1(rhp):
+@registry.register_ranged_hparams("transformer_base")
+def transformer_base_range(rhp):
   """Small range of hyperparameters."""
-  hparams = transformer_big_single_gpu()
+  hparams = transformer_base()
   common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
-
+  # After starting from base, set intervals for some parameters.
   rhp.set_float("learning_rate", 0.3, 3.0, scale=rhp.LOG_SCALE)
+  rhp.set_discrete("learning_rate_warmup_steps",
+                   [1000, 2000, 4000, 8000, 16000])
   rhp.set_float("initializer_gain", 0.5, 2.0)
+  rhp.set_float("optimizer_adam_beta2", 0.85, 0.95)
   rhp.set_float("optimizer_adam_beta2", 0.97, 0.99)
   rhp.set_float("weight_decay", 0.0, 2.0)

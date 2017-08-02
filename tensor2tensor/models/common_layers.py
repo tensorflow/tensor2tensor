@@ -475,7 +475,7 @@ def residual_fn(x,
                 residual_dropout,
                 filters=None,
                 epsilon=1e-16,
-                name="residual"):
+                name=None, reuse=None):
   """Returns a function for combining layer input and layer output.
 
   The returned function on x (layer input) and y (layer output) computes:
@@ -489,16 +489,19 @@ def residual_fn(x,
     filters: integer, dimension for layer norm, optional
     epsilon: integer, value of layer norm epsilon
     name: string, name
+    reuse: bool, whether to reuse
 
   Returns:
     residual layer output with applied norm_fn.
   """
-  norm_fn = get_norm(norm_type)
-  res = x + tf.nn.dropout(y, 1.0 - residual_dropout)
-  if norm_type == "layer":
-    return norm_fn(res, name=name, filters=filters, epsilon=epsilon)
-  else:
-    return norm_fn(res, name=name)
+  with tf.variable_scope(name, default_name="residual",
+                         values=[x, y], reuse=reuse):
+    norm_fn = get_norm(norm_type)
+    res = x + tf.nn.dropout(y, 1.0 - residual_dropout)
+    if norm_type == "layer":
+      return norm_fn(res, filters=filters, epsilon=epsilon, name=norm_type)
+    else:
+      return norm_fn(res, name=norm_type)
 
 
 def conv_block_internal(conv_fn,
@@ -1420,22 +1423,22 @@ def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
     return xentropy - normalizing
 
 
+def global_pool_1d(inputs, pooling_type="MAX", mask=None):
+  """Pool elements across the last dimension.
 
-def global_pool_1d(inputs, pooling_type='MAX', mask=None):
-  """
-  Pools elements across the last dimension. Useful to a list of vectors into a
-  single vector to get a representation of a set.
-  Concatenating 
-  
-  Args
-      inputs: A tensor of dimensions batch_size x sequence_length x input_dims
-        containing the sequences of input vectors.
-      pooling_type: the pooling type to use, MAX or AVR
-      mask: A tensor of dimensions batch_size x sequence_length containing a
-        mask for the inputs with 1's for existing elements, and 0's elsewhere.
-  Returns
-      output: A tensor of dimensions batch_size x input_dims
-        dimension containing the sequences of transformed vectors.
+  Useful to convert a list of vectors into a single vector so as
+  to get a representation of a set.
+
+  Args:
+    inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+      containing the sequences of input vectors.
+    pooling_type: the pooling type to use, MAX or AVR
+    mask: A tensor of dimensions batch_size x sequence_length containing a
+      mask for the inputs with 1's for existing elements, and 0's elsewhere.
+
+  Returns:
+    output: A tensor of dimensions batch_size x input_dims
+      dimension containing the sequences of transformed vectors.
   """
   with tf.name_scope("global_pool", [inputs]):
     if mask is not None:
@@ -1457,37 +1460,33 @@ def global_pool_1d(inputs, pooling_type='MAX', mask=None):
   return output
 
 
+def running_global_pool_1d(inputs, pooling_type="MAX"):
+  """Same global pool, but only for the elements up to the current element.
 
-def running_global_pool_1d(inputs, pooling_type='MAX'):
-  """
-  Same global pool, but only for the elements up to the current element. Useful
-  for outputs where the state of future elements is not known.
+  Useful for outputs where the state of future elements is not known.
   Takes no mask as all elements up to the current element are assumed to exist.
   Currently only supports maximum. Equivalent to using a lower triangle bias.
-  
-  Args
-      inputs: A tensor of dimensions batch_size x sequence_length x input_dims
-        containing the sequences of input vectors.
-      pooling_type: Pooling type to use. Currently only supports 'MAX'.
-  Returns
-      output: A tensor of dimensions batch_size x sequence_length x input_dims
-        dimension containing the running 'totals'.
+
+  Args:
+    inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+      containing the sequences of input vectors.
+    pooling_type: Pooling type to use. Currently only supports 'MAX'.
+
+  Returns:
+    output: A tensor of dimensions batch_size x sequence_length x input_dims
+      dimension containing the running 'totals'.
   """
-  
+  del pooling_type
   with tf.name_scope("running_global_pool", [inputs]):
     scan_fct = tf.maximum
-    
-    # Permute inputs so seq_length is first
+    # Permute inputs so seq_length is first.
     elems = tf.transpose(inputs, [1, 0, 2])
-	
-	  # Perform scan
+    # Perform scan.
     cumulatives = tf.scan(scan_fct, elems, swap_memory=True)
-	
-    # Permute output to get back to original order
-    output  = tf.transpose(cumulatives, [1, 0, 2])
-    
+    # Permute output to get back to original order.
+    output = tf.transpose(cumulatives, [1, 0, 2])
   return output
-  
+
 
 def linear_set_layer(layer_size,
                      inputs,
@@ -1502,21 +1501,24 @@ def linear_set_layer(layer_size,
     e.g. One can use global_pool_1d to get a representation of the set which
     can then be used as the context for the next layer.
 
-  Args
-      layer_size: Dimension to transform the input vectors to
-      inputs: A tensor of dimensions batch_size x sequence_length x input_dims
-        containing the sequences of input vectors.
-      context: A tensor of dimensions batch_size x context_dims or batch_size x
-        sequence_length x  context_dims containing a global statistic about the
-        set.
-      dropout: Dropout probability.
-      activation_fn: The activation function to use.
-  Returns
-      output: A tensor of dimensions batch_size x sequence_length x output_dims
-        dimension containing the sequences of transformed vectors.
+  TODO: Add bias add (or control the biases used).
 
+  Args:
+    layer_size: Dimension to transform the input vectors to.
+    inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+      containing the sequences of input vectors.
+    context: A tensor of dimensions batch_size x context_dims
+      containing a global statistic about the set.
+    activation_fn: The activation function to use.
+    dropout: Dropout probability.
+    name: name.
+
+  Returns:
+    output: A tensor of dimensions batch_size x sequence_length x output_dims
+      dimension containing the sequences of transformed vectors.
   """
-  with tf.variable_scope(name, "linear_set_layer", [inputs]):
+  with tf.variable_scope(name, default_name="linear_set_layer",
+                         values=[inputs]):
     # Apply 1D convolution to apply linear filter to each element
     # along the 2nd dimension.
     outputs = conv1d(inputs, layer_size, 1, activation=None, name="set_conv")
@@ -1524,12 +1526,11 @@ def linear_set_layer(layer_size,
     # Apply the context if it exists.
     if context is not None:
       # Unfortunately tf doesn't support broadcasting via concat, but we can
-      #  simply add the transformed context to get the same effect
-      if len(context.get_shape().as_list())==2:
+      # simply add the transformed context to get the same effect.
+      if len(context.get_shape().as_list()) == 2:
         context = tf.expand_dims(context, axis=1)
-      #context_size = context.get_shape().as_list()[-1]
       cont_tfm = conv1d(context, layer_size, 1,
-          activation=None, name="cont_conv")
+                        activation=None, name="cont_conv")
       outputs += cont_tfm
 
     if activation_fn is not None:
@@ -1552,35 +1553,33 @@ def ravanbakhsh_set_layer(layer_size,
 
   More parameter-efficient verstion of a linear-set-layer with context.
 
-  Args
-      layer_size: Dimension to transform the input vectors to.
-      inputs: A tensor of dimensions batch_size x sequence_length x vector
-        containing the sequences of input vectors.
-      mask: A tensor of dimensions batch_size x sequence_length containing a
-        mask for the inputs with 1's for existing elements, and 0's elsewhere.
-      sequential: If true, will use a running global pool so each element will
-        only depend on those before it. Set true if this layer is being used in
-        an ouput sequence. 
-  Returns
-      output: A tensor of dimensions batch_size x sequence_length x vector
-        dimension containing the sequences of transformed vectors.
-  """
-  with tf.variable_scope(name, "ravanbakhsh_set_layer", [inputs]):
+  Args:
+    layer_size: Dimension to transform the input vectors to.
+    inputs: A tensor of dimensions batch_size x sequence_length x vector
+      containing the sequences of input vectors.
+    mask: A tensor of dimensions batch_size x sequence_length containing a
+      mask for the inputs with 1's for existing elements, and 0's elsewhere.
+    sequential: If true, will use a running global pool so each element will
+      only depend on those before it. Set true if this layer is being used in
+      an output sequence.
+    activation_fn: The activation function to use.
+    dropout: dropout.
+    name: name.
 
+  Returns:
+    output: A tensor of dimensions batch_size x sequence_length x vector
+      dimension containing the sequences of transformed vectors.
+  """
+  del dropout
+  with tf.variable_scope(name, "ravanbakhsh_set_layer", [inputs]):
     if sequential:
-      output = linear_set_layer(
+      return linear_set_layer(
           layer_size,
           inputs - running_global_pool_1d(inputs),
           activation_fn=activation_fn,
           name=name)
-    else:
-      output = linear_set_layer(
-          layer_size,
-          inputs - tf.expand_dims(global_pool_1d(inputs, mask=mask), axis=1),
-          activation_fn=activation_fn,
-          name=name)
-        
-    return output
-
-
-    return output
+    return linear_set_layer(
+        layer_size,
+        inputs - tf.expand_dims(global_pool_1d(inputs, mask=mask), axis=1),
+        activation_fn=activation_fn,
+        name=name)

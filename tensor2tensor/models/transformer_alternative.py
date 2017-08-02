@@ -50,11 +50,10 @@ class TransformerAlt(t2t_model.T2TModel):
     inputs = common_layers.flatten4d3d(inputs)
     targets = common_layers.flatten4d3d(targets)
 
-
-    (encoder_input, encoder_attention_bias, _) = (transformer.\
-        transformer_prepare_encoder(inputs, target_space, hparams) )
-    (decoder_input, decoder_self_attention_bias) = transformer.\
-        transformer_prepare_decoder(targets, hparams)
+    (encoder_input, encoder_attention_bias, _) = (
+        transformer.transformer_prepare_encoder(inputs, target_space, hparams))
+    (decoder_input, _) = (
+        transformer.transformer_prepare_decoder(targets, hparams))
 
     encoder_mask = bias_to_mask(encoder_attention_bias)
 
@@ -76,8 +75,9 @@ class TransformerAlt(t2t_model.T2TModel):
 
     return decoder_output
 
-    
+
 def composite_layer(inputs, mask, hparams, for_output=False):
+  """Composite layer."""
   x = inputs
 
   # Applies ravanbakhsh on top of each other.
@@ -85,33 +85,31 @@ def composite_layer(inputs, mask, hparams, for_output=False):
     for layer in xrange(hparams.layers_per_layer):
       with tf.variable_scope(".%d" % layer):
         x = common_layers.ravanbakhsh_set_layer(
-                hparams.hidden_size,
-                x,
-                mask=mask,
-                sequential=for_output,
-                dropout=hparams.relu_dropout)
-  
-  # Transforms elements to get a context, and then uses this in a final layer
+            hparams.hidden_size,
+            x,
+            mask=mask,
+            sequential=for_output,
+            dropout=hparams.relu_dropout)
+
+  # Transforms elements to get a context, and then uses this in a final layer.
   elif hparams.composite_layer_type == "reembedding":
     # Transform elements n times and then pool.
     for layer in xrange(hparams.layers_per_layer):
       with tf.variable_scope("sub_layer_%d" % layer):
         x = common_layers.linear_set_layer(
-                hparams.hidden_size,
-                x,
-                dropout=hparams.relu_dropout)
+            hparams.hidden_size,
+            x,
+            dropout=hparams.relu_dropout)
         if for_output:
           context = common_layers.running_global_pool_1d(x)
         else:
           context = common_layers.global_pool_1d(x, mask=mask)
-     
-    #Final layer
+    # Final layer.
     x = common_layers.linear_set_layer(
-            hparams.hidden_size,
-            x,
-            context=context,
-            dropout=hparams.relu_dropout)
-
+        hparams.hidden_size,
+        x,
+        context=context,
+        dropout=hparams.relu_dropout)
   return x
 
 
@@ -120,16 +118,13 @@ def alt_transformer_encoder(encoder_input,
                             mask,
                             hparams,
                             name="encoder"):
-
   """Alternative encoder."""
   x = encoder_input
-
   with tf.variable_scope(name):
     x = encoder_input
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         x = residual_fn(x, composite_layer(x, mask, hparams))
-
   return x
 
 
@@ -139,12 +134,11 @@ def alt_transformer_decoder(decoder_input,
                             encoder_decoder_attention_bias,
                             hparams,
                             name="decoder"):
-
+  """Alternative decoder."""
   with tf.variable_scope(name):
     x = decoder_input
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
-
         x_ = common_attention.multihead_attention(
             x,
             encoder_output,
@@ -156,23 +150,21 @@ def alt_transformer_decoder(decoder_input,
             hparams.attention_dropout,
             name="encdec_attention")
 
-        x_ = residual_fn(x_, composite_layer(x_, None, hparams, for_output=True))
+        x_ = residual_fn(x_, composite_layer(x_, None, hparams,
+                                             for_output=True))
         x = residual_fn(x, x_)
-        
   return x
 
 
 def bias_to_mask(bias):
-    # We need masks of the form batch size x input sequences
-    # Biases are of the form batch_size x num_heads x input sequences x
-    #  output sequences. Squeeze out dim one, and get the first element of
-    #  each vector.
-
-    bias = tf.squeeze(bias, [1])[:,:,0]
-    bias = - tf.clip_by_value(bias, -1.0, 1.0)
-    mask = 1 - bias
-    return mask
-
+  # We need masks of the form batch size x input sequences
+  # Biases are of the form batch_size x num_heads x input sequences x
+  #  output sequences. Squeeze out dim one, and get the first element of
+  #  each vector.
+  bias = tf.squeeze(bias, [1])[:, :, 0]
+  bias = - tf.clip_by_value(bias, -1.0, 1.0)
+  mask = 1 - bias
+  return mask
 
 
 @registry.register_hparams
@@ -182,7 +174,6 @@ def transformer_alt():
   hparams.batch_size = 2048
   hparams.num_hidden_layers = 10
   hparams.add_hparam("layers_per_layer", 4)
-  hparams.add_hparam("composite_layer_type", "ravanbakhsh") #ravanbakhsh or reembedding
-  #hparams.add_hparam("composite_layer_type", "reembedding")
-
+  # Composite layer: ravanbakhsh or reembedding.
+  hparams.add_hparam("composite_layer_type", "ravanbakhsh")
   return hparams

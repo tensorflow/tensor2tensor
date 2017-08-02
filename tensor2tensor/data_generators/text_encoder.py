@@ -54,7 +54,7 @@ else:
 # '\\' is converted to '\'
 # '\213;' is converted to unichr(213)
 _UNESCAPE_REGEX = re.compile(r"\\u|\\\\|\\([0-9]+);")
-_ESCAPE_CHARS = set(u"\\_;0123456789")
+_ESCAPE_CHARS = set(u"\\_u;0123456789")
 
 
 def native_to_unicode_py2(s):
@@ -427,7 +427,7 @@ class SubwordTextEncoder(TextEncoder):
           token_counts, present_count, num_iterations)
 
       # If min_val == max_val, we can't do any better than this.
-      if subtokenizer.vocab_size == target_size or min_val == max_val:
+      if subtokenizer.vocab_size == target_size or min_val >= max_val:
         return subtokenizer
 
       if subtokenizer.vocab_size > target_size:

@@ -76,7 +76,7 @@ _MODALITIES = {
 
 # Camel case to snake case utils
 _first_cap_re = re.compile("(.)([A-Z][a-z0-9]+)")
-_all_cap_re = re.compile("([a-z])([A-Z])")
+_all_cap_re = re.compile("([a-z0-9])([A-Z])")
 
 
 def _convert_camel_to_snake(name):

@@ -28,7 +28,6 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils as eu
-from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -104,22 +103,18 @@ class T2TModel(object):
 
     input_modality_overrides = {}
     for override_str in hparams.input_modalities.split(";"):
-      parts = override_str.split(":")
-      feature_name = parts[0]
-      modality_name = ":".join(parts[1:])
-      input_modality_overrides[feature_name] = modality_name
+      if override_str != "default":
+        parts = override_str.split(":")
+        feature_name = parts[0]
+        modality_name = ":".join(parts[1:])
+        input_modality_overrides[feature_name] = modality_name
 
     target_modality_name = None
-    if hparams.target_modality:
+    if hparams.target_modality and hparams.target_modality != "default":
       target_modality_name = hparams.target_modality
 
     input_modality = {}
     for f, modality_spec in six.iteritems(problem_hparams.input_modality):
-      if isinstance(modality_spec, modality.Modality):
-        # This function has been previously run (e.g. for training and now is
-        # being called for eval) and the modalities have already been
-        # constructed. Return.
-        return
       if f in input_modality_overrides:
         _warn_changed_modality_type(input_modality_overrides[f],
                                     modality_spec[0], f)
@@ -128,8 +123,6 @@ class T2TModel(object):
     problem_hparams.input_modality = input_modality
 
     target_modality_spec = problem_hparams.target_modality
-    if isinstance(target_modality_spec, modality.Modality):
-      return
     if target_modality_name:
       _warn_changed_modality_type(target_modality_name, target_modality_spec[0],
                                   "target")
@@ -206,7 +199,7 @@ class T2TModel(object):
 
       features["targets"] = ids
       self._coverage = None
-      sharded_logits, _, _ = self.model_fn(
+      sharded_logits, _ = self.model_fn(
           features, False, last_position_only=last_position_only)
       # now self._coverage is a coverage tensor for the first datashard.
       # it has shape [batch_size] and contains floats between 0 and
@@ -330,7 +323,7 @@ class T2TModel(object):
     Returns:
        samples: an integer `Tensor`.
     """
-    sharded_logits, _, _ = self.model_fn(
+    sharded_logits, _ = self.model_fn(
         features, False, last_position_only=last_position_only)
     if self._hparams.sampling_method == "argmax":
       sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
@@ -362,7 +355,7 @@ class T2TModel(object):
     return sharded_features
 
   def model_fn(self, features, skip=False, last_position_only=False):
-    """Computes the entire model and produces sharded logits and training loss.
+    """Computes the entire model and produces sharded logits and losses.
 
     Args:
       features: A dictionary of feature name to tensor.
@@ -372,7 +365,7 @@ class T2TModel(object):
 
     Returns:
       sharded_logits: a list of `Tensor`s, one per datashard.
-      training_loss: a floating point `Scalar`.
+      losses: a dictionary: {loss-name (string): floating point `Scalar`}.
     """
     start_time = time.time()
     dp = self._data_parallelism
@@ -417,10 +410,13 @@ class T2TModel(object):
     # Construct the model body.
     with tf.variable_scope("body", reuse=self._problem_idx > 0):
       if skip:
-        body_outputs, extra_loss = transformed_features["targets"], 0.0
+        body_outputs = transformed_features["targets"]
+        losses = {"extra": 0.0}
       else:
-        body_outputs, extra_loss = self.model_fn_body_sharded(
+        body_outputs, losses = self.model_fn_body_sharded(
             transformed_features)
+        if isinstance(losses, tf.Tensor):  # If it's a single extra loss.
+          losses = {"extra": losses}
 
     with tf.variable_scope(target_modality.name, reuse=target_reuse):
       if not last_position_only:
@@ -447,7 +443,8 @@ class T2TModel(object):
         training_loss = None
 
     tf.logging.info("This model_fn took %.3f sec." % (time.time() - start_time))
-    return sharded_logits, training_loss, extra_loss
+    losses["training"] = training_loss
+    return sharded_logits, losses
 
   def model_fn_body_sharded(self, sharded_features):
     """Mixture-of-experts models will override this function.
@@ -472,10 +469,10 @@ class T2TModel(object):
           _with_timing(self.model_fn_body, "model_fn_body"),
           datashard_to_features)
       if isinstance(output, tuple):
-        loss = tf.reduce_mean(output[1])
+        loss = {"extra": tf.reduce_mean(output[1])}
         output = output[0]
       else:
-        loss = 0.0
+        loss = {"extra": 0.0}
       return output, loss
 
   def model_fn_body(self, features):

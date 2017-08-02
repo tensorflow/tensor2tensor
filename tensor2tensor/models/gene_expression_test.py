@@ -55,8 +55,8 @@ class GeneExpressionModelsTest(tf.test.TestCase):
         "targets": tf.constant(targets, dtype=tf.float32),
     }
     p_hparams, = hparams.problems
-    sharded_logits, _, _ = model_cls(hparams, tf.contrib.learn.ModeKeys.TRAIN,
-                                     p_hparams).model_fn(features)
+    sharded_logits, _ = model_cls(hparams, tf.contrib.learn.ModeKeys.TRAIN,
+                                  p_hparams).model_fn(features)
     logits = tf.concat(sharded_logits, 0)
 
     with self.test_session() as sess:

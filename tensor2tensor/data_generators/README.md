@@ -28,7 +28,7 @@ for an example.
 
 `Problem`s support data generation, training, and decoding.
 
-Data generation is handles by `Problem.generate_data` which should produce 2
+Data generation is handled by `Problem.generate_data` which should produce 2
 datasets, training and dev, which should be named according to
 `Problem.training_filepaths` and `Problem.dev_filepaths`.
 `Problem.generate_data` should also produce any other files that may be required

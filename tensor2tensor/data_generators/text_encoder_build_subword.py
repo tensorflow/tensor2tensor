@@ -24,7 +24,7 @@ Example usage:
 python data_generators/text_encoder_build_subword.py \
     --corpus_filepattern=$DATA_DIR/my_problem-train-* \
     --corpus_max_lines=12345 \
-    --output_fn=$DATA_DIR/my_problem.subword_text_encoder \
+    --output_filename=$DATA_DIR/my_problem.subword_text_encoder \
     --logtostderr
 
 """
@@ -75,7 +75,7 @@ def main(unused_argv):
   encoder = text_encoder.SubwordTextEncoder()
   encoder.build_from_token_counts(token_counts, FLAGS.min_count,
                                   FLAGS.num_iterations)
-  encoder.store_to_file(FLAGS.output_fn)
+  encoder.store_to_file(FLAGS.output_filename)
 
 
 if __name__ == '__main__':

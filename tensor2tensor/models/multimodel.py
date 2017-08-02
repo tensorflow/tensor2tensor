@@ -190,7 +190,6 @@ def multimodel_base():
   hparams.add_hparam("moe_n2", 0)
   hparams.add_hparam("moe_layers", "2")
   hparams.add_hparam("moe_loss_coef", 1e-2)
-  hparams.add_hparam("imagenet_use_2d", int(True))
   return hparams
 
 

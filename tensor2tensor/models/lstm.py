@@ -247,8 +247,8 @@ def lstm_seq2seq_internal_attention(inputs, targets, hparams, train):
     return tf.expand_dims(decoder_outputs, axis=2)
 
 
-@registry.register_model("baseline_lstm_seq2seq")
-class LSTMSeq2Seq(t2t_model.T2TModel):
+@registry.register_model
+class LSTMSeq2seq(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
     train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
@@ -256,8 +256,8 @@ class LSTMSeq2Seq(t2t_model.T2TModel):
                                  self._hparams, train)
 
 
-@registry.register_model("baseline_lstm_seq2seq_attention")
-class LSTMSeq2SeqAttention(t2t_model.T2TModel):
+@registry.register_model
+class LSTMSeq2seqAttention(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
     train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN

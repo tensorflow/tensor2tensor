@@ -359,7 +359,7 @@ class AudioSpectralModality(modality.Modality):
 class ClassLabelModality(modality.Modality):
   """Used for label data."""
 
-  def __init__(self, model_hparams, vocab_size, is2d=False):
+  def __init__(self, model_hparams, vocab_size, is2d=True):
     super(ClassLabelModality, self).__init__(model_hparams, vocab_size)
     self._is_2d = is2d
     self._kernel = (3, 3) if is2d else (5, 1)
@@ -425,12 +425,12 @@ class ClassLabelModality(modality.Modality):
 
 
 @registry.register_class_label_modality("class_label_2d")
-class ClassLabel2DModality(ClassLabelModality):
+class ClassLabel1DModality(ClassLabelModality):
   """Used for label data."""
 
   def __init__(self, model_hparams, vocab_size):
-    super(ClassLabel2DModality, self).__init__(
-        model_hparams=model_hparams, vocab_size=vocab_size, is2d=True)
+    super(ClassLabel1DModality, self).__init__(
+        model_hparams=model_hparams, vocab_size=vocab_size, is2d=False)
 
 
 @registry.register_generic_modality("default")

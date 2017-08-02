@@ -316,7 +316,6 @@ def slicenet_params1():
   hparams.add_hparam("moe_n1", 32)
   hparams.add_hparam("moe_n2", 0)
   hparams.add_hparam("moe_loss_coef", 1e-2)
-  hparams.add_hparam("imagenet_use_2d", int(True))
   # attention-related flags
   hparams.add_hparam("attention_type", "simple")
   hparams.add_hparam("num_heads", 8)

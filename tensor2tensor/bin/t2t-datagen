@@ -118,40 +118,9 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: wiki.generator(FLAGS.tmp_dir, True),
         1000
     ),
-    "image_mnist_tune": (
-        lambda: image.mnist_generator(FLAGS.tmp_dir, True, 55000),
-        lambda: image.mnist_generator(FLAGS.tmp_dir, True, 5000, 55000)),
-    "image_mnist_test": (
-        lambda: image.mnist_generator(FLAGS.tmp_dir, True, 60000),
-        lambda: image.mnist_generator(FLAGS.tmp_dir, False, 10000)),
-    "image_cifar10_tune": (
-        lambda: image.cifar10_generator(FLAGS.tmp_dir, True, 48000),
-        lambda: image.cifar10_generator(FLAGS.tmp_dir, True, 2000, 48000)),
-    "image_cifar10_test": (
-        lambda: image.cifar10_generator(FLAGS.tmp_dir, True, 50000),
-        lambda: image.cifar10_generator(FLAGS.tmp_dir, False, 10000)),
-    "image_mscoco_characters_test": (
-        lambda: image.mscoco_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True, 80000),
-        lambda: image.mscoco_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 40000)),
     "image_celeba_tune": (
         lambda: image.celeba_generator(FLAGS.tmp_dir, 162770),
         lambda: image.celeba_generator(FLAGS.tmp_dir, 19867, 162770)),
-    "image_mscoco_tokens_8k_test": (
-        lambda: image.mscoco_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True, 80000,
-            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13),
-        lambda: image.mscoco_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 40000,
-            vocab_filename="vocab.endefr.%d" % 2**13, vocab_size=2**13)),
-    "image_mscoco_tokens_32k_test": (
-        lambda: image.mscoco_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True, 80000,
-            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
-        lambda: image.mscoco_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, 40000,
-            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
     "snli_32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),

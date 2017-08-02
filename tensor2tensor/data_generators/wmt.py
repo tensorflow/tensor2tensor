@@ -193,9 +193,9 @@ def bi_vocabs_token_generator(source_path,
 
 _ENDE_TRAIN_DATASETS = [
     [
-        "http://data.statmt.org/wmt16/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
-        ("training-parallel-nc-v11/news-commentary-v11.de-en.en",
-         "training-parallel-nc-v11/news-commentary-v11.de-en.de")
+        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",  # pylint: disable=line-too-long
+        ("training/news-commentary-v12.de-en.en",
+         "training/news-commentary-v12.de-en.de")
     ],
     [
         "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
@@ -250,7 +250,7 @@ _ZHEN_TRAIN_DATASETS = [[("http://data.statmt.org/wmt17/translation-task/"
 
 _ZHEN_TEST_DATASETS = [[
     "http://data.statmt.org/wmt17/translation-task/dev.tgz",
-    ("dev/newsdev2017-zhen-src.zh", "dev/newsdev2017-zhen-ref.en")
+    ("dev/newsdev2017-zhen-src.zh.sgm", "dev/newsdev2017-zhen-ref.en.sgm")
 ]]
 
 # For Macedonian-English the SETimes corpus
@@ -271,9 +271,9 @@ _MKEN_TEST_DATASETS = [[
 # English-Czech datasets
 _ENCS_TRAIN_DATASETS = [
     [
-        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
-        ("training-parallel-nc-v11/news-commentary-v11.cs-en.en",
-         "training-parallel-nc-v11/news-commentary-v11.cs-en.cs")
+        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",  # pylint: disable=line-too-long
+        ("training/news-commentary-v12.cs-en.en",
+         "training/news-commentary-v12.cs-en.cs")
     ],
     [
         "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
@@ -322,6 +322,23 @@ def ende_bpe_token_generator(data_dir, tmp_dir, train):
                          EOS)
 
 
+def _preprocess_sgm(line, is_sgm):
+  """Preprocessing to strip tags in SGM files."""
+  if not is_sgm:
+    return line
+  # In SGM files, remove <srcset ...>, <p>, <doc ...> lines.
+  if line.startswith("<srcset") or line.startswith("</srcset"):
+    return ""
+  if line.startswith("<doc") or line.startswith("</doc"):
+    return ""
+  if line.startswith("<p>") or line.startswith("</p>"):
+    return ""
+  # Strip <seg> tags.
+  if line.startswith("<seg") and line.endswith("</seg>"):
+    i = line.index(">")
+    return line[i+1:-6]  # Strip first <seg ...> and last </seg>.
+
+
 def _compile_data(tmp_dir, datasets, filename):
   """Concatenate all `datasets` and save to `filename`."""
   filename = os.path.join(tmp_dir, filename)
@@ -335,9 +352,10 @@ def _compile_data(tmp_dir, datasets, filename):
         lang1_filename, lang2_filename = dataset[1]
         lang1_filepath = os.path.join(tmp_dir, lang1_filename)
         lang2_filepath = os.path.join(tmp_dir, lang2_filename)
+        is_sgm = (lang1_filename.endswith("sgm") and
+                  lang2_filename.endswith("sgm"))
 
-        if not os.path.exists(compressed_filepath):
-          generator_utils.maybe_download(tmp_dir, compressed_filename, url)
+        generator_utils.maybe_download(tmp_dir, compressed_filename, url)
         if not (os.path.exists(lang1_filepath) and
                 os.path.exists(lang2_filepath)):
           # For .tar.gz and .tgz files, we read compressed.
@@ -356,8 +374,11 @@ def _compile_data(tmp_dir, datasets, filename):
           with tf.gfile.GFile(lang2_filepath, mode="r") as lang2_file:
             line1, line2 = lang1_file.readline(), lang2_file.readline()
             while line1 or line2:
-              lang1_resfile.write(line1.strip() + "\n")
-              lang2_resfile.write(line2.strip() + "\n")
+              line1res = _preprocess_sgm(line1, is_sgm)
+              line2res = _preprocess_sgm(line2, is_sgm)
+              if line1res or line2res:
+                lang1_resfile.write(line1res.strip() + "\n")
+                lang2_resfile.write(line2res.strip() + "\n")
               line1, line2 = lang1_file.readline(), lang2_file.readline()
 
   return filename
@@ -405,7 +426,7 @@ class WMTEnDeCharacters(WMTProblem):
   def is_character_level(self):
     return True
 
-  def train_generator(self, tmp_dir, train):
+  def train_generator(self, _, tmp_dir, train):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
     tag = "train" if train else "dev"
@@ -434,8 +455,8 @@ class WMTZhEnTokens8k(WMTProblem):
     source_vocab_size = self.targeted_vocab_size
     target_vocab_size = self.targeted_vocab_size
     datasets = _ZHEN_TRAIN_DATASETS if train else _ZHEN_TEST_DATASETS
-    source_datasets = [[item[0], [item[1][0]]] for item in datasets]
-    target_datasets = [[item[0], [item[1][1]]] for item in datasets]
+    source_datasets = [[item[0], [item[1][0]]] for item in _ZHEN_TRAIN_DATASETS]
+    target_datasets = [[item[0], [item[1][1]]] for item in _ZHEN_TRAIN_DATASETS]
     source_vocab = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, "vocab.zh.%d" % source_vocab_size, source_vocab_size,
         source_datasets)

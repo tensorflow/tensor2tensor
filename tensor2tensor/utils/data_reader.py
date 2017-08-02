@@ -27,7 +27,6 @@ import six
 from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models import common_layers
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -127,35 +126,15 @@ def examples_reader(data_sources,
     return decode_record(example_serialized)
 
 
-def preprocessing(examples, data_file_pattern, mode):
+def preprocessing(examples, data_file_pattern):
   """Preprocessing of examples."""
+  # This function is for obsolete problems only, as we're porting them
+  # all to the Problem class and its preprocess_examples method. Don't add.
   if "image" in data_file_pattern:
-    # Small single-example pre-processing for images.
     def resize(img, size):
       return tf.to_int64(tf.image.resize_images(img, [size, size]))
 
-    def preprocess(img):
-      img = tf.image.resize_images(img, [360, 360])
-      img = common_layers.image_augmentation(tf.to_float(img) / 255.)
-      return tf.to_int64(img * 255.)
-
-    if ("image_imagenet" in data_file_pattern or
-        "image_mscoco" in data_file_pattern):
-      examples["inputs"] = tf.cast(examples["inputs"], tf.int64)
-      # For imagnet/coco, resize images to 299x299 as is standard.
-      inputs = examples["inputs"]
-      if mode == tf.contrib.learn.ModeKeys.TRAIN:
-        examples["inputs"] = tf.cond(  # Preprocess 80% of the time.
-            tf.less(tf.random_uniform([]), 0.8),
-            lambda img=inputs: preprocess(img),
-            lambda img=inputs: resize(img, 299))
-      else:
-        examples["inputs"] = tf.to_int64(resize(inputs, 299))
-    elif ("image_cifar10" in data_file_pattern and
-          mode == tf.contrib.learn.ModeKeys.TRAIN):
-      examples["inputs"] = common_layers.cifar_image_augmentation(
-          examples["inputs"])
-    elif "img2img" in data_file_pattern:
+    if "img2img" in data_file_pattern:
       inputs = examples["inputs"]
       examples["inputs"] = resize(inputs, 16)
       examples["targets"] = resize(inputs, 64)
@@ -163,7 +142,6 @@ def preprocessing(examples, data_file_pattern, mode):
       inputs = examples["inputs"]
       examples["inputs"] = resize(inputs, 8)
       examples["targets"] = resize(inputs, 32)
-
   elif "audio" in data_file_pattern:
     # Reshape audio to proper shape
     sample_count = tf.to_int32(examples.pop("audio/sample_count"))
@@ -176,30 +154,6 @@ def preprocessing(examples, data_file_pattern, mode):
   elif "a2q_20161229" in data_file_pattern:
     # we forgot the EOS when we preprocessed this data.
     examples["targets"] = tf.concat([examples["targets"], [1]], 0)
-  return examples
-
-
-def problem_input_pipeline(problem, data_file_pattern, capacity, mode):
-  """Input pipeline for Problems."""
-  data_fields, data_items_to_decoders = problem.example_reading_spec()
-
-  # Create placeholders for input, rather than reading data from disk.
-  if data_file_pattern is None:
-    return feature_placeholders(data_fields)
-
-  # Now the non-trivial case construction.
-  examples = examples_reader(
-      [data_file_pattern],
-      data_fields,
-      training=(mode == tf.contrib.learn.ModeKeys.TRAIN),
-      capacity=capacity,
-      data_items_to_decoders=data_items_to_decoders)
-
-  examples = problem.preprocess_examples(examples, mode)
-
-  # We do not want int64s as they are not supported on GPUs.
-  examples = cast_int64_to_int32(examples)
-
   return examples
 
 
@@ -221,25 +175,14 @@ def feature_placeholders(data_fields):
   return feature_map
 
 
-def input_pipeline(problem, data_file_pattern, capacity, mode):
-  """Input pipeline, returns a dictionary of tensors from queues."""
-
-  if problem is not None:
-    # problem is not None when the problem is specified with the Problem API,
-    # which handles Example decoding and preprocessing.
-    # Otherwise the problem is specified in problem_hparams and is dealt with
-    # below.
-    # As problems are ported to the Problem API, the special handling here will
-    # need to be moved to Problem.example_reading_spec and
-    # Problem.preprocessing.
-    return problem_input_pipeline(problem, data_file_pattern, capacity, mode)
-
+def default_example_reading_spec(data_file_pattern):
+  """Example reading spec for problem_hparams problems."""
+  # This function is for problems that have yet to be ported to the new Problem
+  # API. Do not add here.
   data_items_to_decoders = None
   # Read from image TFRecords if the file has "image" in its name.
   if data_file_pattern and "image" in data_file_pattern:
     label_key = "image/class/label"
-    if "fsns" in data_file_pattern:
-      label_key = "image/unpadded_label"
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
@@ -267,12 +210,21 @@ def input_pipeline(problem, data_file_pattern, capacity, mode):
         "inputs": tf.VarLenFeature(tf.int64),
         "targets": tf.VarLenFeature(tf.int64)
     }
+  return data_fields, data_items_to_decoders
 
-  # Create placeholders for input, rather than reading data from disk.
+
+def input_pipeline(problem, data_file_pattern, capacity, mode, hparams):
+  """Input pipeline, returns a dictionary of tensors from queues."""
+  if problem is None:
+    data_fields, data_items_to_decoders = default_example_reading_spec(
+        data_file_pattern)
+  else:
+    data_fields, data_items_to_decoders = problem.example_reading_spec()
+
   if data_file_pattern is None:
+    # Create placeholders for input, rather than reading data from disk.
     return feature_placeholders(data_fields)
 
-  # Now the non-trivial case construction.
   examples = examples_reader(
       [data_file_pattern],
       data_fields,
@@ -280,10 +232,14 @@ def input_pipeline(problem, data_file_pattern, capacity, mode):
       capacity=capacity,
       data_items_to_decoders=data_items_to_decoders)
 
-  examples = preprocessing(examples, data_file_pattern, mode)
+  if problem is None:
+    examples = preprocessing(examples, data_file_pattern)
+  else:
+    examples = problem.preprocess_examples(examples, mode, hparams)
 
   # We do not want int64s as they are not supported on GPUs.
   examples = cast_int64_to_int32(examples)
+
   return examples
 
 

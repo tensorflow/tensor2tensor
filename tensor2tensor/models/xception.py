@@ -86,7 +86,6 @@ def xception_base():
   hparams.optimizer_adam_epsilon = 1e-6
   hparams.optimizer_adam_beta1 = 0.85
   hparams.optimizer_adam_beta2 = 0.997
-  hparams.add_hparam("imagenet_use_2d", True)
   return hparams
 
 
