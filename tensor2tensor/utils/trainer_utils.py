@@ -181,8 +181,8 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
     eval_hooks.append(hook)
   return tf.contrib.learn.Experiment(
       estimator=estimator,
-      train_input_fn=input_fns["train"],
-      eval_input_fn=input_fns["eval"],
+      train_input_fn=input_fns[tf.contrib.learn.ModeKeys.TRAIN],
+      eval_input_fn=input_fns[tf.contrib.learn.ModeKeys.EVAL],
       eval_metrics=eval_metrics,
       train_steps=train_steps,
       eval_steps=eval_steps,
@@ -220,7 +220,9 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
           keep_checkpoint_max=FLAGS.keep_checkpoint_max))
   # Store the hparams in the estimator as well
   estimator.hparams = hparams
-  return estimator, {"train": train_input_fn, "eval": eval_input_fn}
+  return estimator, {
+      tf.contrib.learn.ModeKeys.TRAIN: train_input_fn,
+      tf.contrib.learn.ModeKeys.EVAL: eval_input_fn}
 
 
 def log_registry():
