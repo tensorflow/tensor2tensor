@@ -20,6 +20,7 @@ setup(
     ],
     install_requires=[
         'numpy',
+        'requests',
         'sympy',
         'six',
     ],
