@@ -64,6 +64,20 @@ class GeneratorUtilsTest(tf.test.TestCase):
     os.remove(tmp_file_path + ".http")
     os.remove(tmp_file_path)
 
+  def testMaybeDownloadFromDrive(self):
+    tmp_dir = self.get_temp_dir()
+    (_, tmp_file_path) = tempfile.mkstemp(dir=tmp_dir)
+    tmp_file_name = os.path.basename(tmp_file_path)
+
+    # Download Google index to the temporary file.http.
+    res_path = generator_utils.maybe_download_from_drive(
+        tmp_dir, tmp_file_name + ".http", "http://drive.google.com")
+    self.assertEqual(res_path, tmp_file_path + ".http")
+
+    # Clean up.
+    os.remove(tmp_file_path + ".http")
+    os.remove(tmp_file_path)
+
   def testGunzipFile(self):
     tmp_dir = self.get_temp_dir()
     (_, tmp_file_path) = tempfile.mkstemp(dir=tmp_dir)

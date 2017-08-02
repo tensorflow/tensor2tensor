@@ -380,18 +380,18 @@ class ImageFSNS(ImageProblem):
     return super(ImageFSNS, self).example_reading_spec(self,
                                                        label_key=label_key)
 
-# Filename for CELEBA data.
+# URL and filename for CELEBA data.
 _CELEBA_NAME = "img_align_celeba"
+_CELEBA_URL = "https://drive.google.com/uc?export=download&id=0B7EVK8r0v71pZjFTYXZWM3FlRnM"
 
 
 def _get_celeba(directory):
   """Download and extract CELEBA to directory unless it is there."""
-  path = os.path.join(directory, _CELEBA_NAME)
+  # path = os.path.join(directory, _CELEBA_NAME)
+  path = generator_utils.maybe_download_from_drive(directory,
+                                                   _CELEBA_NAME, _CELEBA_URL)
   if not tf.gfile.Exists(path):
-    # We expect that this file has been downloaded from:
-    # https://drive.google.com/uc?export=download&id=0B7EVK8r0v71pZjFTYXZWM3FlRnM
-    # and placed in `directory`.
-    zipfile.ZipFile(path+".zip", "r").extractall(directory)
+    zipfile.ZipFile(path + ".zip", "r").extractall(directory)
 
 
 def celeba_generator(tmp_dir, how_many, start_from=0):
@@ -408,7 +408,7 @@ def celeba_generator(tmp_dir, how_many, start_from=0):
     * image/format: the string "jpeg" representing image format,
   """
   _get_celeba(tmp_dir)
-  image_files = tf.gfile.Glob(tmp_dir + "/*.jpg")
+  image_files = tf.gfile.Glob(os.path.join(tmp_dir, _CELEBA_NAME) + "/*.jpg")
   for filename in image_files[start_from:start_from+how_many]:
     with tf.gfile.Open(filename, "r") as f:
       encoded_image_data = f.read()

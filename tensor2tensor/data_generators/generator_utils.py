@@ -28,6 +28,7 @@ import tarfile
 
 # Dependency imports
 
+import requests
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import six.moves.urllib_request as urllib  # Imports urllib on Python2, urllib.request on Python3
@@ -193,6 +194,56 @@ def maybe_download(directory, filename, url):
                                                               statinfo.st_size))
   else:
     tf.logging.info("Not downloading, file already found: %s" % filepath)
+  return filepath
+
+
+def maybe_download_from_drive(directory, filename, url):
+  """Download filename from google drive unless it's already in directory.
+
+  Args:
+    directory: path to the directory that will be used.
+    filename: name of the file to download to (do nothing if it already exists).
+    url: URL to download from.
+
+  Returns:
+    The path to the downloaded file.
+  """
+  if not tf.gfile.Exists(directory):
+    tf.logging.info("Creating directory %s" % directory)
+    os.mkdir(directory)
+  filepath = os.path.join(directory, filename)
+  confirm_token = None
+  if tf.gfile.Exists(filepath):
+    tf.logging.info("Not downloading, file already found: %s" % filepath)
+    return filepath
+
+  # Since the file is big, drive will scan it for virus and take it to a
+  # warning page. We find the confirm token on this page and append it to the
+  # URL to start the download process.
+  confirm_token = None
+  session = requests.Session()
+  response = session.get(url, stream=True)
+  for k, v in response.cookies.items():
+    if k.startswith("download_warning"):
+      confirm_token = v
+
+  if confirm_token:
+    url = url + "&confirm=" + confirm_token
+  tf.logging.info("Downloading %s to %s" % (url, filepath))
+
+  response = session.get(url, stream=True)
+  # Now begin the download.
+  chunk_size = 16 * 1024
+  with open(filepath, "wb") as f:
+    for chunk in response.iter_content(chunk_size):
+      if chunk:
+        f.write(chunk)
+
+  # Print newline to clear the carriage return from the download progress
+  print()
+  statinfo = os.stat(filepath)
+  tf.logging.info("Succesfully downloaded %s, %s bytes." % (filename,
+                                                            statinfo.st_size))
   return filepath
 
 
