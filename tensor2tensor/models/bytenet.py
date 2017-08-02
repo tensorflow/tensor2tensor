@@ -23,8 +23,8 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -63,8 +63,8 @@ def bytenet_internal(inputs, targets, hparams):
     # Pad inputs and targets to be the same length, divisible by 50.
     inputs, targets = common_layers.pad_to_same_length(
         inputs, targets, final_length_divisible_by=50)
-    final_encoder = residual_dilated_conv(
-        inputs, hparams.num_block_repeat, "SAME", "encoder", hparams)
+    final_encoder = residual_dilated_conv(inputs, hparams.num_block_repeat,
+                                          "SAME", "encoder", hparams)
 
     shifted_targets = common_layers.shift_left(targets)
     kernel = (hparams.kernel_height, hparams.kernel_width)
@@ -73,9 +73,8 @@ def bytenet_internal(inputs, targets, hparams):
         hparams.hidden_size, [((1, 1), kernel)],
         padding="LEFT")
 
-    return residual_dilated_conv(
-        decoder_start, hparams.num_block_repeat,
-        "LEFT", "decoder", hparams)
+    return residual_dilated_conv(decoder_start, hparams.num_block_repeat,
+                                 "LEFT", "decoder", hparams)
 
 
 @registry.register_model

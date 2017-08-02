@@ -20,7 +20,6 @@ Using different layer types to demonstrate alternatives to self attention.
 Code is mostly copied from original Transformer source.
 """
 
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -29,8 +28,8 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_attention
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_attention
+from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -50,10 +49,11 @@ class TransformerAlt(t2t_model.T2TModel):
     inputs = common_layers.flatten4d3d(inputs)
     targets = common_layers.flatten4d3d(targets)
 
-    (encoder_input, encoder_attention_bias, _) = (
-        transformer.transformer_prepare_encoder(inputs, target_space, hparams))
-    (decoder_input, _) = (
-        transformer.transformer_prepare_decoder(targets, hparams))
+    (encoder_input,
+     encoder_attention_bias, _) = (transformer.transformer_prepare_encoder(
+         inputs, target_space, hparams))
+    (decoder_input, _) = (transformer.transformer_prepare_decoder(
+        targets, hparams))
 
     encoder_mask = bias_to_mask(encoder_attention_bias)
 
@@ -64,12 +64,12 @@ class TransformerAlt(t2t_model.T2TModel):
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
     decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
 
-    encoder_output = alt_transformer_encoder(
-        encoder_input, residual_fn, encoder_mask, hparams)
+    encoder_output = alt_transformer_encoder(encoder_input, residual_fn,
+                                             encoder_mask, hparams)
 
-    decoder_output = alt_transformer_decoder(
-        decoder_input, encoder_output, residual_fn,
-        encoder_attention_bias, hparams)
+    decoder_output = alt_transformer_decoder(decoder_input, encoder_output,
+                                             residual_fn,
+                                             encoder_attention_bias, hparams)
 
     decoder_output = tf.expand_dims(decoder_output, 2)
 
@@ -97,19 +97,14 @@ def composite_layer(inputs, mask, hparams, for_output=False):
     for layer in xrange(hparams.layers_per_layer):
       with tf.variable_scope("sub_layer_%d" % layer):
         x = common_layers.linear_set_layer(
-            hparams.hidden_size,
-            x,
-            dropout=hparams.relu_dropout)
+            hparams.hidden_size, x, dropout=hparams.relu_dropout)
         if for_output:
           context = common_layers.running_global_pool_1d(x)
         else:
           context = common_layers.global_pool_1d(x, mask=mask)
     # Final layer.
     x = common_layers.linear_set_layer(
-        hparams.hidden_size,
-        x,
-        context=context,
-        dropout=hparams.relu_dropout)
+        hparams.hidden_size, x, context=context, dropout=hparams.relu_dropout)
   return x
 
 
@@ -150,8 +145,8 @@ def alt_transformer_decoder(decoder_input,
             hparams.attention_dropout,
             name="encdec_attention")
 
-        x_ = residual_fn(x_, composite_layer(x_, None, hparams,
-                                             for_output=True))
+        x_ = residual_fn(x_, composite_layer(
+            x_, None, hparams, for_output=True))
         x = residual_fn(x, x_)
   return x
 
@@ -162,7 +157,7 @@ def bias_to_mask(bias):
   #  output sequences. Squeeze out dim one, and get the first element of
   #  each vector.
   bias = tf.squeeze(bias, [1])[:, :, 0]
-  bias = - tf.clip_by_value(bias, -1.0, 1.0)
+  bias = -tf.clip_by_value(bias, -1.0, 1.0)
   mask = 1 - bias
   return mask
 

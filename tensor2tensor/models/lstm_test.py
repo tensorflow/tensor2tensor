@@ -24,7 +24,7 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models import common_hparams
+from tensor2tensor.layers import common_hparams
 from tensor2tensor.models import lstm
 
 import tensorflow as tf
@@ -44,8 +44,8 @@ class LSTMTest(tf.test.TestCase):
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),
       }
-      model = lstm.LSTMSeq2seq(
-          hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
+      model = lstm.LSTMSeq2seq(hparams, tf.contrib.learn.ModeKeys.TRAIN,
+                               p_hparams)
       sharded_logits, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())

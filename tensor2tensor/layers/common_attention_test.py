@@ -22,7 +22,7 @@ from __future__ import print_function
 # Dependency imports
 
 import numpy as np
-from tensor2tensor.models import common_attention
+from tensor2tensor.layers import common_attention
 
 import tensorflow as tf
 
@@ -42,22 +42,14 @@ class CommonAttentionTest(tf.test.TestCase):
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
   def testMaskedLocalAttention(self):
-    q = np.array([[[[1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0]]]])
-    k = np.array([[[[1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0, 0.0]]]])
+    q = np.array([[[[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [
+        1.0, 0.0, 0.0, 0.0
+    ], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]]])
+    k = np.array([[[[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [
+        1.0, 0.0, 0.0, 0.0
+    ], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]]])
     v = np.ones((1, 1, 8, 1))
     with self.test_session() as session:
       q_ = tf.constant(q, dtype=tf.float32)
@@ -77,7 +69,8 @@ class CommonAttentionTest(tf.test.TestCase):
           tf.constant(x, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
-          block_length=4, filter_width=3)
+          block_length=4,
+          filter_width=3)
       session.run(tf.global_variables_initializer())
       res = session.run(a)
     self.assertEqual(res.shape, (5, 4, 25, 16))
@@ -90,7 +83,8 @@ class CommonAttentionTest(tf.test.TestCase):
           tf.constant(x, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
-          block_length=5, filter_width=3)
+          block_length=5,
+          filter_width=3)
       session.run(tf.global_variables_initializer())
       res = session.run(a)
     self.assertEqual(res.shape, (5, 4, 25, 16))

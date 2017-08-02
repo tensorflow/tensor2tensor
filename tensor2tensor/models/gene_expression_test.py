@@ -23,8 +23,8 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import gene_expression as gene_data
+from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.models import gene_expression
-from tensor2tensor.models import modalities  # pylint: disable=unused-import
 
 import tensorflow as tf
 

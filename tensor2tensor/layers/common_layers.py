@@ -475,7 +475,8 @@ def residual_fn(x,
                 residual_dropout,
                 filters=None,
                 epsilon=1e-16,
-                name=None, reuse=None):
+                name=None,
+                reuse=None):
   """Returns a function for combining layer input and layer output.
 
   The returned function on x (layer input) and y (layer output) computes:
@@ -494,8 +495,8 @@ def residual_fn(x,
   Returns:
     residual layer output with applied norm_fn.
   """
-  with tf.variable_scope(name, default_name="residual",
-                         values=[x, y], reuse=reuse):
+  with tf.variable_scope(
+      name, default_name="residual", values=[x, y], reuse=reuse):
     norm_fn = get_norm(norm_type)
     res = x + tf.nn.dropout(y, 1.0 - residual_dropout)
     if norm_type == "layer":
@@ -1517,8 +1518,8 @@ def linear_set_layer(layer_size,
     output: A tensor of dimensions batch_size x sequence_length x output_dims
       dimension containing the sequences of transformed vectors.
   """
-  with tf.variable_scope(name, default_name="linear_set_layer",
-                         values=[inputs]):
+  with tf.variable_scope(
+      name, default_name="linear_set_layer", values=[inputs]):
     # Apply 1D convolution to apply linear filter to each element
     # along the 2nd dimension.
     outputs = conv1d(inputs, layer_size, 1, activation=None, name="set_conv")
@@ -1529,8 +1530,8 @@ def linear_set_layer(layer_size,
       # simply add the transformed context to get the same effect.
       if len(context.get_shape().as_list()) == 2:
         context = tf.expand_dims(context, axis=1)
-      cont_tfm = conv1d(context, layer_size, 1,
-                        activation=None, name="cont_conv")
+      cont_tfm = conv1d(
+          context, layer_size, 1, activation=None, name="cont_conv")
       outputs += cont_tfm
 
     if activation_fn is not None:

@@ -180,7 +180,7 @@ python -c "from tensor2tensor.models.transformer import Transformer"
 **Datasets** are all standardized on `TFRecord` files with `tensorflow.Example`
 protocol buffers. All datasets are registered and generated with the
 [data
-generator](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/generator.py)
+generator](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/t2t-datagen)
 and many common sequence datasets are already available for generation and use.
 
 ### Problems and Modalities

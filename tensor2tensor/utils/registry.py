@@ -24,7 +24,7 @@ class MyModel(T2TModel):
 ```
 
 Access by snake-cased name: `registry.model("my_model")`. If you're using
-`trainer.py`, you can pass on the command-line: `--model=my_model`.
+`t2t_trainer.py`, you can pass on the command-line: `--model=my_model`.
 
 See all the models registered: `registry.list_models()`.
 
@@ -32,13 +32,13 @@ For hyperparameter sets:
   * Register: `registry.register_hparams`
   * List: `registry.list_hparams`
   * Retrieve by name: `registry.hparams`
-  * Command-line flag in `trainer.py`: `--hparams_set=name`
+  * Command-line flag in `t2t_trainer.py`: `--hparams_set=name`
 
 For hyperparameter ranges:
   * Register: `registry.register_ranged_hparams`
   * List: `registry.list_ranged_hparams`
   * Retrieve by name: `registry.ranged_hparams`
-  * Command-line flag in `trainer.py`: `--hparams_range=name`
+  * Command-line flag in `t2t_trainer.py`: `--hparams_range=name`
 """
 from __future__ import absolute_import
 from __future__ import division

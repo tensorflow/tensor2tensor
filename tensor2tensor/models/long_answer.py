@@ -34,9 +34,9 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_attention
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_attention
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -67,34 +67,35 @@ class LongAnswer(t2t_model.T2TModel):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("attention"):
-          y = dp(common_attention.multihead_attention,
-                 x,
-                 None,
-                 None,
-                 hparams.attention_key_channels or hparams.hidden_size,
-                 hparams.attention_value_channels or hparams.hidden_size,
-                 hparams.hidden_size,
-                 hparams.num_heads,
-                 hparams.attention_dropout,
-                 attention_type="local_mask_right",
-                 block_length=hparams.block_length,
-                 name="decoder_self_attention")
+          y = dp(
+              common_attention.multihead_attention,
+              x,
+              None,
+              None,
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout,
+              attention_type="local_mask_right",
+              block_length=hparams.block_length,
+              name="decoder_self_attention")
           x = dp(residual_fn, x, y)
         with tf.variable_scope("ffn"):
           if str(layer) in hparams.moe_layers.split(","):
             y, loss = common_layers.moe_layer(
                 dp, self._ps_devices, x,
                 hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
-                hparams.hidden_size,
-                hparams.moe_hidden_size, hparams.moe_n1, hparams.moe_n2,
-                hparams.moe_loss_coef)
+                hparams.hidden_size, hparams.moe_hidden_size, hparams.moe_n1,
+                hparams.moe_n2, hparams.moe_loss_coef)
             extra_loss += loss
           else:
-            y = dp(common_layers.conv_hidden_relu,
-                   x,
-                   hparams.filter_size,
-                   hparams.hidden_size,
-                   dropout=hparams.relu_dropout)
+            y = dp(
+                common_layers.conv_hidden_relu,
+                x,
+                hparams.filter_size,
+                hparams.hidden_size,
+                dropout=hparams.relu_dropout)
           x = dp(residual_fn, x, y)
     x = dp(long_answer_output, x, inputs)
     return x, extra_loss
@@ -113,7 +114,8 @@ def long_answer_prepare_decoder(inputs, targets, hparams):
   """
   decoder_input = tf.concat([
       length_embedding(targets, hparams), inputs,
-      common_layers.shift_left_3d(targets)], 1)
+      common_layers.shift_left_3d(targets)
+  ], 1)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
   return decoder_input
@@ -140,8 +142,7 @@ def length_embedding(targets, hparams):
   padded_target_length = tf.shape(targets)[1]
   if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN:
     lengths = padded_target_length * tf.to_int32(
-        tf.less(tf.random_uniform([batch]),
-                hparams.answer_length_prob_train))
+        tf.less(tf.random_uniform([batch]), hparams.answer_length_prob_train))
   elif hparams.mode == tf.contrib.learn.ModeKeys.EVAL:
     lengths = 0
   else:

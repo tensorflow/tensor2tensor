@@ -27,13 +27,12 @@ import numpy as np
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
-
 
 # var:          1d tensor, raw weights for each choice
 # tempered_var: raw weights with temperature applied
@@ -86,7 +85,7 @@ def create_selection_weights(name,
     assert len(shape) == 1
     # TODO(rshin): Change this to select without replacement?
     selection = tf.multinomial(tf.expand_dims(var, axis=0), 4)
-    selection = tf.squeeze(selection, axis=0)   # [k] selected classes.
+    selection = tf.squeeze(selection, axis=0)  # [k] selected classes.
     to_run = tf.one_hot(selection, shape[0])  # [k x nmodules] one-hot.
     # [nmodules], 0=not run, 1=run.
     to_run = tf.minimum(tf.reduce_sum(to_run, axis=0), 1)
@@ -101,16 +100,12 @@ def create_selection_weights(name,
 
   if names is not None:
     tf.get_collection_ref("selection_weight_names/" + var.name).extend(
-        names.flatten()
-        if isinstance(names, np.ndarray) else names)
+        names.flatten() if isinstance(names, np.ndarray) else names)
     tf.add_to_collection("selection_weight_names_tensor/" + var.name,
                          tf.constant(names))
 
   return SelectionWeights(
-      var=var,
-      tempered_var=tempered_var,
-      inv_t=inv_t,
-      normalized=weights)
+      var=var, tempered_var=tempered_var, inv_t=inv_t, normalized=weights)
 
 
 def kernel_premultiplier(max_kernel_size, kernel_sizes, input_channels,
@@ -155,18 +150,13 @@ def kernel_premultiplier(max_kernel_size, kernel_sizes, input_channels,
     channel_weights.append(channel_weight)
   channel_weight = tf.add_n(channel_weights)
 
-  multiplier = (tf.reshape(kernel_weight, max_kernel_size + (1, 1)) *
-                tf.reshape(channel_weight, (1, 1, -1, 1)))
+  multiplier = (tf.reshape(kernel_weight, max_kernel_size +
+                           (1, 1)) * tf.reshape(channel_weight, (1, 1, -1, 1)))
   return multiplier
 
 
-def make_subseparable_kernel(
-    kernel_size,
-    input_channels,
-    filters,
-    separability,
-    kernel_initializer,
-    kernel_regularizer):
+def make_subseparable_kernel(kernel_size, input_channels, filters, separability,
+                             kernel_initializer, kernel_regularizer):
   """Make a kernel to do subseparable convolution wiht  `tf.nn.conv2d`.
 
   Args:
@@ -198,16 +188,14 @@ def make_subseparable_kernel(
         regularizer=kernel_regularizer)
 
     pointwise_kernel = tf.get_variable(
-        "pointwise_kernel",
-        (input_channels, filters),
+        "pointwise_kernel", (input_channels, filters),
         initializer=kernel_initializer,
         regularizer=kernel_regularizer)
 
     expanded_depthwise_kernel = tf.transpose(
         tf.scatter_nd(
             indices=tf.tile(
-                tf.expand_dims(
-                    tf.range(0, input_channels), axis=1), [1, 2]),
+                tf.expand_dims(tf.range(0, input_channels), axis=1), [1, 2]),
             updates=tf.transpose(depthwise_kernel, (2, 0, 1)),
             shape=(input_channels, input_channels) + kernel_size), (2, 3, 0, 1))
 
@@ -230,21 +218,20 @@ def make_subseparable_kernel(
     raise NotImplementedError
 
 
-def multi_subseparable_conv(
-    inputs,
-    filters,
-    kernel_sizes,
-    input_channels,
-    separabilities,
-    kernel_selection_weights=None,
-    channel_selection_weights=None,
-    separability_selection_weights=None,
-    kernel_selection_weights_params=None,
-    channel_selection_weights_params=None,
-    separability_selection_weights_params=None,
-    kernel_initializer=None,
-    kernel_regularizer=None,
-    scope=None):
+def multi_subseparable_conv(inputs,
+                            filters,
+                            kernel_sizes,
+                            input_channels,
+                            separabilities,
+                            kernel_selection_weights=None,
+                            channel_selection_weights=None,
+                            separability_selection_weights=None,
+                            kernel_selection_weights_params=None,
+                            channel_selection_weights_params=None,
+                            separability_selection_weights_params=None,
+                            kernel_initializer=None,
+                            kernel_regularizer=None,
+                            scope=None):
   """Simultaneously compute different kinds of convolutions on subsets of input.
 
   Args:
@@ -299,44 +286,33 @@ def multi_subseparable_conv(
       kernel_selection_weights = create_selection_weights(
           "kernels",
           "softmax", (len(kernel_sizes),),
-          names=[
-              "kernel_h{}_w{}".format(h, w) for h, w in kernel_sizes
-          ],
+          names=["kernel_h{}_w{}".format(h, w) for h, w in kernel_sizes],
           **kernel_selection_weights_params)
 
     if channel_selection_weights is None:
       channel_selection_weights = create_selection_weights(
           "channels",
           "softmax", (len(input_channels),),
-          names=[
-              "channels_{}_{}".format(c1, c2) for c1, c2 in input_channels
-          ],
+          names=["channels_{}_{}".format(c1, c2) for c1, c2 in input_channels],
           **channel_selection_weights_params)
 
     if separability_selection_weights is None:
       separability_selection_weights = create_selection_weights(
           "separability",
           "softmax", (len(separabilities),),
-          names=[
-              "separability_{}".format(s) for s in separabilities
-          ],
+          names=["separability_{}".format(s) for s in separabilities],
           **separability_selection_weights_params)
 
   kernels = []
   for separability in separabilities:
     with tf.variable_scope("separablity_{}".format(separability)):
-      kernel = make_subseparable_kernel(
-          max_kernel_size,
-          max_num_channels,
-          filters,
-          separability,
-          kernel_initializer,
-          kernel_regularizer)
+      kernel = make_subseparable_kernel(max_kernel_size, max_num_channels,
+                                        filters, separability,
+                                        kernel_initializer, kernel_regularizer)
 
       premultiplier = kernel_premultiplier(
           max_kernel_size, kernel_sizes, input_channels,
-          kernel_selection_weights,
-          channel_selection_weights)
+          kernel_selection_weights, channel_selection_weights)
 
       kernels.append(kernel * premultiplier)
 
@@ -358,18 +334,24 @@ def multi_subseparable_conv(
 
 
 def conv_module(kw, kh, sep, div):
+
   def convfn(x, hparams):
     return common_layers.subseparable_conv(
-        x, hparams.hidden_size // div, (kw, kh),
-        padding="SAME", separability=sep,
+        x,
+        hparams.hidden_size // div, (kw, kh),
+        padding="SAME",
+        separability=sep,
         name="conv_%d%d_sep%d_div%d" % (kw, kh, sep, div))
+
   return convfn
 
 
 def multi_conv_module(kernel_sizes, seps):
+
   def convfn(x, hparams):
     return multi_subseparable_conv(x, hparams.hidden_size, kernel_sizes,
                                    [(0, hparams.hidden_size)], seps)
+
   return convfn
 
 
@@ -438,15 +420,16 @@ def run_unary_modules_basic(modules, cur, hparams):
 def run_unary_modules_sample(modules, cur, hparams, k):
   """Run modules, sampling k."""
   selection_weights = create_selection_weights(
-      "selection",
-      ("softmax_topk", k),
+      "selection", ("softmax_topk", k),
       shape=[len(modules)],
       inv_t=100.0 * common_layers.inverse_exp_decay(
           hparams.anneal_until, min_value=0.01))
-  all_res = [tf.cond(tf.less(selection_weights.normalized[n], 1e-6),
-                     lambda: tf.zeros_like(cur),
-                     lambda i=n: modules[i](cur, hparams))
-             for n in xrange(len(modules))]
+  all_res = [
+      tf.cond(
+          tf.less(selection_weights.normalized[n], 1e-6),
+          lambda: tf.zeros_like(cur),
+          lambda i=n: modules[i](cur, hparams)) for n in xrange(len(modules))
+  ]
   all_res = tf.concat([tf.expand_dims(r, axis=0) for r in all_res], axis=0)
   res = all_res * tf.reshape(selection_weights.normalized, [-1, 1, 1, 1, 1])
   return tf.reduce_sum(res, axis=0)
@@ -461,8 +444,7 @@ def run_unary_modules(modules, cur, hparams):
 def batch_deviation(x):
   """Average deviation of the batch."""
   x_mean = tf.reduce_mean(x, axis=[0], keep_dims=True)
-  x_variance = tf.reduce_mean(
-      tf.square(x - x_mean), axis=[0], keep_dims=True)
+  x_variance = tf.reduce_mean(tf.square(x - x_mean), axis=[0], keep_dims=True)
   return tf.reduce_mean(tf.sqrt(x_variance))
 
 
@@ -475,13 +457,15 @@ class BlueNet(t2t_model.T2TModel):
     multi_conv = multi_conv_module(
         kernel_sizes=[(3, 3), (5, 5), (7, 7)], seps=[0, 1])
     conv_modules = [multi_conv, identity_module]
-    activation_modules = [identity_module,
-                          lambda x, _: tf.nn.relu(x),
-                          lambda x, _: tf.nn.elu(x),
-                          lambda x, _: tf.tanh(x)]
+    activation_modules = [
+        identity_module, lambda x, _: tf.nn.relu(x), lambda x, _: tf.nn.elu(x),
+        lambda x, _: tf.tanh(x)
+    ]
     norm_modules = [identity_module, layernorm_module, noamnorm_module]
-    binary_modules = [first_binary_module, second_binary_module,
-                      sum_binary_module, shakeshake_binary_module]
+    binary_modules = [
+        first_binary_module, second_binary_module, sum_binary_module,
+        shakeshake_binary_module
+    ]
     inputs = features["inputs"]
 
     def run_unary(x, name):

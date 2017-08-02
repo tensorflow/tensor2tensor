@@ -27,9 +27,9 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_attention
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_attention
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -49,10 +49,9 @@ class Transformer(t2t_model.T2TModel):
     inputs = common_layers.flatten4d3d(inputs)
     targets = common_layers.flatten4d3d(targets)
 
-    (encoder_input,
-     encoder_self_attention_bias,
-     encoder_decoder_attention_bias) = (
-         transformer_prepare_encoder(inputs, target_space, hparams))
+    (encoder_input, encoder_self_attention_bias,
+     encoder_decoder_attention_bias) = (transformer_prepare_encoder(
+         inputs, target_space, hparams))
     (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
         targets, hparams)
 
@@ -73,12 +72,16 @@ class Transformer(t2t_model.T2TModel):
 
 def get_residual_fn(hparams):
   """Get residual_fn."""
+
   def residual_fn(x, y):
-    return common_layers.residual_fn(x, y,
-                                     hparams.norm_type,
-                                     hparams.residual_dropout,
-                                     hparams.hidden_size,
-                                     epsilon=hparams.layer_norm_epsilon)
+    return common_layers.residual_fn(
+        x,
+        y,
+        hparams.norm_type,
+        hparams.residual_dropout,
+        hparams.hidden_size,
+        epsilon=hparams.layer_norm_epsilon)
+
   return residual_fn
 
 
@@ -113,8 +116,7 @@ def transformer_prepare_encoder(inputs, target_space, hparams):
   encoder_input += emb_target_space
   if hparams.pos == "timing":
     encoder_input = common_attention.add_timing_signal_1d(encoder_input)
-  return (encoder_input,
-          encoder_self_attention_bias,
+  return (encoder_input, encoder_self_attention_bias,
           encoder_decoder_attention_bias)
 
 
@@ -251,12 +253,9 @@ def transformer_ffn_layer(x, hparams):
         dropout=hparams.relu_dropout)
   elif hparams.ffn_layer == "parameter_attention":
     return common_attention.parameter_attention(
-        x,
-        hparams.parameter_attention_key_channels or hparams.hidden_size,
+        x, hparams.parameter_attention_key_channels or hparams.hidden_size,
         hparams.parameter_attention_value_channels or hparams.hidden_size,
-        hparams.hidden_size,
-        hparams.filter_size,
-        hparams.num_heads,
+        hparams.hidden_size, hparams.filter_size, hparams.num_heads,
         hparams.attention_dropout)
   elif hparams.ffn_layer == "conv_hidden_relu_with_sepconv":
     return common_layers.conv_hidden_relu(

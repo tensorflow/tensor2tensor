@@ -24,7 +24,7 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import image  # pylint: disable=unused-import
-from tensor2tensor.models import modalities  # pylint: disable=unused-import
+from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.models import slicenet
 from tensor2tensor.utils import registry
 
@@ -47,8 +47,8 @@ class SliceNetTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = slicenet.SliceNet(
-          hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
+      model = slicenet.SliceNet(hparams, tf.contrib.learn.ModeKeys.TRAIN,
+                                p_hparams)
       sharded_logits, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())

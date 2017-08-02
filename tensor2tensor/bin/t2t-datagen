@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
@@ -15,14 +16,15 @@
 
 """Produces the training and dev data for --problem into --data_dir.
 
-generator.py produces sharded and shuffled TFRecord files of tensorflow.Example
-protocol buffers for a variety of datasets registered in this file.
+Produces sharded and shuffled TFRecord files of tensorflow.Example protocol
+buffers for a variety of registered datasets.
 
-All datasets are registered in _SUPPORTED_PROBLEM_GENERATORS. Each entry maps a
-string name (selectable on the command-line with --problem) to a function that
-takes 2 arguments - input_directory and mode (one of "train" or "dev") - and
-yields for each training example a dictionary mapping string feature names to
-lists of {string, int, float}. The generator will be run once for each mode.
+All Problems are registered with @registry.register_problem or are in
+_SUPPORTED_PROBLEM_GENERATORS in this file. Each entry maps a string name
+(selectable on the command-line with --problem) to a function that takes 2
+arguments - input_directory and mode (one of "train" or "dev") - and yields for
+each training example a dictionary mapping string feature names to lists of
+{string, int, float}. The generator will be run once for each mode.
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -228,8 +230,7 @@ def generate_data_for_problem(problem):
     num_shards = FLAGS.num_shards or 10
     tf.logging.info("Generating training data for %s.", problem)
     train_output_files = generator_utils.train_data_filenames(
-        problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
-        num_shards)
+        problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, num_shards)
     generator_utils.generate_files(training_gen(), train_output_files,
                                    FLAGS.max_cases)
     tf.logging.info("Generating development data for %s.", problem)
@@ -249,9 +250,10 @@ def generate_data_for_registered_problem(problem_name):
     raise ValueError("--num_shards should not be set for registered Problem.")
   problem = registry.problem(problem_name)
   task_id = None if FLAGS.task_id < 0 else FLAGS.task_id
-  problem.generate_data(os.path.expanduser(FLAGS.data_dir),
-                        os.path.expanduser(FLAGS.tmp_dir),
-                        task_id=task_id)
+  problem.generate_data(
+      os.path.expanduser(FLAGS.data_dir),
+      os.path.expanduser(FLAGS.tmp_dir),
+      task_id=task_id)
 
 
 if __name__ == "__main__":

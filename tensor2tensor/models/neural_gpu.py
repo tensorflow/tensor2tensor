@@ -23,8 +23,8 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -34,6 +34,7 @@ import tensorflow as tf
 def neural_gpu(inputs, hparams, name=None):
   """The core Neural GPU."""
   with tf.variable_scope(name, "neural_gpu"):
+
     def step(state, inp):  # pylint: disable=missing-docstring
       x = tf.nn.dropout(state, 1.0 - hparams.dropout)
       for layer in xrange(hparams.num_hidden_layers):

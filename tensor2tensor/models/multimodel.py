@@ -22,10 +22,10 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_attention
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
-from tensor2tensor.models import modalities
+from tensor2tensor.layers import common_attention
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.models import slicenet
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -41,12 +41,22 @@ def conv_res_step(x, hparams, padding, mask):
   dilations_and_kernels2 = [((1, 1), k2), ((4, 4), k2)]
   with tf.variable_scope("conv_res_step"):
     y = common_layers.subseparable_conv_block(
-        x, hparams.filter_size, dilations_and_kernels1,
-        padding=padding, mask=mask, separabilities=0, name="residual1")
+        x,
+        hparams.filter_size,
+        dilations_and_kernels1,
+        padding=padding,
+        mask=mask,
+        separabilities=0,
+        name="residual1")
     y = tf.nn.dropout(y, 1.0 - hparams.dropout)
     return common_layers.subseparable_conv_block(
-        y, hparams.hidden_size, dilations_and_kernels2,
-        padding=padding, mask=mask, separabilities=0, name="residual2")
+        y,
+        hparams.hidden_size,
+        dilations_and_kernels2,
+        padding=padding,
+        mask=mask,
+        separabilities=0,
+        name="residual2")
 
 
 def residual_fn2(x, y, hparams):
@@ -102,9 +112,9 @@ class MultiModel(t2t_model.T2TModel):
     expert_loss = 0.0
     for i in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("enc_layer_%d" % i):
-        inputs_encoded, moe_loss = conv_experts(
-            inputs_encoded, hparams, dp, self._ps_devices, "SAME",
-            inputs_mask, i)
+        inputs_encoded, moe_loss = conv_experts(inputs_encoded, hparams, dp,
+                                                self._ps_devices, "SAME",
+                                                inputs_mask, i)
         expert_loss += tf.reduce_mean(moe_loss) * hparams.moe_loss_coef
 
     # If we're just predicing a class, there is no use for a decoder, return.
@@ -116,54 +126,57 @@ class MultiModel(t2t_model.T2TModel):
     inputs3d = dp(tf.squeeze, inputs, 2)
     inputs_encoded3d = dp(tf.squeeze, inputs_encoded, 2)
     encoder_padding = dp(common_attention.embedding_to_padding, inputs3d)
-    encoder_attention_bias = dp(
-        common_attention.attention_bias_ignore_padding, encoder_padding)
+    encoder_attention_bias = dp(common_attention.attention_bias_ignore_padding,
+                                encoder_padding)
     targets = dp(common_layers.flatten4d3d, sharded_features["targets"])
     target_space_emb = dp(slicenet.embed_target_space,
                           sharded_features["target_space_id"],
                           hparams.hidden_size)
 
-    (decoder_input, decoder_self_attention_bias) = dp(
-        prepare_decoder, targets, target_space_emb)
+    (decoder_input, decoder_self_attention_bias) = dp(prepare_decoder, targets,
+                                                      target_space_emb)
 
     x = dp(tf.nn.dropout, decoder_input, 1.0 - hparams.dropout)
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("dec_layer_%d" % layer):
         with tf.variable_scope("attention"):
-          y = dp(common_attention.multihead_attention,
-                 x,
-                 None,
-                 decoder_self_attention_bias,
-                 hparams.hidden_size,
-                 hparams.hidden_size,
-                 hparams.hidden_size,
-                 hparams.num_heads,
-                 hparams.attention_dropout,
-                 name="decoder_self_attention")
-          z = dp(common_attention.multihead_attention,
-                 y,
-                 inputs_encoded3d,
-                 encoder_attention_bias,
-                 hparams.hidden_size,
-                 hparams.hidden_size,
-                 hparams.hidden_size,
-                 hparams.num_heads,
-                 hparams.attention_dropout,
-                 name="encdec_attention")
+          y = dp(
+              common_attention.multihead_attention,
+              x,
+              None,
+              decoder_self_attention_bias,
+              hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout,
+              name="decoder_self_attention")
+          z = dp(
+              common_attention.multihead_attention,
+              y,
+              inputs_encoded3d,
+              encoder_attention_bias,
+              hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout,
+              name="encdec_attention")
           x = dp(residual_fn3, x, y, z, hparams)
         with tf.variable_scope("ffn"):
           if str(layer) in hparams.moe_layers.split(","):
             y, moe_loss = common_layers.moe_layer(
-                dp, self._ps_devices, x, train,
-                hparams.hidden_size, hparams.filter_size,
-                hparams.moe_n1, hparams.moe_n2, hparams.moe_loss_coef)
+                dp, self._ps_devices, x, train, hparams.hidden_size,
+                hparams.filter_size, hparams.moe_n1, hparams.moe_n2,
+                hparams.moe_loss_coef)
             expert_loss += tf.reduce_mean(moe_loss)
           else:
-            y = dp(common_layers.conv_hidden_relu,
-                   x,
-                   hparams.filter_size,
-                   hparams.hidden_size,
-                   dropout=hparams.dropout)
+            y = dp(
+                common_layers.conv_hidden_relu,
+                x,
+                hparams.filter_size,
+                hparams.hidden_size,
+                dropout=hparams.dropout)
           x = dp(residual_fn2, x, y, hparams)
 
     x = dp(tf.expand_dims, x, 2)
