@@ -179,30 +179,6 @@ def preprocessing(examples, data_file_pattern, mode):
   return examples
 
 
-def problem_input_pipeline(problem, data_file_pattern, capacity, mode):
-  """Input pipeline for Problems."""
-  data_fields, data_items_to_decoders = problem.example_reading_spec()
-
-  # Create placeholders for input, rather than reading data from disk.
-  if data_file_pattern is None:
-    return feature_placeholders(data_fields)
-
-  # Now the non-trivial case construction.
-  examples = examples_reader(
-      [data_file_pattern],
-      data_fields,
-      training=(mode == tf.contrib.learn.ModeKeys.TRAIN),
-      capacity=capacity,
-      data_items_to_decoders=data_items_to_decoders)
-
-  examples = problem.preprocess_examples(examples, mode)
-
-  # We do not want int64s as they are not supported on GPUs.
-  examples = cast_int64_to_int32(examples)
-
-  return examples
-
-
 def cast_int64_to_int32(features):
   f = {}
   for k, v in six.iteritems(features):
@@ -221,19 +197,10 @@ def feature_placeholders(data_fields):
   return feature_map
 
 
-def input_pipeline(problem, data_file_pattern, capacity, mode):
-  """Input pipeline, returns a dictionary of tensors from queues."""
-
-  if problem is not None:
-    # problem is not None when the problem is specified with the Problem API,
-    # which handles Example decoding and preprocessing.
-    # Otherwise the problem is specified in problem_hparams and is dealt with
-    # below.
-    # As problems are ported to the Problem API, the special handling here will
-    # need to be moved to Problem.example_reading_spec and
-    # Problem.preprocessing.
-    return problem_input_pipeline(problem, data_file_pattern, capacity, mode)
-
+def default_example_reading_spec(data_file_pattern):
+  """Example reading spec for problem_hparams problems."""
+  # This function is for problems that have yet to be ported to the new Problem
+  # API. Do not add here.
   data_items_to_decoders = None
   # Read from image TFRecords if the file has "image" in its name.
   if data_file_pattern and "image" in data_file_pattern:
@@ -267,12 +234,21 @@ def input_pipeline(problem, data_file_pattern, capacity, mode):
         "inputs": tf.VarLenFeature(tf.int64),
         "targets": tf.VarLenFeature(tf.int64)
     }
+  return data_fields, data_items_to_decoders
 
-  # Create placeholders for input, rather than reading data from disk.
+
+def input_pipeline(problem, data_file_pattern, capacity, mode):
+  """Input pipeline, returns a dictionary of tensors from queues."""
+  if problem is None:
+    data_fields, data_items_to_decoders = default_example_reading_spec(
+        data_file_pattern)
+  else:
+    data_fields, data_items_to_decoders = problem.example_reading_spec()
+
   if data_file_pattern is None:
+    # Create placeholders for input, rather than reading data from disk.
     return feature_placeholders(data_fields)
 
-  # Now the non-trivial case construction.
   examples = examples_reader(
       [data_file_pattern],
       data_fields,
@@ -280,10 +256,14 @@ def input_pipeline(problem, data_file_pattern, capacity, mode):
       capacity=capacity,
       data_items_to_decoders=data_items_to_decoders)
 
-  examples = preprocessing(examples, data_file_pattern, mode)
+  if problem is None:
+    examples = preprocessing(examples, data_file_pattern, mode)
+  else:
+    examples = problem.preprocess_examples(examples, mode)
 
   # We do not want int64s as they are not supported on GPUs.
   examples = cast_int64_to_int32(examples)
+
   return examples
 
 
