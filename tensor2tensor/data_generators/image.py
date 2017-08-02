@@ -36,9 +36,187 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.models import common_layers
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
+
+class ImageProblem(problem.Problem):
+
+  def example_reading_spec(self, label_key=None):
+    if label_key is None:
+      label_key = "image/class/label"
+
+    data_fields = {
+        "image/encoded": tf.FixedLenFeature((), tf.string),
+        "image/format": tf.FixedLenFeature((), tf.string),
+        label_key: tf.VarLenFeature(tf.int64)
+    }
+    data_items_to_decoders = {
+        "inputs":
+            tf.contrib.slim.tfexample_decoder.Image(
+                image_key="image/encoded",
+                format_key="image/format",
+                channels=3),
+        "targets":
+            tf.contrib.slim.tfexample_decoder.Tensor(label_key),
+    }
+
+    return data_fields, data_items_to_decoders
+
+
+# French street names dataset.
+
+
+@registry.register_problem
+class ImageFSNS(ImageProblem):
+  """Problem spec for French Street Name recognition."""
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    list_url = ("https://raw.githubusercontent.com/tensorflow/models/master/"
+                "street/python/fsns_urls.txt")
+    fsns_urls = generator_utils.maybe_download(
+        tmp_dir, "fsns_urls.txt", list_url)
+    fsns_files = [f.strip() for f in open(fsns_urls, "r")
+                  if f.startswith("http://")]
+    for url in fsns_files:
+      if "/train/train" in url:
+        generator_utils.maybe_download(
+            data_dir, "image_fsns-train" + url[-len("-00100-of-00512"):], url)
+      elif "/validation/validation" in url:
+        generator_utils.maybe_download(
+            data_dir, "image_fsns-dev" + url[-len("-00100-of-00512"):], url)
+      elif "charset" in url:
+        generator_utils.maybe_download(
+            data_dir, "charset_size134.txt", url)
+
+  def feature_encoders(self, data_dir):
+    # This vocab file must be present within the data directory.
+    vocab_filename = os.path.join(data_dir, "charset_size134.txt")
+    return {
+        "inputs": text_encoder.TextEncoder(),
+        "targets": text_encoder.SubwordTextEncoder(vocab_filename)
+    }
+
+  def hparams(self, defaults, model_hparams):
+    p = defaults
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    vocab_size = self._encoders["targets"].vocab_size
+    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
+    p.batch_size_multiplier = 256
+    p.max_expected_batch_size_per_shard = 2
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = problem.SpaceID.EN_TOK
+
+  def example_reading_spec(self):
+    label_key = "image/unpadded_label"
+    return super(ImageFSNS, self).example_reading_spec(self,
+                                                       label_key=label_key)
+
+
+class Image2ClassProblem(ImageProblem):
+  """Base class for image classification problems."""
+
+  @property
+  def is_small(self):
+    raise NotImplementedError()
+
+  @property
+  def num_classes(self):
+    raise NotImplementedError()
+
+  @property
+  def train_shards(self):
+    raise NotImplementedError()
+
+  @property
+  def dev_shards(self):
+    return 1
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    raise NotImplementedError()
+
+  def hparams(self, defaults, model_hparams):
+    p = defaults
+    small_modality = "%s:small_image_modality" % registry.Modalities.IMAGE
+    modality = small_modality if self.is_small else registry.Modalities.IMAGE
+    p.input_modality = {"inputs": (modality, None)}
+    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
+    p.batch_size_multiplier = 4 if self.is_small else 256
+    p.max_expected_batch_size_per_shard = 8 if self.is_small else 2
+    p.loss_multiplier = 3.0 if self.is_small else 1.0
+    if self._was_reversed:
+      p.loss_multiplier = 1.0
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = problem.SpaceID.IMAGE_LABEL
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    generator_utils.generate_dataset_and_shuffle(
+        self.generator(data_dir, tmp_dir, True),
+        self.training_filepaths(data_dir, self.train_shards, shuffled=False),
+        self.generator(data_dir, tmp_dir, False),
+        self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
+
+
+def imagenet_preprocess_examples(examples, mode):
+  """Preprocessing used for Imagenet and similar problems."""
+  def preprocess(img):
+    img = tf.image.resize_images(img, [360, 360])
+    img = common_layers.image_augmentation(tf.to_float(img) / 255.)
+    return tf.to_int64(img * 255.)
+
+  def resize(img):
+    return tf.to_int64(tf.image.resize_images(img, [299, 299]))
+
+  inputs = tf.cast(examples["inputs"], tf.int64)
+  if mode == tf.contrib.learn.ModeKeys.TRAIN:
+    examples["inputs"] = tf.cond(  # Preprocess 90% of the time.
+        tf.less(tf.random_uniform([]), 0.9),
+        lambda img=inputs: preprocess(img),
+        lambda img=inputs: resize(img))
+  else:
+    examples["inputs"] = resize(inputs)
+  return examples
+
+
+@registry.register_problem
+class ImageImagenet(Image2ClassProblem):
+  """Imagenet."""
+
+  @property
+  def is_small(self):
+    return False
+
+  @property
+  def num_classes(self):
+    return 1000
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    # TODO(lukaszkaiser): find a better way than printing this.
+    print("To generate the ImageNet dataset in the proper format, follow "
+          "instructions at https://github.com/tensorflow/models/blob/master"
+          "/inception/README.md#getting-started")
+
+  def preprocess_examples(self, examples, mode):
+    return imagenet_preprocess_examples(examples, mode)
+
+
+@registry.register_problem
+class ImageImagenet32(Image2ClassProblem):
+  """Imagenet rescaled to 32x32."""
+
+  def dataset_filename(self):
+    return "image_imagenet"  # Reuse Imagenet data.
+
+  @property
+  def is_small(self):
+    return True  # Modalities like for CIFAR.
+
+  def preprocess_examples(self, examples, mode):
+    examples = imagenet_preprocess_examples(examples, mode)
+    examples["inputs"] = tf.to_int64(tf.image.resize_images(
+        examples["inputs"], [32, 32]))
 
 
 def image_generator(images, labels):
@@ -158,6 +336,39 @@ def mnist_generator(tmp_dir, training, how_many, start_from=0):
                          labels[start_from:start_from + how_many])
 
 
+@registry.register_problem
+class ImageMnistTune(Image2ClassProblem):
+  """MNIST, tuning data."""
+
+  @property
+  def is_small(self):
+    return True
+
+  @property
+  def num_classes(self):
+    return 10
+
+  @property
+  def train_shards(self):
+    return 10
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return mnist_generator(tmp_dir, True, 55000)
+    else:
+      return mnist_generator(tmp_dir, True, 5000, 55000)
+
+
+@registry.register_problem
+class ImageMnist(ImageMnistTune):
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return mnist_generator(tmp_dir, True, 60000)
+    else:
+      return mnist_generator(tmp_dir, False, 10000)
+
+
 # URLs and filenames for CIFAR data.
 _CIFAR10_URL = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
 _CIFAR10_PREFIX = "cifar-10-batches-py/"
@@ -206,6 +417,39 @@ def cifar10_generator(tmp_dir, training, how_many, start_from=0):
     all_labels.extend([labels[j] for j in xrange(num_images)])
   return image_generator(all_images[start_from:start_from + how_many],
                          all_labels[start_from:start_from + how_many])
+
+
+@registry.register_problem
+class ImageCifar10Tune(ImageMnistTune):
+
+  def preprocess_examples(self, examples, mode):
+    if mode == tf.contrib.learn.ModeKeys.TRAIN:
+      examples["inputs"] = common_layers.cifar_image_augmentation(
+          examples["inputs"])
+    return examples
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return cifar10_generator(tmp_dir, True, 48000)
+    else:
+      return cifar10_generator(tmp_dir, True, 2000, 48000)
+
+
+@registry.register_problem
+class ImageCifar10(ImageCifar10Tune):
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return cifar10_generator(tmp_dir, True, 50000)
+    else:
+      return cifar10_generator(tmp_dir, False, 10000)
+
+
+@registry.register_problem
+class ImageCifar10Plain(ImageCifar10):
+
+  def preprocess_examples(self, examples, mode):
+    return examples
 
 
 # URLs and filenames for MSCOCO data.
@@ -308,77 +552,135 @@ def mscoco_generator(data_dir,
         }
 
 
-class ImageProblem(problem.Problem):
+class Image2TextProblem(ImageProblem):
+  """Base class for image-to-text problems."""
 
-  def example_reading_spec(self, label_key=None):
-    if label_key is None:
-      label_key = "image/class/label"
+  @property
+  def is_character_level(self):
+    raise NotImplementedError()
 
-    data_fields = {
-        "image/encoded": tf.FixedLenFeature((), tf.string),
-        "image/format": tf.FixedLenFeature((), tf.string),
-        label_key: tf.VarLenFeature(tf.int64)
-    }
-    data_items_to_decoders = {
-        "inputs":
-            tf.contrib.slim.tfexample_decoder.Image(
-                image_key="image/encoded",
-                format_key="image/format",
-                channels=3),
-        "targets":
-            tf.contrib.slim.tfexample_decoder.Tensor(label_key),
-    }
+  @property
+  def targeted_vocab_size(self):
+    raise NotImplementedError()  # Not needed if self.is_character_level.
 
-    return data_fields, data_items_to_decoders
+  @property
+  def target_space_id(self):
+    raise NotImplementedError()
 
-# French street names dataset.
+  @property
+  def train_shards(self):
+    raise NotImplementedError()
 
+  @property
+  def dev_shards(self):
+    raise NotImplementedError()
 
-@registry.register_problem
-class ImageFSNS(ImageProblem):
-  """Problem spec for French Street Name recognition."""
+  def generator(self, data_dir, tmp_dir, is_training):
+    raise NotImplementedError()
 
-  def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    list_url = ("https://raw.githubusercontent.com/tensorflow/models/master/"
-                "street/python/fsns_urls.txt")
-    fsns_urls = generator_utils.maybe_download(
-        tmp_dir, "fsns_urls.txt", list_url)
-    fsns_files = [f.strip() for f in open(fsns_urls, "r")
-                  if f.startswith("http://")]
-    for url in fsns_files:
-      if "/train/train" in url:
-        generator_utils.maybe_download(
-            data_dir, "image_fsns-train" + url[-len("-00100-of-00512"):], url)
-      elif "/validation/validation" in url:
-        generator_utils.maybe_download(
-            data_dir, "image_fsns-dev" + url[-len("-00100-of-00512"):], url)
-      elif "charset" in url:
-        generator_utils.maybe_download(
-            data_dir, "charset_size134.txt", url)
+  def feature_encoders(self, data_dir):
+    if self.is_character_level:
+      encoder = text_encoder.ByteTextEncoder()
+    else:
+      vocab_filename = os.path.join(
+          data_dir, "vocab.endefr.%d" % self.targeted_vocab_size)
+      encoder = text_encoder.SubwordTextEncoder(vocab_filename)
+    return {"targets": encoder}
 
   def hparams(self, defaults, model_hparams):
     p = defaults
     p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
-    # This vocab file must be present within the data directory.
-    vocab_filename = os.path.join(model_hparams.data_dir, "charset_size134.txt")
-    subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
-    p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
-    p.vocabulary = {
-        "inputs": text_encoder.TextEncoder(),
-        "targets": subtokenizer,
-    }
+    encoder = self._encoders["targets"]
+    p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 2
-    vocab_size = 144
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
-    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
-    p.input_space_id = problem.SpaceID.DIGIT_0
-    p.target_space_id = problem.SpaceID.DIGIT_1
+    p.loss_multiplier = 1.0
+    p.input_space_id = problem.SpaceID.IMAGE
+    p.target_space_id = self.target_space_id
 
-  def example_reading_spec(self):
-    label_key = "image/unpadded_label"
-    return super(ImageFSNS, self).example_reading_spec(self,
-                                                       label_key=label_key)
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    generator_utils.generate_dataset_and_shuffle(
+        self.generator(data_dir, tmp_dir, True),
+        self.training_filepaths(data_dir, self.train_shards, shuffled=False),
+        self.generator(data_dir, tmp_dir, False),
+        self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
+
+
+@registry.register_problem
+class ImageMsCocoCharacters(Image2TextProblem):
+  """MSCOCO, character level."""
+
+  @property
+  def is_character_level(self):
+    return True
+
+  @property
+  def target_space_id(self):
+    return problem.SpaceID.EN_CHR
+
+  @property
+  def train_shards(self):
+    return 100
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def preprocess_examples(self, examples, mode):
+    return imagenet_preprocess_examples(examples, mode)
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return mscoco_generator(data_dir, tmp_dir, True, 80000)
+    else:
+      return mscoco_generator(data_dir, tmp_dir, False, 40000)
+    raise NotImplementedError()
+
+
+@registry.register_problem
+class ImageMsCocoTokens8k(ImageMsCocoCharacters):
+  """MSCOCO, 8k tokens vocab."""
+
+  @property
+  def is_character_level(self):
+    return False
+
+  @property
+  def targeted_vocab_size(self):
+    return 2**13  # 8192
+
+  @property
+  def target_space_id(self):
+    return problem.SpaceID.EN_TOK
+
+  @property
+  def train_shards(self):
+    return 100
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    vocab_filename = "vocab.endefr.%d" % self.targeted_vocab_size
+    if is_training:
+      return mscoco_generator(
+          data_dir, tmp_dir, True, 80000,
+          vocab_filename=vocab_filename, vocab_size=self.targeted_vocab_size)
+    else:
+      return mscoco_generator(
+          data_dir, tmp_dir, False, 40000,
+          vocab_filename=vocab_filename, vocab_size=self.targeted_vocab_size)
+
+
+@registry.register_problem
+class ImageMsCocoTokens32k(ImageMsCocoTokens8k):
+  """MSCOCO, 32k tokens vocab."""
+
+  @property
+  def targeted_vocab_size(self):
+    return 2**15  # 32768
+
 
 # URL and filename for CELEBA data.
 _CELEBA_NAME = "img_align_celeba"

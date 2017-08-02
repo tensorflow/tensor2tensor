@@ -94,8 +94,9 @@ class ModelRegistryTest(tf.test.TestCase):
     convert = registry._convert_camel_to_snake
 
     self.assertEqual("typical_camel_case", convert("TypicalCamelCase"))
-    self.assertEqual("numbers_fuse2gether", convert("NumbersFuse2Gether"))
-    self.assertEqual("lstm_seq2seq", convert("LSTMSeq2Seq"))
+    self.assertEqual("numbers_fuse2gether", convert("NumbersFuse2gether"))
+    self.assertEqual("numbers_fuse2_gether", convert("NumbersFuse2Gether"))
+    self.assertEqual("lstm_seq2_seq", convert("LSTMSeq2Seq"))
     self.assertEqual("starts_lower", convert("startsLower"))
     self.assertEqual("starts_lower_caps", convert("startsLowerCAPS"))
     self.assertEqual("caps_fuse_together", convert("CapsFUSETogether"))

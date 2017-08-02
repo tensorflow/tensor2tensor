@@ -48,8 +48,6 @@ def problem_hparams(problem_name, model_hparams):
   p = _lookup_problem_hparams_fn(base_name)(model_hparams)
   if was_reversed:
     _reverse_problem_hparams(p)
-    if "image_cifar10" in base_name:
-      p.loss_multiplier = 1.
   if was_copy:
     _copy_problem_hparams(p)
   return p
@@ -509,86 +507,6 @@ def ice_parsing_tokens(model_hparams, wrong_source_vocab_size):
   return p
 
 
-def image_cifar10(unused_model_hparams):
-  """CIFAR-10."""
-  p = default_problem_hparams()
-  p.input_modality = {
-      "inputs": ("%s:small_image_modality" % registry.Modalities.IMAGE, None)
-  }
-  p.target_modality = (registry.Modalities.CLASS_LABEL, 10)
-  p.batch_size_multiplier = 4
-  p.max_expected_batch_size_per_shard = 8
-  p.loss_multiplier = 3.0
-  p.input_space_id = 1
-  p.target_space_id = 1
-  return p
-
-
-def image_mnist(unused_model_hparams):
-  """MNIST."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
-  p.target_modality = (registry.Modalities.CLASS_LABEL, 10)
-  p.batch_size_multiplier = 4
-  p.max_expected_batch_size_per_shard = 8
-  p.loss_multiplier = 3.0
-  p.input_space_id = 1
-  p.target_space_id = 1
-  return p
-
-
-def image_imagenet(model_hparams):
-  """ImageNet."""
-  p = default_problem_hparams()
-  p.input_modality = {
-      "inputs": (registry.Modalities.IMAGE, None),
-  }
-  target_modality = ("%s:class_label_2d" % registry.Modalities.CLASS_LABEL
-                     if model_hparams.imagenet_use_2d else
-                     registry.Modalities.CLASS_LABEL)
-  p.target_modality = (target_modality, 1000)
-  p.batch_size_multiplier = 256
-  p.max_expected_batch_size_per_shard = 2
-  p.loss_multiplier = 0.7
-  p.input_space_id = 1
-  p.target_space_id = 1
-  return p
-
-
-def image_mscoco_characters(unused_model_hparams):
-  """COCO image captioning with captions as characters."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
-  p.target_modality = (registry.Modalities.SYMBOL, 256)
-  p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(),
-      "targets": text_encoder.ByteTextEncoder(),
-  }
-  p.batch_size_multiplier = 128
-  p.max_expected_batch_size_per_shard = 2
-  p.loss_multiplier = 2.0
-  p.input_space_id = 1
-  p.target_space_id = 2
-  return p
-
-
-def image_mscoco_tokens(model_hparams, vocab_count):
-  """COCO image captioning with captions as tokens."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
-  # This vocab file must be present within the data directory.
-  vocab_filename = os.path.join(model_hparams.data_dir,
-                                "vocab.endefr.%d" % vocab_count)
-  subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
-  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
-  p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(),
-      "targets": subtokenizer,
-  }
-  p.batch_size_multiplier = 256
-  p.max_expected_batch_size_per_shard = 2
-
-
 def img2img_imagenet(unused_model_hparams):
   """Image 2 Image for imagenet dataset."""
   p = default_problem_hparams()
@@ -633,15 +551,6 @@ PROBLEM_HPARAMS_MAP = {
     "wsj_parsing_tokens_16k": lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda
         p, "wsj", 2**14, 2**9),
     "wmt_ende_bpe32k": wmt_ende_bpe32k,
-    "image_cifar10_tune": image_cifar10,
-    "image_cifar10_test": image_cifar10,
-    "image_mnist_tune": image_mnist,
-    "image_mnist_test": image_mnist,
     "image_celeba_tune": image_celeba,
-    "image_mscoco_characters_tune": image_mscoco_characters,
-    "image_mscoco_characters_test": image_mscoco_characters,
-    "image_mscoco_tokens_8k_test": lambda p: image_mscoco_tokens(p, 2**13),
-    "image_mscoco_tokens_32k_test": lambda p: image_mscoco_tokens(p, 2**15),
-    "image_imagenet": image_imagenet,
     "img2img_imagenet": img2img_imagenet,
 }

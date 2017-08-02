@@ -57,8 +57,11 @@ class Transformer(t2t_model.T2TModel):
         targets, hparams)
 
     def residual_fn(x, y):
-      return common_layers.layer_norm(x + tf.nn.dropout(
-          y, 1.0 - hparams.residual_dropout))
+      return common_layers.residual_fn(x, y,
+                                       hparams.norm_type,
+                                       hparams.residual_dropout,
+                                       hparams.hidden_size,
+                                       epsilon=hparams.layer_norm_epsilon)
 
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
     decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
@@ -267,6 +270,7 @@ def transformer_ffn_layer(x, hparams):
 def transformer_base():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
+  hparams.norm_type = "layer"
   hparams.hidden_size = 512
   hparams.batch_size = 4096
   hparams.max_length = 256

@@ -67,7 +67,7 @@ class TrainerUtilsTest(tf.test.TestCase):
 
   def testModelsImported(self):
     models = registry.list_models()
-    self.assertTrue("baseline_lstm_seq2seq" in models)
+    self.assertTrue("lstm_seq2seq" in models)
 
   def testHParamsImported(self):
     hparams = registry.list_hparams()

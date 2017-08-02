@@ -426,7 +426,7 @@ class WMTEnDeCharacters(WMTProblem):
   def is_character_level(self):
     return True
 
-  def train_generator(self, tmp_dir, train):
+  def train_generator(self, _, tmp_dir, train):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
     tag = "train" if train else "dev"

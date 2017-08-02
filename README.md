@@ -89,7 +89,7 @@ t2t-datagen \
   --problem=$PROBLEM
 
 # Train
-# *  If you run out of memory, add --hparams='batch_size=2048' or even 1024.
+# *  If you run out of memory, add --hparams='batch_size=1024'.
 t2t-trainer \
   --data_dir=$DATA_DIR \
   --problems=$PROBLEM \
@@ -166,7 +166,7 @@ python -c "from tensor2tensor.models.transformer import Transformer"
   with `Modality` objects, which are specified per-feature in the dataset/task
   specification.
 * Support for multi-GPU machines and synchronous (1 master, many workers) and
-  asynchrounous (independent workers synchronizing through a parameter server)
+  asynchronous (independent workers synchronizing through a parameter server)
   [distributed training](https://github.com/tensorflow/tensor2tensor/tree/master/docs/distributed_training.md).
 * Easily swap amongst datasets and models by command-line flag with the data
   generation script `t2t-datagen` and the training script `t2t-trainer`.

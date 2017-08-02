@@ -410,10 +410,13 @@ class T2TModel(object):
     # Construct the model body.
     with tf.variable_scope("body", reuse=self._problem_idx > 0):
       if skip:
-        body_outputs, extra_loss = transformed_features["targets"], 0.0
+        body_outputs = transformed_features["targets"]
+        losses = {"extra": 0.0}
       else:
-        body_outputs, extra_loss = self.model_fn_body_sharded(
+        body_outputs, losses = self.model_fn_body_sharded(
             transformed_features)
+        if isinstance(losses, tf.Tensor):  # If it's a single extra loss.
+          losses = {"extra": losses}
 
     with tf.variable_scope(target_modality.name, reuse=target_reuse):
       if not last_position_only:
@@ -440,7 +443,8 @@ class T2TModel(object):
         training_loss = None
 
     tf.logging.info("This model_fn took %.3f sec." % (time.time() - start_time))
-    return sharded_logits, {"training": training_loss, "extra": extra_loss}
+    losses["training"] = training_loss
+    return sharded_logits, losses
 
   def model_fn_body_sharded(self, sharded_features):
     """Mixture-of-experts models will override this function.
@@ -465,10 +469,10 @@ class T2TModel(object):
           _with_timing(self.model_fn_body, "model_fn_body"),
           datashard_to_features)
       if isinstance(output, tuple):
-        loss = tf.reduce_mean(output[1])
+        loss = {"extra": tf.reduce_mean(output[1])}
         output = output[0]
       else:
-        loss = 0.0
+        loss = {"extra": 0.0}
       return output, loss
 
   def model_fn_body(self, features):

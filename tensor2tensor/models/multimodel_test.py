@@ -23,8 +23,9 @@ from __future__ import print_function
 
 import numpy as np
 
-from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.data_generators import image  # pylint: disable=unused-import
 from tensor2tensor.models import multimodel
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -32,10 +33,12 @@ import tensorflow as tf
 class MultiModelTest(tf.test.TestCase):
 
   def testMultiModel(self):
-    x = np.random.random_integers(0, high=255, size=(3, 5, 4, 3))
+    x = np.random.random_integers(0, high=255, size=(3, 5, 5, 3))
     y = np.random.random_integers(0, high=9, size=(3, 5, 1, 1))
     hparams = multimodel.multimodel_tiny()
-    p_hparams = problem_hparams.image_cifar10(hparams)
+    hparams.add_hparam("data_dir", "")
+    problem = registry.problem("image_cifar10")
+    p_hparams = problem.internal_hparams(hparams)
     hparams.problems = [p_hparams]
     with self.test_session() as session:
       features = {

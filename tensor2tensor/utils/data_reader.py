@@ -27,7 +27,6 @@ import six
 from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models import common_layers
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -127,35 +126,15 @@ def examples_reader(data_sources,
     return decode_record(example_serialized)
 
 
-def preprocessing(examples, data_file_pattern, mode):
+def preprocessing(examples, data_file_pattern):
   """Preprocessing of examples."""
+  # This function is for obsolete problems only, as we're porting them
+  # all to the Problem class and its preprocess_examples method. Don't add.
   if "image" in data_file_pattern:
-    # Small single-example pre-processing for images.
     def resize(img, size):
       return tf.to_int64(tf.image.resize_images(img, [size, size]))
 
-    def preprocess(img):
-      img = tf.image.resize_images(img, [360, 360])
-      img = common_layers.image_augmentation(tf.to_float(img) / 255.)
-      return tf.to_int64(img * 255.)
-
-    if ("image_imagenet" in data_file_pattern or
-        "image_mscoco" in data_file_pattern):
-      examples["inputs"] = tf.cast(examples["inputs"], tf.int64)
-      # For imagnet/coco, resize images to 299x299 as is standard.
-      inputs = examples["inputs"]
-      if mode == tf.contrib.learn.ModeKeys.TRAIN:
-        examples["inputs"] = tf.cond(  # Preprocess 80% of the time.
-            tf.less(tf.random_uniform([]), 0.8),
-            lambda img=inputs: preprocess(img),
-            lambda img=inputs: resize(img, 299))
-      else:
-        examples["inputs"] = tf.to_int64(resize(inputs, 299))
-    elif ("image_cifar10" in data_file_pattern and
-          mode == tf.contrib.learn.ModeKeys.TRAIN):
-      examples["inputs"] = common_layers.cifar_image_augmentation(
-          examples["inputs"])
-    elif "img2img" in data_file_pattern:
+    if "img2img" in data_file_pattern:
       inputs = examples["inputs"]
       examples["inputs"] = resize(inputs, 16)
       examples["targets"] = resize(inputs, 64)
@@ -163,7 +142,6 @@ def preprocessing(examples, data_file_pattern, mode):
       inputs = examples["inputs"]
       examples["inputs"] = resize(inputs, 8)
       examples["targets"] = resize(inputs, 32)
-
   elif "audio" in data_file_pattern:
     # Reshape audio to proper shape
     sample_count = tf.to_int32(examples.pop("audio/sample_count"))
@@ -205,8 +183,6 @@ def default_example_reading_spec(data_file_pattern):
   # Read from image TFRecords if the file has "image" in its name.
   if data_file_pattern and "image" in data_file_pattern:
     label_key = "image/class/label"
-    if "fsns" in data_file_pattern:
-      label_key = "image/unpadded_label"
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
@@ -257,7 +233,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams):
       data_items_to_decoders=data_items_to_decoders)
 
   if problem is None:
-    examples = preprocessing(examples, data_file_pattern, mode)
+    examples = preprocessing(examples, data_file_pattern)
   else:
     examples = problem.preprocess_examples(examples, mode, hparams)
 

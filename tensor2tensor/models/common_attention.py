@@ -358,23 +358,33 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
-def masked_local_attention_1d(
-    q, k, v, block_length=128, name=None):
-  """Attention to the source position and a neigborhood to the left of it.
+def masked_local_attention_1d(q, k, v,
+                              block_length=128, look_right=True,
+                              use_whole_block=False, name=None):
+  """Attention to the source position and a neigborhood around it.
 
-  The sequence is divided into blocks of length block_size.
-  Attention for a given query position can only see memory positions
-  less than or equal to the query position, in the corresponding block
-  and the previous block.
+  The sequence is divided into blocks of length block_size. Attention for a
+  given query position can only see memory positions within a certain number
+  of positions before and behind it.
 
-  If mask_right is True, then a target position cannot see greater source
+
+  If look_right is True then each query will attend to block_length//2
+  positions either side, otherwise it will attend to block_length previous
   positions.
 
+  If use_whole_block is True then no mask will be applied to the local blocks
+  meaning the full blocks are used (if look_right is True then the elements to
+  the right of the current position are still masked out). This allows to
+  attend to more elements without additional overhead, but means we have
+  inconsistent window positions and sizes.
+
   Args:
-    q: a Tensor with shape [batch, heads, length, depth_k]
-    k: a Tensor with shape [batch, heads, length, depth_k]
-    v: a Tensor with shape [batch, heads, length, depth_v]
+    q: a Tensor with shape [batch, heads, length_q, depth_k]
+    k: a Tensor with shape [batch, heads, length_kv, depth_k]
+    v: a Tensor with shape [batch, heads, length_kv, depth_v]
     block_length: an integer
+    look_right: a bool
+    use_whole_block: a bool
     name: an optional string
 
   Returns:
@@ -386,61 +396,71 @@ def masked_local_attention_1d(
     batch = tf.shape(q)[0]
     heads = tf.shape(q)[1]
     length = tf.shape(q)[2]
-    # If (length < 2 * block_length), then we use only one block.
-    block_length = tf.where(tf.less(length, block_length * 2),
-                            length, block_length)
     depth_k = tf.shape(q)[3]
     depth_v = tf.shape(v)[3]
     original_length = length
+
+    # If (length < block_length), then we use only one block.
+    block_length = tf.where(tf.less(length, block_length),
+                            length, block_length)
+    # Pad to desired length.
     padding_size = tf.mod(-length, block_length)
     length += padding_size
+    num_blocks = tf.div(length, block_length)
     padding = [[0, 0], [0, 0], [0, padding_size], [0, 0]]
     q = tf.pad(q, padding)
-    k = tf.pad(k, padding)
-    v = tf.pad(v, padding)
-    num_blocks = tf.div(length, block_length)
 
-    # compute attention for the first query block.
-    first_q = tf.slice(q, [0, 0, 0, 0], [-1, -1, block_length, -1])
-    first_k = tf.slice(k, [0, 0, 0, 0], [-1, -1, block_length, -1])
-    first_v = tf.slice(v, [0, 0, 0, 0], [-1, -1, block_length, -1])
-    first_output = dot_product_attention(
-        first_q, first_k, first_v, attention_bias_lower_triangle(block_length),
-        name="fist_block")
+    if not look_right:
+      # Add extra padding so we son't have to do an initial query block.
+      extra_padding = [[0, 0], [0, 0], [block_length, padding_size], [0, 0]]
+    else:
+      # We shift everything over by half a block so query is in center.
+      pad_right = block_length // 2
+      pad_left = block_length - pad_right
+      extra_padding = [[0, 0], [0, 0],
+                       [pad_left, padding_size+pad_right], [0, 0]]
+    k = tf.pad(k, extra_padding)
+    v = tf.pad(v, extra_padding)
 
-    # compute attention for all subsequent query blocks.
+    # Reshape into blocks.
     q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
-    k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
-    v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
+    k = tf.reshape(k, [batch, heads, num_blocks+1, block_length, depth_k])
+    v = tf.reshape(v, [batch, heads, num_blocks+1, block_length, depth_v])
 
+    # Get local blocks by slicing.
     def local(x):
       """Create a local version of the keys or values."""
       prev_block = tf.slice(
-          x, [0, 0, 0, 0, 0], [-1, -1, num_blocks - 1, -1, -1])
+          x, [0, 0, 0, 0, 0], [-1, -1, num_blocks, -1, -1])
       cur_block = tf.slice(
           x, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
       return tf.concat([prev_block, cur_block], 3)
     local_k = local(k)
     local_v = local(v)
-    tail_q = tf.slice(q, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
-
     local_length = tf.shape(local_k)[3]
 
-    # [batch, heads, num_blocks - 1, block_length, local_length]
-    attention = tf.matmul(tail_q, local_k, transpose_b=True)
-
-    # make sure source_pos <= target_pos
-    good_part = tf.matrix_band_part(
-        tf.ones([block_length, local_length]), -1, tf.to_int64(block_length))
-    mask = (1.0 - good_part) * -1e9
-    attention += tf.reshape(mask, [1, 1, 1, block_length, local_length])
+    # [batch, heads, num_blocks, block_length, local_length]
+    attention = tf.matmul(q, local_k, transpose_b=True)
     attention = tf.nn.softmax(attention)
+
+    # Get local mask
+    if not use_whole_block:
+      good_part = tf.matrix_band_part(
+          tf.ones([block_length, local_length]), 0, tf.to_int64(block_length))
+    elif not look_right:
+      good_part = tf.matrix_band_part(
+          tf.ones([block_length, local_length]), -1, tf.to_int64(block_length))
+    else:
+      good_part = tf.ones([block_length, local_length])
+
+    attention *= tf.reshape(good_part, [1, 1, 1, block_length, local_length])
+
     # TODO(noam): figure out how to show a summary for the remaining blocks.
     # The naive way currently causes errors due to empty tensors.
-    # output: [batch, heads, num_blocks-1, block_length, depth_v]
     output = tf.matmul(attention, local_v)
     output = tf.reshape(output, [batch, heads, -1, depth_v])
-    output = tf.concat([first_output, output], axis=2)
+
+    # Remove added padding
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
     output.set_shape(v_shape)
     return output

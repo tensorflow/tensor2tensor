@@ -41,6 +41,34 @@ class CommonAttentionTest(tf.test.TestCase):
       res = session.run(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
+  def testMaskedLocalAttention(self):
+    q = np.array([[[[1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0]]]])
+    k = np.array([[[[1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0]]]])
+    v = np.ones((1, 1, 8, 1))
+    with self.test_session() as session:
+      q_ = tf.constant(q, dtype=tf.float32)
+      k_ = tf.constant(k, dtype=tf.float32)
+      v_ = tf.constant(v, dtype=tf.float32)
+      y = common_attention.masked_local_attention_1d(
+          q_, k_, v_, block_length=tf.constant(2))
+      res = session.run(y)
+
+    self.assertEqual(res.shape, (1, 1, 8, 1))
+
   def testLocalUnmaskedAttention(self):
     x = np.random.rand(5, 4, 25, 16)
     y = np.random.rand(5, 4, 25, 16)

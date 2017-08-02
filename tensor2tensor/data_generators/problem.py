@@ -82,6 +82,8 @@ class SpaceID(object):
   DNA = 23
   # Real numbers
   REAL = 24
+  # Images
+  IMAGE = 25
 
 
 class Problem(object):
@@ -234,9 +236,6 @@ class Problem(object):
 
     if self._was_reversed:
       _reverse_problem_hparams(hp)
-      # TODO(rsepassi): Move this into the cifar10 Problem
-      if "image_cifar10" in self.name:
-        hp.loss_multiplier = 1.
     if self._was_copy:
       _copy_problem_hparams(hp)
     return hp
