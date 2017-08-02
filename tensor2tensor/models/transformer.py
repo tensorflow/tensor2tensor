@@ -56,12 +56,7 @@ class Transformer(t2t_model.T2TModel):
     (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
         targets, hparams)
 
-    def residual_fn(x, y):
-      return common_layers.residual_fn(x, y,
-                                       hparams.norm_type,
-                                       hparams.residual_dropout,
-                                       hparams.hidden_size,
-                                       epsilon=hparams.layer_norm_epsilon)
+    residual_fn = get_residual_fn(hparams)
 
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
     decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
@@ -74,6 +69,17 @@ class Transformer(t2t_model.T2TModel):
     decoder_output = tf.expand_dims(decoder_output, 2)
 
     return decoder_output
+
+
+def get_residual_fn(hparams):
+  """Get residual_fn."""
+  def residual_fn(x, y):
+    return common_layers.residual_fn(x, y,
+                                     hparams.norm_type,
+                                     hparams.residual_dropout,
+                                     hparams.hidden_size,
+                                     epsilon=hparams.layer_norm_epsilon)
+  return residual_fn
 
 
 def transformer_prepare_encoder(inputs, target_space, hparams):
