@@ -387,7 +387,7 @@ class Text2TextProblem(Problem):
 
   def feature_encoders(self, data_dir):
     if self.is_character_level:
-      encoder = text_encoder.ByteTextEncoder(),
+      encoder = text_encoder.ByteTextEncoder()
     elif self.use_subword_tokenizer:
       vocab_filename = os.path.join(data_dir, self.vocab_file)
       encoder = text_encoder.SubwordTextEncoder(vocab_filename)
