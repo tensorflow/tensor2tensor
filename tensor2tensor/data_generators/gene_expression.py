@@ -163,8 +163,9 @@ class GeneExpressionProblem(problem.Problem):
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
 
-  def preprocess_examples(self, examples, mode):
+  def preprocess_examples(self, examples, mode, hparams):
     del mode
+    del hparams
 
     # Reshape targets
     examples["targets"] = tf.reshape(examples["targets"],

@@ -237,7 +237,7 @@ def default_example_reading_spec(data_file_pattern):
   return data_fields, data_items_to_decoders
 
 
-def input_pipeline(problem, data_file_pattern, capacity, mode):
+def input_pipeline(problem, data_file_pattern, capacity, mode, hparams):
   """Input pipeline, returns a dictionary of tensors from queues."""
   if problem is None:
     data_fields, data_items_to_decoders = default_example_reading_spec(
@@ -259,7 +259,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode):
   if problem is None:
     examples = preprocessing(examples, data_file_pattern, mode)
   else:
-    examples = problem.preprocess_examples(examples, mode)
+    examples = problem.preprocess_examples(examples, mode, hparams)
 
   # We do not want int64s as they are not supported on GPUs.
   examples = cast_int64_to_int32(examples)
