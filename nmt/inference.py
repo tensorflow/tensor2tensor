@@ -33,7 +33,8 @@ from .utils import misc_utils as utils
 from .utils import nmt_utils
 from .utils import vocab_utils
 
-__all__ = ["create_infer_model", "inference"]
+__all__ = ["create_infer_model", "load_data", "inference",
+           "single_worker_inference", "multi_worker_inference"]
 
 
 class InferModel(
@@ -156,14 +157,14 @@ def inference(ckpt,
                                    single_cell_fn)
 
   if num_workers == 1:
-    _single_worker_inference(
+    single_worker_inference(
         infer_model,
         ckpt,
         inference_input_file,
         inference_output_file,
         hparams)
   else:
-    _multi_worker_inference(
+    multi_worker_inference(
         infer_model,
         ckpt,
         inference_input_file,
@@ -173,11 +174,11 @@ def inference(ckpt,
         jobid=jobid)
 
 
-def _single_worker_inference(infer_model,
-                             ckpt,
-                             inference_input_file,
-                             inference_output_file,
-                             hparams):
+def single_worker_inference(infer_model,
+                            ckpt,
+                            inference_input_file,
+                            inference_output_file,
+                            hparams):
   """Inference with a single worker."""
   output_infer = inference_output_file
 
@@ -218,13 +219,13 @@ def _single_worker_inference(infer_model,
           tgt_eos=hparams.eos)
 
 
-def _multi_worker_inference(infer_model,
-                            ckpt,
-                            inference_input_file,
-                            inference_output_file,
-                            hparams,
-                            num_workers,
-                            jobid):
+def multi_worker_inference(infer_model,
+                           ckpt,
+                           inference_input_file,
+                           inference_output_file,
+                           hparams,
+                           num_workers,
+                           jobid):
   """Inference using multiple workers."""
   assert num_workers > 1
 
@@ -264,7 +265,7 @@ def _multi_worker_inference(infer_model,
         beam_width=hparams.beam_width,
         tgt_eos=hparams.eos)
 
-    # Change file name to indicate the file writting is completed.
+    # Change file name to indicate the file writing is completed.
     tf.gfile.Rename(output_infer, output_infer_done, overwrite=True)
 
     # Job 0 is responsible for the clean up.
