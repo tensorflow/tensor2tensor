@@ -35,7 +35,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import itertools
 import math
 import multiprocessing as mp
 import os
@@ -47,6 +46,7 @@ import numpy as np
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
+from tensor2tensor.data_generators import dna_encoder
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -56,7 +56,6 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 MAX_CONCURRENT_PROCESSES = 10
-_bases = list("ACTG")
 
 
 class GeneExpressionProblem(problem.Problem):
@@ -82,7 +81,7 @@ class GeneExpressionProblem(problem.Problem):
   def feature_encoders(self, data_dir):
     del data_dir
     return {
-        "inputs": DNAEncoder(chunk_size=self.chunk_size),
+        "inputs": dna_encoder.DNAEncoder(chunk_size=self.chunk_size),
         # TODO(rsepassi): RealEncoder?
         "targets": text_encoder.TextEncoder()
     }
@@ -244,7 +243,7 @@ def dataset_generator(filepath,
                       chunk_size=1,
                       start_idx=None,
                       end_idx=None):
-  encoder = DNAEncoder(chunk_size=chunk_size)
+  encoder = dna_encoder.DNAEncoder(chunk_size=chunk_size)
   with h5py.File(filepath, "r") as h5_file:
     # Get input keys from h5_file
     src_keys = [s % dataset for s in ["%s_in", "%s_na", "%s_out"]]
@@ -278,7 +277,7 @@ def to_example_dict(encoder, inputs, mask, outputs):
     while idx != last_idx + 1:
       bases.append(encoder.UNK)
       last_idx += 1
-    bases.append(_bases[base_id])
+    bases.append(encoder.BASES[base_id])
     last_idx = idx
   assert len(inputs) == len(bases)
 
@@ -297,62 +296,3 @@ def to_example_dict(encoder, inputs, mask, outputs):
   ex_dict = dict(
       zip(example_keys, [input_ids, targets_mask, targets, targets_shape]))
   return ex_dict
-
-
-class DNAEncoder(text_encoder.TextEncoder):
-  """ACTG strings to ints and back. Optionally chunks bases into single ids.
-
-  Uses 'X' as an unknown base.
-  """
-  UNK = "X"
-  PAD = "0"
-
-  def __init__(self,
-               chunk_size=1,
-               num_reserved_ids=text_encoder.NUM_RESERVED_TOKENS):
-    super(DNAEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
-    # Build a vocabulary of chunks of size chunk_size
-    self._chunk_size = chunk_size
-    chunks = []
-    for size in range(1, chunk_size + 1):
-      c = itertools.product(_bases + [DNAEncoder.UNK], repeat=size)
-      num_pad = chunk_size - size
-      padding = (DNAEncoder.PAD,) * num_pad
-      c = [el + padding for el in c]
-      chunks.extend(c)
-    chunks.sort()
-    ids = range(self._num_reserved_ids, len(chunks) + self._num_reserved_ids)
-    self._ids_to_chunk = dict(zip(ids, chunks))
-    self._chunks_to_ids = dict(zip(chunks, ids))
-
-  @property
-  def vocab_size(self):
-    return len(self._ids_to_chunk) + self._num_reserved_ids
-
-  def encode(self, s):
-    bases = list(s)
-    pad = [DNAEncoder.PAD] * (len(bases) % self._chunk_size)
-    bases.extend(pad)
-    assert (len(bases) % self._chunk_size) == 0
-    num_chunks = len(bases) // self._chunk_size
-    ids = []
-    for chunk_idx in xrange(num_chunks):
-      start_idx = chunk_idx * self._chunk_size
-      end_idx = start_idx + self._chunk_size
-      chunk = tuple(bases[start_idx:end_idx])
-      if chunk not in self._chunks_to_ids:
-        raise ValueError("Unrecognized chunk %s" % chunk)
-      ids.append(self._chunks_to_ids[chunk])
-    return ids
-
-  def decode(self, ids):
-    bases = []
-    for idx in ids:
-      if idx >= self._num_reserved_ids:
-        chunk = self._ids_to_chunk[idx]
-        if DNAEncoder.PAD in chunk:
-          chunk = chunk[:chunk.index(DNAEncoder.PAD)]
-      else:
-        chunk = [text_encoder.RESERVED_TOKENS[idx]]
-      bases.extend(chunk)
-    return "".join(bases)
