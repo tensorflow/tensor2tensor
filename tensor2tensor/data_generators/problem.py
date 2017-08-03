@@ -86,6 +86,8 @@ class SpaceID(object):
   IMAGE = 25
   # Peptide
   PEPTIDE = 26
+  # Python
+  PY_TOK = 27
 
 
 class Problem(object):
