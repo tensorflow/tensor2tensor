@@ -423,7 +423,7 @@ def cifar10_generator(tmp_dir, training, how_many, start_from=0):
 @registry.register_problem
 class ImageCifar10Tune(ImageMnistTune):
 
-  def preprocess_examples(self, examples, mode):
+  def preprocess_examples(self, examples, mode, hparams):
     if mode == tf.contrib.learn.ModeKeys.TRAIN:
       examples["inputs"] = common_layers.cifar_image_augmentation(
           examples["inputs"])
@@ -449,7 +449,7 @@ class ImageCifar10(ImageCifar10Tune):
 @registry.register_problem
 class ImageCifar10Plain(ImageCifar10):
 
-  def preprocess_examples(self, examples, mode):
+  def preprocess_examples(self, examples, mode, hparams):
     return examples
 
 
