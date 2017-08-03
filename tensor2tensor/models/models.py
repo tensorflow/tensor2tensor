@@ -23,6 +23,7 @@ from __future__ import print_function
 
 # pylint: disable=unused-import
 
+from tensor2tensor.layers import modalities
 from tensor2tensor.models import attention_lm
 from tensor2tensor.models import attention_lm_moe
 from tensor2tensor.models import bluenet
@@ -30,7 +31,6 @@ from tensor2tensor.models import bytenet
 from tensor2tensor.models import gene_expression
 from tensor2tensor.models import long_answer
 from tensor2tensor.models import lstm
-from tensor2tensor.models import modalities
 from tensor2tensor.models import multimodel
 from tensor2tensor.models import neural_gpu
 from tensor2tensor.models import shake_shake

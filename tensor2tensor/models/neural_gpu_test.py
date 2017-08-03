@@ -24,7 +24,7 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models import common_hparams
+from tensor2tensor.layers import common_hparams
 from tensor2tensor.models import neural_gpu
 
 import tensorflow as tf
@@ -50,8 +50,8 @@ class NeuralGPUTest(tf.test.TestCase):
           "inputs": tf.constant(inputs, dtype=tf.int32),
           "targets": tf.constant(targets, dtype=tf.int32)
       }
-      model = neural_gpu.NeuralGPU(
-          hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
+      model = neural_gpu.NeuralGPU(hparams, tf.contrib.learn.ModeKeys.TRAIN,
+                                   p_hparams)
       shadred_logits, _ = model.model_fn(features)
       logits = tf.concat(shadred_logits, 0)
       session.run(tf.global_variables_initializer())

@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import registry
-from tensor2tensor.utils import trainer_utils as utils  # pylint: disable=unused-import
+from tensor2tensor.utils import trainer_utils
 
 import tensorflow as tf
 
@@ -76,7 +76,7 @@ class TrainerUtilsTest(tf.test.TestCase):
   def testSingleStep(self):
     model_name = "transformer"
     FLAGS.hparams_set = "transformer_test"
-    exp = utils.create_experiment(
+    exp = trainer_utils.create_experiment(
         output_dir=tf.test.get_temp_dir(),
         data_dir=TrainerUtilsTest.data_dir,
         model_name=model_name,

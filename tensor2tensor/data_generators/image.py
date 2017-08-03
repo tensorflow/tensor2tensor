@@ -36,7 +36,7 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -76,10 +76,11 @@ class ImageFSNS(ImageProblem):
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     list_url = ("https://raw.githubusercontent.com/tensorflow/models/master/"
                 "street/python/fsns_urls.txt")
-    fsns_urls = generator_utils.maybe_download(
-        tmp_dir, "fsns_urls.txt", list_url)
-    fsns_files = [f.strip() for f in open(fsns_urls, "r")
-                  if f.startswith("http://")]
+    fsns_urls = generator_utils.maybe_download(tmp_dir, "fsns_urls.txt",
+                                               list_url)
+    fsns_files = [
+        f.strip() for f in open(fsns_urls, "r") if f.startswith("http://")
+    ]
     for url in fsns_files:
       if "/train/train" in url:
         generator_utils.maybe_download(
@@ -88,8 +89,7 @@ class ImageFSNS(ImageProblem):
         generator_utils.maybe_download(
             data_dir, "image_fsns-dev" + url[-len("-00100-of-00512"):], url)
       elif "charset" in url:
-        generator_utils.maybe_download(
-            data_dir, "charset_size134.txt", url)
+        generator_utils.maybe_download(data_dir, "charset_size134.txt", url)
 
   def feature_encoders(self, data_dir):
     # This vocab file must be present within the data directory.
@@ -111,8 +111,8 @@ class ImageFSNS(ImageProblem):
 
   def example_reading_spec(self):
     label_key = "image/unpadded_label"
-    return super(ImageFSNS, self).example_reading_spec(self,
-                                                       label_key=label_key)
+    return super(ImageFSNS, self).example_reading_spec(
+        self, label_key=label_key)
 
 
 class Image2ClassProblem(ImageProblem):
@@ -161,6 +161,7 @@ class Image2ClassProblem(ImageProblem):
 
 def imagenet_preprocess_examples(examples, mode):
   """Preprocessing used for Imagenet and similar problems."""
+
   def preprocess(img):
     img = tf.image.resize_images(img, [360, 360])
     img = common_layers.image_augmentation(tf.to_float(img) / 255.)
@@ -215,8 +216,8 @@ class ImageImagenet32(Image2ClassProblem):
 
   def preprocess_examples(self, examples, mode):
     examples = imagenet_preprocess_examples(examples, mode)
-    examples["inputs"] = tf.to_int64(tf.image.resize_images(
-        examples["inputs"], [32, 32]))
+    examples["inputs"] = tf.to_int64(
+        tf.image.resize_images(examples["inputs"], [32, 32]))
 
 
 def image_generator(images, labels):
@@ -665,12 +666,20 @@ class ImageMsCocoTokens8k(ImageMsCocoCharacters):
     vocab_filename = "vocab.endefr.%d" % self.targeted_vocab_size
     if is_training:
       return mscoco_generator(
-          data_dir, tmp_dir, True, 80000,
-          vocab_filename=vocab_filename, vocab_size=self.targeted_vocab_size)
+          data_dir,
+          tmp_dir,
+          True,
+          80000,
+          vocab_filename=vocab_filename,
+          vocab_size=self.targeted_vocab_size)
     else:
       return mscoco_generator(
-          data_dir, tmp_dir, False, 40000,
-          vocab_filename=vocab_filename, vocab_size=self.targeted_vocab_size)
+          data_dir,
+          tmp_dir,
+          False,
+          40000,
+          vocab_filename=vocab_filename,
+          vocab_size=self.targeted_vocab_size)
 
 
 @registry.register_problem
@@ -690,8 +699,8 @@ _CELEBA_URL = "https://drive.google.com/uc?export=download&id=0B7EVK8r0v71pZjFTY
 def _get_celeba(directory):
   """Download and extract CELEBA to directory unless it is there."""
   # path = os.path.join(directory, _CELEBA_NAME)
-  path = generator_utils.maybe_download_from_drive(directory,
-                                                   _CELEBA_NAME, _CELEBA_URL)
+  path = generator_utils.maybe_download_from_drive(directory, _CELEBA_NAME,
+                                                   _CELEBA_URL)
   if not tf.gfile.Exists(path):
     zipfile.ZipFile(path + ".zip", "r").extractall(directory)
 
@@ -711,7 +720,7 @@ def celeba_generator(tmp_dir, how_many, start_from=0):
   """
   _get_celeba(tmp_dir)
   image_files = tf.gfile.Glob(os.path.join(tmp_dir, _CELEBA_NAME) + "/*.jpg")
-  for filename in image_files[start_from:start_from+how_many]:
+  for filename in image_files[start_from:start_from + how_many]:
     with tf.gfile.Open(filename, "r") as f:
       encoded_image_data = f.read()
       yield {

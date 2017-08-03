@@ -25,7 +25,7 @@ import os
 # Dependency imports
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.models import modalities  # pylint: disable=unused-import
+from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -202,8 +202,7 @@ def default_problem_hparams():
       # the targets. For instance `problem_copy` will copy the inputs, but
       # `problem_rev_copy` will copy the targets.
       was_reversed=False,
-      was_copy=False,
-  )
+      was_copy=False,)
 
 
 def test_problem_hparams(unused_model_hparams, input_vocab_size,
@@ -327,9 +326,7 @@ def lm1b_32k(model_hparams):
   encoder = text_encoder.SubwordTextEncoder(
       os.path.join(model_hparams.data_dir, "lm1b_32k.subword_text_encoder"))
   p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
-  p.vocabulary = {
-      "targets": encoder
-  }
+  p.vocabulary = {"targets": encoder}
   p.target_space_id = 3
   return p
 
@@ -343,9 +340,7 @@ def lm1b_characters(unused_model_hparams):
   p.input_modality = {}
   encoder = text_encoder.ByteTextEncoder()
   p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
-  p.vocabulary = {
-      "targets": encoder
-  }
+  p.vocabulary = {"targets": encoder}
   p.target_space_id = 2
   return p
 
@@ -358,10 +353,7 @@ def wiki_32k(model_hparams):
   modality_spec = (registry.Modalities.SYMBOL, encoder.vocab_size)
   p.input_modality = {"inputs": modality_spec}
   p.target_modality = modality_spec
-  p.vocabulary = {
-      "inputs": encoder,
-      "targets": encoder
-  }
+  p.vocabulary = {"inputs": encoder, "targets": encoder}
   p.target_space_id = 3
   return p
 
@@ -430,9 +422,7 @@ def wmt_parsing_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def wsj_parsing_tokens(model_hparams,
-                       prefix,
-                       wrong_source_vocab_size,
+def wsj_parsing_tokens(model_hparams, prefix, wrong_source_vocab_size,
                        wrong_target_vocab_size):
   """English to parse tree translation benchmark.
 
@@ -487,11 +477,9 @@ def ice_parsing_tokens(model_hparams, wrong_source_vocab_size):
   p = default_problem_hparams()
   # This vocab file must be present within the data directory.
   source_vocab_filename = os.path.join(
-      model_hparams.data_dir,
-      "ice_source.vocab.%d" % wrong_source_vocab_size)
-  target_vocab_filename = os.path.join(
-      model_hparams.data_dir,
-      "ice_target.vocab.256")
+      model_hparams.data_dir, "ice_source.vocab.%d" % wrong_source_vocab_size)
+  target_vocab_filename = os.path.join(model_hparams.data_dir,
+                                       "ice_target.vocab.256")
   source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
   target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
   p.input_modality = {
@@ -502,7 +490,7 @@ def ice_parsing_tokens(model_hparams, wrong_source_vocab_size):
       "inputs": source_subtokenizer,
       "targets": target_subtokenizer,
   }
-  p.input_space_id = 18   # Icelandic tokens
+  p.input_space_id = 18  # Icelandic tokens
   p.target_space_id = 19  # Icelandic parse tokens
   return p
 
@@ -534,23 +522,41 @@ def image_celeba(unused_model_hparams):
 # Dictionary of named hyperparameter settings for various problems.
 # This is only accessed through the problem_hparams function below.
 PROBLEM_HPARAMS_MAP = {
-    "audio_timit_characters_tune": audio_timit_characters,
-    "audio_timit_characters_test": audio_timit_characters,
-    "audio_timit_tokens_8k_tune": lambda p: audio_timit_tokens(p, 2**13),
-    "audio_timit_tokens_8k_test": lambda p: audio_timit_tokens(p, 2**13),
-    "audio_wsj_characters_tune": audio_wsj_characters,
-    "audio_wsj_characters_test": audio_wsj_characters,
-    "audio_wsj_tokens_8k_tune": lambda p: audio_wsj_tokens(p, 2**13),
-    "audio_wsj_tokens_8k_test": lambda p: audio_wsj_tokens(p, 2**13),
-    "lm1b_characters": lm1b_characters,
-    "lm1b_32k": lm1b_32k,
-    "wiki_32k": wiki_32k,
-    "ice_parsing_characters": wmt_parsing_characters,
-    "ice_parsing_tokens": lambda p: ice_parsing_tokens(p, 2**13),
-    "wmt_parsing_tokens_8k": lambda p: wmt_parsing_tokens(p, 2**13),
-    "wsj_parsing_tokens_16k": lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda
-        p, "wsj", 2**14, 2**9),
-    "wmt_ende_bpe32k": wmt_ende_bpe32k,
-    "image_celeba_tune": image_celeba,
-    "img2img_imagenet": img2img_imagenet,
+    "audio_timit_characters_tune":
+        audio_timit_characters,
+    "audio_timit_characters_test":
+        audio_timit_characters,
+    "audio_timit_tokens_8k_tune":
+        lambda p: audio_timit_tokens(p, 2**13),
+    "audio_timit_tokens_8k_test":
+        lambda p: audio_timit_tokens(p, 2**13),
+    "audio_wsj_characters_tune":
+        audio_wsj_characters,
+    "audio_wsj_characters_test":
+        audio_wsj_characters,
+    "audio_wsj_tokens_8k_tune":
+        lambda p: audio_wsj_tokens(p, 2**13),
+    "audio_wsj_tokens_8k_test":
+        lambda p: audio_wsj_tokens(p, 2**13),
+    "lm1b_characters":
+        lm1b_characters,
+    "lm1b_32k":
+        lm1b_32k,
+    "wiki_32k":
+        wiki_32k,
+    "ice_parsing_characters":
+        wmt_parsing_characters,
+    "ice_parsing_tokens":
+        lambda p: ice_parsing_tokens(p, 2**13),
+    "wmt_parsing_tokens_8k":
+        lambda p: wmt_parsing_tokens(p, 2**13),
+    "wsj_parsing_tokens_16k":
+        lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda
+            p, "wsj", 2**14, 2**9),
+    "wmt_ende_bpe32k":
+        wmt_ende_bpe32k,
+    "image_celeba_tune":
+        image_celeba,
+    "img2img_imagenet":
+        img2img_imagenet,
 }

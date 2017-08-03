@@ -22,7 +22,7 @@ from __future__ import print_function
 # Dependency imports
 
 import numpy as np
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
@@ -351,8 +351,7 @@ class CommonLayersTest(tf.test.TestCase):
       x2 = np.random.rand(5, 2, 1, 11)
       x3 = common_layers.residual_fn(
           tf.constant(x1, dtype=tf.float32),
-          tf.constant(x2, dtype=tf.float32),
-          norm_type, 0.1)
+          tf.constant(x2, dtype=tf.float32), norm_type, 0.1)
       session.run(tf.global_variables_initializer())
       actual = session.run(x3)
     self.assertEqual(actual.shape, (5, 2, 1, 11))
@@ -365,7 +364,9 @@ class CommonLayersTest(tf.test.TestCase):
       x3 = common_layers.residual_fn(
           tf.constant(x1, dtype=tf.float32),
           tf.constant(x2, dtype=tf.float32),
-          norm_type, 0.1, epsilon=0.1)
+          norm_type,
+          0.1,
+          epsilon=0.1)
       session.run(tf.global_variables_initializer())
       actual = session.run(x3)
     self.assertEqual(actual.shape, (5, 2, 1, 11))

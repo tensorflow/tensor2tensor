@@ -22,7 +22,7 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
