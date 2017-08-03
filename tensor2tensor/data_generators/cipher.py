@@ -6,7 +6,7 @@ from tensor2tensor.utils import registry
 
 
 @registry.register_problem
-class AlgorithmicShiftCipher5(algorithmic.AlgorithmicProblem):
+class CipherShift5(algorithmic.AlgorithmicProblem):
 
   @property
   def num_symbols(self):
@@ -48,7 +48,7 @@ class AlgorithmicShiftCipher5(algorithmic.AlgorithmicProblem):
 
 
 @registry.register_problem
-class AlgorithmicVigenereCipher5(algorithmic.AlgorithmicProblem):
+class CipherVigenere5(algorithmic.AlgorithmicProblem):
 
   @property
   def num_symbols(self):
@@ -90,7 +90,7 @@ class AlgorithmicVigenereCipher5(algorithmic.AlgorithmicProblem):
 
 
 @registry.register_problem
-class AlgorithmicShiftCipher200(AlgorithmicShiftCipher5):
+class CipherShift200(CipherShift5):
 
   @property
   def num_symbols(self):
@@ -104,7 +104,7 @@ class AlgorithmicShiftCipher200(AlgorithmicShiftCipher5):
 
 
 @registry.register_problem
-class AlgorithmicVigenereCipher200(AlgorithmicVigenereCipher5):
+class CipherVigenere200(CipherVigenere5):
 
   @property
   def num_symbols(self):
