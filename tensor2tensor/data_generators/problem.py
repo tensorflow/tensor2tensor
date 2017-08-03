@@ -84,6 +84,8 @@ class SpaceID(object):
   REAL = 24
   # Images
   IMAGE = 25
+  # Peptide
+  PEPTIDE = 26
 
 
 class Problem(object):
