@@ -27,15 +27,14 @@ from tensor2tensor.utils import data_reader
 
 import tensorflow as tf
 
-# TODO(rsepassi): Rm dep on FLAGS here
-FLAGS = tf.flags.FLAGS
-
 
 def build_input_fn(mode,
                    hparams,
                    data_file_patterns=None,
                    num_datashards=None,
-                   fixed_problem=None):
+                   fixed_problem=None,
+                   worker_replicas=None,
+                   worker_id=None):
   """Provides input to the graph, either from disk or via a placeholder.
 
   This function produces an input function that will feed data into
@@ -58,6 +57,10 @@ def build_input_fn(mode,
     num_datashards: An integer.
     fixed_problem: An integer indicating the problem to fetch data for, or None
       if the input is to be randomly selected.
+    worker_replicas: int, number of worker replicas. Used in multiproblem
+      setting with hparams.problem_choice == distributed.
+    worker_id: int, id of this worker replica. Used in multiproblem setting with
+      hparams.problem_choice == distributed.
 
   Returns:
     A function that returns a dictionary of features and the target labels.
@@ -78,7 +81,7 @@ def build_input_fn(mode,
     Raises:
       ValueError: if one of the parameters has an unsupported value.
     """
-    problem_count, batches = len(data_file_patterns), []
+    problem_count, batches = len(hparams.problems), []
     with tf.name_scope("input_reader"):
       for n in xrange(problem_count):
         if fixed_problem is not None and n != fixed_problem:
@@ -89,9 +92,9 @@ def build_input_fn(mode,
           with tf.device("/cpu:0"):  # Input reading on CPU
             capacity = p_hparams.max_expected_batch_size_per_shard
             capacity *= num_datashards
-            examples = data_reader.input_pipeline(problem_instance,
-                                                  data_file_patterns[n],
-                                                  capacity, mode, hparams)
+            examples = data_reader.input_pipeline(
+                problem_instance, data_file_patterns and data_file_patterns[n],
+                capacity, mode, hparams)
             feature_map = data_reader.batch_examples(
                 examples,
                 data_reader.hparams_to_batching_scheme(
@@ -149,9 +152,9 @@ def build_input_fn(mode,
             tf.reshape(loss_moving_avgs, [1, -1]), 1)
         problem_choice = tf.to_int32(tf.squeeze(problem_choice))
       elif hparams.problem_choice == "distributed":
-        assert FLAGS.worker_replicas >= problem_count
-        assert FLAGS.worker_replicas % problem_count == 0
-        problem_choice = tf.to_int32(FLAGS.worker_id % problem_count)
+        assert worker_replicas >= problem_count
+        assert worker_replicas % problem_count == 0
+        problem_choice = tf.to_int32(worker_id % problem_count)
       else:
         raise ValueError(
             "Value of hparams.problem_choice is %s and must be "

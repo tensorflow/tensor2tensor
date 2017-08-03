@@ -177,14 +177,18 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
       hparams=hparams,
       data_file_patterns=get_data_filepatterns(data_dir,
                                                tf.contrib.learn.ModeKeys.TRAIN),
-      num_datashards=num_datashards)
+      num_datashards=num_datashards,
+      worker_replicas=FLAGS.worker_replicas,
+      worker_id=FLAGS.worker_id)
 
   eval_input_fn = input_fn_builder.build_input_fn(
       mode=tf.contrib.learn.ModeKeys.EVAL,
       hparams=hparams,
       data_file_patterns=get_data_filepatterns(data_dir,
                                                tf.contrib.learn.ModeKeys.EVAL),
-      num_datashards=num_datashards)
+      num_datashards=num_datashards,
+      worker_replicas=FLAGS.worker_replicas,
+      worker_id=FLAGS.worker_id)
   estimator = tf.contrib.learn.Estimator(
       model_fn=model_builder.build_model_fn(model_name, hparams=hparams),
       model_dir=output_dir,
