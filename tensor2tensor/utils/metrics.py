@@ -24,6 +24,7 @@ import six
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
+from tensor2tensor.utils import rouge
 
 import tensorflow as tf
 
@@ -37,6 +38,8 @@ class Metrics(object):
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
   APPROX_BLEU = "approx_bleu_score"
   RMSE = "rmse"
+  ROUGE_2_F = "rouge_2_fscore"
+  ROUGE_L_F = "rouge_L_fscore"
 
 
 def padded_rmse(predictions, labels, weights_fn=common_layers.weights_nonzero):
@@ -188,4 +191,6 @@ METRICS_FNS = {
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
     Metrics.RMSE: padded_rmse,
+    Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
+    Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
 }
