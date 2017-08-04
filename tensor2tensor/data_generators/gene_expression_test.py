@@ -22,6 +22,7 @@ from __future__ import print_function
 
 import numpy as np
 
+from tensor2tensor.data_generators import dna_encoder
 from tensor2tensor.data_generators import gene_expression
 
 import tensorflow as tf
@@ -40,8 +41,8 @@ class GeneticsTest(tf.test.TestCase):
     return np.array(one_hots)
 
   def testRecordToExample(self):
-    encoder = gene_expression.DNAEncoder(chunk_size=2)
-    raw_inputs = ["A", "C", "G", "X", "C", "T"]
+    encoder = dna_encoder.DNAEncoder(chunk_size=2)
+    raw_inputs = ["A", "C", "G", "N", "C", "T"]
 
     # Put in numpy arrays in the same format as in the h5 file
     inputs = self._oneHotBases(raw_inputs)

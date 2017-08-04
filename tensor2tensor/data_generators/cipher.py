@@ -1,12 +1,36 @@
+# coding=utf-8
+# Copyright 2017 The Tensor2Tensor Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Cipher data generators."""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 from collections import deque
+
+# Dependency imports
+
 import numpy as np
 
-from tensor2tensor.data_generators import problem, algorithmic
+from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.utils import registry
 
 
 @registry.register_problem
 class CipherShift5(algorithmic.AlgorithmicProblem):
+  """Shift cipher."""
 
   @property
   def num_symbols(self):
@@ -49,6 +73,7 @@ class CipherShift5(algorithmic.AlgorithmicProblem):
 
 @registry.register_problem
 class CipherVigenere5(algorithmic.AlgorithmicProblem):
+  """Vinegre cipher."""
 
   @property
   def num_symbols(self):
@@ -91,6 +116,7 @@ class CipherVigenere5(algorithmic.AlgorithmicProblem):
 
 @registry.register_problem
 class CipherShift200(CipherShift5):
+  """Shift cipher."""
 
   @property
   def num_symbols(self):
@@ -105,6 +131,7 @@ class CipherShift200(CipherShift5):
 
 @registry.register_problem
 class CipherVigenere200(CipherVigenere5):
+  """Vinegre cipher."""
 
   @property
   def num_symbols(self):
@@ -121,16 +148,17 @@ class CipherVigenere200(CipherVigenere5):
     return [1, 3]
 
 
-class Layer():
-  """A single layer for shift"""
+class Layer(object):
+  """A single layer for shift."""
 
   def __init__(self, vocab, shift):
-    """Initialize shift layer
+    """Initialize shift layer.
 
     Args:
-      vocab (list of String): the vocabulary
-      shift (Integer): the amount of shift apply to the alphabet. Positive number implies
-            shift to the right, negative number implies shift to the left.
+      vocab: (list of String) the vocabulary
+      shift: (Integer) the amount of shift apply to the alphabet.
+        Positive number implies shift to the right, negative number
+        implies shift to the left.
     """
     self.shift = shift
     alphabet = vocab
@@ -149,10 +177,17 @@ class Layer():
 def generate_plaintext_random(plain_vocab, distribution, train_samples,
                               length):
   """Generates samples of text from the provided vocabulary.
+
+  Args:
+    plain_vocab: vocabulary.
+    distribution: distribution.
+    train_samples: samples for training.
+    length: length.
+
   Returns:
-    train_indices (np.array of Integers): random integers generated for training.
+    train_indices (np.array of Integers): random integers for training.
       shape = [num_samples, length]
-    test_indices (np.array of Integers): random integers generated for testing.
+    test_indices (np.array of Integers): random integers for testing.
       shape = [num_samples, length]
     plain_vocab   (list of Integers): unique vocabularies.
   """
@@ -166,7 +201,8 @@ def generate_plaintext_random(plain_vocab, distribution, train_samples,
 
 
 def encipher_shift(plaintext, plain_vocab, shift):
-  """Encrypt plain text with a single shift layer
+  """Encrypt plain text with a single shift layer.
+
   Args:
     plaintext (list of list of Strings): a list of plain text to encrypt.
     plain_vocab (list of Integer): unique vocabularies being used.
@@ -177,9 +213,9 @@ def encipher_shift(plaintext, plain_vocab, shift):
   ciphertext = []
   cipher = Layer(plain_vocab, shift)
 
-  for i, sentence in enumerate(plaintext):
+  for _, sentence in enumerate(plaintext):
     cipher_sentence = []
-    for j, character in enumerate(sentence):
+    for _, character in enumerate(sentence):
       encrypted_char = cipher.encrypt_character(character)
       cipher_sentence.append(encrypted_char)
     ciphertext.append(cipher_sentence)
@@ -188,11 +224,13 @@ def encipher_shift(plaintext, plain_vocab, shift):
 
 
 def encipher_vigenere(plaintext, plain_vocab, key):
-  """Encrypt plain text with given key
+  """Encrypt plain text with given key.
+
   Args:
     plaintext (list of list of Strings): a list of plain text to encrypt.
     plain_vocab (list of Integer): unique vocabularies being used.
     key (list of Integer): key to encrypt cipher using Vigenere table.
+
   Returns:
     ciphertext (list of Strings): encrypted plain text.
   """

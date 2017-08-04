@@ -59,6 +59,13 @@ def inverse_exp_decay(max_step, min_value=0.01):
   return inv_base**tf.maximum(float(max_step) - step, 0.0)
 
 
+def inverse_lin_decay(max_step, min_value=0.01):
+  """Inverse-decay linearly from 0.01 to 1.0 reached at max_step."""
+  step = tf.to_float(tf.contrib.framework.get_global_step())
+  progress = tf.minimum(step / float(max_step), 1.0)
+  return progress * (1.0 - min_value) + min_value
+
+
 def shakeshake2_py(x, y, equal=False, individual=False):
   """The shake-shake sum of 2 tensors, python version."""
   if equal:
