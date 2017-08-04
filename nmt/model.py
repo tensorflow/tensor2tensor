@@ -73,8 +73,8 @@ class BaseModel(object):
     self.time_major = hparams.time_major
 
     # Initializer
-    initializer = tf.random_uniform_initializer(
-        -hparams.init_weight, hparams.init_weight, seed=hparams.random_seed)
+    initializer = model_helper.get_initializer(
+        hparams.init_op, hparams.random_seed, hparams.init_weight)
     tf.get_variable_scope().set_initializer(initializer)
 
     # Embeddings

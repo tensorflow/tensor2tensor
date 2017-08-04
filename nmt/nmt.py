@@ -97,6 +97,13 @@ def add_arguments(parser):
                       help=("Whether try colocating gradients with "
                             "corresponding op"))
 
+  # initializer
+  parser.add_argument("--init_op", type=str, default="uniform",
+                      help="uniform | glorot_normal | glorot_uniform")
+  parser.add_argument("--init_weight", type=float, default=0.1,
+                      help=("for uniform init_op, initialize weights "
+                           "between [-this, this]."))
+
   # data
   parser.add_argument("--src", type=str, default=None,
                       help="Source suffix, e.g., en.")
@@ -149,8 +156,6 @@ def add_arguments(parser):
                       help="Dropout rate (not keep_prob)")
   parser.add_argument("--max_gradient_norm", type=float, default=5.0,
                       help="Clip gradients to this norm.")
-  parser.add_argument("--init_weight", type=float, default=0.1,
-                      help="Initial weights from [-this, this].")
   parser.add_argument("--source_reverse", type="bool", nargs="?", const=True,
                       default=False, help="Reverse source sequence.")
   parser.add_argument("--batch_size", type=int, default=128, help="Batch size.")
@@ -249,6 +254,7 @@ def create_hparams(flags):
       optimizer=flags.optimizer,
       num_train_steps=flags.num_train_steps,
       batch_size=flags.batch_size,
+      init_op=flags.init_op,
       init_weight=flags.init_weight,
       max_gradient_norm=flags.max_gradient_norm,
       learning_rate=flags.learning_rate,

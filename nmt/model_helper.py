@@ -1,7 +1,6 @@
 """Utility functions for building models."""
 from __future__ import print_function
 
-import os
 import time
 
 import tensorflow as tf
@@ -10,9 +9,26 @@ from .utils import misc_utils as utils
 
 
 __all__ = [
+    "get_initializer",
     "get_device_str", "create_emb_for_encoder_and_decoder", "create_rnn_cell",
     "gradient_clip", "create_or_load_model", "load_model", "compute_perplexity"
 ]
+
+
+def get_initializer(init_op, seed=None, init_weight=None):
+  """Create an initializer. init_weight is only for uniform."""
+  if init_op == "uniform":
+    assert init_weight
+    return tf.random_uniform_initializer(
+        -init_weight, init_weight, seed=seed)
+  elif init_op == "glorot_normal":
+    return tf.contrib.keras.initializers.glorot_normal(
+        seed=seed)
+  elif init_op == "glorot_uniform":
+    return tf.contrib.keras.initializers.glorot_uniform(
+        seed=seed)
+  else:
+    raise ValueError("Unknown init_op %s" % init_op)
 
 
 def get_device_str(device_id, num_gpus):

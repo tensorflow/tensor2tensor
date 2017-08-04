@@ -25,13 +25,15 @@ from tensorflow.python.ops import lookup_ops
 
 from ..utils import iterator_utils
 
+
 def create_test_hparams(unit_type="lstm",
                         encoder_type="uni",
                         num_layers=4,
                         attention="",
                         attention_architecture=None,
                         use_residual=False,
-                        inference_indices=None):
+                        inference_indices=None,
+                        init_op="uniform"):
   """Create training and inference test hparams."""
   num_residual_layers = 0
   if use_residual:
@@ -56,6 +58,7 @@ def create_test_hparams(unit_type="lstm",
 
       # Train
       optimizer="sgd",
+      init_op=init_op,
       init_weight=0.1,
       max_gradient_norm=5.0,
       max_emb_gradient_norm=None,
@@ -101,6 +104,7 @@ def create_test_hparams(unit_type="lstm",
 
 
 def create_test_iterator(hparams, mode):
+  """Create test iterator."""
   src_vocab_table = lookup_ops.index_table_from_tensor(
       tf.constant([hparams.eos, "a", "b", "c", "d"]))
   tgt_vocab_mapping = tf.constant([hparams.sos, hparams.eos, "a", "b", "c"])

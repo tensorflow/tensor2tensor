@@ -138,7 +138,9 @@ class ModelTest(tf.test.TestCase):
         'GNMTModel_gnmt_v2/loss': 8.8519087,
         'NoAttentionNoResidualUniEncoder/loss': 8.8516064,
         'NoAttentionResidualBiEncoder/loss': 8.851984,
-        'UniEncoderStandardAttentionArchitecture/loss': 8.8519087
+        'UniEncoderStandardAttentionArchitecture/loss': 8.8519087,
+        'InitializerGlorotNormal/loss': 8.9779415,
+        'InitializerGlorotUniform/loss': 8.7643699,
     }
 
     cls.actual_eval_values = {}
@@ -976,6 +978,34 @@ class ModelTest(tf.test.TestCase):
       infer_m = self._createTestInferModel(
           gnmt_model.GNMTModel, hparams, sess, True)
       self._assertInferWords(infer_m, sess, 'BeamSearchGNMTModel')
+
+  def testInitializerGlorotNormal(self):
+    hparams = common_test_utils.create_test_hparams(
+        encoder_type='uni',
+        num_layers=1,
+        attention='',
+        attention_architecture='',
+        use_residual=False,
+        init_op='glorot_normal')
+
+    with self.test_session() as sess:
+      train_m = self._createTestTrainModel(model.Model, hparams, sess)
+      self._assertTrainStepsLoss(train_m, sess,
+                                 'InitializerGlorotNormal')
+
+  def testInitializerGlorotUniform(self):
+    hparams = common_test_utils.create_test_hparams(
+        encoder_type='uni',
+        num_layers=1,
+        attention='',
+        attention_architecture='',
+        use_residual=False,
+        init_op='glorot_uniform')
+
+    with self.test_session() as sess:
+      train_m = self._createTestTrainModel(model.Model, hparams, sess)
+      self._assertTrainStepsLoss(train_m, sess,
+                                 'InitializerGlorotUniform')
 
 if __name__ == '__main__':
   tf.test.main()
