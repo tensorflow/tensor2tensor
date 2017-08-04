@@ -469,7 +469,10 @@ class T2TModel(object):
           _with_timing(self.model_fn_body, "model_fn_body"),
           datashard_to_features)
       if isinstance(output, tuple):
-        loss = {"extra": tf.reduce_mean(output[1])}
+        if isinstance(output[1], dict):
+          loss = output[1]
+        else:
+          loss = {"extra": tf.reduce_mean(output[1])}
         output = output[0]
       else:
         loss = {"extra": 0.0}
@@ -483,10 +486,12 @@ class T2TModel(object):
 
     Args:
       features: A dictionary of key to Tensor.  Each Tensor has shape
-         `[batch_size, ?, ?, hidden_size]`.
+         [batch_size, ?, ?, hidden_size].
 
     Returns:
-      a `Tensor` of logits with shape `[batch_size, O, P, body_output_size]`.
+      output: tensor of logits with shape [batch_size, O, P, body_output_size.
+      losses: either single loss as a scalar, a list, a tensor (to be averaged)
+              or a dictionary of losses.
     """
     raise NotImplementedError("Abstract Method")
 
