@@ -386,8 +386,19 @@ def transformer_parsing_ice():
 @registry.register_hparams
 def transformer_tiny():
   hparams = transformer_base()
-  hparams.hidden_size = 64
-  hparams.filter_size = 128
+  hparams.num_hidden_layers = 2
+  hparams.hidden_size = 128
+  hparams.filter_size = 512
+  hparams.num_heads = 4
+  return hparams
+
+
+@registry.register_hparams
+def transformer_small():
+  hparams = transformer_base()
+  hparams.num_hidden_layers = 2
+  hparams.hidden_size = 256
+  hparams.filter_size = 1024
   hparams.num_heads = 4
   return hparams
 
