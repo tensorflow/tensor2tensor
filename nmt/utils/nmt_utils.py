@@ -16,6 +16,7 @@
 """Utility functions specifically for NMT."""
 from __future__ import print_function
 
+import codecs
 import time
 
 import tensorflow as tf
@@ -43,7 +44,8 @@ def decode_and_evaluate(name,
 
     start_time = time.time()
     num_sentences = 0
-    with tf.gfile.GFile(trans_file, mode="w") as trans_f:
+    with codecs.getwriter("utf-8")(
+        tf.gfile.GFile(trans_file, mode="w")) as trans_f:
       trans_f.write("")  # Write empty string to ensure file is created.
 
       while True:
