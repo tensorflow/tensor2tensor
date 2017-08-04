@@ -1007,7 +1007,7 @@ There are several hyperparameters that can lead to additional
 performances. Here, we list some based on our own experience [ Disclaimers:
 others might not agree on things we wrote! ].
 
-***Optimizer***: while Adam can lead to reasonable for "unfamiliar"
+***Optimizer***: while Adam can lead to reasonable results for "unfamiliar"
 architectures, SGD with scheduling will generally lead to better performance if
 you can train with SGD.
 
