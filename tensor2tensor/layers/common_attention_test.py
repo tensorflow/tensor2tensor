@@ -65,7 +65,7 @@ class CommonAttentionTest(tf.test.TestCase):
     x = np.random.rand(5, 4, 25, 16)
     y = np.random.rand(5, 4, 25, 16)
     with self.test_session() as session:
-      a = common_attention.unmasked_local_attention_1d(
+      a = common_attention.local_attention_1d(
           tf.constant(x, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
@@ -79,7 +79,7 @@ class CommonAttentionTest(tf.test.TestCase):
     x = np.random.rand(5, 4, 25, 16)
     y = np.random.rand(5, 4, 25, 16)
     with self.test_session() as session:
-      a = common_attention.unmasked_local_attention_1d(
+      a = common_attention.local_attention_1d(
           tf.constant(x, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
