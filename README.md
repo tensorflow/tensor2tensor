@@ -1093,7 +1093,7 @@ Systems | tst2012 (dev) | test2013 (test)
 --- | :---: | :---:
 NMT (greedy) | 23.2 | 25.5
 NMT (beam=10) | 23.8 | **26.1**
-[(Luong & Manning, 2015)](http://stanford.edu/~lmthang/data/papers/iwslt15.pdf) | - | 23.3
+[(Luong & Manning, 2015)](https://nlp.stanford.edu/pubs/luong-manning-iwslt15.pdf) | - | 23.3
 
 **Training Speed**: (0.37s step-time, 15.3K wps) on *K40m* & (0.17s step-time, 32.2K wps) on *TitanX*.\
 Here, step-time means the time taken to run one mini-batch (of size 128). For wps, we count words on both the source and target.
