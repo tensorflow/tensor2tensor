@@ -44,8 +44,8 @@ _DATASET_PB_PATH = "description2code_current/"
 _DESC_DIR_NAME = "description"
 _CODE_PY_DIR_NAME = "solutions_python"
 
-_VOCAB_EN_FILENAME = "vocab_desc2code_tok_en"
-_VOCAB_PY_FILENAME = "vocab_desc2code_tok_py"
+_VOCAB_EN_FILENAME = "vocab.endefr"
+_VOCAB_PY_FILENAME = "vocab.py"
 
 # Struct containing a coding problem (contains the paths to the descriptions
 # and code files)
@@ -61,20 +61,42 @@ class Desc2CodeProblem(problem.Text2TextProblem):
 
   @property
   def num_shards(self):
-    return 100
+    return 10
 
   @property
   def use_subword_tokenizer(self):
     return True
 
+  @property
+  def input_vocab_size(self):
+    return 2**15  # 32k
+
+  @property
+  def target_vocab_size(self):
+    return 2**12  # 4k
+
+  @property
+  def vocab_input_filename(self):
+    return "{}.{}".format(_VOCAB_EN_FILENAME, self.input_vocab_size)
+
+  @property
+  def vocab_target_filename(self):
+    return "{}.{}".format(_VOCAB_PY_FILENAME, self.target_vocab_size)
+
+  def feature_encoders(self, data_dir):
+    source_vocab_filename = os.path.join(data_dir, self.vocab_input_filename)
+    target_vocab_filename = os.path.join(data_dir, self.vocab_target_filename)
+    source_token = text_encoder.SubwordTextEncoder(source_vocab_filename)
+    target_token = text_encoder.SubwordTextEncoder(target_vocab_filename)
+    return {
+        "inputs": source_token,
+        "targets": target_token,
+    }
+
 
 @registry.register_problem("desc2code_py")
 class Desc2CodePyProblem(Desc2CodeProblem):
   """Description2Code for python problem."""
-
-  @property
-  def targeted_vocab_size(self):
-    return 2**13  # 8192
 
   @property
   def input_space_id(self):
@@ -83,14 +105,6 @@ class Desc2CodePyProblem(Desc2CodeProblem):
   @property
   def target_space_id(self):
     return problem.SpaceID.PY_TOK
-
-  @property
-  def vocab_input_filename(self):
-    return "{}.{}".format(_VOCAB_EN_FILENAME, self.targeted_vocab_size)
-
-  @property
-  def vocab_target_filename(self):
-    return "{}.{}".format(_VOCAB_PY_FILENAME, self.targeted_vocab_size)
 
   def train_generator(self, data_dir, tmp_dir, train):
     # Called twice: for train and test
@@ -135,27 +149,19 @@ class Desc2CodePyProblem(Desc2CodeProblem):
         elif sample.code_files:  # Only take the source if a target exists
           yield source, target
 
-    def generator_source():
-      for source, _ in generator_samples_content(True, False):
-        yield source.strip()
-
     def generator_target():
       for _, target in generator_samples_content(False, True):
         yield target.strip()
 
     # Generate vocab for both source and target
 
-    source_vocab = generator_utils.get_or_generate_vocab_inner(
-        data_dir=data_dir,
-        vocab_filename=self.vocab_input_filename,
-        vocab_size=self.targeted_vocab_size,
-        generator_fn=generator_source,
-    )
+    source_vocab = generator_utils.get_or_generate_vocab(
+        data_dir, tmp_dir, self.vocab_input_filename, self.input_vocab_size)
 
     target_vocab = generator_utils.get_or_generate_vocab_inner(
         data_dir=data_dir,
         vocab_filename=self.vocab_target_filename,
-        vocab_size=self.targeted_vocab_size,
+        vocab_size=self.target_vocab_size,
         generator_fn=generator_target,
     )
 
@@ -168,16 +174,6 @@ class Desc2CodePyProblem(Desc2CodeProblem):
           "inputs": source_ints,
           "targets": target_ints,
       }
-
-  def feature_encoders(self, data_dir):
-    source_vocab_filename = os.path.join(data_dir, self.vocab_input_filename)
-    target_vocab_filename = os.path.join(data_dir, self.vocab_target_filename)
-    source_token = text_encoder.SubwordTextEncoder(source_vocab_filename)
-    target_token = text_encoder.SubwordTextEncoder(target_vocab_filename)
-    return {
-        "inputs": source_token,
-        "targets": target_token,
-    }
 
 
 # Utils functions

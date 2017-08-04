@@ -38,5 +38,6 @@ from tensor2tensor.models import slicenet
 from tensor2tensor.models import transformer
 from tensor2tensor.models import transformer_alternative
 from tensor2tensor.models import transformer_moe
+from tensor2tensor.models import transformer_vae
 from tensor2tensor.models import xception
 # pylint: enable=unused-import
