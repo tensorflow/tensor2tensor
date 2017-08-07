@@ -22,6 +22,7 @@ from __future__ import print_function
 import collections
 import os
 import random
+import re
 import zipfile
 
 # Dependency imports
@@ -42,11 +43,32 @@ _DATASET_FILENAME = "description2code_current.zip"
 _DATASET_PB_PATH = "description2code_current/"
 
 _DESC_DIR_NAME = "description"
-_CODE_PY_DIR_NAME = "solutions_python"
-_CODE_PY_FILTER_PATERNS = ["#include", "# include", "import java."]
 
 _VOCAB_EN_FILENAME = "vocab.endefr"
-_VOCAB_PY_FILENAME = "vocab.py"
+
+_RE_CPP_INLINE_COMMENT = re.compile("//.*?\n")  # Compiled once
+
+
+# Constant defined for a language problem
+CodingPbConstants = collections.namedtuple("CodingPbConstants", [
+    "code_dir_name",
+    "vocab_filename",
+    "filter_patterns",
+    "target_space",
+])
+
+PB_PY = CodingPbConstants(
+    code_dir_name="solutions_python",
+    vocab_filename="vocab.py",
+    filter_patterns=["#include", "# include", "import java."],
+    target_space=problem.SpaceID.PY_TOK,
+)
+PB_CPP = CodingPbConstants(
+    code_dir_name="solutions_c++",
+    vocab_filename="vocab.cpp",
+    filter_patterns=["import java."],
+    target_space=problem.SpaceID.CPP_TOK,
+)
 
 # Struct containing a coding problem (contains the paths to the descriptions
 # and code files)
@@ -69,6 +91,14 @@ class Desc2CodeProblem(problem.Text2TextProblem):
     return True
 
   @property
+  def input_space_id(self):
+    return problem.SpaceID.EN_TOK
+
+  @property
+  def target_space_id(self):
+    return self.pb_constants.target_space
+
+  @property
   def input_vocab_size(self):
     return 2**15  # 32k
 
@@ -82,7 +112,21 @@ class Desc2CodeProblem(problem.Text2TextProblem):
 
   @property
   def vocab_target_filename(self):
-    return "{}.{}".format(_VOCAB_PY_FILENAME, self.target_vocab_size)
+    return "{}.{}".format(
+        self.pb_constants.vocab_filename, self.target_vocab_size)
+
+  def preprocess_target(self, target):
+    """Apply some preprocessing to the target.
+
+    For instance, remove space/tabs.
+
+    Args:
+      target (str): code source content
+
+    Returns:
+      the pre-processed string content
+    """
+    return target
 
   def feature_encoders(self, data_dir):
     source_vocab_filename = os.path.join(data_dir, self.vocab_input_filename)
@@ -94,24 +138,11 @@ class Desc2CodeProblem(problem.Text2TextProblem):
         "targets": target_token,
     }
 
-
-@registry.register_problem("desc2code_py")
-class Desc2CodePyProblem(Desc2CodeProblem):
-  """Description2Code for python problem."""
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.PY_TOK
-
   def train_generator(self, data_dir, tmp_dir, train):
     # Called twice: for train and test
 
     # Get the list of the training samples (coding challenge samples)
-    samples = list(generator_samples(tmp_dir))
+    samples = list(generator_samples(tmp_dir, self.pb_constants))
 
     # Split between train and dev
     # Suffle to get problems from diverse sources (CodeChef and CodeForces) and
@@ -146,7 +177,7 @@ class Desc2CodePyProblem(Desc2CodeProblem):
           for code_file in sample.code_files:
             with tf.gfile.GFile(code_file, mode="r") as target_file:
               target = target_file.read()
-              target = target.replace("\t", "    ")
+              target = self.preprocess_target(target)
             yield source, target
         elif sample.code_files:  # Only take the source if a target exists
           yield source, target
@@ -178,16 +209,47 @@ class Desc2CodePyProblem(Desc2CodeProblem):
       }
 
 
+@registry.register_problem("desc2code_py")
+class Desc2CodePyProblem(Desc2CodeProblem):
+  """Description2Code for python problem."""
+
+  @property
+  def pb_constants(self):
+    return PB_PY
+
+  def preprocess_target(self, target):
+    """Simple tab to space replacement."""
+    return target.replace("\t", "    ")
+
+
+@registry.register_problem("desc2code_cpp")
+class Desc2CodeCppProblem(Desc2CodeProblem):
+  """Description2Code for C++ problem."""
+
+  @property
+  def pb_constants(self):
+    return PB_CPP
+
+  def preprocess_target(self, target):
+    """Pre-process Cpp files."""
+    target = re.sub(_RE_CPP_INLINE_COMMENT, " ", target)  # Remove comments
+    # The regex rule is quite simple, So will fail if a // is inside a string,
+    # and don't remove /* */ comments
+    target = " ".join(target.split())  # Normalize all spaces
+    return target
+
+
 # Utils functions
 
 
-def generator_samples(tmp_dir):
+def generator_samples(tmp_dir, pb_cst):
   """Generator for the dataset samples.
 
   If not present, download and extract the dataset.
 
   Args:
     tmp_dir: path to the directory where to download the dataset.
+    pb_cst: CodingPbConstants object defining paths
 
   Yields:
     A CodingPbInfo object containing the next challenge informations.
@@ -217,7 +279,7 @@ def generator_samples(tmp_dir):
     """Check that the folder contains a problem."""
     return (
         _DESC_DIR_NAME in dirs and
-        _CODE_PY_DIR_NAME in dirs
+        pb_cst.code_dir_name in dirs
     )
 
   def next_sample(subdir, dirs, files):  # pylint: disable=unused-argument
@@ -229,14 +291,14 @@ def generator_samples(tmp_dir):
     code_files = []
     # As the dataset is noisy, the program deduce the language from the file
     # content.
-    code_pattern = os.path.join(subdir, _CODE_PY_DIR_NAME, "*.txt")
+    code_pattern = os.path.join(subdir, pb_cst.code_dir_name, "*.txt")
     for f in tf.gfile.Glob(code_pattern):
       with tf.gfile.GFile(f, mode="r") as target_file:
         # Hack to filter C++/Java files. In theory some python comments could
         # make the file be concidered as C++ but in practice the chance of
         # getting a false negative is low.
         content = target_file.read()
-        if not any(p in content for p in _CODE_PY_FILTER_PATERNS):
+        if not any(p in content for p in pb_cst.filter_patterns):
           code_files.append(f)
     return CodingPbInfo(
         desc_file=desc_file,

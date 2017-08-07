@@ -88,6 +88,8 @@ class SpaceID(object):
   PEPTIDE = 26
   # Python
   PY_TOK = 27
+  # C++
+  CPP_TOK = 28
 
 
 class Problem(object):
