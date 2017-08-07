@@ -43,6 +43,7 @@ _DATASET_PB_PATH = "description2code_current/"
 
 _DESC_DIR_NAME = "description"
 _CODE_PY_DIR_NAME = "solutions_python"
+_CODE_PY_FILTER_PATERNS = ["#include", "# include", "import java."]
 
 _VOCAB_EN_FILENAME = "vocab.endefr"
 _VOCAB_PY_FILENAME = "vocab.py"
@@ -145,6 +146,7 @@ class Desc2CodePyProblem(Desc2CodeProblem):
           for code_file in sample.code_files:
             with tf.gfile.GFile(code_file, mode="r") as target_file:
               target = target_file.read()
+              target = target.replace("\t", "    ")
             yield source, target
         elif sample.code_files:  # Only take the source if a target exists
           yield source, target
@@ -224,10 +226,18 @@ def generator_samples(tmp_dir):
     # pairs, the problem difficulty, the names of the algorithmic techniques
     # needed)
     desc_file = os.path.join(subdir, _DESC_DIR_NAME, "description.txt")
-    code_rootdir = os.path.join(subdir, _CODE_PY_DIR_NAME)
-    code_files = [
-        f for f in tf.gfile.Glob(os.path.join(code_rootdir, "*.txt"))
-    ]
+    code_files = []
+    # As the dataset is noisy, the program deduce the language from the file
+    # content.
+    code_pattern = os.path.join(subdir, _CODE_PY_DIR_NAME, "*.txt")
+    for f in tf.gfile.Glob(code_pattern):
+      with tf.gfile.GFile(f, mode="r") as target_file:
+        # Hack to filter C++/Java files. In theory some python comments could
+        # make the file be concidered as C++ but in practice the chance of
+        # getting a false negative is low.
+        content = target_file.read()
+        if not any(p in content for p in _CODE_PY_FILTER_PATERNS):
+          code_files.append(f)
     return CodingPbInfo(
         desc_file=desc_file,
         code_files=code_files
@@ -239,4 +249,3 @@ def generator_samples(tmp_dir):
   for w in tf.gfile.Walk(data_rootdir):
     if contains_samples(*w):
       yield next_sample(*w)
-
