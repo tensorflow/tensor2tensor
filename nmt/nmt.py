@@ -33,6 +33,8 @@ from .utils import vocab_utils
 
 utils.check_tensorflow_version()
 
+FLAGS = None
+
 
 def add_arguments(parser):
   """Build ArgumentParser."""
@@ -397,7 +399,8 @@ def ensure_compatible_hparams(hparams, default_hparams, hparams_path):
   for key in updated_keys:
     if key in default_config and getattr(hparams, key) != default_config[key]:
       utils.print_out("# Updating hparams.%s: %s -> %s" %
-                      (key, str(getattr(hparams, key)), str(default_config[key])))
+                      (key, str(getattr(hparams, key)),
+                       str(default_config[key])))
       setattr(hparams, key, default_config[key])
   return hparams
 
