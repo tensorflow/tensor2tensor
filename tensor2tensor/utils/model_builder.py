@@ -195,7 +195,7 @@ def build_model_fn(model, hparams):
           features, skip=(skipping_is_on and skip_this_one))
       with tf.variable_scope("losses_avg", reuse=True):
         total_loss, ops = 0.0, []
-        for loss_key, loss_value in losses_dict.iteritems():
+        for loss_key, loss_value in six.iteritems(losses_dict):
           loss_moving_avg = tf.get_variable("problem_%d/%s_loss" % (n,
                                                                     loss_key))
           ops.append(
