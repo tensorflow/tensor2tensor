@@ -96,10 +96,9 @@ def encode(x, x_space, hparams, name):
   with tf.variable_scope(name):
     (encoder_input, encoder_self_attention_bias,
      _) = transformer.transformer_prepare_encoder(x, x_space, hparams)
-    residual_fn = transformer.get_residual_fn(hparams)
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
     return transformer.transformer_encoder(
-        encoder_input, residual_fn, encoder_self_attention_bias, hparams)
+        encoder_input, encoder_self_attention_bias, hparams)
 
 
 def dropmask(targets, targets_dropout_max, is_training):

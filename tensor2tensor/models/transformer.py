@@ -55,34 +55,20 @@ class Transformer(t2t_model.T2TModel):
     (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
         targets, hparams)
 
-    residual_fn = get_residual_fn(hparams)
-
-    encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
-    decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
-    encoder_output = transformer_encoder(encoder_input, residual_fn,
-                                         encoder_self_attention_bias, hparams)
+    encoder_input = tf.nn.dropout(
+        encoder_input, 1.0 - hparams.layer_prepostprocess_dropout)
+    decoder_input = tf.nn.dropout(
+        decoder_input, 1.0 - hparams.layer_prepostprocess_dropout)
+    encoder_output = transformer_encoder(
+        encoder_input, encoder_self_attention_bias, hparams)
 
     decoder_output = transformer_decoder(
-        decoder_input, encoder_output, residual_fn, decoder_self_attention_bias,
+        decoder_input, encoder_output,
+        decoder_self_attention_bias,
         encoder_decoder_attention_bias, hparams)
     decoder_output = tf.expand_dims(decoder_output, 2)
 
     return decoder_output
-
-
-def get_residual_fn(hparams):
-  """Get residual_fn."""
-
-  def residual_fn(x, y):
-    return common_layers.residual_fn(
-        x,
-        y,
-        hparams.norm_type,
-        hparams.residual_dropout,
-        hparams.hidden_size,
-        epsilon=hparams.layer_norm_epsilon)
-
-  return residual_fn
 
 
 def transformer_prepare_encoder(inputs, target_space, hparams):
@@ -143,7 +129,6 @@ def transformer_prepare_decoder(targets, hparams):
 
 
 def transformer_encoder(encoder_input,
-                        residual_fn,
                         encoder_self_attention_bias,
                         hparams,
                         name="encoder"):
@@ -151,7 +136,6 @@ def transformer_encoder(encoder_input,
 
   Args:
     encoder_input: a Tensor
-    residual_fn: a function from (layer_input, layer_output) -> combined_output
     encoder_self_attention_bias: bias Tensor for self-attention
        (see common_attention.attention_bias())
     hparams: hyperparameters for model
@@ -164,25 +148,29 @@ def transformer_encoder(encoder_input,
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
-        x = residual_fn(
-            x,
-            common_attention.multihead_attention(
-                x,
-                None,
-                encoder_self_attention_bias,
-                hparams.attention_key_channels or hparams.hidden_size,
-                hparams.attention_value_channels or hparams.hidden_size,
-                hparams.hidden_size,
-                hparams.num_heads,
-                hparams.attention_dropout,
-                name="encoder_self_attention"))
-        x = residual_fn(x, transformer_ffn_layer(x, hparams))
-  return x
+        with tf.variable_scope("self_attention"):
+          y = common_attention.multihead_attention(
+              common_layers.layer_preprocess(x, hparams),
+              None,
+              encoder_self_attention_bias,
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout)
+          x = common_layers.layer_postprocess(x, y, hparams)
+        with tf.variable_scope("ffn"):
+          y = transformer_ffn_layer(
+              common_layers.layer_preprocess(x, hparams), hparams)
+          x = common_layers.layer_postprocess(x, y, hparams)
+  # if normalization is done in layer_preprocess, then it shuold also be done
+  # on the output, since the output can grow very large, being the sum of
+  # a whole stack of unnormalized layer outputs.
+  return common_layers.layer_preprocess(x, hparams)
 
 
 def transformer_decoder(decoder_input,
                         encoder_output,
-                        residual_fn,
                         decoder_self_attention_bias,
                         encoder_decoder_attention_bias,
                         hparams,
@@ -192,7 +180,6 @@ def transformer_decoder(decoder_input,
   Args:
     decoder_input: a Tensor
     encoder_output: a Tensor
-    residual_fn: a function from (layer_input, layer_output) -> combined_output
     decoder_self_attention_bias: bias Tensor for self-attention
       (see common_attention.attention_bias())
     encoder_decoder_attention_bias: bias Tensor for encoder-decoder attention
@@ -207,32 +194,36 @@ def transformer_decoder(decoder_input,
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
-        x = residual_fn(
-            x,
-            common_attention.multihead_attention(
-                x,
-                None,
-                decoder_self_attention_bias,
-                hparams.attention_key_channels or hparams.hidden_size,
-                hparams.attention_value_channels or hparams.hidden_size,
-                hparams.hidden_size,
-                hparams.num_heads,
-                hparams.attention_dropout,
-                name="decoder_self_attention"))
-        x = residual_fn(
-            x,
-            common_attention.multihead_attention(
-                x,
-                encoder_output,
-                encoder_decoder_attention_bias,
-                hparams.attention_key_channels or hparams.hidden_size,
-                hparams.attention_value_channels or hparams.hidden_size,
-                hparams.hidden_size,
-                hparams.num_heads,
-                hparams.attention_dropout,
-                name="encdec_attention"))
-        x = residual_fn(x, transformer_ffn_layer(x, hparams))
-  return x
+        with tf.variable_scope("self_attention"):
+          y = common_attention.multihead_attention(
+              common_layers.layer_preprocess(x, hparams),
+              None,
+              decoder_self_attention_bias,
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout)
+          x = common_layers.layer_postprocess(x, y, hparams)
+        with tf.variable_scope("encdec_attention"):
+          y = common_attention.multihead_attention(
+              common_layers.layer_preprocess(x, hparams),
+              encoder_output,
+              encoder_decoder_attention_bias,
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout)
+          x = common_layers.layer_postprocess(x, y, hparams)
+        with tf.variable_scope("ffn"):
+          y = transformer_ffn_layer(
+              common_layers.layer_preprocess(x, hparams), hparams)
+          x = common_layers.layer_postprocess(x, y, hparams)
+  # if normalization is done in layer_preprocess, then it shuold also be done
+  # on the output, since the output can grow very large, being the sum of
+  # a whole stack of unnormalized layer outputs.
+  return common_layers.layer_preprocess(x, hparams)
 
 
 def transformer_ffn_layer(x, hparams):
@@ -307,10 +298,36 @@ def transformer_base():
   # when not in training mode.
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
-  hparams.add_hparam("residual_dropout", 0.1)
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
   hparams.add_hparam("proximity_bias", int(False))
+  return hparams
+
+
+@registry.register_hparams
+def transformer_n_da():
+  """Normalize on layer input, instead of after residual connection.
+
+  This version seems to cure failure-to-learn bugs - for example, with very
+  deep networks or hard-to-learn mappings.
+
+  Probably this should become the default.
+
+  Returns:
+    a hyperparameters.
+  """
+  hparams = transformer_base()
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  # This version seems to benefit from a higher learning rate.
+  hparams.learning_rate = 0.4
+  return hparams
+
+
+@registry.register_hparams
+def transformer_n_da_l10():
+  hparams = transformer_n_da()
+  hparams.num_hidden_layers = 10
   return hparams
 
 
@@ -322,7 +339,7 @@ def transformer_big():
   hparams.filter_size = 4096
   hparams.num_heads = 16
   hparams.batching_mantissa_bits = 2
-  hparams.residual_dropout = 0.3
+  hparams.layer_prepostprocess_dropout = 0.3
   return hparams
 
 
@@ -330,7 +347,7 @@ def transformer_big():
 def transformer_big_single_gpu():
   """HParams for transformer big model for single gpu."""
   hparams = transformer_big()
-  hparams.residual_dropout = 0.1
+  hparams.layer_prepostprocess_dropout = 0.1
   hparams.learning_rate_warmup_steps = 16000
   hparams.optimizer_adam_beta2 = 0.998
   hparams.batching_mantissa_bits = 3
@@ -352,7 +369,7 @@ def transformer_parsing_base():
   """Hparams for parsing on wsj only."""
   hparams = transformer_base()
   hparams.attention_dropout = 0.2
-  hparams.residual_dropout = 0.2
+  hparams.layer_prepostprocess_dropout = 0.2
   hparams.max_length = 512
   hparams.learning_rate_warmup_steps = 16000
   hparams.hidden_size = 1024
@@ -368,7 +385,7 @@ def transformer_parsing_big():
   hparams.max_length = 512
   hparams.shared_source_target_embedding = int(False)
   hparams.learning_rate_warmup_steps = 4000
-  hparams.residual_dropout = 0.1
+  hparams.layer_prepostprocess_dropout = 0.1
   hparams.batch_size = 2048
   hparams.learning_rate = 0.05
   return hparams
@@ -421,6 +438,13 @@ def transformer_l4():
 def transformer_l8():
   hparams = transformer_base()
   hparams.num_hidden_layers = 8
+  return hparams
+
+
+@registry.register_hparams
+def transformer_l10():
+  hparams = transformer_base()
+  hparams.num_hidden_layers = 10
   return hparams
 
 
@@ -483,14 +507,14 @@ def transformer_ff4096():
 @registry.register_hparams
 def transformer_dr0():
   hparams = transformer_base()
-  hparams.residual_dropout = 0.0
+  hparams.layer_prepostprocess_dropout = 0.0
   return hparams
 
 
 @registry.register_hparams
 def transformer_dr2():
   hparams = transformer_base()
-  hparams.residual_dropout = 0.2
+  hparams.layer_prepostprocess_dropout = 0.2
   return hparams
 
 
@@ -528,7 +552,7 @@ def transformer_big_dr1():
   hparams.hidden_size = 1024
   hparams.filter_size = 4096
   hparams.num_heads = 16
-  hparams.residual_dropout = 0.1
+  hparams.layer_prepostprocess_dropout = 0.1
   hparams.batching_mantissa_bits = 2
   return hparams
 
@@ -538,14 +562,14 @@ def transformer_big_enfr():
   hparams = transformer_big_dr1()
   hparams.shared_embedding_and_softmax_weights = int(False)
   hparams.filter_size = 8192
-  hparams.residual_dropout = 0.1
+  hparams.layer_prepostprocess_dropout = 0.1
   return hparams
 
 
 @registry.register_hparams
 def transformer_big_dr2():
   hparams = transformer_big_dr1()
-  hparams.residual_dropout = 0.2
+  hparams.layer_prepostprocess_dropout = 0.2
   return hparams
 
 

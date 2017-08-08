@@ -69,8 +69,23 @@ def basic_params1():
       sampling_method="argmax",  # "argmax" or "random"
       problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
       multiply_embedding_mode="sqrt_depth",
+      # Sequences of operations to perform on layer input and layer output.
+      # Used by common_layers.layer_preprocess, common_layers.layer_postprocess
+      # Each character repsesnts an operation:
+      #   d: apply dropout
+      #   n: apply normalization (see norm_type and norm_epsilon)
+      #   a: add layer input (residual connection - only during postprocess)
+      # TODO(noam): The current settings ("", "dan") are the published version
+      # of the transformer.  ("n", "da") seems better for harder-to-learn
+      # models, so it should probably be the default.
+      layer_preprocess_sequence="",
+      layer_postprocess_sequence="dan",
+      # dropout rate to use during layer_preprocess and layer_postprocess
+      layer_prepostprocess_dropout=0.1,
+      # What type of normalization to use
       norm_type="none",  # "batch", layer", "noam", "none".
-      layer_norm_epsilon=1e-6,
+      # epsilon parameter to normalization function
+      norm_epsilon=1e-6,
       symbol_modality_num_shards=16,
       # setting the max length in a minibatch. 0 means default behavior,
       # max_length = hparams.batch_size * length_multiplier
