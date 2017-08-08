@@ -109,10 +109,10 @@ class GeneExpressionProblem(problem.Problem):
     # Collect created shard processes to start and join
     processes = []
 
-    datasets = [
-        (self.training_filepaths, self.num_shards, "train", num_train_examples),
-        (self.dev_filepaths, 10, "valid", num_dev_examples),
-        (self.test_filepaths, 10, "test", num_test_examples)]
+    datasets = [(self.training_filepaths, self.num_shards, "train",
+                 num_train_examples), (self.dev_filepaths, 10, "valid",
+                                       num_dev_examples),
+                (self.test_filepaths, 10, "test", num_test_examples)]
     for fname_fn, nshards, key_prefix, num_examples in datasets:
       outfiles = fname_fn(data_dir, nshards, shuffled=False)
       all_filepaths.extend(outfiles)
@@ -163,9 +163,12 @@ class GeneExpressionProblem(problem.Problem):
     del mode
     del hparams
 
-    # Reshape targets
+    # Reshape targets to contain num_output_predictions per output timestep
     examples["targets"] = tf.reshape(examples["targets"],
                                      [-1, 1, self.num_output_predictions])
+    # Slice off EOS - not needed, and messes up the GeneExpressionConv model
+    # which expects the input length to be a multiple of the target length.
+    examples["inputs"] = examples["inputs"][:-1]
 
     return examples
 
@@ -251,7 +254,12 @@ def dataset_generator(filepath,
       if i % 100 == 0:
         print("Generating example %d for %s" % (i, dataset))
       inputs, mask, outputs = inp_data[i], mask_data[i], out_data[i]
-      yield to_example_dict(encoder, inputs, mask, outputs)
+      ex_dict = to_example_dict(encoder, inputs, mask, outputs)
+      # Original data has one output for every 128 input bases. Ensure that the
+      # ratio has been maintained given the chunk size and removing EOS.
+      assert (len(ex_dict["inputs"]) - 1) == ((
+          128 // chunk_size) * ex_dict["targets_shape"][0])
+      yield ex_dict
 
 
 def to_example_dict(encoder, inputs, mask, outputs):

@@ -489,12 +489,13 @@ class RealL2LossModality(RealModality):
 class RealLogPoissonLossModality(RealL2LossModality):
   """Modality for real (i.e. float) vectors with log Poisson regression loss.
 
-  * Top is a linear projection to vocab size followed by a log transform.
+  * Top is a linear projection to vocab size followed by a softplus
+    transform (log(exp(features) + 1)).
   """
 
   def top(self, body_output, _):
     with tf.variable_scope("real"):
-      return tf.log(tf.layers.dense(body_output, self._vocab_size))
+      return tf.nn.softplus(tf.layers.dense(body_output, self._vocab_size))
 
   def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     predictions = top_out

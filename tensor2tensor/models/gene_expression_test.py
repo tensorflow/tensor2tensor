@@ -42,7 +42,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
     batch_size = 3
     target_length = 6
     target_out = 10  # GeneExpressionProblem.num_output_predictions
-    input_length = target_length * 128
+    input_length = target_length * 128 // 4  # chunk_size=4
     input_vocab_size = 5
 
     inputs = np.random.random_integers(
