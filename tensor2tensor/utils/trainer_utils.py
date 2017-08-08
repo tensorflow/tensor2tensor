@@ -219,10 +219,13 @@ def add_problem_hparams(hparams, problems):
   for problem_name in problems.split("-"):
     try:
       problem = registry.problem(problem_name)
-      p_hparams = problem.internal_hparams(hparams)
     except ValueError:
       problem = None
+
+    if problem is None:
       p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+    else:
+      p_hparams = problem.internal_hparams(hparams)
 
     hparams.problem_instances.append(problem)
     hparams.problems.append(p_hparams)

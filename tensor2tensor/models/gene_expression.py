@@ -121,12 +121,14 @@ def fc_layer(x, num_out, dropout_rate, name="fc"):
 def gene_expression_conv_base():
   """Hparams for GeneExpressionConv model."""
   hparams = common_hparams.basic_params1()
+  hparams.max_length = 10000000
+  hparams.batch_size = 1024
+  hparams.dropout = 0.1
   hparams.add_hparam("num_conv_layers", 4)
   hparams.add_hparam("num_dconv_layers", 7)
   hparams.add_hparam("pooling_windows", [2, 4, 4, 4])
 
-  # TODO(rsepassi): Correct the values of these hyperparameters
-  hparams.hidden_size = 128
-  hparams.kernel_width = 128
+  hparams.hidden_size = 256
+  hparams.kernel_width = 20
   hparams.add_hparam("stride", 1)
   return hparams

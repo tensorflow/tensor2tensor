@@ -359,13 +359,23 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   return conv2d_kernel(kernel_size, "single")
 
 
-def conv(inputs, filters, kernel_size, **kwargs):
-  return conv_internal(tf.layers.conv2d, inputs, filters, kernel_size, **kwargs)
+def conv(inputs, filters, kernel_size, dilation_rate=1, **kwargs):
+  return conv_internal(
+      tf.layers.conv2d,
+      inputs,
+      filters,
+      kernel_size,
+      dilation_rate=dilation_rate,
+      **kwargs)
 
 
-def conv1d(inputs, filters, kernel_size, **kwargs):
+def conv1d(inputs, filters, kernel_size, dilation_rate=1, **kwargs):
   return tf.squeeze(
-      conv(tf.expand_dims(inputs, 2), filters, (kernel_size, 1), **kwargs), 2)
+      conv(
+          tf.expand_dims(inputs, 2),
+          filters, (kernel_size, 1),
+          dilation_rate=(dilation_rate, 1),
+          **kwargs), 2)
 
 
 def separable_conv(inputs, filters, kernel_size, **kwargs):
