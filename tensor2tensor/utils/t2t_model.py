@@ -425,7 +425,7 @@ class T2TModel(object):
       else:
         body_outputs, losses = self.model_fn_body_sharded(
             transformed_features)
-        if isinstance(losses, tf.Tensor):  # If it's a single extra loss.
+        if not isinstance(losses, dict):  # If it's a single extra loss.
           losses = {"extra": losses}
 
     with tf.variable_scope(target_modality.name, reuse=target_reuse):
