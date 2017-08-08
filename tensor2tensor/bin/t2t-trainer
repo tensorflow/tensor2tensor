@@ -30,6 +30,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 # Dependency imports
 
 from tensor2tensor.utils import registry
@@ -57,22 +59,25 @@ def main(_):
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   trainer_utils.log_registry()
   trainer_utils.validate_flags()
-  tf.gfile.MakeDirs(FLAGS.output_dir)
+  output_dir = os.path.expanduser(FLAGS.output_dir)
+  tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
+  data_dir = os.path.expanduser(FLAGS.data_dir)
+  tf.gfile.MakeDir(output_dir)
 
   # Generate data if requested.
   if FLAGS.generate_data:
-    tf.gfile.MakeDirs(FLAGS.data_dir)
-    tf.gfile.MakeDirs(FLAGS.tmp_dir)
+    tf.gfile.MakeDirs(data_dir)
+    tf.gfile.MakeDirs(tmp_dir)
     for problem_name in FLAGS.problems.split("-"):
       tf.logging.info("Generating data for %s" % problem_name)
       problem = registry.problem(problem_name)
-      problem.generate_data(FLAGS.data_dir, FLAGS.tmp_dir)
+      problem.generate_data(data_dir, tmp_dir)
 
   # Run the trainer.
   trainer_utils.run(
-      data_dir=FLAGS.data_dir,
+      data_dir=data_dir,
       model=FLAGS.model,
-      output_dir=FLAGS.output_dir,
+      output_dir=output_dir,
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
       schedule=FLAGS.schedule)

@@ -31,13 +31,31 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def decompress(source, hparams, name):
+def residual_conv(x, repeat, hparams, name):
+  """A stack of convolution blocks with residual connections."""
+  with tf.variable_scope(name):
+    k = (3, 1)
+    dilations_and_kernels = [((1, 1), k) for _ in xrange(3)]
+    for i in xrange(repeat):
+      with tf.variable_scope("repeat_%d" % i):
+        y = common_layers.conv_block(
+            common_layers.layer_norm(x, hparams.hidden_size, name="lnorm"),
+            hparams.hidden_size,
+            dilations_and_kernels,
+            padding="SAME",
+            name="residual_conv")
+        y = tf.nn.dropout(y, 1.0 - hparams.dropout)
+        x += y
+    return x
+
+
+def decompress(source, hparams, first_relu, name):
   """Decompression function."""
   with tf.variable_scope(name):
     shape = tf.shape(source)
     thicker = common_layers.conv_block(
         source, hparams.hidden_size * 2, [((1, 1), (1, 1))],
-        name="decompress_conv")
+        first_relu=first_relu, name="decompress_conv")
     return tf.reshape(thicker, [shape[0], shape[1] * 2, 1, hparams.hidden_size])
 
 
@@ -60,6 +78,7 @@ def compress_vae(inputs, hparams, name):
     # Run compression by strided convs.
     cur = tf.expand_dims(inputs, axis=2)
     for i in xrange(hparams.num_compress_steps):
+      cur = residual_conv(cur, 1, hparams, "compress_rc_%d" % i)
       cur = common_layers.conv_block(
           cur, hparams.hidden_size, [((1, 1), (2, 1))],
           strides=(2, 1), name="compress_%d" % i)
@@ -72,73 +91,78 @@ def compress_vae(inputs, hparams, name):
     return cur, kl_loss
 
 
+def encode(x, x_space, hparams, name):
+  """Transformer preparations and encoder."""
+  with tf.variable_scope(name):
+    (encoder_input, encoder_self_attention_bias,
+     _) = transformer.transformer_prepare_encoder(x, x_space, hparams)
+    residual_fn = transformer.get_residual_fn(hparams)
+    encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
+    return transformer.transformer_encoder(
+        encoder_input, residual_fn, encoder_self_attention_bias, hparams)
+
+
+def dropmask(targets, targets_dropout_max, is_training):
+  if not is_training:
+    return targets
+  targets_drop_prob = tf.random_uniform([]) * targets_dropout_max
+  drop_mask = tf.random_uniform(tf.shape(targets)[:-1])
+  drop_mask = tf.to_float(tf.less(drop_mask, targets_drop_prob))
+  keep_mask = tf.expand_dims(1.0 - drop_mask, axis=2)
+  return targets * keep_mask
+
+
 def vae_transformer_internal(inputs, targets, target_space, hparams):
   """VAE Transformer, main step used for training."""
   with tf.variable_scope("vae_transformer"):
     is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
     # Prepare inputs, targets, and k.
     inputs = common_layers.flatten4d3d(inputs)
+    input_len = tf.shape(inputs)[1]  # Double input size to cover targets.
+    inputs = tf.pad(inputs, [[0, 0], [0, input_len], [0, 0]])
+    inputs.set_shape([None, None, hparams.hidden_size])
     targets = common_layers.flatten4d3d(targets)
     k = 2**hparams.num_compress_steps
-    _, targets = common_layers.pad_to_same_length(
+    inputs, targets = common_layers.pad_to_same_length(
         inputs, targets, final_length_divisible_by=k)
+    inputs = encode(inputs, target_space, hparams, "input_enc")
 
-    # Transformer preparations and encoder.
-    (encoder_input, encoder_self_attention_bias,
-     encoder_decoder_attention_bias) = transformer.transformer_prepare_encoder(
-         inputs, target_space, hparams)
-    residual_fn = transformer.get_residual_fn(hparams)
-    encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
-    encoder_output = transformer.transformer_encoder(
-        encoder_input, residual_fn, encoder_self_attention_bias, hparams)
+    # Dropout targets or swap for zeros 5% of the time.
+    max_prestep = 90000
+    prob_targets = 0.95 if is_training else 1.0
+    targets_dropout_max = common_layers.inverse_lin_decay(max_prestep) - 0.01
+    targets = dropmask(targets, targets_dropout_max, is_training)
+    targets = tf.cond(tf.less(tf.random_uniform([]), prob_targets),
+                      lambda: targets, lambda: tf.zeros_like(targets))
 
-    def get_decoder_autoregressive():
-      """Decoder input for autoregressive computation."""
-      (a, b) = transformer.transformer_prepare_decoder(targets, hparams)
-      return (a, b, tf.constant(0.0))
+    # Join targets with inputs, run encoder.
+    # to_encode = common_layers.conv_block(
+    #     tf.expand_dims(tf.concat([targets, inputs], axis=2), axis=2),
+    #     hparams.hidden_size, [((1, 1), (1, 1))],
+    #     first_relu=False, name="join_targets")
+    # to_compress = encode(tf.squeeze(to_encode, axis=2),
+    #                      target_space, hparams, "enc")
 
-    # 10% of the time we compress all-zeros, as will be at decoding start.
-    prob_targets = 0.9 if is_training else 1.0
-    to_compress = tf.cond(tf.less(tf.random_uniform([]), prob_targets),
-                          lambda: targets, lambda: tf.zeros_like(targets))
-    z, kl_loss = compress_vae(to_compress, hparams, "vae")
+    # Compress and vae.
+    z, kl_loss = compress_vae(targets, hparams, "vae")
+
     # Decompress.
     for i in xrange(hparams.num_compress_steps):
       j = hparams.num_hidden_layers - i - 1
-      z = decompress(z, hparams, "decompress_%d" % j)
+      z = residual_conv(z, 1, hparams, "dec_rc_%d" % j)
+      z = decompress(z, hparams, i > 0, "decompress_%d" % j)
 
-    def get_decoder_from_vae():
-      """Decoder input computed by VAE."""
-      # Return decoder stuff.
-      (a, b) = transformer.transformer_prepare_decoder(
-          tf.squeeze(z, axis=2), hparams)
-      return (a, b, kl_loss)
+    # Join z with inputs, run decoder.
+    to_decode = common_layers.conv_block(
+        tf.concat([z, tf.expand_dims(inputs, axis=2)], axis=3),
+        hparams.hidden_size, [((1, 1), (1, 1))], name="join_z")
+    ret = encode(tf.squeeze(to_decode, axis=2), target_space, hparams, "dec")
+    # to_decode = residual_conv(to_decode, 2, hparams, "dec_conv")
+    # ret = tf.squeeze(to_decode, axis=2)
 
     # Randomize decoder inputs..
-    prob_do_vae = common_layers.inverse_exp_decay(40000) * 0.7
-    step = tf.to_float(tf.contrib.framework.get_global_step())
-    if not is_training:
-      prob_do_vae = tf.cond(tf.less(step, 40000.0), lambda: tf.constant(0.0),
-                            lambda: tf.constant(1.0))
-    (decoder_input, decoder_self_attention_bias, kl_loss2) = tf.cond(
-        tf.less(tf.random_uniform([]), prob_do_vae),
-        get_decoder_from_vae, get_decoder_autoregressive)
-
-    # Transformer decoder.
-    decoder_output = transformer.transformer_decoder(
-        decoder_input, encoder_output, residual_fn, decoder_self_attention_bias,
-        encoder_decoder_attention_bias, hparams)
-    decoder_output = tf.expand_dims(decoder_output, 2)
-
-    cond_self = tf.cond(tf.less(step, 30000.0), lambda: tf.constant(1.0),
-                        lambda: tf.constant(0.0))
-    prob_self = 0.4 if is_training else cond_self
-    (ret, kl_loss) = tf.cond(tf.less(tf.random_uniform([]), prob_self),
-                             lambda: (z, kl_loss),
-                             lambda: (decoder_output, kl_loss2))
-
-    kl_loss *= common_layers.inverse_exp_decay(50000) * 2.0
-    return ret, kl_loss
+    kl_loss *= common_layers.inverse_exp_decay(max_prestep) * 3.0
+    return tf.expand_dims(ret, axis=2), kl_loss
 
 
 @registry.register_model
@@ -171,6 +195,15 @@ class TransformerVAE(t2t_model.T2TModel):
         features, False, last_position_only=last_position_only)
     sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
     samples = tf.concat(sharded_samples, 0)
+
+    # 2nd step.
+    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+      features["targets"] = samples
+      sharded_logits, _ = self.model_fn(
+          features, False, last_position_only=last_position_only)
+      sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
+      samples = tf.concat(sharded_samples, 0)
+
     if inputs_old is not None:  # Restore to not confuse Estimator.
       features["inputs"] = inputs_old
     return samples
@@ -180,6 +213,21 @@ class TransformerVAE(t2t_model.T2TModel):
 def transformer_vae_small():
   """Set of hyperparameters."""
   hparams = transformer.transformer_small()
+  hparams.batch_size = 2048
   hparams.add_hparam("z_size", 128)
   hparams.add_hparam("num_compress_steps", 4)
+  return hparams
+
+
+@registry.register_hparams
+def transformer_vae_base():
+  """Set of hyperparameters."""
+  hparams = transformer_vae_small()
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.attention_dropout = 0.1
+  hparams.relu_dropout = 0.1
+  hparams.dropout = 0.1
+  hparams.num_hidden_layers = 4
+  hparams.z_size = 256
   return hparams

@@ -85,11 +85,21 @@ class T2TModel(object):
       ps_devices = [""]
     hparams = copy.copy(hparams)
     hparams.add_hparam("mode", mode)
-    # when not in training mode, set all forms of dropout to zero.
+    # When not in training mode, set all forms of dropout to zero.
     if mode != tf.contrib.learn.ModeKeys.TRAIN:
       for key in hparams.values():
         if key[-len("dropout"):] == "dropout":
           setattr(hparams, key, 0.0)
+    # If vocabularies differ, unset shared_embedding_and_softmax_weights.
+    if hparams.shared_embedding_and_softmax_weights:
+      same_vocab_sizes = True
+      for problem in hparams.problems:
+        if "inputs" in problem.input_modality:
+          if problem.input_modality["inputs"] != problem.target_modality:
+            same_vocab_sizes = False
+      if not same_vocab_sizes:
+        tf.logging.info("Unsetting shared_embedding_and_softmax_weights.")
+        hparams.shared_embedding_and_softmax_weights = 0
     self._hparams = hparams
     self._data_parallelism = data_parallelism
     self._num_datashards = data_parallelism.n
