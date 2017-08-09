@@ -121,6 +121,9 @@ flags.DEFINE_bool("decode_return_beams", False,
 flags.DEFINE_integer("decode_max_input_size", -1,
                      "Maximum number of ids in input. Or <= 0 for no max.")
 flags.DEFINE_bool("identity_output", False, "To print the output as identity")
+flags.DEFINE_integer("decode_num_samples", -1,
+                     "Number of samples to decode. Currently used in"
+                     "decode_from_dataset. Use -1 for all.")
 
 
 def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
