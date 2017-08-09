@@ -841,6 +841,11 @@ def _interactive_input_fn(hparams):
   vocabulary = p_hparams.vocabulary["inputs" if has_input else "targets"]
   # This should be longer than the longest input.
   const_array_size = 10000
+  # For ease of input, activate the readline module if available.
+  try:
+    import readline
+  except ImportError:
+    pass
   while True:
     prompt = ("INTERACTIVE MODE  num_samples=%d  decode_length=%d  \n"
               "  it=<input_type>     ('text' or 'image')\n"
@@ -848,7 +853,7 @@ def _interactive_input_fn(hparams):
               "  in=<input_problem>  (set the input problem number)\n"
               "  ou=<output_problem> (set the output problem number)\n"
               "  ns=<num_samples>    (changes number of samples)\n"
-              "  dl=<decode_length>  (changes decode legnth)\n"
+              "  dl=<decode_length>  (changes decode length)\n"
               "  <%s>                (decode)\n"
               "  q                   (quit)\n"
               ">" % (num_samples, decode_length, "source_string"
