@@ -118,7 +118,13 @@ def basic_params1():
       # mean there is no maximum or truncation.
       # You can change this behavior by overridding preprocess_examples() method
       # in your problem class.
-      max_target_seq_length=0)
+      max_target_seq_length=0,
+      # Treat a seq-to-seq problem as a language model by prepending the
+      # inputs to the targets.  During training, the loss is on both the
+      # inputs and the targets.  During eval, metrics are computed only on the
+      # target portion.
+      prepend_inputs_to_targets=int(False),
+  )
 
 
 class RangedHParams(object):

@@ -144,7 +144,7 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
       data_dir=data_dir,
       model_name=model_name)
   eval_metrics = metrics.create_evaluation_metrics(
-      zip(FLAGS.problems.split("-"), hparams.problem_instances))
+      zip(FLAGS.problems.split("-"), hparams.problem_instances), hparams)
   if (hasattr(FLAGS, "autotune") and FLAGS.autotune and
       FLAGS.objective not in eval_metrics):
     raise ValueError("Tuning objective %s not among evaluation metrics %s" %

@@ -144,11 +144,12 @@ def padded_accuracy(predictions,
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
 
-def create_evaluation_metrics(problems):
+def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
 
   Args:
     problems: List of tuples (problem name, problem instance).
+    model_hparams: a set of hparams.
 
   Returns:
     A dictionary with keys that are strings naming the evaluation
@@ -195,8 +196,13 @@ def create_evaluation_metrics(problems):
 
     class_output = "image" in problem_name and "coco" not in problem_name
     real_output = "gene_expression" in problem_name
-    weights_fn = (common_layers.weights_all if class_output or real_output else
-                  common_layers.weights_nonzero)
+    if model_hparams.prepend_inputs_to_targets:
+      assert not class_output
+      weights_fn = common_layers.weights_second_part
+    elif class_output or real_output:
+      weights_fn = common_layers.weights_all
+    else:
+      weights_fn = common_layers.weights_nonzero
 
     for metric in metrics:
       metric_fn = METRICS_FNS[metric]

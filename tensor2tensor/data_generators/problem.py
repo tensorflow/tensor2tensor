@@ -92,6 +92,18 @@ class SpaceID(object):
   CPP_TOK = 28
 
 
+def preprocess_examples_common(examples, hparams):
+  """Preprocessing steps common to all models."""
+  if hparams.max_input_seq_length > 0:
+    examples["inputs"] = examples["inputs"][:hparams.max_input_seq_length]
+  if hparams.max_target_seq_length > 0:
+    examples["targets"] = examples["targets"][:hparams.max_target_seq_length]
+  if hparams.prepend_inputs_to_targets:
+    examples["targets"] = tf.concat(
+        [examples["inputs"], [0], examples["targets"]], 0)
+  return examples
+
+
 class Problem(object):
   """Problem base class. Specifies a T2T problem.
 
@@ -172,11 +184,7 @@ class Problem(object):
 
   def preprocess_examples(self, examples, mode, hparams):
     del mode
-    if hparams.max_input_seq_length > 0:
-      examples["inputs"] = examples["inputs"][:hparams.max_input_seq_length]
-    if hparams.max_target_seq_length > 0:
-      examples["targets"] = examples["targets"][:hparams.max_target_seq_length]
-    return examples
+    return preprocess_examples_common(examples, hparams)
 
   def eval_metrics(self):
     return [

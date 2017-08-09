@@ -118,7 +118,7 @@ def attention_lm_decoder(decoder_input,
               hparams.hidden_size,
               dropout=hparams.relu_dropout)
           x = common_layers.layer_postprocess(x, y, hparams)
-      return common_layers.layer_preprocess(x, hparams)
+    return common_layers.layer_preprocess(x, hparams)
 
 
 @registry.register_hparams
@@ -140,7 +140,6 @@ def attention_lm_base():
   hparams.weight_decay = 0.0
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
-  hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.0
   hparams.shared_embedding_and_softmax_weights = int(False)
 
@@ -173,4 +172,18 @@ def attention_lm_small():
   hparams.hidden_size = 512
   hparams.filter_size = 2048
   hparams.layer_prepostprocess_dropout = 0.5
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_translation():
+  """Version to use for seq2seq."""
+  hparams = attention_lm_base()
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.learning_rate = 0.1
+  hparams.prepend_inputs_to_targets = int(True)
+  hparams.max_length = 512
+  hparams.label_smoothing = 0.1
+  hparams.shared_embedding_and_softmax_weights = int(True)
   return hparams

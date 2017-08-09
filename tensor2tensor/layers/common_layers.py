@@ -1426,6 +1426,22 @@ def weights_nonzero(labels):
   return tf.to_float(tf.not_equal(labels, 0))
 
 
+def weights_second_part(labels):
+  """Weights function for 'prepend_inputs_to_targets'.
+
+  Weight 1.0 is assigned to all nonzero labels past the first zero.
+
+  Args:
+    labels: A Tensor of int32s.
+
+  Returns:
+    A Tensor of floats.
+  """
+  past_first_zero = tf.cumsum(tf.to_float(tf.equal(labels, 0)))
+  nonzero = tf.to_float(labels)
+  return tf.to_float(tf.not_equal(past_first_zero * nonzero, 0))
+
+
 def weights_all(labels):
   """Assign weight 1.0 to all labels."""
   return tf.ones_like(labels, dtype=tf.float32)
