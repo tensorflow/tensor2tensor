@@ -112,7 +112,7 @@ def data_parallelism(all_workers=False):
   if FLAGS.schedule == "local_run":
     assert not FLAGS.sync
     datashard_devices = ["gpu:%d" % d for d in _gpu_order(FLAGS.worker_gpu)]
-    if FLAGS.locally_shard_to_cpu:
+    if FLAGS.locally_shard_to_cpu or FLAGS.worker_gpu < 1:
       datashard_devices += ["cpu:0"]
     caching_devices = None
   elif FLAGS.sync:

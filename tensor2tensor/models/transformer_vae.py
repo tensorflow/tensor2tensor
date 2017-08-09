@@ -109,7 +109,7 @@ def encode(x, x_space, hparams, name):
   with tf.variable_scope(name):
     (encoder_input, encoder_self_attention_bias,
      _) = transformer.transformer_prepare_encoder(x, x_space, hparams)
-    encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.residual_dropout)
+    encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.dropout)
     return transformer.transformer_encoder(
         encoder_input, encoder_self_attention_bias, hparams)
 
@@ -143,7 +143,7 @@ def vae_transformer_internal(inputs, targets, target_space, hparams):
     max_prestep = hparams.kl_warmup_steps
     prob_targets = 0.95 if is_training else 1.0
     targets_dropout_max = common_layers.inverse_lin_decay(max_prestep) - 0.01
-    targets = dropmask(targets, targets_dropout_max, is_training)
+    targets = dropmask(targets, targets_dropout_max * 0.7, is_training)
     targets = tf.cond(tf.less(tf.random_uniform([]), prob_targets),
                       lambda: targets, lambda: tf.zeros_like(targets))
 
@@ -168,7 +168,7 @@ def vae_transformer_internal(inputs, targets, target_space, hparams):
     # ret = tf.squeeze(to_decode, axis=2)
 
     # Randomize decoder inputs..
-    kl_loss *= common_layers.inverse_exp_decay(max_prestep) * 3.0
+    kl_loss *= common_layers.inverse_exp_decay(max_prestep) * 10.0
     return tf.expand_dims(ret, axis=2), kl_loss
 
 
