@@ -55,17 +55,61 @@ class Transformer(t2t_model.T2TModel):
     (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
         targets, hparams)
 
-    encoder_input = tf.nn.dropout(
-        encoder_input, 1.0 - hparams.layer_prepostprocess_dropout)
-    decoder_input = tf.nn.dropout(
-        decoder_input, 1.0 - hparams.layer_prepostprocess_dropout)
-    encoder_output = transformer_encoder(
-        encoder_input, encoder_self_attention_bias, hparams)
+    encoder_input = tf.nn.dropout(encoder_input,
+                                  1.0 - hparams.layer_prepostprocess_dropout)
+    decoder_input = tf.nn.dropout(decoder_input,
+                                  1.0 - hparams.layer_prepostprocess_dropout)
+    encoder_output = transformer_encoder(encoder_input,
+                                         encoder_self_attention_bias, hparams)
 
     decoder_output = transformer_decoder(
-        decoder_input, encoder_output,
-        decoder_self_attention_bias,
+        decoder_input, encoder_output, decoder_self_attention_bias,
         encoder_decoder_attention_bias, hparams)
+    decoder_output = tf.expand_dims(decoder_output, 2)
+
+    return decoder_output
+
+
+@registry.register_model
+class TransformerEncoder(t2t_model.T2TModel):
+  """Transformer, encoder only."""
+
+  def model_fn_body(self, features):
+    hparams = self._hparams
+    inputs = features["inputs"]
+    target_space = features["target_space_id"]
+
+    inputs = common_layers.flatten4d3d(inputs)
+
+    (encoder_input, encoder_self_attention_bias,
+     _) = (transformer_prepare_encoder(inputs, target_space, hparams))
+
+    encoder_input = tf.nn.dropout(encoder_input,
+                                  1.0 - hparams.layer_prepostprocess_dropout)
+    encoder_output = transformer_encoder(encoder_input,
+                                         encoder_self_attention_bias, hparams)
+
+    return encoder_output
+
+
+@registry.register_model
+class TransformerDecoder(t2t_model.T2TModel):
+  """Transformer, decoder only."""
+
+  def model_fn_body(self, features):
+    hparams = self._hparams
+    targets = features["targets"]
+
+    targets = common_layers.flatten4d3d(targets)
+
+    (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
+        targets, hparams)
+
+    decoder_input = tf.nn.dropout(decoder_input,
+                                  1.0 - hparams.layer_prepostprocess_dropout)
+
+    decoder_output = transformer_decoder(
+        decoder_input, None, decoder_self_attention_bias, None, hparams)
     decoder_output = tf.expand_dims(decoder_output, 2)
 
     return decoder_output
@@ -150,14 +194,11 @@ def transformer_encoder(encoder_input,
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
-              common_layers.layer_preprocess(x, hparams),
-              None,
-              encoder_self_attention_bias,
+              common_layers.layer_preprocess(
+                  x, hparams), None, encoder_self_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
               hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout)
+              hparams.hidden_size, hparams.num_heads, hparams.attention_dropout)
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -196,26 +237,23 @@ def transformer_decoder(decoder_input,
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
-              common_layers.layer_preprocess(x, hparams),
-              None,
-              decoder_self_attention_bias,
+              common_layers.layer_preprocess(
+                  x, hparams), None, decoder_self_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
               hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout)
+              hparams.hidden_size, hparams.num_heads, hparams.attention_dropout)
           x = common_layers.layer_postprocess(x, y, hparams)
-        with tf.variable_scope("encdec_attention"):
-          y = common_attention.multihead_attention(
-              common_layers.layer_preprocess(x, hparams),
-              encoder_output,
-              encoder_decoder_attention_bias,
-              hparams.attention_key_channels or hparams.hidden_size,
-              hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout)
-          x = common_layers.layer_postprocess(x, y, hparams)
+        if encoder_output is not None:
+          assert encoder_decoder_attention_bias is not None
+          with tf.variable_scope("encdec_attention"):
+            y = common_attention.multihead_attention(
+                common_layers.layer_preprocess(
+                    x, hparams), encoder_output, encoder_decoder_attention_bias,
+                hparams.attention_key_channels or hparams.hidden_size,
+                hparams.attention_value_channels or hparams.hidden_size,
+                hparams.hidden_size, hparams.num_heads,
+                hparams.attention_dropout)
+            x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
               common_layers.layer_preprocess(x, hparams), hparams)
@@ -393,7 +431,7 @@ def transformer_parsing_big():
 
 @registry.register_hparams
 def transformer_parsing_ice():
-  """Hparams for parsing and tagging Icelandic text."""
+  """Hparams for parsing Icelandic text."""
   hparams = transformer_base_single_gpu()
   hparams.batch_size = 4096
   hparams.shared_embedding_and_softmax_weights = int(False)

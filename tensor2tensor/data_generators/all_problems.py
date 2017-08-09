@@ -31,7 +31,6 @@ from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wiki
 from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import wsj_parsing
-from tensor2tensor.data_generators import ice_parsing
 
 
 # Problem modules that require optional dependencies

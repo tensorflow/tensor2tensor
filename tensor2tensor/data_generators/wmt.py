@@ -648,6 +648,28 @@ class WMTEnCsCharacters(WMTProblem):
     return problem.SpaceID.CS_CHR
 
 
+def tabbed_parsing_token_generator(data_dir, tmp_dir, train, prefix,
+                                   source_vocab_size, target_vocab_size):
+  """Generate source and target data from a single file."""
+  source_vocab = generator_utils.get_or_generate_tabbed_vocab(
+      data_dir, tmp_dir, "parsing_train.pairs", 0,
+      prefix + "_source.vocab.%d" % source_vocab_size, source_vocab_size)
+  target_vocab = generator_utils.get_or_generate_tabbed_vocab(
+      data_dir, tmp_dir, "parsing_train.pairs", 1,
+      prefix + "_target.vocab.%d" % target_vocab_size, target_vocab_size)
+  filename = "parsing_%s" % ("train" if train else "dev")
+  pair_filepath = os.path.join(tmp_dir, filename + ".pairs")
+  return tabbed_generator(pair_filepath, source_vocab, target_vocab, EOS)
+
+
+def tabbed_parsing_character_generator(tmp_dir, train):
+  """Generate source and target data from a single file."""
+  character_vocab = text_encoder.ByteTextEncoder()
+  filename = "parsing_%s" % ("train" if train else "dev")
+  pair_filepath = os.path.join(tmp_dir, filename + ".pairs")
+  return tabbed_generator(pair_filepath, character_vocab, character_vocab, EOS)
+
+
 def parsing_token_generator(data_dir, tmp_dir, train, vocab_size):
   symbolizer_vocab = generator_utils.get_or_generate_vocab(
       data_dir, tmp_dir, "vocab.endefr.%d" % vocab_size, vocab_size)
