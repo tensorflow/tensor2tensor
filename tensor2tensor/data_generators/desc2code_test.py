@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for google3.third_party.py.tensor2tensor.data_generators.desc2code."""
+"""Tests for desc2code."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -21,8 +21,8 @@ from __future__ import print_function
 
 # Dependency imports
 from tensor2tensor.data_generators import desc2code
-from google3.testing.pybase import googletest
 
+import tensorflow as tf
 
 CODE_CPP_IN = """
   #include <iostream>
@@ -39,10 +39,11 @@ void main() {  // This comment will be removed
 
 """
 
-CODE_CPP_OUT = "#include <iostream> void main() { /* Not this one */ int a = 3; }"  # pylint: disable=line-too-loong
+CODE_CPP_OUT = ("#include <iostream> void main() { /* Not this one */ int a = "
+                "3; }")
 
 
-class Desc2codeTest(googletest.TestCase):
+class Desc2codeTest(tf.test.TestCase):
 
   def testCppPreprocess(self):
     """Check that the file correctly preprocess the code source."""
@@ -50,15 +51,13 @@ class Desc2codeTest(googletest.TestCase):
 
     self.assertEqual(  # Add space beween two lines
         cpp_pb.preprocess_target("firstline//comm1\nsecondline//comm2\n"),
-        "firstline secondline"
-    )
+        "firstline secondline")
     # Checking for boths comments and spaces
     self.assertEqual(cpp_pb.preprocess_target(CODE_CPP_IN), CODE_CPP_OUT)
     self.assertEqual(
         cpp_pb.preprocess_target("  not removed //abcd  "),
-        "not removed //abcd"
-    )
+        "not removed //abcd")
 
 
 if __name__ == "__main__":
-  googletest.main()
+  tf.test.main()
