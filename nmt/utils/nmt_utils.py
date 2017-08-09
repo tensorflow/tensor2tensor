@@ -45,7 +45,7 @@ def decode_and_evaluate(name,
     start_time = time.time()
     num_sentences = 0
     with codecs.getwriter("utf-8")(
-        tf.gfile.GFile(trans_file, mode="w")) as trans_f:
+        tf.gfile.GFile(trans_file, mode="wb")) as trans_f:
       trans_f.write("")  # Write empty string to ensure file is created.
 
       while True:
@@ -63,7 +63,7 @@ def decode_and_evaluate(name,
                 sent_id,
                 tgt_eos=tgt_eos,
                 bpe_delimiter=bpe_delimiter)
-            trans_f.write("%s\n" % translation)
+            trans_f.write(("%s\n" % translation).decode("utf-8"))
         except tf.errors.OutOfRangeError:
           utils.print_time("  done, num sentences %d" % num_sentences,
                            start_time)
