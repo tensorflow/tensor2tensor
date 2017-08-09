@@ -49,21 +49,24 @@ class AttentionLmMoe(t2t_model.T2TModel):
     targets = sharded_features["targets"]
     targets = dp(tf.squeeze, targets, 2)
 
+    def preprocess(x):
+      return dp(common_layers.layer_preprocess, x, hparams)
+
+    def postprocess(x, y):
+      return dp(common_layers.layer_postprocess, x, y, hparams)
+
     (decoder_input, decoder_self_attention_bias) = dp(
         attention_lm_moe_prepare_decoder, targets, hparams)
 
-    def residual_fn(x, y):
-      return common_layers.layer_norm(x + tf.nn.dropout(
-          y, 1.0 - hparams.residual_dropout))
-
-    x = dp(tf.nn.dropout, decoder_input, 1.0 - hparams.residual_dropout)
+    x = dp(tf.nn.dropout, decoder_input,
+           1.0 - hparams.layer_prepostprocess_dropout)
     extra_loss = 0.0
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("attention"):
           y = dp(
               common_attention.multihead_attention,
-              x,
+              preprocess(x),
               None,
               decoder_self_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
@@ -72,11 +75,11 @@ class AttentionLmMoe(t2t_model.T2TModel):
               hparams.num_heads,
               hparams.attention_dropout,
               name="decoder_self_attention")
-          x = dp(residual_fn, x, y)
+          x = postprocess(x, y)
         with tf.variable_scope("ffn"):
           if str(layer) in hparams.moe_layers.split(","):
             y, loss = common_layers.moe_layer(
-                dp, self._ps_devices, x,
+                dp, self._ps_devices, preprocess(x),
                 hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
                 hparams.hidden_size, hparams.moe_hidden_size, hparams.moe_n1,
                 hparams.moe_n2, hparams.moe_loss_coef)
@@ -84,11 +87,12 @@ class AttentionLmMoe(t2t_model.T2TModel):
           else:
             y = dp(
                 common_layers.conv_hidden_relu,
-                x,
+                preprocess(x),
                 hparams.filter_size,
                 hparams.hidden_size,
                 dropout=hparams.relu_dropout)
-          x = dp(residual_fn, x, y)
+          x = postprocess(x, y)
+    x = preprocess(x)
     decoder_output = dp(tf.expand_dims, x, 2)
     return decoder_output, extra_loss
 
@@ -163,7 +167,6 @@ def attention_lm_moe_base():
   # when not in training mode.
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
-  hparams.add_hparam("residual_dropout", 0.1)
   hparams.add_hparam("pos", "timing")  # timing, none
   return hparams
 
@@ -232,5 +235,5 @@ def attention_lm_moe_large():
   hparams.filter_size = 4096
   hparams.moe_hidden_size = 4096
   hparams.moe_n1 = 128
-  hparams.residual_dropout = 0.2
+  hparams.layer_prepostprocess_dropout = 0.2
   return hparams

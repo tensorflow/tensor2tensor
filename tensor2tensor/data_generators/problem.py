@@ -88,6 +88,20 @@ class SpaceID(object):
   PEPTIDE = 26
   # Python
   PY_TOK = 27
+  # C++
+  CPP_TOK = 28
+
+
+def preprocess_examples_common(examples, hparams):
+  """Preprocessing steps common to all models."""
+  if hparams.max_input_seq_length > 0:
+    examples["inputs"] = examples["inputs"][:hparams.max_input_seq_length]
+  if hparams.max_target_seq_length > 0:
+    examples["targets"] = examples["targets"][:hparams.max_target_seq_length]
+  if hparams.prepend_inputs_to_targets:
+    examples["targets"] = tf.concat(
+        [examples["inputs"], [0], examples["targets"]], 0)
+  return examples
 
 
 class Problem(object):
@@ -170,11 +184,7 @@ class Problem(object):
 
   def preprocess_examples(self, examples, mode, hparams):
     del mode
-    if hparams.max_input_seq_length > 0:
-      examples["inputs"] = examples["inputs"][:hparams.max_input_seq_length]
-    if hparams.max_target_seq_length > 0:
-      examples["targets"] = examples["targets"][:hparams.max_target_seq_length]
-    return examples
+    return preprocess_examples_common(examples, hparams)
 
   def eval_metrics(self):
     return [
@@ -424,5 +434,6 @@ class Text2TextProblem(Problem):
     return [
         metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
         metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY,
-        metrics.Metrics.APPROX_BLEU
+        metrics.Metrics.APPROX_BLEU, metrics.Metrics.ROUGE_2_F,
+        metrics.Metrics.ROUGE_L_F
     ]

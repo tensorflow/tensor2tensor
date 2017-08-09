@@ -40,13 +40,13 @@ def residual_dilated_conv(x, repeat, padding, name, hparams):
     for i in xrange(repeat):
       with tf.variable_scope("repeat_%d" % i):
         y = common_layers.conv_block(
-            x,
+            common_layers.layer_norm(x, hparams.hidden_size, name="lnorm"),
             hparams.hidden_size,
             dilations_and_kernels,
             padding=padding,
             name="residual_conv")
-        x = common_layers.layer_norm(x + y, hparams.hidden_size, name="lnorm")
-        x = tf.nn.dropout(x, hparams.dropout)
+        y = tf.nn.dropout(y, 1.0 - hparams.dropout)
+        x += y
     return x
 
 

@@ -56,8 +56,8 @@ class CipherShift5(algorithmic.AlgorithmicProblem):
 
       for plain, code in zip(indices, codes):
         yield {
-            "X": plain,
-            "Y": code,
+            "inputs": plain,
+            "targets": code,
         }
 
     return _gen
@@ -99,8 +99,8 @@ class CipherVigenere5(algorithmic.AlgorithmicProblem):
 
       for plain, code in zip(indices, codes):
         yield {
-            "X": plain,
-            "Y": code,
+            "inputs": plain,
+            "targets": code,
         }
 
     return _gen
@@ -148,7 +148,7 @@ class CipherVigenere200(CipherVigenere5):
     return [1, 3]
 
 
-class Layer(object):
+class ShiftEncryptionLayer(object):
   """A single layer for shift."""
 
   def __init__(self, vocab, shift):
@@ -211,7 +211,7 @@ def encipher_shift(plaintext, plain_vocab, shift):
     ciphertext (list of Strings): encrypted plain text.
   """
   ciphertext = []
-  cipher = Layer(plain_vocab, shift)
+  cipher = ShiftEncryptionLayer(plain_vocab, shift)
 
   for _, sentence in enumerate(plaintext):
     cipher_sentence = []
@@ -238,7 +238,7 @@ def encipher_vigenere(plaintext, plain_vocab, key):
   # generate Vigenere table
   layers = []
   for i in range(len(plain_vocab)):
-    layers.append(Layer(plain_vocab, i))
+    layers.append(ShiftEncryptionLayer(plain_vocab, i))
 
   for i, sentence in enumerate(plaintext):
     cipher_sentence = []

@@ -63,6 +63,9 @@ flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
 flags.DEFINE_integer("eval_steps", 10, "Number of steps in evaluation.")
 flags.DEFINE_bool("eval_print", False, "Print eval logits and predictions.")
+flags.DEFINE_bool("eval_run_autoregressive", False,
+                  "Run eval autoregressively where we condition on previous"
+                  "generated output instead of the actual target.")
 flags.DEFINE_integer("keep_checkpoint_max", 20,
                      "How many recent checkpoints to keep.")
 flags.DEFINE_bool("experimental_optimize_placement", False,
@@ -118,6 +121,9 @@ flags.DEFINE_bool("decode_return_beams", False,
 flags.DEFINE_integer("decode_max_input_size", -1,
                      "Maximum number of ids in input. Or <= 0 for no max.")
 flags.DEFINE_bool("identity_output", False, "To print the output as identity")
+flags.DEFINE_integer("decode_num_samples", -1,
+                     "Number of samples to decode. Currently used in"
+                     "decode_from_dataset. Use -1 for all.")
 
 
 def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
@@ -144,7 +150,7 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
       data_dir=data_dir,
       model_name=model_name)
   eval_metrics = metrics.create_evaluation_metrics(
-      zip(FLAGS.problems.split("-"), hparams.problem_instances))
+      zip(FLAGS.problems.split("-"), hparams.problem_instances), hparams)
   if (hasattr(FLAGS, "autotune") and FLAGS.autotune and
       FLAGS.objective not in eval_metrics):
     raise ValueError("Tuning objective %s not among evaluation metrics %s" %
@@ -219,10 +225,13 @@ def add_problem_hparams(hparams, problems):
   for problem_name in problems.split("-"):
     try:
       problem = registry.problem(problem_name)
-      p_hparams = problem.internal_hparams(hparams)
     except ValueError:
       problem = None
+
+    if problem is None:
       p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+    else:
+      p_hparams = problem.internal_hparams(hparams)
 
     hparams.problem_instances.append(problem)
     hparams.problems.append(p_hparams)

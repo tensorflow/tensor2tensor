@@ -109,10 +109,10 @@ class GeneExpressionProblem(problem.Problem):
     # Collect created shard processes to start and join
     processes = []
 
-    datasets = [
-        (self.training_filepaths, self.num_shards, "train", num_train_examples),
-        (self.dev_filepaths, 10, "valid", num_dev_examples),
-        (self.test_filepaths, 10, "test", num_test_examples)]
+    datasets = [(self.training_filepaths, self.num_shards, "train",
+                 num_train_examples), (self.dev_filepaths, 10, "valid",
+                                       num_dev_examples),
+                (self.test_filepaths, 10, "test", num_test_examples)]
     for fname_fn, nshards, key_prefix, num_examples in datasets:
       outfiles = fname_fn(data_dir, nshards, shuffled=False)
       all_filepaths.extend(outfiles)
@@ -146,17 +146,14 @@ class GeneExpressionProblem(problem.Problem):
     p = defaults
     vocab_size = self._encoders["inputs"].vocab_size
     p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
-    p.target_modality = ("%s:real" % registry.Modalities.GENERIC,
+    p.target_modality = ("%s:log_poisson_loss" % registry.Modalities.REAL,
                          self.num_output_predictions)
     p.input_space_id = problem.SpaceID.DNA
     p.target_space_id = problem.SpaceID.REAL
 
   def example_reading_spec(self):
-    # TODO(rsepassi): propagate and apply targets_mask to output RealModality
-    # and to eval metrics (weights_fn?).
     data_fields = {
         "inputs": tf.VarLenFeature(tf.int64),
-        "targets_mask": tf.VarLenFeature(tf.float32),
         "targets": tf.VarLenFeature(tf.float32),
     }
     data_items_to_decoders = None
@@ -166,20 +163,17 @@ class GeneExpressionProblem(problem.Problem):
     del mode
     del hparams
 
-    # Reshape targets
+    # Reshape targets to contain num_output_predictions per output timestep
     examples["targets"] = tf.reshape(examples["targets"],
-                                     [-1, self.num_output_predictions])
-    examples["targets_mask"] = tf.reshape(examples["targets_mask"], [-1, 1])
-
-    # Set masked targets to 0 (i.e. pad) so that loss and metrics ignore them.
-    # Add epsilon because some unmasked labels are actually 0.
-    examples["targets"] += 1e-6
-    examples["targets"] *= examples["targets_mask"]
+                                     [-1, 1, self.num_output_predictions])
+    # Slice off EOS - not needed, and messes up the GeneExpressionConv model
+    # which expects the input length to be a multiple of the target length.
+    examples["inputs"] = examples["inputs"][:-1]
 
     return examples
 
   def eval_metrics(self):
-    return [metrics.Metrics.RMSE]
+    return [metrics.Metrics.LOG_POISSON, metrics.Metrics.R2]
 
 
 @registry.register_problem("gene_expression_cage10")
@@ -260,7 +254,12 @@ def dataset_generator(filepath,
       if i % 100 == 0:
         print("Generating example %d for %s" % (i, dataset))
       inputs, mask, outputs = inp_data[i], mask_data[i], out_data[i]
-      yield to_example_dict(encoder, inputs, mask, outputs)
+      ex_dict = to_example_dict(encoder, inputs, mask, outputs)
+      # Original data has one output for every 128 input bases. Ensure that the
+      # ratio has been maintained given the chunk size and removing EOS.
+      assert (len(ex_dict["inputs"]) - 1) == ((
+          128 // chunk_size) * ex_dict["targets_shape"][0])
+      yield ex_dict
 
 
 def to_example_dict(encoder, inputs, mask, outputs):

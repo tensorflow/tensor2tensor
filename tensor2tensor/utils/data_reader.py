@@ -27,6 +27,7 @@ import six
 from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.data_generators.problem import preprocess_examples_common
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -233,6 +234,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams):
       data_items_to_decoders=data_items_to_decoders)
 
   if problem is None:
+    examples = preprocess_examples_common(examples, hparams)
     examples = preprocessing(examples, data_file_pattern)
   else:
     examples = problem.preprocess_examples(examples, mode, hparams)

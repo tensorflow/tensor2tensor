@@ -51,13 +51,10 @@ class AttentionLM(t2t_model.T2TModel):
     (decoder_input, decoder_self_attention_bias) = attention_lm_prepare_decoder(
         targets, hparams)
 
-    def residual_fn(x, y):
-      return common_layers.layer_norm(x + tf.nn.dropout(
-          y, 1.0 - hparams.residual_dropout))
-
-    decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
-    decoder_output = attention_lm_decoder(decoder_input, residual_fn,
-                                          decoder_self_attention_bias, hparams)
+    decoder_input = tf.nn.dropout(
+        decoder_input, 1.0 - hparams.layer_prepostprocess_dropout)
+    decoder_output = attention_lm_decoder(
+        decoder_input, decoder_self_attention_bias, hparams)
     decoder_output = tf.expand_dims(decoder_output, 2)
 
     return decoder_output
@@ -84,7 +81,6 @@ def attention_lm_prepare_decoder(targets, hparams):
 
 
 def attention_lm_decoder(decoder_input,
-                         residual_fn,
                          decoder_self_attention_bias,
                          hparams,
                          name="decoder"):
@@ -92,7 +88,6 @@ def attention_lm_decoder(decoder_input,
 
   Args:
     decoder_input: a Tensor
-    residual_fn: a function from (layer_input, layer_output) -> combined_output
     decoder_self_attention_bias: bias Tensor for self-attention
       (see common_attention.attention_bias())
     hparams: hyperparameters for model
@@ -105,25 +100,25 @@ def attention_lm_decoder(decoder_input,
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
-        x = residual_fn(
-            x,
-            common_attention.multihead_attention(
-                x,
-                None,
-                decoder_self_attention_bias,
-                hparams.attention_key_channels or hparams.hidden_size,
-                hparams.attention_value_channels or hparams.hidden_size,
-                hparams.hidden_size,
-                hparams.num_heads,
-                hparams.attention_dropout,
-                name="decoder_self_attention"))
-        x = residual_fn(x,
-                        common_layers.conv_hidden_relu(
-                            x,
-                            hparams.filter_size,
-                            hparams.hidden_size,
-                            dropout=hparams.relu_dropout))
-  return x
+        with tf.variable_scope("self_attention"):
+          y = common_attention.multihead_attention(
+              common_layers.layer_preprocess(x, hparams),
+              None,
+              decoder_self_attention_bias,
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout)
+          x = common_layers.layer_postprocess(x, y, hparams)
+        with tf.variable_scope("ffn"):
+          y = common_layers.conv_hidden_relu(
+              common_layers.layer_preprocess(x, hparams),
+              hparams.filter_size,
+              hparams.hidden_size,
+              dropout=hparams.relu_dropout)
+          x = common_layers.layer_postprocess(x, y, hparams)
+    return common_layers.layer_preprocess(x, hparams)
 
 
 @registry.register_hparams
@@ -145,7 +140,6 @@ def attention_lm_base():
   hparams.weight_decay = 0.0
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
-  hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.0
   hparams.shared_embedding_and_softmax_weights = int(False)
 
@@ -158,7 +152,6 @@ def attention_lm_base():
   # when not in training mode.
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
-  hparams.add_hparam("residual_dropout", 0.1)
   hparams.add_hparam("pos", "timing")  # timing, none
   return hparams
 
@@ -178,5 +171,19 @@ def attention_lm_small():
   hparams.num_hidden_layers = 4
   hparams.hidden_size = 512
   hparams.filter_size = 2048
-  hparams.residual_dropout = 0.5
+  hparams.layer_prepostprocess_dropout = 0.5
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_translation():
+  """Version to use for seq2seq."""
+  hparams = attention_lm_base()
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.learning_rate = 0.1
+  hparams.prepend_inputs_to_targets = int(True)
+  hparams.max_length = 512
+  hparams.label_smoothing = 0.1
+  hparams.shared_embedding_and_softmax_weights = int(True)
   return hparams

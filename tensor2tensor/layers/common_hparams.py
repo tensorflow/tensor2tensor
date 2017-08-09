@@ -69,8 +69,23 @@ def basic_params1():
       sampling_method="argmax",  # "argmax" or "random"
       problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
       multiply_embedding_mode="sqrt_depth",
+      # Sequences of operations to perform on layer input and layer output.
+      # Used by common_layers.layer_preprocess, common_layers.layer_postprocess
+      # Each character repsesnts an operation:
+      #   d: apply dropout
+      #   n: apply normalization (see norm_type and norm_epsilon)
+      #   a: add layer input (residual connection - only during postprocess)
+      # TODO(noam): The current settings ("", "dan") are the published version
+      # of the transformer.  ("n", "da") seems better for harder-to-learn
+      # models, so it should probably be the default.
+      layer_preprocess_sequence="",
+      layer_postprocess_sequence="dan",
+      # dropout rate to use during layer_preprocess and layer_postprocess
+      layer_prepostprocess_dropout=0.1,
+      # What type of normalization to use
       norm_type="none",  # "batch", layer", "noam", "none".
-      layer_norm_epsilon=1e-6,
+      # epsilon parameter to normalization function
+      norm_epsilon=1e-6,
       symbol_modality_num_shards=16,
       # setting the max length in a minibatch. 0 means default behavior,
       # max_length = hparams.batch_size * length_multiplier
@@ -103,7 +118,13 @@ def basic_params1():
       # mean there is no maximum or truncation.
       # You can change this behavior by overridding preprocess_examples() method
       # in your problem class.
-      max_target_seq_length=0)
+      max_target_seq_length=0,
+      # Treat a seq-to-seq problem as a language model by prepending the
+      # inputs to the targets.  During training, the loss is on both the
+      # inputs and the targets.  During eval, metrics are computed only on the
+      # target portion.
+      prepend_inputs_to_targets=int(False),
+  )
 
 
 class RangedHParams(object):
