@@ -31,9 +31,9 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def residual_conv(x, repeat, hparams, name):
+def residual_conv(x, repeat, hparams, name, reuse=None):
   """A stack of convolution blocks with residual connections."""
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, reuse=reuse):
     k = (3, 1)
     dilations_and_kernels = [((1, 1), k) for _ in xrange(3)]
     for i in xrange(repeat):
@@ -49,7 +49,7 @@ def residual_conv(x, repeat, hparams, name):
     return x
 
 
-def decompress(source, hparams, first_relu, name):
+def decompress_step(source, hparams, first_relu, name):
   """Decompression function."""
   with tf.variable_scope(name):
     shape = tf.shape(source)
@@ -66,29 +66,42 @@ def vae(x, hparams, name):
     shape = tf.shape(x)
     epsilon = tf.random_normal([shape[0], shape[1], 1, hparams.z_size])
     z = mu + tf.exp(log_sigma / 2) * epsilon
-    dense = tf.layers.dense(z, hparams.hidden_size, name="z_to_dense")
     kl = 0.5 * tf.reduce_mean(
         tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
-    return dense, tf.reduce_mean(kl)
+    return z, tf.reduce_mean(kl), mu, log_sigma
 
 
-def compress_vae(inputs, hparams, name):
-  """Compress, then VAE."""
+def compress(inputs, hparams, name):
+  """Compress."""
   with tf.variable_scope(name):
     # Run compression by strided convs.
-    cur = tf.expand_dims(inputs, axis=2)
+    cur = inputs
     for i in xrange(hparams.num_compress_steps):
       cur = residual_conv(cur, 1, hparams, "compress_rc_%d" % i)
       cur = common_layers.conv_block(
           cur, hparams.hidden_size, [((1, 1), (2, 1))],
           strides=(2, 1), name="compress_%d" % i)
+    return cur
 
+
+def vae_compress(inputs, hparams, compress_name, decompress_name, reuse=None):
+  """Compress, then VAE."""
+  with tf.variable_scope(compress_name, reuse=reuse):
+    cur = compress(inputs, hparams, "compress")
     # Convolve and ReLu to get state.
     cur = common_layers.conv_block(
         cur, hparams.hidden_size, [((1, 1), (1, 1))], name="mid_conv")
+    z, kl_loss, mu, log_sigma = vae(cur, hparams, name="vae")
 
-    cur, kl_loss = vae(cur, hparams, name="vae")
-    return cur, kl_loss
+  with tf.variable_scope(decompress_name, reuse=reuse):
+    # Decompress.
+    z = tf.layers.dense(z, hparams.hidden_size, name="z_to_dense")
+
+    for i in xrange(hparams.num_compress_steps):
+      j = hparams.num_compress_steps - i - 1
+      z = residual_conv(z, 1, hparams, "decompress_rc_%d" % j)
+      z = decompress_step(z, hparams, i > 0, "decompress__step_%d" % j)
+    return z, kl_loss, mu, log_sigma
 
 
 def encode(x, x_space, hparams, name):
@@ -127,7 +140,7 @@ def vae_transformer_internal(inputs, targets, target_space, hparams):
     inputs = encode(inputs, target_space, hparams, "input_enc")
 
     # Dropout targets or swap for zeros 5% of the time.
-    max_prestep = 90000
+    max_prestep = hparams.kl_warmup_steps
     prob_targets = 0.95 if is_training else 1.0
     targets_dropout_max = common_layers.inverse_lin_decay(max_prestep) - 0.01
     targets = dropmask(targets, targets_dropout_max, is_training)
@@ -143,13 +156,8 @@ def vae_transformer_internal(inputs, targets, target_space, hparams):
     #                      target_space, hparams, "enc")
 
     # Compress and vae.
-    z, kl_loss = compress_vae(targets, hparams, "vae")
-
-    # Decompress.
-    for i in xrange(hparams.num_compress_steps):
-      j = hparams.num_hidden_layers - i - 1
-      z = residual_conv(z, 1, hparams, "dec_rc_%d" % j)
-      z = decompress(z, hparams, i > 0, "decompress_%d" % j)
+    z, kl_loss, _, _ = vae_compress(tf.expand_dims(targets, axis=2), hparams,
+                                    "vae_compress", "vae_decompress")
 
     # Join z with inputs, run decoder.
     to_decode = common_layers.conv_block(
@@ -215,6 +223,7 @@ def transformer_vae_small():
   hparams.batch_size = 2048
   hparams.add_hparam("z_size", 128)
   hparams.add_hparam("num_compress_steps", 4)
+  hparams.add_hparam("kl_warmup_steps", 50000)
   return hparams
 
 

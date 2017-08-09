@@ -137,10 +137,6 @@ def build_input_fn(mode,
             tf.get_variable(
                 "problem_%d/total_loss" % n, initializer=100.0,
                 trainable=False))
-        tf.get_variable(
-            "problem_%d/training_loss" % n, initializer=100.0, trainable=False)
-        tf.get_variable(
-            "problem_%d/extra_loss" % n, initializer=100.0, trainable=False)
     if fixed_problem is None:
       if (hparams.problem_choice == "uniform" or
           mode != tf.contrib.learn.ModeKeys.TRAIN):

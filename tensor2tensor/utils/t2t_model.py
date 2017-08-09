@@ -479,10 +479,14 @@ class T2TModel(object):
           _with_timing(self.model_fn_body, "model_fn_body"),
           datashard_to_features)
       if isinstance(output, tuple):
-        if isinstance(output[1], dict):
-          loss = output[1]
+        losses_sharded = output[1]
+        if isinstance(losses_sharded[0], dict):
+          loss = {}
+          for k in losses_sharded[0].keys():
+            k_loss_sharded = [losses[k] for losses in losses_sharded]
+            loss[k] = tf.reduce_mean(k_loss_sharded)
         else:
-          loss = {"extra": tf.reduce_mean(output[1])}
+          loss = {"extra": tf.reduce_mean(losses_sharded)}
         output = output[0]
       else:
         loss = {"extra": 0.0}
