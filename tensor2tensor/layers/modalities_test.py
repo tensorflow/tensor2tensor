@@ -22,7 +22,7 @@ from __future__ import print_function
 
 import numpy as np
 
-from tensor2tensor.models import modalities
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import expert_utils
 
 import tensorflow as tf

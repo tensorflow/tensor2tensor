@@ -25,7 +25,7 @@ import os
 # Dependency imports
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.models import modalities  # pylint: disable=unused-import
+from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -48,8 +48,6 @@ def problem_hparams(problem_name, model_hparams):
   p = _lookup_problem_hparams_fn(base_name)(model_hparams)
   if was_reversed:
     _reverse_problem_hparams(p)
-    if "image_cifar10" in base_name:
-      p.loss_multiplier = 1.
   if was_copy:
     _copy_problem_hparams(p)
   return p
@@ -204,8 +202,7 @@ def default_problem_hparams():
       # the targets. For instance `problem_copy` will copy the inputs, but
       # `problem_rev_copy` will copy the targets.
       was_reversed=False,
-      was_copy=False,
-  )
+      was_copy=False,)
 
 
 def test_problem_hparams(unused_model_hparams, input_vocab_size,
@@ -329,9 +326,7 @@ def lm1b_32k(model_hparams):
   encoder = text_encoder.SubwordTextEncoder(
       os.path.join(model_hparams.data_dir, "lm1b_32k.subword_text_encoder"))
   p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
-  p.vocabulary = {
-      "targets": encoder
-  }
+  p.vocabulary = {"targets": encoder}
   p.target_space_id = 3
   return p
 
@@ -345,9 +340,7 @@ def lm1b_characters(unused_model_hparams):
   p.input_modality = {}
   encoder = text_encoder.ByteTextEncoder()
   p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
-  p.vocabulary = {
-      "targets": encoder
-  }
+  p.vocabulary = {"targets": encoder}
   p.target_space_id = 2
   return p
 
@@ -360,10 +353,7 @@ def wiki_32k(model_hparams):
   modality_spec = (registry.Modalities.SYMBOL, encoder.vocab_size)
   p.input_modality = {"inputs": modality_spec}
   p.target_modality = modality_spec
-  p.vocabulary = {
-      "inputs": encoder,
-      "targets": encoder
-  }
+  p.vocabulary = {"inputs": encoder, "targets": encoder}
   p.target_space_id = 3
   return p
 
@@ -432,9 +422,7 @@ def wmt_parsing_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def wsj_parsing_tokens(model_hparams,
-                       prefix,
-                       wrong_source_vocab_size,
+def wsj_parsing_tokens(model_hparams, prefix, wrong_source_vocab_size,
                        wrong_target_vocab_size):
   """English to parse tree translation benchmark.
 
@@ -474,86 +462,6 @@ def wsj_parsing_tokens(model_hparams,
   return p
 
 
-def image_cifar10(unused_model_hparams):
-  """CIFAR-10."""
-  p = default_problem_hparams()
-  p.input_modality = {
-      "inputs": ("%s:small_image_modality" % registry.Modalities.IMAGE, None)
-  }
-  p.target_modality = (registry.Modalities.CLASS_LABEL, 10)
-  p.batch_size_multiplier = 4
-  p.max_expected_batch_size_per_shard = 8
-  p.loss_multiplier = 3.0
-  p.input_space_id = 1
-  p.target_space_id = 1
-  return p
-
-
-def image_mnist(unused_model_hparams):
-  """MNIST."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.SYMBOL, 256)}
-  p.target_modality = (registry.Modalities.CLASS_LABEL, 10)
-  p.batch_size_multiplier = 4
-  p.max_expected_batch_size_per_shard = 8
-  p.loss_multiplier = 3.0
-  p.input_space_id = 1
-  p.target_space_id = 1
-  return p
-
-
-def image_imagenet(model_hparams):
-  """ImageNet."""
-  p = default_problem_hparams()
-  p.input_modality = {
-      "inputs": (registry.Modalities.IMAGE, None),
-  }
-  target_modality = ("%s:class_label_2d" % registry.Modalities.CLASS_LABEL
-                     if model_hparams.imagenet_use_2d else
-                     registry.Modalities.CLASS_LABEL)
-  p.target_modality = (target_modality, 1000)
-  p.batch_size_multiplier = 256
-  p.max_expected_batch_size_per_shard = 2
-  p.loss_multiplier = 0.7
-  p.input_space_id = 1
-  p.target_space_id = 1
-  return p
-
-
-def image_mscoco_characters(unused_model_hparams):
-  """COCO image captioning with captions as characters."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
-  p.target_modality = (registry.Modalities.SYMBOL, 256)
-  p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(),
-      "targets": text_encoder.ByteTextEncoder(),
-  }
-  p.batch_size_multiplier = 128
-  p.max_expected_batch_size_per_shard = 2
-  p.loss_multiplier = 2.0
-  p.input_space_id = 1
-  p.target_space_id = 2
-  return p
-
-
-def image_mscoco_tokens(model_hparams, vocab_count):
-  """COCO image captioning with captions as tokens."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
-  # This vocab file must be present within the data directory.
-  vocab_filename = os.path.join(model_hparams.data_dir,
-                                "vocab.endefr.%d" % vocab_count)
-  subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
-  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
-  p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(),
-      "targets": subtokenizer,
-  }
-  p.batch_size_multiplier = 256
-  p.max_expected_batch_size_per_shard = 2
-
-
 def img2img_imagenet(unused_model_hparams):
   """Image 2 Image for imagenet dataset."""
   p = default_problem_hparams()
@@ -581,31 +489,39 @@ def image_celeba(unused_model_hparams):
 # Dictionary of named hyperparameter settings for various problems.
 # This is only accessed through the problem_hparams function below.
 PROBLEM_HPARAMS_MAP = {
-    "audio_timit_characters_tune": audio_timit_characters,
-    "audio_timit_characters_test": audio_timit_characters,
-    "audio_timit_tokens_8k_tune": lambda p: audio_timit_tokens(p, 2**13),
-    "audio_timit_tokens_8k_test": lambda p: audio_timit_tokens(p, 2**13),
-    "audio_wsj_characters_tune": audio_wsj_characters,
-    "audio_wsj_characters_test": audio_wsj_characters,
-    "audio_wsj_tokens_8k_tune": lambda p: audio_wsj_tokens(p, 2**13),
-    "audio_wsj_tokens_8k_test": lambda p: audio_wsj_tokens(p, 2**13),
-    "lm1b_characters": lm1b_characters,
-    "lm1b_32k": lm1b_32k,
-    "wiki_32k": wiki_32k,
-    "ice_parsing_characters": wmt_parsing_characters,
-    "wmt_parsing_tokens_8k": lambda p: wmt_parsing_tokens(p, 2**13),
-    "wsj_parsing_tokens_16k": lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda
-        p, "wsj", 2**14, 2**9),
-    "wmt_ende_bpe32k": wmt_ende_bpe32k,
-    "image_cifar10_tune": image_cifar10,
-    "image_cifar10_test": image_cifar10,
-    "image_mnist_tune": image_mnist,
-    "image_mnist_test": image_mnist,
-    "image_celeba_tune": image_celeba,
-    "image_mscoco_characters_tune": image_mscoco_characters,
-    "image_mscoco_characters_test": image_mscoco_characters,
-    "image_mscoco_tokens_8k_test": lambda p: image_mscoco_tokens(p, 2**13),
-    "image_mscoco_tokens_32k_test": lambda p: image_mscoco_tokens(p, 2**15),
-    "image_imagenet": image_imagenet,
-    "img2img_imagenet": img2img_imagenet,
+    "audio_timit_characters_tune":
+        audio_timit_characters,
+    "audio_timit_characters_test":
+        audio_timit_characters,
+    "audio_timit_tokens_8k_tune":
+        lambda p: audio_timit_tokens(p, 2**13),
+    "audio_timit_tokens_8k_test":
+        lambda p: audio_timit_tokens(p, 2**13),
+    "audio_wsj_characters_tune":
+        audio_wsj_characters,
+    "audio_wsj_characters_test":
+        audio_wsj_characters,
+    "audio_wsj_tokens_8k_tune":
+        lambda p: audio_wsj_tokens(p, 2**13),
+    "audio_wsj_tokens_8k_test":
+        lambda p: audio_wsj_tokens(p, 2**13),
+    "lm1b_characters":
+        lm1b_characters,
+    "lm1b_32k":
+        lm1b_32k,
+    "wiki_32k":
+        wiki_32k,
+    "ice_parsing_characters":
+        wmt_parsing_characters,
+    "wmt_parsing_tokens_8k":
+        lambda p: wmt_parsing_tokens(p, 2**13),
+    "wsj_parsing_tokens_16k":
+        lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda
+            p, "wsj", 2**14, 2**9),
+    "wmt_ende_bpe32k":
+        wmt_ende_bpe32k,
+    "image_celeba_tune":
+        image_celeba,
+    "img2img_imagenet":
+        img2img_imagenet,
 }

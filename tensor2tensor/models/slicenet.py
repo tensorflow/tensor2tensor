@@ -23,9 +23,9 @@ from __future__ import print_function
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_attention
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_attention
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -83,8 +83,7 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):
     return norm_fn(targets_shifted + targets_with_attention, name="attn_norm")
 
 
-def multi_conv_res(x, padding, name, layers, hparams,
-                   mask=None, source=None):
+def multi_conv_res(x, padding, name, layers, hparams, mask=None, source=None):
   """A stack of separable convolution blocks with residual connections."""
   with tf.variable_scope(name):
     padding_bias = None
@@ -200,7 +199,10 @@ def slicenet_middle(inputs_encoded, targets, target_space_emb, mask, hparams):
   else:
     inputs_padding_bias = (1.0 - mask) * -1e9  # Bias to not attend to padding.
     targets_with_attention = attention(
-        targets_shifted, inputs_encoded, norm_fn, hparams,
+        targets_shifted,
+        inputs_encoded,
+        norm_fn,
+        hparams,
         bias=inputs_padding_bias)
 
   # Positional targets: merge attention and raw.
@@ -237,8 +239,8 @@ def slicenet_internal(inputs, targets, target_space, problem_idx, hparams):
     inputs = common_layers.add_timing_signal(inputs)  # Add position info.
     target_space_emb = embed_target_space(target_space, hparams.hidden_size)
     extra_layers = int(hparams.num_hidden_layers * 1.5)
-    inputs_encoded = multi_conv_res(inputs, "SAME", "encoder", extra_layers,
-                                    hparams, mask=inputs_mask)
+    inputs_encoded = multi_conv_res(
+        inputs, "SAME", "encoder", extra_layers, hparams, mask=inputs_mask)
     target_modality_name = hparams.problems[problem_idx].target_modality.name
     if "class_label_modality" in target_modality_name:
       # If we're just predicing a class, there is no use for a decoder.
@@ -265,6 +267,7 @@ class SliceNet(t2t_model.T2TModel):
     return slicenet_internal(features["inputs"], features["targets"],
                              features["target_space_id"], self._problem_idx,
                              self._hparams)
+
 
 _KERNEL_SCHEMES = {
     "3.3.3.3": [(3, 1), (3, 1), (3, 1), (3, 1)],
@@ -316,7 +319,6 @@ def slicenet_params1():
   hparams.add_hparam("moe_n1", 32)
   hparams.add_hparam("moe_n2", 0)
   hparams.add_hparam("moe_loss_coef", 1e-2)
-  hparams.add_hparam("imagenet_use_2d", int(True))
   # attention-related flags
   hparams.add_hparam("attention_type", "simple")
   hparams.add_hparam("num_heads", 8)

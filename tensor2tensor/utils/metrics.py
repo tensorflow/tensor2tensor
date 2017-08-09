@@ -22,7 +22,7 @@ from __future__ import print_function
 
 import six
 
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
 
 import tensorflow as tf

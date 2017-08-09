@@ -23,8 +23,8 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -86,7 +86,6 @@ def xception_base():
   hparams.optimizer_adam_epsilon = 1e-6
   hparams.optimizer_adam_beta1 = 0.85
   hparams.optimizer_adam_beta2 = 0.997
-  hparams.add_hparam("imagenet_use_2d", True)
   return hparams
 
 

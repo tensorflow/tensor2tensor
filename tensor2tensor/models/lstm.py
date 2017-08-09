@@ -23,25 +23,29 @@ import collections
 
 # Dependency imports
 
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 from tensorflow.python.util import nest
 
-
 # Track Tuple of state and attention values
-AttentionTuple = collections.namedtuple("AttentionTuple",
-                                        ("state", "attention"))
+AttentionTuple = collections.namedtuple("AttentionTuple", ("state",
+                                                           "attention"))
 
 
 class ExternalAttentionCellWrapper(tf.contrib.rnn.RNNCell):
   """Wrapper for external attention states for an encoder-decoder setup."""
 
-  def __init__(self, cell, attn_states, attn_vec_size=None,
-               input_size=None, state_is_tuple=True, reuse=None):
+  def __init__(self,
+               cell,
+               attn_states,
+               attn_vec_size=None,
+               input_size=None,
+               state_is_tuple=True,
+               reuse=None):
     """Create a cell with attention.
 
     Args:
@@ -137,8 +141,8 @@ class ExternalAttentionCellWrapper(tf.contrib.rnn.RNNCell):
     new_attns = self._attention(new_state_cat, attn_states, attn_length)
 
     with tf.variable_scope("attn_output_projection"):
-      output = tf.layers.dense(tf.concat([lstm_output, new_attns], axis=1),
-                               self._attn_size)
+      output = tf.layers.dense(
+          tf.concat([lstm_output, new_attns], axis=1), self._attn_size)
 
     new_state = AttentionTuple(new_state, new_attns)
 
@@ -151,18 +155,16 @@ class ExternalAttentionCellWrapper(tf.contrib.rnn.RNNCell):
     tanh = tf.tanh
 
     with tf.variable_scope("attention"):
-      k = tf.get_variable(
-          "attn_w", [1, 1, self._attn_size, self._attn_vec_size])
+      k = tf.get_variable("attn_w",
+                          [1, 1, self._attn_size, self._attn_vec_size])
       v = tf.get_variable("attn_v", [self._attn_vec_size, 1])
-      hidden = tf.reshape(attn_states,
-                          [-1, attn_length, 1, self._attn_size])
+      hidden = tf.reshape(attn_states, [-1, attn_length, 1, self._attn_size])
       hidden_features = conv2d(hidden, k, [1, 1, 1, 1], "SAME")
       y = tf.layers.dense(query, self._attn_vec_size)
       y = tf.reshape(y, [-1, 1, 1, self._attn_vec_size])
       s = reduce_sum(v * tanh(hidden_features + y), [2, 3])
       a = softmax(s)
-      d = reduce_sum(
-          tf.reshape(a, [-1, attn_length, 1, 1]) * hidden, [1, 2])
+      d = reduce_sum(tf.reshape(a, [-1, attn_length, 1, 1]) * hidden, [1, 2])
       new_attns = tf.reshape(d, [-1, self._attn_size])
 
       return new_attns
@@ -186,8 +188,8 @@ def lstm(inputs, hparams, train, name, initial_state=None):
         time_major=False)
 
 
-def lstm_attention_decoder(inputs, hparams, train, name,
-                           initial_state, attn_states):
+def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
+                           attn_states):
   """Run LSTM cell with attention on inputs of shape [batch x time x size]."""
 
   def dropout_lstm_cell():
@@ -196,9 +198,10 @@ def lstm_attention_decoder(inputs, hparams, train, name,
         input_keep_prob=1.0 - hparams.dropout * tf.to_float(train))
 
   layers = [dropout_lstm_cell() for _ in range(hparams.num_hidden_layers)]
-  cell = ExternalAttentionCellWrapper(tf.nn.rnn_cell.MultiRNNCell(layers),
-                                      attn_states,
-                                      attn_vec_size=hparams.attn_vec_size)
+  cell = ExternalAttentionCellWrapper(
+      tf.nn.rnn_cell.MultiRNNCell(layers),
+      attn_states,
+      attn_vec_size=hparams.attn_vec_size)
   initial_state = cell.combine_state(initial_state)
   with tf.variable_scope(name):
     return tf.nn.dynamic_rnn(
@@ -239,16 +242,13 @@ def lstm_seq2seq_internal_attention(inputs, targets, hparams, train):
     # LSTM decoder with attention
     shifted_targets = common_layers.shift_left(targets)
     decoder_outputs, _ = lstm_attention_decoder(
-        common_layers.flatten4d3d(shifted_targets),
-        hparams,
-        train,
-        "decoder",
+        common_layers.flatten4d3d(shifted_targets), hparams, train, "decoder",
         final_encoder_state, encoder_outputs)
     return tf.expand_dims(decoder_outputs, axis=2)
 
 
-@registry.register_model("baseline_lstm_seq2seq")
-class LSTMSeq2Seq(t2t_model.T2TModel):
+@registry.register_model
+class LSTMSeq2seq(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
     train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
@@ -256,8 +256,8 @@ class LSTMSeq2Seq(t2t_model.T2TModel):
                                  self._hparams, train)
 
 
-@registry.register_model("baseline_lstm_seq2seq_attention")
-class LSTMSeq2SeqAttention(t2t_model.T2TModel):
+@registry.register_model
+class LSTMSeq2seqAttention(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
     train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN

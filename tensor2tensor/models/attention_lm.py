@@ -29,9 +29,9 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
-from tensor2tensor.models import common_attention
-from tensor2tensor.models import common_hparams
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_attention
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -56,8 +56,8 @@ class AttentionLM(t2t_model.T2TModel):
           y, 1.0 - hparams.residual_dropout))
 
     decoder_input = tf.nn.dropout(decoder_input, 1.0 - hparams.residual_dropout)
-    decoder_output = attention_lm_decoder(
-        decoder_input, residual_fn, decoder_self_attention_bias, hparams)
+    decoder_output = attention_lm_decoder(decoder_input, residual_fn,
+                                          decoder_self_attention_bias, hparams)
     decoder_output = tf.expand_dims(decoder_output, 2)
 
     return decoder_output

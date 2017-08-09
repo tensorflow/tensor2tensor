@@ -88,10 +88,22 @@ def basic_params1():
       # modality, add an entry to this semicolon-separated string. Entries are
       # formatted "feature_name:modality_type:modality_name", e.g.
       # "inputs:image:small_image_modality;other_inputs:audio:identity".
-      input_modalities="",
+      input_modalities="default",  # We don't use empty string in params.
       # To override the default target modality, specify
       # "modality_type:modality_name", e.g. "image:small_image_modality".
-      target_modality="")
+      target_modality="default",
+      # The maximum length of "input" sequence.
+      # Sequences longer than this value will be truncated. 0 or negative values
+      # mean there is no maximum or truncation.
+      # You can change this behavior by overridding preprocess_examples() method
+      # in your problem class.
+      max_input_seq_length=0,
+      # The maximum length of "target" sequence.
+      # Sequences longer than this value will be truncated. 0 or negative values
+      # mean there is no maximum or truncation.
+      # You can change this behavior by overridding preprocess_examples() method
+      # in your problem class.
+      max_target_seq_length=0)
 
 
 class RangedHParams(object):
@@ -208,10 +220,6 @@ def basic_range1(ranged_hparams):
   rhp.set_float("optimizer_adam_epsilon", 1e-7, 1e-2, scale=rhp.LOG_SCALE)
   rhp.set_float("optimizer_adam_beta1", 0.8, 0.9)
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)
-  rhp.set_categorical("optimizer",
-                      ["Adam",
-                       "Adagrad",
-                       "Momentum",
-                       "RMSProp",
-                       "SGD",
-                       "YellowFin"])
+  rhp.set_categorical("optimizer", [
+      "Adam", "Adagrad", "Momentum", "RMSProp", "SGD", "YellowFin"
+  ])

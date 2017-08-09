@@ -59,6 +59,13 @@ def inverse_exp_decay(max_step, min_value=0.01):
   return inv_base**tf.maximum(float(max_step) - step, 0.0)
 
 
+def inverse_lin_decay(max_step, min_value=0.01):
+  """Inverse-decay linearly from 0.01 to 1.0 reached at max_step."""
+  step = tf.to_float(tf.contrib.framework.get_global_step())
+  progress = tf.minimum(step / float(max_step), 1.0)
+  return progress * (1.0 - min_value) + min_value
+
+
 def shakeshake2_py(x, y, equal=False, individual=False):
   """The shake-shake sum of 2 tensors, python version."""
   if equal:
@@ -475,7 +482,8 @@ def residual_fn(x,
                 residual_dropout,
                 filters=None,
                 epsilon=1e-16,
-                name="residual"):
+                name=None,
+                reuse=None):
   """Returns a function for combining layer input and layer output.
 
   The returned function on x (layer input) and y (layer output) computes:
@@ -489,16 +497,19 @@ def residual_fn(x,
     filters: integer, dimension for layer norm, optional
     epsilon: integer, value of layer norm epsilon
     name: string, name
+    reuse: bool, whether to reuse
 
   Returns:
     residual layer output with applied norm_fn.
   """
-  norm_fn = get_norm(norm_type)
-  res = x + tf.nn.dropout(y, 1.0 - residual_dropout)
-  if norm_type == "layer":
-    return norm_fn(res, name=name, filters=filters, epsilon=epsilon)
-  else:
-    return norm_fn(res, name=name)
+  with tf.variable_scope(
+      name, default_name="residual", values=[x, y], reuse=reuse):
+    norm_fn = get_norm(norm_type)
+    res = x + tf.nn.dropout(y, 1.0 - residual_dropout)
+    if norm_type == "layer":
+      return norm_fn(res, filters=filters, epsilon=epsilon, name=norm_type)
+    else:
+      return norm_fn(res, name=norm_type)
 
 
 def conv_block_internal(conv_fn,
@@ -1457,6 +1468,34 @@ def global_pool_1d(inputs, pooling_type="MAX", mask=None):
   return output
 
 
+def running_global_pool_1d(inputs, pooling_type="MAX"):
+  """Same global pool, but only for the elements up to the current element.
+
+  Useful for outputs where the state of future elements is not known.
+  Takes no mask as all elements up to the current element are assumed to exist.
+  Currently only supports maximum. Equivalent to using a lower triangle bias.
+
+  Args:
+    inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+      containing the sequences of input vectors.
+    pooling_type: Pooling type to use. Currently only supports 'MAX'.
+
+  Returns:
+    output: A tensor of dimensions batch_size x sequence_length x input_dims
+      dimension containing the running 'totals'.
+  """
+  del pooling_type
+  with tf.name_scope("running_global_pool", [inputs]):
+    scan_fct = tf.maximum
+    # Permute inputs so seq_length is first.
+    elems = tf.transpose(inputs, [1, 0, 2])
+    # Perform scan.
+    cumulatives = tf.scan(scan_fct, elems, swap_memory=True)
+    # Permute output to get back to original order.
+    output = tf.transpose(cumulatives, [1, 0, 2])
+  return output
+
+
 def linear_set_layer(layer_size,
                      inputs,
                      context=None,
@@ -1486,7 +1525,8 @@ def linear_set_layer(layer_size,
     output: A tensor of dimensions batch_size x sequence_length x output_dims
       dimension containing the sequences of transformed vectors.
   """
-  with tf.variable_scope(name, "linear_set_layer", [inputs]):
+  with tf.variable_scope(
+      name, default_name="linear_set_layer", values=[inputs]):
     # Apply 1D convolution to apply linear filter to each element
     # along the 2nd dimension.
     outputs = conv1d(inputs, layer_size, 1, activation=None, name="set_conv")
@@ -1495,7 +1535,8 @@ def linear_set_layer(layer_size,
     if context is not None:
       # Unfortunately tf doesn't support broadcasting via concat, but we can
       # simply add the transformed context to get the same effect.
-      context = tf.expand_dims(context, axis=1)
+      if len(context.get_shape().as_list()) == 2:
+        context = tf.expand_dims(context, axis=1)
       cont_tfm = conv1d(
           context, layer_size, 1, activation=None, name="cont_conv")
       outputs += cont_tfm
@@ -1512,6 +1553,7 @@ def linear_set_layer(layer_size,
 def ravanbakhsh_set_layer(layer_size,
                           inputs,
                           mask=None,
+                          sequential=False,
                           activation_fn=tf.nn.tanh,
                           dropout=0.0,
                           name=None):
@@ -1525,6 +1567,9 @@ def ravanbakhsh_set_layer(layer_size,
       containing the sequences of input vectors.
     mask: A tensor of dimensions batch_size x sequence_length containing a
       mask for the inputs with 1's for existing elements, and 0's elsewhere.
+    sequential: If true, will use a running global pool so each element will
+      only depend on those before it. Set true if this layer is being used in
+      an output sequence.
     activation_fn: The activation function to use.
     dropout: dropout.
     name: name.
@@ -1533,12 +1578,16 @@ def ravanbakhsh_set_layer(layer_size,
     output: A tensor of dimensions batch_size x sequence_length x vector
       dimension containing the sequences of transformed vectors.
   """
+  del dropout
   with tf.variable_scope(name, "ravanbakhsh_set_layer", [inputs]):
-    output = linear_set_layer(
+    if sequential:
+      return linear_set_layer(
+          layer_size,
+          inputs - running_global_pool_1d(inputs),
+          activation_fn=activation_fn,
+          name=name)
+    return linear_set_layer(
         layer_size,
         inputs - tf.expand_dims(global_pool_1d(inputs, mask=mask), axis=1),
         activation_fn=activation_fn,
-        dropout=dropout,
         name=name)
-
-    return output

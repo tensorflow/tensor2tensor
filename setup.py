@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.1.3',
+    version='1.1.6',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -20,6 +20,7 @@ setup(
     ],
     install_requires=[
         'numpy',
+        'requests',
         'sympy',
         'six',
     ],

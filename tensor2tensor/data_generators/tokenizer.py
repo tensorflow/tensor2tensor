@@ -185,7 +185,12 @@ def vocab_token_counts(text_filepattern, max_lines):
     a dictionary mapping token to count.
   """
   ret = {}
-  for line in _read_filepattern(text_filepattern, max_lines=max_lines):
+  for i, line in enumerate(
+      _read_filepattern(text_filepattern, max_lines=max_lines)):
+    if "," not in line:
+      tf.logging.warning("Malformed vocab line #%d '%s'", i, line)
+      continue
+
     token, count = line.rsplit(",", 1)
     ret[_native_to_unicode(token)] = int(count)
 

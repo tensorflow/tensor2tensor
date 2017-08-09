@@ -82,6 +82,12 @@ class SpaceID(object):
   DNA = 23
   # Real numbers
   REAL = 24
+  # Images
+  IMAGE = 25
+  # Peptide
+  PEPTIDE = 26
+  # Python
+  PY_TOK = 27
 
 
 class Problem(object):
@@ -162,8 +168,12 @@ class Problem(object):
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
 
-  def preprocess_examples(self, examples, mode):
+  def preprocess_examples(self, examples, mode, hparams):
     del mode
+    if hparams.max_input_seq_length > 0:
+      examples["inputs"] = examples["inputs"][:hparams.max_input_seq_length]
+    if hparams.max_target_seq_length > 0:
+      examples["targets"] = examples["targets"][:hparams.max_target_seq_length]
     return examples
 
   def eval_metrics(self):
@@ -230,9 +240,6 @@ class Problem(object):
 
     if self._was_reversed:
       _reverse_problem_hparams(hp)
-      # TODO(rsepassi): Move this into the cifar10 Problem
-      if "image_cifar10" in self.name:
-        hp.loss_multiplier = 1.
     if self._was_copy:
       _copy_problem_hparams(hp)
     return hp
@@ -386,12 +393,13 @@ class Text2TextProblem(Problem):
         self.dev_filepaths(data_dir, 1, shuffled=False))
 
   def feature_encoders(self, data_dir):
-    vocab_filename = os.path.join(data_dir, self.vocab_file)
     if self.is_character_level:
-      encoder = text_encoder.ByteTextEncoder(),
+      encoder = text_encoder.ByteTextEncoder()
     elif self.use_subword_tokenizer:
+      vocab_filename = os.path.join(data_dir, self.vocab_file)
       encoder = text_encoder.SubwordTextEncoder(vocab_filename)
     else:
+      vocab_filename = os.path.join(data_dir, self.vocab_file)
       encoder = text_encoder.TokenTextEncoder(vocab_filename)
     if self.has_inputs:
       return {"inputs": encoder, "targets": encoder}
@@ -399,17 +407,12 @@ class Text2TextProblem(Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    if self.is_character_level:
-      source_vocab_size = 256
-      target_vocab_size = 256
-    else:
-      target_vocab_size = self._encoders["targets"].vocab_size
-      if self.has_inputs:
-        source_vocab_size = self._encoders["inputs"].vocab_size
 
     if self.has_inputs:
+      source_vocab_size = self._encoders["inputs"].vocab_size
       p.input_modality = {"inputs": (registry.Modalities.SYMBOL,
                                      source_vocab_size)}
+    target_vocab_size = self._encoders["targets"].vocab_size
     p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
     if self.has_inputs:
       p.input_space_id = self.input_space_id

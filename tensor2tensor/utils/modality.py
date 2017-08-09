@@ -22,7 +22,7 @@ import re
 
 # Dependency imports
 
-from tensor2tensor.models import common_layers
+from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
