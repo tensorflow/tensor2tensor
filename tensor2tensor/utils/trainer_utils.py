@@ -63,6 +63,9 @@ flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
 flags.DEFINE_integer("eval_steps", 10, "Number of steps in evaluation.")
 flags.DEFINE_bool("eval_print", False, "Print eval logits and predictions.")
+flags.DEFINE_bool("eval_run_autoregressive", False,
+                  "Run eval autoregressively where we condition on previous"
+                  "generated output instead of the actual target.")
 flags.DEFINE_integer("keep_checkpoint_max", 20,
                      "How many recent checkpoints to keep.")
 flags.DEFINE_bool("experimental_optimize_placement", False,

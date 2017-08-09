@@ -192,8 +192,12 @@ def build_model_fn(model, hparams):
       # On worker 0 also build graph for problems <= 1.
       # TODO(lukaszkaiser): why is this hack needed for variables init? Repair.
       skip_this_one = skip_this_one and (FLAGS.worker_id != 0 or n > 1)
-      sharded_logits, losses_dict = model_class.model_fn(
-          features, skip=(skipping_is_on and skip_this_one))
+      if (FLAGS.eval_run_autoregressive and
+          mode == tf.contrib.learn.ModeKeys.EVAL):
+        sharded_logits, losses_dict = model_class.eval_autoregressive(features)
+      else:
+        sharded_logits, losses_dict = model_class.model_fn(
+            features, skip=(skipping_is_on and skip_this_one))
       with tf.variable_scope("losses_avg"):
         total_loss, ops = 0.0, []
         for loss_key, loss_value in six.iteritems(losses_dict):

@@ -144,6 +144,30 @@ class T2TModel(object):
   def has_input(self):
     return self._problem_hparams.input_modality
 
+  def eval_autoregressive(self,
+                          features=None,
+                          decode_length=50,
+                          last_position_only=False):
+    """Autoregressive eval.
+
+    Quadratic time in decode_length.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+      last_position_only: a boolean, speed-up by computing last position only.
+
+    Returns:
+      sharded_logits: a list of `Tensor`s. Assumes one datashard.
+      losses: a dictionary: {loss-name (string): floating point `Scalar`}.
+          Contains a single key "training".
+    """
+    _, logits, losses = self._greedy_infer(
+        features,
+        decode_length=decode_length,
+        last_position_only=last_position_only)
+    return [logits], losses
+
   def infer(self,
             features=None,
             decode_length=50,
@@ -179,11 +203,13 @@ class T2TModel(object):
       beam_size = 1  # No use to run beam-search for a single class.
     if beam_size == 1:
       tf.logging.info("Greedy Decoding")
-      return self._greedy_infer(features, decode_length, last_position_only)
+      samples, _, _ = self._greedy_infer(features, decode_length,
+                                         last_position_only)
     else:
       tf.logging.info("Beam Decoding with beam size %d" % beam_size)
-      return self._beam_decode(features, decode_length, beam_size, top_beams,
-                               last_position_only, alpha)
+      samples = self._beam_decode(features, decode_length, beam_size, top_beams,
+                                  last_position_only, alpha)
+    return samples
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams,
                    last_position_only, alpha):
@@ -268,6 +294,8 @@ class T2TModel(object):
 
     Returns:
        samples: an integer `Tensor`.
+       logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+       losses: a dictionary: {loss-name (string): floating point `Scalar`}
     """
     if not features:
       features = {}
@@ -278,14 +306,15 @@ class T2TModel(object):
     if not self.has_input:
       features["partial_targets"] = tf.to_int64(features["inputs"])
 
-    def infer_step(recent_output, _):
+    def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
       recent_output.set_shape([None, None, None, 1])
       padded = tf.pad(recent_output, [[0, 0], [0, 1], [0, 0], [0, 0]])
       features["targets"] = padded
       # This is inefficient in that it generates samples at all timesteps,
       # not just the last one, except if last_position_only is set (dangerous).
-      samples = self.sample(features, last_position_only=last_position_only)
+      samples, logits, losses = self.sample(
+          features, last_position_only=last_position_only)
       # Concatenate the already-generated recent_output with last timestep
       # of the newly-generated samples.
       if last_position_only:
@@ -295,7 +324,11 @@ class T2TModel(object):
       cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
       samples = tf.concat([recent_output, cur_sample], axis=1)
       samples.set_shape([None, None, None, 1])
-      return samples
+
+      # Assuming we have one shard for logits.
+      logits = tf.concat([recent_logits, logits[0][:, -1:]], 1)
+      loss = sum(losses.values())
+      return samples, logits, loss
 
     # Create an initial output tensor. This will be passed
     # to the infer_step, which adds one timestep at every iteration.
@@ -308,20 +341,32 @@ class T2TModel(object):
     # input shape, so we confuse it about the input shape.
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               tf.shape(initial_output))
-    if _is_class_modality(
-        self._hparams.problems[self._problem_idx].target_modality):
+    target_modality = self._hparams.problems[self._problem_idx].target_modality
+    if _is_class_modality(target_modality):
       decode_length = 1
     else:
       decode_length = tf.shape(features["inputs"])[1] + decode_length
-    result = tf.foldl(
-        infer_step,
-        tf.range(decode_length),
-        initializer=initial_output,
+    # Initial values of result, logits and loss.
+    result = initial_output
+    # tensor of shape [batch_size, time, 1, 1, vocab_size]
+    logits = tf.zeros((batch_size, 0, 1, 1, target_modality.top_dimensionality))
+    logits.set_shape([None, None, None, None, None])
+    loss = 0.0
+
+    result, logits, loss = tf.while_loop(
+        lambda result, logits, loss: tf.shape(result)[1] < decode_length,
+        infer_step, [result, logits, loss],
+        shape_invariants=[
+            tf.TensorShape([None, None, None, None]),
+            tf.TensorShape([None, None, None, None, None]),
+            tf.TensorShape([]),
+        ],
         back_prop=False,
         parallel_iterations=1)
     if inputs_old is not None:  # Restore to not confuse Estimator.
       features["inputs"] = inputs_old
-    return result
+    losses = {"training": loss}
+    return result, logits, losses
 
   def sample(self, features, last_position_only=False):
     """Run the model and extract samples.
@@ -332,8 +377,10 @@ class T2TModel(object):
 
     Returns:
        samples: an integer `Tensor`.
+       logits: a list of `Tensor`s, one per datashard.
+       losses: a dictionary: {loss-name (string): floating point `Scalar`}.
     """
-    sharded_logits, _ = self.model_fn(
+    sharded_logits, losses = self.model_fn(
         features, False, last_position_only=last_position_only)
     if self._hparams.sampling_method == "argmax":
       sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
@@ -349,7 +396,7 @@ class T2TModel(object):
 
       sharded_samples = self._data_parallelism(_multinomial_squeeze,
                                                sharded_logits)
-    return tf.concat(sharded_samples, 0)
+    return tf.concat(sharded_samples, 0), sharded_logits, losses
 
   def _shard_features(self, features):  # pylint: disable=missing-docstring
     sharded_features = dict()
