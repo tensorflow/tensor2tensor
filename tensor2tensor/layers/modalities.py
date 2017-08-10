@@ -438,6 +438,7 @@ class ClassLabel1DModality(ClassLabelModality):
 @registry.register_image_modality("identity")
 @registry.register_symbol_modality("identity")
 @registry.register_class_label_modality("identity")
+@registry.register_real_modality("identity")
 class IdentityModality(modality.Modality):
   """Does nothing."""
 
@@ -452,9 +453,12 @@ class IdentityModality(modality.Modality):
     return body_output
 
 
-@registry.register_generic_modality("real")
 class RealModality(modality.Modality):
-  """Modality for real (i.e. float) vectors."""
+  """Base class for real (i.e. float) vectors.
+
+  * Bottom is a linear projection layer to hparams.hidden_size.
+  * Top is a linear projection layer to vocab_size.
+  """
 
   def bottom(self, x):
     with tf.variable_scope("real"):
@@ -464,12 +468,41 @@ class RealModality(modality.Modality):
     with tf.variable_scope("real"):
       return tf.layers.dense(body_output, self._vocab_size)
 
-  def loss(self, top_out, targets, weights_fn=common_layers.weights_nonzero):
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
+    raise NotImplementedError()
+
+
+@registry.register_real_modality("default")
+@registry.register_real_modality("l2_loss")
+class RealL2LossModality(RealModality):
+  """Modality for real (i.e. float) vectors with L2 (Gaussian) loss."""
+
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     predictions = top_out
     with tf.name_scope("l2"):
       weights = weights_fn(targets)
       l2 = tf.pow(predictions - targets, 2)
       return tf.reduce_sum(l2 * weights), tf.reduce_sum(weights)
+
+
+@registry.register_real_modality("log_poisson_loss")
+class RealLogPoissonLossModality(RealL2LossModality):
+  """Modality for real (i.e. float) vectors with log Poisson regression loss.
+
+  * Top is a linear projection to vocab size followed by a softplus
+    transform (log(exp(features) + 1)).
+  """
+
+  def top(self, body_output, _):
+    with tf.variable_scope("real"):
+      return tf.nn.softplus(tf.layers.dense(body_output, self._vocab_size))
+
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
+    predictions = top_out
+    with tf.name_scope("log_possion"):
+      weights = weights_fn(targets)
+      lp_loss = tf.nn.log_poisson_loss(targets, predictions)
+      return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
 
 
 @registry.register_image_modality("identity_no_pad")

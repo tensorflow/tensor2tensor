@@ -111,7 +111,10 @@ def multi_conv_res(x, padding, name, layers, hparams, mask=None, source=None):
           hparams.separability - i
           for i in reversed(range(len(dilations_and_kernels2)))
       ]
-    norm_fn = common_layers.get_norm(hparams.norm_type)
+    def norm_fn(x, name):
+      with tf.variable_scope(name, default_name="norm"):
+        return common_layers.apply_norm(
+            x, hparams.norm_type, hparams.hidden_size, hparams.norm_epsilon)
     for layer in xrange(layers):
       with tf.variable_scope("layer_%d" % layer):
         y = common_layers.subseparable_conv_block(
@@ -171,7 +174,10 @@ def similarity_cost(inputs_encoded, targets_encoded):
 
 def slicenet_middle(inputs_encoded, targets, target_space_emb, mask, hparams):
   """Middle part of slicenet, connecting encoder and decoder."""
-  norm_fn = common_layers.get_norm(hparams.norm_type)
+  def norm_fn(x, name):
+    with tf.variable_scope(name, default_name="norm"):
+      return common_layers.apply_norm(
+          x, hparams.norm_type, hparams.hidden_size, hparams.norm_epsilon)
 
   # Flatten targets and embed target_space_id.
   targets_flat = tf.expand_dims(common_layers.flatten4d3d(targets), axis=2)

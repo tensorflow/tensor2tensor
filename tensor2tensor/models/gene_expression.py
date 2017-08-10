@@ -38,6 +38,14 @@ class GeneExpressionConv(t2t_model.T2TModel):
   http://www.biorxiv.org/content/early/2017/07/10/161851
 
   Uses layer_norm instead of batch_norm.
+
+  Model expects that if targets are of length m, inputs are of length 32*m.  The
+  original data expected that inputs would be of length 128*m, but the data has
+  been preprocessed to chunk every 4 bases into 1 ID (see
+  data_generators/gene_expression.py).
+
+  The magnitude of the length reduction is controlled by the pooling sizes
+  (hparams.pooling_windows) at each conv layer (hparams.num_conv_layers).
   """
 
   def model_fn_body(self, features):
@@ -50,6 +58,7 @@ class GeneExpressionConv(t2t_model.T2TModel):
     out = common_layers.flatten4d3d(out)
 
     # Conv layers
+    assert hp.num_conv_layers == len(hp.pooling_windows)
     for i in xrange(hp.num_conv_layers):
       out = conv_layer(
           out,
@@ -58,7 +67,7 @@ class GeneExpressionConv(t2t_model.T2TModel):
           hp.stride,
           hp.pooling_windows[i],
           hp.dropout,
-          1,
+          dilation_rate=1,
           name="conv_%d" % (i + 1))
 
     # Dense dilated conv layers
@@ -68,10 +77,10 @@ class GeneExpressionConv(t2t_model.T2TModel):
           out,
           hp.hidden_size,
           hp.kernel_width,
-          1,
-          0,
-          hp.dropout,
-          dilation_rate,
+          stride=1,
+          pooling_window=0,
+          dropout_rate=hp.dropout,
+          dilation_rate=dilation_rate,
           name="dconv_%d" % (i + 1))
       out = tf.concat([out, dconv_out], axis=2)
 
@@ -121,12 +130,16 @@ def fc_layer(x, num_out, dropout_rate, name="fc"):
 def gene_expression_conv_base():
   """Hparams for GeneExpressionConv model."""
   hparams = common_hparams.basic_params1()
+  hparams.max_length = 10000000
+  hparams.batch_size = 1024
+  hparams.dropout = 0.1
   hparams.add_hparam("num_conv_layers", 4)
   hparams.add_hparam("num_dconv_layers", 7)
-  hparams.add_hparam("pooling_windows", [2, 4, 4, 4])
+  # The product of these pooling windows should match
+  # input_length/target_length.
+  hparams.add_hparam("pooling_windows", [2, 2, 2, 4])
 
-  # TODO(rsepassi): Correct the values of these hyperparameters
-  hparams.hidden_size = 128
-  hparams.kernel_width = 128
+  hparams.hidden_size = 256
+  hparams.kernel_width = 20
   hparams.add_hparam("stride", 1)
   return hparams

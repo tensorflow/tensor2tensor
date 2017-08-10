@@ -166,6 +166,7 @@ def build_model_fn(model, hparams):
     train = mode == tf.contrib.learn.ModeKeys.TRAIN
 
     # Get multi-problem logits and loss based on features["problem_choice"].
+    loss_variable_names = []
     def nth_model(n):
       """Build the model for the n-th problem, plus some added variables."""
       model_class = registry.model(model)(
@@ -191,17 +192,25 @@ def build_model_fn(model, hparams):
       # On worker 0 also build graph for problems <= 1.
       # TODO(lukaszkaiser): why is this hack needed for variables init? Repair.
       skip_this_one = skip_this_one and (FLAGS.worker_id != 0 or n > 1)
-      sharded_logits, losses_dict = model_class.model_fn(
-          features, skip=(skipping_is_on and skip_this_one))
-      with tf.variable_scope("losses_avg", reuse=True):
+      if (FLAGS.eval_run_autoregressive and
+          mode == tf.contrib.learn.ModeKeys.EVAL):
+        sharded_logits, losses_dict = model_class.eval_autoregressive(features)
+      else:
+        sharded_logits, losses_dict = model_class.model_fn(
+            features, skip=(skipping_is_on and skip_this_one))
+      with tf.variable_scope("losses_avg"):
         total_loss, ops = 0.0, []
         for loss_key, loss_value in six.iteritems(losses_dict):
-          loss_moving_avg = tf.get_variable("problem_%d/%s_loss" % (n,
-                                                                    loss_key))
+          loss_name = "problem_%d/%s_loss" % (n, loss_key)
+          loss_moving_avg = tf.get_variable(
+              loss_name, initializer=100.0, trainable=False)
+          loss_variable_names.append(loss_name)
           ops.append(
               loss_moving_avg.assign(loss_moving_avg * 0.9 + loss_value * 0.1))
           total_loss += loss_value
-        loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n)
+        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+          # Total loss was already constructed on input.
+          loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n)
         ops.append(
             loss_moving_avg.assign(loss_moving_avg * 0.9 + total_loss * 0.1))
       with tf.variable_scope("train_stats"):  # Count steps for this problem.
@@ -256,13 +265,18 @@ def build_model_fn(model, hparams):
       tf.summary.scalar("learning_rate", learning_rate)
       global_step = tf.to_float(tf.contrib.framework.get_global_step())
       for n in xrange(len(my_hp.problems)):
+        names_and_vars = []
         with tf.variable_scope("losses_avg", reuse=True):
           total_loss_var = tf.get_variable("problem_%d/total_loss" % n)
-          training_loss_var = tf.get_variable("problem_%d/training_loss" % n)
-          extra_loss_var = tf.get_variable("problem_%d/extra_loss" % n)
-        tf.summary.scalar("loss_avg_%d/total_loss" % n, total_loss_var)
-        tf.summary.scalar("loss_avg_%d/training_loss" % n, training_loss_var)
-        tf.summary.scalar("loss_avg_%d/extra_loss" % n, extra_loss_var)
+          names_and_vars.append(("total_loss", total_loss_var))
+        with tf.variable_scope("losses_avg", reuse=True):
+          for loss_name in loss_variable_names:
+            if loss_name.startswith("problem_%d/" % n):
+              loss_var = tf.get_variable(loss_name)
+              loss_suffix = loss_name[loss_name.index("/") + 1:]
+              names_and_vars.append((loss_suffix, loss_var))
+        for (loss_name, loss_var) in names_and_vars:
+          tf.summary.scalar("loss_avg_%d/%s" % (n, loss_name), loss_var)
         with tf.variable_scope("train_stats", reuse=True):
           nth_steps = tf.get_variable("problem_%d_steps" % n, dtype=tf.int32)
         tf.summary.scalar("problem_%d_frequency" % n,

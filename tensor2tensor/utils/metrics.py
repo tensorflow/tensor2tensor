@@ -24,6 +24,7 @@ import six
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
+from tensor2tensor.utils import rouge
 
 import tensorflow as tf
 
@@ -37,14 +38,45 @@ class Metrics(object):
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
   APPROX_BLEU = "approx_bleu_score"
   RMSE = "rmse"
+  LOG_POISSON = "log_poisson"
+  R2 = "r_squared"
+  ROUGE_2_F = "rouge_2_fscore"
+  ROUGE_L_F = "rouge_L_fscore"
 
 
-def padded_rmse(predictions, labels, weights_fn=common_layers.weights_nonzero):
+def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   predictions, labels = common_layers.pad_with_zeros(predictions, labels)
   targets = labels
   weights = weights_fn(targets)
   error = tf.sqrt(tf.pow(predictions - labels, 2))
   return tf.reduce_sum(error * weights), tf.reduce_sum(weights)
+
+
+def padded_log_poisson(predictions,
+                       labels,
+                       weights_fn=common_layers.weights_all):
+  # Expects predictions to already be transformed into log space
+  predictions, labels = common_layers.pad_with_zeros(predictions, labels)
+  targets = labels
+  weights = weights_fn(targets)
+
+  lp_loss = tf.nn.log_poisson_loss(targets, predictions, compute_full_loss=True)
+  return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
+
+
+def padded_variance_explained(predictions,
+                              labels,
+                              weights_fn=common_layers.weights_all):
+  # aka R^2
+  predictions, labels = common_layers.pad_with_zeros(predictions, labels)
+  targets = labels
+  weights = weights_fn(targets)
+
+  y_bar = tf.reduce_mean(weights * targets)
+  tot_ss = tf.reduce_sum(weights * tf.pow(targets - y_bar, 2))
+  res_ss = tf.reduce_sum(weights * tf.pow(targets - predictions, 2))
+  r2 = 1. - res_ss / tot_ss
+  return r2, tf.reduce_sum(weights)
 
 
 def padded_accuracy_topk(predictions,
@@ -112,11 +144,12 @@ def padded_accuracy(predictions,
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
 
-def create_evaluation_metrics(problems):
+def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
 
   Args:
     problems: List of tuples (problem name, problem instance).
+    model_hparams: a set of hparams.
 
   Returns:
     A dictionary with keys that are strings naming the evaluation
@@ -162,8 +195,14 @@ def create_evaluation_metrics(problems):
                          (problem_name, metrics, METRICS_FNS.keys()))
 
     class_output = "image" in problem_name and "coco" not in problem_name
-    weights_fn = (common_layers.weights_all
-                  if class_output else common_layers.weights_nonzero)
+    real_output = "gene_expression" in problem_name
+    if model_hparams.prepend_inputs_to_targets:
+      assert not class_output
+      weights_fn = common_layers.weights_second_part
+    elif class_output or real_output:
+      weights_fn = common_layers.weights_all
+    else:
+      weights_fn = common_layers.weights_nonzero
 
     for metric in metrics:
       metric_fn = METRICS_FNS[metric]
@@ -188,4 +227,8 @@ METRICS_FNS = {
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
     Metrics.RMSE: padded_rmse,
+    Metrics.LOG_POISSON: padded_log_poisson,
+    Metrics.R2: padded_variance_explained,
+    Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
+    Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
 }

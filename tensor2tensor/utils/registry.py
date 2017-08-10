@@ -64,6 +64,7 @@ class Modalities(object):
   AUDIO = "audio"
   CLASS_LABEL = "class_label"
   GENERIC = "generic"
+  REAL = "real"
 
 
 _MODALITIES = {
@@ -72,6 +73,7 @@ _MODALITIES = {
     Modalities.AUDIO: {},
     Modalities.CLASS_LABEL: {},
     Modalities.GENERIC: {},
+    Modalities.REAL: {},
 }
 
 # Camel case to snake case utils
@@ -277,6 +279,11 @@ def class_label_modality(name=None):
                                 Modalities.CLASS_LABEL.capitalize())
 
 
+def real_modality(name=None):
+  return _internal_get_modality(name, _MODALITIES[Modalities.REAL],
+                                Modalities.REAL.capitalize())
+
+
 def _internal_register_modality(name, mod_collection, collection_str):
   """Register a modality into mod_collection."""
 
@@ -307,6 +314,12 @@ def register_generic_modality(name=None):
   """Register a generic modality. name defaults to class name snake-cased."""
   return _internal_register_modality(name, _MODALITIES[Modalities.GENERIC],
                                      Modalities.GENERIC.capitalize())
+
+
+def register_real_modality(name=None):
+  """Register a real modality. name defaults to class name snake-cased."""
+  return _internal_register_modality(name, _MODALITIES[Modalities.REAL],
+                                     Modalities.REAL.capitalize())
 
 
 def register_audio_modality(name=None):
@@ -366,6 +379,7 @@ def create_modality(modality_spec, model_hparams):
       Modalities.IMAGE: image_modality,
       Modalities.CLASS_LABEL: class_label_modality,
       Modalities.GENERIC: generic_modality,
+      Modalities.REAL: real_modality,
   }
 
   modality_full_name, vocab_size = modality_spec

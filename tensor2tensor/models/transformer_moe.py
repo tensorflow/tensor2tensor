@@ -49,17 +49,22 @@ class TransformerMoe(t2t_model.T2TModel):
     inputs = dp(common_layers.flatten4d3d, inputs)
     targets = dp(common_layers.flatten4d3d, targets)
 
+    def preprocess(x):
+      return dp(common_layers.layer_preprocess, x, hparams)
+
+    def postprocess(x, y):
+      return dp(common_layers.layer_postprocess, x, y, hparams)
+
     (encoder_input, encoder_self_attention_bias,
      encoder_decoder_attention_bias) = dp(
          transformer.transformer_prepare_encoder,
          inputs, target_space, hparams)
     (decoder_input, decoder_self_attention_bias) = dp(
         transformer.transformer_prepare_decoder, targets, hparams)
-    residual_fn = transformer.get_residual_fn(hparams)
     encoder_input = dp(tf.nn.dropout, encoder_input,
-                       1.0 - hparams.residual_dropout)
+                       1.0 - hparams.layer_prepostprocess_dropout)
     decoder_input = dp(tf.nn.dropout, decoder_input,
-                       1.0 - hparams.residual_dropout)
+                       1.0 - hparams.layer_prepostprocess_dropout)
     extra_loss = 0
     x = encoder_input
     for layer in xrange(hparams.num_hidden_layers):
@@ -67,7 +72,7 @@ class TransformerMoe(t2t_model.T2TModel):
         with tf.variable_scope("encoder_self_attention"):
           y = dp(
               common_attention.multihead_attention,
-              x,
+              preprocess(x),
               None,
               encoder_self_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
@@ -75,11 +80,11 @@ class TransformerMoe(t2t_model.T2TModel):
               hparams.hidden_size,
               hparams.num_heads,
               hparams.attention_dropout)
-          x = dp(residual_fn, x, y)
+          x = postprocess(x, y)
         with tf.variable_scope("ffn"):
           if str(layer) in hparams.moe_layers_encoder.split(","):
             y, loss = common_layers.moe_layer(
-                dp, self._ps_devices, x,
+                dp, self._ps_devices, preprocess(x),
                 hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
                 hparams.hidden_size, hparams.moe_hidden_size, hparams.moe_n1,
                 hparams.moe_n2, hparams.moe_loss_coef)
@@ -87,19 +92,19 @@ class TransformerMoe(t2t_model.T2TModel):
           else:
             y = dp(
                 common_layers.conv_hidden_relu,
-                x,
+                preprocess(x),
                 hparams.filter_size,
                 hparams.hidden_size,
                 dropout=hparams.relu_dropout)
-          x = dp(residual_fn, x, y)
-    encoder_output = x
+          x = postprocess(x, y)
+    encoder_output = preprocess(x)
     x = decoder_input
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("decoder_layer_%d" % layer):
         with tf.variable_scope("decoder_self_attention"):
           y = dp(
               common_attention.multihead_attention,
-              x,
+              preprocess(x),
               None,
               decoder_self_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
@@ -107,11 +112,11 @@ class TransformerMoe(t2t_model.T2TModel):
               hparams.hidden_size,
               hparams.num_heads,
               hparams.attention_dropout)
-          x = dp(residual_fn, x, y)
+          x = postprocess(x, y)
         with tf.variable_scope("encoder_decoder_attention"):
           y = dp(
               common_attention.multihead_attention,
-              x,
+              preprocess(x),
               encoder_output,
               encoder_decoder_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
@@ -119,11 +124,11 @@ class TransformerMoe(t2t_model.T2TModel):
               hparams.hidden_size,
               hparams.num_heads,
               hparams.attention_dropout)
-          x = dp(residual_fn, x, y)
+          x = postprocess(x, y)
         with tf.variable_scope("ffn"):
           if str(layer) in hparams.moe_layers_decoder.split(","):
             y, loss = common_layers.moe_layer(
-                dp, self._ps_devices, x,
+                dp, self._ps_devices, preprocess(x),
                 hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
                 hparams.hidden_size, hparams.moe_hidden_size, hparams.moe_n1,
                 hparams.moe_n2, hparams.moe_loss_coef)
@@ -131,11 +136,12 @@ class TransformerMoe(t2t_model.T2TModel):
           else:
             y = dp(
                 common_layers.conv_hidden_relu,
-                x,
+                preprocess(x),
                 hparams.filter_size,
                 hparams.hidden_size,
                 dropout=hparams.relu_dropout)
-          x = dp(residual_fn, x, y)
+          x = postprocess(x, y)
+    x = preprocess(x)
     decoder_output = dp(tf.expand_dims, x, 2)
     return decoder_output, extra_loss
 
@@ -178,7 +184,6 @@ def transformer_moe_base():
   # when not in training mode.
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
-  hparams.add_hparam("residual_dropout", 0.1)
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
   hparams.add_hparam("proximity_bias", int(False))

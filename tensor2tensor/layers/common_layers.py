@@ -359,13 +359,23 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   return conv2d_kernel(kernel_size, "single")
 
 
-def conv(inputs, filters, kernel_size, **kwargs):
-  return conv_internal(tf.layers.conv2d, inputs, filters, kernel_size, **kwargs)
+def conv(inputs, filters, kernel_size, dilation_rate=1, **kwargs):
+  return conv_internal(
+      tf.layers.conv2d,
+      inputs,
+      filters,
+      kernel_size,
+      dilation_rate=dilation_rate,
+      **kwargs)
 
 
-def conv1d(inputs, filters, kernel_size, **kwargs):
+def conv1d(inputs, filters, kernel_size, dilation_rate=1, **kwargs):
   return tf.squeeze(
-      conv(tf.expand_dims(inputs, 2), filters, (kernel_size, 1), **kwargs), 2)
+      conv(
+          tf.expand_dims(inputs, 2),
+          filters, (kernel_size, 1),
+          dilation_rate=(dilation_rate, 1),
+          **kwargs), 2)
 
 
 def separable_conv(inputs, filters, kernel_size, **kwargs):
@@ -452,64 +462,136 @@ def layer_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
     return result
 
 
-def noam_norm(x, name=None):
+def noam_norm(x, epsilon=1.0, name=None):
   """One version of layer normalization."""
   with tf.name_scope(name, default_name="noam_norm", values=[x]):
     shape = x.get_shape()
     ndims = len(shape)
-    return (tf.nn.l2_normalize(x, ndims - 1, epsilon=1.0) *
+    return (tf.nn.l2_normalize(x, ndims - 1, epsilon=epsilon) *
             tf.sqrt(tf.to_float(shape[-1])))
 
 
-def get_norm(norm_type):
-  """Get the normalizer function."""
+def apply_norm(x, norm_type, depth, epsilon):
+  """Apply Normalization."""
   if norm_type == "layer":
-    return lambda x, name, filters=None, epsilon=1e-6: layer_norm(  # pylint: disable=g-long-lambda
-        x, filters=filters, epsilon=epsilon, name=name)
+    return layer_norm(x, filters=depth, epsilon=epsilon)
   if norm_type == "batch":
-    return tf.layers.batch_normalization
+    return tf.layers.batch_normalization(x, epsilon=epsilon)
   if norm_type == "noam":
-    return noam_norm
+    return noam_norm(x, epsilon)
   if norm_type == "none":
-    return lambda x, name: x
+    return x
   raise ValueError("Parameter normalizer_fn must be one of: 'layer', 'batch',"
                    "'noam', 'none'.")
 
 
-def residual_fn(x,
-                y,
-                norm_type,
-                residual_dropout,
-                filters=None,
-                epsilon=1e-16,
-                name=None,
-                reuse=None):
-  """Returns a function for combining layer input and layer output.
+def layer_prepostprocess(previous_value,
+                         x,
+                         sequence,
+                         dropout_rate,
+                         norm_type,
+                         depth,
+                         epsilon,
+                         name):
+  """Apply a sequence of functions to the input or output of a layer.
 
-  The returned function on x (layer input) and y (layer output) computes:
-    norm_function(x + dropout(y))
+  The sequence is specified as a string which may contain the following
+  characters:
+    a: add previous_value
+    n: apply normalization
+    d: apply dropout
+
+  For example, if sequence=="dna", then the output is
+    previous_value + normalize(dropout(x))
 
   Args:
-    x: tensor, input layer
-    y: tensor, output layer
-    norm_type: string, type of normalizer function
-    residual_dropout: integer, dropout value for residual connection
-    filters: integer, dimension for layer norm, optional
-    epsilon: integer, value of layer norm epsilon
-    name: string, name
-    reuse: bool, whether to reuse
+    previous_value: A Tensor, to be added as a residual connection ('a')
+    x: A Tensor to be transformed.
+    sequence: a string.
+    dropout_rate: a float
+    norm_type: a string (see apply_norm())
+    depth: an integer (size of last dimension of x).
+    epsilon: a float (parameter for normalization)
+    name: a string
 
   Returns:
-    residual layer output with applied norm_fn.
+    a Tensor
   """
-  with tf.variable_scope(
-      name, default_name="residual", values=[x, y], reuse=reuse):
-    norm_fn = get_norm(norm_type)
-    res = x + tf.nn.dropout(y, 1.0 - residual_dropout)
-    if norm_type == "layer":
-      return norm_fn(res, filters=filters, epsilon=epsilon, name=norm_type)
-    else:
-      return norm_fn(res, name=norm_type)
+  with tf.variable_scope(name):
+    for c in sequence:
+      if c == "a":
+        x += previous_value
+      elif c == "n":
+        x = apply_norm(x, norm_type, depth, epsilon)
+      else:
+        assert c == "d", ("Unknown sequence step %s" % c)
+        x = tf.nn.dropout(x, 1.0 - dropout_rate)
+    return x
+
+
+def layer_preprocess(layer_input, hparams):
+  """Apply layer preprocessing.
+
+  See layer_prepostprocess() for details.
+
+  A hyperparemeters object is passed for convenience.  The hyperparameters
+  that may be used are:
+
+    layer_preprocess_sequence
+    layer_prepostprocess_dropout
+    norm_type
+    hidden_size
+    norm_epsilon
+
+  Args:
+    layer_input: a Tensor
+    hparams: a hyperparameters object.
+
+  Returns:
+    a Tensor
+  """
+  assert "a" not in hparams.layer_preprocess_sequence, (
+      "No residual connections allowed in hparams.layer_preprocess_sequence")
+  return layer_prepostprocess(
+      None, layer_input,
+      sequence=hparams.layer_preprocess_sequence,
+      dropout_rate=hparams.layer_prepostprocess_dropout,
+      norm_type=hparams.norm_type,
+      depth=hparams.hidden_size,
+      epsilon=hparams.norm_epsilon,
+      name="layer_prepostprocess")
+
+
+def layer_postprocess(layer_input, layer_output, hparams):
+  """Apply layer postprocessing.
+
+  See layer_prepostprocess() for details.
+
+  A hyperparemeters object is passed for convenience.  The hyperparameters
+  that may be used are:
+
+    layer_postprocess_sequence
+    layer_prepostprocess_dropout
+    norm_type
+    hidden_size
+    norm_epsilon
+
+  Args:
+    layer_input: a Tensor
+    layer_output: a Tensor
+    hparams: a hyperparameters object.
+
+  Returns:
+    a Tensor
+  """
+  return layer_prepostprocess(
+      layer_input, layer_output,
+      sequence=hparams.layer_postprocess_sequence,
+      dropout_rate=hparams.layer_prepostprocess_dropout,
+      norm_type=hparams.norm_type,
+      depth=hparams.hidden_size,
+      epsilon=hparams.norm_epsilon,
+      name="layer_postprocess")
 
 
 def conv_block_internal(conv_fn,
@@ -1342,6 +1424,22 @@ def pad_with_zeros(logits, labels):
 def weights_nonzero(labels):
   """Assign weight 1.0 to all labels except for padding (id=0)."""
   return tf.to_float(tf.not_equal(labels, 0))
+
+
+def weights_second_part(labels):
+  """Weights function for 'prepend_inputs_to_targets'.
+
+  Weight 1.0 is assigned to all nonzero labels past the first zero.
+
+  Args:
+    labels: A Tensor of int32s.
+
+  Returns:
+    A Tensor of floats.
+  """
+  past_first_zero = tf.cumsum(tf.to_float(tf.equal(labels, 0)))
+  nonzero = tf.to_float(labels)
+  return tf.to_float(tf.not_equal(past_first_zero * nonzero, 0))
 
 
 def weights_all(labels):
