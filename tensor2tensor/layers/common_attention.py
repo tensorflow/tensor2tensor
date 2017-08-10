@@ -541,6 +541,111 @@ def local_attention_1d(q,
     return output
 
 
+def local_attention_2d(q,
+                       k,
+                       v,
+                       block_length=128,
+                       filter_flange=100,
+                       name=None):
+  """strided block local self-attention.
+
+  Args:
+    q: a Tensor with shape [batch, heads, h, w, depth_k]
+    k: a Tensor with shape [batch, heads, h, w, depth_k]
+    v: a Tensor with shape [batch, heads, h, w, depth_v]
+    block_length: an integer indicating the side length of each square block.
+    filter_flange: an integer indicating how much to look around each block.
+    name: an optional string
+
+  Returns:
+    a Tensor of shape [batch, heads, h, w, depth_v]
+  """
+  with tf.variable_scope(
+      name, default_name="local_self_attention_2d", values=[q, k, v]):
+    v_shape = tf.shape(v)
+    depth_v = tf.shape(v)[4]
+    batch_size = tf.shape(q)[0]
+    num_heads = tf.shape(q)[1]
+    original_length = tf.shape(q)[2] * tf.shape(q)[3]
+
+    def reshape_range(tensor, i, j, shape):
+      """Reshapes a tensor between dimensions i and j."""
+      target_shape = tf.concat(
+          [tf.shape(tensor)[:i], shape, tf.shape(tensor)[j:]],
+          axis=0)
+      return tf.reshape(tensor, target_shape)
+
+    def pad_to_multiple(x, d):
+      """Making sure x is a multiple of d."""
+      height_padding = -tf.shape(x)[1] % d
+      width_padding = -tf.shape(x)[2] % d
+      paddings = [[0, 0], [0, 0], [0, height_padding],
+                  [0, width_padding], [0, 0]]
+      return tf.pad(x, paddings)
+
+    def gather_indices(x, block_length, stride):
+      """Getting gather indices."""
+      # making an identity matrix kernel
+      kernel = tf.eye(block_length ** 2)
+      kernel = reshape_range(kernel, 0, 1, [block_length, block_length, 1])
+      # making indices [1, h, w, 1] to appy convs
+      indices = tf.range(0, tf.shape(x)[2] * tf.shape(x)[3], delta=1)
+      indices = tf.reshape(indices, [1, tf.shape(x)[2], tf.shape(x)[3], 1])
+      indices = tf.nn.conv2d(
+          tf.cast(indices, tf.float32),
+          kernel,
+          strides=[1, stride, stride, 1],
+          padding="VALID")
+      # making indices [num_blocks, dim] to gather
+      num_blocks = tf.reduce_prod(tf.shape(indices)[:2])
+      indices = tf.reshape(indices, [num_blocks, -1])
+      return tf.cast(indices, tf.int32)
+
+    def gather_blocks(x, indices):
+      """Gathers flattened blocks from x."""
+      x_shape = tf.shape(x)
+      x = reshape_range(x, 2, 4, [tf.reduce_prod(x_shape[2:4])])
+      # [length, batch, heads, dim]
+      x_t = tf.transpose(x, [2, 0, 1, 3])
+      x_new = tf.gather(x_t, indices)
+      # returns [batch, heads, num_blocks, block_length ** 2, dim]
+      return tf.transpose(x_new, [2, 3, 0, 1, 4])
+
+    q = pad_to_multiple(q, block_length)
+    k = pad_to_multiple(k, block_length)
+    v = pad_to_multiple(v, block_length)
+
+    # Setting up k and v values
+    paddings = [[0, 0], [0, 0], [filter_flange, filter_flange],
+                [filter_flange, filter_flange], [0, 0]]
+    k = tf.pad(k, paddings)
+    v = tf.pad(v, paddings)
+
+    # Setting up q blocks
+    q_indices = gather_indices(q, block_length, block_length)
+    q_new = gather_blocks(q, q_indices)
+
+    # Setting up k and v blocks
+    full_filter_width = block_length + 2 * filter_flange
+    k_and_v_indices = gather_indices(k, full_filter_width, block_length)
+    k_new = gather_blocks(k, k_and_v_indices)
+    v_new = gather_blocks(v, k_and_v_indices)
+
+    attention_bias = tf.expand_dims(
+        tf.to_float(embedding_to_padding(k_new)) * -1e9, axis=-2)
+
+    logits = tf.matmul(q_new, k_new, transpose_b=True)
+
+    attention = tf.nn.softmax(logits + attention_bias)
+    output = tf.matmul(attention, v_new)
+
+    output = tf.reshape(output, [batch_size, num_heads, -1, depth_v])
+    # Remove the padding if introduced
+    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
+    # [batch, heads, h, w, depth_v]
+    return tf.reshape(output, v_shape)
+
+
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,

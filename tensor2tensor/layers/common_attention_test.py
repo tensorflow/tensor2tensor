@@ -41,14 +41,14 @@ class CommonAttentionTest(tf.test.TestCase):
       res = session.run(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
-  def testMaskedLocalAttention(self):
-    q = np.array([[[[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [
-        1.0, 0.0, 0.0, 0.0
-    ], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+  def testMaskedLocalAttention1D(self):
+    q = np.array([[[[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
                     [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]]])
-    k = np.array([[[[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [
-        1.0, 0.0, 0.0, 0.0
-    ], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+    k = np.array([[[[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
                     [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]]])
     v = np.ones((1, 1, 8, 1))
     with self.test_session() as session:
@@ -61,7 +61,7 @@ class CommonAttentionTest(tf.test.TestCase):
 
     self.assertEqual(res.shape, (1, 1, 8, 1))
 
-  def testLocalUnmaskedAttention(self):
+  def testLocalUnmaskedAttention1D(self):
     x = np.random.rand(5, 4, 25, 16)
     y = np.random.rand(5, 4, 25, 16)
     with self.test_session() as session:
@@ -75,7 +75,7 @@ class CommonAttentionTest(tf.test.TestCase):
       res = session.run(a)
     self.assertEqual(res.shape, (5, 4, 25, 16))
 
-  def testLocalUnmaskedAttentionMatchingBlockLength(self):
+  def testLocalUnmaskedAttention1DMatchingBlockLength(self):
     x = np.random.rand(5, 4, 25, 16)
     y = np.random.rand(5, 4, 25, 16)
     with self.test_session() as session:
@@ -88,6 +88,34 @@ class CommonAttentionTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       res = session.run(a)
     self.assertEqual(res.shape, (5, 4, 25, 16))
+
+  def testLocalUnmaskedAttention2D(self):
+    x = np.random.rand(5, 4, 25, 25, 16)
+    y = np.random.rand(5, 4, 25, 25, 16)
+    with self.test_session() as session:
+      a = common_attention.local_attention_2d(
+          tf.constant(x, dtype=tf.float32),
+          tf.constant(y, dtype=tf.float32),
+          tf.constant(y, dtype=tf.float32),
+          block_length=4,
+          filter_flange=3)
+      session.run(tf.global_variables_initializer())
+      res = session.run(a)
+    self.assertEqual(res.shape, (5, 4, 25, 25, 16))
+
+  def testLocalUnmaskedAttention2DMatchingBlockLength(self):
+    x = np.random.rand(5, 4, 25, 25, 16)
+    y = np.random.rand(5, 4, 25, 25, 16)
+    with self.test_session() as session:
+      a = common_attention.local_attention_2d(
+          tf.constant(x, dtype=tf.float32),
+          tf.constant(y, dtype=tf.float32),
+          tf.constant(y, dtype=tf.float32),
+          block_length=5,
+          filter_flange=3)
+      session.run(tf.global_variables_initializer())
+      res = session.run(a)
+    self.assertEqual(res.shape, (5, 4, 25, 25, 16))
 
 
 if __name__ == "__main__":
