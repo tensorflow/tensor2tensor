@@ -66,7 +66,7 @@ class IceParsingTokens(problem.Problem):
 
   @property
   def source_vocab_size(self):
-    return 2**13  # 8192
+    return 2**14  # 16384
 
   @property
   def target_vocab_size(self):
@@ -84,18 +84,18 @@ class IceParsingTokens(problem.Problem):
         "targets": target_subtokenizer,
     }
 
-  def generate_data(self, data_dir, tmp_dir, num_shards=100):
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
     generator_utils.generate_dataset_and_shuffle(
         tabbed_parsing_token_generator(data_dir, tmp_dir, True, "ice",
                                        self.source_vocab_size,
                                        self.target_vocab_size),
-        self.training_filepaths(data_dir, num_shards, shuffled=False),
+        self.training_filepaths(data_dir, 1, shuffled=False),
         tabbed_parsing_token_generator(data_dir, tmp_dir, False, "ice",
                                        self.source_vocab_size,
                                        self.target_vocab_size),
         self.dev_filepaths(data_dir, 1, shuffled=False))
 
-  def hparams(self, defaults, unused_model_hparams):
+  def hparams(self, defaults, model_hparams):
     p = defaults
     source_vocab_size = self._encoders["inputs"].vocab_size
     p.input_modality = {"inputs": (registry.Modalities.SYMBOL, source_vocab_size)}
