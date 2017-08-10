@@ -193,7 +193,7 @@ def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0):
     # On the backwards pass, we want to convert the gradient from
     # an indexed-slices to a regular tensor before sending it back to the
     # parameter server. This avoids excess computation on the parameter server.
-    embedding_var = eu.ConvertGradientToTensor(embedding_var)
+    embedding_var = eu.convert_gradient_to_tensor(embedding_var)
     emb_x = tf.gather(embedding_var, x)
     if multiplier != 1.0:
       emb_x *= multiplier
@@ -821,71 +821,6 @@ def decompress_seqcnn(x,
         hidden_size
     ])
     return tf.layers.dense(outputs, targets_vocab_size)
-
-
-def moe_layer(data_parallelism,
-              ps_devices,
-              xs,
-              train,
-              model_hidden_size,
-              expert_hidden_size,
-              n1,
-              n2,
-              loss_coef,
-              autoscale=True,
-              name=None):
-  """A mixture of experts layer.
-
-  Args:
-    data_parallelism: a expert_utils.Parallelism object.
-    ps_devices: a list of strings
-    xs: a list of input tensors.
-    train: a boolean scalar.
-    model_hidden_size: an integer (input/output size for this layer)
-    expert_hidden_size: an integer (size of each expert's hidden layer)
-    n1: an integer - number of experts (or # of groups for hierarchical MoE)
-    n2: optional integer - size of each group of experts for hierarchical MoE
-    loss_coef: a scalar - multiplier on load-balancing losses
-    autoscale: a boolean
-    name: a string
-
-  Returns:
-    ys: a list of tensors:
-    extra_training_loss: a scalar
-  """
-  dp = data_parallelism
-  with tf.variable_scope(name, default_name="moe"):
-    # Set up the hyperparameters for the gating networks.
-    primary_gating_hp = eu.NoisyTopKGatingParams()
-    primary_gating_hp.num_experts = n1
-    if n2:
-      # hierarchical MoE containing moe_n1 groups of moe_n2 experts.
-      assert n2 > 1
-      secondary_gating_hp = eu.NoisyTopKGatingParams()
-      secondary_gating_hp.num_experts = n2
-    else:
-      # flat mixture of moe_n1 experts.
-      secondary_gating_hp = None
-    # Set up the hyperparameters for the expert networks.
-    # Each expert contains a hidden RELU layer of size filter_size
-    expert_hp = eu.FeedForwardExpertParams()
-    expert_hp.autoscale = autoscale
-    expert_hp.hidden_layer_sizes = [expert_hidden_size]
-    # Create the mixture of experts.
-    moe = eu.DistributedMixtureOfExperts(primary_gating_hp, secondary_gating_hp,
-                                         expert_hp, model_hidden_size,
-                                         model_hidden_size, ps_devices, "moe")
-    # MoE expects input tensors to be 2d.
-    #  Flatten out spatial dimensions.
-    xs_2d = dp(tf.reshape, xs, [[-1, model_hidden_size]] * dp.n)
-    # Call the MoE
-    moe_out_2d, importance, load, _, _ = moe.Eval(
-        dp.devices, xs_2d, train, identifiers=None)
-    # Reshape the output to the original shape.
-    moe_out = dp(tf.reshape, moe_out_2d, dp(tf.shape, xs))
-    # These losses encourage equal load on the different experts.
-    loss = loss_coef * (eu.CVSquared(importance) + eu.CVSquared(load))
-    return moe_out, loss
 
 
 def simple_attention(target, source, bias=None):

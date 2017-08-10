@@ -32,6 +32,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -61,6 +62,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
     x = dp(tf.nn.dropout, decoder_input,
            1.0 - hparams.layer_prepostprocess_dropout)
     extra_loss = 0.0
+    moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("attention"):
@@ -78,11 +80,18 @@ class AttentionLmMoe(t2t_model.T2TModel):
           x = postprocess(x, y)
         with tf.variable_scope("ffn"):
           if str(layer) in hparams.moe_layers.split(","):
-            y, loss = common_layers.moe_layer(
-                dp, self._ps_devices, preprocess(x),
+            y, loss = expert_utils.distributed_moe(
+                dp,
+                self._ps_devices,
+                preprocess(x),
                 hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
-                hparams.hidden_size, hparams.moe_hidden_size, hparams.moe_n1,
-                hparams.moe_n2, hparams.moe_loss_coef)
+                input_size=hparams.hidden_size,
+                expert_fn=expert_utils.ffn_expert_fn(
+                    hparams.hidden_size, moe_hidden_sizes,
+                    hparams.hidden_size),
+                num_experts=hparams.moe_num_experts,
+                k=hparams.moe_k,
+                loss_coef=hparams.moe_loss_coef)
             extra_loss += loss
           else:
             y = dp(
@@ -149,16 +158,7 @@ def attention_lm_moe_base():
   hparams.label_smoothing = 0.0
   hparams.shared_embedding_and_softmax_weights = int(False)
   hparams.add_hparam("filter_size", 2048)  # Add new ones like this.
-  # comma-separated list of layer numbers.
-  # At each of these layers, we replace the ffn with a mixture of experts.
-  hparams.add_hparam("moe_layers", "2")
-  # If moe_n2 is None, then use a flat MoE with moe_n1 experts.
-  # If moe_n2 is an integer, then use a hierarchical MoE
-  #   consisting of moe_n1 groups of moe_n2 experts each.
-  hparams.add_hparam("moe_n1", 32)
-  hparams.add_hparam("moe_n2", 0)
-  hparams.add_hparam("moe_hidden_size", 2048)
-  hparams.add_hparam("moe_loss_coef", 1e-2)
+  hparams.moe_num_experts = 32
   # attention-related flags
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("attention_key_channels", 0)
@@ -168,6 +168,7 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
+  hparams.add_hparam("moe_layers", "2")  # comma separated list of layer numbers
   return hparams
 
 
@@ -188,9 +189,20 @@ def attention_lm_moe_small():
   hparams.num_hidden_layers = 4
   hparams.hidden_size = 512
   hparams.filter_size = 2048
-  hparams.moe_n1 = 128
+  hparams.moe_num_experts = 128
   hparams.moe_layers = "2"
-  hparams.moe_hidden_size = 2048
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_tiny():
+  """Cheap model for debugging.
+
+  Returns:
+    an hparams object.
+  """
+  hparams = attention_lm_moe_small()
+  hparams.moe_num_experts = 32
   return hparams
 
 
@@ -233,7 +245,7 @@ def attention_lm_moe_large():
   hparams.hidden_size = 1024
   hparams.num_heads = 16
   hparams.filter_size = 4096
-  hparams.moe_hidden_size = 4096
-  hparams.moe_n1 = 128
+  hparams.moe_hidden_sizes = "4096"
+  hparams.moe_num_experts = 128
   hparams.layer_prepostprocess_dropout = 0.2
   return hparams

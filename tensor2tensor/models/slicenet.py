@@ -322,9 +322,6 @@ def slicenet_params1():
   # A kernel scheme, one of _KERNEL_SCHEMES; overrides large_kernel_size.
   hparams.add_hparam("kernel_scheme", "3.7.15.31")
   hparams.add_hparam("audio_compression", 8)
-  hparams.add_hparam("moe_n1", 32)
-  hparams.add_hparam("moe_n2", 0)
-  hparams.add_hparam("moe_loss_coef", 1e-2)
   # attention-related flags
   hparams.add_hparam("attention_type", "simple")
   hparams.add_hparam("num_heads", 8)
@@ -358,7 +355,6 @@ def slicenet_params1_tiny():
   hparams.separability = 0
   hparams.hidden_size = 128
   hparams.num_hidden_layers = 2
-  hparams.moe_n1 = 2
   hparams.batch_size = 512
   hparams.learning_rate_warmup_steps = 200
   return hparams

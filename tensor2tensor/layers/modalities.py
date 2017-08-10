@@ -70,7 +70,7 @@ class SymbolModality(modality.Modality):
       ret = shards[0]
     else:
       ret = tf.concat(shards, 0)
-    ret = eu.ConvertGradientToTensor(ret)
+    ret = eu.convert_gradient_to_tensor(ret)
     return ret
 
   def bottom_simple(self, x, name, reuse):

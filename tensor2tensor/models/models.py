@@ -30,7 +30,6 @@ from tensor2tensor.models import bluenet
 from tensor2tensor.models import bytenet
 from tensor2tensor.models import cycle_gan
 from tensor2tensor.models import gene_expression
-from tensor2tensor.models import long_answer
 from tensor2tensor.models import lstm
 from tensor2tensor.models import multimodel
 from tensor2tensor.models import neural_gpu

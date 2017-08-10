@@ -27,6 +27,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import modalities
 from tensor2tensor.models import slicenet
+from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -76,9 +77,19 @@ def conv_experts(xs, hparams, dp, ps, padding, mask, layer_id):
   train = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
   conv_out = dp(conv_res_step, xs, hparams, padding, mask)
   loss = 0.0
-  moe_out, loss = common_layers.moe_layer(
-      dp, ps, xs, train, hparams.hidden_size, hparams.filter_size,
-      hparams.moe_n1, hparams.moe_n2, 1.0)
+  moe_hidden_sizes = [hparams.filter_size]
+  expert_fn = expert_utils.ffn_expert_fn(
+      hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
+  moe_out, loss = expert_utils.distributed_moe(
+      dp,
+      ps,
+      xs,
+      train,
+      input_size=hparams.hidden_size,
+      expert_fn=expert_fn,
+      num_experts=hparams.moe_num_experts,
+      k=hparams.moe_k,
+      loss_coef=1.0)
   return dp(residual_fn3, xs, moe_out, conv_out, hparams), loss
 
 
@@ -136,6 +147,9 @@ class MultiModel(t2t_model.T2TModel):
     (decoder_input, decoder_self_attention_bias) = dp(prepare_decoder, targets,
                                                       target_space_emb)
 
+    moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
+    expert_fn = expert_utils.ffn_expert_fn(
+        hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
     x = dp(tf.nn.dropout, decoder_input, 1.0 - hparams.dropout)
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("dec_layer_%d" % layer):
@@ -165,10 +179,16 @@ class MultiModel(t2t_model.T2TModel):
           x = dp(residual_fn3, x, y, z, hparams)
         with tf.variable_scope("ffn"):
           if str(layer) in hparams.moe_layers.split(","):
-            y, moe_loss = common_layers.moe_layer(
-                dp, self._ps_devices, x, train, hparams.hidden_size,
-                hparams.filter_size, hparams.moe_n1, hparams.moe_n2,
-                hparams.moe_loss_coef)
+            y, moe_loss = expert_utils.distributed_moe(
+                dp,
+                self._ps_devices,
+                x,
+                train,
+                input_size=hparams.hidden_size,
+                expert_fn=expert_fn,
+                num_experts=hparams.moe_num_experts,
+                k=hparams.moe_k,
+                loss_coef=hparams.moe_loss_coef)
             expert_loss += tf.reduce_mean(moe_loss)
           else:
             y = dp(
@@ -199,10 +219,8 @@ def multimodel_base():
   hparams.add_hparam("large_kernel_size", 15)
   hparams.add_hparam("attention_dropout", 0.1)
   hparams.add_hparam("num_heads", 8)
-  hparams.add_hparam("moe_n1", 30)
-  hparams.add_hparam("moe_n2", 0)
   hparams.add_hparam("moe_layers", "2")
-  hparams.add_hparam("moe_loss_coef", 1e-2)
+  hparams.moe_num_experts = 30
   return hparams
 
 
