@@ -44,23 +44,13 @@ class CipherShift5(algorithmic.AlgorithmicProblem):
   def shift(self):
     return 1
 
-  @property
-  def train_generator(self):
-    """Generator; takes 3 args: nbr_symbols, max_length, nbr_cases."""
-
-    def _gen(nbr_symbols, max_length, nbr_cases):
-      plain_vocab = range(nbr_symbols)
-      indices = generate_plaintext_random(plain_vocab, self.distribution,
-                                          nbr_cases, max_length)
-      codes = encipher_shift(indices, plain_vocab, self.shift)
-
-      for plain, code in zip(indices, codes):
-        yield {
-            "inputs": plain,
-            "targets": code,
-        }
-
-    return _gen
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    plain_vocab = range(nbr_symbols)
+    indices = generate_plaintext_random(
+        plain_vocab, self.distribution, nbr_cases, max_length)
+    codes = encipher_shift(indices, plain_vocab, self.shift)
+    for plain, code in zip(indices, codes):
+      yield {"inputs": plain, "targets": code}
 
   @property
   def train_length(self):
@@ -87,23 +77,13 @@ class CipherVigenere5(algorithmic.AlgorithmicProblem):
   def key(self):
     return [1, 3]
 
-  @property
-  def train_generator(self):
-    """Generator; takes 3 args: nbr_symbols, max_length, nbr_cases."""
-
-    def _gen(nbr_symbols, max_length, nbr_cases):
-      plain_vocab = range(nbr_symbols)
-      indices = generate_plaintext_random(plain_vocab, self.distribution,
-                                          nbr_cases, max_length)
-      codes = encipher_vigenere(indices, plain_vocab, self.key)
-
-      for plain, code in zip(indices, codes):
-        yield {
-            "inputs": plain,
-            "targets": code,
-        }
-
-    return _gen
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    plain_vocab = range(nbr_symbols)
+    indices = generate_plaintext_random(plain_vocab, self.distribution,
+                                        nbr_cases, max_length)
+    codes = encipher_vigenere(indices, plain_vocab, self.key)
+    for plain, code in zip(indices, codes):
+      yield {"inputs": plain, "targets": code}
 
   @property
   def train_length(self):

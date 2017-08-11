@@ -19,6 +19,7 @@ setup(
         'tensor2tensor/bin/t2t-make-tf-configs',
     ],
     install_requires=[
+        'bz2file',
         'numpy',
         'requests',
         'sympy',

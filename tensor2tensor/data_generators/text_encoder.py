@@ -441,6 +441,8 @@ class SubwordTextEncoder(TextEncoder):
     if min_val > max_val:
       raise ValueError("Lower bound for the minimum token count "
                        "is greater than the upper bound.")
+    if target_size < 1:
+      raise ValueError("Target size must be positive.")
 
     def bisect(min_val, max_val):
       """Bisection to find the right size."""
@@ -450,8 +452,10 @@ class SubwordTextEncoder(TextEncoder):
       subtokenizer.build_from_token_counts(token_counts, present_count,
                                            num_iterations)
 
+      # Being within 1% of the target size is ok.
+      is_ok = abs(subtokenizer.vocab_size - target_size) * 100 < target_size
       # If min_val == max_val, we can't do any better than this.
-      if subtokenizer.vocab_size == target_size or min_val >= max_val:
+      if is_ok or min_val >= max_val or present_count < 2:
         return subtokenizer
 
       if subtokenizer.vocab_size > target_size:

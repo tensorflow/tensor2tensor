@@ -138,7 +138,7 @@ class Desc2CodeProblem(problem.Text2TextProblem):
         "targets": target_token,
     }
 
-  def train_generator(self, data_dir, tmp_dir, train):
+  def generator(self, data_dir, tmp_dir, train):
     # Called twice: for train and test
 
     # Get the list of the training samples (coding challenge samples)

@@ -259,6 +259,11 @@ def _interactive_input_fn(hparams):
   vocabulary = p_hparams.vocabulary["inputs" if has_input else "targets"]
   # This should be longer than the longest input.
   const_array_size = 10000
+  # Import readline if available for command line editing and recall.
+  try:
+    import readline  # pylint: disable=g-import-not-at-top,unused-variable
+  except ImportError:
+    pass
   while True:
     prompt = ("INTERACTIVE MODE  num_samples=%d  decode_length=%d  \n"
               "  it=<input_type>     ('text' or 'image' or 'label')\n"

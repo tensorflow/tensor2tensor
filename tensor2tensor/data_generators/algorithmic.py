@@ -37,14 +37,9 @@ class AlgorithmicProblem(problem.Problem):
   def num_symbols(self):
     raise NotImplementedError()
 
-  @property
-  def train_generator(self):
-    """Generator; takes 3 args: nbr_symbols, max_length, nbr_cases."""
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    """Generates the data."""
     raise NotImplementedError()
-
-  @property
-  def dev_generator(self):
-    return self.train_generator
 
   @property
   def train_length(self):
@@ -67,25 +62,19 @@ class AlgorithmicProblem(problem.Problem):
     return 10
 
   def generate_data(self, data_dir, _, task_id=-1):
-    def generator_eos(generator):
+    def generator_eos(nbr_symbols, max_length, nbr_cases):
       """Shift by NUM_RESERVED_IDS and append EOS token."""
-      for case in generator:
+      for case in self.generator(nbr_symbols, max_length, nbr_cases):
         new_case = {}
         for feature in case:
           new_case[feature] = [i + text_encoder.NUM_RESERVED_TOKENS
                                for i in case[feature]] + [text_encoder.EOS_ID]
         yield new_case
 
-    train_generator_eos = lambda: generator_eos(  # pylint: disable=g-long-lambda
-        self.train_generator(self.num_symbols,
-                             self.train_length, self.train_size))
-    dev_generator_eos = lambda: generator_eos(  # pylint: disable=g-long-lambda
-        self.dev_generator(self.num_symbols, self.dev_length, self.dev_size))
-
     utils.generate_dataset_and_shuffle(
-        train_generator_eos(),
+        generator_eos(self.num_symbols, self.train_length, self.train_size),
         self.training_filepaths(data_dir, self.num_shards, shuffled=True),
-        dev_generator_eos(),
+        generator_eos(self.num_symbols, self.dev_length, self.dev_size),
         self.dev_filepaths(data_dir, 1, shuffled=True),
         shuffle=False)
 
@@ -98,28 +87,6 @@ class AlgorithmicProblem(problem.Problem):
     p.target_space_id = problem.SpaceID.DIGIT_1
 
 
-def identity_generator(nbr_symbols, max_length, nbr_cases):
-  """Generator for the identity (copy) task on sequences of symbols.
-
-  The length of the sequence is drawn uniformly at random from [1, max_length]
-  and then symbols are drawn uniformly at random from [0, nbr_symbols) until
-  nbr_cases sequences have been produced.
-
-  Args:
-    nbr_symbols: number of symbols to use in each sequence.
-    max_length: integer, maximum length of sequences to generate.
-    nbr_cases: the number of cases to generate.
-
-  Yields:
-    A dictionary {"inputs": input-list, "targets": target-list} where
-    input-list and target-list are the same.
-  """
-  for _ in xrange(nbr_cases):
-    l = np.random.randint(max_length) + 1
-    inputs = [np.random.randint(nbr_symbols) for _ in xrange(l)]
-    yield {"inputs": inputs, "targets": inputs}
-
-
 @registry.register_problem
 class AlgorithmicIdentityBinary40(AlgorithmicProblem):
   """Problem spec for algorithmic binary identity task."""
@@ -128,9 +95,26 @@ class AlgorithmicIdentityBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  @property
-  def train_generator(self):
-    return identity_generator
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    """Generator for the identity (copy) task on sequences of symbols.
+
+    The length of the sequence is drawn uniformly at random from [1, max_length]
+    and then symbols are drawn uniformly at random from [0, nbr_symbols) until
+    nbr_cases sequences have been produced.
+
+    Args:
+      nbr_symbols: number of symbols to use in each sequence.
+      max_length: integer, maximum length of sequences to generate.
+      nbr_cases: the number of cases to generate.
+
+    Yields:
+      A dictionary {"inputs": input-list, "targets": target-list} where
+      input-list and target-list are the same.
+    """
+    for _ in xrange(nbr_cases):
+      l = np.random.randint(max_length) + 1
+      inputs = [np.random.randint(nbr_symbols) for _ in xrange(l)]
+      yield {"inputs": inputs, "targets": inputs}
 
 
 @registry.register_problem
@@ -142,32 +126,6 @@ class AlgorithmicIdentityDecimal40(AlgorithmicIdentityBinary40):
     return 10
 
 
-def shift_generator(nbr_symbols, shift, max_length, nbr_cases):
-  """Generator for the shift task on sequences of symbols.
-
-  The length of the sequence is drawn uniformly at random from [1, max_length]
-  and then symbols are drawn uniformly at random from [0, nbr_symbols - shift]
-  until nbr_cases sequences have been produced (output[i] = input[i] + shift).
-
-  Args:
-    nbr_symbols: number of symbols to use in each sequence (input + output).
-    shift: by how much to shift the input.
-    max_length: integer, maximum length of sequences to generate.
-    nbr_cases: the number of cases to generate.
-
-  Yields:
-    A dictionary {"inputs": input-list, "targets": target-list} where
-    target-list[i] = input-list[i] + shift.
-  """
-  for _ in xrange(nbr_cases):
-    l = np.random.randint(max_length) + 1
-    inputs = [np.random.randint(nbr_symbols - shift) for _ in xrange(l)]
-    yield {
-        "inputs": inputs,
-        "targets": [i + shift for i in inputs]
-    }
-
-
 @registry.register_problem
 class AlgorithmicShiftDecimal40(AlgorithmicProblem):
   """Problem spec for algorithmic decimal shift task."""
@@ -176,38 +134,34 @@ class AlgorithmicShiftDecimal40(AlgorithmicProblem):
   def num_symbols(self):
     return 20
 
-  @property
-  def train_generator(self):
-    return lambda nbr_sym, l, size: shift_generator(nbr_sym, 10, l, size)
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    """Generator for the shift task on sequences of symbols.
+
+    The length of the sequence is drawn uniformly at random from [1, max_length]
+    and then symbols are drawn uniformly at random from [0, nbr_symbols - shift]
+    until nbr_cases sequences have been produced (output[i] = input[i] + shift).
+
+    Args:
+      nbr_symbols: number of symbols to use in each sequence (input + output).
+      max_length: integer, maximum length of sequences to generate.
+      nbr_cases: the number of cases to generate.
+
+    Yields:
+      A dictionary {"inputs": input-list, "targets": target-list} where
+      target-list[i] = input-list[i] + shift.
+    """
+    shift = 10
+    for _ in xrange(nbr_cases):
+      l = np.random.randint(max_length) + 1
+      inputs = [np.random.randint(nbr_symbols - shift) for _ in xrange(l)]
+      yield {
+          "inputs": inputs,
+          "targets": [i + shift for i in inputs]
+      }
 
   @property
   def dev_length(self):
     return 80
-
-
-def reverse_generator(nbr_symbols, max_length, nbr_cases):
-  """Generator for the reversing task on sequences of symbols.
-
-  The length of the sequence is drawn uniformly at random from [1, max_length]
-  and then symbols are drawn uniformly at random from [0, nbr_symbols) until
-  nbr_cases sequences have been produced.
-
-  Args:
-    nbr_symbols: number of symbols to use in each sequence.
-    max_length: integer, maximum length of sequences to generate.
-    nbr_cases: the number of cases to generate.
-
-  Yields:
-    A dictionary {"inputs": input-list, "targets": target-list} where
-    target-list is input-list reversed.
-  """
-  for _ in xrange(nbr_cases):
-    l = np.random.randint(max_length) + 1
-    inputs = [np.random.randint(nbr_symbols) for _ in xrange(l)]
-    yield {
-        "inputs": inputs,
-        "targets": list(reversed(inputs))
-    }
 
 
 @registry.register_problem
@@ -218,9 +172,29 @@ class AlgorithmicReverseBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  @property
-  def train_generator(self):
-    return reverse_generator
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    """Generator for the reversing task on sequences of symbols.
+
+    The length of the sequence is drawn uniformly at random from [1, max_length]
+    and then symbols are drawn uniformly at random from [0, nbr_symbols) until
+    nbr_cases sequences have been produced.
+
+    Args:
+      nbr_symbols: number of symbols to use in each sequence.
+      max_length: integer, maximum length of sequences to generate.
+      nbr_cases: the number of cases to generate.
+
+    Yields:
+      A dictionary {"inputs": input-list, "targets": target-list} where
+      target-list is input-list reversed.
+    """
+    for _ in xrange(nbr_cases):
+      l = np.random.randint(max_length) + 1
+      inputs = [np.random.randint(nbr_symbols) for _ in xrange(l)]
+      yield {
+          "inputs": inputs,
+          "targets": list(reversed(inputs))
+      }
 
 
 @registry.register_problem
@@ -305,17 +279,16 @@ def reverse_generator_nlplike(nbr_symbols,
 
 
 @registry.register_problem
-class AlgorithmicReverseNlplike8K(AlgorithmicProblem):
+class AlgorithmicReverseNlplike8k(AlgorithmicProblem):
   """Problem spec for algorithmic nlp-like reversing task."""
 
   @property
   def num_symbols(self):
     return 8000
 
-  @property
-  def train_generator(self):
-    return lambda nbr_sym, length, size: reverse_generator_nlplike(  # pylint: disable=g-long-lambda
-        nbr_sym, length, size, 10, 1.300)
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    return reverse_generator_nlplike(
+        nbr_symbols, max_length, nbr_cases, 10, 1.300)
 
   @property
   def train_length(self):
@@ -327,17 +300,16 @@ class AlgorithmicReverseNlplike8K(AlgorithmicProblem):
 
 
 @registry.register_problem
-class AlgorithmicReverseNlplike32K(AlgorithmicReverseNlplike8K):
-  """Problem spec for algorithmic nlp-like reversing task, 32K vocab."""
+class AlgorithmicReverseNlplike32k(AlgorithmicReverseNlplike8k):
+  """Problem spec for algorithmic nlp-like reversing task, 32k vocab."""
 
   @property
   def num_symbols(self):
     return 32000
 
-  @property
-  def train_generator(self):
-    return lambda nbr_sym, length, size: reverse_generator_nlplike(  # pylint: disable=g-long-lambda
-        nbr_sym, length, size, 10, 1.050)
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    return reverse_generator_nlplike(
+        nbr_symbols, max_length, nbr_cases, 10, 1.050)
 
 
 def lower_endian_to_number(l, base):
@@ -360,38 +332,6 @@ def random_number_lower_endian(length, base):
   return prefix + [np.random.randint(base - 1) + 1]  # Last digit is not 0.
 
 
-def addition_generator(base, max_length, nbr_cases):
-  """Generator for the addition task.
-
-  The length of each number is drawn uniformly at random from [1, max_length/2]
-  and then digits are drawn uniformly at random. The numbers are added and
-  separated by [base] in the input. Stops at nbr_cases.
-
-  Args:
-    base: in which base are the numbers.
-    max_length: integer, maximum length of sequences to generate.
-    nbr_cases: the number of cases to generate.
-
-  Yields:
-    A dictionary {"inputs": input-list, "targets": target-list} where
-    input-list are the 2 numbers and target-list is the result of adding them.
-
-  Raises:
-    ValueError: if max_length is lower than 3.
-  """
-  if max_length < 3:
-    raise ValueError("Maximum length must be at least 3.")
-  for _ in xrange(nbr_cases):
-    l1 = np.random.randint(max_length // 2) + 1
-    l2 = np.random.randint(max_length - l1 - 1) + 1
-    n1 = random_number_lower_endian(l1, base)
-    n2 = random_number_lower_endian(l2, base)
-    result = lower_endian_to_number(n1, base) + lower_endian_to_number(n2, base)
-    inputs = n1 + [base] + n2
-    targets = number_to_lower_endian(result, base)
-    yield {"inputs": inputs, "targets": targets}
-
-
 @registry.register_problem
 class AlgorithmicAdditionBinary40(AlgorithmicProblem):
   """Problem spec for algorithmic binary addition task."""
@@ -400,9 +340,37 @@ class AlgorithmicAdditionBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  @property
-  def train_generator(self):
-    return addition_generator
+  def generator(self, base, max_length, nbr_cases):
+    """Generator for the addition task.
+
+    The length of each number is drawn uniformly at random in [1, max_length/2]
+    and then digits are drawn uniformly at random. The numbers are added and
+    separated by [base] in the input. Stops at nbr_cases.
+
+    Args:
+      base: in which base are the numbers.
+      max_length: integer, maximum length of sequences to generate.
+      nbr_cases: the number of cases to generate.
+
+    Yields:
+      A dictionary {"inputs": input-list, "targets": target-list} where
+      input-list are the 2 numbers and target-list is the result of adding them.
+
+    Raises:
+      ValueError: if max_length is lower than 3.
+    """
+    if max_length < 3:
+      raise ValueError("Maximum length must be at least 3.")
+    for _ in xrange(nbr_cases):
+      l1 = np.random.randint(max_length // 2) + 1
+      l2 = np.random.randint(max_length - l1 - 1) + 1
+      n1 = random_number_lower_endian(l1, base)
+      n2 = random_number_lower_endian(l2, base)
+      result = lower_endian_to_number(n1, base) + lower_endian_to_number(
+          n2, base)
+      inputs = n1 + [base] + n2
+      targets = number_to_lower_endian(result, base)
+      yield {"inputs": inputs, "targets": targets}
 
 
 @registry.register_problem
@@ -414,39 +382,6 @@ class AlgorithmicAdditionDecimal40(AlgorithmicAdditionBinary40):
     return 10
 
 
-def multiplication_generator(base, max_length, nbr_cases):
-  """Generator for the multiplication task.
-
-  The length of each number is drawn uniformly at random from [1, max_length/2]
-  and then digits are drawn uniformly at random. The numbers are multiplied
-  and separated by [base] in the input. Stops at nbr_cases.
-
-  Args:
-    base: in which base are the numbers.
-    max_length: integer, maximum length of sequences to generate.
-    nbr_cases: the number of cases to generate.
-
-  Yields:
-    A dictionary {"inputs": input-list, "targets": target-list} where
-    input-list are the 2 numbers and target-list is the result of multiplying
-    them.
-
-  Raises:
-    ValueError: if max_length is lower than 3.
-  """
-  if max_length < 3:
-    raise ValueError("Maximum length must be at least 3.")
-  for _ in xrange(nbr_cases):
-    l1 = np.random.randint(max_length // 2) + 1
-    l2 = np.random.randint(max_length - l1 - 1) + 1
-    n1 = random_number_lower_endian(l1, base)
-    n2 = random_number_lower_endian(l2, base)
-    result = lower_endian_to_number(n1, base) * lower_endian_to_number(n2, base)
-    inputs = n1 + [base] + n2
-    targets = number_to_lower_endian(result, base)
-    yield {"inputs": inputs, "targets": targets}
-
-
 @registry.register_problem
 class AlgorithmicMultiplicationBinary40(AlgorithmicProblem):
   """Problem spec for algorithmic binary multiplication task."""
@@ -455,9 +390,38 @@ class AlgorithmicMultiplicationBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  @property
-  def train_generator(self):
-    return multiplication_generator
+  def generator(self, base, max_length, nbr_cases):
+    """Generator for the multiplication task.
+
+    The length of each number is drawn uniformly at random in [1, max_length/2]
+    and then digits are drawn uniformly at random. The numbers are multiplied
+    and separated by [base] in the input. Stops at nbr_cases.
+
+    Args:
+      base: in which base are the numbers.
+      max_length: integer, maximum length of sequences to generate.
+      nbr_cases: the number of cases to generate.
+
+    Yields:
+      A dictionary {"inputs": input-list, "targets": target-list} where
+      input-list are the 2 numbers and target-list is the result of multiplying
+      them.
+
+    Raises:
+      ValueError: if max_length is lower than 3.
+    """
+    if max_length < 3:
+      raise ValueError("Maximum length must be at least 3.")
+    for _ in xrange(nbr_cases):
+      l1 = np.random.randint(max_length // 2) + 1
+      l2 = np.random.randint(max_length - l1 - 1) + 1
+      n1 = random_number_lower_endian(l1, base)
+      n2 = random_number_lower_endian(l2, base)
+      result = lower_endian_to_number(n1, base) * lower_endian_to_number(
+          n2, base)
+      inputs = n1 + [base] + n2
+      targets = number_to_lower_endian(result, base)
+      yield {"inputs": inputs, "targets": targets}
 
 
 @registry.register_problem

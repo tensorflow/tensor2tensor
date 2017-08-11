@@ -45,7 +45,6 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image
 from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import snli
-from tensor2tensor.data_generators import wiki
 from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import wsj_parsing
 from tensor2tensor.utils import registry
@@ -82,16 +81,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
-    "ice_parsing_tokens": (
-        lambda: wmt.tabbed_parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True, "ice", 2**13, 2**8),
-        lambda: wmt.tabbed_parsing_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False, "ice", 2**13, 2**8)),
-    "ice_parsing_characters": (
-        lambda: wmt.tabbed_parsing_character_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True),
-        lambda: wmt.tabbed_parsing_character_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False)),
     "wmt_parsing_tokens_8k": (
         lambda: wmt.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13),
@@ -114,10 +103,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "lm1b_characters": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True, characters=True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False, characters=True)
-    ),
-    "wiki_32k": (
-        lambda: wiki.generator(FLAGS.tmp_dir, True),
-        1000
     ),
     "image_celeba_tune": (
         lambda: image.celeba_generator(FLAGS.tmp_dir, 162770),
@@ -180,17 +165,14 @@ def main(_):
   # Remove parsing if paths are not given.
   if not FLAGS.parsing_path:
     problems = [p for p in problems if "parsing" not in p]
-  # Remove en-de BPE if paths are not given.
-  if not FLAGS.ende_bpe_path:
-    problems = [p for p in problems if "ende_bpe" not in p]
 
   if not problems:
     problems_str = "\n  * ".join(
         sorted(list(_SUPPORTED_PROBLEM_GENERATORS) + registry.list_problems()))
     error_msg = ("You must specify one of the supported problems to "
                  "generate data for:\n  * " + problems_str + "\n")
-    error_msg += ("TIMIT, ende_bpe and parsing need data_sets specified with "
-                  "--timit_paths, --ende_bpe_path and --parsing_path.")
+    error_msg += ("TIMIT and parsing need data_sets specified with "
+                  "--timit_paths and --parsing_path.")
     raise ValueError(error_msg)
 
   if not FLAGS.data_dir:
@@ -213,34 +195,17 @@ def generate_data_for_problem(problem):
   """Generate data for a problem in _SUPPORTED_PROBLEM_GENERATORS."""
   training_gen, dev_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
 
-  if isinstance(dev_gen, int):
-    # The dev set and test sets are generated as extra shards using the
-    # training generator.  The integer specifies the number of training
-    # shards. FLAGS.num_shards is ignored.
-    num_training_shards = dev_gen
-    tf.logging.info("Generating data for %s.", problem)
-    all_output_files = generator_utils.combined_data_filenames(
-        problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
-        num_training_shards)
-    generator_utils.generate_files(training_gen(), all_output_files,
-                                   FLAGS.max_cases)
-  else:
-    # usual case - train data and dev data are generated using separate
-    # generators.
-    num_shards = FLAGS.num_shards or 10
-    tf.logging.info("Generating training data for %s.", problem)
-    train_output_files = generator_utils.train_data_filenames(
-        problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, num_shards)
-    generator_utils.generate_files(training_gen(), train_output_files,
-                                   FLAGS.max_cases)
-    tf.logging.info("Generating development data for %s.", problem)
-    dev_shards = 10 if "coco" in problem else 1
-    dev_output_files = generator_utils.dev_data_filenames(
-        problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, dev_shards)
-    generator_utils.generate_files(dev_gen(), dev_output_files)
-    all_output_files = train_output_files + dev_output_files
-
-  tf.logging.info("Shuffling data...")
+  num_shards = FLAGS.num_shards or 10
+  tf.logging.info("Generating training data for %s.", problem)
+  train_output_files = generator_utils.train_data_filenames(
+      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, num_shards)
+  generator_utils.generate_files(training_gen(), train_output_files,
+                                 FLAGS.max_cases)
+  tf.logging.info("Generating development data for %s.", problem)
+  dev_output_files = generator_utils.dev_data_filenames(
+      problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir, 1)
+  generator_utils.generate_files(dev_gen(), dev_output_files)
+  all_output_files = train_output_files + dev_output_files
   generator_utils.shuffle_dataset(all_output_files)
 
 

@@ -308,6 +308,7 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
     vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
     return vocab
 
+  tf.logging.info("Generating vocab file: %s", vocab_filepath)
   token_counts = defaultdict(int)
   for item in generator_fn():
     for tok in tokenizer.encode(text_encoder.native_to_unicode(item)):
