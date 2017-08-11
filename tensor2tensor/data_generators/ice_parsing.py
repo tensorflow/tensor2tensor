@@ -87,7 +87,7 @@ class IceParsingTokens(problem.Problem):
     source_vocab_filename = os.path.join(
         data_dir, "ice_source.tokens.vocab.%d" % self.source_vocab_size)
     target_vocab_filename = os.path.join(
-        data_dir, "ice_target.tokens.vocab.%d" % self.target_vocab_size)
+        data_dir, "ice_target.tokens.vocab.%d" % self.targeted_vocab_size)
     source_subtokenizer = text_encoder.SubwordTextEncoder(source_vocab_filename)
     target_subtokenizer = text_encoder.SubwordTextEncoder(target_vocab_filename)
     return {
@@ -99,11 +99,11 @@ class IceParsingTokens(problem.Problem):
     generator_utils.generate_dataset_and_shuffle(
         tabbed_parsing_token_generator(data_dir, tmp_dir, True, "ice",
                                        self.source_vocab_size,
-                                       self.target_vocab_size),
+                                       self.targeted_vocab_size),
         self.training_filepaths(data_dir, self.num_shards, shuffled=False),
         tabbed_parsing_token_generator(data_dir, tmp_dir, False, "ice",
                                        self.source_vocab_size,
-                                       self.target_vocab_size),
+                                       self.targeted_vocab_size),
         self.dev_filepaths(data_dir, 1, shuffled=False))
 
   def hparams(self, defaults, model_hparams):
