@@ -55,6 +55,8 @@ def add_arguments(parser):
   parser.add_argument("--time_major", type="bool", nargs="?", const=True,
                       default=True,
                       help="Whether to use time-major mode for dynamic RNN.")
+  parser.add_argument("--num_embeddings_partitions", type=int, default=0,
+                      help="Number of partitions for embedding vars.")
 
   # attention mechanisms
   parser.add_argument("--attention", type=str, default="", help="""\
@@ -246,6 +248,7 @@ def create_hparams(flags):
       encoder_type=flags.encoder_type,
       residual=flags.residual,
       time_major=flags.time_major,
+      num_embeddings_partitions=flags.num_embeddings_partitions,
 
       # Attention mechanisms
       attention=flags.attention,
@@ -427,7 +430,7 @@ def create_or_load_hparams(out_dir, default_hparams, hparams_path):
   return hparams
 
 
-def run_main(flags, default_hparams, train_fn, inference_fn):
+def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
   """Run main."""
   # Job
   jobid = flags.jobid
@@ -475,7 +478,7 @@ def run_main(flags, default_hparams, train_fn, inference_fn):
         utils.print_out("  %s: %.1f" % (metric, score))
   else:
     # Train
-    train_fn(hparams)
+    train_fn(hparams, target_session=target_session)
 
 
 def main(unused_argv):

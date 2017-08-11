@@ -50,6 +50,7 @@ def create_test_hparams(unit_type="lstm",
       encoder_type=encoder_type,
       num_residual_layers=num_residual_layers,
       time_major=True,
+      num_embeddings_partitions=0,
 
       # Attention mechanisms
       attention=attention,

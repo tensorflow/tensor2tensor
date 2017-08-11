@@ -47,7 +47,9 @@ class TrainModel(
   pass
 
 
-def create_train_model(model_creator, hparams, scope=None, single_cell_fn=None):
+def create_train_model(
+    model_creator, hparams, scope=None, single_cell_fn=None,
+    model_device_fn=None):
   """Create train graph, model, and iterator."""
   src_file = "%s.%s" % (hparams.train_prefix, hparams.src)
   tgt_file = "%s.%s" % (hparams.train_prefix, hparams.tgt)
@@ -78,14 +80,18 @@ def create_train_model(model_creator, hparams, scope=None, single_cell_fn=None):
         src_max_len=hparams.src_max_len,
         tgt_max_len=hparams.tgt_max_len,
         skip_count=skip_count_placeholder)
-    model = model_creator(
-        hparams,
-        iterator=iterator,
-        mode=tf.contrib.learn.ModeKeys.TRAIN,
-        source_vocab_table=src_vocab_table,
-        target_vocab_table=tgt_vocab_table,
-        scope=scope,
-        single_cell_fn=single_cell_fn)
+
+    # Note: One can set model_device_fn to
+    # `tf.train.replica_device_setter(ps_tasks)` for distributed training.
+    with tf.device(model_device_fn):
+      model = model_creator(
+          hparams,
+          iterator=iterator,
+          mode=tf.contrib.learn.ModeKeys.TRAIN,
+          source_vocab_table=src_vocab_table,
+          target_vocab_table=tgt_vocab_table,
+          scope=scope,
+          single_cell_fn=single_cell_fn)
 
   return TrainModel(
       graph=graph,

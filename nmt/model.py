@@ -181,6 +181,7 @@ class BaseModel(object):
             tgt_vocab_size=self.tgt_vocab_size,
             src_embed_size=hparams.num_units,
             tgt_embed_size=hparams.num_units,
+            num_partitions=hparams.num_embeddings_partitions,
             scope=scope,))
 
   def train(self, sess):
