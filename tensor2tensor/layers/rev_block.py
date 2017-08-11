@@ -41,7 +41,7 @@ def _rev_layer_forward(xs, f, g):
     y1 = x1 + f(x2)
   with tf.variable_scope("g"):
     y2 = x2 + g(y1)
-  return (y1, y2)
+  return tf.tuple([y1, y2])
 
 
 def _rev_layer_backward(ys, grad_ys, f, g, f_vars, g_vars):
@@ -65,16 +65,25 @@ def _rev_layer_backward(ys, grad_ys, f, g, f_vars, g_vars):
 
   # Compute gradients wrt to inputs
   # dL/dy2 * dG(y1)/y1
-  grad_gy1_y2 = tf.gradients(gy1, y1_stop, grad_y2)[0]
+  grad_gy1_y2 = tf.gradients(gy1, y1_stop, grad_y2, gate_gradients=True)[0]
   grad_x1 = grad_y1 + grad_gy1_y2
-  grad_x2 = (tf.gradients(fx2, x2_stop, grad_y1)[0] + grad_y2 + tf.gradients(
-      fx2, x2_stop, grad_gy1_y2)[0])
+  grad_x2 = (
+      tf.gradients(fx2, x2_stop, grad_y1, gate_gradients=True)[0] + grad_y2 +
+      tf.gradients(fx2, x2_stop, grad_gy1_y2, gate_gradients=True)[0])
 
   # Compute gradients wrt to vars in f and g
-  grad_g_vars = tf.gradients(gy1, g_vars, grad_y2)
-  grad_f_y1 = tf.gradients(fx2, f_vars, grad_y1)
-  grad_f_y2 = tf.gradients(fx2, f_vars, grad_gy1_y2)
+  grad_g_vars = tf.gradients(gy1, g_vars, grad_y2, gate_gradients=True)
+  grad_f_y1 = tf.gradients(fx2, f_vars, grad_y1, gate_gradients=True)
+  grad_f_y2 = tf.gradients(fx2, f_vars, grad_gy1_y2, gate_gradients=True)
   grad_f_vars = [tf.add_n(grads) for grads in zip(grad_f_y1, grad_f_y2)]
+
+  # Put returns in a tuple to ensure a constant memory budget (i.e. don't want
+  # the subsequent layer to start computing and consuming memory based on a
+  # subset of these values).
+  outs = tf.tuple([x1, x2, grad_x1, grad_x2] + grad_f_vars + grad_g_vars)
+  x1, x2, grad_x1, grad_x2 = outs[:4]
+  grad_f_vars = outs[4:4 + len(grad_f_vars)]
+  grad_g_vars = outs[4 + len(grad_f_vars):]
 
   return (x1, x2), (grad_x1, grad_x2), grad_f_vars, grad_g_vars
 
