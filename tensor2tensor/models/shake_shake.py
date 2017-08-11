@@ -100,8 +100,6 @@ class ShakeShake(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
     hparams = self._hparams
-    print(hparams.learning_rate)
-
     inputs = features["inputs"]
     assert (hparams.num_hidden_layers - 2) % 6 == 0
     blocks_per_stage = (hparams.num_hidden_layers - 2) // 6

@@ -406,10 +406,11 @@ class ClassLabelModality(modality.Modality):
       # Assume input is a square with self._body_input_depth channels.
       if self._is_2d:
         length_float = tf.to_float(tf.shape(x)[1])
+        length_float *= tf.to_float(tf.shape(x)[2])
         spatial_dim_float = tf.sqrt(length_float)
         spatial_dim = tf.to_int32(spatial_dim_float)
-        x = tf.reshape(x,
-                       [-1, spatial_dim, spatial_dim, self._body_input_depth])
+        x_depth = int(x.get_shape()[3])
+        x = tf.reshape(x, [-1, spatial_dim, spatial_dim, x_depth])
       x = common_layers.conv_block_downsample(x, self._kernel, self._strides,
                                               self._padding)
       x = tf.nn.relu(x)

@@ -244,7 +244,6 @@ def transformer_decoder(decoder_input,
               hparams.hidden_size, hparams.num_heads, hparams.attention_dropout)
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
-          assert encoder_decoder_attention_bias is not None
           with tf.variable_scope("encdec_attention"):
             y = common_attention.multihead_attention(
                 common_layers.layer_preprocess(
