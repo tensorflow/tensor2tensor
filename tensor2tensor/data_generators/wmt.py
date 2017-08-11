@@ -187,36 +187,6 @@ def bi_vocabs_token_generator(source_path,
         source, target = source_file.readline(), target_file.readline()
 
 
-def tabbed_generator(source_path, source_vocab, target_vocab, eos=None):
-  r"""Generator for sequence-to-sequence tasks using tabbed files.
-
-  Tokens are derived from text files where each line contains both
-  a source and a target string. The two strings are separated by a tab
-  character ('\t'). It yields dictionaries of "inputs" and "targets" where
-  inputs are characters from the source lines converted to integers, and
-  targets are characters from the target lines, also converted to integers.
-
-  Args:
-    source_path: path to the file with source and target sentences.
-    source_vocab: a SunwordTextEncoder to encode the source string.
-    target_vocab: a SunwordTextEncoder to encode the target string.
-    eos: integer to append at the end of each sequence (default: None).
-
-  Yields:
-    A dictionary {"inputs": source-line, "targets": target-line} where
-    the lines are integer lists converted from characters in the file lines.
-  """
-  eos_list = [] if eos is None else [eos]
-  with tf.gfile.GFile(source_path, mode="r") as source_file:
-    for line in source_file:
-      if line and "\t" in line:
-        parts = line.split("\t", maxsplit=1)
-        source, target = parts[0].strip(), parts[1].strip()
-        source_ints = source_vocab.encode(source) + eos_list
-        target_ints = target_vocab.encode(target) + eos_list
-        yield {"inputs": source_ints, "targets": target_ints}
-
-
 # Data-set URLs.
 
 

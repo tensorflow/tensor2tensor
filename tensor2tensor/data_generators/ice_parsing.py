@@ -28,7 +28,6 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators.wmt import tabbed_generator
 from tensor2tensor.utils import registry
-from tensor2tensor.models import transformer
 
 import tensorflow as tf
 
@@ -69,8 +68,20 @@ class IceParsingTokens(problem.Problem):
     return 2**14  # 16384
 
   @property
-  def target_vocab_size(self):
+  def targeted_vocab_size(self):
     return 2**8  # 256
+
+  @property
+  def input_space_id(self):
+    return problem.SpaceID.ICE_TOK
+
+  @property
+  def target_space_id(self):
+    return problem.SpaceID.ICE_PARSE_TOK
+
+  @property
+  def num_shards(self):
+    return 10
 
   def feature_encoders(self, data_dir):
     source_vocab_filename = os.path.join(
@@ -89,7 +100,7 @@ class IceParsingTokens(problem.Problem):
         tabbed_parsing_token_generator(data_dir, tmp_dir, True, "ice",
                                        self.source_vocab_size,
                                        self.target_vocab_size),
-        self.training_filepaths(data_dir, 1, shuffled=False),
+        self.training_filepaths(data_dir, self.num_shards, shuffled=False),
         tabbed_parsing_token_generator(data_dir, tmp_dir, False, "ice",
                                        self.source_vocab_size,
                                        self.target_vocab_size),
@@ -99,29 +110,8 @@ class IceParsingTokens(problem.Problem):
     p = defaults
     source_vocab_size = self._encoders["inputs"].vocab_size
     p.input_modality = {"inputs": (registry.Modalities.SYMBOL, source_vocab_size)}
-    p.target_modality = (registry.Modalities.SYMBOL, self.target_vocab_size)
-    p.input_space_id = problem.SpaceID.ICE_TOK
-    p.target_space_id = problem.SpaceID.ICE_PARSE_TOK
+    p.target_modality = (registry.Modalities.SYMBOL, self.targeted_vocab_size)
+    p.input_space_id = self.input_space_id
+    p.target_space_id = self.target_space_id
     p.loss_multiplier = 2.5 # Rough estimate of avg number of tokens per word
-
-
-@registry.register_hparams
-def transformer_parsing_ice():
-  """Hparams for parsing Icelandic text."""
-  hparams = transformer.transformer_base_single_gpu()
-  hparams.batch_size = 4096
-  hparams.shared_embedding_and_softmax_weights = int(False)
-  return hparams
-
-
-@registry.register_hparams
-def transformer_parsing_ice_big():
-  """Hparams for parsing Icelandic text, bigger model."""
-  hparams = transformer_parsing_ice()
-  hparams.batch_size = 2048 # 4096 gives Out-of-memory on 8 GB 1080 GTX GPU
-  hparams.attention_dropout = 0.05
-  hparams.residual_dropout = 0.05
-  hparams.max_length = 512
-  hparams.hidden_size = 1024
-  return hparams
 
