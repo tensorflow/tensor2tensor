@@ -225,10 +225,10 @@ def problem(name):
       was_copy: A boolean.
     """
     # Recursively strip tags until we reach a base name.
-    if len(problem_name) > 4 and problem_name[-4:] == "_rev":
+    if problem_name.endswith("_rev"):
       base, _, was_copy = parse_problem_name(problem_name[:-4])
       return base, True, was_copy
-    elif len(problem_name) > 5 and problem_name[-5:] == "_copy":
+    elif problem_name.endswith("_copy"):
       base, was_reversed, _ = parse_problem_name(problem_name[:-5])
       return base, was_reversed, True
     else:
@@ -352,7 +352,7 @@ def list_modalities():
 
 
 def parse_modality_name(name):
-  name_parts = name.split(":")
+  name_parts = name.split(":", maxsplit=1)
   if len(name_parts) < 2:
     name_parts.append("default")
   modality_type, modality_name = name_parts
