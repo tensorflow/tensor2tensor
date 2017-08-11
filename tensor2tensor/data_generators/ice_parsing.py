@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,12 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This module implements the ice_parsing_* problems, which
-# parse plain text into flattened parse trees and POS tags.
+"""This module implements the ice_parsing_* problems."""
+
+# These parse plain text into flattened parse trees and POS tags.
 # The training data is stored in files named `parsing_train.pairs`
 # and `parsing_dev.pairs`. These files are UTF-8 text files where
 # each line contains an input sentence and a target parse tree,
 # separated by a tab character.
+
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import os
 
@@ -28,8 +34,6 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators.wmt import tabbed_generator
 from tensor2tensor.utils import registry
-
-import tensorflow as tf
 
 
 # End-of-sentence marker.
@@ -60,8 +64,7 @@ def tabbed_parsing_character_generator(tmp_dir, train):
 
 @registry.register_problem("ice_parsing_tokens")
 class IceParsingTokens(problem.Problem):
-  """Problem spec for parsing tokenized Icelandic text to
-    constituency trees, also tokenized but to a smaller vocabulary."""
+  """Problem spec for parsing tokenized Icelandic text to constituency trees."""
 
   @property
   def source_vocab_size(self):
@@ -109,9 +112,9 @@ class IceParsingTokens(problem.Problem):
   def hparams(self, defaults, model_hparams):
     p = defaults
     source_vocab_size = self._encoders["inputs"].vocab_size
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, source_vocab_size)}
+    p.input_modality = {"inputs": (registry.Modalities.SYMBOL,
+                                   source_vocab_size)}
     p.target_modality = (registry.Modalities.SYMBOL, self.targeted_vocab_size)
     p.input_space_id = self.input_space_id
     p.target_space_id = self.target_space_id
-    p.loss_multiplier = 2.5 # Rough estimate of avg number of tokens per word
-
+    p.loss_multiplier = 2.5  # Rough estimate of avg number of tokens per word

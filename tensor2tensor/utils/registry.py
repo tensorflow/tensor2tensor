@@ -352,7 +352,7 @@ def list_modalities():
 
 
 def parse_modality_name(name):
-  name_parts = name.split(":", maxsplit=1)
+  name_parts = name.split(":")
   if len(name_parts) < 2:
     name_parts.append("default")
   modality_type, modality_name = name_parts

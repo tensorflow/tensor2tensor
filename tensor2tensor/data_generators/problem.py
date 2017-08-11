@@ -359,13 +359,14 @@ class Text2TextProblem(Problem):
   def targeted_vocab_size(self):
     raise NotImplementedError()  # Not needed if self.is_character_level.
 
-  def train_generator(self, data_dir, tmp_dir, is_training):
-    """Generator of the training data."""
+  def generator(self, data_dir, tmp_dir, is_training):
+    """Generator for the training and evaluation data."""
     raise NotImplementedError()
 
-  def dev_generator(self, data_dir, tmp_dir):
-    """Generator of the development data."""
-    return self.train_generator(data_dir, tmp_dir, False)
+  @property
+  def use_train_shards_for_dev(self):
+    """If true, we only generate training data and hold out shards for dev."""
+    return False
 
   @property
   def input_space_id(self):
@@ -378,6 +379,10 @@ class Text2TextProblem(Problem):
   @property
   def num_shards(self):
     raise NotImplementedError()
+
+  @property
+  def num_dev_shards(self):
+    return 1
 
   @property
   def vocab_name(self):
@@ -396,11 +401,20 @@ class Text2TextProblem(Problem):
     return True  # Set to False for language models.
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    train_paths = self.training_filepaths(
+        data_dir, self.num_shards, shuffled=False)
+    dev_paths = self.dev_filepaths(
+        data_dir, self.num_dev_shards, shuffled=False)
+    if self.use_train_shards_for_dev:
+      all_paths = train_paths + dev_paths
+      generator_utils.generate_files(
+          self.generator(data_dir, tmp_dir, True), all_paths)
+      generator_utils.shuffle_dataset(all_paths)
     generator_utils.generate_dataset_and_shuffle(
-        self.train_generator(data_dir, tmp_dir, True),
+        self.generator(data_dir, tmp_dir, True),
         self.training_filepaths(data_dir, self.num_shards, shuffled=False),
-        self.dev_generator(data_dir, tmp_dir),
-        self.dev_filepaths(data_dir, 1, shuffled=False))
+        self.generator(data_dir, tmp_dir, False),
+        self.dev_filepaths(data_dir, self.num_dev_shards, shuffled=False))
 
   def feature_encoders(self, data_dir):
     if self.is_character_level:

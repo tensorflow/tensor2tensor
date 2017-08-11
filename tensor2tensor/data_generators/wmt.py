@@ -32,10 +32,6 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-tf.flags.DEFINE_string("ende_bpe_path", "", "Path to BPE files in tmp_dir."
-                       "Download from https://drive.google.com/open?"
-                       "id=0B_bZck-ksdkpM25jRUN2X2UxMm8")
-
 FLAGS = tf.flags.FLAGS
 
 
@@ -295,15 +291,15 @@ _ENCS_TEST_DATASETS = [
 # Generators.
 
 
-def _get_wmt_ende_dataset(directory, filename):
+def _get_wmt_ende_bpe_dataset(directory, filename):
   """Extract the WMT en-de corpus `filename` to directory unless it's there."""
   train_path = os.path.join(directory, filename)
   if not (tf.gfile.Exists(train_path + ".de") and
           tf.gfile.Exists(train_path + ".en")):
-    # We expect that this file has been downloaded from:
-    # https://drive.google.com/open?id=0B_bZck-ksdkpM25jRUN2X2UxMm8 and placed
-    # in `directory`.
-    corpus_file = os.path.join(directory, FLAGS.ende_bpe_path)
+    url = ("https://drive.google.com/uc?export=download&id="
+           "0B_bZck-ksdkpM25jRUN2X2UxMm8")
+    corpus_file = generator_utils.maybe_download_from_drive(
+        directory, "wmt16_en_de.tar.gz", url)
     with tarfile.open(corpus_file, "r:gz") as corpus_tar:
       corpus_tar.extractall(directory)
   return train_path
@@ -313,7 +309,7 @@ def ende_bpe_token_generator(data_dir, tmp_dir, train):
   """Instance of token generator for the WMT en->de task, training set."""
   dataset_path = ("train.tok.clean.bpe.32000"
                   if train else "newstest2013.tok.bpe.32000")
-  train_path = _get_wmt_ende_dataset(tmp_dir, dataset_path)
+  train_path = _get_wmt_ende_bpe_dataset(tmp_dir, dataset_path)
   token_tmp_path = os.path.join(tmp_dir, "vocab.bpe.32000")
   token_path = os.path.join(data_dir, "vocab.bpe.32000")
   tf.gfile.Copy(token_tmp_path, token_path, overwrite=True)
@@ -334,6 +330,7 @@ def _preprocess_sgm(line, is_sgm):
   if line.startswith("<p>") or line.startswith("</p>"):
     return ""
   # Strip <seg> tags.
+  line = line.strip()
   if line.startswith("<seg") and line.endswith("</seg>"):
     i = line.index(">")
     return line[i+1:-6]  # Strip first <seg ...> and last </seg>.
@@ -392,7 +389,7 @@ class WMTEnDeTokens8k(WMTProblem):
   def targeted_vocab_size(self):
     return 2**13  # 8192
 
-  def train_generator(self, data_dir, tmp_dir, train):
+  def generator(self, data_dir, tmp_dir, train):
     symbolizer_vocab = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size)
     datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
@@ -426,7 +423,7 @@ class WMTEnDeCharacters(WMTProblem):
   def is_character_level(self):
     return True
 
-  def train_generator(self, _, tmp_dir, train):
+  def generator(self, _, tmp_dir, train):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
     tag = "train" if train else "dev"
@@ -451,18 +448,22 @@ class WMTZhEnTokens8k(WMTProblem):
   def targeted_vocab_size(self):
     return 2**13  # 8192
 
-  def train_generator(self, data_dir, tmp_dir, train):
+  @property
+  def num_shards(self):
+    return 10  # This is a small dataset.
+
+  def generator(self, data_dir, tmp_dir, train):
     source_vocab_size = self.targeted_vocab_size
     target_vocab_size = self.targeted_vocab_size
     datasets = _ZHEN_TRAIN_DATASETS if train else _ZHEN_TEST_DATASETS
     source_datasets = [[item[0], [item[1][0]]] for item in _ZHEN_TRAIN_DATASETS]
     target_datasets = [[item[0], [item[1][1]]] for item in _ZHEN_TRAIN_DATASETS]
     source_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, "vocab.zh.%d" % source_vocab_size, source_vocab_size,
-        source_datasets)
+        data_dir, tmp_dir, "vocab.zhen-zh.%d" % source_vocab_size,
+        source_vocab_size, source_datasets)
     target_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, "vocab.en.%d" % target_vocab_size, target_vocab_size,
-        target_datasets)
+        data_dir, tmp_dir, "vocab.zhen-en.%d" % target_vocab_size,
+        target_vocab_size, target_datasets)
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_zhen_tok_%s" % tag)
     return bi_vocabs_token_generator(data_path + ".lang1", data_path + ".lang2",
@@ -490,14 +491,6 @@ class WMTZhEnTokens8k(WMTProblem):
     }
 
 
-@registry.register_problem("wmt_zhen_tokens_32k")
-class WMTZhEnTokens32k(WMTZhEnTokens8k):
-
-  @property
-  def targeted_vocab_size(self):
-    return 2**15  # 32768
-
-
 @registry.register_problem("wmt_enfr_tokens_8k")
 class WMTEnFrTokens8k(WMTProblem):
   """Problem spec for WMT En-Fr translation."""
@@ -506,7 +499,7 @@ class WMTEnFrTokens8k(WMTProblem):
   def targeted_vocab_size(self):
     return 2**13  # 8192
 
-  def train_generator(self, data_dir, tmp_dir, train):
+  def generator(self, data_dir, tmp_dir, train):
     symbolizer_vocab = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size)
     datasets = _ENFR_TRAIN_DATASETS if train else _ENFR_TEST_DATASETS
@@ -540,7 +533,7 @@ class WMTEnFrCharacters(WMTProblem):
   def is_character_level(self):
     return True
 
-  def train_generator(self, data_dir, tmp_dir, train):
+  def generator(self, data_dir, tmp_dir, train):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _ENFR_TRAIN_DATASETS if train else _ENFR_TEST_DATASETS
     tag = "train" if train else "dev"
@@ -569,7 +562,7 @@ class SETimesMkEnTokens32k(WMTProblem):
   def vocab_name(self):
     return "vocab.mken"
 
-  def train_generator(self, data_dir, tmp_dir, train):
+  def generator(self, data_dir, tmp_dir, train):
     datasets = _MKEN_TRAIN_DATASETS if train else _MKEN_TEST_DATASETS
     source_datasets = [[item[0], [item[1][0]]] for item in datasets]
     target_datasets = [[item[0], [item[1][1]]] for item in datasets]
@@ -602,7 +595,7 @@ class WMTEnCsTokens32k(WMTProblem):
   def vocab_name(self):
     return "vocab.encs"
 
-  def train_generator(self, data_dir, tmp_dir, train):
+  def generator(self, data_dir, tmp_dir, train):
     datasets = _ENCS_TRAIN_DATASETS if train else _ENCS_TEST_DATASETS
     source_datasets = [[item[0], [item[1][0]]] for item in datasets]
     target_datasets = [[item[0], [item[1][1]]] for item in datasets]
@@ -631,7 +624,7 @@ class WMTEnCsCharacters(WMTProblem):
   def is_character_level(self):
     return True
 
-  def train_generator(self, data_dir, tmp_dir, train):
+  def generator(self, data_dir, tmp_dir, train):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _ENCS_TRAIN_DATASETS if train else _ENCS_TEST_DATASETS
     tag = "train" if train else "dev"

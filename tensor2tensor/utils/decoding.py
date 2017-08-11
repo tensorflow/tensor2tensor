@@ -259,9 +259,9 @@ def _interactive_input_fn(hparams):
   vocabulary = p_hparams.vocabulary["inputs" if has_input else "targets"]
   # This should be longer than the longest input.
   const_array_size = 10000
-  # Import readline if available for command line editing and recall
+  # Import readline if available for command line editing and recall.
   try:
-    import readline
+    import readline  # pylint: disable=g-import-not-at-top,unused-variable
   except ImportError:
     pass
   while True:
@@ -271,7 +271,7 @@ def _interactive_input_fn(hparams):
               "  in=<input_problem>  (set the input problem number)\n"
               "  ou=<output_problem> (set the output problem number)\n"
               "  ns=<num_samples>    (changes number of samples)\n"
-              "  dl=<decode_length>  (changes decode length)\n"
+              "  dl=<decode_length>  (changes decode legnth)\n"
               "  <%s>                (decode)\n"
               "  q                   (quit)\n"
               ">" % (num_samples, decode_length, "source_string"

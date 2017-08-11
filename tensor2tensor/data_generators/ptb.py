@@ -105,7 +105,7 @@ class PTBProblem(problem.Text2TextProblem):
   def targeted_vocab_size(self):
     return 10000
 
-  def train_generator(self, data_dir, tmp_dir, train):
+  def generator(self, data_dir, tmp_dir, train):
     filename = os.path.basename(PTB_URL)
     compressed_filepath = generator_utils.maybe_download(
         tmp_dir, filename, PTB_URL)

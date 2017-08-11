@@ -19,23 +19,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import bz2
-from collections import defaultdict
 import os
 
 # Dependency imports
 
+import bz2file
+
 import six
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import tokenizer
-
-import tensorflow as tf
+from tensor2tensor.utils import registry
 
 
-# End-of-sentence marker (should correspond to the position of EOS in the
-# RESERVED_TOKENS list in text_encoder.py)
-EOS = 1
+# End-of-sentence marker.
+EOS = text_encoder.EOS_ID
 
 
 def _maybe_download_corpus(tmp_dir):
@@ -60,7 +58,7 @@ def page_generator(tmp_dir, max_docs=None):
   doc = u""
   count = 0
   corpus_filepath = _maybe_download_corpus(tmp_dir)
-  for line in bz2.BZ2File(corpus_filepath, "r"):
+  for line in bz2file.BZ2File(corpus_filepath, "r", buffering=1000000):
     line = unicode(line, "utf-8") if six.PY2 else line.decode("utf-8")
     if not doc and line != u"  <page>\n":
       continue
@@ -82,48 +80,52 @@ def _page_title(page):
   return page[start_pos:end_pos]
 
 
-def _get_or_build_subword_text_encoder(tmp_dir):
-  """Builds a SubwordTextEncoder based on the corpus.
+@registry.register_problem
+class Wiki32k(problem.Text2TextProblem):
+  """A class for generating PTB data."""
 
-  Args:
-    tmp_dir: a string
+  @property
+  def is_character_level(self):
+    return False
 
-  Returns:
-    a SubwordTextEncoder.
-  """
-  filename = os.path.join(tmp_dir, "wiki_32k.subword_text_encoder")
-  if tf.gfile.Exists(filename):
-    return text_encoder.SubwordTextEncoder(filename)
-  token_counts = defaultdict(int)
-  for page in page_generator(tmp_dir, max_docs=1000):
-    tokens = tokenizer.encode(page)
-    tokens = set(tokens)
-    for tok in tokens:
-      token_counts[tok] += 1
-  new_token_counts = defaultdict(int)
-  for token, count in six.iteritems(token_counts):
-    if count >= 3:
-      new_token_counts[token] = count
-  ret = text_encoder.SubwordTextEncoder()
-  ret.build_from_token_counts(new_token_counts, min_count=10)
-  ret.store_to_file(filename)
-  return ret
+  @property
+  def has_inputs(self):
+    return True
 
+  @property
+  def input_space_id(self):
+    return problem.SpaceID.EN_TOK
 
-def generator(tmp_dir, train):
-  """Generator for lm1b sentences.
+  @property
+  def target_space_id(self):
+    return problem.SpaceID.EN_TOK
 
-  Args:
-    tmp_dir: a string.
-    train: a boolean.
+  @property
+  def num_shards(self):
+    return 1000
 
-  Yields:
-    A dictionary {"inputs": [<subword ids>], "targets": [<subword ids>]}
-  """
-  assert train
-  encoder = _get_or_build_subword_text_encoder(tmp_dir)
-  for page in page_generator(tmp_dir):
-    title = _page_title(page)
-    encoded = encoder.encode(page) + [EOS]
-    encoded_title = encoder.encode(title) + [EOS]
-    yield {"inputs": encoded_title, "targets": encoded}
+  @property
+  def vocab_name(self):
+    return "vocab.wiki"
+
+  @property
+  def use_subword_tokenizer(self):
+    return True
+
+  @property
+  def targeted_vocab_size(self):
+    return 2**15  # 32768
+
+  @property
+  def use_train_shards_for_dev(self):
+    return True
+
+  def generator(self, data_dir, tmp_dir, _):
+    encoder = generator_utils.get_or_generate_vocab_inner(
+        data_dir, self.vocab_file, self.targeted_vocab_size,
+        lambda: page_generator(tmp_dir, max_docs=10000))
+    for page in page_generator(tmp_dir):
+      title = _page_title(page)
+      encoded = encoder.encode(page) + [EOS]
+      encoded_title = encoder.encode(title) + [EOS]
+      yield {"inputs": encoded_title, "targets": encoded}

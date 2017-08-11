@@ -36,11 +36,12 @@ FLAGS = tf.flags.FLAGS
 class TinyAlgo(algorithmic.AlgorithmicIdentityBinary40):
 
   def generate_data(self, data_dir, _):
+    identity_problem = algorithmic.AlgorithmicIdentityBinary40()
     generator_utils.generate_files(
-        algorithmic.identity_generator(self.num_symbols, 40, 100000),
+        identity_problem.generator(self.num_symbols, 40, 100000),
         self.training_filepaths(data_dir, 1, shuffled=True), 100)
     generator_utils.generate_files(
-        algorithmic.identity_generator(self.num_symbols, 400, 10000),
+        identity_problem.generator(self.num_symbols, 400, 10000),
         self.dev_filepaths(data_dir, 1, shuffled=True), 100)
 
 

@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.1.7',
+    version='1.1.8',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -19,6 +19,7 @@ setup(
         'tensor2tensor/bin/t2t-make-tf-configs',
     ],
     install_requires=[
+        'bz2file',
         'numpy',
         'requests',
         'sympy',

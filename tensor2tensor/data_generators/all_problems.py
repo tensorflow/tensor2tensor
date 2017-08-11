@@ -24,6 +24,7 @@ from tensor2tensor.data_generators import algorithmic_math
 from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import cipher
 from tensor2tensor.data_generators import desc2code
+from tensor2tensor.data_generators import ice_parsing
 from tensor2tensor.data_generators import image
 from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import ptb
@@ -31,7 +32,6 @@ from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wiki
 from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import wsj_parsing
-from tensor2tensor.data_generators import ice_parsing
 
 
 # Problem modules that require optional dependencies

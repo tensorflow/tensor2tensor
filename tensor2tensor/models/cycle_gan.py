@@ -39,7 +39,7 @@ def discriminator(x, compress, hparams, name, reuse=None):
   with tf.variable_scope(name, reuse=reuse):
     x = tf.stop_gradient(2 * x) - x  # Reverse gradient.
     if compress:
-      x = transformer_vae.compress(x, hparams, "compress")
+      x = transformer_vae.compress(x, None, hparams, "compress")
     else:
       x = transformer_vae.residual_conv(x, 1, hparams, "compress_rc")
     y = tf.reduce_mean(x, axis=1)
@@ -144,12 +144,12 @@ def cycle_vae_gan_internal(inputs, targets, _, hparams):
 
     # Input-input part.
     inp1_back, kl_loss1, inp1_mu, inp1_log_sigma = transformer_vae.vae_compress(
-        inputs1, hparams, "inp2hyp", "hyp2inp")
+        inputs1, None, hparams, "inp2hyp", "hyp2inp")
     inp1_hyp = tf.concat([inp1_mu, inp1_log_sigma], axis=3)
 
     # Target-target part.
     tgt2_back, kl_loss2, tgt2_mu, tgt2_log_sigma = transformer_vae.vae_compress(
-        targets2, hparams, "tgt2hyp", "hyp2tgt")
+        targets2, None, hparams, "tgt2hyp", "hyp2tgt")
     tgt2_hyp = tf.concat([tgt2_mu, tgt2_log_sigma], axis=3)
 
     # Reconstruction losses.
@@ -165,7 +165,7 @@ def cycle_vae_gan_internal(inputs, targets, _, hparams):
 
     # Reconstruct targets from inputs.
     tgt, _, _, _ = transformer_vae.vae_compress(
-        inputs, hparams, "inp2hyp", "hyp2tgt", reuse=True)
+        inputs, None, hparams, "inp2hyp", "hyp2tgt", reuse=True)
     tgt = tf.layers.dense(tgt, hparams.vocab_size, name="softmax", reuse=True)
     # We use the reconstruction only for tracking progress, no gradients here!
     tgt = tf.stop_gradient(tf.expand_dims(tgt, axis=2))
@@ -173,8 +173,8 @@ def cycle_vae_gan_internal(inputs, targets, _, hparams):
     kl_rev_decay = common_layers.inverse_exp_decay(hparams.kl_warmup_steps)
     losses = {"input_input": hparams.cycle_loss_multiplier * inp1_loss,
               "target_target": hparams.cycle_loss_multiplier * tgt2_loss,
-              "input_kl": kl_loss1 * kl_rev_decay,
-              "target_kl": kl_loss2 * kl_rev_decay,
+              "input_kl": kl_loss1 * kl_rev_decay * 15.0,
+              "target_kl": kl_loss2 * kl_rev_decay * 15.0,
               "discriminator": dloss}
     return tgt, losses
 
@@ -196,7 +196,7 @@ def cycle_gan_small():
   hparams.input_modalities = "inputs:symbol:identity"
   hparams.target_modality = "symbol:identity"
   hparams.weight_decay = 3.0
-  hparams.learning_rate = 0.005
+  hparams.learning_rate = 0.05
   hparams.kl_warmup_steps = 5000
   hparams.learning_rate_warmup_steps = 3000
   hparams.add_hparam("vocab_size", 32)  # Vocabulary size, need to set here.

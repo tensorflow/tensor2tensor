@@ -69,6 +69,11 @@ def basic_params1():
       sampling_method="argmax",  # "argmax" or "random"
       problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
       multiply_embedding_mode="sqrt_depth",
+      # Parameters related to mixtures of experts.
+      moe_hidden_sizes="2048",  # hidden layer sizes (comma-separated)
+      moe_num_experts=64,  # number of experts per layer
+      moe_k=2,  # how many experts to use for each batch element
+      moe_loss_coef=1e-2,
       # Sequences of operations to perform on layer input and layer output.
       # Used by common_layers.layer_preprocess, common_layers.layer_postprocess
       # Each character repsesnts an operation:
@@ -83,7 +88,7 @@ def basic_params1():
       # dropout rate to use during layer_preprocess and layer_postprocess
       layer_prepostprocess_dropout=0.1,
       # What type of normalization to use
-      norm_type="none",  # "batch", layer", "noam", "none".
+      norm_type="layer",  # "batch", layer", "noam", "none".
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
       symbol_modality_num_shards=16,
