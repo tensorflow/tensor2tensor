@@ -82,11 +82,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
-    "ice_parsing_characters": (
-        lambda: wmt.tabbed_parsing_character_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True),
-        lambda: wmt.tabbed_parsing_character_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False)),
     "wmt_parsing_tokens_8k": (
         lambda: wmt.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13),

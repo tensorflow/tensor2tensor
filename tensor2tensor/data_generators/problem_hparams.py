@@ -511,8 +511,6 @@ PROBLEM_HPARAMS_MAP = {
         lm1b_32k,
     "wiki_32k":
         wiki_32k,
-    "ice_parsing_characters":
-        wmt_parsing_characters,
     "wmt_parsing_tokens_8k":
         lambda p: wmt_parsing_tokens(p, 2**13),
     "wsj_parsing_tokens_16k":

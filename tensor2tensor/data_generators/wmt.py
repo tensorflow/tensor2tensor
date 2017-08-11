@@ -65,6 +65,7 @@ class WMTProblem(problem.Text2TextProblem):
 
 # Generic generators used later for multiple problems.
 
+
 def character_generator(source_path, target_path, character_vocab, eos=None):
   """Generator for sequence-to-sequence tasks that just uses characters.
 
@@ -654,5 +655,3 @@ def parsing_token_generator(data_dir, tmp_dir, train, vocab_size):
   tree_filepath = os.path.join(tmp_dir, filename)
   return wsj_parsing.token_generator(tree_filepath, symbolizer_vocab,
                                      symbolizer_vocab, EOS)
-
-
