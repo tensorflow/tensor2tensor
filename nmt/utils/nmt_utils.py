@@ -63,7 +63,7 @@ def decode_and_evaluate(name,
                 sent_id,
                 tgt_eos=tgt_eos,
                 bpe_delimiter=bpe_delimiter)
-            trans_f.write(("%s\n" % translation).decode("utf-8"))
+            trans_f.write((translation + b"\n").decode("utf-8"))
         except tf.errors.OutOfRangeError:
           utils.print_time("  done, num sentences %d" % num_sentences,
                            start_time)

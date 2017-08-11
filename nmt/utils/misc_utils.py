@@ -60,7 +60,7 @@ def print_out(s, f=None, new_line=True):
       f.write(b"\n")
 
   # stdout
-  print(s.encode("utf-8"), end="", file=sys.stdout)
+  print(s, end="", file=sys.stdout)
   if new_line:
     sys.stdout.write("\n")
   sys.stdout.flush()
