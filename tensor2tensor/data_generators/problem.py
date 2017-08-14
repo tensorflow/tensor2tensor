@@ -410,11 +410,12 @@ class Text2TextProblem(Problem):
       generator_utils.generate_files(
           self.generator(data_dir, tmp_dir, True), all_paths)
       generator_utils.shuffle_dataset(all_paths)
-    generator_utils.generate_dataset_and_shuffle(
-        self.generator(data_dir, tmp_dir, True),
-        self.training_filepaths(data_dir, self.num_shards, shuffled=False),
-        self.generator(data_dir, tmp_dir, False),
-        self.dev_filepaths(data_dir, self.num_dev_shards, shuffled=False))
+    else:
+      generator_utils.generate_dataset_and_shuffle(
+          self.generator(data_dir, tmp_dir, True),
+          self.training_filepaths(data_dir, self.num_shards, shuffled=False),
+          self.generator(data_dir, tmp_dir, False),
+          self.dev_filepaths(data_dir, self.num_dev_shards, shuffled=False))
 
   def feature_encoders(self, data_dir):
     if self.is_character_level:

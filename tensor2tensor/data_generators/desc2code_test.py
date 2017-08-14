@@ -47,7 +47,7 @@ class Desc2codeTest(tf.test.TestCase):
 
   def testCppPreprocess(self):
     """Check that the file correctly preprocess the code source."""
-    cpp_pb = desc2code.Desc2CodeCppProblem()
+    cpp_pb = desc2code.ProgrammingDesc2codeCpp()
 
     self.assertEqual(  # Add space beween two lines
         cpp_pb.preprocess_target("firstline//comm1\nsecondline//comm2\n"),
