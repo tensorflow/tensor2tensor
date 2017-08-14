@@ -124,11 +124,24 @@ def basic_params1():
       # You can change this behavior by overridding preprocess_examples() method
       # in your problem class.
       max_target_seq_length=0,
-      # Treat a seq-to-seq problem as a language model by prepending the
-      # inputs to the targets.  During training, the loss is on both the
-      # inputs and the targets.  During eval, metrics are computed only on the
-      # target portion.
-      prepend_inputs_to_targets=int(False),
+      # This flag allows us to optionally treat a seq-to-seq problem
+      # as a language model.  Legal values are:
+      #
+      # "none" - Do not prepend the inputs to the targets.
+      # "prepend_inputs_masked_attention"
+      #     replace "targets" in preprocessing with
+      #     tf.concat([inputs, [0], targets], axis=1)
+      #     i.e. we prepend the inputs to the targets with a single
+      #     padding token in between.  Use masked self-attention on the
+      #     entire resulting sequence.  During training, we compute losses on
+      #     the combined sequence.  During eval, we compute the metrics
+      #     on only the targets portion.
+      # "prepend_inputs_full_attention"
+      #     similar to the previous option except that each
+      #     position in the inputs portion can see the
+      #     entire inputs portion.  This removes the challenge of
+      #     autoregressively predicting the inputs portion.
+      prepend_mode="none",
   )
 
 

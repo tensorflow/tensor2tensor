@@ -206,6 +206,39 @@ def attention_bias_ignore_padding(memory_padding):
   return tf.expand_dims(tf.expand_dims(ret, axis=1), axis=1)
 
 
+def attention_bias_prepend_inputs_full_attention(padding):
+  """Create a bias tensor for prepend_mode="prepend_inputs_full_attention".
+
+  See prepend_inputs in common_hparams.py.
+
+  Produces a bias tensor to be used in self-attention.
+
+  This bias tensor allows for full connectivity in the "inputs" part of
+  the sequence and masked connectivity in the targets part.
+
+  Args:
+    padding: a float `Tensor` with shape [batch, length] with
+      ones in positions corresponding to padding.  In each row, a single
+      padding position separates the input part from the target part.
+
+  Returns:
+    a `Tensor` with shape [batch, 1, length, length].
+  """
+  # Everything past the first padding position is part of the target.
+  # This Tensor has zeros for the source portion and separator,
+  # and ones for the target portion.
+  in_target = tf.cumsum(padding, axis=1, exclusive=True)
+  # The position within the target, or 0 if part of the source.
+  target_pos = tf.cumsum(in_target, axis=1)
+  # A position with a lesser target_pos cannot see a position with greater
+  # target_pos.
+  illegal_connections = tf.greater(tf.expand_dims(target_pos, 1),
+                                   tf.expand_dims(target_pos, 2))
+  bias = tf.to_float(illegal_connections) * -1e9
+  bias = tf.expand_dims(bias, 1)
+  return bias
+
+
 def attention_bias_proximal(length):
   """Bias for self-attention to encourage attention to close positions.
 

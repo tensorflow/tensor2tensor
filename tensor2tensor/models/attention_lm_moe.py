@@ -118,8 +118,13 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
     decoder_self_attention_bias: a Tensor, containing large negative values
     to implement masked attention and possibly baises for diagonal alignments
   """
-  decoder_self_attention_bias = (
-      common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
+  if hparams.prepend_mode == "prepend_inputs_full_attention":
+    decoder_self_attention_bias = (
+        common_attention.attention_bias_prepended(
+            common_attention.embedding_to_padding(targets)))
+  else:
+    decoder_self_attention_bias = (
+        common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
   decoder_input = common_layers.shift_left_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
@@ -248,4 +253,21 @@ def attention_lm_moe_large():
   hparams.moe_hidden_sizes = "4096"
   hparams.moe_num_experts = 128
   hparams.layer_prepostprocess_dropout = 0.2
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_translation():
+  """Version to use for seq2seq."""
+  hparams = attention_lm_moe_base()
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.learning_rate = 0.4
+  hparams.prepend_mode = "prepend_inputs_masked_attention"
+  hparams.max_length = 512
+  hparams.label_smoothing = 0.1
+  hparams.layer_prepostprocess_dropout = 0.2
+  hparams.num_hidden_layers = 6
+  hparams.moe_layers = "0,1,2,3,4,5"
+  hparams.shared_embedding_and_softmax_weights = int(True)
   return hparams
