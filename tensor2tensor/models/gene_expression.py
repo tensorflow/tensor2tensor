@@ -130,8 +130,14 @@ def fc_layer(x, num_out, dropout_rate, name="fc"):
 def gene_expression_conv_base():
   """Hparams for GeneExpressionConv model."""
   hparams = common_hparams.basic_params1()
-  hparams.max_length = 10000000
-  hparams.batch_size = 1024
+
+  batch_size = 10
+  output_length = 2048
+  inputs_per_output = 128
+  chunk_size = 4
+  input_length = output_length * inputs_per_output // chunk_size
+  hparams.batch_size = input_length * batch_size
+
   hparams.dropout = 0.1
   hparams.add_hparam("num_conv_layers", 4)
   hparams.add_hparam("num_dconv_layers", 7)
