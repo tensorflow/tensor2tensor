@@ -133,7 +133,8 @@ def preprocessing(examples, data_file_pattern):
   # all to the Problem class and its preprocess_examples method. Don't add.
   if "image" in data_file_pattern:
     def resize(img, size):
-      return tf.to_int64(tf.image.resize_images(img, [size, size]))
+      return tf.to_int64(tf.image.resize_images(
+          img, [size, size], tf.image.ResizeMethod.AREA))
 
     if "img2img" in data_file_pattern:
       inputs = examples["inputs"]
@@ -141,6 +142,9 @@ def preprocessing(examples, data_file_pattern):
       examples["targets"] = resize(inputs, 64)
     elif "image_celeba" in data_file_pattern:
       inputs = examples["inputs"]
+      # Remove boundaries in CelebA images. Remove 40 pixels each side
+      # vertically and 20 pixels each side horizontally.
+      inputs = tf.image.crop_to_bounding_box(inputs, 40, 20, 218-80, 178-40)
       examples["inputs"] = resize(inputs, 8)
       examples["targets"] = resize(inputs, 32)
   elif "audio" in data_file_pattern:
