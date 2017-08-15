@@ -128,7 +128,7 @@ class LanguagemodelWikiFull32k(problem.Text2TextProblem):
       title = _page_title(page)
       encoded = encoder.encode(page) + [EOS]
       encoded_title = encoder.encode(title) + [EOS]
-      yield {"inputs": encoded, "targets": encoded_title}
+      yield {"inputs": encoded_title, "targets": encoded}
 
 
 @registry.register_problem

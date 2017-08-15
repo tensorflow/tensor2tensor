@@ -492,16 +492,16 @@ PROBLEM_HPARAMS_MAP = {
         lambda p: audio_wsj_tokens(p, 2**13),
     "audio_wsj_tokens_8k_test":
         lambda p: audio_wsj_tokens(p, 2**13),
-    "lm1b_characters":
+    "languagemodel_1b_characters":
         lm1b_characters,
-    "lm1b_32k":
+    "languagemodel_1b32k":
         lm1b_32k,
-    "wmt_parsing_tokens_8k":
+    "parsing_english_ptb8k":
         lambda p: wmt_parsing_tokens(p, 2**13),
-    "wsj_parsing_tokens_16k":
+    "parsing_english_ptb16k":
         lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda
             p, "wsj", 2**14, 2**9),
-    "wmt_ende_bpe32k":
+    "translate_ende_wmt_bpe32k":
         wmt_ende_bpe32k,
     "image_celeba_tune":
         image_celeba,
