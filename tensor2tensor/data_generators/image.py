@@ -214,10 +214,21 @@ class ImageImagenet32(Image2ClassProblem):
   def is_small(self):
     return True  # Modalities like for CIFAR.
 
-  def preprocess_examples(self, examples, mode):
-    examples = imagenet_preprocess_examples(examples, mode)
-    examples["inputs"] = tf.to_int64(
-        tf.image.resize_images(examples["inputs"], [32, 32]))
+  @property
+  def num_classes(self):
+    return 1000
+
+  def preprocess_examples(self, examples, mode, hparams):
+    # Just resize with area.
+    if self._was_reversed:
+      examples["inputs"] = tf.to_int64(
+          tf.image.resize_images(examples["inputs"], [32, 32],
+                                 tf.image.ResizeMethod.AREA))
+    else:
+      examples = imagenet_preprocess_examples(examples, mode)
+      examples["inputs"] = tf.to_int64(
+          tf.image.resize_images(examples["inputs"], [32, 32]))
+    return examples
 
 
 def image_generator(images, labels):
