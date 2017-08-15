@@ -50,7 +50,6 @@ import re
 # Dependency imports
 
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
 
 _MODELS = {}
 _HPARAMS = {}
@@ -392,10 +391,12 @@ def create_modality(modality_spec, model_hparams):
 
 
 def display_list_by_prefix(names_list, starting_spaces=0):
+  """Creates a help string for names_list grouped by prefix."""
   cur_prefix, result_lines = None, []
-  space = "".join([" " for _ in xrange(starting_spaces)])
+  space = " " * starting_spaces
   for name in sorted(names_list):
-    prefix, _ = name.split("_", 1)
+    split = name.split("_", 1)
+    prefix = split[0]
     if cur_prefix != prefix:
       result_lines.append(space + prefix + ":")
       cur_prefix = prefix
