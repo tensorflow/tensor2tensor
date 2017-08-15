@@ -39,6 +39,19 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
+class AttentionMoeType(object):
+  NONE = "none"
+  LOCAL = "local"
+  GLOBAL = "global"
+
+  @staticmethod
+  def get_choices():
+    return [
+        AttentionMoeType.NONE,
+        AttentionMoeType.LOCAL,
+    ]
+
+
 @registry.register_model
 class AttentionLmMoe(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
@@ -66,17 +79,33 @@ class AttentionLmMoe(t2t_model.T2TModel):
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("attention"):
-          y = dp(
-              common_attention.multihead_attention,
-              preprocess(x),
-              None,
-              decoder_self_attention_bias,
-              hparams.attention_key_channels or hparams.hidden_size,
-              hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout,
-              name="decoder_self_attention")
+          x = preprocess(x)
+          if hparams.attention_moe_type == AttentionMoeType.NONE:
+            y = dp(
+                common_attention.multihead_attention,
+                x,
+                None,
+                decoder_self_attention_bias,
+                hparams.attention_key_channels or hparams.hidden_size,
+                hparams.attention_value_channels or hparams.hidden_size,
+                hparams.hidden_size,
+                hparams.num_heads,
+                hparams.attention_dropout,
+                name="decoder_self_attention")
+          elif hparams.attention_moe_type == AttentionMoeType.LOCAL:
+            y, loss = dp(
+                common_attention.local_expert_attention,
+                x,
+                k=2,
+                loss_coef=1e-2,
+                attention_num_experts=hparams.attention_num_experts,
+                train=hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
+                mask_right=True)
+            # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
+            extra_loss += tf.add_n(loss)/dp.n
+          else:
+            raise ValueError("Only {} supported for now.".format(
+                AttentionMoeType.get_choices()))
           x = postprocess(x, y)
         with tf.variable_scope("ffn"):
           if str(layer) in hparams.moe_layers.split(","):
@@ -174,6 +203,9 @@ def attention_lm_moe_base():
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("moe_layers", "2")  # comma separated list of layer numbers
+  # moe params. local attention moe.
+  hparams.add_hparam("attention_moe_type", AttentionMoeType.NONE)
+  hparams.add_hparam("attention_num_experts", 16)
   return hparams
 
 
@@ -208,6 +240,21 @@ def attention_lm_moe_tiny():
   """
   hparams = attention_lm_moe_small()
   hparams.moe_num_experts = 32
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_attention_moe_tiny():
+  """Cheap model for debugging.
+
+  Returns:
+    an hparams object.
+  """
+  hparams = attention_lm_moe_small()
+  hparams.moe_layers = ""
+  hparams.attention_num_experts = 16
+  hparams.filter_size = 512
+  hparams.attention_moe_type = AttentionMoeType.LOCAL
   return hparams
 
 

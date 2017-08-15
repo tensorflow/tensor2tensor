@@ -17,12 +17,14 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+from functools import partial
 
 import math
 
 # Dependency imports
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import expert_utils
 
 import tensorflow as tf
 
@@ -894,5 +896,106 @@ def parameter_attention(x,
     y = tf.reshape(y, [batch_size, length, total_value_depth])
     y.set_shape([None, None, total_value_depth])
     y = common_layers.conv1d(y, output_depth, 1, name="output_transform")
-
     return y
+
+
+def coordinate_tensor(shape, axis):
+  """Return a tensor with given shape containing coordinte along given axis.
+
+  Args:
+    shape: a Tensor representing the shape of the output Tensor
+    axis: an integer
+
+  Returns:
+    A tensor with shape shape and type tf.int32, where each elements its
+    coordinate along the given axis.
+  """
+
+  r = tf.range(shape[axis])
+  r_shape = tf.one_hot(
+      axis, tf.size(shape), on_value=-1, off_value=1, dtype=tf.int32)
+  return tf.zeros(shape, dtype=tf.int32) + tf.reshape(r, r_shape)
+
+
+def self_attention_expert(x, batch_coordinate, mask_right=True):
+  """Implementing attention that runs inside each expert.
+
+  Args:
+    x: A tensor of shape[batch, depth]. Contains representations from
+      different positions, which are lexicographically ordered.
+    batch_coordinate: A tensor of shape [batch, 1] containing the batch
+      coordinate of each element in x. This is needed to make sure that
+      positions from different sequences don't attend to each other.
+    mask_right: A bool. If true, we will not attend to positions on the right,
+      just as decoder self attention.
+
+  Returns:
+    out: A tensor of shape [batch, depth].
+  example use:
+  expert_utils.local_moe(
+     ...
+     expert_fn=functools.partial(self_attention_expert, mask_right=)
+     )
+  """
+  depth = x.get_shape().as_list()[-1]
+  length = tf.shape(batch_coordinate)[0]
+  batch_coordinate = tf.squeeze(batch_coordinate, 1)
+  bias = tf.to_float(
+      tf.not_equal(tf.expand_dims(batch_coordinate, 1),
+                   tf.expand_dims(batch_coordinate, 0))) * -1e9
+  if mask_right:
+    bias += tf.reshape(
+        attention_bias_lower_triangle(length), [length, length])
+  # bias has shape [length, length]
+  bias = tf.reshape(bias, [1, 1, length, length])
+  x = tf.reshape(x, [1, length, depth])
+  out = multihead_attention(x,
+                            None,
+                            bias,
+                            total_key_depth=depth,
+                            total_value_depth=depth,
+                            output_depth=depth,
+                            num_heads=1,
+                            dropout_rate=0.0)
+  out = tf.squeeze(out, 0)
+  return out
+
+#  functools.partial(self_attention_expert, mask_right=, depth=)
+
+
+def local_expert_attention(x, k, loss_coef, attention_num_experts, train=True,
+                           mask_right=True):
+  """Attention using a mixture of experts.
+
+    Positions sent to the same expert can attend to each other.
+    The mixture of experts is "local" in that it is replicated on each
+    datashard.
+
+  Args:
+    x: a Tensor with shape [batch, length, depth]
+    k: The number of experts to dispatch each example to
+    loss_coef: a scalar. A multiplier for the expert loss
+    attention_num_experts: The number of experts to use
+    train: a boolean for the current mode
+    mask_right: A boolean. If true, we will mask out positions to the right
+      for self-attention.
+
+  Returns:
+    y: a Tensor with shape [batch, length, depth]
+    loss: a Scalar
+  """
+  with tf.variable_scope("local_expert_attention"):
+    additional_dispatch_params = {
+        "batch_coordinate": tf.expand_dims(
+            coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
+    }
+    return expert_utils.local_moe(
+        x,
+        train,
+        partial(self_attention_expert, mask_right=mask_right),
+        attention_num_experts,
+        k=k,
+        loss_coef=loss_coef,
+        pass_x=True,
+        pass_gates=False,
+        additional_dispatch_params=additional_dispatch_params)

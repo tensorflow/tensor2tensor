@@ -256,7 +256,7 @@ def beam_search(symbols_to_logits_fn,
 
     topk_scores, topk_ids = tf.nn.top_k(flat_curr_scores, k=beam_size * 2)
 
-    # Recovering the log probs becuase we will need to send them back
+    # Recovering the log probs because we will need to send them back
     topk_log_probs = topk_scores * length_penalty
 
     # Work out what beam the top probs are in.
