@@ -78,16 +78,18 @@ def decompress_step(source, c, hparams, first_relu, name):
     shape = tf.shape(source)
     if c is not None:
       source = attend(source, c, hparams, "decompress_attend")
-    first = common_layers.conv_block(
-        source,
-        hparams.hidden_size, [((1, 1), (3, 1)), ((1, 1), (3, 1))],
-        first_relu=first_relu, padding="SAME", name="decompress_conv1")
-    second = common_layers.conv_block(
-        tf.concat([source, first], axis=3),
-        hparams.hidden_size, [((1, 1), (3, 1)), ((1, 1), (3, 1))],
-        first_relu=first_relu, padding="SAME", name="decompress_conv2")
-    thicker = interleave(first, second)
+    thicker = common_layers.conv_block(
+        source, hparams.hidden_size * 2, [((1, 1), (1, 1))],
+        first_relu=first_relu, name="decompress_conv")
     return tf.reshape(thicker, [shape[0], shape[1] * 2, 1, hparams.hidden_size])
+
+
+def dvae(x, hparams, name):
+  with tf.variable_scope(name):
+    m = tf.layers.dense(x, hparams.v_size, name="mask")
+    m = tf.nn.softmax(m)
+    kl = - tf.reduce_max(m, axis=-1)
+    return m, tf.reduce_mean(kl)
 
 
 def vae(x, hparams, name):
@@ -120,21 +122,39 @@ def compress(x, c, hparams, name):
 def vae_compress(x, c, hparams, compress_name, decompress_name, reuse=None):
   """Compress, then VAE."""
   with tf.variable_scope(compress_name, reuse=reuse):
-    cur = compress(x, c, hparams, "compress")
+    cur = compress(x, None, hparams, "compress")
     # Convolve and ReLu to get state.
     cur = common_layers.conv_block(
         cur, hparams.hidden_size, [((1, 1), (1, 1))], name="mid_conv")
-    z, kl_loss, mu, log_sigma = vae(cur, hparams, name="vae")
+    # z, kl_loss, mu, log_sigma = vae(cur, hparams, name="vae")
+    z, kl_loss = dvae(cur, hparams, name="dvae")
+    mu, log_sigma = None, None
+
+  # Compress context.
+  with tf.variable_scope(compress_name, reuse=reuse):
+    compress_c = compress(c, None, hparams, "compress_context")
+    c_z = tf.layers.dense(compress_c, hparams.v_size, name="mask_context")
+    reconstruct_loss = tf.nn.softmax_cross_entropy_with_logits(
+        labels=z, logits=c_z)
 
   with tf.variable_scope(decompress_name, reuse=reuse):
     # Decompress.
     z = tf.layers.dense(z, hparams.hidden_size, name="z_to_dense")
 
+    # Leak at the beginning to help train.
+    alpha_p = common_layers.inverse_lin_decay(30000) + 0.001
+    alpha = tf.random_uniform(tf.shape(cur))
+    alpha = tf.to_float(tf.less(alpha, alpha_p))
+    z = alpha * z + (1.0 - alpha) * cur
+
+    # TODO(lukaszkaiser): If not training, use the predicted z.
+    # is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+
     for i in xrange(hparams.num_compress_steps):
       j = hparams.num_compress_steps - i - 1
       z = residual_conv(z, 1, hparams, "decompress_rc_%d" % j)
-      z = decompress_step(z, c, hparams, i > 0, "decompress__step_%d" % j)
-    return z, kl_loss, mu, log_sigma
+      z = decompress_step(z, c, hparams, i > 0, "decompress_step_%d" % j)
+    return z, kl_loss + 0.001 * reconstruct_loss, mu, log_sigma
 
 
 def encode(x, x_space, hparams, name):
@@ -167,7 +187,6 @@ def ffn(x, hparams, name):
 def vae_transformer_internal(inputs, targets, target_space, hparams):
   """VAE Transformer, main step used for training."""
   with tf.variable_scope("vae_transformer"):
-    is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
     # Prepare inputs, targets, and k.
     inputs = common_layers.flatten4d3d(inputs)
     input_len = tf.shape(inputs)[1]  # Double input size to cover targets.
@@ -179,39 +198,25 @@ def vae_transformer_internal(inputs, targets, target_space, hparams):
         inputs, targets, final_length_divisible_by=k)
     inputs = encode(inputs, target_space, hparams, "input_enc")
 
-    # Dropout targets or swap for zeros 5% of the time.
-    targets_nodrop = targets
-    max_prestep = hparams.kl_warmup_steps
-    prob_targets = 0.95 if is_training else 1.0
-    targets_dropout_max = common_layers.inverse_lin_decay(max_prestep) - 0.01
-    targets = dropmask(targets, targets_dropout_max * 0.7, is_training)
-    targets = tf.cond(tf.less(tf.random_uniform([]), prob_targets),
-                      lambda: targets, lambda: tf.zeros_like(targets))
-    targets = targets_nodrop
-
     # Compress and vae.
-    z = tf.get_variable("z", [hparams.hidden_size])
-    z = tf.reshape(z, [1, 1, 1, -1])
-    z = tf.tile(z, [tf.shape(inputs)[0], 1, 1, 1])
+    z, kl_loss, _, _ = vae_compress(tf.expand_dims(targets, axis=2),
+                                    tf.expand_dims(inputs, axis=2),
+                                    hparams, "vae_compress", "vae_decompress")
 
-    z = attend(z, inputs, hparams, "z_attendsi")
-    z = ffn(z, hparams, "zff2")
-    z = attend(z, targets, hparams, "z_attendst2")
-    z = ffn(z, hparams, "zff3")
-    z, kl_loss, _, _ = vae(z, hparams, name="vae")
-    z = tf.layers.dense(z, hparams.hidden_size, name="z_to_dense")
+    # Join z with inputs, run decoder.
+    to_decode = common_layers.conv_block(
+        tf.concat([z, tf.expand_dims(inputs, axis=2)], axis=3),
+        hparams.hidden_size, [((1, 1), (1, 1))], name="join_z")
+    ret = encode(tf.squeeze(to_decode, axis=2), target_space, hparams, "dec")
 
-    # z, kl_loss, _, _ = vae_compress(
-    #     tf.expand_dims(targets, axis=2), tf.expand_dims(inputs, axis=2),
-    #     hparams, "vae_compress", "vae_decompress")
+    # For experiments with one-sided decoder:
+    # decoder_in = tf.squeeze(to_decode, axis=2)
+    # (decoder_input, decoder_self_attention_bias) = (
+    #     transformer.transformer_prepare_decoder(decoder_in, hparams))
+    # ret = transformer.transformer_decoder(
+    #     decoder_input, inputs, decoder_self_attention_bias, None, hparams)
 
-    decoder_in = tf.squeeze(z, axis=2) + tf.zeros_like(targets)
-    (decoder_input, decoder_self_attention_bias) = (
-        transformer.transformer_prepare_decoder(decoder_in, hparams))
-    ret = transformer.transformer_decoder(
-        decoder_input, inputs, decoder_self_attention_bias, None, hparams)
-
-    kl_loss *= common_layers.inverse_exp_decay(int(max_prestep * 1.5)) * 5.0
+    kl_loss *= common_layers.inverse_exp_decay(hparams.kl_warmup_steps) * 3.0
     losses = {"kl": kl_loss}
     return tf.expand_dims(ret, axis=2), losses
 
@@ -267,10 +272,11 @@ def transformer_vae_small():
   """Set of hyperparameters."""
   hparams = transformer.transformer_small()
   hparams.batch_size = 2048
-  hparams.learning_rate_warmup_steps = 16000
+  hparams.learning_rate_warmup_steps = 4000
   hparams.add_hparam("z_size", 128)
+  hparams.add_hparam("v_size", 1024*8)
   hparams.add_hparam("num_compress_steps", 4)
-  hparams.add_hparam("kl_warmup_steps", 60000)
+  hparams.add_hparam("kl_warmup_steps", 50000)
   return hparams
 
 
@@ -283,6 +289,6 @@ def transformer_vae_base():
   hparams.attention_dropout = 0.0
   hparams.relu_dropout = 0.0
   hparams.dropout = 0.0
-  hparams.num_hidden_layers = 3
+  hparams.num_hidden_layers = 4
   hparams.z_size = 256
   return hparams
