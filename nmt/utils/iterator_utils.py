@@ -148,8 +148,7 @@ def get_iterator(src_dataset,
                         tf.concat(([tgt_sos_id], tgt), 0),
                         tf.concat((tgt, [tgt_eos_id]), 0)),
       num_threads=num_threads, output_buffer_size=output_buffer_size)
-  # Add in the word counts.  Subtract one from the target to avoid counting
-  # the target_input <eos> tag (resp. target_output <sos> tag).
+  # Add in sequence lengths.
   src_tgt_dataset = src_tgt_dataset.map(
       lambda src, tgt_in, tgt_out: (
           src, tgt_in, tgt_out, tf.size(src), tf.size(tgt_in)),
