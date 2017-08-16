@@ -681,6 +681,70 @@ def local_attention_2d(q,
     return tf.reshape(output, v_shape)
 
 
+def compute_qkv(query_antecedent, memory_antecedent, total_key_depth,
+                total_value_depth, q_filter_width=1, kv_filter_width=1,
+                q_padding="VALID", kv_padding="VALID"):
+  """Computes query, key and value.
+
+  Args:
+    query_antecedent: a Tensor with shape [batch, length_q, channels]
+    memory_antecedent: a Tensor with shape [batch, length_m, channels]
+    total_key_depth: an integer
+    total_value_depth: and integer
+    q_filter_width: An integer specifying how wide you want the query to be.
+    kv_filter_width: An integer specifying how wide you want the keys and values
+    to be.
+    q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+    kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+
+  Returns:
+    q, k, v : [batch, length, depth] tensors
+  """
+  if memory_antecedent is None and q_filter_width == kv_filter_width == 1:
+    # self attention with single position q, k, and v
+    combined = common_layers.conv1d(
+        query_antecedent,
+        total_key_depth * 2 + total_value_depth,
+        1,
+        name="qkv_transform")
+    q, k, v = tf.split(
+        combined, [total_key_depth, total_key_depth, total_value_depth],
+        axis=2)
+    return q, k, v
+
+  if memory_antecedent is None:
+    # self attention
+    q = common_layers.conv1d(
+        query_antecedent,
+        total_key_depth,
+        q_filter_width,
+        padding=q_padding,
+        name="q_transform")
+    kv_combined = common_layers.conv1d(
+        query_antecedent,
+        total_key_depth + total_value_depth,
+        kv_filter_width,
+        padding=kv_padding,
+        name="kv_transform")
+    k, v = tf.split(kv_combined, [total_key_depth, total_value_depth],
+                    axis=2)
+    return q, k, v
+
+  # encoder-decoder attention
+  q = common_layers.conv1d(
+      query_antecedent, total_key_depth, q_filter_width, padding=q_padding,
+      name="q_transform")
+  combined = common_layers.conv1d(
+      memory_antecedent,
+      total_key_depth + total_value_depth,
+      1,
+      padding=kv_padding,
+      name="kv_transform")
+  k, v = tf.split(combined, [total_key_depth, total_value_depth], axis=2)
+
+  return q, k, v
+
+
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,
@@ -693,6 +757,10 @@ def multihead_attention(query_antecedent,
                         attention_type="dot_product",
                         block_length=128,
                         block_width=128,
+                        q_filter_width=1,
+                        kv_filter_width=1,
+                        q_padding="VALID",
+                        kv_padding="VALID",
                         name=None):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -711,6 +779,12 @@ def multihead_attention(query_antecedent,
                     "local_unmasked"
     block_length: an integer - relevant for "local_mask_right"
     block_width: an integer - relevant for "local_unmasked"
+    q_filter_width: An integer specifying how wide you want the query to be.
+    kv_filter_width: An integer specifying how wide you want the keys and values
+    to be.
+    q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+    kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+
     name: an optional string
 
   Returns:
@@ -726,30 +800,14 @@ def multihead_attention(query_antecedent,
   if total_value_depth % num_heads != 0:
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
-
   with tf.variable_scope(
       name,
       default_name="multihead_attention",
       values=[query_antecedent, memory_antecedent]):
-    if memory_antecedent is None:
-      # self attention
-      combined = common_layers.conv1d(
-          query_antecedent,
-          total_key_depth * 2 + total_value_depth,
-          1,
-          name="qkv_transform")
-      q, k, v = tf.split(
-          combined, [total_key_depth, total_key_depth, total_value_depth],
-          axis=2)
-    else:
-      q = common_layers.conv1d(
-          query_antecedent, total_key_depth, 1, name="q_transform")
-      combined = common_layers.conv1d(
-          memory_antecedent,
-          total_key_depth + total_value_depth,
-          1,
-          name="kv_transform")
-      k, v = tf.split(combined, [total_key_depth, total_value_depth], axis=2)
+    q, k, v = compute_qkv(query_antecedent, memory_antecedent, total_key_depth,
+                          total_value_depth, q_filter_width, kv_filter_width,
+                          q_padding, kv_padding)
+
     q = split_heads(q, num_heads)
     k = split_heads(k, num_heads)
     v = split_heads(v, num_heads)
