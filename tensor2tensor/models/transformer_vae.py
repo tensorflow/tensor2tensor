@@ -26,6 +26,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
+from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -84,12 +85,37 @@ def decompress_step(source, c, hparams, first_relu, name):
     return tf.reshape(thicker, [shape[0], shape[1] * 2, 1, hparams.hidden_size])
 
 
-def dvae(x, hparams, name):
+def top_k_softmax(x, k):
+  """Calculate softmax(x), select top-k and rescale to sum to 1."""
+  x = tf.nn.softmax(x)
+  top_x, _ = tf.nn.top_k(x, k=k+1)
+  min_top = tf.reduce_min(top_x, axis=-1, keep_dims=True)
+  x = tf.nn.relu((x - min_top) + 1e-12)
+  x /= tf.reduce_sum(x, axis=-1, keep_dims=True)
+  return x, tf.reduce_max(top_x, axis=-1)
+
+
+def top_k_experts(x, k, hparams):
+  x_shape = tf.shape(x)
+  x_flat = tf.reshape(x, [-1, x.get_shape().as_list()[-1]])
+  is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+  gates, load = expert_utils.noisy_top_k_gating(
+      x_flat, hparams.v_size, is_training, k)
+  gates_shape = [x_shape[0], x_shape[1], x_shape[2], hparams.v_size]
+  gates = tf.reshape(gates, gates_shape)
+  load_loss = expert_utils.cv_squared(load)
+  return gates, load_loss
+
+
+def dvae(x, k, hparams, name):
   with tf.variable_scope(name):
     m = tf.layers.dense(x, hparams.v_size, name="mask")
-    m = tf.nn.softmax(m)
-    kl = - tf.reduce_max(m, axis=-1)
-    return m, tf.reduce_mean(kl)
+    if k is None:
+      m = tf.nn.softmax(m)
+      kl = - tf.reduce_max(m, axis=-1)
+    else:
+      m, kl = top_k_softmax(m, k)
+    return m, 1.0 - tf.reduce_mean(kl)
 
 
 def vae(x, hparams, name):
@@ -119,16 +145,34 @@ def compress(x, c, hparams, name):
     return cur
 
 
+def mix(x1, x2, steps, min_prob=0.0, max_prob=1.0, mode="lin"):
+  if mode == "lin":
+    alpha_p = common_layers.inverse_lin_decay(steps) + 0.001
+  else:
+    alpha_p = common_layers.inverse_exp_decay(steps) + 0.001
+  alpha_p = alpha_p * (max_prob - min_prob) + min_prob
+  alpha = tf.random_uniform(tf.shape(x1))
+  alpha = tf.to_float(tf.less(alpha, alpha_p))
+  return alpha * x1 + (1.0 - alpha) * x2
+
+
 def vae_compress(x, c, hparams, compress_name, decompress_name, reuse=None):
   """Compress, then VAE."""
+  mix_k = 8
   with tf.variable_scope(compress_name, reuse=reuse):
     cur = compress(x, None, hparams, "compress")
     # Convolve and ReLu to get state.
     cur = common_layers.conv_block(
         cur, hparams.hidden_size, [((1, 1), (1, 1))], name="mid_conv")
     # z, kl_loss, mu, log_sigma = vae(cur, hparams, name="vae")
-    z, kl_loss = dvae(cur, hparams, name="dvae")
+    z, kl_loss = dvae(cur, None, hparams, name="dvae")
+    z1, kl_loss1 = top_k_experts(cur, mix_k, hparams)
     mu, log_sigma = None, None
+
+    # Mix expert-selection and flat selection.
+    alpha_p = common_layers.inverse_lin_decay(60000) + 0.001
+    z = alpha_p * z1 + (1 - alpha_p) * z
+    kl_loss += kl_loss1
 
   # Compress context.
   with tf.variable_scope(compress_name, reuse=reuse):
@@ -137,24 +181,23 @@ def vae_compress(x, c, hparams, compress_name, decompress_name, reuse=None):
     reconstruct_loss = tf.nn.softmax_cross_entropy_with_logits(
         labels=z, logits=c_z)
 
+  # If not training, use the predicted z instead of the autoregressive one.
+  # if hparams.mode != tf.contrib.learn.ModeKeys.TRAIN:
+  # z = mix(c_z, z, 50000, max_prob=0.3, mode="exp")
+  # z, _ = top_k_softmax(c_z, mix_k)
+
   with tf.variable_scope(decompress_name, reuse=reuse):
     # Decompress.
     z = tf.layers.dense(z, hparams.hidden_size, name="z_to_dense")
 
     # Leak at the beginning to help train.
-    alpha_p = common_layers.inverse_lin_decay(30000) + 0.001
-    alpha = tf.random_uniform(tf.shape(cur))
-    alpha = tf.to_float(tf.less(alpha, alpha_p))
-    z = alpha * z + (1.0 - alpha) * cur
-
-    # TODO(lukaszkaiser): If not training, use the predicted z.
-    # is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+    z = mix(z, cur, 30000)
 
     for i in xrange(hparams.num_compress_steps):
       j = hparams.num_compress_steps - i - 1
       z = residual_conv(z, 1, hparams, "decompress_rc_%d" % j)
       z = decompress_step(z, c, hparams, i > 0, "decompress_step_%d" % j)
-    return z, kl_loss + 0.001 * reconstruct_loss, mu, log_sigma
+    return z, kl_loss + 0.0001 * reconstruct_loss, mu, log_sigma
 
 
 def encode(x, x_space, hparams, name):
