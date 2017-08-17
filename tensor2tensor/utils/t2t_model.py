@@ -327,7 +327,7 @@ class T2TModel(object):
 
       # Assuming we have one shard for logits.
       logits = tf.concat([recent_logits, logits[0][:, -1:]], 1)
-      loss = sum(losses.values())
+      loss = sum([l for l in losses.values() if l is not None])
       return samples, logits, loss
 
     # Create an initial output tensor. This will be passed
