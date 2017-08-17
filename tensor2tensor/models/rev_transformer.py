@@ -214,11 +214,31 @@ def rev_transformer_decoder(decoder_input,
         ],
         is_training=hparams.mode == tf.contrib.learn.ModeKeys.TRAIN)
     y = tf.concat([y1, y2], axis=-1)
-  return common_layers.layer_preprocess(y, hparams)
+    return common_layers.layer_preprocess(y, hparams)
 
 
 @registry.register_hparams
 def rev_transformer_base():
   """Base hparams for RevTransformer."""
-  hparams = transformer.transformer_base()
+  hparams = transformer.transformer_big()
+
+  # Use settings from transformer_n_da
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.learning_rate = 0.4
+
+  return hparams
+
+
+@registry.register_hparams
+def rev_transformer_big():
+  """Base hparams for RevTransformer."""
+  hparams = rev_transformer_base()
+
+  # The RevTransformer uses significantly less memory than the Transformer.
+  # Increase batch size and model size.
+  hparams.batch_size *= 2
+  hparams.hidden_size *= 2
+  hparams.num_heads *= 2
+  hparams.num_hidden_layers += 1
   return hparams
