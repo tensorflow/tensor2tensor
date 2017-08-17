@@ -26,8 +26,8 @@ setup(
         'six',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.2.0rc1'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.2.0rc1'],
+        'tensorflow': ['tensorflow>=1.3.0'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.3.0'],
     },
     tests_require=['nose'],
     test_suite='nose.collector',
