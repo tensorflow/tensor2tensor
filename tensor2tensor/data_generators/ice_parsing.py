@@ -62,8 +62,8 @@ def tabbed_parsing_character_generator(tmp_dir, train):
   return tabbed_generator(pair_filepath, character_vocab, character_vocab, EOS)
 
 
-@registry.register_problem("ice_parsing_tokens")
-class IceParsingTokens(problem.Problem):
+@registry.register_problem
+class ParsingIcelandic16k(problem.Problem):
   """Problem spec for parsing tokenized Icelandic text to constituency trees."""
 
   @property

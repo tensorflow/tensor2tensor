@@ -81,8 +81,8 @@ def _page_title(page):
 
 
 @registry.register_problem
-class Wiki32k(problem.Text2TextProblem):
-  """A class for generating PTB data."""
+class LanguagemodelWikiFull32k(problem.Text2TextProblem):
+  """A language model on full English Wikipedia."""
 
   @property
   def is_character_level(self):
@@ -129,3 +129,12 @@ class Wiki32k(problem.Text2TextProblem):
       encoded = encoder.encode(page) + [EOS]
       encoded_title = encoder.encode(title) + [EOS]
       yield {"inputs": encoded_title, "targets": encoded}
+
+
+@registry.register_problem
+class LanguagemodelWikiFull8k(problem.Text2TextProblem):
+  """A language model on full English Wikipedia."""
+
+  @property
+  def targeted_vocab_size(self):
+    return 2**13  # 8192

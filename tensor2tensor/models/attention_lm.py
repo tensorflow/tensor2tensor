@@ -72,8 +72,13 @@ def attention_lm_prepare_decoder(targets, hparams):
     decoder_self_attention_bias: a Tensor, containing large negative values
     to implement masked attention and possibly baises for diagonal alignments
   """
-  decoder_self_attention_bias = (
-      common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
+  if hparams.prepend_mode == "prepend_inputs_full_attention":
+    decoder_self_attention_bias = (
+        common_attention.attention_bias_prepended(
+            common_attention.embedding_to_padding(targets)))
+  else:
+    decoder_self_attention_bias = (
+        common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
   decoder_input = common_layers.shift_left_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
@@ -153,6 +158,7 @@ def attention_lm_base():
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
+  hparams.add_hparam("encoder_full_attention", int(False))
   return hparams
 
 
@@ -181,9 +187,26 @@ def attention_lm_translation():
   hparams = attention_lm_base()
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
-  hparams.learning_rate = 0.1
-  hparams.prepend_inputs_to_targets = int(True)
+  hparams.learning_rate = 0.4
+  hparams.prepend_mode = "prepend_inputs_masked_attention"
   hparams.max_length = 512
   hparams.label_smoothing = 0.1
   hparams.shared_embedding_and_softmax_weights = int(True)
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_translation_l12():
+  """Version to use for seq2seq."""
+  hparams = attention_lm_translation()
+  hparams.batch_size = 4096
+  hparams.num_hidden_layers = 12
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_translation_full_attention():
+  """Version to use for seq2seq."""
+  hparams = attention_lm_translation()
+  hparams.prepend_mode = "prepend_inputs_full_attention"
   return hparams

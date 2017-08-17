@@ -271,7 +271,7 @@ def _interactive_input_fn(hparams):
               "  in=<input_problem>  (set the input problem number)\n"
               "  ou=<output_problem> (set the output problem number)\n"
               "  ns=<num_samples>    (changes number of samples)\n"
-              "  dl=<decode_length>  (changes decode legnth)\n"
+              "  dl=<decode_length>  (changes decode length)\n"
               "  <%s>                (decode)\n"
               "  q                   (quit)\n"
               ">" % (num_samples, decode_length, "source_string"

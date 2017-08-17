@@ -511,6 +511,10 @@ class IdentityModalityNoPad(modality.Modality):
   """Does nothing except making sure that there is no padding in cross-ent."""
 
   @property
+  def top_dimensionality(self):
+    return 256
+
+  @property
   def targets_dimensionality(self):
     return self._vocab_size
 

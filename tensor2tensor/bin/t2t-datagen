@@ -66,6 +66,8 @@ flags.DEFINE_integer("num_shards", 0, "How many shards to use. Ignored for "
                      "registered Problems.")
 flags.DEFINE_integer("max_cases", 0,
                      "Maximum number of cases to generate (unbounded if 0).")
+flags.DEFINE_bool("only_list", False,
+                  "If true, we only list the problems that will be generated.")
 flags.DEFINE_integer("random_seed", 429459, "Random seed to use.")
 flags.DEFINE_integer("task_id", -1, "For distributed data generation.")
 flags.DEFINE_string("t2t_usr_dir", "",
@@ -81,33 +83,33 @@ _SUPPORTED_PROBLEM_GENERATORS = {
     "algorithmic_algebra_inverse": (
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
-    "wmt_parsing_tokens_8k": (
+    "parsing_english_ptb8k": (
         lambda: wmt.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13),
         lambda: wmt.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13)),
-    "wsj_parsing_tokens_16k": (
+    "parsing_english_ptb16k": (
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**14, 2**9),
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9)),
-    "wmt_ende_bpe32k": (
+    "translate_ende_wmt_bpe32k": (
         lambda: wmt.ende_bpe_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True),
         lambda: wmt.ende_bpe_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False)),
-    "lm1b_32k": (
+    "languagemodel_1b32k": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False)
     ),
-    "lm1b_characters": (
+    "languagemodel_1b_characters": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True, characters=True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False, characters=True)
     ),
     "image_celeba_tune": (
         lambda: image.celeba_generator(FLAGS.tmp_dir, 162770),
         lambda: image.celeba_generator(FLAGS.tmp_dir, 19867, 162770)),
-    "snli_32k": (
+    "inference_snli32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),
     ),
@@ -181,7 +183,11 @@ def main(_):
                        "Data will be written to default data_dir=%s.",
                        FLAGS.data_dir)
 
-  tf.logging.info("Generating problems:\n  * %s\n" % "\n  * ".join(problems))
+  tf.logging.info("Generating problems:\n%s"
+                  % registry.display_list_by_prefix(problems,
+                                                    starting_spaces=4))
+  if FLAGS.only_list:
+    return
   for problem in problems:
     set_random_seed()
 
@@ -210,7 +216,7 @@ def generate_data_for_problem(problem):
 
 
 def generate_data_for_registered_problem(problem_name):
-  tf.logging.info("Generating training data for %s.", problem_name)
+  tf.logging.info("Generating data for %s.", problem_name)
   if FLAGS.num_shards:
     raise ValueError("--num_shards should not be set for registered Problem.")
   problem = registry.problem(problem_name)

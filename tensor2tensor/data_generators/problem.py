@@ -98,7 +98,7 @@ def preprocess_examples_common(examples, hparams):
     examples["inputs"] = examples["inputs"][:hparams.max_input_seq_length]
   if hparams.max_target_seq_length > 0:
     examples["targets"] = examples["targets"][:hparams.max_target_seq_length]
-  if hparams.prepend_inputs_to_targets:
+  if hparams.prepend_mode != "none":
     examples["targets"] = tf.concat(
         [examples["inputs"], [0], examples["targets"]], 0)
   return examples
@@ -410,11 +410,12 @@ class Text2TextProblem(Problem):
       generator_utils.generate_files(
           self.generator(data_dir, tmp_dir, True), all_paths)
       generator_utils.shuffle_dataset(all_paths)
-    generator_utils.generate_dataset_and_shuffle(
-        self.generator(data_dir, tmp_dir, True),
-        self.training_filepaths(data_dir, self.num_shards, shuffled=False),
-        self.generator(data_dir, tmp_dir, False),
-        self.dev_filepaths(data_dir, self.num_dev_shards, shuffled=False))
+    else:
+      generator_utils.generate_dataset_and_shuffle(
+          self.generator(data_dir, tmp_dir, True),
+          self.training_filepaths(data_dir, self.num_shards, shuffled=False),
+          self.generator(data_dir, tmp_dir, False),
+          self.dev_filepaths(data_dir, self.num_dev_shards, shuffled=False))
 
   def feature_encoders(self, data_dir):
     if self.is_character_level:

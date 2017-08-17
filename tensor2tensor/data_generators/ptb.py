@@ -157,8 +157,8 @@ class PTBProblem(problem.Text2TextProblem):
           yield {"inputs": [0], "targets": tok}
 
 
-@registry.register_problem("lm_ptb_10k")
-class LmPtb10k(PTBProblem):
+@registry.register_problem
+class LanguagemodelPtb10k(PTBProblem):
   """A class for generating PTB data, 10k vocab."""
 
   @property
@@ -167,7 +167,7 @@ class LmPtb10k(PTBProblem):
 
 
 @registry.register_problem
-class LmPtbCharacters(PTBProblem):
+class LanguagemodelPtbCharacters(PTBProblem):
   """A class for generating PTB data, character-level."""
 
   @property

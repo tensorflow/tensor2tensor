@@ -209,8 +209,8 @@ class Desc2CodeProblem(problem.Text2TextProblem):
       }
 
 
-@registry.register_problem("desc2code_py")
-class Desc2CodePyProblem(Desc2CodeProblem):
+@registry.register_problem
+class ProgrammingDesc2codePy(Desc2CodeProblem):
   """Description2Code for python problem."""
 
   @property
@@ -222,8 +222,8 @@ class Desc2CodePyProblem(Desc2CodeProblem):
     return target.replace("\t", "    ")
 
 
-@registry.register_problem("desc2code_cpp")
-class Desc2CodeCppProblem(Desc2CodeProblem):
+@registry.register_problem
+class ProgrammingDesc2codeCpp(Desc2CodeProblem):
   """Description2Code for C++ problem."""
 
   @property

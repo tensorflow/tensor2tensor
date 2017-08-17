@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data generators for WMT data-sets."""
+"""Data generators for translation data-sets."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -39,8 +39,8 @@ FLAGS = tf.flags.FLAGS
 EOS = text_encoder.EOS_ID
 
 
-class WMTProblem(problem.Text2TextProblem):
-  """Base class for WMT problems."""
+class TranslateProblem(problem.Text2TextProblem):
+  """Base class for translation problems."""
 
   @property
   def is_character_level(self):
@@ -381,8 +381,8 @@ def _compile_data(tmp_dir, datasets, filename):
   return filename
 
 
-@registry.register_problem("wmt_ende_tokens_8k")
-class WMTEnDeTokens8k(WMTProblem):
+@registry.register_problem
+class TranslateEndeWmt8k(TranslateProblem):
   """Problem spec for WMT En-De translation."""
 
   @property
@@ -407,16 +407,16 @@ class WMTEnDeTokens8k(WMTProblem):
     return problem.SpaceID.DE_TOK
 
 
-@registry.register_problem("wmt_ende_tokens_32k")
-class WMTEnDeTokens32k(WMTEnDeTokens8k):
+@registry.register_problem
+class TranslateEndeWmt32k(TranslateEndeWmt8k):
 
   @property
   def targeted_vocab_size(self):
     return 2**15  # 32768
 
 
-@registry.register_problem("wmt_ende_characters")
-class WMTEnDeCharacters(WMTProblem):
+@registry.register_problem
+class TranslateEndeWmtCharacters(TranslateProblem):
   """Problem spec for WMT En-De translation."""
 
   @property
@@ -440,8 +440,8 @@ class WMTEnDeCharacters(WMTProblem):
     return problem.SpaceID.DE_CHR
 
 
-@registry.register_problem("wmt_zhen_tokens_8k")
-class WMTZhEnTokens8k(WMTProblem):
+@registry.register_problem
+class TranslateEnzhWmt8k(TranslateProblem):
   """Problem spec for WMT Zh-En translation."""
 
   @property
@@ -466,7 +466,10 @@ class WMTZhEnTokens8k(WMTProblem):
         target_vocab_size, target_datasets)
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_zhen_tok_%s" % tag)
-    return bi_vocabs_token_generator(data_path + ".lang1", data_path + ".lang2",
+    # We generate English->X data by convention, to train reverse translation
+    # just add the "_rev" suffix to the problem name, e.g., like this.
+    #   --problems=translate_enzh_wmt8k_rev
+    return bi_vocabs_token_generator(data_path + ".lang2", data_path + ".lang1",
                                      source_vocab, target_vocab, EOS)
 
   @property
@@ -491,8 +494,8 @@ class WMTZhEnTokens8k(WMTProblem):
     }
 
 
-@registry.register_problem("wmt_enfr_tokens_8k")
-class WMTEnFrTokens8k(WMTProblem):
+@registry.register_problem
+class TranslateEnfrWmt8k(TranslateProblem):
   """Problem spec for WMT En-Fr translation."""
 
   @property
@@ -517,16 +520,16 @@ class WMTEnFrTokens8k(WMTProblem):
     return problem.SpaceID.FR_TOK
 
 
-@registry.register_problem("wmt_enfr_tokens_32k")
-class WMTEnFrTokens32k(WMTEnFrTokens8k):
+@registry.register_problem
+class TranslateEnfrWmt32k(TranslateEnfrWmt8k):
 
   @property
   def targeted_vocab_size(self):
     return 2**15  # 32768
 
 
-@registry.register_problem("wmt_enfr_characters")
-class WMTEnFrCharacters(WMTProblem):
+@registry.register_problem
+class TranslateEnfrWmtCharacters(TranslateProblem):
   """Problem spec for WMT En-Fr translation."""
 
   @property
@@ -550,8 +553,8 @@ class WMTEnFrCharacters(WMTProblem):
     return problem.SpaceID.FR_CHR
 
 
-@registry.register_problem("setimes_mken_tokens_32k")
-class SETimesMkEnTokens32k(WMTProblem):
+@registry.register_problem
+class TranslateEnmkSetimes32k(TranslateProblem):
   """Problem spec for SETimes Mk-En translation."""
 
   @property
@@ -571,7 +574,10 @@ class SETimesMkEnTokens32k(WMTProblem):
         source_datasets + target_datasets)
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "setimes_mken_tok_%s" % tag)
-    return token_generator(data_path + ".lang1", data_path + ".lang2",
+    # We generate English->X data by convention, to train reverse translation
+    # just add the "_rev" suffix to the problem name, e.g., like this.
+    #   --problems=translate_enmk_setimes32k_rev
+    return token_generator(data_path + ".lang2", data_path + ".lang1",
                            symbolizer_vocab, EOS)
 
   @property
@@ -583,8 +589,8 @@ class SETimesMkEnTokens32k(WMTProblem):
     return problem.SpaceID.EN_TOK
 
 
-@registry.register_problem("wmt_encs_tokens_32k")
-class WMTEnCsTokens32k(WMTProblem):
+@registry.register_problem
+class TranslateEncsWmt32k(TranslateProblem):
   """Problem spec for WMT English-Czech translation."""
 
   @property
@@ -616,8 +622,8 @@ class WMTEnCsTokens32k(WMTProblem):
     return problem.SpaceID.CS_TOK
 
 
-@registry.register_problem("wmt_encs_characters")
-class WMTEnCsCharacters(WMTProblem):
+@registry.register_problem
+class TranslateEncsWmtCharacters(TranslateProblem):
   """Problem spec for WMT En-Cs character-based translation."""
 
   @property

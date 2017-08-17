@@ -44,7 +44,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import inspect
 import re
 
@@ -391,17 +390,18 @@ def create_modality(modality_spec, model_hparams):
   return retrieval_fns[modality_type](modality_name)(model_hparams, vocab_size)
 
 
-def _hparams_help_string():
-  hparams_names = list_hparams()
-  prefixes = zip([name.split("_")[0] for name in hparams_names], hparams_names)
-  names_by_prefix = collections.defaultdict(list)
-  for (prefix, full_name) in prefixes:
-    names_by_prefix[prefix].append(full_name)
-  return "\n".join(
-      sorted([
-          "    * %s: %s" % (prefix, sorted(names))
-          for prefix, names in six.iteritems(names_by_prefix)
-      ]))
+def display_list_by_prefix(names_list, starting_spaces=0):
+  """Creates a help string for names_list grouped by prefix."""
+  cur_prefix, result_lines = None, []
+  space = " " * starting_spaces
+  for name in sorted(names_list):
+    split = name.split("_", 1)
+    prefix = split[0]
+    if cur_prefix != prefix:
+      result_lines.append(space + prefix + ":")
+      cur_prefix = prefix
+    result_lines.append(space + "  * " + name)
+  return "\n".join(result_lines)
 
 
 def help_string():
@@ -410,24 +410,29 @@ def help_string():
 Registry contents:
 ------------------
 
-  Models: %s
-
-  HParams (by model):
+  Models:
 %s
 
-  RangedHParams: %s
+  HParams:
+%s
 
-  Modalities: %s
+  RangedHParams:
+%s
 
-  Problems: %s
+  Modalities:
+%s
+
+  Problems:
+%s
   """
-  m, rhp, mod, probs = [
-      sorted(entries)
+  m, hp, rhp, mod, probs = [
+      display_list_by_prefix(entries, starting_spaces=4)
       for entries in [
           list_models(),
+          list_hparams(),
           list_ranged_hparams(),
           list_modalities(),
           list_problems()
       ]
   ]
-  return help_str % (m, _hparams_help_string(), rhp, mod, probs)
+  return help_str % (m, hp, rhp, mod, probs)

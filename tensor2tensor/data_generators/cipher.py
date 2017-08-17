@@ -29,7 +29,7 @@ from tensor2tensor.utils import registry
 
 
 @registry.register_problem
-class CipherShift5(algorithmic.AlgorithmicProblem):
+class AlgorithmicCipherShift5(algorithmic.AlgorithmicProblem):
   """Shift cipher."""
 
   @property
@@ -62,7 +62,7 @@ class CipherShift5(algorithmic.AlgorithmicProblem):
 
 
 @registry.register_problem
-class CipherVigenere5(algorithmic.AlgorithmicProblem):
+class AlgorithmicCipherVigenere5(algorithmic.AlgorithmicProblem):
   """Vinegre cipher."""
 
   @property
@@ -95,7 +95,7 @@ class CipherVigenere5(algorithmic.AlgorithmicProblem):
 
 
 @registry.register_problem
-class CipherShift200(CipherShift5):
+class AlgorithmicCipherShift200(AlgorithmicCipherShift5):
   """Shift cipher."""
 
   @property
@@ -110,7 +110,7 @@ class CipherShift200(CipherShift5):
 
 
 @registry.register_problem
-class CipherVigenere200(CipherVigenere5):
+class AlgorithmicCipherVigenere200(AlgorithmicCipherVigenere5):
   """Vinegre cipher."""
 
   @property

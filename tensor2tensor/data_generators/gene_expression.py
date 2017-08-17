@@ -176,8 +176,8 @@ class GeneExpressionProblem(problem.Problem):
     return [metrics.Metrics.LOG_POISSON, metrics.Metrics.R2]
 
 
-@registry.register_problem("gene_expression_cage10")
-class GeneExpressionCAGE10(GeneExpressionProblem):
+@registry.register_problem
+class GenomicsExpressionCage10(GeneExpressionProblem):
 
   @property
   def download_url(self):
@@ -188,8 +188,8 @@ class GeneExpressionCAGE10(GeneExpressionProblem):
     return "cage10.h5"
 
 
-@registry.register_problem("gene_expression_gm12878")
-class GeneExpressionGM12878(GeneExpressionProblem):
+@registry.register_problem
+class GenomicsExpressionGm12878(GeneExpressionProblem):
 
   @property
   def download_url(self):
@@ -200,8 +200,8 @@ class GeneExpressionGM12878(GeneExpressionProblem):
     return "gm12878.h5"
 
 
-@registry.register_problem("gene_expression_l262k")
-class GeneExpressionL262k(GeneExpressionProblem):
+@registry.register_problem
+class GenomicsExpressionL262k(GeneExpressionProblem):
 
   @property
   def h5_file(self):

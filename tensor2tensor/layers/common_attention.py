@@ -17,12 +17,14 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+from functools import partial
 
 import math
 
 # Dependency imports
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import expert_utils
 
 import tensorflow as tf
 
@@ -204,6 +206,39 @@ def attention_bias_ignore_padding(memory_padding):
   """
   ret = memory_padding * -1e9
   return tf.expand_dims(tf.expand_dims(ret, axis=1), axis=1)
+
+
+def attention_bias_prepend_inputs_full_attention(padding):
+  """Create a bias tensor for prepend_mode="prepend_inputs_full_attention".
+
+  See prepend_inputs in common_hparams.py.
+
+  Produces a bias tensor to be used in self-attention.
+
+  This bias tensor allows for full connectivity in the "inputs" part of
+  the sequence and masked connectivity in the targets part.
+
+  Args:
+    padding: a float `Tensor` with shape [batch, length] with
+      ones in positions corresponding to padding.  In each row, a single
+      padding position separates the input part from the target part.
+
+  Returns:
+    a `Tensor` with shape [batch, 1, length, length].
+  """
+  # Everything past the first padding position is part of the target.
+  # This Tensor has zeros for the source portion and separator,
+  # and ones for the target portion.
+  in_target = tf.cumsum(padding, axis=1, exclusive=True)
+  # The position within the target, or 0 if part of the source.
+  target_pos = tf.cumsum(in_target, axis=1)
+  # A position with a lesser target_pos cannot see a position with greater
+  # target_pos.
+  illegal_connections = tf.greater(tf.expand_dims(target_pos, 1),
+                                   tf.expand_dims(target_pos, 2))
+  bias = tf.to_float(illegal_connections) * -1e9
+  bias = tf.expand_dims(bias, 1)
+  return bias
 
 
 def attention_bias_proximal(length):
@@ -646,6 +681,70 @@ def local_attention_2d(q,
     return tf.reshape(output, v_shape)
 
 
+def compute_qkv(query_antecedent, memory_antecedent, total_key_depth,
+                total_value_depth, q_filter_width=1, kv_filter_width=1,
+                q_padding="VALID", kv_padding="VALID"):
+  """Computes query, key and value.
+
+  Args:
+    query_antecedent: a Tensor with shape [batch, length_q, channels]
+    memory_antecedent: a Tensor with shape [batch, length_m, channels]
+    total_key_depth: an integer
+    total_value_depth: and integer
+    q_filter_width: An integer specifying how wide you want the query to be.
+    kv_filter_width: An integer specifying how wide you want the keys and values
+    to be.
+    q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+    kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+
+  Returns:
+    q, k, v : [batch, length, depth] tensors
+  """
+  if memory_antecedent is None and q_filter_width == kv_filter_width == 1:
+    # self attention with single position q, k, and v
+    combined = common_layers.conv1d(
+        query_antecedent,
+        total_key_depth * 2 + total_value_depth,
+        1,
+        name="qkv_transform")
+    q, k, v = tf.split(
+        combined, [total_key_depth, total_key_depth, total_value_depth],
+        axis=2)
+    return q, k, v
+
+  if memory_antecedent is None:
+    # self attention
+    q = common_layers.conv1d(
+        query_antecedent,
+        total_key_depth,
+        q_filter_width,
+        padding=q_padding,
+        name="q_transform")
+    kv_combined = common_layers.conv1d(
+        query_antecedent,
+        total_key_depth + total_value_depth,
+        kv_filter_width,
+        padding=kv_padding,
+        name="kv_transform")
+    k, v = tf.split(kv_combined, [total_key_depth, total_value_depth],
+                    axis=2)
+    return q, k, v
+
+  # encoder-decoder attention
+  q = common_layers.conv1d(
+      query_antecedent, total_key_depth, q_filter_width, padding=q_padding,
+      name="q_transform")
+  combined = common_layers.conv1d(
+      memory_antecedent,
+      total_key_depth + total_value_depth,
+      1,
+      padding=kv_padding,
+      name="kv_transform")
+  k, v = tf.split(combined, [total_key_depth, total_value_depth], axis=2)
+
+  return q, k, v
+
+
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,
@@ -658,6 +757,10 @@ def multihead_attention(query_antecedent,
                         attention_type="dot_product",
                         block_length=128,
                         block_width=128,
+                        q_filter_width=1,
+                        kv_filter_width=1,
+                        q_padding="VALID",
+                        kv_padding="VALID",
                         name=None):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -676,6 +779,12 @@ def multihead_attention(query_antecedent,
                     "local_unmasked"
     block_length: an integer - relevant for "local_mask_right"
     block_width: an integer - relevant for "local_unmasked"
+    q_filter_width: An integer specifying how wide you want the query to be.
+    kv_filter_width: An integer specifying how wide you want the keys and values
+    to be.
+    q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+    kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+
     name: an optional string
 
   Returns:
@@ -691,30 +800,14 @@ def multihead_attention(query_antecedent,
   if total_value_depth % num_heads != 0:
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
-
   with tf.variable_scope(
       name,
       default_name="multihead_attention",
       values=[query_antecedent, memory_antecedent]):
-    if memory_antecedent is None:
-      # self attention
-      combined = common_layers.conv1d(
-          query_antecedent,
-          total_key_depth * 2 + total_value_depth,
-          1,
-          name="qkv_transform")
-      q, k, v = tf.split(
-          combined, [total_key_depth, total_key_depth, total_value_depth],
-          axis=2)
-    else:
-      q = common_layers.conv1d(
-          query_antecedent, total_key_depth, 1, name="q_transform")
-      combined = common_layers.conv1d(
-          memory_antecedent,
-          total_key_depth + total_value_depth,
-          1,
-          name="kv_transform")
-      k, v = tf.split(combined, [total_key_depth, total_value_depth], axis=2)
+    q, k, v = compute_qkv(query_antecedent, memory_antecedent, total_key_depth,
+                          total_value_depth, q_filter_width, kv_filter_width,
+                          q_padding, kv_padding)
+
     q = split_heads(q, num_heads)
     k = split_heads(k, num_heads)
     v = split_heads(v, num_heads)
@@ -861,5 +954,106 @@ def parameter_attention(x,
     y = tf.reshape(y, [batch_size, length, total_value_depth])
     y.set_shape([None, None, total_value_depth])
     y = common_layers.conv1d(y, output_depth, 1, name="output_transform")
-
     return y
+
+
+def coordinate_tensor(shape, axis):
+  """Return a tensor with given shape containing coordinte along given axis.
+
+  Args:
+    shape: a Tensor representing the shape of the output Tensor
+    axis: an integer
+
+  Returns:
+    A tensor with shape shape and type tf.int32, where each elements its
+    coordinate along the given axis.
+  """
+
+  r = tf.range(shape[axis])
+  r_shape = tf.one_hot(
+      axis, tf.size(shape), on_value=-1, off_value=1, dtype=tf.int32)
+  return tf.zeros(shape, dtype=tf.int32) + tf.reshape(r, r_shape)
+
+
+def self_attention_expert(x, batch_coordinate, mask_right=True):
+  """Implementing attention that runs inside each expert.
+
+  Args:
+    x: A tensor of shape[batch, depth]. Contains representations from
+      different positions, which are lexicographically ordered.
+    batch_coordinate: A tensor of shape [batch, 1] containing the batch
+      coordinate of each element in x. This is needed to make sure that
+      positions from different sequences don't attend to each other.
+    mask_right: A bool. If true, we will not attend to positions on the right,
+      just as decoder self attention.
+
+  Returns:
+    out: A tensor of shape [batch, depth].
+  example use:
+  expert_utils.local_moe(
+     ...
+     expert_fn=functools.partial(self_attention_expert, mask_right=)
+     )
+  """
+  depth = x.get_shape().as_list()[-1]
+  length = tf.shape(batch_coordinate)[0]
+  batch_coordinate = tf.squeeze(batch_coordinate, 1)
+  bias = tf.to_float(
+      tf.not_equal(tf.expand_dims(batch_coordinate, 1),
+                   tf.expand_dims(batch_coordinate, 0))) * -1e9
+  if mask_right:
+    bias += tf.reshape(
+        attention_bias_lower_triangle(length), [length, length])
+  # bias has shape [length, length]
+  bias = tf.reshape(bias, [1, 1, length, length])
+  x = tf.reshape(x, [1, length, depth])
+  out = multihead_attention(x,
+                            None,
+                            bias,
+                            total_key_depth=depth,
+                            total_value_depth=depth,
+                            output_depth=depth,
+                            num_heads=1,
+                            dropout_rate=0.0)
+  out = tf.squeeze(out, 0)
+  return out
+
+#  functools.partial(self_attention_expert, mask_right=, depth=)
+
+
+def local_expert_attention(x, k, loss_coef, attention_num_experts, train=True,
+                           mask_right=True):
+  """Attention using a mixture of experts.
+
+    Positions sent to the same expert can attend to each other.
+    The mixture of experts is "local" in that it is replicated on each
+    datashard.
+
+  Args:
+    x: a Tensor with shape [batch, length, depth]
+    k: The number of experts to dispatch each example to
+    loss_coef: a scalar. A multiplier for the expert loss
+    attention_num_experts: The number of experts to use
+    train: a boolean for the current mode
+    mask_right: A boolean. If true, we will mask out positions to the right
+      for self-attention.
+
+  Returns:
+    y: a Tensor with shape [batch, length, depth]
+    loss: a Scalar
+  """
+  with tf.variable_scope("local_expert_attention"):
+    additional_dispatch_params = {
+        "batch_coordinate": tf.expand_dims(
+            coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
+    }
+    return expert_utils.local_moe(
+        x,
+        train,
+        partial(self_attention_expert, mask_right=mask_right),
+        attention_num_experts,
+        k=k,
+        loss_coef=loss_coef,
+        pass_x=True,
+        pass_gates=False,
+        additional_dispatch_params=additional_dispatch_params)

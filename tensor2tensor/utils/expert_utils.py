@@ -34,6 +34,8 @@ import tensorflow as tf
 
 from tensorflow.python.framework import function
 
+DEFAULT_DEV_STRING = "existing_device"
+
 
 @function.Defun(
     python_grad_func=lambda x, dy: tf.convert_to_tensor(dy),
@@ -180,7 +182,14 @@ class Parallelism(object):
             reuse=True if i > 0 and self._reuse else None,
             caching_device=self._caching_devices[i],
             custom_getter=custom_getter):
-          with tf.device(self._devices[i]):
+          # TODO(noam, epot, avaswani)
+          # Allows for passing no device in case you want to default to the
+          # existing device. This is needed when we put all experts on a single
+          # device, for example in local_moe.
+          if self._devices[i] != DEFAULT_DEV_STRING:
+            with tf.device(self._devices[i]):
+              outputs.append(fns[i](*my_args[i], **my_kwargs[i]))
+          else:
             outputs.append(fns[i](*my_args[i], **my_kwargs[i]))
     if isinstance(outputs[0], tuple):
       outputs = list(zip(*outputs))
@@ -361,7 +370,6 @@ def _my_top_k(x, k):
 
 
 def noisy_top_k_gating(x,
-                       input_size,
                        num_experts,
                        train,
                        k=2,
@@ -375,7 +383,6 @@ def noisy_top_k_gating(x,
 
   Args:
     x: input Tensor with shape [batch_size, input_size]
-    input_size: an integer
     num_experts: an integer
     train: a boolean - we only add noise at training time.
     k: an integer - number of experts per example
@@ -389,6 +396,7 @@ def noisy_top_k_gating(x,
     load: a Tensor with shape [num_experts]
   """
   with tf.variable_scope(name, default_name="noisy_top_k_gating"):
+    input_size = x.get_shape().as_list()[-1]
     w_gate = tf.get_variable(
         "w_gate", [input_size, num_experts], tf.float32, initializer)
     if noisy_gating:
@@ -430,6 +438,25 @@ def noisy_top_k_gating(x,
 
 class SparseDispatcher(object):
   """Helper for implementing a mixture of experts.
+
+  The purpose of this class is to create input minibatches for the
+  experts and to combine the results of the experts to form a unified
+  output tensor.
+
+  There are two functions:
+    dispatch - take an input Tensor and create input Tensors for each expert.
+    combine - take output Tensors from each expert and form a combined output
+      Tensor.  Outputs from different experts for the same batch element are
+      summed together, weighted by the provided "gates".
+
+  The class is initialized with a "gates" Tensor, which specifies which
+  batch elements go to which experts, and the weights to use when combining
+  the outputs.  Batch element b is sent to expert e iff gates[b, e] != 0.
+
+  The inputs and outputs are all two-dimensional [batch, depth].
+  Caller is responsible for collapsing additional dimensions prior to
+  calling this class and reshaping the output to the original shape.
+  See reshape_like().
 
   Example use:
 
@@ -526,8 +553,8 @@ class DistributedSparseDispatcher(object):
   """A distributed version of SparseDispatcher.
 
   Instead of one batch of input examples, we simultaneously process
-  num_datashards batches of input examples.  The per-expert `Tensor`s contain
-  a combination of examples from the different datashards.
+  a list of num_datashards batches of input examples.  The per-expert
+  `Tensor`s contain a combination of examples from the different datashards.
 
   Each datashard is associated with a particular device and each expert is
   associated with a particular device.  All per-datashard and per-expert
@@ -655,6 +682,13 @@ def reshape_like(a, b):
   return ret
 
 
+def flatten_all_but_last(a):
+  """Flatten all dimensions of a except the last."""
+  ret = tf.reshape(a, [-1, tf.shape(a)[-1]])
+  ret.set_shape([None] + a.get_shape().as_list()[-1:])
+  return ret
+
+
 def distributed_moe(data_parallelism,
                     expert_devices,
                     xs,
@@ -676,7 +710,8 @@ def distributed_moe(data_parallelism,
     input_size: an integer (input size for this layer)
     expert_fn: a unary function for each expert to run
        It should take a Tensor with shape [batch_size, input_size]
-       and return a Tensor with shape [batch_size, output_size]
+       and return a Tensor with shape [batch_size, output_size].
+       e.g. ffn_expert_fn(...)
     num_experts: an integer - number of experts
     k: an integer - how many experts to use for each batch element
     loss_coef: a scalar - multiplier on load-balancing losses
@@ -703,7 +738,6 @@ def distributed_moe(data_parallelism,
     # load is a measure of approximately how many examples go to each expert
     gates, load = dp(noisy_top_k_gating,
                      xs_flat,
-                     input_size,
                      num_experts,
                      train,
                      k,
@@ -721,3 +755,67 @@ def distributed_moe(data_parallelism,
     importance = tf.add_n(dp(tf.reduce_sum, gates, 0))
     loss = loss_coef * (cv_squared(importance) + cv_squared(load))
     return ys, loss
+
+
+def local_moe(x,
+              train,
+              expert_fn,
+              num_experts,
+              k=2,
+              loss_coef=1e-2,
+              pass_x=True,
+              pass_gates=False,
+              additional_dispatch_params=None,
+              name=None):
+  """Call a local mixture of experts.
+
+  Args:
+    x: a tensors with shape [... , input_size]
+    train: a boolean scalar.
+    expert_fn: a function.
+    num_experts: an integer - number of experts
+    k: an integer - how many experts to use for each batch element
+    loss_coef: a scalar - multiplier on load-balancing losses
+    pass_x: a boolean. If true, x will also be dispatched to the experts.
+    pass_gates: a boolean. If true, gates will be passed to experts. Might be
+      necessary when dealing with sparse encoder-encoder decoder attention
+    additional_dispatch_params: The extra tensors that need to be sent to each
+      expert. Examples include batch batch coordinates (see
+      common_attention.local_expert_attention)
+    name: a string
+
+  Returns:
+    y: a tensor.  Has the same shape as x, except for the last dimension,
+      which is output_size.
+    extra_training_loss: a scalar.  This should be added into the overall
+      training loss of the model.  The backpropagation of this loss
+      encourages all experts to be approximately equally used across a batch.
+  """
+  with tf.variable_scope(name, default_name="local_moe"):
+    x_flat = flatten_all_but_last(x)
+    # The gates indicate which batch elements go to which tensors.
+    # load is a measure of approximately how many examples go to each expert
+    gates, load = noisy_top_k_gating(
+        x_flat,
+        num_experts,
+        train,
+        k,
+        initializer=tf.zeros_initializer(),
+        noisy_gating=True,
+        noise_epsilon=1e-2)
+    # This magic object helps us shuffle data between datashards and experts.
+    dispatcher = SparseDispatcher(num_experts, gates)
+    expert_kwargs = {}
+    if pass_x:
+      expert_kwargs["x"] = dispatcher.dispatch(x_flat)
+    if pass_gates:
+      expert_kwargs["gates"] = dispatcher.expert_to_gates()
+    for k, v in six.iteritems(additional_dispatch_params or {}):
+      expert_kwargs[k] = dispatcher.dispatch(flatten_all_but_last(v))
+    ep = Parallelism([DEFAULT_DEV_STRING] * num_experts)
+    expert_outputs = ep(expert_fn, **expert_kwargs)
+    y_flat = dispatcher.combine(expert_outputs)
+    y = reshape_like(y_flat, x)
+    importance = tf.reduce_sum(gates, 0)
+    loss = loss_coef * (cv_squared(importance) + cv_squared(load))
+    return y, loss
