@@ -26,7 +26,6 @@ import tarfile
 
 # Dependency imports
 
-from six.moves import xrange
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import tokenizer

@@ -31,7 +31,7 @@ import tensorflow as tf
 
 
 @registry.register_model
-class RevTransformer(transformer.Transformer):
+class TransformerRevnet(transformer.Transformer):
   """Reversible Residual Transformer.
 
   Layers are reversible and are recomputed on the backward pass.
@@ -63,10 +63,10 @@ class RevTransformer(transformer.Transformer):
                                   1.0 - hparams.layer_prepostprocess_dropout)
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
-    encoder_output = rev_transformer_encoder(
+    encoder_output = transformer_revnet_encoder(
         encoder_input, encoder_self_attention_bias, hparams)
 
-    decoder_output = rev_transformer_decoder(
+    decoder_output = transformer_revnet_decoder(
         decoder_input, encoder_output, decoder_self_attention_bias,
         encoder_decoder_attention_bias, hparams)
     decoder_output = tf.expand_dims(decoder_output, 2)
@@ -74,10 +74,10 @@ class RevTransformer(transformer.Transformer):
     return decoder_output
 
 
-def rev_transformer_encoder(encoder_input,
-                            encoder_self_attention_bias,
-                            hparams,
-                            name="encoder"):
+def transformer_revnet_encoder(encoder_input,
+                               encoder_self_attention_bias,
+                               hparams,
+                               name="encoder"):
   """A stack of transformer layers.
 
   Args:
@@ -137,12 +137,12 @@ def rev_transformer_encoder(encoder_input,
   return common_layers.layer_preprocess(y, hparams)
 
 
-def rev_transformer_decoder(decoder_input,
-                            encoder_output,
-                            decoder_self_attention_bias,
-                            encoder_decoder_attention_bias,
-                            hparams,
-                            name="decoder"):
+def transformer_revnet_decoder(decoder_input,
+                               encoder_output,
+                               decoder_self_attention_bias,
+                               encoder_decoder_attention_bias,
+                               hparams,
+                               name="decoder"):
   """A stack of transformer layers.
 
   Args:
@@ -218,8 +218,8 @@ def rev_transformer_decoder(decoder_input,
 
 
 @registry.register_hparams
-def rev_transformer_base():
-  """Base hparams for RevTransformer."""
+def transformer_revnet_base():
+  """Base hparams for TransformerRevnet."""
   hparams = transformer.transformer_big()
 
   # Use settings from transformer_n_da
@@ -231,11 +231,11 @@ def rev_transformer_base():
 
 
 @registry.register_hparams
-def rev_transformer_big():
-  """Base hparams for RevTransformer."""
-  hparams = rev_transformer_base()
+def transformer_revnet_big():
+  """Base hparams for TransformerRevnet."""
+  hparams = transformer_revnet_base()
 
-  # The RevTransformer uses significantly less memory than the Transformer.
+  # The TransformerRevnet uses significantly less memory than the Transformer.
   # Increase batch size and model size.
   hparams.batch_size *= 2
   hparams.hidden_size *= 2

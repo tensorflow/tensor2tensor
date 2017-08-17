@@ -23,7 +23,6 @@ import math
 
 # Dependency imports
 
-from six.moves import xrange
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
 
