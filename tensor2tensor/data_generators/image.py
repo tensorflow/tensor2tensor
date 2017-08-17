@@ -199,7 +199,7 @@ class ImageImagenet(Image2ClassProblem):
           "instructions at https://github.com/tensorflow/models/blob/master"
           "/inception/README.md#getting-started")
 
-  def preprocess_examples(self, examples, mode):
+  def preprocess_examples(self, examples, mode, _):
     return imagenet_preprocess_examples(examples, mode)
 
 
@@ -638,7 +638,7 @@ class ImageMsCocoCharacters(Image2TextProblem):
   def dev_shards(self):
     return 10
 
-  def preprocess_examples(self, examples, mode):
+  def preprocess_examples(self, examples, mode, _):
     return imagenet_preprocess_examples(examples, mode)
 
   def generator(self, data_dir, tmp_dir, is_training):
