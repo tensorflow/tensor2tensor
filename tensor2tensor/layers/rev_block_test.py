@@ -55,8 +55,9 @@ class RevBlockTest(tf.test.TestCase):
     if g_side_input is None:
       g_side_input = []
 
-    x = tf.random_uniform([self.BATCH_SIZE, self.CHANNELS], dtype=tf.float32)
-    x1, x2 = tf.split(x, 2, axis=1)
+    if x is None:
+      x = tf.random_uniform([self.BATCH_SIZE, self.CHANNELS], dtype=tf.float32)
+    x1, x2 = tf.split(x, 2, axis=-1)
 
     with tf.variable_scope("rev_test") as vs:
       y1_rev, y2_rev = rev_block.rev_block(
@@ -120,6 +121,20 @@ class RevBlockTest(tf.test.TestCase):
       return tf.layers.dense(x, self.CHANNELS // 2, activation=tf.nn.relu)
 
     self._testRevBlock(f=[f1, f2, f1, f2])
+
+  def testConvAndBatchNorm(self):
+
+    x = tf.random_uniform(
+        [self.BATCH_SIZE, 10, self.CHANNELS], dtype=tf.float32)
+
+    def f(x):
+      x = tf.layers.conv1d(x, self.CHANNELS // 2, 3, padding="same")
+      x = tf.layers.batch_normalization(x, training=True)
+      x = tf.layers.conv1d(x, self.CHANNELS // 2, 3, padding="same")
+      x = tf.layers.batch_normalization(x, training=True)
+      return x
+
+    self._testRevBlock(x=x, f=f)
 
 
 class FnWithCustomGradTest(tf.test.TestCase):

@@ -282,12 +282,43 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
 
       return example
 
+    def allowed_length(ex):
+      return tf.less_equal(example_len(ex), batching_scheme["max_length"])
+
+    num_threads = 4 if is_training else 1
+    dataset = dataset.map(preprocess, num_threads=num_threads)
+    dataset = dataset.filter(allowed_length)
+
+    dataset = bucket_by_sequence_length(dataset, example_len,
+                                        batching_scheme["boundaries"],
+                                        batching_scheme["batch_sizes"])
+
+    batched_examples = dataset.make_one_shot_iterator().get_next()
+    return batched_examples
+
+
+def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
+                              bucket_batch_sizes):
+  """Bucket entries in dataset by length.
+
+  Args:
+    dataset: Dataset of dict<feature name, Tensor>.
+    example_length_fn: function from example to int, determines the length of
+      the example, which will determine the bucket it goes into.
+    bucket_boundaries: list<int>, boundaries of the buckets.
+    bucket_batch_sizes: list<int>, batch size per bucket.
+
+  Returns:
+    Dataset of padded and batched examples.
+  """
+  with tf.name_scope("bucket_by_seq_length"):
+
     def example_to_bucket_id(example):
       """Return int64 id of the length bucket for this example."""
-      seq_length = example_len(example)
+      seq_length = example_length_fn(example)
 
       # From tf.contrib.training.bucket_by_sequence_length:
-      boundaries = list(batching_scheme["boundaries"])
+      boundaries = list(bucket_boundaries)
       buckets_min = [np.iinfo(np.int32).min] + boundaries
       buckets_max = boundaries + [np.iinfo(np.int32).max]
       conditions_c = tf.logical_and(
@@ -298,7 +329,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
       return bucket_id
 
     def batching_fn(bucket_id, grouped_dataset):
-      batch_sizes = tf.constant(batching_scheme["batch_sizes"], dtype=tf.int64)
+      batch_sizes = tf.constant(bucket_batch_sizes, dtype=tf.int64)
       batch_size = batch_sizes[bucket_id]
 
       # Pad each dimension of each feature so that they match.
@@ -307,22 +338,13 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
            for name, shape in grouped_dataset.output_shapes.items()])
       return grouped_dataset.padded_batch(batch_size, padded_shapes)
 
-    def allowed_length(ex):
-      return tf.less_equal(example_len(ex), batching_scheme["max_length"])
-
-    num_threads = 4 if is_training else 1
-    dataset = dataset.map(preprocess, num_threads=num_threads)
-    dataset = dataset.filter(allowed_length)
-
-    window_size = max(batching_scheme["batch_sizes"])
+    window_size = max(bucket_batch_sizes)
     dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
                                       window_size)
-
-    batched_examples = dataset.make_one_shot_iterator().get_next()
-    return batched_examples
+    return dataset
 
 
-def bucket_boundaries(max_length, min_length=8, mantissa_bits=2):
+def _bucket_boundaries(max_length, min_length=8, mantissa_bits=2):
   """A default set of length-bucket boundaries."""
   x = min_length
   boundaries = []
@@ -356,7 +378,7 @@ def hparams_to_batching_scheme(hparams,
      a dictionary
   """
   max_length = hparams.max_length or hparams.batch_size
-  boundaries = bucket_boundaries(
+  boundaries = _bucket_boundaries(
       max_length, mantissa_bits=hparams.batching_mantissa_bits)
   batch_sizes = [
       max(1, hparams.batch_size // length)
@@ -381,7 +403,7 @@ def constant_batching_scheme(constant_batch_size_in_sequences):
   Returns:
      a dictionary
   """
-  boundaries = bucket_boundaries(1024)
+  boundaries = _bucket_boundaries(1024)
   batch_sizes = [constant_batch_size_in_sequences] * (1 + len(boundaries))
   return {
       "boundaries": boundaries,
