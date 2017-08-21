@@ -78,7 +78,8 @@ class AttentionLmMoe(t2t_model.T2TModel):
     moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
-        with tf.variable_scope("attention"):
+        with tf.variable_scope(
+            "attention_{}".format(hparams.attention_moe_type)):
           x = preprocess(x)
           if hparams.attention_moe_type == AttentionMoeType.NONE:
             y = dp(

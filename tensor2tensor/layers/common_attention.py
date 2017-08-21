@@ -997,10 +997,17 @@ def self_attention_expert(x, batch_coordinate, mask_right=True):
   """
   depth = x.get_shape().as_list()[-1]
   length = tf.shape(batch_coordinate)[0]
-  batch_coordinate = tf.squeeze(batch_coordinate, 1)
-  bias = tf.to_float(
-      tf.not_equal(tf.expand_dims(batch_coordinate, 1),
-                   tf.expand_dims(batch_coordinate, 0))) * -1e9
+
+  with tf.name_scope("expert_mask"):
+    batch_coordinate = tf.squeeze(batch_coordinate, 1)
+    # Convert to float first because of b/25387198
+    batch_coordinate = tf.to_float(batch_coordinate)
+    bc_v = tf.expand_dims(batch_coordinate, 1)
+    bc_h = tf.expand_dims(batch_coordinate, 0)
+    bias = bc_v - bc_h  # Broadcast to create [length, length] mask
+    bias = tf.minimum(1.0, tf.abs(bias))  # Theshold non zeros to 1.0
+    bias *= -1e9  # Set non zeros to -infinity
+
   if mask_right:
     bias += tf.reshape(
         attention_bias_lower_triangle(length), [length, length])
