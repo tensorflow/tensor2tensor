@@ -90,8 +90,30 @@ def _reset():
     ctr.clear()
 
 
-def _default_name(obj):
-  return _convert_camel_to_snake(obj.__name__)
+def _default_name(obj_class):
+  """Convert a class name to the registry's default name for the class.
+
+  Args:
+    obj_class: the name of a class
+
+  Returns:
+    The registry's default name for the class.
+  """
+
+  return _convert_camel_to_snake(obj_class.__name__)
+
+
+def default_object_name(obj):
+  """Convert an object to the registry's default name for the object class.
+
+  Args:
+    obj: an object instance
+
+  Returns:
+    The registry's default name for the class of the object.
+  """
+
+  return _default_name(obj.__class__)
 
 
 def register_model(name=None):

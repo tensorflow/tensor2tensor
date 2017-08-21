@@ -206,19 +206,27 @@ class TokenTextEncoder(TextEncoder):
 
   def _init_vocab(self, token_generator):
     """Initialize vocabulary with tokens from token_generator."""
-    self._id_to_token = {}
-
-    # Add reserved tokens
-    self._id_to_token.update(dict(list(enumerate(RESERVED_TOKENS))))
-
-    token_id = len(RESERVED_TOKENS)
-    for token in token_generator:
-      self._id_to_token[token_id] = token
-      token_id += 1
+    # Initialize with reserved tokens
+    self._id_to_token = dict(enumerate(RESERVED_TOKENS))
+    self._id_to_token.update(
+        enumerate(token_generator, start=len(RESERVED_TOKENS)))
 
     # _token_to_id is the reverse of _id_to_token
-    self._token_to_id = dict([(v, k)
-                              for k, v in six.iteritems(self._id_to_token)])
+    self._token_to_id = dict((v, k)
+                             for k, v in six.iteritems(self._id_to_token))
+
+  def store_to_file(self, filename):
+    """Write vocab file to disk.
+
+    Vocab files have one token per line. The file ends in a newline. Reserved
+    tokens are written to the vocab file as well.
+
+    Args:
+      filename: full path of the file to store the vocab to.
+    """
+    with tf.gfile.Open(filename, "w") as f:
+      for i in xrange(len(self._id_to_token)):
+        f.write(self._id_to_token[i] + "\n")
 
 
 def _escape_token(token, alphabet):
