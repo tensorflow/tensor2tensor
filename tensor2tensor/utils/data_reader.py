@@ -142,13 +142,6 @@ def preprocessing(examples, data_file_pattern):
       inputs = examples["inputs"]
       examples["inputs"] = resize(inputs, 16)
       examples["targets"] = resize(inputs, 64)
-    elif "image_celeba" in data_file_pattern:
-      inputs = examples["inputs"]
-      # Remove boundaries in CelebA images. Remove 40 pixels each side
-      # vertically and 20 pixels each side horizontally.
-      inputs = tf.image.crop_to_bounding_box(inputs, 40, 20, 218 - 80, 178 - 40)
-      examples["inputs"] = resize(inputs, 8)
-      examples["targets"] = resize(inputs, 32)
   elif "audio" in data_file_pattern:
     # Reshape audio to proper shape
     sample_count = tf.to_int32(examples.pop("audio/sample_count"))

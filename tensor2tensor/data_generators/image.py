@@ -66,7 +66,137 @@ class ImageProblem(problem.Problem):
     return data_fields, data_items_to_decoders
 
 
-# French street names dataset.
+@registry.register_problem("image_celeba_tune")
+class ImageCeleba(ImageProblem):
+  """CelebA dataset, aligned and cropped images."""
+  IMG_DATA = ("img_align_celeba.zip",
+              "https://drive.google.com/uc?export=download&"
+              "id=0B7EVK8r0v71pZjFTYXZWM3FlRnM")
+  LANDMARKS_DATA = ("celeba_landmarks_align",
+                    "https://drive.google.com/uc?export=download&"
+                    "id=0B7EVK8r0v71pd0FJY3Blby1HUTQ")
+  ATTR_DATA = ("celeba_attr", "https://drive.google.com/uc?export=download&"
+               "id=0B7EVK8r0v71pblRyaVFSWGxPY0U")
+
+  LANDMARK_HEADINGS = ("lefteye_x lefteye_y righteye_x righteye_y "
+                       "nose_x nose_y leftmouth_x leftmouth_y rightmouth_x "
+                       "rightmouth_y").split()
+  ATTR_HEADINGS = (
+      "5_o_Clock_Shadow Arched_Eyebrows Attractive Bags_Under_Eyes Bald Bangs "
+      "Big_Lips Big_Nose Black_Hair Blond_Hair Blurry Brown_Hair "
+      "Bushy_Eyebrows Chubby Double_Chin Eyeglasses Goatee Gray_Hair "
+      "Heavy_Makeup High_Cheekbones Male Mouth_Slightly_Open Mustache "
+      "Narrow_Eyes No_Beard Oval_Face Pale_Skin Pointy_Nose Receding_Hairline "
+      "Rosy_Cheeks Sideburns Smiling Straight_Hair Wavy_Hair Wearing_Earrings "
+      "Wearing_Hat Wearing_Lipstick Wearing_Necklace Wearing_Necktie Young"
+  ).split()
+
+  def preprocess_examples(self, examples, unused_mode, unused_hparams):
+
+    def resize(img, size):
+      return tf.to_int64(
+          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
+
+    inputs = examples["inputs"]
+    # Remove boundaries in CelebA images. Remove 40 pixels each side
+    # vertically and 20 pixels each side horizontally.
+    inputs = tf.image.crop_to_bounding_box(inputs, 40, 20, 218 - 80, 178 - 40)
+    examples["inputs"] = resize(inputs, 8)
+    examples["targets"] = resize(inputs, 32)
+    return examples
+
+  def hparams(self, defaults, model_hparams):
+    p = defaults
+    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
+    p.target_modality = ("image:identity_no_pad", None)
+    p.batch_size_multiplier = 256
+    p.max_expected_batch_size_per_shard = 4
+    p.input_space_id = 1
+    p.target_space_id = 1
+
+  def generator(self, tmp_dir, how_many, start_from=0):
+    """Image generator for CELEBA dataset.
+
+    Args:
+      tmp_dir: path to temporary storage directory.
+      how_many: how many images and labels to generate.
+      start_from: from which image to start.
+
+    Yields:
+      A dictionary representing the images with the following fields:
+      * image/encoded: the string encoding the image as JPEG,
+      * image/format: the string "jpeg" representing image format,
+    """
+    out_paths = []
+    for fname, url in [self.IMG_DATA, self.LANDMARKS_DATA, self.ATTR_DATA]:
+      path = generator_utils.maybe_download_from_drive(tmp_dir, fname, url)
+      out_paths.append(path)
+
+    img_path, landmarks_path, attr_path = out_paths  # pylint: disable=unbalanced-tuple-unpacking
+    unzipped_folder = img_path[:-4]
+    if not tf.gfile.Exists(unzipped_folder):
+      zipfile.ZipFile(img_path, "r").extractall(tmp_dir)
+
+    with tf.gfile.Open(landmarks_path) as f:
+      landmarks_raw = f.read()
+
+    with tf.gfile.Open(attr_path) as f:
+      attr_raw = f.read()
+
+    def process_landmarks(raw_data):
+      landmarks = {}
+      lines = raw_data.split("\n")
+      headings = lines[1].strip().split()
+      for line in lines[2:-1]:
+        values = line.strip().split()
+        img_name = values[0]
+        landmark_values = [int(v) for v in values[1:]]
+        landmarks[img_name] = landmark_values
+      return landmarks, headings
+
+    def process_attrs(raw_data):
+      attrs = {}
+      lines = raw_data.split("\n")
+      headings = lines[1].strip().split()
+      for line in lines[2:-1]:
+        values = line.strip().split()
+        img_name = values[0]
+        attr_values = [int(v) for v in values[1:]]
+        attrs[img_name] = attr_values
+      return attrs, headings
+
+    img_landmarks, _ = process_landmarks(landmarks_raw)
+    img_attrs, _ = process_attrs(attr_raw)
+
+    image_files = tf.gfile.Glob(unzipped_folder + "/*.jpg")
+    for filename in image_files[start_from:start_from + how_many]:
+      img_name = os.path.basename(filename)
+      landmarks = img_landmarks[img_name]
+      attrs = img_attrs[img_name]
+
+      with tf.gfile.Open(filename, "r") as f:
+        encoded_image_data = f.read()
+        yield {
+            "image/encoded": [encoded_image_data],
+            "image/format": ["jpeg"],
+            "attributes": attrs,
+            "landmarks": landmarks,
+        }
+
+  @property
+  def train_shards(self):
+    return 100
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    generator_utils.generate_dataset_and_shuffle(
+        self.generator(tmp_dir, 162770),  # train
+        self.training_filepaths(data_dir, self.train_shards, shuffled=False),
+        self.generator(tmp_dir, 19867, 162770),  # dev
+        self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
 
 
 @registry.register_problem
@@ -700,41 +830,3 @@ class ImageMsCocoTokens32k(ImageMsCocoTokens8k):
   @property
   def targeted_vocab_size(self):
     return 2**15  # 32768
-
-
-# URL and filename for CELEBA data.
-_CELEBA_NAME = "img_align_celeba"
-_CELEBA_URL = "https://drive.google.com/uc?export=download&id=0B7EVK8r0v71pZjFTYXZWM3FlRnM"
-
-
-def _get_celeba(directory):
-  """Download and extract CELEBA to directory unless it is there."""
-  # path = os.path.join(directory, _CELEBA_NAME)
-  path = generator_utils.maybe_download_from_drive(directory, _CELEBA_NAME,
-                                                   _CELEBA_URL)
-  if not tf.gfile.Exists(path):
-    zipfile.ZipFile(path + ".zip", "r").extractall(directory)
-
-
-def celeba_generator(tmp_dir, how_many, start_from=0):
-  """Image generator for CELEBA dataset.
-
-  Args:
-    tmp_dir: path to temporary storage directory.
-    how_many: how many images and labels to generate.
-    start_from: from which image to start.
-
-  Yields:
-    A dictionary representing the images with the following fields:
-    * image/encoded: the string encoding the image as JPEG,
-    * image/format: the string "jpeg" representing image format,
-  """
-  _get_celeba(tmp_dir)
-  image_files = tf.gfile.Glob(os.path.join(tmp_dir, _CELEBA_NAME) + "/*.jpg")
-  for filename in image_files[start_from:start_from + how_many]:
-    with tf.gfile.Open(filename, "r") as f:
-      encoded_image_data = f.read()
-      yield {
-          "image/encoded": [encoded_image_data],
-          "image/format": ["jpeg"],
-      }
