@@ -50,21 +50,19 @@ class DataReaderTest(tf.test.TestCase):
     generator_utils.generate_files(test_generator(), filenames)
     self.assertTrue(tf.gfile.Exists(tmp_file_path + "-train-00000-of-00001"))
 
-    train_dataset = data_reader.examples_reader(
+    examples_train = data_reader.examples_reader(
         [tmp_file_path + "*"], {
             "inputs": tf.VarLenFeature(tf.int64),
             "targets": tf.VarLenFeature(tf.int64)
         },
         training=True)
-    examples_train = train_dataset.make_one_shot_iterator().get_next()
-    eval_dataset = data_reader.examples_reader(
+    examples_eval = data_reader.examples_reader(
         [tmp_file_path + "*"], {
             "inputs": tf.VarLenFeature(tf.int64),
             "targets": tf.VarLenFeature(tf.int64),
             "floats": tf.VarLenFeature(tf.float32)
         },
         training=False)
-    examples_eval = eval_dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as session:
       # Evaluation data comes in the same order as in the file, check 10.
       for i in xrange(10):
@@ -105,17 +103,15 @@ class DataReaderTest(tf.test.TestCase):
     generator_utils.generate_files(test_generator(), filenames)
     self.assertTrue(tf.gfile.Exists(tmp_file_path + "-train-00000-of-00001"))
 
-    train_dataset = data_reader.examples_reader([tmp_file_path + "*"], {
+    examples_train = data_reader.examples_reader([tmp_file_path + "*"], {
         "inputs": tf.VarLenFeature(tf.int64),
         "targets": tf.VarLenFeature(tf.int64)
     }, True)
-    examples_train = train_dataset.make_one_shot_iterator().get_next()
     batch_train = data_reader.batch_examples(examples_train, 4)
-    eval_dataset = data_reader.examples_reader([tmp_file_path + "*"], {
+    examples_eval = data_reader.examples_reader([tmp_file_path + "*"], {
         "inputs": tf.VarLenFeature(tf.int64),
         "targets": tf.VarLenFeature(tf.int64)
     }, False)
-    examples_eval = eval_dataset.make_one_shot_iterator().get_next()
     batch_eval = data_reader.batch_examples(examples_eval, 2)
     session, coord = tf.Session(), tf.train.Coordinator()
     with session.as_default():
