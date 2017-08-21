@@ -998,31 +998,43 @@ def self_attention_expert(x, batch_coordinate, mask_right=True):
   depth = x.get_shape().as_list()[-1]
   length = tf.shape(batch_coordinate)[0]
 
-  with tf.name_scope("expert_mask"):
-    batch_coordinate = tf.squeeze(batch_coordinate, 1)
-    # Convert to float first because of b/25387198
-    batch_coordinate = tf.to_float(batch_coordinate)
-    bc_v = tf.expand_dims(batch_coordinate, 1)
-    bc_h = tf.expand_dims(batch_coordinate, 0)
-    bias = bc_v - bc_h  # Broadcast to create [length, length] mask
-    bias = tf.minimum(1.0, tf.abs(bias))  # Theshold non zeros to 1.0
-    bias *= -1e9  # Set non zeros to -infinity
+  def length_not_null(x, batch_coordinate):
+    """Branch of the graph only evaluated when length isn't null."""
+    with tf.name_scope("expert_mask"):
+      batch_coordinate = tf.squeeze(batch_coordinate, 1)
+      # Convert to float first because of b/25387198
+      batch_coordinate = tf.to_float(batch_coordinate)
+      bc_v = tf.expand_dims(batch_coordinate, 1)
+      bc_h = tf.expand_dims(batch_coordinate, 0)
+      bias = bc_v - bc_h  # Broadcast to create [length, length] mask
+      bias = tf.minimum(1.0, tf.abs(bias))  # Theshold non zeros to 1.0
+      bias *= -1e9  # Set non zeros to -infinity
 
-  if mask_right:
-    bias += tf.reshape(
-        attention_bias_lower_triangle(length), [length, length])
-  # bias has shape [length, length]
-  bias = tf.reshape(bias, [1, 1, length, length])
-  x = tf.reshape(x, [1, length, depth])
-  out = multihead_attention(x,
-                            None,
-                            bias,
-                            total_key_depth=depth,
-                            total_value_depth=depth,
-                            output_depth=depth,
-                            num_heads=1,
-                            dropout_rate=0.0)
-  out = tf.squeeze(out, 0)
+    if mask_right:
+      bias += tf.reshape(
+          attention_bias_lower_triangle(length), [length, length])
+    # bias has shape [length, length]
+    bias = tf.reshape(bias, [1, 1, length, length])
+    x = tf.reshape(x, [1, length, depth])
+    out = multihead_attention(x,
+                              None,
+                              bias,
+                              total_key_depth=depth,
+                              total_value_depth=depth,
+                              output_depth=depth,
+                              num_heads=1,
+                              dropout_rate=0.0)
+    out = tf.squeeze(out, 0)
+
+    return out
+
+  # If the length is empty, just forward an empty tensor (avoid having to
+  # evaluate multihead_attention with tensor having dim equal to zeros)
+  out = tf.cond(
+      tf.equal(length, 0),
+      lambda: tf.zeros(shape=[0, depth], dtype=tf.float32, name="empty_out"),
+      lambda: length_not_null(x, batch_coordinate),
+  )
   return out
 
 #  functools.partial(self_attention_expert, mask_right=, depth=)
