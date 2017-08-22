@@ -19,6 +19,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+import shutil
+
 # Dependency imports
 
 from tensor2tensor.data_generators import algorithmic
@@ -60,9 +63,13 @@ class TrainerUtilsTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
+    tmp_dir = tf.test.get_temp_dir()
+    shutil.rmtree(tmp_dir)
+    os.mkdir(tmp_dir)
+
     # Generate a small test dataset
     FLAGS.problems = "tiny_algo"
-    TrainerUtilsTest.data_dir = tf.test.get_temp_dir()
+    TrainerUtilsTest.data_dir = tmp_dir
     registry.problem(FLAGS.problems).generate_data(TrainerUtilsTest.data_dir,
                                                    None)
 
