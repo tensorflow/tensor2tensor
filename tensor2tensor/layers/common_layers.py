@@ -29,6 +29,7 @@ from tensor2tensor.utils import expert_utils as eu
 import tensorflow as tf
 
 from tensorflow.python.framework import function
+from tensorflow.python.framework import ops
 
 # This is a global setting. When turned off, no @function.Defun is used.
 allow_defun = False
@@ -1424,6 +1425,7 @@ def padded_cross_entropy(logits,
 
   Args:
     logits: a `Tensor` with shape `[batch, timesteps, vocab_size]`.
+      optionally a FactoredTensor.
     labels: an integer `Tensor` with shape `[batch, timesteps]`.
     label_smoothing: a floating point `Scalar`.
     weights_fn: A function from labels to weights.
@@ -1433,6 +1435,12 @@ def padded_cross_entropy(logits,
     loss_numerator: a `Scalar`.  Sum of losses.
     loss_denominator: a `Scalar.  The number of non-padding target tokens.
   """
+  if isinstance(logits, FactoredTensor):
+    return padded_cross_entropy_factored(logits,
+                                         labels,
+                                         label_smoothing,
+                                         weights_fn=weights_fn,
+                                         reduce_sum=reduce_sum)
   confidence = 1.0 - label_smoothing
   vocab_size = tf.shape(logits)[-1]
   with tf.name_scope("padded_cross_entropy", [logits, labels]):
@@ -1662,3 +1670,166 @@ def underlying_variable(t):
   for v in tf.global_variables()[len(var_index):]:
     var_index[v.name] = v
   return var_index[t.name]
+
+
+def approximate_split(x, num_splits, axis=0):
+  """Split approximately equally into num_splits parts.
+
+  Args:
+    x: a Tensor
+    num_splits: an integer
+    axis: an integer.
+
+  Returns:
+    a list of num_splits Tensors.
+  """
+  size = tf.shape(x)[axis]
+  size_splits = [
+      tf.div(size + i, num_splits) for i in xrange(num_splits)]
+  return tf.split(x, size_splits, axis=axis)
+
+
+class FactoredTensor(object):
+  """A concise factored representation of Tensor as two tensors.
+
+  This class represents the tensor tf.matmul(a, b, transpose_b=True)
+  by storing the values of Tensors a and b.
+
+  The reason for this is that the product may be too big to fully realize at
+  once, so it can be realized a part at a time.
+
+  "a" may have extra leading dimensions, in which case they are flattened out
+  before computing the matrix product, then re-expanded afterwards.
+  """
+
+  def __init__(self, a, b):
+    self._a = a
+    self._b = b
+
+  @property
+  def a(self):
+    return self._a
+
+  @property
+  def b(self):
+    return self._b
+
+  def to_tensor(self):
+    inner_dim = tf.shape(self.b)[1]
+    result_dim = tf.shape(self.b)[0]
+    flat_a = tf.reshape(self.a, [-1, inner_dim])
+    product = tf.matmul(flat_a, self.b, transpose_b=True)
+    product_shape = tf.concat([tf.shape(self.a)[:-1], [result_dim]], 0)
+    product = tf.reshape(product, product_shape)
+    product.set_shape(self.a.get_shape().as_list()[:-1]
+                      + [self.b.get_shape()[0]])
+    return product
+
+
+def _convert_factored_tensor_to_tensor(value, *args, **kwargs):
+  # call ops.convert_to_tensor to handle optional arguments appropriately
+  return ops.internal_convert_to_tensor(value.to_tensor(), *args, **kwargs)
+
+
+tf.register_tensor_conversion_function(FactoredTensor,
+                                       _convert_factored_tensor_to_tensor)
+
+
+def smoothing_cross_entropy_factored_grad(op, dy):
+  """Gradient function for smoothing_cross_entropy_factored."""
+  a = op.inputs[0]
+  b = op.inputs[1]
+  labels = op.inputs[2]
+  confidence = op.inputs[3]
+  num_splits = 32
+  vocab_size = tf.shape(b)[0]
+  labels = approximate_split(labels, num_splits)
+  a = approximate_split(a, num_splits)
+  dy = approximate_split(dy, num_splits)
+  b_grad = None
+  a_grad_parts = []
+  deps = []
+  for part in xrange(num_splits):
+    with tf.control_dependencies(deps):
+      logits = tf.matmul(a[part], b, transpose_b=True)
+      output_part = smoothing_cross_entropy(
+          logits, labels[part], vocab_size, confidence)
+      a_grad_part, b_grad_part = tf.gradients(
+          ys=[output_part],
+          xs=[a[part], b],
+          grad_ys=[dy[part]])
+      a_grad_parts.append(a_grad_part)
+      if part > 0:
+        b_grad += b_grad_part
+      else:
+        b_grad = b_grad_part
+      deps = [b_grad, a_grad_part]
+  a_grad = tf.concat(a_grad_parts, 0)
+  return a_grad, b_grad, None, None
+
+
+@function.Defun(noinline=True,
+                python_grad_func=smoothing_cross_entropy_factored_grad,
+                compiled=True, separate_compiled_gradients=True)
+def smoothing_cross_entropy_factored(
+    a, b, labels, confidence):
+  """Memory-efficient computation of smoothing cross-entropy.
+
+  Avoids realizing the entire logits matrix at once.
+
+  Args:
+    a: a Tensor with shape [batch, inner_dim]
+    b: a Tensor with shape [vocab_size, inner_dim]
+    labels: an integer Tensor with shape [batch]
+    confidence: a float
+
+  Returns:
+    A Tensor with shape [batch]
+  """
+  num_splits = 32
+  vocab_size = tf.shape(b)[0]
+  labels = approximate_split(labels, num_splits)
+  a = approximate_split(a, num_splits)
+  parts = []
+  for part in xrange(num_splits):
+    with tf.control_dependencies(parts[-1:]):
+      logits = tf.matmul(a[part], b, transpose_b=True)
+      parts.append(
+          smoothing_cross_entropy(logits, labels[part], vocab_size, confidence))
+  return tf.concat(parts, 0)
+
+
+def padded_cross_entropy_factored(factored_logits,
+                                  labels,
+                                  label_smoothing,
+                                  weights_fn=weights_nonzero,
+                                  reduce_sum=True):
+  """Memory-efficient computation of smoothing cross-entropy.
+
+  Avoids realizing the entire logits matrix at once.
+
+  Args:
+    factored_logits: a `FactoredTensor` representing a Tensor
+       with shape `[batch, timesteps, vocab_size]`.
+    labels: an integer `Tensor` with shape `[batch, timesteps]`.
+    label_smoothing: a floating point `Scalar`.
+    weights_fn: A function from labels to weights.
+    reduce_sum: a Boolean, whether to sum at the end or not.
+
+  Returns:
+    loss_numerator: a `Scalar`.  Sum of losses.
+    loss_denominator: a `Scalar.  The number of non-padding target tokens.
+  """
+  a = factored_logits.a
+  b = factored_logits.b
+  confidence = 1.0 - label_smoothing
+  with tf.name_scope("padded_cross_entropy_factored", [a, b, labels]):
+    labels_flat = tf.reshape(labels, [-1])
+    a_flat = tf.reshape(a, [-1, tf.shape(b)[1]])
+    xent = smoothing_cross_entropy_factored(
+        a_flat, b, labels_flat, tf.convert_to_tensor(confidence))
+    xent = tf.reshape(xent, tf.shape(labels))
+    weights = weights_fn(labels)
+    if not reduce_sum:
+      return xent * weights, weights
+    return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)

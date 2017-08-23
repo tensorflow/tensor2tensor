@@ -68,6 +68,8 @@ def basic_params1():
       learning_rate=0.1,
       sampling_method="argmax",  # "argmax" or "random"
       problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
+      # expand the logits a piece at a time - saves memory.
+      factored_logits=int(False),
       multiply_embedding_mode="sqrt_depth",
       # Parameters related to mixtures of experts.
       moe_hidden_sizes="2048",  # hidden layer sizes (comma-separated)

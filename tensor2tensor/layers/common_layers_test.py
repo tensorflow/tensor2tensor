@@ -392,6 +392,84 @@ class CommonLayersTest(tf.test.TestCase):
       actual = session.run(layer)
     self.assertEqual(actual.shape, (5, 4, 32))
 
+  def testPaddingCrossEntropyFactored(self):
+    vocab_size = 19
+    rows = 5
+    cols = 4
+    depth = 11
+    label_smoothing = 0.1
+    features = np.random.rand(rows, cols, depth)
+    weights = np.random.rand(vocab_size, depth)
+    labels = np.random.randint(0, vocab_size - 1, size=(rows, cols))
+    with self.test_session() as session:
+      features = tf.to_float(features)
+      weights = tf.to_float(weights)
+      labels = tf.to_int32(labels)
+      logits = tf.matmul(tf.reshape(features, [rows * cols, depth]),
+                         weights, transpose_b=True)
+      logits = tf.reshape(logits, [rows, cols, vocab_size])
+      loss_num, loss_den = common_layers.padded_cross_entropy(
+          logits, labels, label_smoothing=label_smoothing, reduce_sum=False)
+      factored_logits = common_layers.FactoredTensor(features, weights)
+      loss_num_f, loss_den_f = common_layers.padded_cross_entropy_factored(
+          factored_logits, labels=labels, label_smoothing=label_smoothing,
+          reduce_sum=False)
+      num, den, num_f, den_f = session.run(
+          [loss_num, loss_den, loss_num_f, loss_den_f])
+    self.assertEqual(num.shape, (rows, cols))
+    self.assertEqual(den.shape, (rows, cols))
+    self.assertEqual(num_f.shape, (rows, cols))
+    self.assertEqual(den_f.shape, (rows, cols))
+    self.assertAllClose(num, num_f)
+    self.assertAllClose(den, den_f)
+
+  def testPaddingCrossEntropyFactoredGrad(self):
+    vocab_size = 19
+    rows = 5
+    cols = 4
+    depth = 11
+    label_smoothing = 0.1
+    features = np.random.rand(rows, cols, depth)
+    weights = np.random.rand(vocab_size, depth)
+    labels = np.random.randint(0, vocab_size - 1, size=(rows, cols))
+    with self.test_session() as session:
+      features = tf.to_float(features)
+      weights = tf.to_float(weights)
+      labels = tf.to_int32(labels)
+      logits = tf.matmul(tf.reshape(features, [rows * cols, depth]),
+                         weights, transpose_b=True)
+      logits = tf.reshape(logits, [rows, cols, vocab_size])
+      loss_num, loss_den = common_layers.padded_cross_entropy(
+          logits, labels, label_smoothing=label_smoothing, reduce_sum=False)
+      factored_logits = common_layers.FactoredTensor(features, weights)
+      loss_num_factored, loss_den_factored = (
+          common_layers.padded_cross_entropy_factored(
+              factored_logits, labels=labels, label_smoothing=label_smoothing,
+              reduce_sum=False))
+      df, dw = tf.gradients(ys=[loss_num, loss_den], xs=[features, weights])
+      df_factored, dw_factored = tf.gradients(
+          ys=[loss_num_factored, loss_den_factored], xs=[features, weights])
+      actual_df, actual_dw, actual_df_factored, actual_dw_factored = (
+          session.run([df, dw, df_factored, dw_factored]))
+    self.assertEqual(actual_df.shape, (rows, cols, depth))
+    self.assertEqual(actual_dw.shape, (vocab_size, depth))
+    self.assertEqual(actual_df_factored.shape, (rows, cols, depth))
+    self.assertEqual(actual_dw_factored.shape, (vocab_size, depth))
+    self.assertAllClose(actual_df, actual_df_factored)
+    self.assertAllClose(actual_dw, actual_dw_factored)
+
+  def testFactoredTensorImplicitConversion(self):
+    a = np.random.rand(3, 4, 5)
+    b = np.random.rand(6, 5)
+    c = np.random.rand(3, 4, 6)
+    with self.test_session() as session:
+      # a factored representation of a Tensor of shape (3, 4, 6)
+      factored = common_layers.FactoredTensor(tf.to_float(a), tf.to_float(b))
+      # implicitly converts factored to a Tensor (performing the matmul)
+      d = factored + tf.to_float(c)
+      out = session.run(d)
+    self.assertEqual(out.shape, (3, 4, 6))
+
 
 if __name__ == "__main__":
   tf.test.main()
