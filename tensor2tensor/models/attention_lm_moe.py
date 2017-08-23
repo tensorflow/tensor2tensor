@@ -32,6 +32,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import diet
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -76,6 +77,14 @@ class AttentionLmMoe(t2t_model.T2TModel):
            1.0 - hparams.layer_prepostprocess_dropout)
     extra_loss = 0.0
     moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
+    if hparams.diet_experts:
+      hsize, = moe_hidden_sizes
+      diet_optimizer = diet.DietAdamOptimizer(diet.diet_adam_optimizer_params())
+      expert_fn = lambda x: diet.diet_expert(x, hsize, diet_optimizer)
+    else:
+      expert_fn = expert_utils.ffn_expert_fn(
+          hparams.hidden_size, moe_hidden_sizes,
+          hparams.hidden_size)
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope(
@@ -116,9 +125,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 preprocess(x),
                 hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
                 input_size=hparams.hidden_size,
-                expert_fn=expert_utils.ffn_expert_fn(
-                    hparams.hidden_size, moe_hidden_sizes,
-                    hparams.hidden_size),
+                expert_fn=expert_fn,
                 num_experts=hparams.moe_num_experts,
                 k=hparams.moe_k,
                 loss_coef=hparams.moe_loss_coef)
@@ -207,6 +214,7 @@ def attention_lm_moe_base():
   # moe params. local attention moe.
   hparams.add_hparam("attention_moe_type", AttentionMoeType.NONE)
   hparams.add_hparam("attention_num_experts", 16)
+  hparams.add_hparam("diet_experts", int(False))
   return hparams
 
 
@@ -253,8 +261,8 @@ def attention_lm_attention_moe_tiny():
   """
   hparams = attention_lm_moe_small()
   hparams.moe_layers = ""
-  hparams.attention_num_experts = 16
-  hparams.filter_size = 512
+  hparams.attention_num_experts = 128
+  hparams.filter_size = 8192
   hparams.attention_moe_type = AttentionMoeType.LOCAL
   return hparams
 
@@ -301,6 +309,32 @@ def attention_lm_moe_large():
   hparams.moe_hidden_sizes = "4096"
   hparams.moe_num_experts = 128
   hparams.layer_prepostprocess_dropout = 0.2
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_large_diet():
+  hparams = attention_lm_moe_large()
+  hparams.diet_experts = int(True)
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_32b_diet():
+  """Unnecessarily large model with 32B params - because we can."""
+  hparams = attention_lm_moe_large_diet()
+  hparams.moe_hidden_sizes = "16384"
+  hparams.moe_num_experts = 1024
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_24b_diet():
+  """Unnecessarily large model with 24B params - because we can."""
+  hparams = attention_lm_moe_large_diet()
+  hparams.moe_hidden_sizes = "12288"
+  hparams.moe_num_experts = 1024
+  hparams.batch_size = 4096
   return hparams
 
 

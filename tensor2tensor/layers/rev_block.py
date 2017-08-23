@@ -30,8 +30,8 @@ import re
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
+from tensor2tensor.layers.common_layers import underlying_variable_ref
 import tensorflow as tf
-from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import function
 
 LAYER_RE = re.compile(".*revlayer_([0-9]*)/([fg])/.*")
@@ -149,16 +149,6 @@ def _rev_block_forward(x1,
 
   y1, y2 = out
   return y1, y2
-
-
-def _underlying_variable(t):
-  """Find the underlying variable ref, ignoring Identity ops."""
-  while t.op.type == "Identity":
-    t = t.op.inputs[0]
-  if t.dtype == dtypes.float32_ref and "Variable" in t.op.type:
-    return t
-  else:
-    return None
 
 
 def fn_with_custom_grad(grad_fn):
@@ -331,7 +321,7 @@ def rev_block(x1,
     g_vars_idxs = [[] for _ in range(num_layers)]
 
     for i, t in enumerate(variables):
-      ref = _underlying_variable(t)
+      ref = underlying_variable_ref(t)
 
       # Use the name to identify the layer number and function (f or g)
       regex = LAYER_RE.match(ref.name)

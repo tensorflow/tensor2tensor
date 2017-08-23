@@ -1625,3 +1625,40 @@ def ravanbakhsh_set_layer(layer_size,
         inputs - tf.expand_dims(global_pool_1d(inputs, mask=mask), axis=1),
         activation_fn=activation_fn,
         name=name)
+
+
+def underlying_variable_ref(t):
+  """Find the underlying variable ref, ignoring Identity ops.
+
+  Args:
+    t: a Tensor
+
+  Returns:
+    a Tensor that is a variable ref, or None on error.
+  """
+  while t.op.type == "Identity":
+    t = t.op.inputs[0]
+  if "Variable" in t.op.type:
+    return t
+  else:
+    return None
+
+
+def underlying_variable(t):
+  """Find the underlying tf.Variable object.
+
+  Args:
+    t: a Tensor
+
+  Returns:
+    a tf.Varaible object.
+  """
+  t = underlying_variable_ref(t)
+  assert t is not None
+  # make sure that the graph has a variable index and that it is up-to-date
+  if not hasattr(tf.get_default_graph(), "var_index"):
+    tf.get_default_graph().var_index = {}
+  var_index = tf.get_default_graph().var_index
+  for v in tf.global_variables()[len(var_index):]:
+    var_index[v.name] = v
+  return var_index[t.name]

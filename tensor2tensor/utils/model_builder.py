@@ -46,6 +46,24 @@ FLAGS = tf.flags.FLAGS
 IMAGE_DECODE_LENGTH = 100
 
 
+def log_variable_sizes(var_list, tag):
+  """Log the sizes and shapes of variables, and the total size.
+
+  Args:
+    var_list: a list of varaibles
+    tag: a string
+  """
+  name_to_var = {v.name: v for v in var_list}
+  total_size = 0
+  for v_name in sorted(list(name_to_var)):
+    v = name_to_var[v_name]
+    v_size = int(np.prod(np.array(v.shape.as_list())))
+    tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
+                    v.name[:-2].ljust(80), str(v.shape).ljust(20), v_size)
+    total_size += v_size
+  tf.logging.info("%s Total size: %d", tag, total_size)
+
+
 def build_model_fn(model, hparams):
   """Returns a function to build the model.
 
@@ -288,8 +306,6 @@ def build_model_fn(model, hparams):
     for v_name in sorted(list(all_weights)):
       v = all_weights[v_name]
       v_size = int(np.prod(np.array(v.shape.as_list())))
-      tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
-                      v.name[:-2].ljust(80), str(v.shape).ljust(20), v_size)
       total_size += v_size
       if my_hp.weight_decay > 0.0 and len(v.shape.as_list()) > 1:
         # Add weight regularization if set and the weight is not a bias (dim>1).
@@ -305,11 +321,12 @@ def build_model_fn(model, hparams):
           noise_op = v.assign_add(noise)
         with tf.control_dependencies([noise_op]):
           total_loss = tf.identity(total_loss)
-    tf.logging.info("Total trainable variables size: %d", total_size)
     if my_hp.weight_decay > 0.0:
       total_loss += weight_decay_loss * my_hp.weight_decay
     total_loss = tf.identity(total_loss, name="total_loss")
-
+    log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
+    diet_vars = [v for v in tf.global_variables() if hasattr(v, "optimizer")]
+    log_variable_sizes(diet_vars, "Diet Varaibles")
     # Define the train_op for the TRAIN mode.
     opt = _ConditionalOptimizer(my_hp.optimizer, learning_rate, my_hp)
     tf.logging.info("Computing gradients for global model_fn.")
