@@ -55,13 +55,13 @@ def hard_tanh(x, saturation_limit=0.9):
 def inverse_exp_decay(max_step, min_value=0.01):
   """Inverse-decay exponentially from 0.01 to 1.0 reached at max_step."""
   inv_base = tf.exp(tf.log(min_value) / float(max_step))
-  step = tf.to_float(tf.contrib.framework.get_global_step())
+  step = tf.to_float(tf.train.get_global_step())
   return inv_base**tf.maximum(float(max_step) - step, 0.0)
 
 
 def inverse_lin_decay(max_step, min_value=0.01):
   """Inverse-decay linearly from 0.01 to 1.0 reached at max_step."""
-  step = tf.to_float(tf.contrib.framework.get_global_step())
+  step = tf.to_float(tf.train.get_global_step())
   progress = tf.minimum(step / float(max_step), 1.0)
   return progress * (1.0 - min_value) + min_value
 

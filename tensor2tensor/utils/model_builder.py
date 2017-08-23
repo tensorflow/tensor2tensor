@@ -319,7 +319,7 @@ def build_model_fn(model, hparams):
     train_op = tf.contrib.layers.optimize_loss(
         name="training",
         loss=total_loss,
-        global_step=tf.contrib.framework.get_global_step(),
+        global_step=tf.train.get_global_step(),
         learning_rate=learning_rate,
         clip_gradients=my_hp.clip_grad_norm or None,
         gradient_noise_scale=hparams.grad_noise_scale or None,

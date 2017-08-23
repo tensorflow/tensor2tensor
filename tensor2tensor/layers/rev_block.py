@@ -28,6 +28,8 @@ import re
 
 # Dependency imports
 
+from six.moves import xrange  # pylint: disable=redefined-builtin
+
 import tensorflow as tf
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import function

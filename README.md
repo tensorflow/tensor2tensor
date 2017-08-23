@@ -34,7 +34,7 @@ trains an English-German translation model, and lets you use it interactively:
 pip install tensor2tensor && t2t-trainer \
   --generate_data \
   --data_dir=~/t2t_data \
-  --problems=wmt_ende_tokens_32k \
+  --problems=translate_ende_wmt32k \
   --model=transformer \
   --hparams_set=transformer_base_single_gpu \
   --output_dir=~/t2t_train/base \
@@ -72,7 +72,7 @@ pip install tensor2tensor
 # You can easily swap between them (and add new ones).
 t2t-trainer --registry_help
 
-PROBLEM=wmt_ende_tokens_32k
+PROBLEM=translate_ende_wmt32k
 MODEL=transformer
 HPARAMS=transformer_base_single_gpu
 
@@ -277,7 +277,7 @@ registrations.
 To add a new dataset, subclass
 [`Problem`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py)
 and register it with `@registry.register_problem`. See
-[`WMTEnDeTokens8k`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt.py)
+[`TranslateEndeWmt8k`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt.py)
 for an example.
 
 Also see the [data generators

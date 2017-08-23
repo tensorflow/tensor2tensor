@@ -21,6 +21,8 @@ from __future__ import print_function
 
 # Dependency imports
 
+from six.moves import xrange  # pylint: disable=redefined-builtin
+
 from tensor2tensor.data_generators import algorithmic
 
 import tensorflow as tf
