@@ -343,7 +343,7 @@ def get_data_filepatterns(data_dir, mode):
 def decode(estimator):
   if FLAGS.decode_interactive:
     decoding.decode_interactively(estimator)
-  elif FLAGS.decode_from_file is not None:
+  elif FLAGS.decode_from_file is not None and FLAGS.decode_from_file is not "":
     decoding.decode_from_file(estimator, FLAGS.decode_from_file)
   elif FLAGS.decode_from_dataset:
     decoding.decode_from_dataset(estimator)

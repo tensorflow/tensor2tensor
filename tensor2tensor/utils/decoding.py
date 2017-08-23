@@ -74,22 +74,19 @@ def decode_from_dataset(estimator):
         decoded_outputs = " ".join(map(str, outputs.flatten()))
         decoded_targets = " ".join(map(str, targets.flatten()))
       else:
-        decoded_outputs = targets_vocab.decode(
-            _save_until_eos(outputs.flatten()))
-        decoded_targets = targets_vocab.decode(
-            _save_until_eos(targets.flatten()))
+        decoded_outputs = " ".join(map(
+            str, targets_vocab.decode(_save_until_eos(outputs.flatten()))))
+        decoded_targets = " ".join(map(
+            str, targets_vocab.decode(_save_until_eos(targets.flatten()))))
 
       tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
       tf.logging.info("Inference results TARGET: %s" % decoded_targets)
-      if FLAGS.decode_to_file:
-        output_filepath = FLAGS.decode_to_file + ".outputs." + problem
-        output_file = tf.gfile.Open(output_filepath, "a")
-        output_file.write(decoded_outputs + "\n")
-        target_filepath = FLAGS.decode_to_file + ".targets." + problem
-        target_file = tf.gfile.Open(target_filepath, "a")
-        target_file.write(decoded_targets + "\n")
+      return decoded_outputs, decoded_targets
+
     result_iter = estimator.predict(input_fn=infer_input_fn, as_iterable=True)
     count = 0
+    agg_outputs = []
+    agg_targets = []
     for result in result_iter:
       # predictions from the test input. We use it to log inputs and decodes.
       inputs = result["inputs"]
@@ -99,13 +96,25 @@ def decode_from_dataset(estimator):
         output_beams = np.split(outputs, FLAGS.decode_beam_size, axis=0)
         for k, beam in enumerate(output_beams):
           tf.logging.info("BEAM %d:" % k)
-          log_fn(inputs, targets, beam, problem, count)
+          o, t = log_fn(inputs, targets, beam, problem, count)
+          agg_outputs.append(o)
+          agg_targets.append(t)
       else:
-        log_fn(inputs, targets, outputs, problem, count)
+        o, t = log_fn(inputs, targets, outputs, problem, count)
+        agg_outputs.append(o)
+        agg_targets.append(t)
 
       count += 1
       if FLAGS.decode_num_samples != -1 and count >= FLAGS.decode_num_samples:
         break
+    if FLAGS.decode_to_file:
+      output_filepath = FLAGS.decode_to_file + ".outputs." + problem
+      output_file = tf.gfile.Open(output_filepath, "w")
+      target_filepath = FLAGS.decode_to_file + ".targets." + problem
+      target_file = tf.gfile.Open(target_filepath, "w")
+      for o, t in zip(agg_outputs, agg_targets):
+        output_file.write(str(o)+"\n")
+        target_file.write(str(t)+"\n")
     tf.logging.info("Completed inference on %d samples." % count)
 
 
