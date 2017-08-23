@@ -977,7 +977,13 @@ def coordinate_tensor(shape, axis):
   return tf.zeros(shape, dtype=tf.int32) + tf.reshape(r, r_shape)
 
 
-def self_attention_expert(x, batch_coordinate, mask_right=True):
+def self_attention_expert(
+    x,
+    batch_coordinate,
+    mask_right=True,
+    attention_kq_size=None,
+    attention_v_size=None,
+):
   """Implementing attention that runs inside each expert.
 
   Args:
@@ -988,6 +994,8 @@ def self_attention_expert(x, batch_coordinate, mask_right=True):
       positions from different sequences don't attend to each other.
     mask_right: A bool. If true, we will not attend to positions on the right,
       just as decoder self attention.
+    attention_kq_size (int): dimension used for the attention key, and query
+    attention_v_size (int): dimension used for the attention value
 
   Returns:
     out: A tensor of shape [batch, depth].
@@ -999,6 +1007,9 @@ def self_attention_expert(x, batch_coordinate, mask_right=True):
   """
   depth = x.get_shape().as_list()[-1]
   length = tf.shape(batch_coordinate)[0]
+
+  attention_kq_size = attention_kq_size or depth
+  attention_v_size = attention_v_size or depth
 
   def length_not_null(x, batch_coordinate):
     """Branch of the graph only evaluated when length isn't null."""
@@ -1021,8 +1032,8 @@ def self_attention_expert(x, batch_coordinate, mask_right=True):
     out = multihead_attention(x,
                               None,
                               bias,
-                              total_key_depth=depth,
-                              total_value_depth=depth,
+                              total_key_depth=attention_kq_size,
+                              total_value_depth=attention_v_size,
                               output_depth=depth,
                               num_heads=1,
                               dropout_rate=0.0)
@@ -1042,8 +1053,14 @@ def self_attention_expert(x, batch_coordinate, mask_right=True):
 #  functools.partial(self_attention_expert, mask_right=, depth=)
 
 
-def local_expert_attention(x, k, loss_coef, attention_num_experts, train=True,
-                           mask_right=True):
+def local_expert_attention(
+    x,
+    k,
+    loss_coef,
+    attention_num_experts,
+    train=True,
+    **kwargs
+):
   """Attention using a mixture of experts.
 
     Positions sent to the same expert can attend to each other.
@@ -1056,8 +1073,7 @@ def local_expert_attention(x, k, loss_coef, attention_num_experts, train=True,
     loss_coef: a scalar. A multiplier for the expert loss
     attention_num_experts: The number of experts to use
     train: a boolean for the current mode
-    mask_right: A boolean. If true, we will mask out positions to the right
-      for self-attention.
+    **kwargs: Arguments to forward to self_attention_expert
 
   Returns:
     y: a Tensor with shape [batch, length, depth]
@@ -1071,7 +1087,7 @@ def local_expert_attention(x, k, loss_coef, attention_num_experts, train=True,
     return expert_utils.local_moe(
         x,
         train,
-        partial(self_attention_expert, mask_right=mask_right),
+        partial(self_attention_expert, **kwargs),
         attention_num_experts,
         k=k,
         loss_coef=loss_coef,

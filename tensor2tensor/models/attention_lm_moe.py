@@ -110,7 +110,9 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 loss_coef=1e-2,
                 attention_num_experts=hparams.attention_num_experts,
                 train=hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
-                mask_right=True)
+                mask_right=True,
+                attention_kq_size=hparams.attention_kq_size,
+                attention_v_size=hparams.attention_v_size)
             # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
             extra_loss += tf.add_n(loss)/dp.n
           else:
@@ -214,7 +216,20 @@ def attention_lm_moe_base():
   # moe params. local attention moe.
   hparams.add_hparam("attention_moe_type", AttentionMoeType.NONE)
   hparams.add_hparam("attention_num_experts", 16)
+  # Key, query and value dimensions for the attention
+  hparams.add_hparam("attention_kq_size", 64)
+  hparams.add_hparam("attention_v_size", 64)
   hparams.add_hparam("diet_experts", int(False))
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_base_ae():
+  """Base model with attention expert."""
+  hparams = attention_lm_moe_base()
+  hparams.attention_moe_type = AttentionMoeType.LOCAL
+  hparams.max_length = hparams.batch_size
+  hparams.eval_drop_long_sequences = int(True)
   return hparams
 
 
