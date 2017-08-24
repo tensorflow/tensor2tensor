@@ -79,13 +79,17 @@ def basic_params1():
       # Sequences of operations to perform on layer input and layer output.
       # Used by common_layers.layer_preprocess, common_layers.layer_postprocess
       # Each character repsesnts an operation:
-      #   d: apply dropout
-      #   n: apply normalization (see norm_type and norm_epsilon)
-      #   a: add layer input (residual connection - only during postprocess)
+      # none: no preprocessing
+      #    d: apply dropout
+      #    n: apply normalization (see norm_type and norm_epsilon)
+      #    a: add layer input (residual connection - only during postprocess)
+      # The special string "none" is used instead of the empty string
+      # to indicate no pre/postprocesisng, since the empty string causes
+      # trouble for hyperparameter tuning.
       # TODO(noam): The current settings ("", "dan") are the published version
       # of the transformer.  ("n", "da") seems better for harder-to-learn
       # models, so it should probably be the default.
-      layer_preprocess_sequence="",
+      layer_preprocess_sequence="none",
       layer_postprocess_sequence="dan",
       # dropout rate to use during layer_preprocess and layer_postprocess
       layer_prepostprocess_dropout=0.1,

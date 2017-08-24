@@ -519,6 +519,8 @@ def layer_prepostprocess(previous_value,
     a Tensor
   """
   with tf.variable_scope(name):
+    if sequence == "none":
+      return x
     for c in sequence:
       if c == "a":
         x += previous_value
