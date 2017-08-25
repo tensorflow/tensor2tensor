@@ -301,9 +301,24 @@ _DATA_FILE_URLS = [
 
 def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
                                 generator_fn):
-  """Inner implementation for vocab generators."""
-  vocab_filepath = os.path.join(data_dir, vocab_filename)
-  if tf.gfile.Exists(vocab_filepath):
+  """Inner implementation for vocab generators.
+
+  Args:
+    data_dir: The base directory where data and vocab files are stored. If None,
+        then do not save the vocab even if it doesn't exist.
+    vocab_filename: relative filename where vocab file is stored
+    vocab_size: target size of the vocabulary constructed by SubwordTextEncoder
+    generator_fn: a generator that produces tokens from the vocabulary
+
+  Returns:
+    A SubwordTextEncoder vocabulary object.
+  """
+  if data_dir is None:
+    vocab_filepath = None
+  else:
+    vocab_filepath = os.path.join(data_dir, vocab_filename)
+
+  if vocab_filepath is not None and tf.gfile.Exists(vocab_filepath):
     tf.logging.info("Found vocab file: %s", vocab_filepath)
     vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
     return vocab
@@ -316,7 +331,9 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
 
   vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
       vocab_size, token_counts, 1, 1e3)
-  vocab.store_to_file(vocab_filepath)
+
+  if vocab_filepath is not None:
+    vocab.store_to_file(vocab_filepath)
   return vocab
 
 
