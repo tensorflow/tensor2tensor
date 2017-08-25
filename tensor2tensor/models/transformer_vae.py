@@ -121,6 +121,7 @@ def vae(x, hparams, name):
 def nearest(x, means, hparams):
   """Find the nearest means to elements in x."""
   x, means = tf.stop_gradient(x), tf.stop_gradient(means)
+  means = tf.nn.l2_normalize(means, dim=1)
   x_flat = tf.reshape(x, [-1, hparams.hidden_size])
   # dist = tf.reduce_sum(tf.square(x_flat - tf.expand_dims(means, 0)), axis=2)
   dist = - tf.matmul(x_flat, means, transpose_b=True)
@@ -213,7 +214,6 @@ def vae_compress(x, c, ed, hparams, compress_name, decompress_name, reuse=None):
         cur, hparams.hidden_size, [((1, 1), (1, 1))], name="mid_conv")
     cur = tf.nn.l2_normalize(cur, dim=3)
     means = tf.get_variable("z_to_dense", [hparams.v_size, hparams.hidden_size])
-    means = tf.nn.l2_normalize(means, dim=1)
     # z, kl_loss, mu, log_sigma = vae(cur, hparams, name="vae")
     # z_true, z_sample, kl_loss = dvae(cur, hparams, name="dvae")
     z_true, z_sample, kl_loss = kmeans(cur, means, hparams, name="kmeans")
@@ -288,7 +288,7 @@ def vae_transformer_internal(inputs, targets, target_space, hparams):
     z, kl, r = vae_compress(tf.expand_dims(targets, axis=2),
                             tf.expand_dims(inputs, axis=2),
                             ed_bias, hparams, "vae_compress", "vae_decompress")
-    kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 2.0))
+    kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.5))
     r *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 2.0))
     losses = {"kl": kl, "reconstruction": r}
     return z, losses
