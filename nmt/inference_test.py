@@ -47,7 +47,7 @@ class InferenceTest(tf.test.TestCase):
     else:
       raise ValueError("Unknown model architecture")
 
-    infer_model = inference.create_infer_model(model_creator, hparams)
+    infer_model = model_helper.create_infer_model(model_creator, hparams)
     with self.test_session(graph=infer_model.graph) as sess:
       loaded_model, global_step = model_helper.create_or_load_model(
           infer_model.model, out_dir, sess, "infer_name")

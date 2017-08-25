@@ -15,7 +15,6 @@
 """For training NMT models."""
 from __future__ import print_function
 
-import collections
 import math
 import os
 import random
@@ -28,125 +27,15 @@ from . import gnmt_model
 from . import inference
 from . import model as nmt_model
 from . import model_helper
-from .utils import iterator_utils
 from .utils import misc_utils as utils
 from .utils import nmt_utils
-from .utils import vocab_utils
 
 utils.check_tensorflow_version()
 
 __all__ = [
-    "create_train_model", "create_eval_model", "run_sample_decode",
+    "run_sample_decode",
     "run_internal_eval", "run_external_eval", "run_full_eval", "train"
 ]
-
-
-class TrainModel(
-    collections.namedtuple("TrainModel", ("graph", "model", "iterator",
-                                          "skip_count_placeholder"))):
-  pass
-
-
-def create_train_model(
-    model_creator, hparams, scope=None, single_cell_fn=None,
-    model_device_fn=None):
-  """Create train graph, model, and iterator."""
-  src_file = "%s.%s" % (hparams.train_prefix, hparams.src)
-  tgt_file = "%s.%s" % (hparams.train_prefix, hparams.tgt)
-  src_vocab_file = hparams.src_vocab_file
-  tgt_vocab_file = hparams.tgt_vocab_file
-
-  graph = tf.Graph()
-
-  with graph.as_default():
-    src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
-        src_vocab_file, tgt_vocab_file, hparams.share_vocab)
-
-    src_dataset = tf.contrib.data.TextLineDataset(src_file)
-    tgt_dataset = tf.contrib.data.TextLineDataset(tgt_file)
-    skip_count_placeholder = tf.placeholder(shape=(), dtype=tf.int64)
-
-    iterator = iterator_utils.get_iterator(
-        src_dataset,
-        tgt_dataset,
-        src_vocab_table,
-        tgt_vocab_table,
-        batch_size=hparams.batch_size,
-        sos=hparams.sos,
-        eos=hparams.eos,
-        source_reverse=hparams.source_reverse,
-        random_seed=hparams.random_seed,
-        num_buckets=hparams.num_buckets,
-        src_max_len=hparams.src_max_len,
-        tgt_max_len=hparams.tgt_max_len,
-        skip_count=skip_count_placeholder)
-
-    # Note: One can set model_device_fn to
-    # `tf.train.replica_device_setter(ps_tasks)` for distributed training.
-    with tf.device(model_device_fn):
-      model = model_creator(
-          hparams,
-          iterator=iterator,
-          mode=tf.contrib.learn.ModeKeys.TRAIN,
-          source_vocab_table=src_vocab_table,
-          target_vocab_table=tgt_vocab_table,
-          scope=scope,
-          single_cell_fn=single_cell_fn)
-
-  return TrainModel(
-      graph=graph,
-      model=model,
-      iterator=iterator,
-      skip_count_placeholder=skip_count_placeholder)
-
-
-class EvalModel(
-    collections.namedtuple("EvalModel",
-                           ("graph", "model", "src_file_placeholder",
-                            "tgt_file_placeholder", "iterator"))):
-  pass
-
-
-def create_eval_model(model_creator, hparams, scope=None, single_cell_fn=None):
-  """Create train graph, model, src/tgt file holders, and iterator."""
-  src_vocab_file = hparams.src_vocab_file
-  tgt_vocab_file = hparams.tgt_vocab_file
-  graph = tf.Graph()
-
-  with graph.as_default():
-    src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
-        src_vocab_file, tgt_vocab_file, hparams.share_vocab)
-    src_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
-    tgt_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
-    src_dataset = tf.contrib.data.TextLineDataset(src_file_placeholder)
-    tgt_dataset = tf.contrib.data.TextLineDataset(tgt_file_placeholder)
-    iterator = iterator_utils.get_iterator(
-        src_dataset,
-        tgt_dataset,
-        src_vocab_table,
-        tgt_vocab_table,
-        hparams.batch_size,
-        sos=hparams.sos,
-        eos=hparams.eos,
-        source_reverse=hparams.source_reverse,
-        random_seed=hparams.random_seed,
-        num_buckets=hparams.num_buckets,
-        src_max_len=hparams.src_max_len_infer,
-        tgt_max_len=hparams.tgt_max_len_infer)
-    model = model_creator(
-        hparams,
-        iterator=iterator,
-        mode=tf.contrib.learn.ModeKeys.EVAL,
-        source_vocab_table=src_vocab_table,
-        target_vocab_table=tgt_vocab_table,
-        scope=scope,
-        single_cell_fn=single_cell_fn)
-  return EvalModel(
-      graph=graph,
-      model=model,
-      src_file_placeholder=src_file_placeholder,
-      tgt_file_placeholder=tgt_file_placeholder,
-      iterator=iterator)
 
 
 def run_sample_decode(infer_model, infer_sess, model_dir, hparams,
@@ -259,7 +148,7 @@ def run_full_eval(model_dir, infer_model, infer_sess, eval_model, eval_sess,
   return result_summary, global_step, dev_scores, test_scores, dev_ppl, test_ppl
 
 
-def train(hparams, scope=None, target_session="", single_cell_fn=None):
+def train(hparams, scope=None, target_session=""):
   """Train a translation model."""
   log_device_placement = hparams.log_device_placement
   out_dir = hparams.out_dir
@@ -279,12 +168,9 @@ def train(hparams, scope=None, target_session="", single_cell_fn=None):
   else:
     raise ValueError("Unknown model architecture")
 
-  train_model = create_train_model(model_creator, hparams, scope,
-                                   single_cell_fn)
-  eval_model = create_eval_model(model_creator, hparams, scope,
-                                 single_cell_fn)
-  infer_model = inference.create_infer_model(model_creator, hparams,
-                                             scope, single_cell_fn)
+  train_model = model_helper.create_train_model(model_creator, hparams, scope)
+  eval_model = model_helper.create_eval_model(model_creator, hparams, scope)
+  infer_model = model_helper.create_infer_model(model_creator, hparams, scope)
 
   # Preload data for sample decoding.
   dev_src_file = "%s.%s" % (hparams.dev_prefix, hparams.src)
