@@ -226,9 +226,13 @@ def build_model_fn(model, hparams):
           ops.append(
               loss_moving_avg.assign(loss_moving_avg * 0.9 + loss_value * 0.1))
           total_loss += loss_value
-        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-          # Total loss was already constructed on input.
-          loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n)
+        try:  # Total loss avg might be reused or not, we try both.
+          with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+            # Total loss was already constructed on input.
+            loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n)
+        except ValueError:
+          loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n,
+                                            initializer=100.0, trainable=False)
         ops.append(
             loss_moving_avg.assign(loss_moving_avg * 0.9 + total_loss * 0.1))
       with tf.variable_scope("train_stats"):  # Count steps for this problem.
@@ -266,9 +270,6 @@ def build_model_fn(model, hparams):
     sharded_logits, total_loss = result_list[1:], result_list[0]
     if mode == tf.contrib.learn.ModeKeys.EVAL:
       logits = tf.concat(sharded_logits, 0)
-      if FLAGS.eval_print:
-        logits = tf.Print(
-            logits, [features["inputs"], logits], "EVAL PRINT", summarize=10000)
       # For evaluation, return the logits layer as our predictions.
       run_info["predictions"] = logits
       train_op = None
