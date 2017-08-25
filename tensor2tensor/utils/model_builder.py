@@ -168,6 +168,9 @@ def build_model_fn(model, hparams):
 
     dp = devices.data_parallelism()
 
+    tf.get_variable_scope().set_initializer(initializer())
+    is_training = mode == tf.contrib.learn.ModeKeys.TRAIN
+
     # Add input statistics for incoming features.
     with tf.name_scope("input_stats"):
       for (k, v) in six.iteritems(features):
@@ -175,13 +178,28 @@ def build_model_fn(model, hparams):
           tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // dp.n)
           tf.summary.scalar("%s_length" % k, tf.shape(v)[1])
           nonpadding = tf.to_float(tf.not_equal(v, 0))
-          tf.summary.scalar("%s_nonpadding_tokens" % k,
-                            tf.reduce_sum(nonpadding))
+          nonpadding_tokens = tf.reduce_sum(nonpadding)
+          if k == "targets":
+            targets_nonpadding_tokens = nonpadding_tokens
+          tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
           tf.summary.scalar("%s_nonpadding_fraction" % k,
                             tf.reduce_mean(nonpadding))
 
-    tf.get_variable_scope().set_initializer(initializer())
-    train = mode == tf.contrib.learn.ModeKeys.TRAIN
+      # The new data reader occasionally emits very small batches, which
+      # cause the examples in those batches to be grossly overweighted.
+      # We decrease the loss proportionally to the ratio of the size of this
+      # batch to the size of the largest training batch ever.
+      # TODO(noam): to be more sophisticated, we could keep separate
+      # maxima based on problem choice.
+      max_nonpadding_var = tf.get_variable(
+          "max_nonpadding", shape=[],
+          initializer=tf.ones_initializer(), trainable=False)
+      max_nonpadding = tf.maximum(max_nonpadding_var, targets_nonpadding_tokens)
+      if is_training:
+        with tf.control_dependencies(
+            [tf.assign(max_nonpadding_var, max_nonpadding)]):
+          small_batch_multiplier = targets_nonpadding_tokens / max_nonpadding
+        tf.summary.scalar("small_batch_multiplier", small_batch_multiplier)
 
     # Get multi-problem logits and loss based on features["problem_choice"].
     loss_variable_names = []
@@ -204,7 +222,7 @@ def build_model_fn(model, hparams):
             alpha=FLAGS.decode_alpha,
             decode_length=FLAGS.decode_extra_length)
       # In distributed mode, we build graph for problem=0 and problem=worker_id.
-      skipping_is_on = my_hp.problem_choice == "distributed" and train
+      skipping_is_on = my_hp.problem_choice == "distributed" and is_training
       problem_worker_id = FLAGS.worker_id % len(my_hp.problems)
       skip_this_one = n != 0 and n % FLAGS.worker_replicas != problem_worker_id
       # On worker 0 also build graph for problems <= 1.
@@ -324,6 +342,8 @@ def build_model_fn(model, hparams):
           total_loss = tf.identity(total_loss)
     if my_hp.weight_decay > 0.0:
       total_loss += weight_decay_loss * my_hp.weight_decay
+    if is_training:
+      total_loss *= small_batch_multiplier
     total_loss = tf.identity(total_loss, name="total_loss")
     log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
     diet_vars = [v for v in tf.global_variables() if hasattr(v, "optimizer")]
