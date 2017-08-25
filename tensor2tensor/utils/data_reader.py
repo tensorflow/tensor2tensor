@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import fractions
 import math
 import os
 import random
@@ -271,7 +272,9 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
     dataset = bucket_by_sequence_length(dataset, _example_length,
                                         batching_scheme["boundaries"],
                                         batching_scheme["batch_sizes"])
-
+    max_batch_size = max(batching_scheme["batch_sizes"])
+    # We reshuffle the batches to prevent many long-sequence batches at once.
+    dataset = dataset.shuffle(max_batch_size * 3)
     batched_examples = dataset.make_one_shot_iterator().get_next()
     return batched_examples
 
@@ -305,6 +308,36 @@ def _example_too_big(example, max_length):
   return tf.less_equal(_example_length(example), max_length)
 
 
+def _lcm(l):
+  """Least common multiple of integers in a list."""
+  if not l:
+    raise ValueError("LCD of an empty list.")
+  if len(l) == 1:
+    return l[0]
+  x = l[0]
+  y = _lcm(l[1:])
+  return x * y // fractions.gcd(x, y)
+
+
+def _closest_small_primes(x):
+  """Closest number to x which has only 2, 3, 5 as prime factors, 3,5 once."""
+  assert x > 0
+  def is_small_primes(x, covered3, covered5):
+    if x % 2 == 0:
+      return is_small_primes(x // 2, covered3, covered5)
+    if x % 3 == 0 and not covered3:
+      return is_small_primes(x // 3, True, covered5)
+    if x % 5 == 0 and not covered5:
+      return is_small_primes(x // 5, covered3, True)
+    return x == 1
+  for i in xrange(x):
+    if is_small_primes(x - i, False, False):
+      return x - i
+    # We search for higher numbers too, but only 8 of them to not increase much.
+    if i < 9 and is_small_primes(x + i, False, False):
+      return x + i
+
+
 def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
                               bucket_batch_sizes):
   """Bucket entries in dataset by length.
@@ -319,6 +352,14 @@ def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
   Returns:
     Dataset of padded and batched examples.
   """
+  # Since the Datasets API only allows a single constant for window_size,
+  # and it needs divide all bucket_batch_sizes, we first make sure they only
+  # have a few primes in them so that their LCM doesn't explode quickly.
+  # TODO(lukaszkaiser): remove this adjustment when Dataset API improves.
+  bucket_batch_sizes1 = [_closest_small_primes(b) for b in bucket_batch_sizes]
+  tf.logging.info("Corrected bucket_batch_sizes from %s to %s."
+                  % (str(bucket_batch_sizes), str(bucket_batch_sizes1)))
+  bucket_batch_sizes = bucket_batch_sizes1
   with tf.name_scope("bucket_by_seq_length"):
 
     def example_to_bucket_id(example):
@@ -345,8 +386,7 @@ def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
            for name, shape in grouped_dataset.output_shapes.items()])
       return grouped_dataset.padded_batch(batch_size, padded_shapes)
 
-    window_size = max(
-        max(bucket_batch_sizes) * 10, len(bucket_batch_sizes) * 32)
+    window_size = _lcm(bucket_batch_sizes)
     dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
                                       window_size)
     return dataset

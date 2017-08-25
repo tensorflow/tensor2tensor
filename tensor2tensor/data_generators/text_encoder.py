@@ -56,19 +56,21 @@ _UNESCAPE_REGEX = re.compile(r"\\u|\\\\|\\([0-9]+);")
 _ESCAPE_CHARS = set(u"\\_u;0123456789")
 
 
-def native_to_unicode_py2(s):
-  """Python 2: transform native string to Unicode."""
-  return s if isinstance(s, unicode) else s.decode("utf8")
-
-
-# Conversion between Unicode and UTF-8, if required (on Python2)
+# Conversion between Unicode and UTF-8, if required (on Python2).
 if six.PY2:
-  native_to_unicode = native_to_unicode_py2
-  unicode_to_native = lambda s: s.encode("utf-8")
-else:
-  # No conversion required on Python3
-  native_to_unicode = lambda s: s
-  unicode_to_native = lambda s: s
+
+  def native_to_unicode(s):
+    return s if isinstance(s, unicode) else s.decode("utf8")
+
+  def unicode_to_native(s):
+    return s.encode("utf-8")
+else:  # No conversion required on Python >= 3.
+
+  def native_to_unicode(s):
+    return s
+
+  def unicode_to_native(s):
+    return s
 
 
 class TextEncoder(object):

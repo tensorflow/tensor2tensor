@@ -97,13 +97,13 @@ def dvae(x, hparams, name):
     # Gumbel-softmax sample.
     gumbel_samples = gumbel_sample(tf.shape(m))
     steps = hparams.kl_warmup_steps
-    gumbel_samples *= common_layers.inverse_exp_decay(steps)
-    temperature = 1.01 - common_layers.inverse_lin_decay(steps)
+    gumbel_samples *= common_layers.inverse_exp_decay(steps) * 0.1
+    temperature = 1.2 - common_layers.inverse_lin_decay(steps)
     s = tf.nn.softmax((logsm + gumbel_samples) / temperature)
     m = tf.nn.softmax(m)
     kl = - tf.reduce_max(logsm, axis=-1)
     tf.summary.histogram("max-log", tf.reshape(kl, [-1]))
-    return m, tf.reduce_mean(kl), s
+    return m, s, tf.reduce_mean(kl)
 
 
 def vae(x, hparams, name):
@@ -116,6 +116,27 @@ def vae(x, hparams, name):
     kl = 0.5 * tf.reduce_mean(
         tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
     return z, tf.reduce_mean(kl), mu, log_sigma
+
+
+def nearest(x, means, hparams):
+  """Find the nearest means to elements in x."""
+  x, means = tf.stop_gradient(x), tf.stop_gradient(means)
+  x_flat = tf.reshape(x, [-1, hparams.hidden_size])
+  # dist = tf.reduce_sum(tf.square(x_flat - tf.expand_dims(means, 0)), axis=2)
+  dist = - tf.matmul(x_flat, means, transpose_b=True)
+  _, nearest_idx = tf.nn.top_k(- dist, k=1)
+  nearest_hot = tf.one_hot(tf.squeeze(nearest_idx, axis=1), hparams.v_size)
+  nearest_hot = tf.reshape(nearest_hot, [tf.shape(x)[0], tf.shape(x)[1],
+                                         1, hparams.v_size])
+  return tf.stop_gradient(nearest_hot)
+
+
+def kmeans(x, means, hparams, name):
+  with tf.variable_scope(name):
+    x_means_hot = nearest(x, means, hparams)
+    x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
+    kl = tf.reduce_sum(tf.square(x - x_means), axis=-1)
+    return x_means_hot, x_means_hot, tf.reduce_mean(kl) * 100.0
 
 
 def compress(x, c, hparams, name):
@@ -157,14 +178,17 @@ def encode(x, x_space, hparams, name):
         encoder_input, encoder_self_attention_bias, hparams), ed
 
 
-def decode(cond_vec, gold, c, ed, hparams):
+def decode(cond_vec, cond_add, gold, c, ed, hparams):
+  """Transformer decoder."""
   drop_gold = tf.nn.dropout(gold, 1.0 - hparams.layer_prepostprocess_dropout)
-  drop_gold += cond_vec
   decoder_input = common_layers.shift_left(drop_gold, pad_value=cond_vec)
+  if cond_add is not None:
+    decoder_input += cond_add
   decoder_input = tf.squeeze(decoder_input, axis=2)
   decoder_input = common_attention.add_timing_signal_1d(decoder_input)
   bias = common_attention.attention_bias_lower_triangle(tf.shape(gold)[1])
-  c = tf.squeeze(c, axis=2)
+  if c is not None:
+    c = tf.squeeze(c, axis=2)
   return transformer.transformer_decoder(decoder_input, c, bias, ed, hparams)
 
 
@@ -187,13 +211,18 @@ def vae_compress(x, c, ed, hparams, compress_name, decompress_name, reuse=None):
     # Convolve and ReLu to get state.
     cur = common_layers.conv_block(
         cur, hparams.hidden_size, [((1, 1), (1, 1))], name="mid_conv")
+    cur = tf.nn.l2_normalize(cur, dim=3)
+    means = tf.get_variable("z_to_dense", [hparams.v_size, hparams.hidden_size])
+    means = tf.nn.l2_normalize(means, dim=1)
     # z, kl_loss, mu, log_sigma = vae(cur, hparams, name="vae")
-    z_true, kl_loss, z_gumbel = dvae(cur, hparams, name="dvae")
+    # z_true, z_sample, kl_loss = dvae(cur, hparams, name="dvae")
+    z_true, z_sample, kl_loss = kmeans(cur, means, hparams, name="kmeans")
 
   # Compress context.
   with tf.variable_scope(compress_name, reuse=reuse):
     compress_c = compress(c, None, hparams, "compress_context")
-    c_z = tf.layers.dense(compress_c, hparams.v_size, name="mask_context")
+    dec_c = decode(None, compress_c, cur, None, None, hparams)
+    c_z = tf.layers.dense(dec_c, hparams.v_size, name="mask_context")
     reconstruct_loss = tf.nn.softmax_cross_entropy_with_logits(
         labels=z_true, logits=c_z)
 
@@ -203,10 +232,16 @@ def vae_compress(x, c, ed, hparams, compress_name, decompress_name, reuse=None):
 
   with tf.variable_scope(decompress_name, reuse=reuse):
     # Decompress.
-    z = tf.layers.dense(z_gumbel, hparams.hidden_size, name="z_to_dense")
+    z_sample_flat = tf.reshape(z_sample, [-1, hparams.v_size])
+    z = tf.matmul(z_sample_flat, means)
+    z = tf.reshape(z, [tf.shape(z_sample)[0], tf.shape(z_sample)[1],
+                       1, hparams.hidden_size])
 
     # Leak at the beginning to help train.
     z = mix(z, cur, hparams.startup_steps)
+
+    # Dropout for better autoencoding.
+    z = tf.nn.dropout(z, keep_prob=0.9)
 
     # Decompress.
     d = z
@@ -217,11 +252,12 @@ def vae_compress(x, c, ed, hparams, compress_name, decompress_name, reuse=None):
 
     k = 2**hparams.num_compress_steps
     z_batch = tf.reshape(z, [-1, 1, 1, hparams.hidden_size])
-    x_batch = tf.reshape(x + d, [-1, k, 1, hparams.hidden_size])
-    # dec_batch = decode(z_batch, x_batch, None, None, hparams)
+    x_batch = tf.reshape(x, [-1, k, 1, hparams.hidden_size])
+    d_batch = tf.reshape(d, [-1, k, 1, hparams.hidden_size])
+    # dec_batch = decode(z_batch, d_batch, x_batch, None, None, hparams)
     c = expand_batch(c, tf.shape(x_batch)[0] / tf.shape(x)[0])
     ed = expand_batch(ed, tf.shape(x_batch)[0] / tf.shape(x)[0])
-    dec_batch = decode(z_batch, x_batch, c, ed, hparams)
+    dec_batch = decode(z_batch, d_batch, x_batch, c, ed, hparams)
     z = tf.reshape(dec_batch, [-1, tf.shape(x)[1], 1, hparams.hidden_size])
 
   return z, kl_loss, reconstruct_loss
@@ -252,7 +288,7 @@ def vae_transformer_internal(inputs, targets, target_space, hparams):
     z, kl, r = vae_compress(tf.expand_dims(targets, axis=2),
                             tf.expand_dims(inputs, axis=2),
                             ed_bias, hparams, "vae_compress", "vae_decompress")
-    kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 2.0))*0.5
+    kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 2.0))
     r *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 2.0))
     losses = {"kl": kl, "reconstruction": r}
     return z, losses
@@ -290,7 +326,7 @@ class TransformerVAE(t2t_model.T2TModel):
     samples = tf.concat(sharded_samples, 0)
 
     # More steps.
-    how_many_more_steps = 20
+    how_many_more_steps = 2
     for _ in xrange(how_many_more_steps):
       with tf.variable_scope(tf.get_variable_scope(), reuse=True):
         features["targets"] = samples
@@ -311,10 +347,10 @@ def transformer_vae_small():
   hparams.batch_size = 2048
   hparams.learning_rate_warmup_steps = 4000
   hparams.add_hparam("z_size", 128)
-  hparams.add_hparam("v_size", 1024*8)
+  hparams.add_hparam("v_size", 1024*32)
   hparams.add_hparam("num_compress_steps", 4)
-  hparams.add_hparam("kl_warmup_steps", 120000)
-  hparams.add_hparam("startup_steps", 20000)
+  hparams.add_hparam("kl_warmup_steps", 60000)
+  hparams.add_hparam("startup_steps", 30000)
   return hparams
 
 
