@@ -117,7 +117,7 @@ def _decode_inference_indices(model, sess, output_infer,
           img_f.write(image_summ.value[0].image.encoded_image_string)
 
       trans_f.write("%s\n" % translation)
-      utils.print_out("%s\n" % translation)
+      utils.print_out(b"%s\n" % translation)
   utils.print_time("  done", start_time)
 
 
