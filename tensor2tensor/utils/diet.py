@@ -13,25 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Diet varaibles are much more memory-efficient than regular variables.
+"""Diet variables are much more memory-efficient than regular variables.
 
 Using diet variables, we can reduce memory overhead per parameter from
 16 bytes to 2 bytes, allowing for up to 4B parameters per GPU.
 
-This is an idea by rsepassi about how make this more generally useful.
-with diet_variable_scope(diet_options=opts):
-  custom variable getter that creates vars with diet_options
-  per variable have fn that does the optimization acc to diet_options
-@forward_with_diet_backwards fn decorator
+Functions that build subgraphs with variables can be made to use diet variables
+by using the fn_with_diet_vars decorator.
 """
 
-
 from collections import defaultdict
+import copy
 import math
 # Dependency imports
-from tensor2tensor.layers.common_layers import underlying_variable
+from tensor2tensor.layers import common_layers
 import tensorflow as tf
-from tensorflow.python.framework import function
 
 
 def diet_adam_optimizer_params():
@@ -43,19 +39,66 @@ def diet_adam_optimizer_params():
   return tf.contrib.training.HParams(
       quantize=int(True),  # use 16-bit fixed-point
       quantization_scale=10.0 / tf.int16.max,
-      optimizer="factored_adam",
+      optimizer="DietAdam",
       learning_rate=1.0,
       learning_rate_warmup_steps=2000,
       learning_rate_decay_scheme="noam",  # "noam" or "none"
       epsilon=1e-10,
       beta1=0.0,  # we can save memory if beta1=0
       beta2=0.98,
-      randomized_updates=int(True),  # use unbiased roundoff in updates
       factored_second_moment_accumulator=int(True),  # this saves memory
   )
 
 
-class DietAdamOptimizer(object):
+def diet_expert(x, hidden_size, params):
+  """A two-layer feed-forward network with relu activation on hidden layer.
+
+  Uses diet variables.
+  Recompuets hidden layer on backprop to save activation memory.
+
+  Args:
+    x: a Tensor with shape [batch, io_size]
+    hidden_size: an integer
+    params: a diet variable HParams object.
+
+  Returns:
+    a Tensor with shape [batch, io_size]
+  """
+
+  @fn_with_diet_vars(params)
+  def diet_expert_internal(x):
+    dim = x.get_shape().as_list()[-1]
+    h = tf.layers.dense(x, hidden_size, activation=tf.nn.relu, use_bias=False)
+    y = tf.layers.dense(h, dim, use_bias=False)
+    y *= tf.rsqrt(tf.to_float(dim * hidden_size))
+    return y
+
+  return diet_expert_internal(x)
+
+
+class DietVariableOptimizer(object):
+  """Base class for Diet variable optimizers."""
+
+  def __init__(self, params):
+    self._params = params
+    self._global_step = tf.train.get_or_create_global_step()
+
+  @property
+  def params(self):
+    return self._params
+
+  @property
+  def global_step(self):
+    return self._global_step
+
+  def create_slots(self, var):
+    raise NotImplementedError()
+
+  def update_variable(self, var, grad_var):
+    raise NotImplementedError()
+
+
+class DietAdamOptimizer(DietVariableOptimizer):
   """A memory efficient optimizer for memory-efficient variables.
 
   We employ the following techniques:
@@ -97,265 +140,221 @@ class DietAdamOptimizer(object):
   outside.
   """
 
-  def __init__(self, hparams):
-    """Create a DietAdamOptimizer.
-
-    Args:
-      hparams: a hyperparameters object - see diet_adam_optimizer_params()
-    """
-    self._hparams = hparams
-    self._global_step = tf.to_float(
-        tf.contrib.framework.get_global_step()) + 1.0
-    self._initializer_dependencies = defaultdict(list)
-
-  @property
-  def dtype(self):
-    """The data type used for the variables."""
-    return tf.float16 if self._hparams.quantize else tf.float32
-
-  def get_variable(self, name, shape):
-    """Create a diet variable.
-
-    Args:
-      name: a string
-      shape: a list of integers
-
-    Returns:
-      a variable
-    """
-    var = tf.get_variable(
-        name, shape, trainable=False,
-        dtype=self.dtype,
-        initializer=self._initializer())
-    self._create_slots(var, name)
-    var.optimizer = self
-    return var
-
-  def _create_slots(self, var, name):
-    """Create auxiliary slots for a variable.
-
-    Args:
-      var: a tf.Variable
-      name: a string
-    """
-    hparams = self._hparams
+  def create_slots(self, var):
+    """Create the factorized Adam accumulators for diet variables."""
+    params = self.params
     shape = var.get_shape().as_list()
-    if hparams.factored_second_moment_accumulator and len(shape) == 2:
-      var.adam_vr = tf.get_variable(
-          name + "_adam_vr", [shape[0], 1], trainable=False,
+
+    if not hasattr(params, "slots"):
+      params.slots = defaultdict(dict)
+
+    name = var.op.name
+    slots = params.slots[name]
+
+    if params.factored_second_moment_accumulator and len(shape) == 2:
+      slots["adam_vr"] = tf.get_variable(
+          name + "_adam_vr", [shape[0], 1],
+          trainable=False,
           initializer=tf.zeros_initializer())
-      var.adam_vc = tf.get_variable(
-          name + "_adam_vc", [1, shape[1]], trainable=False,
+      slots["adam_vc"] = tf.get_variable(
+          name + "_adam_vc", [1, shape[1]],
+          trainable=False,
           initializer=tf.zeros_initializer())
     else:
-      var.adam_v = tf.get_variable(
-          name + "_adam_v", shape, trainable=False,
+      slots["adam_v"] = tf.get_variable(
+          name + "_adam_v",
+          shape,
+          trainable=False,
           initializer=tf.zeros_initializer())
-    if hparams.beta1 != 0.0:
-      var.adam_m = tf.get_variable(
-          name + "_adam_m", shape, trainable=False,
+    if params.beta1 != 0.0:
+      slots["adam_m"] = tf.get_variable(
+          name + "_adam_m",
+          shape,
+          trainable=False,
           initializer=tf.zeros_initializer())
 
-  def _quantize(self, x, randomize=True):
-    """Quantize to tf.int16, then bitcast to tf.float16.
+  def update_variable(self, var, grad_var):
+    """Update the variable and its slots."""
+    params = self.params
+    global_step = tf.to_float(self.global_step) + 1
 
-    The reason for float16 is that for some reason, tensorflow refuses to put
-    integer variables on gpu.
-
-    Args:
-      x: a Tensor of type tf.float32
-      randomize: a boolean
-
-    Returns:
-      a Tensor of type tf.float16
-    """
-    hparams = self._hparams
-    if not hparams.quantize:
-      return x
-    if not randomize:
-      return tf.bitcast(
-          tf.cast(x / hparams.quantization_scale, tf.int16), tf.float16)
-    abs_x = tf.abs(x)
-    sign_x = tf.sign(x)
-    y = abs_x / hparams.quantization_scale
-    y = tf.floor(y + tf.random_uniform(tf.shape(x)))
-    y = tf.minimum(y, tf.int16.max) * sign_x
-    q = tf.bitcast(tf.cast(y, tf.int16), tf.float16)
-    return q
-
-  def dequantize(self, q):
-    """Approximate inverse of _quantize().
-
-    Args:
-      q: a Tensor with type tf.float16
-
-    Returns:
-      a Tensor with type tf.float32
-    """
-    hparams = self._hparams
-    if hparams.quantize:
-      return tf.to_float(tf.bitcast(q, tf.int16)) * hparams.quantization_scale
-    else:
-      return q
-
-  def _initializer(self):
-    """Returns an initializer function.
-
-    Returns:
-      a function
-    """
-    hparams = self._hparams
-    device = tf.constant(1.0).device
-    def _initializer(shape, dtype=self.dtype, partition_info=None):
-      assert dtype == self.dtype
-      del partition_info
-      # make sure no two initializers run simultaneously (to conserve memory)
-      with tf.control_dependencies(self._initializer_dependencies[device]):
-        float_range = math.sqrt(3)
-        ret = tf.random_uniform(shape, -float_range, float_range)
-        if hparams.quantize:
-          ret = self._quantize(ret, randomize=False)
-        self._initializer_dependencies[device] = [ret]
-        return ret
-    return _initializer
-
-  def update(self, var, grad):
-    """Update a diet varaible given a gradient.
-
-    Args:
-      var: a variable
-      grad: a Tensor
-
-    Returns:
-      an update op.  Make sure that something depends on this
-      op if you want it to run.
-    """
-    hparams = self._hparams
-    var = underlying_variable(var)
     # compute learning rate
-    lrate = hparams.learning_rate
-    if hparams.learning_rate_decay_scheme == "noam":
-      lrate *= tf.minimum(
-          self._global_step * hparams.learning_rate_warmup_steps ** -1.5,
-          self._global_step ** -0.5)
+    lrate = params.learning_rate
+    if params.learning_rate_decay_scheme == "noam":
+      lrate *= tf.minimum(global_step * params.learning_rate_warmup_steps**-1.5,
+                          global_step**-0.5)
     else:
-      assert hparams.learning_rate_decay_scheme == "none"
-      lrate *= tf.minumum(
-          self._global_step / hparams.learning_rate_warmup_steps, 1.0)
+      assert params.learning_rate_decay_scheme == "none"
+      lrate *= tf.minumum(global_step / params.learning_rate_warmup_steps, 1.0)
+
     # compute adjustment due to second moment
-    grad_squared = tf.square(grad)
-    beta2_pow = tf.pow(hparams.beta2, self._global_step)
-    if hparams.factored_second_moment_accumulator and len(var.shape) == 2:
-      vr_update = tf.assign(
-          var.adam_vr,
-          var.adam_vr * hparams.beta2 +
-          tf.reduce_mean(grad_squared, 1, keep_dims=True) *
-          (1.0 - hparams.beta2))
-      vc_update = tf.assign(
-          var.adam_vc,
-          var.adam_vc * hparams.beta2 +
-          tf.reduce_mean(grad_squared, 0, keep_dims=True) *
-          (1.0 - hparams.beta2))
+    slots = params.slots[var.op.name]
+    grad_squared = tf.square(grad_var)
+    beta2_pow = tf.pow(params.beta2, global_step)
+    if params.factored_second_moment_accumulator and len(var.shape) == 2:
+      vr_update = tf.assign(slots["adam_vr"], slots["adam_vr"] * params.beta2 +
+                            tf.reduce_mean(grad_squared, 1, keep_dims=True) *
+                            (1.0 - params.beta2))
+      vc_update = tf.assign(slots["adam_vc"], slots["adam_vc"] * params.beta2 +
+                            tf.reduce_mean(grad_squared, 0, keep_dims=True) *
+                            (1.0 - params.beta2))
       with tf.control_dependencies([vr_update, vc_update]):
-        vr = tf.sqrt(var.adam_vr / (1.0 - beta2_pow)) + hparams.epsilon
-        vc = tf.sqrt(var.adam_vc / (1.0 - beta2_pow)) + hparams.epsilon
+        vr = tf.sqrt(slots["adam_vr"] / (1.0 - beta2_pow)) + params.epsilon
+        vc = tf.sqrt(slots["adam_vc"] / (1.0 - beta2_pow)) + params.epsilon
         vc /= tf.reduce_mean(vc)
         denom = vr * vc
     else:
-      v_update = tf.assign(
-          var.adam_v,
-          var.adam_v * hparams.beta2 + grad_squared * (1.0 - hparams.beta2))
+      v_update = tf.assign(slots["adam_v"],
+                           slots["adam_v"] * params.beta2 + grad_squared *
+                           (1.0 - params.beta2))
       with tf.control_dependencies([v_update]):
-        denom = tf.sqrt(var.adam_v / (1.0 - beta2_pow)) + hparams.epsilon
+        denom = tf.sqrt(slots["adam_v"] / (1.0 - beta2_pow)) + params.epsilon
+
     # compute momentum if applicable
-    if hparams.beta1 != 0.0:
-      m_update = tf.assign(
-          var.adam_m, var.adam_m * hparams.beta1 + grad * (1.0 - hparams.beta1))
+    if params.beta1 != 0.0:
+      m_update = tf.assign(slots["adam_m"],
+                           slots["adam_m"] * params.beta1 + grad_var *
+                           (1.0 - params.beta1))
       with tf.control_dependencies([m_update]):
-        grad = var.adam_m
-    subtrahend = lrate * grad / denom
-    new_val = self._quantize(self.dequantize(var) - subtrahend)
+        grad_var = slots["adam_m"]
+
+    # update var
+    subtrahend = lrate * grad_var / denom
+    new_val = _quantize(_dequantize(var, params) - subtrahend, params)
     return tf.assign(var, new_val)
 
 
-def dependency_dict():
-  """Get or create a defaultdict(list) that is stored in the default graph.
-
-  This is used when we want to make sure that certain operations are performed
-  sequentially.
-
-  example use - make sure calls to foo on the same device execute sequentially:
-
-  def foo(x, device)
-    key = "foo " + device
-    with tf.device(device):
-      with tf.control_dependencies(dependency_dict()[key]):
-        y = bar(x)
-        dependency_dict()[key] = y
-        return y
-
-  Returns:
-    a defaultdict whose default value is the empty list
-  """
-  if not hasattr(tf.get_default_graph(), "dependency_dict"):
-    setattr(tf.get_default_graph(), "dependency_dict", defaultdict(list))
-  return tf.get_default_graph().dependency_dict
+def _create_diet_optimizer(params):
+  if params.optimizer == "DietAdam":
+    return DietAdamOptimizer(params)
+  else:
+    raise ValueError("Unrecognized diet optimizer")
 
 
-def _diet_expert_internal(x, w0, w1):
-  h = tf.matmul(x, w0)
-  h = tf.nn.relu(h)
-  y = tf.matmul(h, w1)
-  y *= tf.rsqrt(tf.to_float(tf.shape(w0)[0] * tf.shape(w1)[0]))
-  y.set_shape(x.get_shape())
-  return y
+def _quantize(x, params, randomize=True):
+  """Quantize x according to params, optionally randomizing the rounding."""
+  if not params.quantize:
+    return x
+
+  if not randomize:
+    return tf.bitcast(
+        tf.cast(x / params.quantization_scale, tf.int16), tf.float16)
+
+  abs_x = tf.abs(x)
+  sign_x = tf.sign(x)
+  y = abs_x / params.quantization_scale
+  y = tf.floor(y + tf.random_uniform(tf.shape(x)))
+  y = tf.minimum(y, tf.int16.max) * sign_x
+  q = tf.bitcast(tf.cast(y, tf.int16), tf.float16)
+  return q
 
 
-def _diet_expert_grad(op, dy):
-  x, w0, w1 = op.inputs
-  w0_var = underlying_variable(w0)
-  w1_var = underlying_variable(w1)
-  key = "diet_expert_backward_deps " + dy.device
-  with tf.control_dependencies(dependency_dict()[key]):
-    w0 = w0_var.optimizer.dequantize(w0_var)
-    w1 = w1_var.optimizer.dequantize(w1_var)
-    y = _diet_expert_internal(x, w0, w1)
-    dx, dw0, dw1 = tf.gradients(ys=[y], xs=[x, w0, w1], grad_ys=[dy])
-    w0_update = w0_var.optimizer.update(w0_var, dw0)
-    w1_update = w1_var.optimizer.update(w1_var, dw1)
-    with tf.control_dependencies([w0_update, w1_update]):
-      dx = tf.identity(dx)
-      dependency_dict()[key] = [dx]
-      return dx, None, None
+def _dequantize(q, params):
+  """Dequantize q according to params."""
+  if not params.quantize:
+    return q
+  return tf.to_float(tf.bitcast(q, tf.int16)) * params.quantization_scale
 
 
-def diet_expert(x, hidden_size, optimizer):
-  """A two-layer feed-forward network with relu activation on hidden layer.
+def make_diet_var_getter(params):
+  """Create a custom variable getter for diet variables according to params."""
 
-  Uses diet variables.
-  Recompuets hidden layer on backprop to save activation memory.
+  def diet_var_initializer(shape, dtype, partition_info=None):
+    del dtype
+    del partition_info
 
-  Args:
-    x: a Tensor with shape [batch, io_size]
-    hidden_size: an integer
-    optimizer: a DietAdamOptimizer or some such class
-
-  Returns:
-    a Tensor with shape [batch, io_size]
-  """
-  @function.Defun(python_grad_func=_diet_expert_grad,
-                  shape_func=lambda _: (x.get_shape(),))
-  def _diet_expert_fn(x, w0, w1):
-    w0 = optimizer.dequantize(w0)
-    w1 = optimizer.dequantize(w1)
-    return _diet_expert_internal(x, w0, w1)
-
-  with tf.device(x.device):
-    _, io_size = x.get_shape().as_list()
-    w0_var = optimizer.get_variable("w0", [io_size, hidden_size])
-    w1_var = optimizer.get_variable("w1", [hidden_size, io_size])
-    key = "diet_expert_forward_deps " + x.device
-    with tf.control_dependencies(dependency_dict()[key]):
-      ret = _diet_expert_fn(x, w0_var, w1_var)
-      dependency_dict()[key] = [ret]
+    with common_layers.fn_device_dependency("diet_init") as out_deps:
+      float_range = math.sqrt(3)
+      ret = tf.random_uniform(shape, -float_range, float_range)
+      if params.quantize:
+        ret = _quantize(ret, params, randomize=False)
+      out_deps.append(ret)
       return ret
+
+  def diet_var_getter(getter, **kwargs):
+    """Get diet variable and return it dequantized."""
+    if params.quantize:
+      kwargs["dtype"] = tf.float16
+    kwargs["initializer"] = diet_var_initializer
+    kwargs["trainable"] = False
+
+    base_var = getter(**kwargs)
+
+    dequantized = _dequantize(base_var, params)
+
+    if not hasattr(params, "dequantized"):
+      params.dequantized = defaultdict(list)
+    params.dequantized[base_var.name].append(dequantized)
+
+    return dequantized
+
+  return diet_var_getter
+
+
+def _fn_with_diet_vars(fn, args, params):
+  """Call function with args; use diet variables according to params."""
+
+  vs_ctr = []
+
+  def grad_fn(inputs, variables, outputs, output_grads):
+    del outputs  # recomputing below
+    with common_layers.fn_device_dependency("diet_grad",
+                                            output_grads[0].device) as out_dep:
+      with tf.variable_scope(vs_ctr[0], reuse=True):
+        outputs = fn(*inputs)
+
+      variables = [common_layers.underlying_variable_ref(v) for v in variables]
+      dequantized_variables = [
+          params.dequantized[v.name][-1] for v in variables
+      ]
+
+      grads = tf.gradients(outputs, inputs + dequantized_variables,
+                           output_grads)
+      grad_inputs = grads[:len(inputs)]
+      grad_variables = grads[len(inputs):]
+
+      opt = _create_diet_optimizer(params)
+
+      # Apply grad_variables here
+      var_updates = []
+      for v, dv in zip(variables, grad_variables):
+        with tf.variable_scope(vs_ctr[0].name):
+          opt.create_slots(v)
+        update_op = opt.update_variable(v, dv)
+        var_updates.append(update_op)
+
+      with tf.control_dependencies(var_updates):
+        grad_inputs = [tf.identity(dx) for dx in grad_inputs]
+
+      out_dep.append(grad_inputs)
+
+      return grad_inputs, [None] * len(variables)
+
+  @common_layers.fn_with_custom_grad(grad_fn, use_global_vars=True)
+  def forward(*inputs):
+    with tf.variable_scope(
+        None, default_name="diet",
+        custom_getter=make_diet_var_getter(params)) as vs:
+      vs_ctr.append(vs)
+      outputs = fn(*inputs)
+      return outputs
+
+  with common_layers.fn_device_dependency("diet_forward",
+                                          args[0].device) as out_dep:
+    outputs = forward(*args)
+    out_dep.append(outputs)
+  return outputs
+
+
+def fn_with_diet_vars(params):
+  """Decorator for graph-building function to use diet variables."""
+  params = copy.copy(params)
+
+  def dec(fn):
+
+    def wrapped(*args):
+      return _fn_with_diet_vars(fn, args, params)
+
+    return wrapped
+
+  return dec

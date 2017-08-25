@@ -79,12 +79,14 @@ class AttentionLmMoe(t2t_model.T2TModel):
     moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
     if hparams.diet_experts:
       hsize, = moe_hidden_sizes
-      diet_optimizer = diet.DietAdamOptimizer(diet.diet_adam_optimizer_params())
-      expert_fn = lambda x: diet.diet_expert(x, hsize, diet_optimizer)
+
+      def _diet_expert(x):
+        return diet.diet_expert(x, hsize, diet.diet_adam_optimizer_params())
+
+      expert_fn = _diet_expert
     else:
       expert_fn = expert_utils.ffn_expert_fn(
-          hparams.hidden_size, moe_hidden_sizes,
-          hparams.hidden_size)
+          hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope(
@@ -114,7 +116,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
             # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
-            extra_loss += tf.add_n(loss)/dp.n
+            extra_loss += tf.add_n(loss) / dp.n
           else:
             raise ValueError("Only {} supported for now.".format(
                 AttentionMoeType.get_choices()))
@@ -158,9 +160,8 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
     to implement masked attention and possibly baises for diagonal alignments
   """
   if hparams.prepend_mode == "prepend_inputs_full_attention":
-    decoder_self_attention_bias = (
-        common_attention.attention_bias_prepended(
-            common_attention.embedding_to_padding(targets)))
+    decoder_self_attention_bias = (common_attention.attention_bias_prepended(
+        common_attention.embedding_to_padding(targets)))
   else:
     decoder_self_attention_bias = (
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
