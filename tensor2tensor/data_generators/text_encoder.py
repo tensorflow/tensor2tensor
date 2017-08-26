@@ -38,10 +38,12 @@ import tensorflow as tf
 # Reserved tokens for things like padding and EOS symbols.
 PAD = "<pad>"
 EOS = "<EOS>"
-RESERVED_TOKENS = [PAD, EOS]
+UNK = "<UNK>"
+RESERVED_TOKENS = [PAD, EOS, UNK]
 NUM_RESERVED_TOKENS = len(RESERVED_TOKENS)
 PAD_ID = RESERVED_TOKENS.index(PAD)  # Normally 0
 EOS_ID = RESERVED_TOKENS.index(EOS)  # Normally 1
+UNK_ID = RESERVED_TOKENS.index(UNK)  # Normally 2
 
 if six.PY2:
   RESERVED_TOKENS_BYTES = RESERVED_TOKENS
@@ -188,7 +190,7 @@ class TokenTextEncoder(TextEncoder):
 
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""
-    ret = [self._token_to_id[tok] for tok in sentence.strip().split()]
+    ret = [self._token_to_id.get(tok, UNK_ID) for tok in sentence.strip().split()]
     return ret[::-1] if self._reverse else ret
 
   def decode(self, ids):
