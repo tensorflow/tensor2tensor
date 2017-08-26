@@ -65,7 +65,43 @@ class ModalityTest(tf.test.TestCase):
         symbol_modality_num_shards=4,
         hidden_size=hidden_size,
         label_smoothing=0.2,
-        shared_embedding_and_softmax_weights=0)
+        shared_embedding_and_softmax_weights=0,
+        factored_logits=0,
+        mode=tf.contrib.learn.ModeKeys.TRAIN)
+    body_output = -1 + np.random.random_integers(
+        100, size=(batch_size, length, height, hidden_size))
+    targets = -1 + np.random.random_integers(
+        vocab_size, size=(batch_size, length, height, 1))
+    m = modalities.SymbolModality(model_hparams, vocab_size)
+    data_parallelism = expert_utils.Parallelism(
+        ["/device:CPU:0"] * num_datashards, reuse=True)
+    with self.test_session() as session:
+      sharded_body_output = tf.split(tf.to_float(body_output), num_datashards)
+      sharded_targets = tf.split(targets, num_datashards)
+      sharded_logits = m.top_sharded(sharded_body_output, sharded_targets,
+                                     data_parallelism)
+      train_loss = m.loss_sharded(sharded_logits, sharded_targets,
+                                  data_parallelism)
+      logits = tf.concat(sharded_logits, 0)
+      session.run(tf.global_variables_initializer())
+      res1, res2 = session.run((logits, train_loss))
+    self.assertEqual(res1.shape, (batch_size, length, height, 1, vocab_size))
+    self.assertEqual(res2.shape, ())
+
+  def testSymbolModalityTargetsFactored(self):
+    batch_size = 10
+    num_datashards = 5
+    length = 6
+    height = 7
+    hidden_size = 9
+    vocab_size = 11
+    model_hparams = tf.contrib.training.HParams(
+        symbol_modality_num_shards=4,
+        hidden_size=hidden_size,
+        label_smoothing=0.2,
+        shared_embedding_and_softmax_weights=0,
+        factored_logits=1,
+        mode=tf.contrib.learn.ModeKeys.TRAIN)
     body_output = -1 + np.random.random_integers(
         100, size=(batch_size, length, height, hidden_size))
     targets = -1 + np.random.random_integers(

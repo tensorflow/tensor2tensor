@@ -461,18 +461,6 @@ def img2img_imagenet(unused_model_hparams):
   return p
 
 
-def image_celeba(unused_model_hparams):
-  """Image CelebA dataset."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-  p.target_modality = ("image:identity_no_pad", None)
-  p.batch_size_multiplier = 256
-  p.max_expected_batch_size_per_shard = 4
-  p.input_space_id = 1
-  p.target_space_id = 1
-  return p
-
-
 # Dictionary of named hyperparameter settings for various problems.
 # This is only accessed through the problem_hparams function below.
 PROBLEM_HPARAMS_MAP = {
@@ -503,8 +491,6 @@ PROBLEM_HPARAMS_MAP = {
             p, "wsj", 2**14, 2**9),
     "translate_ende_wmt_bpe32k":
         wmt_ende_bpe32k,
-    "image_celeba_tune":
-        image_celeba,
     "img2img_imagenet":
         img2img_imagenet,
 }

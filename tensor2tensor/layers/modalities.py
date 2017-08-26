@@ -112,12 +112,18 @@ class SymbolModality(modality.Modality):
       reuse = False
     with tf.variable_scope(scope_name, reuse=reuse):
       var = self._get_weights()
-      shape = tf.shape(body_output)[:-1]
-      body_output = tf.reshape(body_output, [-1, self._body_input_depth])
-      logits = tf.matmul(body_output, var, transpose_b=True)
-      logits = tf.reshape(logits, tf.concat([shape, [self._vocab_size]], 0))
-      # insert a channels dimension
-      return tf.expand_dims(logits, 3)
+      if (self._model_hparams.factored_logits and
+          self._model_hparams.mode == tf.contrib.learn.ModeKeys.TRAIN):
+        # insert channels dimension
+        body_output = tf.expand_dims(body_output, 3)
+        logits = common_layers.FactoredTensor(body_output, var)
+      else:
+        shape = tf.shape(body_output)[:-1]
+        body_output = tf.reshape(body_output, [-1, self._body_input_depth])
+        logits = tf.matmul(body_output, var, transpose_b=True)
+        logits = tf.reshape(
+            logits, tf.concat([shape, [1, self._vocab_size]], 0))
+      return logits
 
 
 @registry.register_image_modality

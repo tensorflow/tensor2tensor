@@ -42,7 +42,6 @@ from tensor2tensor.data_generators import algorithmic_math
 from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
 from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import image
 from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wmt
@@ -106,9 +105,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: lm1b.generator(FLAGS.tmp_dir, True, characters=True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False, characters=True)
     ),
-    "image_celeba_tune": (
-        lambda: image.celeba_generator(FLAGS.tmp_dir, 162770),
-        lambda: image.celeba_generator(FLAGS.tmp_dir, 19867, 162770)),
     "inference_snli32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),

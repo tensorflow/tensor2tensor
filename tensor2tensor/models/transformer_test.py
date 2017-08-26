@@ -29,36 +29,65 @@ from tensor2tensor.models import transformer
 import tensorflow as tf
 
 
+BATCH_SIZE = 3
+INPUT_LENGTH = 5
+TARGET_LENGTH = 7
+VOCAB_SIZE = 9
+
+
 class TransformerTest(tf.test.TestCase):
 
-  def _testTransformer(self, net):
-    batch_size = 3
-    input_length = 5
-    target_length = 7
-    vocab_size = 9
-    hparams = transformer.transformer_tiny()
-    p_hparams = problem_hparams.test_problem_hparams(hparams, vocab_size,
-                                                     vocab_size)
+  def getModel(self):
+    hparams = transformer.transformer_small()
+    p_hparams = problem_hparams.test_problem_hparams(
+        hparams, VOCAB_SIZE, VOCAB_SIZE)
     hparams.problems = [p_hparams]
     inputs = -1 + np.random.random_integers(
-        vocab_size, size=(batch_size, input_length, 1, 1))
+        VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
     targets = -1 + np.random.random_integers(
-        vocab_size, size=(batch_size, target_length, 1, 1))
-    with self.test_session() as session:
-      features = {
-          "inputs": tf.constant(inputs, dtype=tf.int32),
-          "targets": tf.constant(targets, dtype=tf.int32),
-          "target_space_id": tf.constant(1, dtype=tf.int32),
-      }
-      model = net(hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
-      shadred_logits, _ = model.model_fn(features)
-      logits = tf.concat(shadred_logits, 0)
-      session.run(tf.global_variables_initializer())
-      res = session.run(logits)
-    self.assertEqual(res.shape, (batch_size, target_length, 1, 1, vocab_size))
+        VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
+    features = {
+        "inputs": tf.constant(inputs, dtype=tf.int32),
+        "targets": tf.constant(targets, dtype=tf.int32),
+        "target_space_id": tf.constant(1, dtype=tf.int32),
+    }
+
+    return transformer.Transformer(
+        hparams, tf.contrib.learn.ModeKeys.INFER, p_hparams), features
 
   def testTransformer(self):
-    self._testTransformer(transformer.Transformer)
+    model, features = self.getModel()
+    shadred_logits, _ = model.model_fn(features)
+    logits = tf.concat(shadred_logits, 0)
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      res = session.run(logits)
+    self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
+
+  def testBeamDecodeVsGreedy(self):
+    model, features = self.getModel()
+
+    decode_length = 20
+
+    greedy_result, _, _ = model._greedy_infer(
+        features, decode_length, last_position_only=True)
+    greedy_result = tf.squeeze(greedy_result, axis=[2, 3])
+
+    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+      beam_res = model._beam_decode(
+          features,
+          decode_length,
+          beam_size=1,
+          top_beams=1,
+          last_position_only=True,
+          alpha=1.0)
+
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      greedy_res, beam_res = session.run([greedy_result, beam_res])
+
+    self.assertEqual(beam_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertAllClose(greedy_res, beam_res)
 
 
 if __name__ == "__main__":

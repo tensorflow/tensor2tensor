@@ -18,10 +18,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import fractions
 import math
 import os
+import random
 
 # Dependency imports
+
+import numpy as np
 
 import six
 from six.moves import zip  # pylint: disable=redefined-builtin
@@ -88,8 +92,7 @@ def examples_reader(data_sources,
       by default (if this is None), we decode all items.
 
   Returns:
-    A dictionary mapping each data_field to a corresponding 1D int64 tensor
-    read from the created Dataset.
+    A tf.contrib.data.Dataset of dict<feature name, Tensor>
   """
 
   def decode_record(record):
@@ -113,18 +116,17 @@ def examples_reader(data_sources,
     return dict(zip(decode_items, decoded))
 
   with tf.name_scope("examples_in"):
-    # Read serialized examples using slim parallel_reader.
     data_files = tf.contrib.slim.parallel_reader.get_data_files(data_sources)
-    num_readers = min(4 if training else 1, len(data_files))
-    _, example_serialized = tf.contrib.slim.parallel_reader.parallel_read(
-        data_sources,
-        tf.TFRecordReader,
-        num_epochs=None if training else 1,
-        shuffle=training,
-        capacity=2 * capacity,
-        min_after_dequeue=capacity,
-        num_readers=num_readers)
-    return decode_record(example_serialized)
+    if training:
+      random.shuffle(data_files)
+    dataset = tf.contrib.data.TFRecordDataset(data_files)
+    num_threads = min(4 if training else 1, len(data_files))
+    dataset = dataset.map(decode_record, num_threads=num_threads)
+    if training:
+      dataset = dataset.shuffle(capacity)
+    # Loop inifinitely if training, just once otherwise
+    dataset = dataset.repeat(None if training else 1)
+    return dataset
 
 
 def preprocessing(examples, data_file_pattern):
@@ -132,21 +134,15 @@ def preprocessing(examples, data_file_pattern):
   # This function is for obsolete problems only, as we're porting them
   # all to the Problem class and its preprocess_examples method. Don't add.
   if "image" in data_file_pattern:
+
     def resize(img, size):
-      return tf.to_int64(tf.image.resize_images(
-          img, [size, size], tf.image.ResizeMethod.AREA))
+      return tf.to_int64(
+          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
 
     if "img2img" in data_file_pattern:
       inputs = examples["inputs"]
       examples["inputs"] = resize(inputs, 16)
       examples["targets"] = resize(inputs, 64)
-    elif "image_celeba" in data_file_pattern:
-      inputs = examples["inputs"]
-      # Remove boundaries in CelebA images. Remove 40 pixels each side
-      # vertically and 20 pixels each side horizontally.
-      inputs = tf.image.crop_to_bounding_box(inputs, 40, 20, 218-80, 178-40)
-      examples["inputs"] = resize(inputs, 8)
-      examples["targets"] = resize(inputs, 32)
   elif "audio" in data_file_pattern:
     # Reshape audio to proper shape
     sample_count = tf.to_int32(examples.pop("audio/sample_count"))
@@ -218,8 +214,11 @@ def default_example_reading_spec(data_file_pattern):
   return data_fields, data_items_to_decoders
 
 
-def input_pipeline(problem, data_file_pattern, capacity, mode, hparams):
-  """Input pipeline, returns a dictionary of tensors from queues."""
+def read_examples(problem,
+                  data_file_pattern,
+                  capacity,
+                  mode=tf.contrib.learn.ModeKeys.TRAIN):
+  """Create Dataset of Example for problem and data_file_pattern."""
   if problem is None:
     data_fields, data_items_to_decoders = default_example_reading_spec(
         data_file_pattern)
@@ -230,73 +229,170 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams):
     # Create placeholders for input, rather than reading data from disk.
     return feature_placeholders(data_fields)
 
-  examples = examples_reader(
+  is_training = mode == tf.contrib.learn.ModeKeys.TRAIN
+  dataset = examples_reader(
       [data_file_pattern],
       data_fields,
-      training=(mode == tf.contrib.learn.ModeKeys.TRAIN),
+      training=is_training,
       capacity=capacity,
       data_items_to_decoders=data_items_to_decoders)
-
-  if problem is None:
-    examples = preprocess_examples_common(examples, hparams)
-    examples = preprocessing(examples, data_file_pattern)
-  else:
-    examples = problem.preprocess_examples(examples, mode, hparams)
-
-  # We do not want int64s as they are not supported on GPUs.
-  examples = cast_int64_to_int32(examples)
-
-  return examples
+  return dataset
 
 
-def batch_examples(examples, batching_scheme):
-  """Given a queue of examples, create batches of examples with similar lengths.
-
-  We assume that examples is a dictionary with string keys and tensor values,
-  possibly coming from a queue, e.g., constructed by examples_reader above.
-  Each tensor in examples is assumed to be 1D. We will put tensors of similar
-  length into batches togeter. We return a dictionary with the same keys as
-  examples, and with values being batches of size batch_size. If elements have
-  different lengths, they are padded with 0s. This function is based on
-  tf.contrib.training.bucket_by_sequence_length so see there for details.
-
-  For example, if examples is a queue containing [1, 2, 3] and [4], then
-  this function with batch_size=2 will return a batch [[1, 2, 3], [4, 0, 0]].
+def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
+                   batching_scheme):
+  """Input pipeline, returns a dictionary of batched and padded tensors.
 
   Args:
-    examples: a dictionary with string keys and 1D tensor values.
+    problem: Problem instance for which to build the input pipeline.
+    data_file_pattern: file pattern for input files.
+    capacity: int, data pipeline buffer capacity.
+    mode: tf.contrib.learn.ModeKeys entry.
+    hparams: an HParams object.
     batching_scheme: a dictionary containing
       "boundaries": a list of integers for the boundaries that will be
-        used for bucketing; see tf.contrib.training.bucket_by_sequence_length
-        for more details.
+        used for bucketing; see bucket_by_sequence_length for more details.
       "batch_sizes": a list of batch sizes corresponding to the buckets
       "max_length": an integer.  We drop sequences which are longer.
 
   Returns:
-    A dictionary with the same keys as examples and with values being batches
-    of examples padded with 0s, i.e., [batch_size x length] tensors.
+    dict <feature name, batched and padded Tensor>
   """
-  with tf.name_scope("batch_examples"):
-    # The queue to bucket on will be chosen based on maximum length.
-    max_length = 0
-    for v in examples.values():
-      # For images the sequence length is the size of the spatial dimensions.
-      sequence_length = (tf.shape(v)[0] if len(v.get_shape()) < 3 else
-                         tf.shape(v)[0] * tf.shape(v)[1])
-      max_length = tf.maximum(max_length, sequence_length)
-    (_, outputs) = tf.contrib.training.bucket_by_sequence_length(
-        max_length,
-        examples,
-        batching_scheme["batch_sizes"],
-        [b + 1 for b in batching_scheme["boundaries"]],
-        capacity=2,  # Number of full batches to store, we don't need many.
-        bucket_capacities=[2 * b for b in batching_scheme["batch_sizes"]],
-        dynamic_pad=True,
-        keep_input=(max_length <= batching_scheme["max_length"]))
-    return outputs
+  is_training = mode == tf.contrib.learn.ModeKeys.TRAIN
+  num_threads = 4 if is_training else 1
+
+  with tf.name_scope("input_pipeline"):
+    dataset = read_examples(problem, data_file_pattern, capacity, mode=mode)
+    dataset = dataset.map(
+        lambda ex: _preprocess(ex, problem, data_file_pattern, hparams, mode),
+        num_threads=num_threads)
+    dataset = dataset.filter(
+        lambda ex: _example_too_big(ex, batching_scheme["max_length"]))
+
+    dataset = bucket_by_sequence_length(dataset, _example_length,
+                                        batching_scheme["boundaries"],
+                                        batching_scheme["batch_sizes"])
+    max_batch_size = max(batching_scheme["batch_sizes"])
+    # We reshuffle the batches to prevent many long-sequence batches at once.
+    dataset = dataset.shuffle(max_batch_size * 3)
+    batched_examples = dataset.make_one_shot_iterator().get_next()
+    return batched_examples
 
 
-def bucket_boundaries(max_length, min_length=8, mantissa_bits=2):
+def _preprocess(example, problem, data_file_pattern, hparams, mode):
+  """Preprocessing for example."""
+  if problem is None:
+    example = preprocess_examples_common(example, hparams)
+    example = preprocessing(example, data_file_pattern)
+  else:
+    example = problem.preprocess_examples(example, mode, hparams)
+
+  # We do not want int64s as they are not supported on GPUs.
+  example = cast_int64_to_int32(example)
+
+  return example
+
+
+def _example_length(example):
+  length = 0
+  # Length of the example is the maximum length of the feature lengths
+  for v in example.values():
+    # For images the sequence length is the size of the spatial dimensions.
+    feature_length = (tf.shape(v)[0] if len(v.get_shape()) < 3 else
+                      tf.shape(v)[0] * tf.shape(v)[1])
+    length = tf.maximum(length, feature_length)
+  return length
+
+
+def _example_too_big(example, max_length):
+  return tf.less_equal(_example_length(example), max_length)
+
+
+def _lcm(l):
+  """Least common multiple of integers in a list."""
+  if not l:
+    raise ValueError("LCD of an empty list.")
+  if len(l) == 1:
+    return l[0]
+  x = l[0]
+  y = _lcm(l[1:])
+  return x * y // fractions.gcd(x, y)
+
+
+def _closest_small_primes(x):
+  """Closest number to x which has only 2, 3, 5 as prime factors, 3,5 once."""
+  assert x > 0
+  def is_small_primes(x, covered3, covered5):
+    if x % 2 == 0:
+      return is_small_primes(x // 2, covered3, covered5)
+    if x % 3 == 0 and not covered3:
+      return is_small_primes(x // 3, True, covered5)
+    if x % 5 == 0 and not covered5:
+      return is_small_primes(x // 5, covered3, True)
+    return x == 1
+  for i in xrange(x):
+    if is_small_primes(x - i, False, False):
+      return x - i
+    # We search for higher numbers too, but only 8 of them to not increase much.
+    if i < 9 and is_small_primes(x + i, False, False):
+      return x + i
+
+
+def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
+                              bucket_batch_sizes):
+  """Bucket entries in dataset by length.
+
+  Args:
+    dataset: Dataset of dict<feature name, Tensor>.
+    example_length_fn: function from example to int, determines the length of
+      the example, which will determine the bucket it goes into.
+    bucket_boundaries: list<int>, boundaries of the buckets.
+    bucket_batch_sizes: list<int>, batch size per bucket.
+
+  Returns:
+    Dataset of padded and batched examples.
+  """
+  # Since the Datasets API only allows a single constant for window_size,
+  # and it needs divide all bucket_batch_sizes, we first make sure they only
+  # have a few primes in them so that their LCM doesn't explode quickly.
+  # TODO(lukaszkaiser): remove this adjustment when Dataset API improves.
+  bucket_batch_sizes1 = [_closest_small_primes(b) for b in bucket_batch_sizes]
+  tf.logging.info("Corrected bucket_batch_sizes from %s to %s."
+                  % (str(bucket_batch_sizes), str(bucket_batch_sizes1)))
+  bucket_batch_sizes = bucket_batch_sizes1
+  with tf.name_scope("bucket_by_seq_length"):
+
+    def example_to_bucket_id(example):
+      """Return int64 id of the length bucket for this example."""
+      seq_length = example_length_fn(example)
+
+      boundaries = list(bucket_boundaries)
+      buckets_min = [np.iinfo(np.int32).min] + boundaries
+      buckets_max = boundaries + [np.iinfo(np.int32).max]
+      conditions_c = tf.logical_and(
+          tf.less_equal(buckets_min, seq_length),
+          tf.less(seq_length, buckets_max))
+      bucket_id = tf.reduce_min(tf.where(conditions_c))
+
+      return bucket_id
+
+    def batching_fn(bucket_id, grouped_dataset):
+      batch_sizes = tf.constant(bucket_batch_sizes, dtype=tf.int64)
+      batch_size = batch_sizes[bucket_id]
+
+      # Pad each dimension of each feature so that they match.
+      padded_shapes = dict(
+          [(name, [None] * len(shape))
+           for name, shape in grouped_dataset.output_shapes.items()])
+      return grouped_dataset.padded_batch(batch_size, padded_shapes)
+
+    window_size = _lcm(bucket_batch_sizes)
+    dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
+                                      window_size)
+    return dataset
+
+
+def _bucket_boundaries(max_length, min_length=8, mantissa_bits=2):
   """A default set of length-bucket boundaries."""
   x = min_length
   boundaries = []
@@ -306,44 +402,65 @@ def bucket_boundaries(max_length, min_length=8, mantissa_bits=2):
   return boundaries
 
 
-def hparams_to_batching_scheme(hparams,
-                               drop_long_sequences=False,
-                               shard_multiplier=1,
-                               length_multiplier=1):
+def _batching_scheme(batch_size=16 * 256,
+                     max_length=None,
+                     batching_mantissa_bits=1,
+                     drop_long_sequences=False,
+                     shard_multiplier=1,
+                     length_multiplier=1):
   """A batching scheme based on model hyperparameters.
 
   Every batch containins a number of sequences divisible by `shard_multiplier`.
 
-  If `drop_long_sequences` is True, then sequences longer than
-  `hparams.batch_size` are dropped.  This prevents generating batches with
-  more than the usual number of tokens, which can cause out-of-memory errors.
-
   Args:
-    hparams: a hyperparameters.
-    drop_long_sequences: a boolean.
+    batch_size: int, total number of tokens in a batch.
+    max_length: int, sequences longer than this will be skipped. Defaults to
+      batch_size.
+    batching_mantissa_bits: int, ??.
+    drop_long_sequences: bool, if True, then sequences longer than
+      `max_length` are dropped.  This prevents generating batches with
+      more than the usual number of tokens, which can cause out-of-memory
+      errors.
     shard_multiplier: an integer increasing the batch_size to suit splitting
       across datashards.
     length_multiplier: an integer multiplier that is used to increase the
       batch sizes and sequence length tolerance.
 
   Returns:
-     a dictionary
+     A dictionary with parameters that can be passed to input_pipeline:
+       * boundaries: list of bucket boundaries
+       * batch_sizes: list of batch sizes for each length bucket
+       * max_length: int, maximum length of an example
   """
-  max_length = hparams.max_length or hparams.batch_size
-  boundaries = bucket_boundaries(
-      max_length, mantissa_bits=hparams.batching_mantissa_bits)
+  max_length = max_length or batch_size
+  boundaries = _bucket_boundaries(
+      max_length, mantissa_bits=batching_mantissa_bits)
+  boundaries = [boundary * length_multiplier for boundary in boundaries]
+  max_length *= length_multiplier
+
   batch_sizes = [
-      max(1, hparams.batch_size // length)
+      max(1, batch_size // length) * shard_multiplier
       for length in boundaries + [max_length]
   ]
-  batch_sizes = [b * shard_multiplier for b in batch_sizes]
-  max_length *= length_multiplier
-  boundaries = [boundary * length_multiplier for boundary in boundaries]
   return {
       "boundaries": boundaries,
       "batch_sizes": batch_sizes,
       "max_length": (max_length if drop_long_sequences else 10**9)
   }
+
+
+def hparams_to_batching_scheme(hparams,
+                               drop_long_sequences=False,
+                               shard_multiplier=1,
+                               length_multiplier=1):
+  """Wrapper around _batching_scheme with hparams."""
+  return _batching_scheme(
+      max_length=hparams.max_length,
+      batch_size=hparams.batch_size,
+      batching_mantissa_bits=hparams.batching_mantissa_bits,
+      drop_long_sequences=drop_long_sequences,
+      shard_multiplier=shard_multiplier,
+      length_multiplier=length_multiplier)
 
 
 def constant_batching_scheme(constant_batch_size_in_sequences):
@@ -355,7 +472,7 @@ def constant_batching_scheme(constant_batch_size_in_sequences):
   Returns:
      a dictionary
   """
-  boundaries = bucket_boundaries(1024)
+  boundaries = _bucket_boundaries(1024)
   batch_sizes = [constant_batch_size_in_sequences] * (1 + len(boundaries))
   return {
       "boundaries": boundaries,

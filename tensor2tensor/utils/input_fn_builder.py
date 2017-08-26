@@ -90,13 +90,11 @@ def build_input_fn(mode,
         p_hparams = hparams.problems[n]
         with tf.name_scope("problem_%d" % n):
           with tf.device("/cpu:0"):  # Input reading on CPU
-            capacity = p_hparams.max_expected_batch_size_per_shard
-            capacity *= num_datashards
-            examples = data_reader.input_pipeline(
+            capacity = (
+                p_hparams.max_expected_batch_size_per_shard * num_datashards)
+            feature_map = data_reader.input_pipeline(
                 problem_instance, data_file_patterns and data_file_patterns[n],
-                capacity, mode, hparams)
-            feature_map = data_reader.batch_examples(
-                examples,
+                capacity, mode, hparams,
                 data_reader.hparams_to_batching_scheme(
                     hparams,
                     shard_multiplier=num_datashards,

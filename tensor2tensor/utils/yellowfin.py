@@ -20,8 +20,8 @@ from __future__ import division
 from __future__ import print_function
 
 # Dependency imports
+
 import tensorflow as tf
-from tensorflow.python.framework import ops
 
 
 # Values for gate_gradients.
@@ -49,6 +49,7 @@ class YellowFinOptimizer(object):
                name="YellowFin",
                use_nesterov=False):
     """Construct a new YellowFin optimizer.
+
     Implemented as a wrapper around tf.train.MomentumOptimizer
 
     Args:
@@ -113,11 +114,11 @@ class YellowFinOptimizer(object):
 
     # Gradient Clipping Threshold.
     if clip_thresh is not None:
-      self._clip_thresh_var = \
-      tf.get_variable("YF_clip_thresh",
-                      dtype=tf.float32,
-                      trainable=False,
-                      initializer=tf.constant(clip_thresh))
+      self._clip_thresh_var = tf.get_variable(
+          "YF_clip_thresh",
+          dtype=tf.float32,
+          trainable=False,
+          initializer=tf.constant(clip_thresh))
     else:
       self._clip_thresh_var = None
 
@@ -201,7 +202,7 @@ class YellowFinOptimizer(object):
     self._curv_win = tf.get_variable("curv_win",
                                      dtype=tf.float32,
                                      trainable=False,
-                                     shape=[self.curvature_window_width, ],
+                                     shape=[self.curvature_window_width,],
                                      initializer=tf.zeros_initializer)
     # We use log smoothing for curvature range
     self._curv_win = tf.scatter_update(self._curv_win,
@@ -226,11 +227,10 @@ class YellowFinOptimizer(object):
         self._h_max = tf.exp(
             tf.identity(self._moving_averager.average(self._h_max_t)))
         if self._sparsity_debias:
-          self._h_min = self._h_min * self._sparsity_avg
-          self._h_max = self._h_max * self._sparsity_avg
+          self._h_min *= self._sparsity_avg
+          self._h_max *= self._sparsity_avg
     curv_range_ops.append(avg_op)
     return curv_range_ops  # h_max_t, h_min_t
-
 
   def _grad_variance(self):
     """Estimate of gradient Variance.
@@ -241,7 +241,7 @@ class YellowFinOptimizer(object):
     grad_var_ops = []
     tensor_to_avg = []
     for t, g in zip(self._vars, self._grad):
-      if isinstance(g, ops.IndexedSlices):
+      if isinstance(g, tf.IndexedSlices):
         tensor_to_avg.append(
             tf.reshape(tf.unsorted_segment_sum(g.values,
                                                g.indices,
@@ -264,7 +264,6 @@ class YellowFinOptimizer(object):
     if self._sparsity_debias:
       self._grad_var *= self._sparsity_avg
     return grad_var_ops  # C_t
-
 
   def _dist_to_opt(self):
     """Distance to optimum.
@@ -292,25 +291,22 @@ class YellowFinOptimizer(object):
         self._dist_to_opt_avg /= tf.sqrt(self._sparsity_avg)
     return dist_to_opt_ops  # D_t
 
-
   def _grad_sparsity(self):
-    """
+    """Gradient sparsity."""
     # If the sparse minibatch gradient has 10 percent of its entries
     # non-zero, its sparsity is 0.1.
     # The norm of dense gradient averaged from full dataset
     # are roughly estimated norm of minibatch
     # sparse gradient norm * sqrt(sparsity)
     # An extension maybe only correct the sparse blob.
-    """
     non_zero_cnt = tf.add_n([tf.count_nonzero(g) for g in self._grad])
     all_entry_cnt = tf.add_n([tf.size(g) for g in self._grad])
-    self._sparsity = tf.cast(non_zero_cnt, self._grad[0].dtype) \
-      / tf.cast(all_entry_cnt, self._grad[0].dtype)
-    avg_op = self._moving_averager.apply([self._sparsity, ])
+    self._sparsity = tf.cast(non_zero_cnt, self._grad[0].dtype)
+    self._sparsity /= tf.cast(all_entry_cnt, self._grad[0].dtype)
+    avg_op = self._moving_averager.apply([self._sparsity,])
     with tf.control_dependencies([avg_op]):
       self._sparsity_avg = self._moving_averager.average(self._sparsity)
     return avg_op
-
 
   def _prepare_variables(self):
     """Prepare Variables for YellowFin.
@@ -331,7 +327,7 @@ class YellowFinOptimizer(object):
     # Gradient squared
     for v, g in zip(self._vars, self._grad):
       if g is None: continue
-      with ops.colocate_with(v):
+      with tf.colocate_with(v):
         self._grad_squared.append(tf.square(g))
 
     # Norm squared.
@@ -355,9 +351,8 @@ class YellowFinOptimizer(object):
     prepare_variables_op.append(avg_op)
     return tf.group(*prepare_variables_op)
 
-
   def _get_cubic_root(self):
-    """
+    """Get the cubic root."""
     # We have the equation x^2 D^2 + (1-x)^4 * C / h_min^2
     # where x = sqrt(mu).
     # We substitute x, which is sqrt(mu), with x = y + 1.
@@ -366,27 +361,26 @@ class YellowFinOptimizer(object):
     # We use the Vieta's substution to compute the root.
     # There is only one real solution y (which is in [0, 1] ).
     # http://mathworld.wolfram.com/VietasSubstitution.html
-    """
-    assert_array = \
-      [tf.Assert(
-          tf.logical_not(tf.is_nan(self._dist_to_opt_avg)),
-          [self._dist_to_opt_avg, ]), \
-      tf.Assert(
-          tf.logical_not(tf.is_nan(self._h_min)),
-          [self._h_min,]), \
-      tf.Assert(
-          tf.logical_not(tf.is_nan(self._grad_var)),
-          [self._grad_var,]), \
-      tf.Assert(
-          tf.logical_not(tf.is_inf(self._dist_to_opt_avg)),
-          [self._dist_to_opt_avg, ]), \
-      tf.Assert(
-          tf.logical_not(tf.is_inf(self._h_min)),
-          [self._h_min,]), \
-      tf.Assert(
-          tf.logical_not(tf.is_inf(self._grad_var)),
-          [self._grad_var,])]
-
+    assert_array = [
+        tf.Assert(
+            tf.logical_not(tf.is_nan(self._dist_to_opt_avg)),
+            [self._dist_to_opt_avg,]),
+        tf.Assert(
+            tf.logical_not(tf.is_nan(self._h_min)),
+            [self._h_min,]),
+        tf.Assert(
+            tf.logical_not(tf.is_nan(self._grad_var)),
+            [self._grad_var,]),
+        tf.Assert(
+            tf.logical_not(tf.is_inf(self._dist_to_opt_avg)),
+            [self._dist_to_opt_avg,]),
+        tf.Assert(
+            tf.logical_not(tf.is_inf(self._h_min)),
+            [self._h_min,]),
+        tf.Assert(
+            tf.logical_not(tf.is_inf(self._grad_var)),
+            [self._grad_var,])
+    ]
     with tf.control_dependencies(assert_array):
       p = self._dist_to_opt_avg**2 * self._h_min**2 / 2 / self._grad_var
       w3 = (-tf.sqrt(p**2 + 4.0 / 27.0 * p**3) - p) / 2.0
@@ -394,7 +388,6 @@ class YellowFinOptimizer(object):
       y = w - p / 3.0 / w
       x = y + 1
     return x
-
 
   def _get_lr_tensor(self):
     """Get lr minimzing the surrogate.
@@ -405,7 +398,6 @@ class YellowFinOptimizer(object):
     lr = (1.0 - tf.sqrt(self._mu))**2 / self._h_min
     return lr
 
-
   def _get_mu_tensor(self):
     """Get the min mu which minimize the surrogate.
 
@@ -415,9 +407,8 @@ class YellowFinOptimizer(object):
     root = self._get_cubic_root()
     dr = self._h_max / self._h_min
     mu = tf.maximum(
-      root**2, ((tf.sqrt(dr) - 1) / (tf.sqrt(dr) + 1))**2)
+        root**2, ((tf.sqrt(dr) - 1) / (tf.sqrt(dr) + 1))**2)
     return mu
-
 
   def _yellowfin(self):
     """YellowFin auto-tuning optimizer based on momentum SGD.
@@ -448,11 +439,11 @@ class YellowFinOptimizer(object):
     # approximation after a single step while keeping all directions in the
     # robust region.
     self._mu = tf.identity(tf.cond(self._do_tune,
-                                   lambda: self._get_mu_tensor(),
+                                   self._get_mu_tensor,
                                    lambda: self._mu_var))
     with tf.control_dependencies([self._mu]):
       self._lr = tf.identity(tf.cond(self._do_tune,
-                                     lambda: self._get_lr_tensor(),
+                                     self._get_lr_tensor,
                                      lambda: self._lr_var))
 
     # Tune learning rate and momentum.
@@ -465,11 +456,9 @@ class YellowFinOptimizer(object):
     yellowfin_ops = tf.group(*yellowfin_ops)
     return yellowfin_ops
 
-
   def get_name(self):
-    """Get Optimizer Name"""
+    """Get optimizer name."""
     return self._momentum_optimizer.get_name()
-
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     """Applying gradients aand tune hyperparams with YellowFin.
@@ -488,7 +477,6 @@ class YellowFinOptimizer(object):
         YellowFin ops(Curvature, Variance, Distance) ops,
         SingleStep and lr_mu tuning ops,
         Step increment ops.
-
     """
     self._grad, self._vars = zip(*[(g, t)
                                    for g, t in grads_and_vars if g is not None])
@@ -517,7 +505,7 @@ class YellowFinOptimizer(object):
       # does not support indexed slice for sparse gradients.
       # The alternative dependencies here might be slightly slower due
       # to less parallelization.
-      with tf.control_dependencies([apply_grad_op, ]):
+      with tf.control_dependencies([apply_grad_op,]):
         prepare_variables_op = self._prepare_variables()
 
     with tf.variable_scope("yellowfin"):
@@ -532,7 +520,6 @@ class YellowFinOptimizer(object):
                     prepare_variables_op,
                     yellowfin_op,
                     self._increment_step_op)
-
 
   def compute_gradients(self,
                         loss,
@@ -566,6 +553,7 @@ class YellowFinOptimizer(object):
       A list of (gradient, variable) pairs. Variable is always present,
         but gradient can be None.
     """
+    del global_step, name  # Unused for now.
     return self._momentum_optimizer.compute_gradients(
         loss,
         var_list=var_list,
@@ -573,7 +561,6 @@ class YellowFinOptimizer(object):
         aggregation_method=aggregation_method,
         colocate_gradients_with_ops=colocate_gradients_with_ops,
         grad_loss=grad_loss)
-
 
   def minimize(self,
                loss,
@@ -637,11 +624,8 @@ class YellowFinOptimizer(object):
                                 global_step=global_step,
                                 name=name)
 
-
   def get_slot(self, var, name):
-    """
-    Return a slot named `name` created for `var` by
-    the underlying MomentumOptimizer.
+    """Return a slot named `name` created for `var`.
 
     Args:
       var: A variable passed to `minimize()` or `apply_gradients()`.
@@ -653,9 +637,7 @@ class YellowFinOptimizer(object):
     return self._momentum_optimizer.get_slot(var, name)
 
   def get_slot_names(self):
-    """
-    Return a list of the names of the slots created by the
-    underlying MomentumOptimizer.
+    """Return a list of the names of the slots using MomentumOptimizer.
 
     Returns:
       A list of strings.

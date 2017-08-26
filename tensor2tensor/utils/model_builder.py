@@ -46,6 +46,24 @@ FLAGS = tf.flags.FLAGS
 IMAGE_DECODE_LENGTH = 100
 
 
+def log_variable_sizes(var_list, tag):
+  """Log the sizes and shapes of variables, and the total size.
+
+  Args:
+    var_list: a list of varaibles
+    tag: a string
+  """
+  name_to_var = {v.name: v for v in var_list}
+  total_size = 0
+  for v_name in sorted(list(name_to_var)):
+    v = name_to_var[v_name]
+    v_size = int(np.prod(np.array(v.shape.as_list())))
+    tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
+                    v.name[:-2].ljust(80), str(v.shape).ljust(20), v_size)
+    total_size += v_size
+  tf.logging.info("%s Total size: %d", tag, total_size)
+
+
 def build_model_fn(model, hparams):
   """Returns a function to build the model.
 
@@ -150,6 +168,9 @@ def build_model_fn(model, hparams):
 
     dp = devices.data_parallelism()
 
+    tf.get_variable_scope().set_initializer(initializer())
+    is_training = mode == tf.contrib.learn.ModeKeys.TRAIN
+
     # Add input statistics for incoming features.
     with tf.name_scope("input_stats"):
       for (k, v) in six.iteritems(features):
@@ -157,13 +178,28 @@ def build_model_fn(model, hparams):
           tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // dp.n)
           tf.summary.scalar("%s_length" % k, tf.shape(v)[1])
           nonpadding = tf.to_float(tf.not_equal(v, 0))
-          tf.summary.scalar("%s_nonpadding_tokens" % k,
-                            tf.reduce_sum(nonpadding))
+          nonpadding_tokens = tf.reduce_sum(nonpadding)
+          if k == "targets":
+            targets_nonpadding_tokens = nonpadding_tokens
+          tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
           tf.summary.scalar("%s_nonpadding_fraction" % k,
                             tf.reduce_mean(nonpadding))
 
-    tf.get_variable_scope().set_initializer(initializer())
-    train = mode == tf.contrib.learn.ModeKeys.TRAIN
+      # The new data reader occasionally emits very small batches, which
+      # cause the examples in those batches to be grossly overweighted.
+      # We decrease the loss proportionally to the ratio of the size of this
+      # batch to the size of the largest training batch ever.
+      # TODO(noam): to be more sophisticated, we could keep separate
+      # maxima based on problem choice.
+      max_nonpadding_var = tf.get_variable(
+          "max_nonpadding", shape=[],
+          initializer=tf.ones_initializer(), trainable=False)
+      max_nonpadding = tf.maximum(max_nonpadding_var, targets_nonpadding_tokens)
+      if is_training:
+        with tf.control_dependencies(
+            [tf.assign(max_nonpadding_var, max_nonpadding)]):
+          small_batch_multiplier = targets_nonpadding_tokens / max_nonpadding
+        tf.summary.scalar("small_batch_multiplier", small_batch_multiplier)
 
     # Get multi-problem logits and loss based on features["problem_choice"].
     loss_variable_names = []
@@ -186,7 +222,7 @@ def build_model_fn(model, hparams):
             alpha=FLAGS.decode_alpha,
             decode_length=FLAGS.decode_extra_length)
       # In distributed mode, we build graph for problem=0 and problem=worker_id.
-      skipping_is_on = my_hp.problem_choice == "distributed" and train
+      skipping_is_on = my_hp.problem_choice == "distributed" and is_training
       problem_worker_id = FLAGS.worker_id % len(my_hp.problems)
       skip_this_one = n != 0 and n % FLAGS.worker_replicas != problem_worker_id
       # On worker 0 also build graph for problems <= 1.
@@ -208,9 +244,13 @@ def build_model_fn(model, hparams):
           ops.append(
               loss_moving_avg.assign(loss_moving_avg * 0.9 + loss_value * 0.1))
           total_loss += loss_value
-        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-          # Total loss was already constructed on input.
-          loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n)
+        try:  # Total loss avg might be reused or not, we try both.
+          with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+            # Total loss was already constructed on input.
+            loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n)
+        except ValueError:
+          loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n,
+                                            initializer=100.0, trainable=False)
         ops.append(
             loss_moving_avg.assign(loss_moving_avg * 0.9 + total_loss * 0.1))
       with tf.variable_scope("train_stats"):  # Count steps for this problem.
@@ -248,9 +288,6 @@ def build_model_fn(model, hparams):
     sharded_logits, total_loss = result_list[1:], result_list[0]
     if mode == tf.contrib.learn.ModeKeys.EVAL:
       logits = tf.concat(sharded_logits, 0)
-      if FLAGS.eval_print:
-        logits = tf.Print(
-            logits, [features["inputs"], logits], "EVAL PRINT", summarize=10000)
       # For evaluation, return the logits layer as our predictions.
       run_info["predictions"] = logits
       train_op = None
@@ -288,8 +325,6 @@ def build_model_fn(model, hparams):
     for v_name in sorted(list(all_weights)):
       v = all_weights[v_name]
       v_size = int(np.prod(np.array(v.shape.as_list())))
-      tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
-                      v.name[:-2].ljust(80), str(v.shape).ljust(20), v_size)
       total_size += v_size
       if my_hp.weight_decay > 0.0 and len(v.shape.as_list()) > 1:
         # Add weight regularization if set and the weight is not a bias (dim>1).
@@ -305,11 +340,14 @@ def build_model_fn(model, hparams):
           noise_op = v.assign_add(noise)
         with tf.control_dependencies([noise_op]):
           total_loss = tf.identity(total_loss)
-    tf.logging.info("Total trainable variables size: %d", total_size)
     if my_hp.weight_decay > 0.0:
       total_loss += weight_decay_loss * my_hp.weight_decay
+    if is_training:
+      total_loss *= small_batch_multiplier
     total_loss = tf.identity(total_loss, name="total_loss")
-
+    log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
+    diet_vars = [v for v in tf.global_variables() if hasattr(v, "optimizer")]
+    log_variable_sizes(diet_vars, "Diet Varaibles")
     # Define the train_op for the TRAIN mode.
     opt = _ConditionalOptimizer(my_hp.optimizer, learning_rate, my_hp)
     tf.logging.info("Computing gradients for global model_fn.")
@@ -319,7 +357,7 @@ def build_model_fn(model, hparams):
     train_op = tf.contrib.layers.optimize_loss(
         name="training",
         loss=total_loss,
-        global_step=tf.contrib.framework.get_global_step(),
+        global_step=tf.train.get_global_step(),
         learning_rate=learning_rate,
         clip_gradients=my_hp.clip_grad_norm or None,
         gradient_noise_scale=hparams.grad_noise_scale or None,

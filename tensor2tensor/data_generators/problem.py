@@ -116,7 +116,10 @@ class Problem(object):
     * generate_data(data_dir, tmp_dir)
         - Generate training and dev datasets into data_dir.
         - Additonal files, e.g. vocabulary files, should also be written to
-          data_dir.
+          data_dir. Vocab files are newline-separated files with each line
+          containing a token. The standard convention for the filename is to
+          set it to be
+                  ${Problem.vocab_name}.${Problem.targeted_vocab_size}
         - Downloads and other files can be written to tmp_dir
         - If you have a training and dev generator, you can generate the
           training and dev datasets with
@@ -200,22 +203,22 @@ class Problem(object):
     file_basename = self.dataset_filename()
     if not shuffled:
       file_basename += generator_utils.UNSHUFFLED_SUFFIX
-    return generator_utils.train_data_filenames(
-        file_basename, data_dir, num_shards)
+    return generator_utils.train_data_filenames(file_basename, data_dir,
+                                                num_shards)
 
   def dev_filepaths(self, data_dir, num_shards, shuffled):
     file_basename = self.dataset_filename()
     if not shuffled:
       file_basename += generator_utils.UNSHUFFLED_SUFFIX
-    return generator_utils.dev_data_filenames(
-        file_basename, data_dir, num_shards)
+    return generator_utils.dev_data_filenames(file_basename, data_dir,
+                                              num_shards)
 
   def test_filepaths(self, data_dir, num_shards, shuffled):
     file_basename = self.dataset_filename()
     if not shuffled:
       file_basename += generator_utils.UNSHUFFLED_SUFFIX
-    return generator_utils.test_data_filenames(
-        file_basename, data_dir, num_shards)
+    return generator_utils.test_data_filenames(file_basename, data_dir,
+                                               num_shards)
 
   def __init__(self, was_reversed=False, was_copy=False):
     """Create a Problem.
@@ -412,10 +415,8 @@ class Text2TextProblem(Problem):
       generator_utils.shuffle_dataset(all_paths)
     else:
       generator_utils.generate_dataset_and_shuffle(
-          self.generator(data_dir, tmp_dir, True),
-          self.training_filepaths(data_dir, self.num_shards, shuffled=False),
-          self.generator(data_dir, tmp_dir, False),
-          self.dev_filepaths(data_dir, self.num_dev_shards, shuffled=False))
+          self.generator(data_dir, tmp_dir, True), train_paths,
+          self.generator(data_dir, tmp_dir, False), dev_paths)
 
   def feature_encoders(self, data_dir):
     if self.is_character_level:
@@ -435,8 +436,9 @@ class Text2TextProblem(Problem):
 
     if self.has_inputs:
       source_vocab_size = self._encoders["inputs"].vocab_size
-      p.input_modality = {"inputs": (registry.Modalities.SYMBOL,
-                                     source_vocab_size)}
+      p.input_modality = {
+          "inputs": (registry.Modalities.SYMBOL, source_vocab_size)
+      }
     target_vocab_size = self._encoders["targets"].vocab_size
     p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
     if self.has_inputs:

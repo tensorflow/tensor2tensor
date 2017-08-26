@@ -19,11 +19,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+import shutil
+
 # Dependency imports
 
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.models import transformer
+from tensor2tensor.utils import model_builder
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_utils
 
@@ -60,9 +64,13 @@ class TrainerUtilsTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
+    tmp_dir = tf.test.get_temp_dir()
+    shutil.rmtree(tmp_dir)
+    os.mkdir(tmp_dir)
+
     # Generate a small test dataset
     FLAGS.problems = "tiny_algo"
-    TrainerUtilsTest.data_dir = tf.test.get_temp_dir()
+    TrainerUtilsTest.data_dir = tmp_dir
     registry.problem(FLAGS.problems).generate_data(TrainerUtilsTest.data_dir,
                                                    None)
 
@@ -84,6 +92,51 @@ class TrainerUtilsTest(tf.test.TestCase):
         train_steps=1,
         eval_steps=1)
     exp.test()
+
+  def testSingleEvalStepRawSession(self):
+    """Illustrate how to run a T2T model in a raw session."""
+
+    # Set model name, hparams, problems as would be set on command line.
+    model_name = "transformer"
+    FLAGS.hparams_set = "transformer_test"
+    FLAGS.problems = "tiny_algo"
+    data_dir = "/tmp"  # Used only when a vocab file or such like is needed.
+
+    # Create the problem object, hparams, model_fn, placeholders, features dict.
+    encoders = registry.problem(FLAGS.problems).feature_encoders(data_dir)
+    hparams = trainer_utils.create_hparams(
+        FLAGS.hparams_set, FLAGS.problems, data_dir)
+    model_fn = model_builder.build_model_fn(model_name, hparams)
+    inputs_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
+    batch_inputs = tf.reshape(inputs_ph, [1, -1, 1, 1])  # Make it 4D.
+    targets_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
+    batch_targets = tf.reshape(targets_ph, [1, -1, 1, 1])  # Make it 4D.
+    features = {"inputs": batch_inputs,
+                "problem_choice": 0,  # We run on the first problem here.
+                "input_space_id": hparams.problems[0].input_space_id,
+                "target_space_id": hparams.problems[0].target_space_id}
+
+    # Now set a mode and create the graph by invoking model_fn.
+    mode = tf.contrib.learn.ModeKeys.EVAL
+    predictions_dict, _, _ = model_fn(  # In INFER mode targets can be None.
+        features, batch_targets, mode)
+    predictions = tf.squeeze(  # These are not images, axis=2,3 are not needed.
+        predictions_dict["predictions"], axis=[2, 3])
+
+    # Having the graph, let's run it on some data.
+    with self.test_session() as sess:
+      sess.run(tf.global_variables_initializer())
+      inputs = "0 1 0"
+      targets = "0 1 0"
+      # Encode from raw string to numpy input array using problem encoders.
+      inputs_numpy = encoders["inputs"].encode(inputs)
+      targets_numpy = encoders["targets"].encode(targets)
+      # Feed the encoded inputs and targets and run session.
+      feed = {inputs_ph: inputs_numpy, targets_ph: targets_numpy}
+      np_predictions = sess.run(predictions, feed)
+      # Check that the result has the correct shape: batch x length x vocab_size
+      #   where, for us, batch = 1, length = 3, vocab_size = 4.
+      self.assertEqual(np_predictions.shape, (1, 3, 4))
 
 
 if __name__ == "__main__":

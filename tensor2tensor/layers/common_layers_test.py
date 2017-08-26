@@ -392,6 +392,165 @@ class CommonLayersTest(tf.test.TestCase):
       actual = session.run(layer)
     self.assertEqual(actual.shape, (5, 4, 32))
 
+  def testPaddingCrossEntropyFactored(self):
+    vocab_size = 19
+    rows = 5
+    cols = 4
+    depth = 11
+    label_smoothing = 0.1
+    features = np.random.rand(rows, cols, depth)
+    weights = np.random.rand(vocab_size, depth)
+    labels = np.random.randint(0, vocab_size - 1, size=(rows, cols))
+    with self.test_session() as session:
+      features = tf.to_float(features)
+      weights = tf.to_float(weights)
+      labels = tf.to_int32(labels)
+      logits = tf.matmul(
+          tf.reshape(features, [rows * cols, depth]), weights, transpose_b=True)
+      logits = tf.reshape(logits, [rows, cols, vocab_size])
+      loss_num, loss_den = common_layers.padded_cross_entropy(
+          logits, labels, label_smoothing=label_smoothing, reduce_sum=False)
+      factored_logits = common_layers.FactoredTensor(features, weights)
+      loss_num_f, loss_den_f = common_layers.padded_cross_entropy_factored(
+          factored_logits,
+          labels=labels,
+          label_smoothing=label_smoothing,
+          reduce_sum=False)
+      num, den, num_f, den_f = session.run(
+          [loss_num, loss_den, loss_num_f, loss_den_f])
+    self.assertEqual(num.shape, (rows, cols))
+    self.assertEqual(den.shape, (rows, cols))
+    self.assertEqual(num_f.shape, (rows, cols))
+    self.assertEqual(den_f.shape, (rows, cols))
+    self.assertAllClose(num, num_f)
+    self.assertAllClose(den, den_f)
+
+  def testPaddingCrossEntropyFactoredGrad(self):
+    vocab_size = 19
+    rows = 5
+    cols = 4
+    depth = 11
+    label_smoothing = 0.1
+    features = np.random.rand(rows, cols, depth)
+    weights = np.random.rand(vocab_size, depth)
+    labels = np.random.randint(0, vocab_size - 1, size=(rows, cols))
+    with self.test_session() as session:
+      features = tf.to_float(features)
+      weights = tf.to_float(weights)
+      labels = tf.to_int32(labels)
+      logits = tf.matmul(
+          tf.reshape(features, [rows * cols, depth]), weights, transpose_b=True)
+      logits = tf.reshape(logits, [rows, cols, vocab_size])
+      loss_num, loss_den = common_layers.padded_cross_entropy(
+          logits, labels, label_smoothing=label_smoothing, reduce_sum=False)
+      factored_logits = common_layers.FactoredTensor(features, weights)
+      loss_num_factored, loss_den_factored = (
+          common_layers.padded_cross_entropy_factored(
+              factored_logits,
+              labels=labels,
+              label_smoothing=label_smoothing,
+              reduce_sum=False))
+      df, dw = tf.gradients(ys=[loss_num, loss_den], xs=[features, weights])
+      df_factored, dw_factored = tf.gradients(
+          ys=[loss_num_factored, loss_den_factored], xs=[features, weights])
+      actual_df, actual_dw, actual_df_factored, actual_dw_factored = (
+          session.run([df, dw, df_factored, dw_factored]))
+    self.assertEqual(actual_df.shape, (rows, cols, depth))
+    self.assertEqual(actual_dw.shape, (vocab_size, depth))
+    self.assertEqual(actual_df_factored.shape, (rows, cols, depth))
+    self.assertEqual(actual_dw_factored.shape, (vocab_size, depth))
+    self.assertAllClose(actual_df, actual_df_factored)
+    self.assertAllClose(actual_dw, actual_dw_factored)
+
+  def testFactoredTensorImplicitConversion(self):
+    a = np.random.rand(3, 4, 5)
+    b = np.random.rand(6, 5)
+    c = np.random.rand(3, 4, 6)
+    with self.test_session() as session:
+      # a factored representation of a Tensor of shape (3, 4, 6)
+      factored = common_layers.FactoredTensor(tf.to_float(a), tf.to_float(b))
+      # implicitly converts factored to a Tensor (performing the matmul)
+      d = factored + tf.to_float(c)
+      out = session.run(d)
+    self.assertEqual(out.shape, (3, 4, 6))
+
+
+class FnWithCustomGradTest(tf.test.TestCase):
+
+  def testCorrectness(self):
+
+    w = tf.random_uniform([6, 10])
+
+    def fn(a, b, c):
+      return tf.layers.dense(
+          a,
+          10,
+          use_bias=False,
+          kernel_initializer=lambda shape, dtype, partition_info: w
+      ) + tf.matmul(b, c)
+
+    def grad_fn(inputs, variables, outputs, grad_outputs):
+      outputs = outputs[0]
+      grad_outputs = grad_outputs[0]
+      grad_inputs = tf.gradients(outputs, inputs, grad_ys=grad_outputs)
+      grad_vars = tf.gradients(outputs, variables, grad_ys=grad_outputs)
+      return grad_inputs, grad_vars
+
+    custom_fn = common_layers.fn_with_custom_grad(grad_fn)(fn)
+
+    a = tf.random_uniform([11, 6])
+    b = tf.random_uniform([11, 7])
+    c = tf.random_uniform([7, 10])
+
+    out = fn(a, b, c)
+    custom_out = custom_fn(a, b, c)
+    self.assertEqual(out.get_shape().as_list(),
+                     custom_out.get_shape().as_list())
+
+    loss = tf.reduce_mean(out)
+    custom_loss = tf.reduce_mean(custom_out)
+
+    grads = tf.gradients(loss, [a, b, c] + [tf.trainable_variables()[0]])
+    custom_grads = tf.gradients(custom_loss,
+                                [a, b, c] + [tf.trainable_variables()[1]])
+
+    with self.test_session() as sess:
+      sess.run(tf.global_variables_initializer())
+      out_val, custom_out_val, grads_val, custom_grads_val = sess.run(
+          [out, custom_out, grads, custom_grads])
+      self.assertAllClose(out_val, custom_out_val)
+      for g1, g2 in zip(grads_val, custom_grads_val):
+        self.assertAllClose(g1, g2)
+
+  def testCustomGrad(self):
+
+    def fn(a, b, c):
+      return tf.layers.dense(a, 10, use_bias=False) + tf.matmul(b, c)
+
+    def grad_fn(inputs, variables, unused_outputs, unused_grad_outputs):
+      grad_inputs = [tf.ones_like(t) * (i + 1.) for i, t in enumerate(inputs)]
+      grad_vars = [
+          tf.ones_like(t) * (i + len(inputs) + 1.)
+          for i, t in enumerate(variables)
+      ]
+      return grad_inputs, grad_vars
+
+    a = tf.random_uniform([11, 6])
+    b = tf.random_uniform([11, 7])
+    c = tf.random_uniform([7, 10])
+    w = tf.random_uniform([6, 10])
+    out = common_layers.fn_with_custom_grad(grad_fn)(fn)(a, b, c)
+    loss = tf.reduce_mean(out)
+    grads = tf.gradients(loss, [a, b, c, tf.trainable_variables()[0]])
+    expected_grads = [
+        tf.ones_like(t) * (i + 1.) for i, t in enumerate([a, b, c, w])
+    ]
+    with self.test_session() as sess:
+      sess.run(tf.global_variables_initializer())
+      g_val, eg_val = sess.run([grads, expected_grads])
+      for g1, g2 in zip(g_val, eg_val):
+        self.assertAllClose(g1, g2)
+
 
 if __name__ == "__main__":
   tf.test.main()

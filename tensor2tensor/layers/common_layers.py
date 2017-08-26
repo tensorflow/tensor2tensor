@@ -18,7 +18,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from collections import defaultdict
+import contextlib
 import math
+import random
 
 # Dependency imports
 
@@ -29,6 +32,7 @@ from tensor2tensor.utils import expert_utils as eu
 import tensorflow as tf
 
 from tensorflow.python.framework import function
+from tensorflow.python.framework import ops
 
 # This is a global setting. When turned off, no @function.Defun is used.
 allow_defun = False
@@ -55,13 +59,13 @@ def hard_tanh(x, saturation_limit=0.9):
 def inverse_exp_decay(max_step, min_value=0.01):
   """Inverse-decay exponentially from 0.01 to 1.0 reached at max_step."""
   inv_base = tf.exp(tf.log(min_value) / float(max_step))
-  step = tf.to_float(tf.contrib.framework.get_global_step())
+  step = tf.to_float(tf.train.get_global_step())
   return inv_base**tf.maximum(float(max_step) - step, 0.0)
 
 
 def inverse_lin_decay(max_step, min_value=0.01):
   """Inverse-decay linearly from 0.01 to 1.0 reached at max_step."""
-  step = tf.to_float(tf.contrib.framework.get_global_step())
+  step = tf.to_float(tf.train.get_global_step())
   progress = tf.minimum(step / float(max_step), 1.0)
   return progress * (1.0 - min_value) + min_value
 
@@ -485,14 +489,8 @@ def apply_norm(x, norm_type, depth, epsilon):
                    "'noam', 'none'.")
 
 
-def layer_prepostprocess(previous_value,
-                         x,
-                         sequence,
-                         dropout_rate,
-                         norm_type,
-                         depth,
-                         epsilon,
-                         name):
+def layer_prepostprocess(previous_value, x, sequence, dropout_rate, norm_type,
+                         depth, epsilon, name):
   """Apply a sequence of functions to the input or output of a layer.
 
   The sequence is specified as a string which may contain the following
@@ -518,6 +516,8 @@ def layer_prepostprocess(previous_value,
     a Tensor
   """
   with tf.variable_scope(name):
+    if sequence == "none":
+      return x
     for c in sequence:
       if c == "a":
         x += previous_value
@@ -553,7 +553,8 @@ def layer_preprocess(layer_input, hparams):
   assert "a" not in hparams.layer_preprocess_sequence, (
       "No residual connections allowed in hparams.layer_preprocess_sequence")
   return layer_prepostprocess(
-      None, layer_input,
+      None,
+      layer_input,
       sequence=hparams.layer_preprocess_sequence,
       dropout_rate=hparams.layer_prepostprocess_dropout,
       norm_type=hparams.norm_type,
@@ -585,7 +586,8 @@ def layer_postprocess(layer_input, layer_output, hparams):
     a Tensor
   """
   return layer_prepostprocess(
-      layer_input, layer_output,
+      layer_input,
+      layer_output,
       sequence=hparams.layer_postprocess_sequence,
       dropout_rate=hparams.layer_prepostprocess_dropout,
       norm_type=hparams.norm_type,
@@ -1424,6 +1426,7 @@ def padded_cross_entropy(logits,
 
   Args:
     logits: a `Tensor` with shape `[batch, timesteps, vocab_size]`.
+      optionally a FactoredTensor.
     labels: an integer `Tensor` with shape `[batch, timesteps]`.
     label_smoothing: a floating point `Scalar`.
     weights_fn: A function from labels to weights.
@@ -1433,6 +1436,13 @@ def padded_cross_entropy(logits,
     loss_numerator: a `Scalar`.  Sum of losses.
     loss_denominator: a `Scalar.  The number of non-padding target tokens.
   """
+  if isinstance(logits, FactoredTensor):
+    return padded_cross_entropy_factored(
+        logits,
+        labels,
+        label_smoothing,
+        weights_fn=weights_fn,
+        reduce_sum=reduce_sum)
   confidence = 1.0 - label_smoothing
   vocab_size = tf.shape(logits)[-1]
   with tf.name_scope("padded_cross_entropy", [logits, labels]):
@@ -1625,3 +1635,325 @@ def ravanbakhsh_set_layer(layer_size,
         inputs - tf.expand_dims(global_pool_1d(inputs, mask=mask), axis=1),
         activation_fn=activation_fn,
         name=name)
+
+
+def fn_device_dependency_dict():
+  """State container for fn_device_dependency."""
+  if not hasattr(tf.get_default_graph(), "dependency_dict"):
+    setattr(tf.get_default_graph(), "dependency_dict", defaultdict(list))
+  return tf.get_default_graph().dependency_dict
+
+
+@contextlib.contextmanager
+def fn_device_dependency(name, device=""):
+  """Add control deps for name and device."""
+  key = name + "_" + device
+  outs = []
+
+  def body():
+    with tf.control_dependencies(fn_device_dependency_dict()[key]):
+      yield outs
+      assert outs
+
+      deps = outs
+      if isinstance(outs[0], list) or isinstance(outs[0], tuple):
+        assert len(outs) == 1
+        deps = outs[0]
+      fn_device_dependency_dict()[key] = deps
+
+  if device:
+    with tf.device(device):
+      return body()
+  else:
+    return body()
+
+
+def underlying_variable_ref(t):
+  """Find the underlying variable ref, ignoring Identity ops.
+
+  Args:
+    t: a Tensor
+
+  Returns:
+    a Tensor that is a variable ref, or None on error.
+  """
+  while t.op.type == "Identity":
+    t = t.op.inputs[0]
+  if "Variable" in t.op.type:
+    return t
+  else:
+    return None
+
+
+def underlying_variable(t):
+  """Find the underlying tf.Variable object.
+
+  Args:
+    t: a Tensor
+
+  Returns:
+    a tf.Varaible object.
+  """
+  t = underlying_variable_ref(t)
+  assert t is not None
+  # make sure that the graph has a variable index and that it is up-to-date
+  if not hasattr(tf.get_default_graph(), "var_index"):
+    tf.get_default_graph().var_index = {}
+  var_index = tf.get_default_graph().var_index
+  for v in tf.global_variables()[len(var_index):]:
+    var_index[v.name] = v
+  return var_index[t.name]
+
+
+def approximate_split(x, num_splits, axis=0):
+  """Split approximately equally into num_splits parts.
+
+  Args:
+    x: a Tensor
+    num_splits: an integer
+    axis: an integer.
+
+  Returns:
+    a list of num_splits Tensors.
+  """
+  size = tf.shape(x)[axis]
+  size_splits = [tf.div(size + i, num_splits) for i in xrange(num_splits)]
+  return tf.split(x, size_splits, axis=axis)
+
+
+class FactoredTensor(object):
+  """A concise factored representation of Tensor as two tensors.
+
+  This class represents the tensor tf.matmul(a, b, transpose_b=True)
+  by storing the values of Tensors a and b.
+
+  The reason for this is that the product may be too big to fully realize at
+  once, so it can be realized a part at a time.
+
+  "a" may have extra leading dimensions, in which case they are flattened out
+  before computing the matrix product, then re-expanded afterwards.
+  """
+
+  def __init__(self, a, b):
+    self._a = a
+    self._b = b
+
+  @property
+  def a(self):
+    return self._a
+
+  @property
+  def b(self):
+    return self._b
+
+  def to_tensor(self):
+    inner_dim = tf.shape(self.b)[1]
+    result_dim = tf.shape(self.b)[0]
+    flat_a = tf.reshape(self.a, [-1, inner_dim])
+    product = tf.matmul(flat_a, self.b, transpose_b=True)
+    product_shape = tf.concat([tf.shape(self.a)[:-1], [result_dim]], 0)
+    product = tf.reshape(product, product_shape)
+    product.set_shape(self.a.get_shape().as_list()[:-1] +
+                      [self.b.get_shape()[0]])
+    return product
+
+
+def _convert_factored_tensor_to_tensor(value, *args, **kwargs):
+  # call ops.convert_to_tensor to handle optional arguments appropriately
+  return ops.internal_convert_to_tensor(value.to_tensor(), *args, **kwargs)
+
+
+tf.register_tensor_conversion_function(FactoredTensor,
+                                       _convert_factored_tensor_to_tensor)
+
+
+def smoothing_cross_entropy_factored_grad(op, dy):
+  """Gradient function for smoothing_cross_entropy_factored."""
+  a = op.inputs[0]
+  b = op.inputs[1]
+  labels = op.inputs[2]
+  confidence = op.inputs[3]
+  num_splits = 32
+  vocab_size = tf.shape(b)[0]
+  labels = approximate_split(labels, num_splits)
+  a = approximate_split(a, num_splits)
+  dy = approximate_split(dy, num_splits)
+  b_grad = None
+  a_grad_parts = []
+  deps = []
+  for part in xrange(num_splits):
+    with tf.control_dependencies(deps):
+      logits = tf.matmul(a[part], b, transpose_b=True)
+      output_part = smoothing_cross_entropy(logits, labels[part], vocab_size,
+                                            confidence)
+      a_grad_part, b_grad_part = tf.gradients(
+          ys=[output_part], xs=[a[part], b], grad_ys=[dy[part]])
+      a_grad_parts.append(a_grad_part)
+      if part > 0:
+        b_grad += b_grad_part
+      else:
+        b_grad = b_grad_part
+      deps = [b_grad, a_grad_part]
+  a_grad = tf.concat(a_grad_parts, 0)
+  return a_grad, b_grad, None, None
+
+
+@function.Defun(
+    noinline=True,
+    python_grad_func=smoothing_cross_entropy_factored_grad,
+    compiled=True,
+    separate_compiled_gradients=True)
+def smoothing_cross_entropy_factored(a, b, labels, confidence):
+  """Memory-efficient computation of smoothing cross-entropy.
+
+  Avoids realizing the entire logits matrix at once.
+
+  Args:
+    a: a Tensor with shape [batch, inner_dim]
+    b: a Tensor with shape [vocab_size, inner_dim]
+    labels: an integer Tensor with shape [batch]
+    confidence: a float
+
+  Returns:
+    A Tensor with shape [batch]
+  """
+  num_splits = 32
+  vocab_size = tf.shape(b)[0]
+  labels = approximate_split(labels, num_splits)
+  a = approximate_split(a, num_splits)
+  parts = []
+  for part in xrange(num_splits):
+    with tf.control_dependencies(parts[-1:]):
+      logits = tf.matmul(a[part], b, transpose_b=True)
+      parts.append(
+          smoothing_cross_entropy(logits, labels[part], vocab_size, confidence))
+  return tf.concat(parts, 0)
+
+
+def padded_cross_entropy_factored(factored_logits,
+                                  labels,
+                                  label_smoothing,
+                                  weights_fn=weights_nonzero,
+                                  reduce_sum=True):
+  """Memory-efficient computation of smoothing cross-entropy.
+
+  Avoids realizing the entire logits matrix at once.
+
+  Args:
+    factored_logits: a `FactoredTensor` representing a Tensor
+       with shape `[batch, timesteps, vocab_size]`.
+    labels: an integer `Tensor` with shape `[batch, timesteps]`.
+    label_smoothing: a floating point `Scalar`.
+    weights_fn: A function from labels to weights.
+    reduce_sum: a Boolean, whether to sum at the end or not.
+
+  Returns:
+    loss_numerator: a `Scalar`.  Sum of losses.
+    loss_denominator: a `Scalar.  The number of non-padding target tokens.
+  """
+  a = factored_logits.a
+  b = factored_logits.b
+  confidence = 1.0 - label_smoothing
+  with tf.name_scope("padded_cross_entropy_factored", [a, b, labels]):
+    labels_flat = tf.reshape(labels, [-1])
+    a_flat = tf.reshape(a, [-1, tf.shape(b)[1]])
+    xent = smoothing_cross_entropy_factored(a_flat, b, labels_flat,
+                                            tf.convert_to_tensor(confidence))
+    xent = tf.reshape(xent, tf.shape(labels))
+    weights = weights_fn(labels)
+    if not reduce_sum:
+      return xent * weights, weights
+    return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
+
+
+def fn_with_custom_grad(grad_fn, use_global_vars=False):
+  """Decorator to create a subgraph with a custom gradient function.
+
+  The subgraph created by the decorated function is NOT put in a Defun and so
+  does not suffer from the limitations of the Defun (all subgraph ops on the
+  same device, no summaries).
+
+  Args:
+    grad_fn: function with signature
+      (inputs, variables, outputs, output_grads) -> (grad_inputs, grad_vars),
+      all of which are lists of Tensors.
+    use_global_vars: if True, variables will be the global variables created.
+      If False, will be the trainable variables.
+
+  Returns:
+    Decorator for function such that the gradient is defined by grad_fn.
+  """
+
+  def dec(fn):
+
+    def wrapped(*args):
+      return _fn_with_custom_grad(
+          fn, args, grad_fn, use_global_vars=use_global_vars)
+
+    return wrapped
+
+  return dec
+
+
+def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
+  """Create a subgraph with a custom gradient.
+
+  Args:
+    fn: function that takes inputs as arguments and produces 1 or more Tensors.
+    inputs: list<Tensor>, will be passed as fn(*inputs).
+    grad_fn: function with signature
+      (inputs, vars, outputs, output_grads) -> (grad_inputs, grad_vars),
+      all of which are lists of Tensors.
+    use_global_vars: if True, variables will be the global variables created.
+      If False, will be the trainable variables.
+
+  Returns:
+    fn(*inputs)
+  """
+  with tf.variable_scope(None, default_name="fn_with_custom_grad") as vs:
+    inputs = list(inputs)
+    outputs = fn(*inputs)
+    if use_global_vars:
+      train_vars = list(vs.global_variables())
+    else:
+      train_vars = list(vs.trainable_variables())
+
+  if grad_fn is None:
+    return outputs
+  else:
+    if not (isinstance(outputs, tuple) or isinstance(outputs, list)):
+      outputs = [outputs]
+    outputs = list(outputs)
+
+    in_types = [t.dtype for t in inputs]
+    out_types = [t.dtype for t in outputs]
+    var_types = [t.dtype for t in train_vars]
+
+    def custom_grad_fn(op, *dys):
+      """Custom grad fn applying grad_fn for identity Defun."""
+      dys = list(dys)
+      fn_inputs = op.inputs[:len(inputs)]
+      fn_vars = op.inputs[len(inputs):len(inputs) + len(train_vars)]
+      fn_outputs = op.inputs[len(inputs) + len(train_vars):]
+      assert len(fn_outputs) == len(outputs)
+      assert len(fn_outputs) == len(dys)
+
+      grad_inputs, grad_vars = grad_fn(fn_inputs, fn_vars, fn_outputs, dys)
+      grad_outputs = [None] * len(fn_outputs)
+      return tuple(grad_inputs + grad_vars + grad_outputs)
+
+    # The Defun takes as input the original inputs, the trainable variables
+    # created in fn, and the outputs. In the forward it passes through the
+    # outputs. In the backwards, it produces gradients for the original inputs
+    # and the trainable variables.
+    @function.Defun(
+        *(in_types + var_types + out_types),
+        func_name="identity_custom_grad%d" % random.randint(1, 10**9),
+        python_grad_func=custom_grad_fn,
+        shape_func=lambda _: [t.get_shape() for t in outputs])
+    def identity(*args):
+      outs = args[len(inputs) + len(train_vars):]
+      return tuple([tf.identity(t) for t in outs])
+
+    id_out = identity(*(inputs + train_vars + outputs))
+    return id_out

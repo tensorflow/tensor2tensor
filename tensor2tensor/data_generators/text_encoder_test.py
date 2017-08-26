@@ -21,6 +21,8 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import collections
+import os
+import shutil
 
 # Dependency imports
 import mock
@@ -45,6 +47,50 @@ class EscapeUnescapeTokenTest(tf.test.TestCase):
 
     self.assertEqual(
         'Foo! Bar.\nunder_score back\\slash', unescaped)
+
+
+class TokenTextEncoderTest(tf.test.TestCase):
+
+  @classmethod
+  def setUpClass(cls):
+    """Make sure the test dir exists and is empty."""
+    cls.test_temp_dir = os.path.join(tf.test.get_temp_dir(), 'encoder_test')
+    shutil.rmtree(cls.test_temp_dir, ignore_errors=True)
+    os.mkdir(cls.test_temp_dir)
+
+  def test_save_and_reload(self):
+    """Test that saving and reloading doesn't change the vocab.
+
+    Note that this test reads and writes to the filesystem, which necessitates
+    that this test size be "large".
+    """
+
+    corpus = 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'
+    vocab_filename = os.path.join(self.test_temp_dir, 'abc.vocab')
+
+    # Make text encoder from a list and store vocab to fake filesystem.
+    encoder = text_encoder.TokenTextEncoder(None, vocab_list=corpus.split())
+    encoder.store_to_file(vocab_filename)
+
+    # Load back the saved vocab file from the fake_filesystem.
+    new_encoder = text_encoder.TokenTextEncoder(vocab_filename)
+
+    self.assertEqual(encoder._id_to_token, new_encoder._id_to_token)
+    self.assertEqual(encoder._token_to_id, new_encoder._token_to_id)
+
+  def test_reserved_tokens_in_corpus(self):
+    """Test that we handle reserved tokens appearing in the corpus."""
+    corpus = 'A B {} D E F {} G {}'.format(text_encoder.EOS,
+                                           text_encoder.EOS,
+                                           text_encoder.PAD)
+
+    encoder = text_encoder.TokenTextEncoder(None, vocab_list=corpus.split())
+
+    all_tokens = encoder._id_to_token.values()
+
+    # If reserved tokens are removed correctly, then the set of tokens will
+    # be unique.
+    self.assertEqual(len(all_tokens), len(set(all_tokens)))
 
 
 class SubwordTextEncoderTest(tf.test.TestCase):

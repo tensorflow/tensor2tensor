@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.1.9',
+    version='1.2.0',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -26,8 +26,8 @@ setup(
         'six',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.2.0rc1'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.2.0rc1'],
+        'tensorflow': ['tensorflow>=1.3.0'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.3.0'],
     },
     tests_require=['nose'],
     test_suite='nose.collector',

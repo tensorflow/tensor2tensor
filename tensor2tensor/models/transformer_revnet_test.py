@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for RevTransformer."""
+"""Tests for TransformerRevnet."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -24,13 +24,13 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models import rev_transformer
+from tensor2tensor.models import transformer_revnet
 
 import tensorflow as tf
 
 
-def rev_transformer_test():
-  hparams = rev_transformer.rev_transformer_base()
+def transformer_revnet_test():
+  hparams = transformer_revnet.transformer_revnet_base()
   hparams.num_hidden_layers = 2
   hparams.hidden_size = 128
   hparams.filter_size = 512
@@ -38,14 +38,14 @@ def rev_transformer_test():
   return hparams
 
 
-class RevTransformerTest(tf.test.TestCase):
+class TransformerRevnetTest(tf.test.TestCase):
 
   def testTransformer(self):
     batch_size = 3
     input_length = 5
     target_length = 7
     vocab_size = 9
-    hparams = rev_transformer_test()
+    hparams = transformer_revnet_test()
     p_hparams = problem_hparams.test_problem_hparams(hparams, vocab_size,
                                                      vocab_size)
     hparams.problems = [p_hparams]
@@ -58,7 +58,7 @@ class RevTransformerTest(tf.test.TestCase):
         "targets": tf.constant(targets, dtype=tf.int32),
         "target_space_id": tf.constant(1, dtype=tf.int32),
     }
-    model = rev_transformer.RevTransformer(
+    model = transformer_revnet.TransformerRevnet(
         hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
     sharded_logits, _ = model.model_fn(features)
     logits = tf.concat(sharded_logits, 0)
