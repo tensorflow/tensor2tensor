@@ -88,8 +88,8 @@ def _get_attention(inp_text, out_text, enc_atts, dec_atts, encdec_atts):
   """
   def get_full_attention(layer):
     """Get the full input+output - input+output attentions."""
-    enc_att = enc_atts[layer][0],
-    dec_att = dec_atts[layer][0],
+    enc_att = enc_atts[layer][0]
+    dec_att = dec_atts[layer][0]
     encdec_att = encdec_atts[layer][0]
     enc_att = np.transpose(enc_att, [0, 2, 1])
     dec_att = np.transpose(dec_att, [0, 2, 1])
