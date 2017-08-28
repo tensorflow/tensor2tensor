@@ -436,6 +436,87 @@ def noisy_top_k_gating(x,
     return gates, load
 
 
+class PadRemover(object):
+  """Helper to remove padding from a tensor before sending to the experts.
+
+  The padding is computed for one reference tensor containing the padding mask
+  and then can be applied to any other tensor of shape [dim_origin,...].
+
+  Ex:
+      input = [
+        [tok1, tok2],
+        [tok3, tok4],
+        [0, 0],
+        [0, 0],
+        [tok5, tok6],
+        [0, 0],
+      ]
+      output = [
+        [tok1, tok2],
+        [tok3, tok4],
+        [tok5, tok6],
+      ]
+  """
+
+  def __init__(self, pad_mask):
+    """Compute and store the location of the padding.
+
+    Args:
+      pad_mask (tf.Tensor): Reference padding tensor of shape
+        [batch_size,length] or [dim_origin] (dim_origin=batch_size*length)
+        containing non-zeros positive values to indicate padding location.
+    """
+    self.nonpad_ids = None
+    self.dim_origin = None
+
+    with tf.name_scope("pad_reduce/get_ids"):
+      pad_mask = tf.reshape(pad_mask, [-1])  # Flatten the batch
+      # nonpad_ids contains coordinates of zeros rows (as pad_mask is
+      # float32, checking zero equality is done with |x| < epsilon, with
+      # epsilon=1e-9 as standard, here pad_mask only contains positive values
+      # so tf.abs would be redundant)
+      self.nonpad_ids = tf.to_int32(tf.where(pad_mask < 1e-9))
+      self.dim_origin = tf.shape(pad_mask)[:1]
+
+  def remove(self, x):
+    """Remove padding from the given tensor.
+
+    Args:
+      x (tf.Tensor): of shape [dim_origin,...]
+
+    Returns:
+      a tensor of shape [dim_compressed,...] with dim_compressed <= dim_origin
+    """
+    with tf.name_scope("pad_reduce/remove"):
+      x_shape = x.get_shape().as_list()
+      x = tf.gather_nd(
+          x,
+          indices=self.nonpad_ids,
+      )
+      # This is a hack but for some reason, gather_nd return a tensor of
+      # undefined shape, so the shape is set up manually
+      x.set_shape([None] + x_shape[1:])
+    return x
+
+  def restore(self, x):
+    """Add padding back to the given tensor.
+
+    Args:
+      x (tf.Tensor): of shape [dim_compressed,...]
+
+    Returns:
+      a tensor of shape [dim_origin,...] with dim_compressed >= dim_origin. The
+      dim is restored from the original reference tensor
+    """
+    with tf.name_scope("pad_reduce/restore"):
+      x = tf.scatter_nd(
+          indices=self.nonpad_ids,
+          updates=x,
+          shape=tf.concat([self.dim_origin, tf.shape(x)[1:]], axis=0),
+      )
+    return x
+
+
 class SparseDispatcher(object):
   """Helper for implementing a mixture of experts.
 
@@ -766,6 +847,7 @@ def local_moe(x,
               pass_x=True,
               pass_gates=False,
               additional_dispatch_params=None,
+              pad_remover=None,
               name=None):
   """Call a local mixture of experts.
 
@@ -782,6 +864,8 @@ def local_moe(x,
     additional_dispatch_params: The extra tensors that need to be sent to each
       expert. Examples include batch batch coordinates (see
       common_attention.local_expert_attention)
+    pad_remover (PadRemover): If given, the padding is removed/restored before
+      sending to the experts
     name: a string
 
   Returns:
@@ -791,8 +875,18 @@ def local_moe(x,
       training loss of the model.  The backpropagation of this loss
       encourages all experts to be approximately equally used across a batch.
   """
+
   with tf.variable_scope(name, default_name="local_moe"):
     x_flat = flatten_all_but_last(x)
+
+    # Remove the padding tokens
+    if pad_remover:
+      x_flat = pad_remover.remove(x_flat)
+      tf.summary.scalar(  # Should match the targets_nonpadding_tokens
+          "nonpadding_tokens",
+          tf.shape(x_flat)[0],
+          family="experts_stats")
+
     # The gates indicate which batch elements go to which tensors.
     # load is a measure of approximately how many examples go to each expert
     gates, load = noisy_top_k_gating(
@@ -805,17 +899,27 @@ def local_moe(x,
         noise_epsilon=1e-2)
     # This magic object helps us shuffle data between datashards and experts.
     dispatcher = SparseDispatcher(num_experts, gates)
+
+    # Set up expert_fn arguments
     expert_kwargs = {}
     if pass_x:
       expert_kwargs["x"] = dispatcher.dispatch(x_flat)
     if pass_gates:
       expert_kwargs["gates"] = dispatcher.expert_to_gates()
     for k, v in six.iteritems(additional_dispatch_params or {}):
-      expert_kwargs[k] = dispatcher.dispatch(flatten_all_but_last(v))
+      v = flatten_all_but_last(v)
+      if pad_remover:
+        v = pad_remover.remove(v)
+      expert_kwargs[k] = dispatcher.dispatch(v)
+
     ep = Parallelism([DEFAULT_DEV_STRING] * num_experts)
     expert_outputs = ep(expert_fn, **expert_kwargs)
+
     y_flat = dispatcher.combine(expert_outputs)
+    if pad_remover:
+      y_flat = pad_remover.restore(y_flat)
     y = reshape_like(y_flat, x)
+
     importance = tf.reduce_sum(gates, 0)
     loss = loss_coef * (cv_squared(importance) + cv_squared(load))
     return y, loss

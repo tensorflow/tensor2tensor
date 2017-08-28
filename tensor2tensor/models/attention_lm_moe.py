@@ -70,7 +70,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
     def postprocess(x, y):
       return dp(common_layers.layer_postprocess, x, y, hparams)
 
-    (decoder_input, decoder_self_attention_bias) = dp(
+    (decoder_input, decoder_self_attention_bias, pad_remover) = dp(
         attention_lm_moe_prepare_decoder, targets, hparams)
 
     x = dp(tf.nn.dropout, decoder_input,
@@ -87,6 +87,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
     else:
       expert_fn = expert_utils.ffn_expert_fn(
           hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
+
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope(
@@ -109,9 +110,10 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 common_attention.local_expert_attention,
                 x,
                 k=2,
-                loss_coef=1e-2,
+                loss_coef=hparams.attention_load_balance,
                 attention_num_experts=hparams.attention_num_experts,
                 train=hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
+                pad_remover=pad_remover,
                 mask_right=True,
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
@@ -158,17 +160,22 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
     decoder_input: a Tensor, bottom of decoder stack
     decoder_self_attention_bias: a Tensor, containing large negative values
     to implement masked attention and possibly baises for diagonal alignments
+    pad_remover (expert_utils.PadRemover): an util object to remove padding
   """
+  targets_pad_mask = common_attention.embedding_to_padding(targets)
+  with tf.name_scope("pad_remover"):
+    pad_remover = expert_utils.PadRemover(targets_pad_mask)
+
   if hparams.prepend_mode == "prepend_inputs_full_attention":
-    decoder_self_attention_bias = (common_attention.attention_bias_prepended(
-        common_attention.embedding_to_padding(targets)))
+    decoder_self_attention_bias = (
+        common_attention.attention_bias_prepended(targets_pad_mask))
   else:
     decoder_self_attention_bias = (
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
   decoder_input = common_layers.shift_left_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
-  return (decoder_input, decoder_self_attention_bias)
+  return (decoder_input, decoder_self_attention_bias, pad_remover)
 
 
 @registry.register_hparams
@@ -218,8 +225,10 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_moe_type", AttentionMoeType.NONE)
   hparams.add_hparam("attention_num_experts", 16)
   # Key, query and value dimensions for the attention
-  hparams.add_hparam("attention_kq_size", 64)
-  hparams.add_hparam("attention_v_size", 64)
+  hparams.add_hparam("attention_kq_size", 128)
+  hparams.add_hparam("attention_v_size", 256)
+  # Loss coef for load balancing
+  hparams.add_hparam("attention_load_balance", 2e-2)
   hparams.add_hparam("diet_experts", int(False))
   return hparams
 
@@ -231,6 +240,9 @@ def attention_lm_moe_base_ae():
   hparams.attention_moe_type = AttentionMoeType.LOCAL
   hparams.max_length = hparams.batch_size
   hparams.eval_drop_long_sequences = int(True)
+  hparams.batching_mantissa_bits = 2  # More buckets
+  hparams.learning_rate = 0.05
+  hparams.learning_rate_warmup_steps = 10000
   return hparams
 
 

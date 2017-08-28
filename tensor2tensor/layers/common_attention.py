@@ -1008,6 +1008,8 @@ def self_attention_expert(
   depth = x.get_shape().as_list()[-1]
   length = tf.shape(batch_coordinate)[0]
 
+  tf.summary.scalar("batch_size", length, family="experts_stats_batch_size")
+
   attention_kq_size = attention_kq_size or depth
   attention_v_size = attention_v_size or depth
 
@@ -1059,6 +1061,7 @@ def local_expert_attention(
     loss_coef,
     attention_num_experts,
     train=True,
+    pad_remover=None,
     **kwargs
 ):
   """Attention using a mixture of experts.
@@ -1073,6 +1076,7 @@ def local_expert_attention(
     loss_coef: a scalar. A multiplier for the expert loss
     attention_num_experts: The number of experts to use
     train: a boolean for the current mode
+    pad_remover (PadRemover): A util object containing the padding position
     **kwargs: Arguments to forward to self_attention_expert
 
   Returns:
@@ -1093,4 +1097,6 @@ def local_expert_attention(
         loss_coef=loss_coef,
         pass_x=True,
         pass_gates=False,
-        additional_dispatch_params=additional_dispatch_params)
+        additional_dispatch_params=additional_dispatch_params,
+        pad_remover=pad_remover
+    )
