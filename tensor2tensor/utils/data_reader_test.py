@@ -169,36 +169,62 @@ class DataReaderTest(tf.test.TestCase):
 
   def testBatchingSchemeMaxLength(self):
     scheme = data_reader._batching_scheme(
-        batch_size=20, max_length=None, drop_long_sequences=False)
+        batch_size=20, max_length=None,
+        min_length_bucket=8, length_bucket_step=1.1,
+        drop_long_sequences=False)
     self.assertGreater(scheme["max_length"], 10000)
 
     scheme = data_reader._batching_scheme(
-        batch_size=20, max_length=None, drop_long_sequences=True)
+        batch_size=20, max_length=None,
+        min_length_bucket=8, length_bucket_step=1.1,
+        drop_long_sequences=True)
     self.assertEqual(scheme["max_length"], 20)
 
     scheme = data_reader._batching_scheme(
-        batch_size=20, max_length=15, drop_long_sequences=True)
+        batch_size=20, max_length=15,
+        min_length_bucket=8, length_bucket_step=1.1,
+        drop_long_sequences=True)
     self.assertEqual(scheme["max_length"], 15)
 
     scheme = data_reader._batching_scheme(
-        batch_size=20, max_length=15, drop_long_sequences=False)
+        batch_size=20, max_length=15,
+        min_length_bucket=8, length_bucket_step=1.1,
+        drop_long_sequences=False)
     self.assertGreater(scheme["max_length"], 10000)
 
   def testBatchingSchemeBuckets(self):
-    scheme = data_reader._batching_scheme(batch_size=128)
+    scheme = data_reader._batching_scheme(
+        batch_size=128,
+        max_length=0,
+        min_length_bucket=8,
+        length_bucket_step=1.1)
     boundaries, batch_sizes = scheme["boundaries"], scheme["batch_sizes"]
     self.assertEqual(len(boundaries), len(batch_sizes) - 1)
-    expected_boundaries = [8, 12, 16, 24, 32, 48, 64, 96]
+    expected_boundaries = [
+        8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28,
+        30, 33, 36, 39, 42, 46, 50, 55, 60, 66, 72, 79, 86, 94, 103, 113, 124]
     self.assertEqual(expected_boundaries, boundaries)
-    expected_batch_sizes = [16, 10, 8, 5, 4, 2, 2, 1, 1]
+    expected_batch_sizes = [
+        16, 12, 12, 8, 8, 8, 8, 8, 8, 6, 6, 6, 6, 4, 4, 4, 4, 4, 3, 3, 3,
+        3, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]
     self.assertEqual(expected_batch_sizes, batch_sizes)
 
-    scheme = data_reader._batching_scheme(batch_size=128, shard_multiplier=2)
+    scheme = data_reader._batching_scheme(
+        batch_size=128,
+        max_length=0,
+        min_length_bucket=8,
+        length_bucket_step=1.1,
+        shard_multiplier=2)
     boundaries, batch_sizes = scheme["boundaries"], scheme["batch_sizes"]
     self.assertAllEqual([bs * 2 for bs in expected_batch_sizes], batch_sizes)
     self.assertEqual(expected_boundaries, boundaries)
 
-    scheme = data_reader._batching_scheme(batch_size=128, length_multiplier=2)
+    scheme = data_reader._batching_scheme(
+        batch_size=128,
+        max_length=0,
+        min_length_bucket=8,
+        length_bucket_step=1.1,
+        length_multiplier=2)
     boundaries, batch_sizes = scheme["boundaries"], scheme["batch_sizes"]
     self.assertAllEqual([b * 2 for b in expected_boundaries], boundaries)
     self.assertEqual([max(1, bs // 2)
@@ -211,14 +237,16 @@ class DataReaderTest(tf.test.TestCase):
 
     boundaries = [10, 20, 30]
     batch_sizes = [10, 8, 4, 2]
+    window_size = 40
 
     dataset = data_reader.read_examples(
         self.problem,
         self.filepatterns[0],
         32,
         mode=tf.contrib.learn.ModeKeys.EVAL)
-    dataset = data_reader.bucket_by_sequence_length(dataset, example_len,
-                                                    boundaries, batch_sizes)
+    dataset = data_reader.bucket_by_sequence_length(
+        dataset, example_len,
+        boundaries, batch_sizes, window_size)
     batch = dataset.make_one_shot_iterator().get_next()
 
     input_vals = []

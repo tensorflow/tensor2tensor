@@ -33,14 +33,6 @@ def basic_params1():
   """A set of basic hyperparameters."""
   return tf.contrib.training.HParams(
       batch_size=4096,  # in tokens per batch per gpu
-      # This flag controls the number of length buckets in the data reader.
-      # Too many buckets slows down data reading - this needs fixing.
-      # Too few buckets mean lots of wasted padding.
-      # If this value is 1, we have buckets with maximum lengths:
-      # [8, 12, 16, 24, 32, 48 ... (max_length or batch_size)]
-      # If this value is 2, we have buckets with maximum lengths:
-      # [8, 10, 12, 14, 16, 20, 24 ... (max_length or batch_size)]
-      batching_mantissa_bits=1,
       num_hidden_layers=4,
       kernel_height=3,
       kernel_width=1,
@@ -98,9 +90,22 @@ def basic_params1():
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
       symbol_modality_num_shards=16,
-      # setting the max length in a minibatch. 0 means default behavior,
-      # max_length = hparams.batch_size * length_multiplier
+      # During training, we drop sequences whose inputs or targets are longer
+      # than max_length.
+      # If max_length==0, we use hparams.batch_size instead.
       max_length=0,
+      # Maximum length in the smallest length bucket.  Setting this
+      # flag too high will result in wasteful padding of short
+      # sequences.  Due to some (hopefully) temporary hacks in the
+      # data reading and batching code, setting this flag too low
+      # results in a very long batch-shuffling queue.
+      # TODO(noam): change this once the Datasets API changes.
+      min_length_bucket=8,
+      # This flag controls the number of length buckets in the data
+      # reader.  The buckets have maximum lengths from
+      # min_bucket_length to (max_length or batch_size), increasing
+      # (approximately) by factors of length_bucket_step.
+      length_bucket_step=1.1,
       # If set to True, drop sequences longer than max_length during eval.
       # This affects the validity of the evaluation metrics.
       eval_drop_long_sequences=int(False),

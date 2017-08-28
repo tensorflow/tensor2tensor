@@ -378,7 +378,6 @@ def transformer_big():
   hparams.hidden_size = 1024
   hparams.filter_size = 4096
   hparams.num_heads = 16
-  hparams.batching_mantissa_bits = 2
   hparams.layer_prepostprocess_dropout = 0.3
   return hparams
 
@@ -390,7 +389,6 @@ def transformer_big_single_gpu():
   hparams.layer_prepostprocess_dropout = 0.1
   hparams.learning_rate_warmup_steps = 16000
   hparams.optimizer_adam_beta2 = 0.998
-  hparams.batching_mantissa_bits = 3
   return hparams
 
 
@@ -400,7 +398,6 @@ def transformer_base_single_gpu():
   hparams = transformer_base()
   hparams.batch_size = 2048
   hparams.learning_rate_warmup_steps = 16000
-  hparams.batching_mantissa_bits = 2
   return hparams
 
 
@@ -593,7 +590,6 @@ def transformer_big_dr1():
   hparams.filter_size = 4096
   hparams.num_heads = 16
   hparams.layer_prepostprocess_dropout = 0.1
-  hparams.batching_mantissa_bits = 2
   return hparams
 
 
