@@ -92,6 +92,27 @@ class TokenTextEncoderTest(tf.test.TestCase):
     # be unique.
     self.assertEqual(len(all_tokens), len(set(all_tokens)))
 
+  def test_unknown_token_returned_for_oov_term(self):
+    "Test that unknown token is returned for term not occuring in corpus."
+    unk_token = 'UNK'
+    corpus = 'A B C D E F G H ' + unk_token
+
+    encoder = text_encoder.TokenTextEncoder(None, 
+                                            vocab_list=corpus.split(), 
+                                            unknown_token=unk_token)
+
+    encoded = encoder.encode('H Z')
+    self.assertEqual('H ' + unk_token, encoder.decode(encoded))
+
+  def test_unknown_token_not_in_vocab_raises_error(self):
+    "Test that when vocabulary does not contain unknown token it fails fast."
+    corpus = 'A B C D E F G H'
+
+    with self.assertRaises(Exception):
+      text_encoder.TokenTextEncoder(None, 
+                                    vocab_list=corpus.split(), 
+                                    unknown_token='UNK')
+
 
 class SubwordTextEncoderTest(tf.test.TestCase):
 
