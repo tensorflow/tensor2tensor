@@ -29,7 +29,7 @@ You can chat with us and other users on
 with T2T announcements.
 
 Here is a one-command version that installs tensor2tensor, downloads the data,
-trains an English-German translation model, and lets you use it interactively:
+trains an English-German translation model, and evaluates it:
 ```
 pip install tensor2tensor && t2t-trainer \
   --generate_data \
@@ -37,7 +37,18 @@ pip install tensor2tensor && t2t-trainer \
   --problems=translate_ende_wmt32k \
   --model=transformer \
   --hparams_set=transformer_base_single_gpu \
-  --output_dir=~/t2t_train/base \
+  --output_dir=~/t2t_train/base
+```
+
+You can decode from the model interactively:
+
+```
+t2t-decoder \
+  --data_dir=~/t2t_data \
+  --problems=translate_ende_wmt32k \
+  --model=transformer \
+  --hparams_set=transformer_base_single_gpu \
+  --output_dir=~/t2t_train/base
   --decode_interactive
 ```
 
@@ -106,14 +117,12 @@ echo "Goodbye world" >> $DECODE_FILE
 BEAM_SIZE=4
 ALPHA=0.6
 
-t2t-trainer \
+t2t-decoder \
   --data_dir=$DATA_DIR \
   --problems=$PROBLEM \
   --model=$MODEL \
   --hparams_set=$HPARAMS \
   --output_dir=$TRAIN_DIR \
-  --train_steps=0 \
-  --eval_steps=0 \
   --decode_beam_size=$BEAM_SIZE \
   --decode_alpha=$ALPHA \
   --decode_from_file=$DECODE_FILE
