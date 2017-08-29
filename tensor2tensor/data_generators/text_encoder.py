@@ -73,6 +73,35 @@ else:  # No conversion required on Python >= 3.
     return s
 
 
+class unkdict(dict):
+  """Returns specified value for unknown keys, but does not add to dictionary.
+
+  The first argument provides the value for unknown keys; it defaults to 
+  None. All remaining arguments are treated the same as if they were passed 
+  to the dict constructor, including keyword arguments.
+  """
+
+  __slots__ = ['unk_token']
+
+  def __init__(self, *args, **kwargs):
+    if len(args) > 0:
+      self.unk_token = args[0]
+      args = args[1:]
+    else:
+      self.unk_token = None
+    super(unkdict, self).__init__(*args, **kwargs)
+
+  def __missing__(self, key):
+      return self.unk_token
+
+  def __copy__(self):
+    return type(self)(self.unk_token, self)
+
+  def __reduce__(self):
+    """API for pickle.py"""
+    return (type(self), (self.unk_token,), None, None, self.iteritems())
+
+
 class TextEncoder(object):
   """Base class for converting from ints to/from human readable strings."""
 
@@ -161,7 +190,8 @@ class TokenTextEncoder(TextEncoder):
                vocab_filename,
                reverse=False,
                vocab_list=None,
-               num_reserved_ids=NUM_RESERVED_TOKENS):
+               num_reserved_ids=NUM_RESERVED_TOKENS,
+               unknown_token=None):
     """Initialize from a file or list, one token per line.
 
     Handling of reserved tokens works as follows:
@@ -177,14 +207,16 @@ class TokenTextEncoder(TextEncoder):
       vocab_list: If not None, a list of elements of the vocabulary. If this is
          not None, then vocab_filename should be None.
       num_reserved_ids: Number of IDs to save for reserved tokens like <EOS>.
+      unknown_token: If not None, the token to use for out-of-vocabulary 
+         terms. If None out-of-vocabulary terms will raise a KeyError.
     """
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
     self._reverse = reverse
     if vocab_filename:
-      self._init_vocab_from_file(vocab_filename)
+      self._init_vocab_from_file(vocab_filename, unknown_token=unknown_token)
     else:
       assert vocab_list is not None
-      self._init_vocab_from_list(vocab_list)
+      self._init_vocab_from_list(vocab_list, unknown_token=unknown_token)
 
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""
@@ -202,7 +234,7 @@ class TokenTextEncoder(TextEncoder):
   def _safe_id_to_token(self, idx):
     return self._id_to_token.get(idx, "ID_%d" % idx)
 
-  def _init_vocab_from_file(self, filename):
+  def _init_vocab_from_file(self, filename, unknown_token=None):
     """Load vocab from a file.
 
     Args:
@@ -214,9 +246,11 @@ class TokenTextEncoder(TextEncoder):
           token = line.strip()
           yield token
 
-    self._init_vocab(token_gen(), add_reserved_tokens=False)
+    self._init_vocab(token_gen(), 
+                     add_reserved_tokens=False, 
+                     unknown_token=unknown_token)
 
-  def _init_vocab_from_list(self, vocab_list):
+  def _init_vocab_from_list(self, vocab_list, unknown_token=None):
     """Initialize tokens from a list of tokens.
 
     It is ok if reserved tokens appear in the vocab list. They will be
@@ -230,9 +264,12 @@ class TokenTextEncoder(TextEncoder):
         if token not in RESERVED_TOKENS:
           yield token
 
-    self._init_vocab(token_gen())
+    self._init_vocab(token_gen(), unknown_token=unknown_token)
 
-  def _init_vocab(self, token_generator, add_reserved_tokens=True):
+  def _init_vocab(self, 
+                  token_generator, 
+                  add_reserved_tokens=True, 
+                  unknown_token=None):
     """Initialize vocabulary with tokens from token_generator."""
 
     self._id_to_token = {}
@@ -246,8 +283,16 @@ class TokenTextEncoder(TextEncoder):
         enumerate(token_generator, start=non_reserved_start_index))
 
     # _token_to_id is the reverse of _id_to_token
-    self._token_to_id = dict((v, k)
-                             for k, v in six.iteritems(self._id_to_token))
+    if unknown_token:
+      self._token_to_id = unkdict(None, 
+                                  ((v, k)
+                                   for k, v in six.iteritems(self._id_to_token)))
+      unk_token_id = self._token_to_id[unknown_token]
+      assert unk_token_id is not None, "Unknown token does not exist in vocabulary"
+      self._token_to_id.unk_token = unk_token_id
+    else:
+      self._token_to_id = dict((v, k)
+                               for k, v in six.iteritems(self._id_to_token))
 
   def store_to_file(self, filename):
     """Write vocab file to disk.
