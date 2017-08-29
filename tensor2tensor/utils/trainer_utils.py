@@ -27,7 +27,6 @@ from tensor2tensor.data_generators import all_problems  # pylint: disable=unused
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import models  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
-from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import input_fn_builder
 from tensor2tensor.utils import metrics
@@ -101,16 +100,13 @@ flags.DEFINE_string("gpu_order", "", "Optional order for daisy-chaining gpus."
 flags.DEFINE_string("ps_job", "/job:ps", "name of ps job")
 flags.DEFINE_integer("ps_replicas", 0, "How many ps replicas.")
 
-# Decode flags
-# Set one of {decode_from_dataset, decode_interactive, decode_from_file} to
-# decode.
-flags.DEFINE_bool("decode_from_dataset", False, "Decode from dataset on disk.")
-flags.DEFINE_bool("decode_use_last_position_only", False,
-                  "In inference, use last position only for speedup.")
+# Decoding flags
+flags.DEFINE_string("decode_from_file", None, "Path to decode file")
 flags.DEFINE_bool("decode_interactive", False,
                   "Interactive local inference mode.")
+flags.DEFINE_bool("decode_use_last_position_only", False,
+                  "In inference, use last position only for speedup.")
 flags.DEFINE_bool("decode_save_images", False, "Save inference input images.")
-flags.DEFINE_string("decode_from_file", None, "Path to decode file")
 flags.DEFINE_string("decode_to_file", None, "Path to inference output file")
 flags.DEFINE_integer("decode_shards", 1, "How many shards to decode.")
 flags.DEFINE_integer("decode_problem_id", 0, "Which problem to decode.")
@@ -128,7 +124,7 @@ flags.DEFINE_integer("decode_max_input_size", -1,
                      "Maximum number of ids in input. Or <= 0 for no max.")
 flags.DEFINE_bool("identity_output", False, "To print the output as identity")
 flags.DEFINE_integer("decode_num_samples", -1,
-                     "Number of samples to decode. Currently used in"
+                     "Number of samples to decode. Currently used in "
                      "decode_from_dataset. Use -1 for all.")
 
 
@@ -149,8 +145,8 @@ def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
 def create_experiment(output_dir, data_dir, model_name, train_steps,
                       eval_steps):
   """Create Experiment."""
-  hparams = create_hparams(FLAGS.hparams_set, FLAGS.problems, data_dir,
-                           passed_hparams=FLAGS.hparams)
+  hparams = create_hparams(
+      FLAGS.hparams_set, FLAGS.problems, data_dir, passed_hparams=FLAGS.hparams)
   estimator, input_fns = create_experiment_components(
       hparams=hparams,
       output_dir=output_dir,
@@ -303,7 +299,6 @@ def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
     if exp.train_steps > 0 or exp.eval_steps > 0:
       tf.logging.info("Performing local training and evaluation.")
       exp.train_and_evaluate()
-    decode(exp.estimator)
   else:
     # Perform distributed training/evaluation.
     learn_runner.run(
@@ -350,12 +345,3 @@ def session_config():
 
 def get_data_filepatterns(data_dir, mode):
   return data_reader.get_data_filepatterns(FLAGS.problems, data_dir, mode)
-
-
-def decode(estimator):
-  if FLAGS.decode_interactive:
-    decoding.decode_interactively(estimator)
-  elif FLAGS.decode_from_file is not None and FLAGS.decode_from_file is not "":
-    decoding.decode_from_file(estimator, FLAGS.decode_from_file)
-  elif FLAGS.decode_from_dataset:
-    decoding.decode_from_dataset(estimator)

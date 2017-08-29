@@ -183,6 +183,12 @@ def build_input_fn(mode,
     if mode == tf.contrib.learn.ModeKeys.INFER:
       rand_feature_map["infer_targets"] = rand_target
       rand_target = None
+      # This is because of a bug in the tf.contrib.learn Estimator that
+      # short-circuits prediction if it doesn't see a QueueRunner.
+      # DummyQueueRunner implements the minimal expected interface but does
+      # nothing.
+      # TODO(rsepassi): Remove once we move to core Estimator.
+      tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS, DummyQueueRunner())
     return rand_feature_map, rand_target
 
   return input_fn
@@ -195,3 +201,14 @@ def cond_on_index(fn, index_tensor, cur_idx, max_idx):
   return tf.cond(
       tf.equal(index_tensor, cur_idx), lambda: fn(cur_idx),
       lambda: cond_on_index(fn, index_tensor, cur_idx + 1, max_idx))
+
+
+class DummyQueueRunner(object):
+  """Can stand-in for a QueueRunner but does nothing."""
+
+  def __init__(self):
+    pass
+
+  def create_threads(self, sess, coord=None, daemon=False, start=False):
+    del sess, coord, daemon, start
+    return []

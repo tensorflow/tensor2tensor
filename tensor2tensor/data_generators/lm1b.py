@@ -29,8 +29,10 @@ import tarfile
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import tokenizer
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -53,7 +55,7 @@ def _original_vocab(tmp_dir):
   """
   vocab_url = ("http://download.tensorflow.org/models/LM_LSTM_CNN/"
                "vocab-2016-09-10.txt")
-  vocab_filename = os.path.basename(vocab_url)
+  vocab_filename = os.path.basename(vocab_url + ".en")
   vocab_filepath = os.path.join(tmp_dir, vocab_filename)
   if not os.path.exists(vocab_filepath):
     generator_utils.maybe_download(tmp_dir, vocab_filename, vocab_url)
@@ -140,29 +142,80 @@ def _get_or_build_subword_text_encoder(tmp_dir):
   return ret
 
 
-def generator(tmp_dir, train, characters=False):
-  """Generator for lm1b sentences.
+@registry.register_problem
+class LanguagemodelLm1b32k(problem.Text2TextProblem):
+  """A language model on the 1B words corpus."""
 
-  Args:
-    tmp_dir: a string.
-    train: a boolean.
-    characters: a boolean
+  @property
+  def is_character_level(self):
+    return False
 
-  Yields:
-    A dictionary {"inputs": [0], "targets": [<subword ids>]}
-  """
-  _maybe_download_corpus(tmp_dir)
-  original_vocab = _original_vocab(tmp_dir)
-  files = (_train_data_filenames(tmp_dir) if train
-           else [_dev_data_filename(tmp_dir)])
-  if characters:
-    encoder = text_encoder.ByteTextEncoder()
-  else:
-    encoder = _get_or_build_subword_text_encoder(tmp_dir)
-  for filepath in files:
-    tf.logging.info("filepath = %s", filepath)
-    for line in tf.gfile.Open(filepath):
-      tokens = encoder.encode(
-          _replace_oov(original_vocab, text_encoder.native_to_unicode(line)))
-      tokens.append(EOS)
-      yield {"inputs": [0], "targets": tokens}
+  @property
+  def has_inputs(self):
+    return True
+
+  @property
+  def input_space_id(self):
+    # Ratio of dev tokens (including eos) to dev words (including eos)
+    # 176884 / 159658 = 1.107893; multiply ppx by this to compare results.
+    return problem.SpaceID.EN_TOK
+
+  @property
+  def target_space_id(self):
+    return problem.SpaceID.EN_TOK
+
+  @property
+  def num_shards(self):
+    return 100
+
+  @property
+  def vocab_name(self):
+    return "vocab.lm1b.en"
+
+  @property
+  def use_subword_tokenizer(self):
+    return True
+
+  @property
+  def targeted_vocab_size(self):
+    return 2**15  # 32768
+
+  @property
+  def use_train_shards_for_dev(self):
+    return True
+
+  def generator(self, tmp_dir, train, characters=False):
+    """Generator for lm1b sentences.
+
+    Args:
+      tmp_dir: a string.
+      train: a boolean.
+      characters: a boolean
+
+    Yields:
+      A dictionary {"inputs": [0], "targets": [<subword ids>]}
+    """
+    _maybe_download_corpus(tmp_dir)
+    original_vocab = _original_vocab(tmp_dir)
+    files = (_train_data_filenames(tmp_dir) if train
+             else [_dev_data_filename(tmp_dir)])
+    if characters:
+      encoder = text_encoder.ByteTextEncoder()
+    else:
+      encoder = _get_or_build_subword_text_encoder(tmp_dir)
+    for filepath in files:
+      tf.logging.info("filepath = %s", filepath)
+      for line in tf.gfile.Open(filepath):
+        tokens = encoder.encode(
+            _replace_oov(original_vocab, text_encoder.native_to_unicode(line)))
+        tokens.append(EOS)
+        yield {"inputs": [0], "targets": tokens}
+
+
+@registry.register_problem
+class LanguagemodelLm1bCharacters(LanguagemodelLm1b32k):
+  """A language model on the 1B words corpus, character level."""
+
+  @property
+  def is_character_level(self):
+    return True

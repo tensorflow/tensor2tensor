@@ -1,11 +1,4 @@
-# T2T: Tensor2Tensor Transformers
-
-Check us out on
-<a href=https://github.com/tensorflow/tensor2tensor>
-GitHub
-<img src="https://github.com/favicon.ico" width="16">
-</a>
-.
+# Tensor2Tensor Docs Index
 
 [![PyPI
 version](https://badge.fury.io/py/tensor2tensor.svg)](https://badge.fury.io/py/tensor2tensor)
@@ -16,8 +9,26 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 [![Gitter](https://img.shields.io/gitter/room/nwjs/nw.js.svg)](https://gitter.im/tensor2tensor/Lobby)
 [![License](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 
-See our
-[README](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/README.md)
-for documentation.
 
-More documentation and tutorials coming soon...
+Welcome to Tensor2Tensor!
+
+Tensor2Tensor, or T2T for short, is a library we use to create,
+investigate and deploy deep learning models. This page hosts our
+documentation, from basic tutorials to full code documentation.
+
+## Basics
+
+* [Walkthrough: Install and Run](walkthrough.md)
+* [Tutorial: Train on Your Data](new_problem.md)
+* [Tutorial: Create Your Own Model](new_model.md)
+
+## Deep Dive
+
+* [Life of an Example](example_life.md): how all parts of T2T are connected and work together
+* [Distributed Training](distributed_training.md)
+
+## Code documentation
+
+See our
+[README](https://github.com/tensorflow/tensor2tensor/blob/master/README.md)
+for now, code docs coming.

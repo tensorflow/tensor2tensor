@@ -72,6 +72,29 @@ class CommonLayersTest(tf.test.TestCase):
       actual = session.run(a)
     self.assertEqual(actual, expected)
 
+  def testSequenceEditDistanceMetric(self):
+    predictions = np.array([[3, 4, 5, 1, 0, 0],
+                            [2, 1, 3, 4, 0, 0],
+                            [2, 1, 3, 4, 0, 0]])
+    # Targets are just a bit different:
+    #  - first sequence has a different prediction
+    #  - second sequence has a different prediction and one extra step
+    #  - third sequence is identical
+    targets = np.array([[5, 4, 5, 1, 0, 0],
+                        [2, 5, 3, 4, 1, 0],
+                        [2, 1, 3, 4, 0, 0]])
+    # Reshape to match expected input format by metric fns.
+    predictions = np.reshape(predictions, [3, 6, 1, 1])
+    targets = np.reshape(targets, [3, 6, 1, 1])
+    with self.test_session() as session:
+      scores, weight = metrics.sequence_edit_distance(
+          tf.one_hot(predictions, depth=6, dtype=tf.float32),
+          tf.constant(targets, dtype=tf.int32))
+      session.run(tf.global_variables_initializer())
+      actual_scores, actual_weight = session.run([scores, weight])
+    self.assertAlmostEqual(actual_scores, 3.0 / 13)
+    self.assertEqual(actual_weight, 13)
+
   def testNegativeLogPerplexity(self):
     predictions = np.random.randint(4, size=(12, 12, 12, 1))
     targets = np.random.randint(4, size=(12, 12, 12, 1))

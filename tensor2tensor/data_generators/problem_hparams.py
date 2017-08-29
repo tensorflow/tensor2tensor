@@ -147,8 +147,8 @@ def default_problem_hparams():
       # Modalities used to map from input features to a space compatible with
       # chosen model architecture.  One modality spec (which is a 2-tuple,
       # (modality_full_name, vocab_size)) per feature key. modality_full_name is
-      # a string type:name, e.g. class_label:class_label_2d. Leaving off the
-      # name uses the default modality for that type (e.g. class_label ==
+      # a string type:name, e.g. class_label:2d. Leaving off the name uses the
+      # default modality for that type (e.g. class_label ==
       # class_label:default).
       input_modality={},
 
@@ -267,103 +267,6 @@ def audio_timit_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def audio_wsj_characters(unused_model_hparams):
-  """English audio transcription benchmark."""
-  p = default_problem_hparams()
-  p.input_modality = {
-      "inputs": (registry.Modalities.AUDIO, None),
-  }
-  p.target_modality = (registry.Modalities.SYMBOL, 256)
-  p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(),
-      "targets": text_encoder.ByteTextEncoder(),
-  }
-  p.batch_size_multiplier = 512
-  p.loss_multiplier = 2.0
-  p.input_space_id = 13
-  p.target_space_id = 2
-  return p
-
-
-def audio_wsj_tokens(model_hparams, wrong_vocab_size):
-  """English audio transcription benchmark.
-
-  Args:
-    model_hparams: a tf.contrib.training.HParams
-    wrong_vocab_size: a number used in the filename indicating the approximate
-      vocabulary size.  This is not to be confused with the actual vocabulary
-      size.
-  Returns:
-    a tf.contrib.training.HParams
-  """
-  p = default_problem_hparams()
-  # This vocab file must be present within the data directory.
-  vocab_filename = os.path.join(model_hparams.data_dir,
-                                "vocab.endefr.%d" % wrong_vocab_size)
-  subtokenizer = text_encoder.SubwordTextEncoder(vocab_filename)
-  p.input_modality = {
-      "inputs": (registry.Modalities.AUDIO, None),
-  }
-  p.target_modality = (registry.Modalities.SYMBOL, subtokenizer.vocab_size)
-  p.vocabulary = {
-      "inputs": text_encoder.TextEncoder(),
-      "targets": subtokenizer,
-  }
-  p.batch_size_multiplier = 512
-  p.loss_multiplier = 2.0
-  p.input_space_id = 12
-  p.target_space_id = 3
-  return p
-
-
-def lm1b_32k(model_hparams):
-  """Billion-word language-modeling benchmark, 32k subword vocabulary."""
-  p = default_problem_hparams()
-  # ratio of dev tokens (including eos) to dev words (including eos)
-  # 176884 / 159658 = 1.107893
-  p.perplexity_exponent = 1.107893
-  p.input_modality = {}
-  encoder = text_encoder.SubwordTextEncoder(
-      os.path.join(model_hparams.data_dir, "lm1b_32k.subword_text_encoder"))
-  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
-  p.vocabulary = {"targets": encoder}
-  p.target_space_id = 3
-  return p
-
-
-def lm1b_characters(unused_model_hparams):
-  """Billion-word language-modeling benchmark, 32k subword vocabulary."""
-  p = default_problem_hparams()
-  # ratio of dev tokens (including eos) to dev words (including eos)
-  # 826189 / 159658 = 5.174742
-  p.perplexity_exponent = 5.174742
-  p.input_modality = {}
-  encoder = text_encoder.ByteTextEncoder()
-  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
-  p.vocabulary = {"targets": encoder}
-  p.target_space_id = 2
-  return p
-
-
-def wmt_ende_bpe32k(model_hparams):
-  """English to German translation benchmark."""
-  p = default_problem_hparams()
-  vocab_size = 40960
-  modality_spec = (registry.Modalities.SYMBOL, vocab_size)
-  p.input_modality = {"inputs": modality_spec}
-  p.target_modality = modality_spec
-  # This vocab file must be present within the data directory.
-  vocab_filename = os.path.join(model_hparams.data_dir, "vocab.bpe.32000")
-  p.vocabulary = {
-      "inputs": text_encoder.TokenTextEncoder(vocab_filename=vocab_filename),
-      "targets": text_encoder.TokenTextEncoder(vocab_filename=vocab_filename),
-  }
-  p.loss_multiplier = 1.4
-  p.input_space_id = 4
-  p.target_space_id = 9
-  return p
-
-
 def wmt_parsing_characters(model_hparams):
   """English to parse tree translation benchmark."""
   del model_hparams  # Unused.
@@ -472,25 +375,11 @@ PROBLEM_HPARAMS_MAP = {
         lambda p: audio_timit_tokens(p, 2**13),
     "audio_timit_tokens_8k_test":
         lambda p: audio_timit_tokens(p, 2**13),
-    "audio_wsj_characters_tune":
-        audio_wsj_characters,
-    "audio_wsj_characters_test":
-        audio_wsj_characters,
-    "audio_wsj_tokens_8k_tune":
-        lambda p: audio_wsj_tokens(p, 2**13),
-    "audio_wsj_tokens_8k_test":
-        lambda p: audio_wsj_tokens(p, 2**13),
-    "languagemodel_1b_characters":
-        lm1b_characters,
-    "languagemodel_1b32k":
-        lm1b_32k,
     "parsing_english_ptb8k":
         lambda p: wmt_parsing_tokens(p, 2**13),
     "parsing_english_ptb16k":
         lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda
             p, "wsj", 2**14, 2**9),
-    "translate_ende_wmt_bpe32k":
-        wmt_ende_bpe32k,
     "img2img_imagenet":
         img2img_imagenet,
 }

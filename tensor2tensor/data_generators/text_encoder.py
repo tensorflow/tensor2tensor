@@ -161,6 +161,7 @@ class TokenTextEncoder(TextEncoder):
                vocab_filename,
                reverse=False,
                vocab_list=None,
+               replace_oov=None,
                num_reserved_ids=NUM_RESERVED_TOKENS):
     """Initialize from a file or list, one token per line.
 
@@ -176,10 +177,13 @@ class TokenTextEncoder(TextEncoder):
          and decoding.
       vocab_list: If not None, a list of elements of the vocabulary. If this is
          not None, then vocab_filename should be None.
+      replace_oov: If not None, every out-of-vocabulary token seen when
+         encoding will be replaced by this string (which must be in vocab).
       num_reserved_ids: Number of IDs to save for reserved tokens like <EOS>.
     """
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
     self._reverse = reverse
+    self._replace_oov = replace_oov
     if vocab_filename:
       self._init_vocab_from_file(vocab_filename)
     else:
@@ -188,7 +192,11 @@ class TokenTextEncoder(TextEncoder):
 
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""
-    ret = [self._token_to_id[tok] for tok in sentence.strip().split()]
+    tokens = sentence.strip().split()
+    if self._replace_oov is not None:
+      tokens = [t if t in self._token_to_id else self._replace_oov
+                for t in tokens]
+    ret = [self._token_to_id[tok] for tok in tokens]
     return ret[::-1] if self._reverse else ret
 
   def decode(self, ids):
@@ -639,18 +647,31 @@ class SubwordTextEncoder(TextEncoder):
     self._alphabet = {c for token in tokens for c in token}
     self._alphabet |= _ESCAPE_CHARS
 
+  def _load_from_file_object(self, f):
+    """Load from a file object.
+
+    Args:
+      f: File object to load vocabulary from
+    """
+    subtoken_strings = []
+    for line in f:
+      s = line.strip()
+      # Some vocab files wrap words in single quotes, but others don't
+      if ((s.startswith("'") and s.endswith("'")) or
+          (s.startswith("\"") and s.endswith("\""))):
+        s = s[1:-1]
+      subtoken_strings.append(native_to_unicode(s))
+    self._init_subtokens_from_list(subtoken_strings)
+    self._init_alphabet_from_tokens(subtoken_strings)
+
   def _load_from_file(self, filename):
     """Load from a file.
 
     Args:
-      filename: filename to load vocabulary from
+      filename: Filename to load vocabulary from
     """
-    subtoken_strings = []
     with tf.gfile.Open(filename) as f:
-      for line in f:
-        subtoken_strings.append(native_to_unicode(line.strip()[1:-1]))
-    self._init_subtokens_from_list(subtoken_strings)
-    self._init_alphabet_from_tokens(subtoken_strings)
+      self._load_from_file_object(f)
 
   def store_to_file(self, filename):
     with tf.gfile.Open(filename, "w") as f:

@@ -104,6 +104,14 @@ def build_model_fn(model, hparams):
     elif hparams.learning_rate_decay_scheme == "cosine":
       cycle_steps = hparams.learning_rate_cosine_cycle_steps
       return 0.5 * (1 + tf.cos(np.pi * (step % cycle_steps) / cycle_steps))
+    elif hparams.learning_rate_decay_scheme == "cyclelinear10x":
+      # Cycle the rate linearly by 10x every warmup_steps, up and down.
+      cycle_steps = hparams.learning_rate_warmup_steps
+      cycle_position = step % (2 * cycle_steps)
+      cycle_position = tf.to_float(  # Normalize to the interval [-1, 1].
+          cycle_position - cycle_steps) / float(cycle_steps)
+      cycle_position = 1.0 - tf.abs(cycle_position)  # 0 to 1 and back to 0.
+      return (cycle_position + 0.1) * 3.0  # 10x difference each cycle (0.3-3).
 
     inv_base = tf.exp(tf.log(0.01) / warmup_steps)
     inv_decay = inv_base**(warmup_steps - step)
@@ -156,12 +164,6 @@ def build_model_fn(model, hparams):
         features = _interactive_input_tensor_to_features_dict(features, my_hp)
       elif FLAGS.decode_from_file:
         features = _decode_input_tensor_to_features_dict(features, my_hp)
-    # A dictionary containing:
-    #  - problem_choice: A Tensor containing an integer indicating which problem
-    #                    was selected for this run.
-    #  - predictions: A Tensor containing the model's output predictions.
-    run_info = dict()
-    run_info["problem_choice"] = features["problem_choice"]
 
     if targets is not None:
       features["targets"] = targets
@@ -185,17 +187,20 @@ def build_model_fn(model, hparams):
           tf.summary.scalar("%s_nonpadding_fraction" % k,
                             tf.reduce_mean(nonpadding))
 
-      # The new data reader occasionally emits very small batches, which
-      # cause the examples in those batches to be grossly overweighted.
-      # We decrease the loss proportionally to the ratio of the size of this
-      # batch to the size of the largest training batch ever.
-      # TODO(noam): to be more sophisticated, we could keep separate
-      # maxima based on problem choice.
-      max_nonpadding_var = tf.get_variable(
-          "max_nonpadding", shape=[],
-          initializer=tf.ones_initializer(), trainable=False)
-      max_nonpadding = tf.maximum(max_nonpadding_var, targets_nonpadding_tokens)
       if is_training:
+        # The new data reader occasionally emits very small batches, which
+        # cause the examples in those batches to be grossly overweighted.
+        # We decrease the loss proportionally to the ratio of the size of this
+        # batch to the size of the largest training batch ever.
+        # TODO(noam): to be more sophisticated, we could keep separate
+        # maxima based on problem choice.
+        max_nonpadding_var = tf.get_variable(
+            "max_nonpadding",
+            shape=[],
+            initializer=tf.ones_initializer(),
+            trainable=False)
+        max_nonpadding = tf.maximum(max_nonpadding_var,
+                                    targets_nonpadding_tokens)
         with tf.control_dependencies(
             [tf.assign(max_nonpadding_var, max_nonpadding)]):
           small_batch_multiplier = targets_nonpadding_tokens / max_nonpadding
@@ -203,6 +208,7 @@ def build_model_fn(model, hparams):
 
     # Get multi-problem logits and loss based on features["problem_choice"].
     loss_variable_names = []
+
     def nth_model(n):
       """Build the model for the n-th problem, plus some added variables."""
       model_class = registry.model(model)(
@@ -249,8 +255,8 @@ def build_model_fn(model, hparams):
             # Total loss was already constructed on input.
             loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n)
         except ValueError:
-          loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n,
-                                            initializer=100.0, trainable=False)
+          loss_moving_avg = tf.get_variable(
+              "problem_%d/total_loss" % n, initializer=100.0, trainable=False)
         ops.append(
             loss_moving_avg.assign(loss_moving_avg * 0.9 + total_loss * 0.1))
       with tf.variable_scope("train_stats"):  # Count steps for this problem.
@@ -287,11 +293,13 @@ def build_model_fn(model, hparams):
 
     sharded_logits, total_loss = result_list[1:], result_list[0]
     if mode == tf.contrib.learn.ModeKeys.EVAL:
-      logits = tf.concat(sharded_logits, 0)
       # For evaluation, return the logits layer as our predictions.
-      run_info["predictions"] = logits
-      train_op = None
-      return run_info, total_loss, None
+      logits = tf.concat(sharded_logits, 0)
+      ret = {
+          "predictions": logits,
+          "problem_choice": features["problem_choice"],
+      }
+      return ret, total_loss, None
 
     assert mode == tf.contrib.learn.ModeKeys.TRAIN
 
@@ -373,7 +381,7 @@ def build_model_fn(model, hparams):
         del summaries[i]
 
     tf.logging.info("Global model_fn finished.")
-    return run_info, total_loss, train_op
+    return {"problem_choice": features["problem_choice"]}, total_loss, train_op
 
   return model_fn
 

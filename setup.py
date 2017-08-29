@@ -5,17 +5,24 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.2.0',
+    version='1.2.1',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
     url='http://github.com/tensorflow/tensor2tensor',
     license='Apache 2.0',
     packages=find_packages(),
-    package_data={'tensor2tensor.data_generators': ['test_data/*']},
+    package_data={
+        'tensor2tensor.data_generators': ['test_data/*'],
+        'tensor2tensor.visualization': [
+            'attention.js',
+            'TransformerVisualization.ipynb'
+        ],
+    },
     scripts=[
         'tensor2tensor/bin/t2t-trainer',
         'tensor2tensor/bin/t2t-datagen',
+        'tensor2tensor/bin/t2t-decoder',
         'tensor2tensor/bin/t2t-make-tf-configs',
     ],
     install_requires=[

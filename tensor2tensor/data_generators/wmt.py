@@ -305,17 +305,44 @@ def _get_wmt_ende_bpe_dataset(directory, filename):
   return train_path
 
 
-def ende_bpe_token_generator(data_dir, tmp_dir, train):
-  """Instance of token generator for the WMT en->de task, training set."""
-  dataset_path = ("train.tok.clean.bpe.32000"
-                  if train else "newstest2013.tok.bpe.32000")
-  train_path = _get_wmt_ende_bpe_dataset(tmp_dir, dataset_path)
-  token_tmp_path = os.path.join(tmp_dir, "vocab.bpe.32000")
-  token_path = os.path.join(data_dir, "vocab.bpe.32000")
-  tf.gfile.Copy(token_tmp_path, token_path, overwrite=True)
-  token_vocab = text_encoder.TokenTextEncoder(vocab_filename=token_path)
-  return token_generator(train_path + ".en", train_path + ".de", token_vocab,
-                         EOS)
+@registry.register_problem
+class TranslateEndeWmtBpe32k(TranslateProblem):
+  """Problem spec for WMT En-De translation, BPE version."""
+
+  @property
+  def targeted_vocab_size(self):
+    return 32000
+
+  @property
+  def vocab_name(self):
+    return "vocab.bpe"
+
+  def feature_encoders(self, data_dir):
+    vocab_filename = os.path.join(data_dir, self.vocab_file)
+    encoder = text_encoder.TokenTextEncoder(vocab_filename, replace_oov="UNK")
+    return {"inputs": encoder, "targets": encoder}
+
+  def generator(self, data_dir, tmp_dir, train):
+    """Instance of token generator for the WMT en->de task, training set."""
+    dataset_path = ("train.tok.clean.bpe.32000"
+                    if train else "newstest2013.tok.bpe.32000")
+    train_path = _get_wmt_ende_bpe_dataset(tmp_dir, dataset_path)
+    token_tmp_path = os.path.join(tmp_dir, self.vocab_file)
+    token_path = os.path.join(data_dir, self.vocab_file)
+    tf.gfile.Copy(token_tmp_path, token_path, overwrite=True)
+    with tf.gfile.GFile(token_path, mode="a") as f:
+      f.write("UNK\n")  # Add UNK to the vocab.
+    token_vocab = text_encoder.TokenTextEncoder(token_path, replace_oov="UNK")
+    return token_generator(train_path + ".en", train_path + ".de",
+                           token_vocab, EOS)
+
+  @property
+  def input_space_id(self):
+    return problem.SpaceID.EN_BPE_TOK
+
+  @property
+  def target_space_id(self):
+    return problem.SpaceID.DE_BPE_TOK
 
 
 def _preprocess_sgm(line, is_sgm):

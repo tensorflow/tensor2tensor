@@ -40,16 +40,18 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-class AttentionMoeType(object):
-  NONE = "none"
-  LOCAL = "local"
-  GLOBAL = "global"
+class AttentionType(object):
+  MULTIHEAD = "multihead"
+  LOCAL_EXPERTS = "local_experts"
+  GLOBAL_MOE = "global_experts"
+  MEMORY_EFFICIENT = "memory_efficient"
 
   @staticmethod
   def get_choices():
     return [
-        AttentionMoeType.NONE,
-        AttentionMoeType.LOCAL,
+        AttentionType.MULTIHEAD,
+        AttentionType.LOCAL_EXPERTS,
+        AttentionType.MEMORY_EFFICIENT,
     ]
 
 
@@ -70,7 +72,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
     def postprocess(x, y):
       return dp(common_layers.layer_postprocess, x, y, hparams)
 
-    (decoder_input, decoder_self_attention_bias) = dp(
+    (decoder_input, decoder_self_attention_bias, pad_remover) = dp(
         attention_lm_moe_prepare_decoder, targets, hparams)
 
     x = dp(tf.nn.dropout, decoder_input,
@@ -87,15 +89,15 @@ class AttentionLmMoe(t2t_model.T2TModel):
     else:
       expert_fn = expert_utils.ffn_expert_fn(
           hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
+
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope(
-            "attention_{}".format(hparams.attention_moe_type)):
-          x = preprocess(x)
-          if hparams.attention_moe_type == AttentionMoeType.NONE:
+            "attention_{}".format(hparams.attention_type)):
+          if hparams.attention_type == AttentionType.MULTIHEAD:
             y = dp(
                 common_attention.multihead_attention,
-                x,
+                preprocess(x),
                 None,
                 decoder_self_attention_bias,
                 hparams.attention_key_channels or hparams.hidden_size,
@@ -104,14 +106,23 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 hparams.num_heads,
                 hparams.attention_dropout,
                 name="decoder_self_attention")
-          elif hparams.attention_moe_type == AttentionMoeType.LOCAL:
+          elif hparams.attention_type == AttentionType.MEMORY_EFFICIENT:
+            assert hparams.layer_preprocess_sequence == "n"
+            y = dp(
+                common_attention.multihead_self_attention_memory_efficient,
+                x,
+                decoder_self_attention_bias,
+                hparams.num_heads,
+                name="decoder_self_attention")
+          elif hparams.attention_type == AttentionType.LOCAL_EXPERTS:
             y, loss = dp(
                 common_attention.local_expert_attention,
-                x,
+                preprocess(x),
                 k=2,
-                loss_coef=1e-2,
+                loss_coef=hparams.attention_load_balance,
                 attention_num_experts=hparams.attention_num_experts,
                 train=hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
+                pad_remover=pad_remover,
                 mask_right=True,
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
@@ -119,7 +130,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
             extra_loss += tf.add_n(loss) / dp.n
           else:
             raise ValueError("Only {} supported for now.".format(
-                AttentionMoeType.get_choices()))
+                AttentionType.get_choices()))
           x = postprocess(x, y)
         with tf.variable_scope("ffn"):
           if str(layer) in hparams.moe_layers.split(","):
@@ -134,6 +145,12 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 k=hparams.moe_k,
                 loss_coef=hparams.moe_loss_coef)
             extra_loss += loss
+          elif hparams.memory_efficient_ffn:
+            assert hparams.layer_preprocess_sequence == "n"
+            y = dp(
+                common_layers.conv_hidden_relu_memory_efficient,
+                x,
+                hparams.filter_size)
           else:
             y = dp(
                 common_layers.conv_hidden_relu,
@@ -158,17 +175,22 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
     decoder_input: a Tensor, bottom of decoder stack
     decoder_self_attention_bias: a Tensor, containing large negative values
     to implement masked attention and possibly baises for diagonal alignments
+    pad_remover (expert_utils.PadRemover): an util object to remove padding
   """
+  targets_pad_mask = common_attention.embedding_to_padding(targets)
+  with tf.name_scope("pad_remover"):
+    pad_remover = expert_utils.PadRemover(targets_pad_mask)
+
   if hparams.prepend_mode == "prepend_inputs_full_attention":
-    decoder_self_attention_bias = (common_attention.attention_bias_prepended(
-        common_attention.embedding_to_padding(targets)))
+    decoder_self_attention_bias = (
+        common_attention.attention_bias_prepended(targets_pad_mask))
   else:
     decoder_self_attention_bias = (
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
   decoder_input = common_layers.shift_left_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
-  return (decoder_input, decoder_self_attention_bias)
+  return (decoder_input, decoder_self_attention_bias, pad_remover)
 
 
 @registry.register_hparams
@@ -215,12 +237,15 @@ def attention_lm_moe_base():
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("moe_layers", "2")  # comma separated list of layer numbers
   # moe params. local attention moe.
-  hparams.add_hparam("attention_moe_type", AttentionMoeType.NONE)
+  hparams.add_hparam("attention_type", AttentionType.MULTIHEAD)
   hparams.add_hparam("attention_num_experts", 16)
   # Key, query and value dimensions for the attention
-  hparams.add_hparam("attention_kq_size", 64)
-  hparams.add_hparam("attention_v_size", 64)
+  hparams.add_hparam("attention_kq_size", 128)
+  hparams.add_hparam("attention_v_size", 256)
+  # Loss coef for load balancing
+  hparams.add_hparam("attention_load_balance", 2e-2)
   hparams.add_hparam("diet_experts", int(False))
+  hparams.add_hparam("memory_efficient_ffn", int(False))
   return hparams
 
 
@@ -228,9 +253,12 @@ def attention_lm_moe_base():
 def attention_lm_moe_base_ae():
   """Base model with attention expert."""
   hparams = attention_lm_moe_base()
-  hparams.attention_moe_type = AttentionMoeType.LOCAL
+  hparams.attention_type = AttentionType.LOCAL_EXPERTS
   hparams.max_length = hparams.batch_size
   hparams.eval_drop_long_sequences = int(True)
+  hparams.batching_mantissa_bits = 2  # More buckets
+  hparams.learning_rate = 0.05
+  hparams.learning_rate_warmup_steps = 10000
   return hparams
 
 
@@ -279,7 +307,7 @@ def attention_lm_attention_moe_tiny():
   hparams.moe_layers = ""
   hparams.attention_num_experts = 128
   hparams.filter_size = 8192
-  hparams.attention_moe_type = AttentionMoeType.LOCAL
+  hparams.attention_type = AttentionType.LOCAL_EXPERTS
   return hparams
 
 
@@ -332,6 +360,21 @@ def attention_lm_moe_large():
 def attention_lm_moe_large_diet():
   hparams = attention_lm_moe_large()
   hparams.diet_experts = int(True)
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_memory_efficient():
+  """Memory-efficient version."""
+  hparams = attention_lm_moe_large()
+  hparams.diet_experts = int(True)
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.layer_prepostprocess_dropout = 0.0
+  hparams.memory_efficient_ffn = True
+  hparams.attention_type = AttentionType.MEMORY_EFFICIENT
+  hparams.num_heads = 8
+  hparams.factored_logits = int(True)
   return hparams
 
 
