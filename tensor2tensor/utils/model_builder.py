@@ -111,7 +111,7 @@ def build_model_fn(model, hparams):
       cycle_position = tf.to_float(  # Normalize to the interval [-1, 1].
           cycle_position - cycle_steps) / float(cycle_steps)
       cycle_position = 1.0 - tf.abs(cycle_position)  # 0 to 1 and back to 0.
-      return (cycle_position + 0.01) * 10.0  # 10x difference each cycle.
+      return (cycle_position + 0.1) * 3.0  # 10x difference each cycle (0.3-3).
 
     inv_base = tf.exp(tf.log(0.01) / warmup_steps)
     inv_decay = inv_base**(warmup_steps - step)

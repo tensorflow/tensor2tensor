@@ -25,6 +25,7 @@ documentation, from basic tutorials to full code documentation.
 ## Deep Dive
 
 * [Life of an Example](example_life.md): how all parts of T2T are connected and work together
+* [Distributed Training](distributed_training.md)
 
 ## Code documentation
 
