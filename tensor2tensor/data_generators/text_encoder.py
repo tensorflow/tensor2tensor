@@ -161,6 +161,7 @@ class TokenTextEncoder(TextEncoder):
                vocab_filename,
                reverse=False,
                vocab_list=None,
+               replace_oov=None,
                num_reserved_ids=NUM_RESERVED_TOKENS):
     """Initialize from a file or list, one token per line.
 
@@ -176,10 +177,13 @@ class TokenTextEncoder(TextEncoder):
          and decoding.
       vocab_list: If not None, a list of elements of the vocabulary. If this is
          not None, then vocab_filename should be None.
+      replace_oov: If not None, every out-of-vocabulary token seen when
+         encoding will be replaced by this string (which must be in vocab).
       num_reserved_ids: Number of IDs to save for reserved tokens like <EOS>.
     """
     super(TokenTextEncoder, self).__init__(num_reserved_ids=num_reserved_ids)
     self._reverse = reverse
+    self._replace_oov = replace_oov
     if vocab_filename:
       self._init_vocab_from_file(vocab_filename)
     else:
@@ -188,7 +192,11 @@ class TokenTextEncoder(TextEncoder):
 
   def encode(self, sentence):
     """Converts a space-separated string of tokens to a list of ids."""
-    ret = [self._token_to_id[tok] for tok in sentence.strip().split()]
+    tokens = sentence.strip().split()
+    if self._replace_oov is not None:
+      tokens = [t if t in self._token_to_id else self._replace_oov
+                for t in tokens]
+    ret = [self._token_to_id[tok] for tok in tokens]
     return ret[::-1] if self._reverse else ret
 
   def decode(self, ids):

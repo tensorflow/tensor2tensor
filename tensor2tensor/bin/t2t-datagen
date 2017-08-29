@@ -92,11 +92,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**14, 2**9),
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9)),
-    "translate_ende_wmt_bpe32k": (
-        lambda: wmt.ende_bpe_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, True),
-        lambda: wmt.ende_bpe_token_generator(
-            FLAGS.data_dir, FLAGS.tmp_dir, False)),
     "languagemodel_1b32k": (
         lambda: lm1b.generator(FLAGS.tmp_dir, True),
         lambda: lm1b.generator(FLAGS.tmp_dir, False)
