@@ -193,17 +193,18 @@ def build_model_fn(model, hparams):
           tf.summary.scalar("%s_nonpadding_fraction" % k,
                             tf.reduce_mean(nonpadding))
 
-      # The new data reader occasionally emits very small batches, which
-      # cause the examples in those batches to be grossly overweighted.
-      # We decrease the loss proportionally to the ratio of the size of this
-      # batch to the size of the largest training batch ever.
-      # TODO(noam): to be more sophisticated, we could keep separate
-      # maxima based on problem choice.
-      max_nonpadding_var = tf.get_variable(
-          "max_nonpadding", shape=[],
-          initializer=tf.ones_initializer(), trainable=False)
-      max_nonpadding = tf.maximum(max_nonpadding_var, targets_nonpadding_tokens)
       if is_training:
+        # The new data reader occasionally emits very small batches, which
+        # cause the examples in those batches to be grossly overweighted.
+        # We decrease the loss proportionally to the ratio of the size of this
+        # batch to the size of the largest training batch ever.
+        # TODO(noam): to be more sophisticated, we could keep separate
+        # maxima based on problem choice.
+        max_nonpadding_var = tf.get_variable(
+            "max_nonpadding", shape=[],
+            initializer=tf.ones_initializer(), trainable=False)
+        max_nonpadding = tf.maximum(max_nonpadding_var,
+                                    targets_nonpadding_tokens)
         with tf.control_dependencies(
             [tf.assign(max_nonpadding_var, max_nonpadding)]):
           small_batch_multiplier = targets_nonpadding_tokens / max_nonpadding
