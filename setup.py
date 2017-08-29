@@ -12,7 +12,13 @@ setup(
     url='http://github.com/tensorflow/tensor2tensor',
     license='Apache 2.0',
     packages=find_packages(),
-    package_data={'tensor2tensor.data_generators': ['test_data/*']},
+    package_data={
+        'tensor2tensor.data_generators': ['test_data/*'],
+        'tensor2tensor.visualization': [
+            'attention.js',
+            'TransformerVisualization.ipynb'
+        ],
+    },
     scripts=[
         'tensor2tensor/bin/t2t-trainer',
         'tensor2tensor/bin/t2t-datagen',
