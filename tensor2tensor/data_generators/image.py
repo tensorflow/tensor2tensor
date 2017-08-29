@@ -272,7 +272,8 @@ class Image2ClassProblem(ImageProblem):
     small_modality = "%s:small_image_modality" % registry.Modalities.IMAGE
     modality = small_modality if self.is_small else registry.Modalities.IMAGE
     p.input_modality = {"inputs": (modality, None)}
-    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
+    p.target_modality = ("%s:2d" % registry.Modalities.CLASS_LABEL,
+                         self.num_classes)
     p.batch_size_multiplier = 4 if self.is_small else 256
     p.max_expected_batch_size_per_shard = 8 if self.is_small else 2
     p.loss_multiplier = 3.0 if self.is_small else 1.0

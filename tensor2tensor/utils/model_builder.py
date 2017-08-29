@@ -164,12 +164,6 @@ def build_model_fn(model, hparams):
         features = _interactive_input_tensor_to_features_dict(features, my_hp)
       elif FLAGS.decode_from_file:
         features = _decode_input_tensor_to_features_dict(features, my_hp)
-    # A dictionary containing:
-    #  - problem_choice: A Tensor containing an integer indicating which problem
-    #                    was selected for this run.
-    #  - predictions: A Tensor containing the model's output predictions.
-    run_info = dict()
-    run_info["problem_choice"] = features["problem_choice"]
 
     if targets is not None:
       features["targets"] = targets
@@ -299,11 +293,13 @@ def build_model_fn(model, hparams):
 
     sharded_logits, total_loss = result_list[1:], result_list[0]
     if mode == tf.contrib.learn.ModeKeys.EVAL:
-      logits = tf.concat(sharded_logits, 0)
       # For evaluation, return the logits layer as our predictions.
-      run_info["predictions"] = logits
-      train_op = None
-      return run_info, total_loss, None
+      logits = tf.concat(sharded_logits, 0)
+      ret = {
+          "predictions": logits,
+          "problem_choice": features["problem_choice"],
+      }
+      return ret, total_loss, None
 
     assert mode == tf.contrib.learn.ModeKeys.TRAIN
 
@@ -385,7 +381,7 @@ def build_model_fn(model, hparams):
         del summaries[i]
 
     tf.logging.info("Global model_fn finished.")
-    return run_info, total_loss, train_op
+    return {"problem_choice": features["problem_choice"]}, total_loss, train_op
 
   return model_fn
 

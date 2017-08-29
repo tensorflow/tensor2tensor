@@ -361,9 +361,9 @@ class AudioSpectralModality(modality.Modality):
                            "compress_block_final")
 
 
-@registry.register_class_label_modality("default")
+@registry.register_class_label_modality("2d")
 class ClassLabelModality(modality.Modality):
-  """Used for label data."""
+  """Used for label data; if is2d=True, uses Xception flow to logits."""
 
   def __init__(self, model_hparams, vocab_size, is2d=True):
     super(ClassLabelModality, self).__init__(model_hparams, vocab_size)
@@ -397,9 +397,11 @@ class ClassLabelModality(modality.Modality):
   def top(self, body_output, _):
     """Transform inputs from model space to target space.
 
-    Perform the Xception "Exit flow", consisting of a single residual block and
-    two separable convolutional upscalings followed by global spatial average
-    pooling.
+    If instantiated with is2d=True, perform the Xception "Exit flow", consisting
+    of a single residual block and two separable convolutional upscalings
+    followed by global spatial average pooling.
+
+    Otherwise, a single linear layer to logits.
 
     Args:
       body_output: A Tensor with shape [batch, ?, ?, body_output_size].
@@ -417,11 +419,12 @@ class ClassLabelModality(modality.Modality):
         spatial_dim = tf.to_int32(spatial_dim_float)
         x_depth = int(x.get_shape()[3])
         x = tf.reshape(x, [-1, spatial_dim, spatial_dim, x_depth])
-      x = common_layers.conv_block_downsample(x, self._kernel, self._strides,
-                                              self._padding)
-      x = tf.nn.relu(x)
-      x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
-      res = common_layers.conv(x, self._vocab_size, (1, 1))
+        x = common_layers.conv_block_downsample(x, self._kernel, self._strides,
+                                                self._padding)
+        x = tf.nn.relu(x)
+        x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
+
+      res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
 
   def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
@@ -431,7 +434,7 @@ class ClassLabelModality(modality.Modality):
         top_out, targets, weights_fn=weights_fn)
 
 
-@registry.register_class_label_modality("class_label_2d")
+@registry.register_class_label_modality("default")
 class ClassLabel1DModality(ClassLabelModality):
   """Used for label data."""
 

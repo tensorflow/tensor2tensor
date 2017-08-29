@@ -147,8 +147,8 @@ def default_problem_hparams():
       # Modalities used to map from input features to a space compatible with
       # chosen model architecture.  One modality spec (which is a 2-tuple,
       # (modality_full_name, vocab_size)) per feature key. modality_full_name is
-      # a string type:name, e.g. class_label:class_label_2d. Leaving off the
-      # name uses the default modality for that type (e.g. class_label ==
+      # a string type:name, e.g. class_label:2d. Leaving off the name uses the
+      # default modality for that type (e.g. class_label ==
       # class_label:default).
       input_modality={},
 
