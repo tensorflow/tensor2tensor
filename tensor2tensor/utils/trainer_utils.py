@@ -149,8 +149,8 @@ def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
 def create_experiment(output_dir, data_dir, model_name, train_steps,
                       eval_steps):
   """Create Experiment."""
-  hparams = create_hparams(FLAGS.hparams_set, FLAGS.problems, data_dir,
-                           passed_hparams=FLAGS.hparams)
+  hparams = create_hparams(
+      FLAGS.hparams_set, FLAGS.problems, data_dir, passed_hparams=FLAGS.hparams)
   estimator, input_fns = create_experiment_components(
       hparams=hparams,
       output_dir=output_dir,
@@ -358,4 +358,12 @@ def decode(estimator):
   elif FLAGS.decode_from_file is not None and FLAGS.decode_from_file is not "":
     decoding.decode_from_file(estimator, FLAGS.decode_from_file)
   elif FLAGS.decode_from_dataset:
-    decoding.decode_from_dataset(estimator)
+    decoding.decode_from_dataset(
+        estimator,
+        FLAGS.problems.split("-"),
+        return_beams=FLAGS.decode_return_beams,
+        beam_size=FLAGS.decode_beam_size,
+        max_predictions=FLAGS.decode_num_samples,
+        decode_to_file=FLAGS.decode_to_file,
+        save_images=FLAGS.decode_save_images,
+        identity_output=FLAGS.identity_output)

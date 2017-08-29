@@ -201,8 +201,10 @@ def build_model_fn(model, hparams):
         # TODO(noam): to be more sophisticated, we could keep separate
         # maxima based on problem choice.
         max_nonpadding_var = tf.get_variable(
-            "max_nonpadding", shape=[],
-            initializer=tf.ones_initializer(), trainable=False)
+            "max_nonpadding",
+            shape=[],
+            initializer=tf.ones_initializer(),
+            trainable=False)
         max_nonpadding = tf.maximum(max_nonpadding_var,
                                     targets_nonpadding_tokens)
         with tf.control_dependencies(
@@ -212,6 +214,7 @@ def build_model_fn(model, hparams):
 
     # Get multi-problem logits and loss based on features["problem_choice"].
     loss_variable_names = []
+
     def nth_model(n):
       """Build the model for the n-th problem, plus some added variables."""
       model_class = registry.model(model)(
@@ -258,8 +261,8 @@ def build_model_fn(model, hparams):
             # Total loss was already constructed on input.
             loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n)
         except ValueError:
-          loss_moving_avg = tf.get_variable("problem_%d/total_loss" % n,
-                                            initializer=100.0, trainable=False)
+          loss_moving_avg = tf.get_variable(
+              "problem_%d/total_loss" % n, initializer=100.0, trainable=False)
         ops.append(
             loss_moving_avg.assign(loss_moving_avg * 0.9 + total_loss * 0.1))
       with tf.variable_scope("train_stats"):  # Count steps for this problem.
