@@ -50,7 +50,7 @@ class SentimentIMDB(problem.Problem):
 
   @property
   def targeted_vocab_size(self):
-    return 2**15
+    return 2**13  # 8k vocab suffices for this small dataset.
 
   def doc_generator(self, imdb_dir, dataset, include_label=False):
     dirs = [(os.path.join(imdb_dir, dataset, "pos"), True), (os.path.join(

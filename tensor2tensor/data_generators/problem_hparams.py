@@ -267,35 +267,6 @@ def audio_timit_tokens(model_hparams, wrong_vocab_size):
   return p
 
 
-def lm1b_32k(model_hparams):
-  """Billion-word language-modeling benchmark, 32k subword vocabulary."""
-  p = default_problem_hparams()
-  # ratio of dev tokens (including eos) to dev words (including eos)
-  # 176884 / 159658 = 1.107893
-  p.perplexity_exponent = 1.107893
-  p.input_modality = {}
-  encoder = text_encoder.SubwordTextEncoder(
-      os.path.join(model_hparams.data_dir, "lm1b_32k.subword_text_encoder"))
-  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
-  p.vocabulary = {"targets": encoder}
-  p.target_space_id = 3
-  return p
-
-
-def lm1b_characters(unused_model_hparams):
-  """Billion-word language-modeling benchmark, 32k subword vocabulary."""
-  p = default_problem_hparams()
-  # ratio of dev tokens (including eos) to dev words (including eos)
-  # 826189 / 159658 = 5.174742
-  p.perplexity_exponent = 5.174742
-  p.input_modality = {}
-  encoder = text_encoder.ByteTextEncoder()
-  p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
-  p.vocabulary = {"targets": encoder}
-  p.target_space_id = 2
-  return p
-
-
 def wmt_parsing_characters(model_hparams):
   """English to parse tree translation benchmark."""
   del model_hparams  # Unused.
@@ -404,10 +375,6 @@ PROBLEM_HPARAMS_MAP = {
         lambda p: audio_timit_tokens(p, 2**13),
     "audio_timit_tokens_8k_test":
         lambda p: audio_timit_tokens(p, 2**13),
-    "languagemodel_1b_characters":
-        lm1b_characters,
-    "languagemodel_1b32k":
-        lm1b_32k,
     "parsing_english_ptb8k":
         lambda p: wmt_parsing_tokens(p, 2**13),
     "parsing_english_ptb16k":

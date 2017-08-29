@@ -142,9 +142,9 @@ def _get_or_build_subword_text_encoder(tmp_dir):
   return ret
 
 
-@registry.register_problem("languagemodel_1b32k")
-class LanguagemodelLm1b(problem.Text2TextProblem):
-  """A language model on full English Wikipedia."""
+@registry.register_problem
+class LanguagemodelLm1b32k(problem.Text2TextProblem):
+  """A language model on the 1B words corpus."""
 
   @property
   def is_character_level(self):
@@ -156,6 +156,8 @@ class LanguagemodelLm1b(problem.Text2TextProblem):
 
   @property
   def input_space_id(self):
+    # Ratio of dev tokens (including eos) to dev words (including eos)
+    # 176884 / 159658 = 1.107893; multiply ppx by this to compare results.
     return problem.SpaceID.EN_TOK
 
   @property
@@ -164,11 +166,11 @@ class LanguagemodelLm1b(problem.Text2TextProblem):
 
   @property
   def num_shards(self):
-    return 10
+    return 100
 
   @property
   def vocab_name(self):
-    return "vocab-2016-09-10.txt.en"
+    return "vocab.lm1b.en"
 
   @property
   def use_subword_tokenizer(self):
@@ -208,3 +210,12 @@ class LanguagemodelLm1b(problem.Text2TextProblem):
             _replace_oov(original_vocab, text_encoder.native_to_unicode(line)))
         tokens.append(EOS)
         yield {"inputs": [0], "targets": tokens}
+
+
+@registry.register_problem
+class LanguagemodelLm1bCharacters(LanguagemodelLm1b32k):
+  """A language model on the 1B words corpus, character level."""
+
+  @property
+  def is_character_level(self):
+    return True

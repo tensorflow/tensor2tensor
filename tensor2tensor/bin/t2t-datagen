@@ -42,7 +42,6 @@ from tensor2tensor.data_generators import algorithmic_math
 from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
 from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wmt
 from tensor2tensor.data_generators import wsj_parsing
@@ -92,14 +91,6 @@ _SUPPORTED_PROBLEM_GENERATORS = {
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**14, 2**9),
         lambda: wsj_parsing.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 2**14, 2**9)),
-    "languagemodel_1b32k": (
-        lambda: lm1b.generator(FLAGS.tmp_dir, True),
-        lambda: lm1b.generator(FLAGS.tmp_dir, False)
-    ),
-    "languagemodel_1b_characters": (
-        lambda: lm1b.generator(FLAGS.tmp_dir, True, characters=True),
-        lambda: lm1b.generator(FLAGS.tmp_dir, False, characters=True)
-    ),
     "inference_snli32k": (
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, True, 2**15),
         lambda: snli.snli_token_generator(FLAGS.tmp_dir, False, 2**15),

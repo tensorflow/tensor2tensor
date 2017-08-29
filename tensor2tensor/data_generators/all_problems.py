@@ -23,6 +23,7 @@ from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import algorithmic_math
 from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import cipher
+from tensor2tensor.data_generators import cnn_dailymail
 from tensor2tensor.data_generators import desc2code
 from tensor2tensor.data_generators import ice_parsing
 from tensor2tensor.data_generators import image

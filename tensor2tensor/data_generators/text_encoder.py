@@ -657,8 +657,8 @@ class SubwordTextEncoder(TextEncoder):
     for line in f:
       s = line.strip()
       # Some vocab files wrap words in single quotes, but others don't
-      if (len(s) > 1 and ((s.startswith("'") and s.endswith("'")) or
-                          (s.startswith("\"") and s.endswith("\"")))):
+      if ((s.startswith("'") and s.endswith("'")) or
+          (s.startswith("\"") and s.endswith("\""))):
         s = s[1:-1]
       subtoken_strings.append(native_to_unicode(s))
     self._init_subtokens_from_list(subtoken_strings)

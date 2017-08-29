@@ -31,6 +31,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import registry
 
+import tensorflow as tf
 
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
@@ -49,7 +50,7 @@ def _maybe_download_corpus(tmp_dir):
                 "enwiki-20170620-pages-articles-multistream.xml.bz2")
   corpus_filename = os.path.basename(corpus_url)
   corpus_filepath = os.path.join(tmp_dir, corpus_filename)
-  if not os.path.exists(corpus_filepath):
+  if not tf.gfile.Exists(corpus_filepath):
     generator_utils.maybe_download(tmp_dir, corpus_filename, corpus_url)
   return corpus_filepath
 
