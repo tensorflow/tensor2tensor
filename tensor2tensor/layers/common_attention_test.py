@@ -23,6 +23,7 @@ from __future__ import print_function
 
 import numpy as np
 from tensor2tensor.layers import common_attention
+from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
@@ -117,6 +118,49 @@ class CommonAttentionTest(tf.test.TestCase):
       res = session.run(a)
     self.assertEqual(res.shape, (5, 4, 25, 25, 16))
 
+  def testMultiheadSelfAttentionMemoryEfficient(self):
+    num_heads = 4
+    io_size = 16
+    batch = 2
+    length = 7
+    head_size = 5
+    x = np.random.rand(batch, length, io_size)
+    dy = np.random.rand(batch, length, io_size)
+    with self.test_session() as session:
+      x = tf.to_float(x)
+      dy = tf.to_float(dy)
+      bias = common_attention.attention_bias_lower_triangle(length)
+      wqkv = tf.get_variable(
+          "wqkv", [num_heads, 1, io_size, 3 * head_size],
+          initializer=tf.random_normal_initializer(stddev=io_size**-0.5))
+      wo = tf.get_variable(
+          "wo", [num_heads, 1, head_size, io_size],
+          initializer=tf.random_normal_initializer(
+              stddev=(head_size * num_heads)**-0.5))
+      norm_scale, norm_bias = common_layers.layer_norm_vars(io_size)
+      y = common_attention.multihead_self_attention_memory_efficient(
+          x, bias, num_heads, head_size=head_size, forget=False,
+          test_vars=(wqkv, wo, norm_scale, norm_bias))
+      y_forget = common_attention.multihead_self_attention_memory_efficient(
+          x, bias, num_heads, head_size=head_size, forget=True,
+          test_vars=(wqkv, wo, norm_scale, norm_bias))
+      dx, dwqkv, dwo, dnorm_scale, dnorm_bias = tf.gradients(
+          ys=[y], xs=[x, wqkv, wo, norm_scale, norm_bias], grad_ys=[dy])
+      dx_f, dwqkv_f, dwo_f, dnorm_scale_f, dnorm_bias_f = tf.gradients(
+          ys=[y_forget], xs=[x, wqkv, wo, norm_scale, norm_bias], grad_ys=[dy])
+      session.run(tf.global_variables_initializer())
+      (y, y_forget,
+       dx, dwqkv, dwo, dnorm_scale, dnorm_bias,
+       dx_f, dwqkv_f, dwo_f, dnorm_scale_f, dnorm_bias_f) = session.run(
+           [y, y_forget,
+            dx, dwqkv, dwo, dnorm_scale, dnorm_bias,
+            dx_f, dwqkv_f, dwo_f, dnorm_scale_f, dnorm_bias_f])
+    self.assertAllClose(y, y_forget)
+    self.assertAllClose(dwo, dwo_f)
+    self.assertAllClose(dwqkv, dwqkv_f)
+    self.assertAllClose(dnorm_scale, dnorm_scale_f)
+    self.assertAllClose(dnorm_bias, dnorm_bias_f)
+    self.assertAllClose(dx, dx_f)
 
 if __name__ == "__main__":
   tf.test.main()
