@@ -21,6 +21,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import collections
+import io
 import os
 import shutil
 
@@ -29,6 +30,14 @@ import mock
 
 from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
+
+
+class NativeToUnicodeTest(tf.test.TestCase):
+
+  def test_native_to_unicode(self):
+    s = r'foo bar'
+    self.assertIsInstance(text_encoder.native_to_unicode(s), unicode)
+    self.assertEqual(text_encoder.native_to_unicode(s), u'foo bar')
 
 
 class EscapeUnescapeTokenTest(tf.test.TestCase):
@@ -185,6 +194,24 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     # Previously there was a bug which produced an infinite loop in this case.
     with self.assertRaises(AssertionError):
       encoder.encode(original)
+
+  def test_load_from_file(self):
+    # Test a vocab file with words not wrapped with single quotes
+    encoder = text_encoder.SubwordTextEncoder()
+    correct_vocab = ['the', 'and', 'of']
+    vocab = io.StringIO('the\n'
+                        'and\n'
+                        'of\n')
+    encoder._load_from_file_object(vocab)
+    self.assertEqual(encoder._all_subtoken_strings, correct_vocab)
+
+    # Test a vocab file with words wrapped in single quotes
+    encoder = text_encoder.SubwordTextEncoder()
+    vocab = io.StringIO('\'the\'\n'
+                        '\'and\'\n'
+                        '\'of\'\n')
+    encoder._load_from_file_object(vocab)
+    self.assertEqual(encoder._all_subtoken_strings, correct_vocab)
 
 
 if __name__ == '__main__':

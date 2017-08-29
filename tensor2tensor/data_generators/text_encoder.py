@@ -647,18 +647,31 @@ class SubwordTextEncoder(TextEncoder):
     self._alphabet = {c for token in tokens for c in token}
     self._alphabet |= _ESCAPE_CHARS
 
+  def _load_from_file_object(self, f):
+    """Load from a file object.
+
+    Args:
+      f: File object to load vocabulary from
+    """
+    subtoken_strings = []
+    for line in f:
+      s = line.strip()
+      # Some vocab files wrap words in single quotes, but others don't
+      if (len(s) > 1 and ((s.startswith("'") and s.endswith("'")) or
+                          (s.startswith("\"") and s.endswith("\"")))):
+        s = s[1:-1]
+      subtoken_strings.append(native_to_unicode(s))
+    self._init_subtokens_from_list(subtoken_strings)
+    self._init_alphabet_from_tokens(subtoken_strings)
+
   def _load_from_file(self, filename):
     """Load from a file.
 
     Args:
-      filename: filename to load vocabulary from
+      filename: Filename to load vocabulary from
     """
-    subtoken_strings = []
     with tf.gfile.Open(filename) as f:
-      for line in f:
-        subtoken_strings.append(native_to_unicode(line.strip()[1:-1]))
-    self._init_subtokens_from_list(subtoken_strings)
-    self._init_alphabet_from_tokens(subtoken_strings)
+      self._load_from_file_object(f)
 
   def store_to_file(self, filename):
     with tf.gfile.Open(filename, "w") as f:
