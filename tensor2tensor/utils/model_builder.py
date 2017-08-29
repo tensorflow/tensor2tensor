@@ -104,6 +104,14 @@ def build_model_fn(model, hparams):
     elif hparams.learning_rate_decay_scheme == "cosine":
       cycle_steps = hparams.learning_rate_cosine_cycle_steps
       return 0.5 * (1 + tf.cos(np.pi * (step % cycle_steps) / cycle_steps))
+    elif hparams.learning_rate_decay_scheme == "cyclelinear10x":
+      # Cycle the rate linearly by 10x every warmup_steps, up and down.
+      cycle_steps = hparams.learning_rate_warmup_steps
+      cycle_position = step % (2 * cycle_steps)
+      cycle_position = tf.to_float(  # Normalize to the interval [-1, 1].
+          cycle_position - cycle_steps) / float(cycle_steps)
+      cycle_position = 1.0 - tf.abs(cycle_position)  # 0 to 1 and back to 0.
+      return (cycle_position + 0.01) * 10.0  # 10x difference each cycle.
 
     inv_base = tf.exp(tf.log(0.01) / warmup_steps)
     inv_decay = inv_base**(warmup_steps - step)

@@ -137,7 +137,7 @@ def kmeans(x, means, hparams, name):
     x_means_hot = nearest(x, means, hparams)
     x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
     kl = tf.reduce_sum(tf.square(x - x_means), axis=-1)
-    return x_means_hot, x_means_hot, tf.reduce_mean(kl) * 100.0
+    return x_means_hot, x_means_hot, tf.reduce_mean(kl) * 10.0
 
 
 def compress(x, c, hparams, name):
@@ -213,10 +213,12 @@ def vae_compress(x, c, ed, hparams, compress_name, decompress_name, reuse=None):
     cur = common_layers.conv_block(
         cur, hparams.hidden_size, [((1, 1), (1, 1))], name="mid_conv")
     cur = tf.nn.l2_normalize(cur, dim=3)
+    cur_n = hparams.kmeans_lr_factor * cur
+    cur_n += (1.0 - hparams.kmeans_lr_factor) * tf.stop_gradient(cur)
     means = tf.get_variable("z_to_dense", [hparams.v_size, hparams.hidden_size])
     # z, kl_loss, mu, log_sigma = vae(cur, hparams, name="vae")
     # z_true, z_sample, kl_loss = dvae(cur, hparams, name="dvae")
-    z_true, z_sample, kl_loss = kmeans(cur, means, hparams, name="kmeans")
+    z_true, z_sample, kl_loss = kmeans(cur_n, means, hparams, name="kmeans")
 
   # Compress context.
   with tf.variable_scope(compress_name, reuse=reuse):
@@ -239,6 +241,11 @@ def vae_compress(x, c, ed, hparams, compress_name, decompress_name, reuse=None):
 
     # Leak at the beginning to help train.
     z = mix(z, cur, hparams.startup_steps)
+    prob_z = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.8
+    prob_z = prob_z if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN else 0.0
+    z = tf.cond(tf.less(tf.random_uniform([]), prob_z),
+                lambda: z, lambda: cur)
+    z = tf.layers.dense(z, hparams.hidden_size, name="unnormalize")
 
     # Dropout for better autoencoding.
     z = tf.nn.dropout(z, keep_prob=0.9)
@@ -289,7 +296,7 @@ def vae_transformer_internal(inputs, targets, target_space, hparams):
                             tf.expand_dims(inputs, axis=2),
                             ed_bias, hparams, "vae_compress", "vae_decompress")
     kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.5))
-    r *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 2.0))
+    r *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.5))
     losses = {"kl": kl, "reconstruction": r}
     return z, losses
 
@@ -364,5 +371,6 @@ def transformer_vae_base():
   hparams.relu_dropout = 0.0
   hparams.dropout = 0.0
   hparams.num_hidden_layers = 4
+  hparams.kmeans_lr_factor = 0.002
   hparams.z_size = 256
   return hparams
