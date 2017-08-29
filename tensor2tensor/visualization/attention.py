@@ -21,8 +21,7 @@ This module is deigned to be called from an ipython notebook.
 import json
 import os
 
-from IPython.display import HTML
-from IPython.display import Javascript
+import IPython.display as display
 
 import numpy as np
 
@@ -53,9 +52,9 @@ def show(inp_text, out_text, enc_atts, dec_atts, encdec_atts):
 
 
 def _show_attention(att_json):
-  display(HTML(vis_html))  # pylint: disable=undefined-variable
-  display(Javascript('window.attention = %s' % att_json))  # pylint: disable=undefined-variable
-  display(Javascript(vis_js))  # pylint: disable=undefined-variable
+  display.display(display.HTML(vis_html))
+  display.display(display.Javascript('window.attention = %s' % att_json))
+  display.display(display.Javascript(vis_js))
 
 
 def _get_attention(inp_text, out_text, enc_atts, dec_atts, encdec_atts):
