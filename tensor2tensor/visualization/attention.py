@@ -15,7 +15,7 @@
 
 """Module for postprocessing and displaying tranformer attentions.
 
-This module is designed to be called from an ipython notebook.
+This module is deigned to be called from an ipython notebook.
 """
 
 import json
