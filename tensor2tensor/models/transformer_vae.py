@@ -253,18 +253,25 @@ def ae_decompress(z, ae, x, is_2d, hparams, name, reuse=None):
 
     # Decompress.
     d = z
+    k = (3, 3) if is_2d else (3, 1)
     for i in xrange(hparams.num_compress_steps):
       j = hparams.num_compress_steps - i - 1
-      d = residual_conv(d, 1, (3, 1), hparams, "decompress_rc_%d" % j)
+      d = residual_conv(d, 1, k, hparams, "decompress_rc_%d" % j)
       d = decompress_step(d, None, hparams, i > 0, is_2d, "decompress_%d" % j)
 
-    k = 2**hparams.num_compress_steps
-    z_batch = tf.reshape(z, [-1, 1, 1, hparams.hidden_size])
-    x_batch = tf.reshape(x, [-1, k, 1, hparams.hidden_size])
-    d_batch = tf.reshape(d, [-1, k, 1, hparams.hidden_size])
-    dec_batch = decode(z_batch, d_batch, x_batch, None, None, hparams)
-    z = tf.reshape(dec_batch, [-1, tf.shape(x)[1], 1, hparams.hidden_size])
-
+    # Autoregressive part.
+    if not is_2d:  # Currently we don't do it autoregressively for 2d problems.
+      k = 2**(hparams.num_compress_steps * (2 if is_2d else 1))
+      z_batch = tf.reshape(z, [-1, 1, 1, hparams.hidden_size])
+      x_batch = tf.reshape(x, [-1, k, 1, hparams.hidden_size])
+      d_batch = tf.reshape(d, [-1, k, 1, hparams.hidden_size])
+      dec_batch = decode(z_batch, d_batch, x_batch, None, None, hparams)
+    else:  # For non-autoregressive.
+      dec_batch = d
+    z = tf.reshape(dec_batch, [-1, tf.shape(x)[1], tf.shape(x)[2],
+                               hparams.hidden_size])
+    if is_2d:
+      z = tf.layers.dense(z, hparams.hidden_size * 3)
   return z
 
 
@@ -286,11 +293,14 @@ def ae_transformer_internal(inputs, targets, target_space, hparams):
     inputs, ed = encode(inputs, target_space, hparams, "input_enc")
 
     # Compress and ae.
-    ae, hot, kl = ae_compress(targets, False, hparams, "ae")
+    ae, hot, kl = ae_compress(targets, hparams.is_2d, hparams, "ae")
+    tf.summary.histogram("hot", tf.reshape(tf.argmax(hot, axis=-1), [-1]))
     emb = ae_embed(hot, hparams, "ae", reuse=True)
 
     # Compress context and run autoregressive decoder on emb-hot.
-    dec_c = decode(None, None, emb, inputs, ed, hparams)
+    emb_flat = tf.expand_dims(common_layers.flatten4d3d(emb), axis=2)
+    dec_c = decode(None, None, emb_flat, inputs, ed, hparams)
+    dec_c = tf.reshape(dec_c, tf.shape(emb))
     c_z = tf.layers.dense(dec_c, hparams.v_size, name="mask_context")
     reconstruct_loss = tf.nn.softmax_cross_entropy_with_logits(
         labels=hot, logits=c_z)
@@ -299,8 +309,8 @@ def ae_transformer_internal(inputs, targets, target_space, hparams):
       hot = tf.one_hot(tf.argmax(c_z, axis=-1), hparams.v_size)
 
     # Decompress, pass for ae loss.
-    z = ae_decompress(emb, ae, targets, False, hparams, "ae")
-    kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.5))
+    z = ae_decompress(emb, ae, targets, hparams.is_2d, hparams, "ae")
+    kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.8))
     reconstruct_loss *= common_layers.inverse_exp_decay(hparams.startup_steps)
     losses = {"kl": kl, "reconstruction": reconstruct_loss}
     return z, losses
@@ -365,6 +375,18 @@ def transformer_ae_small():
   hparams.add_hparam("startup_steps", 30000)
   hparams.add_hparam("kmeans_lr_factor", 0.002)
   hparams.add_hparam("z_dropout", 0.1)
+  hparams.add_hparam("is_2d", 0)
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_cifar():
+  hparams = transformer_ae_small()
+  hparams.batch_size = 1024 * 16
+  hparams.num_compress_steps = 2
+  hparams.v_size = 1024 * 16
+  hparams.startup_steps = 120000
+  hparams.is_2d = 1
   return hparams
 
 

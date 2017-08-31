@@ -124,74 +124,10 @@ class CycleGAN(t2t_model.T2TModel):
         self._hparams)
 
 
-def cycle_vae_gan_internal(inputs, targets, _, hparams):
-  """Cycle GAN, main step used for training."""
-  with tf.variable_scope("cycle_vae_gan"):
-    # Embed inputs and targets.
-    inputs_orig, targets_orig = tf.to_int32(inputs), tf.to_int32(targets)
-    k = 2**hparams.num_compress_steps
-    inputs_orig, targets_orig = common_layers.pad_to_same_length(
-        inputs_orig, targets_orig, final_length_divisible_by=k)
-    inputs = common_layers.embedding(
-        inputs_orig, hparams.vocab_size, hparams.hidden_size, "embed")
-    targets = common_layers.embedding(
-        targets_orig, hparams.vocab_size, hparams.hidden_size,
-        "embed", reuse=True)
-
-    # Split the batch into input-input and target-target parts.
-    inputs1, _ = split_on_batch(inputs)
-    _, targets2 = split_on_batch(targets)
-
-    # Input-input part.
-    inp1_back, kl_loss1, inp1_mu, inp1_log_sigma = transformer_vae.vae_compress(
-        inputs1, None, hparams, "inp2hyp", "hyp2inp")
-    inp1_hyp = tf.concat([inp1_mu, inp1_log_sigma], axis=3)
-
-    # Target-target part.
-    tgt2_back, kl_loss2, tgt2_mu, tgt2_log_sigma = transformer_vae.vae_compress(
-        targets2, None, hparams, "tgt2hyp", "hyp2tgt")
-    tgt2_hyp = tf.concat([tgt2_mu, tgt2_log_sigma], axis=3)
-
-    # Reconstruction losses.
-    inp1_orig, _ = split_on_batch(inputs_orig)
-    _, tgt2_orig = split_on_batch(targets_orig)
-    inp1_loss = reconstruct_loss(
-        inp1_back, tf.squeeze(inp1_orig, axis=3), hparams)
-    tgt2_loss = reconstruct_loss(
-        tgt2_back, tf.squeeze(tgt2_orig, axis=3), hparams, reuse=True)
-
-    # Discriminator loss.
-    dloss = discriminate_loss(inp1_hyp, tgt2_hyp, False, hparams, "dloss")
-
-    # Reconstruct targets from inputs.
-    tgt, _, _, _ = transformer_vae.vae_compress(
-        inputs, None, hparams, "inp2hyp", "hyp2tgt", reuse=True)
-    tgt = tf.layers.dense(tgt, hparams.vocab_size, name="softmax", reuse=True)
-    # We use the reconstruction only for tracking progress, no gradients here!
-    tgt = tf.stop_gradient(tf.expand_dims(tgt, axis=2))
-
-    kl_rev_decay = common_layers.inverse_exp_decay(hparams.kl_warmup_steps)
-    losses = {"input_input": hparams.cycle_loss_multiplier * inp1_loss,
-              "target_target": hparams.cycle_loss_multiplier * tgt2_loss,
-              "input_kl": kl_loss1 * kl_rev_decay * 15.0,
-              "target_kl": kl_loss2 * kl_rev_decay * 15.0,
-              "discriminator": dloss}
-    return tgt, losses
-
-
-@registry.register_model
-class CycleVaeGAN(t2t_model.T2TModel):
-
-  def model_fn_body(self, features):
-    return cycle_vae_gan_internal(
-        features["inputs"], features["targets"], features["target_space_id"],
-        self._hparams)
-
-
 @registry.register_hparams
 def cycle_gan_small():
   """Set of hyperparameters."""
-  hparams = transformer_vae.transformer_vae_small()
+  hparams = transformer_vae.transformer_ae_small()
   hparams.batch_size = 2048
   hparams.input_modalities = "inputs:symbol:identity"
   hparams.target_modality = "symbol:identity"

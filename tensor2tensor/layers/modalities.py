@@ -141,17 +141,11 @@ class SmallImageModality(modality.Modality):
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
       inputs = common_layers.standardize_images(inputs)
-      # TODO(lukaszkaiser): summaries here don't work in multi-problem case yet.
-      # tf.summary.image("inputs", inputs, max_outputs=2)
-      if self._model_hparams.compress_steps > 0:
-        strides = (2, 2)
-      else:
-        strides = (1, 1)
+      tf.summary.image("inputs", inputs, max_outputs=2)
       return common_layers.conv_block(
           inputs,
           self._body_input_depth, [((1, 1), (3, 3))],
           first_relu=False,
-          strides=strides,
           padding="SAME",
           force2d=True,
           name="small_image_conv")
@@ -159,43 +153,26 @@ class SmallImageModality(modality.Modality):
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
       # Reshape inputs to 2-d tensor and embed the RGB pixel values.
+      shape = tf.shape(inputs)
       inputs = common_layers.flatten4d3d(inputs)
       ret = common_layers.embedding(
-          inputs,
+          tf.to_int32(inputs),
           self.top_dimensionality,
           self._body_input_depth,
           name="input_rgb_embedding")
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
-      return ret
+      ret = tf.reshape(ret, [shape[0], shape[1], shape[2],
+                             self._body_input_depth * 3])
+      return tf.layers.dense(ret, self._body_input_depth)
 
   def top(self, body_output, _):
     with tf.variable_scope("rgb_softmax"):
-      # separate embedding for each channel
-      # assuming the body output returns a tensor of shape
-      # [batch_size, rows, cols, channels, self._body_input_depth]
-      body_output_split = tf.split(body_output, self._channels, axis=3)
-      output_rgb_embedding_var = tf.get_variable(
-          "output_rgb_embedding",
-          [self._channels, self.top_dimensionality, self._body_input_depth],
-          initializer=tf.random_normal_initializer(0.0, self._body_input_depth
-                                                   **-0.5))
-      # compute logits separately for each channel
-      rgb_channel_logits = []
-      for i in self._channels:
-        shape = tf.shape(body_output_split[i])[:-1]
-        body_output = tf.reshape(body_output_split[i],
-                                 [-1, self._body_input_depth])
-        channel_logits = tf.matmul(
-            body_output, output_rgb_embedding_var[i], transpose_b=True)
-        rgb_channel_logits.append(
-            tf.reshape(channel_logits,
-                       tf.concat([shape, [self.top_dimensionality]], 0)))
-
-      logits = tf.concat(rgb_channel_logits, axis=3)
-      # Reshape logits to conform to CIFAR image shapes (32 by 32 by 3)
-
-      return logits
+      shape = tf.shape(body_output)
+      dim = body_output.get_shape().as_list()[-1] // 3
+      out = tf.reshape(body_output, [shape[0], shape[1], shape[2],
+                                     self._channels, dim])
+      return tf.layers.dense(out, self.top_dimensionality)
 
   def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.
