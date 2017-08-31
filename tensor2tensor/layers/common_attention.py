@@ -215,6 +215,22 @@ def attention_bias_ignore_padding(memory_padding):
   return tf.expand_dims(tf.expand_dims(ret, axis=1), axis=1)
 
 
+def attention_bias_to_padding(attention_bias):
+  """Inverse of attention_bias_ignore_padding().
+
+  Args:
+    attention_bias: a `Tensor` with shape [batch, 1, 1, memory_length], as
+      returned by attention_bias_ignore_padding().
+
+  Returns:
+    a Tensor with shape [batch, memory_length] with 1.0 in padding positions
+    and 0.0 in non-padding positions.
+  """
+  # `attention_bias` is a large negative number in padding positions and 0.0
+  # elsewhere.
+  return tf.squeeze(tf.to_float(tf.less(attention_bias, -1)), axis=[1, 2])
+
+
 def attention_bias_prepend_inputs_full_attention(padding):
   """Create a bias tensor for prepend_mode="prepend_inputs_full_attention".
 
