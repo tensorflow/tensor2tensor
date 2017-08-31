@@ -33,6 +33,9 @@ import tensorflow as tf
 from tensorflow.python.framework import function
 
 
+_expert_count = 0
+
+
 def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
   """Adds a bunch of sinusoids of different frequencies to a Tensor.
 
@@ -1007,8 +1010,21 @@ def self_attention_expert(
      expert_fn=functools.partial(self_attention_expert, mask_right=)
      )
   """
+
   depth = x.get_shape().as_list()[-1]
   length = tf.shape(batch_coordinate)[0]
+
+  # Print a warning message if one of the expert isn't used (useful at
+  # inference where summaries aren't used and the gating function don't add
+  # noise)
+  global _expert_count  # Hack to make each expert have a unique id
+  _expert_count += 1
+  length = tf.cond(
+      tf.equal(length, 0),
+      lambda: tf.Print(  # pylint: disable=g-long-lambda
+          length, [length], "Expert {} empty: ".format(_expert_count)),
+      lambda: length,
+  )
 
   tf.summary.scalar("batch_size", length, family="experts_stats_batch_size")
 
@@ -1063,7 +1079,7 @@ def local_expert_attention(
     loss_coef,
     attention_num_experts,
     train=True,
-    pad_remover=None,
+    batch_coordinate=None,
     **kwargs
 ):
   """Attention using a mixture of experts.
@@ -1072,23 +1088,30 @@ def local_expert_attention(
     The mixture of experts is "local" in that it is replicated on each
     datashard.
 
+    local_moe flatten all batches so to avoid problems with padding (ex: all
+    padding going to the same expert, self attention attending to non null
+    padding tokens,...), the padding should be removed before.
+
   Args:
-    x: a Tensor with shape [batch, length, depth]
+    x: a Tensor with shape [batch, length, depth] or [1, batch*length, depth]
     k: The number of experts to dispatch each example to
     loss_coef: a scalar. A multiplier for the expert loss
     attention_num_experts: The number of experts to use
     train: a boolean for the current mode
-    pad_remover (PadRemover): A util object containing the padding position
+    batch_coordinate (tf.Tensor): int32 tensor of shape [1, batch*length, 1]
+      containing the batch ids. If None, deduced from first dim of x.
     **kwargs: Arguments to forward to self_attention_expert
 
   Returns:
     y: a Tensor with shape [batch, length, depth]
     loss: a Scalar
   """
+  if batch_coordinate is None:
+    batch_coordinate = tf.expand_dims(
+        coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
   with tf.variable_scope("local_expert_attention"):
     additional_dispatch_params = {
-        "batch_coordinate": tf.expand_dims(
-            coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
+        "batch_coordinate": batch_coordinate
     }
     return expert_utils.local_moe(
         x,
@@ -1100,7 +1123,6 @@ def local_expert_attention(
         pass_x=True,
         pass_gates=False,
         additional_dispatch_params=additional_dispatch_params,
-        pad_remover=pad_remover
     )
 
 

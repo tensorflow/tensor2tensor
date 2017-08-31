@@ -25,6 +25,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -38,6 +40,9 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
+
+
+ModeKeys = tf.contrib.learn.ModeKeys  # pylint: disable=invalid-name
 
 
 class AttentionType(object):
@@ -90,6 +95,37 @@ class AttentionLmMoe(t2t_model.T2TModel):
       expert_fn = expert_utils.ffn_expert_fn(
           hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
 
+    if hparams.attention_type == AttentionType.LOCAL_EXPERTS:
+      # As preprocess and postprocess are called with batch of size one (all
+      # batches concatenated), we just make sure that batch_norm is not use (
+      # should not either way)
+      assert hparams.norm_type != "batch"
+
+      dp_remove_pad = functools.partial(
+          dp, remove_pad, pad_remover=pad_remover, mode=hparams.mode)
+      dp_restore_pad = functools.partial(
+          dp, restore_pad, ref_x=x, pad_remover=pad_remover, mode=hparams.mode)
+    elif (hparams.attention_type == AttentionType.MULTIHEAD or
+          hparams.attention_type == AttentionType.MEMORY_EFFICIENT):
+      # Using identity function: No effect
+      dp_remove_pad = lambda x: (x, None)
+      dp_restore_pad = lambda x: x
+    else:
+      raise ValueError("Only {} supported for now.".format(
+          AttentionType.get_choices()))
+
+    def print_shape(x, suffix):
+      # To help debugging, print the input/output shapes at inference and eval
+      # Inference for long sequences can take a long time, so that's help to
+      # see the progession of the generation
+      if hparams.mode == ModeKeys.TRAIN:
+        return x
+      return tf.Print(x, [tf.shape(x)], "shape_x_{}".format(suffix))
+
+    x = dp(print_shape, x, "in")
+    x, batch_coordinate = dp_remove_pad(x)
+    x = dp(print_shape, x, "in_flat")
+
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope(
@@ -118,11 +154,11 @@ class AttentionLmMoe(t2t_model.T2TModel):
             y, loss = dp(
                 common_attention.local_expert_attention,
                 preprocess(x),
-                k=2,
+                k=hparams.attention_moe_k,
                 loss_coef=hparams.attention_load_balance,
                 attention_num_experts=hparams.attention_num_experts,
-                train=hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
-                pad_remover=pad_remover,
+                train=hparams.mode == ModeKeys.TRAIN,
+                batch_coordinate=batch_coordinate,
                 mask_right=True,
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
@@ -138,7 +174,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 dp,
                 self._ps_devices,
                 preprocess(x),
-                hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
+                hparams.mode == ModeKeys.TRAIN,
                 input_size=hparams.hidden_size,
                 expert_fn=expert_fn,
                 num_experts=hparams.moe_num_experts,
@@ -160,6 +196,9 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 dropout=hparams.relu_dropout)
           x = postprocess(x, y)
     x = preprocess(x)
+
+    x = dp_restore_pad(x)
+
     decoder_output = dp(tf.expand_dims, x, 2)
     return decoder_output, extra_loss
 
@@ -187,10 +226,54 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   else:
     decoder_self_attention_bias = (
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
+  # TODO(epot): The padding remover should take into account that the input is
+  # shifted.
   decoder_input = common_layers.shift_left_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
   return (decoder_input, decoder_self_attention_bias, pad_remover)
+
+
+def remove_pad(x, pad_remover, mode):
+  """Remove padding by concatenating all dimension into one.
+
+  Args:
+    x (tf.Tensor): input of shape [batch_size, length, depth]
+    pad_remover (obj): a PadRemover object
+    mode (ModeKeys): infer, train or eval. If inference, the padding remover is
+      not applied
+
+  Returns:
+    tf.Tensor of shape [1,length_nonpad,depth] where
+      length_nonpad <= batch_size*length
+  """
+  # Compute the batch coordinate before flattening all batches
+  batch_coordinate = tf.expand_dims(
+      common_attention.coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
+  batch_coordinate = expert_utils.flatten_all_but_last(batch_coordinate)
+
+  # Concatenate all tokens (without padding)
+  x = expert_utils.flatten_all_but_last(x)
+
+  # Remove padding for training and eval
+  if mode != ModeKeys.INFER:
+    # This is a hack to allows inference when the <go> token
+    # is detected as padding and removed. This works for now because there is
+    # no padding at inference.
+    batch_coordinate = pad_remover.remove(batch_coordinate)
+    x = pad_remover.remove(x)
+
+  batch_coordinate = tf.expand_dims(batch_coordinate, axis=0)
+  x = tf.expand_dims(x, axis=0)  # Now batch_size=1
+  return x, batch_coordinate
+
+
+def restore_pad(x, ref_x, pad_remover, mode):
+  x = tf.squeeze(x, axis=0)
+  if mode != ModeKeys.INFER:
+    x = pad_remover.restore(x)
+  x = expert_utils.reshape_like(x, ref_x)
+  return x
 
 
 @registry.register_hparams
@@ -238,6 +321,7 @@ def attention_lm_moe_base():
   hparams.add_hparam("moe_layers", "2")  # comma separated list of layer numbers
   # moe params. local attention moe.
   hparams.add_hparam("attention_type", AttentionType.MULTIHEAD)
+  hparams.add_hparam("attention_moe_k", 2)
   hparams.add_hparam("attention_num_experts", 16)
   # Key, query and value dimensions for the attention
   hparams.add_hparam("attention_kq_size", 128)
@@ -256,7 +340,7 @@ def attention_lm_moe_base_ae():
   hparams.attention_type = AttentionType.LOCAL_EXPERTS
   hparams.max_length = hparams.batch_size
   hparams.eval_drop_long_sequences = int(True)
-  hparams.batching_mantissa_bits = 2  # More buckets
+  hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
   hparams.learning_rate = 0.05
   hparams.learning_rate_warmup_steps = 10000
   return hparams

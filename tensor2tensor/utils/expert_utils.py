@@ -847,7 +847,6 @@ def local_moe(x,
               pass_x=True,
               pass_gates=False,
               additional_dispatch_params=None,
-              pad_remover=None,
               name=None):
   """Call a local mixture of experts.
 
@@ -864,8 +863,6 @@ def local_moe(x,
     additional_dispatch_params: The extra tensors that need to be sent to each
       expert. Examples include batch batch coordinates (see
       common_attention.local_expert_attention)
-    pad_remover (PadRemover): If given, the padding is removed/restored before
-      sending to the experts
     name: a string
 
   Returns:
@@ -878,14 +875,6 @@ def local_moe(x,
 
   with tf.variable_scope(name, default_name="local_moe"):
     x_flat = flatten_all_but_last(x)
-
-    # Remove the padding tokens
-    if pad_remover:
-      x_flat = pad_remover.remove(x_flat)
-      tf.summary.scalar(  # Should match the targets_nonpadding_tokens
-          "nonpadding_tokens",
-          tf.shape(x_flat)[0],
-          family="experts_stats")
 
     # The gates indicate which batch elements go to which tensors.
     # load is a measure of approximately how many examples go to each expert
@@ -908,16 +897,12 @@ def local_moe(x,
       expert_kwargs["gates"] = dispatcher.expert_to_gates()
     for k, v in six.iteritems(additional_dispatch_params or {}):
       v = flatten_all_but_last(v)
-      if pad_remover:
-        v = pad_remover.remove(v)
       expert_kwargs[k] = dispatcher.dispatch(v)
 
     ep = Parallelism([DEFAULT_DEV_STRING] * num_experts)
     expert_outputs = ep(expert_fn, **expert_kwargs)
 
     y_flat = dispatcher.combine(expert_outputs)
-    if pad_remover:
-      y_flat = pad_remover.restore(y_flat)
     y = reshape_like(y_flat, x)
 
     importance = tf.reduce_sum(gates, 0)
