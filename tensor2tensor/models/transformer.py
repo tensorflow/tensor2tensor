@@ -190,7 +190,8 @@ def transformer_encoder(encoder_input,
   """
   x = encoder_input
   with tf.variable_scope(name):
-    for layer in xrange(hparams.num_encoder_layers):
+    for layer in xrange(
+        hparams.num_encoder_layers or hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -233,7 +234,8 @@ def transformer_decoder(decoder_input,
   """
   x = decoder_input
   with tf.variable_scope(name):
-    for layer in xrange(hparams.num_decoder_layers):
+    for layer in xrange(
+        hparams.num_decoder_layers or hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -323,11 +325,12 @@ def transformer_base():
   hparams.label_smoothing = 0.1
   hparams.shared_embedding_and_softmax_weights = int(True)
 
-  hparams.add_hparam("filter_size", 2048)  # Add new ones like this.
-  # layer-related flags
-  hparams.add_hparam("num_encoder_layers", hparams.num_hidden_layers)
-  hparams.add_hparam("num_decoder_layers", hparams.num_hidden_layers)
-  # attention-related flags
+  # Add new ones like this.
+  hparams.add_hparam("filter_size", 2048)
+  # Layer-related flags. If zero, these fall back on hparams.num_hidden_layers.
+  hparams.add_hparam("num_encoder_layers", 0)
+  hparams.add_hparam("num_decoder_layers", 0)
+  # Attention-related flags.
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("attention_key_channels", 0)
   hparams.add_hparam("attention_value_channels", 0)

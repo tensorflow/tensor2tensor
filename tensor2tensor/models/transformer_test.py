@@ -64,31 +64,6 @@ class TransformerTest(tf.test.TestCase):
       res = session.run(logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
 
-  def testBeamDecodeVsGreedy(self):
-    model, features = self.getModel()
-
-    decode_length = 20
-
-    greedy_result, _, _ = model._greedy_infer(
-        features, decode_length, last_position_only=True)
-    greedy_result = tf.squeeze(greedy_result, axis=[2, 3])
-
-    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-      beam_res = model._beam_decode(
-          features,
-          decode_length,
-          beam_size=1,
-          top_beams=1,
-          last_position_only=True,
-          alpha=1.0)
-
-    with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
-      greedy_res, beam_res = session.run([greedy_result, beam_res])
-
-    self.assertEqual(beam_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
-    self.assertAllClose(greedy_res, beam_res)
-
 
 if __name__ == "__main__":
   tf.test.main()
