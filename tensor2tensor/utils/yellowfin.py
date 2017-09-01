@@ -602,7 +602,7 @@ class YellowFinOptimizer(object):
     Raises:
       ValueError: if no gradients are provided for any variable.
     """
-    grads_and_vars = self._optimizer.compute_gradients(
+    grads_and_vars = self._momentum_optimizer.compute_gradients(
         loss,
         var_list=var_list,
         gate_gradients=gate_gradients,
