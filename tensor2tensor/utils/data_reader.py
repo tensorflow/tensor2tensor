@@ -267,12 +267,14 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
     dataset = dataset.filter(
         lambda ex: _example_too_big(ex, batching_scheme["max_length"]))
 
-    dataset = bucket_by_sequence_length(dataset, _example_length,
-                                        batching_scheme["boundaries"],
-                                        batching_scheme["batch_sizes"],
-                                        batching_scheme["window_size"])
+    dataset = bucket_by_sequence_length(
+        dataset, _example_length, batching_scheme["boundaries"],
+        batching_scheme["batch_sizes"], batching_scheme["window_size"])
     # We reshuffle the batches to prevent many long-sequence batches at once.
-    if batching_scheme["shuffle_queue_size"] is not None:
+    # TODO(rsepassi): Rm hasattr call once new dynamic window size functionality
+    # is in a stable TF release.
+    if (batching_scheme["shuffle_queue_size"] is not None and
+        not hasattr(dataset, "apply")):
       dataset = dataset.shuffle(batching_scheme["shuffle_queue_size"])
     batched_examples = dataset.make_one_shot_iterator().get_next()
     return batched_examples
@@ -338,6 +340,12 @@ def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
 
       return bucket_id
 
+    def window_size_fn(bucket_id):
+      # window size = batch size
+      batch_sizes = tf.constant(bucket_batch_sizes, dtype=tf.int64)
+      window_size = batch_sizes[bucket_id]
+      return window_size
+
     def batching_fn(bucket_id, grouped_dataset):
       batch_sizes = tf.constant(bucket_batch_sizes, dtype=tf.int64)
       batch_size = batch_sizes[bucket_id]
@@ -348,8 +356,16 @@ def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
            for name, shape in grouped_dataset.output_shapes.items()])
       return grouped_dataset.padded_batch(batch_size, padded_shapes)
 
-    dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
-                                      window_size)
+    # TODO(rsepassi): Rm branch once the new group_by_window functionality is in
+    # a stable TF release.
+    if hasattr(dataset, "apply"):
+      # If the Dataset supports dynamic window size, use it.
+      dataset = dataset.apply(
+          tf.contrib.data.group_by_window,
+          args=(example_to_bucket_id, batching_fn, None, window_size_fn))
+    else:
+      dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
+                                        window_size)
     return dataset
 
 
@@ -398,8 +414,8 @@ def _batching_scheme(batch_size,
        * max_length: int, maximum length of an example
   """
   max_length = max_length or batch_size
-  boundaries = _bucket_boundaries(
-      max_length, min_length_bucket, length_bucket_step)
+  boundaries = _bucket_boundaries(max_length, min_length_bucket,
+                                  length_bucket_step)
   boundaries = [boundary * length_multiplier for boundary in boundaries]
   max_length *= length_multiplier
   batch_sizes = [
@@ -417,9 +433,10 @@ def _batching_scheme(batch_size,
       83160, 110880, 166320, 221760, 277200, 332640, 498960, 554400, 665280,
       720720, 1081080, 1441440, 2162160, 2882880, 3603600, 4324320, 6486480,
       7207200, 8648640, 10810800, 14414400, 17297280, 21621600, 32432400,
-      36756720, 43243200, 61261200, 73513440, 110270160]
-  window_size = max([
-      i for i in highly_composite_numbers if i <= 3 * max_batch_size])
+      36756720, 43243200, 61261200, 73513440, 110270160
+  ]
+  window_size = max(
+      [i for i in highly_composite_numbers if i <= 3 * max_batch_size])
   divisors = [i for i in xrange(1, window_size + 1) if window_size % i == 0]
   batch_sizes = [max([d for d in divisors if d <= bs]) for bs in batch_sizes]
   window_size *= shard_multiplier
