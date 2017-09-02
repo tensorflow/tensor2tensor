@@ -17,13 +17,15 @@ For each problem we want to tackle we create a new problem class and register it
 
 Since many text2text problems share similar methods, there's already a class called `Text2TextProblem` that extends the base problem class, `Problem` (both found in `problem.py`).
 
-For our problem, we can go ahead and create the file `word2def.py` in the `data_generators` folder and add our new problem, `Word2def`, which extends `TranslateProblem`. Let's also register it while we're at it so we can specify the problem through flags.
+For our problem, we can go ahead and create the file `word2def.py` in the `data_generators` folder and add our new problem, `Word2def`, which extends `Text2TextProblem`. Let's also register it while we're at it so we can specify the problem through flags.
 
 ```python
-@registry.register_problem()
+@registry.register_problem
 class Word2def(problem.Text2TextProblem):
   """Problem spec for English word to dictionary definition."""
-  return NotImplementedError()
+  @property
+  def is_character_level(self):
+    ...
 ```
 
 We need to implement the following methods from `Text2TextProblem` in our new class:
@@ -56,6 +58,8 @@ The number of shards to break data files into.
 @registry.register_problem()
 class Word2def(problem.Text2TextProblem):
   """Problem spec for English word to dictionary definition."""
+  
+  @property
   def is_character_level(self):
     return True
 
@@ -87,7 +91,6 @@ We're almost done. `generator` generates the training and evaluation data and st
   def generator(self, data_dir, tmp_dir, train):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _WORD2DEF_TRAIN_DATASETS if train else _WORD2DEF_TEST_DATASETS
-    tag = "train" if train else "dev"
     return character_generator(datasets[0], datasets[1], character_vocab, EOS)
 ```
 
@@ -108,7 +111,6 @@ class Word2def(problem.Text2TextProblem):
   def generator(self, data_dir, tmp_dir, train):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _WORD2DEF_TRAIN_DATASETS if train else _WORD2DEF_TEST_DATASETS
-    tag = "train" if train else "dev"
     return character_generator(datasets[0], datasets[1], character_vocab, EOS)
 
   @property
@@ -137,14 +139,13 @@ I've gone ahead and split all words into a train and test set and saved them in 
 ```python
 # English Word2def datasets
 _WORD2DEF_TRAIN_DATASETS = [
-    [
-        "LOCATION_OF_DATA/", ("words_train.txt", "definitions_train.txt")
-    ]
+    LOCATION_OF_DATA + 'words_train.txt',
+    LOCATION_OF_DATA + 'definitions_train.txt'
 ]
+
 _WORD2DEF_TEST_DATASETS = [
-    [
-        "LOCATION_OF_DATA", ("words_test.txt", "definitions_test.txt")
-    ]
+    LOCATION_OF_DATA + 'words_test.txt',
+    LOCATION_OF_DATA + 'definitions_test.txt'
 ]
 ```
 
@@ -155,23 +156,13 @@ Now our `word2def.py` file looks like: (with the correct imports)
 """ Problem definition for word to dictionary definition.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
-import tarfile # do we need this import
 
-from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators.wmt import character_generator
 
 from tensor2tensor.utils import registry
-
-import tensorflow as tf
-
-FLAGS = tf.flags.FLAGS
 
 # English Word2def datasets
 _WORD2DEF_TRAIN_DATASETS = [
@@ -198,7 +189,6 @@ class Word2def(problem.Text2TextProblem):
   def generator(self, data_dir, tmp_dir, train):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _WORD2DEF_TRAIN_DATASETS if train else _WORD2DEF_TEST_DATASETS
-    tag = "train" if train else "dev"
     return character_generator(datasets[0], datasets[1], character_vocab, EOS)
 
   @property
@@ -220,7 +210,17 @@ class Word2def(problem.Text2TextProblem):
 ```
 
 # Hyperparameters
-All hyperparamters inherit from `_default_hparams()` in `problem.py.` If you would like to customize your hyperparameters, add another method to the file `problem_hparams.py`.
+All hyperparamters inherit from `_default_hparams()` in `problem.py.` If you would like to customize your hyperparameters, register a new hyperparameter set in `word2def.py` like the example provided in the walkthrough.  For example:
+
+```python
+from tensor2tensor.models import transformer
+
+@registry.register_hparams
+def word2def_hparams(self):
+    hparams = transformer.transformer_base_single_gpu()  # Or whatever you'd like to build off.
+    hparams.batch_size = 1024
+    return hparams
+```
 
 # Run the problem
 Now that we've gotten our problem set up, let's train a model and generate definitions. 
@@ -229,7 +229,7 @@ We specify our problem name, the model, and hparams.
 ```bash
 PROBLEM=word2def
 MODEL=transformer
-HPARAMS=transofmer_base_single_gpu
+HPARAMS=word2def_hparams
 ```
 
 The rest of the steps are as given in the [walkthrough](walkthrough.md).
