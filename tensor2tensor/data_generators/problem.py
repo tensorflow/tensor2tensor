@@ -95,6 +95,8 @@ class SpaceID(object):
   PY_TOK = 27
   # C++
   CPP_TOK = 28
+  # Strokes
+  STROKES = 29
 
 
 def default_model_hparams():
