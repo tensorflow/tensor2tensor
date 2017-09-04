@@ -38,7 +38,7 @@ class MultiModelTest(tf.test.TestCase):
     hparams = multimodel.multimodel_tiny()
     hparams.add_hparam("data_dir", "")
     problem = registry.problem("image_cifar10")
-    p_hparams = problem.internal_hparams(hparams)
+    p_hparams = problem.get_hparams(hparams)
     hparams.problems = [p_hparams]
     with self.test_session() as session:
       features = {

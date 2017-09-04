@@ -260,6 +260,8 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
   num_threads = 4 if is_training else 1
 
   with tf.name_scope("input_pipeline"):
+    # TODO(rsepassi): Once all problems use the Problem class, rm example
+    # reading, parsing, and preprocessing. Use Problem.dataset instead.
     dataset = read_examples(problem, data_file_pattern, capacity, mode=mode)
     dataset = dataset.map(
         lambda ex: _preprocess(ex, problem, data_file_pattern, hparams, mode),

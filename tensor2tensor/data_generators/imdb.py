@@ -97,7 +97,7 @@ class SentimentIMDB(problem.Problem):
         self.generator(data_dir, tmp_dir, True), train_paths,
         self.generator(data_dir, tmp_dir, False), dev_paths)
 
-  def hparams(self, defaults, model_hparams):
+  def hparams(self, defaults, unused_model_hparams):
     p = defaults
     source_vocab_size = self._encoders["inputs"].vocab_size
     p.input_modality = {

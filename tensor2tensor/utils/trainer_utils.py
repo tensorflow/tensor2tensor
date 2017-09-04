@@ -237,7 +237,7 @@ def add_problem_hparams(hparams, problems):
     if problem is None:
       p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
     else:
-      p_hparams = problem.internal_hparams(hparams)
+      p_hparams = problem.get_hparams(hparams)
 
     hparams.problem_instances.append(problem)
     hparams.problems.append(p_hparams)

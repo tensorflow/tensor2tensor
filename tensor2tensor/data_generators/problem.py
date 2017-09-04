@@ -18,9 +18,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import os
+import random
 
 # Dependency imports
+
+import six
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
@@ -28,6 +32,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
 
 
 class SpaceID(object):
@@ -90,6 +95,14 @@ class SpaceID(object):
   PY_TOK = 27
   # C++
   CPP_TOK = 28
+
+
+def default_model_hparams():
+  return tf.contrib.training.HParams(
+      max_input_seq_length=0,
+      max_target_seq_length=0,
+      prepend_mode="none",
+      data_dir=None)
 
 
 def preprocess_examples_common(examples, hparams):
@@ -232,14 +245,23 @@ class Problem(object):
     self._was_reversed = was_reversed
     self._was_copy = was_copy
     self._encoders = None
+    self._hparams = None
+    self._feature_info = None
 
-  def internal_build_encoders(self, data_dir):
-    self._encoders = self.feature_encoders(data_dir)
-
-  def internal_hparams(self, model_hparams):
-    """Returns problem_hparams."""
+  def get_feature_encoders(self, data_dir=None):
     if self._encoders is None:
-      self.internal_build_encoders(model_hparams.data_dir)
+      self._encoders = self.feature_encoders(data_dir)
+    return self._encoders
+
+  def get_hparams(self, model_hparams=None):
+    """Returns problem_hparams."""
+    if self._hparams is not None:
+      return self._hparams
+
+    assert model_hparams is not None
+
+    if self._encoders is None:
+      self.get_feature_encoders(model_hparams.data_dir)
 
     hp = _default_hparams()
     ret = self.hparams(hp, model_hparams)
@@ -255,7 +277,9 @@ class Problem(object):
       _reverse_problem_hparams(hp)
     if self._was_copy:
       _copy_problem_hparams(hp)
-    return hp
+
+    self._hparams = hp
+    return self._hparams
 
   def maybe_reverse_features(self, feature_map):
     if not self._was_reversed:
@@ -267,6 +291,148 @@ class Problem(object):
     if not self._was_copy:
       return
     feature_map["targets"] = feature_map["inputs"]
+
+  def dataset(self,
+              mode,
+              data_dir=None,
+              num_threads=None,
+              output_buffer_size=None,
+              shuffle_files=None,
+              hparams=None):
+    """Build a Dataset for this problem.
+
+    Args:
+      mode: tf.estimator.ModeKeys; determines which files to read from.
+      data_dir: directory that contains data files.
+      num_threads: int, number of threads to use for decode and preprocess
+        Dataset.map calls.
+      output_buffer_size: int, how many elements to prefetch in Dataset.map
+        calls.
+      shuffle_files: whether to shuffle input files. Default behavior (i.e. when
+        shuffle_files=None) is to shuffle if mode == TRAIN.
+      hparams: tf.contrib.training.HParams; hparams to be passed to
+        Problem.preprocess_examples and Problem.hparams. If None, will use a
+        default set that is a no-op.
+
+    Returns:
+      Dataset containing dict<feature name, Tensor>.
+    """
+    assert data_dir
+
+    if hparams is None:
+      hparams = default_model_hparams()
+
+    if not hasattr(hparams, "data_dir"):
+      hparams.add_hparam("data_dir", data_dir)
+    if not hparams.data_dir:
+      hparams.data_dir = data_dir
+    # Construct the Problem's hparams so that items within it are accessible
+    _ = self.get_hparams(hparams)
+
+    base_filename = self.dataset_filename()
+    path = os.path.join(data_dir, base_filename)
+
+    # TODO(rsepassi): handle ModeKeys.PREDICT with placeholders
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    if is_training:
+      suffix = "train"
+    elif mode == tf.estimator.ModeKeys.EVAL:
+      suffix = "dev"
+    else:
+      assert mode == "test"
+      suffix = "test"
+
+    filepattern = "%s-%s*" % (path, suffix)
+    data_fields, data_items_to_decoders = self.example_reading_spec()
+    if data_items_to_decoders is None:
+      data_items_to_decoders = {
+          field: tf.contrib.slim.tfexample_decoder.Tensor(field)
+          for field in data_fields
+      }
+
+    data_files = tf.contrib.slim.parallel_reader.get_data_files(filepattern)
+    if shuffle_files or shuffle_files is None and is_training:
+      random.shuffle(data_files)
+    dataset = tf.contrib.data.TFRecordDataset(data_files)
+
+    def decode_record(record):
+      """Serialized Example to dict of <feature name, Tensor>."""
+      decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
+          data_fields, data_items_to_decoders)
+
+      decode_items = list(data_items_to_decoders)
+      decoded = decoder.decode(record, items=decode_items)
+      return dict(zip(decode_items, decoded))
+
+    def preprocess(example):
+      example = self.preprocess_examples(example, mode, hparams)
+      self.maybe_reverse_features(example)
+      self.maybe_copy_features(example)
+      return example
+
+    dataset = dataset.map(decode_record, num_threads=num_threads)
+    dataset = dataset.map(
+        preprocess,
+        num_threads=num_threads,
+        output_buffer_size=output_buffer_size)
+
+    return dataset
+
+  @property
+  def feature_info(self):
+    """Retrieve dict<feature name, FeatureInfo>.
+
+    Must first call Problem.get_hparams or Problem.dataset to have the problem's
+    internal hparams already constructed.
+
+    Returns:
+      dict<feature name, FeatureInfo>
+    """
+    if self._feature_info is not None:
+      return self._feature_info
+
+    assert self._hparams is not None
+
+    hp = self.get_hparams()
+    input_mods = hp.input_modality
+    target_mod = hp.target_modality
+    vocabs = hp.vocabulary
+    in_id = hp.input_space_id
+    out_id = hp.target_space_id
+
+    features = collections.defaultdict(FeatureInfo)
+
+    for name, mod_spec in six.iteritems(input_mods):
+      mod, vocab_size = mod_spec
+      finfo = features[name]
+      finfo.modality = mod
+      finfo.vocab_size = vocab_size
+
+    mod, vocab_size = target_mod
+    features["targets"].modality = mod
+    features["targets"].vocab_size = vocab_size
+
+    for name, encoder in six.iteritems(vocabs):
+      features[name].encoder = encoder
+
+    features["inputs"].space_id = in_id
+    features["targets"].space_id = out_id
+
+    self._feature_info = features
+    return features
+
+
+class FeatureInfo(object):
+
+  def __init__(self,
+               encoder=None,
+               modality=None,
+               vocab_size=None,
+               space_id=None):
+    self.encoder = encoder
+    self.modality = modality
+    self.vocab_size = vocab_size
+    self.space_id = space_id
 
 
 def _copy_problem_hparams(p_hparams):
