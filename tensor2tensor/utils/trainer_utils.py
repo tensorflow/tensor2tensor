@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import sys
 
 # Dependency imports
@@ -147,6 +148,8 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
   """Create Experiment."""
   hparams = create_hparams(
       FLAGS.hparams_set, FLAGS.problems, data_dir, passed_hparams=FLAGS.hparams)
+  if FLAGS.worker_id == 0:
+    save_metadata(output_dir, hparams)
   estimator, input_fns = create_experiment_components(
       hparams=hparams,
       output_dir=output_dir,
@@ -243,6 +246,37 @@ def add_problem_hparams(hparams, problems):
     hparams.problems.append(p_hparams)
 
   return hparams
+
+
+def save_metadata(output_dir, hparams):
+  """Saves FLAGS and hparams to output_dir."""
+  # Save FLAGS in txt file
+  if hasattr(FLAGS, "flags_into_string"):
+    flags_str = FLAGS.flags_into_string()
+    t2t_flags_str = "\n".join([
+        "--%s=%s" % (f.name, f.value)
+        for f in FLAGS.flags_by_module_dict()[
+            "tensor2tensor.utils.trainer_utils"]
+    ])
+  else:
+    flags_dict = FLAGS.__dict__["__flags"]
+    flags_str = "\n".join(
+        ["--%s=%s" % (name, str(f.value)) for (name, f) in flags_dict.items()])
+    t2t_flags_str = None
+
+  flags_txt = os.path.join(output_dir, "flags.txt")
+  with tf.gfile.Open(flags_txt, "w") as f:
+    f.write(flags_str)
+
+  if t2t_flags_str:
+    t2t_flags_txt = os.path.join(output_dir, "flags_t2t.txt")
+    with tf.gfile.Open(t2t_flags_txt, "w") as f:
+      f.write(t2t_flags_str)
+
+  # Save hparams as hparams.json
+  hparams_fname = os.path.join(output_dir, "hparams.json")
+  with tf.gfile.Open(hparams_fname, "w") as f:
+    f.write(hparams.to_json())
 
 
 def create_hparams(params_id, problems, data_dir, passed_hparams=None):
