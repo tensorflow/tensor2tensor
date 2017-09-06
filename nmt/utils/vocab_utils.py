@@ -34,7 +34,8 @@ EOS = "</s>"
 UNK_ID = 0
 
 
-def check_vocab(vocab_file, out_dir, sos=None, eos=None, unk=None):
+def check_vocab(vocab_file, out_dir, check_special_token=True, sos=None,
+                eos=None, unk=None):
   """Check if vocab_file doesn't exist, create from corpus_file."""
   if tf.gfile.Exists(vocab_file):
     utils.print_out("# Vocab file %s exists" % vocab_file)
@@ -44,24 +45,25 @@ def check_vocab(vocab_file, out_dir, sos=None, eos=None, unk=None):
       for word in f:
         vocab_size += 1
         vocab.append(word.strip())
-
-    # Verify if the vocab starts with unk, sos, eos
-    # If not, prepend those tokens & generate a new vocab file
-    if not unk: unk = UNK
-    if not sos: sos = SOS
-    if not eos: eos = EOS
-    assert len(vocab) >= 3
-    if vocab[0] != unk or vocab[1] != sos or vocab[2] != eos:
-      utils.print_out("The first 3 vocab words [%s, %s, %s]"
-                      " are not [%s, %s, %s]" %
-                      (vocab[0], vocab[1], vocab[2], unk, sos, eos))
-      vocab = [unk, sos, eos] + vocab
-      vocab_size += 3
-      new_vocab_file = os.path.join(out_dir, os.path.basename(vocab_file))
-      with codecs.getwriter("utf-8")(tf.gfile.GFile(new_vocab_file, "wb")) as f:
-        for word in vocab:
-          f.write("%s\n" % word)
-      vocab_file = new_vocab_file
+    if check_special_token:
+      # Verify if the vocab starts with unk, sos, eos
+      # If not, prepend those tokens & generate a new vocab file
+      if not unk: unk = UNK
+      if not sos: sos = SOS
+      if not eos: eos = EOS
+      assert len(vocab) >= 3
+      if vocab[0] != unk or vocab[1] != sos or vocab[2] != eos:
+        utils.print_out("The first 3 vocab words [%s, %s, %s]"
+                        " are not [%s, %s, %s]" %
+                        (vocab[0], vocab[1], vocab[2], unk, sos, eos))
+        vocab = [unk, sos, eos] + vocab
+        vocab_size += 3
+        new_vocab_file = os.path.join(out_dir, os.path.basename(vocab_file))
+        with codecs.getwriter("utf-8")(
+            tf.gfile.GFile(new_vocab_file, "wb")) as f:
+          for word in vocab:
+            f.write("%s\n" % word)
+        vocab_file = new_vocab_file
   else:
     raise ValueError("vocab_file does not exist.")
 

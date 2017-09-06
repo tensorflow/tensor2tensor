@@ -106,7 +106,7 @@ def add_arguments(parser):
                       help="uniform | glorot_normal | glorot_uniform")
   parser.add_argument("--init_weight", type=float, default=0.1,
                       help=("for uniform init_op, initialize weights "
-                           "between [-this, this]."))
+                            "between [-this, this]."))
 
   # data
   parser.add_argument("--src", type=str, default=None,
@@ -137,6 +137,11 @@ def add_arguments(parser):
       Whether to use the source vocab and embeddings for both source and
       target.\
       """)
+  parser.add_argument("--check_special_token", type="bool", default=True,
+                      help="""\
+                      Whether check special sos, eos, unk tokens exist in the
+                      vocab files.\
+                      """)
 
   # Sequence lengths
   parser.add_argument("--src_max_len", type=int, default=50,
@@ -286,6 +291,7 @@ def create_hparams(flags):
       sos=flags.sos if flags.sos else vocab_utils.SOS,
       eos=flags.eos if flags.eos else vocab_utils.EOS,
       bpe_delimiter=flags.bpe_delimiter,
+      check_special_token=flags.check_special_token,
 
       # Misc
       forget_bias=flags.forget_bias,
@@ -345,6 +351,7 @@ def extend_hparams(hparams):
   src_vocab_size, src_vocab_file = vocab_utils.check_vocab(
       src_vocab_file,
       hparams.out_dir,
+      check_special_token=hparams.check_special_token,
       sos=hparams.sos,
       eos=hparams.eos,
       unk=vocab_utils.UNK)
@@ -358,6 +365,7 @@ def extend_hparams(hparams):
     tgt_vocab_size, tgt_vocab_file = vocab_utils.check_vocab(
         tgt_vocab_file,
         hparams.out_dir,
+        check_special_token=hparams.check_special_token,
         sos=hparams.sos,
         eos=hparams.eos,
         unk=vocab_utils.UNK)
