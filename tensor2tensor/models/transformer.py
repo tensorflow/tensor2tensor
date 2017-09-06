@@ -191,6 +191,8 @@ def transformer_encoder(encoder_input,
   """
   x = encoder_input
   with tf.variable_scope(name):
+    pad_remover = expert_utils.PadRemover(
+        common_attention.attention_bias_to_padding(encoder_self_attention_bias))
     for layer in xrange(
         hparams.num_encoder_layers or hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -203,9 +205,6 @@ def transformer_encoder(encoder_input,
               hparams.hidden_size, hparams.num_heads, hparams.attention_dropout)
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
-          pad_remover = expert_utils.PadRemover(
-              common_attention.attention_bias_to_padding(
-                  encoder_self_attention_bias))
           y = transformer_ffn_layer(
               common_layers.layer_preprocess(x, hparams), hparams, pad_remover)
           x = common_layers.layer_postprocess(x, y, hparams)
