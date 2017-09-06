@@ -328,6 +328,19 @@ def split_heads(x, num_heads):
   return tf.transpose(split_last_dimension(x, num_heads), [0, 2, 1, 3])
 
 
+def split_heads_2d(x, num_heads):
+  """Split channels (dimension 4) into multiple heads (becomes dimension 1).
+
+  Args:
+    x: a Tensor with shape [batch, height, width, channels]
+    num_heads: an integer
+
+  Returns:
+    a Tensor with shape [batch, num_heads, height, width, channels / num_heads]
+  """
+  return tf.transpose(split_last_dimension(x, num_heads), [0, 3, 1, 2, 4])
+
+
 def combine_heads(x):
   """Inverse of split_heads.
 
@@ -338,6 +351,18 @@ def combine_heads(x):
     a Tensor with shape [batch, length, channels]
   """
   return combine_last_two_dimensions(tf.transpose(x, [0, 2, 1, 3]))
+
+
+def combine_heads_2d(x):
+  """Inverse of split_heads_2d function.
+
+  Args:
+    x: a Tensor with shape [batch, num_heads, height, width, channels/num_heads]
+
+  Returns:
+    a Tensor with shape [batch, height, width, channels]
+  """
+  return combine_last_two_dimensions(tf.transpose(x, [0, 2, 3, 1, 4]))
 
 
 def attention_image_summary(attn, image_shapes=None):
@@ -768,6 +793,43 @@ def compute_qkv(query_antecedent, memory_antecedent, total_key_depth,
   return q, k, v
 
 
+def compute_qkv_2d(query_antecedent, memory_antecedent, total_key_depth,
+                   total_value_depth):
+  """Computes query, key and value of a 4D tensor.
+
+  Args:
+    query_antecedent: a Tensor with shape [batch, h, w, depth_k]
+    memory_antecedent: a Tensor with shape [batch, h, w, depth_k]
+    total_key_depth: an integer
+    total_value_depth: and integer
+
+  Returns:
+    q, k, v : [batch, h, w, depth_k] tensors
+  """
+  # self attention with single position q, k, and v.
+  if memory_antecedent is None:
+    combined = tf.layers.conv2d(
+        query_antecedent,
+        total_key_depth * 2 + total_value_depth, (1, 1),
+        name="qkv_transform")
+    q, k, v = tf.split(
+        combined, [total_key_depth, total_key_depth, total_value_depth],
+        axis=-1)
+    return q, k, v
+
+  # Encoder decoder attention.
+  q = common_layers.conv1d(
+      query_antecedent, total_key_depth, 1, name="q_transform")
+  combined = common_layers.conv1d(
+      memory_antecedent,
+      total_key_depth + total_value_depth,
+      1,
+      name="kv_transform")
+  k, v = tf.split(combined, [total_key_depth, total_value_depth], axis=2)
+
+  return q, k, v
+
+
 def multihead_attention(query_antecedent,
                         memory_antecedent,
                         bias,
@@ -845,6 +907,63 @@ def multihead_attention(query_antecedent,
       x = local_attention_1d(
           q, k, v, block_length=block_length, filter_width=block_width)
     x = combine_heads(x)
+    x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
+    return x
+
+
+def multihead_attention_2d(query_antecedent,
+                           memory_antecedent,
+                           total_key_depth,
+                           total_value_depth,
+                           output_depth,
+                           num_heads,
+                           attention_type="local_attention_2d",
+                           block_length=128,
+                           block_width=128,
+                           name=None):
+  """2d Multihead scaled-dot-product attention with inp/output transformations.
+
+  Args:
+    query_antecedent: a Tensor with shape [batch, h, w, depth_k]
+    memory_antecedent: a Tensor with shape [batch, h, w, depth_k]
+    total_key_depth: an integer
+    total_value_depth: an integer
+    output_depth: an integer
+    num_heads: an integer dividing total_key_depth and total_value_depth
+    attention_type: String, type of attention function to use.
+    block_length: an integer - relevant for "local_attention_2d"
+    block_width: an integer - relevant for "local_attention_2d"
+    name: an optional string
+
+  Returns:
+    A Tensor of shape [batch, h, w, depth_k]
+
+  Raises:
+    ValueError: if the key depth or value depth are not divisible by the
+      number of attention heads.
+  """
+  if total_key_depth % num_heads != 0:
+    raise ValueError("Key depth (%d) must be divisible by the number of "
+                     "attention heads (%d)." % (total_key_depth, num_heads))
+  if total_value_depth % num_heads != 0:
+    raise ValueError("Value depth (%d) must be divisible by the number of "
+                     "attention heads (%d)." % (total_value_depth, num_heads))
+  with tf.variable_scope(
+      name,
+      default_name="multihead_attention",
+      values=[query_antecedent, memory_antecedent]):
+    q, k, v = compute_qkv_2d(query_antecedent, memory_antecedent,
+                             total_key_depth, total_value_depth)
+
+    q = split_heads_2d(q, num_heads)
+    k = split_heads_2d(k, num_heads)
+    v = split_heads_2d(v, num_heads)
+    key_depth_per_head = total_key_depth // num_heads
+    q *= key_depth_per_head**-0.5
+    if attention_type == "local_attention_2d":
+      x = local_attention_2d(
+          q, k, v, block_length=block_length, filter_flange=block_width)
+    x = tf.squeeze(combine_heads_2d(x), axis=-2)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
     return x
 
