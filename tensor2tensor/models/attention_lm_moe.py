@@ -101,29 +101,30 @@ class AttentionLmMoe(t2t_model.T2TModel):
       # should not either way)
       assert hparams.norm_type != "batch"
 
+      tf.logging.info("Applying Padding Remover for the attention experts")
+
       dp_remove_pad = functools.partial(
           dp, remove_pad, pad_remover=pad_remover, mode=hparams.mode)
       dp_restore_pad = functools.partial(
           dp, restore_pad, ref_x=x, pad_remover=pad_remover, mode=hparams.mode)
-    elif (hparams.attention_type == AttentionType.MULTIHEAD or
-          hparams.attention_type == AttentionType.MEMORY_EFFICIENT):
-      # Using identity function: No effect
-      dp_remove_pad = lambda x: (x, None)
-      dp_restore_pad = lambda x: x
     else:
-      raise ValueError("Only {} supported for now.".format(
-          AttentionType.get_choices()))
+      # Using identity function: No effect
+      dp_remove_pad = lambda x: x
+      dp_restore_pad = lambda x: x
 
-    def print_shape(x, suffix):
+    def print_shape(x, suffix, debug=False):
       # To help debugging, print the input/output shapes at inference and eval
       # Inference for long sequences can take a long time, so that's help to
       # see the progession of the generation
-      if hparams.mode == ModeKeys.TRAIN:
+      if not debug and hparams.mode == ModeKeys.TRAIN:
         return x
       return tf.Print(x, [tf.shape(x)], "shape_x_{}".format(suffix))
 
+    batch_coordinate = dp(get_batch_coordinate, x)
+    batch_coordinate = dp_remove_pad(batch_coordinate)
+
     x = dp(print_shape, x, "in")
-    x, batch_coordinate = dp_remove_pad(x)
+    x = dp_remove_pad(x)
     x = dp(print_shape, x, "in_flat")
 
     for layer in xrange(hparams.num_hidden_layers):
@@ -188,12 +189,31 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 x,
                 hparams.filter_size)
           else:
+            x_in = preprocess(x)
+            additional_conv_params = dict()
+            if hparams.use_sepconv:
+              # Restore padding so sequences don't attend to each others
+              # restore_pad will apply a reshape like x_ref, to restore the
+              # original shape. Here this works because the last dimension is
+              # constant between the output of attention and the original input
+              # but it shouldn't necessarily be the case.
+              x_in = dp_restore_pad(x_in)
+              additional_conv_params = dict(
+                  padding="LEFT",
+                  # Parameters copied from the transformer model
+                  kernel_size=(3, 1),
+                  second_kernel_size=(31, 1),
+              )
             y = dp(
                 common_layers.conv_hidden_relu,
-                preprocess(x),
+                x_in,
                 hparams.filter_size,
                 hparams.hidden_size,
-                dropout=hparams.relu_dropout)
+                dropout=hparams.relu_dropout,
+                **additional_conv_params
+            )
+            if hparams.use_sepconv:
+              y = dp_remove_pad(y)
           x = postprocess(x, y)
     x = preprocess(x)
 
@@ -234,6 +254,14 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   return (decoder_input, decoder_self_attention_bias, pad_remover)
 
 
+def get_batch_coordinate(x):
+  """Return a flat int32 tensor of shape [1, batch_size*length, 1]."""
+  # Compute the batch coordinate before flattening all batches
+  batch_coordinate = tf.expand_dims(
+      common_attention.coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
+  return batch_coordinate
+
+
 def remove_pad(x, pad_remover, mode):
   """Remove padding by concatenating all dimension into one.
 
@@ -247,11 +275,6 @@ def remove_pad(x, pad_remover, mode):
     tf.Tensor of shape [1,length_nonpad,depth] where
       length_nonpad <= batch_size*length
   """
-  # Compute the batch coordinate before flattening all batches
-  batch_coordinate = tf.expand_dims(
-      common_attention.coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
-  batch_coordinate = expert_utils.flatten_all_but_last(batch_coordinate)
-
   # Concatenate all tokens (without padding)
   x = expert_utils.flatten_all_but_last(x)
 
@@ -260,12 +283,10 @@ def remove_pad(x, pad_remover, mode):
     # This is a hack to allows inference when the <go> token
     # is detected as padding and removed. This works for now because there is
     # no padding at inference.
-    batch_coordinate = pad_remover.remove(batch_coordinate)
     x = pad_remover.remove(x)
 
-  batch_coordinate = tf.expand_dims(batch_coordinate, axis=0)
   x = tf.expand_dims(x, axis=0)  # Now batch_size=1
-  return x, batch_coordinate
+  return x
 
 
 def restore_pad(x, ref_x, pad_remover, mode):
@@ -328,6 +349,7 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_v_size", 256)
   # Loss coef for load balancing
   hparams.add_hparam("attention_load_balance", 2e-2)
+  hparams.add_hparam("use_sepconv", int(False))
   hparams.add_hparam("diet_experts", int(False))
   hparams.add_hparam("memory_efficient_ffn", int(False))
   return hparams
@@ -338,7 +360,8 @@ def attention_lm_moe_base_ae():
   """Base model with attention expert."""
   hparams = attention_lm_moe_base()
   hparams.attention_type = AttentionType.LOCAL_EXPERTS
-  hparams.max_length = hparams.batch_size
+  hparams.use_sepconv = int(True)
+  hparams.max_length = 0  # max_length == batch_size
   hparams.eval_drop_long_sequences = int(True)
   hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
   hparams.learning_rate = 0.05
