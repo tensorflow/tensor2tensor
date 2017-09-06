@@ -300,7 +300,8 @@ class Problem(object):
               num_threads=None,
               output_buffer_size=None,
               shuffle_files=None,
-              hparams=None):
+              hparams=None,
+              preprocess=True):
     """Build a Dataset for this problem.
 
     Args:
@@ -315,6 +316,8 @@ class Problem(object):
       hparams: tf.contrib.training.HParams; hparams to be passed to
         Problem.preprocess_examples and Problem.hparams. If None, will use a
         default set that is a no-op.
+      preprocess: bool, whether to map the Dataset through
+        Problem.preprocess_examples.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
@@ -366,17 +369,19 @@ class Problem(object):
       decoded = decoder.decode(record, items=decode_items)
       return dict(zip(decode_items, decoded))
 
-    def preprocess(example):
+    def _preprocess(example):
       example = self.preprocess_examples(example, mode, hparams)
       self.maybe_reverse_features(example)
       self.maybe_copy_features(example)
       return example
 
     dataset = dataset.map(decode_record, num_threads=num_threads)
-    dataset = dataset.map(
-        preprocess,
-        num_threads=num_threads,
-        output_buffer_size=output_buffer_size)
+
+    if preprocess:
+      dataset = dataset.map(
+          _preprocess,
+          num_threads=num_threads,
+          output_buffer_size=output_buffer_size)
 
     return dataset
 

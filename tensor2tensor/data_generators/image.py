@@ -264,6 +264,17 @@ class Image2ClassProblem(ImageProblem):
   def dev_shards(self):
     return 1
 
+  @property
+  def class_labels(self):
+    return ["ID_%d" % i for i in range(self.num_classes)]
+
+  def feature_encoders(self, data_dir):
+    del data_dir
+    return {
+        "inputs": text_encoder.TextEncoder(),
+        "targets": text_encoder.ClassLabelEncoder(self.class_labels)
+    }
+
   def generator(self, data_dir, tmp_dir, is_training):
     raise NotImplementedError()
 
@@ -492,6 +503,10 @@ class ImageMnistTune(Image2ClassProblem):
     return 10
 
   @property
+  def class_labels(self):
+    return [str(c) for c in range(self.num_classes)]
+
+  @property
   def train_shards(self):
     return 10
 
@@ -564,6 +579,14 @@ def cifar10_generator(tmp_dir, training, how_many, start_from=0):
 
 @registry.register_problem
 class ImageCifar10Tune(ImageMnistTune):
+  """Cifar-10 Tune."""
+
+  @property
+  def class_labels(self):
+    return [
+        "airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse",
+        "ship", "truck"
+    ]
 
   def preprocess_examples(self, examples, mode, unused_hparams):
     if mode == tf.contrib.learn.ModeKeys.TRAIN:

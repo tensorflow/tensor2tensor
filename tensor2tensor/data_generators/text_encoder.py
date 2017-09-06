@@ -154,6 +154,35 @@ class ByteTextEncoder(TextEncoder):
     return 2**8 + self._num_reserved_ids
 
 
+class ClassLabelEncoder(TextEncoder):
+  """Encoder for class labels."""
+
+  def __init__(self, class_labels=None, class_labels_fname=None):
+    super(ClassLabelEncoder, self).__init__(num_reserved_ids=0)
+
+    assert class_labels or class_labels_fname
+    assert not (class_labels and class_labels_fname)
+
+    if class_labels_fname:
+      with tf.gfile.Open(class_labels_fname) as f:
+        class_labels = [label.strip() for label in f.readlines()]
+
+    self._class_labels = class_labels
+
+  def encode(self, label_str):
+    return self._class_labels.index(label_str)
+
+  def decode(self, label_id):
+    if isinstance(label_id, list):
+      assert len(label_id) == 1
+      label_id, = label_id
+    return self._class_labels[label_id]
+
+  @property
+  def vocab_size(self):
+    return len(self._class_labels)
+
+
 class TokenTextEncoder(TextEncoder):
   """Encoder based on a user-supplied vocabulary (file or list)."""
 

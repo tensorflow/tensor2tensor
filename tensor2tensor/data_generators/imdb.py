@@ -112,7 +112,7 @@ class SentimentIMDB(problem.Problem):
     encoder = text_encoder.SubwordTextEncoder(vocab_filename)
     return {
         "inputs": encoder,
-        "targets": text_encoder.TextEncoder(),
+        "targets": text_encoder.ClassLabelEncoder(["neg", "pos"]),
     }
 
   def example_reading_spec(self):
