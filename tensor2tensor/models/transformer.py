@@ -664,6 +664,6 @@ def transformer_base_range(rhp):
   rhp.set_discrete("learning_rate_warmup_steps",
                    [1000, 2000, 4000, 8000, 16000])
   rhp.set_float("initializer_gain", 0.5, 2.0)
-  rhp.set_float("optimizer_adam_beta2", 0.85, 0.95)
+  rhp.set_float("optimizer_adam_beta1", 0.85, 0.95)
   rhp.set_float("optimizer_adam_beta2", 0.97, 0.99)
   rhp.set_float("weight_decay", 0.0, 2.0)
