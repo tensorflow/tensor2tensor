@@ -131,7 +131,7 @@ def transformer_revnet_encoder(encoder_input,
         g,
         num_layers=hparams.num_hidden_layers,
         f_side_input=[encoder_self_attention_bias],
-        is_training=hparams.mode == tf.contrib.learn.ModeKeys.TRAIN)
+        is_training=hparams.mode == tf.estimator.ModeKeys.TRAIN)
     y = tf.concat([y1, y2], axis=-1)
 
   return common_layers.layer_preprocess(y, hparams)
@@ -212,7 +212,7 @@ def transformer_revnet_decoder(decoder_input,
             decoder_self_attention_bias, encoder_decoder_attention_bias,
             encoder_output
         ],
-        is_training=hparams.mode == tf.contrib.learn.ModeKeys.TRAIN)
+        is_training=hparams.mode == tf.estimator.ModeKeys.TRAIN)
     y = tf.concat([y1, y2], axis=-1)
     return common_layers.layer_preprocess(y, hparams)
 

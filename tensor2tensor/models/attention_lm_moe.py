@@ -42,7 +42,7 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-ModeKeys = tf.contrib.learn.ModeKeys  # pylint: disable=invalid-name
+ModeKeys = tf.estimator.ModeKeys  # pylint: disable=invalid-name
 
 
 class AttentionType(object):
@@ -279,7 +279,7 @@ def remove_pad(x, pad_remover, mode):
   x = expert_utils.flatten_all_but_last(x)
 
   # Remove padding for training and eval
-  if mode != ModeKeys.INFER:
+  if mode != ModeKeys.PREDICT:
     # This is a hack to allows inference when the <go> token
     # is detected as padding and removed. This works for now because there is
     # no padding at inference.
@@ -291,7 +291,7 @@ def remove_pad(x, pad_remover, mode):
 
 def restore_pad(x, ref_x, pad_remover, mode):
   x = tf.squeeze(x, axis=0)
-  if mode != ModeKeys.INFER:
+  if mode != ModeKeys.PREDICT:
     x = pad_remover.restore(x)
   x = expert_utils.reshape_like(x, ref_x)
   return x

@@ -74,7 +74,7 @@ def residual_fn3(x, y, z, hparams):
 def conv_experts(xs, hparams, dp, ps, padding, mask, layer_id):
   """Convolutions + Mixture-of-Experts layer."""
   del layer_id  # Unused.
-  train = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN,
+  train = hparams.mode == tf.estimator.ModeKeys.TRAIN,
   conv_out = dp(conv_res_step, xs, hparams, padding, mask)
   loss = 0.0
   moe_hidden_sizes = [hparams.filter_size]
@@ -109,7 +109,7 @@ def prepare_decoder(targets, target_space_emb):
 class MultiModel(t2t_model.T2TModel):
 
   def model_fn_body_sharded(self, sharded_features):
-    train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
     dp = self._data_parallelism
     hparams = self._hparams
 

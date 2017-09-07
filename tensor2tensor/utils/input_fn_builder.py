@@ -47,7 +47,7 @@ def build_input_fn(mode,
      evaluation, and testing prediction.
 
   Args:
-    mode: The execution mode, as defined in tf.contrib.learn.ModeKeys.
+    mode: The execution mode, as defined in tf.estimator.ModeKeys.
     hparams: HParams object.
     data_file_patterns: The list of file patterns to use to read in data. Set to
       `None` if you want to create a placeholder for the input data. The
@@ -98,7 +98,7 @@ def build_input_fn(mode,
                 data_reader.hparams_to_batching_scheme(
                     hparams,
                     shard_multiplier=num_datashards,
-                    drop_long_sequences=(mode == tf.contrib.learn.ModeKeys.TRAIN
+                    drop_long_sequences=(mode == tf.estimator.ModeKeys.TRAIN
                                          or hparams.eval_drop_long_sequences),
                     length_multiplier=(p_hparams.batch_size_multiplier)))
 
@@ -137,7 +137,7 @@ def build_input_fn(mode,
                 trainable=False))
     if fixed_problem is None:
       if (hparams.problem_choice == "uniform" or
-          mode != tf.contrib.learn.ModeKeys.TRAIN):
+          mode != tf.estimator.ModeKeys.TRAIN):
         problem_choice = tf.random_uniform(
             [], maxval=problem_count, dtype=tf.int32)
       elif hparams.problem_choice == "adaptive":
@@ -169,7 +169,7 @@ def build_input_fn(mode,
     inp_id.set_shape([])
     tgt_id.set_shape([])
     #  Forced shape obfuscation is necessary for inference.
-    if mode == tf.contrib.learn.ModeKeys.INFER:
+    if mode == tf.estimator.ModeKeys.PREDICT:
       rand_inputs._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
       rand_target._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
 
@@ -180,15 +180,14 @@ def build_input_fn(mode,
         "input_space_id": inp_id,
         "target_space_id": tgt_id
     }
-    if mode == tf.contrib.learn.ModeKeys.INFER:
+    if mode == tf.estimator.ModeKeys.PREDICT:
       rand_feature_map["infer_targets"] = rand_target
       rand_target = None
-      # This is because of a bug in the tf.contrib.learn Estimator that
-      # short-circuits prediction if it doesn't see a QueueRunner.
-      # DummyQueueRunner implements the minimal expected interface but does
-      # nothing.
-      # TODO(rsepassi): Remove once we move to core Estimator.
+      # This is because of a bug in the Estimator that short-circuits prediction
+      # if it doesn't see a QueueRunner.  DummyQueueRunner implements the
+      # minimal expected interface but does nothing.
       tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS, DummyQueueRunner())
+
     return rand_feature_map, rand_target
 
   return input_fn

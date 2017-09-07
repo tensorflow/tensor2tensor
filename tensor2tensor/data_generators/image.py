@@ -313,7 +313,7 @@ def imagenet_preprocess_examples(examples, mode):
     return tf.to_int64(tf.image.resize_images(img, [299, 299]))
 
   inputs = tf.cast(examples["inputs"], tf.int64)
-  if mode == tf.contrib.learn.ModeKeys.TRAIN:
+  if mode == tf.estimator.ModeKeys.TRAIN:
     examples["inputs"] = tf.cond(  # Preprocess 90% of the time.
         tf.less(tf.random_uniform([]), 0.9),
         lambda img=inputs: preprocess(img),
@@ -589,7 +589,7 @@ class ImageCifar10Tune(ImageMnistTune):
     ]
 
   def preprocess_examples(self, examples, mode, unused_hparams):
-    if mode == tf.contrib.learn.ModeKeys.TRAIN:
+    if mode == tf.estimator.ModeKeys.TRAIN:
       examples["inputs"] = common_layers.cifar_image_augmentation(
           examples["inputs"])
     return examples

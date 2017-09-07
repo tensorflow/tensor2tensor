@@ -45,7 +45,7 @@ class BlueNetTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
       }
       model = bluenet.BlueNet(
-          hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
+          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       sharded_logits, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())

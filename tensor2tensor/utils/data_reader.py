@@ -215,7 +215,7 @@ def default_example_reading_spec(data_file_pattern):
 def read_examples(problem,
                   data_file_pattern,
                   capacity,
-                  mode=tf.contrib.learn.ModeKeys.TRAIN):
+                  mode=tf.estimator.ModeKeys.TRAIN):
   """Create Dataset of Example for problem and data_file_pattern."""
   if problem is None:
     data_fields, data_items_to_decoders = default_example_reading_spec(
@@ -227,7 +227,7 @@ def read_examples(problem,
     # Create placeholders for input, rather than reading data from disk.
     return feature_placeholders(data_fields)
 
-  is_training = mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = mode == tf.estimator.ModeKeys.TRAIN
   dataset = examples_reader(
       [data_file_pattern],
       data_fields,
@@ -245,7 +245,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
     problem: Problem instance for which to build the input pipeline.
     data_file_pattern: file pattern for input files.
     capacity: int, data pipeline buffer capacity.
-    mode: tf.contrib.learn.ModeKeys entry.
+    mode: tf.estimator.ModeKeys entry.
     hparams: an HParams object.
     batching_scheme: a dictionary containing
       "boundaries": a list of integers for the boundaries that will be
@@ -256,7 +256,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
   Returns:
     dict <feature name, batched and padded Tensor>
   """
-  is_training = mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = mode == tf.estimator.ModeKeys.TRAIN
   num_threads = 4 if is_training else 1
 
   with tf.name_scope("input_pipeline"):
@@ -505,7 +505,7 @@ def get_data_filepatterns(problems, data_dir, mode):
     except ValueError:
       problem, _, _ = problem_hparams.parse_problem_name(problem)
     path = os.path.join(data_dir, problem)
-    if mode == tf.contrib.learn.ModeKeys.TRAIN:
+    if mode == tf.estimator.ModeKeys.TRAIN:
       datasets.append("%s-train*" % path)
     else:
       datasets.append("%s-dev*" % path)

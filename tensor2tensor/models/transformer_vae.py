@@ -244,7 +244,7 @@ def ae_decompress(z, ae, x, is_2d, hparams, name, reuse=None):
     # Leak at the beginning to help train.
     z = mix(z, ae, hparams.startup_steps)
     prob_z = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.8
-    prob_z = prob_z if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN else 1.0
+    prob_z = prob_z if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
     z = tf.cond(tf.less(tf.random_uniform([]), prob_z),
                 lambda: z, lambda: ae)
 
@@ -305,7 +305,7 @@ def ae_transformer_internal(inputs, targets, target_space, hparams):
     reconstruct_loss = tf.nn.softmax_cross_entropy_with_logits(
         labels=hot, logits=c_z)
     # If not training, use the predicted z instead of the autoregressive one.
-    if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
+    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
       hot = tf.one_hot(tf.argmax(c_z, axis=-1), hparams.v_size)
 
     # Decompress, pass for ae loss.

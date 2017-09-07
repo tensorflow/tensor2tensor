@@ -33,6 +33,7 @@ from six.moves import xrange
 from tensor2tensor.models import models  # pylint: disable=unused-import
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import input_fn_builder
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import yellowfin
 
@@ -41,9 +42,6 @@ from tensorflow.python.ops import init_ops
 
 # TODO(rsepassi): Rm dep on FLAGS here
 FLAGS = tf.flags.FLAGS
-
-# Number of samples to draw for an image input (in such cases as captioning)
-IMAGE_DECODE_LENGTH = 100
 
 
 def log_variable_sizes(var_list, tag):
@@ -64,90 +62,30 @@ def log_variable_sizes(var_list, tag):
   tf.logging.info("%s Total size: %d", tag, total_size)
 
 
-def build_model_fn(model, hparams):
+def build_model_fn(model):
   """Returns a function to build the model.
 
   Args:
     model: The name of the model to use.
-    hparams: The hyperparameters.
 
   Returns:
     A function to build the model's graph. This function is called by
     the Estimator object to construct the graph.
   """
 
-  def initializer():
-    if hparams.initializer == "orthogonal":
-      return tf.orthogonal_initializer(gain=hparams.initializer_gain)
-    elif hparams.initializer == "uniform":
-      max_val = 0.1 * hparams.initializer_gain
-      return tf.random_uniform_initializer(-max_val, max_val)
-    elif hparams.initializer == "normal_unit_scaling":
-      return init_ops.variance_scaling_initializer(
-          hparams.initializer_gain, mode="fan_avg", distribution="normal")
-    elif hparams.initializer == "uniform_unit_scaling":
-      return init_ops.variance_scaling_initializer(
-          hparams.initializer_gain, mode="fan_avg", distribution="uniform")
-    else:
-      raise ValueError("Unrecognized initializer: %s" % hparams.initializer)
-
-  def learning_rate_decay():
-    """Inverse-decay learning rate until warmup_steps, then decay."""
-    warmup_steps = tf.to_float(
-        hparams.learning_rate_warmup_steps * FLAGS.worker_replicas)
-    step = tf.to_float(tf.contrib.framework.get_global_step())
-    if hparams.learning_rate_decay_scheme == "noam":
-      return 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
-          (step + 1) * warmup_steps**-1.5, (step + 1)**-0.5)
-    elif hparams.learning_rate_decay_scheme == "exp100k":
-      return 0.94**(step // 100000)
-    elif hparams.learning_rate_decay_scheme == "cosine":
-      cycle_steps = hparams.learning_rate_cosine_cycle_steps
-      return 0.5 * (1 + tf.cos(np.pi * (step % cycle_steps) / cycle_steps))
-    elif hparams.learning_rate_decay_scheme == "cyclelinear10x":
-      # Cycle the rate linearly by 10x every warmup_steps, up and down.
-      cycle_steps = hparams.learning_rate_warmup_steps
-      cycle_position = step % (2 * cycle_steps)
-      cycle_position = tf.to_float(  # Normalize to the interval [-1, 1].
-          cycle_position - cycle_steps) / float(cycle_steps)
-      cycle_position = 1.0 - tf.abs(cycle_position)  # 0 to 1 and back to 0.
-      return (cycle_position + 0.1) * 3.0  # 10x difference each cycle (0.3-3).
-
-    inv_base = tf.exp(tf.log(0.01) / warmup_steps)
-    inv_decay = inv_base**(warmup_steps - step)
-    if hparams.learning_rate_decay_scheme == "sqrt":
-      decay = _sqrt_decay(step - warmup_steps)
-    elif hparams.learning_rate_decay_scheme == "exp10k":
-      decay = _exp_decay_after(step - warmup_steps, 0.9995,
-                               FLAGS.train_steps - warmup_steps - 10000)
-    elif hparams.learning_rate_decay_scheme == "exp50k":
-      decay = _exp_decay_after(step - warmup_steps, 0.99995,
-                               FLAGS.train_steps - warmup_steps - 50000)
-    elif hparams.learning_rate_decay_scheme == "exp500k":
-      decay = _exp_decay_after(step - warmup_steps, 0.9999955,
-                               FLAGS.train_steps - warmup_steps - 500000)
-    elif hparams.learning_rate_decay_scheme == "none":
-      decay = tf.constant(1.0)
-    else:
-      raise ValueError("Unrecognized learning rate decay scheme: %s" %
-                       hparams.learning_rate_decay_scheme)
-    return tf.cond(
-        step < warmup_steps,
-        lambda: inv_decay,
-        lambda: decay,
-        name="learning_rate_decay_warump_cond")
-
-  def model_fn(features, targets, mode):
+  def model_fn(features, labels, mode, params):
     """Creates the prediction, loss, and train ops.
 
     Args:
       features: A dictionary of tensors keyed by the feature name.
-      targets: A tensor representing the labels (targets).
-      mode: The execution mode, as defined in tf.contrib.learn.ModeKeys.
+      labels: A tensor representing the labels.
+      mode: The execution mode, as defined in tf.estimator.ModeKeys.
+      params: model HParams.
 
     Returns:
-      A tuple consisting of the prediction, loss, and train_op.
+      An EstimatorSpec.
     """
+    hparams = params
     # Deep-copy the model hparams between modes to eliminate
     # side-effects caused by abuse of the linked problem_hparams
     # objects which are used to share modality objects between
@@ -159,19 +97,76 @@ def build_model_fn(model, hparams):
     # could be created once per mode and passed to the constructor of
     # t2t_model.
     my_hp = copy.deepcopy(hparams)
-    if mode == tf.contrib.learn.ModeKeys.INFER:
-      if FLAGS.decode_interactive:
-        features = _interactive_input_tensor_to_features_dict(features, my_hp)
-      elif FLAGS.decode_from_file:
-        features = _decode_input_tensor_to_features_dict(features, my_hp)
 
-    if targets is not None:
-      features["targets"] = targets
+    def initializer():
+      if hparams.initializer == "orthogonal":
+        return tf.orthogonal_initializer(gain=hparams.initializer_gain)
+      elif hparams.initializer == "uniform":
+        max_val = 0.1 * hparams.initializer_gain
+        return tf.random_uniform_initializer(-max_val, max_val)
+      elif hparams.initializer == "normal_unit_scaling":
+        return init_ops.variance_scaling_initializer(
+            hparams.initializer_gain, mode="fan_avg", distribution="normal")
+      elif hparams.initializer == "uniform_unit_scaling":
+        return init_ops.variance_scaling_initializer(
+            hparams.initializer_gain, mode="fan_avg", distribution="uniform")
+      else:
+        raise ValueError("Unrecognized initializer: %s" % hparams.initializer)
+
+    def learning_rate_decay():
+      """Inverse-decay learning rate until warmup_steps, then decay."""
+      warmup_steps = tf.to_float(
+          hparams.learning_rate_warmup_steps * FLAGS.worker_replicas)
+      step = tf.to_float(tf.contrib.framework.get_global_step())
+      if hparams.learning_rate_decay_scheme == "noam":
+        return 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
+            (step + 1) * warmup_steps**-1.5, (step + 1)**-0.5)
+      elif hparams.learning_rate_decay_scheme == "exp100k":
+        return 0.94**(step // 100000)
+      elif hparams.learning_rate_decay_scheme == "cosine":
+        cycle_steps = hparams.learning_rate_cosine_cycle_steps
+        return 0.5 * (1 + tf.cos(np.pi * (step % cycle_steps) / cycle_steps))
+      elif hparams.learning_rate_decay_scheme == "cyclelinear10x":
+        # Cycle the rate linearly by 10x every warmup_steps, up and down.
+        cycle_steps = hparams.learning_rate_warmup_steps
+        cycle_position = step % (2 * cycle_steps)
+        cycle_position = tf.to_float(  # Normalize to the interval [-1, 1].
+            cycle_position - cycle_steps) / float(cycle_steps)
+        cycle_position = 1.0 - tf.abs(cycle_position)  # 0 to 1 and back to 0.
+        return (
+            cycle_position + 0.1) * 3.0  # 10x difference each cycle (0.3-3).
+
+      inv_base = tf.exp(tf.log(0.01) / warmup_steps)
+      inv_decay = inv_base**(warmup_steps - step)
+      if hparams.learning_rate_decay_scheme == "sqrt":
+        decay = _sqrt_decay(step - warmup_steps)
+      elif hparams.learning_rate_decay_scheme == "exp10k":
+        decay = _exp_decay_after(step - warmup_steps, 0.9995,
+                                 FLAGS.train_steps - warmup_steps - 10000)
+      elif hparams.learning_rate_decay_scheme == "exp50k":
+        decay = _exp_decay_after(step - warmup_steps, 0.99995,
+                                 FLAGS.train_steps - warmup_steps - 50000)
+      elif hparams.learning_rate_decay_scheme == "exp500k":
+        decay = _exp_decay_after(step - warmup_steps, 0.9999955,
+                                 FLAGS.train_steps - warmup_steps - 500000)
+      elif hparams.learning_rate_decay_scheme == "none":
+        decay = tf.constant(1.0)
+      else:
+        raise ValueError("Unrecognized learning rate decay scheme: %s" %
+                         hparams.learning_rate_decay_scheme)
+      return tf.cond(
+          step < warmup_steps,
+          lambda: inv_decay,
+          lambda: decay,
+          name="learning_rate_decay_warump_cond")
+
+    if labels is not None:
+      features["targets"] = labels
 
     dp = devices.data_parallelism()
 
     tf.get_variable_scope().set_initializer(initializer())
-    is_training = mode == tf.contrib.learn.ModeKeys.TRAIN
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
 
     # Add input statistics for incoming features.
     with tf.name_scope("input_stats"):
@@ -218,7 +213,7 @@ def build_model_fn(model, hparams):
           n,
           dp,
           devices.ps_devices(all_workers=True))
-      if mode == tf.contrib.learn.ModeKeys.INFER:
+      if mode == tf.estimator.ModeKeys.PREDICT:
         return model_class.infer(
             features,
             beam_size=FLAGS.decode_beam_size,
@@ -235,7 +230,7 @@ def build_model_fn(model, hparams):
       # TODO(lukaszkaiser): why is this hack needed for variables init? Repair.
       skip_this_one = skip_this_one and (FLAGS.worker_id != 0 or n > 1)
       if (FLAGS.eval_run_autoregressive and
-          mode == tf.contrib.learn.ModeKeys.EVAL):
+          mode == tf.estimator.ModeKeys.EVAL):
         sharded_logits, losses_dict = model_class.eval_autoregressive(features)
       else:
         sharded_logits, losses_dict = model_class.model_fn(
@@ -272,36 +267,50 @@ def build_model_fn(model, hparams):
                                                  features["problem_choice"], 0,
                                                  len(my_hp.problems) - 1)
 
-    if mode == tf.contrib.learn.ModeKeys.INFER:
+    if mode == tf.estimator.ModeKeys.PREDICT:
       # Beam search in sequence model returns both decodes withe key "outputs"
       # and scores with they key "scores". If return list is a dict, we expect
       # that it will have keys "outputs", a tensor of int32 and scores, a
       # tensor of floats. This is useful if we want to return scores from
       # estimator.predict
       if not isinstance(result_list, dict):
-        ret = {"outputs": result_list}, None, None
+        predictions = {"outputs": result_list}
       else:
-        ret = {
+        predictions = {
             "outputs": result_list["outputs"],
             "scores": result_list["scores"]
-        }, None, None
+        }
+
       if "inputs" in features:
-        ret[0]["inputs"] = features["inputs"]
+        predictions["inputs"] = features["inputs"]
       if "infer_targets" in features:
-        ret[0]["targets"] = features["infer_targets"]
-      return ret
+        predictions["targets"] = features["infer_targets"]
+      predictions["problem_choice"] = (features["problem_choice"] * tf.ones(
+          (tf.shape(features["inputs"])[0],), dtype=tf.int32))
+
+      return tf.estimator.EstimatorSpec(mode, predictions=predictions)
 
     sharded_logits, total_loss = result_list[1:], result_list[0]
-    if mode == tf.contrib.learn.ModeKeys.EVAL:
+    if mode == tf.estimator.ModeKeys.EVAL:
       # For evaluation, return the logits layer as our predictions.
       logits = tf.concat(sharded_logits, 0)
-      ret = {
-          "predictions": logits,
-          "problem_choice": features["problem_choice"],
-      }
-      return ret, total_loss, None
 
-    assert mode == tf.contrib.learn.ModeKeys.TRAIN
+      eval_metrics_fns = metrics.create_evaluation_metrics(
+          zip(FLAGS.problems.split("-"), hparams.problem_instances), hparams)
+      _check_autotune_metrics(eval_metrics_fns)
+
+      eval_metrics = {}
+      for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
+        eval_metrics[metric_name] = metric_fn(logits, labels,
+                                              features["problem_choice"])
+
+      return tf.estimator.EstimatorSpec(
+          mode,
+          predictions={"predictions": logits},
+          eval_metric_ops=eval_metrics,
+          loss=total_loss)
+
+    assert mode == tf.estimator.ModeKeys.TRAIN
 
     # Some training statistics.
     with tf.name_scope("training_stats"):
@@ -381,7 +390,11 @@ def build_model_fn(model, hparams):
         del summaries[i]
 
     tf.logging.info("Global model_fn finished.")
-    return {"problem_choice": features["problem_choice"]}, total_loss, train_op
+    return tf.estimator.EstimatorSpec(
+        mode,
+        predictions={"problem_choice": features["problem_choice"]},
+        loss=total_loss,
+        train_op=train_op)
 
   return model_fn
 
@@ -431,81 +444,8 @@ def _exp_decay_after(step, rate, from_which_step):
       name="exponential_decay_step_cond")
 
 
-def _interactive_input_tensor_to_features_dict(feature_map, hparams):
-  """Convert the interactive input format (see above) to a dictionary.
-
-  Args:
-    feature_map: a dictionary with keys `problem_choice` and `input` containing
-      Tensors.
-    hparams: model hyperparameters
-
-  Returns:
-    a features dictionary, as expected by the decoder.
-  """
-  inputs = tf.constant(feature_map["inputs"])
-  input_is_image = False if len(inputs.shape) < 3 else True
-
-  def input_fn(problem_choice, x=inputs):  # pylint: disable=missing-docstring
-    p_hparams = hparams.problems[problem_choice]
-    if not input_is_image:
-      # Remove the batch dimension.
-      num_samples = x[0]
-      length = x[2]
-      x = tf.slice(x, [3], tf.to_int32([length]))
-      x = tf.reshape(x, [1, -1, 1, 1])
-      # Transform into a batch of size num_samples to get that many random
-      # decodes.
-      x = tf.tile(x, tf.to_int32([num_samples, 1, 1, 1]))
-    else:
-      x = tf.image.resize_images(x, [299, 299])
-      x = tf.reshape(x, [1, 299, 299, -1])
-      x = tf.to_int32(x)
-    return (tf.constant(p_hparams.input_space_id),
-            tf.constant(p_hparams.target_space_id), x)
-
-  input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
-      input_fn, feature_map["problem_choice"], 0, len(hparams.problems) - 1)
-
-  features = {}
-  features["problem_choice"] = tf.constant(feature_map["problem_choice"])
-  features["input_space_id"] = input_space_id
-  features["target_space_id"] = target_space_id
-  features["decode_length"] = (IMAGE_DECODE_LENGTH
-                               if input_is_image else inputs[1])
-  features["inputs"] = x
-  return features
-
-
-def _decode_input_tensor_to_features_dict(feature_map, hparams):
-  """Convert the interactive input format (see above) to a dictionary.
-
-  Args:
-    feature_map: a dictionary with keys `problem_choice` and `input` containing
-      Tensors.
-    hparams: model hyperparameters
-
-  Returns:
-    a features dictionary, as expected by the decoder.
-  """
-  inputs = tf.constant(feature_map["inputs"])
-  input_is_image = False
-
-  def input_fn(problem_choice, x=inputs):  # pylint: disable=missing-docstring
-    p_hparams = hparams.problems[problem_choice]
-    # Add a third empty dimension dimension
-    x = tf.expand_dims(x, axis=[2])
-    x = tf.to_int32(x)
-    return (tf.constant(p_hparams.input_space_id),
-            tf.constant(p_hparams.target_space_id), x)
-
-  input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
-      input_fn, feature_map["problem_choice"], 0, len(hparams.problems) - 1)
-
-  features = {}
-  features["problem_choice"] = feature_map["problem_choice"]
-  features["input_space_id"] = input_space_id
-  features["target_space_id"] = target_space_id
-  features["decode_length"] = (IMAGE_DECODE_LENGTH
-                               if input_is_image else tf.shape(x)[1] + 50)
-  features["inputs"] = x
-  return features
+def _check_autotune_metrics(metrics_dict):
+  if (hasattr(FLAGS, "autotune") and FLAGS.autotune and
+      FLAGS.objective not in metrics_dict):
+    raise ValueError("Tuning objective %s not among evaluation metrics %s" %
+                     (FLAGS.objective, metrics_dict.keys()))

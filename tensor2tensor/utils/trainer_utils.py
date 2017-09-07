@@ -30,7 +30,6 @@ from tensor2tensor.models import models  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import input_fn_builder
-from tensor2tensor.utils import metrics
 from tensor2tensor.utils import model_builder
 from tensor2tensor.utils import registry
 
@@ -155,12 +154,6 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
       output_dir=output_dir,
       data_dir=data_dir,
       model_name=model_name)
-  eval_metrics = metrics.create_evaluation_metrics(
-      zip(FLAGS.problems.split("-"), hparams.problem_instances), hparams)
-  if (hasattr(FLAGS, "autotune") and FLAGS.autotune and
-      FLAGS.objective not in eval_metrics):
-    raise ValueError("Tuning objective %s not among evaluation metrics %s" %
-                     (FLAGS.objective, eval_metrics.keys()))
   train_monitors = []
   eval_hooks = []
   if FLAGS.tfdbg:
@@ -169,9 +162,8 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
     eval_hooks.append(hook)
   return tf.contrib.learn.Experiment(
       estimator=estimator,
-      train_input_fn=input_fns[tf.contrib.learn.ModeKeys.TRAIN],
-      eval_input_fn=input_fns[tf.contrib.learn.ModeKeys.EVAL],
-      eval_metrics=eval_metrics,
+      train_input_fn=input_fns[tf.estimator.ModeKeys.TRAIN],
+      eval_input_fn=input_fns[tf.estimator.ModeKeys.EVAL],
       train_steps=train_steps,
       eval_steps=eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
@@ -185,39 +177,37 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
 
   num_datashards = devices.data_parallelism().n
   train_input_fn = input_fn_builder.build_input_fn(
-      mode=tf.contrib.learn.ModeKeys.TRAIN,
+      mode=tf.estimator.ModeKeys.TRAIN,
       hparams=hparams,
       data_file_patterns=get_data_filepatterns(data_dir,
-                                               tf.contrib.learn.ModeKeys.TRAIN),
+                                               tf.estimator.ModeKeys.TRAIN),
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
       worker_id=FLAGS.worker_id)
 
   eval_input_fn = input_fn_builder.build_input_fn(
-      mode=tf.contrib.learn.ModeKeys.EVAL,
+      mode=tf.estimator.ModeKeys.EVAL,
       hparams=hparams,
       data_file_patterns=get_data_filepatterns(data_dir,
-                                               tf.contrib.learn.ModeKeys.EVAL),
+                                               tf.estimator.ModeKeys.EVAL),
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
       worker_id=FLAGS.worker_id)
-  estimator = tf.contrib.learn.Estimator(
-      model_fn=model_builder.build_model_fn(model_name, hparams),
+  estimator = tf.estimator.Estimator(
+      model_fn=model_builder.build_model_fn(model_name),
       model_dir=output_dir,
+      params=hparams,
       config=tf.contrib.learn.RunConfig(
           master=FLAGS.master,
-          model_dir=output_dir,
           gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction,
           session_config=session_config(),
           keep_checkpoint_max=FLAGS.keep_checkpoint_max,
           keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
           save_checkpoints_secs=FLAGS.save_checkpoints_secs))
 
-  # Store the hparams in the estimator as well
-  estimator.hparams = hparams
   return estimator, {
-      tf.contrib.learn.ModeKeys.TRAIN: train_input_fn,
-      tf.contrib.learn.ModeKeys.EVAL: eval_input_fn
+      tf.estimator.ModeKeys.TRAIN: train_input_fn,
+      tf.estimator.ModeKeys.EVAL: eval_input_fn
   }
 
 
@@ -330,9 +320,15 @@ def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
   if schedule == "local_run":
     # Run the local demo.
     exp = exp_fn(output_dir)
-    if exp.train_steps > 0 or exp.eval_steps > 0:
+    if exp.train_steps > 0 and exp.eval_steps > 0:
       tf.logging.info("Performing local training and evaluation.")
       exp.train_and_evaluate()
+    elif exp.train_steps > 0:
+      tf.logging.info("Performing local training.")
+      exp.train()
+    elif exp.eval_steps > 0:
+      tf.logging.info("Performing local evaluation.")
+      exp.evaluate(delay_secs=0)
   else:
     # Perform distributed training/evaluation.
     learn_runner.run(

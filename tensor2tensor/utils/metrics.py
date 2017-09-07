@@ -20,8 +20,6 @@ from __future__ import print_function
 
 # Dependency imports
 
-import six
-
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import rouge
@@ -197,6 +195,8 @@ def create_evaluation_metrics(problems, model_hparams):
     model_hparams: a set of hparams.
 
   Returns:
+    Dict <metric name, metric function>. The metric functions have signature
+    (predictions, labels, problem_choice) -> (metric Tensor, update op).
     A dictionary with keys that are strings naming the evaluation
     metrics and values that are functions taking arguments of
     (predictions, targets), returning a tuple of a tensor of the
@@ -210,8 +210,7 @@ def create_evaluation_metrics(problems, model_hparams):
   def make_problem_specific_metric_fn(metric_fn, problem_idx, weights_fn):
     """Create a metric fn conditioned on problem_idx."""
 
-    def problem_metric_fn(predictions, labels, weights):
-      problem_choice = weights
+    def problem_metric_fn(predictions, labels, problem_choice):
       (scores, weights) = tf.cond(
           tf.equal(problem_idx, problem_choice),
           lambda: metric_fn(predictions, labels, weights_fn=weights_fn),
@@ -258,11 +257,7 @@ def create_evaluation_metrics(problems, model_hparams):
           metric_fn, problem_idx, weights_fn)
       eval_metrics["metrics-%s/%s" % (problem_name, metric)] = problem_metric_fn
 
-  return {
-      k: tf.contrib.learn.MetricSpec(
-          v, prediction_key="predictions", weight_key="problem_choice")
-      for (k, v) in six.iteritems(eval_metrics)
-  }
+  return eval_metrics
 
 
 # Metrics are functions that take predictions and labels and return

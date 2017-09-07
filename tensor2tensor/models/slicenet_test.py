@@ -47,7 +47,7 @@ class SliceNetTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = slicenet.SliceNet(hparams, tf.contrib.learn.ModeKeys.TRAIN,
+      model = slicenet.SliceNet(hparams, tf.estimator.ModeKeys.TRAIN,
                                 p_hparams)
       sharded_logits, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)

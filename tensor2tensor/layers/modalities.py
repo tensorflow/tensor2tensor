@@ -113,7 +113,7 @@ class SymbolModality(modality.Modality):
     with tf.variable_scope(scope_name, reuse=reuse):
       var = self._get_weights()
       if (self._model_hparams.factored_logits and
-          self._model_hparams.mode == tf.contrib.learn.ModeKeys.TRAIN):
+          self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
         # insert channels dimension
         body_output = tf.expand_dims(body_output, 3)
         logits = common_layers.FactoredTensor(body_output, var)

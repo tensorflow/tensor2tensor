@@ -53,7 +53,7 @@ class TransformerTest(tf.test.TestCase):
     }
 
     return transformer.Transformer(
-        hparams, tf.contrib.learn.ModeKeys.INFER, p_hparams), features
+        hparams, tf.estimator.ModeKeys.PREDICT, p_hparams), features
 
   def testTransformer(self):
     model, features = self.getModel()

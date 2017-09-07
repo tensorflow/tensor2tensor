@@ -251,7 +251,7 @@ def lstm_seq2seq_internal_attention(inputs, targets, hparams, train):
 class LSTMSeq2seq(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
-    train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
     return lstm_seq2seq_internal(features["inputs"], features["targets"],
                                  self._hparams, train)
 
@@ -260,7 +260,7 @@ class LSTMSeq2seq(t2t_model.T2TModel):
 class LSTMSeq2seqAttention(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
-    train = self._hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
     return lstm_seq2seq_internal_attention(
         features["inputs"], features["targets"], self._hparams, train)
 
