@@ -17,7 +17,7 @@ For each problem we want to tackle we create a new problem class and register it
 
 Since many text2text problems share similar methods, there's already a class called [`Text2TextProblem`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py#L354) that extends the base problem class, `Problem` (both found in [`problem.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py)).
 
-For our problem, we can go ahead and create the file `word2def.py` in the [`data_generators`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/) folder and add our new problem, `Word2def`, which extends [`Text2TextProblem`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py#L354). Let's also register it while we're at it so we can specify the problem through flags.
+For our problem, we can go ahead and create the file `word2def.py` in the [`data_generators`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/) folder and add our new problem, `Word2def`, which extends [`Text2TextProblem`](https://github.com/tensorflow/tensor2tensor/blob/24071ba07d5a14c170044c5e60a24bda8179fb7a/tensor2tensor/data_generators/problem.py#L354). Let's also register it while we're at it so we can specify the problem through flags.
 
 ```python
 @registry.register_problem
