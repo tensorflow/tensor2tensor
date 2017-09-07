@@ -272,6 +272,7 @@ def lstm_attention():
   hparams.batch_size = 1024
   hparams.hidden_size = 128
   hparams.num_hidden_layers = 2
+  hparams.initializer = "uniform_unit_scaling"
 
   # Attention
   hparams.add_hparam("attn_vec_size", hparams.hidden_size)
