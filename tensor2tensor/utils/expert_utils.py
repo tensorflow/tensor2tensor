@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import math
 
 # Dependency imports
@@ -58,6 +59,27 @@ def convert_gradient_to_tensor(x):
     The input `Tensor`.
   """
   return x
+
+
+def add_name_scope(scope):
+  """Return a decorator which add a TF name scope to a function.
+
+  Args:
+    scope (str): name of the name scope
+
+  Returns:
+    fct: the add_scope decorator
+  """
+  def decorator(f):
+
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+      with tf.name_scope(scope):
+        return f(*args, **kwargs)
+
+    return decorated
+
+  return decorator
 
 
 class Parallelism(object):
@@ -515,6 +537,75 @@ class PadRemover(object):
           shape=tf.concat([self.dim_origin, tf.shape(x)[1:]], axis=0),
       )
     return x
+
+
+@add_name_scope("map_ids")
+def map_ids(x, indices, map_fn):
+  """Apply a function to each coordinate ids of a multidimentional tensor.
+
+  This allows to process each sequence of a batch independently. This is
+  similar to tf.map_fn but with tensor where the batch dim has been flatten.
+
+  Warning: The indices ids have to be contigous and orderd in memory as the
+  output vector for each of the ids are simply concatenated after being
+  processed.
+  Ex: if your indices are [0,2,2,1,2,0], the output will contains the processed
+  rows in the following order: [0,0,1,2,2,2]
+
+  Args:
+    x (Tensor): The tensor to be dispatched of shape [length,...]
+    indices (Tensor): A int32 tensor of size [length, 1] containing the batch
+      coordinate of x
+    map_fn (fct): Function called for every ids of the original tensor. Take
+      as input a tensor of same rank than x and from shape [length_id,...] with
+      length_id <= length. Isn't called if length_id == 0
+
+  Returns:
+    a tensor of same shape as x, where each elements has been processed
+  """
+  indices = tf.reshape(indices, [-1])
+
+  t_i = tf.constant(0)
+  # batch_coordinates start at 0
+  t_batch_size = tf.reduce_max(indices) + 1
+
+  # ta_stack_out will store the intermediate results for each individual id
+  # As alternative to tf.TensorArray, scatter_update could potentially be used
+  # but that would require an additional mutable tensor.
+  ta_stack_out = tf.TensorArray(
+      x.dtype,
+      size=t_batch_size,
+  )
+
+  # Then we iterate over each sequence individually and compute the
+  # transformation for each id
+  while_condition = lambda t_i, *args: tf.less(t_i, t_batch_size)
+  def body(t_i, ta_stack_out):
+    """Loop body."""
+    # Gather the ids
+    current_ids = tf.to_int32(tf.where(tf.equal(indices, t_i)))
+    t_row = tf.gather_nd(x, indices=current_ids)
+
+    # TODO(epot): Should not call map_fn if t_row size is 0
+
+    # Apply transformation to each id
+    # Restore batch_dim=1 as most function expect [batch_dim, length, ...] as
+    # input
+    t_row = tf.expand_dims(t_row, axis=0)
+    t_row = map_fn(t_row)
+    t_row = tf.squeeze(t_row, axis=0)  # Squeeze for concatenation
+    ta_stack_out = ta_stack_out.write(t_i, t_row)
+
+    return [tf.add(t_i, 1), ta_stack_out]  # ++i
+
+  # Run the loop, equivalent to:
+  # stack_out = []
+  # while i < batch_size:
+  #   stack_out.expand(map_fn(x[indices==i]))
+  _, ta_stack_out = tf.while_loop(while_condition, body, [t_i, ta_stack_out])
+
+  # Merge all results
+  return ta_stack_out.concat()
 
 
 class SparseDispatcher(object):

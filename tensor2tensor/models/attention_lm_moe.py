@@ -127,6 +127,8 @@ class AttentionLmMoe(t2t_model.T2TModel):
     x = dp_remove_pad(x)
     x = dp(print_shape, x, "in_flat")
 
+    assert hparams.batch_size >= hparams.max_length
+
     for layer in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope(
@@ -161,6 +163,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 train=hparams.mode == ModeKeys.TRAIN,
                 batch_coordinate=batch_coordinate,
                 mask_right=True,
+                split_batch=bool(hparams.attention_split_batch),
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
             # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
@@ -344,6 +347,7 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_type", AttentionType.MULTIHEAD)
   hparams.add_hparam("attention_moe_k", 2)
   hparams.add_hparam("attention_num_experts", 16)
+  hparams.add_hparam("attention_split_batch", int(False))
   # Key, query and value dimensions for the attention
   hparams.add_hparam("attention_kq_size", 128)
   hparams.add_hparam("attention_v_size", 256)
@@ -366,6 +370,9 @@ def attention_lm_moe_base_ae():
   hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
   hparams.learning_rate = 0.05
   hparams.learning_rate_warmup_steps = 10000
+  # According to noam, ("n", "da") seems better for harder-to-learn models
+  # hparams.layer_preprocess_sequence = "n"
+  # hparams.layer_postprocess_sequence = "da"
   return hparams
 
 

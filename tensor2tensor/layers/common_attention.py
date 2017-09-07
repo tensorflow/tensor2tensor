@@ -441,7 +441,9 @@ def dot_product_attention(q,
     weights = tf.nn.softmax(logits, name="attention_weights")
     # dropping out the attention links for each of the heads
     weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
-    if not tf.get_variable_scope().reuse:
+    if (not tf.get_variable_scope().reuse and
+        # Summaries don't work well within tf.while_loop()
+        "/while/" not in tf.contrib.framework.get_name_scope()):
       attention_image_summary(weights, image_shapes)
     return tf.matmul(weights, v)
 
@@ -1242,6 +1244,7 @@ def self_attention_expert(
     x,
     batch_coordinate,
     mask_right=True,
+    split_batch=False,
     attention_kq_size=None,
     attention_v_size=None,
 ):
@@ -1255,6 +1258,9 @@ def self_attention_expert(
       positions from different sequences don't attend to each other.
     mask_right: A bool. If true, we will not attend to positions on the right,
       just as decoder self attention.
+    split_batch (bool): If True, each sequence of the batch is processed
+      individually on a loop. If False, the sequences are processed all at
+      once and a mask is applied to isolate the sequences from each others
     attention_kq_size (int): dimension used for the attention key, and query
     attention_v_size (int): dimension used for the attention value
 
@@ -1289,32 +1295,58 @@ def self_attention_expert(
 
   def length_not_null(x, batch_coordinate):
     """Branch of the graph only evaluated when length isn't null."""
+
+    # Mask between the sequences (not used if map_ids is used)
     with tf.name_scope("expert_mask"):
-      batch_coordinate = tf.squeeze(batch_coordinate, 1)
+      batch_coord_float = tf.squeeze(batch_coordinate, 1)
       # Convert to float first because of b/25387198
-      batch_coordinate = tf.to_float(batch_coordinate)
-      bc_v = tf.expand_dims(batch_coordinate, 1)
-      bc_h = tf.expand_dims(batch_coordinate, 0)
-      bias = bc_v - bc_h  # Broadcast to create [length, length] mask
-      bias = tf.minimum(1.0, tf.abs(bias))  # Theshold non zeros to 1.0
-      bias *= -1e9  # Set non zeros to -infinity
+      batch_coord_float = tf.to_float(batch_coord_float)
+      bc_v = tf.expand_dims(batch_coord_float, 1)
+      bc_h = tf.expand_dims(batch_coord_float, 0)
+      bias_batch = bc_v - bc_h  # Broadcast to create [length, length] mask
+      # Theshold non zeros to 1.0
+      bias_batch = tf.minimum(1.0, tf.abs(bias_batch))
+      bias_batch *= -1e9  # Set non zeros to -infinity
 
-    if mask_right:
-      bias += tf.reshape(
+    def add_or_set_if(prev_bias, new_bias, condition):
+      """Add the bias together while concidering the None case."""
+      if not condition:
+        return prev_bias
+      elif prev_bias is None:
+        return new_bias
+      else:
+        return prev_bias + new_bias
+
+    def mask_and_call_attention(x):
+      """Function applied once for each sequence of the batch."""
+
+      # Mask to prevent sequences of attenting to the future
+      length = tf.shape(x)[1]  # x has shape [1, length,...]
+      bias_past = tf.reshape(
           attention_bias_lower_triangle(length), [length, length])
-    # bias has shape [length, length]
-    bias = tf.reshape(bias, [1, 1, length, length])
-    x = tf.reshape(x, [1, length, depth])
-    out = multihead_attention(x,
-                              None,
-                              bias,
-                              total_key_depth=attention_kq_size,
-                              total_value_depth=attention_v_size,
-                              output_depth=depth,
-                              num_heads=1,
-                              dropout_rate=0.0)
-    out = tf.squeeze(out, 0)
+      # bias has shape [length, length]
+      bias_past = tf.reshape(bias_past, [1, 1, length, length])
 
+      bias = None
+      bias = add_or_set_if(bias, bias_past, mask_right)
+      bias = add_or_set_if(bias, bias_batch, not split_batch)
+
+      return multihead_attention(
+          x,
+          None,
+          bias,
+          total_key_depth=attention_kq_size,
+          total_value_depth=attention_v_size,
+          output_depth=depth,
+          num_heads=1,
+          dropout_rate=0.0)
+
+    if split_batch:
+      out = expert_utils.map_ids(x, batch_coordinate, mask_and_call_attention)
+    else:
+      x = tf.reshape(x, [1, length, depth])
+      out = mask_and_call_attention(x)
+      out = tf.squeeze(out, 0)
     return out
 
   # If the length is empty, just forward an empty tensor (avoid having to
@@ -1325,8 +1357,6 @@ def self_attention_expert(
       lambda: length_not_null(x, batch_coordinate),
   )
   return out
-
-#  functools.partial(self_attention_expert, mask_right=, depth=)
 
 
 def local_expert_attention(
