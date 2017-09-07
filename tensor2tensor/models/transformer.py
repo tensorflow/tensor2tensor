@@ -191,10 +191,13 @@ def transformer_encoder(encoder_input,
   """
   x = encoder_input
   with tf.variable_scope(name):
-    pad_remover = expert_utils.PadRemover(
-        common_attention.attention_bias_to_padding(encoder_self_attention_bias))
-    for layer in xrange(
-        hparams.num_encoder_layers or hparams.num_hidden_layers):
+    pad_remover = None
+    if hparams.use_pad_remover:
+      pad_remover = expert_utils.PadRemover(
+          common_attention.attention_bias_to_padding(
+              encoder_self_attention_bias))
+    for layer in xrange(hparams.num_encoder_layers or
+                        hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -237,8 +240,8 @@ def transformer_decoder(decoder_input,
   """
   x = decoder_input
   with tf.variable_scope(name):
-    for layer in xrange(
-        hparams.num_decoder_layers or hparams.num_hidden_layers):
+    for layer in xrange(hparams.num_decoder_layers or
+                        hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -362,6 +365,8 @@ def transformer_base():
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
   hparams.add_hparam("proximity_bias", int(False))
+  hparams.add_hparam("use_pad_remover", int(True))
+
   return hparams
 
 

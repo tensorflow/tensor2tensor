@@ -267,11 +267,23 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
         lambda ex: _preprocess(ex, problem, data_file_pattern, hparams, mode),
         num_threads=num_threads)
     dataset = dataset.filter(
-        lambda ex: _example_too_big(ex, batching_scheme["max_length"]))
+        lambda ex: example_valid_size(ex, batching_scheme["max_length"]))
+
+    bucket_id_fn = _example_length
+    if len(batching_scheme["boundaries"]) == 1:
+      bucket_id_fn = lambda _: tf.constant(0)
+
+    if "padded_shapes" not in batching_scheme:
+      batching_scheme["padded_shapes"] = None
 
     dataset = bucket_by_sequence_length(
-        dataset, _example_length, batching_scheme["boundaries"],
-        batching_scheme["batch_sizes"], batching_scheme["window_size"])
+        dataset,
+        bucket_id_fn,
+        batching_scheme["boundaries"],
+        batching_scheme["batch_sizes"],
+        batching_scheme["window_size"],
+        padded_shapes=batching_scheme["padded_shapes"])
+
     # We reshuffle the batches to prevent many long-sequence batches at once.
     # TODO(rsepassi): Rm hasattr call once new dynamic window size functionality
     # is in a stable TF release.
@@ -307,12 +319,16 @@ def _example_length(example):
   return length
 
 
-def _example_too_big(example, max_length):
+def example_valid_size(example, max_length):
   return tf.less_equal(_example_length(example), max_length)
 
 
-def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
-                              bucket_batch_sizes, window_size):
+def bucket_by_sequence_length(dataset,
+                              example_length_fn,
+                              bucket_boundaries,
+                              bucket_batch_sizes,
+                              window_size,
+                              padded_shapes=None):
   """Bucket entries in dataset by length.
 
   Args:
@@ -322,6 +338,8 @@ def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
     bucket_boundaries: list<int>, boundaries of the buckets.
     bucket_batch_sizes: list<int>, batch size per bucket.
     window_size: an integer divisible by all elements of bucket_batch_sizes
+    padded_shapes: dict<feature name, list<int>>, optional, shapes of the
+      features with None where feature should be padded to max in that dim.
 
   Returns:
     Dataset of padded and batched examples.
@@ -351,12 +369,7 @@ def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
     def batching_fn(bucket_id, grouped_dataset):
       batch_sizes = tf.constant(bucket_batch_sizes, dtype=tf.int64)
       batch_size = batch_sizes[bucket_id]
-
-      # Pad each dimension of each feature so that they match.
-      padded_shapes = dict(
-          [(name, [None] * len(shape))
-           for name, shape in grouped_dataset.output_shapes.items()])
-      return grouped_dataset.padded_batch(batch_size, padded_shapes)
+      return padded_batch(grouped_dataset, batch_size, padded_shapes)
 
     # TODO(rsepassi): Rm branch once the new group_by_window functionality is in
     # a stable TF release.
@@ -369,6 +382,13 @@ def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
       dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
                                         window_size)
     return dataset
+
+
+def padded_batch(dataset, batch_size, padded_shapes=None):
+  padded_shapes = padded_shapes or dict(
+      [(name, [None] * len(shape))
+       for name, shape in dataset.output_shapes.items()])
+  return dataset.padded_batch(batch_size, padded_shapes)
 
 
 def _bucket_boundaries(max_length, min_length=8, length_bucket_step=1.1):

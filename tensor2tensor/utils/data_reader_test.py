@@ -158,7 +158,7 @@ class DataReaderTest(tf.test.TestCase):
     max_len = 15
     dataset = data_reader.read_examples(self.problem, self.filepatterns[0], 32)
     dataset = dataset.filter(
-        lambda ex: data_reader._example_too_big(ex, max_len))
+        lambda ex: data_reader.example_valid_size(ex, max_len))
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       ex_lens = []

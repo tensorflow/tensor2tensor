@@ -75,6 +75,8 @@ flags.DEFINE_integer("save_checkpoints_secs", 0,
                      "Save checkpoints every this many seconds. "
                      "Default=0 means let tensorflow.contrib.learn.python.learn"
                      " decide, which is currently set to 600 = 10 minutes.")
+flags.DEFINE_bool("log_device_placement", False,
+                  "Whether to log device placement.")
 
 # Distributed training flags
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
@@ -369,7 +371,8 @@ def session_config():
   config = tf.ConfigProto(
       allow_soft_placement=True,
       graph_options=graph_options,
-      gpu_options=gpu_options)
+      gpu_options=gpu_options,
+      log_device_placement=FLAGS.log_device_placement)
   return config
 
 
