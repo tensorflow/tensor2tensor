@@ -214,8 +214,7 @@ on the task (e.g. fed through a final linear transform to produce logits for a
 softmax over classes). All models are imported in
 [`models.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/models/models.py),
 inherit from `T2TModel` - defined in
-[`t2t_model.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/t2t_model.py)
-- and are registered with
+[`t2t_model.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/t2t_model.py) - and are registered with
 [`@registry.register_model`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/registry.py).
 
 ### Hyperparameter Sets

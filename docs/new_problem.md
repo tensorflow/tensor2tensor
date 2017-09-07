@@ -15,9 +15,9 @@ Let's add a new dataset together and train the transformer model. We'll be learn
 
 For each problem we want to tackle we create a new problem class and register it. Let's call our problem `Word2def`.
 
-Since many text2text problems share similar methods, there's already a class called `Text2TextProblem` that extends the base problem class, `Problem` (both found in `problem.py`).
+Since many text2text problems share similar methods, there's already a class called [`Text2TextProblem`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py#L354) that extends the base problem class, `Problem` (both found in [`problem.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py)).
 
-For our problem, we can go ahead and create the file `word2def.py` in the `data_generators` folder and add our new problem, `Word2def`, which extends `Text2TextProblem`. Let's also register it while we're at it so we can specify the problem through flags.
+For our problem, we can go ahead and create the file `word2def.py` in the [`data_generators`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/) folder and add our new problem, `Word2def`, which extends [`Text2TextProblem`](https://github.com/tensorflow/tensor2tensor/blob/24071ba07d5a14c170044c5e60a24bda8179fb7a/tensor2tensor/data_generators/problem.py#L354). Let's also register it while we're at it so we can specify the problem through flags.
 
 ```python
 @registry.register_problem
@@ -28,7 +28,7 @@ class Word2def(problem.Text2TextProblem):
     ...
 ```
 
-We need to implement the following methods from `Text2TextProblem` in our new class:
+We need to implement the following methods from [`Text2TextProblem`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py#L354) in our new class:
 * is_character_level
 * targeted_vocab_size
 * generator
@@ -42,7 +42,7 @@ Let's tackle them one by one:
 
 **input_space_id, target_space_id, is_character_level, targeted_vocab_size, use_subword_tokenizer**:
 
-SpaceIDs tell Tensor2Tensor what sort of space the input and target tensors are in. These are things like, EN_CHR (English character), EN_TOK (English token), AUDIO_WAV (audio waveform), IMAGE, DNA (genetic bases). The complete list can be found at `data_generators/problem.py` in the class `SpaceID`.
+SpaceIDs tell Tensor2Tensor what sort of space the input and target tensors are in. These are things like, EN_CHR (English character), EN_TOK (English token), AUDIO_WAV (audio waveform), IMAGE, DNA (genetic bases). The complete list can be found at [`data_generators/problem.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py) in the class `SpaceID`.
 
 Since we're generating definitions and feeding in words at the character level, we set `is_character_level` to true, and use the same SpaceID, EN_CHR, for both input and target. Additionally, since we aren't using tokens, we don't need to give a `targeted_vocab_size` or define `use_subword_tokenizer`.
 
@@ -86,7 +86,7 @@ class Word2def(problem.Text2TextProblem):
 
 **generator**:
 
-We're almost done. `generator` generates the training and evaluation data and stores them in files like  "word2def_train.lang1" in your DATA_DIR. Thankfully several commonly used methods like `character_generator`, and `token_generator` are already written in the file `wmt.py`. We will import `character_generator` and write:
+We're almost done. `generator` generates the training and evaluation data and stores them in files like  "word2def_train.lang1" in your DATA_DIR. Thankfully several commonly used methods like `character_generator`, and `token_generator` are already written in the file [`wmt.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/wmt.py). We will import `character_generator` and [`text_encoder`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/text_encoder.py) to write:
 ```python
   def generator(self, data_dir, tmp_dir, train):
     character_vocab = text_encoder.ByteTextEncoder()
@@ -151,7 +151,7 @@ _WORD2DEF_TEST_DATASETS = [
 
 ## Putting it all together
 
-Now our `word2def.py` file looks like: (with the correct imports)
+Now our `word2def.py` file looks like:
 ```python
 """ Problem definition for word to dictionary definition.
 """
