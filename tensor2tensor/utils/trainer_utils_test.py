@@ -106,7 +106,7 @@ class TrainerUtilsTest(tf.test.TestCase):
     encoders = registry.problem(FLAGS.problems).feature_encoders(data_dir)
     hparams = trainer_utils.create_hparams(
         FLAGS.hparams_set, FLAGS.problems, data_dir)
-    model_fn = model_builder.build_model_fn(model_name, hparams)
+    model_fn = model_builder.build_model_fn(model_name)
     inputs_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
     batch_inputs = tf.reshape(inputs_ph, [1, -1, 1, 1])  # Make it 4D.
     targets_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
@@ -117,9 +117,10 @@ class TrainerUtilsTest(tf.test.TestCase):
                 "target_space_id": hparams.problems[0].target_space_id}
 
     # Now set a mode and create the graph by invoking model_fn.
-    mode = tf.contrib.learn.ModeKeys.EVAL
-    predictions_dict, _, _ = model_fn(  # In INFER mode targets can be None.
-        features, batch_targets, mode)
+    mode = tf.estimator.ModeKeys.EVAL
+    estimator_spec = model_fn(  # In INFER mode targets can be None.
+        features, batch_targets, mode, hparams)
+    predictions_dict = estimator_spec.predictions
     predictions = tf.squeeze(  # These are not images, axis=2,3 are not needed.
         predictions_dict["predictions"], axis=[2, 3])
 

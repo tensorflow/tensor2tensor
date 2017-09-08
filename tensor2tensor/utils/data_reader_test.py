@@ -70,7 +70,7 @@ class TestProblem(problem_mod.Problem):
 def generate_test_data(problem, tmp_dir):
   problem.generate_data(tmp_dir, tmp_dir)
   filepatterns = data_reader.get_data_filepatterns(
-      problem.name, tmp_dir, tf.contrib.learn.ModeKeys.TRAIN)
+      problem.name, tmp_dir, tf.estimator.ModeKeys.TRAIN)
   assert tf.gfile.Glob(filepatterns[0])
   return filepatterns
 
@@ -115,7 +115,7 @@ class DataReaderTest(tf.test.TestCase):
         self.problem,
         self.filepatterns[0],
         16,
-        mode=tf.contrib.learn.ModeKeys.EVAL)
+        mode=tf.estimator.ModeKeys.EVAL)
     eval_examples = eval_dataset.make_one_shot_iterator().get_next()
 
     eval_idxs = []
@@ -158,7 +158,7 @@ class DataReaderTest(tf.test.TestCase):
     max_len = 15
     dataset = data_reader.read_examples(self.problem, self.filepatterns[0], 32)
     dataset = dataset.filter(
-        lambda ex: data_reader._example_too_big(ex, max_len))
+        lambda ex: data_reader.example_valid_size(ex, max_len))
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       ex_lens = []
@@ -243,7 +243,7 @@ class DataReaderTest(tf.test.TestCase):
         self.problem,
         self.filepatterns[0],
         32,
-        mode=tf.contrib.learn.ModeKeys.EVAL)
+        mode=tf.estimator.ModeKeys.EVAL)
     dataset = data_reader.bucket_by_sequence_length(
         dataset, example_len,
         boundaries, batch_sizes, window_size)

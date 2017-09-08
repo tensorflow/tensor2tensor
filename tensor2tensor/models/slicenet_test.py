@@ -39,7 +39,7 @@ class SliceNetTest(tf.test.TestCase):
     hparams = slicenet.slicenet_params1_tiny()
     hparams.add_hparam("data_dir", "")
     problem = registry.problem("image_cifar10")
-    p_hparams = problem.internal_hparams(hparams)
+    p_hparams = problem.get_hparams(hparams)
     hparams.problems = [p_hparams]
     with self.test_session() as session:
       features = {
@@ -47,7 +47,7 @@ class SliceNetTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = slicenet.SliceNet(hparams, tf.contrib.learn.ModeKeys.TRAIN,
+      model = slicenet.SliceNet(hparams, tf.estimator.ModeKeys.TRAIN,
                                 p_hparams)
       sharded_logits, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)

@@ -97,7 +97,7 @@ class SentimentIMDB(problem.Problem):
         self.generator(data_dir, tmp_dir, True), train_paths,
         self.generator(data_dir, tmp_dir, False), dev_paths)
 
-  def hparams(self, defaults, model_hparams):
+  def hparams(self, defaults, unused_model_hparams):
     p = defaults
     source_vocab_size = self._encoders["inputs"].vocab_size
     p.input_modality = {
@@ -112,7 +112,7 @@ class SentimentIMDB(problem.Problem):
     encoder = text_encoder.SubwordTextEncoder(vocab_filename)
     return {
         "inputs": encoder,
-        "targets": text_encoder.TextEncoder(),
+        "targets": text_encoder.ClassLabelEncoder(["neg", "pos"]),
     }
 
   def example_reading_spec(self):

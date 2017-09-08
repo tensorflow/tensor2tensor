@@ -55,7 +55,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
         "targets": tf.constant(targets, dtype=tf.float32),
     }
     p_hparams, = hparams.problems
-    sharded_logits, _ = model_cls(hparams, tf.contrib.learn.ModeKeys.TRAIN,
+    sharded_logits, _ = model_cls(hparams, tf.estimator.ModeKeys.TRAIN,
                                   p_hparams).model_fn(features)
     logits = tf.concat(sharded_logits, 0)
 
@@ -70,7 +70,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
                        gene_expression_conv_test())]
     for model_cls, hparams in models_hparams:
       hparams.add_hparam("data_dir", None)
-      p_hparams = gene_data.GenomicsExpressionCage10().internal_hparams(hparams)
+      p_hparams = gene_data.GenomicsExpressionCage10().get_hparams(hparams)
       hparams.problems = [p_hparams]
       self._testModel(hparams, model_cls)
 

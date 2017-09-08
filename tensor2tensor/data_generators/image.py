@@ -105,7 +105,7 @@ class ImageCeleba(ImageProblem):
     examples["targets"] = resize(inputs, 32)
     return examples
 
-  def hparams(self, defaults, model_hparams):
+  def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.input_modality = {"inputs": ("image:identity_no_pad", None)}
     p.target_modality = ("image:identity_no_pad", None)
@@ -229,7 +229,7 @@ class ImageFSNS(ImageProblem):
         "targets": text_encoder.SubwordTextEncoder(vocab_filename)
     }
 
-  def hparams(self, defaults, model_hparams):
+  def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
     vocab_size = self._encoders["targets"].vocab_size
@@ -264,10 +264,21 @@ class Image2ClassProblem(ImageProblem):
   def dev_shards(self):
     return 1
 
+  @property
+  def class_labels(self):
+    return ["ID_%d" % i for i in range(self.num_classes)]
+
+  def feature_encoders(self, data_dir):
+    del data_dir
+    return {
+        "inputs": text_encoder.TextEncoder(),
+        "targets": text_encoder.ClassLabelEncoder(self.class_labels)
+    }
+
   def generator(self, data_dir, tmp_dir, is_training):
     raise NotImplementedError()
 
-  def hparams(self, defaults, model_hparams):
+  def hparams(self, defaults, unused_model_hparams):
     p = defaults
     small_modality = "%s:small_image_modality" % registry.Modalities.IMAGE
     modality = small_modality if self.is_small else registry.Modalities.IMAGE
@@ -302,7 +313,7 @@ def imagenet_preprocess_examples(examples, mode):
     return tf.to_int64(tf.image.resize_images(img, [299, 299]))
 
   inputs = tf.cast(examples["inputs"], tf.int64)
-  if mode == tf.contrib.learn.ModeKeys.TRAIN:
+  if mode == tf.estimator.ModeKeys.TRAIN:
     examples["inputs"] = tf.cond(  # Preprocess 90% of the time.
         tf.less(tf.random_uniform([]), 0.9),
         lambda img=inputs: preprocess(img),
@@ -349,7 +360,7 @@ class ImageImagenet32(Image2ClassProblem):
   def num_classes(self):
     return 1000
 
-  def preprocess_examples(self, examples, mode, hparams):
+  def preprocess_examples(self, examples, mode, unused_hparams):
     # Just resize with area.
     if self._was_reversed:
       examples["inputs"] = tf.to_int64(
@@ -492,6 +503,10 @@ class ImageMnistTune(Image2ClassProblem):
     return 10
 
   @property
+  def class_labels(self):
+    return [str(c) for c in range(self.num_classes)]
+
+  @property
   def train_shards(self):
     return 10
 
@@ -564,9 +579,17 @@ def cifar10_generator(tmp_dir, training, how_many, start_from=0):
 
 @registry.register_problem
 class ImageCifar10Tune(ImageMnistTune):
+  """Cifar-10 Tune."""
 
-  def preprocess_examples(self, examples, mode, hparams):
-    if mode == tf.contrib.learn.ModeKeys.TRAIN:
+  @property
+  def class_labels(self):
+    return [
+        "airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse",
+        "ship", "truck"
+    ]
+
+  def preprocess_examples(self, examples, mode, unused_hparams):
+    if mode == tf.estimator.ModeKeys.TRAIN:
       examples["inputs"] = common_layers.cifar_image_augmentation(
           examples["inputs"])
     return examples
@@ -591,7 +614,7 @@ class ImageCifar10(ImageCifar10Tune):
 @registry.register_problem
 class ImageCifar10Plain(ImageCifar10):
 
-  def preprocess_examples(self, examples, mode, hparams):
+  def preprocess_examples(self, examples, mode, unused_hparams):
     return examples
 
 
@@ -730,7 +753,7 @@ class Image2TextProblem(ImageProblem):
       encoder = text_encoder.SubwordTextEncoder(vocab_filename)
     return {"targets": encoder}
 
-  def hparams(self, defaults, model_hparams):
+  def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
     encoder = self._encoders["targets"]

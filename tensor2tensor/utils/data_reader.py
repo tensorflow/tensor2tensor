@@ -27,7 +27,6 @@ import numpy as np
 
 import six
 from six.moves import zip  # pylint: disable=redefined-builtin
-from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.data_generators.problem import preprocess_examples_common
@@ -216,7 +215,7 @@ def default_example_reading_spec(data_file_pattern):
 def read_examples(problem,
                   data_file_pattern,
                   capacity,
-                  mode=tf.contrib.learn.ModeKeys.TRAIN):
+                  mode=tf.estimator.ModeKeys.TRAIN):
   """Create Dataset of Example for problem and data_file_pattern."""
   if problem is None:
     data_fields, data_items_to_decoders = default_example_reading_spec(
@@ -228,7 +227,7 @@ def read_examples(problem,
     # Create placeholders for input, rather than reading data from disk.
     return feature_placeholders(data_fields)
 
-  is_training = mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = mode == tf.estimator.ModeKeys.TRAIN
   dataset = examples_reader(
       [data_file_pattern],
       data_fields,
@@ -246,7 +245,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
     problem: Problem instance for which to build the input pipeline.
     data_file_pattern: file pattern for input files.
     capacity: int, data pipeline buffer capacity.
-    mode: tf.contrib.learn.ModeKeys entry.
+    mode: tf.estimator.ModeKeys entry.
     hparams: an HParams object.
     batching_scheme: a dictionary containing
       "boundaries": a list of integers for the boundaries that will be
@@ -257,23 +256,39 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
   Returns:
     dict <feature name, batched and padded Tensor>
   """
-  is_training = mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = mode == tf.estimator.ModeKeys.TRAIN
   num_threads = 4 if is_training else 1
 
   with tf.name_scope("input_pipeline"):
+    # TODO(rsepassi): Once all problems use the Problem class, rm example
+    # reading, parsing, and preprocessing. Use Problem.dataset instead.
     dataset = read_examples(problem, data_file_pattern, capacity, mode=mode)
     dataset = dataset.map(
         lambda ex: _preprocess(ex, problem, data_file_pattern, hparams, mode),
         num_threads=num_threads)
     dataset = dataset.filter(
-        lambda ex: _example_too_big(ex, batching_scheme["max_length"]))
+        lambda ex: example_valid_size(ex, batching_scheme["max_length"]))
 
-    dataset = bucket_by_sequence_length(dataset, _example_length,
-                                        batching_scheme["boundaries"],
-                                        batching_scheme["batch_sizes"],
-                                        batching_scheme["window_size"])
+    bucket_id_fn = _example_length
+    if len(batching_scheme["boundaries"]) == 1:
+      bucket_id_fn = lambda _: tf.constant(0)
+
+    if "padded_shapes" not in batching_scheme:
+      batching_scheme["padded_shapes"] = None
+
+    dataset = bucket_by_sequence_length(
+        dataset,
+        bucket_id_fn,
+        batching_scheme["boundaries"],
+        batching_scheme["batch_sizes"],
+        batching_scheme["window_size"],
+        padded_shapes=batching_scheme["padded_shapes"])
+
     # We reshuffle the batches to prevent many long-sequence batches at once.
-    if batching_scheme["shuffle_queue_size"] is not None:
+    # TODO(rsepassi): Rm hasattr call once new dynamic window size functionality
+    # is in a stable TF release.
+    if (batching_scheme["shuffle_queue_size"] is not None and
+        not hasattr(dataset, "apply")):
       dataset = dataset.shuffle(batching_scheme["shuffle_queue_size"])
     batched_examples = dataset.make_one_shot_iterator().get_next()
     return batched_examples
@@ -304,12 +319,16 @@ def _example_length(example):
   return length
 
 
-def _example_too_big(example, max_length):
+def example_valid_size(example, max_length):
   return tf.less_equal(_example_length(example), max_length)
 
 
-def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
-                              bucket_batch_sizes, window_size):
+def bucket_by_sequence_length(dataset,
+                              example_length_fn,
+                              bucket_boundaries,
+                              bucket_batch_sizes,
+                              window_size,
+                              padded_shapes=None):
   """Bucket entries in dataset by length.
 
   Args:
@@ -319,6 +338,8 @@ def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
     bucket_boundaries: list<int>, boundaries of the buckets.
     bucket_batch_sizes: list<int>, batch size per bucket.
     window_size: an integer divisible by all elements of bucket_batch_sizes
+    padded_shapes: dict<feature name, list<int>>, optional, shapes of the
+      features with None where feature should be padded to max in that dim.
 
   Returns:
     Dataset of padded and batched examples.
@@ -339,19 +360,35 @@ def bucket_by_sequence_length(dataset, example_length_fn, bucket_boundaries,
 
       return bucket_id
 
+    def window_size_fn(bucket_id):
+      # window size = batch size
+      batch_sizes = tf.constant(bucket_batch_sizes, dtype=tf.int64)
+      window_size = batch_sizes[bucket_id]
+      return window_size
+
     def batching_fn(bucket_id, grouped_dataset):
       batch_sizes = tf.constant(bucket_batch_sizes, dtype=tf.int64)
       batch_size = batch_sizes[bucket_id]
+      return padded_batch(grouped_dataset, batch_size, padded_shapes)
 
-      # Pad each dimension of each feature so that they match.
-      padded_shapes = dict(
-          [(name, [None] * len(shape))
-           for name, shape in grouped_dataset.output_shapes.items()])
-      return grouped_dataset.padded_batch(batch_size, padded_shapes)
-
-    dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
-                                      window_size)
+    # TODO(rsepassi): Rm branch once the new group_by_window functionality is in
+    # a stable TF release.
+    if hasattr(dataset, "apply"):
+      # If the Dataset supports dynamic window size, use it.
+      dataset = dataset.apply(
+          tf.contrib.data.group_by_window,
+          args=(example_to_bucket_id, batching_fn, None, window_size_fn))
+    else:
+      dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
+                                        window_size)
     return dataset
+
+
+def padded_batch(dataset, batch_size, padded_shapes=None):
+  padded_shapes = padded_shapes or dict(
+      [(name, [None] * len(shape))
+       for name, shape in dataset.output_shapes.items()])
+  return dataset.padded_batch(batch_size, padded_shapes)
 
 
 def _bucket_boundaries(max_length, min_length=8, length_bucket_step=1.1):
@@ -399,8 +436,8 @@ def _batching_scheme(batch_size,
        * max_length: int, maximum length of an example
   """
   max_length = max_length or batch_size
-  boundaries = _bucket_boundaries(
-      max_length, min_length_bucket, length_bucket_step)
+  boundaries = _bucket_boundaries(max_length, min_length_bucket,
+                                  length_bucket_step)
   boundaries = [boundary * length_multiplier for boundary in boundaries]
   max_length *= length_multiplier
   batch_sizes = [
@@ -418,9 +455,10 @@ def _batching_scheme(batch_size,
       83160, 110880, 166320, 221760, 277200, 332640, 498960, 554400, 665280,
       720720, 1081080, 1441440, 2162160, 2882880, 3603600, 4324320, 6486480,
       7207200, 8648640, 10810800, 14414400, 17297280, 21621600, 32432400,
-      36756720, 43243200, 61261200, 73513440, 110270160]
-  window_size = max([
-      i for i in highly_composite_numbers if i <= 3 * max_batch_size])
+      36756720, 43243200, 61261200, 73513440, 110270160
+  ]
+  window_size = max(
+      [i for i in highly_composite_numbers if i <= 3 * max_batch_size])
   divisors = [i for i in xrange(1, window_size + 1) if window_size % i == 0]
   batch_sizes = [max([d for d in divisors if d <= bs]) for bs in batch_sizes]
   window_size *= shard_multiplier
@@ -487,7 +525,7 @@ def get_data_filepatterns(problems, data_dir, mode):
     except ValueError:
       problem, _, _ = problem_hparams.parse_problem_name(problem)
     path = os.path.join(data_dir, problem)
-    if mode == tf.contrib.learn.ModeKeys.TRAIN:
+    if mode == tf.estimator.ModeKeys.TRAIN:
       datasets.append("%s-train*" % path)
     else:
       datasets.append("%s-dev*" % path)

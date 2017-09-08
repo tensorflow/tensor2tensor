@@ -40,9 +40,6 @@ def problem_hparams(problem_name, model_hparams):
 
   Returns:
     a tf.contrib.training.HParams
-
-  Raises:
-    ValueError: if problem_name is unknown.
   """
   base_name, was_reversed, was_copy = parse_problem_name(problem_name)
   p = _lookup_problem_hparams_fn(base_name)(model_hparams)
@@ -78,7 +75,7 @@ def _lookup_problem_hparams_fn(name):
   if name not in PROBLEM_HPARAMS_MAP:
     map_str = "* " + "\n* ".join(sorted(PROBLEM_HPARAMS_MAP.keys()))
     error_msg = "%s not in the supported set of problems:\n%s" % (name, map_str)
-    raise ValueError(error_msg)
+    raise LookupError(error_msg)
   return PROBLEM_HPARAMS_MAP.get(name)
 
 

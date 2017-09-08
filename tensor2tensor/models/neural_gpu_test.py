@@ -50,7 +50,7 @@ class NeuralGPUTest(tf.test.TestCase):
           "inputs": tf.constant(inputs, dtype=tf.int32),
           "targets": tf.constant(targets, dtype=tf.int32)
       }
-      model = neural_gpu.NeuralGPU(hparams, tf.contrib.learn.ModeKeys.TRAIN,
+      model = neural_gpu.NeuralGPU(hparams, tf.estimator.ModeKeys.TRAIN,
                                    p_hparams)
       shadred_logits, _ = model.model_fn(features)
       logits = tf.concat(shadred_logits, 0)

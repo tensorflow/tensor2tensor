@@ -69,7 +69,7 @@ class T2TModel(object):
 
     Args:
       hparams: a hyperparameters object.
-      mode: The execution mode, as defined in tf.contrib.learn.ModeKeys.
+      mode: The execution mode, as defined in tf.estimator.ModeKeys.
       problem_hparams: a hyperparameters object.
       problem_idx: an integer.
       data_parallelism: a expert_utils.parallelism
@@ -86,7 +86,7 @@ class T2TModel(object):
     hparams = copy.copy(hparams)
     hparams.add_hparam("mode", mode)
     # When not in training mode, set all forms of dropout to zero.
-    if mode != tf.contrib.learn.ModeKeys.TRAIN:
+    if mode != tf.estimator.ModeKeys.TRAIN:
       for key in hparams.values():
         if key[-len("dropout"):] == "dropout":
           setattr(hparams, key, 0.0)

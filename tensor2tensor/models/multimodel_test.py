@@ -38,7 +38,7 @@ class MultiModelTest(tf.test.TestCase):
     hparams = multimodel.multimodel_tiny()
     hparams.add_hparam("data_dir", "")
     problem = registry.problem("image_cifar10")
-    p_hparams = problem.internal_hparams(hparams)
+    p_hparams = problem.get_hparams(hparams)
     hparams.problems = [p_hparams]
     with self.test_session() as session:
       features = {
@@ -47,7 +47,7 @@ class MultiModelTest(tf.test.TestCase):
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
       model = multimodel.MultiModel(
-          hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
+          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       sharded_logits, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())

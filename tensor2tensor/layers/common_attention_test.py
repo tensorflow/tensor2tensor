@@ -98,8 +98,8 @@ class CommonAttentionTest(tf.test.TestCase):
           tf.constant(x, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
-          block_length=4,
-          filter_flange=3)
+          query_shape=(4, 4),
+          memory_flange=(3, 3))
       session.run(tf.global_variables_initializer())
       res = session.run(a)
     self.assertEqual(res.shape, (5, 4, 25, 25, 16))
@@ -112,8 +112,8 @@ class CommonAttentionTest(tf.test.TestCase):
           tf.constant(x, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
           tf.constant(y, dtype=tf.float32),
-          block_length=5,
-          filter_flange=3)
+          query_shape=(5, 5),
+          memory_flange=(3, 3))
       session.run(tf.global_variables_initializer())
       res = session.run(a)
     self.assertEqual(res.shape, (5, 4, 25, 25, 16))

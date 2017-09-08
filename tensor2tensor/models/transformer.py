@@ -30,6 +30,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -50,8 +51,8 @@ class Transformer(t2t_model.T2TModel):
     targets = common_layers.flatten4d3d(targets)
 
     (encoder_input, encoder_self_attention_bias,
-     encoder_decoder_attention_bias) = (transformer_prepare_encoder(
-         inputs, target_space, hparams))
+     encoder_decoder_attention_bias) = transformer_prepare_encoder(
+         inputs, target_space, hparams)
     (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
         targets, hparams)
 
@@ -190,7 +191,13 @@ def transformer_encoder(encoder_input,
   """
   x = encoder_input
   with tf.variable_scope(name):
-    for layer in xrange(hparams.num_encoder_layers):
+    pad_remover = None
+    if hparams.use_pad_remover:
+      pad_remover = expert_utils.PadRemover(
+          common_attention.attention_bias_to_padding(
+              encoder_self_attention_bias))
+    for layer in xrange(hparams.num_encoder_layers or
+                        hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -202,7 +209,7 @@ def transformer_encoder(encoder_input,
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
-              common_layers.layer_preprocess(x, hparams), hparams)
+              common_layers.layer_preprocess(x, hparams), hparams, pad_remover)
           x = common_layers.layer_postprocess(x, y, hparams)
   # if normalization is done in layer_preprocess, then it shuold also be done
   # on the output, since the output can grow very large, being the sum of
@@ -233,7 +240,8 @@ def transformer_decoder(decoder_input,
   """
   x = decoder_input
   with tf.variable_scope(name):
-    for layer in xrange(hparams.num_decoder_layers):
+    for layer in xrange(hparams.num_decoder_layers or
+                        hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -263,22 +271,37 @@ def transformer_decoder(decoder_input,
   return common_layers.layer_preprocess(x, hparams)
 
 
-def transformer_ffn_layer(x, hparams):
+def transformer_ffn_layer(x, hparams, pad_remover=None):
   """Feed-forward layer in the transformer.
 
   Args:
     x: a Tensor of shape [batch_size, length, hparams.hidden_size]
     hparams: hyperparmeters for model
+    pad_remover: an expert_utils.PadRemover object tracking the padding
+      positions. If provided, when using convolutional settings, the padding
+      is removed before applying the convolution, and restored afterward. This
+      can give a significant speedup.
 
   Returns:
     a Tensor of shape [batch_size, length, hparams.hidden_size]
   """
   if hparams.ffn_layer == "conv_hidden_relu":
-    return common_layers.conv_hidden_relu(
+    # In simple convolution mode, use `pad_remover` to speed up processing.
+    if pad_remover:
+      original_shape = tf.shape(x)
+      # Collapse `x` across examples, and remove padding positions.
+      x = tf.reshape(x, tf.concat([[-1], tf.shape(x)[2:]], axis=0))
+      x = tf.expand_dims(pad_remover.remove(x), axis=0)
+    conv_output = common_layers.conv_hidden_relu(
         x,
         hparams.filter_size,
         hparams.hidden_size,
         dropout=hparams.relu_dropout)
+    if pad_remover:
+      # Restore `conv_output` to the original shape of `x`, including padding.
+      conv_output = tf.reshape(
+          pad_remover.restore(tf.squeeze(conv_output, axis=0)), original_shape)
+    return conv_output
   elif hparams.ffn_layer == "parameter_attention":
     return common_attention.parameter_attention(
         x, hparams.parameter_attention_key_channels or hparams.hidden_size,
@@ -323,11 +346,12 @@ def transformer_base():
   hparams.label_smoothing = 0.1
   hparams.shared_embedding_and_softmax_weights = int(True)
 
-  hparams.add_hparam("filter_size", 2048)  # Add new ones like this.
-  # layer-related flags
-  hparams.add_hparam("num_encoder_layers", hparams.num_hidden_layers)
-  hparams.add_hparam("num_decoder_layers", hparams.num_hidden_layers)
-  # attention-related flags
+  # Add new ones like this.
+  hparams.add_hparam("filter_size", 2048)
+  # Layer-related flags. If zero, these fall back on hparams.num_hidden_layers.
+  hparams.add_hparam("num_encoder_layers", 0)
+  hparams.add_hparam("num_decoder_layers", 0)
+  # Attention-related flags.
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("attention_key_channels", 0)
   hparams.add_hparam("attention_value_channels", 0)
@@ -341,6 +365,8 @@ def transformer_base():
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
   hparams.add_hparam("proximity_bias", int(False))
+  hparams.add_hparam("use_pad_remover", int(True))
+
   return hparams
 
 
@@ -638,6 +664,6 @@ def transformer_base_range(rhp):
   rhp.set_discrete("learning_rate_warmup_steps",
                    [1000, 2000, 4000, 8000, 16000])
   rhp.set_float("initializer_gain", 0.5, 2.0)
-  rhp.set_float("optimizer_adam_beta2", 0.85, 0.95)
+  rhp.set_float("optimizer_adam_beta1", 0.85, 0.95)
   rhp.set_float("optimizer_adam_beta2", 0.97, 0.99)
   rhp.set_float("weight_decay", 0.0, 2.0)

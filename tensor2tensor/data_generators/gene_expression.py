@@ -142,7 +142,7 @@ class GeneExpressionProblem(problem.Problem):
     # Shuffle
     generator_utils.shuffle_dataset(all_filepaths)
 
-  def hparams(self, defaults, model_hparams):
+  def hparams(self, defaults, unused_model_hparams):
     p = defaults
     vocab_size = self._encoders["inputs"].vocab_size
     p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
@@ -159,9 +159,8 @@ class GeneExpressionProblem(problem.Problem):
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
 
-  def preprocess_examples(self, examples, mode, hparams):
+  def preprocess_examples(self, examples, mode, unused_hparams):
     del mode
-    del hparams
 
     # Reshape targets to contain num_output_predictions per output timestep
     examples["targets"] = tf.reshape(examples["targets"],

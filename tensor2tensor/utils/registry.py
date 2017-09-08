@@ -123,7 +123,7 @@ def register_model(name=None):
     """Registers & returns model_cls with registration_name or default name."""
     model_name = registration_name or _default_name(model_cls)
     if model_name in _MODELS:
-      raise ValueError("Model %s already registered." % model_name)
+      raise LookupError("Model %s already registered." % model_name)
     _MODELS[model_name] = model_cls
     return model_cls
 
@@ -137,7 +137,7 @@ def register_model(name=None):
 
 def model(name):
   if name not in _MODELS:
-    raise ValueError("Model %s never registered." % name)
+    raise LookupError("Model %s never registered." % name)
   return _MODELS[name]
 
 
@@ -152,7 +152,7 @@ def register_hparams(name=None):
     """Registers & returns hp_fn with registration_name or default name."""
     hp_name = registration_name or _default_name(hp_fn)
     if hp_name in _HPARAMS:
-      raise ValueError("HParams set %s already registered." % hp_name)
+      raise LookupError("HParams set %s already registered." % hp_name)
     _HPARAMS[hp_name] = hp_fn
     return hp_fn
 
@@ -166,7 +166,7 @@ def register_hparams(name=None):
 
 def hparams(name):
   if name not in _HPARAMS:
-    raise ValueError("HParams set %s never registered." % name)
+    raise LookupError("HParams set %s never registered." % name)
   return _HPARAMS[name]
 
 
@@ -181,7 +181,7 @@ def register_ranged_hparams(name=None):
     """Registers & returns hp_fn with registration_name or default name."""
     rhp_name = registration_name or _default_name(rhp_fn)
     if rhp_name in _RANGED_HPARAMS:
-      raise ValueError("RangedHParams set %s already registered." % rhp_name)
+      raise LookupError("RangedHParams set %s already registered." % rhp_name)
     # Check that the fn takes a single argument
     args, varargs, keywords, _ = inspect.getargspec(rhp_fn)
     if len(args) != 1 or varargs is not None or keywords is not None:
@@ -201,7 +201,7 @@ def register_ranged_hparams(name=None):
 
 def ranged_hparams(name):
   if name not in _RANGED_HPARAMS:
-    raise ValueError("RangedHParams set %s never registered." % name)
+    raise LookupError("RangedHParams set %s never registered." % name)
   return _RANGED_HPARAMS[name]
 
 
@@ -216,7 +216,7 @@ def register_problem(name=None):
     """Registers & returns p_cls with registration_name or default name."""
     p_name = registration_name or _default_name(p_cls)
     if p_name in _PROBLEMS:
-      raise ValueError("Problem %s already registered." % p_name)
+      raise LookupError("Problem %s already registered." % p_name)
 
     _PROBLEMS[p_name] = p_cls
     p_cls.name = p_name
@@ -258,7 +258,7 @@ def problem(name):
   base_name, was_reversed, was_copy = parse_problem_name(name)
 
   if base_name not in _PROBLEMS:
-    raise ValueError("Problem %s never registered." % name)
+    raise LookupError("Problem %s never registered." % name)
   return _PROBLEMS[base_name](was_reversed, was_copy)
 
 
@@ -270,8 +270,8 @@ def _internal_get_modality(name, mod_collection, collection_str):
   if name is None:
     name = "default"
   if name not in mod_collection:
-    raise ValueError("%s modality %s never registered." % (collection_str,
-                                                           name))
+    raise LookupError("%s modality %s never registered." % (collection_str,
+                                                            name))
   return mod_collection[name]
 
 
@@ -312,8 +312,8 @@ def _internal_register_modality(name, mod_collection, collection_str):
     """Registers & returns mod_cls with registration_name or default name."""
     mod_name = registration_name or _default_name(mod_cls)
     if mod_name in mod_collection:
-      raise ValueError("%s modality %s already registered." % (collection_str,
-                                                               mod_name))
+      raise LookupError("%s modality %s already registered." % (collection_str,
+                                                                mod_name))
     mod_collection[mod_name] = mod_cls
     return mod_cls
 
@@ -391,7 +391,7 @@ def create_modality(modality_spec, model_hparams):
     Modality instance.
 
   Raises:
-    ValueError: if modality_type is not recognized. See Modalities class for
+    LookupError: if modality_type is not recognized. See Modalities class for
     accepted types.
   """
   retrieval_fns = {
@@ -406,8 +406,8 @@ def create_modality(modality_spec, model_hparams):
   modality_full_name, vocab_size = modality_spec
   modality_type, modality_name = parse_modality_name(modality_full_name)
   if modality_type not in retrieval_fns:
-    raise ValueError("Modality type %s not recognized. Options are: %s" %
-                     (modality_type, list(_MODALITIES)))
+    raise LookupError("Modality type %s not recognized. Options are: %s" %
+                      (modality_type, list(_MODALITIES)))
 
   return retrieval_fns[modality_type](modality_name)(model_hparams, vocab_size)
 

@@ -63,7 +63,7 @@ class ModelRegistryTest(tf.test.TestCase):
     self.assertTrue(model is model_fn)
 
   def testUnknownModel(self):
-    with self.assertRaisesRegexp(ValueError, "never registered"):
+    with self.assertRaisesRegexp(LookupError, "never registered"):
       registry.model("not_registered")
 
   def testDuplicateRegistration(self):
@@ -72,7 +72,7 @@ class ModelRegistryTest(tf.test.TestCase):
     def m1():
       pass
 
-    with self.assertRaisesRegexp(ValueError, "already registered"):
+    with self.assertRaisesRegexp(LookupError, "already registered"):
 
       @registry.register_model("m1")
       def m2():
@@ -137,9 +137,9 @@ class HParamRegistryTest(tf.test.TestCase):
     self.assertTrue(registry.ranged_hparams("a") is my_hparams_range)
 
   def testUnknownHparams(self):
-    with self.assertRaisesRegexp(ValueError, "never registered"):
+    with self.assertRaisesRegexp(LookupError, "never registered"):
       registry.hparams("not_registered")
-    with self.assertRaisesRegexp(ValueError, "never registered"):
+    with self.assertRaisesRegexp(LookupError, "never registered"):
       registry.ranged_hparams("not_registered")
 
   def testDuplicateRegistration(self):
@@ -148,7 +148,7 @@ class HParamRegistryTest(tf.test.TestCase):
     def hp1():
       pass
 
-    with self.assertRaisesRegexp(ValueError, "already registered"):
+    with self.assertRaisesRegexp(LookupError, "already registered"):
 
       @registry.register_hparams("hp1")
       def hp2():
@@ -158,7 +158,7 @@ class HParamRegistryTest(tf.test.TestCase):
     def rhp1(_):
       pass
 
-    with self.assertRaisesRegexp(ValueError, "already registered"):
+    with self.assertRaisesRegexp(LookupError, "already registered"):
 
       @registry.register_ranged_hparams("rhp1")
       def rhp2(_):

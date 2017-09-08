@@ -64,7 +64,7 @@ def shake_shake_block(x, conv_filters, stride, hparams):
     skip = downsampling_residual_branch(x, conv_filters)
 
   # TODO(rshin): Use different alpha for each image in batch.
-  if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN:
+  if hparams.mode == tf.estimator.ModeKeys.TRAIN:
     if hparams.shakeshake_type == "batch":
       shaken = common_layers.shakeshake2(branch1, branch2)
     elif hparams.shakeshake_type == "image":

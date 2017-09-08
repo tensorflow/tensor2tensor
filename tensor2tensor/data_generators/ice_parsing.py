@@ -109,7 +109,7 @@ class ParsingIcelandic16k(problem.Problem):
                                        self.targeted_vocab_size),
         self.dev_filepaths(data_dir, 1, shuffled=False))
 
-  def hparams(self, defaults, model_hparams):
+  def hparams(self, defaults, unused_model_hparams):
     p = defaults
     source_vocab_size = self._encoders["inputs"].vocab_size
     p.input_modality = {"inputs": (registry.Modalities.SYMBOL,

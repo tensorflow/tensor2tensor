@@ -67,7 +67,7 @@ class ModalityTest(tf.test.TestCase):
         label_smoothing=0.2,
         shared_embedding_and_softmax_weights=0,
         factored_logits=0,
-        mode=tf.contrib.learn.ModeKeys.TRAIN)
+        mode=tf.estimator.ModeKeys.TRAIN)
     body_output = -1 + np.random.random_integers(
         100, size=(batch_size, length, height, hidden_size))
     targets = -1 + np.random.random_integers(
@@ -101,7 +101,7 @@ class ModalityTest(tf.test.TestCase):
         label_smoothing=0.2,
         shared_embedding_and_softmax_weights=0,
         factored_logits=1,
-        mode=tf.contrib.learn.ModeKeys.TRAIN)
+        mode=tf.estimator.ModeKeys.TRAIN)
     body_output = -1 + np.random.random_integers(
         100, size=(batch_size, length, height, hidden_size))
     targets = -1 + np.random.random_integers(

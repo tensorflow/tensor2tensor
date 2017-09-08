@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import sys
 
 # Dependency imports
@@ -29,7 +30,6 @@ from tensor2tensor.models import models  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import input_fn_builder
-from tensor2tensor.utils import metrics
 from tensor2tensor.utils import model_builder
 from tensor2tensor.utils import registry
 
@@ -75,6 +75,8 @@ flags.DEFINE_integer("save_checkpoints_secs", 0,
                      "Save checkpoints every this many seconds. "
                      "Default=0 means let tensorflow.contrib.learn.python.learn"
                      " decide, which is currently set to 600 = 10 minutes.")
+flags.DEFINE_bool("log_device_placement", False,
+                  "Whether to log device placement.")
 
 # Distributed training flags
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
@@ -92,7 +94,7 @@ flags.DEFINE_string("worker_job", "/job:worker", "name of worker job")
 flags.DEFINE_integer("worker_gpu", 1, "How many GPUs to use.")
 flags.DEFINE_integer("worker_replicas", 1, "How many workers to use.")
 flags.DEFINE_integer("worker_id", 0, "Which worker task are we.")
-flags.DEFINE_float("worker_gpu_memory_fraction", 1.,
+flags.DEFINE_float("worker_gpu_memory_fraction", 0.95,
                    "Fraction of GPU memory to allocate.")
 flags.DEFINE_integer("ps_gpu", 0, "How many GPUs to use per ps.")
 flags.DEFINE_string("gpu_order", "", "Optional order for daisy-chaining gpus."
@@ -147,17 +149,13 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
   """Create Experiment."""
   hparams = create_hparams(
       FLAGS.hparams_set, FLAGS.problems, data_dir, passed_hparams=FLAGS.hparams)
+  if FLAGS.worker_id == 0 and FLAGS.schedule in ["local_run", "train"]:
+    save_metadata(output_dir, hparams)
   estimator, input_fns = create_experiment_components(
       hparams=hparams,
       output_dir=output_dir,
       data_dir=data_dir,
       model_name=model_name)
-  eval_metrics = metrics.create_evaluation_metrics(
-      zip(FLAGS.problems.split("-"), hparams.problem_instances), hparams)
-  if (hasattr(FLAGS, "autotune") and FLAGS.autotune and
-      FLAGS.objective not in eval_metrics):
-    raise ValueError("Tuning objective %s not among evaluation metrics %s" %
-                     (FLAGS.objective, eval_metrics.keys()))
   train_monitors = []
   eval_hooks = []
   if FLAGS.tfdbg:
@@ -166,9 +164,8 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
     eval_hooks.append(hook)
   return tf.contrib.learn.Experiment(
       estimator=estimator,
-      train_input_fn=input_fns[tf.contrib.learn.ModeKeys.TRAIN],
-      eval_input_fn=input_fns[tf.contrib.learn.ModeKeys.EVAL],
-      eval_metrics=eval_metrics,
+      train_input_fn=input_fns[tf.estimator.ModeKeys.TRAIN],
+      eval_input_fn=input_fns[tf.estimator.ModeKeys.EVAL],
       train_steps=train_steps,
       eval_steps=eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
@@ -182,39 +179,37 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
 
   num_datashards = devices.data_parallelism().n
   train_input_fn = input_fn_builder.build_input_fn(
-      mode=tf.contrib.learn.ModeKeys.TRAIN,
+      mode=tf.estimator.ModeKeys.TRAIN,
       hparams=hparams,
       data_file_patterns=get_data_filepatterns(data_dir,
-                                               tf.contrib.learn.ModeKeys.TRAIN),
+                                               tf.estimator.ModeKeys.TRAIN),
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
       worker_id=FLAGS.worker_id)
 
   eval_input_fn = input_fn_builder.build_input_fn(
-      mode=tf.contrib.learn.ModeKeys.EVAL,
+      mode=tf.estimator.ModeKeys.EVAL,
       hparams=hparams,
       data_file_patterns=get_data_filepatterns(data_dir,
-                                               tf.contrib.learn.ModeKeys.EVAL),
+                                               tf.estimator.ModeKeys.EVAL),
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
       worker_id=FLAGS.worker_id)
-  estimator = tf.contrib.learn.Estimator(
-      model_fn=model_builder.build_model_fn(model_name, hparams),
+  estimator = tf.estimator.Estimator(
+      model_fn=model_builder.build_model_fn(model_name),
       model_dir=output_dir,
+      params=hparams,
       config=tf.contrib.learn.RunConfig(
           master=FLAGS.master,
-          model_dir=output_dir,
           gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction,
           session_config=session_config(),
           keep_checkpoint_max=FLAGS.keep_checkpoint_max,
           keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
           save_checkpoints_secs=FLAGS.save_checkpoints_secs))
 
-  # Store the hparams in the estimator as well
-  estimator.hparams = hparams
   return estimator, {
-      tf.contrib.learn.ModeKeys.TRAIN: train_input_fn,
-      tf.contrib.learn.ModeKeys.EVAL: eval_input_fn
+      tf.estimator.ModeKeys.TRAIN: train_input_fn,
+      tf.estimator.ModeKeys.EVAL: eval_input_fn
   }
 
 
@@ -231,18 +226,61 @@ def add_problem_hparams(hparams, problems):
   for problem_name in problems.split("-"):
     try:
       problem = registry.problem(problem_name)
-    except ValueError:
+    except LookupError:
       problem = None
 
     if problem is None:
-      p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+      try:
+        p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+      except LookupError:
+        # The problem is not in the set of registered Problems nor in the old
+        # set of problem_hparams.
+        all_problem_names = sorted(
+            list(problem_hparams.PROBLEM_HPARAMS_MAP) +
+            registry.list_problems())
+        error_lines = [
+            "%s not in the set of supported problems:" % problem_name
+        ] + all_problem_names
+        error_msg = "\n  * ".join(error_lines)
+        raise LookupError(error_msg)
     else:
-      p_hparams = problem.internal_hparams(hparams)
+      p_hparams = problem.get_hparams(hparams)
 
     hparams.problem_instances.append(problem)
     hparams.problems.append(p_hparams)
 
   return hparams
+
+
+def save_metadata(output_dir, hparams):
+  """Saves FLAGS and hparams to output_dir."""
+  # Save FLAGS in txt file
+  if hasattr(FLAGS, "flags_into_string"):
+    flags_str = FLAGS.flags_into_string()
+    t2t_flags_str = "\n".join([
+        "--%s=%s" % (f.name, f.value)
+        for f in FLAGS.flags_by_module_dict()[
+            "tensor2tensor.utils.trainer_utils"]
+    ])
+  else:
+    flags_dict = FLAGS.__dict__["__flags"]
+    flags_str = "\n".join(
+        ["--%s=%s" % (name, str(f)) for (name, f) in flags_dict.items()])
+    t2t_flags_str = None
+
+  flags_txt = os.path.join(output_dir, "flags.txt")
+  with tf.gfile.Open(flags_txt, "w") as f:
+    f.write(flags_str)
+
+  if t2t_flags_str:
+    t2t_flags_txt = os.path.join(output_dir, "flags_t2t.txt")
+    with tf.gfile.Open(t2t_flags_txt, "w") as f:
+      f.write(t2t_flags_str)
+
+  # Save hparams as hparams.json
+  hparams_fname = os.path.join(output_dir, "hparams.json")
+  with tf.gfile.Open(hparams_fname, "w") as f:
+    f.write(hparams.to_json())
 
 
 def create_hparams(params_id, problems, data_dir, passed_hparams=None):
@@ -296,9 +334,15 @@ def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
   if schedule == "local_run":
     # Run the local demo.
     exp = exp_fn(output_dir)
-    if exp.train_steps > 0 or exp.eval_steps > 0:
+    if exp.train_steps > 0 and exp.eval_steps > 0:
       tf.logging.info("Performing local training and evaluation.")
       exp.train_and_evaluate()
+    elif exp.train_steps > 0:
+      tf.logging.info("Performing local training.")
+      exp.train()
+    elif exp.eval_steps > 0:
+      tf.logging.info("Performing local evaluation.")
+      exp.evaluate(delay_secs=0)
   else:
     # Perform distributed training/evaluation.
     learn_runner.run(
@@ -339,7 +383,8 @@ def session_config():
   config = tf.ConfigProto(
       allow_soft_placement=True,
       graph_options=graph_options,
-      gpu_options=gpu_options)
+      gpu_options=gpu_options,
+      log_device_placement=FLAGS.log_device_placement)
   return config
 
 

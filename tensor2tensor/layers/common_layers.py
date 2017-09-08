@@ -628,11 +628,22 @@ def conv_block_internal(conv_fn,
   Returns:
      a Tensor.
   """
+
   name = kwargs.pop("name") if "name" in kwargs else None
   mask = kwargs.pop("mask") if "mask" in kwargs else None
-  norm = kwargs.pop("normalizer_fn") if "normalizer_fn" in kwargs else None
-  if norm is None and "normalizer_fn" not in kwargs:
+
+  # Usage for normalize_fn kwarg:
+  # if not specified, use layer norm
+  # if given normalize_fn=None, don't use any normalization
+  # if given normalize_fn=norm, use the specified norm function
+
+  use_layer_norm = "normalizer_fn" not in kwargs
+  norm = kwargs.pop("normalizer_fn", None)
+  use_normalizer_fn = use_layer_norm or norm
+
+  if use_layer_norm:
     norm = lambda x, name: layer_norm(x, filters, name=name)
+
   with tf.variable_scope(name, "conv_block", [inputs]):
     cur, counter = inputs, -1
     for dilation_rate, kernel_size in dilation_rates_and_kernel_sizes:
@@ -660,7 +671,7 @@ def conv_block_internal(conv_fn,
             name="conv_block_%d" % counter,
             use_bias=norm is None,
             **kwargs)
-      if norm is not None:
+      if use_normalizer_fn:
         cur = norm(cur, name="conv_block_norm_%d" % counter)
     return cur
 

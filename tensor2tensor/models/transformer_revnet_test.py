@@ -59,7 +59,7 @@ class TransformerRevnetTest(tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32),
     }
     model = transformer_revnet.TransformerRevnet(
-        hparams, tf.contrib.learn.ModeKeys.TRAIN, p_hparams)
+        hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
     sharded_logits, _ = model.model_fn(features)
     logits = tf.concat(sharded_logits, 0)
     grads = tf.gradients(

@@ -53,8 +53,8 @@ def _maybe_download_corpora(tmp_dir):
     filepath of the downloaded corpus file.
   """
   cnn_filename = "cnn_stories.tgz"
-  dailymail_filename = "dailymail_stories.tgz"
   cnn_finalpath = os.path.join(tmp_dir, "cnn/stories/")
+  dailymail_filename = "dailymail_stories.tgz"
   dailymail_finalpath = os.path.join(tmp_dir, "dailymail/stories/")
   if not tf.gfile.Exists(cnn_finalpath):
     cnn_file = generator_utils.maybe_download_from_drive(
@@ -63,7 +63,7 @@ def _maybe_download_corpora(tmp_dir):
       cnn_tar.extractall(tmp_dir)
   if not tf.gfile.Exists(dailymail_finalpath):
     dailymail_file = generator_utils.maybe_download_from_drive(
-        tmp_dir, dailymail_filename, _CNN_STORIES_DRIVE_URL)
+        tmp_dir, dailymail_filename, _DAILYMAIL_STORIES_DRIVE_URL)
     with tarfile.open(dailymail_file, "r:gz") as dailymail_tar:
       dailymail_tar.extractall(tmp_dir)
   return [cnn_finalpath, dailymail_finalpath]
