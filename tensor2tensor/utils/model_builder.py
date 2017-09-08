@@ -38,6 +38,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import yellowfin
 
 import tensorflow as tf
+from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import init_ops
 
 # TODO(rsepassi): Rm dep on FLAGS here
@@ -363,7 +364,9 @@ def build_model_fn(model):
       total_loss *= small_batch_multiplier
     total_loss = tf.identity(total_loss, name="total_loss")
     log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
-    diet_vars = [v for v in tf.global_variables() if hasattr(v, "optimizer")]
+    diet_vars = [
+        v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
+    ]
     log_variable_sizes(diet_vars, "Diet Varaibles")
     # Define the train_op for the TRAIN mode.
     opt = _ConditionalOptimizer(my_hp.optimizer, learning_rate, my_hp)
