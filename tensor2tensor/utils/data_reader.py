@@ -27,7 +27,6 @@ import numpy as np
 
 import six
 from six.moves import zip  # pylint: disable=redefined-builtin
-from six.moves import xrange
 
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.data_generators.problem import preprocess_examples_common
