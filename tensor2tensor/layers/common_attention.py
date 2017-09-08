@@ -696,8 +696,8 @@ def pad_to_multiple_2d(x, block_shape):
   """Making sure x is a multiple of shape."""
   old_shape = x.get_shape().dims
   last = old_shape[-1]
-  height_padding = -tf.shape(x)[1] % block_shape[0]
-  width_padding = -tf.shape(x)[2] % block_shape[1]
+  height_padding = -tf.shape(x)[2] % block_shape[0]
+  width_padding = -tf.shape(x)[3] % block_shape[1]
   paddings = [[0, 0], [0, 0], [0, height_padding],
               [0, width_padding], [0, 0]]
   padded_x = tf.pad(x, paddings)
