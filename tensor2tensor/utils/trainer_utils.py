@@ -265,7 +265,7 @@ def save_metadata(output_dir, hparams):
   else:
     flags_dict = FLAGS.__dict__["__flags"]
     flags_str = "\n".join(
-        ["--%s=%s" % (name, str(f.value)) for (name, f) in flags_dict.items()])
+        ["--%s=%s" % (name, str(f)) for (name, f) in flags_dict.items()])
     t2t_flags_str = None
 
   flags_txt = os.path.join(output_dir, "flags.txt")
