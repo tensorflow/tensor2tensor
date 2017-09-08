@@ -414,7 +414,7 @@ def _sample_decode(model, global_step, sess, hparams, iterator, src_data,
       bpe_delimiter=hparams.bpe_delimiter)
   utils.print_out("    src: %s" % src_data[decode_id])
   utils.print_out("    ref: %s" % tgt_data[decode_id])
-  utils.print_out(b"    nmt: %s" % translation)
+  utils.print_out(b"    nmt: " + translation)
 
   # Summary
   if attention_summary is not None:
