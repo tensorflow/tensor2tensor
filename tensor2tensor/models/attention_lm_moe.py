@@ -148,6 +148,8 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 hparams.hidden_size,
                 hparams.num_heads,
                 hparams.attention_dropout,
+                attention_type=("local_mask_right" if hparams.attention_local
+                                else "dot_product"),
                 name="decoder_self_attention")
           elif hparams.attention_type == AttentionType.MEMORY_EFFICIENT:
             assert hparams.layer_preprocess_sequence == "n"
@@ -349,6 +351,7 @@ def attention_lm_moe_base():
   hparams.add_hparam("moe_layers", "2")  # comma separated list of layer numbers
   # moe params. local attention moe.
   hparams.add_hparam("attention_type", AttentionType.MULTIHEAD)
+  hparams.add_hparam("attention_local", int(False))
   hparams.add_hparam("attention_moe_k", 2)
   hparams.add_hparam("attention_num_experts", 16)
   hparams.add_hparam("attention_split_batch", int(False))
@@ -380,6 +383,18 @@ def attention_lm_moe_base_ae():
   # According to noam, ("n", "da") seems better for harder-to-learn models
   # hparams.layer_preprocess_sequence = "n"
   # hparams.layer_postprocess_sequence = "da"
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_base_local():
+  """Base model with attention expert."""
+  hparams = attention_lm_moe_base()
+  hparams.attention_local = int(True)
+  hparams.use_sepconv = int(True)
+  hparams.max_length = 0  # max_length == batch_size
+  hparams.eval_drop_long_sequences = int(True)
+  hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
   return hparams
 
 
