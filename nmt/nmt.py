@@ -205,6 +205,9 @@ def add_arguments(parser):
                             "hparams values from FLAGS."))
   parser.add_argument("--random_seed", type=int, default=None,
                       help="Random seed (>0, set a specific seed).")
+  parser.add_argument("--override_loaded_hparams", type="bool", nargs="?",
+                      const=True, default=True,
+                      help="Override loaded hparams with values specified")
 
   # Inference
   parser.add_argument("--ckpt", type=str, default="",
@@ -309,6 +312,7 @@ def create_hparams(flags):
       metrics=flags.metrics.split(","),
       log_device_placement=flags.log_device_placement,
       random_seed=flags.random_seed,
+      override_loaded_hparams=flags.override_loaded_hparams,
   )
 
 
@@ -408,17 +412,14 @@ def ensure_compatible_hparams(hparams, default_hparams, hparams_path):
     if key not in config:
       hparams.add_hparam(key, default_config[key])
 
-  # Make sure that the loaded model has latest values for the below keys
-  updated_keys = [
-      "out_dir", "num_gpus", "test_prefix", "beam_width",
-      "length_penalty_weight", "num_train_steps"
-  ]
-  for key in updated_keys:
-    if key in default_config and getattr(hparams, key) != default_config[key]:
-      utils.print_out("# Updating hparams.%s: %s -> %s" %
-                      (key, str(getattr(hparams, key)),
-                       str(default_config[key])))
-      setattr(hparams, key, default_config[key])
+  # Update all hparams' keys if override_loaded_hparams=True
+  if default_hparams.override_loaded_hparams:
+    for key in default_config:
+      if getattr(hparams, key) != default_config[key]:
+        utils.print_out("# Updating hparams.%s: %s -> %s" %
+                        (key, str(getattr(hparams, key)),
+                         str(default_config[key])))
+        setattr(hparams, key, default_config[key])
   return hparams
 
 
