@@ -68,17 +68,20 @@ class AttentionLmMoe(t2t_model.T2TModel):
     # Remove dropout if not training
     hparams = self._hparams
     dp = self._data_parallelism
-    targets = sharded_features["targets"]
-    targets = dp(tf.squeeze, targets, 2)
+    if hparams.use_inputs:
+      decoder_input = dp(tf.squeeze, sharded_features["inputs"], 2)
+      decoder_self_attention_bias = None
+    else:
+      targets = sharded_features["targets"]
+      targets = dp(tf.squeeze, targets, 2)
+      (decoder_input, decoder_self_attention_bias, pad_remover) = dp(
+          attention_lm_moe_prepare_decoder, targets, hparams)
 
     def preprocess(x):
       return dp(common_layers.layer_preprocess, x, hparams)
 
     def postprocess(x, y):
       return dp(common_layers.layer_postprocess, x, y, hparams)
-
-    (decoder_input, decoder_self_attention_bias, pad_remover) = dp(
-        attention_lm_moe_prepare_decoder, targets, hparams)
 
     x = dp(tf.nn.dropout, decoder_input,
            1.0 - hparams.layer_prepostprocess_dropout)
@@ -95,7 +98,8 @@ class AttentionLmMoe(t2t_model.T2TModel):
       expert_fn = expert_utils.ffn_expert_fn(
           hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
 
-    if hparams.attention_type == AttentionType.LOCAL_EXPERTS:
+    if (hparams.attention_type == AttentionType.LOCAL_EXPERTS
+        and not hparams.use_inputs):
       # As preprocess and postprocess are called with batch of size one (all
       # batches concatenated), we just make sure that batch_norm is not use (
       # should not either way)
@@ -162,7 +166,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 attention_num_experts=hparams.attention_num_experts,
                 train=hparams.mode == ModeKeys.TRAIN,
                 batch_coordinate=batch_coordinate,
-                mask_right=True,
+                mask_right=not hparams.use_inputs,
                 split_batch=bool(hparams.attention_split_batch),
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
@@ -356,6 +360,9 @@ def attention_lm_moe_base():
   hparams.add_hparam("use_sepconv", int(False))
   hparams.add_hparam("diet_experts", int(False))
   hparams.add_hparam("memory_efficient_ffn", int(False))
+  # if True, we learn a non-autoregressive model from "inputs" to "targets".
+  # if False, we learn an autoregressive model to generate "targets"
+  hparams.add_hparam("use_inputs", int(False))
   return hparams
 
 
@@ -525,4 +532,18 @@ def attention_lm_moe_translation():
   hparams.num_hidden_layers = 6
   hparams.moe_layers = "0,1,2,3,4,5"
   hparams.shared_embedding_and_softmax_weights = int(True)
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_unscramble_base():
+  """Version to use with languagemodel_wiki_scramble1k50."""
+  hparams = attention_lm_no_moe_small()
+  hparams.use_inputs = True
+  hparams.min_length_bucket = 1024
+  hparams.max_length = 1024
+  hparams.batch_size = 5000
+  hparams.layer_prepostprocess_dropout = 0.0
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
   return hparams
