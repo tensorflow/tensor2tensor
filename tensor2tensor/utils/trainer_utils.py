@@ -149,7 +149,7 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
   """Create Experiment."""
   hparams = create_hparams(
       FLAGS.hparams_set, FLAGS.problems, data_dir, passed_hparams=FLAGS.hparams)
-  if FLAGS.worker_id == 0:
+  if FLAGS.worker_id == 0 and FLAGS.schedule in ["local_run", "train"]:
     save_metadata(output_dir, hparams)
   estimator, input_fns = create_experiment_components(
       hparams=hparams,
@@ -226,11 +226,23 @@ def add_problem_hparams(hparams, problems):
   for problem_name in problems.split("-"):
     try:
       problem = registry.problem(problem_name)
-    except ValueError:
+    except LookupError:
       problem = None
 
     if problem is None:
-      p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+      try:
+        p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
+      except LookupError:
+        # The problem is not in the set of registered Problems nor in the old
+        # set of problem_hparams.
+        all_problem_names = sorted(
+            list(problem_hparams.PROBLEM_HPARAMS_MAP) +
+            registry.list_problems())
+        error_lines = [
+            "%s not in the set of supported problems:" % problem_name
+        ] + all_problem_names
+        error_msg = "\n  * ".join(error_lines)
+        raise LookupError(error_msg)
     else:
       p_hparams = problem.get_hparams(hparams)
 
