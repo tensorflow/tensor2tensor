@@ -87,6 +87,10 @@ def add_arguments(parser):
   parser.add_argument("--optimizer", type=str, default="sgd", help="sgd | adam")
   parser.add_argument("--learning_rate", type=float, default=1.0,
                       help="Learning rate. Adam: 0.001 | 0.0001")
+  parser.add_argument("--learning_rate_warmup_steps", type=int, default=0,
+                      help="How many steps we inverse-decay learning.")
+  parser.add_argument("--learning_rate_warmup_factor", type=float, default=1.0,
+                      help="The inverse decay factor for each warmup step.")
   parser.add_argument("--start_decay_step", type=int, default=0,
                       help="When we start to decay")
   parser.add_argument("--decay_steps", type=int, default=10000,
@@ -268,6 +272,8 @@ def create_hparams(flags):
       init_weight=flags.init_weight,
       max_gradient_norm=flags.max_gradient_norm,
       learning_rate=flags.learning_rate,
+      learning_rate_warmup_steps = flags.learning_rate_warmup_steps,
+      learning_rate_warmup_factor = flags.learning_rate_warmup_factor,
       start_decay_step=flags.start_decay_step,
       decay_factor=flags.decay_factor,
       decay_steps=flags.decay_steps,
@@ -416,7 +422,8 @@ def ensure_compatible_hparams(hparams, default_hparams, hparams_path):
   return hparams
 
 
-def create_or_load_hparams(out_dir, default_hparams, hparams_path):
+def create_or_load_hparams(
+    out_dir, default_hparams, hparams_path, save_hparams=True):
   """Create hparams or load hparams from out_dir."""
   hparams = utils.load_hparams(out_dir)
   if not hparams:
@@ -428,10 +435,10 @@ def create_or_load_hparams(out_dir, default_hparams, hparams_path):
     hparams = ensure_compatible_hparams(hparams, default_hparams, hparams_path)
 
   # Save HParams
-  utils.save_hparams(out_dir, hparams)
-
-  for metric in hparams.metrics:
-    utils.save_hparams(getattr(hparams, "best_" + metric + "_dir"), hparams)
+  if save_hparams:
+    utils.save_hparams(out_dir, hparams)
+    for metric in hparams.metrics:
+      utils.save_hparams(getattr(hparams, "best_" + metric + "_dir"), hparams)
 
   # Print HParams
   utils.print_hparams(hparams)
@@ -457,7 +464,8 @@ def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
   if not tf.gfile.Exists(out_dir): tf.gfile.MakeDirs(out_dir)
 
   # Load hparams.
-  hparams = create_or_load_hparams(out_dir, default_hparams, flags.hparams_path)
+  hparams = create_or_load_hparams(
+    out_dir, default_hparams, flags.hparams_path, save_hparams=(jobid==0))
 
   if flags.inference_input_file:
     # Inference indices
