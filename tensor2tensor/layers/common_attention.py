@@ -1066,7 +1066,7 @@ def multihead_attention_2d(query_antecedent,
                      "attention heads (%d)." % (total_value_depth, num_heads))
   with tf.variable_scope(
       name,
-      default_name="multihead_attention",
+      default_name="multihead_attention_2d",
       values=[query_antecedent, memory_antecedent]):
     q, k, v = compute_qkv_2d(query_antecedent, memory_antecedent,
                              total_key_depth, total_value_depth)
