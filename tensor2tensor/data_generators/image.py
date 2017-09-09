@@ -360,6 +360,12 @@ class ImageImagenet32(Image2ClassProblem):
   def num_classes(self):
     return 1000
 
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    # TODO(lukaszkaiser): find a better way than printing this.
+    print("To generate the ImageNet dataset in the proper format, follow "
+          "instructions at https://github.com/tensorflow/models/blob/master"
+          "/inception/README.md#getting-started")
+
   def preprocess_examples(self, examples, mode, unused_hparams):
     # Just resize with area.
     if self._was_reversed:
@@ -371,6 +377,35 @@ class ImageImagenet32(Image2ClassProblem):
       examples["inputs"] = tf.to_int64(
           tf.image.resize_images(examples["inputs"], [32, 32]))
     return examples
+
+
+@registry.register_problem
+class Img2imgImagenet(ImageProblem):
+  """Imagenet rescaled to 8x8 for input and 32x32 for output."""
+
+  def dataset_filename(self):
+    return "image_imagenet"  # Reuse Imagenet data.
+
+  def preprocess_examples(self, examples, unused_mode, unused_hparams):
+
+    def resize(img, size):
+      return tf.to_int64(
+          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
+
+    inputs = examples["inputs"]
+    # For Img2Img resize input and output images as desired.
+    examples["inputs"] = resize(inputs, 8)
+    examples["targets"] = resize(inputs, 32)
+    return examples
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
+    p.target_modality = ("image:identity_no_pad", None)
+    p.batch_size_multiplier = 256
+    p.max_expected_batch_size_per_shard = 4
+    p.input_space_id = 1
+    p.target_space_id = 1
 
 
 def image_generator(images, labels):

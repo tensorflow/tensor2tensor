@@ -131,17 +131,7 @@ def preprocessing(examples, data_file_pattern):
   """Preprocessing of examples."""
   # This function is for obsolete problems only, as we're porting them
   # all to the Problem class and its preprocess_examples method. Don't add.
-  if "image" in data_file_pattern:
-
-    def resize(img, size):
-      return tf.to_int64(
-          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
-
-    if "img2img" in data_file_pattern:
-      inputs = examples["inputs"]
-      examples["inputs"] = resize(inputs, 16)
-      examples["targets"] = resize(inputs, 64)
-  elif "audio" in data_file_pattern:
+  if "audio" in data_file_pattern:
     # Reshape audio to proper shape
     sample_count = tf.to_int32(examples.pop("audio/sample_count"))
     sample_width = tf.to_int32(examples.pop("audio/sample_width"))
