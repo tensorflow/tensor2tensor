@@ -1080,6 +1080,7 @@ def multihead_attention_2d(query_antecedent,
       x = local_attention_2d(
           q, k, v, query_shape=query_shape, memory_flange=memory_flange)
     else:
+      assert attention_type == "masked_local_attention_2d"
       x = masked_local_attention_2d(q, k, v, query_shape=query_shape,
                                     memory_flange=memory_flange)
     x = combine_heads_2d(x)
