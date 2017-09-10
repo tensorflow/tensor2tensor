@@ -53,7 +53,7 @@ class DietVarTest(tf.test.TestCase):
     with self.test_session() as sess:
       sess.run(tf.global_variables_initializer())
       orig_vals = sess.run(tf.global_variables())
-      for _ in xrange(10):
+      for _ in range(10):
         sess.run(train_op)
       new_vals = sess.run(tf.global_variables())
 
