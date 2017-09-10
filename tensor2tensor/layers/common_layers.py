@@ -902,7 +902,7 @@ def multiscale_conv_sum(inputs, output_size, dilation_rates_and_kernel_sizes,
     results, counter = [], -1
     for dilation_rate, kernel_size in dilation_rates_and_kernel_sizes:
       counter += 1
-      if dilation_rate > 1:
+      if dilation_rate[0] > 1:
         pooled = pool(inputs, kernel_size, pooling_type, padding)
       else:
         pooled = inputs

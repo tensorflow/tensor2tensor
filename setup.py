@@ -27,6 +27,7 @@ setup(
     ],
     install_requires=[
         'bz2file',
+        'future',
         'numpy',
         'requests',
         'sympy',
@@ -35,9 +36,8 @@ setup(
     extras_require={
         'tensorflow': ['tensorflow>=1.3.0'],
         'tensorflow_gpu': ['tensorflow-gpu>=1.3.0'],
+        'tests': ['pytest', 'h5py', 'mock'],
     },
-    tests_require=['nose'],
-    test_suite='nose.collector',
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',

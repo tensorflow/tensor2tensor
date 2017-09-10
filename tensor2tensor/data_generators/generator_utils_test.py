@@ -26,6 +26,8 @@ import tempfile
 
 # Dependency imports
 
+from builtins import bytes  # pylint: disable=redefined-builtin
+
 from tensor2tensor.data_generators import generator_utils
 
 import tensorflow as tf
@@ -84,13 +86,13 @@ class GeneratorUtilsTest(tf.test.TestCase):
 
     # Create a test zip file and unzip it.
     with gzip.open(tmp_file_path + ".gz", "wb") as gz_file:
-      gz_file.write("test line")
+      gz_file.write(bytes("test line", "utf-8"))
     generator_utils.gunzip_file(tmp_file_path + ".gz", tmp_file_path + ".txt")
 
     # Check that the unzipped result is as expected.
     lines = []
     for line in io.open(tmp_file_path + ".txt", "rb"):
-      lines.append(line.strip())
+      lines.append(line.decode("utf-8").strip())
     self.assertEqual(len(lines), 1)
     self.assertEqual(lines[0], "test line")
 
