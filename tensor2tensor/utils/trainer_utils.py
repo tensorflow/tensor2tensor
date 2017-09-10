@@ -24,10 +24,11 @@ import sys
 
 # Dependency imports
 
+from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models import models  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
+from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import input_fn_builder
 from tensor2tensor.utils import model_builder
@@ -103,31 +104,10 @@ flags.DEFINE_string("ps_job", "/job:ps", "name of ps job")
 flags.DEFINE_integer("ps_replicas", 0, "How many ps replicas.")
 
 # Decoding flags
-flags.DEFINE_string("decode_from_file", None, "Path to decode file")
-flags.DEFINE_bool("decode_interactive", False,
-                  "Interactive local inference mode.")
-flags.DEFINE_bool("decode_use_last_position_only", False,
-                  "In inference, use last position only for speedup.")
-flags.DEFINE_bool("decode_save_images", False, "Save inference input images.")
-flags.DEFINE_string("decode_to_file", None, "Path to inference output file")
-flags.DEFINE_integer("decode_shards", 1, "How many shards to decode.")
-flags.DEFINE_integer("decode_problem_id", 0, "Which problem to decode.")
-flags.DEFINE_integer("decode_extra_length", 50, "Added decode length.")
-flags.DEFINE_integer("decode_batch_size", 32, "Batch size for decoding. "
-                     "The decodes will be written to <filename>.decodes in"
-                     "format result\tinput")
-flags.DEFINE_integer("decode_beam_size", 4, "The beam size for beam decoding")
-flags.DEFINE_float("decode_alpha", 0.6, "Alpha for length penalty")
-flags.DEFINE_bool("decode_return_beams", False,
-                  "Whether to return 1 (False) or all (True) beams. The \n "
-                  "output file will have the format "
-                  "<beam1>\t<beam2>..\t<input>")
-flags.DEFINE_integer("decode_max_input_size", -1,
-                     "Maximum number of ids in input. Or <= 0 for no max.")
-flags.DEFINE_bool("identity_output", False, "To print the output as identity")
-flags.DEFINE_integer("decode_num_samples", -1,
-                     "Number of samples to decode. Currently used in "
-                     "decode_from_dataset. Use -1 for all.")
+flags.DEFINE_string(
+    "decode_hparams", "",
+    "Comma-separated list of name=value pairs to control decode behavior. "
+    "See decoding.decode_hparams for defaults.")
 
 
 def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
@@ -195,8 +175,24 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
       worker_id=FLAGS.worker_id)
+
+  autotune = False
+  objective = None
+  if hasattr(FLAGS, "autotune"):
+    autotune = FLAGS.autotune
+    objective = FLAGS.objective
+  model_fn = model_builder.build_model_fn(
+      model_name,
+      problem_names=FLAGS.problems.split("-"),
+      train_steps=FLAGS.train_steps,
+      worker_id=FLAGS.worker_id,
+      worker_replicas=FLAGS.worker_replicas,
+      eval_run_autoregressive=FLAGS.eval_run_autoregressive,
+      decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams),
+      autotune=autotune,
+      objective=objective)
   estimator = tf.estimator.Estimator(
-      model_fn=model_builder.build_model_fn(model_name),
+      model_fn=model_fn,
       model_dir=output_dir,
       params=hparams,
       config=tf.contrib.learn.RunConfig(

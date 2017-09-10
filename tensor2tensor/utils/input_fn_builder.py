@@ -81,125 +81,115 @@ def build_input_fn(mode,
     Raises:
       ValueError: if one of the parameters has an unsupported value.
     """
-    problem_count, batches = len(hparams.problems), []
-    with tf.name_scope("input_reader"):
-      for n in xrange(problem_count):
-        if fixed_problem is not None and n != fixed_problem:
+    problem_count = len(hparams.problems)
+    problem_batches = []
+    with tf.name_scope("input_fn"):
+      for problem_idx in xrange(problem_count):
+        if fixed_problem is not None and problem_idx != fixed_problem:
           continue
-        problem_instance = hparams.problem_instances[n]
-        p_hparams = hparams.problems[n]
-        with tf.name_scope("problem_%d" % n):
-          with tf.device("/cpu:0"):  # Input reading on CPU
-            capacity = (
-                p_hparams.max_expected_batch_size_per_shard * num_datashards)
-            feature_map = data_reader.input_pipeline(
-                problem_instance, data_file_patterns and data_file_patterns[n],
-                capacity, mode, hparams,
-                data_reader.hparams_to_batching_scheme(
-                    hparams,
-                    shard_multiplier=num_datashards,
-                    drop_long_sequences=(mode == tf.estimator.ModeKeys.TRAIN
-                                         or hparams.eval_drop_long_sequences),
-                    length_multiplier=(p_hparams.batch_size_multiplier)))
-
-        # Reverse inputs and targets features if the problem was reversed.
-        if problem_instance is not None:
-          problem_instance.maybe_reverse_features(feature_map)
-          problem_instance.maybe_copy_features(feature_map)
-        else:
-          if p_hparams.was_reversed:
-            inputs = feature_map["inputs"]
-            targets = feature_map["targets"]
-            feature_map["inputs"] = targets
-            feature_map["targets"] = inputs
-          # Use the inputs as the targets if the problem is a copy problem.
-          if p_hparams.was_copy:
-            feature_map["targets"] = feature_map["inputs"]
-
-        # Ensure inputs and targets are proper rank.
-        while len(feature_map["inputs"].get_shape()) != 4:
-          feature_map["inputs"] = tf.expand_dims(feature_map["inputs"], axis=-1)
-        while len(feature_map["targets"].get_shape()) != 4:
-          feature_map["targets"] = tf.expand_dims(
-              feature_map["targets"], axis=-1)
-
-        batches.append((feature_map["inputs"], feature_map["targets"],
-                        tf.constant(n), tf.constant(p_hparams.input_space_id),
-                        tf.constant(p_hparams.target_space_id)))
+        problem_instance = hparams.problem_instances[problem_idx]
+        p_hparams = hparams.problems[problem_idx]
+        problem_filepatterns = (data_file_patterns and
+                                data_file_patterns[problem_idx])
+        feature_map = features_for_problem(
+            problem_instance,
+            p_hparams,
+            hparams,
+            problem_filepatterns,
+            num_datashards,
+            mode,
+            name="problem_%d" % problem_idx)
+        problem_batches.append(feature_map)
 
     # We choose which problem to process.
     loss_moving_avgs = []  # Need loss moving averages for that.
-    for n in xrange(problem_count):
+    for problem_idx in xrange(problem_count):
       with tf.variable_scope("losses_avg"):
         loss_moving_avgs.append(
             tf.get_variable(
-                "problem_%d/total_loss" % n, initializer=100.0,
+                "problem_%d/total_loss" % problem_idx,
+                initializer=100.0,
                 trainable=False))
     if fixed_problem is None:
-      if (hparams.problem_choice == "uniform" or
-          mode != tf.estimator.ModeKeys.TRAIN):
-        problem_choice = tf.random_uniform(
-            [], maxval=problem_count, dtype=tf.int32)
-      elif hparams.problem_choice == "adaptive":
-        loss_moving_avgs = tf.stack(loss_moving_avgs)
-        problem_choice = tf.multinomial(
-            tf.reshape(loss_moving_avgs, [1, -1]), 1)
-        problem_choice = tf.to_int32(tf.squeeze(problem_choice))
-      elif hparams.problem_choice == "distributed":
-        assert worker_replicas >= problem_count
-        assert worker_replicas % problem_count == 0
-        problem_choice = tf.to_int32(worker_id % problem_count)
-      else:
-        raise ValueError(
-            "Value of hparams.problem_choice is %s and must be "
-            "one of [uniform, adaptive, distributed]" % hparams.problem_choice)
+      problem_choice = _problem_choice(hparams.problem_choice, mode,
+                                       problem_count, loss_moving_avgs,
+                                       worker_replicas, worker_id)
 
-      # Inputs and targets conditional on problem_choice.
-      rand_inputs, rand_target, choice, inp_id, tgt_id = cond_on_index(
-          lambda n: batches[n], problem_choice, 0, problem_count - 1)
+      # Problem conditional on problem_choice.
+      feature_map = cond_on_index(
+          lambda problem_idx: problem_batches[problem_idx], problem_choice,
+          problem_count - 1)
     else:
       problem_choice = tf.constant(fixed_problem)
       # Take the only constructed batch, which is the fixed_problem.
-      rand_inputs, rand_target, choice, inp_id, tgt_id = batches[0]
+      feature_map = problem_batches[0]
+
+    feature_map["problem_choice"] = problem_choice
 
     # Set shapes so the ranks are clear.
-    rand_inputs.set_shape([None, None, None, None])
-    rand_target.set_shape([None, None, None, None])
-    choice.set_shape([])
-    inp_id.set_shape([])
-    tgt_id.set_shape([])
-    #  Forced shape obfuscation is necessary for inference.
-    if mode == tf.estimator.ModeKeys.PREDICT:
-      rand_inputs._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
-      rand_target._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
+    feature_map["inputs"].set_shape([None, None, None, None])
+    feature_map["targets"].set_shape([None, None, None, None])
+    feature_map["problem_choice"].set_shape([])
+    feature_map["input_space_id"].set_shape([])
+    feature_map["target_space_id"].set_shape([])
 
-    # Final feature map.
-    rand_feature_map = {
-        "inputs": rand_inputs,
-        "problem_choice": choice,
-        "input_space_id": inp_id,
-        "target_space_id": tgt_id
-    }
     if mode == tf.estimator.ModeKeys.PREDICT:
-      rand_feature_map["infer_targets"] = rand_target
-      rand_target = None
+      feature_map["infer_targets"] = feature_map["targets"]
+      #  Forced shape obfuscation is necessary for inference.
+      feature_map["inputs"]._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
+      feature_map["targets"]._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
+
       # This is because of a bug in the Estimator that short-circuits prediction
       # if it doesn't see a QueueRunner.  DummyQueueRunner implements the
       # minimal expected interface but does nothing.
       tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS, DummyQueueRunner())
+      return feature_map, None
 
-    return rand_feature_map, rand_target
+    return feature_map, feature_map["targets"]
 
   return input_fn
 
 
-def cond_on_index(fn, index_tensor, cur_idx, max_idx):
+def _problem_choice(choice_mode, mode, problem_count, loss_moving_avgs,
+                    worker_replicas, worker_id):
+  """Return idx of problem based on choice_mode and mode."""
+  if choice_mode == "uniform" or mode != tf.estimator.ModeKeys.TRAIN:
+    problem_choice = tf.random_uniform([], maxval=problem_count, dtype=tf.int32)
+  elif choice_mode == "adaptive":
+    loss_moving_avgs = tf.stack(loss_moving_avgs)
+    problem_choice = tf.multinomial(tf.reshape(loss_moving_avgs, [1, -1]), 1)
+    problem_choice = tf.to_int32(tf.squeeze(problem_choice))
+  elif choice_mode == "distributed":
+    assert worker_replicas >= problem_count
+    assert worker_replicas % problem_count == 0
+    problem_choice = tf.to_int32(worker_id % problem_count)
+  else:
+    raise ValueError("Value of hparams.problem_choice is %s and must be "
+                     "one of [uniform, adaptive, distributed]" % choice_mode)
+
+  return problem_choice
+
+
+def cond_on_index(fn, index_tensor, max_idx, cur_idx=0):
   """Call fn(index_tensor) using tf.cond in [cur_id, max_idx]."""
+
+  # Because tf.cond expects fn to return a flat list of Tensors, we flatten the
+  # output of fn. By capturing the original output here in orig_out, we can pack
+  # the flat sequence into the original structure.
+  orig_out = []
+
+  def wrapped_fn():
+    out = fn(cur_idx)
+    orig_out.append(out)
+    return tf.contrib.framework.nest.flatten(out)
+
   if cur_idx == max_idx:
-    return fn(cur_idx)
-  return tf.cond(
-      tf.equal(index_tensor, cur_idx), lambda: fn(cur_idx),
-      lambda: cond_on_index(fn, index_tensor, cur_idx + 1, max_idx))
+    flat_out = wrapped_fn()
+  else:
+    flat_out = tf.cond(
+        tf.equal(index_tensor, cur_idx), wrapped_fn,
+        lambda: cond_on_index(fn, index_tensor, max_idx, cur_idx + 1))
+  return tf.contrib.framework.nest.pack_sequence_as(orig_out[0], flat_out)
 
 
 class DummyQueueRunner(object):
@@ -211,3 +201,48 @@ class DummyQueueRunner(object):
   def create_threads(self, sess, coord=None, daemon=False, start=False):
     del sess, coord, daemon, start
     return []
+
+
+def features_for_problem(problem_instance,
+                         p_hparams,
+                         hparams,
+                         data_filepatterns,
+                         num_datashards,
+                         mode,
+                         name="problem_inputs"):
+  """Feature map for Problem."""
+  with tf.name_scope(name):
+    with tf.device("/cpu:0"):  # Input reading on CPU
+      capacity = (p_hparams.max_expected_batch_size_per_shard * num_datashards)
+      feature_map = data_reader.input_pipeline(
+          problem_instance, data_filepatterns, capacity, mode, hparams,
+          data_reader.hparams_to_batching_scheme(
+              hparams,
+              shard_multiplier=num_datashards,
+              drop_long_sequences=(mode == tf.estimator.ModeKeys.TRAIN or
+                                   hparams.eval_drop_long_sequences),
+              length_multiplier=(p_hparams.batch_size_multiplier)))
+
+  # Reverse inputs and targets features if the problem was reversed.
+  if problem_instance is not None:
+    problem_instance.maybe_reverse_features(feature_map)
+    problem_instance.maybe_copy_features(feature_map)
+  else:
+    if p_hparams.was_reversed:
+      inputs = feature_map["inputs"]
+      targets = feature_map["targets"]
+      feature_map["inputs"] = targets
+      feature_map["targets"] = inputs
+    # Use the inputs as the targets if the problem is a copy problem.
+    if p_hparams.was_copy:
+      feature_map["targets"] = feature_map["inputs"]
+
+  # Ensure inputs and targets are proper rank.
+  while len(feature_map["inputs"].get_shape()) != 4:
+    feature_map["inputs"] = tf.expand_dims(feature_map["inputs"], axis=-1)
+  while len(feature_map["targets"].get_shape()) != 4:
+    feature_map["targets"] = tf.expand_dims(feature_map["targets"], axis=-1)
+
+  feature_map["input_space_id"] = tf.constant(p_hparams.input_space_id)
+  feature_map["target_space_id"] = tf.constant(p_hparams.target_space_id)
+  return feature_map

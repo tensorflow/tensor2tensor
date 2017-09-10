@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import inspect
+
 # Dependency imports
 
 from tensor2tensor.layers import common_layers
@@ -195,12 +197,9 @@ def create_evaluation_metrics(problems, model_hparams):
     model_hparams: a set of hparams.
 
   Returns:
-    Dict <metric name, metric function>. The metric functions have signature
-    (predictions, labels, problem_choice) -> (metric Tensor, update op).
-    A dictionary with keys that are strings naming the evaluation
-    metrics and values that are functions taking arguments of
-    (predictions, targets), returning a tuple of a tensor of the
-    metric's value together with an op to update the metric's value.
+    dict<metric name, metric function>. The metric functions have signature
+    (Tensor predictions, features) -> (metric Tensor, update op), where features
+    is a dict with keys {targets, problem_choice}.
 
   Raises:
     ValueError: if the metrics specified by a problem are not recognized (i.e.
@@ -210,10 +209,23 @@ def create_evaluation_metrics(problems, model_hparams):
   def make_problem_specific_metric_fn(metric_fn, problem_idx, weights_fn):
     """Create a metric fn conditioned on problem_idx."""
 
-    def problem_metric_fn(predictions, labels, problem_choice):
+    def problem_metric_fn(predictions, features):
+      """Metric fn."""
+      labels = features.get("targets", None)
+      problem_choice = features.get("problem_choice", 0)
+
+      # Send along the entire features dict if the metric fn has the kwarg
+      # "features".
+      kwargs = {}
+      args, _, keywords, _ = inspect.getargspec(metric_fn)
+      if "features" in args or keywords:
+        kwargs["features"] = features
+
+      def wrapped_metric_fn():
+        return metric_fn(predictions, labels, weights_fn=weights_fn, **kwargs)
+
       (scores, weights) = tf.cond(
-          tf.equal(problem_idx, problem_choice),
-          lambda: metric_fn(predictions, labels, weights_fn=weights_fn),
+          tf.equal(problem_idx, problem_choice), wrapped_metric_fn,
           lambda: (tf.constant(0.0), tf.constant(0.0)))
       # The tf.metrics.mean function assures correct aggregation.
       return tf.metrics.mean(scores, weights)
@@ -241,9 +253,8 @@ def create_evaluation_metrics(problems, model_hparams):
     class_output = "image" in problem_name and "coco" not in problem_name
     real_output = "gene_expression" in problem_name
     if model_hparams.prepend_mode != "none":
-      assert (
-          model_hparams.prepend_mode == "prepend_inputs_masked_attention" or
-          model_hparams.prepend_mode == "prepend_inputs_full_attention")
+      assert (model_hparams.prepend_mode == "prepend_inputs_masked_attention" or
+              model_hparams.prepend_mode == "prepend_inputs_full_attention")
       assert not class_output
       weights_fn = common_layers.weights_prepend_inputs_to_targets
     elif class_output or real_output:
@@ -262,6 +273,8 @@ def create_evaluation_metrics(problems, model_hparams):
 
 # Metrics are functions that take predictions and labels and return
 # a tensor of metrics and a tensor of weights.
+# If the function has "features" as an argument, it will receive the whole
+# features dict as well.
 # The results are passed to tf.metrics.mean to accumulate properly.
 METRICS_FNS = {
     Metrics.ACC: padded_accuracy,

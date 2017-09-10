@@ -46,6 +46,12 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
+flags.DEFINE_string("decode_from_file", None, "Path to decode file")
+flags.DEFINE_string("decode_to_file", None,
+                    "Path prefix to inference output file")
+flags.DEFINE_bool("decode_interactive", False,
+                  "Interactive local inference mode.")
+flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
@@ -70,20 +76,17 @@ def main(_):
       data_dir=data_dir,
       model_name=FLAGS.model)
 
+  decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
+  decode_hp.add_hparam("shards", FLAGS.decode_shards)
   if FLAGS.decode_interactive:
-    decoding.decode_interactively(estimator)
+    decoding.decode_interactively(estimator, decode_hp)
   elif FLAGS.decode_from_file:
-    decoding.decode_from_file(estimator, FLAGS.decode_from_file)
+    decoding.decode_from_file(estimator, FLAGS.decode_from_file, decode_hp,
+                              FLAGS.decode_to_file)
   else:
-    decoding.decode_from_dataset(
-        estimator,
-        FLAGS.problems.split("-"),
-        return_beams=FLAGS.decode_return_beams,
-        beam_size=FLAGS.decode_beam_size,
-        max_predictions=FLAGS.decode_num_samples,
-        decode_to_file=FLAGS.decode_to_file,
-        save_images=FLAGS.decode_save_images,
-        identity_output=FLAGS.identity_output)
+    decoding.decode_from_dataset(estimator,
+                                 FLAGS.problems.split("-"), decode_hp,
+                                 FLAGS.decode_to_file)
 
 
 if __name__ == "__main__":
