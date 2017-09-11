@@ -278,8 +278,7 @@ def generate_algebra_inverse_sample(vlist, ops, solve_ops, min_depth,
   left_str = str(left)
   right_str = str(right)
   target = str(algebra_inverse_solve(left, right, var, solve_ops))
-  sample = var + ":" + left_str + "=" + right_str
-
+  sample = "%s:%s=%s" % (var, left_str, right_str)
   return sample, target
 
 
@@ -410,8 +409,8 @@ def math_dataset_init(alphabet_size=26, digits=None, functions=None):
       "/r": lambda l, r, to: (r, ExprNode(l, to, ops["/"])),
   }
   alphabet = (
-      [six.int2byte(ord("a") + c)
-       for c in range(26)] + [six.int2byte(ord("A") + c) for c in range(26)])
+      [six.int2byte(ord("a") + c).decode("utf-8") for c in range(26)] +
+      [six.int2byte(ord("A") + c).decode("utf-8") for c in range(26)])
   if alphabet_size > 52:
     raise ValueError(
         "alphabet_size cannot be greater than 52. Got %s." % alphabet_size)

@@ -13,3 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Models defined in T2T. Imports here force registration."""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+# Dependency imports
+
+# pylint: disable=unused-import
+
+from tensor2tensor.layers import modalities
+from tensor2tensor.models import attention_lm
+from tensor2tensor.models import attention_lm_moe
+from tensor2tensor.models import bluenet
+from tensor2tensor.models import bytenet
+from tensor2tensor.models import cycle_gan
+from tensor2tensor.models import gene_expression
+from tensor2tensor.models import lstm
+from tensor2tensor.models import multimodel
+from tensor2tensor.models import neural_gpu
+from tensor2tensor.models import shake_shake
+from tensor2tensor.models import slicenet
+from tensor2tensor.models import transformer
+from tensor2tensor.models import transformer_alternative
+from tensor2tensor.models import transformer_moe
+from tensor2tensor.models import transformer_revnet
+from tensor2tensor.models import transformer_vae
+from tensor2tensor.models import xception
+# pylint: enable=unused-import

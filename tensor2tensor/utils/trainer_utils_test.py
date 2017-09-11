@@ -102,27 +102,31 @@ class TrainerUtilsTest(tf.test.TestCase):
     FLAGS.problems = "tiny_algo"
     data_dir = "/tmp"  # Used only when a vocab file or such like is needed.
 
-    # Create the problem object, hparams, model_fn, placeholders, features dict.
+    # Create the problem object, hparams, placeholders, features dict.
     encoders = registry.problem(FLAGS.problems).feature_encoders(data_dir)
-    hparams = trainer_utils.create_hparams(
-        FLAGS.hparams_set, FLAGS.problems, data_dir)
-    model_fn = model_builder.build_model_fn(model_name)
+    hparams = trainer_utils.create_hparams(FLAGS.hparams_set, FLAGS.problems,
+                                           data_dir)
     inputs_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
     batch_inputs = tf.reshape(inputs_ph, [1, -1, 1, 1])  # Make it 4D.
+    # In INFER mode targets can be None.
     targets_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
     batch_targets = tf.reshape(targets_ph, [1, -1, 1, 1])  # Make it 4D.
-    features = {"inputs": batch_inputs,
-                "problem_choice": 0,  # We run on the first problem here.
-                "input_space_id": hparams.problems[0].input_space_id,
-                "target_space_id": hparams.problems[0].target_space_id}
+    features = {
+        "inputs": batch_inputs,
+        "targets": batch_targets,
+        "problem_choice": 0,  # We run on the first problem here.
+        "input_space_id": hparams.problems[0].input_space_id,
+        "target_space_id": hparams.problems[0].target_space_id
+    }
 
     # Now set a mode and create the graph by invoking model_fn.
     mode = tf.estimator.ModeKeys.EVAL
-    estimator_spec = model_fn(  # In INFER mode targets can be None.
-        features, batch_targets, mode, hparams)
+    estimator_spec = model_builder.model_fn(
+        model_name, features, mode, hparams, problem_names=[FLAGS.problems])
     predictions_dict = estimator_spec.predictions
     predictions = tf.squeeze(  # These are not images, axis=2,3 are not needed.
-        predictions_dict["predictions"], axis=[2, 3])
+        predictions_dict["predictions"],
+        axis=[2, 3])
 
     # Having the graph, let's run it on some data.
     with self.test_session() as sess:

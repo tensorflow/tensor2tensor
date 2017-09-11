@@ -349,18 +349,6 @@ def wsj_parsing_tokens(model_hparams, prefix, wrong_source_vocab_size,
   return p
 
 
-def img2img_imagenet(unused_model_hparams):
-  """Image 2 Image for imagenet dataset."""
-  p = default_problem_hparams()
-  p.input_modality = {"inputs": ("image:identity", None)}
-  p.target_modality = ("image:identity", None)
-  p.batch_size_multiplier = 256
-  p.max_expected_batch_size_per_shard = 4
-  p.input_space_id = 1
-  p.target_space_id = 1
-  return p
-
-
 # Dictionary of named hyperparameter settings for various problems.
 # This is only accessed through the problem_hparams function below.
 PROBLEM_HPARAMS_MAP = {
@@ -377,6 +365,4 @@ PROBLEM_HPARAMS_MAP = {
     "parsing_english_ptb16k":
         lambda p: wsj_parsing_tokens(  # pylint: disable=g-long-lambda
             p, "wsj", 2**14, 2**9),
-    "img2img_imagenet":
-        img2img_imagenet,
 }

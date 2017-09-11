@@ -27,6 +27,7 @@ import shutil
 
 # Dependency imports
 import mock
+import six
 
 from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
@@ -36,8 +37,10 @@ class NativeToUnicodeTest(tf.test.TestCase):
 
   def test_native_to_unicode(self):
     s = r"foo bar"
-    self.assertIsInstance(text_encoder.native_to_unicode(s), unicode)
-    self.assertEqual(text_encoder.native_to_unicode(s), u"foo bar")
+    s_unicode = text_encoder.native_to_unicode(s)
+    if six.PY2:
+      self.assertIsInstance(s_unicode, unicode)
+    self.assertEqual(s_unicode, u"foo bar")
 
 
 class EscapeUnescapeTokenTest(tf.test.TestCase):

@@ -1,0 +1,16 @@
+language: python
+python:
+  - "2.7"
+  - "3.6"
+before_install:
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq libhdf5-dev
+install:
+  - pip install tensorflow
+  - pip install .[tests]
+script:
+  - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/utils/trainer_utils_test.py --ignore=tensor2tensor/problems_test.py
+  - pytest tensor2tensor/utils/registry_test.py
+  - pytest tensor2tensor/utils/trainer_utils_test.py
+git:
+  depth: 3

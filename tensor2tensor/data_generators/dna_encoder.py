@@ -107,6 +107,7 @@ class DelimitedDNAEncoder(DNAEncoder):
 
   def __init__(self, delimiter=",", **kwargs):
     self._delimiter = delimiter
+    self._delimiter_key = tuple(self._delimiter)
     super(DelimitedDNAEncoder, self).__init__(**kwargs)
 
   @property
@@ -114,11 +115,11 @@ class DelimitedDNAEncoder(DNAEncoder):
     return self._delimiter
 
   def _tokens(self):
-    return super(DelimitedDNAEncoder, self)._tokens() + [self.delimiter]
+    return super(DelimitedDNAEncoder, self)._tokens() + [self._delimiter_key]
 
   def encode(self, delimited_string):
     ids = []
     for s in delimited_string.split(self.delimiter):
       ids.extend(super(DelimitedDNAEncoder, self).encode(s))
-      ids.append(self._tokens_to_ids[self.delimiter])
+      ids.append(self._tokens_to_ids[self._delimiter_key])
     return ids[:-1]

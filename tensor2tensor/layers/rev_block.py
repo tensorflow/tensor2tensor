@@ -286,8 +286,8 @@ def rev_block(x1,
     # idxs.
     f_var_grads.reverse()
     g_var_grads.reverse()
-    for idxs, grads in zip(f_vars_idxs, f_var_grads) + zip(
-        g_vars_idxs, g_var_grads):
+    for idxs, grads in list(zip(f_vars_idxs, f_var_grads)) + list(zip(
+        g_vars_idxs, g_var_grads)):
       for i, grad in zip(idxs, grads):
         variable_grads[i] = grad
 
