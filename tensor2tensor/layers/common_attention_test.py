@@ -162,5 +162,25 @@ class CommonAttentionTest(tf.test.TestCase):
     self.assertAllClose(dnorm_bias, dnorm_bias_f)
     self.assertAllClose(dx, dx_f)
 
+  def test2dGatherAndScatter(self):
+    """2d gather and scatter invertibility test."""
+    batch_size = 2
+    num_heads = 2
+    height = 4
+    width = 6
+    depth = 8
+    query_shape = (2, 3)
+    x = np.random.rand(batch_size, num_heads, height, width, depth)
+    with self.test_session() as session:
+      x_indices = common_attention.gather_indices_2d(
+          x, query_shape, query_shape)
+      gathered_x = common_attention.gather_blocks_2d(x, x_indices)
+      x_shape = tf.constant([batch_size, num_heads, height, width, depth])
+      scattered_x = common_attention.scatter_blocks_2d(
+          gathered_x, x_indices, x_shape)
+      session.run(tf.global_variables_initializer())
+      res = session.run(scattered_x)
+    self.assertAllClose(x, res)
+
 if __name__ == "__main__":
   tf.test.main()

@@ -650,16 +650,13 @@ def local_attention_2d(q,
   """
   with tf.variable_scope(
       name, default_name="local_self_attention_2d", values=[q, k, v]):
+    q_shape = q.get_shape().as_list()
     v_shape = tf.shape(v)
-    depth_v = tf.shape(v)[4]
-    batch_size = tf.shape(q)[0]
-    num_heads = tf.shape(q)[1]
-    original_length = tf.shape(q)[2] * tf.shape(q)[3]
 
     q = pad_to_multiple_2d(q, query_shape)
     k = pad_to_multiple_2d(k, query_shape)
     v = pad_to_multiple_2d(v, query_shape)
-
+    padded_q_shape = tf.shape(q)
     # Setting up k and v values
     paddings = [[0, 0], [0, 0], [memory_flange[0], memory_flange[1]],
                 [memory_flange[0], memory_flange[1]], [0, 0]]
@@ -684,12 +681,13 @@ def local_attention_2d(q,
 
     attention = tf.nn.softmax(logits + attention_bias)
     output = tf.matmul(attention, v_new)
-
-    output = tf.reshape(output, [batch_size, num_heads, -1, depth_v])
-    # Remove the padding if introduced
-    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
-    # [batch, heads, h, w, depth_v]
-    return tf.reshape(output, v_shape)
+    # putting the representations back in the right place
+    output = scatter_blocks_2d(output, q_indices, padded_q_shape)
+     # Remove the padding if introduced
+    output = tf.slice(output, [0, 0, 0, 0, 0],
+                      [-1, -1, v_shape[2], v_shape[3], -1])
+    output.set_shape(q_shape)
+    return output
 
 
 def pad_to_multiple_2d(x, block_shape):
@@ -724,6 +722,19 @@ def gather_blocks_2d(x, indices):
   x_new = tf.gather(x_t, indices)
   # returns [batch, heads, num_blocks, block_length ** 2, dim]
   return tf.transpose(x_new, [2, 3, 0, 1, 4])
+
+
+def scatter_blocks_2d(x, indices, shape):
+  """scatters blocks from x into shape with indices."""
+  x_shape = tf.shape(x)
+  # [length, batch, heads, dim]
+  x_t = tf.transpose(tf.reshape(x, [x_shape[0], x_shape[1], -1, x_shape[-1]]),
+                     [2, 0, 1, 3])
+  x_t_shape = tf.shape(x_t)
+  indices = tf.reshape(indices, [-1, 1])
+  scattered_x = tf.scatter_nd(indices, x_t, x_t_shape)
+  scattered_x = tf.transpose(scattered_x, [1, 2, 0, 3])
+  return tf.reshape(scattered_x, shape)
 
 
 def gather_indices_2d(x, block_shape, block_stride):
@@ -769,11 +780,8 @@ def masked_local_attention_2d(q,
   """
   with tf.variable_scope(
       name, default_name="local_masked_self_attention_2d", values=[q, k, v]):
+    q_shape = q.get_shape().as_list()
     v_shape = tf.shape(v)
-    depth_v = tf.shape(v)[4]
-    batch_size = tf.shape(q)[0]
-    num_heads = tf.shape(q)[1]
-    original_length = tf.shape(q)[2] * tf.shape(q)[3]
     def make_mask(query_shape, memory_flange):
       """creates a mask.
 
@@ -808,6 +816,7 @@ def masked_local_attention_2d(q,
       # 0. is visible location, 1.0 is masked.
       return 1. - final_mask
     q = pad_to_multiple_2d(q, query_shape)
+    padded_q_shape = tf.shape(q)
     k = pad_to_multiple_2d(k, query_shape)
     v = pad_to_multiple_2d(v, query_shape)
     # Setting up k and v values. Padding top, left, and right
@@ -838,11 +847,13 @@ def masked_local_attention_2d(q,
         tf.to_float(tf.logical_or(attention_mask, padding_mask)) *-1e9)
     attention = tf.nn.softmax(logits + attention_bias)
     output = tf.matmul(attention, v_new)
-    output = tf.reshape(output, [batch_size, num_heads, -1, depth_v])
+    # putting the representations back in the right place
+    output = scatter_blocks_2d(output, q_indices, padded_q_shape)
     # Remove the padding if introduced
-    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
-    # [batch, heads, h, w, depth_v]
-    return tf.reshape(output, v_shape)
+    output = tf.slice(output, [0, 0, 0, 0, 0],
+                      [-1, -1, v_shape[2], v_shape[3], -1])
+    output.set_shape(q_shape)
+    return output
 
 
 def compute_qkv(query_antecedent, memory_antecedent, total_key_depth,
