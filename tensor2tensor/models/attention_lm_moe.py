@@ -60,6 +60,13 @@ class AttentionType(object):
     ]
 
 
+LAYER_SYMBOLS = {
+    "h": AttentionType.MULTIHEAD,  # multi-Head
+    "e": AttentionType.LOCAL_EXPERTS,  # Experts
+    "m": AttentionType.MEMORY_EFFICIENT,  # Memory
+}
+
+
 @registry.register_model
 class AttentionLmMoe(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
@@ -133,11 +140,20 @@ class AttentionLmMoe(t2t_model.T2TModel):
 
     assert hparams.batch_size >= hparams.max_length
 
-    for layer in xrange(hparams.num_hidden_layers):
+    num_hidden_layers = (
+        len(hparams.attention_layers) or hparams.num_hidden_layers)
+    for layer in xrange(num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
+
+        # Use the layer type defined in attention_layers
+        if hparams.attention_layers:
+          attention_type = LAYER_SYMBOLS[hparams.attention_layers[layer]]
+        else:
+          attention_type = hparams.attention_type
+
         with tf.variable_scope(
-            "attention_{}".format(hparams.attention_type)):
-          if hparams.attention_type == AttentionType.MULTIHEAD:
+            "attention_{}".format(attention_type)):
+          if attention_type == AttentionType.MULTIHEAD:
             y = dp(
                 common_attention.multihead_attention,
                 preprocess(x),
@@ -151,7 +167,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 attention_type=("local_mask_right" if hparams.attention_local
                                 else "dot_product"),
                 name="decoder_self_attention")
-          elif hparams.attention_type == AttentionType.MEMORY_EFFICIENT:
+          elif attention_type == AttentionType.MEMORY_EFFICIENT:
             assert hparams.layer_preprocess_sequence == "n"
             y = dp(
                 common_attention.multihead_self_attention_memory_efficient,
@@ -159,7 +175,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 decoder_self_attention_bias,
                 hparams.num_heads,
                 name="decoder_self_attention")
-          elif hparams.attention_type == AttentionType.LOCAL_EXPERTS:
+          elif attention_type == AttentionType.LOCAL_EXPERTS:
             y, loss = dp(
                 common_attention.local_expert_attention,
                 preprocess(x),
@@ -350,6 +366,10 @@ def attention_lm_moe_base():
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("moe_layers", "2")  # comma separated list of layer numbers
   # moe params. local attention moe.
+  # If attention_layers is set, the num_hidden_layers parameter will be ignored
+  # and each caracter of the string will correspond to one attention
+  # layer type
+  hparams.add_hparam("attention_layers", "")
   hparams.add_hparam("attention_type", AttentionType.MULTIHEAD)
   hparams.add_hparam("attention_local", int(False))
   hparams.add_hparam("attention_moe_k", 2)
@@ -370,14 +390,24 @@ def attention_lm_moe_base():
 
 
 @registry.register_hparams
-def attention_lm_moe_base_ae():
-  """Base model with attention expert."""
+def attention_lm_moe_base_long_seq():
+  """Hyper parameters specifics for long sequence generation."""
   hparams = attention_lm_moe_base()
-  hparams.attention_type = AttentionType.LOCAL_EXPERTS
-  hparams.use_sepconv = int(True)
+
   hparams.max_length = 0  # max_length == batch_size
   hparams.eval_drop_long_sequences = int(True)
   hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
+  hparams.use_sepconv = int(True)
+
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_base_ae():
+  """Base model with attention expert."""
+  hparams = attention_lm_moe_base_long_seq()
+  hparams.attention_type = AttentionType.LOCAL_EXPERTS
+
   hparams.learning_rate = 0.05
   hparams.learning_rate_warmup_steps = 10000
   # According to noam, ("n", "da") seems better for harder-to-learn models
@@ -389,12 +419,20 @@ def attention_lm_moe_base_ae():
 @registry.register_hparams
 def attention_lm_moe_base_local():
   """Base model with attention expert."""
-  hparams = attention_lm_moe_base()
+  hparams = attention_lm_moe_base_long_seq()
   hparams.attention_local = int(True)
-  hparams.use_sepconv = int(True)
-  hparams.max_length = 0  # max_length == batch_size
-  hparams.eval_drop_long_sequences = int(True)
-  hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_base_hybrid():
+  """Base model with attention expert."""
+  hparams = attention_lm_moe_base_long_seq()
+  hparams.attention_layers = "hehe"  # Alternate local/expert
+  hparams.attention_local = int(True)
+
+  # hparams.layer_preprocess_sequence = "n"
+  # hparams.layer_postprocess_sequence = "da"
   return hparams
 
 
