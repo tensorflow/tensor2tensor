@@ -105,8 +105,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
       expert_fn = expert_utils.ffn_expert_fn(
           hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
 
-    if (hparams.attention_type == AttentionType.LOCAL_EXPERTS
-        and not hparams.use_inputs):
+    if not hparams.use_inputs:
       # As preprocess and postprocess are called with batch of size one (all
       # batches concatenated), we just make sure that batch_norm is not use (
       # should not either way)
@@ -135,8 +134,6 @@ class AttentionLmMoe(t2t_model.T2TModel):
     batch_coordinate = dp_remove_pad(batch_coordinate)
 
     x = dp(print_shape, x, "in")
-    x = dp_remove_pad(x)
-    x = dp(print_shape, x, "in_flat")
 
     assert hparams.batch_size >= hparams.max_length
 
@@ -176,9 +173,11 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 hparams.num_heads,
                 name="decoder_self_attention")
           elif attention_type == AttentionType.LOCAL_EXPERTS:
+            x_in = preprocess(x)
+            x_in = dp_remove_pad(x_in)
             y, loss = dp(
                 common_attention.local_expert_attention,
-                preprocess(x),
+                x_in,
                 k=hparams.attention_moe_k,
                 loss_coef=hparams.attention_load_balance,
                 attention_num_experts=hparams.attention_num_experts,
@@ -188,6 +187,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 split_batch=bool(hparams.attention_split_batch),
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
+            y = dp_restore_pad(y)
             # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
             extra_loss += tf.add_n(loss) / dp.n
           else:
@@ -214,15 +214,8 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 x,
                 hparams.filter_size)
           else:
-            x_in = preprocess(x)
             additional_conv_params = dict()
             if hparams.use_sepconv:
-              # Restore padding so sequences don't attend to each others
-              # restore_pad will apply a reshape like x_ref, to restore the
-              # original shape. Here this works because the last dimension is
-              # constant between the output of attention and the original input
-              # but it shouldn't necessarily be the case.
-              x_in = dp_restore_pad(x_in)
               additional_conv_params = dict(
                   padding="LEFT",
                   # Parameters copied from the transformer model
@@ -231,18 +224,14 @@ class AttentionLmMoe(t2t_model.T2TModel):
               )
             y = dp(
                 common_layers.conv_hidden_relu,
-                x_in,
+                preprocess(x),
                 hparams.filter_size,
                 hparams.hidden_size,
                 dropout=hparams.relu_dropout,
                 **additional_conv_params
             )
-            if hparams.use_sepconv:
-              y = dp_remove_pad(y)
           x = postprocess(x, y)
     x = preprocess(x)
-
-    x = dp_restore_pad(x)
 
     decoder_output = dp(tf.expand_dims, x, 2)
     return decoder_output, extra_loss
