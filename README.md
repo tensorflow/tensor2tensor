@@ -48,7 +48,7 @@ t2t-decoder \
   --problems=translate_ende_wmt32k \
   --model=transformer \
   --hparams_set=transformer_base_single_gpu \
-  --output_dir=~/t2t_train/base
+  --output_dir=~/t2t_train/base \
   --decode_interactive
 ```
 
