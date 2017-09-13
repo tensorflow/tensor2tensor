@@ -162,7 +162,7 @@ class CommonAttentionTest(tf.test.TestCase):
     self.assertAllClose(dnorm_bias, dnorm_bias_f)
     self.assertAllClose(dx, dx_f)
 
-  def test2dGatherAndScatter(self):
+  def test2dGatherAndScatterInvertibility(self):
     """2d gather and scatter invertibility test."""
     batch_size = 2
     num_heads = 2
@@ -181,6 +181,69 @@ class CommonAttentionTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       res = session.run(scattered_x)
     self.assertAllClose(x, res)
+
+  def test2dBlockRasterScanMask(self):
+    """Testing the 2d block raster scan mask."""
+    query_shape = (2, 3)
+    memory_flange = (2, 1)
+    with self.test_session() as session:
+      mask = common_attention.make_2d_block_raster_mask(
+          query_shape, memory_flange)
+      res = session.run(mask)
+    correct_mask = np.array(
+        [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
+          1.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+          1.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+          1.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+          1.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+          1.0, 0.0, 0.0, 0.0, 1.0, 1.0],
+         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+          1.0, 0.0, 0.0, 0.0, 0.0, 1.0]])
+    self.assertAllClose(correct_mask, res)
+
+  def test2dGather(self):
+    """Testing 2d index gather and block gather functions."""
+    batch_size = 2
+    num_heads = 2
+    height = 4
+    width = 6
+    depth = 8
+    query_shape = (2, 3)
+    x = np.random.rand(batch_size, num_heads, height, width, depth)
+    y = np.reshape(x, (batch_size, num_heads, -1, depth))
+    correct_indices = [[0, 1, 2, 6, 7, 8],
+                       [3, 4, 5, 9, 10, 11],
+                       [12, 13, 14, 18, 19, 20],
+                       [15, 16, 17, 21, 22, 23]]
+    correct_gathered_x = [[[y[0, 0, correct_indices[0]],
+                            y[0, 0, correct_indices[1]],
+                            y[0, 0, correct_indices[2]],
+                            y[0, 0, correct_indices[3]]],
+                           [y[0, 1, correct_indices[0]],
+                            y[0, 1, correct_indices[1]],
+                            y[0, 1, correct_indices[2]],
+                            y[0, 1, correct_indices[3]]]],
+                          [[y[1, 0, correct_indices[0]],
+                            y[1, 0, correct_indices[1]],
+                            y[1, 0, correct_indices[2]],
+                            y[1, 0, correct_indices[3]]],
+                           [y[1, 1, correct_indices[0]],
+                            y[1, 1, correct_indices[1]],
+                            y[1, 1, correct_indices[2]],
+                            y[1, 1, correct_indices[3]]]]]
+
+    with self.test_session() as session:
+      x_indices = common_attention.gather_indices_2d(
+          x, query_shape, query_shape)
+      gathered_x = common_attention.gather_blocks_2d(x, x_indices)
+      x_indices, gathered_x = session.run([x_indices, gathered_x])
+    self.assertAllEqual(correct_indices, x_indices)
+    self.assertAllClose(correct_gathered_x, gathered_x)
+
 
 if __name__ == "__main__":
   tf.test.main()

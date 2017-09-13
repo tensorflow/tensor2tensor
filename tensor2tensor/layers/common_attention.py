@@ -416,7 +416,8 @@ def dot_product_attention(q,
                           bias,
                           dropout_rate=0.0,
                           image_shapes=None,
-                          name=None):
+                          name=None,
+                          make_image_summary=True):
   """dot-product attention.
 
   Args:
@@ -428,6 +429,7 @@ def dot_product_attention(q,
     image_shapes: optional tuple of integer scalars.
       see comments for attention_image_summary()
     name: an optional string
+    make_image_summary: True if you want an image summary.
 
   Returns:
     A Tensor.
@@ -443,7 +445,8 @@ def dot_product_attention(q,
     weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
     if (not tf.get_variable_scope().reuse and
         # Summaries don't work well within tf.while_loop()
-        "/while/" not in tf.contrib.framework.get_name_scope()):
+        "/while/" not in tf.contrib.framework.get_name_scope() and
+        make_image_summary):
       attention_image_summary(weights, image_shapes)
     return tf.matmul(weights, v)
 
@@ -616,11 +619,9 @@ def local_attention_1d(q,
     v_new = tf.gather(v_t, gather_indices)
     v_new = tf.transpose(v_new, [2, 3, 0, 1, 4])
 
-    logits = tf.matmul(q, k_new, transpose_b=True)
-
-    attention = tf.nn.softmax(logits + attention_bias)
-    output = tf.matmul(attention, v_new)
-
+    output = dot_product_attention(
+        q, k_new, v_new, attention_bias, dropout_rate=0., name="local_1d",
+        make_image_summary=False)
     output = tf.reshape(output, [batch_size, num_heads, -1, depth_v])
     # Remove the padding if introduced
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
@@ -677,10 +678,9 @@ def local_attention_2d(q,
     attention_bias = tf.expand_dims(
         tf.to_float(embedding_to_padding(k_new)) * -1e9, axis=-2)
 
-    logits = tf.matmul(q_new, k_new, transpose_b=True)
-
-    attention = tf.nn.softmax(logits + attention_bias)
-    output = tf.matmul(attention, v_new)
+    output = dot_product_attention(q_new, k_new, v_new, attention_bias,
+                                   dropout_rate=0., name="local_2d",
+                                   make_image_summary=False)
     # putting the representations back in the right place
     output = scatter_blocks_2d(output, q_indices, padded_q_shape)
      # Remove the padding if introduced
@@ -756,6 +756,42 @@ def gather_indices_2d(x, block_shape, block_stride):
   return tf.cast(indices, tf.int32)
 
 
+def make_2d_block_raster_mask(query_shape, memory_flange):
+  """creates a mask for 2d block raster scany.
+
+  The query mask can look to the left, top left, top, and top right, but
+  not to the right. Inside the query, we have the standard raster scan
+  masking.
+  Args:
+    query_shape: A tuple of ints (query_height, query_width)
+    memory_flange: A tuple of ints
+      (memory_flange_height, memory_flange_width)
+
+  Returns:
+    A tensor of shape query_size, memory_size
+  """
+  # mask inside the query block
+  query_triangle = tf.matrix_band_part(
+      tf.ones([np.prod(query_shape), np.prod(query_shape)]), -1, 0)
+  split_query_masks = tf.split(query_triangle, query_shape[0], axis=1)
+  # adding mask for left and right
+  mask_pieces = [
+      tf.concat(
+          [tf.ones([np.prod(query_shape), memory_flange[1]]),
+           split_query_masks[i],
+           tf.zeros([np.prod(query_shape), memory_flange[1]])
+          ], axis=1) for i in range(query_shape[0])]
+  # adding mask for top
+  final_mask = tf.concat(
+      [tf.ones(
+          [np.prod(query_shape),
+           (query_shape[1]+2*memory_flange[1])*memory_flange[0]]),
+       tf.concat(mask_pieces, axis=1)
+      ], axis=1)
+  # 0. is visible location, 1.0 is masked.
+  return 1. - final_mask
+
+
 def masked_local_attention_2d(q,
                               k,
                               v,
@@ -782,39 +818,7 @@ def masked_local_attention_2d(q,
       name, default_name="local_masked_self_attention_2d", values=[q, k, v]):
     q_shape = q.get_shape().as_list()
     v_shape = tf.shape(v)
-    def make_mask(query_shape, memory_flange):
-      """creates a mask.
 
-      The query mask can look to the left, top left, top, and top right, but
-      not the right. Inside the query, we have the standard raster scan
-      masking.
-      Args:
-        query_shape: A tuple of ints (query_height, query_width)
-        memory_flange: A tuple of ints
-          (memory_flange_height, memory_flange_width)
-
-      Returns:
-        A tensor of shape query_size, memory_size
-      """
-
-      query_triangle = tf.matrix_band_part(
-          tf.ones([np.prod(query_shape), np.prod(query_shape)]), -1, 0)
-      split_query_masks = tf.split(query_triangle, query_shape[0], axis=1)
-      mask_pieces = [
-          tf.concat(
-              [tf.ones([np.prod(query_shape), memory_flange[1]]),
-               split_query_masks[i],
-               tf.zeros([np.prod(query_shape), memory_flange[1]])
-              ], axis=1) for i in range(query_shape[0])]
-
-      final_mask = tf.concat(
-          [tf.ones(
-              [np.prod(query_shape),
-               (query_shape[1]+2*memory_flange[1])*memory_flange[0]]),
-           tf.concat(mask_pieces, axis=1)
-          ], axis=1)
-      # 0. is visible location, 1.0 is masked.
-      return 1. - final_mask
     q = pad_to_multiple_2d(q, query_shape)
     padded_q_shape = tf.shape(q)
     k = pad_to_multiple_2d(k, query_shape)
@@ -833,20 +837,21 @@ def masked_local_attention_2d(q,
     k_and_v_indices = gather_indices_2d(k, memory_shape, query_shape)
     k_new = gather_blocks_2d(k, k_and_v_indices)
     v_new = gather_blocks_2d(v, k_and_v_indices)
-    logits = tf.matmul(q_new, k_new, transpose_b=True)
     # Combining the mask for padding and visible region
     attention_mask_shape = [np.prod(query_shape),
                             (query_shape[0]+memory_flange[0])*
                             (query_shape[1]+2*memory_flange[1])]
-    attention_mask = tf.cast(make_mask(query_shape, memory_flange), tf.bool)
+    attention_mask = tf.cast(
+        make_2d_block_raster_mask(query_shape, memory_flange), tf.bool)
     # reshaping attention mask to have same dims as logits
     attention_mask = tf.reshape(attention_mask, [1, 1, 1]+attention_mask_shape)
     padding_mask = tf.expand_dims(
         tf.cast(embedding_to_padding(k_new), tf.bool), axis=-2)
     attention_bias = (
         tf.to_float(tf.logical_or(attention_mask, padding_mask)) *-1e9)
-    attention = tf.nn.softmax(logits + attention_bias)
-    output = tf.matmul(attention, v_new)
+    output = dot_product_attention(q_new, k_new, v_new, attention_bias,
+                                   dropout_rate=0., name="masked_local_2d",
+                                   make_image_summary=False)
     # putting the representations back in the right place
     output = scatter_blocks_2d(output, q_indices, padded_q_shape)
     # Remove the padding if introduced
