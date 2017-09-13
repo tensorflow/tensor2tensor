@@ -41,34 +41,105 @@ import tensorflow as tf
 class Transformer(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
-  def model_fn_body(self, features):
-    hparams = self._hparams
-    targets = features["targets"]
-    inputs = features["inputs"]
-    target_space = features["target_space_id"]
+  def encode(self, inputs, target_space, hparams):
+    """Encode transformer inputs.
 
+    Args:
+      inputs: Transformer inputs [batch_size, input_length, hidden_dim]
+      target_space: scalar, target space ID.
+      hparams: hyperparmeters for model.
+
+    Returns:
+      Tuple of:
+          encoder_output: Encoder representation.
+              [batch_size, input_length, hidden_dim]
+          encoder_decoder_attention_bias: Bias and mask weights for
+              encodre-decoder attention. [batch_size, input_length]
+    """
     inputs = common_layers.flatten4d3d(inputs)
-    targets = common_layers.flatten4d3d(targets)
 
-    (encoder_input, encoder_self_attention_bias,
-     encoder_decoder_attention_bias) = transformer_prepare_encoder(
-         inputs, target_space, hparams)
-    (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
-        targets, hparams)
+    encoder_input, self_attention_bias, encoder_decoder_attention_bias = (
+        transformer_prepare_encoder(inputs, target_space, hparams))
 
-    encoder_input = tf.nn.dropout(encoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
+    encoder_input = tf.nn.dropout(
+        encoder_input, 1.0 - hparams.layer_prepostprocess_dropout)
+
+    encoder_output = transformer_encoder(
+        encoder_input,
+        self_attention_bias,
+        hparams)
+
+    return encoder_output, encoder_decoder_attention_bias
+
+  def decode(
+      self,
+      decoder_input,
+      encoder_output,
+      encoder_decoder_attention_bias,
+      decoder_self_attention_bias,
+      hparams):
+    """Decode Transformer outputs from encoder representation.
+
+    Args:
+      decoder_input: inputs to bottom of the model.
+          [batch_size, decoder_length, hidden_dim]
+      encoder_output: Encoder representation.
+          [batch_size, input_length, hidden_dim]
+      encoder_decoder_attention_bias: Bias and mask weights for
+          encoder-decoder attention. [batch_size, input_length]
+      decoder_self_attention_bias: Bias and mask weights for decoder
+          self-attention. [batch_size, decoder_length]
+      hparams: hyperparmeters for model.
+
+    Returns:
+      Final decoder representaiton. [batch_size, decoder_length, hidden_dim]
+    """
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
-    encoder_output = transformer_encoder(encoder_input,
-                                         encoder_self_attention_bias, hparams)
 
     decoder_output = transformer_decoder(
-        decoder_input, encoder_output, decoder_self_attention_bias,
-        encoder_decoder_attention_bias, hparams)
-    decoder_output = tf.expand_dims(decoder_output, 2)
+        decoder_input,
+        encoder_output,
+        decoder_self_attention_bias,
+        encoder_decoder_attention_bias,
+        hparams)
 
-    return decoder_output
+    # Expand since t2t expects 4d tensors.
+    return tf.expand_dims(decoder_output, axis=2)
+
+  def model_fn_body(self, features):
+    """Transformet main model_fn.
+
+    Args:
+      features: Map of features to the model. Should contain the following:
+          "inputs": Transformer inputs [batch_size, input_length, hidden_dim]
+          "tragets": Target decoder outputs.
+              [batch_size, decoder_length, hidden_dim]
+          "target_space_id"
+
+    Returns:
+      Final decoder representaiton. [batch_size, decoder_length, hidden_dim]
+    """
+    hparams = self._hparams
+
+    inputs = features["inputs"]
+
+    target_space = features["target_space_id"]
+    encoder_output, encoder_decoder_attention_bias = self.encode(
+        inputs, target_space, hparams)
+
+    targets = features["targets"]
+    targets = common_layers.flatten4d3d(targets)
+
+    decoder_input, decoder_self_attention_bias = transformer_prepare_decoder(
+        targets, hparams)
+
+    return self.decode(
+        decoder_input,
+        encoder_output,
+        encoder_decoder_attention_bias,
+        decoder_self_attention_bias,
+        hparams)
 
 
 @registry.register_model
