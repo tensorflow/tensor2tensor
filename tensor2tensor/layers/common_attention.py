@@ -482,7 +482,7 @@ def masked_local_attention_1d(
     # If (length < 2 * block_length), then we use only one block.
     block_length = tf.where(tf.less(length, block_length * 2),
                             length, block_length)
-    depth_k = tf.shape(q)[3]
+    depth_k = tf.shape(k)[3]
     depth_v = tf.shape(v)[3]
     original_length = length
     padding_size = tf.mod(-length, block_length)
