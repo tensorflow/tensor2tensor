@@ -127,16 +127,18 @@ def build_input_fn(mode,
     feature_map["problem_choice"] = problem_choice
 
     # Set shapes so the ranks are clear.
-    feature_map["inputs"].set_shape([None, None, None, None])
+    if problem_instance.has_inputs:
+      feature_map["inputs"].set_shape([None, None, None, None])
+      feature_map["input_space_id"].set_shape([])
     feature_map["targets"].set_shape([None, None, None, None])
     feature_map["problem_choice"].set_shape([])
-    feature_map["input_space_id"].set_shape([])
     feature_map["target_space_id"].set_shape([])
 
     if mode == tf.estimator.ModeKeys.PREDICT:
       feature_map["infer_targets"] = feature_map["targets"]
       #  Forced shape obfuscation is necessary for inference.
-      feature_map["inputs"]._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
+      if problem_instance.has_inputs:
+        feature_map["inputs"]._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
       feature_map["targets"]._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
 
       # This is because of a bug in the Estimator that short-circuits prediction
@@ -238,11 +240,13 @@ def features_for_problem(problem_instance,
       feature_map["targets"] = feature_map["inputs"]
 
   # Ensure inputs and targets are proper rank.
-  while len(feature_map["inputs"].get_shape()) != 4:
-    feature_map["inputs"] = tf.expand_dims(feature_map["inputs"], axis=-1)
+  if problem_instance.has_inputs:
+    while len(feature_map["inputs"].get_shape()) != 4:
+      feature_map["inputs"] = tf.expand_dims(feature_map["inputs"], axis=-1)
   while len(feature_map["targets"].get_shape()) != 4:
     feature_map["targets"] = tf.expand_dims(feature_map["targets"], axis=-1)
 
-  feature_map["input_space_id"] = tf.constant(p_hparams.input_space_id)
+  if problem_instance.has_inputs:
+    feature_map["input_space_id"] = tf.constant(p_hparams.input_space_id)
   feature_map["target_space_id"] = tf.constant(p_hparams.target_space_id)
   return feature_map

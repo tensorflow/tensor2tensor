@@ -17,20 +17,15 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
 import collections
 import os
 import random
-
 # Dependency imports
-
 import six
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-
 import tensorflow as tf
 
 
@@ -386,6 +381,10 @@ class Problem(object):
     return dataset
 
   @property
+  def has_inputs(self):
+    return "inputs" in self.get_feature_encoders()
+
+  @property
   def feature_info(self):
     """Retrieve dict<feature name, FeatureInfo>.
 
@@ -404,7 +403,8 @@ class Problem(object):
     input_mods = hp.input_modality
     target_mod = hp.target_modality
     vocabs = hp.vocabulary
-    in_id = hp.input_space_id
+    if self.has_inputs:
+      in_id = hp.input_space_id
     out_id = hp.target_space_id
 
     features = collections.defaultdict(FeatureInfo)
@@ -422,7 +422,8 @@ class Problem(object):
     for name, encoder in six.iteritems(vocabs):
       features[name].encoder = encoder
 
-    features["inputs"].space_id = in_id
+    if self.has_inputs:
+      features["inputs"].space_id = in_id
     features["targets"].space_id = out_id
 
     self._feature_info = features
