@@ -464,6 +464,9 @@ class T2TModel(object):
       transformed_features["targets"] = target_modality.targets_bottom_sharded(
           sharded_features["targets"], dp)
 
+    # Allows later access to pre-embedding raw targets.
+    transformed_features["raw_targets"] = sharded_features["targets"]
+
     # Construct the model body.
     with tf.variable_scope("body", reuse=self._problem_idx > 0):
       if skip:
