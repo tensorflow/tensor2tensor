@@ -47,7 +47,7 @@ def decode_hparams(overrides=""):
       save_images=False,
       problem_idx=0,
       extra_length=50,
-      batch_size=32,
+      batch_size=0,
       beam_size=4,
       alpha=0.6,
       return_beams=False,
@@ -113,7 +113,8 @@ def decode_from_dataset(estimator,
         hparams=hparams,
         data_file_patterns=infer_problems_data,
         num_datashards=devices.data_parallelism().n,
-        fixed_problem=problem_idx)
+        fixed_problem=problem_idx,
+        batch_size=decode_hp.batch_size)
 
     # Get the predictions as an iterable
     predictions = estimator.predict(infer_input_fn)
@@ -188,6 +189,11 @@ def decode_from_dataset(estimator,
 
 def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   """Compute predictions on entries in filename and write them out."""
+  if not decode_hp.batch_size:
+    decode_hp.batch_size = 32
+    tf.logging.info(
+        "decode_hp.batch_size not specified; default=%d" % decode_hp.batch_size)
+
   hparams = estimator.params
   problem_id = decode_hp.problem_idx
   inputs_vocab = hparams.problems[problem_id].vocabulary["inputs"]

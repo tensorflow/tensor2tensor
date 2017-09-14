@@ -34,7 +34,8 @@ def build_input_fn(mode,
                    num_datashards=None,
                    fixed_problem=None,
                    worker_replicas=None,
-                   worker_id=None):
+                   worker_id=None,
+                   batch_size=None):
   """Provides input to the graph, either from disk or via a placeholder.
 
   This function produces an input function that will feed data into
@@ -61,6 +62,7 @@ def build_input_fn(mode,
       setting with hparams.problem_choice == distributed.
     worker_id: int, id of this worker replica. Used in multiproblem setting with
       hparams.problem_choice == distributed.
+    batch_size: int, if provided, will use a fixed batch size.
 
   Returns:
     A function that returns a dictionary of features and the target labels.
@@ -98,6 +100,7 @@ def build_input_fn(mode,
             problem_filepatterns,
             num_datashards,
             mode,
+            batch_size=batch_size,
             name="problem_%d" % problem_idx)
         problem_batches.append(feature_map)
 
@@ -211,19 +214,25 @@ def features_for_problem(problem_instance,
                          data_filepatterns,
                          num_datashards,
                          mode,
+                         batch_size=None,
                          name="problem_inputs"):
   """Feature map for Problem."""
   with tf.name_scope(name):
     with tf.device("/cpu:0"):  # Input reading on CPU
       capacity = (p_hparams.max_expected_batch_size_per_shard * num_datashards)
+      batching_scheme = data_reader.hparams_to_batching_scheme(
+          hparams,
+          shard_multiplier=num_datashards,
+          drop_long_sequences=(mode == tf.estimator.ModeKeys.TRAIN or
+                               hparams.eval_drop_long_sequences),
+          length_multiplier=(p_hparams.batch_size_multiplier))
+      if batch_size:
+        # If batch_size is fixed, use a single input bucket
+        batching_scheme["batch_sizes"] = [batch_size]
+        batching_scheme["boundaries"] = []
       feature_map = data_reader.input_pipeline(
           problem_instance, data_filepatterns, capacity, mode, hparams,
-          data_reader.hparams_to_batching_scheme(
-              hparams,
-              shard_multiplier=num_datashards,
-              drop_long_sequences=(mode == tf.estimator.ModeKeys.TRAIN or
-                                   hparams.eval_drop_long_sequences),
-              length_multiplier=(p_hparams.batch_size_multiplier)))
+          batching_scheme)
 
   # Reverse inputs and targets features if the problem was reversed.
   if problem_instance is not None:
