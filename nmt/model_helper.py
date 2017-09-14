@@ -45,6 +45,11 @@ def get_device_str(device_id, num_gpus):
   return device_str_output
 
 
+class ExtraArgs(collections.namedtuple(
+    "ExtraArgs", ("single_cell_fn", "model_device_fn"))):
+  pass
+
+
 class TrainModel(
     collections.namedtuple("TrainModel", ("graph", "model", "iterator",
                                           "skip_count_placeholder"))):
@@ -52,8 +57,7 @@ class TrainModel(
 
 
 def create_train_model(
-    model_creator, hparams, scope=None,
-    single_cell_fn=None, model_device_fn=None):
+    model_creator, hparams, scope=None, extra_args=None):
   """Create train graph, model, and iterator."""
   src_file = "%s.%s" % (hparams.train_prefix, hparams.src)
   tgt_file = "%s.%s" % (hparams.train_prefix, hparams.tgt)
@@ -87,6 +91,8 @@ def create_train_model(
 
     # Note: One can set model_device_fn to
     # `tf.train.replica_device_setter(ps_tasks)` for distributed training.
+    model_device_fn = None
+    if extra_args: model_device_fn = extra_args.model_device_fn
     with tf.device(model_device_fn):
       model = model_creator(
           hparams,
@@ -95,7 +101,7 @@ def create_train_model(
           source_vocab_table=src_vocab_table,
           target_vocab_table=tgt_vocab_table,
           scope=scope,
-          single_cell_fn=single_cell_fn)
+          extra_args=extra_args)
 
   return TrainModel(
       graph=graph,
@@ -111,7 +117,7 @@ class EvalModel(
   pass
 
 
-def create_eval_model(model_creator, hparams, scope=None, single_cell_fn=None):
+def create_eval_model(model_creator, hparams, scope=None, extra_args=None):
   """Create train graph, model, src/tgt file holders, and iterator."""
   src_vocab_file = hparams.src_vocab_file
   tgt_vocab_file = hparams.tgt_vocab_file
@@ -144,7 +150,7 @@ def create_eval_model(model_creator, hparams, scope=None, single_cell_fn=None):
         source_vocab_table=src_vocab_table,
         target_vocab_table=tgt_vocab_table,
         scope=scope,
-        single_cell_fn=single_cell_fn)
+        extra_args=extra_args)
   return EvalModel(
       graph=graph,
       model=model,
@@ -160,7 +166,7 @@ class InferModel(
   pass
 
 
-def create_infer_model(model_creator, hparams, scope=None, single_cell_fn=None):
+def create_infer_model(model_creator, hparams, scope=None, extra_args=None):
   """Create inference model."""
   graph = tf.Graph()
   src_vocab_file = hparams.src_vocab_file
@@ -192,7 +198,7 @@ def create_infer_model(model_creator, hparams, scope=None, single_cell_fn=None):
         target_vocab_table=tgt_vocab_table,
         reverse_target_vocab_table=reverse_tgt_vocab_table,
         scope=scope,
-        single_cell_fn=single_cell_fn)
+        extra_args=extra_args)
   return InferModel(
       graph=graph,
       model=model,
@@ -359,7 +365,7 @@ def create_rnn_cell(unit_type, num_units, num_layers, num_residual_layers,
     base_gpu: The gpu device id to use for the first RNN cell in the
       returned list. The i-th RNN cell will use `(base_gpu + i) % num_gpus`
       as its device id.
-    single_cell_fn: single_cell_fn: allow for adding customized cell.
+    single_cell_fn: allow for adding customized cell.
       When not specified, we default to model_helper._single_cell
   Returns:
     An `RNNCell` instance.

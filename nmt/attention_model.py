@@ -43,7 +43,7 @@ class AttentionModel(model.Model):
                target_vocab_table,
                reverse_target_vocab_table=None,
                scope=None,
-               single_cell_fn=None):
+               extra_args=None):
     super(AttentionModel, self).__init__(
         hparams=hparams,
         mode=mode,
@@ -52,7 +52,7 @@ class AttentionModel(model.Model):
         target_vocab_table=target_vocab_table,
         reverse_target_vocab_table=reverse_target_vocab_table,
         scope=scope,
-        single_cell_fn=single_cell_fn)
+        extra_args=extra_args)
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
       self.infer_summary = self._get_infer_summary(hparams)
 

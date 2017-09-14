@@ -45,7 +45,7 @@ class BaseModel(object):
                target_vocab_table,
                reverse_target_vocab_table=None,
                scope=None,
-               single_cell_fn=None):
+               extra_args=None):
     """Create the model.
 
     Args:
@@ -57,8 +57,8 @@ class BaseModel(object):
       reverse_target_vocab_table: Lookup table mapping ids to target words. Only
         required in INFER mode. Defaults to None.
       scope: scope of the model.
-      single_cell_fn: allow for adding customized cell. When not specified,
-        we default to model_helper._single_cell
+      extra_args: model_helper.ExtraArgs, for passing customizable functions.
+
     """
     assert isinstance(iterator, iterator_utils.BatchedInput)
     self.iterator = iterator
@@ -71,6 +71,11 @@ class BaseModel(object):
     self.num_layers = hparams.num_layers
     self.num_gpus = hparams.num_gpus
     self.time_major = hparams.time_major
+
+    # extra_args: to make it flexible for adding external customizable code
+    self.single_cell_fn = None
+    if extra_args:
+      self.single_cell_fn = extra_args.single_cell_fn
 
     # Initializer
     initializer = model_helper.get_initializer(
@@ -87,10 +92,6 @@ class BaseModel(object):
       with tf.variable_scope("decoder/output_projection"):
         self.output_layer = layers_core.Dense(
             hparams.tgt_vocab_size, use_bias=False, name="output_projection")
-
-    # To make it flexible for external code to add other cell types
-    # If not specified, we will later use model_helper._single_cell
-    self.single_cell_fn = single_cell_fn
 
     ## Train graph
     res = self.build_graph(hparams, scope=scope)
