@@ -92,7 +92,9 @@ def get_iterator(src_dataset,
                  tgt_max_len=None,
                  num_threads=4,
                  output_buffer_size=None,
-                 skip_count=None):
+                 skip_count=None,
+                 num_shards=1,
+                 shard_index=0):
   if not output_buffer_size:
     output_buffer_size = batch_size * 1000
   src_eos_id = tf.cast(src_vocab_table.lookup(tf.constant(eos)), tf.int32)
@@ -101,6 +103,7 @@ def get_iterator(src_dataset,
 
   src_tgt_dataset = tf.contrib.data.Dataset.zip((src_dataset, tgt_dataset))
 
+  src_tgt_dataset = src_tgt_dataset.shard(num_shards, shard_index)
   if skip_count is not None:
     src_tgt_dataset = src_tgt_dataset.skip(skip_count)
 

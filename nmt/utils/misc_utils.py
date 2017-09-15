@@ -29,8 +29,10 @@ import tensorflow as tf
 
 
 def check_tensorflow_version():
-  if tf.__version__ < "1.2.1":
-    raise EnvironmentError("Tensorflow version must >= 1.2.1")
+  # TODO(rzhao): Change to 1.4.0-dev once TF nightlies reflect correct dev
+  # version.
+  if tf.__version__ < "1.3.0":
+    raise EnvironmentError("Tensorflow version must >= 1.3.0")
 
 
 def safe_exp(value):

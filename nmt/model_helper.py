@@ -57,7 +57,8 @@ class TrainModel(
 
 
 def create_train_model(
-    model_creator, hparams, scope=None, extra_args=None):
+    model_creator, hparams, scope=None, num_workers=1, jobid=0,
+    extra_args=None):
   """Create train graph, model, and iterator."""
   src_file = "%s.%s" % (hparams.train_prefix, hparams.src)
   tgt_file = "%s.%s" % (hparams.train_prefix, hparams.tgt)
@@ -87,7 +88,9 @@ def create_train_model(
         num_buckets=hparams.num_buckets,
         src_max_len=hparams.src_max_len,
         tgt_max_len=hparams.tgt_max_len,
-        skip_count=skip_count_placeholder)
+        skip_count=skip_count_placeholder,
+        num_shards=num_workers,
+        shard_index=jobid)
 
     # Note: One can set model_device_fn to
     # `tf.train.replica_device_setter(ps_tasks)` for distributed training.
