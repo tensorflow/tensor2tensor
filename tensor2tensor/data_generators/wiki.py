@@ -224,6 +224,19 @@ class LanguagemodelWikiScramble(problem.Text2TextProblem):
 
 
 @registry.register_problem
+class LanguagemodelWikiScramble128(LanguagemodelWikiScramble):
+  """Sequence length 128, 50% scrambed."""
+
+  @property
+  def sequence_length(self):
+    return 128
+
+  @property
+  def scramble_fraction(self):
+    return 0.5
+
+
+@registry.register_problem
 class LanguagemodelWikiScramble1k50(LanguagemodelWikiScramble):
   """Sequence length 1024, 50% scrambed."""
 
