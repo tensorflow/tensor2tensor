@@ -67,9 +67,9 @@ def main(_):
     inputs = [int(i) for i in x.features.feature["inputs"].int64_list.value]
     targets = [int(i) for i in x.features.feature["targets"].int64_list.value]
     if FLAGS.print_inputs:
-      print(encoder.decode(inputs) if encoder else inputs)
+      print("INPUTS:\n" + encoder.decode(inputs) if encoder else inputs)
     if FLAGS.print_targets:
-      print(encoder.decode(targets) if encoder else targets)
+      print("TARGETS:\n" + encoder.decode(targets) if encoder else targets)
     total_input_tokens += len(inputs)
     total_target_tokens += len(targets)
     total_sequences += 1

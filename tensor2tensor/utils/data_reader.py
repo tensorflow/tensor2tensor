@@ -288,7 +288,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
 def _preprocess(example, problem, data_file_pattern, hparams, mode):
   """Preprocessing for example."""
   if problem is None:
-    example = preprocess_examples_common(example, hparams)
+    example = preprocess_examples_common(example, hparams, mode)
     example = preprocessing(example, data_file_pattern)
   else:
     example = problem.preprocess_examples(example, mode, hparams)
@@ -384,7 +384,6 @@ def padded_batch(dataset, batch_size, padded_shapes=None):
 
 def _bucket_boundaries(max_length, min_length=8, length_bucket_step=1.1):
   """A default set of length-bucket boundaries."""
-  assert min_length <= max_length
   assert length_bucket_step > 1.0
   x = min_length
   boundaries = []

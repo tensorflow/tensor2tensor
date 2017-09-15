@@ -102,15 +102,18 @@ def default_model_hparams():
       data_dir=None)
 
 
-def preprocess_examples_common(examples, hparams):
+def preprocess_examples_common(examples, hparams, mode):
   """Preprocessing steps common to all models."""
   if hparams.max_input_seq_length > 0:
     examples["inputs"] = examples["inputs"][:hparams.max_input_seq_length]
   if hparams.max_target_seq_length > 0:
     examples["targets"] = examples["targets"][:hparams.max_target_seq_length]
   if hparams.prepend_mode != "none":
-    examples["targets"] = tf.concat(
-        [examples["inputs"], [0], examples["targets"]], 0)
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      examples["partial_targets"] = tf.concat([examples["inputs"], [0]], 0)
+    else:
+      examples["targets"] = tf.concat(
+          [examples["inputs"], [0], examples["targets"]], 0)
   return examples
 
 
@@ -196,8 +199,7 @@ class Problem(object):
     return (data_fields, data_items_to_decoders)
 
   def preprocess_examples(self, examples, mode, hparams):
-    del mode
-    return preprocess_examples_common(examples, hparams)
+    return preprocess_examples_common(examples, hparams, mode)
 
   def eval_metrics(self):
     return [

@@ -725,6 +725,14 @@ def transformer_parameter_attention_b():
   return hparams
 
 
+@registry.register_hparams
+def transformer_prepend():
+  hparams = transformer_base()
+  hparams.prepend_mode = "prepend_inputs_masked_attention"
+  hparams.max_length = 0
+  return hparams
+
+
 @registry.register_ranged_hparams("transformer_base")
 def transformer_base_range(rhp):
   """Small range of hyperparameters."""
