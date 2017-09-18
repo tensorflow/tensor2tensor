@@ -77,7 +77,8 @@ class Transformer(t2t_model.T2TModel):
       encoder_output,
       encoder_decoder_attention_bias,
       decoder_self_attention_bias,
-      hparams):
+      hparams,
+      cache=None):
     """Decode Transformer outputs from encoder representation.
 
     Args:
@@ -90,6 +91,8 @@ class Transformer(t2t_model.T2TModel):
       decoder_self_attention_bias: Bias and mask weights for decoder
           self-attention. [batch_size, decoder_length]
       hparams: hyperparmeters for model.
+      cache: dict, containing tensors which are the results of previous
+          attentions, used for fast decoding.
 
     Returns:
       Final decoder representaiton. [batch_size, decoder_length, hidden_dim]
@@ -102,7 +105,8 @@ class Transformer(t2t_model.T2TModel):
         encoder_output,
         decoder_self_attention_bias,
         encoder_decoder_attention_bias,
-        hparams)
+        hparams,
+        cache=cache)
 
     # Expand since t2t expects 4d tensors.
     return tf.expand_dims(decoder_output, axis=2)
@@ -140,6 +144,152 @@ class Transformer(t2t_model.T2TModel):
         encoder_decoder_attention_bias,
         decoder_self_attention_bias,
         hparams)
+
+  # TODO(llion): Enable fast inference once it's been fully tested.
+  def x_greedy_infer(
+      self, features, decode_length, last_position_only=True):
+    """Fast version of greedy decoding.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+      last_position_only: MUST be true for fast decoding!
+
+    Returns:
+       samples: [batch_size, input_length + decode_length]
+       logits: Not returned
+       losses: Not returned
+
+    Raises:
+      ValueError: If last_position_only if False
+      NotImplementedError: If there are multiple data shards.
+    """
+    if not last_position_only:
+      raise ValueError("Fast decoding only deals with the last positions!")
+    if self._num_datashards != 1:
+      raise NotImplementedError("Fast decoding only supports a single shard.")
+    dp = self._data_parallelism
+    hparams = self._hparams
+
+    inputs = features["inputs"]
+    batch_size = tf.shape(inputs)[0]
+    # TODO(llion): Support class modality
+    decode_length = tf.shape(inputs)[1] + decode_length
+
+    # TODO(llion): Clean up this reshaping logic.
+    inputs = tf.expand_dims(inputs, axis=1)
+    if len(inputs.shape) < 5:
+      inputs = tf.expand_dims(inputs, axis=4)
+    s = tf.shape(inputs)
+    inputs = tf.reshape(inputs, [s[0] * s[1], s[2], s[3], s[4]])
+    # _shard_features called to ensure that the variable names match
+    inputs = self._shard_features({"inputs": inputs})["inputs"]
+    input_modality = self._problem_hparams.input_modality["inputs"]
+    with tf.variable_scope(input_modality.name):
+      inputs = input_modality.bottom_sharded(inputs, dp)
+    with tf.variable_scope("body"):
+      encoder_output, encoder_decoder_attention_bias = dp(
+          self.encode, inputs, features["target_space_id"], hparams)
+
+    if hparams.pos == "timing":
+      timing_signal = common_attention.get_timing_signal_1d(
+          decode_length + 1, hparams.hidden_size)
+
+    target_modality = self._problem_hparams.target_modality
+
+    def preprocess_targets(targets, i):
+      """Performs preprocessing steps on the targets to prepare for the decoder.
+
+      This includes:
+        - Embedding the ids.
+        - Flattening to 3D tensor.
+        - Optionally adding timing signals.
+
+      Args:
+        targets: inputs ids to the decoder. [batch_size, 1]
+        i: scalar, Step number of the decoding loop.
+
+      Returns:
+        Processed targets [batch_size, 1, hidden_dim]
+      """
+      # _shard_features called to ensure that the variable names match
+      targets = self._shard_features({"targets": targets})["targets"]
+      with tf.variable_scope(target_modality.name):
+        targets = target_modality.targets_bottom_sharded(targets, dp)[0]
+      targets = common_layers.flatten4d3d(targets)
+
+      # TODO(llion): Explain! Is this even needed?
+      targets = tf.cond(
+          tf.equal(i, 0),
+          lambda: tf.zeros_like(targets),
+          lambda: targets)
+
+      if hparams.pos == "timing":
+        targets += timing_signal[:, i:i+1]
+      return targets
+
+    decoder_self_attention_bias = (
+        common_attention.attention_bias_lower_triangle(decode_length))
+    if hparams.proximity_bias:
+      decoder_self_attention_bias += common_attention.attention_bias_proximal(
+          decode_length)
+
+    def symbols_to_logits_fn(ids, i, cache):
+      """Go from ids to logits for next symbol."""
+      targets = tf.expand_dims(tf.expand_dims(ids, axis=2), axis=3)
+      targets = preprocess_targets(targets, i)
+
+      bias = decoder_self_attention_bias[:, :, i:i+1, :i+1]
+
+      with tf.variable_scope("body"):
+        body_outputs = self._data_parallelism(
+            self.decode,
+            targets,
+            encoder_output[0],
+            encoder_decoder_attention_bias[0],
+            bias,
+            hparams,
+            cache)
+
+      with tf.variable_scope(target_modality.name):
+        logits = target_modality.top_sharded(body_outputs, None, dp)[0]
+
+      return tf.squeeze(logits, axis=[1, 2, 3])
+
+    def inner_loop(i, next_id, decoded_ids, cache):
+      logits = symbols_to_logits_fn(next_id, i, cache)
+      next_id = tf.expand_dims(tf.argmax(logits, axis=-1), axis=1)
+      decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
+      return i+1, next_id, decoded_ids, cache
+
+    key_channels = hparams.attention_key_channels or hparams.hidden_size
+    value_channels = hparams.attention_value_channels or hparams.hidden_size
+    num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
+
+    cache = {
+        "layer_%d" % layer: {
+            "k": tf.zeros([batch_size, 0, key_channels]),
+            "v": tf.zeros([batch_size, 0, value_channels]),
+        } for layer in range(num_layers)
+    }
+    decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
+    next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
+    _, _, decoded_ids, _ = tf.while_loop(
+        # TODO(llion): Early stopping.
+        lambda i, *_: tf.less(i, decode_length),
+        inner_loop,
+        [tf.constant(0), next_id, decoded_ids, cache],
+        shape_invariants=[
+            tf.TensorShape([]),
+            tf.TensorShape([None, None]),
+            tf.TensorShape([None, None]),
+            {"layer_%d" % layer: {
+                "k": tf.TensorShape([None, None, key_channels]),
+                "v": tf.TensorShape([None, None, value_channels]),
+            } for layer in range(num_layers)}
+        ])
+
+    return decoded_ids, None, None
 
 
 @registry.register_model
@@ -293,6 +443,7 @@ def transformer_decoder(decoder_input,
                         decoder_self_attention_bias,
                         encoder_decoder_attention_bias,
                         hparams,
+                        cache=None,
                         name="decoder"):
   """A stack of transformer layers.
 
@@ -304,6 +455,8 @@ def transformer_decoder(decoder_input,
     encoder_decoder_attention_bias: bias Tensor for encoder-decoder attention
       (see common_attention.attention_bias())
     hparams: hyperparameters for model
+    cache: dict, containing tensors which are the results of previous
+        attentions, used for fast decoding.
     name: a string
 
   Returns:
@@ -313,20 +466,28 @@ def transformer_decoder(decoder_input,
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_decoder_layers or
                         hparams.num_hidden_layers):
-      with tf.variable_scope("layer_%d" % layer):
+      layer_name = "layer_%d" % layer
+      layer_cache = cache[layer_name] if cache is not None else None
+      with tf.variable_scope(layer_name):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
-              common_layers.layer_preprocess(
-                  x, hparams), None, decoder_self_attention_bias,
+              common_layers.layer_preprocess(x, hparams),
+              None,
+              decoder_self_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
               hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size, hparams.num_heads, hparams.attention_dropout)
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout,
+              cache=layer_cache)
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
+            # TODO(llion): Add caching.
             y = common_attention.multihead_attention(
-                common_layers.layer_preprocess(
-                    x, hparams), encoder_output, encoder_decoder_attention_bias,
+                common_layers.layer_preprocess(x, hparams),
+                encoder_output,
+                encoder_decoder_attention_bias,
                 hparams.attention_key_channels or hparams.hidden_size,
                 hparams.attention_value_channels or hparams.hidden_size,
                 hparams.hidden_size, hparams.num_heads,

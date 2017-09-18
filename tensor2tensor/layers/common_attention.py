@@ -1064,6 +1064,7 @@ def multihead_attention(query_antecedent,
                         kv_filter_width=1,
                         q_padding="VALID",
                         kv_padding="VALID",
+                        cache=None,
                         name=None):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -1087,11 +1088,28 @@ def multihead_attention(query_antecedent,
     to be.
     q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
-
+    cache: dict, containing Tensors which are the results of previous
+        attentions, used for fast decoding. Expects the dict to contrain two
+        keys; 'k' and 'v', for the initial call the values for these keys should
+        be empty Tensors of the appropriate shape.
+            'k' [batch_size, 0, key_channels]
+            'v' [batch_size, 0, value_channels]
     name: an optional string
 
+  Caching:
+    WARNING: For decoder self-attention, i.e. when memory_antecedent == None,
+    the caching assumes that the bias contains future masking.
+
+    The caching works by saving all the previous key and value values so that
+    you are able to send just the last query location to this attention
+    function. I.e. if the cache dict is provided it assumes the query is of the
+    shape [batch_size, 1, hiddem_dim] rather than the full memory.
+
   Returns:
-    A Tensor.
+    The result of the attention transformation. The output shape is
+        [batch_size, length_q, hidden_dim]
+    unless the cache dict is provided in which case only the last memory
+    position is calculated and the output shape is [batch_size, 1, hidden_dim]
 
   Raises:
     ValueError: if the key depth or value depth are not divisible by the
@@ -1110,6 +1128,17 @@ def multihead_attention(query_antecedent,
     q, k, v = compute_qkv(query_antecedent, memory_antecedent, total_key_depth,
                           total_value_depth, q_filter_width, kv_filter_width,
                           q_padding, kv_padding)
+
+    if cache is not None:
+      if attention_type != "dot_product":
+        raise NotImplementedError(
+            "Caching is not guaranteed to work with attention types other than"
+            " dot_product.")
+      if bias is None:
+        raise ValueError("Bias required for caching. See function docstring "
+                         "for details.")
+      k = cache["k"] = tf.concat([cache["k"], k], axis=1)
+      v = cache["v"] = tf.concat([cache["v"], v], axis=1)
 
     q = split_heads(q, num_heads)
     k = split_heads(k, num_heads)

@@ -292,7 +292,24 @@ class T2TModel(object):
         return {"outputs": ids[:, :top_beams, 1:], "scores": scores}
       return ids[:, :top_beams, 1:]
 
-  def _greedy_infer(self, features, decode_length, last_position_only):
+  def  _greedy_infer(self, features, decode_length, last_position_only):
+    """A greedy inference method.
+
+    Models should ideally implement a more efficient version of this function.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+      last_position_only: a boolean, speed-up by computing last position only.
+
+    Returns:
+       samples: an integer `Tensor`.
+       logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+       losses: a dictionary: {loss-name (string): floating point `Scalar`}
+    """
+    return self._slow_greedy_infer(features, decode_length, last_position_only)
+
+  def _slow_greedy_infer(self, features, decode_length, last_position_only):
     """A slow greedy inference method.
 
     Quadratic time in decode_length.

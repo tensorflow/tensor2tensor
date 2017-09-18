@@ -32,16 +32,22 @@ import tensorflow as tf
 BATCH_SIZE = 3
 INPUT_LENGTH = 5
 TARGET_LENGTH = 7
-VOCAB_SIZE = 9
+VOCAB_SIZE = 10
 
 
 class TransformerTest(tf.test.TestCase):
 
-  def getModel(self):
+  def getModel(self, mode=tf.estimator.ModeKeys.TRAIN):
     hparams = transformer.transformer_small()
+    hparams.hidden_size = 8
+    hparams.filter_size = 32
+    hparams.num_heads = 1
+    hparams.layer_prepostprocess_dropout = 0.0
+
     p_hparams = problem_hparams.test_problem_hparams(
         hparams, VOCAB_SIZE, VOCAB_SIZE)
     hparams.problems = [p_hparams]
+
     inputs = -1 + np.random.random_integers(
         VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
     targets = -1 + np.random.random_integers(
@@ -64,6 +70,39 @@ class TransformerTest(tf.test.TestCase):
       res = session.run(logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
 
+  def testGreedyVsFast(self):
+    model, features = self.getModel()
+
+    decode_length = 2
+
+    out_logits, _ = model.model_fn(features)
+    out_logits = tf.squeeze(out_logits[0], axis=[2, 3])
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        logits=tf.reshape(out_logits, [-1, VOCAB_SIZE]),
+        labels=tf.reshape(features["targets"], [-1]))
+    loss = tf.reduce_mean(loss)
+    apply_grad = tf.train.AdamOptimizer(0.001).minimize(loss)
+
+    with self.test_session():
+      tf.global_variables_initializer().run()
+      for _ in range(100):
+        apply_grad.run()
+
+    model, _ = self.getModel(tf.estimator.ModeKeys.PREDICT)
+
+    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+      greedy_result, _, _ = model._slow_greedy_infer(
+          features, decode_length, last_position_only=True)
+      greedy_result = tf.squeeze(greedy_result, axis=[2, 3])
+
+      fast_result, _, _ = model.x_greedy_infer(features, decode_length)
+
+    with self.test_session():
+      greedy_res = greedy_result.eval()
+      fast_res = fast_result.eval()
+
+    self.assertEqual(fast_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertAllClose(greedy_res, fast_res)
 
 if __name__ == "__main__":
   tf.test.main()
