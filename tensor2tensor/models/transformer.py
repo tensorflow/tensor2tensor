@@ -282,10 +282,10 @@ def transformer_encoder(encoder_input,
           y = transformer_ffn_layer(
               common_layers.layer_preprocess(x, hparams), hparams, pad_remover)
           x = common_layers.layer_postprocess(x, y, hparams)
-  # if normalization is done in layer_preprocess, then it shuold also be done
-  # on the output, since the output can grow very large, being the sum of
-  # a whole stack of unnormalized layer outputs.
-  return common_layers.layer_preprocess(x, hparams)
+    # if normalization is done in layer_preprocess, then it shuold also be done
+    # on the output, since the output can grow very large, being the sum of
+    # a whole stack of unnormalized layer outputs.
+    return common_layers.layer_preprocess(x, hparams)
 
 
 def transformer_decoder(decoder_input,
@@ -336,10 +336,10 @@ def transformer_decoder(decoder_input,
           y = transformer_ffn_layer(
               common_layers.layer_preprocess(x, hparams), hparams)
           x = common_layers.layer_postprocess(x, y, hparams)
-  # if normalization is done in layer_preprocess, then it shuold also be done
-  # on the output, since the output can grow very large, being the sum of
-  # a whole stack of unnormalized layer outputs.
-  return common_layers.layer_preprocess(x, hparams)
+    # if normalization is done in layer_preprocess, then it shuold also be done
+    # on the output, since the output can grow very large, being the sum of
+    # a whole stack of unnormalized layer outputs.
+    return common_layers.layer_preprocess(x, hparams)
 
 
 def transformer_ffn_layer(x, hparams, pad_remover=None):
