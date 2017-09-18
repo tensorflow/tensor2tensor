@@ -251,8 +251,34 @@ def embedding_to_padding(emb):
   return tf.to_float(tf.equal(emb_sum, 0.0))
 
 
+def attention_bias_local(length, max_backward, max_forward):
+  """Create an bias tensor to be added to attention logits.
+
+  A position may attend to positions at most max_distance from it,
+  forward and backwards.
+
+  This does not actually save any computation.
+
+  Args:
+    length: an integer Scalar.
+    max_backward: an int64 Scalar - maximum distance backward to attend.
+      negative values indicate unlimited.
+    max_forward: an int64 Scalar - maximum distance forward to attend.
+      negative values indicate unlimited.
+
+  Returns:
+    a `Tensor` with shape [1, 1, length, length].
+  """
+  band = tf.matrix_band_part(
+      tf.ones([length, length]), max_backward, max_forward)
+  ret = -1e9 * (1.0 - band)
+  return tf.reshape(ret, [1, 1, length, length])
+
+
 def attention_bias_lower_triangle(length):
   """Create an bias tensor to be added to attention logits.
+
+  Allows a query to attend to all positions up to and including its own.
 
   Args:
    length: a Scalar.
@@ -260,9 +286,7 @@ def attention_bias_lower_triangle(length):
   Returns:
     a `Tensor` with shape [1, 1, length, length].
   """
-  lower_triangle = tf.matrix_band_part(tf.ones([length, length]), -1, 0)
-  ret = -1e9 * (1.0 - lower_triangle)
-  return tf.reshape(ret, [1, 1, length, length])
+  return attention_bias_local(length, -1, 0)
 
 
 def attention_bias_ignore_padding(memory_padding):

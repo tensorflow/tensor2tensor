@@ -44,7 +44,8 @@ ModeKeys = tf.estimator.ModeKeys  # pylint: disable=invalid-name
 
 
 def _should_preprocess(layer_type):
-  return layer_type not in ["timing", "pos_emb"]
+  return layer_type not in [
+      "timing", "pos_emb", "att_memory_efficient"]
 
 
 def _should_postprocess(layer_type):
@@ -81,8 +82,6 @@ class Aligned(t2t_model.T2TModel):
 
     batch_coordinate = dp(get_batch_coordinate, x)
 
-    assert hparams.batch_size >= hparams.max_length
-
     layers = hparams.layers.strip(",").split(",")
     for layer_num, layer_type in enumerate(layers):
       with tf.variable_scope("%s_%d" % (layer_type, layer_num)):
@@ -94,7 +93,25 @@ class Aligned(t2t_model.T2TModel):
           y = dp(common_attention.add_positional_embedding_nd,
                  x, hparams.max_length, name="pos_emb")
         elif layer_type == "att":
-          # multihead attention
+          y = dp(
+              common_attention.multihead_attention,
+              x,
+              None,
+              None,  # bias
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout)
+        elif layer_type == "att_memory_efficient":
+          assert hparams.layer_preprocess_sequence == "n"
+          zero_bias = tf.zeros([1, 1, 1, 1])
+          y = dp(
+              common_attention.multihead_self_attention_memory_efficient,
+              x,
+              zero_bias,
+              hparams.num_heads)
+        elif layer_type == "att_local":
           y = dp(
               common_attention.multihead_attention,
               x,
@@ -105,10 +122,29 @@ class Aligned(t2t_model.T2TModel):
               hparams.hidden_size,
               hparams.num_heads,
               hparams.attention_dropout,
-              attention_type=("local_unmasked" if hparams.attention_local
-                              else "dot_product"),
-              name="decoder_self_attention")
-        elif layer_type == "local_expert_attention":
+              attention_type="local_unmasked",
+              block_length=hparams.local_attention_window,
+              block_width=hparams.local_attention_window)
+        elif layer_type == "att_pseudolocal":
+          # This is an inefficient implementation of local attention, for the
+          # purpose of testing model quality.
+          def _pseudolocal_bias(x):
+            return common_attention.attention_bias_local(
+                tf.shape(x)[1],
+                hparams.local_attention_window,
+                hparams.local_attention_window)
+          pseudolocal_bias = dp(_pseudolocal_bias, x)
+          y = dp(
+              common_attention.multihead_attention,
+              x,
+              None,
+              pseudolocal_bias,
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout)
+        elif layer_type == "att_local_expert":
           y, loss = dp(
               common_attention.local_expert_attention,
               x,
@@ -176,6 +212,10 @@ def get_batch_coordinate(x):
 def aligned_base():
   """Set of hyperparameters.
 
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps (10min): log(ppl)_eval = 2.60
+  12.0 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.00
+
   Returns:
     a hparams object
   """
@@ -183,6 +223,7 @@ def aligned_base():
   hparams.hidden_size = 512
   hparams.batch_size = 5000
   hparams.max_length = 1024
+  hparams.min_length_bucket = 1024
   hparams.dropout = 0.0
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.label_smoothing = 0.0
@@ -196,12 +237,12 @@ def aligned_base():
   hparams.weight_decay = 0.0
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
-  hparams.shared_embedding_and_softmax_weights = int(False)
+  hparams.shared_embedding_and_softmax_weights = int(True)
   hparams.add_hparam("ffn_hidden_sizes", "2048")  # Add new ones like this.
   hparams.moe_num_experts = 32
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
-  hparams.add_hparam("layers", "timing," + "att,ffn," * 4)
+  hparams.add_hparam("layers", "timing," + "conv,att,ffn," * 2)
 
   # attention-related flags
   hparams.add_hparam("num_heads", 8)
@@ -223,34 +264,183 @@ def aligned_base():
   hparams.add_hparam("attention_load_balance", 2e-2)
   hparams.add_hparam("diet_experts", int(False))
   hparams.add_hparam("memory_efficient_ffn", int(False))
+  hparams.add_hparam("local_attention_window", 128)
   # if True, we learn a non-autoregressive model from "inputs" to "targets".
   # if False, we learn an autoregressive model to generate "targets"
   return hparams
 
 
 @registry.register_hparams
-def aligned_with_conv():
+def aligned_memory_efficient():
+  """Use multihead_self_attention_memory_efficient.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.59
+  8.7 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.02
+
+  Returns:
+    a hparams object
+  """
   hparams = aligned_base()
-  hparams.layers = "timing," + "conv,att,ffn," * 4
+  hparams.layers = "timing," + "conv,att_memory_efficient,ffn," * 2
+  return hparams
+
+
+@registry.register_hparams
+def aligned_local_expert():
+  """Use local_expert_attention.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.72
+  10.2 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.27
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_base()
+  hparams.layers = "timing," + "conv,att_local_expert,ffn," * 2
   return hparams
 
 
 @registry.register_hparams
 def aligned_local():
+  """Use local attention code.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.57
+  12.8 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.08
+
+  Returns:
+    a hparams object
+  """
   hparams = aligned_base()
-  hparams.attention_local = int(True)
+  hparams.layers = "timing," + "conv,att_local,ffn," * 2
+  return hparams
+
+
+@registry.register_hparams
+def aligned_local_1k():
+  """Use local attention code, attend to full sequence.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.57
+  7.5 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.00
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_local()
+  hparams.local_attention_window = 1024
+  return hparams
+
+
+@registry.register_hparams
+def aligned_pseudolocal():
+  """Use a bias to simulate local attention.  attention radius 128.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.57
+  12.0 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.06
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_base()
+  hparams.layers = "timing," + "conv,att_pseudolocal,ffn," * 2
+  return hparams
+
+
+@registry.register_hparams
+def aligned_pseudolocal_256():
+  """Use a bias to simulate local attention.  attentio radius 256.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.56
+  12.0 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.05
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_pseudolocal()
+  hparams.local_attention_window = 256
+  return hparams
+
+
+@registry.register_hparams
+def aligned_no_timing():
+  """No timing signal.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.75
+  12.3 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.39
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_base()
+  hparams.layers = "conv,att,ffn," * 2
+  return hparams
+
+
+@registry.register_hparams
+def aligned_no_att():
+  """No attention at all.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.89
+  20.8 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.70
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_base()
+  hparams.layers = "conv,ffn," * 2
   return hparams
 
 
 @registry.register_hparams
 def aligned_pos_emb():
+  """positional embedding insead of timing signal.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.67
+  12.1 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.00
+
+  Returns:
+    a hparams object
+  """
   hparams = aligned_base()
-  hparams.layers = "pos_emb," + "att,ffn," * 4
+  hparams.layers = "pos_emb," + "conv,att,ffn," * 2
   return hparams
 
 
 @registry.register_hparams
 def aligned_moe():
+  """mixture of experts instead of ffn.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.62
+  6.7 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 1.94
+
+  Returns:
+    a hparams object
+  """
   hparams = aligned_base()
-  hparams.layers = "timing," + "att,moe," * 4
+  hparams.layers = "timing," + "conv,att,moe," * 2
+  return hparams
+
+
+@registry.register_hparams
+def aligned_8k():
+  """version for languagemodel_wiki_scramble8k50.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.93
+  1.5 steps/sec on P100
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_base()
+  hparams.max_length = 8192
+  hparams.batch_size = 8192
   return hparams

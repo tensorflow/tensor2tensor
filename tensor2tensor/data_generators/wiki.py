@@ -31,6 +31,7 @@ import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -221,6 +222,11 @@ class LanguagemodelWikiScramble(problem.Text2TextProblem):
             i * self.sequence_length:(i + 1) * self.sequence_length]
         inputs = self.scramble(targets)
         yield {"inputs": inputs, "targets": targets}
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.NEG_LOG_PERPLEXITY
+    ]
 
 
 @registry.register_problem
