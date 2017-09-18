@@ -262,7 +262,7 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
   # TODO(epot): The padding remover should take into account that the input is
   # shifted.
-  decoder_input = common_layers.shift_left_3d(targets)
+  decoder_input = common_layers.shift_right_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
   return (decoder_input, decoder_self_attention_bias, pad_remover)

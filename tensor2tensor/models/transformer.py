@@ -238,7 +238,7 @@ def transformer_prepare_decoder(targets, hparams):
   if hparams.proximity_bias:
     decoder_self_attention_bias += common_attention.attention_bias_proximal(
         tf.shape(targets)[1])
-  decoder_input = common_layers.shift_left_3d(targets)
+  decoder_input = common_layers.shift_right_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
   return (decoder_input, decoder_self_attention_bias)

@@ -221,7 +221,7 @@ def lstm_seq2seq_internal(inputs, targets, hparams, train):
     _, final_encoder_state = lstm(
         tf.reverse(inputs, axis=[1]), hparams, train, "encoder")
     # LSTM decoder.
-    shifted_targets = common_layers.shift_left(targets)
+    shifted_targets = common_layers.shift_right(targets)
     decoder_outputs, _ = lstm(
         common_layers.flatten4d3d(shifted_targets),
         hparams,
@@ -240,7 +240,7 @@ def lstm_seq2seq_internal_attention(inputs, targets, hparams, train):
     encoder_outputs, final_encoder_state = lstm(
         tf.reverse(inputs, axis=[1]), hparams, train, "encoder")
     # LSTM decoder with attention
-    shifted_targets = common_layers.shift_left(targets)
+    shifted_targets = common_layers.shift_right(targets)
     decoder_outputs, _ = lstm_attention_decoder(
         common_layers.flatten4d3d(shifted_targets), hparams, train, "decoder",
         final_encoder_state, encoder_outputs)

@@ -187,7 +187,7 @@ def encode(x, x_space, hparams, name):
 def decode(cond_vec, cond_add, gold, c, ed, hparams):
   """Transformer decoder."""
   drop_gold = tf.nn.dropout(gold, 1.0 - hparams.layer_prepostprocess_dropout)
-  decoder_input = common_layers.shift_left(drop_gold, pad_value=cond_vec)
+  decoder_input = common_layers.shift_right(drop_gold, pad_value=cond_vec)
   if cond_add is not None:
     decoder_input += cond_add
   decoder_input = tf.squeeze(decoder_input, axis=2)

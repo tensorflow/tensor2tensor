@@ -99,7 +99,7 @@ def prepare_decoder(targets, target_space_emb):
       common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
   target_space_emb = tf.reshape(target_space_emb, [1, 1, -1])
   target_space_emb = tf.tile(target_space_emb, [tf.shape(targets)[0], 1, 1])
-  decoder_input = common_layers.shift_left_3d(
+  decoder_input = common_layers.shift_right_3d(
       targets, pad_value=target_space_emb)
   decoder_input = common_attention.add_timing_signal_1d(decoder_input)
   return (decoder_input, decoder_self_attention_bias)
