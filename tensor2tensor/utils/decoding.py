@@ -74,14 +74,18 @@ def log_decode_results(inputs,
                              (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
   elif inputs_vocab:
-    decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
+    if identity_output:
+      decoded_inputs = " ".join(map(str, inputs.flatten()))
+    else:
+      decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
+
     tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
   decoded_targets = None
   if identity_output:
-    decoded_outputs = "".join(map(str, outputs.flatten()))
+    decoded_outputs = " ".join(map(str, outputs.flatten()))
     if targets is not None:
-      decoded_targets = "".join(map(str, targets.flatten()))
+      decoded_targets = " ".join(map(str, targets.flatten()))
   else:
     decoded_outputs = "".join(
         map(str, targets_vocab.decode(_save_until_eos(outputs.flatten()))))
