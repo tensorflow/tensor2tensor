@@ -35,6 +35,7 @@ from tensor2tensor.utils import model_builder
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+from tensorflow.contrib.hooks.python.training.profiler_hook import ProfilerHook
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python import debug
 
@@ -45,6 +46,8 @@ flags.DEFINE_bool("registry_help", False,
                   "If True, logs the contents of the registry and exits.")
 flags.DEFINE_bool("tfdbg", False,
                   "If True, use the TF debugger CLI on train/eval.")
+flags.DEFINE_bool("dbgprofile", False,
+                  "If True, record the timeline for chrome://tracing/.")
 flags.DEFINE_string("model", "", "Which model to use.")
 flags.DEFINE_string("hparams_set", "", "Which parameters to use.")
 flags.DEFINE_string("hparams_range", "", "Parameters range.")
@@ -134,6 +137,15 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
     hook = debug.LocalCLIDebugHook()
     train_monitors.append(hook)
     eval_hooks.append(hook)
+  if FLAGS.dbgprofile:
+    # Recorded traces can be visualized with chrome://tracing/
+    # The memory/tensor lifetime is also profiled
+    train_monitors.append(ProfilerHook(
+        save_steps=10,
+        output_dir=run_config.model_dir,
+        show_dataflow=True,
+        show_memory=True,
+    ))
   return tf.contrib.learn.Experiment(
       estimator=estimator,
       train_input_fn=input_fns[tf.estimator.ModeKeys.TRAIN],
