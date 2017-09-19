@@ -77,6 +77,30 @@ class InferenceTest(tf.test.TestCase):
     with open(output_infer) as f:
       self.assertEqual(5, len(list(f)))
 
+  def testBasicModelWithMultipleTranslations(self):
+    hparams = common_test_utils.create_test_hparams(
+        encoder_type="uni",
+        num_layers=1,
+        attention="",
+        attention_architecture="",
+        use_residual=False,
+        num_translations_per_input=2,
+        beam_width=2,
+    )
+    vocab_prefix = "nmt/testdata/test_infer_vocab"
+    hparams.add_hparam("src_vocab_file", vocab_prefix + "." + hparams.src)
+    hparams.add_hparam("tgt_vocab_file", vocab_prefix + "." + hparams.tgt)
+
+    infer_file = "nmt/testdata/test_infer_file"
+    out_dir = os.path.join(tf.test.get_temp_dir(), "multi_basic_infer")
+    hparams.add_hparam("out_dir", out_dir)
+    os.makedirs(out_dir)
+    output_infer = os.path.join(out_dir, "output_infer")
+    ckpt = self._createTestInferCheckpoint(hparams, out_dir)
+    inference.inference(ckpt, infer_file, output_infer, hparams)
+    with open(output_infer) as f:
+      self.assertEqual(10, len(list(f)))
+
   def testAttentionModel(self):
     hparams = common_test_utils.create_test_hparams(
         encoder_type="uni",

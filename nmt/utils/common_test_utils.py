@@ -33,6 +33,8 @@ def create_test_hparams(unit_type="lstm",
                         attention_architecture=None,
                         use_residual=False,
                         inference_indices=None,
+                        num_translations_per_input=1,
+                        beam_width=0,
                         init_op="uniform"):
   """Create training and inference test hparams."""
   num_residual_layers = 0
@@ -76,8 +78,9 @@ def create_test_hparams(unit_type="lstm",
       # Infer
       tgt_max_len_infer=100,
       infer_batch_size=32,
-      beam_width=0,
+      beam_width=beam_width,
       length_penalty_weight=0.0,
+      num_translations_per_input=num_translations_per_input,
 
       # Misc
       forget_bias=0.0,

@@ -19,6 +19,7 @@ from __future__ import print_function
 import codecs
 import time
 
+import numpy as np
 import tensorflow as tf
 
 from ..utils import evaluation_utils
@@ -36,6 +37,7 @@ def decode_and_evaluate(name,
                         bpe_delimiter,
                         beam_width,
                         tgt_eos,
+                        num_translations_per_input=1,
                         decode=True):
   """Decode a test set and compute a score according to the evaluation task."""
   # Decode
@@ -48,25 +50,29 @@ def decode_and_evaluate(name,
         tf.gfile.GFile(trans_file, mode="wb")) as trans_f:
       trans_f.write("")  # Write empty string to ensure file is created.
 
+      num_translations_per_input = max(
+          min(num_translations_per_input, beam_width), 1)
       while True:
         try:
           nmt_outputs, _ = model.decode(sess)
+          if beam_width == 0:
+            nmt_outputs = np.expand_dims(nmt_outputs, 0)
 
-          if beam_width > 0:
-            # get the top translation.
-            nmt_outputs = nmt_outputs[0]
+          batch_size = nmt_outputs.shape[1]
+          num_sentences += batch_size
 
-          num_sentences += len(nmt_outputs)
-          for sent_id in range(len(nmt_outputs)):
-            translation = get_translation(
-                nmt_outputs,
-                sent_id,
-                tgt_eos=tgt_eos,
-                bpe_delimiter=bpe_delimiter)
-            trans_f.write((translation + b"\n").decode("utf-8"))
+          for sent_id in range(batch_size):
+            for beam_id in range(num_translations_per_input):
+              translation = get_translation(
+                  nmt_outputs[beam_id],
+                  sent_id,
+                  tgt_eos=tgt_eos,
+                  bpe_delimiter=bpe_delimiter)
+              trans_f.write((translation + b"\n").decode("utf-8"))
         except tf.errors.OutOfRangeError:
-          utils.print_time("  done, num sentences %d" % num_sentences,
-                           start_time)
+          utils.print_time(
+              "  done, num sentences %d, num translations per input %d" %
+              (num_sentences, num_translations_per_input), start_time)
           break
 
   # Evaluation

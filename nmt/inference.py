@@ -17,7 +17,6 @@
 from __future__ import print_function
 
 import codecs
-import collections
 import time
 
 import tensorflow as tf
@@ -31,7 +30,6 @@ from .utils import nmt_utils
 
 __all__ = ["load_data", "inference",
            "single_worker_inference", "multi_worker_inference"]
-
 
 
 def _decode_inference_indices(model, sess, output_infer,
@@ -163,7 +161,8 @@ def single_worker_inference(infer_model,
           metrics=hparams.metrics,
           bpe_delimiter=hparams.bpe_delimiter,
           beam_width=hparams.beam_width,
-          tgt_eos=hparams.eos)
+          tgt_eos=hparams.eos,
+          num_translations_per_input=hparams.num_translations_per_input)
 
 
 def multi_worker_inference(infer_model,
@@ -210,7 +209,8 @@ def multi_worker_inference(infer_model,
         metrics=hparams.metrics,
         bpe_delimiter=hparams.bpe_delimiter,
         beam_width=hparams.beam_width,
-        tgt_eos=hparams.eos)
+        tgt_eos=hparams.eos,
+        num_translations_per_input=hparams.num_translations_per_input)
 
     # Change file name to indicate the file writing is completed.
     tf.gfile.Rename(output_infer, output_infer_done, overwrite=True)
@@ -231,4 +231,7 @@ def multi_worker_inference(infer_model,
             tf.gfile.GFile(worker_infer_done, mode="rb")) as f:
           for translation in f:
             final_f.write("%s" % translation)
+
+      for worker_id in range(num_workers):
+        worker_infer_done = "%s_done_%d" % (inference_output_file, worker_id)
         tf.gfile.Remove(worker_infer_done)

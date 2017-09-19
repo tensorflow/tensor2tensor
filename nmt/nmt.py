@@ -232,6 +232,11 @@ def add_arguments(parser):
       """))
   parser.add_argument("--length_penalty_weight", type=float, default=0.0,
                       help="Length penalty for beam search.")
+  parser.add_argument("--num_translations_per_input", type=int, default=1,
+                      help=("""\
+      Number of translations generated for each sentence. This is only used for
+      inference.\
+      """))
 
   # Job info
   parser.add_argument("--jobid", type=int, default=0,
@@ -295,6 +300,7 @@ def create_hparams(flags):
       infer_batch_size=flags.infer_batch_size,
       beam_width=flags.beam_width,
       length_penalty_weight=flags.length_penalty_weight,
+      num_translations_per_input=flags.num_translations_per_input,
 
       # Vocab
       sos=flags.sos if flags.sos else vocab_utils.SOS,
