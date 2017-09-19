@@ -2,8 +2,9 @@
 
 *Authors: Thang Luong, Eugene Brevdo, Rui Zhao*
 
-*This version of the tutorial requires [TensorFlow Nightly](https://github.com/tensorflow/tensorflow/#installation)*
-
+*This version of the tutorial requires [TensorFlow Nightly](https://github.com/tensorflow/tensorflow/#installation).
+For using the stable TensorFlow versions, please consider other branches such as
+[tf-1.2](https://github.com/tensorflow/nmt/tree/tf-1.2).*
 
 - [Introduction](#introduction)
 - [Basic](#basic)
