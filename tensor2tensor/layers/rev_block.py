@@ -18,11 +18,15 @@
 From
 [The Reversible Residual Network: Backpropagation Without Storing
 Activations](https://arxiv.org/abs/1707.04585).
+
+Also contains the @recompute_grad decorator, which recomputes the forward
+function on the backwards pass.
 """
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import re
 
 # Dependency imports
@@ -286,8 +290,8 @@ def rev_block(x1,
     # idxs.
     f_var_grads.reverse()
     g_var_grads.reverse()
-    for idxs, grads in list(zip(f_vars_idxs, f_var_grads)) + list(zip(
-        g_vars_idxs, g_var_grads)):
+    for idxs, grads in list(zip(f_vars_idxs, f_var_grads)) + list(
+        zip(g_vars_idxs, g_var_grads)):
       for i, grad in zip(idxs, grads):
         variable_grads[i] = grad
 
@@ -316,3 +320,42 @@ def rev_block(x1,
         gate_outputs=is_training)
 
   return forward(x1, x2, *(f_side_input + g_side_input))
+
+
+def recompute_grad(fn):
+  """Decorator that recomputes the function on the backwards pass.
+
+  Args:
+    fn: a function that takes Tensors (all as positional arguments) and returns
+      a tuple of Tensors.
+
+  Returns:
+    A wrapped fn that is identical to fn when called, but its activations will
+    be discarded and recomputed on the backwards pass (i.e. on a call to
+    tf.gradients).
+  """
+
+  @functools.wraps(fn)
+  def wrapped(*args):
+    return _recompute_grad(fn, args)
+
+  return wrapped
+
+
+def _recompute_grad(fn, args):
+  """See recompute_grad."""
+
+  def grad_fn(inputs, variables, outputs, output_grads):
+    del outputs
+    # recompute outputs
+    outputs = fn(*inputs)
+    grads = tf.gradients(outputs, inputs + variables, output_grads)
+    grad_inputs = grads[:len(inputs)]
+    grad_vars = grads[len(inputs):]
+    return grad_inputs, grad_vars
+
+  @common_layers.fn_with_custom_grad(grad_fn)
+  def fn_with_recompute(*args):
+    return fn(*args)
+
+  return fn_with_recompute(*args)
