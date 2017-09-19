@@ -266,13 +266,20 @@ class LSTMSeq2seqAttention(t2t_model.T2TModel):
 
 
 @registry.register_hparams
-def lstm_attention():
-  """hparams for LSTM with attention."""
+def lstm_seq2seq():
+  """hparams for LSTM."""
   hparams = common_hparams.basic_params1()
   hparams.batch_size = 1024
   hparams.hidden_size = 128
   hparams.num_hidden_layers = 2
   hparams.initializer = "uniform_unit_scaling"
+  return hparams
+
+
+@registry.register_hparams
+def lstm_attention():
+  """hparams for LSTM with attention."""
+  hparams = lstm_seq2seq()
 
   # Attention
   hparams.add_hparam("attn_vec_size", hparams.hidden_size)
