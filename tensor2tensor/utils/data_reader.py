@@ -367,8 +367,8 @@ def bucket_by_sequence_length(dataset,
     if hasattr(dataset, "apply"):
       # If the Dataset supports dynamic window size, use it.
       dataset = dataset.apply(
-          tf.contrib.data.group_by_window,
-          args=(example_to_bucket_id, batching_fn, None, window_size_fn))
+          tf.contrib.data.group_by_window(
+              example_to_bucket_id, batching_fn, None, window_size_fn))
     else:
       dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
                                         window_size)
