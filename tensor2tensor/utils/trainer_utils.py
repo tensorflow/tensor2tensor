@@ -45,7 +45,6 @@ flags.DEFINE_bool("registry_help", False,
                   "If True, logs the contents of the registry and exits.")
 flags.DEFINE_bool("tfdbg", False,
                   "If True, use the TF debugger CLI on train/eval.")
-flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 flags.DEFINE_string("model", "", "Which model to use.")
 flags.DEFINE_string("hparams_set", "", "Which parameters to use.")
 flags.DEFINE_string("hparams_range", "", "Parameters range.")
@@ -61,7 +60,6 @@ flags.DEFINE_string("problems", "", "Dash separated list of problems to "
 flags.DEFINE_string("data_dir", "/tmp/data", "Directory with training data.")
 flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
-flags.DEFINE_integer("eval_steps", 10, "Number of steps in evaluation.")
 flags.DEFINE_bool("eval_run_autoregressive", False,
                   "Run eval autoregressively where we condition on previous"
                   "generated output instead of the actual target.")
@@ -80,9 +78,6 @@ flags.DEFINE_bool("log_device_placement", False,
                   "Whether to log device placement.")
 
 # Distributed training flags
-flags.DEFINE_string("master", "", "Address of TensorFlow master.")
-flags.DEFINE_string("schedule", "local_run",
-                    "Method of tf.contrib.learn.Experiment to run.")
 flags.DEFINE_integer("local_eval_frequency", 2000,
                      "Run evaluation every this steps during local training.")
 flags.DEFINE_bool("locally_shard_to_cpu", False,
@@ -91,7 +86,7 @@ flags.DEFINE_bool("locally_shard_to_cpu", False,
 flags.DEFINE_bool("daisy_chain_variables", True,
                   "copy variables around in a daisy chain")
 flags.DEFINE_bool("sync", False, "Sync compute on PS.")
-flags.DEFINE_string("worker_job", "/job:worker", "name of worker job")
+flags.DEFINE_string("worker_job", "/job:localhost", "name of worker job")
 flags.DEFINE_integer("worker_gpu", 1, "How many GPUs to use.")
 flags.DEFINE_integer("worker_replicas", 1, "How many workers to use.")
 flags.DEFINE_integer("worker_id", 0, "Which worker task are we.")
@@ -113,29 +108,26 @@ flags.DEFINE_string(
 def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
   """Returns experiment_fn for learn_runner. Wraps create_experiment."""
 
-  def experiment_fn(output_dir):
+  def experiment_fn(run_config, hparams):
     return create_experiment(
-        output_dir=output_dir,
-        data_dir=data_dir,
+        data_dir,
         model_name=model_name,
         train_steps=train_steps,
-        eval_steps=eval_steps)
+        eval_steps=eval_steps,
+        hparams=hparams,
+        run_config=run_config)
 
   return experiment_fn
 
 
-def create_experiment(output_dir, data_dir, model_name, train_steps,
-                      eval_steps):
+def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
+                      run_config):
   """Create Experiment."""
-  hparams = create_hparams(
-      FLAGS.hparams_set, FLAGS.problems, data_dir, passed_hparams=FLAGS.hparams)
-  if FLAGS.worker_id == 0 and FLAGS.schedule in ["local_run", "train"]:
-    save_metadata(output_dir, hparams)
   estimator, input_fns = create_experiment_components(
-      hparams=hparams,
-      output_dir=output_dir,
       data_dir=data_dir,
-      model_name=model_name)
+      model_name=model_name,
+      hparams=hparams,
+      run_config=run_config)
   train_monitors = []
   eval_hooks = []
   if FLAGS.tfdbg:
@@ -153,9 +145,12 @@ def create_experiment(output_dir, data_dir, model_name, train_steps,
       eval_hooks=eval_hooks)
 
 
-def create_experiment_components(hparams, output_dir, data_dir, model_name):
+def create_experiment_components(data_dir, model_name, hparams, run_config):
   """Constructs and returns Estimator and train/eval input functions."""
-  tf.logging.info("Creating experiment, storing model files in %s", output_dir)
+  tf.logging.info("Creating experiment, storing model files in %s",
+                  run_config.model_dir)
+
+  hparams = add_problem_hparams(hparams, FLAGS.problems)
 
   num_datashards = devices.data_parallelism().n
   train_input_fn = input_fn_builder.build_input_fn(
@@ -176,11 +171,6 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
       worker_replicas=FLAGS.worker_replicas,
       worker_id=FLAGS.worker_id)
 
-  autotune = False
-  objective = None
-  if hasattr(FLAGS, "autotune"):
-    autotune = FLAGS.autotune
-    objective = FLAGS.objective
   model_fn = model_builder.build_model_fn(
       model_name,
       problem_names=FLAGS.problems.split("-"),
@@ -188,20 +178,13 @@ def create_experiment_components(hparams, output_dir, data_dir, model_name):
       worker_id=FLAGS.worker_id,
       worker_replicas=FLAGS.worker_replicas,
       eval_run_autoregressive=FLAGS.eval_run_autoregressive,
-      decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams),
-      autotune=autotune,
-      objective=objective)
+      decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams))
+
   estimator = tf.estimator.Estimator(
       model_fn=model_fn,
-      model_dir=output_dir,
+      model_dir=run_config.model_dir,
       params=hparams,
-      config=tf.contrib.learn.RunConfig(
-          master=FLAGS.master,
-          gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction,
-          session_config=session_config(),
-          keep_checkpoint_max=FLAGS.keep_checkpoint_max,
-          keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
-          save_checkpoints_secs=FLAGS.save_checkpoints_secs))
+      config=run_config)
 
   return estimator, {
       tf.estimator.ModeKeys.TRAIN: train_input_fn,
@@ -279,7 +262,7 @@ def save_metadata(output_dir, hparams):
     f.write(hparams.to_json())
 
 
-def create_hparams(params_id, problems, data_dir, passed_hparams=None):
+def create_hparams(params_id, data_dir, passed_hparams=None):
   """Returns hyperparameters, including any flag value overrides.
 
   If the hparams FLAG is set, then it will use any values specified in
@@ -288,7 +271,6 @@ def create_hparams(params_id, problems, data_dir, passed_hparams=None):
 
   Args:
     params_id: which set of parameters to choose (must be in _PARAMS above).
-    problems: the string with problem names to get problem_hparams from.
     data_dir: the directory containing the training data.
     passed_hparams: command-line overrides for some hparams.
 
@@ -301,7 +283,22 @@ def create_hparams(params_id, problems, data_dir, passed_hparams=None):
   if passed_hparams:
     hparams = hparams.parse(passed_hparams)
 
-  return add_problem_hparams(hparams, problems)
+  return hparams
+
+
+def create_run_config(output_dir):
+  """Create a RunConfig object."""
+
+  run_config = tf.contrib.learn.RunConfig(
+      model_dir=output_dir,
+      master=FLAGS.master,
+      gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction,
+      session_config=session_config(),
+      keep_checkpoint_max=FLAGS.keep_checkpoint_max,
+      keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
+      save_checkpoints_secs=FLAGS.save_checkpoints_secs)
+
+  return run_config
 
 
 def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
@@ -327,9 +324,17 @@ def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
       train_steps=train_steps,
       eval_steps=eval_steps)
 
+  # Create hparams and run_config
+  run_config = create_run_config(output_dir)
+  hparams = create_hparams(
+      FLAGS.hparams_set, data_dir, passed_hparams=FLAGS.hparams)
+  if FLAGS.worker_id == 0 and schedule in ["local_run", "train"]:
+    save_metadata(output_dir, hparams)
+
   if schedule == "local_run":
     # Run the local demo.
-    exp = exp_fn(output_dir)
+
+    exp = exp_fn(run_config, hparams)
     if exp.train_steps > 0 and exp.eval_steps > 0:
       tf.logging.info("Performing local training and evaluation.")
       exp.train_and_evaluate()
@@ -341,8 +346,10 @@ def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
       exp.evaluate(delay_secs=0)
   else:
     # Perform distributed training/evaluation.
-    learn_runner.run(
-        experiment_fn=exp_fn, schedule=schedule, output_dir=output_dir)
+    learn_runner.run(experiment_fn=exp_fn,
+                     schedule=schedule,
+                     run_config=run_config,
+                     hparams=hparams)
 
 
 def validate_flags():

@@ -43,6 +43,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
+# See trainer_utils.py for additional command-line flags.
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
@@ -52,6 +53,12 @@ flags.DEFINE_string("t2t_usr_dir", "",
 flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
                     "Temporary storage directory.")
 flags.DEFINE_bool("generate_data", False, "Generate data before training?")
+
+flags.DEFINE_integer("eval_steps", 10, "Number of steps in evaluation.")
+flags.DEFINE_string("output_dir", "", "Base output directory for run.")
+flags.DEFINE_string("master", "", "Address of TensorFlow master.")
+flags.DEFINE_string("schedule", "local_run",
+                    "Method of tf.contrib.learn.Experiment to run.")
 
 
 def main(_):

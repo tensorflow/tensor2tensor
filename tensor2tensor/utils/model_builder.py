@@ -50,9 +50,7 @@ def model_fn(model,
              worker_id=0,
              worker_replicas=1,
              eval_run_autoregressive=False,
-             decode_hparams=None,
-             autotune=False,
-             objective=None):
+             decode_hparams=None):
   """Builds the model for all modes.
 
   * TRAIN: Constructs loss and train_op
@@ -72,8 +70,6 @@ def model_fn(model,
     worker_replicas: int, number of workers.
     eval_run_autoregressive: bool, whether to run evaluation autoregressively.
     decode_hparams: HParams for decode settings. Used when mode == PREDICT.
-    autotune: bool, whether this model is being used for autotuning.
-    objective: str, the objective if autotune==True.
 
   Returns:
     tf.estimator.EstimatorSpec
@@ -193,8 +189,6 @@ def model_fn(model,
   if mode == tf.estimator.ModeKeys.EVAL:
     eval_metrics_fns = metrics.create_evaluation_metrics(
         zip(problem_names, hparams.problem_instances), hparams)
-    _check_autotune_metrics(
-        eval_metrics_fns, autotune=autotune, objective=objective)
 
     eval_metrics = {}
     for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
@@ -389,15 +383,6 @@ def _exp_decay_after(step, rate, from_which_step):
       lambda: tf.constant(1.0),
       lambda: rate**(step - from_which_step),
       name="exponential_decay_step_cond")
-
-
-def _check_autotune_metrics(metrics_dict, autotune=False, objective=None):
-  if not autotune:
-    return
-
-  if objective not in metrics_dict:
-    raise ValueError("Tuning objective %s not among evaluation metrics %s" %
-                     (objective, metrics_dict.keys()))
 
 
 def _log_variable_sizes(var_list, tag):

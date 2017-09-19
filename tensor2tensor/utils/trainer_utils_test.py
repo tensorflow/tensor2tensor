@@ -33,7 +33,13 @@ from tensor2tensor.utils import trainer_utils
 
 import tensorflow as tf
 
+flags = tf.flags
 FLAGS = tf.flags.FLAGS
+
+flags.DEFINE_string("schedule", "local_run", "")
+flags.DEFINE_integer("eval_steps", 10, "Number of steps in evaluation.")
+flags.DEFINE_string("master", "", "Address of TensorFlow master.")
+flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 
 
 @registry.register_problem
@@ -84,13 +90,17 @@ class TrainerUtilsTest(tf.test.TestCase):
 
   def testSingleStep(self):
     model_name = "transformer"
-    FLAGS.hparams_set = "transformer_test"
+    FLAGS.worker_job = "/job:localhost"
+    data_dir = TrainerUtilsTest.data_dir
+    hparams = trainer_utils.create_hparams("transformer_test", data_dir)
     exp = trainer_utils.create_experiment(
-        output_dir=tf.test.get_temp_dir(),
-        data_dir=TrainerUtilsTest.data_dir,
+        data_dir=data_dir,
         model_name=model_name,
         train_steps=1,
-        eval_steps=1)
+        eval_steps=1,
+        hparams=hparams,
+        run_config=trainer_utils.create_run_config(
+            output_dir=tf.test.get_temp_dir()))
     exp.test()
 
   def testSingleEvalStepRawSession(self):
@@ -100,12 +110,13 @@ class TrainerUtilsTest(tf.test.TestCase):
     model_name = "transformer"
     FLAGS.hparams_set = "transformer_test"
     FLAGS.problems = "tiny_algo"
+    FLAGS.worker_job = "/job:localhost"
     data_dir = "/tmp"  # Used only when a vocab file or such like is needed.
 
     # Create the problem object, hparams, placeholders, features dict.
     encoders = registry.problem(FLAGS.problems).feature_encoders(data_dir)
-    hparams = trainer_utils.create_hparams(FLAGS.hparams_set, FLAGS.problems,
-                                           data_dir)
+    hparams = trainer_utils.create_hparams(FLAGS.hparams_set, data_dir)
+    hparams = trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
     inputs_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
     batch_inputs = tf.reshape(inputs_ph, [1, -1, 1, 1])  # Make it 4D.
     # In INFER mode targets can be None.
