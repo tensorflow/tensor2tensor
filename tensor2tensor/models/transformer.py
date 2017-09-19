@@ -145,8 +145,7 @@ class Transformer(t2t_model.T2TModel):
         decoder_self_attention_bias,
         hparams)
 
-  # TODO(llion): Enable fast inference once it's been fully tested.
-  def x_greedy_infer(
+  def _greedy_infer(
       self, features, decode_length, last_position_only=True):
     """Fast version of greedy decoding.
 
@@ -242,7 +241,7 @@ class Transformer(t2t_model.T2TModel):
       bias = decoder_self_attention_bias[:, :, i:i+1, :i+1]
 
       with tf.variable_scope("body"):
-        body_outputs = self._data_parallelism(
+        body_outputs = dp(
             self.decode,
             targets,
             encoder_output[0],

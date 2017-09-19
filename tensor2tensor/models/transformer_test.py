@@ -95,7 +95,7 @@ class TransformerTest(tf.test.TestCase):
           features, decode_length, last_position_only=True)
       greedy_result = tf.squeeze(greedy_result, axis=[2, 3])
 
-      fast_result, _, _ = model.x_greedy_infer(features, decode_length)
+      fast_result, _, _ = model._greedy_infer(features, decode_length)
 
     with self.test_session():
       greedy_res = greedy_result.eval()
