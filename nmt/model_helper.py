@@ -46,7 +46,8 @@ def get_device_str(device_id, num_gpus):
 
 
 class ExtraArgs(collections.namedtuple(
-    "ExtraArgs", ("single_cell_fn", "model_device_fn"))):
+    "ExtraArgs", ("single_cell_fn", "model_device_fn",
+                  "attention_mechanism_fn"))):
   pass
 
 

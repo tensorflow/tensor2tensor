@@ -148,8 +148,8 @@ class GNMTModel(attention_model.AttentionModel):
     else:
       batch_size = self.batch_size
 
-    attention_mechanism = attention_model.create_attention_mechanism(
-        attention_option, num_units, memory, source_sequence_length)
+    attention_mechanism = self.attention_mechanism_fn(
+        attention_option, num_units, memory, source_sequence_length, self.mode)
 
     cell_list = model_helper._cell_list(  # pylint: disable=protected-access
         unit_type=hparams.unit_type,
