@@ -46,6 +46,8 @@ flags.DEFINE_bool("registry_help", False,
                   "If True, logs the contents of the registry and exits.")
 flags.DEFINE_bool("tfdbg", False,
                   "If True, use the TF debugger CLI on train/eval.")
+flags.DEFINE_bool("export_saved_model", False,
+                  "Whether to export a SavedModel for serving.")
 flags.DEFINE_bool("dbgprofile", False,
                   "If True, record the timeline for chrome://tracing/.")
 flags.DEFINE_string("model", "", "Which model to use.")
@@ -131,6 +133,7 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
       model_name=model_name,
       hparams=hparams,
       run_config=run_config)
+
   train_monitors = []
   eval_hooks = []
   if FLAGS.tfdbg:
@@ -146,6 +149,15 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
         show_dataflow=True,
         show_memory=True,
     ))
+
+  optional_kwargs = {}
+  if FLAGS.export_saved_model:
+    assert len(hparams.problem_instances) == 1
+    problem = hparams.problem_instances[0]
+    optional_kwargs["export_strategies"] = [
+        make_export_strategy(problem, hparams)
+    ]
+
   return tf.contrib.learn.Experiment(
       estimator=estimator,
       train_input_fn=input_fns[tf.estimator.ModeKeys.TRAIN],
@@ -154,7 +166,13 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
       eval_steps=eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
       train_monitors=train_monitors,
-      eval_hooks=eval_hooks)
+      eval_hooks=eval_hooks,
+      **optional_kwargs)
+
+
+def make_export_strategy(problem, hparams):
+  return tf.contrib.learn.make_export_strategy(
+      lambda: data_reader.serving_input_fn(problem, hparams), as_text=True)
 
 
 def create_experiment_components(data_dir, model_name, hparams, run_config):
@@ -358,10 +376,11 @@ def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
       exp.evaluate(delay_secs=0)
   else:
     # Perform distributed training/evaluation.
-    learn_runner.run(experiment_fn=exp_fn,
-                     schedule=schedule,
-                     run_config=run_config,
-                     hparams=hparams)
+    learn_runner.run(
+        experiment_fn=exp_fn,
+        schedule=schedule,
+        run_config=run_config,
+        hparams=hparams)
 
 
 def validate_flags():

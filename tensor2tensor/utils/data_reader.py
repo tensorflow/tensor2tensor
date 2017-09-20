@@ -156,13 +156,30 @@ def cast_int64_to_int32(features):
   return f
 
 
-def feature_placeholders(data_fields):
-  feature_map = {}
-  for (field, tp) in data_fields:
-    if not field.startswith("targets"):
-      feature_map[field] = tf.placeholder(
-          dtype=tp, shape=[None] * 4, name=field)
-  return feature_map
+def feature_placeholders(data_fields, data_items_to_decoders):
+  """Construct Placeholders and run decoders."""
+  example = {}
+  for field, config in data_fields.items():
+    if isinstance(config, tf.VarLenFeature):
+      shape = [None]
+    else:
+      shape = config.shape
+
+    example[field] = tf.placeholder(dtype=config.dtype, shape=shape, name=field)
+
+  # Decode
+  if data_items_to_decoders is None:
+    data_items_to_decoders = {
+        field: tf.contrib.slim.tfexample_decoder.Tensor(field)
+        for field in data_fields
+    }
+
+  decoded_example = {}
+  for field, decoder in data_items_to_decoders.items():
+    keys_to_tensors = {key: example[key] for key in decoder.keys}
+    decoded_example[field] = decoder.tensors_to_item(keys_to_tensors)
+
+  return decoded_example
 
 
 def default_example_reading_spec(data_file_pattern):
@@ -216,7 +233,7 @@ def read_examples(problem,
 
   if data_file_pattern is None:
     # Create placeholders for input, rather than reading data from disk.
-    return feature_placeholders(data_fields)
+    return feature_placeholders(data_fields, data_items_to_decoders)
 
   is_training = mode == tf.estimator.ModeKeys.TRAIN
   dataset = examples_reader(
@@ -520,3 +537,37 @@ def get_data_filepatterns(problems, data_dir, mode):
     else:
       datasets.append("%s-dev*" % path)
   return datasets
+
+
+def serving_input_fn(problem, hparams):
+  """Input fn for serving, starting from Placeholders."""
+  data_fields, data_items_to_decoders = problem.example_reading_spec()
+
+  # Feature placeholders that mimic what's on disk
+  example = feature_placeholders(data_fields, data_items_to_decoders)
+
+  # Preprocess
+  example = problem.preprocess_examples(example, tf.estimator.ModeKeys.PREDICT,
+                                        hparams)
+  example = cast_int64_to_int32(example)
+
+  # 4-D inputs and space ids
+  constants = {}
+  constants["target_space_id"] = tf.constant(
+      problem.get_hparams().target_space_id)
+  constants["problem_choice"] = tf.constant(0)
+  if problem.has_inputs:
+    while len(example["inputs"].get_shape()) != 4:
+      example["inputs"] = tf.expand_dims(example["inputs"], axis=-1)
+    constants["input_space_id"] = tf.constant(
+        problem.get_hparams().input_space_id)
+    example.pop("targets")
+  else:
+    while len(example["targets"].get_shape()) != 4:
+      example["targets"] = tf.expand_dims(example["targets"], axis=-1)
+
+  features = constants
+  features.update(example)
+
+  return tf.estimator.export.ServingInputReceiver(
+      features=features, receiver_tensors=example)

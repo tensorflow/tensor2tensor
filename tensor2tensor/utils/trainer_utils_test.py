@@ -90,9 +90,9 @@ class TrainerUtilsTest(tf.test.TestCase):
 
   def testSingleStep(self):
     model_name = "transformer"
-    FLAGS.worker_job = "/job:localhost"
     data_dir = TrainerUtilsTest.data_dir
     hparams = trainer_utils.create_hparams("transformer_test", data_dir)
+    hparams = trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
     exp = trainer_utils.create_experiment(
         data_dir=data_dir,
         model_name=model_name,
@@ -110,7 +110,6 @@ class TrainerUtilsTest(tf.test.TestCase):
     model_name = "transformer"
     FLAGS.hparams_set = "transformer_test"
     FLAGS.problems = "tiny_algo"
-    FLAGS.worker_job = "/job:localhost"
     data_dir = "/tmp"  # Used only when a vocab file or such like is needed.
 
     # Create the problem object, hparams, placeholders, features dict.

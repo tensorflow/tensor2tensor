@@ -182,7 +182,17 @@ def model_fn(model,
         "problem_choice": batched_problem_choice,
     }
     _del_dict_nones(predictions)
-    return tf.estimator.EstimatorSpec(mode, predictions=predictions)
+
+    export_out = {"outputs": predictions["outputs"]}
+    if "scores" in predictions:
+      export_out["scores"] = predictions["scores"]
+
+    return tf.estimator.EstimatorSpec(
+        mode,
+        predictions=predictions,
+        export_outputs={
+            "output": tf.estimator.export.PredictOutput(export_out)
+        })
 
   total_loss, logits = model_output
 
