@@ -36,7 +36,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = tf.flags.FLAGS
 
-flags.DEFINE_string("schedule", "local_run", "")
+flags.DEFINE_string("schedule", "train_and_evaluate", "")
 flags.DEFINE_integer("eval_steps", 10, "Number of steps in evaluation.")
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
 flags.DEFINE_string("output_dir", "", "Base output directory for run.")

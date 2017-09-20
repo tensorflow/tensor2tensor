@@ -60,7 +60,8 @@ flags.DEFINE_string("t2t_usr_dir", "",
                     "e.g. @registry.register_model calls, that will then be "
                     "available to the t2t-decoder.")
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
-flags.DEFINE_string("schedule", "local_run", "Must be local_run for decoding.")
+flags.DEFINE_string("schedule", "train_and_evaluate",
+                    "Must be train_and_evaluate for decoding.")
 
 
 def main(_):
@@ -68,7 +69,7 @@ def main(_):
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   trainer_utils.log_registry()
   trainer_utils.validate_flags()
-  assert FLAGS.schedule == "local_run"
+  assert FLAGS.schedule == "train_and_evaluate"
   data_dir = os.path.expanduser(FLAGS.data_dir)
   output_dir = os.path.expanduser(FLAGS.output_dir)
 

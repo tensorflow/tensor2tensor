@@ -57,7 +57,7 @@ flags.DEFINE_bool("generate_data", False, "Generate data before training?")
 flags.DEFINE_integer("eval_steps", 10, "Number of steps in evaluation.")
 flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
-flags.DEFINE_string("schedule", "local_run",
+flags.DEFINE_string("schedule", "train_and_evaluate",
                     "Method of tf.contrib.learn.Experiment to run.")
 
 

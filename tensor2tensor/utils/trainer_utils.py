@@ -334,11 +334,6 @@ def create_run_config(output_dir):
 def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
   """Runs an Estimator locally or distributed.
 
-  This function chooses one of two paths to execute:
-
-  1. Running locally if schedule=="local_run".
-  3. Distributed training/evaluation otherwise.
-
   Args:
     data_dir: The directory the data can be found in.
     model: The name of the model to use.
@@ -358,29 +353,15 @@ def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
   run_config = create_run_config(output_dir)
   hparams = create_hparams(
       FLAGS.hparams_set, data_dir, passed_hparams=FLAGS.hparams)
-  if FLAGS.worker_id == 0 and schedule in ["local_run", "train"]:
+
+  if is_chief():
     save_metadata(output_dir, hparams)
 
-  if schedule == "local_run":
-    # Run the local demo.
-
-    exp = exp_fn(run_config, hparams)
-    if exp.train_steps > 0 and exp.eval_steps > 0:
-      tf.logging.info("Performing local training and evaluation.")
-      exp.train_and_evaluate()
-    elif exp.train_steps > 0:
-      tf.logging.info("Performing local training.")
-      exp.train()
-    elif exp.eval_steps > 0:
-      tf.logging.info("Performing local evaluation.")
-      exp.evaluate(delay_secs=0)
-  else:
-    # Perform distributed training/evaluation.
-    learn_runner.run(
-        experiment_fn=exp_fn,
-        schedule=schedule,
-        run_config=run_config,
-        hparams=hparams)
+  learn_runner.run(
+      experiment_fn=exp_fn,
+      schedule=schedule,
+      run_config=run_config,
+      hparams=hparams)
 
 
 def validate_flags():
@@ -396,6 +377,11 @@ def validate_flags():
     FLAGS.output_dir = "/tmp/tensor2tensor"
     tf.logging.warning("It is strongly recommended to specify --output_dir. "
                        "Using default output_dir=%s.", FLAGS.output_dir)
+
+
+def is_chief():
+  schedules = ["train", "train_and_evaluate"]
+  return FLAGS.worker_id == 0 and FLAGS.schedule in schedules
 
 
 def session_config():

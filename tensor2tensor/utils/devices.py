@@ -109,7 +109,7 @@ def data_parallelism(all_workers=False):
         ps_tasks=FLAGS.ps_replicas,
         ps_device=FLAGS.ps_job + "/GPU:0" if FLAGS.ps_gpu > 0 else FLAGS.ps_job)
 
-  if FLAGS.schedule == "local_run":
+  if FLAGS.schedule == "train_and_evaluate":
     assert not FLAGS.sync
     datashard_devices = ["gpu:%d" % d for d in _gpu_order(FLAGS.worker_gpu)]
     if FLAGS.locally_shard_to_cpu or FLAGS.worker_gpu < 1:
