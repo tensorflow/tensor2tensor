@@ -8,6 +8,7 @@ Issues](https://img.shields.io/github/issues/tensorflow/tensor2tensor.svg)](http
 welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Gitter](https://img.shields.io/gitter/room/nwjs/nw.js.svg)](https://gitter.im/tensor2tensor/Lobby)
 [![License](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Travis](https://img.shields.io/travis/tensorflow/tensor2tensor.svg)]()
 
 [T2T](https://github.com/tensorflow/tensor2tensor) is a modular and extensible
 library and binaries for supervised learning with TensorFlow and with support
