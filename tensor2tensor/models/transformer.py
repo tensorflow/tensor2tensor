@@ -309,6 +309,7 @@ class TransformerEncoder(t2t_model.T2TModel):
                                   1.0 - hparams.layer_prepostprocess_dropout)
     encoder_output = transformer_encoder(encoder_input,
                                          encoder_self_attention_bias, hparams)
+    encoder_output = tf.expand_dims(encoder_output, 2)
 
     return encoder_output
 
