@@ -482,6 +482,6 @@ def _learning_rate_decay(hparams, num_worker_replicas=1, num_train_steps=1):
 
 
 def _del_dict_nones(d):
-  for k in d.keys():
+  for k in list(d.keys()):
     if d[k] is None:
       del d[k]
