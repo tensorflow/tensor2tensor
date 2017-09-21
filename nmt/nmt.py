@@ -206,7 +206,7 @@ def add_arguments(parser):
   parser.add_argument("--random_seed", type=int, default=None,
                       help="Random seed (>0, set a specific seed).")
   parser.add_argument("--override_loaded_hparams", type="bool", nargs="?",
-                      const=True, default=True,
+                      const=True, default=False,
                       help="Override loaded hparams with values specified")
 
   # Inference
