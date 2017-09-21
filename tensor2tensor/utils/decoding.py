@@ -138,6 +138,7 @@ def decode_from_dataset(estimator,
     inputs_vocab = problem_hparams.vocabulary.get("inputs", None)
     targets_vocab = problem_hparams.vocabulary["targets"]
     for num_predictions, prediction in enumerate(predictions):
+      num_predictions += 1
       inputs = prediction["inputs"]
       targets = prediction["targets"]
       outputs = prediction["outputs"]
@@ -181,7 +182,7 @@ def decode_from_dataset(estimator,
           target_file.write(str(decoded_target) + "\n")
 
       if (decode_hp.num_samples >= 0 and
-          (num_predictions + 1) >= decode_hp.num_samples):
+          num_predictions >= decode_hp.num_samples):
         break
 
     if decode_to_file:
