@@ -44,7 +44,7 @@ def _with_timing(fn, msg):
   return fn_with_timing
 
 
-def _is_class_modality(mod):
+def is_class_modality(mod):
   # TODO(lukaszkaiser): should be based on type, like CLASS_LABEL, not string.
   prefix = "class_label_modality_"
   if len(mod.name) < len(prefix):
@@ -198,7 +198,7 @@ class T2TModel(object):
       # generated sequences, than to see the most likely sequence repeatedly.
       beam_size = 1
       self._hparams.sampling_method = "random"
-    if _is_class_modality(
+    if is_class_modality(
         self._hparams.problems[self._problem_idx].target_modality):
       beam_size = 1  # No use to run beam-search for a single class.
     if beam_size == 1:
@@ -371,7 +371,7 @@ class T2TModel(object):
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               tf.shape(initial_output))
     target_modality = self._hparams.problems[self._problem_idx].target_modality
-    if _is_class_modality(target_modality):
+    if is_class_modality(target_modality):
       decode_length = 1
     else:
       decode_length = tf.shape(features["inputs"])[1] + decode_length

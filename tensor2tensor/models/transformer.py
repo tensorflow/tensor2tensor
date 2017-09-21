@@ -172,8 +172,11 @@ class Transformer(t2t_model.T2TModel):
 
     inputs = features["inputs"]
     batch_size = tf.shape(inputs)[0]
-    # TODO(llion): Support class modality
-    decode_length = tf.shape(inputs)[1] + decode_length
+    target_modality = self._problem_hparams.target_modality
+    if t2t_model.is_class_modality(target_modality):
+      decode_length = 1
+    else:
+      decode_length = tf.shape(inputs)[1] + decode_length
 
     # TODO(llion): Clean up this reshaping logic.
     inputs = tf.expand_dims(inputs, axis=1)
@@ -193,8 +196,6 @@ class Transformer(t2t_model.T2TModel):
     if hparams.pos == "timing":
       timing_signal = common_attention.get_timing_signal_1d(
           decode_length + 1, hparams.hidden_size)
-
-    target_modality = self._problem_hparams.target_modality
 
     def preprocess_targets(targets, i):
       """Performs preprocessing steps on the targets to prepare for the decoder.
