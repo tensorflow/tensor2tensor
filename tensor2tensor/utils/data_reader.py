@@ -29,8 +29,6 @@ import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 
-from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.data_generators.problem import preprocess_examples_common
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -128,25 +126,6 @@ def examples_reader(data_sources,
     return dataset
 
 
-def preprocessing(examples, data_file_pattern):
-  """Preprocessing of examples."""
-  # This function is for obsolete problems only, as we're porting them
-  # all to the Problem class and its preprocess_examples method. Don't add.
-  if "audio" in data_file_pattern:
-    # Reshape audio to proper shape
-    sample_count = tf.to_int32(examples.pop("audio/sample_count"))
-    sample_width = tf.to_int32(examples.pop("audio/sample_width"))
-    channel_count = 1
-    examples["inputs"] = tf.reshape(examples["inputs"],
-                                    [sample_count, sample_width, channel_count])
-    if "wsj" in data_file_pattern:
-      examples["inputs"] = tf.bitcast(examples["inputs"], tf.int32)
-  elif "a2q_20161229" in data_file_pattern:
-    # we forgot the EOS when we preprocessed this data.
-    examples["targets"] = tf.concat([examples["targets"], [1]], 0)
-  return examples
-
-
 def cast_int64_to_int32(features):
   f = {}
   for k, v in six.iteritems(features):
@@ -182,54 +161,12 @@ def feature_placeholders(data_fields, data_items_to_decoders):
   return decoded_example
 
 
-def default_example_reading_spec(data_file_pattern):
-  """Example reading spec for problem_hparams problems."""
-  # This function is for problems that have yet to be ported to the new Problem
-  # API. Do not add here.
-  data_items_to_decoders = None
-  # Read from image TFRecords if the file has "image" in its name.
-  if data_file_pattern and "image" in data_file_pattern:
-    label_key = "image/class/label"
-    data_fields = {
-        "image/encoded": tf.FixedLenFeature((), tf.string),
-        "image/format": tf.FixedLenFeature((), tf.string),
-        label_key: tf.VarLenFeature(tf.int64)
-    }
-    data_items_to_decoders = {
-        "inputs":
-            tf.contrib.slim.tfexample_decoder.Image(
-                image_key="image/encoded",
-                format_key="image/format",
-                channels=1 if "mnist" in data_file_pattern else 3),
-        "targets":
-            tf.contrib.slim.tfexample_decoder.Tensor(label_key),
-    }
-  elif data_file_pattern and "audio" in data_file_pattern:
-    data_type = tf.int64 if "timit" in data_file_pattern else tf.float32
-    data_fields = {
-        "inputs": tf.VarLenFeature(data_type),
-        "audio/sample_count": tf.FixedLenFeature((), tf.int64),
-        "audio/sample_width": tf.FixedLenFeature((), tf.int64),
-        "targets": tf.VarLenFeature(tf.int64),
-    }
-  else:
-    data_fields = {
-        "inputs": tf.VarLenFeature(tf.int64),
-        "targets": tf.VarLenFeature(tf.int64)
-    }
-  return data_fields, data_items_to_decoders
-
-
 def read_examples(problem,
                   data_file_pattern,
                   capacity,
                   mode=tf.estimator.ModeKeys.TRAIN):
   """Create Dataset of Example for problem and data_file_pattern."""
-  if problem is None:
-    data_fields, data_items_to_decoders = default_example_reading_spec(
-        data_file_pattern)
-  else:
-    data_fields, data_items_to_decoders = problem.example_reading_spec()
+  data_fields, data_items_to_decoders = problem.example_reading_spec()
 
   if data_file_pattern is None:
     # Create placeholders for input, rather than reading data from disk.
@@ -272,7 +209,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
     # reading, parsing, and preprocessing. Use Problem.dataset instead.
     dataset = read_examples(problem, data_file_pattern, capacity, mode=mode)
     dataset = dataset.map(
-        lambda ex: _preprocess(ex, problem, data_file_pattern, hparams, mode),
+        lambda ex: _preprocess(ex, problem, hparams, mode),
         num_threads=num_threads)
     dataset = dataset.filter(
         lambda ex: example_valid_size(ex, batching_scheme["max_length"]))
@@ -302,14 +239,9 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
     return batched_examples
 
 
-def _preprocess(example, problem, data_file_pattern, hparams, mode):
+def _preprocess(example, problem, hparams, mode):
   """Preprocessing for example."""
-  if problem is None:
-    example = preprocess_examples_common(example, hparams, mode)
-    example = preprocessing(example, data_file_pattern)
-  else:
-    example = problem.preprocess_examples(example, mode, hparams)
-
+  example = problem.preprocess_examples(example, mode, hparams)
   # We do not want int64s as they are not supported on GPUs.
   example = cast_int64_to_int32(example)
 
@@ -527,10 +459,7 @@ def get_data_filepatterns(problems, data_dir, mode):
   """Return the location of a dataset for a given mode."""
   datasets = []
   for problem in problems.split("-"):
-    try:
-      problem = registry.problem(problem).dataset_filename()
-    except ValueError:
-      problem, _, _ = problem_hparams.parse_problem_name(problem)
+    problem = registry.problem(problem).dataset_filename()
     path = os.path.join(data_dir, problem)
     if mode == tf.estimator.ModeKeys.TRAIN:
       datasets.append("%s-train*" % path)

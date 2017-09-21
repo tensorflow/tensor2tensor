@@ -37,8 +37,7 @@ class LSTMTest(tf.test.TestCase):
     x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
     y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
     hparams = common_hparams.basic_params1()
-    p_hparams = problem_hparams.test_problem_hparams(hparams, vocab_size,
-                                                     vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),
@@ -58,8 +57,7 @@ class LSTMTest(tf.test.TestCase):
     y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
     hparams = lstm.lstm_attention()
 
-    p_hparams = problem_hparams.test_problem_hparams(hparams, vocab_size,
-                                                     vocab_size)
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
     x = tf.constant(x, dtype=tf.int32)
     x._shape = tf.TensorShape([None, None, 1, 1])
 

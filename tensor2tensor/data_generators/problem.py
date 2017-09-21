@@ -257,10 +257,9 @@ class Problem(object):
     if self._hparams is not None:
       return self._hparams
 
-    assert model_hparams is not None
-
     if self._encoders is None:
-      self.get_feature_encoders(model_hparams.data_dir)
+      data_dir = (model_hparams and model_hparams.data_dir) or None
+      self.get_feature_encoders(data_dir)
 
     hp = _default_hparams()
     ret = self.hparams(hp, model_hparams)

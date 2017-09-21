@@ -143,7 +143,7 @@ class DataReaderTest(tf.test.TestCase):
   def testPreprocess(self):
     dataset = data_reader.read_examples(self.problem, self.filepatterns[0], 32)
     examples = dataset.make_one_shot_iterator().get_next()
-    examples = data_reader._preprocess(examples, self.problem, None, None, None)
+    examples = data_reader._preprocess(examples, self.problem, None, None)
     with tf.train.MonitoredSession() as sess:
       ex_val = sess.run(examples)
       # problem.preprocess_examples has been run

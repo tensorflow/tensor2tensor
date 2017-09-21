@@ -26,7 +26,6 @@ import sys
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
-from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
@@ -236,24 +235,12 @@ def add_problem_hparams(hparams, problems):
     try:
       problem = registry.problem(problem_name)
     except LookupError:
-      problem = None
-
-    if problem is None:
-      try:
-        p_hparams = problem_hparams.problem_hparams(problem_name, hparams)
-      except LookupError:
-        # The problem is not in the set of registered Problems nor in the old
-        # set of problem_hparams.
-        all_problem_names = sorted(
-            list(problem_hparams.PROBLEM_HPARAMS_MAP) +
-            registry.list_problems())
-        error_lines = [
-            "%s not in the set of supported problems:" % problem_name
-        ] + all_problem_names
-        error_msg = "\n  * ".join(error_lines)
-        raise LookupError(error_msg)
-    else:
-      p_hparams = problem.get_hparams(hparams)
+      all_problem_names = sorted(registry.list_problems())
+      error_lines = ["%s not in the set of supported problems:" % problem_name
+                    ] + all_problem_names
+      error_msg = "\n  * ".join(error_lines)
+      raise LookupError(error_msg)
+    p_hparams = problem.get_hparams(hparams)
 
     hparams.problem_instances.append(problem)
     hparams.problems.append(p_hparams)
