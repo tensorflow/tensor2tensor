@@ -107,6 +107,13 @@ class TokenTextEncoderTest(tf.test.TestCase):
 
 class SubwordTextEncoderTest(tf.test.TestCase):
 
+  @classmethod
+  def setUpClass(cls):
+    """Make sure the test dir exists and is empty."""
+    cls.test_temp_dir = os.path.join(tf.test.get_temp_dir(), "encoder_test")
+    shutil.rmtree(cls.test_temp_dir, ignore_errors=True)
+    os.mkdir(cls.test_temp_dir)
+
   def test_encode_decode(self):
     corpus = (
         "This is a corpus of text that provides a bunch of tokens from which "
@@ -215,6 +222,28 @@ class SubwordTextEncoderTest(tf.test.TestCase):
                         "\"of\"\n")
     encoder._load_from_file_object(vocab)
     self.assertEqual(encoder._all_subtoken_strings, correct_vocab)
+
+  def test_reserved_token_chars_not_in_alphabet(self):
+    corpus = "dog"
+    token_counts = collections.Counter(corpus.split(" "))
+    encoder1 = text_encoder.SubwordTextEncoder.build_to_target_size(
+        100, token_counts, 2, 100)
+    filename = os.path.join(self.test_temp_dir, "out.voc")
+    encoder1.store_to_file(filename)
+    encoder2 = text_encoder.SubwordTextEncoder(filename=filename)
+
+    for t in text_encoder.RESERVED_TOKENS:
+      for c in t:
+        # Verify that encoder1 can encode all reserved token chars.
+        encoder1.encode(c)
+
+    # TODO(seabass): Implement the fix so that we can remove this assertion.
+    with self.assertRaises(AssertionError):
+      for t in text_encoder.RESERVED_TOKENS:
+        for c in t:
+          # Verify that encoder2 fails to encode the characters (i.e.
+          # reproduce the bug).
+          encoder2.encode(c)
 
 
 if __name__ == "__main__":
