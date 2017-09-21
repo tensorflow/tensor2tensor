@@ -510,9 +510,9 @@ class TranslateEnzhWmt8k(TranslateProblem):
   def feature_encoders(self, data_dir):
     vocab_size = self.targeted_vocab_size
     source_vocab_filename = os.path.join(data_dir,
-                                         "vocab.zh.%d" % vocab_size)
+                                         "vocab.zhen-zh.%d" % vocab_size)
     target_vocab_filename = os.path.join(data_dir,
-                                         "vocab.en.%d" % vocab_size)
+                                         "vocab.zhen-en.%d" % vocab_size)
     source_token = text_encoder.SubwordTextEncoder(source_vocab_filename)
     target_token = text_encoder.SubwordTextEncoder(target_vocab_filename)
     return {
