@@ -79,7 +79,7 @@ class SentimentIMDB(problem.Problem):
     # Generate vocab
     encoder = generator_utils.get_or_generate_vocab_inner(
         data_dir, self.vocab_file, self.targeted_vocab_size,
-        lambda: self.doc_generator(imdb_dir, "train"))
+        self.doc_generator(imdb_dir, "train"))
 
     # Generate examples
     dataset = "train" if train else "test"

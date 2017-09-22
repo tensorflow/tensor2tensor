@@ -159,17 +159,17 @@ class GeneExpressionProblem(problem.Problem):
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
 
-  def preprocess_examples(self, examples, mode, unused_hparams):
+  def preprocess_example(self, example, mode, unused_hparams):
     del mode
 
     # Reshape targets to contain num_output_predictions per output timestep
-    examples["targets"] = tf.reshape(examples["targets"],
-                                     [-1, 1, self.num_output_predictions])
+    example["targets"] = tf.reshape(example["targets"],
+                                    [-1, 1, self.num_output_predictions])
     # Slice off EOS - not needed, and messes up the GeneExpressionConv model
     # which expects the input length to be a multiple of the target length.
-    examples["inputs"] = examples["inputs"][:-1]
+    example["inputs"] = example["inputs"][:-1]
 
-    return examples
+    return example
 
   def eval_metrics(self):
     return [metrics.Metrics.LOG_POISSON, metrics.Metrics.R2]

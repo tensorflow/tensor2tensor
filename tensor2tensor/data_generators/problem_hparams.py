@@ -47,16 +47,16 @@ class AudioTimitProblem(problem.Problem):
     }
     return data_fields, None
 
-  def preprocess_examples(self, examples, mode, hparams):
-    examples = super(AudioTimitProblem, self).preprocess_examples(
-        examples, mode, hparams)
+  def preprocess_example(self, example, mode, hparams):
+    example = super(AudioTimitProblem, self).preprocess_example(
+        example, mode, hparams)
     # Reshape audio to proper shape
-    sample_count = tf.to_int32(examples.pop("audio/sample_count"))
-    sample_width = tf.to_int32(examples.pop("audio/sample_width"))
+    sample_count = tf.to_int32(example.pop("audio/sample_count"))
+    sample_width = tf.to_int32(example.pop("audio/sample_width"))
     channel_count = 1
-    examples["inputs"] = tf.reshape(examples["inputs"],
-                                    [sample_count, sample_width, channel_count])
-    return examples
+    example["inputs"] = tf.reshape(example["inputs"],
+                                   [sample_count, sample_width, channel_count])
+    return example
 
 
 @registry.register_problem

@@ -195,8 +195,7 @@ class Desc2CodeProblem(problem.Text2TextProblem):
         data_dir=data_dir,
         vocab_filename=self.vocab_target_filename,
         vocab_size=self.target_vocab_size,
-        generator_fn=generator_target,
-    )
+        generator=generator_target(),)
 
     # Yield the training and testing samples
     eos_list = [EOS]

@@ -127,7 +127,7 @@ class LanguagemodelWikiFull32k(problem.Text2TextProblem):
   def generator(self, data_dir, tmp_dir, _):
     encoder = generator_utils.get_or_generate_vocab_inner(
         data_dir, self.vocab_file, self.targeted_vocab_size,
-        lambda: page_generator(tmp_dir, max_docs=10000))
+        page_generator(tmp_dir, max_docs=10000))
     for page in page_generator(tmp_dir):
       title = _page_title(page)
       encoded = encoder.encode(page) + [EOS]
@@ -210,7 +210,7 @@ class LanguagemodelWikiScramble(problem.Text2TextProblem):
   def generator(self, data_dir, tmp_dir, _):
     encoder = generator_utils.get_or_generate_vocab_inner(
         data_dir, self.vocab_file, self.targeted_vocab_size,
-        lambda: page_generator(tmp_dir, max_docs=1000))
+        page_generator(tmp_dir, max_docs=1000))
     case_num = 0
     for page in page_generator(tmp_dir):
       encoded = encoder.encode(page)

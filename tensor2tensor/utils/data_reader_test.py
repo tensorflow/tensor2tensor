@@ -62,9 +62,9 @@ class TestProblem(problem_mod.Problem):
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
 
-  def preprocess_examples(self, examples, unused_mode, unused_hparams):
-    examples["new_field"] = tf.constant([42.42])
-    return examples
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+    example["new_field"] = tf.constant([42.42])
+    return example
 
 
 def generate_test_data(problem, tmp_dir):
@@ -146,7 +146,7 @@ class DataReaderTest(tf.test.TestCase):
     examples = data_reader._preprocess(examples, self.problem, None, None)
     with tf.train.MonitoredSession() as sess:
       ex_val = sess.run(examples)
-      # problem.preprocess_examples has been run
+      # problem.preprocess_example has been run
       self.assertAllClose([42.42], ex_val["new_field"])
 
       # int64 has been cast to int32

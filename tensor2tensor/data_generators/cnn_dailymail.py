@@ -129,7 +129,7 @@ class SummarizeCnnDailymail32k(problem.Text2TextProblem):
   def generator(self, data_dir, tmp_dir, _):
     encoder = generator_utils.get_or_generate_vocab_inner(
         data_dir, self.vocab_file, self.targeted_vocab_size,
-        lambda: story_generator(tmp_dir))
+        story_generator(tmp_dir))
     for story in story_generator(tmp_dir):
       summary, rest = _story_summary_split(story)
       encoded_summary = encoder.encode(summary) + [EOS]

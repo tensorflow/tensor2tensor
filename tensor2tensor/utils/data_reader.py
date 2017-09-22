@@ -241,7 +241,7 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
 
 def _preprocess(example, problem, hparams, mode):
   """Preprocessing for example."""
-  example = problem.preprocess_examples(example, mode, hparams)
+  example = problem.preprocess_example(example, mode, hparams)
   # We do not want int64s as they are not supported on GPUs.
   example = cast_int64_to_int32(example)
 
@@ -316,8 +316,8 @@ def bucket_by_sequence_length(dataset,
     if hasattr(dataset, "apply"):
       # If the Dataset supports dynamic window size, use it.
       dataset = dataset.apply(
-          tf.contrib.data.group_by_window(
-              example_to_bucket_id, batching_fn, None, window_size_fn))
+          tf.contrib.data.group_by_window(example_to_bucket_id, batching_fn,
+                                          None, window_size_fn))
     else:
       dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
                                         window_size)
@@ -476,8 +476,8 @@ def serving_input_fn(problem, hparams):
   example = feature_placeholders(data_fields, data_items_to_decoders)
 
   # Preprocess
-  example = problem.preprocess_examples(example, tf.estimator.ModeKeys.PREDICT,
-                                        hparams)
+  example = problem.preprocess_example(example, tf.estimator.ModeKeys.PREDICT,
+                                       hparams)
   example = cast_int64_to_int32(example)
 
   # 4-D inputs and space ids
