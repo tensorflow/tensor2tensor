@@ -110,13 +110,28 @@ class TextEncoder(object):
     Returns:
       s: human-readable string.
     """
+    return " ".join(self.decode_list(ids))
+
+  def decode_list(self, ids):
+    """Transform a sequence of int ids into a their string versions.
+
+    This method supports transforming individual input/output ids to their
+    string versions so that sequence to/from text conversions can be visualized
+    in a human readable format.
+
+    Args:
+      ids: list of integers to be converted.
+
+    Returns:
+      strs: list of human-readable string.
+    """
     decoded_ids = []
     for id_ in ids:
       if 0 <= id_ < self._num_reserved_ids:
         decoded_ids.append(RESERVED_TOKENS[int(id_)])
       else:
         decoded_ids.append(id_ - self._num_reserved_ids)
-    return " ".join([str(d) for d in decoded_ids])
+    return [str(d) for d in decoded_ids]
 
   @property
   def vocab_size(self):
@@ -148,6 +163,18 @@ class ByteTextEncoder(TextEncoder):
       return "".join(decoded_ids)
     # Python3: join byte arrays and then decode string
     return b"".join(decoded_ids).decode("utf-8", "replace")
+
+  def decode_list(self, ids):
+    numres = self._num_reserved_ids
+    decoded_ids = []
+    int2byte = six.int2byte
+    for id_ in ids:
+      if 0 <= id_ < numres:
+        decoded_ids.append(RESERVED_TOKENS_BYTES[int(id_)])
+      else:
+        decoded_ids.append(int2byte(id_ - numres))
+    # Python3: join byte arrays and then decode string
+    return decoded_ids
 
   @property
   def vocab_size(self):
@@ -229,8 +256,11 @@ class TokenTextEncoder(TextEncoder):
     return ret[::-1] if self._reverse else ret
 
   def decode(self, ids):
+    return " ".join(self.decode_list(ids))
+
+  def decode_list(self, ids):
     seq = reversed(ids) if self._reverse else ids
-    return " ".join([self._safe_id_to_token(i) for i in seq])
+    return [self._safe_id_to_token(i) for i in seq]
 
   @property
   def vocab_size(self):
@@ -414,6 +444,9 @@ class SubwordTextEncoder(TextEncoder):
     """
     return unicode_to_native(
         tokenizer.decode(self._subtoken_ids_to_tokens(subtokens)))
+
+  def decode_list(self, subtokens):
+    return [self._subtoken_id_to_subtoken_string(s) for s in subtokens]
 
   @property
   def vocab_size(self):
