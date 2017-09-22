@@ -65,7 +65,7 @@ def check_vocab(vocab_file, out_dir, check_special_token=True, sos=None,
             f.write("%s\n" % word)
         vocab_file = new_vocab_file
   else:
-    raise ValueError("vocab_file does not exist.")
+    raise ValueError("vocab_file '%s' does not exist." % vocab_file)
 
   vocab_size = len(vocab)
   return vocab_size, vocab_file
