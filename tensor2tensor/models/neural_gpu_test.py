@@ -39,7 +39,7 @@ class NeuralGPUTest(tf.test.TestCase):
     target_length = input_length
     input_vocab_size = 9
     target_vocab_size = 11
-    p_hparams = problem_hparams.test_problem_hparams(hparams, input_vocab_size,
+    p_hparams = problem_hparams.test_problem_hparams(input_vocab_size,
                                                      target_vocab_size)
     inputs = -1 + np.random.random_integers(
         input_vocab_size, size=(batch_size, input_length, 1, 1))

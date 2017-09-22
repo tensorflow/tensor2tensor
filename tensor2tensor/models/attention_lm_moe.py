@@ -60,6 +60,13 @@ class AttentionType(object):
     ]
 
 
+LAYER_SYMBOLS = {
+    "h": AttentionType.MULTIHEAD,  # multi-Head
+    "e": AttentionType.LOCAL_EXPERTS,  # Experts
+    "m": AttentionType.MEMORY_EFFICIENT,  # Memory
+}
+
+
 @registry.register_model
 class AttentionLmMoe(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
@@ -98,8 +105,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
       expert_fn = expert_utils.ffn_expert_fn(
           hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
 
-    if (hparams.attention_type == AttentionType.LOCAL_EXPERTS
-        and not hparams.use_inputs):
+    if not hparams.use_inputs:
       # As preprocess and postprocess are called with batch of size one (all
       # batches concatenated), we just make sure that batch_norm is not use (
       # should not either way)
@@ -128,16 +134,23 @@ class AttentionLmMoe(t2t_model.T2TModel):
     batch_coordinate = dp_remove_pad(batch_coordinate)
 
     x = dp(print_shape, x, "in")
-    x = dp_remove_pad(x)
-    x = dp(print_shape, x, "in_flat")
 
     assert hparams.batch_size >= hparams.max_length
 
-    for layer in xrange(hparams.num_hidden_layers):
+    num_hidden_layers = (
+        len(hparams.attention_layers) or hparams.num_hidden_layers)
+    for layer in xrange(num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
+
+        # Use the layer type defined in attention_layers
+        if hparams.attention_layers:
+          attention_type = LAYER_SYMBOLS[hparams.attention_layers[layer]]
+        else:
+          attention_type = hparams.attention_type
+
         with tf.variable_scope(
-            "attention_{}".format(hparams.attention_type)):
-          if hparams.attention_type == AttentionType.MULTIHEAD:
+            "attention_{}".format(attention_type)):
+          if attention_type == AttentionType.MULTIHEAD:
             y = dp(
                 common_attention.multihead_attention,
                 preprocess(x),
@@ -151,7 +164,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 attention_type=("local_mask_right" if hparams.attention_local
                                 else "dot_product"),
                 name="decoder_self_attention")
-          elif hparams.attention_type == AttentionType.MEMORY_EFFICIENT:
+          elif attention_type == AttentionType.MEMORY_EFFICIENT:
             assert hparams.layer_preprocess_sequence == "n"
             y = dp(
                 common_attention.multihead_self_attention_memory_efficient,
@@ -159,10 +172,12 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 decoder_self_attention_bias,
                 hparams.num_heads,
                 name="decoder_self_attention")
-          elif hparams.attention_type == AttentionType.LOCAL_EXPERTS:
+          elif attention_type == AttentionType.LOCAL_EXPERTS:
+            x_in = preprocess(x)
+            x_in = dp_remove_pad(x_in)
             y, loss = dp(
                 common_attention.local_expert_attention,
-                preprocess(x),
+                x_in,
                 k=hparams.attention_moe_k,
                 loss_coef=hparams.attention_load_balance,
                 attention_num_experts=hparams.attention_num_experts,
@@ -172,6 +187,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 split_batch=bool(hparams.attention_split_batch),
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
+            y = dp_restore_pad(y)
             # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
             extra_loss += tf.add_n(loss) / dp.n
           else:
@@ -198,15 +214,8 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 x,
                 hparams.filter_size)
           else:
-            x_in = preprocess(x)
             additional_conv_params = dict()
             if hparams.use_sepconv:
-              # Restore padding so sequences don't attend to each others
-              # restore_pad will apply a reshape like x_ref, to restore the
-              # original shape. Here this works because the last dimension is
-              # constant between the output of attention and the original input
-              # but it shouldn't necessarily be the case.
-              x_in = dp_restore_pad(x_in)
               additional_conv_params = dict(
                   padding="LEFT",
                   # Parameters copied from the transformer model
@@ -215,18 +224,14 @@ class AttentionLmMoe(t2t_model.T2TModel):
               )
             y = dp(
                 common_layers.conv_hidden_relu,
-                x_in,
+                preprocess(x),
                 hparams.filter_size,
                 hparams.hidden_size,
                 dropout=hparams.relu_dropout,
                 **additional_conv_params
             )
-            if hparams.use_sepconv:
-              y = dp_remove_pad(y)
           x = postprocess(x, y)
     x = preprocess(x)
-
-    x = dp_restore_pad(x)
 
     decoder_output = dp(tf.expand_dims, x, 2)
     return decoder_output, extra_loss
@@ -257,7 +262,7 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
   # TODO(epot): The padding remover should take into account that the input is
   # shifted.
-  decoder_input = common_layers.shift_left_3d(targets)
+  decoder_input = common_layers.shift_right_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
   return (decoder_input, decoder_self_attention_bias, pad_remover)
@@ -350,6 +355,10 @@ def attention_lm_moe_base():
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("moe_layers", "2")  # comma separated list of layer numbers
   # moe params. local attention moe.
+  # If attention_layers is set, the num_hidden_layers parameter will be ignored
+  # and each caracter of the string will correspond to one attention
+  # layer type
+  hparams.add_hparam("attention_layers", "")
   hparams.add_hparam("attention_type", AttentionType.MULTIHEAD)
   hparams.add_hparam("attention_local", int(False))
   hparams.add_hparam("attention_moe_k", 2)
@@ -370,14 +379,24 @@ def attention_lm_moe_base():
 
 
 @registry.register_hparams
-def attention_lm_moe_base_ae():
-  """Base model with attention expert."""
+def attention_lm_moe_base_long_seq():
+  """Hyper parameters specifics for long sequence generation."""
   hparams = attention_lm_moe_base()
-  hparams.attention_type = AttentionType.LOCAL_EXPERTS
-  hparams.use_sepconv = int(True)
+
   hparams.max_length = 0  # max_length == batch_size
   hparams.eval_drop_long_sequences = int(True)
   hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
+  hparams.use_sepconv = int(True)
+
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_base_ae():
+  """Base model with attention expert."""
+  hparams = attention_lm_moe_base_long_seq()
+  hparams.attention_type = AttentionType.LOCAL_EXPERTS
+
   hparams.learning_rate = 0.05
   hparams.learning_rate_warmup_steps = 10000
   # According to noam, ("n", "da") seems better for harder-to-learn models
@@ -389,12 +408,20 @@ def attention_lm_moe_base_ae():
 @registry.register_hparams
 def attention_lm_moe_base_local():
   """Base model with attention expert."""
-  hparams = attention_lm_moe_base()
+  hparams = attention_lm_moe_base_long_seq()
   hparams.attention_local = int(True)
-  hparams.use_sepconv = int(True)
-  hparams.max_length = 0  # max_length == batch_size
-  hparams.eval_drop_long_sequences = int(True)
-  hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_base_hybrid():
+  """Base model with attention expert."""
+  hparams = attention_lm_moe_base_long_seq()
+  hparams.attention_layers = "hehe"  # Alternate local/expert
+  hparams.attention_local = int(True)
+
+  # hparams.layer_preprocess_sequence = "n"
+  # hparams.layer_postprocess_sequence = "da"
   return hparams
 
 

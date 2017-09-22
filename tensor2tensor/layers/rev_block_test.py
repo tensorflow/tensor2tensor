@@ -137,5 +137,31 @@ class RevBlockTest(tf.test.TestCase):
     self._testRevBlock(x=x, f=f)
 
 
+class RecomputeTest(tf.test.TestCase):
+
+  def testRecompute(self):
+
+    @rev_block.recompute_grad
+    def fn_recompute(x, y):
+      return x + y, x**y
+
+    def fn(x, y):
+      return x + y, x**y
+
+    x = tf.ones((3, 3))
+    y = tf.ones((3, 3))
+    out1 = tf.reduce_sum(fn_recompute(x, y))
+    out2 = tf.reduce_sum(fn(x, y))
+
+    grad1 = tf.gradients(out1, [x, y])
+    grad2 = tf.gradients(out2, [x, y])
+
+    with self.test_session() as sess:
+      outs = sess.run([out1, out2, grad1, grad2])
+      self.assertAllClose(outs[0], outs[1])
+      for g1, g2 in zip(outs[2], outs[3]):
+        self.assertAllClose(g1, g2)
+
+
 if __name__ == "__main__":
   tf.test.main()

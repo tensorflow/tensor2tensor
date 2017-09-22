@@ -300,7 +300,7 @@ _DATA_FILE_URLS = [
 
 
 def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
-                                generator_fn):
+                                generator):
   """Inner implementation for vocab generators.
 
   Args:
@@ -308,7 +308,7 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
         then do not save the vocab even if it doesn't exist.
     vocab_filename: relative filename where vocab file is stored
     vocab_size: target size of the vocabulary constructed by SubwordTextEncoder
-    generator_fn: a generator that produces tokens from the vocabulary
+    generator: a generator that produces tokens from the vocabulary
 
   Returns:
     A SubwordTextEncoder vocabulary object.
@@ -325,7 +325,7 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
 
   tf.logging.info("Generating vocab file: %s", vocab_filepath)
   token_counts = defaultdict(int)
-  for item in generator_fn():
+  for item in generator:
     for tok in tokenizer.encode(text_encoder.native_to_unicode(item)):
       token_counts[tok] += 1
 
@@ -382,8 +382,8 @@ def get_or_generate_vocab(data_dir,
             file_byte_budget -= len(line)
             yield line
 
-  return get_or_generate_vocab_inner(
-      data_dir, vocab_filename, vocab_size, generator_fn=generate)
+  return get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
+                                     generate())
 
 
 def get_or_generate_tabbed_vocab(data_dir, tmp_dir, source_filename,
@@ -416,8 +416,8 @@ def get_or_generate_tabbed_vocab(data_dir, tmp_dir, source_filename,
           part = parts[index].strip()
           yield part
 
-  return get_or_generate_vocab_inner(
-      data_dir, vocab_filename, vocab_size, generator_fn=generate)
+  return get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
+                                     generate())
 
 
 def get_or_generate_txt_vocab(data_dir, vocab_filename, vocab_size,
@@ -434,8 +434,8 @@ def get_or_generate_txt_vocab(data_dir, vocab_filename, vocab_size,
           for line in source_file:
             yield line.strip()
 
-  return get_or_generate_vocab_inner(
-      data_dir, vocab_filename, vocab_size, generator_fn=generate)
+  return get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
+                                     generate())
 
 
 def read_records(filename):

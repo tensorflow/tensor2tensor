@@ -31,6 +31,7 @@ import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -126,7 +127,7 @@ class LanguagemodelWikiFull32k(problem.Text2TextProblem):
   def generator(self, data_dir, tmp_dir, _):
     encoder = generator_utils.get_or_generate_vocab_inner(
         data_dir, self.vocab_file, self.targeted_vocab_size,
-        lambda: page_generator(tmp_dir, max_docs=10000))
+        page_generator(tmp_dir, max_docs=10000))
     for page in page_generator(tmp_dir):
       title = _page_title(page)
       encoded = encoder.encode(page) + [EOS]
@@ -209,7 +210,7 @@ class LanguagemodelWikiScramble(problem.Text2TextProblem):
   def generator(self, data_dir, tmp_dir, _):
     encoder = generator_utils.get_or_generate_vocab_inner(
         data_dir, self.vocab_file, self.targeted_vocab_size,
-        lambda: page_generator(tmp_dir, max_docs=1000))
+        page_generator(tmp_dir, max_docs=1000))
     case_num = 0
     for page in page_generator(tmp_dir):
       encoded = encoder.encode(page)
@@ -221,6 +222,24 @@ class LanguagemodelWikiScramble(problem.Text2TextProblem):
             i * self.sequence_length:(i + 1) * self.sequence_length]
         inputs = self.scramble(targets)
         yield {"inputs": inputs, "targets": targets}
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.NEG_LOG_PERPLEXITY
+    ]
+
+
+@registry.register_problem
+class LanguagemodelWikiScramble128(LanguagemodelWikiScramble):
+  """Sequence length 128, 50% scrambed."""
+
+  @property
+  def sequence_length(self):
+    return 128
+
+  @property
+  def scramble_fraction(self):
+    return 0.5
 
 
 @registry.register_problem

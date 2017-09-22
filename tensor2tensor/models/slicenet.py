@@ -198,7 +198,7 @@ def slicenet_middle(inputs_encoded, targets, target_space_emb, mask, hparams):
     similarity_loss = 0.0
 
   # Use attention from each target to look at input and retrieve.
-  targets_shifted = common_layers.shift_left(
+  targets_shifted = common_layers.shift_right(
       targets_flat, pad_value=target_space_emb)
   if hparams.attention_type == "none":
     targets_with_attention = tf.zeros_like(targets_shifted)

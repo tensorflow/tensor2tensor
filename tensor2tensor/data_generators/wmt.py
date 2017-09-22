@@ -34,7 +34,6 @@ import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
 
-
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
 
@@ -186,7 +185,6 @@ def bi_vocabs_token_generator(source_path,
 
 # Data-set URLs.
 
-
 _ENDE_TRAIN_DATASETS = [
     [
         "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",  # pylint: disable=line-too-long
@@ -287,7 +285,6 @@ _ENCS_TEST_DATASETS = [
     ],
 ]
 
-
 # Generators.
 
 
@@ -333,8 +330,8 @@ class TranslateEndeWmtBpe32k(TranslateProblem):
     with tf.gfile.GFile(token_path, mode="a") as f:
       f.write("UNK\n")  # Add UNK to the vocab.
     token_vocab = text_encoder.TokenTextEncoder(token_path, replace_oov="UNK")
-    return token_generator(train_path + ".en", train_path + ".de",
-                           token_vocab, EOS)
+    return token_generator(train_path + ".en", train_path + ".de", token_vocab,
+                           EOS)
 
   @property
   def input_space_id(self):
@@ -360,7 +357,7 @@ def _preprocess_sgm(line, is_sgm):
   line = line.strip()
   if line.startswith("<seg") and line.endswith("</seg>"):
     i = line.index(">")
-    return line[i+1:-6]  # Strip first <seg ...> and last </seg>.
+    return line[i + 1:-6]  # Strip first <seg ...> and last </seg>.
 
 
 def _compile_data(tmp_dir, datasets, filename):
@@ -479,18 +476,24 @@ class TranslateEnzhWmt8k(TranslateProblem):
   def num_shards(self):
     return 10  # This is a small dataset.
 
+  @property
+  def source_vocab_name(self):
+    return "vocab.zhen-zh.%d" % self.targeted_vocab_size
+
+  @property
+  def target_vocab_name(self):
+    return "vocab.zhen-en.%d" % self.targeted_vocab_size
+
   def generator(self, data_dir, tmp_dir, train):
-    source_vocab_size = self.targeted_vocab_size
-    target_vocab_size = self.targeted_vocab_size
     datasets = _ZHEN_TRAIN_DATASETS if train else _ZHEN_TEST_DATASETS
     source_datasets = [[item[0], [item[1][0]]] for item in _ZHEN_TRAIN_DATASETS]
     target_datasets = [[item[0], [item[1][1]]] for item in _ZHEN_TRAIN_DATASETS]
     source_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, "vocab.zhen-zh.%d" % source_vocab_size,
-        source_vocab_size, source_datasets)
+        data_dir, tmp_dir, self.source_vocab_name, self.targeted_vocab_size,
+        source_datasets)
     target_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, "vocab.zhen-en.%d" % target_vocab_size,
-        target_vocab_size, target_datasets)
+        data_dir, tmp_dir, self.target_vocab_name, self.targeted_vocab_size,
+        target_datasets)
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_zhen_tok_%s" % tag)
     # We generate English->X data by convention, to train reverse translation
@@ -508,11 +511,8 @@ class TranslateEnzhWmt8k(TranslateProblem):
     return problem.SpaceID.EN_TOK
 
   def feature_encoders(self, data_dir):
-    vocab_size = self.targeted_vocab_size
-    source_vocab_filename = os.path.join(data_dir,
-                                         "vocab.zhen-zh.%d" % vocab_size)
-    target_vocab_filename = os.path.join(data_dir,
-                                         "vocab.zhen-en.%d" % vocab_size)
+    source_vocab_filename = os.path.join(data_dir, self.source_vocab_name)
+    target_vocab_filename = os.path.join(data_dir, self.target_vocab_name)
     source_token = text_encoder.SubwordTextEncoder(source_vocab_filename)
     target_token = text_encoder.SubwordTextEncoder(target_vocab_filename)
     return {

@@ -23,6 +23,7 @@ from __future__ import print_function
 # pylint: disable=unused-import
 
 from tensor2tensor.layers import modalities
+from tensor2tensor.models import aligned
 from tensor2tensor.models import attention_lm
 from tensor2tensor.models import attention_lm_moe
 from tensor2tensor.models import bluenet

@@ -126,13 +126,13 @@ def basic_params1():
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
-      # You can change this behavior by overridding preprocess_examples() method
+      # You can change this behavior by overridding preprocess_example() method
       # in your problem class.
       max_input_seq_length=0,
       # The maximum length of "target" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
-      # You can change this behavior by overridding preprocess_examples() method
+      # You can change this behavior by overridding preprocess_example() method
       # in your problem class.
       max_target_seq_length=0,
       # This flag allows us to optionally treat a seq-to-seq problem
@@ -152,8 +152,7 @@ def basic_params1():
       #     position in the inputs portion can see the
       #     entire inputs portion.  This removes the challenge of
       #     autoregressively predicting the inputs portion.
-      prepend_mode="none",
-  )
+      prepend_mode="none",)
 
 
 class RangedHParams(object):

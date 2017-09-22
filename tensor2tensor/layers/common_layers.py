@@ -209,7 +209,7 @@ def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0):
     return tf.reshape(emb_x, [shape[0], shape[1], shape[2], static_shape[4]])
 
 
-def shift_left(x, pad_value=None):
+def shift_right(x, pad_value=None):
   """Shift the second dimension of x right by one."""
   if pad_value is None:
     shifted_targets = tf.pad(x, [[0, 0], [1, 0], [0, 0], [0, 0]])[:, :-1, :, :]
@@ -218,7 +218,7 @@ def shift_left(x, pad_value=None):
   return shifted_targets
 
 
-def shift_left_3d(x, pad_value=None):
+def shift_right_3d(x, pad_value=None):
   """Shift the second dimension of x right by one."""
   if pad_value is None:
     shifted_targets = tf.pad(x, [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
@@ -815,7 +815,7 @@ def decompress_seqcnn(x,
     # Flatten x and embedded targets. Flat targets are factor* larger on axis=1.
     flat_x = tf.reshape(x, [-1, 1, 1, hidden_size])
     flat_targets = tf.reshape(targets_emb, [-1, factor, 1, hidden_size])
-    shifted_targets = shift_left(flat_targets)
+    shifted_targets = shift_right(flat_targets)
     # Run a SeqCNN large-batch to produce factor outputs out of every target.
     flat_x += tf.zeros_like(shifted_targets)  # Broadcast on axis=1.
     flat_outputs = conv_block(

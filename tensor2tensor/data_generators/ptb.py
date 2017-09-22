@@ -42,9 +42,9 @@ def _read_words(filename):
   """Reads words from a file."""
   with tf.gfile.GFile(filename, "r") as f:
     if sys.version_info[0] >= 3:
-      return f.read().replace("\n", " ").split()
+      return f.read().replace("\n", " %s " % EOS).split()
     else:
-      return f.read().decode("utf-8").replace("\n", " ").split()
+      return f.read().decode("utf-8").replace("\n", " %s " % EOS).split()
 
 
 def _build_vocab(filename, vocab_path, vocab_size):
@@ -151,7 +151,7 @@ class PTBProblem(problem.Text2TextProblem):
   def _generator(self, filename, encoder):
     with tf.gfile.GFile(filename, "r") as f:
       for line in f:
-        line = " ".join(line.replace("\n", EOS).split())
+        line = " ".join(line.replace("\n", " %s " % EOS).split())
         tok = encoder.encode(line)
         if tok:
           yield {"inputs": [0], "targets": tok}

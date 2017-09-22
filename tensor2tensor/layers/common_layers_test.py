@@ -281,7 +281,7 @@ class CommonLayersTest(tf.test.TestCase):
     expected = np.zeros((5, 7, 1, 11))
     expected[:, 1, :] = np.ones_like(expected[:, 1, :])
     with self.test_session() as session:
-      a = common_layers.shift_left(tf.constant(x1, dtype=tf.float32))
+      a = common_layers.shift_right(tf.constant(x1, dtype=tf.float32))
       actual = session.run(a)
     self.assertAllEqual(actual, expected)
 

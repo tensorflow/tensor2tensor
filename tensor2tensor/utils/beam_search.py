@@ -107,7 +107,6 @@ def beam_search(symbols_to_logits_fn,
                 eos_id=EOS_ID):
   """Beam search with length penalties.
 
-  Uses an interface specific to the sequence cnn models;
   Requires a function that can take the currently decoded sybmols and return
   the logits for the next symbol. The implementation is inspired by
   https://arxiv.org/abs/1609.08144.

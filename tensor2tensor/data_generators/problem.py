@@ -17,20 +17,15 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
 import collections
 import os
 import random
-
 # Dependency imports
-
 import six
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-
 import tensorflow as tf
 
 
@@ -107,16 +102,19 @@ def default_model_hparams():
       data_dir=None)
 
 
-def preprocess_examples_common(examples, hparams):
+def preprocess_example_common(example, hparams, mode):
   """Preprocessing steps common to all models."""
   if hparams.max_input_seq_length > 0:
-    examples["inputs"] = examples["inputs"][:hparams.max_input_seq_length]
+    example["inputs"] = example["inputs"][:hparams.max_input_seq_length]
   if hparams.max_target_seq_length > 0:
-    examples["targets"] = examples["targets"][:hparams.max_target_seq_length]
+    example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.prepend_mode != "none":
-    examples["targets"] = tf.concat(
-        [examples["inputs"], [0], examples["targets"]], 0)
-  return examples
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      example["partial_targets"] = tf.concat([example["inputs"], [0]], 0)
+    else:
+      example["targets"] = tf.concat(
+          [example["inputs"], [0], example["targets"]], 0)
+  return example
 
 
 class Problem(object):
@@ -156,7 +154,7 @@ class Problem(object):
     * example_reading_spec
         - Specify the names and types of the features on disk.
         - Specify tf.contrib.slim.tfexample_decoder
-    * preprocess_examples(examples, mode)
+    * preprocess_example(example, mode)
         - Preprocess the example feature dict from feature name to Tensor or
           SparseTensor.
         - Used in training, eval, and inference (specified by mode).
@@ -200,9 +198,8 @@ class Problem(object):
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
 
-  def preprocess_examples(self, examples, mode, hparams):
-    del mode
-    return preprocess_examples_common(examples, hparams)
+  def preprocess_example(self, example, mode, hparams):
+    return preprocess_example_common(example, hparams, mode)
 
   def eval_metrics(self):
     return [
@@ -260,10 +257,9 @@ class Problem(object):
     if self._hparams is not None:
       return self._hparams
 
-    assert model_hparams is not None
-
     if self._encoders is None:
-      self.get_feature_encoders(model_hparams.data_dir)
+      data_dir = (model_hparams and model_hparams.data_dir) or None
+      self.get_feature_encoders(data_dir)
 
     hp = _default_hparams()
     ret = self.hparams(hp, model_hparams)
@@ -314,10 +310,10 @@ class Problem(object):
       shuffle_files: whether to shuffle input files. Default behavior (i.e. when
         shuffle_files=None) is to shuffle if mode == TRAIN.
       hparams: tf.contrib.training.HParams; hparams to be passed to
-        Problem.preprocess_examples and Problem.hparams. If None, will use a
+        Problem.preprocess_example and Problem.hparams. If None, will use a
         default set that is a no-op.
       preprocess: bool, whether to map the Dataset through
-        Problem.preprocess_examples.
+        Problem.preprocess_example.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
@@ -370,7 +366,7 @@ class Problem(object):
       return dict(zip(decode_items, decoded))
 
     def _preprocess(example):
-      example = self.preprocess_examples(example, mode, hparams)
+      example = self.preprocess_example(example, mode, hparams)
       self.maybe_reverse_features(example)
       self.maybe_copy_features(example)
       return example
@@ -384,6 +380,10 @@ class Problem(object):
           output_buffer_size=output_buffer_size)
 
     return dataset
+
+  @property
+  def has_inputs(self):
+    return "inputs" in self.get_feature_encoders()
 
   @property
   def feature_info(self):
@@ -404,7 +404,8 @@ class Problem(object):
     input_mods = hp.input_modality
     target_mod = hp.target_modality
     vocabs = hp.vocabulary
-    in_id = hp.input_space_id
+    if self.has_inputs:
+      in_id = hp.input_space_id
     out_id = hp.target_space_id
 
     features = collections.defaultdict(FeatureInfo)
@@ -422,7 +423,8 @@ class Problem(object):
     for name, encoder in six.iteritems(vocabs):
       features[name].encoder = encoder
 
-    features["inputs"].space_id = in_id
+    if self.has_inputs:
+      features["inputs"].space_id = in_id
     features["targets"].space_id = out_id
 
     self._feature_info = features

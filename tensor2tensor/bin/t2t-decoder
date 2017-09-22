@@ -46,6 +46,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
+flags.DEFINE_string("output_dir", "", "Training directory to load from.")
 flags.DEFINE_string("decode_from_file", None, "Path to decode file")
 flags.DEFINE_string("decode_to_file", None,
                     "Path prefix to inference output file")
@@ -58,6 +59,9 @@ flags.DEFINE_string("t2t_usr_dir", "",
                     "The imported files should contain registrations, "
                     "e.g. @registry.register_model calls, that will then be "
                     "available to the t2t-decoder.")
+flags.DEFINE_string("master", "", "Address of TensorFlow master.")
+flags.DEFINE_string("schedule", "train_and_evaluate",
+                    "Must be train_and_evaluate for decoding.")
 
 
 def main(_):
@@ -65,16 +69,18 @@ def main(_):
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   trainer_utils.log_registry()
   trainer_utils.validate_flags()
+  assert FLAGS.schedule == "train_and_evaluate"
   data_dir = os.path.expanduser(FLAGS.data_dir)
   output_dir = os.path.expanduser(FLAGS.output_dir)
 
   hparams = trainer_utils.create_hparams(
-      FLAGS.hparams_set, FLAGS.problems, data_dir, passed_hparams=FLAGS.hparams)
+      FLAGS.hparams_set, data_dir, passed_hparams=FLAGS.hparams)
+  hparams = trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
   estimator, _ = trainer_utils.create_experiment_components(
-      hparams=hparams,
-      output_dir=output_dir,
       data_dir=data_dir,
-      model_name=FLAGS.model)
+      model_name=FLAGS.model,
+      hparams=hparams,
+      run_config=trainer_utils.create_run_config(output_dir))
 
   decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
   decode_hp.add_hparam("shards", FLAGS.decode_shards)

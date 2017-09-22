@@ -34,7 +34,8 @@ def build_input_fn(mode,
                    num_datashards=None,
                    fixed_problem=None,
                    worker_replicas=None,
-                   worker_id=None):
+                   worker_id=None,
+                   batch_size=None):
   """Provides input to the graph, either from disk or via a placeholder.
 
   This function produces an input function that will feed data into
@@ -61,6 +62,7 @@ def build_input_fn(mode,
       setting with hparams.problem_choice == distributed.
     worker_id: int, id of this worker replica. Used in multiproblem setting with
       hparams.problem_choice == distributed.
+    batch_size: int, if provided, will use a fixed batch size.
 
   Returns:
     A function that returns a dictionary of features and the target labels.
@@ -98,6 +100,7 @@ def build_input_fn(mode,
             problem_filepatterns,
             num_datashards,
             mode,
+            batch_size=batch_size,
             name="problem_%d" % problem_idx)
         problem_batches.append(feature_map)
 
@@ -127,16 +130,18 @@ def build_input_fn(mode,
     feature_map["problem_choice"] = problem_choice
 
     # Set shapes so the ranks are clear.
-    feature_map["inputs"].set_shape([None, None, None, None])
+    if problem_instance.has_inputs:
+      feature_map["inputs"].set_shape([None, None, None, None])
+      feature_map["input_space_id"].set_shape([])
     feature_map["targets"].set_shape([None, None, None, None])
     feature_map["problem_choice"].set_shape([])
-    feature_map["input_space_id"].set_shape([])
     feature_map["target_space_id"].set_shape([])
 
     if mode == tf.estimator.ModeKeys.PREDICT:
       feature_map["infer_targets"] = feature_map["targets"]
       #  Forced shape obfuscation is necessary for inference.
-      feature_map["inputs"]._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
+      if problem_instance.has_inputs:
+        feature_map["inputs"]._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
       feature_map["targets"]._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
 
       # This is because of a bug in the Estimator that short-circuits prediction
@@ -209,19 +214,25 @@ def features_for_problem(problem_instance,
                          data_filepatterns,
                          num_datashards,
                          mode,
+                         batch_size=None,
                          name="problem_inputs"):
   """Feature map for Problem."""
   with tf.name_scope(name):
     with tf.device("/cpu:0"):  # Input reading on CPU
       capacity = (p_hparams.max_expected_batch_size_per_shard * num_datashards)
+      batching_scheme = data_reader.hparams_to_batching_scheme(
+          hparams,
+          shard_multiplier=num_datashards,
+          drop_long_sequences=(mode == tf.estimator.ModeKeys.TRAIN or
+                               hparams.eval_drop_long_sequences),
+          length_multiplier=(p_hparams.batch_size_multiplier))
+      if batch_size:
+        # If batch_size is fixed, use a single input bucket
+        batching_scheme["batch_sizes"] = [batch_size]
+        batching_scheme["boundaries"] = []
       feature_map = data_reader.input_pipeline(
           problem_instance, data_filepatterns, capacity, mode, hparams,
-          data_reader.hparams_to_batching_scheme(
-              hparams,
-              shard_multiplier=num_datashards,
-              drop_long_sequences=(mode == tf.estimator.ModeKeys.TRAIN or
-                                   hparams.eval_drop_long_sequences),
-              length_multiplier=(p_hparams.batch_size_multiplier)))
+          batching_scheme)
 
   # Reverse inputs and targets features if the problem was reversed.
   if problem_instance is not None:
@@ -238,11 +249,13 @@ def features_for_problem(problem_instance,
       feature_map["targets"] = feature_map["inputs"]
 
   # Ensure inputs and targets are proper rank.
-  while len(feature_map["inputs"].get_shape()) != 4:
-    feature_map["inputs"] = tf.expand_dims(feature_map["inputs"], axis=-1)
+  if problem_instance.has_inputs:
+    while len(feature_map["inputs"].get_shape()) != 4:
+      feature_map["inputs"] = tf.expand_dims(feature_map["inputs"], axis=-1)
   while len(feature_map["targets"].get_shape()) != 4:
     feature_map["targets"] = tf.expand_dims(feature_map["targets"], axis=-1)
 
-  feature_map["input_space_id"] = tf.constant(p_hparams.input_space_id)
+  if problem_instance.has_inputs:
+    feature_map["input_space_id"] = tf.constant(p_hparams.input_space_id)
   feature_map["target_space_id"] = tf.constant(p_hparams.target_space_id)
   return feature_map

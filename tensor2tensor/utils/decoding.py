@@ -47,7 +47,7 @@ def decode_hparams(overrides=""):
       save_images=False,
       problem_idx=0,
       extra_length=50,
-      batch_size=32,
+      batch_size=0,
       beam_size=4,
       alpha=0.6,
       return_beams=False,
@@ -74,14 +74,18 @@ def log_decode_results(inputs,
                              (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
   elif inputs_vocab:
-    decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
+    if identity_output:
+      decoded_inputs = " ".join(map(str, inputs.flatten()))
+    else:
+      decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
+
     tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
   decoded_targets = None
   if identity_output:
-    decoded_outputs = "".join(map(str, outputs.flatten()))
+    decoded_outputs = " ".join(map(str, outputs.flatten()))
     if targets is not None:
-      decoded_targets = "".join(map(str, targets.flatten()))
+      decoded_targets = " ".join(map(str, targets.flatten()))
   else:
     decoded_outputs = "".join(
         map(str, targets_vocab.decode(_save_until_eos(outputs.flatten()))))
@@ -113,7 +117,8 @@ def decode_from_dataset(estimator,
         hparams=hparams,
         data_file_patterns=infer_problems_data,
         num_datashards=devices.data_parallelism().n,
-        fixed_problem=problem_idx)
+        fixed_problem=problem_idx,
+        batch_size=decode_hp.batch_size)
 
     # Get the predictions as an iterable
     predictions = estimator.predict(infer_input_fn)
@@ -133,6 +138,7 @@ def decode_from_dataset(estimator,
     inputs_vocab = problem_hparams.vocabulary.get("inputs", None)
     targets_vocab = problem_hparams.vocabulary["targets"]
     for num_predictions, prediction in enumerate(predictions):
+      num_predictions += 1
       inputs = prediction["inputs"]
       targets = prediction["targets"]
       outputs = prediction["outputs"]
@@ -188,6 +194,11 @@ def decode_from_dataset(estimator,
 
 def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   """Compute predictions on entries in filename and write them out."""
+  if not decode_hp.batch_size:
+    decode_hp.batch_size = 32
+    tf.logging.info(
+        "decode_hp.batch_size not specified; default=%d" % decode_hp.batch_size)
+
   hparams = estimator.params
   problem_id = decode_hp.problem_idx
   inputs_vocab = hparams.problems[problem_id].vocabulary["inputs"]

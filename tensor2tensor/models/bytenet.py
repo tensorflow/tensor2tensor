@@ -66,7 +66,7 @@ def bytenet_internal(inputs, targets, hparams):
     final_encoder = residual_dilated_conv(inputs, hparams.num_block_repeat,
                                           "SAME", "encoder", hparams)
 
-    shifted_targets = common_layers.shift_left(targets)
+    shifted_targets = common_layers.shift_right(targets)
     kernel = (hparams.kernel_height, hparams.kernel_width)
     decoder_start = common_layers.conv_block(
         tf.concat([final_encoder, shifted_targets], axis=3),

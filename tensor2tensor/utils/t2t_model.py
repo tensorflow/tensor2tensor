@@ -44,7 +44,7 @@ def _with_timing(fn, msg):
   return fn_with_timing
 
 
-def _is_class_modality(mod):
+def is_class_modality(mod):
   # TODO(lukaszkaiser): should be based on type, like CLASS_LABEL, not string.
   prefix = "class_label_modality_"
   if len(mod.name) < len(prefix):
@@ -198,7 +198,7 @@ class T2TModel(object):
       # generated sequences, than to see the most likely sequence repeatedly.
       beam_size = 1
       self._hparams.sampling_method = "random"
-    if _is_class_modality(
+    if is_class_modality(
         self._hparams.problems[self._problem_idx].target_modality):
       beam_size = 1  # No use to run beam-search for a single class.
     if beam_size == 1:
@@ -228,10 +228,19 @@ class T2TModel(object):
        samples: an integer `Tensor`. Top samples from the beam search
     """
 
+    batch_size = tf.shape(features["inputs"])[0]
+    batch_size = tf.Print(batch_size, [batch_size], "beam_decode batch_size=")
+
     def symbols_to_logits_fn(ids):
       """Go from ids to logits."""
       ids = tf.expand_dims(tf.expand_dims(ids, axis=2), axis=3)
       ids = tf.pad(ids[:, 1:], [[0, 0], [0, 1], [0, 0], [0, 0]])
+      if "partial_targets" in features:
+        pt = features["partial_targets"]
+        pt_length = tf.shape(pt)[1]
+        pt = tf.tile(pt, [1, beam_size])
+        pt = tf.reshape(pt, [batch_size * beam_size, pt_length, 1, 1])
+        ids = tf.concat([pt, ids], axis=1)
 
       features["targets"] = ids
       self._coverage = None
@@ -247,7 +256,6 @@ class T2TModel(object):
       logits = logits[:, current_output_position, :, :]
       return tf.squeeze(logits, axis=[1, 2])
 
-    batch_size = tf.shape(features["inputs"])[0]
     initial_ids = tf.zeros([batch_size], dtype=tf.int32)
 
     inputs_old = features["inputs"]
@@ -263,7 +271,9 @@ class T2TModel(object):
     target_modality = self._hparams.problems[self._problem_idx].target_modality
     vocab_size = target_modality.top_dimensionality
     # Setting decode length to input length + decode_length
-    decode_length = tf.shape(features["inputs"])[1] + tf.constant(decode_length)
+    decode_length = tf.constant(decode_length)
+    if "partial_targets" not in features:
+      decode_length += tf.shape(features["inputs"])[1]
     ids, scores = beam_search.beam_search(symbols_to_logits_fn, initial_ids,
                                           beam_size, decode_length, vocab_size,
                                           alpha)
@@ -282,7 +292,24 @@ class T2TModel(object):
         return {"outputs": ids[:, :top_beams, 1:], "scores": scores}
       return ids[:, :top_beams, 1:]
 
-  def _greedy_infer(self, features, decode_length, last_position_only):
+  def  _greedy_infer(self, features, decode_length, last_position_only):
+    """A greedy inference method.
+
+    Models should ideally implement a more efficient version of this function.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+      last_position_only: a boolean, speed-up by computing last position only.
+
+    Returns:
+       samples: an integer `Tensor`.
+       logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+       losses: a dictionary: {loss-name (string): floating point `Scalar`}
+    """
+    return self._slow_greedy_infer(features, decode_length, last_position_only)
+
+  def _slow_greedy_infer(self, features, decode_length, last_position_only):
     """A slow greedy inference method.
 
     Quadratic time in decode_length.
@@ -333,7 +360,9 @@ class T2TModel(object):
     # Create an initial output tensor. This will be passed
     # to the infer_step, which adds one timestep at every iteration.
     if "partial_targets" in features:
-      initial_output = tf.convert_to_tensor(features["partial_targets"])
+      initial_output = tf.to_int64(tf.expand_dims(
+          tf.expand_dims(features["partial_targets"], 2), 3))
+      batch_size = tf.shape(initial_output)[0]
     else:
       batch_size = tf.shape(features["inputs"])[0]
       initial_output = tf.zeros((batch_size, 0, 1, 1), dtype=tf.int64)
@@ -342,7 +371,7 @@ class T2TModel(object):
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               tf.shape(initial_output))
     target_modality = self._hparams.problems[self._problem_idx].target_modality
-    if _is_class_modality(target_modality):
+    if is_class_modality(target_modality):
       decode_length = 1
     else:
       decode_length = tf.shape(features["inputs"])[1] + decode_length
@@ -366,6 +395,10 @@ class T2TModel(object):
     if inputs_old is not None:  # Restore to not confuse Estimator.
       features["inputs"] = inputs_old
     losses = {"training": loss}
+    if "partial_targets" in features:
+      partial_target_length = tf.shape(features["partial_targets"])[1]
+      result = tf.slice(
+          result, [0, partial_target_length, 0, 0], [-1, -1, -1, -1])
     return result, logits, losses
 
   def sample(self, features, last_position_only=False):
@@ -463,6 +496,9 @@ class T2TModel(object):
     with tf.variable_scope(target_modality.name, reuse=target_reuse):
       transformed_features["targets"] = target_modality.targets_bottom_sharded(
           sharded_features["targets"], dp)
+
+    # Allows later access to pre-embedding raw targets.
+    transformed_features["raw_targets"] = sharded_features["targets"]
 
     # Construct the model body.
     with tf.variable_scope("body", reuse=self._problem_idx > 0):

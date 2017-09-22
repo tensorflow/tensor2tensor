@@ -91,19 +91,19 @@ class ImageCeleba(ImageProblem):
       "Wearing_Hat Wearing_Lipstick Wearing_Necklace Wearing_Necktie Young"
   ).split()
 
-  def preprocess_examples(self, examples, unused_mode, unused_hparams):
+  def preprocess_example(self, example, unused_mode, unused_hparams):
 
     def resize(img, size):
       return tf.to_int64(
           tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
 
-    inputs = examples["inputs"]
+    inputs = example["inputs"]
     # Remove boundaries in CelebA images. Remove 40 pixels each side
     # vertically and 20 pixels each side horizontally.
     inputs = tf.image.crop_to_bounding_box(inputs, 40, 20, 218 - 80, 178 - 40)
-    examples["inputs"] = resize(inputs, 8)
-    examples["targets"] = resize(inputs, 32)
-    return examples
+    example["inputs"] = resize(inputs, 8)
+    example["targets"] = resize(inputs, 32)
+    return example
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
@@ -301,7 +301,7 @@ class Image2ClassProblem(ImageProblem):
         self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
 
 
-def imagenet_preprocess_examples(examples, mode):
+def imagenet_preprocess_example(example, mode):
   """Preprocessing used for Imagenet and similar problems."""
 
   def preprocess(img):
@@ -312,15 +312,15 @@ def imagenet_preprocess_examples(examples, mode):
   def resize(img):
     return tf.to_int64(tf.image.resize_images(img, [299, 299]))
 
-  inputs = tf.cast(examples["inputs"], tf.int64)
+  inputs = tf.cast(example["inputs"], tf.int64)
   if mode == tf.estimator.ModeKeys.TRAIN:
-    examples["inputs"] = tf.cond(  # Preprocess 90% of the time.
+    example["inputs"] = tf.cond(  # Preprocess 90% of the time.
         tf.less(tf.random_uniform([]), 0.9),
         lambda img=inputs: preprocess(img),
         lambda img=inputs: resize(img))
   else:
-    examples["inputs"] = resize(inputs)
-  return examples
+    example["inputs"] = resize(inputs)
+  return example
 
 
 @registry.register_problem
@@ -341,8 +341,8 @@ class ImageImagenet(Image2ClassProblem):
           "instructions at https://github.com/tensorflow/models/blob/master"
           "/inception/README.md#getting-started")
 
-  def preprocess_examples(self, examples, mode, _):
-    return imagenet_preprocess_examples(examples, mode)
+  def preprocess_example(self, example, mode, _):
+    return imagenet_preprocess_example(example, mode)
 
 
 @registry.register_problem
@@ -366,17 +366,17 @@ class ImageImagenet32(Image2ClassProblem):
           "instructions at https://github.com/tensorflow/models/blob/master"
           "/inception/README.md#getting-started")
 
-  def preprocess_examples(self, examples, mode, unused_hparams):
+  def preprocess_example(self, example, mode, unused_hparams):
     # Just resize with area.
     if self._was_reversed:
-      examples["inputs"] = tf.to_int64(
-          tf.image.resize_images(examples["inputs"], [32, 32],
+      example["inputs"] = tf.to_int64(
+          tf.image.resize_images(example["inputs"], [32, 32],
                                  tf.image.ResizeMethod.AREA))
     else:
-      examples = imagenet_preprocess_examples(examples, mode)
-      examples["inputs"] = tf.to_int64(
-          tf.image.resize_images(examples["inputs"], [32, 32]))
-    return examples
+      example = imagenet_preprocess_example(example, mode)
+      example["inputs"] = tf.to_int64(
+          tf.image.resize_images(example["inputs"], [32, 32]))
+    return example
 
 
 @registry.register_problem
@@ -386,17 +386,17 @@ class Img2imgImagenet(ImageProblem):
   def dataset_filename(self):
     return "image_imagenet"  # Reuse Imagenet data.
 
-  def preprocess_examples(self, examples, unused_mode, unused_hparams):
+  def preprocess_example(self, example, unused_mode, unused_hparams):
 
     def resize(img, size):
       return tf.to_int64(
           tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
 
-    inputs = examples["inputs"]
+    inputs = example["inputs"]
     # For Img2Img resize input and output images as desired.
-    examples["inputs"] = resize(inputs, 8)
-    examples["targets"] = resize(inputs, 32)
-    return examples
+    example["inputs"] = resize(inputs, 8)
+    example["targets"] = resize(inputs, 32)
+    return example
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
@@ -623,11 +623,11 @@ class ImageCifar10Tune(ImageMnistTune):
         "ship", "truck"
     ]
 
-  def preprocess_examples(self, examples, mode, unused_hparams):
+  def preprocess_example(self, example, mode, unused_hparams):
     if mode == tf.estimator.ModeKeys.TRAIN:
-      examples["inputs"] = common_layers.cifar_image_augmentation(
-          examples["inputs"])
-    return examples
+      example["inputs"] = common_layers.cifar_image_augmentation(
+          example["inputs"])
+    return example
 
   def generator(self, data_dir, tmp_dir, is_training):
     if is_training:
@@ -649,8 +649,8 @@ class ImageCifar10(ImageCifar10Tune):
 @registry.register_problem
 class ImageCifar10Plain(ImageCifar10):
 
-  def preprocess_examples(self, examples, mode, unused_hparams):
-    return examples
+  def preprocess_example(self, example, mode, unused_hparams):
+    return example
 
 
 # URLs and filenames for MSCOCO data.
@@ -827,8 +827,8 @@ class ImageMsCocoCharacters(Image2TextProblem):
   def dev_shards(self):
     return 10
 
-  def preprocess_examples(self, examples, mode, _):
-    return imagenet_preprocess_examples(examples, mode)
+  def preprocess_example(self, example, mode, _):
+    return imagenet_preprocess_example(example, mode)
 
   def generator(self, data_dir, tmp_dir, is_training):
     if is_training:
