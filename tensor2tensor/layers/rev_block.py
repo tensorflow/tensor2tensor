@@ -348,7 +348,7 @@ def _recompute_grad(fn, args):
   def grad_fn(inputs, variables, outputs, output_grads):
     del outputs
     # recompute outputs
-    outputs = fn(*inputs)
+    outputs = list(fn(*inputs))
     grads = tf.gradients(outputs, inputs + variables, output_grads)
     grad_inputs = grads[:len(inputs)]
     grad_vars = grads[len(inputs):]
