@@ -537,6 +537,121 @@ def dot_product_attention(q,
     return tf.matmul(weights, v)
 
 
+def _generate_relative_positions_matrix(length, max_relative_position):
+  """Generates matrix of relative positions between inputs."""
+  range_vec = tf.range(length)
+  range_mat = tf.reshape(tf.tile(range_vec, [length]), [length, length])
+  distance_mat = range_mat - tf.transpose(range_mat)
+  distance_mat_clipped = tf.clip_by_value(distance_mat, -max_relative_position,
+                                          max_relative_position)
+  # Shift values to be >= 0. Each integer still uniquely identifies a relative
+  # position difference.
+  final_mat = distance_mat_clipped + max_relative_position
+  return final_mat
+
+
+def _generate_relative_positions_embeddings(heads, length, depth,
+                                            max_relative_position, name):
+  """Generates tensor of size [heads, length, length, depth]."""
+  with tf.variable_scope(name):
+    relative_positions_matrix = _generate_relative_positions_matrix(
+        length, max_relative_position)
+    vocab_size = max_relative_position * 2 + 1
+    # Generates embedding for each relative position of dimension heads * depth.
+    embeddings_table = tf.get_variable("embeddings",
+                                       [vocab_size, heads * depth])
+    embeddings = tf.gather(embeddings_table, relative_positions_matrix)
+    # Split embeddings per head.
+    embeddings = tf.reshape(embeddings, [length, length, heads, depth])
+    # Transpose to shape [heads, length, length, depth].
+    embeddings = tf.transpose(embeddings, [2, 0, 1, 3])
+    return embeddings
+
+
+def _relative_attention_inner(x, y, z, transpose):
+  """Relative position-aware dot-product attention inner calculation.
+
+  This batches matrix multiply calculations to avoid unnecessary broadcasting.
+
+  Args:
+    x: Tensor with shape [batch_size, heads, length, length or depth].
+    y: Tensor with shape [batch_size, heads, length, depth].
+    z: Tensor with shape [heads, length, length, depth].
+    transpose: Whether to tranpose inner matrices of y and z. Should be true if
+        last dimension of x is depth, not length.
+
+  Returns:
+    A Tensor with shape [batch_size, heads, length, a].
+  """
+  xy_matmul = tf.matmul(x, y, transpose_b=transpose)
+  x_t = tf.transpose(x, [1, 2, 0, 3])
+  x_tz_matmul = tf.matmul(x_t, z, transpose_b=transpose)
+  x_tz_matmul_t = tf.transpose(x_tz_matmul, [2, 0, 1, 3])
+  return xy_matmul + x_tz_matmul_t
+
+
+def dot_product_attention_relative(q,
+                                   k,
+                                   v,
+                                   bias,
+                                   max_relative_position,
+                                   dropout_rate=0.0,
+                                   image_shapes=None,
+                                   name=None):
+  """Calculate relative position-aware dot-product self-attention.
+
+  The attention calculation is augmented with learned representations for the
+  relative position between each element in q and each element in k and v.
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth].
+    k: a Tensor with shape [batch, heads, length, depth].
+    v: a Tensor with shape [batch, heads, length, depth].
+    bias: bias Tensor.
+    max_relative_position: an integer specifying the maxmimum distance between
+        inputs that unique position embeddings should be learned for.
+    dropout_rate: a floating point number.
+    image_shapes: optional tuple of integer scalars.
+    name: an optional string.
+
+  Returns:
+    A Tensor.
+
+  Raises:
+    ValueError: if max_relative_position is not > 0.
+  """
+  if not max_relative_position:
+    raise ValueError("Max relative position (%s) should be > 0 when using "
+                     "relative self attention." % (max_relative_position))
+  with tf.variable_scope(
+      name, default_name="dot_product_attention_relative", values=[q, k, v]):
+
+    # This calculation only works for self attention.
+    # q, k and v must therefore have the same shape.
+    q.get_shape().assert_is_compatible_with(k.get_shape())
+    q.get_shape().assert_is_compatible_with(v.get_shape())
+
+    # Use separate embeddings suitable for keys and values.
+    heads = q.get_shape().as_list()[1]
+    depth = q.get_shape().as_list()[3]
+    length = tf.shape(q)[2]
+    relations_keys = _generate_relative_positions_embeddings(
+        heads, length, depth, max_relative_position, "relative_positions_keys")
+    relations_values = _generate_relative_positions_embeddings(
+        heads, length, depth, max_relative_position,
+        "relative_positions_values")
+
+    # Compute self attention considering the relative position embeddings.
+    logits = _relative_attention_inner(q, k, relations_keys, True)
+    if bias is not None:
+      logits += bias
+    weights = tf.nn.softmax(logits, name="attention_weights")
+    weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
+    if not tf.get_variable_scope().reuse:
+      attention_image_summary(weights, image_shapes)
+    return _relative_attention_inner(weights, v, relations_values, False)
+
+
 def masked_local_attention_1d(
     q, k, v, block_length=128, name=None):
   """Attention to the source position and a neigborhood to the left of it.
@@ -769,7 +884,7 @@ def local_attention_2d(q,
                                    make_image_summary=False)
     # putting the representations back in the right place
     output = scatter_blocks_2d(output, q_indices, padded_q_shape)
-     # Remove the padding if introduced
+    # Remove the padding if introduced
     output = tf.slice(output, [0, 0, 0, 0, 0],
                       [-1, -1, v_shape[2], v_shape[3], -1])
     output.set_shape(q_shape)
@@ -1056,6 +1171,7 @@ def multihead_attention(query_antecedent,
                         output_depth,
                         num_heads,
                         dropout_rate,
+                        max_relative_position=None,
                         image_shapes=None,
                         attention_type="dot_product",
                         block_length=128,
@@ -1077,6 +1193,9 @@ def multihead_attention(query_antecedent,
     output_depth: an integer
     num_heads: an integer dividing total_key_depth and total_value_depth
     dropout_rate: a floating point number
+    max_relative_position: Maximum distance between inputs to generate
+                           unique relation embeddings for. Only relevant
+                           when using dot_product_relative attention.
     image_shapes: optional tuple of integer scalars.
       see comments for attention_image_summary()
     attention_type: a string, either "dot_product" or "local_mask_right" or
@@ -1147,6 +1266,9 @@ def multihead_attention(query_antecedent,
     q *= key_depth_per_head**-0.5
     if attention_type == "dot_product":
       x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes)
+    elif attention_type == "dot_product_relative":
+      x = dot_product_attention_relative(q, k, v, bias, max_relative_position,
+                                         dropout_rate, image_shapes)
     elif attention_type == "local_mask_right":
       x = masked_local_attention_1d(q, k, v, block_length=block_length)
     else:
