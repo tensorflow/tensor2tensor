@@ -61,11 +61,16 @@ def convert_gradient_to_tensor(x):
   return x
 
 
-def add_name_scope(scope):
-  """Return a decorator which add a TF name scope to a function.
+def add_scope(scope=None, scope_fn=None):
+  """Return a decorator which add a TF name/variable scope to a function.
+
+  Note that the function returned by the decorator accept an additional 'name'
+  parameter, which can overwritte the name scope given when the function is
+  created.
 
   Args:
-    scope (str): name of the name scope
+    scope (str): name of the scope. If None, the function name is used.
+    scope_fn (fct): Either tf.name_scope or tf.variable_scope
 
   Returns:
     fct: the add_scope decorator
@@ -74,12 +79,16 @@ def add_name_scope(scope):
 
     @functools.wraps(f)
     def decorated(*args, **kwargs):
-      with tf.name_scope(scope):
+      name = kwargs.pop("name", None)  # Python 2 hack for keyword only args
+      with scope_fn(name or scope or f.__name__):
         return f(*args, **kwargs)
 
     return decorated
 
   return decorator
+
+add_var_scope = functools.partial(add_scope, scope_fn=tf.variable_scope)
+add_name_scope = functools.partial(add_scope, scope_fn=tf.name_scope)
 
 
 class Parallelism(object):
