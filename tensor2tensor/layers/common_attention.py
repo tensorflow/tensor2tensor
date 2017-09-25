@@ -1499,6 +1499,7 @@ def self_attention_expert(
     batch_coordinate,
     mask_right=True,
     split_batch=False,
+    attention_num_head=1,
     attention_kq_size=None,
     attention_v_size=None,
 ):
@@ -1515,6 +1516,7 @@ def self_attention_expert(
     split_batch (bool): If True, each sequence of the batch is processed
       individually on a loop. If False, the sequences are processed all at
       once and a mask is applied to isolate the sequences from each others
+    attention_num_head (int): number of attention heads
     attention_kq_size (int): dimension used for the attention key, and query
     attention_v_size (int): dimension used for the attention value
 
@@ -1592,7 +1594,7 @@ def self_attention_expert(
           total_key_depth=attention_kq_size,
           total_value_depth=attention_v_size,
           output_depth=depth,
-          num_heads=1,
+          num_heads=attention_num_head,
           dropout_rate=0.0)
 
     if split_batch:

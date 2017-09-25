@@ -209,6 +209,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 batch_coordinate=batch_coordinate,
                 mask_right=not hparams.use_inputs,
                 split_batch=bool(hparams.attention_split_batch),
+                attention_num_head=hparams.attention_num_head,
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
             y = dp_compress_x(y, x[0].get_shape().as_list()[-1])
@@ -468,6 +469,7 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_type", AttentionType.MULTIHEAD)
   hparams.add_hparam("attention_local", int(False))
   hparams.add_hparam("attention_moe_k", 2)
+  hparams.add_hparam("attention_num_head", 1)
   hparams.add_hparam("attention_num_experts", 16)
   hparams.add_hparam("attention_split_batch", int(False))
   # If attention_exp_factor is set, each input to local_expert_attention (of
