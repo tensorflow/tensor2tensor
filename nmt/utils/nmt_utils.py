@@ -18,7 +18,6 @@ from __future__ import print_function
 
 import codecs
 import time
-
 import numpy as np
 import tensorflow as tf
 
@@ -34,7 +33,7 @@ def decode_and_evaluate(name,
                         trans_file,
                         ref_file,
                         metrics,
-                        bpe_delimiter,
+                        subword_option,
                         beam_width,
                         tgt_eos,
                         num_translations_per_input=1,
@@ -67,7 +66,7 @@ def decode_and_evaluate(name,
                   nmt_outputs[beam_id],
                   sent_id,
                   tgt_eos=tgt_eos,
-                  bpe_delimiter=bpe_delimiter)
+                  subword_option=subword_option)
               trans_f.write((translation + b"\n").decode("utf-8"))
         except tf.errors.OutOfRangeError:
           utils.print_time(
@@ -83,17 +82,16 @@ def decode_and_evaluate(name,
           ref_file,
           trans_file,
           metric,
-          bpe_delimiter=bpe_delimiter)
+          subword_option=subword_option)
       evaluation_scores[metric] = score
       utils.print_out("  %s %s: %.1f" % (metric, name, score))
 
   return evaluation_scores
 
 
-def get_translation(nmt_outputs, sent_id, tgt_eos, bpe_delimiter):
+def get_translation(nmt_outputs, sent_id, tgt_eos, subword_option):
   """Given batch decoding outputs, select a sentence and turn to text."""
   if tgt_eos: tgt_eos = tgt_eos.encode("utf-8")
-  if bpe_delimiter: bpe_delimiter = bpe_delimiter.encode("utf-8")
   # Select a sentence
   output = nmt_outputs[sent_id, :].tolist()
 
@@ -101,9 +99,12 @@ def get_translation(nmt_outputs, sent_id, tgt_eos, bpe_delimiter):
   if tgt_eos and tgt_eos in output:
     output = output[:output.index(tgt_eos)]
 
-  if not bpe_delimiter:
+  if subword_option is None:
     translation = utils.format_text(output)
-  else:  # BPE
-    translation = utils.format_bpe_text(output, delimiter=bpe_delimiter)
+  elif subword_option == "bpe":  # BPE
+    translation = utils.format_bpe_text(output)
+
+  if subword_option == "spm":  # SPM
+    translation = utils.format_spm_text(output)
 
   return translation

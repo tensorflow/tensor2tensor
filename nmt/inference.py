@@ -36,7 +36,7 @@ def _decode_inference_indices(model, sess, output_infer,
                               output_infer_summary_prefix,
                               inference_indices,
                               tgt_eos,
-                              bpe_delimiter):
+                              subword_option):
   """Decoding only a specific set of sentences."""
   utils.print_out("  decoding to output %s , num sents %d." %
                   (output_infer, len(inference_indices)))
@@ -53,7 +53,7 @@ def _decode_inference_indices(model, sess, output_infer,
           nmt_outputs,
           sent_id=0,
           tgt_eos=tgt_eos,
-          bpe_delimiter=bpe_delimiter)
+          subword_option=subword_option)
 
       if infer_summary is not None:  # Attention models
         image_file = output_infer_summary_prefix + str(decode_id) + ".png"
@@ -150,7 +150,7 @@ def single_worker_inference(infer_model,
           output_infer_summary_prefix=output_infer,
           inference_indices=hparams.inference_indices,
           tgt_eos=hparams.eos,
-          bpe_delimiter=hparams.bpe_delimiter)
+          subword_option=hparams.subword_option)
     else:
       nmt_utils.decode_and_evaluate(
           "infer",
@@ -159,7 +159,7 @@ def single_worker_inference(infer_model,
           output_infer,
           ref_file=None,
           metrics=hparams.metrics,
-          bpe_delimiter=hparams.bpe_delimiter,
+          subword_option=hparams.subword_option,
           beam_width=hparams.beam_width,
           tgt_eos=hparams.eos,
           num_translations_per_input=hparams.num_translations_per_input)
@@ -207,7 +207,7 @@ def multi_worker_inference(infer_model,
         output_infer,
         ref_file=None,
         metrics=hparams.metrics,
-        bpe_delimiter=hparams.bpe_delimiter,
+        subword_option=hparams.subword_option,
         beam_width=hparams.beam_width,
         tgt_eos=hparams.eos,
         num_translations_per_input=hparams.num_translations_per_input)

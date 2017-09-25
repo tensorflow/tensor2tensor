@@ -29,19 +29,27 @@ class EvaluationUtilsTest(tf.test.TestCase):
   def testEvaluate(self):
     output = "nmt/testdata/deen_output"
     ref_bpe = "nmt/testdata/deen_ref_bpe"
+    ref_spm = "nmt/testdata/deen_ref_spm"
 
-    bpe_delimiter = "@@"
-
-    expected_blue_score = 22.5855084573
+    expected_bleu_score = 22.5855084573
     expected_rouge_score = 50.8429782599
 
-    bleu_score = evaluation_utils.evaluate(
-        ref_bpe, output, "bleu", bpe_delimiter)
-    rouge_score = evaluation_utils.evaluate(
-        ref_bpe, output, "rouge", bpe_delimiter)
+    bpe_bleu_score = evaluation_utils.evaluate(
+        ref_bpe, output, "bleu", "bpe")
+    bpe_rouge_score = evaluation_utils.evaluate(
+        ref_bpe, output, "rouge", "bpe")
 
-    self.assertAlmostEqual(expected_blue_score, bleu_score)
-    self.assertAlmostEqual(expected_rouge_score, rouge_score)
+    self.assertAlmostEqual(expected_bleu_score, bpe_bleu_score)
+    self.assertAlmostEqual(expected_rouge_score, bpe_rouge_score)
+
+    spm_bleu_score = evaluation_utils.evaluate(
+        ref_spm, output, "bleu", "spm")
+    spm_rouge_score = evaluation_utils.evaluate(
+        ref_spm, output, "rouge", "spm")
+
+    self.assertAlmostEqual(expected_rouge_score, spm_rouge_score)
+    self.assertAlmostEqual(expected_bleu_score, spm_bleu_score)
+
 
   def testAccuracy(self):
     pred_output = "nmt/testdata/pred_output"

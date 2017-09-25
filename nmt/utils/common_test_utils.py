@@ -97,6 +97,7 @@ def create_test_hparams(unit_type="lstm",
       # For inference.py test
       source_reverse=False,
       bpe_delimiter="@@",
+      subword_option="bpe",
       src="src",
       tgt="tgt",
       src_max_len=400,
