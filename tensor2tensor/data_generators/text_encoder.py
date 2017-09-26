@@ -25,6 +25,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+from itertools import chain
 import re
 
 # Dependency imports
@@ -602,8 +603,23 @@ class SubwordTextEncoder(TextEncoder):
       min_count: an integer - discard subtokens with lower counts.
       num_iterations: an integer.  how many iterations of refinement.
       num_reserved_ids: an integer.  how many ids to reserve for special tokens.
+
+    Raises:
+      ValueError: if reserved is not 0 or len(RESERVED_TOKENS). In this case, it
+        is not clear what the space is being reserved for, or when it will be
+        filled in.
     """
-    self._init_alphabet_from_tokens(six.iterkeys(token_counts))
+    # Initialize the alphabet. Note, this must include reserved tokens or it can
+    # result in encoding failures.
+    if num_reserved_ids == NUM_RESERVED_TOKENS:
+      alphabet_tokens = chain(six.iterkeys(token_counts),
+                              [native_to_unicode(t) for t in RESERVED_TOKENS])
+    elif num_reserved_ids == 0:
+      alphabet_tokens = six.iterkeys(token_counts)
+    else:
+      raise ValueError("Unexpected value for reserved. What is being reserved?")
+
+    self._init_alphabet_from_tokens(alphabet_tokens)
 
     # Bootstrap the initial list of subtokens with the characters from the
     # alphabet plus the escaping characters.
