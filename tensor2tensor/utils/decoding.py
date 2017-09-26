@@ -102,7 +102,8 @@ def log_decode_results(inputs,
 def decode_from_dataset(estimator,
                         problem_names,
                         decode_hp,
-                        decode_to_file=None):
+                        decode_to_file=None,
+                        dataset=tf.estimator.ModeKeys.PREDICT):
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))
   hparams = estimator.params
@@ -110,7 +111,7 @@ def decode_from_dataset(estimator,
   for problem_idx, problem_name in enumerate(problem_names):
     # Build the inference input function
     infer_problems_data = data_reader.get_data_filepatterns(
-        problem_name, hparams.data_dir, tf.estimator.ModeKeys.PREDICT)
+        problem_name, hparams.data_dir, dataset)
 
     infer_input_fn = input_fn_builder.build_input_fn(
         mode=tf.estimator.ModeKeys.PREDICT,
@@ -544,8 +545,8 @@ def _interactive_input_tensor_to_features_dict(feature_map, hparams):
       x = tf.tile(x, tf.to_int32([num_samples, 1, 1, 1]))
 
     p_hparams = hparams.problems[problem_choice]
-    return (tf.constant(p_hparams.input_space_id),
-            tf.constant(p_hparams.target_space_id), x)
+    return (tf.constant(p_hparams.input_space_id), tf.constant(
+        p_hparams.target_space_id), x)
 
   input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
       input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)
@@ -580,8 +581,8 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
     # Add a third empty dimension dimension
     x = tf.expand_dims(x, axis=[2])
     x = tf.to_int32(x)
-    return (tf.constant(p_hparams.input_space_id),
-            tf.constant(p_hparams.target_space_id), x)
+    return (tf.constant(p_hparams.input_space_id), tf.constant(
+        p_hparams.target_space_id), x)
 
   input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
       input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)

@@ -67,6 +67,8 @@ flags.DEFINE_integer("train_steps", 250000,
 flags.DEFINE_bool("eval_run_autoregressive", False,
                   "Run eval autoregressively where we condition on previous"
                   "generated output instead of the actual target.")
+flags.DEFINE_bool("eval_use_test_set", False,
+                  "Whether to use the '-test' data for EVAL (and PREDICT).")
 flags.DEFINE_integer("keep_checkpoint_max", 20,
                      "How many recent checkpoints to keep.")
 flags.DEFINE_bool("experimental_optimize_placement", False,
@@ -142,12 +144,12 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
   if FLAGS.dbgprofile:
     # Recorded traces can be visualized with chrome://tracing/
     # The memory/tensor lifetime is also profiled
-    train_monitors.append(ProfilerHook(
-        save_steps=10,
-        output_dir=run_config.model_dir,
-        show_dataflow=True,
-        show_memory=True,
-    ))
+    train_monitors.append(
+        ProfilerHook(
+            save_steps=10,
+            output_dir=run_config.model_dir,
+            show_dataflow=True,
+            show_memory=True,))
 
   optional_kwargs = {}
   if FLAGS.export_saved_model:
@@ -194,7 +196,8 @@ def create_experiment_components(data_dir, model_name, hparams, run_config):
   eval_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.EVAL,
       hparams=hparams,
-      data_file_patterns=get_data_filepatterns(data_dir,
+      data_file_patterns=get_data_filepatterns(data_dir, "test"
+                                               if FLAGS.eval_use_test_set else
                                                tf.estimator.ModeKeys.EVAL),
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,

@@ -464,7 +464,10 @@ def get_data_filepatterns(problems, data_dir, mode):
     if mode == tf.estimator.ModeKeys.TRAIN:
       datasets.append("%s-train*" % path)
     else:
-      datasets.append("%s-dev*" % path)
+      if mode == "test":
+        datasets.append("%s-test*" % path)
+      else:
+        datasets.append("%s-dev*" % path)
   return datasets
 
 
