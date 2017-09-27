@@ -92,6 +92,8 @@ class SpaceID(object):
   CPP_TOK = 28
   # Strokes
   STROKES = 29
+  # Pickled Python
+  PICKLED_PYTHON = 30
 
 
 def default_model_hparams():
@@ -537,6 +539,7 @@ class Text2TextProblem(Problem):
 
   @property
   def is_character_level(self):
+    """Whether the inputs and targets are sequences of characters."""
     raise NotImplementedError()
 
   @property
@@ -544,7 +547,18 @@ class Text2TextProblem(Problem):
     raise NotImplementedError()  # Not needed if self.is_character_level.
 
   def generator(self, data_dir, tmp_dir, is_training):
-    """Generator for the training and evaluation data."""
+    """Generator for the training and evaluation data.
+
+    Args:
+      data_dir: The directory in which to assets, e.g. the vocab file.
+      tmp_dir: A scratch directory (if needed).
+      is_training: A boolean indicating if we should generate training data
+          (True) or dev set data (False).
+
+    Yields:
+      dicts with keys "inputs" and "targets", with values being lists of token
+      ids.
+    """
     raise NotImplementedError()
 
   @property
