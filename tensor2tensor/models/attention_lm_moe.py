@@ -50,6 +50,7 @@ class AttentionType(object):
   LOCAL_EXPERTS = "local_experts"
   GLOBAL_MOE = "global_experts"
   MEMORY_EFFICIENT = "memory_efficient"
+  SPARSE_MULTIHEAD = "sparse_multihead"
 
   @staticmethod
   def get_choices():
@@ -57,6 +58,7 @@ class AttentionType(object):
         AttentionType.MULTIHEAD,
         AttentionType.LOCAL_EXPERTS,
         AttentionType.MEMORY_EFFICIENT,
+        AttentionType.SPARSE_MULTIHEAD,
     ]
 
 
@@ -64,6 +66,7 @@ LAYER_SYMBOLS = {
     "h": AttentionType.MULTIHEAD,  # multi-Head
     "e": AttentionType.LOCAL_EXPERTS,  # Experts
     "m": AttentionType.MEMORY_EFFICIENT,  # Memory
+    "s": AttentionType.SPARSE_MULTIHEAD,  # Sparse
 }
 
 
@@ -187,6 +190,35 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 attention_type=("local_mask_right" if hparams.attention_local
                                 else "dot_product"),
                 name="decoder_self_attention")
+          elif attention_type == AttentionType.SPARSE_MULTIHEAD:
+            x_in = preprocess(x)
+            x_in = dp_remove_pad(x_in)
+            # loss_proxies will be dispatched by dp
+            loss_proxies = [CacheValue(0.0) for _ in range(dp.n)]
+            y = dp(
+                common_attention.multihead_attention_sparse_dot_prod,
+                x_in,
+                None,
+                None,  # Bias is computed inside
+                hparams.attention_key_channels or hparams.hidden_size,
+                hparams.attention_value_channels or hparams.hidden_size,
+                hparams.hidden_size,
+                hparams.num_heads,
+                hparams.attention_dropout,
+
+                # Additional parameters
+                bc=batch_coordinate,
+                loss_proxy=loss_proxies,  # Contains the additional expert loss
+                experts_params=dict(
+                    train=hparams.mode == ModeKeys.TRAIN,
+                    num_experts=hparams.attention_num_experts,
+                    k=hparams.attention_moe_k,
+                ),
+            )
+            y = dp_restore_pad(y)
+
+            # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
+            extra_loss += tf.add_n([l.value for l in loss_proxies]) / dp.n
           elif attention_type == AttentionType.MEMORY_EFFICIENT:
             assert hparams.layer_preprocess_sequence == "n"
             y = dp(
@@ -278,6 +310,9 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   """
   targets_pad_mask = common_attention.embedding_to_padding(targets)
   with tf.name_scope("pad_remover"):
+    # Because of the shift_right, the <eos> token will be concidered as
+    # padding. In practice, it doesn't really matter, due to the triangular
+    # mask, this token should never be attended.
     pad_remover = expert_utils.PadRemover(targets_pad_mask)
 
   if hparams.prepend_mode == "prepend_inputs_full_attention":
@@ -286,8 +321,6 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   else:
     decoder_self_attention_bias = (
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
-  # TODO(epot): The padding remover should take into account that the input is
-  # shifted.
   decoder_input = common_layers.shift_right_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
@@ -416,6 +449,17 @@ def restore_pad(x, ref_x, pad_remover, mode):
     x = pad_remover.restore(x)
   x = expert_utils.reshape_like(x, ref_x)
   return x
+
+
+class CacheValue(object):
+  """Class allowing to share variable between functions.
+
+  Avoid having the function to return the variables as it the object can be
+  passed and shared by reference.
+  """
+
+  def __init__(self, value):
+    self.value = value
 
 
 @registry.register_hparams
