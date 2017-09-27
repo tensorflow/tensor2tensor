@@ -112,19 +112,18 @@ def _maybe_download_corpus(tmp_dir):
       corpus_tar.extractall(tmp_dir)
 
 
-def _get_or_build_subword_text_encoder(tmp_dir, vocab_name):
+def _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath):
   """Builds a SubwordTextEncoder based on the corpus.
 
   Args:
     tmp_dir: directory containing dataset.
-    vocab_name: name of vocab file.
+    vocab_filepath: path to store (or load) vocab.
 
   Returns:
     a SubwordTextEncoder.
   """
-  filepath = os.path.join(tmp_dir, vocab_name)
-  if tf.gfile.Exists(filepath):
-    return text_encoder.SubwordTextEncoder(filepath)
+  if tf.gfile.Exists(vocab_filepath):
+    return text_encoder.SubwordTextEncoder(vocab_filepath)
   _maybe_download_corpus(tmp_dir)
   original_vocab = _original_vocab(tmp_dir)
   token_counts = defaultdict(int)
@@ -140,7 +139,7 @@ def _get_or_build_subword_text_encoder(tmp_dir, vocab_name):
       break
   ret = text_encoder.SubwordTextEncoder()
   ret.build_from_token_counts(token_counts, min_count=5)
-  ret.store_to_file(filepath)
+  ret.store_to_file(vocab_filepath)
   return ret
 
 
@@ -186,13 +185,13 @@ class LanguagemodelLm1b32k(problem.Text2TextProblem):
   def use_train_shards_for_dev(self):
     return True
 
-  def generator(self, tmp_dir, train, characters=False):
+  def generator(self, data_dir, tmp_dir, is_training):
     """Generator for lm1b sentences.
 
     Args:
-      tmp_dir: a string.
-      train: a boolean.
-      characters: a boolean
+      data_dir: data dir.
+      tmp_dir: tmp dir.
+      is_training: a boolean.
 
     Yields:
       A dictionary {"inputs": [0], "targets": [<subword ids>]}
@@ -200,11 +199,12 @@ class LanguagemodelLm1b32k(problem.Text2TextProblem):
     _maybe_download_corpus(tmp_dir)
     original_vocab = _original_vocab(tmp_dir)
     files = (_train_data_filenames(tmp_dir)
-             if train else [_dev_data_filename(tmp_dir)])
-    if characters:
+             if is_training else [_dev_data_filename(tmp_dir)])
+    if self.is_character_level:
       encoder = text_encoder.ByteTextEncoder()
     else:
-      encoder = _get_or_build_subword_text_encoder(tmp_dir, self.vocab_file)
+      vocab_filepath = os.path.join(data_dir, self.vocab_file)
+      encoder = _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath)
     for filepath in files:
       tf.logging.info("filepath = %s", filepath)
       for line in tf.gfile.Open(filepath):
