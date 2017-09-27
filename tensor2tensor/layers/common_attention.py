@@ -1258,6 +1258,8 @@ def multihead_attention(query_antecedent,
         [batch_size, length_q, hidden_dim]
     unless the cache dict is provided in which case only the last memory
     position is calculated and the output shape is [batch_size, 1, hidden_dim]
+    Optionnaly return an additional loss parameters (ex: load balance loss for
+    the experts) returned by the attention_type function
 
   Raises:
     ValueError: if the key depth or value depth are not divisible by the
@@ -1293,8 +1295,12 @@ def multihead_attention(query_antecedent,
     v = split_heads(v, num_heads)
     key_depth_per_head = total_key_depth // num_heads
     q *= key_depth_per_head**-0.5
+
+    additional_returned_value = None
     if callable(attention_type):  # Generic way to extend multihead_attention
       x = attention_type(q, k, v, **kwargs)
+      if isinstance(x, tuple):
+        x, additional_returned_value = x  # Unpack
     elif attention_type == "dot_product":
       x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes)
     elif attention_type == "dot_product_relative":
@@ -1308,6 +1314,9 @@ def multihead_attention(query_antecedent,
           q, k, v, block_length=block_length, filter_width=block_width)
     x = combine_heads(x)
     x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
+
+    if additional_returned_value is not None:
+      return x, additional_returned_value
     return x
 
 
@@ -1691,7 +1700,7 @@ def local_expert_attention(
 
 
 @expert_utils.add_name_scope()
-def sparse_dot_product_attention(q, k, v, bc, loss_proxy, experts_params):
+def sparse_dot_product_attention(q, k, v, bc, experts_params):
   """Sparse multihead self attention.
 
   Perform an approximation of the full multihead attention by dispatching
@@ -1712,7 +1721,6 @@ def sparse_dot_product_attention(q, k, v, bc, loss_proxy, experts_params):
     k (tf.Tensor): Keys of shape [1, heads, length_q, depth_k]
     v (tf.Tensor): Values of shape [1, heads, length_kv, depth_v]
     bc (tf.Tensor): Batch coordinates of shape [1, length_q, 1]
-    loss_proxy (CacheValue): Object containing the expert loss
     experts_params (dict): Additional params for the local expert
 
   Returns:
@@ -1771,6 +1779,7 @@ def sparse_dot_product_attention(q, k, v, bc, loss_proxy, experts_params):
     return v_out
 
   list_v_out = []
+  total_loss = 0.0
   for q, k, v in zip(list_q, list_k, list_v):
     # Each head get its own dispatcher
 
@@ -1793,13 +1802,12 @@ def sparse_dot_product_attention(q, k, v, bc, loss_proxy, experts_params):
         **experts_params
     )
     list_v_out.append(v_out)
-    # Hack: Forward the loss by by-passing multihead_attention
-    loss_proxy.value += loss
+    total_loss += loss
 
   # Restore original shape as expected by multihead_attention
   v_out = tf.stack(list_v_out)  # Merge heads
   v_out = tf.expand_dims(v_out, axis=0)
-  return v_out
+  return v_out, total_loss / len(list_v_out)
 
 
 def scaled_dot_product_attention_simple(q, k, v, bias, name=None):

@@ -193,9 +193,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
           elif attention_type == AttentionType.SPARSE_MULTIHEAD:
             x_in = preprocess(x)
             x_in = dp_remove_pad(x_in)
-            # loss_proxies will be dispatched by dp
-            loss_proxies = [CacheValue(0.0) for _ in range(dp.n)]
-            y = dp(
+            y, loss_experts = dp(
                 common_attention.multihead_attention_sparse_dot_prod,
                 x_in,
                 None,
@@ -208,7 +206,6 @@ class AttentionLmMoe(t2t_model.T2TModel):
 
                 # Additional parameters
                 bc=batch_coordinate,
-                loss_proxy=loss_proxies,  # Contains the additional expert loss
                 experts_params=dict(
                     train=hparams.mode == ModeKeys.TRAIN,
                     num_experts=hparams.attention_num_experts,
@@ -218,7 +215,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
             y = dp_restore_pad(y)
 
             # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
-            extra_loss += tf.add_n([l.value for l in loss_proxies]) / dp.n
+            extra_loss += tf.add_n(loss_experts) / dp.n
           elif attention_type == AttentionType.MEMORY_EFFICIENT:
             assert hparams.layer_preprocess_sequence == "n"
             y = dp(
@@ -449,17 +446,6 @@ def restore_pad(x, ref_x, pad_remover, mode):
     x = pad_remover.restore(x)
   x = expert_utils.reshape_like(x, ref_x)
   return x
-
-
-class CacheValue(object):
-  """Class allowing to share variable between functions.
-
-  Avoid having the function to return the variables as it the object can be
-  passed and shared by reference.
-  """
-
-  def __init__(self, value):
-    self.value = value
 
 
 @registry.register_hparams
