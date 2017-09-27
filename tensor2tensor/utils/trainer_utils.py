@@ -187,8 +187,7 @@ def create_experiment_components(data_dir, model_name, hparams, run_config):
   train_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.TRAIN,
       hparams=hparams,
-      data_file_patterns=get_data_filepatterns(data_dir,
-                                               tf.estimator.ModeKeys.TRAIN),
+      data_dir=data_dir,
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
       worker_id=FLAGS.worker_id)
@@ -196,12 +195,11 @@ def create_experiment_components(data_dir, model_name, hparams, run_config):
   eval_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.EVAL,
       hparams=hparams,
-      data_file_patterns=get_data_filepatterns(data_dir, "test"
-                                               if FLAGS.eval_use_test_set else
-                                               tf.estimator.ModeKeys.EVAL),
+      data_dir=data_dir,
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
-      worker_id=FLAGS.worker_id)
+      worker_id=FLAGS.worker_id,
+      dataset_split="test" if FLAGS.eval_use_test_set else None)
 
   model_fn = model_builder.build_model_fn(
       model_name,
@@ -396,7 +394,3 @@ def session_config():
       gpu_options=gpu_options,
       log_device_placement=FLAGS.log_device_placement)
   return config
-
-
-def get_data_filepatterns(data_dir, mode):
-  return data_reader.get_data_filepatterns(FLAGS.problems, data_dir, mode)

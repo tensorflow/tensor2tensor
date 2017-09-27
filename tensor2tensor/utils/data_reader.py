@@ -18,112 +18,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-import random
-
 # Dependency imports
 
 import numpy as np
 
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
-from six.moves import zip  # pylint: disable=redefined-builtin
-
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
-
-def examples_reader(data_sources,
-                    data_fields_to_features,
-                    training,
-                    capacity=32,
-                    data_items_to_decoders=None,
-                    data_items_to_decode=None):
-  """Reads Examples from data_sources and decodes to Tensors.
-
-  The dictionary data_fields_to_features for an image dataset can be:
-
-  data_fields_to_features = {
-    'image/encoded': tf.FixedLenFeature((), tf.string, default_value=''),
-    'image/format': tf.FixedLenFeature((), tf.string, default_value='raw'),
-    'image/class/label': tf.FixedLenFeature(
-        [1], tf.int64, default_value=tf.zeros([1], dtype=tf.int64)),
-  }
-
-  and for a simple algorithmic dataset with variable-length data it is:
-
-  data_fields_to_features = {
-    'inputs': tf.VarLenFeature(tf.int64),
-    'targets': tf.VarLenFeature(tf.int64),
-  }
-
-  The data_items_to_decoders dictionary argument can be left as None if there
-  is no decoding to be performed. But, e.g. for images, it should be set so that
-  the images are decoded from the features, e.g., for MNIST:
-
-  data_items_to_decoders = {
-    'image': tfexample_decoder.Image(
-      image_key = 'image/encoded',
-      format_key = 'image/format',
-      shape=[28, 28],
-      channels=1),
-    'label': tfexample_decoder.Tensor('image/class/label'),
-  }
-
-  These arguments are compatible with the use of tf.contrib.slim.data module,
-  see there for more documentation.
-
-  Args:
-    data_sources: a list or tuple of sources from which the data will be read,
-      for example [/path/to/train@128, /path/to/train2*, /tmp/.../train3*]
-    data_fields_to_features: a dictionary from data fields in the data sources
-      to features, such as tf.VarLenFeature(tf.int64), see above for examples.
-    training: a Boolean, whether to read for training or evaluation.
-    capacity: integer, buffer capacity; set to 2 * max_batch_size or more.
-    data_items_to_decoders: a dictionary mapping data items (that will be
-      in the returned result) to decoders that will decode them using features
-      defined in data_fields_to_features; see above for examples. By default
-      (if this is None), we grab the tensor from every feature.
-    data_items_to_decode: a subset of data items that will be decoded;
-      by default (if this is None), we decode all items.
-
-  Returns:
-    A tf.contrib.data.Dataset of dict<feature name, Tensor>
-  """
-
-  def decode_record(record):
-    """Serialized Example to dict of <feature name, Tensor>."""
-    example_serialized = record
-    item_decoders = data_items_to_decoders
-    if item_decoders is None:
-      item_decoders = {
-          field: tf.contrib.slim.tfexample_decoder.Tensor(field)
-          for field in data_fields_to_features
-      }
-
-    decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
-        data_fields_to_features, item_decoders)
-
-    decode_items = data_items_to_decode
-    if decode_items is None:
-      decode_items = list(item_decoders)
-
-    decoded = decoder.decode(example_serialized, items=decode_items)
-    return dict(zip(decode_items, decoded))
-
-  with tf.name_scope("examples_in"):
-    data_files = tf.contrib.slim.parallel_reader.get_data_files(data_sources)
-    if training:
-      random.shuffle(data_files)
-    dataset = tf.contrib.data.TFRecordDataset(data_files)
-    num_threads = min(4 if training else 1, len(data_files))
-    dataset = dataset.map(decode_record, num_threads=num_threads)
-    if training:
-      dataset = dataset.shuffle(capacity)
-    # Loop inifinitely if training, just once otherwise
-    dataset = dataset.repeat(None if training else 1)
-    return dataset
 
 
 def cast_int64_to_int32(features):
@@ -161,34 +63,18 @@ def feature_placeholders(data_fields, data_items_to_decoders):
   return decoded_example
 
 
-def read_examples(problem,
-                  data_file_pattern,
-                  capacity,
-                  mode=tf.estimator.ModeKeys.TRAIN):
-  """Create Dataset of Example for problem and data_file_pattern."""
-  data_fields, data_items_to_decoders = problem.example_reading_spec()
-
-  if data_file_pattern is None:
-    # Create placeholders for input, rather than reading data from disk.
-    return feature_placeholders(data_fields, data_items_to_decoders)
-
-  is_training = mode == tf.estimator.ModeKeys.TRAIN
-  dataset = examples_reader(
-      [data_file_pattern],
-      data_fields,
-      training=is_training,
-      capacity=capacity,
-      data_items_to_decoders=data_items_to_decoders)
-  return dataset
-
-
-def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
-                   batching_scheme):
+def input_pipeline(problem,
+                   data_dir,
+                   capacity,
+                   mode,
+                   hparams,
+                   batching_scheme,
+                   dataset_split=None):
   """Input pipeline, returns a dictionary of batched and padded tensors.
 
   Args:
     problem: Problem instance for which to build the input pipeline.
-    data_file_pattern: file pattern for input files.
+    data_dir: directory with input data.
     capacity: int, data pipeline buffer capacity.
     mode: tf.estimator.ModeKeys entry.
     hparams: an HParams object.
@@ -197,6 +83,8 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
         used for bucketing; see bucket_by_sequence_length for more details.
       "batch_sizes": a list of batch sizes corresponding to the buckets
       "max_length": an integer.  We drop sequences which are longer.
+    dataset_split: tf.estimator.ModeKeys + ["test"], which split of the dataset
+      to use. Defaults to mode.
 
   Returns:
     dict <feature name, batched and padded Tensor>
@@ -205,14 +93,19 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
   num_threads = 4 if is_training else 1
 
   with tf.name_scope("input_pipeline"):
-    # TODO(rsepassi): Once all problems use the Problem class, rm example
-    # reading, parsing, and preprocessing. Use Problem.dataset instead.
-    dataset = read_examples(problem, data_file_pattern, capacity, mode=mode)
-    dataset = dataset.map(
-        lambda ex: _preprocess(ex, problem, hparams, mode),
-        num_threads=num_threads)
+    dataset = problem.dataset(
+        mode,
+        data_dir=data_dir,
+        num_threads=num_threads,
+        output_buffer_size=capacity,
+        hparams=hparams,
+        dataset_split=dataset_split)
+    dataset = dataset.map(cast_int64_to_int32, num_threads=num_threads)
     dataset = dataset.filter(
         lambda ex: example_valid_size(ex, batching_scheme["max_length"]))
+    if is_training:
+      dataset = dataset.shuffle(capacity)
+      dataset = dataset.repeat(None)
 
     bucket_id_fn = _example_length
     if len(batching_scheme["boundaries"]) == 1:
@@ -237,15 +130,6 @@ def input_pipeline(problem, data_file_pattern, capacity, mode, hparams,
       dataset = dataset.shuffle(batching_scheme["shuffle_queue_size"])
     batched_examples = dataset.make_one_shot_iterator().get_next()
     return batched_examples
-
-
-def _preprocess(example, problem, hparams, mode):
-  """Preprocessing for example."""
-  example = problem.preprocess_example(example, mode, hparams)
-  # We do not want int64s as they are not supported on GPUs.
-  example = cast_int64_to_int32(example)
-
-  return example
 
 
 def _example_length(example):
@@ -453,22 +337,6 @@ def constant_batching_scheme(constant_batch_size_in_sequences):
       "shuffle_queue_size": None,
       "window_size": constant_batch_size_in_sequences,
   }
-
-
-def get_data_filepatterns(problems, data_dir, mode):
-  """Return the location of a dataset for a given mode."""
-  datasets = []
-  for problem in problems.split("-"):
-    problem = registry.problem(problem).dataset_filename()
-    path = os.path.join(data_dir, problem)
-    if mode == tf.estimator.ModeKeys.TRAIN:
-      datasets.append("%s-train*" % path)
-    else:
-      if mode == "test":
-        datasets.append("%s-test*" % path)
-      else:
-        datasets.append("%s-dev*" % path)
-  return datasets
 
 
 def serving_input_fn(problem, hparams):

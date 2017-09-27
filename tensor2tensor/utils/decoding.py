@@ -29,7 +29,6 @@ import six
 from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import input_fn_builder
 import tensorflow as tf
@@ -103,23 +102,21 @@ def decode_from_dataset(estimator,
                         problem_names,
                         decode_hp,
                         decode_to_file=None,
-                        dataset=tf.estimator.ModeKeys.PREDICT):
+                        dataset_split=None):
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))
   hparams = estimator.params
 
   for problem_idx, problem_name in enumerate(problem_names):
     # Build the inference input function
-    infer_problems_data = data_reader.get_data_filepatterns(
-        problem_name, hparams.data_dir, dataset)
-
     infer_input_fn = input_fn_builder.build_input_fn(
         mode=tf.estimator.ModeKeys.PREDICT,
         hparams=hparams,
-        data_file_patterns=infer_problems_data,
+        data_dir=hparams.data_dir,
         num_datashards=devices.data_parallelism().n,
         fixed_problem=problem_idx,
-        batch_size=decode_hp.batch_size)
+        batch_size=decode_hp.batch_size,
+        dataset_split=dataset_split)
 
     # Get the predictions as an iterable
     predictions = estimator.predict(infer_input_fn)

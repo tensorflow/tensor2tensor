@@ -232,6 +232,20 @@ class Problem(object):
     return generator_utils.test_data_filenames(file_basename, data_dir,
                                                num_shards)
 
+  def filepattern(self, data_dir, mode):
+    """Get filepattern for data files for mode."""
+    path = os.path.join(data_dir, self.dataset_filename())
+
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      suffix = "train"
+    elif mode == tf.estimator.ModeKeys.EVAL:
+      suffix = "dev"
+    else:
+      assert mode == "test"
+      suffix = "test"
+
+    return "%s-%s*" % (path, suffix)
+
   def __init__(self, was_reversed=False, was_copy=False):
     """Create a Problem.
 
@@ -297,7 +311,8 @@ class Problem(object):
               output_buffer_size=None,
               shuffle_files=None,
               hparams=None,
-              preprocess=True):
+              preprocess=True,
+              dataset_split=None):
     """Build a Dataset for this problem.
 
     Args:
@@ -314,10 +329,13 @@ class Problem(object):
         default set that is a no-op.
       preprocess: bool, whether to map the Dataset through
         Problem.preprocess_example.
+      dataset_split: tf.estimator.ModeKeys + ["test"], which split to read data
+        from (TRAIN:"-train", EVAL:"-dev", "test":"-test"). Defaults to mode.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
     """
+    dataset_split = dataset_split or mode
     assert data_dir
 
     if hparams is None:
@@ -330,20 +348,6 @@ class Problem(object):
     # Construct the Problem's hparams so that items within it are accessible
     _ = self.get_hparams(hparams)
 
-    base_filename = self.dataset_filename()
-    path = os.path.join(data_dir, base_filename)
-
-    # TODO(rsepassi): handle ModeKeys.PREDICT with placeholders
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
-    if is_training:
-      suffix = "train"
-    elif mode == tf.estimator.ModeKeys.EVAL:
-      suffix = "dev"
-    else:
-      assert mode == "test"
-      suffix = "test"
-
-    filepattern = "%s-%s*" % (path, suffix)
     data_fields, data_items_to_decoders = self.example_reading_spec()
     if data_items_to_decoders is None:
       data_items_to_decoders = {
@@ -351,7 +355,9 @@ class Problem(object):
           for field in data_fields
       }
 
-    data_files = tf.contrib.slim.parallel_reader.get_data_files(filepattern)
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    data_files = tf.contrib.slim.parallel_reader.get_data_files(
+        [self.filepattern(data_dir, dataset_split)])
     if shuffle_files or shuffle_files is None and is_training:
       random.shuffle(data_files)
     dataset = tf.contrib.data.TFRecordDataset(data_files)

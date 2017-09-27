@@ -95,8 +95,7 @@ def main(_):
         FLAGS.problems.split("-"),
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
-        dataset="test"
-        if FLAGS.eval_use_test_set else tf.estimator.ModeKeys.PREDICT)
+        dataset_split="test" if FLAGS.eval_use_test_set else None)
 
 
 if __name__ == "__main__":
