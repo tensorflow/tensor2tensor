@@ -29,10 +29,9 @@ import tensorflow as tf
 
 
 def check_tensorflow_version():
-  # TODO(rzhao): Change to 1.4.0-dev once TF nightlies reflect correct dev
-  # version.
-  if tf.__version__ < "1.3.0":
-    raise EnvironmentError("Tensorflow version must >= 1.3.0")
+  min_tf_version = "1.4.0-dev"
+  if tf.__version__ < min_tf_version:
+    raise EnvironmentError("Tensorflow version must >= %s" % min_tf_version)
 
 
 def safe_exp(value):
