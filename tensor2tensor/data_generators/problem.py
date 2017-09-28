@@ -235,12 +235,26 @@ class Problem(object):
                                                num_shards)
 
   def filepattern(self, data_dir, mode):
-    """Get filepattern for data files for mode."""
+    """Get filepattern for data files for mode.
+
+    Matches mode to a suffix.
+    * TRAIN: train
+    * EVAL: dev
+    * PREDICT: dev
+    * test: test
+
+    Args:
+      data_dir: str, data directory.
+      mode: tf.estimator.ModeKeys or "test".
+
+    Returns:
+      filepattern str
+    """
     path = os.path.join(data_dir, self.dataset_filename())
 
     if mode == tf.estimator.ModeKeys.TRAIN:
       suffix = "train"
-    elif mode == tf.estimator.ModeKeys.EVAL:
+    elif mode in [tf.estimator.ModeKeys.EVAL, tf.estimator.ModeKeys.PREDICT]:
       suffix = "dev"
     else:
       assert mode == "test"
