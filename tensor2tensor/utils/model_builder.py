@@ -288,7 +288,7 @@ def model_fn(model,
   diet_vars = [
       v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
   ]
-  _log_variable_sizes(diet_vars, "Diet Varaibles")
+  _log_variable_sizes(diet_vars, "Diet Variables")
 
   # Optimize
   total_loss = tf.identity(total_loss, name="total_loss")
