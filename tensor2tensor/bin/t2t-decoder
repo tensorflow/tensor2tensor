@@ -75,7 +75,7 @@ def main(_):
 
   hparams = trainer_utils.create_hparams(
       FLAGS.hparams_set, data_dir, passed_hparams=FLAGS.hparams)
-  hparams = trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
+  trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
   estimator, _ = trainer_utils.create_experiment_components(
       data_dir=data_dir,
       model_name=FLAGS.model,

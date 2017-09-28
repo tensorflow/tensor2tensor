@@ -234,21 +234,11 @@ def create_evaluation_metrics(problems, model_hparams):
 
   eval_metrics = dict()
   for problem_idx, (problem_name, problem_instance) in enumerate(problems):
-    if problem_instance is None:
-      # For problems in problem_hparams
-      metrics = [
-          Metrics.ACC, Metrics.ACC_TOP5, Metrics.ACC_PER_SEQ,
-          Metrics.NEG_LOG_PERPLEXITY
-      ]
-      if "wmt" in problem_name:
-        metrics.append(Metrics.APPROX_BLEU)
-    else:
-      # For registered Problems
-      metrics = problem_instance.eval_metrics()
-      if not all([m in METRICS_FNS for m in metrics]):
-        raise ValueError("Unrecognized metric. Problem %s specified metrics "
-                         "%s. Recognized metrics are %s." %
-                         (problem_name, metrics, METRICS_FNS.keys()))
+    metrics = problem_instance.eval_metrics()
+    if not all([m in METRICS_FNS for m in metrics]):
+      raise ValueError("Unrecognized metric. Problem %s specified metrics "
+                       "%s. Recognized metrics are %s." %
+                       (problem_name, metrics, METRICS_FNS.keys()))
 
     class_output = "image" in problem_name and "coco" not in problem_name
     real_output = "gene_expression" in problem_name

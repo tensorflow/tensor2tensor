@@ -498,8 +498,15 @@ def apply_norm(x, norm_type, depth, epsilon):
                    "'noam', 'none'.")
 
 
-def layer_prepostprocess(previous_value, x, sequence, dropout_rate, norm_type,
-                         depth, epsilon, name):
+def layer_prepostprocess(previous_value,
+                         x,
+                         sequence,
+                         dropout_rate,
+                         norm_type,
+                         depth,
+                         epsilon,
+                         default_name,
+                         name=None):
   """Apply a sequence of functions to the input or output of a layer.
 
   The sequence is specified as a string which may contain the following
@@ -519,12 +526,13 @@ def layer_prepostprocess(previous_value, x, sequence, dropout_rate, norm_type,
     norm_type: a string (see apply_norm())
     depth: an integer (size of last dimension of x).
     epsilon: a float (parameter for normalization)
+    default_name: a string
     name: a string
 
   Returns:
     a Tensor
   """
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, default_name=default_name):
     if sequence == "none":
       return x
     for c in sequence:
@@ -569,7 +577,7 @@ def layer_preprocess(layer_input, hparams):
       norm_type=hparams.norm_type,
       depth=hparams.hidden_size,
       epsilon=hparams.norm_epsilon,
-      name="layer_prepostprocess")
+      default_name="layer_prepostprocess")
 
 
 def layer_postprocess(layer_input, layer_output, hparams):
@@ -602,7 +610,7 @@ def layer_postprocess(layer_input, layer_output, hparams):
       norm_type=hparams.norm_type,
       depth=hparams.hidden_size,
       epsilon=hparams.norm_epsilon,
-      name="layer_postprocess")
+      default_name="layer_postprocess")
 
 
 def conv_block_internal(conv_fn,
