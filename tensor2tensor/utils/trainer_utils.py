@@ -34,7 +34,6 @@ from tensor2tensor.utils import model_builder
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-from tensorflow.contrib.hooks.python.training.profiler_hook import ProfilerHook
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python import debug
 
@@ -145,7 +144,7 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
     # Recorded traces can be visualized with chrome://tracing/
     # The memory/tensor lifetime is also profiled
     train_monitors.append(
-        ProfilerHook(
+        tf.contrib.hooks.ProfilerHook(
             save_steps=10,
             output_dir=run_config.model_dir,
             show_dataflow=True,
