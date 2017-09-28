@@ -162,7 +162,7 @@ class T2TModel(object):
       losses: a dictionary: {loss-name (string): floating point `Scalar`}.
           Contains a single key "training".
     """
-    _, logits, losses = self._greedy_infer(
+    _, logits, losses = self._slow_greedy_infer(
         features,
         decode_length=decode_length,
         last_position_only=last_position_only)
