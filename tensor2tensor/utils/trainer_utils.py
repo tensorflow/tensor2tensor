@@ -182,7 +182,8 @@ def create_experiment_components(data_dir, model_name, hparams, run_config):
                   run_config.model_dir)
 
   hparams = add_problem_hparams(hparams, FLAGS.problems)
-
+  # hparams batch_size is used as minibatch size instead of tokens in batch
+  batch_size = (hparams.use_fixed_batch_size and hparams.batch_size) or None
   num_datashards = devices.data_parallelism().n
   train_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.TRAIN,
@@ -190,7 +191,8 @@ def create_experiment_components(data_dir, model_name, hparams, run_config):
       data_dir=data_dir,
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
-      worker_id=FLAGS.worker_id)
+      worker_id=FLAGS.worker_id,
+      batch_size=batch_size)
 
   eval_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.EVAL,

@@ -229,6 +229,8 @@ def features_for_problem(problem_instance,
         # If batch_size is fixed, use a single input bucket
         batching_scheme["batch_sizes"] = [batch_size]
         batching_scheme["boundaries"] = []
+        # Log new batching scheme if updated
+        tf.logging.info("Updated batching_scheme = %s", batching_scheme)
       feature_map = data_reader.input_pipeline(
           problem_instance,
           data_dir,
