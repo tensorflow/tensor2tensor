@@ -100,13 +100,22 @@ def dae(x, hparams, name):
     # Gumbel-softmax sample.
     gumbel_samples = gumbel_sample(tf.shape(m))
     steps = hparams.kl_warmup_steps
-    gumbel_samples *= common_layers.inverse_exp_decay(steps) * 0.1
+    gumbel_samples *= common_layers.inverse_exp_decay(steps // 5) * 0.5
     temperature = 1.2 - common_layers.inverse_lin_decay(steps)
     s = tf.nn.softmax((logsm + gumbel_samples) / temperature)
     m = tf.nn.softmax(m)
     kl = - tf.reduce_max(logsm, axis=-1)
     tf.summary.histogram("max-log", tf.reshape(kl, [-1]))
-    return m, s, tf.reduce_mean(kl)
+    # Calculate the argmax and construct hot vectors.
+    maxvec = tf.reshape(tf.argmax(m, axis=-1), [-1])
+    maxvhot = tf.stop_gradient(tf.one_hot(maxvec, hparams.v_size))
+    # Add losses that prevent too few being used.
+    distrib = tf.reshape(logsm, [-1, hparams.v_size]) * maxvhot
+    d_mean = tf.reduce_mean(distrib, axis=[0], keep_dims=True)
+    d_variance = tf.reduce_mean(tf.square(distrib - d_mean), axis=[0])
+    d_dev = - tf.reduce_mean(d_variance)
+    ret = s  # If we want just hot, do tf.reshape(maxvhot, tf.shape(s))
+    return m, ret, d_dev * 5.0 + tf.reduce_mean(kl) * 0.002
 
 
 def vae(x, hparams, name):
@@ -140,7 +149,7 @@ def kmeans(x, means, hparams, name):
     x_means_hot = nearest(x, means, hparams)
     x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
     kl = tf.reduce_sum(tf.square(x - x_means), axis=-1)
-    return x_means_hot, tf.reduce_mean(kl) * 10.0
+    return x_means_hot, tf.reduce_mean(kl)  # * 10.0
 
 
 def compress(x, c, is_2d, hparams, name):
@@ -217,10 +226,15 @@ def ae_compress(x, is_2d, hparams, name, reuse=None):
     # Convolve and ReLu to get state.
     cur = common_layers.conv_block(
         cur, hparams.hidden_size, [((1, 1), (1, 1))], name="mid_conv")
-    cur = tf.nn.l2_normalize(cur, dim=3)
+    # To put a standard VAE use the line below.
+    # cur, vae_kl, _, _ = vae(cur, hparams, "kmeans_vae")
+    cur = mix(tf.nn.l2_normalize(cur, dim=3), cur,
+              hparams.startup_steps // 3, mode="exp", simple=True)
     cur_n = hparams.kmeans_lr_factor * cur
     cur_n += (1.0 - hparams.kmeans_lr_factor) * tf.stop_gradient(cur)
     means = tf.get_variable("z_to_dense", [hparams.v_size, hparams.hidden_size])
+    # To use Gumbel-Softmax use the line below instead.
+    # _, hot, loss = dae(cur, hparams, "dae")
     hot, loss = kmeans(cur_n, means, hparams, name="kmeans")
     # We need a linear layer to undo the l2-normalization.
     cur = tf.layers.dense(cur, hparams.hidden_size, name="unnormalize")
@@ -244,7 +258,12 @@ def ae_decompress(z, ae, x, is_2d, hparams, name, reuse=None):
     # Leak at the beginning to help train.
     z = mix(z, ae, hparams.startup_steps)
     prob_z = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.8
-    prob_z = prob_z if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
+    prob_z = prob_z if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN else 1.0
+    # Gradients flow to ae while the value is z.
+    z = tf.stop_gradient(z) + ae - tf.stop_gradient(ae)
+    # Leak during training to keep the full dense autoencoder.
+    prob_z = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.6
+    prob_z = prob_z if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN else 1.0
     z = tf.cond(tf.less(tf.random_uniform([]), prob_z),
                 lambda: z, lambda: ae)
 
@@ -260,10 +279,11 @@ def ae_decompress(z, ae, x, is_2d, hparams, name, reuse=None):
       d = decompress_step(d, None, hparams, i > 0, is_2d, "decompress_%d" % j)
 
     # Autoregressive part.
-    if not is_2d:  # Currently we don't do it autoregressively for 2d problems.
+    if hparams.decode_autoregressive:
       k = 2**(hparams.num_compress_steps * (2 if is_2d else 1))
-      z_batch = tf.reshape(z, [-1, 1, 1, hparams.hidden_size])
       x_batch = tf.reshape(x, [-1, k, 1, hparams.hidden_size])
+      x_batch = tf.stop_gradient(x_batch)
+      z_batch = tf.reshape(z, [-1, 1, 1, hparams.hidden_size])
       d_batch = tf.reshape(d, [-1, k, 1, hparams.hidden_size])
       dec_batch = decode(z_batch, d_batch, x_batch, None, None, hparams)
     else:  # For non-autoregressive.
@@ -299,6 +319,7 @@ def ae_transformer_internal(inputs, targets, target_space, hparams):
 
     # Compress context and run autoregressive decoder on emb-hot.
     emb_flat = tf.expand_dims(common_layers.flatten4d3d(emb), axis=2)
+    emb_flat = tf.stop_gradient(emb_flat)
     dec_c = decode(None, None, emb_flat, inputs, ed, hparams)
     dec_c = tf.reshape(dec_c, tf.shape(emb))
     c_z = tf.layers.dense(dec_c, hparams.v_size, name="mask_context")
@@ -310,7 +331,8 @@ def ae_transformer_internal(inputs, targets, target_space, hparams):
 
     # Decompress, pass for ae loss.
     z = ae_decompress(emb, ae, targets, hparams.is_2d, hparams, "ae")
-    kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.8))
+    kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.8),
+                                          min_value=0.0001)
     reconstruct_loss *= common_layers.inverse_exp_decay(hparams.startup_steps)
     losses = {"kl": kl, "reconstruction": reconstruct_loss}
     return z, losses
@@ -376,16 +398,22 @@ def transformer_ae_small():
   hparams.add_hparam("kmeans_lr_factor", 0.002)
   hparams.add_hparam("z_dropout", 0.1)
   hparams.add_hparam("is_2d", 0)
+  hparams.add_hparam("decode_autoregressive", 1)
   return hparams
 
 
 @registry.register_hparams
 def transformer_ae_cifar():
+  """Hyperparameters for CIFAR-10 experiments."""
   hparams = transformer_ae_small()
+  hparams.hidden_size = 384
+  hparams.z_size = 256
   hparams.batch_size = 1024 * 16
   hparams.num_compress_steps = 2
   hparams.v_size = 1024 * 16
-  hparams.startup_steps = 120000
+  hparams.kl_warmup_steps = 350000
+  hparams.startup_steps = 30000
+  hparams.kmeans_lr_factor = 0.0
   hparams.is_2d = 1
   return hparams
 
