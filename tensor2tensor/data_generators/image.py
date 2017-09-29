@@ -650,6 +650,7 @@ class ImageCifar10(ImageCifar10Tune):
 class ImageCifar10Plain(ImageCifar10):
 
   def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
 

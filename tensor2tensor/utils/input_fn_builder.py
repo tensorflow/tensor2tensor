@@ -240,20 +240,6 @@ def features_for_problem(problem_instance,
           batching_scheme,
           dataset_split=dataset_split)
 
-  # Reverse inputs and targets features if the problem was reversed.
-  if problem_instance is not None:
-    problem_instance.maybe_reverse_features(feature_map)
-    problem_instance.maybe_copy_features(feature_map)
-  else:
-    if p_hparams.was_reversed:
-      inputs = feature_map["inputs"]
-      targets = feature_map["targets"]
-      feature_map["inputs"] = targets
-      feature_map["targets"] = inputs
-    # Use the inputs as the targets if the problem is a copy problem.
-    if p_hparams.was_copy:
-      feature_map["targets"] = feature_map["inputs"]
-
   # Ensure inputs and targets are proper rank.
   if problem_instance.has_inputs:
     while len(feature_map["inputs"].get_shape()) != 4:
