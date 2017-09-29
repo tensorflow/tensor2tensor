@@ -91,8 +91,8 @@ def _rev_layer_backward(ys, grad_ys, f, g, f_vars, f_side_input, g_vars,
   # dL/dy2 * dG(y1)/y1
   grad_gy1_y2 = tf.gradients(gy1, y1_stop, grad_y2)[0]
   grad_x1 = grad_y1 + grad_gy1_y2
-  grad_x2 = (tf.gradients(fx2, x2_stop, grad_y1)[0] + grad_y2 + tf.gradients(
-      fx2, x2_stop, grad_gy1_y2)[0])
+  grad_x2 = (tf.gradients(fx2, x2_stop, grad_y1)[0] + grad_y2 +
+             tf.gradients(fx2, x2_stop, grad_gy1_y2)[0])
 
   # Compute gradients wrt to vars and side inputs in f and g
   grads1 = tf.gradients(gy1, g_vars + g_side_input, grad_y2)
@@ -345,10 +345,19 @@ def recompute_grad(fn):
 def _recompute_grad(fn, args):
   """See recompute_grad."""
 
+  cached_vs = []
+
   def grad_fn(inputs, variables, outputs, output_grads):
+    """Recompute outputs for gradient computation."""
     del outputs
-    # recompute outputs
-    outputs = list(fn(*inputs))
+    # Recompute outputs
+    with tf.control_dependencies(output_grads):
+      with tf.variable_scope(cached_vs[0], reuse=True):
+        outputs = fn(*inputs)
+
+    if not (isinstance(outputs, list) or isinstance(outputs, tuple)):
+      outputs = [outputs]
+    outputs = list(outputs)
     grads = tf.gradients(outputs, inputs + variables, output_grads)
     grad_inputs = grads[:len(inputs)]
     grad_vars = grads[len(inputs):]
@@ -356,6 +365,8 @@ def _recompute_grad(fn, args):
 
   @common_layers.fn_with_custom_grad(grad_fn)
   def fn_with_recompute(*args):
-    return fn(*args)
+    with tf.variable_scope(None, default_name="recompute") as vs:
+      cached_vs.append(vs)
+      return fn(*args)
 
   return fn_with_recompute(*args)
