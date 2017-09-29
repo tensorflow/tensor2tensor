@@ -372,8 +372,10 @@ class Problem(object):
       }
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
+    data_filepattern = self.filepattern(data_dir, dataset_split)
+    tf.logging.info("Reading data files from %s", data_filepattern)
     data_files = tf.contrib.slim.parallel_reader.get_data_files(
-        [self.filepattern(data_dir, dataset_split)])
+        data_filepattern)
     if shuffle_files or shuffle_files is None and is_training:
       random.shuffle(data_files)
     dataset = tf.contrib.data.TFRecordDataset(data_files)

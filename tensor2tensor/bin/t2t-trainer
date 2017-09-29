@@ -68,6 +68,8 @@ def main(_):
   trainer_utils.validate_flags()
   output_dir = os.path.expanduser(FLAGS.output_dir)
   tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
+  if not FLAGS.data_dir:
+    raise ValueError("You must specify a --data_dir")
   data_dir = os.path.expanduser(FLAGS.data_dir)
   tf.gfile.MakeDirs(output_dir)
 
