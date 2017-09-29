@@ -26,6 +26,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
+from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -87,6 +88,28 @@ def decompress_step(source, c, hparams, first_relu, is_2d, name):
     return tf.reshape(thicker, [shape[0], shape[1] * 2, 1, hparams.hidden_size])
 
 
+def top_k_softmax(x, k):
+  """Calculate softmax(x), select top-k and rescale to sum to 1."""
+  x = tf.nn.softmax(x)
+  top_x, _ = tf.nn.top_k(x, k=k+1)
+  min_top = tf.reduce_min(top_x, axis=-1, keep_dims=True)
+  x = tf.nn.relu((x - min_top) + 1e-12)
+  x /= tf.reduce_sum(x, axis=-1, keep_dims=True)
+  return x, tf.reduce_max(top_x, axis=-1)
+
+
+def top_k_experts(x, k, hparams):
+  x_shape = tf.shape(x)
+  x_flat = tf.reshape(x, [-1, x.get_shape().as_list()[-1]])
+  is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+  gates, load = expert_utils.noisy_top_k_gating(
+      x_flat, hparams.v_size, is_training, k)
+  gates_shape = [x_shape[0], x_shape[1], x_shape[2], hparams.v_size]
+  gates = tf.reshape(gates, gates_shape)
+  load_loss = expert_utils.cv_squared(load)
+  return gates, load_loss
+
+
 def gumbel_sample(shape):
   """Sample from the Gumbel distribution, protect from overflows."""
   uniform_samples = tf.random_uniform(shape, minval=0.00001, maxval=0.99998)
@@ -96,12 +119,19 @@ def gumbel_sample(shape):
 def dae(x, hparams, name):
   with tf.variable_scope(name):
     m = tf.layers.dense(x, hparams.v_size, name="mask")
+    if hparams.softmax_k > 0:
+      m, kl = top_k_softmax(m, hparams.softmax_k)
+      return m, m, 1.0 - tf.reduce_mean(kl)
     logsm = tf.nn.log_softmax(m)
     # Gumbel-softmax sample.
     gumbel_samples = gumbel_sample(tf.shape(m))
     steps = hparams.kl_warmup_steps
     gumbel_samples *= common_layers.inverse_exp_decay(steps // 5) * 0.5
     temperature = 1.2 - common_layers.inverse_lin_decay(steps)
+    # 30% of the time keep reasonably high temperature to keep learning.
+    temperature = tf.cond(tf.less(tf.random_uniform([]), 0.7),
+                          lambda: temperature,
+                          lambda: tf.random_uniform([], minval=0.5, maxval=1.0))
     s = tf.nn.softmax((logsm + gumbel_samples) / temperature)
     m = tf.nn.softmax(m)
     kl = - tf.reduce_max(logsm, axis=-1)
@@ -228,13 +258,15 @@ def ae_compress(x, is_2d, hparams, name, reuse=None):
         cur, hparams.hidden_size, [((1, 1), (1, 1))], name="mid_conv")
     # To put a standard VAE use the line below.
     # cur, vae_kl, _, _ = vae(cur, hparams, "kmeans_vae")
+    means = tf.get_variable("z_to_dense", [hparams.v_size, hparams.hidden_size])
+    if hparams.use_gumbel_softmax:
+      _, hot, loss = dae(cur, hparams, "dae")
+      return cur, hot, loss
+    # Using k-means part. L2-normalizing to use fast cosine distance.
     cur = mix(tf.nn.l2_normalize(cur, dim=3), cur,
               hparams.startup_steps // 3, mode="exp", simple=True)
     cur_n = hparams.kmeans_lr_factor * cur
     cur_n += (1.0 - hparams.kmeans_lr_factor) * tf.stop_gradient(cur)
-    means = tf.get_variable("z_to_dense", [hparams.v_size, hparams.hidden_size])
-    # To use Gumbel-Softmax use the line below instead.
-    # _, hot, loss = dae(cur, hparams, "dae")
     hot, loss = kmeans(cur_n, means, hparams, name="kmeans")
     # We need a linear layer to undo the l2-normalization.
     cur = tf.layers.dense(cur, hparams.hidden_size, name="unnormalize")
@@ -248,6 +280,8 @@ def ae_embed(hot, hparams, name, reuse=None):
     emb = tf.matmul(hot_flat, means)
     emb = tf.reshape(emb, [tf.shape(hot)[0], tf.shape(hot)[1],
                            tf.shape(hot)[2], hparams.hidden_size])
+    if hparams.use_gumbel_softmax:
+      return emb
     return tf.layers.dense(emb, hparams.hidden_size,
                            name="unnormalize", reuse=reuse)
 
@@ -255,12 +289,12 @@ def ae_embed(hot, hparams, name, reuse=None):
 def ae_decompress(z, ae, x, is_2d, hparams, name, reuse=None):
   """Decompress from z, leaking from ae."""
   with tf.variable_scope(name + "_decompress", reuse=reuse):
-    # Leak at the beginning to help train.
-    z = mix(z, ae, hparams.startup_steps)
-    prob_z = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.8
-    prob_z = prob_z if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN else 1.0
-    # Gradients flow to ae while the value is z.
-    z = tf.stop_gradient(z) + ae - tf.stop_gradient(ae)
+    if hparams.use_gumbel_softmax:
+      # Leak at the beginning to help train.
+      z = mix(z, ae, hparams.startup_steps)
+    else:
+      # Gradients flow to ae while the value is z.
+      z = tf.stop_gradient(z) + ae - tf.stop_gradient(ae)
     # Leak during training to keep the full dense autoencoder.
     prob_z = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.6
     prob_z = prob_z if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN else 1.0
@@ -334,7 +368,7 @@ def ae_transformer_internal(inputs, targets, target_space, hparams):
     kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.8),
                                           min_value=0.0001)
     reconstruct_loss *= common_layers.inverse_exp_decay(hparams.startup_steps)
-    losses = {"kl": kl, "reconstruction": reconstruct_loss}
+    losses = {"kl": kl, "reconstruction": reconstruct_loss * 0.1}
     return z, losses
 
 
@@ -398,7 +432,9 @@ def transformer_ae_small():
   hparams.add_hparam("kmeans_lr_factor", 0.002)
   hparams.add_hparam("z_dropout", 0.1)
   hparams.add_hparam("is_2d", 0)
-  hparams.add_hparam("decode_autoregressive", 1)
+  hparams.add_hparam("use_gumbel_softmax", int(True))
+  hparams.add_hparam("softmax_k", 4)
+  hparams.add_hparam("decode_autoregressive", int(True))
   return hparams
 
 
@@ -411,7 +447,7 @@ def transformer_ae_cifar():
   hparams.batch_size = 1024 * 16
   hparams.num_compress_steps = 2
   hparams.v_size = 1024 * 16
-  hparams.kl_warmup_steps = 350000
+  hparams.kl_warmup_steps = 150000
   hparams.startup_steps = 30000
   hparams.kmeans_lr_factor = 0.0
   hparams.is_2d = 1
