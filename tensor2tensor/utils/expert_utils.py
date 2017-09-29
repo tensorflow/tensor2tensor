@@ -690,7 +690,7 @@ class SparseDispatcher(object):
         `[expert_batch_size_i, <extra_input_dims>]`.
     """
     inp = tf.gather(inp, self._batch_index)
-    return tf.split(inp, self._part_sizes_tensor, 0)
+    return tf.split(inp, self._part_sizes_tensor, 0, num=self._num_experts)
 
   def combine(self, expert_out, multiply_by_gates=True):
     """Sum together the expert output, weighted by the gates.
@@ -723,7 +723,18 @@ class SparseDispatcher(object):
       a list of `num_experts` one-dimensional `Tensor`s with type `tf.float32`
           and shapes `[expert_batch_size_i]`
     """
-    return tf.split(self._nonzero_gates, self._part_sizes_tensor, 0)
+    return tf.split(
+        self._nonzero_gates, self._part_sizes_tensor, 0, num=self._num_experts)
+
+  def expert_to_batch_indices(self):
+    """Batch indices corresponding to the examples in the per-expert `Tensor`s.
+
+    Returns:
+      a list of `num_experts` one-dimensional `Tensor`s with type `tf.int64`
+          and shapes `[expert_batch_size_i]`
+    """
+    return tf.split(
+        self._batch_index, self._part_sizes_tensor, 0, num=self._num_experts)
 
   @property
   def part_sizes(self):

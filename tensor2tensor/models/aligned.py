@@ -103,6 +103,27 @@ class Aligned(t2t_model.T2TModel):
               hparams.hidden_size,
               hparams.num_heads,
               hparams.attention_dropout)
+        elif layer_type == "att_grouped":
+          y, loss = dp(
+              common_attention.grouped_attention_multihead,
+              x,
+              x,
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              num_groups=hparams.attention_num_groups,
+              make_image_summary=hparams.attention_image_summary,
+          )
+          extra_loss += tf.add_n(loss) / dp.n
+        elif layer_type == "att_memory_efficient":
+          assert hparams.layer_preprocess_sequence == "n"
+          zero_bias = tf.zeros([1, 1, 1, 1])
+          y = dp(
+              common_attention.multihead_self_attention_memory_efficient,
+              x,
+              zero_bias,
+              hparams.num_heads)
         elif layer_type == "att_memory_efficient":
           assert hparams.layer_preprocess_sequence == "n"
           zero_bias = tf.zeros([1, 1, 1, 1])
@@ -222,7 +243,7 @@ def aligned_base():
   hparams = common_hparams.basic_params1()
   hparams.hidden_size = 512
   hparams.batch_size = 5000
-  hparams.max_length = 1024
+  hparams.max_length = 0
   hparams.min_length_bucket = 1024
   hparams.dropout = 0.0
   hparams.layer_prepostprocess_dropout = 0.0
@@ -265,8 +286,8 @@ def aligned_base():
   hparams.add_hparam("diet_experts", int(False))
   hparams.add_hparam("memory_efficient_ffn", int(False))
   hparams.add_hparam("local_attention_window", 128)
-  # if True, we learn a non-autoregressive model from "inputs" to "targets".
-  # if False, we learn an autoregressive model to generate "targets"
+  hparams.add_hparam("attention_num_groups", 8)
+  hparams.add_hparam("attention_image_summary", int(True))
   return hparams
 
 
@@ -299,6 +320,23 @@ def aligned_local_expert():
   """
   hparams = aligned_base()
   hparams.layers = "timing," + "conv,att_local_expert,ffn," * 2
+  return hparams
+
+
+@registry.register_hparams
+def aligned_grouped():
+  """Use local_expert_attention.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.62
+  2.7 steps/sec on P100
+  (some problem with map_fn - need to tune this)
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.02
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_base()
+  hparams.layers = "timing," + "conv,att_grouped,ffn," * 2
   return hparams
 
 
@@ -441,6 +479,22 @@ def aligned_8k():
     a hparams object
   """
   hparams = aligned_base()
-  hparams.max_length = 8192
   hparams.batch_size = 8192
+  return hparams
+
+
+@registry.register_hparams
+def aligned_8k_grouped():
+  """version for languagemodel_wiki_scramble8k50.
+
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.93
+  3.3 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.18
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_grouped()
+  hparams.batch_size = 8192
+  hparams.attention_image_summary = int(False)
   return hparams
