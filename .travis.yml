@@ -8,9 +8,21 @@ before_install:
 install:
   - pip install tensorflow
   - pip install .[tests]
+env:
+  - T2T_PROBLEM=algorithmic_reverse_binary40_test
+  - T2T_DATA_DIR=/tmp/t2t-data
+  - T2T_TRAIN_DIR=/tmp/t2t-train
 script:
   - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/utils/trainer_utils_test.py --ignore=tensor2tensor/problems_test.py
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_utils_test.py
+  - t2t-datagen 2>&1 | grep translate && echo passed
+  - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
+  - t2t-trainer --registry_help
+  - mkdir $T2T_DATA_DIR
+  - mkdir $T2T_TRAIN_DIR
+  - t2t-datagen --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR
+  - t2t-trainer --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
+  - t2t-decoder --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR
 git:
   depth: 3
