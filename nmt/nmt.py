@@ -343,9 +343,9 @@ def extend_hparams(hparams):
     raise ValueError("For gnmt attention architecture, "
                      "num_layers %d should be >= 2" % hparams.num_layers)
 
-  if hparams.subword_option not in [None, "spm", "bpe"]:
-    raise ValueError("subword option must be either None, spm, or bpe")
-  if hparams.bpe_delimiter is not None and hparams.bpe_delimiter != "@@":
+  if hparams.subword_option and hparams.subword_option not in ["spm", "bpe"]:
+    raise ValueError("subword option must be either spm, or bpe")
+  if hparams.bpe_delimiter and hparams.bpe_delimiter != "@@":
     raise ValueError("BPE delimiter value must be '@@' %s",
                      hparams.bpe_delimiter)
   if hparams.bpe_delimiter == "@@":
