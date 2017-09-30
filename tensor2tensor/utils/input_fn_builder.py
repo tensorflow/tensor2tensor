@@ -176,23 +176,14 @@ def _problem_choice(choice_mode, mode, problem_count, loss_moving_avgs,
 def cond_on_index(fn, index_tensor, max_idx, cur_idx=0):
   """Call fn(index_tensor) using tf.cond in [cur_id, max_idx]."""
 
-  # Because tf.cond expects fn to return a flat list of Tensors, we flatten the
-  # output of fn. By capturing the original output here in orig_out, we can pack
-  # the flat sequence into the original structure.
-  orig_out = []
-
-  def wrapped_fn():
-    out = fn(cur_idx)
-    orig_out.append(out)
-    return tf.contrib.framework.nest.flatten(out)
-
   if cur_idx == max_idx:
-    flat_out = wrapped_fn()
-  else:
-    flat_out = tf.cond(
-        tf.equal(index_tensor, cur_idx), wrapped_fn,
-        lambda: cond_on_index(fn, index_tensor, max_idx, cur_idx + 1))
-  return tf.contrib.framework.nest.pack_sequence_as(orig_out[0], flat_out)
+    return fn(cur_idx)
+
+  return tf.cond(
+    tf.equal(index_tensor, cur_idx),
+    lambda: fn(cur_idx),
+    lambda: cond_on_index(fn, index_tensor, max_idx, cur_idx + 1)
+  )
 
 
 class DummyQueueRunner(object):
