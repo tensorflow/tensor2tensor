@@ -19,9 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import glob
 import os
-import stat
 import tarfile
 
 # Dependency imports
@@ -267,10 +265,6 @@ _MKEN_TEST_DATASETS = [[
 # English-Czech datasets
 _ENCS_TRAIN_DATASETS = [
     [
-        "https://lindat.mff.cuni.cz/repository/xmlui/bitstream/handle/11234/1-1458/data-plaintext-format.tar",
-        ('tsv', 3, 2, 'data.plaintext-format/*train.gz')
-    ],
-    [
         "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",  # pylint: disable=line-too-long
         ("training/news-commentary-v12.cs-en.en",
          "training/news-commentary-v12.cs-en.cs")
@@ -375,64 +369,38 @@ def _compile_data(tmp_dir, datasets, filename):
         url = dataset[0]
         compressed_filename = os.path.basename(url)
         compressed_filepath = os.path.join(tmp_dir, compressed_filename)
+
+        lang1_filename, lang2_filename = dataset[1]
+        lang1_filepath = os.path.join(tmp_dir, lang1_filename)
+        lang2_filepath = os.path.join(tmp_dir, lang2_filename)
+        is_sgm = (lang1_filename.endswith("sgm") and
+                  lang2_filename.endswith("sgm"))
+
         generator_utils.maybe_download(tmp_dir, compressed_filename, url)
-
-        if dataset[1][0] == 'tsv':
-          _, src_column, trg_column, glob_pattern = dataset[1]
-          filenames = glob.glob(os.path.join(tmp_dir, glob_pattern))
-          if not filenames:
-            mode = "r:gz" if compressed_filepath.endswith("gz") else "r"  # *.tgz *.tar.gz
-            with tarfile.open(compressed_filepath, mode) as corpus_tar:
-              corpus_tar.extractall(tmp_dir)
-            filenames = glob.glob(os.path.join(tmp_dir, glob_pattern))
-          for tsv_filename in filenames:
-            if tsv_filename.endswith(".gz"):
-              new_filename = tsv_filename.strip(".gz")
-              try:
-                generator_utils.gunzip_file(tsv_filename, new_filename)
-              except PermissionError:
-                tsvdir = os.path.dirname(tsv_filename)
-                os.chmod(tsvdir, os.stat(tsvdir).st_mode | stat.S_IWRITE)
-                generator_utils.gunzip_file(tsv_filename, new_filename)
-              tsv_filename = new_filename
-            with tf.gfile.GFile(tsv_filename, mode="r") as tsv_file:
-              for line in tsv_file:
-                if line and "\t" in line:
-                  parts = line.split("\t")
-                  source, target = parts[src_column], parts[trg_column]
-                  lang1_resfile.write(source.strip() + "\n")
-                  lang2_resfile.write(target.strip() + "\n")
-        else:
-          lang1_filename, lang2_filename = dataset[1]
-          lang1_filepath = os.path.join(tmp_dir, lang1_filename)
-          lang2_filepath = os.path.join(tmp_dir, lang2_filename)
-          is_sgm = (lang1_filename.endswith("sgm") and
-                    lang2_filename.endswith("sgm"))
-
-          if not (os.path.exists(lang1_filepath) and
-                  os.path.exists(lang2_filepath)):
-            # For .tar.gz and .tgz files, we read compressed.
-            mode = "r:gz" if compressed_filepath.endswith("gz") else "r"
-            with tarfile.open(compressed_filepath, mode) as corpus_tar:
-              corpus_tar.extractall(tmp_dir)
-          if lang1_filepath.endswith(".gz"):
-            new_filepath = lang1_filepath.strip(".gz")
-            generator_utils.gunzip_file(lang1_filepath, new_filepath)
-            lang1_filepath = new_filepath
-          if lang2_filepath.endswith(".gz"):
-            new_filepath = lang2_filepath.strip(".gz")
-            generator_utils.gunzip_file(lang2_filepath, new_filepath)
-            lang2_filepath = new_filepath
-          with tf.gfile.GFile(lang1_filepath, mode="r") as lang1_file:
-            with tf.gfile.GFile(lang2_filepath, mode="r") as lang2_file:
+        if not (os.path.exists(lang1_filepath) and
+                os.path.exists(lang2_filepath)):
+          # For .tar.gz and .tgz files, we read compressed.
+          mode = "r:gz" if compressed_filepath.endswith("gz") else "r"
+          with tarfile.open(compressed_filepath, mode) as corpus_tar:
+            corpus_tar.extractall(tmp_dir)
+        if lang1_filepath.endswith(".gz"):
+          new_filepath = lang1_filepath.strip(".gz")
+          generator_utils.gunzip_file(lang1_filepath, new_filepath)
+          lang1_filepath = new_filepath
+        if lang2_filepath.endswith(".gz"):
+          new_filepath = lang2_filepath.strip(".gz")
+          generator_utils.gunzip_file(lang2_filepath, new_filepath)
+          lang2_filepath = new_filepath
+        with tf.gfile.GFile(lang1_filepath, mode="r") as lang1_file:
+          with tf.gfile.GFile(lang2_filepath, mode="r") as lang2_file:
+            line1, line2 = lang1_file.readline(), lang2_file.readline()
+            while line1 or line2:
+              line1res = _preprocess_sgm(line1, is_sgm)
+              line2res = _preprocess_sgm(line2, is_sgm)
+              if line1res or line2res:
+                lang1_resfile.write(line1res.strip() + "\n")
+                lang2_resfile.write(line2res.strip() + "\n")
               line1, line2 = lang1_file.readline(), lang2_file.readline()
-              while line1 or line2:
-                line1res = _preprocess_sgm(line1, is_sgm)
-                line2res = _preprocess_sgm(line2, is_sgm)
-                if line1res or line2res:
-                  lang1_resfile.write(line1res.strip() + "\n")
-                  lang2_resfile.write(line2res.strip() + "\n")
-                line1, line2 = lang1_file.readline(), lang2_file.readline()
 
   return filename
 
@@ -662,18 +630,13 @@ class TranslateEncsWmt32k(TranslateProblem):
 
   def generator(self, data_dir, tmp_dir, train):
     datasets = _ENCS_TRAIN_DATASETS if train else _ENCS_TEST_DATASETS
+    source_datasets = [[item[0], [item[1][0]]] for item in datasets]
+    target_datasets = [[item[0], [item[1][1]]] for item in datasets]
+    symbolizer_vocab = generator_utils.get_or_generate_vocab(
+        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size,
+        source_datasets + target_datasets)
     tag = "train" if train else "dev"
     data_path = _compile_data(tmp_dir, datasets, "wmt_encs_tok_%s" % tag)
-    vocab_datasets = []
-    # CzEng contains 100 gz files with tab-separated columns, so let's expect
-    # it is the first dataset in datasets and use the newly created *.lang{1,2} files instead.
-    if datasets[0][0].endswith("data-plaintext-format.tar"):
-      vocab_datasets.append([datasets[0][0],
-                            ["wmt_encs_tok_%s.lang1" % tag, "wmt_encs_tok_%s.lang2" % tag]])
-      datasets = datasets[1:]
-    vocab_datasets += [[item[0], [item[1][0], item[1][1]]] for item in datasets]
-    symbolizer_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size, vocab_datasets)
     return token_generator(data_path + ".lang1", data_path + ".lang2",
                            symbolizer_vocab, EOS)
 

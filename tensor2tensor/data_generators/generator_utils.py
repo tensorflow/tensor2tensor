@@ -350,18 +350,19 @@ def get_or_generate_vocab(data_dir,
     for source in sources:
       url = source[0]
       filename = os.path.basename(url)
+      read_type = "r:gz" if "tgz" in filename else "r"
+
       compressed_file = maybe_download(tmp_dir, filename, url)
+
+      with tarfile.open(compressed_file, read_type) as corpus_tar:
+        corpus_tar.extractall(tmp_dir)
 
       for lang_file in source[1]:
         tf.logging.info("Reading file: %s" % lang_file)
         filepath = os.path.join(tmp_dir, lang_file)
-        if not tf.gfile.Exists(filepath):
-          read_type = "r:gz" if filename.endswith("tgz") else "r"
-          with tarfile.open(compressed_file, read_type) as corpus_tar:
-            corpus_tar.extractall(tmp_dir)
 
         # For some datasets a second extraction is necessary.
-        if lang_file.endswith(".gz"):
+        if ".gz" in lang_file:
           new_filepath = os.path.join(tmp_dir, lang_file[:-3])
           if tf.gfile.Exists(new_filepath):
             tf.logging.info(
