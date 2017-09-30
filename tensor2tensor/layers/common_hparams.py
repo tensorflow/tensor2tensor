@@ -33,6 +33,9 @@ def basic_params1():
   """A set of basic hyperparameters."""
   return tf.contrib.training.HParams(
       batch_size=4096,  # in tokens per batch per gpu
+      # Fixed batch size turns off bucketing during training mode
+      # and uses batch_size as minibatch size (use small batch_size<=32)
+      use_fixed_batch_size=int(False),
       num_hidden_layers=4,
       kernel_height=3,
       kernel_width=1,

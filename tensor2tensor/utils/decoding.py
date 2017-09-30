@@ -29,7 +29,6 @@ import six
 from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import input_fn_builder
 import tensorflow as tf
@@ -87,10 +86,10 @@ def log_decode_results(inputs,
     if targets is not None:
       decoded_targets = " ".join(map(str, targets.flatten()))
   else:
-    decoded_outputs = "".join(
+    decoded_outputs = " ".join(
         map(str, targets_vocab.decode(_save_until_eos(outputs.flatten()))))
     if targets is not None:
-      decoded_targets = "".join(
+      decoded_targets = " ".join(
           map(str, targets_vocab.decode(_save_until_eos(targets.flatten()))))
 
   tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
@@ -102,23 +101,22 @@ def log_decode_results(inputs,
 def decode_from_dataset(estimator,
                         problem_names,
                         decode_hp,
-                        decode_to_file=None):
+                        decode_to_file=None,
+                        dataset_split=None):
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))
   hparams = estimator.params
 
   for problem_idx, problem_name in enumerate(problem_names):
     # Build the inference input function
-    infer_problems_data = data_reader.get_data_filepatterns(
-        problem_name, hparams.data_dir, tf.estimator.ModeKeys.PREDICT)
-
     infer_input_fn = input_fn_builder.build_input_fn(
         mode=tf.estimator.ModeKeys.PREDICT,
         hparams=hparams,
-        data_file_patterns=infer_problems_data,
+        data_dir=hparams.data_dir,
         num_datashards=devices.data_parallelism().n,
         fixed_problem=problem_idx,
-        batch_size=decode_hp.batch_size)
+        batch_size=decode_hp.batch_size,
+        dataset_split=dataset_split)
 
     # Get the predictions as an iterable
     predictions = estimator.predict(infer_input_fn)
@@ -544,8 +542,8 @@ def _interactive_input_tensor_to_features_dict(feature_map, hparams):
       x = tf.tile(x, tf.to_int32([num_samples, 1, 1, 1]))
 
     p_hparams = hparams.problems[problem_choice]
-    return (tf.constant(p_hparams.input_space_id),
-            tf.constant(p_hparams.target_space_id), x)
+    return (tf.constant(p_hparams.input_space_id), tf.constant(
+        p_hparams.target_space_id), x)
 
   input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
       input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)
@@ -580,8 +578,8 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
     # Add a third empty dimension dimension
     x = tf.expand_dims(x, axis=[2])
     x = tf.to_int32(x)
-    return (tf.constant(p_hparams.input_space_id),
-            tf.constant(p_hparams.target_space_id), x)
+    return (tf.constant(p_hparams.input_space_id), tf.constant(
+        p_hparams.target_space_id), x)
 
   input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
       input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)

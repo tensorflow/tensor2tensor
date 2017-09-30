@@ -423,11 +423,16 @@ def transformer_encoder(encoder_input,
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
-              common_layers.layer_preprocess(
-                  x, hparams), None, encoder_self_attention_bias,
+              common_layers.layer_preprocess(x, hparams),
+              None,
+              encoder_self_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
               hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size, hparams.num_heads, hparams.attention_dropout)
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout,
+              attention_type=hparams.self_attention_type,
+              max_relative_position=hparams.max_relative_position)
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -480,6 +485,8 @@ def transformer_decoder(decoder_input,
               hparams.hidden_size,
               hparams.num_heads,
               hparams.attention_dropout,
+              attention_type=hparams.self_attention_type,
+              max_relative_position=hparams.max_relative_position,
               cache=layer_cache)
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
@@ -599,7 +606,8 @@ def transformer_base():
   hparams.add_hparam("nbr_decoder_problems", 1)
   hparams.add_hparam("proximity_bias", int(False))
   hparams.add_hparam("use_pad_remover", int(True))
-
+  hparams.add_hparam("self_attention_type", "dot_product")
+  hparams.add_hparam("max_relative_position", 0)
   return hparams
 
 
@@ -908,3 +916,32 @@ def transformer_base_range(rhp):
   rhp.set_float("optimizer_adam_beta1", 0.85, 0.95)
   rhp.set_float("optimizer_adam_beta2", 0.97, 0.99)
   rhp.set_float("weight_decay", 0.0, 2.0)
+
+
+@registry.register_hparams
+def transformer_relative():
+  """Use relative position embeddings instead of absolute position encodings."""
+  hparams = transformer_base()
+  hparams.pos = None
+  hparams.self_attention_type = "dot_product_relative"
+  hparams.max_relative_position = 20
+  return hparams
+
+
+@registry.register_hparams
+def transformer_relative_tiny():
+  hparams = transformer_relative()
+  hparams.num_hidden_layers = 2
+  hparams.hidden_size = 128
+  hparams.filter_size = 512
+  hparams.num_heads = 4
+  return hparams
+
+
+@registry.register_hparams
+def transformer_relative_big():
+  hparams = transformer_big()
+  hparams.pos = None
+  hparams.self_attention_type = "dot_product_relative"
+  hparams.max_relative_position = 20
+  return hparams

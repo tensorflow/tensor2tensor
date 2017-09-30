@@ -30,12 +30,13 @@ import tensorflow as tf
 
 def build_input_fn(mode,
                    hparams,
-                   data_file_patterns=None,
+                   data_dir=None,
                    num_datashards=None,
                    fixed_problem=None,
                    worker_replicas=None,
                    worker_id=None,
-                   batch_size=None):
+                   batch_size=None,
+                   dataset_split=None):
   """Provides input to the graph, either from disk or via a placeholder.
 
   This function produces an input function that will feed data into
@@ -50,11 +51,7 @@ def build_input_fn(mode,
   Args:
     mode: The execution mode, as defined in tf.estimator.ModeKeys.
     hparams: HParams object.
-    data_file_patterns: The list of file patterns to use to read in data. Set to
-      `None` if you want to create a placeholder for the input data. The
-      `problems` flag is a list of problem names joined by the `-` character.
-      The flag's string is then split along the `-` and each problem gets its
-      own example queue.
+    data_dir: directory with input data.
     num_datashards: An integer.
     fixed_problem: An integer indicating the problem to fetch data for, or None
       if the input is to be randomly selected.
@@ -63,6 +60,8 @@ def build_input_fn(mode,
     worker_id: int, id of this worker replica. Used in multiproblem setting with
       hparams.problem_choice == distributed.
     batch_size: int, if provided, will use a fixed batch size.
+    dataset_split: tf.estimator.ModeKeys + ["test"], which split of the dataset
+      to use. Defaults to mode.
 
   Returns:
     A function that returns a dictionary of features and the target labels.
@@ -91,16 +90,15 @@ def build_input_fn(mode,
           continue
         problem_instance = hparams.problem_instances[problem_idx]
         p_hparams = hparams.problems[problem_idx]
-        problem_filepatterns = (data_file_patterns and
-                                data_file_patterns[problem_idx])
         feature_map = features_for_problem(
             problem_instance,
             p_hparams,
             hparams,
-            problem_filepatterns,
+            data_dir,
             num_datashards,
             mode,
             batch_size=batch_size,
+            dataset_split=dataset_split,
             name="problem_%d" % problem_idx)
         problem_batches.append(feature_map)
 
@@ -211,10 +209,11 @@ class DummyQueueRunner(object):
 def features_for_problem(problem_instance,
                          p_hparams,
                          hparams,
-                         data_filepatterns,
+                         data_dir,
                          num_datashards,
                          mode,
                          batch_size=None,
+                         dataset_split=None,
                          name="problem_inputs"):
   """Feature map for Problem."""
   with tf.name_scope(name):
@@ -230,23 +229,16 @@ def features_for_problem(problem_instance,
         # If batch_size is fixed, use a single input bucket
         batching_scheme["batch_sizes"] = [batch_size]
         batching_scheme["boundaries"] = []
+        # Log new batching scheme if updated
+        tf.logging.info("Updated batching_scheme = %s", batching_scheme)
       feature_map = data_reader.input_pipeline(
-          problem_instance, data_filepatterns, capacity, mode, hparams,
-          batching_scheme)
-
-  # Reverse inputs and targets features if the problem was reversed.
-  if problem_instance is not None:
-    problem_instance.maybe_reverse_features(feature_map)
-    problem_instance.maybe_copy_features(feature_map)
-  else:
-    if p_hparams.was_reversed:
-      inputs = feature_map["inputs"]
-      targets = feature_map["targets"]
-      feature_map["inputs"] = targets
-      feature_map["targets"] = inputs
-    # Use the inputs as the targets if the problem is a copy problem.
-    if p_hparams.was_copy:
-      feature_map["targets"] = feature_map["inputs"]
+          problem_instance,
+          data_dir,
+          capacity,
+          mode,
+          hparams,
+          batching_scheme,
+          dataset_split=dataset_split)
 
   # Ensure inputs and targets are proper rank.
   if problem_instance.has_inputs:

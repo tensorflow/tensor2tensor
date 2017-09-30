@@ -232,18 +232,13 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     encoder1.store_to_file(filename)
     encoder2 = text_encoder.SubwordTextEncoder(filename=filename)
 
+    self.assertEqual(encoder1._alphabet, encoder2._alphabet)
+
     for t in text_encoder.RESERVED_TOKENS:
       for c in t:
-        # Verify that encoder1 can encode all reserved token chars.
+        # Verify that encoders can encode all reserved token chars.
         encoder1.encode(c)
-
-    # TODO(seabass): Implement the fix so that we can remove this assertion.
-    with self.assertRaises(AssertionError):
-      for t in text_encoder.RESERVED_TOKENS:
-        for c in t:
-          # Verify that encoder2 fails to encode the characters (i.e.
-          # reproduce the bug).
-          encoder2.encode(c)
+        encoder2.encode(c)
 
 
 if __name__ == "__main__":

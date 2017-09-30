@@ -36,7 +36,6 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-
 # End-of-sentence marker (should correspond to the position of EOS in the
 # RESERVED_TOKENS list in text_encoder.py)
 EOS = 1
@@ -59,9 +58,10 @@ def _original_vocab(tmp_dir):
   vocab_filepath = os.path.join(tmp_dir, vocab_filename)
   if not os.path.exists(vocab_filepath):
     generator_utils.maybe_download(tmp_dir, vocab_filename, vocab_url)
-  return set(
-      [text_encoder.native_to_unicode(l.strip()) for l in
-       tf.gfile.Open(vocab_filepath)])
+  return set([
+      text_encoder.native_to_unicode(l.strip())
+      for l in tf.gfile.Open(vocab_filepath)
+  ])
 
 
 def _replace_oov(original_vocab, line):
@@ -81,19 +81,19 @@ def _replace_oov(original_vocab, line):
 
 
 def _train_data_filenames(tmp_dir):
-  return [os.path.join(
-      tmp_dir,
-      "1-billion-word-language-modeling-benchmark-r13output",
-      "training-monolingual.tokenized.shuffled",
-      "news.en-%05d-of-00100" % i) for i in xrange(1, 100)]
+  return [
+      os.path.join(tmp_dir,
+                   "1-billion-word-language-modeling-benchmark-r13output",
+                   "training-monolingual.tokenized.shuffled",
+                   "news.en-%05d-of-00100" % i) for i in xrange(1, 100)
+  ]
 
 
 def _dev_data_filename(tmp_dir):
-  return os.path.join(
-      tmp_dir,
-      "1-billion-word-language-modeling-benchmark-r13output",
-      "heldout-monolingual.tokenized.shuffled",
-      "news.en.heldout-00000-of-00050")
+  return os.path.join(tmp_dir,
+                      "1-billion-word-language-modeling-benchmark-r13output",
+                      "heldout-monolingual.tokenized.shuffled",
+                      "news.en.heldout-00000-of-00050")
 
 
 def _maybe_download_corpus(tmp_dir):
@@ -112,17 +112,18 @@ def _maybe_download_corpus(tmp_dir):
       corpus_tar.extractall(tmp_dir)
 
 
-def _get_or_build_subword_text_encoder(tmp_dir):
+def _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath):
   """Builds a SubwordTextEncoder based on the corpus.
 
   Args:
     tmp_dir: directory containing dataset.
+    vocab_filepath: path to store (or load) vocab.
+
   Returns:
     a SubwordTextEncoder.
   """
-  filepath = os.path.join(tmp_dir, "lm1b_32k.subword_text_encoder")
-  if tf.gfile.Exists(filepath):
-    return text_encoder.SubwordTextEncoder(filepath)
+  if tf.gfile.Exists(vocab_filepath):
+    return text_encoder.SubwordTextEncoder(vocab_filepath)
   _maybe_download_corpus(tmp_dir)
   original_vocab = _original_vocab(tmp_dir)
   token_counts = defaultdict(int)
@@ -138,7 +139,7 @@ def _get_or_build_subword_text_encoder(tmp_dir):
       break
   ret = text_encoder.SubwordTextEncoder()
   ret.build_from_token_counts(token_counts, min_count=5)
-  ret.store_to_file(filepath)
+  ret.store_to_file(vocab_filepath)
   return ret
 
 
@@ -152,7 +153,7 @@ class LanguagemodelLm1b32k(problem.Text2TextProblem):
 
   @property
   def has_inputs(self):
-    return True
+    return False
 
   @property
   def input_space_id(self):
@@ -184,25 +185,26 @@ class LanguagemodelLm1b32k(problem.Text2TextProblem):
   def use_train_shards_for_dev(self):
     return True
 
-  def generator(self, tmp_dir, train, characters=False):
+  def generator(self, data_dir, tmp_dir, is_training):
     """Generator for lm1b sentences.
 
     Args:
-      tmp_dir: a string.
-      train: a boolean.
-      characters: a boolean
+      data_dir: data dir.
+      tmp_dir: tmp dir.
+      is_training: a boolean.
 
     Yields:
       A dictionary {"inputs": [0], "targets": [<subword ids>]}
     """
     _maybe_download_corpus(tmp_dir)
     original_vocab = _original_vocab(tmp_dir)
-    files = (_train_data_filenames(tmp_dir) if train
-             else [_dev_data_filename(tmp_dir)])
-    if characters:
+    files = (_train_data_filenames(tmp_dir)
+             if is_training else [_dev_data_filename(tmp_dir)])
+    if self.is_character_level:
       encoder = text_encoder.ByteTextEncoder()
     else:
-      encoder = _get_or_build_subword_text_encoder(tmp_dir)
+      vocab_filepath = os.path.join(data_dir, self.vocab_file)
+      encoder = _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath)
     for filepath in files:
       tf.logging.info("filepath = %s", filepath)
       for line in tf.gfile.Open(filepath):

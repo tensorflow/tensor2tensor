@@ -34,7 +34,6 @@ from tensor2tensor.utils import model_builder
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-from tensorflow.contrib.hooks.python.training.profiler_hook import ProfilerHook
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python import debug
 
@@ -61,12 +60,14 @@ flags.DEFINE_string(
     model.""")
 flags.DEFINE_string("problems", "", "Dash separated list of problems to "
                     "solve.")
-flags.DEFINE_string("data_dir", "/tmp/data", "Directory with training data.")
+flags.DEFINE_string("data_dir", None, "Directory with training data.")
 flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
 flags.DEFINE_bool("eval_run_autoregressive", False,
                   "Run eval autoregressively where we condition on previous"
                   "generated output instead of the actual target.")
+flags.DEFINE_bool("eval_use_test_set", False,
+                  "Whether to use the '-test' data for EVAL (and PREDICT).")
 flags.DEFINE_integer("keep_checkpoint_max", 20,
                      "How many recent checkpoints to keep.")
 flags.DEFINE_bool("experimental_optimize_placement", False,
@@ -142,12 +143,12 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
   if FLAGS.dbgprofile:
     # Recorded traces can be visualized with chrome://tracing/
     # The memory/tensor lifetime is also profiled
-    train_monitors.append(ProfilerHook(
-        save_steps=10,
-        output_dir=run_config.model_dir,
-        show_dataflow=True,
-        show_memory=True,
-    ))
+    train_monitors.append(
+        tf.contrib.hooks.ProfilerHook(
+            save_steps=10,
+            output_dir=run_config.model_dir,
+            show_dataflow=True,
+            show_memory=True,))
 
   optional_kwargs = {}
   if FLAGS.export_saved_model:
@@ -179,26 +180,28 @@ def create_experiment_components(data_dir, model_name, hparams, run_config):
   tf.logging.info("Creating experiment, storing model files in %s",
                   run_config.model_dir)
 
-  hparams = add_problem_hparams(hparams, FLAGS.problems)
+  add_problem_hparams(hparams, FLAGS.problems)
 
+  # hparams batch_size is used as minibatch size instead of tokens in batch
+  batch_size = (hparams.use_fixed_batch_size and hparams.batch_size) or None
   num_datashards = devices.data_parallelism().n
   train_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.TRAIN,
       hparams=hparams,
-      data_file_patterns=get_data_filepatterns(data_dir,
-                                               tf.estimator.ModeKeys.TRAIN),
+      data_dir=data_dir,
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
-      worker_id=FLAGS.worker_id)
+      worker_id=FLAGS.worker_id,
+      batch_size=batch_size)
 
   eval_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.EVAL,
       hparams=hparams,
-      data_file_patterns=get_data_filepatterns(data_dir,
-                                               tf.estimator.ModeKeys.EVAL),
+      data_dir=data_dir,
       num_datashards=num_datashards,
       worker_replicas=FLAGS.worker_replicas,
-      worker_id=FLAGS.worker_id)
+      worker_id=FLAGS.worker_id,
+      dataset_split="test" if FLAGS.eval_use_test_set else None)
 
   model_fn = model_builder.build_model_fn(
       model_name,
@@ -244,8 +247,6 @@ def add_problem_hparams(hparams, problems):
 
     hparams.problem_instances.append(problem)
     hparams.problems.append(p_hparams)
-
-  return hparams
 
 
 def save_metadata(output_dir, hparams):
@@ -393,7 +394,3 @@ def session_config():
       gpu_options=gpu_options,
       log_device_placement=FLAGS.log_device_placement)
   return config
-
-
-def get_data_filepatterns(data_dir, mode):
-  return data_reader.get_data_filepatterns(FLAGS.problems, data_dir, mode)

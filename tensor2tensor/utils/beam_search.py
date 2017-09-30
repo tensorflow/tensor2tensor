@@ -51,12 +51,18 @@ def compute_batch_indices(batch_size, beam_size):
 
 
 def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
-                                beam_size, batch_size):
+                                beam_size, batch_size, prefix="default"):
   """Given sequences and scores, will gather the top k=beam size sequences.
 
   This function is used to grow alive, and finished. It takes sequences,
   scores, and flags, and returns the top k from sequences, scores_to_gather,
   and flags based on the values in scores.
+
+  This method permits easy introspection using tfdbg.  It adds three named ops
+  that are prefixed by `prefix`:
+    - _topk_seq: the tensor for topk_seq returned by this method.
+    - _topk_flags: the tensor for topk_finished_flags returned by this method.
+    - _topk_scores: the tensor for tokp_gathered_scores returned by this method.
 
   Args:
     sequences: Tensor of sequences that we need to gather from.
@@ -72,6 +78,7 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
       EOS or not
     beam_size: int
     batch_size: int
+    prefix: string that will prefix unique names for the ops run.
   Returns:
     Tuple of
     (topk_seq [batch_size, beam_size, decode_length],
@@ -91,10 +98,15 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
   # last dimension contains the i,j gathering coordinates.
   top_coordinates = tf.stack([batch_pos, topk_indexes], axis=2)
 
-  # Gather up the highest scoring sequences
-  topk_seq = tf.gather_nd(sequences, top_coordinates)
-  topk_flags = tf.gather_nd(flags, top_coordinates)
-  topk_gathered_scores = tf.gather_nd(scores_to_gather, top_coordinates)
+  # Gather up the highest scoring sequences.  For each operation added, give it
+  # a concrete name to simplify observing these operations with tfdbg.  Clients
+  # can capture these tensors by watching these node names.
+  topk_seq = tf.gather_nd(
+      sequences, top_coordinates, name=(prefix + "_topk_seq"))
+  topk_flags = tf.gather_nd(
+      flags, top_coordinates, name=(prefix + "_topk_flags"))
+  topk_gathered_scores = tf.gather_nd(
+      scores_to_gather, top_coordinates, name=(prefix + "_topk_scores"))
   return topk_seq, topk_gathered_scores, topk_flags
 
 
@@ -110,6 +122,22 @@ def beam_search(symbols_to_logits_fn,
   Requires a function that can take the currently decoded sybmols and return
   the logits for the next symbol. The implementation is inspired by
   https://arxiv.org/abs/1609.08144.
+
+  When running, the beam search steps can be visualized by using tfdbg to watch
+  the operations generating the output ids for each beam step.  These operations
+  have the pattern:
+    (alive|finished)_topk_(seq,scores)
+
+  Operations marked `alive` represent the new beam sequences that will be
+  processed in the next step.  Operations marked `finished` represent the
+  completed beam sequences, which may be padded with 0s if no beams finished.
+
+  Operations marked `seq` store the full beam sequence for the time step.
+  Operations marked `scores` store the sequence's final log scores.
+
+  The beam search steps will be processed sequentially in order, so when
+  capturing observed from these operations, tensors, clients can make
+  assumptions about which step is being recorded.
 
   Args:
     symbols_to_logits_fn: Interface to the model, to provide logits.
@@ -184,7 +212,7 @@ def beam_search(symbols_to_logits_fn,
     curr_finished_flags = tf.concat([finished_flags, curr_finished], axis=1)
     return compute_topk_scores_and_seq(
         curr_finished_seq, curr_finished_scores, curr_finished_scores,
-        curr_finished_flags, beam_size, batch_size)
+        curr_finished_flags, beam_size, batch_size, "grow_finished")
 
   def grow_alive(curr_seq, curr_scores, curr_log_probs, curr_finished):
     """Given sequences and scores, will gather the top k=beam size sequences.
@@ -207,7 +235,8 @@ def beam_search(symbols_to_logits_fn,
     # values
     curr_scores += tf.to_float(curr_finished) * -INF
     return compute_topk_scores_and_seq(curr_seq, curr_scores, curr_log_probs,
-                                       curr_finished, beam_size, batch_size)
+                                       curr_finished, beam_size, batch_size,
+                                       "grow_alive")
 
   def grow_topk(i, alive_seq, alive_log_probs):
     r"""Inner beam seach loop.

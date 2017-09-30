@@ -50,6 +50,7 @@ class AttentionType(object):
   LOCAL_EXPERTS = "local_experts"
   GLOBAL_MOE = "global_experts"
   MEMORY_EFFICIENT = "memory_efficient"
+  SPARSE_MULTIHEAD = "sparse_multihead"
 
   @staticmethod
   def get_choices():
@@ -57,6 +58,7 @@ class AttentionType(object):
         AttentionType.MULTIHEAD,
         AttentionType.LOCAL_EXPERTS,
         AttentionType.MEMORY_EFFICIENT,
+        AttentionType.SPARSE_MULTIHEAD,
     ]
 
 
@@ -64,6 +66,7 @@ LAYER_SYMBOLS = {
     "h": AttentionType.MULTIHEAD,  # multi-Head
     "e": AttentionType.LOCAL_EXPERTS,  # Experts
     "m": AttentionType.MEMORY_EFFICIENT,  # Memory
+    "s": AttentionType.SPARSE_MULTIHEAD,  # Sparse
 }
 
 
@@ -122,6 +125,27 @@ class AttentionLmMoe(t2t_model.T2TModel):
       dp_remove_pad = lambda x: x
       dp_restore_pad = lambda x: x
 
+    if hparams.attention_exp_factor != 0:
+      tf.logging.info("Expand/compress tokens before sending them to experts")
+      dp_expand_bc = lambda x: dp(  # pylint: disable=g-long-lambda
+          expand_batch_coordinates,
+          x,
+          hparams.attention_exp_factor)
+      dp_expand_x = lambda x: dp(  # pylint: disable=g-long-lambda
+          deconv_elems_1d,
+          x,
+          hparams.attention_exp_factor,
+          hparams.attention_exp_inputdim)
+      dp_compress_x = lambda x, l: dp(  # pylint: disable=g-long-lambda
+          conv_elems_1d,
+          x,
+          hparams.attention_exp_factor,
+          l)
+    else:
+      dp_expand_bc = lambda x: x
+      dp_expand_x = lambda x: x
+      dp_compress_x = lambda x, l: x
+
     def print_shape(x, suffix, debug=False):
       # To help debugging, print the input/output shapes at inference and eval
       # Inference for long sequences can take a long time, so that's help to
@@ -130,8 +154,10 @@ class AttentionLmMoe(t2t_model.T2TModel):
         return x
       return tf.Print(x, [tf.shape(x)], "shape_x_{}".format(suffix))
 
-    batch_coordinate = dp(get_batch_coordinate, x)
-    batch_coordinate = dp_remove_pad(batch_coordinate)
+    with tf.name_scope("batch_coordinate_preprocess"):
+      batch_coordinate = dp(get_batch_coordinate, x)
+      batch_coordinate = dp_remove_pad(batch_coordinate)
+      batch_coordinate = dp_expand_bc(batch_coordinate)
 
     x = dp(print_shape, x, "in")
 
@@ -164,6 +190,32 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 attention_type=("local_mask_right" if hparams.attention_local
                                 else "dot_product"),
                 name="decoder_self_attention")
+          elif attention_type == AttentionType.SPARSE_MULTIHEAD:
+            x_in = preprocess(x)
+            x_in = dp_remove_pad(x_in)
+            y, loss_experts = dp(
+                common_attention.multihead_attention_sparse_dot_prod,
+                x_in,
+                None,
+                None,  # Bias is computed inside
+                hparams.attention_key_channels or hparams.hidden_size,
+                hparams.attention_value_channels or hparams.hidden_size,
+                hparams.hidden_size,
+                hparams.num_heads,
+                hparams.attention_dropout,
+
+                # Additional parameters
+                bc=batch_coordinate,
+                experts_params=dict(
+                    train=hparams.mode == ModeKeys.TRAIN,
+                    num_experts=hparams.attention_num_experts,
+                    k=hparams.attention_moe_k,
+                ),
+            )
+            y = dp_restore_pad(y)
+
+            # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
+            extra_loss += tf.add_n(loss_experts) / dp.n
           elif attention_type == AttentionType.MEMORY_EFFICIENT:
             assert hparams.layer_preprocess_sequence == "n"
             y = dp(
@@ -175,6 +227,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
           elif attention_type == AttentionType.LOCAL_EXPERTS:
             x_in = preprocess(x)
             x_in = dp_remove_pad(x_in)
+            x_in = dp_expand_x(x_in)
             y, loss = dp(
                 common_attention.local_expert_attention,
                 x_in,
@@ -185,8 +238,10 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 batch_coordinate=batch_coordinate,
                 mask_right=not hparams.use_inputs,
                 split_batch=bool(hparams.attention_split_batch),
+                attention_num_head=hparams.attention_num_head,
                 attention_kq_size=hparams.attention_kq_size,
                 attention_v_size=hparams.attention_v_size)
+            y = dp_compress_x(y, x[0].get_shape().as_list()[-1])
             y = dp_restore_pad(y)
             # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
             extra_loss += tf.add_n(loss) / dp.n
@@ -252,6 +307,9 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   """
   targets_pad_mask = common_attention.embedding_to_padding(targets)
   with tf.name_scope("pad_remover"):
+    # Because of the shift_right, the <eos> token will be concidered as
+    # padding. In practice, it doesn't really matter, due to the triangular
+    # mask, this token should never be attended.
     pad_remover = expert_utils.PadRemover(targets_pad_mask)
 
   if hparams.prepend_mode == "prepend_inputs_full_attention":
@@ -260,8 +318,6 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   else:
     decoder_self_attention_bias = (
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
-  # TODO(epot): The padding remover should take into account that the input is
-  # shifted.
   decoder_input = common_layers.shift_right_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
@@ -274,6 +330,87 @@ def get_batch_coordinate(x):
   batch_coordinate = tf.expand_dims(
       common_attention.coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
   return batch_coordinate
+
+
+@expert_utils.add_var_scope()
+def deconv_elems_1d(x, factor, out_depth):
+  """Increase the length and change the dimensionality.
+
+  Expand/project each positions of dim depth of the input into
+  factor*tokens of dim out_depth
+
+  Args:
+    x (tf.Tensor): shape [batch_size, length, depth]
+    factor (int): Multiplicative factor of each tokens.
+    out_depth (int): Output depth
+
+  Returns:
+    tf.Tensor: shape [batch_size, length*factor, out_depth]
+  """
+  x = tf.expand_dims(x, 1)  # [batch_size, 1, length, depth]
+  x = tf.layers.conv2d_transpose(
+      inputs=x,
+      filters=out_depth,
+      kernel_size=(1, factor),
+      strides=(1, factor),
+      padding="valid",
+      data_format="channels_last",
+  )  # [batch_size, 1, length*factor, out_depth]
+  x = tf.squeeze(x, 1)  # [batch_size, 1, length, depth]
+  return x
+
+
+@expert_utils.add_var_scope()
+def conv_elems_1d(x, factor, out_depth):
+  """Decrease the length and change the dimensionality.
+
+  Merge/restore/compress factors positions of dim depth of the input into
+  a single position of dim out_depth.
+  This is basically just a strided convolution without overlapp
+  between each strides.
+  The original length has to be divided by factor.
+
+  Args:
+    x (tf.Tensor): shape [batch_size, length, depth]
+    factor (int): Length compression factor.
+    out_depth (int): Output depth
+
+  Returns:
+    tf.Tensor: shape [batch_size, length//factor, out_depth]
+  """
+  with tf.control_dependencies(  # Dynamic assertion
+      [tf.assert_equal(tf.shape(x)[1] % factor, 0)]):
+    x = tf.expand_dims(x, 1)  # [batch_size, 1, length, depth]
+    x = tf.layers.conv2d(
+        inputs=x,
+        filters=out_depth,
+        kernel_size=(1, factor),
+        strides=(1, factor),
+        padding="valid",
+        data_format="channels_last",
+    )  # [batch_size, 1, length//factor, out_depth]
+    x = tf.squeeze(x, 1)  # [batch_size, 1, length, depth]
+  return x
+
+
+def expand_batch_coordinates(bc, length_factor):
+  """Duplicate elements of bc by length_factor.
+
+  Args:
+    bc (tf.Tensor): int32 tensor of shape [1, length, 1]
+    length_factor (int):
+
+  Returns:
+    tf.Tensor: of shape [1, length*length_factor, 1] where every elements has
+      been duplicated length_factor times.
+  """
+  assert bc.get_shape().as_list() == [1, None, 1]
+  # bc has shape [1, length, 1]
+  bc *= tf.constant([[1] * length_factor])
+  # bc has shape [1, length, length_factor]
+  bc = tf.reshape(bc, [1, -1, 1])
+  # bc has shape [1, length*length_factor]
+  return bc
 
 
 def remove_pad(x, pad_remover, mode):
@@ -362,8 +499,15 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_type", AttentionType.MULTIHEAD)
   hparams.add_hparam("attention_local", int(False))
   hparams.add_hparam("attention_moe_k", 2)
+  hparams.add_hparam("attention_num_head", 1)
   hparams.add_hparam("attention_num_experts", 16)
   hparams.add_hparam("attention_split_batch", int(False))
+  # If attention_exp_factor is set, each input to local_expert_attention (of
+  # dimensionality hidden size) is projected into attention_exp_factor smaller
+  # inputs, each of dimensionality attention_exp_inputdim. (otherwise
+  # attention_exp_inputdim is ignored)
+  hparams.add_hparam("attention_exp_factor", 0)
+  hparams.add_hparam("attention_exp_inputdim", 128)
   # Key, query and value dimensions for the attention
   hparams.add_hparam("attention_kq_size", 128)
   hparams.add_hparam("attention_v_size", 256)
@@ -422,6 +566,51 @@ def attention_lm_moe_base_hybrid():
 
   # hparams.layer_preprocess_sequence = "n"
   # hparams.layer_postprocess_sequence = "da"
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_hybrid_v2():
+  hparams = attention_lm_moe_base_long_seq()
+  hparams.attention_layers = "hheh"  # Alternate local/expert
+  hparams.attention_local = int(True)
+  hparams.attention_moe_k = 6
+
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_ae_extended():
+  """Experiment with the exp_factor params."""
+  hparams = attention_lm_moe_base_long_seq()
+  hparams.attention_layers = "eeee"
+  hparams.attention_local = int(True)
+  # hparams.factored_logits=1  # Necessary when the number of expert grow bigger
+  hparams.attention_moe_k = 2
+  hparams.attention_exp_factor = 4
+  # hparams.attention_exp_inputdim = 128
+
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_moe_base_memeff():
+  """Base model with attention expert."""
+  hparams = attention_lm_moe_base_long_seq()
+  hparams.use_sepconv = int(False)
+
+  hparams.diet_experts = int(True)
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.layer_prepostprocess_dropout = 0.0
+  hparams.memory_efficient_ffn = True
+  hparams.attention_type = AttentionType.MEMORY_EFFICIENT
+  hparams.num_heads = 8
+  hparams.factored_logits = int(True)
   return hparams
 
 

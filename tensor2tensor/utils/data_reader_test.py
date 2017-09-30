@@ -69,10 +69,7 @@ class TestProblem(problem_mod.Problem):
 
 def generate_test_data(problem, tmp_dir):
   problem.generate_data(tmp_dir, tmp_dir)
-  filepatterns = data_reader.get_data_filepatterns(
-      problem.name, tmp_dir, tf.estimator.ModeKeys.TRAIN)
-  assert tf.gfile.Glob(filepatterns[0])
-  return filepatterns
+  return [problem.filepattern(tmp_dir, tf.estimator.ModeKeys.TRAIN)]
 
 
 class DataReaderTest(tf.test.TestCase):
@@ -81,7 +78,8 @@ class DataReaderTest(tf.test.TestCase):
   def setUpClass(cls):
     tf.set_random_seed(1)
     cls.problem = registry.problem("test_problem")
-    cls.filepatterns = generate_test_data(cls.problem, tempfile.gettempdir())
+    cls.data_dir = tempfile.gettempdir()
+    cls.filepatterns = generate_test_data(cls.problem, cls.data_dir)
 
   @classmethod
   def tearDownClass(cls):
@@ -92,7 +90,8 @@ class DataReaderTest(tf.test.TestCase):
         os.remove(f)
 
   def testBasicExampleReading(self):
-    dataset = data_reader.read_examples(self.problem, self.filepatterns[0], 32)
+    dataset = self.problem.dataset(
+        tf.estimator.ModeKeys.TRAIN, data_dir=self.data_dir)
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       # Check that there are multiple examples that have the right fields of the
@@ -107,56 +106,19 @@ class DataReaderTest(tf.test.TestCase):
         for field in [inputs, targets, floats]:
           self.assertGreater(len(field), 0)
 
-  def testTrainEvalBehavior(self):
-    train_dataset = data_reader.read_examples(self.problem,
-                                              self.filepatterns[0], 16)
-    train_examples = train_dataset.make_one_shot_iterator().get_next()
-    eval_dataset = data_reader.read_examples(
-        self.problem,
-        self.filepatterns[0],
-        16,
-        mode=tf.estimator.ModeKeys.EVAL)
-    eval_examples = eval_dataset.make_one_shot_iterator().get_next()
-
-    eval_idxs = []
-    with tf.train.MonitoredSession() as sess:
-      # Train should be shuffled and run through infinitely
-      for i in xrange(30):
-        self.assertNotEqual(i, sess.run(train_examples)["inputs"][0])
-
-      # Eval should not be shuffled and only run through once
-      for i in xrange(30):
-        self.assertEqual(i, sess.run(eval_examples)["inputs"][0])
-        eval_idxs.append(i)
-
-      with self.assertRaises(tf.errors.OutOfRangeError):
-        sess.run(eval_examples)
-        # Should never run because above line should error
-        eval_idxs.append(30)
-
-      # Ensuring that the above exception handler actually ran and we didn't
-      # exit the MonitoredSession context.
-      eval_idxs.append(-1)
-
-    self.assertAllEqual(list(range(30)) + [-1], eval_idxs)
-
   def testPreprocess(self):
-    dataset = data_reader.read_examples(self.problem, self.filepatterns[0], 32)
+    dataset = self.problem.dataset(
+        tf.estimator.ModeKeys.TRAIN, data_dir=self.data_dir)
     examples = dataset.make_one_shot_iterator().get_next()
-    examples = data_reader._preprocess(examples, self.problem, None, None)
     with tf.train.MonitoredSession() as sess:
       ex_val = sess.run(examples)
       # problem.preprocess_example has been run
       self.assertAllClose([42.42], ex_val["new_field"])
 
-      # int64 has been cast to int32
-      self.assertEqual(np.int32, ex_val["inputs"].dtype)
-      self.assertEqual(np.int32, ex_val["targets"].dtype)
-      self.assertEqual(np.float32, ex_val["floats"].dtype)
-
   def testLengthFilter(self):
     max_len = 15
-    dataset = data_reader.read_examples(self.problem, self.filepatterns[0], 32)
+    dataset = self.problem.dataset(
+        tf.estimator.ModeKeys.TRAIN, data_dir=self.data_dir)
     dataset = dataset.filter(
         lambda ex: data_reader.example_valid_size(ex, max_len))
     examples = dataset.make_one_shot_iterator().get_next()
@@ -169,26 +131,34 @@ class DataReaderTest(tf.test.TestCase):
 
   def testBatchingSchemeMaxLength(self):
     scheme = data_reader._batching_scheme(
-        batch_size=20, max_length=None,
-        min_length_bucket=8, length_bucket_step=1.1,
+        batch_size=20,
+        max_length=None,
+        min_length_bucket=8,
+        length_bucket_step=1.1,
         drop_long_sequences=False)
     self.assertGreater(scheme["max_length"], 10000)
 
     scheme = data_reader._batching_scheme(
-        batch_size=20, max_length=None,
-        min_length_bucket=8, length_bucket_step=1.1,
+        batch_size=20,
+        max_length=None,
+        min_length_bucket=8,
+        length_bucket_step=1.1,
         drop_long_sequences=True)
     self.assertEqual(scheme["max_length"], 20)
 
     scheme = data_reader._batching_scheme(
-        batch_size=20, max_length=15,
-        min_length_bucket=8, length_bucket_step=1.1,
+        batch_size=20,
+        max_length=15,
+        min_length_bucket=8,
+        length_bucket_step=1.1,
         drop_long_sequences=True)
     self.assertEqual(scheme["max_length"], 15)
 
     scheme = data_reader._batching_scheme(
-        batch_size=20, max_length=15,
-        min_length_bucket=8, length_bucket_step=1.1,
+        batch_size=20,
+        max_length=15,
+        min_length_bucket=8,
+        length_bucket_step=1.1,
         drop_long_sequences=False)
     self.assertGreater(scheme["max_length"], 10000)
 
@@ -201,12 +171,14 @@ class DataReaderTest(tf.test.TestCase):
     boundaries, batch_sizes = scheme["boundaries"], scheme["batch_sizes"]
     self.assertEqual(len(boundaries), len(batch_sizes) - 1)
     expected_boundaries = [
-        8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28,
-        30, 33, 36, 39, 42, 46, 50, 55, 60, 66, 72, 79, 86, 94, 103, 113, 124]
+        8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30,
+        33, 36, 39, 42, 46, 50, 55, 60, 66, 72, 79, 86, 94, 103, 113, 124
+    ]
     self.assertEqual(expected_boundaries, boundaries)
     expected_batch_sizes = [
-        16, 12, 12, 8, 8, 8, 8, 8, 8, 6, 6, 6, 6, 4, 4, 4, 4, 4, 3, 3, 3,
-        3, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        16, 12, 12, 8, 8, 8, 8, 8, 8, 6, 6, 6, 6, 4, 4, 4, 4, 4, 3, 3, 3, 3, 2,
+        2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1
+    ]
     self.assertEqual(expected_batch_sizes, batch_sizes)
 
     scheme = data_reader._batching_scheme(
@@ -239,14 +211,10 @@ class DataReaderTest(tf.test.TestCase):
     batch_sizes = [10, 8, 4, 2]
     window_size = 40
 
-    dataset = data_reader.read_examples(
-        self.problem,
-        self.filepatterns[0],
-        32,
-        mode=tf.estimator.ModeKeys.EVAL)
+    dataset = self.problem.dataset(
+        tf.estimator.ModeKeys.TRAIN, data_dir=self.data_dir)
     dataset = data_reader.bucket_by_sequence_length(
-        dataset, example_len,
-        boundaries, batch_sizes, window_size)
+        dataset, example_len, boundaries, batch_sizes, window_size)
     batch = dataset.make_one_shot_iterator().get_next()
 
     input_vals = []

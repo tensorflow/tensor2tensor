@@ -213,7 +213,7 @@ def model_fn(model,
   assert mode == tf.estimator.ModeKeys.TRAIN
 
   # Set learning rate
-  learning_rate = hparams.learning_rate * _learning_rate_decay(
+  learning_rate = hparams.learning_rate * learning_rate_decay(
       hparams, num_worker_replicas=worker_replicas, num_train_steps=train_steps)
   learning_rate /= math.sqrt(float(worker_replicas))
 
@@ -429,11 +429,11 @@ def _get_variable_initializer(hparams):
     raise ValueError("Unrecognized initializer: %s" % hparams.initializer)
 
 
-def _learning_rate_decay(hparams, num_worker_replicas=1, num_train_steps=1):
+def learning_rate_decay(hparams, num_worker_replicas=1, num_train_steps=1):
   """Inverse-decay learning rate until warmup_steps, then decay."""
   warmup_steps = tf.to_float(
       hparams.learning_rate_warmup_steps * num_worker_replicas)
-  step = tf.to_float(tf.contrib.framework.get_global_step())
+  step = tf.to_float(tf.train.get_or_create_global_step())
   if hparams.learning_rate_decay_scheme == "noam":
     return 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
         (step + 1) * warmup_steps**-1.5, (step + 1)**-0.5)

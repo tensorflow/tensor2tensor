@@ -244,6 +244,20 @@ class CommonAttentionTest(tf.test.TestCase):
     self.assertAllEqual(correct_indices, x_indices)
     self.assertAllClose(correct_gathered_x, gathered_x)
 
+  def testDotProductAttentionRelative(self):
+    x = np.random.rand(5, 7, 12, 32)
+    y = np.random.rand(5, 7, 12, 32)
+    with self.test_session() as session:
+      a = common_attention.dot_product_attention_relative(
+          tf.constant(x, dtype=tf.float32),
+          tf.constant(y, dtype=tf.float32),
+          tf.constant(y, dtype=tf.float32),
+          None,
+          max_relative_position=3)
+      session.run(tf.global_variables_initializer())
+      res = session.run(a)
+    self.assertEqual(res.shape, (5, 7, 12, 32))
+
 
 if __name__ == "__main__":
   tf.test.main()

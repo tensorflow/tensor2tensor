@@ -62,13 +62,15 @@ class AlgorithmicProblem(problem.Problem):
     return 10
 
   def generate_data(self, data_dir, _, task_id=-1):
+
     def generator_eos(nbr_symbols, max_length, nbr_cases):
       """Shift by NUM_RESERVED_IDS and append EOS token."""
       for case in self.generator(nbr_symbols, max_length, nbr_cases):
         new_case = {}
         for feature in case:
-          new_case[feature] = [i + text_encoder.NUM_RESERVED_TOKENS
-                               for i in case[feature]] + [text_encoder.EOS_ID]
+          new_case[feature] = [
+              i + text_encoder.NUM_RESERVED_TOKENS for i in case[feature]
+          ] + [text_encoder.EOS_ID]
         yield new_case
 
     utils.generate_dataset_and_shuffle(
@@ -154,10 +156,7 @@ class AlgorithmicShiftDecimal40(AlgorithmicProblem):
     for _ in xrange(nbr_cases):
       l = np.random.randint(max_length) + 1
       inputs = [np.random.randint(nbr_symbols - shift) for _ in xrange(l)]
-      yield {
-          "inputs": inputs,
-          "targets": [i + shift for i in inputs]
-      }
+      yield {"inputs": inputs, "targets": [i + shift for i in inputs]}
 
   @property
   def dev_length(self):
@@ -191,10 +190,7 @@ class AlgorithmicReverseBinary40(AlgorithmicProblem):
     for _ in xrange(nbr_cases):
       l = np.random.randint(max_length) + 1
       inputs = [np.random.randint(nbr_symbols) for _ in xrange(l)]
-      yield {
-          "inputs": inputs,
-          "targets": list(reversed(inputs))
-      }
+      yield {"inputs": inputs, "targets": list(reversed(inputs))}
 
 
 @registry.register_problem
@@ -272,10 +268,7 @@ def reverse_generator_nlplike(nbr_symbols,
   for _ in xrange(nbr_cases):
     l = int(abs(np.random.normal(loc=max_length / 2, scale=std_dev)) + 1)
     inputs = zipf_random_sample(distr_map, l)
-    yield {
-        "inputs": inputs,
-        "targets": list(reversed(inputs))
-    }
+    yield {"inputs": inputs, "targets": list(reversed(inputs))}
 
 
 @registry.register_problem
@@ -287,8 +280,8 @@ class AlgorithmicReverseNlplike8k(AlgorithmicProblem):
     return 8000
 
   def generator(self, nbr_symbols, max_length, nbr_cases):
-    return reverse_generator_nlplike(
-        nbr_symbols, max_length, nbr_cases, 10, 1.300)
+    return reverse_generator_nlplike(nbr_symbols, max_length, nbr_cases, 10,
+                                     1.300)
 
   @property
   def train_length(self):
@@ -308,8 +301,8 @@ class AlgorithmicReverseNlplike32k(AlgorithmicReverseNlplike8k):
     return 32000
 
   def generator(self, nbr_symbols, max_length, nbr_cases):
-    return reverse_generator_nlplike(
-        nbr_symbols, max_length, nbr_cases, 10, 1.050)
+    return reverse_generator_nlplike(nbr_symbols, max_length, nbr_cases, 10,
+                                     1.050)
 
 
 def lower_endian_to_number(l, base):
@@ -431,3 +424,28 @@ class AlgorithmicMultiplicationDecimal40(AlgorithmicMultiplicationBinary40):
   @property
   def num_symbols(self):
     return 10
+
+
+@registry.register_problem
+class AlgorithmicReverseBinary40Test(AlgorithmicReverseBinary40):
+  """Test Problem with tiny dataset."""
+
+  @property
+  def train_length(self):
+    return 10
+
+  @property
+  def dev_length(self):
+    return 10
+
+  @property
+  def train_size(self):
+    return 1000
+
+  @property
+  def dev_size(self):
+    return 100
+
+  @property
+  def num_shards(self):
+    return 1

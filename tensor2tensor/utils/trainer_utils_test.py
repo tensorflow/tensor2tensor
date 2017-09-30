@@ -92,7 +92,7 @@ class TrainerUtilsTest(tf.test.TestCase):
     model_name = "transformer"
     data_dir = TrainerUtilsTest.data_dir
     hparams = trainer_utils.create_hparams("transformer_test", data_dir)
-    hparams = trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
+    trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
     exp = trainer_utils.create_experiment(
         data_dir=data_dir,
         model_name=model_name,
@@ -115,7 +115,7 @@ class TrainerUtilsTest(tf.test.TestCase):
     # Create the problem object, hparams, placeholders, features dict.
     encoders = registry.problem(FLAGS.problems).feature_encoders(data_dir)
     hparams = trainer_utils.create_hparams(FLAGS.hparams_set, data_dir)
-    hparams = trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
+    trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
     inputs_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
     batch_inputs = tf.reshape(inputs_ph, [1, -1, 1, 1])  # Make it 4D.
     # In INFER mode targets can be None.

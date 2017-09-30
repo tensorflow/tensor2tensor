@@ -75,7 +75,7 @@ def main(_):
 
   hparams = trainer_utils.create_hparams(
       FLAGS.hparams_set, data_dir, passed_hparams=FLAGS.hparams)
-  hparams = trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
+  trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
   estimator, _ = trainer_utils.create_experiment_components(
       data_dir=data_dir,
       model_name=FLAGS.model,
@@ -90,9 +90,12 @@ def main(_):
     decoding.decode_from_file(estimator, FLAGS.decode_from_file, decode_hp,
                               FLAGS.decode_to_file)
   else:
-    decoding.decode_from_dataset(estimator,
-                                 FLAGS.problems.split("-"), decode_hp,
-                                 FLAGS.decode_to_file)
+    decoding.decode_from_dataset(
+        estimator,
+        FLAGS.problems.split("-"),
+        decode_hp,
+        decode_to_file=FLAGS.decode_to_file,
+        dataset_split="test" if FLAGS.eval_use_test_set else None)
 
 
 if __name__ == "__main__":

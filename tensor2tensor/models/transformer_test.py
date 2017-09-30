@@ -37,8 +37,7 @@ VOCAB_SIZE = 10
 
 class TransformerTest(tf.test.TestCase):
 
-  def getModel(self, mode=tf.estimator.ModeKeys.TRAIN):
-    hparams = transformer.transformer_small()
+  def getModel(self, hparams, mode=tf.estimator.ModeKeys.TRAIN):
     hparams.hidden_size = 8
     hparams.filter_size = 32
     hparams.num_heads = 1
@@ -61,7 +60,16 @@ class TransformerTest(tf.test.TestCase):
         hparams, tf.estimator.ModeKeys.PREDICT, p_hparams), features
 
   def testTransformer(self):
-    model, features = self.getModel()
+    model, features = self.getModel(transformer.transformer_small())
+    shadred_logits, _ = model.model_fn(features)
+    logits = tf.concat(shadred_logits, 0)
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      res = session.run(logits)
+    self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
+
+  def testTransformerRelative(self):
+    model, features = self.getModel(transformer.transformer_relative_tiny())
     shadred_logits, _ = model.model_fn(features)
     logits = tf.concat(shadred_logits, 0)
     with self.test_session() as session:
@@ -70,7 +78,7 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
 
   def testGreedyVsFast(self):
-    model, features = self.getModel()
+    model, features = self.getModel(transformer.transformer_small())
 
     decode_length = 2
 
@@ -87,7 +95,8 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model, _ = self.getModel(tf.estimator.ModeKeys.PREDICT)
+    model, _ = self.getModel(transformer.transformer_small(),
+                             mode=tf.estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       greedy_result, _, _ = model._slow_greedy_infer(
