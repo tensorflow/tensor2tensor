@@ -113,7 +113,7 @@ def tabbed_generator(source_path, source_vocab, target_vocab, eos=None):
   with tf.gfile.GFile(source_path, mode="r") as source_file:
     for line in source_file:
       if line and "\t" in line:
-        parts = line.split("\t", maxsplit=1)
+        parts = line.split("\t", 1)
         source, target = parts[0].strip(), parts[1].strip()
         source_ints = source_vocab.encode(source) + eos_list
         target_ints = target_vocab.encode(target) + eos_list

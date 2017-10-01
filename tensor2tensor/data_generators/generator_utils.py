@@ -412,7 +412,7 @@ def get_or_generate_tabbed_vocab(data_dir, tmp_dir, source_filename,
       for line in source_file:
         line = line.strip()
         if line and "\t" in line:
-          parts = line.split("\t", maxsplit=1)
+          parts = line.split("\t", 1)
           part = parts[index].strip()
           yield part
 
