@@ -113,47 +113,20 @@ class BaseModel(object):
       self.predict_count = tf.reduce_sum(
           self.iterator.target_sequence_length)
 
-    ## Learning rate
-    warmup_steps = hparams.learning_rate_warmup_steps
-    warmup_factor = hparams.learning_rate_warmup_factor
-    print("  start_decay_step=%d, learning_rate=%g, decay_steps %d, "
-          "decay_factor %g, learning_rate_warmup_steps=%d, "
-          "learning_rate_warmup_factor=%g, starting_learning_rate=%g" %
-          (hparams.start_decay_step, hparams.learning_rate, hparams.decay_steps,
-           hparams.decay_factor, warmup_steps, warmup_factor,
-           (hparams.learning_rate * warmup_factor ** warmup_steps)))
     self.global_step = tf.Variable(0, trainable=False)
-
     params = tf.trainable_variables()
 
     # Gradients and SGD update operation for training the model.
     # Arrage for the embedding vars to appear at the beginning.
     if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
       self.learning_rate = tf.constant(hparams.learning_rate)
+      # warm-up
+      self.learning_rate = self._get_learning_rate_warmup(hparams)
+      # decay
+      self.learning_rate = self._get_learning_rate_decay(hparams)
 
-      # Apply inverse decay if global steps less than warmup steps.
-      # Inspired by https://arxiv.org/pdf/1706.03762.pdf (Section 5.3)
-      # When step < warmup_steps,
-      #   learing_rate *= warmup_factor ** (warmup_steps - step)
-      inv_decay = warmup_factor**(
-          tf.to_float(warmup_steps - self.global_step))
-      self.learning_rate = tf.cond(
-        self.global_step < hparams.learning_rate_warmup_steps,
-        lambda: inv_decay * self.learning_rate,
-        lambda: self.learning_rate,
-        name="learning_rate_decay_warump_cond")
-
+      # Optimizer
       if hparams.optimizer == "sgd":
-        self.learning_rate = tf.cond(
-            self.global_step < hparams.start_decay_step,
-            lambda: self.learning_rate,
-            lambda: tf.train.exponential_decay(
-                self.learning_rate,
-                (self.global_step - hparams.start_decay_step),
-                hparams.decay_steps,
-                hparams.decay_factor,
-                staircase=True),
-            name="learning_rate")
         opt = tf.train.GradientDescentOptimizer(self.learning_rate)
         tf.summary.scalar("lr", self.learning_rate)
       elif hparams.optimizer == "adam":
@@ -162,6 +135,7 @@ class BaseModel(object):
         ) <= 0.001, "! High Adam learning rate %g" % hparams.learning_rate
         opt = tf.train.AdamOptimizer(self.learning_rate)
 
+      # Gradients
       gradients = tf.gradients(
           self.train_loss,
           params,
@@ -190,6 +164,53 @@ class BaseModel(object):
     for param in params:
       utils.print_out("  %s, %s, %s" % (param.name, str(param.get_shape()),
                                         param.op.device))
+
+  def _get_learning_rate_warmup(self, hparams):
+    """Get learning rate warmup."""
+    warmup_steps = hparams.learning_rate_warmup_steps
+    warmup_factor = hparams.learning_rate_warmup_factor
+    print("  learning_rate=%g, learning_rate_warmup_steps=%d, "
+          "learning_rate_warmup_factor=%g, starting_learning_rate=%g" %
+          (hparams.learning_rate, warmup_steps, warmup_factor,
+           (hparams.learning_rate * warmup_factor ** warmup_steps)))
+
+    # Apply inverse decay if global steps less than warmup steps.
+    # Inspired by https://arxiv.org/pdf/1706.03762.pdf (Section 5.3)
+    # When step < warmup_steps,
+    #   learing_rate *= warmup_factor ** (warmup_steps - step)
+    inv_decay = warmup_factor**(
+        tf.to_float(warmup_steps - self.global_step))
+
+    return tf.cond(
+        self.global_step < hparams.learning_rate_warmup_steps,
+        lambda: inv_decay * self.learning_rate,
+        lambda: self.learning_rate,
+        name="learning_rate_warump_cond")
+
+  def _get_learning_rate_decay(self, hparams):
+    """Get learning rate decay."""
+    if (hparams.learning_rate_decay_scheme and
+        hparams.learning_rate_decay_scheme == "luong"):
+      start_decay_step = int(hparams.num_train_steps / 2)
+      decay_steps = int(hparams.num_train_steps / 10)  # decay 5 times
+      decay_factor = 0.5
+    else:
+      start_decay_step = hparams.start_decay_step
+      decay_steps = hparams.decay_steps
+      decay_factor = hparams.decay_factor
+    print("  decay_scheme=%s, start_decay_step=%d, decay_steps %d, "
+          "decay_factor %g" %
+          (hparams.learning_rate_decay_scheme,
+           hparams.start_decay_step, hparams.decay_steps, hparams.decay_factor))
+
+    return tf.cond(
+        self.global_step < start_decay_step,
+        lambda: self.learning_rate,
+        lambda: tf.train.exponential_decay(
+            self.learning_rate,
+            (self.global_step - start_decay_step),
+            decay_steps, decay_factor, staircase=True),
+        name="learning_rate_decay_cond")
 
   def init_embeddings(self, hparams, scope):
     """Init embeddings."""

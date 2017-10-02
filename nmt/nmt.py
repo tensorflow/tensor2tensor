@@ -98,6 +98,14 @@ def add_arguments(parser):
   parser.add_argument("--decay_factor", type=float, default=0.98,
                       help="How much we decay.")
   parser.add_argument(
+      "--learning_rate_decay_scheme", type=str, default="", help="""\
+      If specified, overwrite start_decay_step, decay_steps, decay_factor.
+      Options include:
+        luong: after 1/2 num train steps, we start halving the learning rate
+        for 5 times before finishing.\
+      """)
+
+  parser.add_argument(
       "--num_train_steps", type=int, default=12000, help="Num steps to train.")
   parser.add_argument("--colocate_gradients_with_ops", type="bool", nargs="?",
                       const=True,
@@ -293,6 +301,7 @@ def create_hparams(flags):
       start_decay_step=flags.start_decay_step,
       decay_factor=flags.decay_factor,
       decay_steps=flags.decay_steps,
+      learning_rate_decay_scheme=flags.learning_rate_decay_scheme,
       colocate_gradients_with_ops=flags.colocate_gradients_with_ops,
 
       # Data constraints
@@ -316,7 +325,6 @@ def create_hparams(flags):
       bpe_delimiter=flags.bpe_delimiter,
       subword_option=flags.subword_option,
       check_special_token=flags.check_special_token,
-
 
       # Misc
       forget_bias=flags.forget_bias,
