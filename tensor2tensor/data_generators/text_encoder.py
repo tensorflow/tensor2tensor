@@ -739,8 +739,10 @@ class SubwordTextEncoder(TextEncoder):
           (s.startswith("\"") and s.endswith("\""))):
         s = s[1:-1]
       subtoken_strings.append(native_to_unicode(s))
-    self._init_subtokens_from_list(subtoken_strings)
     self._init_alphabet_from_tokens(subtoken_strings)
+    # Include the alphabet explicitly to guarantee all strings are encodable.
+    subtoken_strings.extend(self._alphabet)
+    self._init_subtokens_from_list(subtoken_strings)
 
   def _load_from_file(self, filename):
     """Load from a file.
