@@ -180,6 +180,26 @@ class Aligned(t2t_model.T2TModel):
               attention_v_size=hparams.attention_v_size)
           # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
           extra_loss += tf.add_n(loss) / dp.n
+        elif layer_type == "att_lsh":
+          y, loss = dp(
+              common_attention.multihead_attention_sparse_dot_prod,
+              x,
+              None,
+              None,  # Bias is computed inside
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout,
+
+              # Additional parameters
+              bc=batch_coordinate,
+              use_map_fn=False,
+              experts_params=dict(
+                  nb_hyperplanes=4,
+              )
+          )
+          extra_loss += tf.add_n(loss) / dp.n
         elif layer_type == "moe":
           y, loss = expert_utils.distributed_moe(
               dp,
@@ -465,6 +485,18 @@ def aligned_moe():
   """
   hparams = aligned_base()
   hparams.layers = "timing," + "conv,att,moe," * 2
+  return hparams
+
+
+@registry.register_hparams
+def aligned_lsh():
+  """Use multihead_attention_sparse_dot_prod.
+
+  Returns:
+    a hparams object
+  """
+  hparams = aligned_base()
+  hparams.layers = "timing," + "conv,att_lsh,ffn," * 2
   return hparams
 
 

@@ -239,6 +239,86 @@ def add_positional_embedding_nd(x, max_length, name):
   return x
 
 
+class LshGating(object):
+  """Class to split key/queries into separate buckets."""
+
+  def __init__(self, depth, nb_hyperplanes, nb_replicat=1, trainable=False):
+    """Construct the gating function parameters.
+
+    Compute the gates for a single head.
+
+    Args:
+      depth (int): Dimension of the key/queries to dispatch
+      nb_hyperplanes (int): Nb of vectors use to split the space. Will determine
+        the number of buckets (2^nb_hyperplanes - 1).
+      nb_replicat (int): Redundancy to avoid the edge cases (to be in one bucket
+        the input should be in a majority)
+      trainable (bool): If True, a balance loss is added to force the hyperplane
+        to divide the key/query space evenly
+    """
+    self.depth = depth
+    self.nb_hyperplanes = nb_hyperplanes
+    self.nb_buckets = 2**nb_hyperplanes
+    self.nb_replicat = nb_replicat  # Unused for now
+    self.trainable = trainable  # Unused for now
+
+    self.dispatchers = {}
+
+    assert self.nb_replicat == 1  # For now
+
+    with tf.variable_scope("lsh_gating"):
+      # Vectors defining the hyperplanes
+      self.t_vectors = tf.get_variable(
+          "vector",
+          shape=(self.depth, self.nb_hyperplanes * self.nb_replicat),
+          dtype=tf.float32,
+          trainable=self.trainable,
+      )
+      # Projection vector from the bit space to similarity score space
+      self.t_group = tf.constant([
+          self._idx_to_bits(i)
+          for i in range(self.nb_buckets)
+      ], dtype=tf.float32, name="group")
+
+  def _idx_to_bits(self, i):
+    """Convert an group index to its bit representation."""
+    bits = bin(i)[2:].zfill(self.nb_hyperplanes)  # Pad the bits str with 0
+    return [-1.0 if b == "0" else 1.0 for b in bits]
+
+  @expert_utils.add_name_scope("lsh_gating")
+  def get_gates(self, x):
+    """Return the bucket id of the given tensor.
+
+    Args:
+      x (tf.Tensor): float32 of shape [length, depth]
+
+    Returns:
+      tf.Tensor: One-hot vector int64 of shape [heads, length, nb_buckets]
+        containing the id of the bucket
+    """
+
+    # The balance loss don't propagate to the rest of the network
+    x = tf.stop_gradient(x)
+    # [length, depth] * [depth, nb_vectors * replicat]
+    x = tf.matmul(x, self.t_vectors)
+    # [length, nb_vector * replicat]
+    x = tf.sign(x)  # Get on which side of the hyperplane the keys are.
+
+    # x = tf.reshape(x, [-1, nb_replicat, nb_vector])
+    # [length, replicat, nb_vector] * [nb_vector, 2^nb_vector - 1]
+
+    x = tf.matmul(x, self.t_group, transpose_b=True) / self.nb_hyperplanes
+    # We get a similarity score for each of the group between [-1, 1]
+    # [length, (replicat,) 2^nb_vector - 1]
+    # Do an argmax to get the most likely group for each replicat
+    x = tf.argmax(x, axis=-1)
+    # [length(, replicat)]
+    # One-hot for compatibility with the sparse dispatcher
+    x = tf.one_hot(x, self.nb_buckets)
+    # TODO(epot): Use a loss to force an even distribution
+    return x
+
+
 def embedding_to_padding(emb):
   """Calculates the padding mask based on which embeddings are all zero.
 
@@ -2223,7 +2303,147 @@ def local_expert_attention(
 
 
 @expert_utils.add_name_scope()
-def sparse_dot_product_attention(q, k, v, bc, experts_params):
+def expert_dot_product(q, k, v, info_q=None, info_k=None):
+  """Perform dot product on a subset of the sequence.
+
+  Can add a mask to the attention to prevent sequences to attend to each other
+  and to prevent attention to the futur.
+
+  Args:
+    q (tf.Tensor): Queries of shape [length_expert_q, depth_k]
+    k (tf.Tensor): Keys of shape [length_expert_k, depth_k]
+    v (tf.Tensor): Values of shape [length_expert_k, depth_v]
+    info_q (BatchInfo): Batch info for queries. If None, no mask is added
+    info_k (BatchInfo): Batch info for keys
+
+  Returns:
+    tf.Tensor: dot product attention output ([length_expert_q, depth_v])
+  """
+
+  length_q = tf.shape(q)[0]
+  length_k = tf.shape(k)[0]
+  depth_v = v.get_shape().as_list()[-1]
+
+  bias = None
+  if info_q is not None or info_k is not None:
+    # TODO(epot): Implement more generic version of the mask computation to
+    # have Q/K of different lengths
+    raise NotImplementedError("No mask for now")
+
+  # Restore batch and head dimension
+  q, k, v = [tf.expand_dims(tf.expand_dims(t, 0), 0) for t in (q, k, v)]
+
+  def is_zero():
+    zeros = tf.zeros(shape=[1, 1, length_q, depth_v], dtype=tf.float32)
+    zeros = tf.Print(zeros, [length_k, length_q], "length_k/length_q: ")
+    return zeros
+
+  def is_not_zero():
+    return dot_product_attention(
+        q, k, v,
+        bias=bias,
+        # No image summary to avoid "Retval[0] does not have value" (because
+        # inside a condition)
+        make_image_summary=False,
+    )
+
+  # TODO(epot): Should make sure a query gets at least one key. Because the
+  # different sequences of a batch are merged, it's possible that a
+  # query from a sequence only receive memory from another sequence, so
+  # with the mask, the query will perform a softmax on -infinity values.
+  # A hack could be to add at least one sequence of each batch on each group so
+  # the query can attend to at least one element.
+  # Softmax(Q.K)*V
+  v_out = tf.cond(
+      tf.logical_or(tf.equal(length_q, 0), tf.equal(length_k, 0)),
+      is_zero,
+      is_not_zero,
+  )
+
+  # Remove batch and head dimension
+  v_out = tf.squeeze(v_out, axis=0)
+  v_out = tf.squeeze(v_out, axis=0)
+  return v_out
+
+
+@expert_utils.add_name_scope()
+def dot_product_single_head(q, k, v, gates_q, gates_k, bc):  # pylint: disable=unused-argument
+  """Perform a dot product attention on a single sequence on a single head.
+
+  This function dispatch the q, k, v and loop over the buckets to compute the
+  attention dot product on each subsequences.
+
+  Args:
+    q (tf.Tensor): [length_q, depth_q]
+    k (tf.Tensor): [length_k, depth_q]
+    v (tf.Tensor): [length_k, depth_v]
+    gates_q (tf.Tensor): One-hot vector of shape [length_q, nb_buckets]
+    gates_k (tf.Tensor): One-hot vector of shape [length_k, nb_buckets]
+    bc (BatchInfo): Contains the batch coordinates and sequence order
+
+  Returns:
+    tf.Tensor: [length_q, depth_v]
+  """
+
+  nb_buckets = gates_q.get_shape().as_list()[-1]
+
+  q_dispatcher = expert_utils.SparseDispatcher(nb_buckets, gates_q)
+  k_dispatcher = expert_utils.SparseDispatcher(nb_buckets, gates_k)
+
+  # Iterate over every dispatched group
+  list_v_out = []
+  for (
+      q,
+      k,
+      v,
+      # TODO(epot): If the batch are merged together, should also dispatch the
+      # sequence positions and batch coordinates
+  ) in zip(
+      q_dispatcher.dispatch(q),
+      k_dispatcher.dispatch(k),
+      k_dispatcher.dispatch(v),
+  ):
+    list_v_out.append(expert_dot_product(q, k, v, None, None))
+
+  # Combine all buckets together to restore the original length
+  return q_dispatcher.combine(list_v_out)
+
+
+def map_fn_switch(fn, elems, use_map_fn=True, **kwargs):
+  """Construct the graph with either tf.map_fn or a python for loop.
+
+  This function is mainly for for benchmarking purpose.
+
+  tf.map_fn is dynamic but is much slower than creating a static graph with
+  for loop. However, having a for loop make the graph much longer to build
+  and can consume too much RAM on distributed setting.
+
+  Args:
+    fn (fct): same that tf.map_fn but for now can only return a single tensor
+      value (instead of a tuple of tensor for the general case)
+    elems (tuple): same that tf.map_fn
+    use_map_fn (bool): If True, tf.map_fn is used, if False, for _ in _: is used
+      instead
+    **kwargs: Additional tf.map_fn arguments (ignored if use_map_fn is False)
+
+  Returns:
+    tf.Tensor: the output of tf.map_fn
+  """
+  if use_map_fn:
+    return tf.map_fn(fn, elems, **kwargs)
+  else:
+    elems_unpacked = (
+        tf.unstack(e) for e in elems
+    )
+    out_unpacked = [
+        fn(e) for e in zip(*elems_unpacked)
+    ]
+    out = tf.stack(out_unpacked)
+    return out
+
+
+@expert_utils.add_name_scope()
+def sparse_dot_product_attention(q, k, v, bc, use_map_fn, experts_params):
   """Sparse multihead self attention.
 
   Perform an approximation of the full multihead attention by dispatching
@@ -2240,97 +2460,85 @@ def sparse_dot_product_attention(q, k, v, bc, experts_params):
    * The bias is added inside this function to prevent attention to the future.
 
   Args:
-    q (tf.Tensor): Queries of shape [1, heads, length_q, depth_k]
-    k (tf.Tensor): Keys of shape [1, heads, length_q, depth_k]
-    v (tf.Tensor): Values of shape [1, heads, length_kv, depth_v]
+    q (tf.Tensor): Queries of shape [batch, heads, length_q, depth_k]
+    k (tf.Tensor): Keys of shape [batch, heads, length_q, depth_k]
+    v (tf.Tensor): Values of shape [batch, heads, length_kv, depth_v]
     bc (tf.Tensor): Batch coordinates of shape [1, length_q, 1]
+    use_map_fn (bool): Use either tf.map_fn of python for loop to compute the
+      heads separately
     experts_params (dict): Additional params for the local expert
 
   Returns:
     tf.Tensor: Approximation of Softmax(Q.K) * V, of shape
-      [1, heads, length_q, depth_v]
+      [batch, heads, length_q, depth_v]
   """
+  flattened = (q.get_shape().as_list()[0] == 1 and
+               k.get_shape().as_list()[0] == 1 and
+               v.get_shape().as_list()[0] == 1)
+  _, nb_heads, _, depth = q.get_shape().as_list()
 
-  assert q.get_shape().as_list()[0] == 1
-  assert k.get_shape().as_list()[0] == 1
-  assert v.get_shape().as_list()[0] == 1
-
-  @expert_utils.add_name_scope()
-  def unpack_heads(x):
+  # First case: Either constant batch size of size 1 or batch already flattened
+  if flattened:
     # Flatten the batch. squeeze works because batch_size = 1 (otherwise could
     # use tf.transpose and flatten after unpacking)
-    x = tf.squeeze(x, axis=0)
-    list_x = tf.unstack(x)
-    return list_x  # list[tf.Tensor(shape=[batch * length, depth])]
+    q = tf.squeeze(q, axis=0)
+    k = tf.squeeze(k, axis=0)
+    v = tf.squeeze(v, axis=0)
+  # Second case: Flatten batch dimension
+  else:
+    batch_size = tf.shape(q)[0]
+    q = tf.transpose(q, perm=[1, 0, 2, 3])
+    k = tf.transpose(k, perm=[1, 0, 2, 3])
+    v = tf.transpose(v, perm=[1, 0, 2, 3])
+    q = tf.reshape(q, [nb_heads, -1, depth])
+    k = tf.reshape(k, [nb_heads, -1, depth])
+    v = tf.reshape(v, [nb_heads, -1, depth])
 
   bc = tf.squeeze(bc, axis=0)
-  list_q = unpack_heads(q)
-  list_k = unpack_heads(k)
-  list_v = unpack_heads(v)
 
-  @expert_utils.add_name_scope()
-  def expert_dot_product(x, q, k, v, bc):
-    """Perform dot product on a subset of the sequence.
+  # Unstack heads
+  list_q = tf.unstack(q)  # list[tf.Tensor(shape=[batch * length, depth])]
+  list_k = tf.unstack(k)
+  list_v = tf.unstack(v)
 
-    Args:
-      x (tf.Tensor): Unused but forwarded by local_moe
-      q (tf.Tensor): Queries of shape [length_expert, depth_k]
-      k (tf.Tensor): Queries of shape [length_expert, depth_k]
-      v (tf.Tensor): Queries of shape [length_expert, depth_v]
-      bc (tf.Tensor): Batch coordinates of shape [length_expert, 1]
+  list_gates_q = []
+  list_gates_k = []
 
-    Returns:
-      tf.Tensor: dot product attention output ([length_expert, depth_v])
-    """
-    length = tf.shape(x)[0]
-
-    # Mask between the sequences
-    bias_batch = attention_bias_coordinates(bc)
-    # Mask to prevent sequences of attenting to the future
-    bias_past = tf.reshape(
-        attention_bias_lower_triangle(length), [length, length])
-    bias = bias_batch + bias_past  # bias has shape [length, length]
-    bias = tf.reshape(bias, [1, 1, length, length])
-
-    # Restore batch and head dimension
-    q, k, v = [tf.expand_dims(tf.expand_dims(t, 0), 0) for t in (q, k, v)]
-    # Softmax(Q.K)*V
-    v_out = dot_product_attention(q, k, v, bias=bias)
-    # Remove batch and head dimension
-    v_out = tf.squeeze(v_out, axis=0)
-    v_out = tf.squeeze(v_out, axis=0)
-    return v_out
-
-  list_v_out = []
   total_loss = 0.0
-  for q, k, v in zip(list_q, list_k, list_v):
+  # There might be a more optimized way to compute all heads at once
+  for single_q, single_k, _ in zip(list_q, list_k, list_v):
     # Each head get its own dispatcher
-
-    # TODO(epot): Choose which dispatcher use here on the k/q pair (either
-    # noisy_top_k_gating or Locality-sensitive hashing)
-
-    # Concatenate along the depth axis
-    x = tf.concat([q, k], axis=-1)  # Works because q and k lengths are the same
-
-    # Compute the attention on the sparse tokens
-    v_out, loss = expert_utils.local_moe(
-        x=x,
-        expert_fn=expert_dot_product,
-        additional_dispatch_params=dict(
-            q=q,
-            k=k,
-            v=v,
-            bc=bc
-        ),
+    lhs_gating = LshGating(
+        depth=single_q.get_shape().as_list()[-1],
         **experts_params
     )
-    list_v_out.append(v_out)
-    total_loss += loss
+
+    list_gates_q.append(lhs_gating.get_gates(single_q))
+    list_gates_k.append(lhs_gating.get_gates(single_k))
+
+  gates_q = tf.stack(list_gates_q)
+  gates_k = tf.stack(list_gates_k)
+
+  # Process each head separatly
+  v_out = map_fn_switch(
+      lambda args: dot_product_single_head(bc=bc, *args),
+      elems=(q, k, v, gates_q, gates_k),
+      dtype=(tf.float32),
+      parallel_iterations=2,
+      # back_prop=True,
+      # swap_memory=False,
+      # infer_shape=True,
+      # name=None
+      use_map_fn=use_map_fn,
+  )
 
   # Restore original shape as expected by multihead_attention
-  v_out = tf.stack(list_v_out)  # Merge heads
-  v_out = tf.expand_dims(v_out, axis=0)
-  return v_out, total_loss / len(list_v_out)
+  if flattened:
+    v_out = tf.expand_dims(v_out, axis=0)  # Restore batch_size = 1
+  else:
+    v_out = tf.reshape(v_out, [nb_heads, batch_size, -1, depth])
+    v_out = tf.transpose(v_out, [1, 0, 2, 3])
+  return v_out, total_loss / nb_heads
 
 
 def scaled_dot_product_attention_simple(q, k, v, bias, name=None):

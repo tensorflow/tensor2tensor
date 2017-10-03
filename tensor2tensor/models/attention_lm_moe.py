@@ -66,7 +66,7 @@ LAYER_SYMBOLS = {
     "h": AttentionType.MULTIHEAD,  # multi-Head
     "e": AttentionType.LOCAL_EXPERTS,  # Experts
     "m": AttentionType.MEMORY_EFFICIENT,  # Memory
-    "s": AttentionType.SPARSE_MULTIHEAD,  # Sparse
+    "s": AttentionType.SPARSE_MULTIHEAD,  # Sparse (Locality sensitive hashing)
 }
 
 
@@ -206,10 +206,9 @@ class AttentionLmMoe(t2t_model.T2TModel):
 
                 # Additional parameters
                 bc=batch_coordinate,
+                use_map_fn=hparams.lsh_use_map_fn,
                 experts_params=dict(
-                    train=hparams.mode == ModeKeys.TRAIN,
-                    num_experts=hparams.attention_num_experts,
-                    k=hparams.attention_moe_k,
+                    nb_hyperplanes=hparams.lsh_num_hyperplanes,
                 ),
             )
             y = dp_restore_pad(y)
@@ -513,6 +512,10 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_v_size", 256)
   # Loss coef for load balancing
   hparams.add_hparam("attention_load_balance", 2e-2)
+  # Locality-sensitive hashing params
+  hparams.add_hparam("lsh_num_hyperplanes", 4)
+  hparams.add_hparam("lsh_use_map_fn", int(False))
+
   hparams.add_hparam("use_sepconv", int(False))
   hparams.add_hparam("diet_experts", int(False))
   hparams.add_hparam("memory_efficient_ffn", int(False))
