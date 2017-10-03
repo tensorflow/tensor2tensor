@@ -256,7 +256,10 @@ def create_evaluation_metrics(problems, model_hparams):
       metric_fn = METRICS_FNS[metric]
       problem_metric_fn = make_problem_specific_metric_fn(
           metric_fn, problem_idx, weights_fn)
-      eval_metrics["metrics-%s/%s" % (problem_name, metric)] = problem_metric_fn
+
+      metric_name = "metrics-%s/%s" % (problem_name, metric)
+
+      eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
 
