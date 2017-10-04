@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import functools
 import math
 
@@ -35,6 +36,11 @@ import tensorflow as tf
 
 from tensorflow.python.framework import function
 
+
+# Struct conatining the sequences ids and order on a batch (are send to the
+# expert to allow them to compute the bias mask)
+BatchInfo = collections.namedtuple(
+    "BatchInfo", "coordinates, order")
 
 _expert_count = 0
 
@@ -448,27 +454,57 @@ def attention_bias_proximal(length):
 
 
 @expert_utils.add_name_scope()
-def attention_bias_coordinates(batch_coordinate):
+def attention_bias_batch(
+    batch_coordinates_q,
+    batch_coordinates_k=None,
+    condition_fn=None,
+):
   """Generate a mask to prevent the batch to attend to each others.
 
   Args:
-    batch_coordinate (tf.Tensor): int32 of shape [length, 1] containing the
+    batch_coordinates_q (tf.Tensor): int32 of shape [length_q, 1] containing the
       coordinates of the batches
+    batch_coordinates_k (tf.Tensor): int32 of shape [length_k, 1] containing the
+      coordinates of the batches. If None, do self attention (q and k identical)
+    condition_fn (fct): A predicat function defining which type of mask build
 
   Returns:
-    tf.Tensor: float32 mask of shape [length, length] containing either 0 or
+    tf.Tensor: float32 mask of shape [length_q, length_k] containing either 0 or
       -infinity (-1e9)
   """
-  batch_coord_float = tf.squeeze(batch_coordinate, 1)
+  if batch_coordinates_k is None:
+    batch_coordinates_k = batch_coordinates_q
+
   # Convert to float first because of b/25387198
-  batch_coord_float = tf.to_float(batch_coord_float)
-  bc_v = tf.expand_dims(batch_coord_float, 1)
-  bc_h = tf.expand_dims(batch_coord_float, 0)
-  bias_batch = bc_v - bc_h  # Broadcast to create [length, length] mask
+  def to_float(bc):
+    bc = tf.squeeze(bc, 1)
+    bc = tf.to_float(bc)
+    return bc
+
+  bc_v = tf.expand_dims(to_float(batch_coordinates_q), 1)
+  bc_h = tf.expand_dims(to_float(batch_coordinates_k), 0)
+  bias_batch = bc_h - bc_v  # Broadcast to create [length_q, length_k] mask
   # Theshold non zeros to 1.0
-  bias_batch = tf.minimum(1.0, tf.abs(bias_batch))
+  bias_batch = condition_fn(bias_batch)
   bias_batch *= -1e9  # Set non zeros to -infinity
   return bias_batch
+
+
+# Mask to prevent individual sequences of the same batch to attend to each other
+attention_bias_coordinates = functools.partial(
+    attention_bias_batch,
+    condition_fn=lambda bias: tf.minimum(1.0, tf.abs(bias)),
+)
+
+
+# Mask similar to upper triangular mask, but allow dispatching
+attention_bias_future = functools.partial(
+    attention_bias_batch,
+    # Elems can attend to themself (otherwise would use bias_batch + 1.0)
+    # No tf.abs to concider the order
+    # tf.maximum and tf.minimum to threshold the values
+    condition_fn=lambda bias: tf.maximum(0.0, tf.minimum(1.0, bias)),
+)
 
 
 def split_last_dimension(x, n):
@@ -2119,6 +2155,7 @@ def parameter_attention(x,
     return y
 
 
+@expert_utils.add_name_scope()
 def coordinate_tensor(shape, axis):
   """Return a tensor with given shape containing coordinte along given axis.
 
@@ -2130,6 +2167,8 @@ def coordinate_tensor(shape, axis):
     A tensor with shape shape and type tf.int32, where each elements its
     coordinate along the given axis.
   """
+  if axis < 0:
+    axis = tf.size(shape) + axis  # Convert to positive for the one_hot indice
 
   r = tf.range(shape[axis])
   r_shape = tf.one_hot(
@@ -2303,7 +2342,7 @@ def local_expert_attention(
 
 
 @expert_utils.add_name_scope()
-def expert_dot_product(q, k, v, info_q=None, info_k=None):
+def expert_dot_product(q, k, v, info_q, info_k):
   """Perform dot product on a subset of the sequence.
 
   Can add a mask to the attention to prevent sequences to attend to each other
@@ -2324,11 +2363,10 @@ def expert_dot_product(q, k, v, info_q=None, info_k=None):
   length_k = tf.shape(k)[0]
   depth_v = v.get_shape().as_list()[-1]
 
-  bias = None
-  if info_q is not None or info_k is not None:
-    # TODO(epot): Implement more generic version of the mask computation to
-    # have Q/K of different lengths
-    raise NotImplementedError("No mask for now")
+  # Create the mask
+  bias = attention_bias_coordinates(info_q.coordinates, info_k.coordinates)
+  if info_k.order is not None:
+    bias += attention_bias_future(info_q.order, info_k.order)
 
   # Restore batch and head dimension
   q, k, v = [tf.expand_dims(tf.expand_dims(t, 0), 0) for t in (q, k, v)]
@@ -2367,7 +2405,7 @@ def expert_dot_product(q, k, v, info_q=None, info_k=None):
 
 
 @expert_utils.add_name_scope()
-def dot_product_single_head(q, k, v, gates_q, gates_k, bc):  # pylint: disable=unused-argument
+def dot_product_single_head(q, k, v, gates_q, gates_k, bi):
   """Perform a dot product attention on a single sequence on a single head.
 
   This function dispatch the q, k, v and loop over the buckets to compute the
@@ -2379,7 +2417,7 @@ def dot_product_single_head(q, k, v, gates_q, gates_k, bc):  # pylint: disable=u
     v (tf.Tensor): [length_k, depth_v]
     gates_q (tf.Tensor): One-hot vector of shape [length_q, nb_buckets]
     gates_k (tf.Tensor): One-hot vector of shape [length_k, nb_buckets]
-    bc (BatchInfo): Contains the batch coordinates and sequence order
+    bi (BatchInfo): Contains the batch coordinates and sequence order
 
   Returns:
     tf.Tensor: [length_q, depth_v]
@@ -2390,20 +2428,37 @@ def dot_product_single_head(q, k, v, gates_q, gates_k, bc):  # pylint: disable=u
   q_dispatcher = expert_utils.SparseDispatcher(nb_buckets, gates_q)
   k_dispatcher = expert_utils.SparseDispatcher(nb_buckets, gates_k)
 
+  def eventually_dispatch(dispatcher, value):
+    if value is not None:
+      return dispatcher.dispatch(value)
+    return [None] * nb_buckets
+
   # Iterate over every dispatched group
   list_v_out = []
   for (
       q,
       k,
       v,
-      # TODO(epot): If the batch are merged together, should also dispatch the
-      # sequence positions and batch coordinates
+      qbc,
+      qbo,
+      kbc,
+      kbo,
   ) in zip(
+      # Dispatch queries, keys and values
       q_dispatcher.dispatch(q),
       k_dispatcher.dispatch(k),
       k_dispatcher.dispatch(v),
+      # Also dispatch the sequence positions and batch coordinates
+      eventually_dispatch(q_dispatcher, bi.coordinates),
+      eventually_dispatch(q_dispatcher, bi.order),
+      eventually_dispatch(k_dispatcher, bi.coordinates),
+      eventually_dispatch(k_dispatcher, bi.order),
   ):
-    list_v_out.append(expert_dot_product(q, k, v, None, None))
+    list_v_out.append(expert_dot_product(
+        q, k, v,
+        info_q=BatchInfo(coordinates=qbc, order=qbo),
+        info_k=BatchInfo(coordinates=kbc, order=kbo)
+    ))
 
   # Combine all buckets together to restore the original length
   return q_dispatcher.combine(list_v_out)
@@ -2443,7 +2498,7 @@ def map_fn_switch(fn, elems, use_map_fn=True, **kwargs):
 
 
 @expert_utils.add_name_scope()
-def sparse_dot_product_attention(q, k, v, bc, use_map_fn, experts_params):
+def sparse_dot_product_attention(q, k, v, bi, use_map_fn, experts_params):
   """Sparse multihead self attention.
 
   Perform an approximation of the full multihead attention by dispatching
@@ -2457,13 +2512,14 @@ def sparse_dot_product_attention(q, k, v, bc, use_map_fn, experts_params):
    contains the elements from all different batches)
    * Right now, only self attention is supported so length_q and length_kv
    should be identical and the function will add triangular mask.
-   * The bias is added inside this function to prevent attention to the future.
+   * If bi.order is not None, The bias is added inside this function to
+   prevent attention to the future.
 
   Args:
     q (tf.Tensor): Queries of shape [batch, heads, length_q, depth_k]
     k (tf.Tensor): Keys of shape [batch, heads, length_q, depth_k]
     v (tf.Tensor): Values of shape [batch, heads, length_kv, depth_v]
-    bc (tf.Tensor): Batch coordinates of shape [1, length_q, 1]
+    bi (BatchInfo): Contains the batch coordinates and sequence order
     use_map_fn (bool): Use either tf.map_fn of python for loop to compute the
       heads separately
     experts_params (dict): Additional params for the local expert
@@ -2472,29 +2528,32 @@ def sparse_dot_product_attention(q, k, v, bc, use_map_fn, experts_params):
     tf.Tensor: Approximation of Softmax(Q.K) * V, of shape
       [batch, heads, length_q, depth_v]
   """
-  flattened = (q.get_shape().as_list()[0] == 1 and
-               k.get_shape().as_list()[0] == 1 and
-               v.get_shape().as_list()[0] == 1)
-  _, nb_heads, _, depth = q.get_shape().as_list()
+  batch_size, nb_heads, _, depth = q.get_shape().as_list()
+  batch_size = batch_size or tf.shape(q)[0]
 
-  # First case: Either constant batch size of size 1 or batch already flattened
-  if flattened:
-    # Flatten the batch. squeeze works because batch_size = 1 (otherwise could
-    # use tf.transpose and flatten after unpacking)
-    q = tf.squeeze(q, axis=0)
-    k = tf.squeeze(k, axis=0)
-    v = tf.squeeze(v, axis=0)
-  # Second case: Flatten batch dimension
-  else:
-    batch_size = tf.shape(q)[0]
-    q = tf.transpose(q, perm=[1, 0, 2, 3])
-    k = tf.transpose(k, perm=[1, 0, 2, 3])
-    v = tf.transpose(v, perm=[1, 0, 2, 3])
-    q = tf.reshape(q, [nb_heads, -1, depth])
-    k = tf.reshape(k, [nb_heads, -1, depth])
-    v = tf.reshape(v, [nb_heads, -1, depth])
+  @expert_utils.add_name_scope()
+  def flatten_first_dims(x):
+    # Case 1: Either constant batch size of size 1 or batch already flattened
+    if x.get_shape().as_list()[0] == 1:
+      return tf.squeeze(x, axis=0)
+    # Case 2: Flatten batch dimension
+    else:
+      x = tf.transpose(x, perm=[1, 0, 2, 3])
+      x = tf.reshape(x, [nb_heads, -1, depth])
+      return x
 
-  bc = tf.squeeze(bc, axis=0)
+  def flatten_batch(x):
+    if x is None:
+      return x
+    return expert_utils.flatten_all_but_last(x)
+
+  q = flatten_first_dims(q)
+  k = flatten_first_dims(k)
+  v = flatten_first_dims(v)
+  bi = BatchInfo(
+      coordinates=flatten_batch(bi.coordinates),
+      order=flatten_batch(bi.order),
+  )
 
   # Unstack heads
   list_q = tf.unstack(q)  # list[tf.Tensor(shape=[batch * length, depth])]
@@ -2521,7 +2580,7 @@ def sparse_dot_product_attention(q, k, v, bc, use_map_fn, experts_params):
 
   # Process each head separatly
   v_out = map_fn_switch(
-      lambda args: dot_product_single_head(bc=bc, *args),
+      lambda args: dot_product_single_head(bi=bi, *args),
       elems=(q, k, v, gates_q, gates_k),
       dtype=(tf.float32),
       parallel_iterations=2,
@@ -2533,7 +2592,7 @@ def sparse_dot_product_attention(q, k, v, bc, use_map_fn, experts_params):
   )
 
   # Restore original shape as expected by multihead_attention
-  if flattened:
+  if isinstance(batch_size, int) and batch_size == 1:
     v_out = tf.expand_dims(v_out, axis=0)  # Restore batch_size = 1
   else:
     v_out = tf.reshape(v_out, [nb_heads, batch_size, -1, depth])

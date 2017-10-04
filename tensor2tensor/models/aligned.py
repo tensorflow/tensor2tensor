@@ -193,7 +193,10 @@ class Aligned(t2t_model.T2TModel):
               hparams.attention_dropout,
 
               # Additional parameters
-              bc=batch_coordinate,
+              bi=[common_attention.BatchInfo(
+                  coordinates=batch_coordinate[i],
+                  order=None,  # No future mask
+              ) for i in range(dp.n)],
               use_map_fn=False,
               experts_params=dict(
                   nb_hyperplanes=4,

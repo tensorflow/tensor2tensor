@@ -158,6 +158,9 @@ class AttentionLmMoe(t2t_model.T2TModel):
       batch_coordinate = dp(get_batch_coordinate, x)
       batch_coordinate = dp_remove_pad(batch_coordinate)
       batch_coordinate = dp_expand_bc(batch_coordinate)
+      batch_order = dp(get_batch_coordinate, x, axis=-1)
+      batch_order = dp_remove_pad(batch_order)
+      batch_order = dp_expand_bc(batch_order)
 
     x = dp(print_shape, x, "in")
 
@@ -205,7 +208,10 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 hparams.attention_dropout,
 
                 # Additional parameters
-                bc=batch_coordinate,
+                bi=[common_attention.BatchInfo(
+                    coordinates=batch_coordinate[i],
+                    order=batch_order[i],  # No future mask
+                ) for i in range(dp.n)],
                 use_map_fn=hparams.lsh_use_map_fn,
                 experts_params=dict(
                     nb_hyperplanes=hparams.lsh_num_hyperplanes,
@@ -323,11 +329,12 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   return (decoder_input, decoder_self_attention_bias, pad_remover)
 
 
-def get_batch_coordinate(x):
+@expert_utils.add_name_scope()
+def get_batch_coordinate(x, axis=0):
   """Return a flat int32 tensor of shape [1, batch_size*length, 1]."""
   # Compute the batch coordinate before flattening all batches
   batch_coordinate = tf.expand_dims(
-      common_attention.coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
+      common_attention.coordinate_tensor(tf.shape(x)[:-1], axis=axis), axis=-1)
   return batch_coordinate
 
 
@@ -392,6 +399,7 @@ def conv_elems_1d(x, factor, out_depth):
   return x
 
 
+@expert_utils.add_name_scope()
 def expand_batch_coordinates(bc, length_factor):
   """Duplicate elements of bc by length_factor.
 
@@ -412,6 +420,7 @@ def expand_batch_coordinates(bc, length_factor):
   return bc
 
 
+@expert_utils.add_name_scope()
 def remove_pad(x, pad_remover, mode):
   """Remove padding by concatenating all dimension into one.
 
@@ -439,6 +448,7 @@ def remove_pad(x, pad_remover, mode):
   return x
 
 
+@expert_utils.add_name_scope()
 def restore_pad(x, ref_x, pad_remover, mode):
   x = tf.squeeze(x, axis=0)
   if mode != ModeKeys.PREDICT:

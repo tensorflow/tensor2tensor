@@ -677,6 +677,7 @@ class SparseDispatcher(object):
         tf.reshape(self._gates, [-1]),
         self._batch_index * num_experts + self._expert_index)
 
+  @add_name_scope()
   def dispatch(self, inp):
     """Create one input Tensor for each expert.
 
@@ -692,6 +693,7 @@ class SparseDispatcher(object):
     inp = tf.gather(inp, self._batch_index)
     return tf.split(inp, self._part_sizes_tensor, 0, num=self._num_experts)
 
+  @add_name_scope()
   def combine(self, expert_out, multiply_by_gates=True):
     """Sum together the expert output, weighted by the gates.
 
