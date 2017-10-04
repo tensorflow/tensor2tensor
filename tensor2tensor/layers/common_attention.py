@@ -655,76 +655,6 @@ def attention_image_summary(attn, image_shapes=None):
   tf.summary.image("attention", image, max_outputs=1)
 
 
-def grouped_attention_single(num_groups, q, kv, q_gates, m_gates):
-  """Compute grouped attention for one batch and one head.
-
-  q is a Tensor of queries, and kv is Tensor of keys and values
-  (concatenated in dimension 1).
-
-  q_gates and m_gates are float32 Tensors containing zeros and ones.
-  The ones indicate which positions belong to which groups.  A
-  key-value pair can be in zero or more groups.  Each query is in one
-  group.  A query can only pay attention to key-value pairs which are
-  in its group.
-
-  In addition to the usual output, we return two additional Tensors:
-  q_total and m_total.
-
-  For query position i belonging to group g, q_total[i, g] contains
-  log(sum(exp(q_i dot k_j))) for all keys k_j in group g.
-
-  For memory position j belonging to group g, m_total[j, g] contains
-  the sum of the attention weights over all queries and that memory position.
-
-  q_total and m_total contain zeros in positions where the
-  corresponding query/memory does not belong to the corresponding
-  group.
-
-  Args:
-    num_groups: an integer
-    q: Tensor with shape [length_q, depth_qk]
-    kv: Tensor with shape [length_kv, depth_qk + depth_v]
-    q_gates: Tensor with shape [length_q, num_groups]
-    m_gates: Tensor with shape [length_kv, num_groups]
-
-  Returns:
-    o: Tensor with shape [length_q, depth_v]
-    q_total: Tensor with shape [length_q, num_groups]
-    m_total: Tensor with shape [length_kv, num_groups]
-  """
-  q_dispatcher = expert_utils.SparseDispatcher(num_groups, q_gates)
-  m_dispatcher = expert_utils.SparseDispatcher(num_groups, m_gates)
-  q_length_coordinate = q_dispatcher.expert_to_batch_indices()
-  m_length_coordinate = m_dispatcher.expert_to_batch_indices()
-  dispatched_q = q_dispatcher.dispatch(q)
-  dispatched_kv = m_dispatcher.dispatch(kv)
-  length_q = tf.shape(q)[0]
-  length_kv = tf.shape(kv)[0]
-  depth_qk = tf.shape(q)[1]
-  depth_v = tf.shape(kv)[1] - depth_qk
-  o = []
-  q_totals = []
-  m_totals = []
-  for e in xrange(num_groups):
-    k, v = tf.split(dispatched_kv[e], [depth_qk, depth_v], axis=1)
-    logits = tf.matmul(dispatched_q[e], k, transpose_b=True)
-    log_weights = tf.nn.log_softmax(logits)
-    weights = tf.exp(log_weights)
-    o.append(tf.matmul(weights, v))
-    # For each query, this is the log of the sum of the unnormalized weights.
-    q_total = tf.reshape(logits[:, :1] - log_weights[:, :1], [-1])
-    q_totals.append(tf.unsorted_segment_sum(
-        q_total, q_length_coordinate[e], length_q))
-    epsilon = 1e-3
-    m_total = tf.log(tf.reduce_sum(tf.stop_gradient(weights), axis=0) + epsilon)
-    m_totals.append(
-        tf.unsorted_segment_sum(m_total, m_length_coordinate[e], length_kv))
-  o = q_dispatcher.combine(o, multiply_by_gates=False)
-  q_total = tf.stack(q_totals, axis=1)
-  m_total = tf.stack(m_totals, axis=1)
-  return o, q_total, m_total
-
-
 def grouped_attention_multihead(query_antecedent,
                                 memory_antecedent,
                                 total_key_depth,
@@ -732,10 +662,31 @@ def grouped_attention_multihead(query_antecedent,
                                 output_depth,
                                 num_heads,
                                 num_groups,
-                                threshold=0.3,
-                                name=None,
-                                make_image_summary=True):
-  """Dot-product attention with sparsity.
+                                memory_target_density=2.0,
+                                multiplicative_overhead=1.25,
+                                additive_overhead=8.0,
+                                mask_right=False,
+                                make_image_summary=True,
+                                name=None):
+  """Multi-head dot-product attention with sparsity.
+
+  For each attention head, the queries are partitioned into groups.
+  For each group, only a subset of the key-value pairs are considered.
+
+  The choices of groups are selected based on trained predictors of
+  the total attention given the group inclusion.
+
+  memory_target_density indicates the average how many groups in which
+  a key-value pair should participate.
+
+  We use auxialiary losses to ensure that each group contains roughly
+  the same number of queries and the same number of key-value pairs.
+  If for a given sequence, the actual number of queries/pairs sent to
+  an expert exceeds this target by a factor of more than
+  multiplicative_overhead, then the last ones are dropped.  We use
+  this drop-last policy to avoid bleeding information backwards, which
+  is necessary when using this function with autoregressive
+  prediction.
 
   Args:
     query_antecedent: a Tensor with shape [batch, length_q, channels]
@@ -745,9 +696,12 @@ def grouped_attention_multihead(query_antecedent,
     output_depth: an integer
     num_heads: an integer dividing total_key_depth and total_value_depth
     num_groups: an integer
-    threshold: a floating point number
-    name: an optional string
+    memory_target_density: a floating point scalar
+    multiplicative_overhead: a floating point scalar
+    additive_overhead: a floating point scalar
+    mask_right: a boolean
     make_image_summary: a boolean
+    name: an optional string
 
   Returns:
     A Tensor with shape [batch, length_q, output_depth]
@@ -783,13 +737,18 @@ def grouped_attention_multihead(query_antecedent,
     # These are used to determine group inclusion.
     # We will train these by auxiliary losses.  We use stop_gradient here
     # to keep these losses from back-propagating to the rest of the model.
+    # We add biases that help balance the usage of the experts.
     q_pred = common_layers.conv1d(
         tf.stop_gradient(query_antecedent), num_heads * num_groups, 1,
         name="q_pred")
     q_pred = split_heads(q_pred, num_heads)
+    q_bias = tf.get_variable("q_bias", [1, num_heads, 1, num_groups])
+    q_pred_biased = q_pred + q_bias
     m_pred = common_layers.conv1d(tf.stop_gradient(
         memory_antecedent), num_heads * num_groups, 1, name="m_pred")
     m_pred = split_heads(m_pred, num_heads)
+    m_bias = tf.get_variable("m_bias", [1, num_heads, 1, num_groups])
+    m_pred_biased = m_pred + m_bias
     q *= depth_qk**-0.5
     # q, kv, q_pred, m_pred are all [batch, heads, length_[q/m], ?]
     # now reshape them all to [batch * heads, length, ?]
@@ -797,41 +756,98 @@ def grouped_attention_multihead(query_antecedent,
     kv = combine_first_two_dimensions(kv)
     q_pred = combine_first_two_dimensions(q_pred)
     m_pred = combine_first_two_dimensions(m_pred)
-    q_group = tf.argmax(q_pred, axis=2)
-    q_gates = tf.one_hot(q_group, num_groups, axis=-1)
-    m_gates = tf.to_float(tf.greater(m_pred, math.log(threshold)))
-    # include first memory position in all groups, to avoid zero-sized tensors.
-    # TODO(noam): do we need to do this for queries too?
-    m_gates = tf.maximum(
-        m_gates, tf.reshape(tf.one_hot([0], length_kv), [1, length_kv, 1]))
-    q_group_size = tf.reduce_sum(q_gates, 1)
-    m_group_size = tf.reduce_sum(m_gates, 1)
+    q_pred_biased = combine_first_two_dimensions(q_pred_biased)
+    m_pred_biased = combine_first_two_dimensions(m_pred_biased)
+    q_group = tf.argmax(q_pred_biased, axis=2)
+    q_requests = tf.one_hot(q_group, num_groups, axis=-1)
+    m_requests = tf.to_float(tf.greater(m_pred_biased, 0.0))
+    # include first memory position in all groups, to avoid division by zero.
+    m_requests = tf.maximum(
+        m_requests, tf.reshape(tf.one_hot([0], length_kv), [1, length_kv, 1]))
+    q_group_size = tf.reduce_sum(q_requests, 1)
+    m_group_size = tf.reduce_sum(m_requests, 1)
+    q_group_target_size = tf.to_float(length_q) / tf.to_float(num_groups)
+    m_group_target_size = (
+        tf.to_float(length_kv) * memory_target_density
+        / tf.to_float(num_groups))
+    capacity_q = tf.minimum(length_q, tf.to_int32(
+        q_group_target_size * multiplicative_overhead + additive_overhead))
+    capacity_m = tf.minimum(length_kv, tf.to_int32(
+        m_group_target_size * multiplicative_overhead + additive_overhead))
+    q_dispatcher = expert_utils.TruncatingDispatcher(q_requests, capacity_q)
+    m_dispatcher = expert_utils.TruncatingDispatcher(m_requests, capacity_m)
+    q_gates = q_dispatcher.gates()
+    m_gates = m_dispatcher.gates()
+    dispatched_q = q_dispatcher.dispatch(q)
+    dispatched_kv = m_dispatcher.dispatch(kv)
+    # dispatched_q: [batch * num_heads, num_groups, capacity_q, depth_qk]
+    # dispatched_kv:
+    #   [batch * num_heads, num_groups, capacity_m, depth_qk + depth_v]
+    k, v = tf.split(dispatched_kv, [depth_qk, depth_v], axis=3)
+    logits = tf.matmul(dispatched_q, k, transpose_b=True)
+    bias = tf.expand_dims((m_dispatcher.nonpadding() - 1.0) * 1e9, 2)
+    if mask_right:
+      q_coordinate = tf.to_float(
+          tf.expand_dims(q_dispatcher.length_coordinate(), 3))
+      m_coordinate = tf.to_float(
+          tf.expand_dims(m_dispatcher.length_coordinate(), 2))
+      bias += tf.to_float(tf.greater(m_coordinate, q_coordinate)) * -1e9
+    logits += bias
+    log_weights = tf.nn.log_softmax(logits)
+    weights = tf.exp(log_weights)
+    # For each query, this is the log of the sum of the unnormalized weights.
+    q_total = tf.stop_gradient(logits[:, :, :, :1] - log_weights[:, :, :, :1])
+    # For each key, this is the sum of the normalized weights.
+    m_total = tf.expand_dims(
+        tf.reduce_sum(tf.stop_gradient(weights), axis=2), -1)
+    o = tf.matmul(weights, v)
+    o = q_dispatcher.combine(o)
 
-    # compute the output
-    o, q_total, m_total = tf.map_fn(
-        lambda args: grouped_attention_single(num_groups, *args),
-        (q, kv, q_gates, m_gates),
-        dtype=(tf.float32, tf.float32, tf.float32),
-        parallel_iterations=1)
+    o = tf.reshape(o, [batch, num_heads, length_q, depth_v])
+    o = combine_heads(o)
+    o = common_layers.conv1d(o, output_depth, 1, name="output_transform")
 
-    # compute auxiliary losses to train the predictions
-    q_loss = tf.nn.l2_loss((q_total - q_pred) * q_gates)
+    m_total = m_dispatcher.combine(m_total)
+    q_total = q_dispatcher.combine(q_total)
+    q_total = tf.squeeze(q_total, -1)
+    m_total = tf.squeeze(m_total, -1)
+    # Compute summed m predictions for all groups
+    m_pred_used = tf.reduce_sum(tf.exp(m_pred) * m_dispatcher.gates(), axis=2)
+    q_pred_used = tf.reduce_sum(q_pred * q_dispatcher.gates(), axis=2)
+    epsilon = 1e-3
+    m_pred_used = tf.log(m_pred_used + epsilon)
+    m_total = tf.log(m_total + epsilon)
+    m_loss = tf.nn.l2_loss(m_total - m_pred_used)
+    q_loss = tf.nn.l2_loss(
+        (q_total - q_pred_used) * tf.reduce_sum(q_gates, axis=2))
+
     q_loss /= tf.to_float(batch * length_q)
-    m_loss = tf.nn.l2_loss((m_total - m_pred) * m_gates)
     m_loss /= tf.to_float(batch * length_kv)
+
     # We would like the query groups to be equal sized.  The group
     # size is discrete, so we need some trick here.  We add a loss
     # proportional to the product of the group size and the
     # predictions for that group.  This encourages the predictions to
     # decrease for groups that are too big.
-    q_group_deviation = (q_group_size - tf.reduce_mean(
-        q_group_size, axis=1, keep_dims=True)) / tf.to_float(length_kv)
-    q_pred_mean = tf.reduce_mean(q_pred, axis=1)
-    q_pred_mean -= tf.reduce_mean(q_pred_mean, axis=1, keep_dims=True)
-    q_balance_loss = (
-        tf.reduce_sum(q_pred_mean * q_group_deviation) /  tf.to_float(batch))
+    q_group_deviation = (q_group_size / q_group_target_size) - 1.0
+    q_balance_loss = tf.reduce_sum(
+        tf.reduce_mean(q_pred_biased, axis=1) * q_group_deviation
+    ) / tf.to_float(batch)
+    m_group_deviation = (m_group_size / m_group_target_size) - 1.0
+    m_balance_loss = tf.reduce_sum(
+        tf.reduce_mean(m_pred_biased, axis=1) * m_group_deviation
+    ) / tf.to_float(batch)
+
+    # The losses in this function only propagate back to variables
+    # defined in this function, and the losses outside of this
+    # function only propagate back to variables outside of this
+    # function.  Assuming some kind of adaptive learning algorithm,
+    # it should not matter how much we scale the losses in this function.
+    # Still we scale them down a lot so that they should not show up
+    # much in the overall loss for the model.
     extra_loss_multiplier = 1e-3
-    extra_loss = (q_loss + m_loss + q_balance_loss) * extra_loss_multiplier
+    extra_loss = q_loss + m_loss + q_balance_loss + m_balance_loss
+    extra_loss *= extra_loss_multiplier
 
     # Show a bunch of summaries.
     if (not tf.get_variable_scope().reuse and
@@ -843,32 +859,45 @@ def grouped_attention_multihead(query_antecedent,
       tf.summary.scalar("q_loss", q_loss)
       tf.summary.scalar("m_loss", m_loss)
       tf.summary.scalar("q_balance_loss", q_balance_loss)
-      density = (
-          tf.reduce_sum(tf.to_float(m_group_size) * tf.to_float(q_group_size)) /
-          tf.to_float(batch * num_heads * length_q * length_kv))
-      tf.summary.scalar("density", density)
+      tf.summary.scalar("m_balance_loss", m_balance_loss)
+      tf.summary.histogram("m_pred_used", m_pred_used)
+      tf.summary.histogram("m_total", m_total)
+      tf.summary.histogram("q_pred_used", q_pred_used)
+      tf.summary.histogram("q_total", q_total)
       if make_image_summary:
+        # image summaries are expensive.
+        # So we restrict them to head_num<4, query_position<512, batch_index=0.
+        trunc_heads = min(4, num_heads)
+        trunc_length_q = tf.minimum(length_q, 512)
         # We recompute the attention for the first example, in an inefficient
         # way - masking.  This lets us show pretty pictures.
-        # [num_heads, length_q, group]
-        q_gates_0 = q_gates[:num_heads, :, :]
-        # [num_heads, length_kv, group]
-        m_gates_0 = m_gates[:num_heads, :, :]
-        mask = tf.matmul(q_gates_0, m_gates_0, transpose_b=True)
-        q_0 = q[:num_heads, :, :]
-        k_0 = kv[:num_heads, :, :depth_qk]
-        att_0 = tf.nn.softmax(tf.matmul(q_0, k_0, transpose_b=True))
-        hdr = tf.pow(att_0, 0.2)  # for high-dynamic-range
-        mask_channel = mask * tf.maximum(hdr, 0.3)
-        image = tf.stack([hdr, mask_channel, mask_channel], axis=3)
-        tf.summary.image("att", image, max_outputs=num_heads)
-        mask_coverage = tf.reduce_sum(mask * att_0) / (
-            tf.to_float(length_q) * num_heads)
+        # [trunc_heads, length_q, group]
+        q_gates_trunc = q_gates[:trunc_heads, :trunc_length_q, :]
+        # [trunc_heads, length_kv, group]
+        m_gates_trunc = m_gates[:trunc_heads, :, :]
+        grouping_mask = tf.matmul(
+            q_gates_trunc, m_gates_trunc, transpose_b=True)
+        q_trunc = q[:trunc_heads, :trunc_length_q, :]
+        k_trunc = kv[:trunc_heads, :, :depth_qk]
+        logits_trunc = tf.matmul(q_trunc, k_trunc, transpose_b=True)
+        if mask_right:
+          band = tf.matrix_band_part(
+              tf.ones([trunc_length_q, length_kv]), -1, 0)
+          trunc_bias = tf.expand_dims((1.0 - band) * -1e9, 0)
+          logits_trunc += trunc_bias
+        att_trunc = tf.nn.softmax(logits_trunc)
+        mask_coverage = tf.reduce_sum(grouping_mask * att_trunc) / (
+            tf.to_float(trunc_length_q) * trunc_heads)
         tf.summary.scalar("coverage", mask_coverage)
-
-    o = tf.reshape(o, [batch, num_heads, length_q, depth_v])
-    o = combine_heads(o)
-    o = common_layers.conv1d(o, output_depth, 1, name="output_transform")
+        att_trunc_hdr = tf.pow(att_trunc, 0.2)  # for high-dynamic-range
+        mask_channel = grouping_mask * tf.maximum(att_trunc_hdr, 0.3)
+        image = tf.stack([att_trunc_hdr, mask_channel, mask_channel], axis=3)
+        tf.summary.image("att", image, max_outputs=trunc_heads)
+        # show one group for each head.
+        att_per_group = tf.expand_dims(weights[:trunc_heads, 0, :, :], -1)
+        tf.summary.image(
+            "att_per_group_%d", tf.pow(att_per_group, 0.2),
+            max_outputs=trunc_heads)
     return o, extra_loss
 
 

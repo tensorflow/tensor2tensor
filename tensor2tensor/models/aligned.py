@@ -69,6 +69,12 @@ class Aligned(t2t_model.T2TModel):
     extra_loss = 0.0
     ffn_hidden_sizes = [int(s) for s in hparams.ffn_hidden_sizes.split(",")]
     moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
+    if hparams.mask_right:
+      def _bias(x):
+        return common_attention.attention_bias_lower_triangle(tf.shape(x)[1])
+      bias = dp(_bias, x)
+    else:
+      bias = tf.zeros([1, 1, 1, 1])
     if hparams.diet_experts:
       hsize, = moe_hidden_sizes
 
@@ -97,13 +103,16 @@ class Aligned(t2t_model.T2TModel):
               common_attention.multihead_attention,
               x,
               None,
-              None,  # bias
+              bias,  # bias
               hparams.attention_key_channels or hparams.hidden_size,
               hparams.attention_value_channels or hparams.hidden_size,
               hparams.hidden_size,
               hparams.num_heads,
               hparams.attention_dropout)
         elif layer_type == "att_grouped":
+          multiplicative_overhead = (
+              hparams.multiplicative_overhead if hparams.mode == ModeKeys.TRAIN
+              else hparams.multiplicative_overhead_eval)
           y, loss = dp(
               common_attention.grouped_attention_multihead,
               x,
@@ -113,24 +122,18 @@ class Aligned(t2t_model.T2TModel):
               hparams.hidden_size,
               hparams.num_heads,
               num_groups=hparams.attention_num_groups,
+              memory_target_density=hparams.memory_target_density,
+              multiplicative_overhead=multiplicative_overhead,
               make_image_summary=hparams.attention_image_summary,
+              mask_right=hparams.mask_right,
           )
           extra_loss += tf.add_n(loss) / dp.n
         elif layer_type == "att_memory_efficient":
           assert hparams.layer_preprocess_sequence == "n"
-          zero_bias = tf.zeros([1, 1, 1, 1])
           y = dp(
               common_attention.multihead_self_attention_memory_efficient,
               x,
-              zero_bias,
-              hparams.num_heads)
-        elif layer_type == "att_memory_efficient":
-          assert hparams.layer_preprocess_sequence == "n"
-          zero_bias = tf.zeros([1, 1, 1, 1])
-          y = dp(
-              common_attention.multihead_self_attention_memory_efficient,
-              x,
-              zero_bias,
+              bias,
               hparams.num_heads)
         elif layer_type == "att_local":
           y = dp(
@@ -143,7 +146,9 @@ class Aligned(t2t_model.T2TModel):
               hparams.hidden_size,
               hparams.num_heads,
               hparams.attention_dropout,
-              attention_type="local_unmasked",
+              attention_type=(
+                  "local_mask_right" if hparams.mask_right
+                  else "local_unmasked"),
               block_length=hparams.local_attention_window,
               block_width=hparams.local_attention_window)
         elif layer_type == "att_pseudolocal":
@@ -153,7 +158,7 @@ class Aligned(t2t_model.T2TModel):
             return common_attention.attention_bias_local(
                 tf.shape(x)[1],
                 hparams.local_attention_window,
-                hparams.local_attention_window)
+                0 if hparams.mask_right else hparams.local_attention_window)
           pseudolocal_bias = dp(_pseudolocal_bias, x)
           y = dp(
               common_attention.multihead_attention,
@@ -174,7 +179,7 @@ class Aligned(t2t_model.T2TModel):
               attention_num_experts=hparams.attention_num_experts,
               train=hparams.mode == ModeKeys.TRAIN,
               batch_coordinate=batch_coordinate,
-              mask_right=False,
+              mask_right=hparams.mask_right,
               split_batch=bool(hparams.attention_split_batch),
               attention_kq_size=hparams.attention_kq_size,
               attention_v_size=hparams.attention_v_size)
@@ -310,7 +315,13 @@ def aligned_base():
   hparams.add_hparam("memory_efficient_ffn", int(False))
   hparams.add_hparam("local_attention_window", 128)
   hparams.add_hparam("attention_num_groups", 8)
+  hparams.add_hparam("memory_target_density", 2.0)
+  hparams.add_hparam("multiplicative_overhead", 1.25)
+  hparams.add_hparam("multiplicative_overhead_eval", 2.0)
   hparams.add_hparam("attention_image_summary", int(True))
+  # For testing right-masking.
+  # This is not implemented in all layers.
+  hparams.add_hparam("mask_right", int(False))
   return hparams
 
 
@@ -350,10 +361,9 @@ def aligned_local_expert():
 def aligned_grouped():
   """Use local_expert_attention.
 
-  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.62
-  2.7 steps/sec on P100
-  (some problem with map_fn - need to tune this)
-  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.02
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.63
+  10.2 steps/sec on P100
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.04
 
   Returns:
     a hparams object
@@ -522,14 +532,16 @@ def aligned_8k():
 def aligned_8k_grouped():
   """version for languagemodel_wiki_scramble8k50.
 
-  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.93
+  languagemodel_wiki_scramble1k50, 1gpu, 7k steps: log(ppl)_eval = 2.92
   3.3 steps/sec on P100
-  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.18
+  8gpu (8x batch), 7k steps: log(ppl)_eval = 2.15
 
   Returns:
     a hparams object
   """
   hparams = aligned_grouped()
   hparams.batch_size = 8192
-  hparams.attention_image_summary = int(False)
+  # hparams.attention_image_summary = int(False)
+  hparams.num_groups = 16
+  hparams.multiplicative_overhead = 1.1
   return hparams
