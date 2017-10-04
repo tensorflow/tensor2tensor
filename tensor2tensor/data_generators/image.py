@@ -654,6 +654,35 @@ class ImageCifar10Plain(ImageCifar10):
     return example
 
 
+@registry.register_problem
+class Img2imgCifar10(ImageCifar10):
+  """CIFAR-10 rescaled to 8x8 for input and 32x32 for output."""
+
+  def dataset_filename(self):
+    return "image_cifar10_plain"  # Reuse CIFAR-10 plain data.
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+
+    def resize(img, size):
+      return tf.to_int64(
+          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
+
+    inputs = example["inputs"]
+    # For Img2Img resize input and output images as desired.
+    example["inputs"] = resize(inputs, 8)
+    example["targets"] = resize(inputs, 32)
+    return example
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
+    p.target_modality = ("image:identity_no_pad", None)
+    p.batch_size_multiplier = 256
+    p.max_expected_batch_size_per_shard = 4
+    p.input_space_id = 1
+    p.target_space_id = 1
+
+
 # URLs and filenames for MSCOCO data.
 _MSCOCO_ROOT_URL = "http://msvocds.blob.core.windows.net/"
 _MSCOCO_URLS = [
