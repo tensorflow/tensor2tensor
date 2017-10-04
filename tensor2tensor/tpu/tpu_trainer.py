@@ -58,7 +58,7 @@ def main(unused_argv):
       output_dir=FLAGS.output_dir,
       master=FLAGS.master,
       num_shards=FLAGS.tpu_num_shards,
-      batch_size=hparams.batch_size_per_shard * FLAGS.tpu_num_shards,
+      batch_size=hparams.tpu_batch_size_per_shard * FLAGS.tpu_num_shards,
       log_device_placement=FLAGS.log_device_placement)
   estimator.train(
       lambda params: input_fn(tf.estimator.ModeKeys.TRAIN, params),

@@ -282,7 +282,6 @@ def transformer_tpu():
   hp.use_pad_remover = int(False)  # where op not supported
 
   # Inputs
-  hp.add_hparam("batch_size_per_shard", 24)
   # Each example in the batch will be of (padded) length hp.max_length
   hp.max_length = 64
 

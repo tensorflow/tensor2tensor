@@ -155,7 +155,10 @@ def basic_params1():
       #     position in the inputs portion can see the
       #     entire inputs portion.  This removes the challenge of
       #     autoregressively predicting the inputs portion.
-      prepend_mode="none",)
+      prepend_mode="none",
+      # This is the actual batch size, *not* tokens per batch (i.e. for
+      # language models this is the number of sentences in the batch)
+      tpu_batch_size_per_shard=24,)
 
 
 class RangedHParams(object):
