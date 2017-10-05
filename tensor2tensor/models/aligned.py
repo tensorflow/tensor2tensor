@@ -186,8 +186,12 @@ class Aligned(t2t_model.T2TModel):
           # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
           extra_loss += tf.add_n(loss) / dp.n
         elif layer_type == "att_lsh":
+          if hparams.lsh_truncated:
+            attention_fn = common_attention.multihead_attention_sparse_truncated
+          else:
+            attention_fn = common_attention.multihead_attention_sparse_dot_prod
           y, loss = dp(
-              common_attention.multihead_attention_sparse_dot_prod,
+              attention_fn,
               x,
               None,
               None,  # Bias is computed inside
@@ -319,6 +323,8 @@ def aligned_base():
   hparams.add_hparam("multiplicative_overhead", 1.25)
   hparams.add_hparam("multiplicative_overhead_eval", 2.0)
   hparams.add_hparam("attention_image_summary", int(True))
+  # LSH params
+  hparams.add_hparam("lsh_truncated", int(True))
   # For testing right-masking.
   # This is not implemented in all layers.
   hparams.add_hparam("mask_right", int(False))

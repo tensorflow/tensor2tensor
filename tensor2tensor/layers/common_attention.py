@@ -2629,6 +2629,169 @@ def sparse_dot_product_attention(q, k, v, bi, use_map_fn, experts_params):
   return v_out, total_loss / nb_heads
 
 
+@expert_utils.add_name_scope()
+def dot_product_batched_head(q, k, v, gates_q, gates_k):
+  """Perform a dot product attention on a single sequence on a single head.
+
+  This function dispatch the q, k, v and loop over the buckets to compute the
+  attention dot product on each subsequences.
+
+  Args:
+    q (tf.Tensor): [batch*heads, length_q, depth_q]
+    k (tf.Tensor): [batch*heads, length_k, depth_q]
+    v (tf.Tensor): [batch*heads, length_k, depth_v]
+    gates_q (tf.Tensor): One-hot of shape [batch*heads, length_q, nb_buckets]
+    gates_k (tf.Tensor): One-hot of shape [batch*heads, length_k, nb_buckets]
+
+  Returns:
+    tf.Tensor: [length_q, depth_v]
+  """
+  # Right now Q and K have same length
+  length = tf.shape(q)[1]
+  nb_buckets = tf.shape(gates_q)[-1]
+  capacity = length // nb_buckets * 3  # Capacity is hardcoded
+  capacity = tf.minimum(length, capacity)
+
+  tf.summary.scalar("dispatch_capacity", capacity, family="lsh")
+  def add_summary_capacity(x, prefix):
+    # Monitor if capacity overflow
+    x = x[0, ...]  # Take first batch/head
+    x = tf.reduce_sum(x, axis=0)
+    tf.summary.scalar(prefix + "_min", tf.reduce_min(x), family="lsh")
+    tf.summary.scalar(prefix + "_max", tf.reduce_max(x), family="lsh")
+    tf.summary.histogram(prefix + "capacity_distribution", x, family="lsh")
+    for i in range(3):  # Show the first 3 buckets
+      tf.summary.scalar("{}_{}".format(prefix, i), x[i], family="lsh")
+  add_summary_capacity(gates_q, "q")
+  add_summary_capacity(gates_k, "k")
+
+  q_dispatcher = expert_utils.TruncatingDispatcher(gates_q, capacity)
+  k_dispatcher = expert_utils.TruncatingDispatcher(gates_k, capacity)
+
+  q = q_dispatcher.dispatch(q)
+  k = k_dispatcher.dispatch(k)
+  v = k_dispatcher.dispatch(v)
+
+  # TODO(epot): Forward the padding bias and future
+  # Bias of shape [batch*heads, nb_buckets, 1, capacity] broadcasted to every
+  # queries
+  bias = tf.expand_dims((k_dispatcher.nonpadding() - 1.0) * 1e9, 2)
+
+  # q, k, v now have shape [batch*heads, nb_bucket, capacity, depth]
+  # The buckets can be seen as different heads
+  v_out = dot_product_attention(q, k, v, bias=bias)
+
+  # Combine all buckets together to restore the original length
+  return q_dispatcher.combine(v_out)
+
+
+@expert_utils.add_name_scope()
+def sparse_dot_product_attention_truncated(
+    q, k, v, bi, use_map_fn, experts_params):  # pylint: disable=unused-argument
+  """Sparse multihead self attention.
+
+  Perform an approximation of the full multihead attention by dispatching
+  the tokens using their keys/values. Thus the attention matrix are only
+  computed each times on a subset of the tokens.
+
+  Notes:
+   * The function don't perform scaling here (multihead_attention does
+  the /sqrt(depth)).
+   * The padding should have been removed (so batch size should be 1 but length
+   contains the elements from all different batches)
+   * Right now, only self attention is supported so length_q and length_kv
+   should be identical and the function will add triangular mask.
+   * If bi.order is not None, The bias is added inside this function to
+   prevent attention to the future.
+
+  Args:
+    q (tf.Tensor): Queries of shape [batch, heads, length_q, depth_k]
+    k (tf.Tensor): Keys of shape [batch, heads, length_q, depth_k]
+    v (tf.Tensor): Values of shape [batch, heads, length_kv, depth_v]
+    bi (BatchInfo): Contains the batch coordinates and sequence order
+    use_map_fn (bool): Use either tf.map_fn of python for loop to compute the
+      heads separately
+    experts_params (dict): Additional params for the local expert
+
+  Returns:
+    tf.Tensor: Approximation of Softmax(Q.K) * V, of shape
+      [batch, heads, length_q, depth_v]
+  """
+  # Currently depth is the same for for q and v
+  batch_size, nb_heads, _, depth = q.get_shape().as_list()
+  batch_size = batch_size or tf.shape(q)[0]
+
+  total_loss = 0.0
+
+  # Each head get its own dispatcher
+  list_lsh = [
+      LshGating(
+          depth=depth,
+          **experts_params
+      ) for _ in range(nb_heads)
+  ]
+
+  @expert_utils.add_name_scope()
+  def get_gates_head(x, add_first=False):
+    """Return the gates for each heads of the current x.
+
+    Args:
+      x (tf.Tensor): of shape [batch, heads, length, depth]
+      add_first (bool): if True, add the first element on each bucket
+
+    Returns:
+      tf.Tensor: gates of shape [batch, heads, length, num_buckets]
+    """
+    length = tf.shape(x)[2]
+
+    # Invert heads/batch
+    x = tf.transpose(x, perm=[1, 0, 2, 3])
+    x = tf.reshape(x, [nb_heads, batch_size*length, depth])
+
+    list_x = tf.unstack(x)  # list[tf.Tensor(shape=[batch * length, depth])]
+
+    # Unstack heads
+    list_gates = []
+    # There might be a more optimized way to compute all heads at once
+    for lsh, single_x in zip(list_lsh, list_x):
+      # Each head get its own dispatcher
+      gates = lsh.get_gates(single_x)
+      nb_buckets = gates.get_shape().as_list()[-1]
+      # Reshape to [batch, length, depth] but should concider sequence
+      # padding in that case (also dispatch the padding)
+      gates = tf.reshape(gates, [batch_size, length, nb_buckets])
+      list_gates.append(gates)
+
+    gates = tf.stack(list_gates)
+
+    # Restore original shape
+    gates = tf.reshape(gates, [nb_heads, batch_size, length, nb_buckets])
+    gates = tf.transpose(gates, [1, 0, 2, 3])
+
+    # Dispatch the first element to every gates to avoid empty buckets
+    if add_first:
+      gates = tf.maximum(
+          gates,
+          tf.reshape(tf.one_hot([0], length), [1, 1, length, 1])
+      )
+
+    return gates
+
+  gates_q = get_gates_head(q)
+  gates_k = get_gates_head(k, add_first=True)
+
+  # [batch, heads, length, depth] => [batch*heads, length, depth]
+  q, k, v, gates_q, gates_k = [
+      combine_first_two_dimensions(t) for t in (q, k, v, gates_q, gates_k)]
+
+  v_out = dot_product_batched_head(q, k, v, gates_q, gates_k)
+
+  # Restore original dimension
+  v_out = tf.reshape(v_out, [batch_size, nb_heads, -1, depth])
+
+  return v_out, total_loss / nb_heads
+
+
 def scaled_dot_product_attention_simple(q, k, v, bias, name=None):
   """scaled dot-product attention.  One head.  One spatial dimension.
 
@@ -2778,3 +2941,6 @@ def multihead_self_attention_memory_efficient(x,
 
 multihead_attention_sparse_dot_prod = functools.partial(
     multihead_attention, attention_type=sparse_dot_product_attention)
+
+multihead_attention_sparse_truncated = functools.partial(
+    multihead_attention, attention_type=sparse_dot_product_attention_truncated)
