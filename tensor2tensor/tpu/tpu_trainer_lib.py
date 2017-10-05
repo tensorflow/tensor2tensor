@@ -171,16 +171,7 @@ def get_model_fn(model, hp, use_tpu=True):
     lr /= math.sqrt(float(num_shards))
 
     # Optimizer
-    opt_name = hparams.optimizer
-    if opt_name == "Momentum":
-      opt = tf.train.MomentumOptimizer(
-          lr, momentum=hparams.optimizer_momentum_momentum)
-    else:
-      if hparams.optimizer not in ["RMSProp", "SGD"]:
-        tf.logging.warn(
-            "Only Momentum, RMSProp, and SGD are known to work on TPU.")
-      opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[opt_name](lr)
-
+    opt = model_builder.ConditionalOptimizer(hparams.optimizer, lr, hparams)
     if use_tpu:
       opt = tf.contrib.tpu.CrossShardOptimizer(opt)
 
@@ -246,7 +237,7 @@ def make_estimator(model_fn,
                    output_dir,
                    master="",
                    batch_size=16,
-                   iterations_per_loop=100,
+                   iterations_per_loop=1000,
                    num_shards=8,
                    per_host_input_for_training=True,
                    use_tpu=True,
@@ -283,12 +274,10 @@ def transformer_tpu():
 
   # Inputs
   # Each example in the batch will be of (padded) length hp.max_length
+  # Batch size per shard is governed by tpu_batch_size_per_shard
   hp.max_length = 64
 
-  hp.optimizer = "Momentum"  # can be SGD, Momentum, RMSProp
-  hp.norm_type = "none"  # seem to get nans with layer norm
-  hp.clip_grad_norm = 2.
-  hp.norm_epsilon = 1e-3
+  hp.optimizer = "TrueAdam"
   hp.layer_preprocess_sequence = "n"
   hp.layer_postprocess_sequence = "da"
   return hp

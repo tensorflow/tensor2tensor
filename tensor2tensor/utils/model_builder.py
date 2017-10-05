@@ -292,7 +292,7 @@ def model_fn(model,
 
   # Optimize
   total_loss = tf.identity(total_loss, name="total_loss")
-  opt = _ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
+  opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
   opt_summaries = ["learning_rate", "loss"]
   if hparams.summarize_grads:
     opt_summaries.extend(["gradients", "gradient_norm"])
@@ -350,7 +350,7 @@ def build_model_fn(model, **kwargs):
   return wrapping_model_fn
 
 
-class _ConditionalOptimizer(tf.train.Optimizer):
+class ConditionalOptimizer(tf.train.Optimizer):
   """Conditional optimizer."""
 
   def __init__(self, optimizer_name, lr, hparams):
@@ -369,16 +369,21 @@ class _ConditionalOptimizer(tf.train.Optimizer):
       tf.logging.info("Init YellowFin Optimizer.")
       self._opt = yellowfin.YellowFinOptimizer(
           learning_rate=lr, momentum=hparams.optimizer_momentum_momentum)
+    elif optimizer_name == "TrueAdam":
+      self._opt = tf.train.AdamOptimizer(
+          lr / 500.0,
+          beta1=hparams.optimizer_adam_beta1,
+          beta2=hparams.optimizer_adam_beta2,
+          epsilon=hparams.optimizer_adam_epsilon)
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
-  def compute_gradients(self, loss, var_list, colocate_gradients_with_ops):
-    return self._opt.compute_gradients(
-        loss, var_list, colocate_gradients_with_ops=colocate_gradients_with_ops)
+  def compute_gradients(self, loss, var_list=None, **kwargs):
+    return self._opt.compute_gradients(loss, var_list, **kwargs)
 
-  def apply_gradients(self, gradients, global_step=None, name=None):
+  def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     return self._opt.apply_gradients(
-        gradients, global_step=global_step, name=name)
+        grads_and_vars, global_step=global_step, name=name)
 
 
 def _sqrt_decay(step):
