@@ -167,6 +167,7 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
       min_eval_frequency=FLAGS.local_eval_frequency,
       train_monitors=train_monitors,
       eval_hooks=eval_hooks,
+      eval_delay_secs=0,
       **optional_kwargs)
 
 
