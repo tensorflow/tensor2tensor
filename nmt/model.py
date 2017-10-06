@@ -312,6 +312,19 @@ class BaseModel(object):
         base_gpu=base_gpu,
         single_cell_fn=self.single_cell_fn)
 
+  def _get_infer_maximum_iterations(self, hparams, source_sequence_length):
+    """Maximum decoding steps at inference time."""
+    if hparams.tgt_max_len_infer:
+      maximum_iterations = hparams.tgt_max_len_infer
+      utils.print_out("  decoding maximum_iterations %d" % maximum_iterations)
+    else:
+      # TODO(thangluong): add decoding_length_factor flag
+      decoding_length_factor = 2.0
+      max_encoder_length = tf.reduce_max(source_sequence_length)
+      maximum_iterations = tf.to_int32(tf.round(
+          tf.to_float(max_encoder_length) * decoding_length_factor))
+    return maximum_iterations
+
   def _build_decoder(self, encoder_outputs, encoder_state, hparams):
     """Build and run a RNN decoder with a final projection layer.
 
@@ -335,15 +348,8 @@ class BaseModel(object):
     iterator = self.iterator
 
     # maximum_iteration: The maximum decoding steps.
-    if hparams.tgt_max_len_infer:
-      maximum_iterations = hparams.tgt_max_len_infer
-      utils.print_out("  decoding maximum_iterations %d" % maximum_iterations)
-    else:
-      # TODO(thangluong): add decoding_length_factor flag
-      decoding_length_factor = 2.0
-      max_encoder_length = tf.reduce_max(iterator.source_sequence_length)
-      maximum_iterations = tf.to_int32(tf.round(
-          tf.to_float(max_encoder_length) * decoding_length_factor))
+    maximum_iterations = self._get_infer_maximum_iterations(
+        hparams, iterator.source_sequence_length)
 
     ## Decoder.
     with tf.variable_scope("decoder") as decoder_scope:
