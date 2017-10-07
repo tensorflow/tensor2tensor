@@ -129,7 +129,7 @@ def dae(x, hparams, name):
     gumbel_samples *= common_layers.inverse_exp_decay(steps // 5) * 0.5
     temperature = 1.2 - common_layers.inverse_lin_decay(steps)
     # 30% of the time keep reasonably high temperature to keep learning.
-    temperature = tf.cond(tf.less(tf.random_uniform([]), 0.7),
+    temperature = tf.cond(tf.less(tf.random_uniform([]), 0.9),
                           lambda: temperature,
                           lambda: tf.random_uniform([], minval=0.5, maxval=1.0))
     s = tf.nn.softmax((logsm + gumbel_samples) / temperature)
@@ -144,20 +144,54 @@ def dae(x, hparams, name):
     d_mean = tf.reduce_mean(distrib, axis=[0], keep_dims=True)
     d_variance = tf.reduce_mean(tf.square(distrib - d_mean), axis=[0])
     d_dev = - tf.reduce_mean(d_variance)
-    ret = s  # If we want just hot, do tf.reshape(maxvhot, tf.shape(s))
+    ret = s
+    if hparams.mode != tf.contrib.learn.ModeKeys.TRAIN:
+      ret = tf.reshape(maxvhot, tf.shape(s))  # Just hot on eval/infer.
     return m, ret, d_dev * 5.0 + tf.reduce_mean(kl) * 0.002
 
 
-def vae(x, hparams, name):
+def vae(x, z_size, name):
   with tf.variable_scope(name):
-    mu = tf.layers.dense(x, hparams.z_size, name="mu")
-    log_sigma = tf.layers.dense(x, hparams.z_size, name="log_sigma")
+    mu = tf.layers.dense(x, z_size, name="mu")
+    log_sigma = tf.layers.dense(x, z_size, name="log_sigma")
     shape = tf.shape(x)
-    epsilon = tf.random_normal([shape[0], shape[1], 1, hparams.z_size])
+    epsilon = tf.random_normal([shape[0], shape[1], 1, z_size])
     z = mu + tf.exp(log_sigma / 2) * epsilon
     kl = 0.5 * tf.reduce_mean(
         tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
     return z, tf.reduce_mean(kl), mu, log_sigma
+
+
+def bit_vae(x, hparams, name):
+  with tf.variable_scope(name):
+    bity = tf.layers.dense(x, hparams.z_size, name="bity")
+    dev = common_layers.inverse_lin_decay(hparams.startup_steps) * 1.5
+    noise = tf.random_normal(tf.shape(bity), mean=0.0, stddev=dev)
+    y = common_layers.saturating_sigmoid(bity + noise)
+    tf.summary.histogram("bit", tf.reshape(y, [-1]))
+    def discrete_y():
+      d = tf.to_float(tf.less(0.5, y))
+      return tf.stop_gradient(d) + y - tf.stop_gradient(y)
+    y = tf.cond(tf.less(tf.train.get_global_step(), hparams.startup_steps),
+                lambda: y, discrete_y)
+    # Flatten and predict for loss.
+    y_flat = tf.reshape(y, [-1, hparams.z_size, 1, 1])
+    hsize = hparams.hidden_size
+    hparams.hidden_size = hsize // 2
+    emb0 = tf.get_variable("emb0", [hparams.hidden_size])
+    emb1 = tf.get_variable("emb1", [hparams.hidden_size])
+    emb0 = tf.reshape(emb0, [1, 1, 1, hparams.hidden_size])
+    emb1 = tf.reshape(emb0, [1, 1, 1, hparams.hidden_size])
+    y_emb = y_flat * emb1 + (1 - y_flat) * emb0
+    y_logit = decode(None, None, y_emb, None, None, hparams, "dbit")
+    hparams.hidden_size = hsize
+    y_pred = tf.nn.log_softmax(tf.layers.dense(y_logit, 2, name="y_pred"))
+    y_flat = tf.reshape(y_flat, [-1])
+    y_pred = tf.reshape(y_pred, [-1, 2])
+    loss = - (y_flat * y_pred[:, 1] + (1 - y_flat) * y_pred[:, 0])
+    # Get the final z and return.
+    z = tf.layers.dense(y, hparams.z_size, name="after_bit")
+    return z, tf.reduce_mean(loss)
 
 
 def nearest(x, means, hparams):
@@ -223,18 +257,19 @@ def encode(x, x_space, hparams, name):
         encoder_input, encoder_self_attention_bias, hparams), ed
 
 
-def decode(cond_vec, cond_add, gold, c, ed, hparams):
+def decode(cond_vec, cond_add, gold, c, ed, hparams, name):
   """Transformer decoder."""
-  drop_gold = tf.nn.dropout(gold, 1.0 - hparams.layer_prepostprocess_dropout)
-  decoder_input = common_layers.shift_right(drop_gold, pad_value=cond_vec)
-  if cond_add is not None:
-    decoder_input += cond_add
-  decoder_input = tf.squeeze(decoder_input, axis=2)
-  decoder_input = common_attention.add_timing_signal_1d(decoder_input)
-  bias = common_attention.attention_bias_lower_triangle(tf.shape(gold)[1])
-  if c is not None and len(c.get_shape()) > 3:
-    c = tf.squeeze(c, axis=2)
-  return transformer.transformer_decoder(decoder_input, c, bias, ed, hparams)
+  with tf.variable_scope(name):
+    drop_gold = tf.nn.dropout(gold, 1.0 - hparams.layer_prepostprocess_dropout)
+    decoder_input = common_layers.shift_right(drop_gold, pad_value=cond_vec)
+    if cond_add is not None:
+      decoder_input += cond_add
+    decoder_input = tf.squeeze(decoder_input, axis=2)
+    decoder_input = common_attention.add_timing_signal_1d(decoder_input)
+    bias = common_attention.attention_bias_lower_triangle(tf.shape(gold)[1])
+    if c is not None and len(c.get_shape()) > 3:
+      c = tf.squeeze(c, axis=2)
+    return transformer.transformer_decoder(decoder_input, c, bias, ed, hparams)
 
 
 def expand_batch(x, mul):
@@ -256,9 +291,26 @@ def ae_compress(x, is_2d, hparams, name, reuse=None):
     # Convolve and ReLu to get state.
     cur = common_layers.conv_block(
         cur, hparams.hidden_size, [((1, 1), (1, 1))], name="mid_conv")
-    # To put a standard VAE use the line below.
-    # cur, vae_kl, _, _ = vae(cur, hparams, "kmeans_vae")
-    means = tf.get_variable("z_to_dense", [hparams.v_size, hparams.hidden_size])
+    means_size = hparams.z_size if hparams.do_vae else hparams.v_size
+    means = tf.get_variable("z_to_dense", [means_size, hparams.hidden_size])
+    if hparams.do_vae:
+      if hparams.bit_vae:
+        hot, loss = bit_vae(cur, hparams, "bvae")
+      else:
+        hot, loss, _, _ = vae(cur, hparams.z_size, "vae")
+      # Do a second level vae with some probability.
+      if hparams.z_size2 > 0:
+        prob_z2 = common_layers.inverse_exp_decay(hparams.startup_steps*2) * 0.8
+        if hparams.mode != tf.contrib.learn.ModeKeys.TRAIN:
+          prob_z2 = 1.0
+        def vae2():
+          hot2, loss2, _, _ = vae(hot, hparams.z_size2, "vae2")
+          ret = tf.layers.dense(hot2, hparams.z_size)
+          return mix(ret, hot, hparams.startup_steps * 2), loss2
+        hot, loss2 = tf.cond(tf.less(tf.random_uniform([]), prob_z2),
+                             vae2, lambda: (hot, tf.constant(0.0)))
+        loss += loss2 * 0.1
+      return cur, hot, loss
     if hparams.use_gumbel_softmax:
       _, hot, loss = dae(cur, hparams, "dae")
       return cur, hot, loss
@@ -275,12 +327,13 @@ def ae_compress(x, is_2d, hparams, name, reuse=None):
 
 def ae_embed(hot, hparams, name, reuse=None):
   with tf.variable_scope(name, reuse=reuse):
-    means = tf.get_variable("z_to_dense", [hparams.v_size, hparams.hidden_size])
-    hot_flat = tf.reshape(hot, [-1, hparams.v_size])
+    means_size = hparams.z_size if hparams.do_vae else hparams.v_size
+    means = tf.get_variable("z_to_dense", [means_size, hparams.hidden_size])
+    hot_flat = tf.reshape(hot, [-1, means_size])
     emb = tf.matmul(hot_flat, means)
     emb = tf.reshape(emb, [tf.shape(hot)[0], tf.shape(hot)[1],
                            tf.shape(hot)[2], hparams.hidden_size])
-    if hparams.use_gumbel_softmax:
+    if hparams.use_gumbel_softmax or hparams.do_vae:
       return emb
     return tf.layers.dense(emb, hparams.hidden_size,
                            name="unnormalize", reuse=reuse)
@@ -289,14 +342,14 @@ def ae_embed(hot, hparams, name, reuse=None):
 def ae_decompress(z, ae, x, is_2d, hparams, name, reuse=None):
   """Decompress from z, leaking from ae."""
   with tf.variable_scope(name + "_decompress", reuse=reuse):
-    if hparams.use_gumbel_softmax:
+    if hparams.use_gumbel_softmax or hparams.do_vae:
       # Leak at the beginning to help train.
       z = mix(z, ae, hparams.startup_steps)
     else:
       # Gradients flow to ae while the value is z.
       z = tf.stop_gradient(z) + ae - tf.stop_gradient(ae)
     # Leak during training to keep the full dense autoencoder.
-    prob_z = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.6
+    prob_z = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.8
     prob_z = prob_z if hparams.mode == tf.contrib.learn.ModeKeys.TRAIN else 1.0
     z = tf.cond(tf.less(tf.random_uniform([]), prob_z),
                 lambda: z, lambda: ae)
@@ -319,7 +372,7 @@ def ae_decompress(z, ae, x, is_2d, hparams, name, reuse=None):
       x_batch = tf.stop_gradient(x_batch)
       z_batch = tf.reshape(z, [-1, 1, 1, hparams.hidden_size])
       d_batch = tf.reshape(d, [-1, k, 1, hparams.hidden_size])
-      dec_batch = decode(z_batch, d_batch, x_batch, None, None, hparams)
+      dec_batch = decode(z_batch, d_batch, x_batch, None, None, hparams, "dar")
     else:  # For non-autoregressive.
       dec_batch = d
     z = tf.reshape(dec_batch, [-1, tf.shape(x)[1], tf.shape(x)[2],
@@ -352,21 +405,25 @@ def ae_transformer_internal(inputs, targets, target_space, hparams):
     emb = ae_embed(hot, hparams, "ae", reuse=True)
 
     # Compress context and run autoregressive decoder on emb-hot.
-    emb_flat = tf.expand_dims(common_layers.flatten4d3d(emb), axis=2)
-    emb_flat = tf.stop_gradient(emb_flat)
-    dec_c = decode(None, None, emb_flat, inputs, ed, hparams)
-    dec_c = tf.reshape(dec_c, tf.shape(emb))
-    c_z = tf.layers.dense(dec_c, hparams.v_size, name="mask_context")
-    reconstruct_loss = tf.nn.softmax_cross_entropy_with_logits(
-        labels=hot, logits=c_z)
-    # If not training, use the predicted z instead of the autoregressive one.
-    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
-      hot = tf.one_hot(tf.argmax(c_z, axis=-1), hparams.v_size)
+    if hparams.do_vae:
+      reconstruct_loss = 0.0
+    else:
+      emb_flat = tf.expand_dims(common_layers.flatten4d3d(emb), axis=2)
+      emb_flat = tf.stop_gradient(emb_flat)
+      dec_c = decode(None, None, emb_flat, inputs, ed, hparams, "dgold")
+      dec_c = tf.reshape(dec_c, tf.shape(emb))
+      c_z = tf.layers.dense(dec_c, hparams.v_size, name="mask_context")
+      reconstruct_loss = tf.nn.softmax_cross_entropy_with_logits(
+          labels=hot, logits=c_z)
+      # If not training, use the predicted z instead of the autoregressive one.
+      if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+        hot = tf.one_hot(tf.argmax(c_z, axis=-1), hparams.v_size)
 
     # Decompress, pass for ae loss.
     z = ae_decompress(emb, ae, targets, hparams.is_2d, hparams, "ae")
-    kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.8),
-                                          min_value=0.0001)
+    if not (hparams.use_gumbel_softmax and hparams.softmax_k > 0):
+      kl *= common_layers.inverse_exp_decay(int(hparams.startup_steps * 0.8),
+                                            min_value=0.0001)
     reconstruct_loss *= common_layers.inverse_exp_decay(hparams.startup_steps)
     losses = {"kl": kl, "reconstruction": reconstruct_loss * 0.1}
     return z, losses
@@ -425,6 +482,7 @@ def transformer_ae_small():
   hparams.batch_size = 2048
   hparams.learning_rate_warmup_steps = 4000
   hparams.add_hparam("z_size", 128)
+  hparams.add_hparam("z_size2", 0)
   hparams.add_hparam("v_size", 1024*32)
   hparams.add_hparam("num_compress_steps", 4)
   hparams.add_hparam("kl_warmup_steps", 60000)
@@ -433,8 +491,10 @@ def transformer_ae_small():
   hparams.add_hparam("z_dropout", 0.1)
   hparams.add_hparam("is_2d", 0)
   hparams.add_hparam("use_gumbel_softmax", int(True))
-  hparams.add_hparam("softmax_k", 4)
+  hparams.add_hparam("softmax_k", 0)
   hparams.add_hparam("decode_autoregressive", int(True))
+  hparams.add_hparam("do_vae", int(True))
+  hparams.add_hparam("bit_vae", int(True))
   return hparams
 
 
@@ -442,15 +502,19 @@ def transformer_ae_small():
 def transformer_ae_cifar():
   """Hyperparameters for CIFAR-10 experiments."""
   hparams = transformer_ae_small()
-  hparams.hidden_size = 384
-  hparams.z_size = 256
-  hparams.batch_size = 1024 * 16
+  hparams.hidden_size = 256
+  hparams.filter_size = 512
+  hparams.z_size = 256  # 64
+  hparams.z_size2 = 0  # 16
+  hparams.batch_size = 1024 * 4
   hparams.num_compress_steps = 2
   hparams.v_size = 1024 * 16
   hparams.kl_warmup_steps = 150000
-  hparams.startup_steps = 30000
+  hparams.startup_steps = 20000
   hparams.kmeans_lr_factor = 0.0
   hparams.is_2d = 1
+  hparams.learning_rate_warmup_steps = 8000
+  hparams.learning_rate = 0.2
   return hparams
 
 
