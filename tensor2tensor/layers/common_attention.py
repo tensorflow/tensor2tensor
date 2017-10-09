@@ -2792,6 +2792,126 @@ def sparse_dot_product_attention_truncated(
   return v_out, total_loss / nb_heads
 
 
+@expert_utils.add_var_scope()
+def deconv_elems_1d(x, factor, out_depth=None):
+  """Increase the length and change the dimensionality.
+
+  Expand/project each positions of dim depth of the input into
+  factor*tokens of dim out_depth
+
+  Args:
+    x (tf.Tensor): shape [batch_size, length, depth]
+    factor (int): Multiplicative factor of each tokens.
+    out_depth (int): Output depth (if None, keep depth constant)
+
+  Returns:
+    tf.Tensor: shape [batch_size, length*factor, out_depth]
+  """
+  out_depth = out_depth or x.get_shape().as_list()[-1]
+  x = tf.expand_dims(x, 1)  # [batch_size, 1, length, depth]
+  x = tf.layers.conv2d_transpose(
+      inputs=x,
+      filters=out_depth,
+      kernel_size=(1, factor),
+      strides=(1, factor),
+      padding="valid",
+      data_format="channels_last",
+  )  # [batch_size, 1, length*factor, out_depth]
+  x = tf.squeeze(x, 1)  # [batch_size, length*factor, depth]
+  return x
+
+
+@expert_utils.add_var_scope()
+def conv_elems_1d(x, factor, out_depth=None):
+  """Decrease the length and change the dimensionality.
+
+  Merge/restore/compress factors positions of dim depth of the input into
+  a single position of dim out_depth.
+  This is basically just a strided convolution without overlapp
+  between each strides.
+  The original length has to be divided by factor.
+
+  Args:
+    x (tf.Tensor): shape [batch_size, length, depth]
+    factor (int): Length compression factor.
+    out_depth (int): Output depth
+
+  Returns:
+    tf.Tensor: shape [batch_size, length//factor, out_depth]
+  """
+  out_depth = out_depth or x.get_shape().as_list()[-1]
+  # with tf.control_dependencies(  # Dynamic assertion
+  #     [tf.assert_equal(tf.shape(x)[1] % factor, 0)]):
+  x = tf.expand_dims(x, 1)  # [batch_size, 1, length, depth]
+  x = tf.layers.conv2d(
+      inputs=x,
+      filters=out_depth,
+      kernel_size=(1, factor),
+      strides=(1, factor),
+      padding="valid",
+      data_format="channels_last",
+  )  # [batch_size, 1, length//factor, out_depth]
+  x = tf.squeeze(x, 1)  # [batch_size, length//factor, depth]
+  return x
+
+
+@expert_utils.add_var_scope()
+def multihead_self_attention_reduced(x, factor, multihead_params):
+  """Reduce the length dimension by compressing with conv.
+
+  Args:
+    x (tf.Tensor): float32 of shape [batch, length, depth]
+    factor (int): compression factor for the memory sequence
+    multihead_params (dict): parameters for multihead attention
+
+  Returns:
+    (tf.Tensor): float32 of shape [batch, length, depth]
+  """
+  depth = x.get_shape().as_list()[-1]
+
+  # Could try to have some overlapp between the blocks but that would
+  # create conv artifacts, would make it difficult to not attend to the future
+  # withing one group and the padding should be handled specially.
+
+  # With valid padding, the last block won't be computed (not attended anyway)
+  memory_x = conv_elems_1d(x, factor)
+  memory_x = tf.concat(
+      # Add the first elem to make it attendable by everyone (otherwise the
+      # first block cannot attend to anything)
+      [x[:, :1, :], memory_x],
+      axis=1,
+  )
+
+  # Construct the bias
+  @expert_utils.add_name_scope()
+  def construct_bias_vectors(t, axis):
+    length = tf.to_float(tf.shape(t)[1])
+    length_coordinates = tf.range(length, dtype=tf.float32)
+    length_coordinates = tf.expand_dims(length_coordinates, axis=axis)
+    # [1, length_k] or [length_q, 1]
+    return length_coordinates
+
+  bias = tf.to_float(tf.greater(
+      # Because we add the first elem to the memory block and it can be attended
+      # by anyone,we don't need to add +1 anymore to prevent self attention
+      # Use * factor to make sure the last tokens  of a block cannot attend the
+      # block
+      construct_bias_vectors(memory_x, 0) * factor,
+      # +epsilon to avoid float equality
+      construct_bias_vectors(x, 1) + 1e-3,
+  )) * -1e9
+  bias = tf.expand_dims(bias, axis=0)
+  bias = tf.expand_dims(bias, axis=0)  # [1, 1, length_k, length_q]
+
+  return multihead_attention(
+      query_antecedent=x,
+      memory_antecedent=memory_x,
+      bias=bias,
+      output_depth=depth,
+      **multihead_params
+  )
+
+
 def scaled_dot_product_attention_simple(q, k, v, bias, name=None):
   """scaled dot-product attention.  One head.  One spatial dimension.
 
