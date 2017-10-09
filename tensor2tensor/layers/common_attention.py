@@ -2630,7 +2630,7 @@ def sparse_dot_product_attention(q, k, v, bi, use_map_fn, experts_params):
 
 
 @expert_utils.add_name_scope()
-def dot_product_batched_head(q, k, v, gates_q, gates_k):
+def dot_product_batched_head(q, k, v, gates_q, gates_k, mask_right=False):
   """Perform a dot product attention on a single sequence on a single head.
 
   This function dispatch the q, k, v and loop over the buckets to compute the
@@ -2642,17 +2642,25 @@ def dot_product_batched_head(q, k, v, gates_q, gates_k):
     v (tf.Tensor): [batch*heads, length_k, depth_v]
     gates_q (tf.Tensor): One-hot of shape [batch*heads, length_q, nb_buckets]
     gates_k (tf.Tensor): One-hot of shape [batch*heads, length_k, nb_buckets]
+    mask_right (bool): Add a bias to prevent attention to the future
 
   Returns:
     tf.Tensor: [length_q, depth_v]
   """
-  # Right now Q and K have same length
-  length = tf.shape(q)[1]
   nb_buckets = tf.shape(gates_q)[-1]
-  capacity = length // nb_buckets * 3  # Capacity is hardcoded
-  capacity = tf.minimum(length, capacity)
 
-  tf.summary.scalar("dispatch_capacity", capacity, family="lsh")
+  @expert_utils.add_name_scope()
+  def get_dispatcher(gates):
+    length = tf.shape(gates)[1]
+    # Count the number of ones per batch (and keep the max value)
+    nb_elems_to_dispatch = tf.reduce_sum(gates, axis=[1, 2])
+    nb_elems_to_dispatch = tf.reduce_max(nb_elems_to_dispatch)
+    nb_elems_to_dispatch = tf.to_int32(nb_elems_to_dispatch)
+    capacity = nb_elems_to_dispatch // nb_buckets * 2  # Capacity is hardcoded
+    capacity = tf.minimum(length, capacity)
+    tf.summary.scalar("dispatch_capacity", capacity, family="lsh")
+    return expert_utils.TruncatingDispatcher(gates, capacity)
+
   def add_summary_capacity(x, prefix):
     # Monitor if capacity overflow
     x = x[0, ...]  # Take first batch/head
@@ -2665,17 +2673,23 @@ def dot_product_batched_head(q, k, v, gates_q, gates_k):
   add_summary_capacity(gates_q, "q")
   add_summary_capacity(gates_k, "k")
 
-  q_dispatcher = expert_utils.TruncatingDispatcher(gates_q, capacity)
-  k_dispatcher = expert_utils.TruncatingDispatcher(gates_k, capacity)
+  q_dispatcher = get_dispatcher(gates_q)
+  k_dispatcher = get_dispatcher(gates_k)
 
   q = q_dispatcher.dispatch(q)
   k = k_dispatcher.dispatch(k)
   v = k_dispatcher.dispatch(v)
 
-  # TODO(epot): Forward the padding bias and future
   # Bias of shape [batch*heads, nb_buckets, 1, capacity] broadcasted to every
   # queries
   bias = tf.expand_dims((k_dispatcher.nonpadding() - 1.0) * 1e9, 2)
+  if mask_right:
+    q_coordinate = tf.to_float(
+        tf.expand_dims(q_dispatcher.length_coordinate(), 3))
+    k_coordinate = tf.to_float(
+        tf.expand_dims(k_dispatcher.length_coordinate(), 2))
+    bias += tf.to_float(tf.greater(k_coordinate, q_coordinate)) * -1e9
+  # The sequence padding is not masked but is ignored on the next layers
 
   # q, k, v now have shape [batch*heads, nb_bucket, capacity, depth]
   # The buckets can be seen as different heads
@@ -2687,7 +2701,12 @@ def dot_product_batched_head(q, k, v, gates_q, gates_k):
 
 @expert_utils.add_name_scope()
 def sparse_dot_product_attention_truncated(
-    q, k, v, bi, use_map_fn, experts_params):  # pylint: disable=unused-argument
+    q, k, v,
+    bi,  # Unused
+    experts_params,
+    use_map_fn=False,  # Unused
+    mask_right=False,
+):  # pylint: disable=unused-argument
   """Sparse multihead self attention.
 
   Perform an approximation of the full multihead attention by dispatching
@@ -2709,10 +2728,10 @@ def sparse_dot_product_attention_truncated(
     k (tf.Tensor): Keys of shape [batch, heads, length_q, depth_k]
     v (tf.Tensor): Values of shape [batch, heads, length_kv, depth_v]
     bi (BatchInfo): Contains the batch coordinates and sequence order
+    experts_params (dict): Additional params for the local expert
     use_map_fn (bool): Use either tf.map_fn of python for loop to compute the
       heads separately
-    experts_params (dict): Additional params for the local expert
-
+    mask_right (bool):
   Returns:
     tf.Tensor: Approximation of Softmax(Q.K) * V, of shape
       [batch, heads, length_q, depth_v]
@@ -2784,7 +2803,7 @@ def sparse_dot_product_attention_truncated(
   q, k, v, gates_q, gates_k = [
       combine_first_two_dimensions(t) for t in (q, k, v, gates_q, gates_k)]
 
-  v_out = dot_product_batched_head(q, k, v, gates_q, gates_k)
+  v_out = dot_product_batched_head(q, k, v, gates_q, gates_k, mask_right)
 
   # Restore original dimension
   v_out = tf.reshape(v_out, [batch_size, nb_heads, -1, depth])

@@ -46,11 +46,13 @@ ModeKeys = tf.estimator.ModeKeys  # pylint: disable=invalid-name
 
 
 class AttentionType(object):
+  """Enum of the attention layers types."""
   MULTIHEAD = "multihead"
   LOCAL_EXPERTS = "local_experts"
   GLOBAL_MOE = "global_experts"
   MEMORY_EFFICIENT = "memory_efficient"
   SPARSE_MULTIHEAD = "sparse_multihead"
+  SPARSE_MULTIHEAD_TRUNCATED = "sparse_multihead_truncated"
   MULTIHEAD_REDUCED = "multihead_reduced"
   MULTIHEAD_FULL = "multihead_full"
 
@@ -61,6 +63,7 @@ class AttentionType(object):
         AttentionType.LOCAL_EXPERTS,
         AttentionType.MEMORY_EFFICIENT,
         AttentionType.SPARSE_MULTIHEAD,
+        AttentionType.SPARSE_MULTIHEAD_TRUNCATED,
         AttentionType.MULTIHEAD_REDUCED,
         AttentionType.MULTIHEAD_FULL,
     ]
@@ -71,6 +74,7 @@ LAYER_SYMBOLS = {
     "e": AttentionType.LOCAL_EXPERTS,  # Experts
     "m": AttentionType.MEMORY_EFFICIENT,  # Memory
     "s": AttentionType.SPARSE_MULTIHEAD,  # Sparse (Locality sensitive hashing)
+    "t": AttentionType.SPARSE_MULTIHEAD_TRUNCATED,  # Using TruncatedDispatcher
     "r": AttentionType.MULTIHEAD_REDUCED,  # Reduced
     "f": AttentionType.MULTIHEAD_FULL,  # Force using full attention
 }
@@ -229,6 +233,32 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 ),
             )
             y = dp_restore_pad(y)
+
+            # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
+            extra_loss += tf.add_n(loss_experts) / dp.n
+          elif attention_type == AttentionType.SPARSE_MULTIHEAD_TRUNCATED:
+            x_in = preprocess(x)
+            y, loss_experts = dp(
+                common_attention.multihead_attention_sparse_truncated,
+                x_in,
+                None,
+                None,  # Bias is computed inside
+                hparams.attention_key_channels or hparams.hidden_size,
+                hparams.attention_value_channels or hparams.hidden_size,
+                hparams.hidden_size,
+                hparams.num_heads,
+                hparams.attention_dropout,
+
+                # Additional parameters
+                bi=[common_attention.BatchInfo(
+                    coordinates=batch_coordinate[i],
+                    order=batch_order[i],  # No future mask
+                ) for i in range(dp.n)],
+                mask_right=True,
+                experts_params=dict(
+                    nb_hyperplanes=hparams.lsh_num_hyperplanes,
+                ),
+            )
 
             # TODO(avaswani, epot, noam): Do we need to divide by num shards ?
             extra_loss += tf.add_n(loss_experts) / dp.n
