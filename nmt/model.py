@@ -544,7 +544,8 @@ class Model(BaseModel):
             encoder_emb_inp,
             dtype=dtype,
             sequence_length=iterator.source_sequence_length,
-            time_major=self.time_major)
+            time_major=self.time_major,
+            swap_memory=True)
       elif hparams.encoder_type == "bi":
         num_bi_layers = int(num_layers / 2)
         num_bi_residual_layers = int(num_residual_layers / 2)
@@ -609,7 +610,8 @@ class Model(BaseModel):
         inputs,
         dtype=dtype,
         sequence_length=sequence_length,
-        time_major=self.time_major)
+        time_major=self.time_major,
+        swap_memory=True)
 
     return tf.concat(bi_outputs, -1), bi_state
 
