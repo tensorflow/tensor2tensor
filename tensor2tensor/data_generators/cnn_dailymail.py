@@ -117,7 +117,7 @@ def example_splits(url_file, all_files):
 
   return filelist
 
-def example_generator(tmp_dir, is_training):
+def example_generator(tmp_dir, is_training, sum_token):
   def fix_run_on_sents(line):
     if u"@highlight" in line: return line
     if line=="": return line
@@ -126,6 +126,7 @@ def example_generator(tmp_dir, is_training):
 
   all_files, urls_path = _maybe_download_corpora(tmp_dir, is_training)
   filelist = example_splits(urls_path, all_files)
+  story_summary_split_token = u" <summary> " if sum_token else " "
 
   for story_file in filelist:
     story = []
@@ -143,7 +144,11 @@ def example_generator(tmp_dir, is_training):
           summary.append(line)
       else:
           story.append(line)
-    yield " ".join(story) + u" <summary> " + " ".join(summary)
+
+    if len(story) == 0 or len(summary) == 0:
+        continue
+
+    yield " ".join(story) + story_summary_split_token + " ".join(summary)
 
 
 def _story_summary_split(story):
@@ -196,8 +201,8 @@ class SummarizeCnnDailymail32k(problem.Text2TextProblem):
   def generator(self, data_dir, tmp_dir, is_training):
     encoder = generator_utils.get_or_generate_vocab_inner(
         data_dir, self.vocab_file, self.targeted_vocab_size,
-        example_generator(tmp_dir, is_training))
-    for example in example_generator(tmp_dir, is_training):
+        example_generator(tmp_dir, is_training, sum_token=False))
+    for example in example_generator(tmp_dir, is_training, sum_token=True):
       story, summary = _story_summary_split(example)
       encoded_summary = encoder.encode(summary) + [EOS]
       encoded_story = encoder.encode(story) + [EOS]
