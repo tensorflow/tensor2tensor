@@ -93,6 +93,9 @@ def basic_params1():
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
       symbol_modality_num_shards=16,
+      # During training, we drop sequences whose inputs and targets are shorter
+      # than min_length
+      min_length=0,
       # During training, we drop sequences whose inputs or targets are longer
       # than max_length.
       # If max_length==0, we use hparams.batch_size instead.

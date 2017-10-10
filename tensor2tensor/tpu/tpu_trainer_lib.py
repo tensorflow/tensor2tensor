@@ -54,6 +54,7 @@ def get_input_fn(data_dir, problem, hparams):
     batching_scheme = {
         "boundaries": [],
         "batch_sizes": [batch_size],
+        "min_length": hparams.min_length,
         "max_length": hparams.max_length,
         "window_size": batch_size,
         "padded_shapes": {
@@ -87,6 +88,7 @@ def get_input_fn(data_dir, problem, hparams):
 
     def _valid_size(example):
       return data_reader.example_valid_size(example,
+                                            batching_scheme["min_length"],
                                             batching_scheme["max_length"])
 
     dataset = dataset.filter(_valid_size)
