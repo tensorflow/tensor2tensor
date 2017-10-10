@@ -273,13 +273,12 @@ def transformer_tpu():
   """HParams for Transformer model on TPU."""
   hp = transformer.transformer_base()
   hp.use_pad_remover = int(False)  # where op not supported
+  hp.optimizer = "TrueAdam"
+  hp.learning_rate = 0.4
 
   # Inputs
   # Each example in the batch will be of (padded) length hp.max_length
-  # Batch size per shard is governed by tpu_batch_size_per_shard
   hp.max_length = 64
+  hp.tpu_batch_size_per_shard = 20
 
-  hp.optimizer = "TrueAdam"
-  hp.layer_preprocess_sequence = "n"
-  hp.layer_postprocess_sequence = "da"
   return hp
