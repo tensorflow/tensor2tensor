@@ -95,7 +95,7 @@ class Transformer(t2t_model.T2TModel):
           attentions, used for fast decoding.
 
     Returns:
-      Final decoder representaiton. [batch_size, decoder_length, hidden_dim]
+      Final decoder representation. [batch_size, decoder_length, hidden_dim]
     """
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
@@ -112,7 +112,7 @@ class Transformer(t2t_model.T2TModel):
     return tf.expand_dims(decoder_output, axis=2)
 
   def model_fn_body(self, features):
-    """Transformet main model_fn.
+    """Transformer main model_fn.
 
     Args:
       features: Map of features to the model. Should contain the following:
@@ -122,7 +122,7 @@ class Transformer(t2t_model.T2TModel):
           "target_space_id"
 
     Returns:
-      Final decoder representaiton. [batch_size, decoder_length, hidden_dim]
+      Final decoder representation. [batch_size, decoder_length, hidden_dim]
     """
     hparams = self._hparams
 
