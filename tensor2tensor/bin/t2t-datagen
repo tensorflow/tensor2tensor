@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
@@ -29,6 +29,8 @@ each training example a dictionary mapping string feature names to lists of
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import fathomt2t
 
 import os
 import random
@@ -210,4 +212,4 @@ def generate_data_for_registered_problem(problem_name):
 
 
 if __name__ == "__main__":
-  tf.app.run()
+  tf.app.run(main)
