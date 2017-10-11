@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-<<<<<<< 5c78a72b183854c86f66bca03929f4321e67737d
 """Data generation for Tensor2Tensor.
 
 This script is used to generate data to train your models
