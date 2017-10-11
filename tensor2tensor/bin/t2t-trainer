@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # coding=utf-8
 # Copyright 2017 The Tensor2Tensor Authors.
 #
@@ -29,6 +29,8 @@ To train your model, for example:
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import fathomt2t
 
 import os
 
@@ -93,4 +95,4 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.app.run()
+  tf.app.run(main)
