@@ -2875,16 +2875,103 @@ def conv_elems_1d(x, factor, out_depth=None):
 
 
 @expert_utils.add_var_scope()
-def multihead_self_attention_reduced(x, factor, multihead_params):
+def local_reduction_attention(x, block_length, multihead_params):
+  """Reduce the length dimension using self attention.
+
+  Args:
+    x (tf.Tensor): float32 of shape [batch, length, depth]
+    block_length (int): Block length for local attention (Compression factor)
+    multihead_params (dict): parameters for multihead attention
+
+  Returns:
+    tf.Tensor: Compressed tensor of shape [batch, length // factor, depth]
+  """
+  @expert_utils.add_name_scope()
+  def dot_product_self_local_attention_flattened(q, k, v):
+    """Strided block local self-attention.
+
+    No overlapp between the blocks.
+
+    Args:
+      q (tf.Tensor): shape [batch, heads, length, depth_k]
+      k (tf.Tensor): shape [batch, heads, length, depth_k]
+      v (tf.Tensor): shape [batch, heads, length, depth_v]
+
+    Returns:
+      tf.Tensor: shape [batch, heads, length, depth_v]
+    """
+    _, num_head, _, depth = q.get_shape().as_list()
+
+    # Extract the blocks
+    def pad_and_reshape(x):
+      """Split the length dim into [num_block, block_length]."""
+      length_x = tf.shape(x)[2]
+      # Add some padding, but won't matter as the last block will never be
+      # attended by the query (after compression)
+      x = tf.pad(x, [
+          [0, 0],
+          [0, 0],
+          [0, -length_x % block_length],
+          [0, 0]
+      ])
+      x = tf.reshape(x, [
+          tf.shape(x)[0],  # Batch
+          num_head,  # Head
+          tf.shape(x)[2] // block_length,  # Num blocks
+          block_length,  # Block length
+          depth,  # Depth
+      ])
+      return x
+
+    q, k, v = [pad_and_reshape(t) for t in (q, k, v)]
+
+    # Perform attention on the flattened dot product
+    logits = tf.matmul(q, k, transpose_b=True)
+    logits = tf.reshape(logits, [
+        tf.shape(logits)[0],  # Batch
+        num_head,  # Head
+        tf.shape(logits)[2],  # Num blocks
+        block_length**2,  # Flatten last dimension
+    ])
+    weights = tf.nn.softmax(logits)
+    weights = tf.reshape(weights, [
+        tf.shape(weights)[0],  # Batch
+        num_head,  # Head
+        tf.shape(weights)[2],  # Num blocks
+        block_length,
+        block_length,  # Restore the block length dimension
+    ])
+    weights = tf.reduce_sum(weights, axis=3, keep_dims=True)  # Compress block
+    v_out = tf.matmul(weights, v)  # [1, block_length] @ [block_length, depth]
+    v_out = tf.squeeze(v_out, axis=3)
+    return v_out
+
+  return multihead_attention(
+      x,
+      None,
+      bias=None,
+      output_depth=x.get_shape().as_list()[-1],
+      attention_type=dot_product_self_local_attention_flattened,
+      **multihead_params
+  )
+
+
+@expert_utils.add_var_scope()
+def multihead_self_attention_reduced(
+    x, factor, reduction_type, multihead_params):
   """Reduce the length dimension by compressing with conv.
 
   Args:
     x (tf.Tensor): float32 of shape [batch, length, depth]
     factor (int): compression factor for the memory sequence
+    reduction_type (str): type of compression
     multihead_params (dict): parameters for multihead attention
 
   Returns:
     (tf.Tensor): float32 of shape [batch, length, depth]
+
+  Raises:
+    ValueError: If reduction_type invalid
   """
   depth = x.get_shape().as_list()[-1]
 
@@ -2892,8 +2979,15 @@ def multihead_self_attention_reduced(x, factor, multihead_params):
   # create conv artifacts, would make it difficult to not attend to the future
   # withing one group and the padding should be handled specially.
 
-  # With valid padding, the last block won't be computed (not attended anyway)
-  memory_x = conv_elems_1d(x, factor)
+  # Reduce the memory dimension
+  if reduction_type == "attention":
+    memory_x = local_reduction_attention(x, factor, multihead_params)
+  elif reduction_type == "conv":
+    # With valid padding, the last block won't be computed (not attended anyway)
+    memory_x = conv_elems_1d(x, factor)
+  else:
+    raise ValueError("Unknown reduction type {}".format(reduction_type))
+
   memory_x = tf.concat(
       # Add the first elem to make it attendable by everyone (otherwise the
       # first block cannot attend to anything)

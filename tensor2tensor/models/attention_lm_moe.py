@@ -207,6 +207,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 hparams.num_heads,
                 hparams.attention_dropout,
                 attention_type=attention_dot_type,
+                block_length=hparams.attention_block_length,
                 name="decoder_self_attention")
           elif attention_type == AttentionType.SPARSE_MULTIHEAD:
             x_in = preprocess(x)
@@ -275,6 +276,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 common_attention.multihead_self_attention_reduced,
                 preprocess(x),
                 factor=hparams.attention_red_factor,
+                reduction_type=hparams.attention_reduction_type,
                 multihead_params=dict(
                     total_key_depth=
                     hparams.attention_key_channels or hparams.hidden_size,
@@ -505,6 +507,8 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_num_experts", 16)
   hparams.add_hparam("attention_split_batch", int(False))
   hparams.add_hparam("attention_red_factor", 3)
+  hparams.add_hparam("attention_block_length", 128)
+  hparams.add_hparam("attention_reduction_type", "conv")
   # If attention_exp_factor is set, each input to local_expert_attention (of
   # dimensionality hidden size) is projected into attention_exp_factor smaller
   # inputs, each of dimensionality attention_exp_inputdim. (otherwise
