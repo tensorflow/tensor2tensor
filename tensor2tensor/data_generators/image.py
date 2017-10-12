@@ -42,6 +42,12 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
+def resize_by_area(img, size):
+  """image resize function used by quite a few image problems."""
+  return tf.to_int64(
+      tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
+
+
 class ImageProblem(problem.Problem):
 
   def example_reading_spec(self, label_key=None):
@@ -93,16 +99,12 @@ class ImageCeleba(ImageProblem):
 
   def preprocess_example(self, example, unused_mode, unused_hparams):
 
-    def resize(img, size):
-      return tf.to_int64(
-          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
-
     inputs = example["inputs"]
     # Remove boundaries in CelebA images. Remove 40 pixels each side
     # vertically and 20 pixels each side horizontally.
     inputs = tf.image.crop_to_bounding_box(inputs, 40, 20, 218 - 80, 178 - 40)
-    example["inputs"] = resize(inputs, 8)
-    example["targets"] = resize(inputs, 32)
+    example["inputs"] = resize_by_area(inputs, 8)
+    example["targets"] = resize_by_area(inputs, 32)
     return example
 
   def hparams(self, defaults, unused_model_hparams):
@@ -388,14 +390,10 @@ class Img2imgImagenet(ImageProblem):
 
   def preprocess_example(self, example, unused_mode, unused_hparams):
 
-    def resize(img, size):
-      return tf.to_int64(
-          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
-
     inputs = example["inputs"]
     # For Img2Img resize input and output images as desired.
-    example["inputs"] = resize(inputs, 8)
-    example["targets"] = resize(inputs, 32)
+    example["inputs"] = resize_by_area(inputs, 8)
+    example["targets"] = resize_by_area(inputs, 32)
     return example
 
   def hparams(self, defaults, unused_model_hparams):
@@ -655,6 +653,18 @@ class ImageCifar10Plain(ImageCifar10):
 
 
 @registry.register_problem
+class ImageCifar10Plain8(ImageCifar10):
+  """CIFAR-10 rescaled to 8x8 for output: Conditional image generation."""
+
+  def dataset_filename(self):
+    return "image_cifar10_plain"  # Reuse CIFAR-10 plain data.
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"] = resize_by_area(example["inputs"], 8)
+    return example
+
+
+@registry.register_problem
 class Img2imgCifar10(ImageCifar10):
   """CIFAR-10 rescaled to 8x8 for input and 32x32 for output."""
 
@@ -663,14 +673,10 @@ class Img2imgCifar10(ImageCifar10):
 
   def preprocess_example(self, example, unused_mode, unused_hparams):
 
-    def resize(img, size):
-      return tf.to_int64(
-          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
-
     inputs = example["inputs"]
     # For Img2Img resize input and output images as desired.
-    example["inputs"] = resize(inputs, 8)
-    example["targets"] = resize(inputs, 32)
+    example["inputs"] = resize_by_area(inputs, 8)
+    example["targets"] = resize_by_area(inputs, 32)
     return example
 
   def hparams(self, defaults, unused_model_hparams):

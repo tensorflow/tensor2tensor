@@ -427,15 +427,17 @@ class T2TModel(object):
     else:
       assert self._hparams.sampling_method == "random"
 
-      def _multinomial_squeeze(logits):
-        reshaped_logits = tf.reshape(logits, [-1, tf.shape(logits)[-1]])
+      def _multinomial_squeeze(logits, temperature=1.0):
+        reshaped_logits = (
+            tf.reshape(logits, [-1, tf.shape(logits)[-1]])/temperature)
         choices = tf.multinomial(reshaped_logits, 1)
         choices = tf.reshape(choices,
                              tf.shape(logits)[:logits.get_shape().ndims - 1])
         return choices
 
       sharded_samples = self._data_parallelism(_multinomial_squeeze,
-                                               sharded_logits)
+                                               sharded_logits,
+                                               self._hparams.sampling_temp)
     return tf.concat(sharded_samples, 0), sharded_logits, losses
 
   def _shard_features(self, features):  # pylint: disable=missing-docstring
