@@ -1943,13 +1943,13 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
   Returns:
     fn(*inputs)
   """
-  with tf.variable_scope(None, default_name="fn_with_custom_grad") as vs:
-    inputs = list(inputs)
-    outputs = fn(*inputs)
-    if use_global_vars:
-      train_vars = list(vs.global_variables())
-    else:
-      train_vars = list(vs.trainable_variables())
+  vs = tf.get_variable_scope()
+  get_vars_fn = (vs.global_variables if use_global_vars else
+                 vs.trainable_variables)
+  len_before_vars = len(get_vars_fn())
+  inputs = list(inputs)
+  outputs = fn(*inputs)
+  train_vars = get_vars_fn()[len_before_vars:]
 
   if grad_fn is None:
     return outputs
