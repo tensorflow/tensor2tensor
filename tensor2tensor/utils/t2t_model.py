@@ -335,7 +335,7 @@ class T2TModel(object):
     # Save the targets in a var and reassign it after the tf.while loop to avoid
     # having targets being in a 'while' frame. This ensures targets when used
     # in metric functions stays in the same frame as other vars.
-    targets_old = features["targets"]
+    targets_old = features.get("targets", None)
 
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
@@ -399,7 +399,8 @@ class T2TModel(object):
     if inputs_old is not None:  # Restore to not confuse Estimator.
       features["inputs"] = inputs_old
     # Reassign targets back to the previous value.
-    features["targets"] = targets_old
+    if targets_old is not None:
+      features["targets"] = targets_old
     losses = {"training": loss}
     if "partial_targets" in features:
       partial_target_length = tf.shape(features["partial_targets"])[1]
