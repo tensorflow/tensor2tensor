@@ -63,12 +63,14 @@ def main(unused_argv):
       batch_size=hparams.tpu_batch_size_per_shard * FLAGS.tpu_num_shards,
       log_device_placement=FLAGS.log_device_placement,
       iterations_per_loop=FLAGS.iterations_per_loop)
-  estimator.train(
-      lambda params: input_fn(tf.estimator.ModeKeys.TRAIN, params),
-      steps=FLAGS.train_steps)
-  estimator.evaluate(
-      lambda params: input_fn(tf.estimator.ModeKeys.EVAL, params),
-      steps=FLAGS.eval_steps)
+  if FLAGS.train_steps:
+    estimator.train(
+        lambda params: input_fn(tf.estimator.ModeKeys.TRAIN, params),
+        steps=FLAGS.train_steps)
+  if FLAGS.eval_steps:
+    estimator.evaluate(
+        lambda params: input_fn(tf.estimator.ModeKeys.EVAL, params),
+        steps=FLAGS.eval_steps)
 
 
 if __name__ == "__main__":
