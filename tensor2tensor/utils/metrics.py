@@ -43,6 +43,8 @@ class Metrics(object):
   ROUGE_2_F = "rouge_2_fscore"
   ROUGE_L_F = "rouge_L_fscore"
   EDIT_DISTANCE = "edit_distance"
+  SET_PRECISION = "set_precision"
+  SET_RECALL = "set_recall"
 
 
 def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
@@ -189,6 +191,54 @@ def padded_accuracy(predictions,
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
 
+def set_precision(predictions,
+                  labels,
+                  weights_fn=common_layers.weights_nonzero):
+  """Precision of set predictions.
+
+  Args:
+    predictions : A Tensor of scores of shape [batch, nlabels].
+    labels: A Tensor of int32s giving true set elements,
+      of shape [batch, seq_length].
+    weights_fn: A function to weight the elements.
+
+  Returns:
+    hits: A Tensor of shape [batch, nlabels].
+    weights: A Tensor of shape [batch, nlabels].
+  """
+  with tf.variable_scope("set_precision", values=[predictions, labels]):
+    labels = tf.squeeze(labels, [2, 3])
+    weights = weights_fn(labels)
+    labels = tf.one_hot(labels, predictions.shape[-1])
+    labels = tf.reduce_max(labels, axis=1)
+    labels = tf.cast(labels, tf.bool)
+    return tf.to_float(tf.equal(labels, predictions)), weights
+
+
+def set_recall(predictions,
+               labels,
+               weights_fn=common_layers.weights_nonzero):
+  """Recall of set predictions.
+
+  Args:
+    predictions : A Tensor of scores of shape [batch, nlabels].
+    labels: A Tensor of int32s giving true set elements,
+      of shape [batch, seq_length].
+    weights_fn: A function to weight the elements.
+
+  Returns:
+    hits: A Tensor of shape [batch, nlabels].
+    weights: A Tensor of shape [batch, nlabels].
+  """
+  with tf.variable_scope("set_recall", values=[predictions, labels]):
+    labels = tf.squeeze(labels, [2, 3])
+    weights = weights_fn(labels)
+    labels = tf.one_hot(labels, predictions.shape[-1])
+    labels = tf.reduce_max(labels, axis=1)
+    labels = tf.cast(labels, tf.bool)
+    return tf.to_float(tf.equal(labels, predictions)), weights
+
+
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
 
@@ -281,4 +331,6 @@ METRICS_FNS = {
     Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
+    Metrics.SET_PRECISION: set_precision,
+    Metrics.SET_RECALL: set_recall,
 }
