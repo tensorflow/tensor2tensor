@@ -52,7 +52,8 @@ def decode_hparams(overrides=""):
       return_beams=False,
       max_input_size=-1,
       identity_output=False,
-      num_samples=-1)
+      num_samples=-1,
+      delimiter="\n")
   hp = hp.parse(overrides)
   return hp
 
@@ -176,8 +177,8 @@ def decode_from_dataset(estimator,
       # Write out predictions if decode_to_file passed
       if decode_to_file:
         for decoded_output, decoded_target in decoded_outputs:
-          output_file.write(str(decoded_output) + "\n")
-          target_file.write(str(decoded_target) + "\n")
+          output_file.write(str(decoded_output) + decode_hp.delimiter)
+          target_file.write(str(decoded_target) + decode_hp.delimiter)
 
       if (decode_hp.num_samples >= 0 and
           num_predictions >= decode_hp.num_samples):
@@ -203,7 +204,8 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   targets_vocab = hparams.problems[problem_id].vocabulary["targets"]
   problem_name = FLAGS.problems.split("-")[problem_id]
   tf.logging.info("Performing decoding from a file.")
-  sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.shards)
+  sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.shards,
+                                                  decode_hp.delimiter)
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   def input_fn():
@@ -251,7 +253,7 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   tf.logging.info("Writing decodes into %s" % decode_filename)
   outfile = tf.gfile.Open(decode_filename, "w")
   for index in range(len(sorted_inputs)):
-    outfile.write("%s\n" % (decodes[sorted_keys[index]]))
+    outfile.write("%s%s" % (decodes[sorted_keys[index]], decode_hp.delimiter))
 
 
 def _decode_filename(base_filename, problem_name, decode_hp):
@@ -472,13 +474,14 @@ def show_and_save_image(img, save_path):
   plt.savefig(save_path)
 
 
-def _get_sorted_inputs(filename, num_shards=1):
+def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
   """Returning inputs sorted according to length.
 
   Args:
     filename: path to file with inputs, 1 per line.
     num_shards: number of input shards. If > 1, will read from file filename.XX,
       where XX is FLAGS.worker_id.
+    delimiter: str, delimits records in the file.
 
   Returns:
     a sorted list of inputs
@@ -490,8 +493,12 @@ def _get_sorted_inputs(filename, num_shards=1):
     decode_filename = filename + ("%.2d" % FLAGS.worker_id)
   else:
     decode_filename = filename
-  inputs = [line.strip() for line in tf.gfile.Open(decode_filename)]
-  input_lens = [(i, len(line.strip().split())) for i, line in enumerate(inputs)]
+
+  with tf.gfile.Open(decode_filename) as f:
+    text = f.read()
+    records = text.split(delimiter)
+    inputs = [record.strip() for record in records]
+  input_lens = [(i, len(line.split())) for i, line in enumerate(inputs)]
   sorted_input_lens = sorted(input_lens, key=operator.itemgetter(1))
   # We'll need the keys to rearrange the inputs back into their original order
   sorted_keys = {}
@@ -553,8 +560,8 @@ def _interactive_input_tensor_to_features_dict(feature_map, hparams):
       feature_map["problem_choice"])
   features["input_space_id"] = input_space_id
   features["target_space_id"] = target_space_id
-  features["decode_length"] = (IMAGE_DECODE_LENGTH
-                               if input_is_image else inputs[1])
+  features["decode_length"] = (
+      IMAGE_DECODE_LENGTH if input_is_image else inputs[1])
   features["inputs"] = x
   return features
 
@@ -588,7 +595,7 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
   features["problem_choice"] = feature_map["problem_choice"]
   features["input_space_id"] = input_space_id
   features["target_space_id"] = target_space_id
-  features["decode_length"] = (IMAGE_DECODE_LENGTH
-                               if input_is_image else tf.shape(x)[1] + 50)
+  features["decode_length"] = (
+      IMAGE_DECODE_LENGTH if input_is_image else tf.shape(x)[1] + 50)
   features["inputs"] = x
   return features
