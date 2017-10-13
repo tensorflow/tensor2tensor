@@ -160,6 +160,19 @@ def basic_params1():
       #     entire inputs portion.  This removes the challenge of
       #     autoregressively predicting the inputs portion.
       prepend_mode="none",
+      # Scheduled sampling is interesting for auto-regressive models.
+      # It runs an additional step using the generated output as autoregressive
+      # targets, which can improve the models inference results later. The
+      # parameter scheduled_sampling_prob determines with what probability
+      # will such additional step be run. It's turned off (0.0) by default.
+      # This probability will exponentially warm up for the number of
+      # steps determined by scheduled_sampling_warmup_steps.
+      # The tensor used for the second step will consist of outputs from
+      # the first step mixed with gold truth, with the proportion of gold
+      # determined by scheduled_sampling_gold_mixin_prob.
+      scheduled_sampling_prob=0.0,
+      scheduled_sampling_warmup_steps=50000,
+      scheduled_sampling_gold_mixin_prob=0.5,
       # This is the actual batch size, *not* tokens per batch (i.e. for
       # language models this is the number of sentences in the batch)
       tpu_batch_size_per_shard=24,)

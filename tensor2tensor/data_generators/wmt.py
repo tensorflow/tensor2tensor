@@ -375,6 +375,8 @@ def _compile_data(tmp_dir, datasets, filename):
         compressed_filename = os.path.basename(url)
         compressed_filepath = os.path.join(tmp_dir, compressed_filename)
 
+        generator_utils.maybe_download(tmp_dir, compressed_filename, url)
+
         if dataset[1][0] == "tsv":
           _, src_column, trg_column, glob_pattern = dataset[1]
           filenames = tf.gfile.Glob(os.path.join(tmp_dir, glob_pattern))
