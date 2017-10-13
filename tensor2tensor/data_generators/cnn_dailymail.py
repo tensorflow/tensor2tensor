@@ -74,7 +74,7 @@ def story_generator(tmp_dir):
   for path in paths:
     for story_file in tf.gfile.Glob(path + "*"):
       story = u""
-      for line in tf.gfile.Open(story_file):
+      for line in tf.gfile.Open(story_file, 'rb'):
         line = unicode(line, "utf-8") if six.PY2 else line.decode("utf-8")
         story += line
       yield story
