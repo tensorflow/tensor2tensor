@@ -318,7 +318,7 @@ class BeamSearchTest(tf.test.TestCase):
       # Catch and fail so that the testing framework doesn't think it's an error
       try:
         sess.run(final_ids)
-      except tf.errors.InvalidArgumentError, e:
+      except tf.errors.InvalidArgumentError as e:
         raise AssertionError(e.message)
 
   def testStateBeamTwo(self):
@@ -366,7 +366,7 @@ class BeamSearchTest(tf.test.TestCase):
       # Catch and fail so that the testing framework doesn't think it's an error
       try:
         sess.run(final_ids)
-      except tf.errors.InvalidArgumentError, e:
+      except tf.errors.InvalidArgumentError as e:
         raise AssertionError(e.message)
 
 if __name__ == "__main__":
