@@ -87,10 +87,10 @@ def log_decode_results(inputs,
       decoded_targets = " ".join(map(str, targets.flatten()))
   else:
     decoded_outputs = " ".join(
-        map(str, targets_vocab.decode(_save_until_eos(outputs.flatten()))))
+        map(str, targets_vocab.decode(_save_until_eos(outputs.flatten())).split()))
     if targets is not None:
       decoded_targets = " ".join(
-          map(str, targets_vocab.decode(_save_until_eos(targets.flatten()))))
+          map(str, targets_vocab.decode(_save_until_eos(targets.flatten())).split()))
 
   tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None:
