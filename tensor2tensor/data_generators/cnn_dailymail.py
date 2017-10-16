@@ -150,7 +150,6 @@ def example_generator(tmp_dir, is_training, sum_token):
 
     yield " ".join(story) + story_summary_split_token + " ".join(summary)
 
-
 def _story_summary_split(story):
   split_str = u" <summary> "
   split_str_len = len(split_str)
