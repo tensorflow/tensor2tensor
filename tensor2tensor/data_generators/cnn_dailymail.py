@@ -102,7 +102,7 @@ def example_splits(url_file, all_files):
 
   urls = []
   for line in tf.gfile.Open(url_file):
-    urls.append(line.strip())
+    urls.append(line.strip().encode('utf-8'))
 
   filelist = []
   for url in urls:
@@ -132,7 +132,7 @@ def example_generator(tmp_dir, is_training, sum_token):
     story = []
     summary = []
     reading_highlights = False
-    for line in tf.gfile.Open(story_file):
+    for line in tf.gfile.Open(story_file, "rb"):
       line = unicode(line.strip(), "utf-8") if six.PY2 else line.strip().decode("utf-8")
       line = fix_run_on_sents(line)
       if line == "":
