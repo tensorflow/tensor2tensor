@@ -138,6 +138,74 @@ class ExpertUtilsTest(tf.test.TestCase):
           0.,  # pad
       ])
 
+  def testTruncatingDispatcher(self):
+    """Check that the TruncatingDispatcher is working correctly."""
+    # batch = 1
+    # length = 3
+    # num_experts = 2
+    expert_capacity = 2
+    requests = tf.constant([
+        [[True, False],
+         [True, True],
+         [True, False]],
+        [[False, False],
+         [False, True],
+         [True, False]]
+        ], dtype=tf.float32)
+    dispatcher = expert_utils.TruncatingDispatcher(requests, expert_capacity)
+    x = tf.constant([
+        [[3, 4],
+         [5, 6],
+         [7, 8]],
+        [[2, 3],
+         [4, 5],
+         [6, 7]]
+    ], dtype=tf.float32)
+    dispatched = dispatcher.dispatch(x)
+    dispatched_expected = [
+        [[[3, 4], [5, 6]],
+         [[5, 6], [3, 4]]],
+        [[[6, 7], [2, 3]],
+         [[4, 5], [2, 3]]]
+    ]
+    y = [
+        [[[7, 12], [11, 30]],
+         [[-1, 30], [9, 9]]],
+        [[[13, 42], [9, 9]],
+         [[-1, 20], [9, 9]]]
+    ]
+    combined = dispatcher.combine(y)
+    combined_expected = [
+        [[7, 12],
+         [10, 60],
+         [0, 0]],
+        [[0, 0],
+         [-1, 20],
+         [13, 42]]
+    ]
+    nonpadding = dispatcher.nonpadding()
+    nonpadding_expected = [
+        [[1, 1],
+         [1, 0]],
+        [[1, 0],
+         [1, 0]]
+    ]
+    gates = dispatcher.gates()
+    gates_expected = [
+        [[1, 0],
+         [1, 1],
+         [0, 0]],
+        [[0, 0],
+         [0, 1],
+         [1, 0]]
+    ]
+
+    with self.test_session() as sess:
+      self._verify_value(sess, dispatched, dispatched_expected)
+      self._verify_value(sess, combined, combined_expected)
+      self._verify_value(sess, nonpadding, nonpadding_expected)
+      self._verify_value(sess, gates, gates_expected)
+
 
 if __name__ == '__main__':
   tf.test.main()

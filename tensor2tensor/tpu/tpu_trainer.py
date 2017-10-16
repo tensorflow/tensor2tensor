@@ -36,6 +36,8 @@ flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
 flags.DEFINE_integer("eval_steps", 10, "Number of steps in evaluation.")
+flags.DEFINE_integer("iterations_per_loop", 1000,
+                     "Number of iterations in a TPU training loop.")
 
 
 def main(unused_argv):
@@ -58,14 +60,17 @@ def main(unused_argv):
       output_dir=FLAGS.output_dir,
       master=FLAGS.master,
       num_shards=FLAGS.tpu_num_shards,
-      batch_size=hparams.batch_size_per_shard * FLAGS.tpu_num_shards,
-      log_device_placement=FLAGS.log_device_placement)
-  estimator.train(
-      lambda params: input_fn(tf.estimator.ModeKeys.TRAIN, params),
-      steps=FLAGS.train_steps)
-  estimator.evaluate(
-      lambda params: input_fn(tf.estimator.ModeKeys.EVAL, params),
-      steps=FLAGS.eval_steps)
+      batch_size=hparams.tpu_batch_size_per_shard * FLAGS.tpu_num_shards,
+      log_device_placement=FLAGS.log_device_placement,
+      iterations_per_loop=FLAGS.iterations_per_loop)
+  if FLAGS.train_steps:
+    estimator.train(
+        lambda params: input_fn(tf.estimator.ModeKeys.TRAIN, params),
+        steps=FLAGS.train_steps)
+  if FLAGS.eval_steps:
+    estimator.evaluate(
+        lambda params: input_fn(tf.estimator.ModeKeys.EVAL, params),
+        steps=FLAGS.eval_steps)
 
 
 if __name__ == "__main__":

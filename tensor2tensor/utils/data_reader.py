@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+
 # Dependency imports
 
 import numpy as np
@@ -82,6 +84,7 @@ def input_pipeline(problem,
       "boundaries": a list of integers for the boundaries that will be
         used for bucketing; see bucket_by_sequence_length for more details.
       "batch_sizes": a list of batch sizes corresponding to the buckets
+      "min_length": an integer.  We drop sequences which are shorter.
       "max_length": an integer.  We drop sequences which are longer.
     dataset_split: tf.estimator.ModeKeys + ["test"], which split of the dataset
       to use. Defaults to mode.
@@ -102,7 +105,11 @@ def input_pipeline(problem,
         dataset_split=dataset_split)
     dataset = dataset.map(cast_int64_to_int32, num_threads=num_threads)
     dataset = dataset.filter(
-        lambda ex: example_valid_size(ex, batching_scheme["max_length"]))
+        functools.partial(
+            example_valid_size,
+            min_length=batching_scheme["min_length"],
+            max_length=batching_scheme["max_length"],
+        ))
     if is_training:
       dataset = dataset.shuffle(capacity)
       dataset = dataset.repeat(None)
@@ -143,8 +150,12 @@ def _example_length(example):
   return length
 
 
-def example_valid_size(example, max_length):
-  return tf.less_equal(_example_length(example), max_length)
+def example_valid_size(example, min_length, max_length):
+  length = _example_length(example)
+  return tf.logical_and(
+      length >= min_length,
+      length <= max_length,
+  )
 
 
 def bucket_by_sequence_length(dataset,
@@ -232,7 +243,8 @@ def _batching_scheme(batch_size,
                      length_bucket_step,
                      drop_long_sequences=False,
                      shard_multiplier=1,
-                     length_multiplier=1):
+                     length_multiplier=1,
+                     min_length=0):
   """A batching scheme based on model hyperparameters.
 
   Every batch containins a number of sequences divisible by `shard_multiplier`.
@@ -251,18 +263,26 @@ def _batching_scheme(batch_size,
       across datashards.
     length_multiplier: an integer multiplier that is used to increase the
       batch sizes and sequence length tolerance.
+    min_length: int, sequences shorter than this will be skipped.
 
   Returns:
      A dictionary with parameters that can be passed to input_pipeline:
        * boundaries: list of bucket boundaries
        * batch_sizes: list of batch sizes for each length bucket
        * max_length: int, maximum length of an example
+
+  Raises:
+    ValueError: If min_length > max_length
   """
   max_length = max_length or batch_size
+  if max_length < min_length:
+    raise ValueError("max_length must be greater or equal to min_length")
+
   boundaries = _bucket_boundaries(max_length, min_length_bucket,
                                   length_bucket_step)
   boundaries = [boundary * length_multiplier for boundary in boundaries]
   max_length *= length_multiplier
+
   batch_sizes = [
       max(1, batch_size // length) for length in boundaries + [max_length]
   ]
@@ -293,9 +313,11 @@ def _batching_scheme(batch_size,
   # number of batches per window.
   max_batches_per_window = window_size // min(batch_sizes)
   shuffle_queue_size = max_batches_per_window * 3
+
   ret = {
       "boundaries": boundaries,
       "batch_sizes": batch_sizes,
+      "min_length": min_length,
       "max_length": (max_length if drop_long_sequences else 10**9),
       "shuffle_queue_size": shuffle_queue_size,
       "window_size": window_size,
@@ -311,6 +333,7 @@ def hparams_to_batching_scheme(hparams,
   """Wrapper around _batching_scheme with hparams."""
   return _batching_scheme(
       batch_size=hparams.batch_size,
+      min_length=hparams.min_length,
       max_length=hparams.max_length,
       min_length_bucket=hparams.min_length_bucket,
       length_bucket_step=hparams.length_bucket_step,
@@ -333,6 +356,7 @@ def constant_batching_scheme(constant_batch_size_in_sequences):
   return {
       "boundaries": boundaries,
       "batch_sizes": batch_sizes,
+      "min_length": 0,
       "max_length": 10**9,
       "shuffle_queue_size": None,
       "window_size": constant_batch_size_in_sequences,

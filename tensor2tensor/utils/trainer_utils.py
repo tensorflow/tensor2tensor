@@ -167,6 +167,7 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
       min_eval_frequency=FLAGS.local_eval_frequency,
       train_monitors=train_monitors,
       eval_hooks=eval_hooks,
+      eval_delay_secs=0,
       **optional_kwargs)
 
 
@@ -353,6 +354,7 @@ def run(data_dir, model, output_dir, train_steps, eval_steps, schedule):
 
 
 def validate_flags():
+  """Validate command line flags."""
   if not FLAGS.model:
     raise ValueError("Must specify a model with --model.")
   if not FLAGS.problems:
@@ -365,6 +367,8 @@ def validate_flags():
     FLAGS.output_dir = "/tmp/tensor2tensor"
     tf.logging.warning("It is strongly recommended to specify --output_dir. "
                        "Using default output_dir=%s.", FLAGS.output_dir)
+  if not FLAGS.data_dir:
+    raise ValueError("Must specify --data_dir.")
 
 
 def is_chief():

@@ -365,8 +365,7 @@ def _recompute_grad(fn, args):
 
   @common_layers.fn_with_custom_grad(grad_fn)
   def fn_with_recompute(*args):
-    with tf.variable_scope(None, default_name="recompute") as vs:
-      cached_vs.append(vs)
-      return fn(*args)
+    cached_vs.append(tf.get_variable_scope())
+    return fn(*args)
 
   return fn_with_recompute(*args)

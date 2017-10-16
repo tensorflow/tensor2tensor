@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# Dependency imports
+
 from tensor2tensor.utils import input_fn_builder
 import tensorflow as tf
 
@@ -26,13 +28,13 @@ import tensorflow as tf
 class InputFnBuilderTest(tf.test.TestCase):
 
   def testCondOnIndex(self):
-    """Smoke tests of cond_on_index()"""
+    """Smoke tests of cond_on_index()."""
 
     z = tf.constant(1., dtype=tf.float32)
     def f(n):
       return {
-        "a": z * n,
-        "b": z * n * n
+          "a": z * n,
+          "b": z * n * n
       }
 
     index = tf.placeholder(shape=[], dtype=tf.int32)
@@ -41,19 +43,19 @@ class InputFnBuilderTest(tf.test.TestCase):
     with self.test_session() as sess:
       # Check dispatching to the correct branch
       result = sess.run(out, feed_dict={
-        index: 2
+          index: 2
       })
 
       self.assertAllClose(result["a"], 2.)
       self.assertAllClose(result["b"], 4.)
 
       result = sess.run(out, feed_dict={
-        index: 3
+          index: 3
       })
 
       self.assertAllClose(result["a"], 3.)
       self.assertAllClose(result["b"], 9.)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   tf.test.main()

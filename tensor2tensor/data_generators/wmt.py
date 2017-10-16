@@ -19,9 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import glob
 import os
-import stat
 import tarfile
 
 # Dependency imports
@@ -115,7 +113,7 @@ def tabbed_generator(source_path, source_vocab, target_vocab, eos=None):
   with tf.gfile.GFile(source_path, mode="r") as source_file:
     for line in source_file:
       if line and "\t" in line:
-        parts = line.split("\t", maxsplit=1)
+        parts = line.split("\t", 1)
         source, target = parts[0].strip(), parts[1].strip()
         source_ints = source_vocab.encode(source) + eos_list
         target_ints = target_vocab.encode(target) + eos_list
@@ -267,8 +265,9 @@ _MKEN_TEST_DATASETS = [[
 # English-Czech datasets
 _ENCS_TRAIN_DATASETS = [
     [
-        "https://lindat.mff.cuni.cz/repository/xmlui/bitstream/handle/11234/1-1458/data-plaintext-format.tar",
-        ('tsv', 3, 2, 'data.plaintext-format/*train.gz')
+        ("https://lindat.mff.cuni.cz/repository/xmlui/bitstream/handle/"
+         "11234/1-1458/data-plaintext-format.tar"),
+        ("tsv", 3, 2, "data.plaintext-format/*train.gz")
     ],
     [
         "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",  # pylint: disable=line-too-long
@@ -375,25 +374,22 @@ def _compile_data(tmp_dir, datasets, filename):
         url = dataset[0]
         compressed_filename = os.path.basename(url)
         compressed_filepath = os.path.join(tmp_dir, compressed_filename)
+
         generator_utils.maybe_download(tmp_dir, compressed_filename, url)
 
-        if dataset[1][0] == 'tsv':
+        if dataset[1][0] == "tsv":
           _, src_column, trg_column, glob_pattern = dataset[1]
-          filenames = glob.glob(os.path.join(tmp_dir, glob_pattern))
+          filenames = tf.gfile.Glob(os.path.join(tmp_dir, glob_pattern))
           if not filenames:
-            mode = "r:gz" if compressed_filepath.endswith("gz") else "r"  # *.tgz *.tar.gz
+            # Capture *.tgz and *.tar.gz too.
+            mode = "r:gz" if compressed_filepath.endswith("gz") else "r"
             with tarfile.open(compressed_filepath, mode) as corpus_tar:
               corpus_tar.extractall(tmp_dir)
-            filenames = glob.glob(os.path.join(tmp_dir, glob_pattern))
+            filenames = tf.gfile.Glob(os.path.join(tmp_dir, glob_pattern))
           for tsv_filename in filenames:
             if tsv_filename.endswith(".gz"):
               new_filename = tsv_filename.strip(".gz")
-              try:
-                generator_utils.gunzip_file(tsv_filename, new_filename)
-              except PermissionError:
-                tsvdir = os.path.dirname(tsv_filename)
-                os.chmod(tsvdir, os.stat(tsvdir).st_mode | stat.S_IWRITE)
-                generator_utils.gunzip_file(tsv_filename, new_filename)
+              generator_utils.gunzip_file(tsv_filename, new_filename)
               tsv_filename = new_filename
             with tf.gfile.GFile(tsv_filename, mode="r") as tsv_file:
               for line in tsv_file:
@@ -663,17 +659,19 @@ class TranslateEncsWmt32k(TranslateProblem):
   def generator(self, data_dir, tmp_dir, train):
     datasets = _ENCS_TRAIN_DATASETS if train else _ENCS_TEST_DATASETS
     tag = "train" if train else "dev"
-    data_path = _compile_data(tmp_dir, datasets, "wmt_encs_tok_%s" % tag)
     vocab_datasets = []
+    data_path = _compile_data(tmp_dir, datasets, "wmt_encs_tok_%s" % tag)
     # CzEng contains 100 gz files with tab-separated columns, so let's expect
-    # it is the first dataset in datasets and use the newly created *.lang{1,2} files instead.
+    # it is the first dataset in datasets and use the newly created *.lang{1,2}
+    # files for vocab construction.
     if datasets[0][0].endswith("data-plaintext-format.tar"):
-      vocab_datasets.append([datasets[0][0],
-                            ["wmt_encs_tok_%s.lang1" % tag, "wmt_encs_tok_%s.lang2" % tag]])
+      vocab_datasets.append([datasets[0][0], ["wmt_encs_tok_%s.lang1" % tag,
+                                              "wmt_encs_tok_%s.lang2" % tag]])
       datasets = datasets[1:]
     vocab_datasets += [[item[0], [item[1][0], item[1][1]]] for item in datasets]
     symbolizer_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size, vocab_datasets)
+        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size,
+        vocab_datasets)
     return token_generator(data_path + ".lang1", data_path + ".lang2",
                            symbolizer_vocab, EOS)
 
