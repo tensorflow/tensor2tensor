@@ -13,13 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Library for training on TPU. See tpu_trainer.py."""
+"""Library for training on TPU. See tpu_trainer.py.
 
-# TODO(rsepassi):
-# * Fix EVAL (breaks when loading from checkpoint)
-# * Support all decoders
-# * Share more code with Problem.dataset and input_pipeline
-# * Support PREDICT
+Currently only supports training and evaluation for text-to-text problems.
+"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -38,6 +35,7 @@ from tensor2tensor.utils import model_builder
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+from tensorflow.python.util import nest
 
 
 def get_input_fn(data_dir, problem, hparams):
@@ -49,11 +47,10 @@ def get_input_fn(data_dir, problem, hparams):
     num_threads = 4 if is_training else 1
     batch_size = params["batch_size"]
 
-    data_file_patterns = [problem.filepattern(data_dir, mode)]
-
     batching_scheme = {
         "boundaries": [],
         "batch_sizes": [batch_size],
+        "min_length": hparams.min_length,
         "max_length": hparams.max_length,
         "window_size": batch_size,
         "padded_shapes": {
@@ -71,9 +68,9 @@ def get_input_fn(data_dir, problem, hparams):
       return decoded
 
     data_files = tf.contrib.slim.parallel_reader.get_data_files(
-        data_file_patterns)
-    dataset = tf.contrib.data.TFRecordDataset(data_files)
-    dataset = dataset.map(decode_record, num_threads=num_threads)
+        problem.filepattern(data_dir, mode))
+    dataset = tf.data.TFRecordDataset(data_files)
+    dataset = dataset.map(decode_record, num_parallel_calls=num_threads)
 
     def _preprocess(example, problem, hparams, mode):
       example = problem.preprocess_example(example, mode, hparams)
@@ -83,19 +80,25 @@ def get_input_fn(data_dir, problem, hparams):
 
     dataset = dataset.map(
         lambda ex: _preprocess(ex, problem, hparams, mode),
-        num_threads=num_threads)
+        num_parallel_calls=num_threads)
 
     def _valid_size(example):
-      return data_reader.example_valid_size(example,
-                                            batching_scheme["max_length"])
+      return data_reader.example_valid_size(
+          example, batching_scheme["min_length"], batching_scheme["max_length"])
 
     dataset = dataset.filter(_valid_size)
     if is_training:
       dataset = dataset.shuffle(100)
-      dataset = dataset.repeat(None)
+    # TODO(rsepassi): In eval mode, should not repeat
+    dataset = dataset.repeat(None)
     dataset = data_reader.padded_batch(dataset,
                                        batching_scheme["batch_sizes"][0],
                                        batching_scheme["padded_shapes"])
+
+    if not is_training:
+      dataset = dataset.map(
+          lambda f: pad_batch(f, batch_size), num_parallel_calls=num_threads)
+
     dataset.prefetch(1)
 
     train_features = dataset.make_one_shot_iterator().get_next()
@@ -109,19 +112,29 @@ def get_input_fn(data_dir, problem, hparams):
     while len(targets.get_shape()) != 4:
       targets = tf.expand_dims(targets, axis=-1)
 
-    inputs_shape = inputs.get_shape().as_list()
-    inputs_shape[0] = batch_size
-    inputs.set_shape(inputs_shape)
-    targets_shape = targets.get_shape().as_list()
-    targets_shape[0] = batch_size
-    targets.set_shape(targets_shape)
-
     train_features["inputs"] = inputs
     train_features["targets"] = targets
 
     return train_features, targets
 
   return input_fn
+
+
+def pad_batch(features, batch_size):
+  """Pad each feature in features to batch_size on dim 0."""
+  ts = []
+  for t in nest.flatten(features):
+    before_pads = [0] * t.get_shape().ndims
+    after_pads = [0] * t.get_shape().ndims
+    batch_pad = tf.convert_to_tensor(batch_size) - tf.shape(t)[0]
+    after_pads[0] = batch_pad
+    pads = list(zip(before_pads, after_pads))
+    old_shape = t.get_shape().as_list()
+    old_shape[0] = batch_size
+    t = tf.pad(t, pads)
+    t.set_shape(old_shape)
+    ts.append(t)
+  return nest.pack_sequence_as(features, ts)
 
 
 def get_model_fn(model, hp, use_tpu=True):
@@ -150,6 +163,11 @@ def get_model_fn(model, hp, use_tpu=True):
     outputs = model_class.model_fn_body(features)
     logits = target_modality.top(outputs, labels)
 
+    # Ensure the length is known statically
+    shape = [None] * logits.get_shape().ndims
+    shape[1] = hparams.max_length
+    logits.set_shape(logits.get_shape().merge_with(shape))
+
     # Loss
     loss_num, loss_den = target_modality.loss(logits, labels)
     loss = loss_num / tf.maximum(1.0, loss_den)
@@ -157,6 +175,7 @@ def get_model_fn(model, hp, use_tpu=True):
     if mode == tf.estimator.ModeKeys.EVAL:
       problem = hp.problem_instances[0]
       eval_metrics_fn = create_eval_metrics_fn(problem)
+      _remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(
           mode,
           eval_metrics=(eval_metrics_fn, [logits, orig_features["targets"]]),
@@ -171,16 +190,7 @@ def get_model_fn(model, hp, use_tpu=True):
     lr /= math.sqrt(float(num_shards))
 
     # Optimizer
-    opt_name = hparams.optimizer
-    if opt_name == "Momentum":
-      opt = tf.train.MomentumOptimizer(
-          lr, momentum=hparams.optimizer_momentum_momentum)
-    else:
-      if hparams.optimizer not in ["RMSProp", "SGD"]:
-        tf.logging.warn(
-            "Only Momentum, RMSProp, and SGD are known to work on TPU.")
-      opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[opt_name](lr)
-
+    opt = model_builder.ConditionalOptimizer(hparams.optimizer, lr, hparams)
     if use_tpu:
       opt = tf.contrib.tpu.CrossShardOptimizer(opt)
 
@@ -199,6 +209,13 @@ def get_model_fn(model, hp, use_tpu=True):
   return model_fn
 
 
+TPU_METRIC_BLACKLIST = set([
+    metrics.Metrics.APPROX_BLEU,
+    metrics.Metrics.ROUGE_2_F,
+    metrics.Metrics.ROUGE_L_F,
+])
+
+
 def create_eval_metrics_fn(problem):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
@@ -213,7 +230,11 @@ def create_eval_metrics_fn(problem):
 
   metric_fns = []
   eval_metrics = problem.eval_metrics()
+
   for metric in eval_metrics:
+    if metric in TPU_METRIC_BLACKLIST:
+      tf.logging.warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
+      continue
     name = "metrics-%s/%s" % (problem.name, metric)
     metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
 
@@ -246,7 +267,7 @@ def make_estimator(model_fn,
                    output_dir,
                    master="",
                    batch_size=16,
-                   iterations_per_loop=100,
+                   iterations_per_loop=1000,
                    num_shards=8,
                    per_host_input_for_training=True,
                    use_tpu=True,
@@ -264,7 +285,8 @@ def make_estimator(model_fn,
       save_summary_steps=0,
       save_checkpoints_steps=save_checkpoints_steps,
       tpu_config=tpu_config,
-      master=master)
+      master=master,
+      evaluation_master=master)
 
   return tf.contrib.tpu.TPUEstimator(
       model_fn=model_fn,
@@ -280,16 +302,12 @@ def transformer_tpu():
   """HParams for Transformer model on TPU."""
   hp = transformer.transformer_base()
   hp.use_pad_remover = int(False)  # where op not supported
+  hp.optimizer = "TrueAdam"
+  hp.learning_rate = 0.4
 
   # Inputs
-  hp.add_hparam("batch_size_per_shard", 24)
   # Each example in the batch will be of (padded) length hp.max_length
   hp.max_length = 64
+  hp.tpu_batch_size_per_shard = 20
 
-  hp.optimizer = "Momentum"  # can be SGD, Momentum, RMSProp
-  hp.norm_type = "none"  # seem to get nans with layer norm
-  hp.clip_grad_norm = 2.
-  hp.norm_epsilon = 1e-3
-  hp.layer_preprocess_sequence = "n"
-  hp.layer_postprocess_sequence = "da"
   return hp

@@ -61,8 +61,9 @@ class BeamSearchTest(tf.test.TestCase):
     flags = tf.constant([[True, False, False, True],
                          [False, False, False, True]])
 
-    topk_seq, topk_scores, topk_flags = beam_search.compute_topk_scores_and_seq(
-        sequences, scores, scores, flags, beam_size, batch_size)
+    topk_seq, topk_scores, topk_flags, _ = (
+        beam_search.compute_topk_scores_and_seq(
+            sequences, scores, scores, flags, beam_size, batch_size))
 
     with self.test_session():
       topk_seq = topk_seq.eval()
@@ -277,6 +278,96 @@ class BeamSearchTest(tf.test.TestCase):
     ]], scores)
     self.assertAllEqual([[[0, 2, 0, 1], [0, 2, 1, 0]]], ids)
 
+  def testStates(self):
+    batch_size = 1
+    beam_size = 1
+    vocab_size = 2
+    decode_length = 3
+
+    initial_ids = tf.constant([0] * batch_size)  # GO
+    probabilities = tf.constant([[[0.7, 0.3]], [[0.4, 0.6]], [[0.5, 0.5]]])
+
+    expected_states = tf.constant([[[0.]], [[1.]]])
+
+    def symbols_to_logits(ids, states):
+      pos = tf.shape(ids)[1] - 1
+      # We have to assert the values of state inline here since we can't fetch
+      # them out of the loop!
+      with tf.control_dependencies(
+          [tf.assert_equal(states["state"], expected_states[pos])]):
+        logits = tf.to_float(tf.log(probabilities[pos, :]))
+
+      states["state"] += 1
+      return logits, states
+
+    states = {
+        "state": tf.zeros((batch_size, 1)),
+    }
+
+    final_ids, _ = beam_search.beam_search(
+        symbols_to_logits,
+        initial_ids,
+        beam_size,
+        decode_length,
+        vocab_size,
+        0.0,
+        eos_id=1,
+        states=states)
+
+    with self.test_session() as sess:
+      # Catch and fail so that the testing framework doesn't think it's an error
+      try:
+        sess.run(final_ids)
+      except tf.errors.InvalidArgumentError as e:
+        raise AssertionError(e.message)
+
+  def testStateBeamTwo(self):
+    batch_size = 1
+    beam_size = 2
+    vocab_size = 3
+    decode_length = 3
+
+    initial_ids = tf.constant([0] * batch_size)  # GO
+    probabilities = tf.constant([[[0.1, 0.1, 0.8], [0.1, 0.1, 0.8]],
+                                 [[0.4, 0.5, 0.1], [0.2, 0.4, 0.4]],
+                                 [[0.05, 0.9, 0.05], [0.4, 0.4, 0.2]]])
+
+    # The top beam is always selected so we should see the top beam's state
+    # at each position, which is the one thats getting 3 added to it each step.
+    expected_states = tf.constant([[[0.], [0.]], [[3.], [3.]], [[6.], [6.]]])
+
+    def symbols_to_logits(ids, states):
+      pos = tf.shape(ids)[1] - 1
+
+      # We have to assert the values of state inline here since we can't fetch
+      # them out of the loop!
+      with tf.control_dependencies(
+          [tf.assert_equal(states["state"], expected_states[pos])]):
+        logits = tf.to_float(tf.log(probabilities[pos, :]))
+
+      states["state"] += tf.constant([[3.], [7.]])
+      return logits, states
+
+    states = {
+        "state": tf.zeros((batch_size, 1)),
+    }
+
+    final_ids, _ = beam_search.beam_search(
+        symbols_to_logits,
+        initial_ids,
+        beam_size,
+        decode_length,
+        vocab_size,
+        0.0,
+        eos_id=1,
+        states=states)
+
+    with self.test_session() as sess:
+      # Catch and fail so that the testing framework doesn't think it's an error
+      try:
+        sess.run(final_ids)
+      except tf.errors.InvalidArgumentError as e:
+        raise AssertionError(e.message)
 
 if __name__ == "__main__":
   tf.test.main()

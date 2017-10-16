@@ -175,14 +175,13 @@ def _problem_choice(choice_mode, mode, problem_count, loss_moving_avgs,
 
 def cond_on_index(fn, index_tensor, max_idx, cur_idx=0):
   """Call fn(index_tensor) using tf.cond in [cur_id, max_idx]."""
-
   if cur_idx == max_idx:
     return fn(cur_idx)
 
   return tf.cond(
-    tf.equal(index_tensor, cur_idx),
-    lambda: fn(cur_idx),
-    lambda: cond_on_index(fn, index_tensor, max_idx, cur_idx + 1)
+      tf.equal(index_tensor, cur_idx),
+      lambda: fn(cur_idx),
+      lambda: cond_on_index(fn, index_tensor, max_idx, cur_idx + 1)
   )
 
 

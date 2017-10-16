@@ -120,7 +120,7 @@ class DataReaderTest(tf.test.TestCase):
     dataset = self.problem.dataset(
         tf.estimator.ModeKeys.TRAIN, data_dir=self.data_dir)
     dataset = dataset.filter(
-        lambda ex: data_reader.example_valid_size(ex, max_len))
+        lambda ex: data_reader.example_valid_size(ex, 0, max_len))
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       ex_lens = []

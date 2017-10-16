@@ -62,6 +62,7 @@ def basic_params1():
       learning_rate_cosine_cycle_steps=250000,
       learning_rate=0.1,
       sampling_method="argmax",  # "argmax" or "random"
+      sampling_temp=1.0,  # temperature for sampling
       problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
       # expand the logits a piece at a time - saves memory.
       factored_logits=int(False),
@@ -93,6 +94,9 @@ def basic_params1():
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
       symbol_modality_num_shards=16,
+      # During training, we drop sequences whose inputs and targets are shorter
+      # than min_length
+      min_length=0,
       # During training, we drop sequences whose inputs or targets are longer
       # than max_length.
       # If max_length==0, we use hparams.batch_size instead.
@@ -155,7 +159,23 @@ def basic_params1():
       #     position in the inputs portion can see the
       #     entire inputs portion.  This removes the challenge of
       #     autoregressively predicting the inputs portion.
-      prepend_mode="none",)
+      prepend_mode="none",
+      # Scheduled sampling is interesting for auto-regressive models.
+      # It runs an additional step using the generated output as autoregressive
+      # targets, which can improve the models inference results later. The
+      # parameter scheduled_sampling_prob determines with what probability
+      # will such additional step be run. It's turned off (0.0) by default.
+      # This probability will exponentially warm up for the number of
+      # steps determined by scheduled_sampling_warmup_steps.
+      # The tensor used for the second step will consist of outputs from
+      # the first step mixed with gold truth, with the proportion of gold
+      # determined by scheduled_sampling_gold_mixin_prob.
+      scheduled_sampling_prob=0.0,
+      scheduled_sampling_warmup_steps=50000,
+      scheduled_sampling_gold_mixin_prob=0.5,
+      # This is the actual batch size, *not* tokens per batch (i.e. for
+      # language models this is the number of sentences in the batch)
+      tpu_batch_size_per_shard=24,)
 
 
 class RangedHParams(object):

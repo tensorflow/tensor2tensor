@@ -95,7 +95,7 @@ class Transformer(t2t_model.T2TModel):
           attentions, used for fast decoding.
 
     Returns:
-      Final decoder representaiton. [batch_size, decoder_length, hidden_dim]
+      Final decoder representation. [batch_size, decoder_length, hidden_dim]
     """
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
@@ -112,7 +112,7 @@ class Transformer(t2t_model.T2TModel):
     return tf.expand_dims(decoder_output, axis=2)
 
   def model_fn_body(self, features):
-    """Transformet main model_fn.
+    """Transformer main model_fn.
 
     Args:
       features: Map of features to the model. Should contain the following:
@@ -122,7 +122,7 @@ class Transformer(t2t_model.T2TModel):
           "target_space_id"
 
     Returns:
-      Final decoder representaiton. [batch_size, decoder_length, hidden_dim]
+      Final decoder representation. [batch_size, decoder_length, hidden_dim]
     """
     hparams = self._hparams
 
@@ -563,14 +563,13 @@ def transformer_ffn_layer(x, hparams, pad_remover=None):
 
 
 @registry.register_hparams
-def transformer_base():
+def transformer_base_v1():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
   hparams.norm_type = "layer"
   hparams.hidden_size = 512
   hparams.batch_size = 4096
   hparams.max_length = 256
-  hparams.dropout = 0.0
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.learning_rate_decay_scheme = "noam"
@@ -609,6 +608,24 @@ def transformer_base():
   hparams.add_hparam("self_attention_type", "dot_product")
   hparams.add_hparam("max_relative_position", 0)
   return hparams
+
+
+@registry.register_hparams
+def transformer_base_v2():
+  hparams = transformer_base_v1()
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.layer_prepostprocess_dropout = 0.1
+  hparams.attention_dropout = 0.1
+  hparams.relu_dropout = 0.1
+  hparams.learning_rate_warmup_steps = 8000
+  hparams.learning_rate = 0.2
+  return hparams
+
+
+@registry.register_hparams
+def transformer_base():
+  return transformer_base_v2()
 
 
 @registry.register_hparams

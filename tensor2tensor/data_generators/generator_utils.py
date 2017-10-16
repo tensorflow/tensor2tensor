@@ -355,6 +355,8 @@ def get_or_generate_vocab(data_dir,
       for lang_file in source[1]:
         tf.logging.info("Reading file: %s" % lang_file)
         filepath = os.path.join(tmp_dir, lang_file)
+
+        # Extract from tar if needed.
         if not tf.gfile.Exists(filepath):
           read_type = "r:gz" if filename.endswith("tgz") else "r"
           with tarfile.open(compressed_file, read_type) as corpus_tar:
@@ -411,7 +413,7 @@ def get_or_generate_tabbed_vocab(data_dir, tmp_dir, source_filename,
       for line in source_file:
         line = line.strip()
         if line and "\t" in line:
-          parts = line.split("\t", maxsplit=1)
+          parts = line.split("\t", 1)
           part = parts[index].strip()
           yield part
 
