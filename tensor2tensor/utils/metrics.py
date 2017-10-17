@@ -56,7 +56,7 @@ class Metrics(object):
   SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
   ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
-
+  SET_AUC = 'set_auc'
 
 def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   predictions, labels = common_layers.pad_with_zeros(predictions, labels)
@@ -370,6 +370,28 @@ def roc_auc(logits, labels, weights_fn=None):
     _, auc = tf.metrics.auc(labels, predictions, curve="ROC")
     return auc, tf.constant(1.0)
 
+def set_auc(predictions,
+            labels,
+            weights_fn=common_layers.weights_nonzero):
+  """AUC of set predictions.
+
+  Args:
+    predictions : A Tensor of scores of shape (batch, nlabels)
+    labels: A Tensor of int32s giving true set elements of shape (batch, seq_length)
+
+  Returns:
+    hits: A Tensor of shape (batch, nlabels)
+    weights: A Tensor of shape (batch, nlabels)
+  """
+  with tf.variable_scope("set_auc", values=[predictions, labels]):
+    labels = tf.squeeze(labels, [2, 3])
+    labels = tf.one_hot(labels, predictions.shape[-1])
+    labels = tf.reduce_max(labels, axis=1)
+    labels = tf.cast(labels, tf.bool)
+    predictions = tf.nn.sigmoid(predictions)
+    auc, update_op = tf.metrics.auc(labels, predictions)
+    return update_op, 1.0
+  
 
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
@@ -542,4 +564,5 @@ METRICS_FNS = {
     Metrics.SET_RECALL: set_recall,
     Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
+    Metrics.SET_AUC: set_auc,
 }
