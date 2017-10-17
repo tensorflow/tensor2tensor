@@ -1084,7 +1084,6 @@ train for 12K steps (~ 12 epochs); after 8K steps, we start halving learning
 rate every 1K step.
 
 ***Results***.
-TODO(rzhao): add URL for English-Vietnamese trained model.
 
 Below are the averaged results of 2 models
 ([model 1](http://download.tensorflow.org/models/nmt/envi_model_1.zip),
@@ -1116,13 +1115,12 @@ is 1024. We train for 350K steps (~ 10 epochs); after 170K steps, we start
 halving learning rate every 17K step.
 
 ***Results***.
-TODO(rzhao): add URL for German-English trained model.
 
 The first 2 rows are the averaged results of 2 models
 ([model 1](http://download.tensorflow.org/models/nmt/deen_model_1.zip),
 [model 2](http://download.tensorflow.org/models/nmt/deen_model_2.zip)).
 Results in the third row is with GNMT attention
-([model](http://download.tensorflow.org/models/nmt/deen_gnmt_model_4_layer.zip))
+([model](http://download.tensorflow.org/models/nmt/10122017/deen_gnmt_model_4_layer.zip))
 ; trained with 4 GPUs.
 
 Systems | newstest2013 (dev) | newstest2015
@@ -1151,8 +1149,8 @@ With GNMT attention, we obtain from 50%-100% speed-ups with multiple gpus.
 ## WMT English-German &mdash; Full Comparison
 The first 2 rows are our models with GNMT
 attention:
-[model 1 (4 layers)](http://download.tensorflow.org/models/nmt/ende_gnmt_model_4_layer.zip),
-[model 2 (8 layers)](http://download.tensorflow.org/models/nmt/ende_gnmt_model_8_layer.zip).
+[model 1 (4 layers)](http://download.tensorflow.org/models/nmt/10122017/ende_gnmt_model_4_layer.zip),
+[model 2 (8 layers)](http://download.tensorflow.org/models/nmt/10122017/ende_gnmt_model_8_layer.zip).
 
 Systems | newstest2014 | newstest2015
 --- | :---: | :---:

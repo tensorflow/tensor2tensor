@@ -160,7 +160,9 @@ class GNMTModel(attention_model.AttentionModel):
         dropout=hparams.dropout,
         num_gpus=hparams.num_gpus,
         mode=self.mode,
-        single_cell_fn=self.single_cell_fn)
+        single_cell_fn=self.single_cell_fn,
+        residual_fn=gnmt_residual_fn
+    )
 
     # Only wrap the bottom layer with the attention mechanism.
     attention_cell = cell_list.pop(0)
@@ -171,7 +173,7 @@ class GNMTModel(attention_model.AttentionModel):
     attention_cell = tf.contrib.seq2seq.AttentionWrapper(
         attention_cell,
         attention_mechanism,
-        attention_layer_size=None,  # don't use attenton layer.
+        attention_layer_size=None,  # don't use attention layer.
         output_attention=False,
         alignment_history=alignment_history,
         name="attention")
@@ -243,17 +245,35 @@ class GNMTAttentionMultiCell(tf.nn.rnn_cell.MultiRNNCell):
           cell = self._cells[i]
           cur_state = state[i]
 
-          if not isinstance(cur_state, tf.contrib.rnn.LSTMStateTuple):
-            raise TypeError("`state[{}]` must be a LSTMStateTuple".format(i))
-
           if self.use_new_attention:
-            cur_state = cur_state._replace(h=tf.concat(
-                [cur_state.h, new_attention_state.attention], 1))
+            cur_inp = tf.concat([cur_inp, new_attention_state.attention], -1)
           else:
-            cur_state = cur_state._replace(h=tf.concat(
-                [cur_state.h, attention_state.attention], 1))
+            cur_inp = tf.concat([cur_inp, attention_state.attention], -1)
 
           cur_inp, new_state = cell(cur_inp, cur_state)
           new_states.append(new_state)
 
     return cur_inp, tuple(new_states)
+
+
+def gnmt_residual_fn(inputs, outputs):
+  """Residual function that handles different inputs and outputs inner dims.
+
+  Args:
+    inputs: cell inputs, this is actual inputs concatenated with the attention
+      vector.
+    outputs: cell outputs
+
+  Returns:
+    outputs + actual inputs
+  """
+  def split_input(inp, out):
+    out_dim = out.get_shape().as_list()[-1]
+    inp_dim = inp.get_shape().as_list()[-1]
+    return tf.split(inp, [out_dim, inp_dim - out_dim], axis=-1)
+  actual_inputs, _ = nest.map_structure(split_input, inputs, outputs)
+  def assert_shape_match(inp, out):
+    inp.get_shape().assert_is_compatible_with(out.get_shape())
+  nest.assert_same_structure(actual_inputs, outputs)
+  nest.map_structure(assert_shape_match, actual_inputs, outputs)
+  return nest.map_structure(lambda inp, out: inp + out, actual_inputs, outputs)

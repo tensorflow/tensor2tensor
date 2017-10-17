@@ -276,8 +276,8 @@ def create_emb_for_encoder_and_decoder(share_vocab,
   return embedding_encoder, embedding_decoder
 
 
-def _single_cell(unit_type, num_units, forget_bias, dropout,
-                 mode, residual_connection=False, device_str=None):
+def _single_cell(unit_type, num_units, forget_bias, dropout, mode,
+                 residual_connection=False, device_str=None, residual_fn=None):
   """Create an instance of a single RNN cell."""
   # dropout (= 1 - keep_prob) is set to 0 during eval and infer
   dropout = dropout if mode == tf.contrib.learn.ModeKeys.TRAIN else 0.0
@@ -310,7 +310,8 @@ def _single_cell(unit_type, num_units, forget_bias, dropout,
 
   # Residual
   if residual_connection:
-    single_cell = tf.contrib.rnn.ResidualWrapper(single_cell)
+    single_cell = tf.contrib.rnn.ResidualWrapper(
+        single_cell, residual_fn=residual_fn)
     utils.print_out("  %s" % type(single_cell).__name__, new_line=False)
 
   # Device Wrapper
@@ -324,7 +325,7 @@ def _single_cell(unit_type, num_units, forget_bias, dropout,
 
 def _cell_list(unit_type, num_units, num_layers, num_residual_layers,
                forget_bias, dropout, mode, num_gpus, base_gpu=0,
-               single_cell_fn=None):
+               single_cell_fn=None, residual_fn=None):
   """Create a list of RNN cells."""
   if not single_cell_fn:
     single_cell_fn = _single_cell
@@ -341,6 +342,7 @@ def _cell_list(unit_type, num_units, num_layers, num_residual_layers,
         mode=mode,
         residual_connection=(i >= num_layers - num_residual_layers),
         device_str=get_device_str(i + base_gpu, num_gpus),
+        residual_fn=residual_fn
     )
     utils.print_out("")
     cell_list.append(single_cell)
