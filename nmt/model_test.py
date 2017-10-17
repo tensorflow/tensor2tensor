@@ -186,9 +186,9 @@ class ModelTest(tf.test.TestCase):
     cls.actual_beam_sentences = {}
     cls.expected_beam_sentences = {
         'BeamSearchAttentionModel: batch 0 of beam 0': '',
-        'BeamSearchAttentionModel: batch 0 of beam 1': '',
+        'BeamSearchAttentionModel: batch 0 of beam 1': 'sos a sos a',
         'BeamSearchAttentionModel: batch 1 of beam 0': '',
-        'BeamSearchAttentionModel: batch 1 of beam 1': '',
+        'BeamSearchAttentionModel: batch 1 of beam 1': 'b',
         'BeamSearchBasicModel: batch 0 of beam 0': 'b b b b',
         'BeamSearchBasicModel: batch 0 of beam 1': 'b b b sos',
         'BeamSearchBasicModel: batch 0 of beam 2': 'b b b c',
@@ -296,8 +296,8 @@ class ModelTest(tf.test.TestCase):
 
   def _createTestTrainModel(self, m_creator, hparams, sess):
     train_mode = tf.contrib.learn.ModeKeys.TRAIN
-    train_iterator, src_vocab_table, tgt_vocab_table = common_test_utils.create_test_iterator(
-        hparams, train_mode)
+    train_iterator, src_vocab_table, tgt_vocab_table = (
+        common_test_utils.create_test_iterator(hparams, train_mode))
     train_m = m_creator(
         hparams,
         train_mode,
@@ -312,8 +312,8 @@ class ModelTest(tf.test.TestCase):
 
   def _createTestEvalModel(self, m_creator, hparams, sess):
     eval_mode = tf.contrib.learn.ModeKeys.EVAL
-    eval_iterator, src_vocab_table, tgt_vocab_table = common_test_utils.create_test_iterator(
-        hparams, eval_mode)
+    eval_iterator, src_vocab_table, tgt_vocab_table = (
+        common_test_utils.create_test_iterator(hparams, eval_mode))
     eval_m = m_creator(
         hparams,
         eval_mode,
@@ -328,8 +328,9 @@ class ModelTest(tf.test.TestCase):
   def _createTestInferModel(
       self, m_creator, hparams, sess, init_global_vars=False):
     infer_mode = tf.contrib.learn.ModeKeys.INFER
-    infer_iterator, src_vocab_table, tgt_vocab_table, reverse_tgt_vocab_table = (
-        common_test_utils.create_test_iterator(hparams, infer_mode))
+    (infer_iterator, src_vocab_table,
+     tgt_vocab_table, reverse_tgt_vocab_table) = (
+         common_test_utils.create_test_iterator(hparams, infer_mode))
     infer_m = m_creator(
         hparams,
         infer_mode,
@@ -945,7 +946,7 @@ class ModelTest(tf.test.TestCase):
       infer_m = self._createTestInferModel(
           model.Model, hparams, sess, True)
       self._assertBeamSearchOutputs(
-        infer_m, sess, assert_top_k_sentence, 'BeamSearchBasicModel')
+          infer_m, sess, assert_top_k_sentence, 'BeamSearchBasicModel')
 
   def testBeamSearchAttentionModel(self):
     hparams = common_test_utils.create_test_hparams(
@@ -962,7 +963,7 @@ class ModelTest(tf.test.TestCase):
       infer_m = self._createTestInferModel(
           attention_model.AttentionModel, hparams, sess, True)
       self._assertBeamSearchOutputs(
-        infer_m, sess, assert_top_k_sentence, 'BeamSearchAttentionModel')
+          infer_m, sess, assert_top_k_sentence, 'BeamSearchAttentionModel')
 
   def testBeamSearchGNMTModel(self):
     hparams = common_test_utils.create_test_hparams(
@@ -978,7 +979,7 @@ class ModelTest(tf.test.TestCase):
       infer_m = self._createTestInferModel(
           gnmt_model.GNMTModel, hparams, sess, True)
       self._assertBeamSearchOutputs(
-        infer_m, sess, assert_top_k_sentence, 'BeamSearchGNMTModel')
+          infer_m, sess, assert_top_k_sentence, 'BeamSearchGNMTModel')
 
   def testInitializerGlorotNormal(self):
     hparams = common_test_utils.create_test_hparams(
