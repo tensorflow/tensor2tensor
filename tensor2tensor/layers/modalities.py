@@ -172,7 +172,11 @@ class SmallImageModality(modality.Modality):
       dim = body_output.get_shape().as_list()[-1] // 3
       out = tf.reshape(body_output, [shape[0], shape[1], shape[2],
                                      self._channels, dim])
-      return tf.layers.dense(out, self.top_dimensionality)
+      res = tf.layers.dense(out, self.top_dimensionality)
+      if not tf.get_variable_scope().reuse:
+        res_argmax = tf.cast(tf.argmax(res, axis=-1), tf.uint8)
+        tf.summary.image("result", res_argmax, max_outputs=1)
+      return res
 
   def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.

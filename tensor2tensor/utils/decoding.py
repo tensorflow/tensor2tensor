@@ -69,7 +69,8 @@ def log_decode_results(inputs,
                        model_dir=None,
                        identity_output=False):
   """Log inference results."""
-  if "image" in problem_name and save_images:
+  is_image = "image" in problem_name
+  if is_image and save_images:
     save_path = os.path.join(model_dir, "%s_prediction_%d.jpg" %
                              (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
@@ -77,7 +78,7 @@ def log_decode_results(inputs,
     if identity_output:
       decoded_inputs = " ".join(map(str, inputs.flatten()))
     else:
-      decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
+      decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs, is_image))
 
     tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
@@ -87,11 +88,9 @@ def log_decode_results(inputs,
     if targets is not None:
       decoded_targets = " ".join(map(str, targets.flatten()))
   else:
-    decoded_outputs = "".join(
-        map(str, targets_vocab.decode(_save_until_eos(outputs.flatten()))))
+    decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
     if targets is not None:
-      decoded_targets = "".join(
-          map(str, targets_vocab.decode(_save_until_eos(targets.flatten()))))
+      decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
 
   tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None:
@@ -303,6 +302,7 @@ def decode_interactively(estimator, decode_hp):
   result_iter = estimator.predict(input_fn)
   for result in result_iter:
     problem_idx = result["problem_choice"]
+    is_image = False  # TODO(lukaszkaiser): find out from problem id / class.
     targets_vocab = hparams.problems[problem_idx].vocabulary["targets"]
 
     if decode_hp.return_beams:
@@ -312,7 +312,7 @@ def decode_interactively(estimator, decode_hp):
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(beams):
         tf.logging.info("BEAM %d:" % k)
-        beam_string = targets_vocab.decode(_save_until_eos(beam.flatten()))
+        beam_string = targets_vocab.decode(_save_until_eos(beam, is_image))
         if scores is not None:
           tf.logging.info("%s\tScore:%f" % (beam_string, scores[k]))
         else:
@@ -322,7 +322,7 @@ def decode_interactively(estimator, decode_hp):
         tf.logging.info(" ".join(map(str, result["outputs"].flatten())))
       else:
         tf.logging.info(
-            targets_vocab.decode(_save_until_eos(result["outputs"].flatten())))
+            targets_vocab.decode(_save_until_eos(result["outputs"], is_image)))
 
 
 def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
@@ -509,8 +509,11 @@ def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
   return sorted_inputs, sorted_keys
 
 
-def _save_until_eos(hyp):
+def _save_until_eos(hyp, is_image):
   """Strips everything after the first <EOS> token, which is normally 1."""
+  hyp = hyp.flatten()
+  if is_image:
+    return hyp
   try:
     index = list(hyp).index(text_encoder.EOS_ID)
     return hyp[0:index]
