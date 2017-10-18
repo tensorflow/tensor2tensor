@@ -464,9 +464,24 @@ class SubwordTextEncoder(TextEncoder):
     """
     ret = []
     for token in tokens:
-      ret.extend(
-          self._escaped_token_to_subtoken_ids(
-              _escape_token(token, self._alphabet)))
+      ret.extend(self._token_to_subtoken_ids(token))
+    return ret
+
+  def _token_to_subtoken_ids(self, token):
+    """Converts token to a list of subtoken ids.
+
+    Args:
+      token: a string.
+    Returns:
+      a list of integers in the range [0, vocab_size)
+    """
+    cache_location = hash(token) % self._cache_size
+    cache_key, cache_value = self._cache[cache_location]
+    if cache_key == token:
+      return cache_value
+    ret = self._escaped_token_to_subtoken_ids(
+        _escape_token(token, self._alphabet))
+    self._cache[cache_location] = (token, ret)
     return ret
 
   def _subtoken_ids_to_tokens(self, subtokens):
@@ -717,6 +732,9 @@ class SubwordTextEncoder(TextEncoder):
         s: i + reserved
         for i, s in enumerate(subtoken_strings) if s
     }
+    # Initialize the cache to empty.
+    self._cache_size = 2 ** 20
+    self._cache = [(None, None)] * self._cache_size
 
   def _init_alphabet_from_tokens(self, tokens):
     """Initialize alphabet from an iterable of token or subtoken strings."""
