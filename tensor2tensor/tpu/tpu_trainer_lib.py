@@ -91,31 +91,42 @@ def get_input_fn(data_dir, problem, hparams):
       dataset = dataset.shuffle(100)
     # TODO(rsepassi): In eval mode, should not repeat
     dataset = dataset.repeat(None)
-    dataset = data_reader.padded_batch(dataset,
-                                       batching_scheme["batch_sizes"][0],
+    dataset = data_reader.padded_batch(dataset, batch_size,
                                        batching_scheme["padded_shapes"])
 
     if not is_training:
       dataset = dataset.map(
           lambda f: pad_batch(f, batch_size), num_parallel_calls=num_threads)
 
-    dataset.prefetch(1)
+    def shape_def(example):
+      """Set the right shapes for the features."""
+      inputs = example["inputs"]
+      targets = example["targets"]
 
-    train_features = dataset.make_one_shot_iterator().get_next()
+      # Ensure inputs and targets are proper rank.
+      while len(inputs.get_shape()) <= 4:
+        inputs = tf.expand_dims(inputs, axis=-1)
+      while len(targets.get_shape()) <= 4:
+        targets = tf.expand_dims(targets, axis=-1)
 
-    inputs = train_features["inputs"]
-    targets = train_features["targets"]
+      example["inputs"] = inputs
+      example["targets"] = targets
 
-    # Ensure inputs and targets are proper rank.
-    while len(inputs.get_shape()) != 4:
-      inputs = tf.expand_dims(inputs, axis=-1)
-    while len(targets.get_shape()) != 4:
-      targets = tf.expand_dims(targets, axis=-1)
+      # Ensure batch size is set on all features
+      for _, t in example.iteritems():
+        shape = t.get_shape().as_list()
+        shape[0] = batch_size
+        t.set_shape(t.get_shape().merge_with(shape))
+        # Assert shapes are fully known
+        t.get_shape().assert_is_fully_defined()
 
-    train_features["inputs"] = inputs
-    train_features["targets"] = targets
+      return example
 
-    return train_features, targets
+    dataset = dataset.map(shape_def, num_parallel_calls=num_threads)
+    dataset = dataset.prefetch(1)
+    features = dataset.make_one_shot_iterator().get_next()
+
+    return features, features["targets"]
 
   return input_fn
 
