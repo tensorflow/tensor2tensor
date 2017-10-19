@@ -234,7 +234,7 @@ class Problem(object):
     return generator_utils.test_data_filenames(file_basename, data_dir,
                                                num_shards)
 
-  def filepattern(self, data_dir, mode):
+  def filepattern(self, data_dir, mode, shard=None):
     """Get filepattern for data files for mode.
 
     Matches mode to a suffix.
@@ -246,12 +246,13 @@ class Problem(object):
     Args:
       data_dir: str, data directory.
       mode: tf.estimator.ModeKeys or "test".
+      shard: int, if provided, will only read data from the specified shard.
 
     Returns:
       filepattern str
     """
     path = os.path.join(data_dir, self.dataset_filename())
-
+    shard_str = "-%05d" % shard if shard else ""
     if mode == tf.estimator.ModeKeys.TRAIN:
       suffix = "train"
     elif mode in [tf.estimator.ModeKeys.EVAL, tf.estimator.ModeKeys.PREDICT]:
@@ -260,7 +261,7 @@ class Problem(object):
       assert mode == "test"
       suffix = "test"
 
-    return "%s-%s*" % (path, suffix)
+    return "%s-%s%s*" % (path, suffix, shard_str)
 
   def __init__(self, was_reversed=False, was_copy=False):
     """Create a Problem.
@@ -328,7 +329,8 @@ class Problem(object):
               shuffle_files=None,
               hparams=None,
               preprocess=True,
-              dataset_split=None):
+              dataset_split=None,
+              shard=None):
     """Build a Dataset for this problem.
 
     Args:
@@ -347,6 +349,7 @@ class Problem(object):
         Problem.preprocess_example.
       dataset_split: tf.estimator.ModeKeys + ["test"], which split to read data
         from (TRAIN:"-train", EVAL:"-dev", "test":"-test"). Defaults to mode.
+      shard: int, if provided, will only read data from the specified shard.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
@@ -372,7 +375,7 @@ class Problem(object):
       }
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    data_filepattern = self.filepattern(data_dir, dataset_split)
+    data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
     tf.logging.info("Reading data files from %s", data_filepattern)
     data_files = tf.contrib.slim.parallel_reader.get_data_files(
         data_filepattern)

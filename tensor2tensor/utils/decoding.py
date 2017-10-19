@@ -106,6 +106,8 @@ def decode_from_dataset(estimator,
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))
   hparams = estimator.params
+  # We assume that worker_id corresponds to shard number.
+  shard = decode_hp.shard_id if decode_hp.shards > 1 else None
 
   for problem_idx, problem_name in enumerate(problem_names):
     # Build the inference input function
@@ -116,14 +118,19 @@ def decode_from_dataset(estimator,
         num_datashards=devices.data_parallelism().n,
         fixed_problem=problem_idx,
         batch_size=decode_hp.batch_size,
-        dataset_split=dataset_split)
+        dataset_split=dataset_split,
+        shard=shard)
 
     # Get the predictions as an iterable
     predictions = estimator.predict(infer_input_fn)
 
     # Prepare output file writers if decode_to_file passed
     if decode_to_file:
-      output_filepath = _decode_filename(decode_to_file, problem_name,
+      if decode_hp.shards > 1:
+        decode_filename = decode_to_file + ("%.2d" % decode_hp.shard_id)
+      else:
+        decode_filename = decode_to_file
+      output_filepath = _decode_filename(decode_filename, problem_name,
                                          decode_hp)
       parts = output_filepath.split(".")
       parts[-1] = "targets"
@@ -245,7 +252,7 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   else:
     output_filename = filename
   if decode_hp.shards > 1:
-    base_filename = output_filename + ("%.2d" % FLAGS.worker_id)
+    base_filename = output_filename + ("%.2d" % decode_hp.shard_id)
   else:
     base_filename = output_filename
   decode_filename = _decode_filename(base_filename, problem_name, decode_hp)

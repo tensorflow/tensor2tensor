@@ -84,6 +84,7 @@ def main(_):
 
   decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
   decode_hp.add_hparam("shards", FLAGS.decode_shards)
+  decode_hp.add_hparam("shard_id", FLAGS.worker_id)
   if FLAGS.decode_interactive:
     decoding.decode_interactively(estimator, decode_hp)
   elif FLAGS.decode_from_file:
