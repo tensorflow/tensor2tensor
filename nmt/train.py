@@ -347,9 +347,13 @@ def train(hparams, scope=None, target_session=""):
       log_f)
   utils.print_time("# Done training!", start_train_time)
 
+  summary_writer.close()
+
   utils.print_out("# Start evaluating saved best models.")
   for metric in hparams.metrics:
     best_model_dir = getattr(hparams, "best_" + metric + "_dir")
+    summary_writer = tf.summary.FileWriter(
+        os.path.join(best_model_dir, summary_name), infer_model.graph)
     result_summary, best_global_step, _, _, _, _ = run_full_eval(
         best_model_dir, infer_model, infer_sess, eval_model, eval_sess, hparams,
         summary_writer, sample_src_data, sample_tgt_data)
@@ -357,8 +361,8 @@ def train(hparams, scope=None, target_session=""):
                     "step-time %.2f wps %.2fK, %s, %s" %
                     (metric, best_global_step, avg_step_time, speed,
                      result_summary, time.ctime()), log_f)
+    summary_writer.close()
 
-  summary_writer.close()
   return (dev_scores, test_scores, dev_ppl, test_ppl, global_step)
 
 
