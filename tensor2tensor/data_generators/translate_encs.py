@@ -67,7 +67,7 @@ _ENCS_TEST_DATASETS = [
 
 
 @registry.register_problem
-class TranslateEncsWmt32k(TranslateProblem):
+class TranslateEncsWmt32k(translate.TranslateProblem):
   """Problem spec for WMT English-Czech translation."""
 
   @property
@@ -107,7 +107,7 @@ class TranslateEncsWmt32k(TranslateProblem):
 
 
 @registry.register_problem
-class TranslateEncsWmtCharacters(TranslateProblem):
+class TranslateEncsWmtCharacters(translate.TranslateProblem):
   """Problem spec for WMT En-Cs character-based translation."""
 
   @property

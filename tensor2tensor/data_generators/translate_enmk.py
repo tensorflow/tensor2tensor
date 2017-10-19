@@ -54,7 +54,7 @@ _MKEN_TEST_DATASETS = [[
 ]]
 
 @registry.register_problem
-class TranslateEnmkSetimes32k(TranslateProblem):
+class TranslateEnmkSetimes32k(translate.TranslateProblem):
   """Problem spec for SETimes Mk-En translation."""
 
   @property

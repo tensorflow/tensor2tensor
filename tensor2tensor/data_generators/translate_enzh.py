@@ -49,7 +49,7 @@ _ZHEN_TEST_DATASETS = [[
 ]]
 
 @registry.register_problem
-class TranslateEnzhWmt8k(TranslateProblem):
+class TranslateEnzhWmt8k(translate.TranslateProblem):
   """Problem spec for WMT Zh-En translation."""
 
   @property

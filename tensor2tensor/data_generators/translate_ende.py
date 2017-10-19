@@ -76,7 +76,7 @@ def _get_wmt_ende_bpe_dataset(directory, filename):
 
 
 @registry.register_problem
-class TranslateEndeWmtBpe32k(TranslateProblem):
+class TranslateEndeWmtBpe32k(translate.TranslateProblem):
   """Problem spec for WMT En-De translation, BPE version."""
 
   @property
@@ -117,7 +117,7 @@ class TranslateEndeWmtBpe32k(TranslateProblem):
 
 
 @registry.register_problem
-class TranslateEndeWmt8k(TranslateProblem):
+class TranslateEndeWmt8k(translate.TranslateProblem):
   """Problem spec for WMT En-De translation."""
 
   @property
@@ -155,7 +155,7 @@ class TranslateEndeWmt32k(TranslateEndeWmt8k):
 
 
 @registry.register_problem
-class TranslateEndeWmtCharacters(TranslateProblem):
+class TranslateEndeWmtCharacters(translate.TranslateProblem):
   """Problem spec for WMT En-De translation."""
 
   @property
