@@ -52,7 +52,7 @@ def run_sample_decode(infer_model, infer_sess, model_dir, hparams,
 
 
 def run_internal_eval(
-    eval_model, eval_sess, model_dir, hparams, summary_writer):
+    eval_model, eval_sess, model_dir, hparams, summary_writer, use_test_set=True):
   """Compute internal evaluation (perplexity) for both dev / test."""
   with eval_model.graph.as_default():
     loaded_eval_model, global_step = model_helper.create_or_load_model(
@@ -69,7 +69,7 @@ def run_internal_eval(
                            eval_model.iterator, dev_eval_iterator_feed_dict,
                            summary_writer, "dev")
   test_ppl = None
-  if hparams.test_prefix:
+  if use_test_set and hparams.test_prefix:
     test_src_file = "%s.%s" % (hparams.test_prefix, hparams.src)
     test_tgt_file = "%s.%s" % (hparams.test_prefix, hparams.tgt)
     test_eval_iterator_feed_dict = {
@@ -83,7 +83,7 @@ def run_internal_eval(
 
 
 def run_external_eval(infer_model, infer_sess, model_dir, hparams,
-                      summary_writer, save_best_dev=True):
+                      summary_writer, save_best_dev=True, use_test_set=True):
 
   """Compute external evaluation (bleu, rouge, etc.) for both dev / test."""
   with infer_model.graph.as_default():
@@ -109,7 +109,7 @@ def run_external_eval(infer_model, infer_sess, model_dir, hparams,
       save_on_best=save_best_dev)
 
   test_scores = None
-  if hparams.test_prefix:
+  if use_test_set and hparams.test_prefix:
     test_src_file = "%s.%s" % (hparams.test_prefix, hparams.src)
     test_tgt_file = "%s.%s" % (hparams.test_prefix, hparams.tgt)
     test_infer_iterator_feed_dict = {
