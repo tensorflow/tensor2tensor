@@ -32,7 +32,7 @@ import os
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators.wmt import tabbed_generator
+from tensor2tensor.data_generators.translate import tabbed_generator
 from tensor2tensor.utils import registry
 
 

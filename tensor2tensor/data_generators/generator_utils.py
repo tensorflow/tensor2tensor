@@ -263,42 +263,6 @@ def gunzip_file(gz_path, new_path):
       for line in gz_file:
         new_file.write(line)
 
-
-# TODO(aidangomez): en-fr tasks are significantly over-represented below
-_DATA_FILE_URLS = [
-    # German-English
-    [
-        "http://data.statmt.org/wmt16/translation-task/training-parallel-nc-v11.tgz",  # pylint: disable=line-too-long
-        [
-            "training-parallel-nc-v11/news-commentary-v11.de-en.en",
-            "training-parallel-nc-v11/news-commentary-v11.de-en.de"
-        ]
-    ],
-    # German-English & French-English
-    [
-        "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz", [
-            "commoncrawl.de-en.en", "commoncrawl.de-en.de",
-            "commoncrawl.fr-en.en", "commoncrawl.fr-en.fr"
-        ]
-    ],
-    [
-        "http://www.statmt.org/wmt13/training-parallel-europarl-v7.tgz", [
-            "training/europarl-v7.de-en.en", "training/europarl-v7.de-en.de",
-            "training/europarl-v7.fr-en.en", "training/europarl-v7.fr-en.fr"
-        ]
-    ],
-    # French-English
-    [
-        "http://www.statmt.org/wmt10/training-giga-fren.tar",
-        ["giga-fren.release2.fixed.en.gz", "giga-fren.release2.fixed.fr.gz"]
-    ],
-    [
-        "http://www.statmt.org/wmt13/training-parallel-un.tgz",
-        ["un/undoc.2000.fr-en.en", "un/undoc.2000.fr-en.fr"]
-    ],
-]
-
-
 def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
                                 generator):
   """Inner implementation for vocab generators.
@@ -341,9 +305,8 @@ def get_or_generate_vocab(data_dir,
                           tmp_dir,
                           vocab_filename,
                           vocab_size,
-                          sources=None):
-  """Generate a vocabulary from the datasets in sources (_DATA_FILE_URLS)."""
-  sources = sources or _DATA_FILE_URLS
+                          sources):
+  """Generate a vocabulary from the datasets in sources."""
 
   def generate():
     tf.logging.info("Generating vocab from: %s", str(sources))
