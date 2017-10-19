@@ -104,9 +104,9 @@ def get_input_fn(data_dir, problem, hparams):
       targets = example["targets"]
 
       # Ensure inputs and targets are proper rank.
-      while len(inputs.get_shape()) <= 4:
+      while len(inputs.get_shape()) < 4:
         inputs = tf.expand_dims(inputs, axis=-1)
-      while len(targets.get_shape()) <= 4:
+      while len(targets.get_shape()) < 4:
         targets = tf.expand_dims(targets, axis=-1)
 
       example["inputs"] = inputs
