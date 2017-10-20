@@ -85,6 +85,7 @@ class SymbolModality(modality.Modality):
       return ret
 
   def bottom(self, x):
+    self._bottom_was_called = True
     if self._model_hparams.shared_embedding_and_softmax_weights:
       return self.bottom_simple(x, "shared", reuse=None)
     else:
@@ -92,7 +93,11 @@ class SymbolModality(modality.Modality):
 
   def targets_bottom(self, x):
     if self._model_hparams.shared_embedding_and_softmax_weights:
-      return self.bottom_simple(x, "shared", reuse=True)
+      try:
+        return self.bottom_simple(x, "shared", reuse=True)
+      except ValueError:
+        # perhaps there were no inputs, and this is a new variable.
+        return self.bottom_simple(x, "shared", reuse=None)
     else:
       return self.bottom_simple(x, "target_emb", reuse=None)
 
