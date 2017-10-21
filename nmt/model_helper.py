@@ -298,6 +298,9 @@ def _single_cell(unit_type, num_units, forget_bias, dropout, mode,
         num_units,
         forget_bias=forget_bias,
         layer_norm=True)
+  elif unit_type == "nas":
+    utils.print_out("  NASCell", new_line=False)
+    single_cell = tf.contrib.rnn.NASCell(num_units)
   else:
     raise ValueError("Unknown unit type %s!" % unit_type)
 

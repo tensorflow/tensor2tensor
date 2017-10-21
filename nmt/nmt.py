@@ -95,7 +95,7 @@ def add_arguments(parser):
                       help="When we start to decay")
   parser.add_argument("--decay_steps", type=int, default=10000,
                       help="How frequent we decay")
-  parser.add_argument("--decay_factor", type=float, default=0.98,
+  parser.add_argument("--decay_factor", type=float, default=1.0,
                       help="How much we decay.")
   parser.add_argument(
       "--learning_rate_decay_scheme", type=str, default="", help="""\
@@ -170,7 +170,7 @@ def add_arguments(parser):
 
   # Default settings works well (rarely need to change)
   parser.add_argument("--unit_type", type=str, default="lstm",
-                      help="lstm | gru | layer_norm_lstm")
+                      help="lstm | gru | layer_norm_lstm | nas")
   parser.add_argument("--forget_bias", type=float, default=1.0,
                       help="Forget bias for BasicLSTMCell.")
   parser.add_argument("--dropout", type=float, default=0.2,
@@ -503,7 +503,7 @@ def run_main(flags, default_hparams, train_fn, inference_fn, target_session=""):
 
   # Load hparams.
   hparams = create_or_load_hparams(
-    out_dir, default_hparams, flags.hparams_path, save_hparams=(jobid==0))
+      out_dir, default_hparams, flags.hparams_path, save_hparams=(jobid==0))
 
   if flags.inference_input_file:
     # Inference indices
