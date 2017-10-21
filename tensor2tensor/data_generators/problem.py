@@ -252,7 +252,7 @@ class Problem(object):
       filepattern str
     """
     path = os.path.join(data_dir, self.dataset_filename())
-    shard_str = "-%05d" % shard if shard else ""
+    shard_str = "-%05d" % shard if shard is not None else ""
     if mode == tf.estimator.ModeKeys.TRAIN:
       suffix = "train"
     elif mode in [tf.estimator.ModeKeys.EVAL, tf.estimator.ModeKeys.PREDICT]:
