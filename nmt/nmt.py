@@ -87,10 +87,13 @@ def add_arguments(parser):
   parser.add_argument("--optimizer", type=str, default="sgd", help="sgd | adam")
   parser.add_argument("--learning_rate", type=float, default=1.0,
                       help="Learning rate. Adam: 0.001 | 0.0001")
-  parser.add_argument("--learning_rate_warmup_steps", type=int, default=0,
+  parser.add_argument("--warmup_steps", type=int, default=0,
                       help="How many steps we inverse-decay learning.")
-  parser.add_argument("--learning_rate_warmup_factor", type=float, default=1.0,
-                      help="The inverse decay factor for each warmup step.")
+  parser.add_argument("--warmup_scheme", type=str, default="t2t", help="""\
+      How to warmup learning rates. Options include:
+        t2t: Tensor2Tensor's way, start with lr 100 times smaller, then
+             exponentiate until the specified lr.\
+      """)
   parser.add_argument("--start_decay_step", type=int, default=0,
                       help="When we start to decay")
   parser.add_argument("--decay_steps", type=int, default=10000,
@@ -296,8 +299,8 @@ def create_hparams(flags):
       init_weight=flags.init_weight,
       max_gradient_norm=flags.max_gradient_norm,
       learning_rate=flags.learning_rate,
-      learning_rate_warmup_steps = flags.learning_rate_warmup_steps,
-      learning_rate_warmup_factor = flags.learning_rate_warmup_factor,
+      warmup_steps=flags.warmup_steps,
+      warmup_scheme=flags.warmup_scheme,
       start_decay_step=flags.start_decay_step,
       decay_factor=flags.decay_factor,
       decay_steps=flags.decay_steps,

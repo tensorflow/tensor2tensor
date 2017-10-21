@@ -130,9 +130,6 @@ class BaseModel(object):
         opt = tf.train.GradientDescentOptimizer(self.learning_rate)
         tf.summary.scalar("lr", self.learning_rate)
       elif hparams.optimizer == "adam":
-        assert float(
-            hparams.learning_rate
-        ) <= 0.001, "! High Adam learning rate %g" % hparams.learning_rate
         opt = tf.train.AdamOptimizer(self.learning_rate)
 
       # Gradients
@@ -167,22 +164,25 @@ class BaseModel(object):
 
   def _get_learning_rate_warmup(self, hparams):
     """Get learning rate warmup."""
-    warmup_steps = hparams.learning_rate_warmup_steps
-    warmup_factor = hparams.learning_rate_warmup_factor
-    print("  learning_rate=%g, learning_rate_warmup_steps=%d, "
-          "learning_rate_warmup_factor=%g, starting_learning_rate=%g" %
-          (hparams.learning_rate, warmup_steps, warmup_factor,
-           (hparams.learning_rate * warmup_factor ** warmup_steps)))
+    warmup_steps = hparams.warmup_steps
+    warmup_scheme = hparams.warmup_scheme
+    utils.print_out("  learning_rate=%g, warmup_steps=%d, warmup_scheme=%s" %
+                    (hparams.learning_rate, warmup_steps, warmup_scheme))
 
     # Apply inverse decay if global steps less than warmup steps.
     # Inspired by https://arxiv.org/pdf/1706.03762.pdf (Section 5.3)
     # When step < warmup_steps,
     #   learing_rate *= warmup_factor ** (warmup_steps - step)
-    inv_decay = warmup_factor**(
-        tf.to_float(warmup_steps - self.global_step))
+    if warmup_scheme == "t2t":
+      # 0.01^(1/warmup_steps): we start with a lr, 100 times smaller
+      warmup_factor = tf.exp(tf.log(0.01) / warmup_steps)
+      inv_decay = warmup_factor**(
+          tf.to_float(warmup_steps - self.global_step))
+    else:
+      raise ValueError("Unknown warmup scheme %s" % warmup_scheme)
 
     return tf.cond(
-        self.global_step < hparams.learning_rate_warmup_steps,
+        self.global_step < hparams.warmup_steps,
         lambda: inv_decay * self.learning_rate,
         lambda: self.learning_rate,
         name="learning_rate_warump_cond")
