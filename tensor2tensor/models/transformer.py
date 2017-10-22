@@ -913,11 +913,24 @@ def transformer_parameter_attention_b():
 
 
 @registry.register_hparams
-def transformer_prepend():
-  hparams = transformer_base()
+def transformer_prepend_v2():
+  hparams = transformer_base_v2()
   hparams.prepend_mode = "prepend_inputs_masked_attention"
   hparams.max_length = 0
   return hparams
+
+
+@registry.register_hparams
+def transformer_prepend_v1():
+  hparams = transformer_base_v1()
+  hparams.prepend_mode = "prepend_inputs_masked_attention"
+  hparams.max_length = 0
+  return hparams
+
+
+@registry.register_hparams
+def transformer_prepend():
+  return transformer_prepend_v2()
 
 
 @registry.register_ranged_hparams("transformer_base")
