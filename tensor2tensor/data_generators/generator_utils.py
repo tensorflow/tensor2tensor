@@ -338,13 +338,19 @@ def get_or_generate_vocab(data_dir,
 
         # Use Tokenizer to count the word occurrences.
         with tf.gfile.GFile(filepath, mode="r") as source_file:
-          file_byte_budget = 3.5e5 if filepath.endswith("en") else 7e5
+          file_byte_budget = 1e6 if filepath.endswith("en") else 1e6
+          counter = 0
+          countermax = int(source_file.size() / 1e6)
           for line in source_file:
-            if file_byte_budget <= 0:
-              break
-            line = line.strip()
-            file_byte_budget -= len(line)
-            yield line
+            if counter < countermax:
+              counter += 1
+            else:
+              if file_byte_budget <= 0:
+                break
+              line = line.strip()
+              file_byte_budget -= len(line)
+              counter = 0
+              yield line
 
   return get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
                                      generate())

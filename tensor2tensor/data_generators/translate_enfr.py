@@ -41,7 +41,7 @@ EOS = text_encoder.EOS_ID
 _ENFR_TRAIN_DATASETS = [
     [
         "https://s3.amazonaws.com/opennmt-trainingdata/baseline-1M-enfr.tgz",
-        ("baseline-1M-enfr/baseline-1M_train.en", "baseline-1M-enfr/baseline-1M_train.en")
+        ("baseline-1M-enfr/baseline-1M_train.en", "baseline-1M-enfr/baseline-1M_train.fr")
     ],
 #    [
 #        "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
