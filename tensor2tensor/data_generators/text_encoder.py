@@ -496,7 +496,13 @@ class SubwordTextEncoder(TextEncoder):
     concatenated = "".join(
         [self._subtoken_id_to_subtoken_string(s) for s in subtokens])
     split = concatenated.split("_")
-    return [_unescape_token(t + "_") for t in split if t]
+    ret = []
+    for t in split:
+      if t:
+        unescaped = _unescape_token(t + "_")
+        if unescaped:
+          ret.append(unescaped)
+    return ret
 
   def _subtoken_id_to_subtoken_string(self, subtoken):
     """Converts a subtoken integer ID to a subtoken string."""
