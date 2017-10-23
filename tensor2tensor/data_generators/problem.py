@@ -533,6 +533,11 @@ def _default_hparams():
       # but decrease if your reader uses a lot of memory and increase if slow.
       max_expected_batch_size_per_shard=64,
 
+      # During inference for autoregressive problems, if the batch_size is 1,
+      # the inference will stop when the model predict a text_encoder.EOS_ID
+      # token.
+      stop_at_eos=int(False),
+
       # Modalities used to map from input features to a space compatible with
       # chosen model architecture.  One modality spec (which is a 2-tuple,
       # (modality_full_name, vocab_size)) per feature key. modality_full_name
@@ -647,6 +652,7 @@ class Text2TextProblem(Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
+    p.stop_at_eos = int(True)
 
     if self.has_inputs:
       source_vocab_size = self._encoders["inputs"].vocab_size

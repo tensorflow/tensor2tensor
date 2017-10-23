@@ -26,6 +26,7 @@ import time
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils as eu
@@ -387,8 +388,38 @@ class T2TModel(object):
     logits.set_shape([None, None, None, None, None])
     loss = 0.0
 
+    def while_exit_cond(result, logits, loss):  # pylint: disable=unused-argument
+      """Exit the loop either if reach decode_length or EOS."""
+      length = tf.shape(result)[1]
+
+      not_overflow = length < decode_length
+
+      if self._problem_hparams.stop_at_eos:
+        def fn_not_eos():
+          return tf.not_equal(  # Check if the last predicted element is a EOS
+              tf.squeeze(result[:, -1, :, :]),
+              text_encoder.EOS_ID
+          )
+
+        not_eos = tf.cond(
+            # We only check for early stoping if there is at least 1 element (
+            # otherwise not_eos will crash)
+            tf.not_equal(length, 0),
+            fn_not_eos,
+            lambda: True,
+        )
+
+        return tf.cond(
+            tf.equal(batch_size, 1),
+            # If batch_size == 1, we check EOS for early stoping
+            lambda: tf.logical_and(not_overflow, not_eos),
+            # Else, just wait for max length
+            lambda: not_overflow
+        )
+      return not_overflow
+
     result, logits, loss = tf.while_loop(
-        lambda result, logits, loss: tf.shape(result)[1] < decode_length,
+        while_exit_cond,
         infer_step, [result, logits, loss],
         shape_invariants=[
             tf.TensorShape([None, None, None, None]),
