@@ -229,7 +229,6 @@ class T2TModel(object):
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
     """
-
     batch_size = tf.shape(features["inputs"])[0]
     batch_size = tf.Print(batch_size, [batch_size], "beam_decode batch_size=")
 
@@ -260,15 +259,16 @@ class T2TModel(object):
 
     initial_ids = tf.zeros([batch_size], dtype=tf.int32)
 
-    inputs_old = features["inputs"]
-    features["inputs"] = tf.expand_dims(features["inputs"], 1)
-    if len(features["inputs"].shape) < 5:
-      features["inputs"] = tf.expand_dims(features["inputs"], 4)
-    # Expand the inputs in to the beam size.
-    features["inputs"] = tf.tile(features["inputs"], [1, beam_size, 1, 1, 1])
-    s = tf.shape(features["inputs"])
-    features["inputs"] = tf.reshape(features["inputs"],
-                                    [s[0] * s[1], s[2], s[3], s[4]])
+    if self.has_input:
+      inputs_old = features["inputs"]
+      features["inputs"] = tf.expand_dims(features["inputs"], 1)
+      if len(features["inputs"].shape) < 5:
+        features["inputs"] = tf.expand_dims(features["inputs"], 4)
+      # Expand the inputs in to the beam size.
+      features["inputs"] = tf.tile(features["inputs"], [1, beam_size, 1, 1, 1])
+      s = tf.shape(features["inputs"])
+      features["inputs"] = tf.reshape(features["inputs"],
+                                      [s[0] * s[1], s[2], s[3], s[4]])
 
     target_modality = self._hparams.problems[self._problem_idx].target_modality
     vocab_size = target_modality.top_dimensionality
@@ -281,7 +281,8 @@ class T2TModel(object):
                                           alpha)
 
     # Set inputs back to the unexpanded inputs to not to confuse the Estimator!
-    features["inputs"] = inputs_old
+    if self.has_input:
+      features["inputs"] = inputs_old
 
     # Return `top_beams` decodings (also remove initial id from the beam search)
     return_scores = False  # TODO(lukaszkaiser): make it work multi-problem.
@@ -366,8 +367,9 @@ class T2TModel(object):
     # Create an initial output tensor. This will be passed
     # to the infer_step, which adds one timestep at every iteration.
     if "partial_targets" in features:
-      initial_output = tf.to_int64(tf.expand_dims(
-          tf.expand_dims(features["partial_targets"], 2), 3))
+      initial_output = tf.to_int64(features["partial_targets"])
+      while len(initial_output.get_shape().as_list()) < 4:
+        initial_output = tf.expand_dims(initial_output, 2)
       batch_size = tf.shape(initial_output)[0]
     else:
       batch_size = tf.shape(features["inputs"])[0]
