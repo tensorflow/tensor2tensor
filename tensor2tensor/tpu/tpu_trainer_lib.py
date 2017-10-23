@@ -15,7 +15,8 @@
 
 """Library for training on TPU. See tpu_trainer.py.
 
-Currently only supports training and evaluation for text-to-text problems.
+Currently only supports training and evaluation for text-to-text and text
+autoregressive problems.
 """
 
 from __future__ import absolute_import
@@ -158,20 +159,26 @@ def get_model_fn(model, hp, use_tpu=True):
     problem_hp = hparams.problems[0]
     orig_features = features
 
-    # Instantiate model and retrieve modalities
+    # Instantiate model and retrieve modalities. Note that autoregressive models
+    # have no input modality.
     model_class = registry.model(model)(hparams, mode, problem_hp)
-    input_modality = problem_hp.input_modality["inputs"]
+    input_modality = problem_hp.input_modality.get("inputs")
     target_modality = problem_hp.target_modality
 
+    # Transform features
+    transformed_features = {}
+    if input_modality is not None:
+      transformed_features["inputs"] = input_modality.bottom(features["inputs"])
+    transformed_features["targets"] = target_modality.targets_bottom(
+        features["targets"])
+    transformed_features["problem_choice"] = tf.constant(0)
+    transformed_features["input_space_id"] = tf.constant(
+        problem_hp.input_space_id)
+    transformed_features["target_space_id"] = tf.constant(
+        problem_hp.target_space_id)
+
     # Model construction
-    features = {
-        "inputs": input_modality.bottom(features["inputs"]),
-        "targets": target_modality.targets_bottom(features["targets"]),
-        "problem_choice": tf.constant(0),
-        "input_space_id": tf.constant(problem_hp.input_space_id),
-        "target_space_id": tf.constant(problem_hp.target_space_id)
-    }
-    outputs = model_class.model_fn_body(features)
+    outputs = model_class.model_fn_body(transformed_features)
     logits = target_modality.top(outputs, labels)
 
     # Ensure the length is known statically
