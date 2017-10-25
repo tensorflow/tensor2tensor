@@ -78,12 +78,18 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
   initial_state = cell.zero_state(batch_size, tf.float32).clone(cell_state=initial_state)
 
   with tf.variable_scope(name):
-    return tf.nn.dynamic_rnn(
+    output, state = tf.nn.dynamic_rnn(
         cell,
         inputs,
         initial_state=initial_state,
         dtype=tf.float32,
         time_major=False)
+    
+    # For multi-head attention project output back to hidden size
+    if hparams.output_attention == 1 and hparams.num_heads > 1:
+      output = tf.layers.dense(output, hparams.hidden_size)
+    
+    return output, state
 
 
 def lstm_seq2seq_internal(inputs, targets, hparams, train):
