@@ -84,22 +84,13 @@ def log_decode_results(inputs,
 
   decoded_targets = None
   if identity_output:
-    tf.logging.info("PSC: identity_output")
     decoded_outputs = " ".join(map(str, outputs.flatten()))
     if targets is not None:
-      tf.logging.info("PSC: targets not none")
       decoded_targets = " ".join(map(str, targets.flatten()))
-    else:
-      tf.logging.info("PSC: targets none")
   else:
-    tf.logging.info("PSC: not identity_output")
-    tf.logging.info(outputs)
     decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
     if targets is not None:
-      tf.logging.info("PSC: targets not none")
       decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
-    else:
-      tf.logging.info("PSC: targets none")
 
   tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None:
@@ -219,8 +210,6 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
 
   hparams = estimator.params
   problem_id = decode_hp.problem_idx
-  tf.logging.info("PSC: hparams.vocab size:")
-  tf.logging.info(hparams.problems[problem_id].vocabulary["targets"].vocab_size)
   # Inputs vocabulary is set to targets if there are no inputs in the problem,
   # e.g., for language models where the inputs are just a prefix of targets.
   has_input = "inputs" in hparams.problems[problem_id].vocabulary
@@ -243,12 +232,8 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
 
   decodes = []
   result_iter = estimator.predict(input_fn)
-  iter_ctr = 0
   for result in result_iter:
-    tf.logging.info("PSC: result in iter %d" % iter_ctr)
-    tf.logging.info(result["outputs"])
     if decode_hp.return_beams:
-      tf.logging.info("PSC: return beams")
       beam_decodes = []
       output_beams = np.split(result["outputs"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(output_beams):
@@ -259,7 +244,6 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
         beam_decodes.append(decoded_outputs)
       decodes.append("\t".join(beam_decodes))
     else:
-      tf.logging.info("PSC: don't return beams")
       decoded_outputs, _ = log_decode_results(result["inputs"],
                                               result["outputs"], problem_name,
                                               None, inputs_vocab, targets_vocab)
