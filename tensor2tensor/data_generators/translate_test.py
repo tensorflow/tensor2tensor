@@ -27,7 +27,7 @@ import tempfile
 
 import six
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import wmt
+from tensor2tensor.data_generators import translate
 
 import tensorflow as tf
 
@@ -52,7 +52,7 @@ class WMTTest(tf.test.TestCase):
     # Call character generator on the generated files.
     results_src, results_tgt = [], []
     character_vocab = text_encoder.ByteTextEncoder()
-    for dictionary in wmt.character_generator(
+    for dictionary in translate.character_generator(
         tmp_file_path + ".src", tmp_file_path + ".tgt", character_vocab):
       self.assertEqual(sorted(list(dictionary)), ["inputs", "targets"])
       results_src.append(dictionary["inputs"])
