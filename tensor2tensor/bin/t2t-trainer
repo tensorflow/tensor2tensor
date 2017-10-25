@@ -62,6 +62,12 @@ flags.DEFINE_string("master", "", "Address of TensorFlow master.")
 flags.DEFINE_string("schedule", "train_and_evaluate",
                     "Method of tf.contrib.learn.Experiment to run.")
 
+##################
+#
+# FATHOM ADDITIONS
+#
+##################
+flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
@@ -83,6 +89,10 @@ def main(_):
       tf.logging.info("Generating data for %s" % problem_name)
       problem = registry.problem(problem_name)
       problem.generate_data(data_dir, tmp_dir)
+
+  if FLAGS.debug_mode:
+    FLAGS.train_steps = 1
+    FLAGS.eval_steps = 1
 
   # Run the trainer.
   trainer_utils.run(
