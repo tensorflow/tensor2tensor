@@ -55,4 +55,6 @@ from tensor2tensor.models.research import transformer_revnet
 from tensor2tensor.models.research import transformer_sketch
 from tensor2tensor.models.research import transformer_symshard
 from tensor2tensor.models.research import transformer_vae
+# bug reproduction
+from tensor2tensor.models import lstm2
 # pylint: enable=unused-import
