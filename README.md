@@ -832,7 +832,7 @@ than using *feed_dict* and are the standard for both single-machine and
 distributed training.
 
 Starting in TensorFlow 1.2, there is a new system available for reading data
-into TensorFlow models: dataset iterators, as found in the **tf.contrib.data**
+into TensorFlow models: dataset iterators, as found in the **tf.data**
 module. Data iterators are flexible, easy to reason about and to manipulate, and
 provide efficiency and multithreading by leveraging the TensorFlow C++ runtime.
 
@@ -841,16 +841,16 @@ containing multiple filenames.  Some examples:
 
 ``` python
 # Training dataset consists of multiple files.
-train_dataset = tf.contrib.data.TextLineDataset(train_files)
+train_dataset = tf.data.TextLineDataset(train_files)
 
 # Evaluation dataset uses a single file, but we may
 # point to a different file for each evaluation round.
 eval_file = tf.placeholder(tf.string, shape=())
-eval_dataset = tf.contrib.data.TextLineDataset(eval_file)
+eval_dataset = tf.data.TextLineDataset(eval_file)
 
 # For inference, feed input data to the dataset directly via feed_dict.
 infer_batch = tf.placeholder(tf.string, shape=(num_infer_examples,))
-infer_dataset = tf.contrib.data.Dataset.from_tensor_slices(infer_batch)
+infer_dataset = tf.data.Dataset.from_tensor_slices(infer_batch)
 ```
 
 All datasets can be treated similarly via input processing.  This includes
@@ -885,7 +885,7 @@ translations of each other and each one is read into its own dataset, then a new
 dataset containing the tuples of the zipped lines can be created via:
 
 ``` python
-source_target_dataset = tf.contrib.data.Dataset.zip((source_dataset, target_dataset))
+source_target_dataset = tf.data.Dataset.zip((source_dataset, target_dataset))
 ```
 
 Batching of variable-length sentences is straightforward. The following

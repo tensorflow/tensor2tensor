@@ -121,11 +121,11 @@ def create_test_iterator(hparams, mode):
     reverse_tgt_vocab_table = lookup_ops.index_to_string_table_from_tensor(
         tgt_vocab_mapping)
 
-  src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+  src_dataset = tf.data.Dataset.from_tensor_slices(
       tf.constant(["a a b b c", "a b b"]))
 
   if mode != tf.contrib.learn.ModeKeys.INFER:
-    tgt_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+    tgt_dataset = tf.data.Dataset.from_tensor_slices(
         tf.constant(["a b c b c", "a b c b"]))
     return (
         iterator_utils.get_iterator(

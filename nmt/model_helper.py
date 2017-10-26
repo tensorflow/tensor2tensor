@@ -28,10 +28,10 @@ def get_initializer(init_op, seed=None, init_weight=None):
     return tf.random_uniform_initializer(
         -init_weight, init_weight, seed=seed)
   elif init_op == "glorot_normal":
-    return tf.contrib.keras.initializers.glorot_normal(
+    return tf.keras.initializers.glorot_normal(
         seed=seed)
   elif init_op == "glorot_uniform":
-    return tf.contrib.keras.initializers.glorot_uniform(
+    return tf.keras.initializers.glorot_uniform(
         seed=seed)
   else:
     raise ValueError("Unknown init_op %s" % init_op)
@@ -72,8 +72,8 @@ def create_train_model(
     src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
         src_vocab_file, tgt_vocab_file, hparams.share_vocab)
 
-    src_dataset = tf.contrib.data.TextLineDataset(src_file)
-    tgt_dataset = tf.contrib.data.TextLineDataset(tgt_file)
+    src_dataset = tf.data.TextLineDataset(src_file)
+    tgt_dataset = tf.data.TextLineDataset(tgt_file)
     skip_count_placeholder = tf.placeholder(shape=(), dtype=tf.int64)
 
     iterator = iterator_utils.get_iterator(
@@ -132,8 +132,8 @@ def create_eval_model(model_creator, hparams, scope=None, extra_args=None):
         src_vocab_file, tgt_vocab_file, hparams.share_vocab)
     src_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
     tgt_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
-    src_dataset = tf.contrib.data.TextLineDataset(src_file_placeholder)
-    tgt_dataset = tf.contrib.data.TextLineDataset(tgt_file_placeholder)
+    src_dataset = tf.data.TextLineDataset(src_file_placeholder)
+    tgt_dataset = tf.data.TextLineDataset(tgt_file_placeholder)
     iterator = iterator_utils.get_iterator(
         src_dataset,
         tgt_dataset,
@@ -185,7 +185,7 @@ def create_infer_model(model_creator, hparams, scope=None, extra_args=None):
     src_placeholder = tf.placeholder(shape=[None], dtype=tf.string)
     batch_size_placeholder = tf.placeholder(shape=[], dtype=tf.int64)
 
-    src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+    src_dataset = tf.data.Dataset.from_tensor_slices(
         src_placeholder)
     iterator = iterator_utils.get_infer_iterator(
         src_dataset,

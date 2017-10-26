@@ -31,9 +31,9 @@ class IteratorUtilsTest(tf.test.TestCase):
   def testGetIterator(self):
     tgt_vocab_table = src_vocab_table = lookup_ops.index_table_from_tensor(
         tf.constant(["a", "b", "c", "eos", "sos"]))
-    src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+    src_dataset = tf.data.Dataset.from_tensor_slices(
         tf.constant(["f e a g", "c c a", "d", "c a"]))
-    tgt_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+    tgt_dataset = tf.data.Dataset.from_tensor_slices(
         tf.constant(["c c", "a b", "", "b c"]))
     hparams = tf.contrib.training.HParams(
         random_seed=3,
@@ -109,9 +109,9 @@ class IteratorUtilsTest(tf.test.TestCase):
   def testGetIteratorWithShard(self):
     tgt_vocab_table = src_vocab_table = lookup_ops.index_table_from_tensor(
         tf.constant(["a", "b", "c", "eos", "sos"]))
-    src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+    src_dataset = tf.data.Dataset.from_tensor_slices(
         tf.constant(["c c a", "f e a g", "d", "c a"]))
-    tgt_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+    tgt_dataset = tf.data.Dataset.from_tensor_slices(
         tf.constant(["a b", "c c", "", "b c"]))
     hparams = tf.contrib.training.HParams(
         random_seed=3,
@@ -174,9 +174,9 @@ class IteratorUtilsTest(tf.test.TestCase):
   def testGetIteratorWithSkipCount(self):
     tgt_vocab_table = src_vocab_table = lookup_ops.index_table_from_tensor(
         tf.constant(["a", "b", "c", "eos", "sos"]))
-    src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+    src_dataset = tf.data.Dataset.from_tensor_slices(
         tf.constant(["c a", "c c a", "d", "f e a g"]))
-    tgt_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+    tgt_dataset = tf.data.Dataset.from_tensor_slices(
         tf.constant(["b c", "a b", "", "c c"]))
     hparams = tf.contrib.training.HParams(
         random_seed=3,
@@ -276,7 +276,7 @@ class IteratorUtilsTest(tf.test.TestCase):
   def testGetInferIterator(self):
     src_vocab_table = lookup_ops.index_table_from_tensor(
         tf.constant(["a", "b", "c", "eos", "sos"]))
-    src_dataset = tf.contrib.data.Dataset.from_tensor_slices(
+    src_dataset = tf.data.Dataset.from_tensor_slices(
         tf.constant(["c c a", "c a", "d", "f e a g"]))
     hparams = tf.contrib.training.HParams(
         random_seed=3,
