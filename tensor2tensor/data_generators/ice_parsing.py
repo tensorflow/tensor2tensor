@@ -32,7 +32,7 @@ import os
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators.wmt import tabbed_generator
+from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import registry
 
 
@@ -51,7 +51,8 @@ def tabbed_parsing_token_generator(data_dir, tmp_dir, train, prefix,
       data_dir, tmp_dir, filename, 1,
       prefix + "_target.tokens.vocab.%d" % target_vocab_size, target_vocab_size)
   pair_filepath = os.path.join(tmp_dir, filename)
-  return tabbed_generator(pair_filepath, source_vocab, target_vocab, EOS)
+  return translate.tabbed_generator(pair_filepath, source_vocab, target_vocab,
+                                    EOS)
 
 
 def tabbed_parsing_character_generator(tmp_dir, train):
@@ -59,7 +60,8 @@ def tabbed_parsing_character_generator(tmp_dir, train):
   character_vocab = text_encoder.ByteTextEncoder()
   filename = "parsing_{0}.pairs".format("train" if train else "dev")
   pair_filepath = os.path.join(tmp_dir, filename)
-  return tabbed_generator(pair_filepath, character_vocab, character_vocab, EOS)
+  return translate.tabbed_generator(pair_filepath, character_vocab,
+                                    character_vocab, EOS)
 
 
 @registry.register_problem
