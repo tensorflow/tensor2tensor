@@ -1,10 +1,13 @@
 # Neural Machine Translation (seq2seq) Tutorial
 
-*Authors: Thang Luong, Eugene Brevdo, Rui Zhao*
+*Authors: Thang Luong, Eugene Brevdo, Rui Zhao ([Google Research Blogpost](https://research.googleblog.com/2017/07/building-your-own-neural-machine.html))*
 
 *This version of the tutorial requires [TensorFlow Nightly](https://github.com/tensorflow/tensorflow/#installation).
 For using the stable TensorFlow versions, please consider other branches such as
 [tf-1.2](https://github.com/tensorflow/nmt/tree/tf-1.2).*
+
+*If make use of this codebase for your research, please cite
+[this](#bibtex).*
 
 - [Introduction](#introduction)
 - [Basic](#basic)
@@ -38,6 +41,7 @@ For using the stable TensorFlow versions, please consider other branches such as
 - [Other resources](#other-resources)
 - [Acknowledgment](#acknowledgment)
 - [References](#references)
+- [BibTex](#bibtex)
 
 
 # Introduction
@@ -1245,3 +1249,13 @@ We would like to thank Denny Britz, Anna Goldie, Derek Murray, and Cinjon Resnic
 -  Ilya Sutskever, Oriol Vinyals, and Quoc
    V. Le. 2014.[ Sequence to sequence learning with neural networks](https://papers.nips.cc/paper/5346-sequence-to-sequence-learning-with-neural-networks.pdf). NIPS.
 
+# BibTex
+
+```
+@article{luong17,
+  author  = {Minh{-}Thang Luong and Eugene Brevdo and Rui Zhao},
+  title   = {Neural Machine Translation (seq2seq) Tutorial},
+  journal = {https://github.com/tensorflow/nmt},
+  year    = {2017},
+}
+```
