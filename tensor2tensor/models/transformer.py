@@ -30,11 +30,14 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
+
+from tensorflow.python.util import nest
 
 
 @registry.register_model
@@ -163,6 +166,58 @@ class Transformer(t2t_model.T2TModel):
       ValueError: If last_position_only if False
       NotImplementedError: If there are multiple data shards.
     """
+    decoded_ids = self._fast_decode(features, decode_length, last_position_only)
+    return decoded_ids, None, None
+
+  def _beam_decode(self, features, decode_length, beam_size, top_beams,
+                   last_position_only, alpha):
+    """Beam search decoding.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+      beam_size: number of beams.
+      top_beams: an integer. How many of the beams to return.
+      last_position_only: MUST be true for fast decoding!
+      alpha: Float that controls the length penalty. larger the alpha, stronger
+        the preference for slonger translations.
+
+    Returns:
+       samples: an integer `Tensor`. Top samples from the beam search
+    """
+    return self._fast_decode(
+        features, decode_length, last_position_only, beam_size, top_beams,
+        alpha)
+
+  def _fast_decode(
+      self,
+      features,
+      decode_length,
+      last_position_only=True,
+      beam_size=1,
+      top_beams=1,
+      alpha=1.0):
+    """Fast decoding.
+
+    Implements both greedy and beam search decoding, uses beam search iff
+    beam_size > 1, otherwise beam search related arguments are ignored.
+
+    Args:
+      features: a map of string to model  features.
+      decode_length: an integer.  How many additional timesteps to decode.
+      last_position_only: MUST be true for fast decoding!
+      beam_size: number of beams.
+      top_beams: an integer. How many of the beams to return.
+      alpha: Float that controls the length penalty. larger the alpha, stronger
+        the preference for slonger translations.
+
+    Returns:
+       samples: an integer `Tensor`. Top samples from the beam search
+
+    Raises:
+      ValueError: If last_position_only if False
+      NotImplementedError: If there are multiple data shards.
+    """
     if not last_position_only:
       raise ValueError("Fast decoding only deals with the last positions!")
     if self._num_datashards != 1:
@@ -192,6 +247,8 @@ class Transformer(t2t_model.T2TModel):
     with tf.variable_scope("body"):
       encoder_output, encoder_decoder_attention_bias = dp(
           self.encode, inputs, features["target_space_id"], hparams)
+    encoder_output = encoder_output[0]
+    encoder_decoder_attention_bias = encoder_decoder_attention_bias[0]
 
     if hparams.pos == "timing":
       timing_signal = common_attention.get_timing_signal_1d(
@@ -236,6 +293,7 @@ class Transformer(t2t_model.T2TModel):
 
     def symbols_to_logits_fn(ids, i, cache):
       """Go from ids to logits for next symbol."""
+      ids = ids[:, -1:]
       targets = tf.expand_dims(tf.expand_dims(ids, axis=2), axis=3)
       targets = preprocess_targets(targets, i)
 
@@ -245,8 +303,8 @@ class Transformer(t2t_model.T2TModel):
         body_outputs = dp(
             self.decode,
             targets,
-            encoder_output[0],
-            encoder_decoder_attention_bias[0],
+            cache["encoder_output"],
+            cache["encoder_decoder_attention_bias"],
             bias,
             hparams,
             cache)
@@ -254,13 +312,7 @@ class Transformer(t2t_model.T2TModel):
       with tf.variable_scope(target_modality.name):
         logits = target_modality.top_sharded(body_outputs, None, dp)[0]
 
-      return tf.squeeze(logits, axis=[1, 2, 3])
-
-    def inner_loop(i, next_id, decoded_ids, cache):
-      logits = symbols_to_logits_fn(next_id, i, cache)
-      next_id = tf.expand_dims(tf.argmax(logits, axis=-1), axis=1)
-      decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
-      return i+1, next_id, decoded_ids, cache
+      return tf.squeeze(logits, axis=[1, 2, 3]), cache
 
     key_channels = hparams.attention_key_channels or hparams.hidden_size
     value_channels = hparams.attention_value_channels or hparams.hidden_size
@@ -272,24 +324,53 @@ class Transformer(t2t_model.T2TModel):
             "v": tf.zeros([batch_size, 0, value_channels]),
         } for layer in range(num_layers)
     }
-    decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
-    next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
-    _, _, decoded_ids, _ = tf.while_loop(
-        # TODO(llion): Early stopping.
-        lambda i, *_: tf.less(i, decode_length),
-        inner_loop,
-        [tf.constant(0), next_id, decoded_ids, cache],
-        shape_invariants=[
-            tf.TensorShape([]),
-            tf.TensorShape([None, None]),
-            tf.TensorShape([None, None]),
-            {"layer_%d" % layer: {
-                "k": tf.TensorShape([None, None, key_channels]),
-                "v": tf.TensorShape([None, None, value_channels]),
-            } for layer in range(num_layers)}
-        ])
 
-    return decoded_ids, None, None
+    # Set 2nd dim to None since it's not invariant in the tf.while_loop
+    # Note: Tensor.set_shape() does not work here since it merges shape info.
+    # TODO(llion); Find a more robust solution.
+    # pylint: disable=protected-access
+    for layer in cache:
+      cache[layer]["k"]._shape = tf.TensorShape([None, None, key_channels])
+      cache[layer]["v"]._shape = tf.TensorShape([None, None, value_channels])
+    # pylint: enable=protected-access
+    cache["encoder_output"] = encoder_output
+    cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
+
+    if beam_size > 1:  # Beam Search
+      target_modality = (
+          self._hparams.problems[self._problem_idx].target_modality)
+      vocab_size = target_modality.top_dimensionality
+      initial_ids = tf.zeros([batch_size], dtype=tf.int32)
+      decoded_ids, _ = beam_search.beam_search(
+          symbols_to_logits_fn, initial_ids, beam_size, decode_length,
+          vocab_size, alpha, states=cache)
+
+      if top_beams == 1:
+        decoded_ids = decoded_ids[:, 0, 1:]
+      else:
+        decoded_ids = decoded_ids[:, :top_beams, 1:]
+    else:  # Greedy
+      def inner_loop(i, next_id, decoded_ids, cache):
+        logits, cache = symbols_to_logits_fn(next_id, i, cache)
+        next_id = tf.expand_dims(tf.argmax(logits, axis=-1), axis=1)
+        decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
+        return i+1, next_id, decoded_ids, cache
+
+      decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
+      next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
+      _, _, decoded_ids, _ = tf.while_loop(
+          # TODO(llion): Early stopping.
+          lambda i, *_: tf.less(i, decode_length),
+          inner_loop,
+          [tf.constant(0), next_id, decoded_ids, cache],
+          shape_invariants=[
+              tf.TensorShape([]),
+              tf.TensorShape([None, None]),
+              tf.TensorShape([None, None]),
+              nest.map_structure(lambda t: tf.TensorShape(t.shape), cache),
+          ])
+
+    return decoded_ids
 
 
 @registry.register_model

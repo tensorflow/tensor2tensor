@@ -30,7 +30,45 @@ EOS_ID = 1
 INF = 1. * 1e7
 
 
-def expand_to_beam_size(tensor, beam_size):
+def _get_shape(tensor):
+  """Returns static shape if available and dynamic shape otherwise."""
+  static = tensor.shape.as_list()
+  dynamic = tf.unstack(tf.shape(tensor))
+  return [s[1] if s[0] is None else s[0] for s in zip(static, dynamic)]
+
+
+def _merge_beam_dim(tensor):
+  """Reshapes first two dimensions in to single dimension.
+
+  Args:
+    tensor: Tensor to reshape of shape [A, B, ...]
+
+  Returns:
+    Reshaped tensor of shape [A*B, ...]
+  """
+  shape = _get_shape(tensor)
+  shape[0] *= shape[1]  # batch -> batch * beam_size
+  shape.pop(1)  # Remove beam dim
+  return tf.reshape(tensor, shape)
+
+
+def _unmerge_beam_dim(tensor, batch_size, beam_size):
+  """Reshapes first dimension back to [batch_size, beam_size].
+
+  Args:
+    tensor: Tensor to reshape of shape [batch_size*beam_size, ...]
+    batch_size: Tensor, original batch size.
+    beam_size: int, original beam size.
+
+  Returns:
+    Reshaped tensor of shape [batch_size, beam_size, ...]
+  """
+  shape = _get_shape(tensor)
+  new_shape = [batch_size] + [beam_size] + shape[1:]
+  return tf.reshape(tensor, new_shape)
+
+
+def _expand_to_beam_size(tensor, beam_size):
   """Tiles a given tensor by beam_size.
 
   Args:
@@ -191,11 +229,11 @@ def beam_search(symbols_to_logits_fn,
   alive_log_probs = tf.tile(initial_log_probs, [batch_size, 1])
 
   # Expand each batch and state to beam_size
-  alive_seq = expand_to_beam_size(initial_ids, beam_size)
+  alive_seq = _expand_to_beam_size(initial_ids, beam_size)
   alive_seq = tf.expand_dims(alive_seq, axis=2)  # (batch_size, beam_size, 1)
   if states:
     states = nest.map_structure(
-        lambda state: expand_to_beam_size(state, beam_size), states)
+        lambda state: _expand_to_beam_size(state, beam_size), states)
   else:
     states = {}
 
@@ -302,12 +340,10 @@ def beam_search(symbols_to_logits_fn,
 
     # (batch_size * beam_size, decoded_length)
     if states:
-      flat_states = nest.map_structure(
-          lambda state: tf.reshape(state, [batch_size * beam_size, -1]), states)
-      flat_logits, flat_states = symbols_to_logits_fn(flat_ids, flat_states)
+      flat_states = nest.map_structure(_merge_beam_dim, states)
+      flat_logits, flat_states = symbols_to_logits_fn(flat_ids, i, flat_states)
       states = nest.map_structure(
-          lambda state: tf.reshape(state, [batch_size, beam_size, -1]),
-          flat_states)
+          lambda t: _unmerge_beam_dim(t, batch_size, beam_size), flat_states)
     else:
       flat_logits = symbols_to_logits_fn(flat_ids)
     logits = tf.reshape(flat_logits, [batch_size, beam_size, -1])
@@ -478,8 +514,7 @@ def beam_search(symbols_to_logits_fn,
            finished_scores.get_shape(),
            finished_flags.get_shape(),
            nest.map_structure(
-               lambda tensor: tf.TensorShape([None] * tensor.shape.ndims),
-               states),
+               lambda tensor: tf.TensorShape(tensor.shape), states),
        ],
        parallel_iterations=1,
        back_prop=False)

@@ -217,6 +217,29 @@ class T2TModel(object):
                    last_position_only, alpha):
     """Beam search decoding.
 
+    Models should ideally implement a more efficient version of this function.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+      beam_size: number of beams.
+      top_beams: an integer. How many of the beams to return.
+      last_position_only: a boolean, speed-up by computing last position only.
+      alpha: Float that controls the length penalty. larger the alpha, stronger
+        the preference for slonger translations.
+
+    Returns:
+       samples: an integer `Tensor`. Top samples from the beam search
+    """
+    return self._beam_decode_slow(features, decode_length, beam_size, top_beams,
+                                  last_position_only, alpha)
+
+  def _beam_decode_slow(self, features, decode_length, beam_size, top_beams,
+                        last_position_only, alpha):
+    """Slow version of Beam search decoding.
+
+    Quadratic time in decode_length.
+
     Args:
       features: an map of string to `Tensor`
       decode_length: an integer.  How many additional timesteps to decode.
