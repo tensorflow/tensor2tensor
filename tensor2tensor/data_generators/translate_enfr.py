@@ -40,6 +40,28 @@ _ENFR_TRAIN_DATASETS = [
         ("baseline-1M-enfr/baseline-1M_train.en",
          "baseline-1M-enfr/baseline-1M_train.fr")
     ],
+    #    [
+    #        "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
+    #        ("commoncrawl.fr-en.en", "commoncrawl.fr-en.fr")
+    #    ],
+    #    [
+    #        "http://www.statmt.org/wmt13/training-parallel-europarl-v7.tgz",
+    #        ("training/europarl-v7.fr-en.en", "training/europarl-v7.fr-en.fr")
+    #    ],
+    #    [
+    #        "http://www.statmt.org/wmt14/training-parallel-nc-v9.tgz",
+    #        ("training/news-commentary-v9.fr-en.en",
+    #         "training/news-commentary-v9.fr-en.fr")
+    #    ],
+    #    [
+    #        "http://www.statmt.org/wmt10/training-giga-fren.tar",
+    #        ("giga-fren.release2.fixed.en.gz",
+    #         "giga-fren.release2.fixed.fr.gz")
+    #    ],
+    #    [
+    #        "http://www.statmt.org/wmt13/training-parallel-un.tgz",
+    #        ("un/undoc.2000.fr-en.en", "un/undoc.2000.fr-en.fr")
+    #    ],
 ]
 _ENFR_TEST_DATASETS = [
     [
@@ -47,6 +69,10 @@ _ENFR_TEST_DATASETS = [
         ("baseline-1M-enfr/baseline-1M_valid.en",
          "baseline-1M-enfr/baseline-1M_valid.fr")
     ],
+    #    [
+    #        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
+    #        ("dev/newstest2013.en", "dev/newstest2013.fr")
+    #    ],
 ]
 
 
