@@ -42,7 +42,7 @@ for an example of usage.
 
 The generators should yield dictionaries with string keys and values being lists
 of {int, float, str}.  Here is a very simple generator for a data-set where
-inputs are lists of 2s with length up to 100 and targets are lists of length 1
+inputs are lists of 2s with length upto 100 and targets are lists of length 1
 with an integer denoting the length of the input list.
 
 ```
