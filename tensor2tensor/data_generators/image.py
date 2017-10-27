@@ -227,7 +227,7 @@ class ImageFSNS(ImageProblem):
     # This vocab file must be present within the data directory.
     vocab_filename = os.path.join(data_dir, "charset_size134.txt")
     return {
-        "inputs": text_encoder.TextEncoder(),
+        "inputs": text_encoder.ImageEncoder(),
         "targets": text_encoder.SubwordTextEncoder(vocab_filename)
     }
 
@@ -273,7 +273,7 @@ class Image2ClassProblem(ImageProblem):
   def feature_encoders(self, data_dir):
     del data_dir
     return {
-        "inputs": text_encoder.TextEncoder(),
+        "inputs": text_encoder.ImageEncoder(),
         "targets": text_encoder.ClassLabelEncoder(self.class_labels)
     }
 

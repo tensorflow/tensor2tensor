@@ -466,7 +466,7 @@ def attention_bias_batch(
       coordinates of the batches
     batch_coordinates_k (tf.Tensor): int32 of shape [length_k, 1] containing the
       coordinates of the batches. If None, do self attention (q and k identical)
-    condition_fn (fct): A predicat function defining which type of mask build
+    condition_fn (fct): A function defining which type of mask build
 
   Returns:
     tf.Tensor: float32 mask of shape [length_q, length_k] containing either 0 or
@@ -501,7 +501,7 @@ attention_bias_coordinates = functools.partial(
 attention_bias_future = functools.partial(
     attention_bias_batch,
     # Elems can attend to themself (otherwise would use bias_batch + 1.0)
-    # No tf.abs to concider the order
+    # No tf.abs to consider the order
     # tf.maximum and tf.minimum to threshold the values
     condition_fn=lambda bias: tf.maximum(0.0, tf.minimum(1.0, bias)),
 )
@@ -1059,7 +1059,7 @@ def dot_product_attention_relative(q,
 
 def masked_local_attention_1d(
     q, k, v, block_length=128, name=None):
-  """Attention to the source position and a neigborhood to the left of it.
+  """Attention to the source position and a neighborhood to the left of it.
 
   The sequence is divided into blocks of length block_size.
   Attention for a given query position can only see memory positions
@@ -2267,7 +2267,7 @@ def self_attention_expert(
     bias_batch = attention_bias_coordinates(batch_coordinate)
 
     def add_or_set_if(prev_bias, new_bias, condition):
-      """Add the bias together while concidering the None case."""
+      """Add the bias together while considering the None case."""
       if not condition:
         return prev_bias
       elif prev_bias is None:
@@ -2776,7 +2776,7 @@ def sparse_dot_product_attention_truncated(
       # Each head get its own dispatcher
       gates = lsh.get_gates(single_x)
       nb_buckets = gates.get_shape().as_list()[-1]
-      # Reshape to [batch, length, depth] but should concider sequence
+      # Reshape to [batch, length, depth] but should consider sequence
       # padding in that case (also dispatch the padding)
       gates = tf.reshape(gates, [batch_size, length, nb_buckets])
       list_gates.append(gates)
@@ -2958,12 +2958,13 @@ def local_reduction_attention(x, block_length, multihead_params):
 
 @expert_utils.add_var_scope()
 def multihead_self_attention_reduced(
-    x, factor, reduction_type, multihead_params):
+    x, factor, nonlinearity, reduction_type, multihead_params):
   """Reduce the length dimension by compressing with conv.
 
   Args:
     x (tf.Tensor): float32 of shape [batch, length, depth]
     factor (int): compression factor for the memory sequence
+    nonlinearity (str): Add some non-linearity after the memory block
     reduction_type (str): type of compression
     multihead_params (dict): parameters for multihead attention
 
@@ -2971,13 +2972,13 @@ def multihead_self_attention_reduced(
     (tf.Tensor): float32 of shape [batch, length, depth]
 
   Raises:
-    ValueError: If reduction_type invalid
+    ValueError: If reduction_type or nonlinearity is invalid
   """
   depth = x.get_shape().as_list()[-1]
 
   # Could try to have some overlapp between the blocks but that would
   # create conv artifacts, would make it difficult to not attend to the future
-  # withing one group and the padding should be handled specially.
+  # within one group and the padding should be handled specially.
 
   # Reduce the memory dimension
   if reduction_type == "attention":
@@ -2987,6 +2988,11 @@ def multihead_self_attention_reduced(
     memory_x = conv_elems_1d(x, factor)
   else:
     raise ValueError("Unknown reduction type {}".format(reduction_type))
+
+  if nonlinearity == "silu":
+    memory_x *= tf.nn.sigmoid(memory_x)
+  elif nonlinearity != "none":
+    raise ValueError("Unknown non linearity {}".format(nonlinearity))
 
   memory_x = tf.concat(
       # Add the first elem to make it attendable by everyone (otherwise the

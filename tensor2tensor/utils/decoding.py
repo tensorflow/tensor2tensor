@@ -69,7 +69,8 @@ def log_decode_results(inputs,
                        model_dir=None,
                        identity_output=False):
   """Log inference results."""
-  if "image" in problem_name and save_images:
+  is_image = "image" in problem_name
+  if is_image and save_images:
     save_path = os.path.join(model_dir, "%s_prediction_%d.jpg" %
                              (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
@@ -77,7 +78,7 @@ def log_decode_results(inputs,
     if identity_output:
       decoded_inputs = " ".join(map(str, inputs.flatten()))
     else:
-      decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs.flatten()))
+      decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs, is_image))
 
     tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
@@ -87,11 +88,9 @@ def log_decode_results(inputs,
     if targets is not None:
       decoded_targets = " ".join(map(str, targets.flatten()))
   else:
-    decoded_outputs = "".join(
-        map(str, targets_vocab.decode(_save_until_eos(outputs.flatten()))))
+    decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
     if targets is not None:
-      decoded_targets = "".join(
-          map(str, targets_vocab.decode(_save_until_eos(targets.flatten()))))
+      decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
 
   tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None:
@@ -107,6 +106,8 @@ def decode_from_dataset(estimator,
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))
   hparams = estimator.params
+  # We assume that worker_id corresponds to shard number.
+  shard = decode_hp.shard_id if decode_hp.shards > 1 else None
 
   for problem_idx, problem_name in enumerate(problem_names):
     # Build the inference input function
@@ -117,14 +118,19 @@ def decode_from_dataset(estimator,
         num_datashards=devices.data_parallelism().n,
         fixed_problem=problem_idx,
         batch_size=decode_hp.batch_size,
-        dataset_split=dataset_split)
+        dataset_split=dataset_split,
+        shard=shard)
 
     # Get the predictions as an iterable
     predictions = estimator.predict(infer_input_fn)
 
     # Prepare output file writers if decode_to_file passed
     if decode_to_file:
-      output_filepath = _decode_filename(decode_to_file, problem_name,
+      if decode_hp.shards > 1:
+        decode_filename = decode_to_file + ("%.2d" % decode_hp.shard_id)
+      else:
+        decode_filename = decode_to_file
+      output_filepath = _decode_filename(decode_filename, problem_name,
                                          decode_hp)
       parts = output_filepath.split(".")
       parts[-1] = "targets"
@@ -134,7 +140,11 @@ def decode_from_dataset(estimator,
       target_file = tf.gfile.Open(target_filepath, "w")
 
     problem_hparams = hparams.problems[problem_idx]
-    inputs_vocab = problem_hparams.vocabulary.get("inputs", None)
+    # Inputs vocabulary is set to targets if there are no inputs in the problem,
+    # e.g., for language models where the inputs are just a prefix of targets.
+    has_input = "inputs" in problem_hparams.vocabulary
+    inputs_vocab_key = "inputs" if has_input else "targets"
+    inputs_vocab = problem_hparams.vocabulary[inputs_vocab_key]
     targets_vocab = problem_hparams.vocabulary["targets"]
     for num_predictions, prediction in enumerate(predictions):
       num_predictions += 1
@@ -200,7 +210,11 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
 
   hparams = estimator.params
   problem_id = decode_hp.problem_idx
-  inputs_vocab = hparams.problems[problem_id].vocabulary["inputs"]
+  # Inputs vocabulary is set to targets if there are no inputs in the problem,
+  # e.g., for language models where the inputs are just a prefix of targets.
+  has_input = "inputs" in hparams.problems[problem_id].vocabulary
+  inputs_vocab_key = "inputs" if has_input else "targets"
+  inputs_vocab = hparams.problems[problem_id].vocabulary[inputs_vocab_key]
   targets_vocab = hparams.problems[problem_id].vocabulary["targets"]
   problem_name = FLAGS.problems.split("-")[problem_id]
   tf.logging.info("Performing decoding from a file.")
@@ -246,7 +260,7 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   else:
     output_filename = filename
   if decode_hp.shards > 1:
-    base_filename = output_filename + ("%.2d" % FLAGS.worker_id)
+    base_filename = output_filename + ("%.2d" % decode_hp.shard_id)
   else:
     base_filename = output_filename
   decode_filename = _decode_filename(base_filename, problem_name, decode_hp)
@@ -303,6 +317,7 @@ def decode_interactively(estimator, decode_hp):
   result_iter = estimator.predict(input_fn)
   for result in result_iter:
     problem_idx = result["problem_choice"]
+    is_image = False  # TODO(lukaszkaiser): find out from problem id / class.
     targets_vocab = hparams.problems[problem_idx].vocabulary["targets"]
 
     if decode_hp.return_beams:
@@ -312,7 +327,7 @@ def decode_interactively(estimator, decode_hp):
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(beams):
         tf.logging.info("BEAM %d:" % k)
-        beam_string = targets_vocab.decode(_save_until_eos(beam.flatten()))
+        beam_string = targets_vocab.decode(_save_until_eos(beam, is_image))
         if scores is not None:
           tf.logging.info("%s\tScore:%f" % (beam_string, scores[k]))
         else:
@@ -322,7 +337,7 @@ def decode_interactively(estimator, decode_hp):
         tf.logging.info(" ".join(map(str, result["outputs"].flatten())))
       else:
         tf.logging.info(
-            targets_vocab.decode(_save_until_eos(result["outputs"].flatten())))
+            targets_vocab.decode(_save_until_eos(result["outputs"], is_image)))
 
 
 def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
@@ -509,8 +524,11 @@ def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
   return sorted_inputs, sorted_keys
 
 
-def _save_until_eos(hyp):
+def _save_until_eos(hyp, is_image):
   """Strips everything after the first <EOS> token, which is normally 1."""
+  hyp = hyp.flatten()
+  if is_image:
+    return hyp
   try:
     index = list(hyp).index(text_encoder.EOS_ID)
     return hyp[0:index]

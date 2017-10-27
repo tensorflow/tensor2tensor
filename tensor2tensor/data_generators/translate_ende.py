@@ -25,10 +25,9 @@ import tarfile
 # Dependency imports
 
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import translate
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import wsj_parsing
+from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -103,8 +102,8 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
     with tf.gfile.GFile(token_path, mode="a") as f:
       f.write("UNK\n")  # Add UNK to the vocab.
     token_vocab = text_encoder.TokenTextEncoder(token_path, replace_oov="UNK")
-    return translate.token_generator(train_path + ".en", train_path + ".de", token_vocab,
-                           EOS)
+    return translate.token_generator(train_path + ".en", train_path + ".de",
+                                     token_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -113,7 +112,6 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
   @property
   def target_space_id(self):
     return problem.SpaceID.DE_BPE_TOK
-
 
 
 @registry.register_problem
@@ -130,12 +128,14 @@ class TranslateEndeWmt8k(translate.TranslateProblem):
 
   def generator(self, data_dir, tmp_dir, train):
     symbolizer_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size, _ENDE_TRAIN_DATASETS)
+        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size,
+        _ENDE_TRAIN_DATASETS)
     datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
     tag = "train" if train else "dev"
-    data_path = translate._compile_data(tmp_dir, datasets, "wmt_ende_tok_%s" % tag)
+    data_path = translate.compile_data(tmp_dir, datasets,
+                                       "wmt_ende_tok_%s" % tag)
     return translate.token_generator(data_path + ".lang1", data_path + ".lang2",
-                           symbolizer_vocab, EOS)
+                                     symbolizer_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -170,9 +170,10 @@ class TranslateEndeWmtCharacters(translate.TranslateProblem):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _ENDE_TRAIN_DATASETS if train else _ENDE_TEST_DATASETS
     tag = "train" if train else "dev"
-    data_path = translate._compile_data(tmp_dir, datasets, "wmt_ende_chr_%s" % tag)
-    return translate.character_generator(data_path + ".lang1", data_path + ".lang2",
-                               character_vocab, EOS)
+    data_path = translate.compile_data(tmp_dir, datasets,
+                                       "wmt_ende_chr_%s" % tag)
+    return translate.character_generator(
+        data_path + ".lang1", data_path + ".lang2", character_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -181,4 +182,3 @@ class TranslateEndeWmtCharacters(translate.TranslateProblem):
   @property
   def target_space_id(self):
     return problem.SpaceID.DE_CHR
-

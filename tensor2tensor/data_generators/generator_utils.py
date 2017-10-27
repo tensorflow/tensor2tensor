@@ -263,6 +263,7 @@ def gunzip_file(gz_path, new_path):
       for line in gz_file:
         new_file.write(line)
 
+
 def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
                                 generator):
   """Inner implementation for vocab generators.
@@ -301,10 +302,7 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
   return vocab
 
 
-def get_or_generate_vocab(data_dir,
-                          tmp_dir,
-                          vocab_filename,
-                          vocab_size,
+def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
                           sources):
   """Generate a vocabulary from the datasets in sources."""
 

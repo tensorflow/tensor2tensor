@@ -289,7 +289,7 @@ class BeamSearchTest(tf.test.TestCase):
 
     expected_states = tf.constant([[[0.]], [[1.]]])
 
-    def symbols_to_logits(ids, states):
+    def symbols_to_logits(ids, _, states):
       pos = tf.shape(ids)[1] - 1
       # We have to assert the values of state inline here since we can't fetch
       # them out of the loop!
@@ -303,6 +303,7 @@ class BeamSearchTest(tf.test.TestCase):
     states = {
         "state": tf.zeros((batch_size, 1)),
     }
+    states["state"]._shape = tf.TensorShape((None, 1))
 
     final_ids, _ = beam_search.beam_search(
         symbols_to_logits,
@@ -336,7 +337,7 @@ class BeamSearchTest(tf.test.TestCase):
     # at each position, which is the one thats getting 3 added to it each step.
     expected_states = tf.constant([[[0.], [0.]], [[3.], [3.]], [[6.], [6.]]])
 
-    def symbols_to_logits(ids, states):
+    def symbols_to_logits(ids, _, states):
       pos = tf.shape(ids)[1] - 1
 
       # We have to assert the values of state inline here since we can't fetch
@@ -351,6 +352,7 @@ class BeamSearchTest(tf.test.TestCase):
     states = {
         "state": tf.zeros((batch_size, 1)),
     }
+    states["state"]._shape = tf.TensorShape((None, 1))
 
     final_ids, _ = beam_search.beam_search(
         symbols_to_logits,

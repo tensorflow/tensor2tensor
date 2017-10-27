@@ -36,7 +36,8 @@ def build_input_fn(mode,
                    worker_replicas=None,
                    worker_id=None,
                    batch_size=None,
-                   dataset_split=None):
+                   dataset_split=None,
+                   shard=None):
   """Provides input to the graph, either from disk or via a placeholder.
 
   This function produces an input function that will feed data into
@@ -62,6 +63,7 @@ def build_input_fn(mode,
     batch_size: int, if provided, will use a fixed batch size.
     dataset_split: tf.estimator.ModeKeys + ["test"], which split of the dataset
       to use. Defaults to mode.
+    shard: int, if provided, will only read data from the specified shard.
 
   Returns:
     A function that returns a dictionary of features and the target labels.
@@ -99,6 +101,7 @@ def build_input_fn(mode,
             mode,
             batch_size=batch_size,
             dataset_split=dataset_split,
+            shard=shard,
             name="problem_%d" % problem_idx)
         problem_batches.append(feature_map)
 
@@ -204,6 +207,7 @@ def features_for_problem(problem_instance,
                          mode,
                          batch_size=None,
                          dataset_split=None,
+                         shard=None,
                          name="problem_inputs"):
   """Feature map for Problem."""
   with tf.name_scope(name):
@@ -228,7 +232,8 @@ def features_for_problem(problem_instance,
           mode,
           hparams,
           batching_scheme,
-          dataset_split=dataset_split)
+          dataset_split=dataset_split,
+          shard=shard)
 
   # Ensure inputs and targets are proper rank.
   if problem_instance.has_inputs:

@@ -105,7 +105,7 @@ We're almost done. `generator` generates the training and evaluation data and
 stores them in files like "word2def_train.lang1" in your DATA_DIR. Thankfully
 several commonly used methods like `character_generator`, and `token_generator`
 are already written in the file
-[`wmt.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt.py).
+[`translate.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate.py).
 We will import `character_generator` and
 [`text_encoder`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/text_encoder.py)
 to write:

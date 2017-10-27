@@ -26,6 +26,7 @@ import time
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils as eu
@@ -216,6 +217,8 @@ class T2TModel(object):
                    last_position_only, alpha):
     """Beam search decoding.
 
+    Models should ideally implement a more efficient version of this function.
+
     Args:
       features: an map of string to `Tensor`
       decode_length: an integer.  How many additional timesteps to decode.
@@ -228,7 +231,27 @@ class T2TModel(object):
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
     """
+    return self._beam_decode_slow(features, decode_length, beam_size, top_beams,
+                                  last_position_only, alpha)
 
+  def _beam_decode_slow(self, features, decode_length, beam_size, top_beams,
+                        last_position_only, alpha):
+    """Slow version of Beam search decoding.
+
+    Quadratic time in decode_length.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+      beam_size: number of beams.
+      top_beams: an integer. How many of the beams to return.
+      last_position_only: a boolean, speed-up by computing last position only.
+      alpha: Float that controls the length penalty. larger the alpha, stronger
+        the preference for slonger translations.
+
+    Returns:
+       samples: an integer `Tensor`. Top samples from the beam search
+    """
     batch_size = tf.shape(features["inputs"])[0]
     batch_size = tf.Print(batch_size, [batch_size], "beam_decode batch_size=")
 
@@ -259,15 +282,16 @@ class T2TModel(object):
 
     initial_ids = tf.zeros([batch_size], dtype=tf.int32)
 
-    inputs_old = features["inputs"]
-    features["inputs"] = tf.expand_dims(features["inputs"], 1)
-    if len(features["inputs"].shape) < 5:
-      features["inputs"] = tf.expand_dims(features["inputs"], 4)
-    # Expand the inputs in to the beam size.
-    features["inputs"] = tf.tile(features["inputs"], [1, beam_size, 1, 1, 1])
-    s = tf.shape(features["inputs"])
-    features["inputs"] = tf.reshape(features["inputs"],
-                                    [s[0] * s[1], s[2], s[3], s[4]])
+    if self.has_input:
+      inputs_old = features["inputs"]
+      features["inputs"] = tf.expand_dims(features["inputs"], 1)
+      if len(features["inputs"].shape) < 5:
+        features["inputs"] = tf.expand_dims(features["inputs"], 4)
+      # Expand the inputs in to the beam size.
+      features["inputs"] = tf.tile(features["inputs"], [1, beam_size, 1, 1, 1])
+      s = tf.shape(features["inputs"])
+      features["inputs"] = tf.reshape(features["inputs"],
+                                      [s[0] * s[1], s[2], s[3], s[4]])
 
     target_modality = self._hparams.problems[self._problem_idx].target_modality
     vocab_size = target_modality.top_dimensionality
@@ -280,7 +304,8 @@ class T2TModel(object):
                                           alpha)
 
     # Set inputs back to the unexpanded inputs to not to confuse the Estimator!
-    features["inputs"] = inputs_old
+    if self.has_input:
+      features["inputs"] = inputs_old
 
     # Return `top_beams` decodings (also remove initial id from the beam search)
     return_scores = False  # TODO(lukaszkaiser): make it work multi-problem.
@@ -365,8 +390,9 @@ class T2TModel(object):
     # Create an initial output tensor. This will be passed
     # to the infer_step, which adds one timestep at every iteration.
     if "partial_targets" in features:
-      initial_output = tf.to_int64(tf.expand_dims(
-          tf.expand_dims(features["partial_targets"], 2), 3))
+      initial_output = tf.to_int64(features["partial_targets"])
+      while len(initial_output.get_shape().as_list()) < 4:
+        initial_output = tf.expand_dims(initial_output, 2)
       batch_size = tf.shape(initial_output)[0]
     else:
       batch_size = tf.shape(features["inputs"])[0]
@@ -387,8 +413,38 @@ class T2TModel(object):
     logits.set_shape([None, None, None, None, None])
     loss = 0.0
 
+    def while_exit_cond(result, logits, loss):  # pylint: disable=unused-argument
+      """Exit the loop either if reach decode_length or EOS."""
+      length = tf.shape(result)[1]
+
+      not_overflow = length < decode_length
+
+      if self._problem_hparams.stop_at_eos:
+        def fn_not_eos():
+          return tf.not_equal(  # Check if the last predicted element is a EOS
+              tf.squeeze(result[:, -1, :, :]),
+              text_encoder.EOS_ID
+          )
+
+        not_eos = tf.cond(
+            # We only check for early stoping if there is at least 1 element (
+            # otherwise not_eos will crash)
+            tf.not_equal(length, 0),
+            fn_not_eos,
+            lambda: True,
+        )
+
+        return tf.cond(
+            tf.equal(batch_size, 1),
+            # If batch_size == 1, we check EOS for early stoping
+            lambda: tf.logical_and(not_overflow, not_eos),
+            # Else, just wait for max length
+            lambda: not_overflow
+        )
+      return not_overflow
+
     result, logits, loss = tf.while_loop(
-        lambda result, logits, loss: tf.shape(result)[1] < decode_length,
+        while_exit_cond,
         infer_step, [result, logits, loss],
         shape_invariants=[
             tf.TensorShape([None, None, None, None]),

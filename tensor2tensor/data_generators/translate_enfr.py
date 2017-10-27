@@ -19,16 +19,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-import tarfile
-
 # Dependency imports
 
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import translate
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import wsj_parsing
+from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -41,40 +37,44 @@ EOS = text_encoder.EOS_ID
 _ENFR_TRAIN_DATASETS = [
     [
         "https://s3.amazonaws.com/opennmt-trainingdata/baseline-1M-enfr.tgz",
-        ("baseline-1M-enfr/baseline-1M_train.en", "baseline-1M-enfr/baseline-1M_train.fr")
+        ("baseline-1M-enfr/baseline-1M_train.en",
+         "baseline-1M-enfr/baseline-1M_train.fr")
     ],
-#    [
-#        "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
-#        ("commoncrawl.fr-en.en", "commoncrawl.fr-en.fr")
-#   ],
-#    [
-#        "http://www.statmt.org/wmt13/training-parallel-europarl-v7.tgz",
-#        ("training/europarl-v7.fr-en.en", "training/europarl-v7.fr-en.fr")
-#    ],
-#    [
-#        "http://www.statmt.org/wmt14/training-parallel-nc-v9.tgz",
-#        ("training/news-commentary-v9.fr-en.en",
-#         "training/news-commentary-v9.fr-en.fr")
-#    ],
-#    [
-#        "http://www.statmt.org/wmt10/training-giga-fren.tar",
-#        ("giga-fren.release2.fixed.en.gz", "giga-fren.release2.fixed.fr.gz")
-#    ],
-#    [
-#        "http://www.statmt.org/wmt13/training-parallel-un.tgz",
-#        ("un/undoc.2000.fr-en.en", "un/undoc.2000.fr-en.fr")
-#    ],
+    #    [
+    #        "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
+    #        ("commoncrawl.fr-en.en", "commoncrawl.fr-en.fr")
+    #    ],
+    #    [
+    #        "http://www.statmt.org/wmt13/training-parallel-europarl-v7.tgz",
+    #        ("training/europarl-v7.fr-en.en", "training/europarl-v7.fr-en.fr")
+    #    ],
+    #    [
+    #        "http://www.statmt.org/wmt14/training-parallel-nc-v9.tgz",
+    #        ("training/news-commentary-v9.fr-en.en",
+    #         "training/news-commentary-v9.fr-en.fr")
+    #    ],
+    #    [
+    #        "http://www.statmt.org/wmt10/training-giga-fren.tar",
+    #        ("giga-fren.release2.fixed.en.gz",
+    #         "giga-fren.release2.fixed.fr.gz")
+    #    ],
+    #    [
+    #        "http://www.statmt.org/wmt13/training-parallel-un.tgz",
+    #        ("un/undoc.2000.fr-en.en", "un/undoc.2000.fr-en.fr")
+    #    ],
 ]
 _ENFR_TEST_DATASETS = [
     [
         "https://s3.amazonaws.com/opennmt-trainingdata/baseline-1M-enfr.tgz",
-        ("baseline-1M-enfr/baseline-1M_valid.en", "baseline-1M-enfr/baseline-1M_valid.fr")
+        ("baseline-1M-enfr/baseline-1M_valid.en",
+         "baseline-1M-enfr/baseline-1M_valid.fr")
     ],
-#    [
-#        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
-#        ("dev/newstest2013.en", "dev/newstest2013.fr")
-#    ],
+    #    [
+    #        "http://data.statmt.org/wmt17/translation-task/dev.tgz",
+    #        ("dev/newstest2013.en", "dev/newstest2013.fr")
+    #    ],
 ]
+
 
 @registry.register_problem
 class TranslateEnfrWmt8k(translate.TranslateProblem):
@@ -90,12 +90,14 @@ class TranslateEnfrWmt8k(translate.TranslateProblem):
 
   def generator(self, data_dir, tmp_dir, train):
     symbolizer_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size, _ENFR_TRAIN_DATASETS)
+        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size,
+        _ENFR_TRAIN_DATASETS)
     datasets = _ENFR_TRAIN_DATASETS if train else _ENFR_TEST_DATASETS
     tag = "train" if train else "dev"
-    data_path = translate._compile_data(tmp_dir, datasets, "wmt_enfr_tok_%s" % tag)
+    data_path = translate.compile_data(tmp_dir, datasets,
+                                       "wmt_enfr_tok_%s" % tag)
     return translate.token_generator(data_path + ".lang1", data_path + ".lang2",
-                           symbolizer_vocab, EOS)
+                                     symbolizer_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -130,9 +132,10 @@ class TranslateEnfrWmtCharacters(translate.TranslateProblem):
     character_vocab = text_encoder.ByteTextEncoder()
     datasets = _ENFR_TRAIN_DATASETS if train else _ENFR_TEST_DATASETS
     tag = "train" if train else "dev"
-    data_path = translate._compile_data(tmp_dir, datasets, "wmt_enfr_chr_%s" % tag)
-    return translate.character_generator(data_path + ".lang1", data_path + ".lang2",
-                               character_vocab, EOS)
+    data_path = translate.compile_data(tmp_dir, datasets,
+                                       "wmt_enfr_chr_%s" % tag)
+    return translate.character_generator(
+        data_path + ".lang1", data_path + ".lang2", character_vocab, EOS)
 
   @property
   def input_space_id(self):
@@ -141,6 +144,3 @@ class TranslateEnfrWmtCharacters(translate.TranslateProblem):
   @property
   def target_space_id(self):
     return problem.SpaceID.FR_CHR
-
-
-

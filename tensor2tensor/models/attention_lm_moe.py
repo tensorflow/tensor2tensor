@@ -277,6 +277,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 preprocess(x),
                 factor=hparams.attention_red_factor,
                 reduction_type=hparams.attention_reduction_type,
+                nonlinearity=hparams.attention_nonlinearity,
                 multihead_params=dict(
                     total_key_depth=
                     hparams.attention_key_channels or hparams.hidden_size,
@@ -368,7 +369,7 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   """
   targets_pad_mask = common_attention.embedding_to_padding(targets)
   with tf.name_scope("pad_remover"):
-    # Because of the shift_right, the <eos> token will be concidered as
+    # Because of the shift_right, the <eos> token will be considered as
     # padding. In practice, it doesn't really matter, due to the triangular
     # mask, this token should never be attended.
     pad_remover = expert_utils.PadRemover(targets_pad_mask)
@@ -509,6 +510,9 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_red_factor", 3)
   hparams.add_hparam("attention_block_length", 128)
   hparams.add_hparam("attention_reduction_type", "conv")
+  # Non linearity for the attention reduction. Either "none", or "silu" (
+  # Sigmoid Linear-Unit described in https://arxiv.org/abs/1710.05941)
+  hparams.add_hparam("attention_nonlinearity", "none")
   # If attention_exp_factor is set, each input to local_expert_attention (of
   # dimensionality hidden size) is projected into attention_exp_factor smaller
   # inputs, each of dimensionality attention_exp_inputdim. (otherwise
@@ -596,6 +600,20 @@ def attention_lm_hybrid_v2():
 def attention_lm_16k():
   hparams = attention_lm_hybrid_v2()
   hparams.batch_size = 16384
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_12k():
+  hparams = attention_lm_hybrid_v2()
+  hparams.batch_size = 12000
+  return hparams
+
+
+@registry.register_hparams
+def attention_lm_11k():
+  hparams = attention_lm_hybrid_v2()
+  hparams.batch_size = 11500
   return hparams
 
 

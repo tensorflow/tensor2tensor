@@ -26,9 +26,6 @@ import tarfile
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
-from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import wsj_parsing
-from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -67,7 +64,6 @@ def character_generator(source_path, target_path, character_vocab, eos=None):
     target_path: path to the file with target sentences.
     character_vocab: a TextEncoder to encode the characters.
     eos: integer to append at the end of each sequence (default: None).
-
   Yields:
     A dictionary {"inputs": source-line, "targets": target-line} where
     the lines are integer lists converted from characters in the file lines.
@@ -97,7 +93,6 @@ def tabbed_generator(source_path, source_vocab, target_vocab, eos=None):
     source_vocab: a SubwordTextEncoder to encode the source string.
     target_vocab: a SubwordTextEncoder to encode the target string.
     eos: integer to append at the end of each sequence (default: None).
-
   Yields:
     A dictionary {"inputs": source-line, "targets": target-line} where
     the lines are integer lists converted from characters in the file lines.
@@ -126,7 +121,6 @@ def token_generator(source_path, target_path, token_vocab, eos=None):
     target_path: path to the file with target sentences.
     token_vocab: text_encoder.TextEncoder object.
     eos: integer to append at the end of each sequence (default: None).
-
   Yields:
     A dictionary {"inputs": source-line, "targets": target-line} where
     the lines are integer lists converted from tokens in the file lines.
@@ -160,7 +154,6 @@ def bi_vocabs_token_generator(source_path,
     source_token_vocab: text_encoder.TextEncoder object.
     target_token_vocab: text_encoder.TextEncoder object.
     eos: integer to append at the end of each sequence (default: None).
-
   Yields:
     A dictionary {"inputs": source-line, "targets": target-line} where
     the lines are integer lists converted from tokens in the file lines.
@@ -174,6 +167,7 @@ def bi_vocabs_token_generator(source_path,
         target_ints = target_token_vocab.encode(target.strip()) + eos_list
         yield {"inputs": source_ints, "targets": target_ints}
         source, target = source_file.readline(), target_file.readline()
+
 
 def _preprocess_sgm(line, is_sgm):
   """Preprocessing to strip tags in SGM files."""
@@ -192,7 +186,8 @@ def _preprocess_sgm(line, is_sgm):
     i = line.index(">")
     return line[i + 1:-6]  # Strip first <seg ...> and last </seg>.
 
-def _compile_data(tmp_dir, datasets, filename):
+
+def compile_data(tmp_dir, datasets, filename):
   """Concatenate all `datasets` and save to `filename`."""
   filename = os.path.join(tmp_dir, filename)
   with tf.gfile.GFile(filename + ".lang1", mode="w") as lang1_resfile:
@@ -229,8 +224,8 @@ def _compile_data(tmp_dir, datasets, filename):
           lang1_filename, lang2_filename = dataset[1]
           lang1_filepath = os.path.join(tmp_dir, lang1_filename)
           lang2_filepath = os.path.join(tmp_dir, lang2_filename)
-          is_sgm = (lang1_filename.endswith("sgm") and
-                    lang2_filename.endswith("sgm"))
+          is_sgm = (
+              lang1_filename.endswith("sgm") and lang2_filename.endswith("sgm"))
 
           if not (os.path.exists(lang1_filepath) and
                   os.path.exists(lang2_filepath)):
@@ -258,5 +253,3 @@ def _compile_data(tmp_dir, datasets, filename):
                 line1, line2 = lang1_file.readline(), lang2_file.readline()
 
   return filename
-
-

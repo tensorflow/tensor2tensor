@@ -82,9 +82,9 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: algorithmic_math.algebra_inverse(26, 0, 2, 100000),
         lambda: algorithmic_math.algebra_inverse(26, 3, 3, 10000)),
     "parsing_english_ptb8k": (
-        lambda: wmt.parsing_token_generator(
+        lambda: translate.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, True, 2**13),
-        lambda: wmt.parsing_token_generator(
+        lambda: translate.parsing_token_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 2**13)),
     "parsing_english_ptb16k": (
         lambda: wsj_parsing.parsing_token_generator(

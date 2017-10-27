@@ -15,7 +15,8 @@
 
 """Library for training on TPU. See tpu_trainer.py.
 
-Currently only supports training and evaluation for text-to-text problems.
+Currently only supports training and evaluation for text-to-text and text
+autoregressive problems.
 """
 
 from __future__ import absolute_import
@@ -91,31 +92,42 @@ def get_input_fn(data_dir, problem, hparams):
       dataset = dataset.shuffle(100)
     # TODO(rsepassi): In eval mode, should not repeat
     dataset = dataset.repeat(None)
-    dataset = data_reader.padded_batch(dataset,
-                                       batching_scheme["batch_sizes"][0],
+    dataset = data_reader.padded_batch(dataset, batch_size,
                                        batching_scheme["padded_shapes"])
 
     if not is_training:
       dataset = dataset.map(
           lambda f: pad_batch(f, batch_size), num_parallel_calls=num_threads)
 
-    dataset.prefetch(1)
+    def shape_def(example):
+      """Set the right shapes for the features."""
+      inputs = example["inputs"]
+      targets = example["targets"]
 
-    train_features = dataset.make_one_shot_iterator().get_next()
+      # Ensure inputs and targets are proper rank.
+      while len(inputs.get_shape()) < 4:
+        inputs = tf.expand_dims(inputs, axis=-1)
+      while len(targets.get_shape()) < 4:
+        targets = tf.expand_dims(targets, axis=-1)
 
-    inputs = train_features["inputs"]
-    targets = train_features["targets"]
+      example["inputs"] = inputs
+      example["targets"] = targets
 
-    # Ensure inputs and targets are proper rank.
-    while len(inputs.get_shape()) != 4:
-      inputs = tf.expand_dims(inputs, axis=-1)
-    while len(targets.get_shape()) != 4:
-      targets = tf.expand_dims(targets, axis=-1)
+      # Ensure batch size is set on all features
+      for _, t in example.iteritems():
+        shape = t.get_shape().as_list()
+        shape[0] = batch_size
+        t.set_shape(t.get_shape().merge_with(shape))
+        # Assert shapes are fully known
+        t.get_shape().assert_is_fully_defined()
 
-    train_features["inputs"] = inputs
-    train_features["targets"] = targets
+      return example
 
-    return train_features, targets
+    dataset = dataset.map(shape_def, num_parallel_calls=num_threads)
+    dataset = dataset.prefetch(1)
+    features = dataset.make_one_shot_iterator().get_next()
+
+    return features, features["targets"]
 
   return input_fn
 
@@ -147,20 +159,26 @@ def get_model_fn(model, hp, use_tpu=True):
     problem_hp = hparams.problems[0]
     orig_features = features
 
-    # Instantiate model and retrieve modalities
+    # Instantiate model and retrieve modalities. Note that autoregressive models
+    # have no input modality.
     model_class = registry.model(model)(hparams, mode, problem_hp)
-    input_modality = problem_hp.input_modality["inputs"]
+    input_modality = problem_hp.input_modality.get("inputs")
     target_modality = problem_hp.target_modality
 
+    # Transform features
+    transformed_features = {}
+    if input_modality is not None:
+      transformed_features["inputs"] = input_modality.bottom(features["inputs"])
+    transformed_features["targets"] = target_modality.targets_bottom(
+        features["targets"])
+    transformed_features["problem_choice"] = tf.constant(0)
+    transformed_features["input_space_id"] = tf.constant(
+        problem_hp.input_space_id)
+    transformed_features["target_space_id"] = tf.constant(
+        problem_hp.target_space_id)
+
     # Model construction
-    features = {
-        "inputs": input_modality.bottom(features["inputs"]),
-        "targets": target_modality.targets_bottom(features["targets"]),
-        "problem_choice": tf.constant(0),
-        "input_space_id": tf.constant(problem_hp.input_space_id),
-        "target_space_id": tf.constant(problem_hp.target_space_id)
-    }
-    outputs = model_class.model_fn_body(features)
+    outputs = model_class.model_fn_body(transformed_features)
     logits = target_modality.top(outputs, labels)
 
     # Ensure the length is known statically
