@@ -50,7 +50,6 @@ class EvaluationUtilsTest(tf.test.TestCase):
     self.assertAlmostEqual(expected_rouge_score, spm_rouge_score)
     self.assertAlmostEqual(expected_bleu_score, spm_bleu_score)
 
-
   def testAccuracy(self):
     pred_output = "nmt/testdata/pred_output"
     label_ref = "nmt/testdata/label_ref"
@@ -60,6 +59,17 @@ class EvaluationUtilsTest(tf.test.TestCase):
     accuracy_score = evaluation_utils.evaluate(
         label_ref, pred_output, "accuracy")
     self.assertAlmostEqual(expected_accuracy_score, accuracy_score)
+
+  def testWordAccuracy(self):
+    pred_output = "nmt/testdata/pred_output"
+    label_ref = "nmt/testdata/label_ref"
+
+    expected_word_accuracy_score = 60.00
+
+    word_accuracy_score = evaluation_utils.evaluate(
+        label_ref, pred_output, "word_accuracy")
+    self.assertAlmostEqual(expected_word_accuracy_score, word_accuracy_score)
+
 
 if __name__ == "__main__":
   tf.test.main()

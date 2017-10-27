@@ -40,6 +40,8 @@ def evaluate(ref_file, trans_file, metric, subword_option=None):
                               subword_option=subword_option)
   elif metric.lower() == "accuracy":
     evaluation_score = _accuracy(ref_file, trans_file)
+  elif metric.lower() == "word_accuracy":
+    evaluation_score = _word_accuracy(ref_file, trans_file)
   else:
     raise ValueError("Unknown metric %s" % metric)
 
@@ -126,6 +128,26 @@ def _accuracy(label_file, pred_file):
           match += 1
         count += 1
   return 100 * match / count
+
+
+def _word_accuracy(label_file, pred_file):
+  """Compute accuracy on per word basis."""
+
+  with codecs.getreader("utf-8")(tf.gfile.GFile(label_file, "r")) as label_fh:
+    with codecs.getreader("utf-8")(tf.gfile.GFile(pred_file, "r")) as pred_fh:
+      total_acc, total_count = 0., 0.
+      for sentence in label_fh:
+        labels = sentence.strip().split(" ")
+        preds = pred_fh.readline().strip().split(" ")
+        match = 0.0
+        for pos in range(min(len(labels), len(preds))):
+          label = labels[pos]
+          pred = preds[pos]
+          if label == pred:
+            match += 1
+        total_acc += 100 * match / max(len(labels), len(preds))
+        total_count += 1
+  return total_acc / total_count
 
 
 def _moses_bleu(multi_bleu_script, tgt_test, trans_file, subword_option=None):
