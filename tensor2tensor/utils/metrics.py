@@ -247,9 +247,10 @@ def set_auc(predictions,
   """
   with tf.variable_scope("set_auc", values=[predictions, labels]):
     labels = tf.squeeze(labels, [2, 3])
-    labels = tf.one_hot(labels, predictions.shape[-1])
+    labels = tf.one_hot(labels, predictions.shape[-1] + 1)
     labels = tf.reduce_max(labels, axis=1)
     labels = tf.cast(labels, tf.bool)
+    labels = labels[:, 1:]
     predictions = tf.nn.sigmoid(predictions)
     auc, update_op = tf.metrics.auc(labels, predictions)
     return update_op, 1.0
