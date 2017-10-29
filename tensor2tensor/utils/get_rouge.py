@@ -38,8 +38,9 @@ tf.flags.DEFINE_string("targets_filename", None, "File containing model target s
 
 def write_to_file(filename, data):
     # TODO: ensure the output format (chars split by spaces) was as intended
-    data = "".join(data[::2])
     data = ".\n".join(data.split(". "))
+    if len(data.strip()) == 0:
+        print(data, filename)
     with open(filename, "w") as fp:
         fp.write(data)
 
@@ -50,7 +51,7 @@ def prep_data(decode_dir, target_dir):
             write_to_file(os.path.join(target_dir, "rouge.A.%06d.txt" % (i+1)), t)
 
             if (i+1 % 1000) == 0:
-                print("Written %d examples to file" % i)
+                tf.logging.into("Written %d examples to file" % i)
 
 def main(_):
     rouge = Rouge155()
