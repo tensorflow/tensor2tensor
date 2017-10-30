@@ -41,4 +41,7 @@ from tensor2tensor.models import transformer_moe
 from tensor2tensor.models import transformer_revnet
 from tensor2tensor.models import transformer_vae
 from tensor2tensor.models import xception
+
+# bug reproduction
+from tensor2tensor.models import lstm2
 # pylint: enable=unused-import
