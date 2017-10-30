@@ -63,7 +63,7 @@ class TranslateEnzhWmt8k(translate.TranslateProblem):
 
   @property
   def source_vocab_name(self):
-    return "vocab.en-zh-en.%d" % self.targeted_vocab_size
+    return "vocab.enzh-en.%d" % self.targeted_vocab_size
 
   @property
   def target_vocab_name(self):
