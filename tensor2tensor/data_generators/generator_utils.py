@@ -190,8 +190,8 @@ def maybe_download(directory, filename, url):
     print()
     tf.gfile.Rename(inprogress_filepath, filepath)
     statinfo = os.stat(filepath)
-    tf.logging.info("Succesfully downloaded %s, %s bytes." % (filename,
-                                                              statinfo.st_size))
+    tf.logging.info("Successfully downloaded %s, %s bytes." %
+                    (filename, statinfo.st_size))
   else:
     tf.logging.info("Not downloading, file already found: %s" % filepath)
   return filepath
@@ -242,8 +242,8 @@ def maybe_download_from_drive(directory, filename, url):
   # Print newline to clear the carriage return from the download progress
   print()
   statinfo = os.stat(filepath)
-  tf.logging.info("Succesfully downloaded %s, %s bytes." % (filename,
-                                                            statinfo.st_size))
+  tf.logging.info("Successfully downloaded %s, %s bytes." % (filename,
+                                                             statinfo.st_size))
   return filepath
 
 
