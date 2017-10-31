@@ -215,11 +215,15 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
 def lstm_seq2seq_internal(inputs, targets, hparams, train):
   """The basic LSTM seq2seq model, main step used for training."""
   with tf.variable_scope("lstm_seq2seq"):
-    # Flatten inputs.
-    inputs = common_layers.flatten4d3d(inputs)
-    # LSTM encoder.
-    _, final_encoder_state = lstm(
-        tf.reverse(inputs, axis=[1]), hparams, train, "encoder")
+    if inputs is None:
+      final_encoder_state = None
+    else:
+      # Flatten inputs.
+      inputs = common_layers.flatten4d3d(inputs)
+      # LSTM encoder.
+      _, final_encoder_state = lstm(
+          tf.reverse(inputs, axis=[1]), hparams, train, "encoder")
+
     # LSTM decoder.
     shifted_targets = common_layers.shift_right(targets)
     decoder_outputs, _ = lstm(
@@ -252,8 +256,10 @@ class LSTMSeq2seq(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
     train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
-    return lstm_seq2seq_internal(features["inputs"], features["targets"],
-                                 self._hparams, train)
+    return lstm_seq2seq_internal(features.get("inputs", None),
+                                 features["targets"],
+                                 self._hparams,
+                                 train)
 
 
 @registry.register_model

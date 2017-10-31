@@ -130,7 +130,7 @@ class Problem(object):
   Data generation:
     * generate_data(data_dir, tmp_dir)
         - Generate training and dev datasets into data_dir.
-        - Additonal files, e.g. vocabulary files, should also be written to
+        - Additional files, e.g. vocabulary files, should also be written to
           data_dir. Vocab files are newline-separated files with each line
           containing a token. The standard convention for the filename is to
           set it to be
@@ -515,7 +515,7 @@ def _default_hparams():
   return tf.contrib.training.HParams(
       # Use this parameter to get comparable perplexity numbers with different
       # tokenizations.  This value should be set to the ratio of the number of
-      # tokens in the test set according to the tokeization used to the number
+      # tokens in the test set according to the tokenization used to the number
       # of tokens in the test set in the "official" tokenization.  For
       # example, if we are using a word-piece based model and we want to
       # compute per-word perplexity, then we set loss_multiplier to the number
