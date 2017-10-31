@@ -66,7 +66,8 @@ class T2TModel(object):
                problem_hparams,
                problem_idx=0,
                data_parallelism=None,
-               ps_devices=None):
+               ps_devices=None,
+               decode_hparams=None):
     """Create a T2TModel.
 
     Args:
@@ -77,6 +78,7 @@ class T2TModel(object):
       data_parallelism: a expert_utils.parallelism
         (specifies devices for data parallelism).
       ps_devices: a list of devices to be used for experts
+      decode_hparams: a hyperparameter object with decoding parameters.
 
     Returns:
       a T2TModel
@@ -103,6 +105,7 @@ class T2TModel(object):
         tf.logging.info("Unsetting shared_embedding_and_softmax_weights.")
         hparams.shared_embedding_and_softmax_weights = 0
     self._hparams = hparams
+    self._decode_hparams = copy.copy(decode_hparams)
     self._data_parallelism = data_parallelism
     self._num_datashards = data_parallelism.n
     self._ps_devices = ps_devices
@@ -145,6 +148,10 @@ class T2TModel(object):
   @property
   def has_input(self):
     return self._problem_hparams.input_modality
+
+  def prepare_features_for_infer(self, features):
+    """Called before inference to allow adding infer-specific features."""
+    pass
 
   def eval_autoregressive(self,
                           features=None,
@@ -195,11 +202,11 @@ class T2TModel(object):
     """
     # TODO(rsepassi): Make decoding work with real-valued model outputs
     # (i.e. if the target modality is RealModality).
-    if not self.has_input:
-      # since there is no input, it is more interesting to see randomly
-      # generated sequences, than to see the most likely sequence repeatedly.
-      beam_size = 1
-      self._hparams.sampling_method = "random"
+    self.prepare_features_for_infer(features)
+    if not self.has_input and beam_size > 1:
+      tf.logging.warn("Beam searching for a model with no inputs.")
+    if not self.has_input and self._hparams.sampling_method != "random":
+      tf.logging.warn("Non-random sampling for a model with no inputs.")
     if is_class_modality(
         self._hparams.problems[self._problem_idx].target_modality):
       beam_size = 1  # No use to run beam-search for a single class.
@@ -540,6 +547,7 @@ class T2TModel(object):
       ]
       all_previous_modalities.extend(previous_modalities)
       do_reuse = input_modality.name in all_previous_modalities
+      transformed_features[key + "_raw"] = sharded_features[key]
       with tf.variable_scope(input_modality.name, reuse=do_reuse):
         transformed_features[key] = input_modality.bottom_sharded(
             sharded_features[key], dp)
@@ -547,8 +555,13 @@ class T2TModel(object):
 
     # Target space id just gets copied to every shard.
     if "target_space_id" in features:
-      transformed_features["target_space_id"] = [features["target_space_id"]
-                                                ] * self._num_datashards
+      transformed_features["target_space_id"] = [
+          features["target_space_id"]] * self._num_datashards
+
+    # For features without a modality ending in "_raw", we pass them raw.
+    for key, feature in sharded_features.items():
+      if key not in transformed_features and key.endswith("_raw"):
+        transformed_features[key] = feature
 
     # Targets are transformed by the autoregressive part of the modality
     previous_tgt_modalities = [
@@ -564,7 +577,7 @@ class T2TModel(object):
           sharded_features["targets"], dp)
 
     # Allows later access to pre-embedding raw targets.
-    transformed_features["raw_targets"] = sharded_features["targets"]
+    transformed_features["targets_raw"] = sharded_features["targets"]
 
     # Construct the model body.
     with tf.variable_scope("body", reuse=self._problem_idx > 0):
