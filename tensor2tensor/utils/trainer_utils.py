@@ -63,6 +63,19 @@ flags.DEFINE_string("problems", "", "Dash separated list of problems to "
 flags.DEFINE_string("data_dir", None, "Directory with training data.")
 flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
+flags.DEFINE_string("eval_early_stopping_metric", "loss",
+                    "If --schedule=train_and_evaluate and "
+                    "--eval_early_stopping_steps is not None, then stop when "
+                    "--eval_early_stopping_metric has not decreased for "
+                    "--eval_early_stopping_steps")
+flags.DEFINE_integer("eval_early_stopping_steps", None,
+                     "If --schedule=train_and_evaluate and "
+                     "--eval_early_stopping_steps is not None, then stop when "
+                     "--eval_early_stopping_metric has not decreased for "
+                     "--eval_early_stopping_steps")
+flags.DEFINE_bool("eval_early_stopping_metric_minimize", True,
+                  "Whether to check for the early stopping metric going down "
+                  "or up.")
 flags.DEFINE_bool("eval_run_autoregressive", False,
                   "Run eval autoregressively where we condition on previous"
                   "generated output instead of the actual target.")
@@ -148,7 +161,20 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
             save_steps=10,
             output_dir=run_config.model_dir,
             show_dataflow=True,
-            show_memory=True,))
+            show_memory=True,
+        ))
+  if FLAGS.schedule == "train_and_evaluate":
+    if FLAGS.local_eval_frequency:
+      train_monitors.append(
+          tf.contrib.learn.monitors.ValidationMonitor(
+              input_fn=input_fns[tf.estimator.ModeKeys.EVAL],
+              eval_steps=eval_steps,
+              every_n_steps=FLAGS.local_eval_frequency,
+              hooks=eval_hooks,
+              early_stopping_rounds=FLAGS.eval_early_stopping_steps,
+              early_stopping_metric=FLAGS.eval_early_stopping_metric,
+              early_stopping_metric_minimize=FLAGS.
+              eval_early_stopping_metric_minimize))
 
   optional_kwargs = {}
   if FLAGS.export_saved_model:
@@ -164,7 +190,6 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
       eval_input_fn=input_fns[tf.estimator.ModeKeys.EVAL],
       train_steps=train_steps,
       eval_steps=eval_steps,
-      min_eval_frequency=FLAGS.local_eval_frequency,
       train_monitors=train_monitors,
       eval_hooks=eval_hooks,
       eval_delay_secs=0,
@@ -378,8 +403,9 @@ def is_chief():
 
 def session_config():
   """The TensorFlow Session config to use."""
-  graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
-      opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
+  graph_options = tf.GraphOptions(
+      optimizer_options=tf.OptimizerOptions(
+          opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
 
   if FLAGS.experimental_optimize_placement:
     rewrite_options = tf.RewriterConfig(optimize_tensor_layout=True)
