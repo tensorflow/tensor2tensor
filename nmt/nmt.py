@@ -192,14 +192,9 @@ def add_arguments(parser):
   parser.add_argument("--num_buckets", type=int, default=5,
                       help="Put data into similar-length buckets.")
 
-  # BPE
-  parser.add_argument("--bpe_delimiter", type=str, default=None,
-                      help="Set to @@ to activate BPE."
-                           "Implicitly sets subword_option to 'bpe' when set.")
-
   # SPM
-  parser.add_argument("--subword_option", type=str, default=None,
-                      choices=["bpe", "spm"],
+  parser.add_argument("--subword_option", type=str, default="",
+                      choices=["", "bpe", "spm"],
                       help="""\
                       Set to bpe or spm to activate subword desegmentation.\
                       """)
@@ -325,7 +320,6 @@ def create_hparams(flags):
       # Vocab
       sos=flags.sos if flags.sos else vocab_utils.SOS,
       eos=flags.eos if flags.eos else vocab_utils.EOS,
-      bpe_delimiter=flags.bpe_delimiter,
       subword_option=flags.subword_option,
       check_special_token=flags.check_special_token,
 
@@ -356,16 +350,6 @@ def extend_hparams(hparams):
 
   if hparams.subword_option and hparams.subword_option not in ["spm", "bpe"]:
     raise ValueError("subword option must be either spm, or bpe")
-  if hparams.bpe_delimiter and hparams.bpe_delimiter != "@@":
-    raise ValueError("BPE delimiter value must be '@@' %s",
-                     hparams.bpe_delimiter)
-  if hparams.bpe_delimiter == "@@":
-    # if bpe_delimiter is set, subword_option will automatically set to bpe
-    if hparams.subword_option == "spm":
-      raise ValueError("Unable to set the subword option to spm "
-                       "if bpe delimiter is set")
-    else:
-      hparams.subword_option = "bpe"
 
   # Flags
   utils.print_out("# hparams:")

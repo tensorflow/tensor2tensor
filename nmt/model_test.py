@@ -288,7 +288,7 @@ class ModelTest(tf.test.TestCase):
       output_words = nmt_outputs[i]
       for j in range(output_words.shape[0]):
         sentence = nmt_utils.get_translation(
-            output_words, j, tgt_eos='eos', subword_option=None)
+            output_words, j, tgt_eos='eos', subword_option='')
         sentence_key = ('%s: batch %d of beam %d' % (name, j, i))
         self.actual_beam_sentences[sentence_key] = sentence
         expected_sentence = self.expected_beam_sentences[sentence_key]
