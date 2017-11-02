@@ -1,6 +1,6 @@
 # Neural Machine Translation (seq2seq) Tutorial
 
-*Authors: Thang Luong, Eugene Brevdo, Rui Zhao ([Google Research Blogpost](https://research.googleblog.com/2017/07/building-your-own-neural-machine.html))*
+*Authors: Thang Luong, Eugene Brevdo, Rui Zhao ([Google Research Blogpost](https://research.googleblog.com/2017/07/building-your-own-neural-machine.html), [Github](https://github.com/tensorflow/nmt))*
 
 *This version of the tutorial requires [TensorFlow Nightly](https://github.com/tensorflow/tensorflow/#installation).
 For using the stable TensorFlow versions, please consider other branches such as
