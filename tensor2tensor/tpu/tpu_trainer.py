@@ -23,7 +23,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor import models  # pylint: disable=unused-import
-from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
+from tensor2tensor import problems  # pylint: disable=unused-import
 from tensor2tensor.tpu import tpu_trainer_lib as lib
 from tensor2tensor.utils import trainer_utils
 
@@ -35,7 +35,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
-flags.DEFINE_integer("eval_steps", 10, "Number of steps in evaluation.")
+flags.DEFINE_integer("eval_steps", 200, "Number of steps in evaluation.")
 flags.DEFINE_integer("iterations_per_loop", 1000,
                      "Number of iterations in a TPU training loop.")
 
@@ -63,14 +63,29 @@ def main(unused_argv):
       batch_size=hparams.tpu_batch_size_per_shard * FLAGS.tpu_num_shards,
       log_device_placement=FLAGS.log_device_placement,
       iterations_per_loop=FLAGS.iterations_per_loop)
-  if FLAGS.train_steps:
-    estimator.train(
-        lambda params: input_fn(tf.estimator.ModeKeys.TRAIN, params),
-        steps=FLAGS.train_steps)
-  if FLAGS.eval_steps:
+
+  if not FLAGS.train_steps:
+    assert FLAGS.eval_steps
     estimator.evaluate(
         lambda params: input_fn(tf.estimator.ModeKeys.EVAL, params),
         steps=FLAGS.eval_steps)
+    return
+
+  num_rounds = FLAGS.train_steps // FLAGS.local_eval_frequency
+  steps_per_round = [FLAGS.local_eval_frequency] * num_rounds
+  remainder = FLAGS.train_steps % FLAGS.local_eval_frequency
+  if remainder:
+    steps_per_round.append(remainder)
+
+  for num_steps in steps_per_round:
+    estimator.train(
+        lambda params: input_fn(tf.estimator.ModeKeys.TRAIN, params),
+        steps=num_steps)
+    if FLAGS.eval_steps:
+      estimator.evaluate(
+          lambda params: input_fn(tf.estimator.ModeKeys.EVAL, params),
+          steps=FLAGS.eval_steps)
+  tf.logging.info("Training and evaluation complete.")
 
 
 if __name__ == "__main__":

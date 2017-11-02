@@ -64,24 +64,21 @@ class Transformer(t2t_model.T2TModel):
     encoder_input, self_attention_bias, encoder_decoder_attention_bias = (
         transformer_prepare_encoder(inputs, target_space, hparams))
 
-    encoder_input = tf.nn.dropout(
-        encoder_input, 1.0 - hparams.layer_prepostprocess_dropout)
+    encoder_input = tf.nn.dropout(encoder_input,
+                                  1.0 - hparams.layer_prepostprocess_dropout)
 
-    encoder_output = transformer_encoder(
-        encoder_input,
-        self_attention_bias,
-        hparams)
+    encoder_output = transformer_encoder(encoder_input, self_attention_bias,
+                                         hparams)
 
     return encoder_output, encoder_decoder_attention_bias
 
-  def decode(
-      self,
-      decoder_input,
-      encoder_output,
-      encoder_decoder_attention_bias,
-      decoder_self_attention_bias,
-      hparams,
-      cache=None):
+  def decode(self,
+             decoder_input,
+             encoder_output,
+             encoder_decoder_attention_bias,
+             decoder_self_attention_bias,
+             hparams,
+             cache=None):
     """Decode Transformer outputs from encoder representation.
 
     Args:
@@ -129,11 +126,12 @@ class Transformer(t2t_model.T2TModel):
     """
     hparams = self._hparams
 
-    inputs = features["inputs"]
-
-    target_space = features["target_space_id"]
-    encoder_output, encoder_decoder_attention_bias = self.encode(
-        inputs, target_space, hparams)
+    inputs = features.get("inputs")
+    encoder_output, encoder_decoder_attention_bias = (None, None)
+    if inputs is not None:
+      target_space = features["target_space_id"]
+      encoder_output, encoder_decoder_attention_bias = self.encode(
+          inputs, target_space, hparams)
 
     targets = features["targets"]
     targets = common_layers.flatten4d3d(targets)
@@ -141,15 +139,11 @@ class Transformer(t2t_model.T2TModel):
     decoder_input, decoder_self_attention_bias = transformer_prepare_decoder(
         targets, hparams)
 
-    return self.decode(
-        decoder_input,
-        encoder_output,
-        encoder_decoder_attention_bias,
-        decoder_self_attention_bias,
-        hparams)
+    return self.decode(decoder_input, encoder_output,
+                       encoder_decoder_attention_bias,
+                       decoder_self_attention_bias, hparams)
 
-  def _greedy_infer(
-      self, features, decode_length, last_position_only=True):
+  def _greedy_infer(self, features, decode_length, last_position_only=True):
     """Fast version of greedy decoding.
 
     Args:
@@ -185,18 +179,16 @@ class Transformer(t2t_model.T2TModel):
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
     """
-    return self._fast_decode(
-        features, decode_length, last_position_only, beam_size, top_beams,
-        alpha)
+    return self._fast_decode(features, decode_length, last_position_only,
+                             beam_size, top_beams, alpha)
 
-  def _fast_decode(
-      self,
-      features,
-      decode_length,
-      last_position_only=True,
-      beam_size=1,
-      top_beams=1,
-      alpha=1.0):
+  def _fast_decode(self,
+                   features,
+                   decode_length,
+                   last_position_only=True,
+                   beam_size=1,
+                   top_beams=1,
+                   alpha=1.0):
     """Fast decoding.
 
     Implements both greedy and beam search decoding, uses beam search iff
@@ -277,12 +269,10 @@ class Transformer(t2t_model.T2TModel):
 
       # TODO(llion): Explain! Is this even needed?
       targets = tf.cond(
-          tf.equal(i, 0),
-          lambda: tf.zeros_like(targets),
-          lambda: targets)
+          tf.equal(i, 0), lambda: tf.zeros_like(targets), lambda: targets)
 
       if hparams.pos == "timing":
-        targets += timing_signal[:, i:i+1]
+        targets += timing_signal[:, i:i + 1]
       return targets
 
     decoder_self_attention_bias = (
@@ -297,17 +287,12 @@ class Transformer(t2t_model.T2TModel):
       targets = tf.expand_dims(tf.expand_dims(ids, axis=2), axis=3)
       targets = preprocess_targets(targets, i)
 
-      bias = decoder_self_attention_bias[:, :, i:i+1, :i+1]
+      bias = decoder_self_attention_bias[:, :, i:i + 1, :i + 1]
 
       with tf.variable_scope("body"):
-        body_outputs = dp(
-            self.decode,
-            targets,
-            cache["encoder_output"],
-            cache["encoder_decoder_attention_bias"],
-            bias,
-            hparams,
-            cache)
+        body_outputs = dp(self.decode, targets, cache["encoder_output"],
+                          cache["encoder_decoder_attention_bias"], bias,
+                          hparams, cache)
 
       with tf.variable_scope(target_modality.name):
         logits = target_modality.top_sharded(body_outputs, None, dp)[0]
@@ -322,7 +307,8 @@ class Transformer(t2t_model.T2TModel):
         "layer_%d" % layer: {
             "k": tf.zeros([batch_size, 0, key_channels]),
             "v": tf.zeros([batch_size, 0, value_channels]),
-        } for layer in range(num_layers)
+        }
+        for layer in range(num_layers)
     }
 
     # Set 2nd dim to None since it's not invariant in the tf.while_loop
@@ -342,19 +328,25 @@ class Transformer(t2t_model.T2TModel):
       vocab_size = target_modality.top_dimensionality
       initial_ids = tf.zeros([batch_size], dtype=tf.int32)
       decoded_ids, _ = beam_search.beam_search(
-          symbols_to_logits_fn, initial_ids, beam_size, decode_length,
-          vocab_size, alpha, states=cache)
+          symbols_to_logits_fn,
+          initial_ids,
+          beam_size,
+          decode_length,
+          vocab_size,
+          alpha,
+          states=cache)
 
       if top_beams == 1:
         decoded_ids = decoded_ids[:, 0, 1:]
       else:
         decoded_ids = decoded_ids[:, :top_beams, 1:]
     else:  # Greedy
+
       def inner_loop(i, next_id, decoded_ids, cache):
         logits, cache = symbols_to_logits_fn(next_id, i, cache)
         next_id = tf.expand_dims(tf.argmax(logits, axis=-1), axis=1)
         decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
-        return i+1, next_id, decoded_ids, cache
+        return i + 1, next_id, decoded_ids, cache
 
       decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
       next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
@@ -384,8 +376,8 @@ class TransformerEncoder(t2t_model.T2TModel):
 
     inputs = common_layers.flatten4d3d(inputs)
 
-    (encoder_input, encoder_self_attention_bias,
-     _) = (transformer_prepare_encoder(inputs, target_space, hparams))
+    (encoder_input, encoder_self_attention_bias, _) = (
+        transformer_prepare_encoder(inputs, target_space, hparams))
 
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
@@ -394,29 +386,6 @@ class TransformerEncoder(t2t_model.T2TModel):
     encoder_output = tf.expand_dims(encoder_output, 2)
 
     return encoder_output
-
-
-@registry.register_model
-class TransformerDecoder(t2t_model.T2TModel):
-  """Transformer, decoder only."""
-
-  def model_fn_body(self, features):
-    hparams = self._hparams
-    targets = features["targets"]
-
-    targets = common_layers.flatten4d3d(targets)
-
-    (decoder_input, decoder_self_attention_bias) = transformer_prepare_decoder(
-        targets, hparams)
-
-    decoder_input = tf.nn.dropout(decoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
-
-    decoder_output = transformer_decoder(
-        decoder_input, None, decoder_self_attention_bias, None, hparams)
-    decoder_output = tf.expand_dims(decoder_output, 2)
-
-    return decoder_output
 
 
 def transformer_prepare_encoder(inputs, target_space, hparams):
@@ -574,9 +543,8 @@ def transformer_decoder(decoder_input,
           with tf.variable_scope("encdec_attention"):
             # TODO(llion): Add caching.
             y = common_attention.multihead_attention(
-                common_layers.layer_preprocess(x, hparams),
-                encoder_output,
-                encoder_decoder_attention_bias,
+                common_layers.layer_preprocess(
+                    x, hparams), encoder_output, encoder_decoder_attention_bias,
                 hparams.attention_key_channels or hparams.hidden_size,
                 hparams.attention_value_channels or hparams.hidden_size,
                 hparams.hidden_size,
@@ -1056,4 +1024,20 @@ def transformer_relative_big():
   hparams.pos = None
   hparams.self_attention_type = "dot_product_relative"
   hparams.max_relative_position = 20
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tpu():
+  """HParams for Transformer model on TPU."""
+  hparams = transformer_base()
+  hparams.use_pad_remover = int(False)  # where op not supported
+  hparams.optimizer = "TrueAdam"
+  hparams.learning_rate = 0.2
+
+  # Inputs
+  # Each example in the batch will be of (padded) length hparams.max_length
+  hparams.max_length = 64
+  hparams.tpu_batch_size_per_shard = 16
+
   return hparams

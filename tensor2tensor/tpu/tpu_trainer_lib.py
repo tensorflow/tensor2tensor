@@ -24,12 +24,10 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
-import math
 
 # Dependency imports
 
 from tensor2tensor.layers import common_layers
-from tensor2tensor.models import transformer
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import model_builder
@@ -37,6 +35,17 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 from tensorflow.python.util import nest
+
+
+def create_dummy_vars():
+  """Dummy vars for restore to work when not using TPU codepath."""
+  with tf.variable_scope("losses_avg"):
+    with tf.variable_scope("problem_0"):
+      for var_name in ["total", "extra", "training"]:
+        tf.get_variable(
+            "%s_loss" % var_name, initializer=100.0, trainable=False)
+  with tf.variable_scope("train_stats"):
+    tf.get_variable("problem_0_steps", initializer=0, trainable=False)
 
 
 def get_input_fn(data_dir, problem, hparams):
@@ -88,8 +97,6 @@ def get_input_fn(data_dir, problem, hparams):
           example, batching_scheme["min_length"], batching_scheme["max_length"])
 
     dataset = dataset.filter(_valid_size)
-    if is_training:
-      dataset = dataset.shuffle(100)
     # TODO(rsepassi): In eval mode, should not repeat
     dataset = dataset.repeat(None)
     dataset = data_reader.padded_batch(dataset, batch_size,
@@ -155,6 +162,9 @@ def get_model_fn(model, hp, use_tpu=True):
   def model_fn(features, labels, mode, params, config):
     """Model fn."""
     del params
+    del config
+    create_dummy_vars()
+
     hparams = copy.deepcopy(hp)
     problem_hp = hparams.problems[0]
     orig_features = features
@@ -168,9 +178,12 @@ def get_model_fn(model, hp, use_tpu=True):
     # Transform features
     transformed_features = {}
     if input_modality is not None:
-      transformed_features["inputs"] = input_modality.bottom(features["inputs"])
-    transformed_features["targets"] = target_modality.targets_bottom(
-        features["targets"])
+      with tf.variable_scope(input_modality.name):
+        transformed_features["inputs"] = input_modality.bottom(
+            features["inputs"])
+    with tf.variable_scope(target_modality.name):
+      transformed_features["targets"] = target_modality.targets_bottom(
+          features["targets"])
     transformed_features["problem_choice"] = tf.constant(0)
     transformed_features["input_space_id"] = tf.constant(
         problem_hp.input_space_id)
@@ -178,17 +191,19 @@ def get_model_fn(model, hp, use_tpu=True):
         problem_hp.target_space_id)
 
     # Model construction
-    outputs = model_class.model_fn_body(transformed_features)
-    logits = target_modality.top(outputs, labels)
+    with tf.variable_scope("body"):
+      outputs = model_class.model_fn_body(transformed_features)
+    with tf.variable_scope(target_modality.name):
+      logits = target_modality.top(outputs, labels)
 
-    # Ensure the length is known statically
-    shape = [None] * logits.get_shape().ndims
-    shape[1] = hparams.max_length
-    logits.set_shape(logits.get_shape().merge_with(shape))
+      # Ensure the length is known statically
+      shape = [None] * logits.get_shape().ndims
+      shape[1] = hparams.max_length
+      logits.set_shape(logits.get_shape().merge_with(shape))
 
-    # Loss
-    loss_num, loss_den = target_modality.loss(logits, labels)
-    loss = loss_num / tf.maximum(1.0, loss_den)
+      # Loss
+      loss_num, loss_den = target_modality.loss(logits, labels)
+      loss = loss_num / tf.maximum(1.0, loss_den)
 
     if mode == tf.estimator.ModeKeys.EVAL:
       problem = hp.problem_instances[0]
@@ -202,10 +217,7 @@ def get_model_fn(model, hp, use_tpu=True):
     assert mode == tf.estimator.ModeKeys.TRAIN
 
     # Learning rate
-    num_shards = config.tpu_config.num_shards
-    lr = hparams.learning_rate * model_builder.learning_rate_decay(
-        hparams, num_worker_replicas=num_shards)
-    lr /= math.sqrt(float(num_shards))
+    lr = hparams.learning_rate * model_builder.learning_rate_decay(hparams)
 
     # Optimizer
     opt = model_builder.ConditionalOptimizer(hparams.optimizer, lr, hparams)
@@ -313,19 +325,3 @@ def make_estimator(model_fn,
       config=run_config,
       train_batch_size=batch_size,
       eval_batch_size=batch_size * 2)
-
-
-@registry.register_hparams
-def transformer_tpu():
-  """HParams for Transformer model on TPU."""
-  hp = transformer.transformer_base()
-  hp.use_pad_remover = int(False)  # where op not supported
-  hp.optimizer = "TrueAdam"
-  hp.learning_rate = 0.4
-
-  # Inputs
-  # Each example in the batch will be of (padded) length hp.max_length
-  hp.max_length = 64
-  hp.tpu_batch_size_per_shard = 20
-
-  return hp
