@@ -69,44 +69,11 @@ def get_input_fn(data_dir, problem, hparams):
         },
     }
 
-    def decode_record(record):
-      """Serialized Example to dict of <feature name, Tensor>."""
-      data_fields, _ = problem.example_reading_spec()
-      decoded = tf.parse_single_example(record, features=data_fields)
-      decoded["inputs"] = decoded["inputs"].values
-      decoded["targets"] = decoded["targets"].values
-      return decoded
-
-    data_files = tf.contrib.slim.parallel_reader.get_data_files(
-        problem.filepattern(data_dir, mode))
-    dataset = tf.data.TFRecordDataset(data_files)
-    dataset = dataset.map(decode_record, num_parallel_calls=num_threads)
-
-    def _preprocess(example, problem, hparams, mode):
-      example = problem.preprocess_example(example, mode, hparams)
-      # We do not want int64s as they are not supported on TPUs.
-      example = data_reader.cast_int64_to_int32(example)
-      return example
-
-    dataset = dataset.map(
-        lambda ex: _preprocess(ex, problem, hparams, mode),
-        num_parallel_calls=num_threads)
-
     def _valid_size(example):
       return data_reader.example_valid_size(
           example, batching_scheme["min_length"], batching_scheme["max_length"])
 
-    dataset = dataset.filter(_valid_size)
-    # TODO(rsepassi): In eval mode, should not repeat
-    dataset = dataset.repeat(None)
-    dataset = data_reader.padded_batch(dataset, batch_size,
-                                       batching_scheme["padded_shapes"])
-
-    if not is_training:
-      dataset = dataset.map(
-          lambda f: pad_batch(f, batch_size), num_parallel_calls=num_threads)
-
-    def shape_def(example):
+    def define_shapes(example):
       """Set the right shapes for the features."""
       inputs = example["inputs"]
       targets = example["targets"]
@@ -130,7 +97,22 @@ def get_input_fn(data_dir, problem, hparams):
 
       return example
 
-    dataset = dataset.map(shape_def, num_parallel_calls=num_threads)
+    dataset = problem.dataset(
+        mode=mode, data_dir=data_dir, num_threads=num_threads, hparams=hparams)
+    dataset = dataset.map(
+        data_reader.cast_int64_to_int32, num_threads=num_threads)
+    dataset = dataset.filter(_valid_size)
+    if is_training:
+      dataset = dataset.shuffle(100)
+    # TODO(rsepassi): In eval mode, should not repeat. Do so because TPU seems
+    # to crash if it runs out of data during eval.
+    dataset = dataset.repeat(None)
+    dataset = data_reader.padded_batch(dataset, batch_size,
+                                       batching_scheme["padded_shapes"])
+    if not is_training:
+      dataset = dataset.map(
+          lambda f: pad_batch(f, batch_size), num_parallel_calls=num_threads)
+    dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
     dataset = dataset.prefetch(1)
     features = dataset.make_one_shot_iterator().get_next()
 
