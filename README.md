@@ -587,7 +587,7 @@ In our implementation of
 the
 [AttentionWrapper](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/seq2seq/python/ops/attention_wrapper.py),
 we borrow some terminology
-from [(Weston et al., 2015)](https://arxiv.org/abs/1409.0473) in their work on
+from [(Weston et al., 2015)](https://arxiv.org/abs/1410.3916) in their work on
 *memory networks*. Instead of having readable & writable memory, the attention
 mechanism presented in this tutorial is a *read-only* memory. Specifically, the
 set of source hidden states (or their transformed versions, e.g.,
