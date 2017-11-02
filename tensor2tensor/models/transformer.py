@@ -579,7 +579,8 @@ def transformer_decoder(decoder_input,
                 encoder_decoder_attention_bias,
                 hparams.attention_key_channels or hparams.hidden_size,
                 hparams.attention_value_channels or hparams.hidden_size,
-                hparams.hidden_size, hparams.num_heads,
+                hparams.hidden_size,
+                hparams.num_heads,
                 hparams.attention_dropout)
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):

@@ -326,7 +326,7 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
     raise ValueError("Inputs to conv must have statically known rank 4. "
                      "Shape: " + str(static_shape))
   # Add support for left padding.
-  if "padding" in kwargs and kwargs["padding"] == "LEFT":
+  if kwargs.get("padding") == "LEFT":
     dilation_rate = (1, 1)
     if "dilation_rate" in kwargs:
       dilation_rate = kwargs["dilation_rate"]
@@ -344,15 +344,9 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
 
   def conv2d_kernel(kernel_size_arg, name_suffix):
     """Call conv2d but add suffix to name."""
-    if "name" in kwargs:
-      original_name = kwargs["name"]
-      name = kwargs.pop("name") + "_" + name_suffix
-    else:
-      original_name = None
-      name = "conv_" + name_suffix
-    original_force2d = None
-    if "force2d" in kwargs:
-      original_force2d = kwargs.pop("force2d")
+    name = "{}_{}".format(kwargs.get("name", "conv"), name_suffix)
+    original_name = kwargs.pop("name", None)
+    original_force2d = kwargs.pop("force2d", None)
     result = conv_fn(inputs, filters, kernel_size_arg, name=name, **kwargs)
     if original_name is not None:
       kwargs["name"] = original_name  # Restore for other calls.
