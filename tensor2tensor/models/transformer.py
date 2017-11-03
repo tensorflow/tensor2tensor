@@ -1041,3 +1041,23 @@ def transformer_tpu():
   hparams.tpu_batch_size_per_shard = 16
 
   return hparams
+
+
+@registry.register_hparams
+def transformer_small_tpu():
+  """TPU-friendly version of transformer_small.
+
+  Returns:
+    an hparams object.
+  """
+  hparams = transformer_small()
+  hparams.use_pad_remover = int(False)  # where op not supported
+  hparams.optimizer = "TrueAdam"
+  hparams.learning_rate = 0.2
+
+  # Inputs
+  # Each example in the batch will be of (padded) length hparams.max_length
+  hparams.max_length = 64
+  hparams.tpu_batch_size_per_shard = 16
+
+  return hparams
