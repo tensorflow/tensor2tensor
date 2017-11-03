@@ -19,8 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-
 # Dependency imports
 
 from tensor2tensor.layers import common_hparams
@@ -29,7 +27,6 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
-from tensorflow.python.util import nest
 
 
 def lstm(inputs, hparams, train, name, initial_state=None):
@@ -60,22 +57,28 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
         input_keep_prob=1.0 - hparams.dropout * tf.to_float(train))
 
   layers = [dropout_lstm_cell() for _ in range(hparams.num_hidden_layers)]
-  AttentionMechanism = (tf.contrib.seq2seq.LuongAttention if hparams.attention_mechanism == "luong"
-                        else tf.contrib.seq2seq.BahdanauAttention)
-  attention_mechanism = AttentionMechanism(hparams.hidden_size, encoder_outputs)
-  
+  if hparams.attention_mechanism == "luong":
+    attention_mechanism_class = tf.contrib.seq2seq.LuongAttention
+  elif hparams.attention_mechanism == "bahdanau":
+    attention_mechanism_class = tf.contrib.seq2seq.BahdanauAttention
+  else:
+    raise ValueError("Unknown hparams.attention_mechanism = %s, must be "
+                     "luong or bahdanu." % hparams.attention_mechanism)
+  attention_mechanism = attention_mechanism_class(
+      hparams.hidden_size, encoder_outputs)
+
   cell = tf.contrib.seq2seq.AttentionWrapper(
       tf.nn.rnn_cell.MultiRNNCell(layers),
       [attention_mechanism]*hparams.num_heads,
       attention_layer_size=[hparams.attention_layer_size]*hparams.num_heads,
-      output_attention=(hparams.output_attention==1))
+      output_attention=(hparams.output_attention == 1))
 
-  
   batch_size = inputs.get_shape()[0].value
   if batch_size is None:
     batch_size = tf.shape(inputs)[0]
 
-  initial_state = cell.zero_state(batch_size, tf.float32).clone(cell_state=initial_state)
+  initial_state = cell.zero_state(batch_size, tf.float32).clone(
+      cell_state=initial_state)
 
   with tf.variable_scope(name):
     output, state = tf.nn.dynamic_rnn(
@@ -84,11 +87,11 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
         initial_state=initial_state,
         dtype=tf.float32,
         time_major=False)
-    
+
     # For multi-head attention project output back to hidden size
     if hparams.output_attention == 1 and hparams.num_heads > 1:
       output = tf.layers.dense(output, hparams.hidden_size)
-    
+
     return output, state
 
 
@@ -131,6 +134,9 @@ def lstm_seq2seq_internal_attention(inputs, targets, hparams, train):
 class LSTMSeq2seq(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
+    # TODO(lukaszkaiser): investigate this issue and repair.
+    if self._hparams.initializer == "orthogonal":
+      raise ValueError("LSTM models fail with orthogonal initializer.")
     train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
     return lstm_seq2seq_internal(features["inputs"], features["targets"],
                                  self._hparams, train)
@@ -140,6 +146,9 @@ class LSTMSeq2seq(t2t_model.T2TModel):
 class LSTMSeq2seqAttention(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
+    # TODO(lukaszkaiser): investigate this issue and repair.
+    if self._hparams.initializer == "orthogonal":
+      raise ValueError("LSTM models fail with orthogonal initializer.")
     train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
     return lstm_seq2seq_internal_attention(
         features["inputs"], features["targets"], self._hparams, train)
@@ -155,11 +164,11 @@ def lstm_seq2seq():
   hparams.initializer = "uniform_unit_scaling"
   hparams.initializer_gain = 1.0
   hparams.weight_decay = 0.0
-
   return hparams
 
+
 def lstm_attention_base():
-  """ Base attention params. """
+  """Base attention params."""
   hparams = lstm_seq2seq()
   hparams.add_hparam("attention_layer_size", hparams.hidden_size)
   hparams.add_hparam("output_attention", int(True))
@@ -169,33 +178,37 @@ def lstm_attention_base():
 
 @registry.register_hparams
 def lstm_bahdanau_attention():
-  """hparams for LSTM with bahdanau attention."""
+  """Hparams for LSTM with bahdanau attention."""
   hparams = lstm_attention_base()
   hparams.add_hparam("attention_mechanism", "bahdanau")
   return hparams
 
+
 @registry.register_hparams
 def lstm_luong_attention():
-  """hparams for LSTM with luong attention."""
+  """Hparams for LSTM with luong attention."""
   hparams = lstm_attention_base()
   hparams.add_hparam("attention_mechanism", "luong")
   return hparams
 
+
 @registry.register_hparams
 def lstm_attention():
-  """ For backwards compatibility, Defaults to bahdanau """
+  """For backwards compatibility, defaults to bahdanau."""
   return lstm_bahdanau_attention()
+
 
 @registry.register_hparams
 def lstm_bahdanau_attention_multi():
-  """ Multi-head Luong attention """
+  """Multi-head Bahdanu attention."""
   hparams = lstm_bahdanau_attention()
   hparams.num_heads = 4
   return hparams
 
+
 @registry.register_hparams
 def lstm_luong_attention_multi():
-  """ Multi-head Luong attention """
+  """Multi-head Luong attention."""
   hparams = lstm_luong_attention()
   hparams.num_heads = 4
   return hparams

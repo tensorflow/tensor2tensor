@@ -35,9 +35,13 @@ FLAGS = tf.flags.FLAGS
 
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
+
+# End-of-sentence marker.
+EOS = text_encoder.EOS_ID
+
 # This is far from being the real WMT17 task - only toyset here
-# you need to register to get UN data and CWT data
-# also by convention this is EN to ZH - use translate_enzh_wmt8k_rev for ZH to EN task
+# you need to register to get UN data and CWT data. Also, by convention,
+# this is EN to ZH - use translate_enzh_wmt8k_rev for ZH to EN task
 _ENZH_TRAIN_DATASETS = [[("http://data.statmt.org/wmt17/translation-task/"
                           "training-parallel-nc-v12.tgz"),
                          ("training/news-commentary-v12.zh-en.en",

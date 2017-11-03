@@ -2958,15 +2958,20 @@ def local_reduction_attention(x, block_length, multihead_params):
 
 @expert_utils.add_var_scope()
 def multihead_self_attention_reduced(
-    x, factor, nonlinearity, reduction_type, multihead_params):
+    x,
+    factor,
+    multihead_params,
+    nonlinearity="none",
+    reduction_type="conv",
+):
   """Reduce the length dimension by compressing with conv.
 
   Args:
     x (tf.Tensor): float32 of shape [batch, length, depth]
     factor (int): compression factor for the memory sequence
+    multihead_params (dict): parameters for multihead attention
     nonlinearity (str): Add some non-linearity after the memory block
     reduction_type (str): type of compression
-    multihead_params (dict): parameters for multihead attention
 
   Returns:
     (tf.Tensor): float32 of shape [batch, length, depth]
