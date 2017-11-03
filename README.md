@@ -4,7 +4,7 @@
 
 *This version of the tutorial requires [TensorFlow Nightly](https://github.com/tensorflow/tensorflow/#installation).
 For using the stable TensorFlow versions, please consider other branches such as
-[tf-1.2](https://github.com/tensorflow/nmt/tree/tf-1.2).*
+[tf-1.4](https://github.com/tensorflow/nmt/tree/tf-1.4).*
 
 *If make use of this codebase for your research, please cite
 [this](#bibtex).*
