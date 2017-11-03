@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
+
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -128,8 +130,8 @@ class SymbolModality(modality.Modality):
         shape = tf.shape(body_output)[:-1]
         body_output = tf.reshape(body_output, [-1, self._body_input_depth])
         logits = tf.matmul(body_output, var, transpose_b=True)
-        logits = tf.reshape(
-            logits, tf.concat([shape, [1, self._vocab_size]], 0))
+        logits = tf.reshape(logits, tf.concat([shape, [1, self._vocab_size]],
+                                              0))
       return logits
 
 
@@ -160,25 +162,29 @@ class SmallImageModality(modality.Modality):
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
       # Reshape inputs to 2-d tensor and embed the RGB pixel values.
-      shape = tf.shape(inputs)
-      inputs = common_layers.flatten4d3d(inputs)
       ret = common_layers.embedding(
-          tf.to_int32(inputs),
+          tf.to_int32(common_layers.flatten4d3d(inputs)),
           self.top_dimensionality,
           self._body_input_depth,
           name="input_rgb_embedding")
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
-      ret = tf.reshape(ret, [shape[0], shape[1], shape[2],
-                             self._body_input_depth * 3])
+
+      reshape_shape = [common_layers.shape_dim(inputs, i) for i in range(3)]
+      reshape_shape.append(self._body_input_depth * 3)
+      ret = tf.reshape(ret, reshape_shape)
       return tf.layers.dense(ret, self._body_input_depth)
 
   def top(self, body_output, _):
     with tf.variable_scope("rgb_softmax"):
-      shape = tf.shape(body_output)
+
+      reshape_shape = [
+          common_layers.shape_dim(body_output, i) for i in range(3)
+      ]
       dim = body_output.get_shape().as_list()[-1] // 3
-      out = tf.reshape(body_output, [shape[0], shape[1], shape[2],
-                                     self._channels, dim])
+      reshape_shape.extend([self._channels, dim])
+
+      out = tf.reshape(body_output, reshape_shape)
       res = tf.layers.dense(out, self.top_dimensionality)
       if not tf.get_variable_scope().reuse:
         res_argmax = tf.cast(tf.argmax(res, axis=-1), tf.uint8)
@@ -393,20 +399,33 @@ class ClassLabelModality(modality.Modality):
 
     Args:
       body_output: A Tensor with shape [batch, ?, ?, body_output_size].
+
     Returns:
       a Tensors, each with shape [batch_size, ?, ?, vocab_size]
+
+    Raises:
+      ValueError: if 2d and Tensor cannot be made a square in the spatial dims.
     """
     with tf.variable_scope(self.name):
       x = body_output
 
       # Assume input is a square with self._body_input_depth channels.
       if self._is_2d:
-        length_float = tf.to_float(tf.shape(x)[1])
-        length_float *= tf.to_float(tf.shape(x)[2])
-        spatial_dim_float = tf.sqrt(length_float)
-        spatial_dim = tf.to_int32(spatial_dim_float)
-        x_depth = int(x.get_shape()[3])
-        x = tf.reshape(x, [-1, spatial_dim, spatial_dim, x_depth])
+        x_shape = x.get_shape().as_list()
+        if x_shape[1] is None or x_shape[2] is None:
+          length_float = tf.to_float(tf.shape(x)[1])
+          length_float *= tf.to_float(tf.shape(x)[2])
+          spatial_dim_float = tf.sqrt(length_float)
+          spatial_dim = tf.to_int32(spatial_dim_float)
+          x_depth = x_shape[3]
+          x = tf.reshape(x, [-1, spatial_dim, spatial_dim, x_depth])
+        elif x_shape[1] != x_shape[2]:
+          spatial_dim = int(math.sqrt(float(x_shape[1] * x_shape[2])))
+          if spatial_dim * spatial_dim != x_shape[1] * x_shape[2]:
+            raise ValueError("Assumed inputs were square-able but they were "
+                             "not. Shape: %s" % x_shape)
+          x = tf.reshape(x, [-1, spatial_dim, spatial_dim, x_depth])
+
         x = common_layers.conv_block_downsample(x, self._kernel, self._strides,
                                                 self._padding)
         x = tf.nn.relu(x)

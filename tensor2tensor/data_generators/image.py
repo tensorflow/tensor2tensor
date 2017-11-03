@@ -51,15 +51,17 @@ def resize_by_area(img, size):
 
 class ImageProblem(problem.Problem):
 
-  def example_reading_spec(self, label_key=None):
-    if label_key is None:
-      label_key = "image/class/label"
+  def example_reading_spec(self, label_repr=None):
+    if label_repr is None:
+      label_repr = ("image/class/label", tf.FixedLenFeature((1,), tf.int64))
 
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
-        label_key: tf.VarLenFeature(tf.int64)
     }
+    label_key, label_type = label_repr  # pylint: disable=unpacking-non-sequence
+    data_fields[label_key] = label_type
+
     data_items_to_decoders = {
         "inputs":
             tf.contrib.slim.tfexample_decoder.Image(
@@ -244,8 +246,9 @@ class ImageFSNS(ImageProblem):
 
   def example_reading_spec(self):
     label_key = "image/unpadded_label"
+    label_type = tf.VarLenFeature(tf.int64)
     return super(ImageFSNS, self).example_reading_spec(
-        self, label_key=label_key)
+        self, label_repr=(label_key, label_type))
 
 
 class Image2ClassProblem(ImageProblem):
