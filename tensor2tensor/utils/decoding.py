@@ -46,6 +46,7 @@ def decode_hparams(overrides=""):
       save_images=False,
       problem_idx=0,
       extra_decode_length=50,
+      max_decode_length=0,
       batch_size=0,
       beam_size=4,
       alpha=0.6,

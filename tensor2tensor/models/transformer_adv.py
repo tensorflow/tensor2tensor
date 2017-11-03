@@ -160,8 +160,8 @@ class TransformerAdv(t2t_model.T2TModel):
         inputs, features["targets_raw"],
         features["target_space_id"], self._hparams)
 
-  def infer(self, features=None, extra_decode_length=50, beam_size=1, top_beams=1,
-            last_position_only=False, alpha=0.0):
+  def infer(self, features=None, extra_decode_length=50, max_decode_length=0,
+            beam_size=1, top_beams=1, last_position_only=False, alpha=0.0):
     """Produce predictions from the model."""
     if not features:
       features = {}
