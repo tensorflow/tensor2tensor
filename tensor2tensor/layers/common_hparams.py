@@ -116,12 +116,15 @@ def basic_params1():
       # If set to True, drop sequences longer than max_length during eval.
       # This affects the validity of the evaluation metrics.
       eval_drop_long_sequences=int(False),
+      # TODO(lukaszkaiser): these parameters should probably be set elsewhere.
       # in SymbolModality, share the output embeddings and the softmax
       # variables.
       # You can also share the input embeddings with the output embeddings
       # by using a problem_hparams that uses the same modality object for
       # the input_modality and target_modality.
       shared_embedding_and_softmax_weights=int(False),
+      # In SymbolModality, skip the top layer, assume we're providing logits.
+      symbol_modality_skip_top=int(False),
       # For each feature for which you want to override the default input
       # modality, add an entry to this semicolon-separated string. Entries are
       # formatted "feature_name:modality_type:modality_name", e.g.
