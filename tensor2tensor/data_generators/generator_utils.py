@@ -21,9 +21,9 @@ from __future__ import print_function
 
 from collections import defaultdict
 import gzip
-import io
 import os
 import random
+import stat
 import tarfile
 
 # Dependency imports
@@ -258,8 +258,11 @@ def gunzip_file(gz_path, new_path):
     tf.logging.info("File %s already exists, skipping unpacking" % new_path)
     return
   tf.logging.info("Unpacking %s to %s" % (gz_path, new_path))
+  # We may be unpacking into a newly created directory, add write mode.
+  mode = stat.S_IRWXU or stat.S_IXGRP or stat.S_IRGRP or stat.S_IROTH
+  os.chmod(os.path.dirname(new_path), mode)
   with gzip.open(gz_path, "rb") as gz_file:
-    with io.open(new_path, "wb") as new_file:
+    with tf.gfile.GFile(new_path, mode="wb") as new_file:
       for line in gz_file:
         new_file.write(line)
 
