@@ -396,8 +396,8 @@ def subseparable_conv(inputs, filters, kernel_size, **kwargs):
         with tf.variable_scope("part_%d" % split_idx):
           if separability > 0:
             parts.append(
-                tf.layers.conv2d(split, filters // separability, kernel_size, **
-                                 kwargs))
+                tf.layers.conv2d(split, filters // separability, kernel_size,
+                                 **kwargs))
           else:
             parts.append(
                 tf.layers.separable_conv2d(split, filters // abs_sep,
@@ -474,8 +474,8 @@ def noam_norm(x, epsilon=1.0, name=None):
   with tf.name_scope(name, default_name="noam_norm", values=[x]):
     shape = x.get_shape()
     ndims = len(shape)
-    return (tf.nn.l2_normalize(x, ndims - 1, epsilon=epsilon) *
-            tf.sqrt(tf.to_float(shape[-1])))
+    return (tf.nn.l2_normalize(x, ndims - 1, epsilon=epsilon) * tf.sqrt(
+        tf.to_float(shape[-1])))
 
 
 def apply_norm(x, norm_type, depth, epsilon):
@@ -864,12 +864,12 @@ def simple_attention(target, source, bias=None):
   with tf.name_scope("simple_attention", [target, source]):
     target_shape = tf.shape(target)
     source_shape = tf.shape(source)
-    target = tf.reshape(target, [
-        target_shape[0], target_shape[1] * target_shape[2], target_shape[3]
-    ])
-    source = tf.reshape(source, [
-        source_shape[0], source_shape[1] * source_shape[2], source_shape[3]
-    ])
+    target = tf.reshape(
+        target,
+        [target_shape[0], target_shape[1] * target_shape[2], target_shape[3]])
+    source = tf.reshape(
+        source,
+        [source_shape[0], source_shape[1] * source_shape[2], source_shape[3]])
     attention = tf.matmul(target, source, transpose_b=True)
     attention *= tf.rsqrt(tf.to_float(tf.shape(target)[2]))
     if bias is not None:
@@ -939,9 +939,9 @@ def multiscale_conv_and_attention(x, padding, hparams, source=None):
   # TODO(noam): The number of different scales should be a hyperparameter.
   conv_sum = multiscale_conv_sum(
       x,
-      hparams.hidden_size, [((hparams.kernel_height**i, hparams.kernel_width**
-                              i), (hparams.kernel_height, hparams.kernel_width))
-                            for i in xrange(3)],
+      hparams.hidden_size,
+      [((hparams.kernel_height**i, hparams.kernel_width**i),
+        (hparams.kernel_height, hparams.kernel_width)) for i in xrange(3)],
       "AVG",
       padding=padding)
   # For residuals a rescale if necessary if channels differ.
@@ -1030,8 +1030,8 @@ def get_timing_signal(length,
     Tensor of shape (length, 2*num_timescales)
   """
   positions = tf.to_float(tf.range(length))
-  log_timescale_increment = (math.log(max_timescale / min_timescale) /
-                             (num_timescales - 1))
+  log_timescale_increment = (
+      math.log(max_timescale / min_timescale) / (num_timescales - 1))
   inv_timescales = min_timescale * tf.exp(
       tf.to_float(tf.range(num_timescales)) * -log_timescale_increment)
   scaled_time = tf.expand_dims(positions, 1) * tf.expand_dims(inv_timescales, 0)
@@ -1429,8 +1429,8 @@ def weights_concatenated(labels):
   in_target = tf.equal(tf.mod(sentence_num, 2), 1)
   # first two tokens of each sentence are boilerplate.
   sentence_num_plus_one = sentence_num + 1
-  shifted = tf.pad(sentence_num_plus_one, [[0, 0], [2, 0], [0, 0],
-                                           [0, 0]])[:, :-2, :, :]
+  shifted = tf.pad(sentence_num_plus_one,
+                   [[0, 0], [2, 0], [0, 0], [0, 0]])[:, :-2, :, :]
   nonboilerplate = tf.equal(sentence_num_plus_one, shifted)
   ret = tf.to_float(tf.logical_and(nonboilerplate, in_target))
   return ret
@@ -1477,7 +1477,10 @@ def padded_cross_entropy(logits,
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
 
 
-def smoothing_cross_entropy(logits, labels, vocab_size, confidence,
+def smoothing_cross_entropy(logits,
+                            labels,
+                            vocab_size,
+                            confidence,
                             gaussian=False):
   """Cross entropy with label smoothing to limit over-confidence.
 
@@ -1498,16 +1501,17 @@ def smoothing_cross_entropy(logits, labels, vocab_size, confidence,
     low_confidence = (1.0 - confidence) / tf.to_float(vocab_size - 1)
     # Normalizing constant is the best cross-entropy value with soft targets.
     # We subtract it just for readability, makes no difference on learning.
-    normalizing = -(confidence * tf.log(confidence) + tf.to_float(
-        vocab_size - 1) * low_confidence * tf.log(low_confidence + 1e-20))
+    normalizing = -(
+        confidence * tf.log(confidence) + tf.to_float(vocab_size - 1) *
+        low_confidence * tf.log(low_confidence + 1e-20))
 
     if gaussian:
       labels = tf.cast(labels, tf.float32)
 
       normal_dist = tf.distributions.Normal(loc=labels, scale=confidence)
       # Locations to evaluate the probability distributions.
-      soft_targets = normal_dist.prob(tf.cast(tf.range(vocab_size), tf.float32)
-                                      [:, None, None, None, None])
+      soft_targets = normal_dist.prob(
+          tf.cast(tf.range(vocab_size), tf.float32)[:, None, None, None, None])
       # Reordering soft_targets from [vocab_size, batch_size, ?, ?, ?] to match
       # logits: [batch_size, ?, ?, ?, vocab_size]
       soft_targets = tf.transpose(soft_targets, perm=[1, 2, 3, 4, 0])
@@ -1805,8 +1809,8 @@ class FactoredTensor(object):
     product = tf.matmul(flat_a, self.b, transpose_b=True)
     product_shape = tf.concat([tf.shape(self.a)[:-1], [result_dim]], 0)
     product = tf.reshape(product, product_shape)
-    product.set_shape(self.a.get_shape().as_list()[:-1] +
-                      [self.b.get_shape()[0]])
+    product.set_shape(
+        self.a.get_shape().as_list()[:-1] + [self.b.get_shape()[0]])
     return product
 
 
@@ -1963,8 +1967,8 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
     fn(*inputs)
   """
   vs = tf.get_variable_scope()
-  get_vars_fn = (vs.global_variables if use_global_vars else
-                 vs.trainable_variables)
+  get_vars_fn = (
+      vs.global_variables if use_global_vars else vs.trainable_variables)
   len_before_vars = len(get_vars_fn())
   inputs = list(inputs)
   outputs = fn(*inputs)
@@ -2057,12 +2061,14 @@ def conv_hidden_relu_memory_efficient(x,
     y = tf.concat(ys, 0)
     y = tf.reshape(y, tf.shape(x))
     return y
+
   key = ("conv_hidden_relu_memory_efficient %s" % epsilon)
   if not forget:
     forward_fn = forward_internal
   elif key in _function_cache:
     forward_fn = _function_cache[key]
   else:
+
     @function.Defun(compiled=True)
     def grad_fn(x, f1, f2, scale, bias, dy):
       with tf.control_dependencies([dy]):
@@ -2098,8 +2104,8 @@ def conv_hidden_relu_memory_efficient(x,
           dx = tf.reshape(dx, x_shape)
           return dx, df1, df2, dscale, dbias
 
-    @function.Defun(grad_func=grad_fn, compiled=True,
-                    separate_compiled_gradients=True)
+    @function.Defun(
+        grad_func=grad_fn, compiled=True, separate_compiled_gradients=True)
     def forward_fn(x, f1, f2, scale, bias):
       return forward_internal(x, f1, f2, scale, bias)
 
@@ -2119,3 +2125,11 @@ def conv_hidden_relu_memory_efficient(x,
       y = forward_internal(x, f1, f2, scale, bias)
     y.set_shape(x.get_shape())
     return y
+
+
+def shape_dim(x, dim):
+  """Return shape(x)[dim], statically if possible."""
+  static = x.get_shape().as_list()
+  if dim < len(static) and static[dim] is not None:
+    return static[dim]
+  return tf.shape(x)[dim]

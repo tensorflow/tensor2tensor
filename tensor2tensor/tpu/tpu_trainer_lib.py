@@ -57,21 +57,9 @@ def get_input_fn(data_dir, problem, hparams):
     num_threads = 4 if is_training else 1
     batch_size = params["batch_size"]
 
-    batching_scheme = {
-        "boundaries": [],
-        "batch_sizes": [batch_size],
-        "min_length": hparams.min_length,
-        "max_length": hparams.max_length,
-        "window_size": batch_size,
-        "padded_shapes": {
-            "inputs": [hparams.max_length],
-            "targets": [hparams.max_length],
-        },
-    }
-
     def _valid_size(example):
-      return data_reader.example_valid_size(
-          example, batching_scheme["min_length"], batching_scheme["max_length"])
+      return data_reader.example_valid_size(example, hparams.min_length,
+                                            hparams.max_length)
 
     def define_shapes(example):
       """Set the right shapes for the features."""
@@ -101,14 +89,20 @@ def get_input_fn(data_dir, problem, hparams):
         mode=mode, data_dir=data_dir, num_threads=num_threads, hparams=hparams)
     dataset = dataset.map(
         data_reader.cast_int64_to_int32, num_threads=num_threads)
-    dataset = dataset.filter(_valid_size)
-    if is_training:
-      dataset = dataset.shuffle(100)
     # TODO(rsepassi): In eval mode, should not repeat. Do so because TPU seems
     # to crash if it runs out of data during eval.
     dataset = dataset.repeat(None)
-    dataset = data_reader.padded_batch(dataset, batch_size,
-                                       batching_scheme["padded_shapes"])
+
+    if are_shapes_fully_defined(dataset.output_shapes):
+      dataset = dataset.batch(batch_size)
+    else:
+      # If shapes are not fully defined, filter out long ones and pad to
+      # hparams.max_length
+      dataset = dataset.filter(_valid_size)
+      padded_shapes = fill_shape_nones(
+          dataset.output_shapes, none_filler=hparams.max_length)
+      dataset = data_reader.padded_batch(dataset, batch_size, padded_shapes)
+
     if not is_training:
       dataset = dataset.map(
           lambda f: pad_batch(f, batch_size), num_parallel_calls=num_threads)
@@ -119,6 +113,21 @@ def get_input_fn(data_dir, problem, hparams):
     return features, features["targets"]
 
   return input_fn
+
+
+def are_shapes_fully_defined(shapes_dict):
+  for _, shape in shapes_dict.iteritems():
+    if not shape.is_fully_defined():
+      return False
+  return True
+
+
+def fill_shape_nones(shapes_dict, none_filler=None):
+  padded_shapes = {}
+  for key, shape in shapes_dict.iteritems():
+    padded_shapes[key] = [(dim if dim is not None else none_filler)
+                          for dim in shape.as_list()]
+  return padded_shapes
 
 
 def pad_batch(features, batch_size):
@@ -178,10 +187,11 @@ def get_model_fn(model, hp, use_tpu=True):
     with tf.variable_scope(target_modality.name):
       logits = target_modality.top(outputs, labels)
 
-      # Ensure the length is known statically
-      shape = [None] * logits.get_shape().ndims
-      shape[1] = hparams.max_length
-      logits.set_shape(logits.get_shape().merge_with(shape))
+      # If the length dim is unknown fix it to max_length
+      if logits.get_shape().as_list()[1] is None:
+        shape = [None] * logits.get_shape().ndims
+        shape[1] = hparams.max_length
+        logits.set_shape(logits.get_shape().merge_with(shape))
 
       # Loss
       loss_num, loss_den = target_modality.loss(logits, labels)
