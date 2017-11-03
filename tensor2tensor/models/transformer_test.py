@@ -80,7 +80,7 @@ class TransformerTest(tf.test.TestCase):
   def testGreedyVsFast(self):
     model, features = self.getModel(transformer.transformer_small())
 
-    decode_length = 2
+    extra_decode_length = 2
 
     out_logits, _ = model.model_fn(features)
     out_logits = tf.squeeze(out_logits[0], axis=[2, 3])
@@ -100,22 +100,23 @@ class TransformerTest(tf.test.TestCase):
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       greedy_result, _, _ = model._slow_greedy_infer(
-          features, decode_length, last_position_only=True)
+          features, extra_decode_length, last_position_only=True)
       greedy_result = tf.squeeze(greedy_result, axis=[2, 3])
 
-      fast_result, _, _ = model._greedy_infer(features, decode_length)
+      fast_result, _, _ = model._greedy_infer(features, extra_decode_length)
 
     with self.test_session():
       greedy_res = greedy_result.eval()
       fast_res = fast_result.eval()
 
-    self.assertEqual(fast_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertEqual(fast_res.shape,
+                     (BATCH_SIZE, INPUT_LENGTH + extra_decode_length))
     self.assertAllClose(greedy_res, fast_res)
 
   def testBeamVsFast(self):
     model, features = self.getModel(transformer.transformer_small())
 
-    decode_length = 2
+    extra_decode_length = 2
 
     out_logits, _ = model.model_fn(features)
     out_logits = tf.squeeze(out_logits[0], axis=[2, 3])
@@ -136,7 +137,7 @@ class TransformerTest(tf.test.TestCase):
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       beam_result = model._beam_decode_slow(
           features,
-          decode_length,
+          extra_decode_length,
           beam_size=4,
           top_beams=1,
           last_position_only=True,
@@ -144,7 +145,7 @@ class TransformerTest(tf.test.TestCase):
 
       fast_result = model._beam_decode(
           features,
-          decode_length,
+          extra_decode_length,
           beam_size=4,
           top_beams=1,
           last_position_only=True,
@@ -154,7 +155,8 @@ class TransformerTest(tf.test.TestCase):
       beam_res = beam_result.eval()
       fast_res = fast_result.eval()
 
-    self.assertEqual(fast_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertEqual(fast_res.shape,
+                     (BATCH_SIZE, INPUT_LENGTH + extra_decode_length))
     self.assertAllClose(beam_res, fast_res)
 
 
