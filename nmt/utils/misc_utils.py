@@ -71,8 +71,9 @@ def print_out(s, f=None, new_line=True):
   sys.stdout.flush()
 
 
-def print_hparams(hparams, skip_patterns=None):
+def print_hparams(hparams, skip_patterns=None, header=None):
   """Print hparams, can skip keys based on pattern."""
+  if header: print_out("%s" % header)
   values = hparams.values()
   for key in sorted(values.keys()):
     if not skip_patterns or all(
