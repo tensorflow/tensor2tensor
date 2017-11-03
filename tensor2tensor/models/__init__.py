@@ -36,6 +36,7 @@ from tensor2tensor.models import neural_gpu
 from tensor2tensor.models import shake_shake
 from tensor2tensor.models import slicenet
 from tensor2tensor.models import transformer
+from tensor2tensor.models import transformer_adv
 from tensor2tensor.models import transformer_alternative
 from tensor2tensor.models import transformer_moe
 from tensor2tensor.models import transformer_revnet
