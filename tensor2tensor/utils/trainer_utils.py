@@ -60,7 +60,14 @@ flags.DEFINE_string(
     model.""")
 flags.DEFINE_string("problems", "", "Dash separated list of problems to "
                     "solve.")
-flags.DEFINE_string("data_dir", None, "Directory with training data.")
+
+
+# data_dir is a common flag name - catch conflicts and define it once.
+try:
+  flags.DEFINE_string("data_dir", None, "Directory with training data.")
+except flags.DuplicateFlagError:
+  tf.logging.info("data_dir already defined. Ignoring.")
+
 flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
 flags.DEFINE_string("eval_early_stopping_metric", "loss",
