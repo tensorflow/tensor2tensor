@@ -326,7 +326,7 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
     raise ValueError("Inputs to conv must have statically known rank 4. "
                      "Shape: " + str(static_shape))
   # Add support for left padding.
-  if "padding" in kwargs and kwargs["padding"] == "LEFT":
+  if kwargs.get("padding") == "LEFT":
     dilation_rate = (1, 1)
     if "dilation_rate" in kwargs:
       dilation_rate = kwargs["dilation_rate"]
@@ -344,15 +344,9 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
 
   def conv2d_kernel(kernel_size_arg, name_suffix):
     """Call conv2d but add suffix to name."""
-    if "name" in kwargs:
-      original_name = kwargs["name"]
-      name = kwargs.pop("name") + "_" + name_suffix
-    else:
-      original_name = None
-      name = "conv_" + name_suffix
-    original_force2d = None
-    if "force2d" in kwargs:
-      original_force2d = kwargs.pop("force2d")
+    name = "{}_{}".format(kwargs.get("name", "conv"), name_suffix)
+    original_name = kwargs.pop("name", None)
+    original_force2d = kwargs.pop("force2d", None)
     result = conv_fn(inputs, filters, kernel_size_arg, name=name, **kwargs)
     if original_name is not None:
       kwargs["name"] = original_name  # Restore for other calls.
@@ -1483,8 +1477,22 @@ def padded_cross_entropy(logits,
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
 
 
-def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
-  """Cross entropy with label smoothing to limit over-confidence."""
+def smoothing_cross_entropy(logits, labels, vocab_size, confidence,
+                            gaussian=False):
+  """Cross entropy with label smoothing to limit over-confidence.
+
+  Args:
+    logits: Tensor of size [batch_size, ?, ?, ?, vocab_size]
+    labels: Tensor of size [batch_size, ?, ?, ?]
+    vocab_size: Tensor representing the size of the vocabulary.
+    confidence: Used to determine on and off values for label smoothing.
+      If `gaussian` is true, `confidence` is the variance to the gaussian
+      distribution.
+    gaussian: Uses a gaussian distribution for label smoothing
+
+  Returns:
+
+  """
   with tf.name_scope("smoothing_cross_entropy", [logits, labels]):
     # Low confidence is given to all non-true labels, uniformly.
     low_confidence = (1.0 - confidence) / tf.to_float(vocab_size - 1)
@@ -1492,12 +1500,23 @@ def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
     # We subtract it just for readability, makes no difference on learning.
     normalizing = -(confidence * tf.log(confidence) + tf.to_float(
         vocab_size - 1) * low_confidence * tf.log(low_confidence + 1e-20))
-    # Soft targets.
-    soft_targets = tf.one_hot(
-        tf.cast(labels, tf.int32),
-        depth=vocab_size,
-        on_value=confidence,
-        off_value=low_confidence)
+
+    if gaussian:
+      labels = tf.cast(labels, tf.float32)
+
+      normal_dist = tf.distributions.Normal(loc=labels, scale=confidence)
+      # Locations to evaluate the probability distributions.
+      soft_targets = normal_dist.prob(tf.cast(tf.range(vocab_size), tf.float32)
+                                      [:, None, None, None, None])
+      # Reordering soft_targets from [vocab_size, batch_size, ?, ?, ?] to match
+      # logits: [batch_size, ?, ?, ?, vocab_size]
+      soft_targets = tf.transpose(soft_targets, perm=[1, 2, 3, 4, 0])
+    else:
+      soft_targets = tf.one_hot(
+          tf.cast(labels, tf.int32),
+          depth=vocab_size,
+          on_value=confidence,
+          off_value=low_confidence)
     xentropy = tf.nn.softmax_cross_entropy_with_logits(
         logits=logits, labels=soft_targets)
     return xentropy - normalizing

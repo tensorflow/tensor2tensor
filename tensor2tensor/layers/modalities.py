@@ -115,6 +115,8 @@ class SymbolModality(modality.Modality):
     else:
       scope_name = "softmax"
       reuse = False
+    if self._model_hparams.symbol_modality_skip_top:
+      return tf.expand_dims(body_output, 3)
     with tf.variable_scope(scope_name, reuse=reuse):
       var = self._get_weights()
       if (self._model_hparams.factored_logits and

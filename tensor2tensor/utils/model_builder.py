@@ -108,7 +108,8 @@ def model_fn(model,
         hparams.problems[n],
         n,
         dp,
-        devices.ps_devices(all_workers=True))
+        devices.ps_devices(all_workers=True),
+        decode_hparams=decode_hparams)
     if mode == tf.estimator.ModeKeys.PREDICT:
       return model_class.infer(
           features,
