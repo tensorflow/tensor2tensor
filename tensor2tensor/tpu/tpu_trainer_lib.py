@@ -13,11 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Library for training on TPU. See tpu_trainer.py.
-
-Currently only supports training and evaluation for text-to-text and text
-autoregressive problems.
-"""
+"""Library for training on TPU. See tpu_trainer.py."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -32,9 +28,9 @@ from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import model_builder
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import trainer_utils
 
 import tensorflow as tf
-from tensorflow.python.util import nest
 
 
 def create_dummy_vars():
@@ -48,10 +44,10 @@ def create_dummy_vars():
     tf.get_variable("problem_0_steps", initializer=0, trainable=False)
 
 
-def get_input_fn(data_dir, problem, hparams):
+def get_input_fn(mode, hparams):
   """Get basic T2T input fn."""
 
-  def input_fn(mode, params):
+  def input_fn(params):
     """Input fn."""
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     num_threads = 4 if is_training else 1
@@ -85,6 +81,8 @@ def get_input_fn(data_dir, problem, hparams):
 
       return example
 
+    problem = hparams.problem_instances[0]
+    data_dir = hparams.data_dir
     dataset = problem.dataset(
         mode=mode, data_dir=data_dir, num_threads=num_threads, hparams=hparams)
     dataset = dataset.map(
@@ -103,9 +101,6 @@ def get_input_fn(data_dir, problem, hparams):
           dataset.output_shapes, none_filler=hparams.max_length)
       dataset = data_reader.padded_batch(dataset, batch_size, padded_shapes)
 
-    if not is_training:
-      dataset = dataset.map(
-          lambda f: pad_batch(f, batch_size), num_parallel_calls=num_threads)
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
     dataset = dataset.prefetch(1)
     features = dataset.make_one_shot_iterator().get_next()
@@ -125,29 +120,13 @@ def are_shapes_fully_defined(shapes_dict):
 def fill_shape_nones(shapes_dict, none_filler=None):
   padded_shapes = {}
   for key, shape in shapes_dict.iteritems():
-    padded_shapes[key] = [(dim if dim is not None else none_filler)
-                          for dim in shape.as_list()]
+    padded_shapes[key] = [
+        (dim if dim is not None else none_filler) for dim in shape.as_list()
+    ]
   return padded_shapes
 
 
-def pad_batch(features, batch_size):
-  """Pad each feature in features to batch_size on dim 0."""
-  ts = []
-  for t in nest.flatten(features):
-    before_pads = [0] * t.get_shape().ndims
-    after_pads = [0] * t.get_shape().ndims
-    batch_pad = tf.convert_to_tensor(batch_size) - tf.shape(t)[0]
-    after_pads[0] = batch_pad
-    pads = list(zip(before_pads, after_pads))
-    old_shape = t.get_shape().as_list()
-    old_shape[0] = batch_size
-    t = tf.pad(t, pads)
-    t.set_shape(old_shape)
-    ts.append(t)
-  return nest.pack_sequence_as(features, ts)
-
-
-def get_model_fn(model, hp, use_tpu=True):
+def get_model_fn(model_name, hp, use_tpu=True):
   """Get simple T2T model fn."""
 
   def model_fn(features, labels, mode, params, config):
@@ -162,7 +141,7 @@ def get_model_fn(model, hp, use_tpu=True):
 
     # Instantiate model and retrieve modalities. Note that autoregressive models
     # have no input modality.
-    model_class = registry.model(model)(hparams, mode, problem_hp)
+    model_class = registry.model(model_name)(hparams, mode, problem_hp)
     input_modality = problem_hp.input_modality.get("inputs")
     target_modality = problem_hp.target_modality
 
@@ -285,17 +264,14 @@ def _clip_gradients_by_norm(grads_and_vars, clip_gradients):
   return list(zip(clipped_gradients, variables))
 
 
-def make_estimator(model_fn,
-                   output_dir,
-                   master="",
-                   batch_size=16,
-                   iterations_per_loop=1000,
-                   num_shards=8,
-                   per_host_input_for_training=True,
-                   use_tpu=True,
-                   log_device_placement=False,
-                   save_checkpoints_steps=1000):
-  """Make TPUEstimator."""
+def create_run_config(master="",
+                      model_dir=None,
+                      iterations_per_loop=1000,
+                      num_shards=8,
+                      per_host_input_for_training=True,
+                      log_device_placement=False,
+                      save_checkpoints_steps=1000):
+  """Create TPUConfig and tpu.RunConfig."""
   tpu_config = tf.contrib.tpu.TPUConfig(
       iterations_per_loop=iterations_per_loop,
       num_shards=num_shards,
@@ -303,17 +279,50 @@ def make_estimator(model_fn,
   session_config = tf.ConfigProto(
       allow_soft_placement=True, log_device_placement=log_device_placement)
   run_config = tf.contrib.tpu.RunConfig(
+      model_dir=model_dir,
       session_config=session_config,
       save_summary_steps=0,
       save_checkpoints_steps=save_checkpoints_steps,
       tpu_config=tpu_config,
       master=master,
       evaluation_master=master)
+  return run_config
 
+
+def create_estimator(model_fn, run_config, batch_size=16):
   return tf.contrib.tpu.TPUEstimator(
       model_fn=model_fn,
-      use_tpu=use_tpu,
-      model_dir=output_dir,
+      model_dir=run_config.model_dir,
       config=run_config,
       train_batch_size=batch_size,
       eval_batch_size=batch_size * 2)
+
+
+def create_experiment(run_config, hparams, model_name, problem_name, data_dir,
+                      train_steps, eval_steps, min_eval_frequency):
+  """Create Experiment."""
+  hparams.add_hparam("data_dir", data_dir)
+  trainer_utils.add_problem_hparams(hparams, problem_name)
+  batch_size = (
+      hparams.tpu_batch_size_per_shard * run_config.tpu_config.num_shards)
+  model_fn = get_model_fn(model_name, hparams)
+  estimator = create_estimator(model_fn, run_config, batch_size)
+  train_input_fn = get_input_fn(tf.estimator.ModeKeys.TRAIN, hparams)
+  eval_input_fn = get_input_fn(tf.estimator.ModeKeys.EVAL, hparams)
+  return tf.contrib.learn.Experiment(
+      estimator=estimator,
+      train_input_fn=train_input_fn,
+      eval_input_fn=eval_input_fn,
+      train_steps=train_steps,
+      eval_steps=eval_steps,
+      min_eval_frequency=min_eval_frequency,
+      train_steps_per_iteration=min_eval_frequency)
+
+
+def make_experiment_fn(*args, **kwargs):
+  """Wrapper for canonical experiment_fn. See create_experiment."""
+
+  def experiment_fn(run_config, hparams):
+    return create_experiment(run_config, hparams, *args, **kwargs)
+
+  return experiment_fn

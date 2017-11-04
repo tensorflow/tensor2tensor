@@ -547,8 +547,7 @@ def transformer_decoder(decoder_input,
                     x, hparams), encoder_output, encoder_decoder_attention_bias,
                 hparams.attention_key_channels or hparams.hidden_size,
                 hparams.attention_value_channels or hparams.hidden_size,
-                hparams.hidden_size,
-                hparams.num_heads,
+                hparams.hidden_size, hparams.num_heads,
                 hparams.attention_dropout)
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
@@ -1031,16 +1030,39 @@ def transformer_relative_big():
 def transformer_tpu():
   """HParams for Transformer model on TPU."""
   hparams = transformer_base()
-  hparams.use_pad_remover = int(False)  # where op not supported
-  hparams.optimizer = "TrueAdam"
-  hparams.learning_rate = 0.2
-
-  # Inputs
-  # Each example in the batch will be of (padded) length hparams.max_length
-  hparams.max_length = 64
-  hparams.tpu_batch_size_per_shard = 16
-
+  update_hparams_for_tpu(hparams)
   return hparams
+
+
+@registry.register_hparams
+def transformer_tiny_tpu():
+  hparams = transformer_tiny()
+  update_hparams_for_tpu(hparams)
+  return hparams
+
+
+@registry.register_ranged_hparams
+def transformer_tiny_tpu_range(rhp):
+  """Small range of hyperparameters."""
+  hparams = transformer_tiny_tpu()
+  common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
+  rhp.set_float("learning_rate", 0.3, 3.0, scale=rhp.LOG_SCALE)
+  rhp.set_float("weight_decay", 0.0, 2.0)
+
+
+@registry.register_ranged_hparams
+def transformer_tpu_range(rhp):
+  """Small range of hyperparameters."""
+  hparams = transformer_tpu()
+  common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
+  # After starting from base, set intervals for some parameters.
+  rhp.set_float("learning_rate", 0.3, 3.0, scale=rhp.LOG_SCALE)
+  rhp.set_discrete("learning_rate_warmup_steps",
+                   [1000, 2000, 4000, 8000, 16000])
+  rhp.set_float("initializer_gain", 0.5, 2.0)
+  rhp.set_float("optimizer_adam_beta1", 0.85, 0.95)
+  rhp.set_float("optimizer_adam_beta2", 0.97, 0.99)
+  rhp.set_float("weight_decay", 0.0, 2.0)
 
 
 @registry.register_hparams
@@ -1051,6 +1073,11 @@ def transformer_small_tpu():
     an hparams object.
   """
   hparams = transformer_small()
+  update_hparams_for_tpu(hparams)
+  return hparams
+
+
+def update_hparams_for_tpu(hparams):
   hparams.use_pad_remover = int(False)  # where op not supported
   hparams.optimizer = "TrueAdam"
   hparams.learning_rate = 0.2
@@ -1059,5 +1086,3 @@ def transformer_small_tpu():
   # Each example in the batch will be of (padded) length hparams.max_length
   hparams.max_length = 64
   hparams.tpu_batch_size_per_shard = 16
-
-  return hparams
