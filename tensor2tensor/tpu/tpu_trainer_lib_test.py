@@ -42,15 +42,14 @@ class TpuTrainerTest(tf.test.TestCase):
 
     hparams = trainer_utils.create_hparams(hparams_set, data_dir)
     trainer_utils.add_problem_hparams(hparams, problem_name)
-    problem = hparams.problem_instances[0]
 
     model_fn = lib.get_model_fn(model_name, hparams, use_tpu=False)
-    input_fn = lib.get_input_fn(data_dir, problem, hparams)
+    input_fn = lib.get_input_fn(tf.estimator.ModeKeys.TRAIN, hparams)
 
     params = {"batch_size": 16}
     config = tf.contrib.tpu.RunConfig(
         tpu_config=tf.contrib.tpu.TPUConfig(num_shards=2))
-    features, targets = input_fn(tf.estimator.ModeKeys.TRAIN, params)
+    features, targets = input_fn(params)
     with tf.variable_scope("training"):
       spec = model_fn(features, targets, tf.estimator.ModeKeys.TRAIN, params,
                       config)
