@@ -105,7 +105,8 @@ def add_arguments(parser):
       If specified, overwrite start_decay_step, decay_steps, decay_factor.
       Options include:
         luong: after 1/2 num train steps, we start halving the learning rate
-        for 5 times before finishing.\
+        for 5 times before finishing.
+        luong10: same as luong but halve the learning rate 10 times instead.\
       """)
 
   parser.add_argument(

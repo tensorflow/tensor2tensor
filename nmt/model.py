@@ -189,19 +189,26 @@ class BaseModel(object):
 
   def _get_learning_rate_decay(self, hparams):
     """Get learning rate decay."""
-    if (hparams.learning_rate_decay_scheme and
-        hparams.learning_rate_decay_scheme == "luong"):
-      start_decay_step = int(hparams.num_train_steps / 2)
-      decay_steps = int(hparams.num_train_steps / 10)  # decay 5 times
+    if hparams.learning_rate_decay_scheme in ["luong", "luong10"]:
+      start_factor = 2
+      start_decay_step = int(hparams.num_train_steps / start_factor)
       decay_factor = 0.5
+
+      # decay 5 times
+      if hparams.learning_rate_decay_scheme == "luong":
+        decay_steps = int(hparams.num_train_steps / (5 * start_factor))
+      # decay 10 times
+      elif hparams.learning_rate_decay_scheme == "luong10":
+        decay_steps = int(hparams.num_train_steps / (10 * start_factor))
     else:
       start_decay_step = hparams.start_decay_step
       decay_steps = hparams.decay_steps
       decay_factor = hparams.decay_factor
-    print("  decay_scheme=%s, start_decay_step=%d, decay_steps %d, "
-          "decay_factor %g" %
-          (hparams.learning_rate_decay_scheme,
-           hparams.start_decay_step, hparams.decay_steps, hparams.decay_factor))
+    utils.print_out("  decay_scheme=%s, start_decay_step=%d, decay_steps %d, "
+                    "decay_factor %g" % (hparams.learning_rate_decay_scheme,
+                                         hparams.start_decay_step,
+                                         hparams.decay_steps,
+                                         hparams.decay_factor))
 
     return tf.cond(
         self.global_step < start_decay_step,
