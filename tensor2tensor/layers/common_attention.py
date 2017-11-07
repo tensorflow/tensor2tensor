@@ -45,7 +45,7 @@ BatchInfo = collections.namedtuple(
 _expert_count = 0
 
 
-def get_standadized_layers(hparams, dp=None, ps_devices=None):
+def get_standardized_layers(hparams, dp=None, ps_devices=None):
   """Get the common attention and feed-forward layers.
 
   The returned layer functions will have the following signature:
@@ -60,7 +60,7 @@ def get_standadized_layers(hparams, dp=None, ps_devices=None):
     hparams (tf.HParams): the model hparameters
     dp (expert_utils.Parallelism): A data paralelism object. If not given,
       the dp calls are simply ignored.
-    ps_devices: a reference to model._ps_device (only used by the moe layer)
+    ps_devices: a reference to model._ps_devices (only used by the moe layer)
 
   Returns:
     dict[str:fct]: A dictionary containing the standardized functions

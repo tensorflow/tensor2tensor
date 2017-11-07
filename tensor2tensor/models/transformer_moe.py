@@ -161,7 +161,7 @@ class TransformerMoe(t2t_model.T2TModel):
 
     encoder_layers, decoder_layers = extract_layer_types(hparams.layer_types)
 
-    layers = common_attention.get_standadized_layers(
+    layers = common_attention.get_standardized_layers(
         hparams=hparams,
         dp=dp,
         ps_devices=self._ps_devices,
