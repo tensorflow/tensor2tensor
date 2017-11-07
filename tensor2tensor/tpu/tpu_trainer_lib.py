@@ -53,7 +53,7 @@ def get_input_fn(mode, hparams):
     num_threads = 4 if is_training else 1
     batch_size = params["batch_size"]
 
-    def _valid_size(example):
+    def valid_size(example):
       return data_reader.example_valid_size(example, hparams.min_length,
                                             hparams.max_length)
 
@@ -96,7 +96,7 @@ def get_input_fn(mode, hparams):
     else:
       # If shapes are not fully defined, filter out long ones and pad to
       # hparams.max_length
-      dataset = dataset.filter(_valid_size)
+      dataset = dataset.filter(valid_size)
       padded_shapes = fill_shape_nones(
           dataset.output_shapes, none_filler=hparams.max_length)
       dataset = data_reader.padded_batch(dataset, batch_size, padded_shapes)
@@ -268,14 +268,13 @@ def create_run_config(master="",
                       model_dir=None,
                       iterations_per_loop=1000,
                       num_shards=8,
-                      per_host_input_for_training=True,
                       log_device_placement=False,
                       save_checkpoints_steps=1000):
   """Create TPUConfig and tpu.RunConfig."""
   tpu_config = tf.contrib.tpu.TPUConfig(
       iterations_per_loop=iterations_per_loop,
       num_shards=num_shards,
-      per_host_input_for_training=per_host_input_for_training)
+      per_host_input_for_training=(num_shards <= 8))
   session_config = tf.ConfigProto(
       allow_soft_placement=True, log_device_placement=log_device_placement)
   run_config = tf.contrib.tpu.RunConfig(

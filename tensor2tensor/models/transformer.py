@@ -632,8 +632,7 @@ def transformer_base_v1():
   hparams.optimizer_adam_beta2 = 0.98
   hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.1
-  hparams.shared_embedding_and_softmax_weights = int(True)
-
+  hparams.shared_embedding_and_softmax_weights = True
   # Add new ones like this.
   hparams.add_hparam("filter_size", 2048)
   # Layer-related flags. If zero, these fall back on hparams.num_hidden_layers.
@@ -652,8 +651,8 @@ def transformer_base_v1():
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
-  hparams.add_hparam("proximity_bias", int(False))
-  hparams.add_hparam("use_pad_remover", int(True))
+  hparams.add_hparam("proximity_bias", False)
+  hparams.add_hparam("use_pad_remover", True)
   hparams.add_hparam("self_attention_type", "dot_product")
   hparams.add_hparam("max_relative_position", 0)
   return hparams
@@ -744,7 +743,7 @@ def transformer_parsing_base():
   hparams.learning_rate_warmup_steps = 16000
   hparams.hidden_size = 1024
   hparams.learning_rate = 0.05
-  hparams.shared_embedding_and_softmax_weights = int(False)
+  hparams.shared_embedding_and_softmax_weights = False
   return hparams
 
 
@@ -753,7 +752,7 @@ def transformer_parsing_big():
   """HParams for parsing on wsj semi-supervised."""
   hparams = transformer_big()
   hparams.max_length = 512
-  hparams.shared_source_target_embedding = int(False)
+  hparams.shared_source_target_embedding = False
   hparams.learning_rate_warmup_steps = 4000
   hparams.layer_prepostprocess_dropout = 0.1
   hparams.batch_size = 2048
@@ -766,7 +765,7 @@ def transformer_parsing_ice():
   """Hparams for parsing and tagging Icelandic text."""
   hparams = transformer_base_single_gpu()
   hparams.batch_size = 4096
-  hparams.shared_embedding_and_softmax_weights = int(False)
+  hparams.shared_embedding_and_softmax_weights = False
   return hparams
 
 
@@ -929,7 +928,7 @@ def transformer_big_dr1():
 @registry.register_hparams
 def transformer_big_enfr():
   hparams = transformer_big_dr1()
-  hparams.shared_embedding_and_softmax_weights = int(False)
+  hparams.shared_embedding_and_softmax_weights = False
   hparams.filter_size = 8192
   hparams.layer_prepostprocess_dropout = 0.1
   return hparams
@@ -1065,6 +1064,14 @@ def transformer_tpu_range(rhp):
   rhp.set_float("weight_decay", 0.0, 2.0)
 
 
+@registry.register_ranged_hparams
+def transformer_tpu_batch_range(rhp):
+  hparams = transformer_tpu()
+  common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
+  rhp.set_discrete("tpu_batch_size_per_shard", [1] + list(range(2, 16, 2)))
+  rhp.set_discrete("max_length", list(range(128, 416, 16)))
+
+
 @registry.register_hparams
 def transformer_small_tpu():
   """TPU-friendly version of transformer_small.
@@ -1078,7 +1085,7 @@ def transformer_small_tpu():
 
 
 def update_hparams_for_tpu(hparams):
-  hparams.use_pad_remover = int(False)  # where op not supported
+  hparams.use_pad_remover = False  # where op not supported
   hparams.optimizer = "TrueAdam"
   hparams.learning_rate = 0.2
 

@@ -329,7 +329,7 @@ def slicenet_params1():
   hparams.add_hparam("attention_value_channels", 0)
   hparams.add_hparam("sim_loss_mult", 0.0)  # Try 10.0 for experiments.
   hparams.add_hparam("attention_dropout", 0.2)
-  hparams.shared_embedding_and_softmax_weights = int(True)
+  hparams.shared_embedding_and_softmax_weights = True
   return hparams
 
 

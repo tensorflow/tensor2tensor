@@ -210,7 +210,7 @@ def transformer_adv_small():
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
   hparams.weight_decay = 0.1
-  hparams.symbol_modality_skip_top = int(True)
+  hparams.symbol_modality_skip_top = True
   hparams.add_hparam("num_compress_steps", 2)
   hparams.add_hparam("extra_steps", 0)
   hparams.add_hparam("noise_val", 0.3)
