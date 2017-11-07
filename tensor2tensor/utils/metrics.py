@@ -45,6 +45,7 @@ class Metrics(object):
   EDIT_DISTANCE = "edit_distance"
   SET_PRECISION = "set_precision"
   SET_RECALL = "set_recall"
+  IMAGE_SUMMARY = "image_summary"
 
 
 def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
@@ -239,6 +240,24 @@ def set_recall(predictions,
     return tf.to_float(tf.equal(labels, predictions)), weights
 
 
+def image_summary(predictions,
+                  hparams):
+  """Reshapes predictions and passes it to tensorboard.
+
+  Args:
+    predictions : A Tensor of scores of shape [batch, nlabels].
+    hparams: model_hparams
+
+  Returns:
+    summary_proto: containing the summary image for predictions
+    weights: A Tensor of zeros of shape [batch, nlabels].
+  """
+  predictions_reshaped = tf.reshape(
+      predictions, [-1, hparams.height, hparams.width, hparams.colors])
+  return tf.summary.image("image_summary", predictions_reshaped,
+                          max_outputs=1), tf.zeros_like(predictions)
+
+
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
 
@@ -302,14 +321,20 @@ def create_evaluation_metrics(problems, model_hparams):
     else:
       weights_fn = common_layers.weights_nonzero
 
+    def image_wrapped_metric_fn(predictions, labels,
+                                weights_fn=common_layers.weights_nonzero):
+      _, _ = labels, weights_fn
+      return metric_fn(predictions, model_hparams)
+
     for metric in metrics:
       metric_fn = METRICS_FNS[metric]
-      problem_metric_fn = make_problem_specific_metric_fn(
-          metric_fn, problem_idx, weights_fn)
-
       metric_name = "metrics-%s/%s" % (problem_name, metric)
-
-      eval_metrics[metric_name] = problem_metric_fn
+      if "image" in metric:
+        eval_metrics[metric_name] = image_wrapped_metric_fn
+      else:
+        problem_metric_fn = make_problem_specific_metric_fn(
+            metric_fn, problem_idx, weights_fn)
+        eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
 
@@ -333,4 +358,5 @@ METRICS_FNS = {
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
     Metrics.SET_PRECISION: set_precision,
     Metrics.SET_RECALL: set_recall,
+    Metrics.IMAGE_SUMMARY: image_summary,
 }
