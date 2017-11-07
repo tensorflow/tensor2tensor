@@ -417,7 +417,7 @@ def transformer_moe_base():
   hparams.optimizer_adam_beta2 = 0.98
   hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.0
-  hparams.shared_embedding_and_softmax_weights = int(True)
+  hparams.shared_embedding_and_softmax_weights = True
   # According to noam, ("n", "da") seems better for harder-to-learn models
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
@@ -439,7 +439,7 @@ def transformer_moe_base():
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
-  hparams.add_hparam("proximity_bias", int(False))
+  hparams.add_hparam("proximity_bias", False)
 
   # Decoder layers type. If set, num_decoder_layers parameter will be ignored
   # and the number of decoder layer will be deduced from the string
@@ -460,7 +460,7 @@ def transformer_moe_8k():
 
   hparams.batch_size = 8192
   hparams.max_length = 0  # max_length == batch_size
-  hparams.eval_drop_long_sequences = int(True)
+  hparams.eval_drop_long_sequences = True
   hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
 
   hparams.default_ff = "sep"
@@ -475,7 +475,7 @@ def transformer_moe_12k():
   hparams = transformer_moe_8k()
   hparams.batch_size = 12000
   # At 12k, the softmax become the memory bottleneck
-  hparams.factored_logit = int(True)
+  hparams.factored_logit = True
   return hparams
 
 
@@ -483,11 +483,9 @@ def transformer_moe_12k():
 def transformer_moe_prepend_8k():
   """Model which formulate a seq2seq problem as language modeling."""
   hparams = transformer_moe_8k()
-  hparams.prepend_mode = "prepend_inputs_masked_attention",
-  hparams.eval_drop_long_sequences = int(False),
+  hparams.prepend_mode = "prepend_inputs_masked_attention"
+  hparams.eval_drop_long_sequences = False
   hparams.max_input_seq_length = 7500,
   hparams.layer_types = "loc/red/loc-moe/red/loc"
   hparams.moe_num_experts = 256
   return hparams
-
-

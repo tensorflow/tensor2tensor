@@ -146,7 +146,7 @@ def attention_lm_base():
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
   hparams.label_smoothing = 0.0
-  hparams.shared_embedding_and_softmax_weights = int(False)
+  hparams.shared_embedding_and_softmax_weights = False
 
   hparams.add_hparam("filter_size", 4096)  # Add new ones like this.
   # attention-related flags
@@ -158,7 +158,7 @@ def attention_lm_base():
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
-  hparams.add_hparam("encoder_full_attention", int(False))
+  hparams.add_hparam("encoder_full_attention", False)
   return hparams
 
 
@@ -191,7 +191,7 @@ def attention_lm_translation():
   hparams.prepend_mode = "prepend_inputs_masked_attention"
   hparams.max_length = 512
   hparams.label_smoothing = 0.1
-  hparams.shared_embedding_and_softmax_weights = int(True)
+  hparams.shared_embedding_and_softmax_weights = True
   return hparams
 
 

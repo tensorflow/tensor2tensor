@@ -37,7 +37,7 @@ def diet_adam_optimizer_params():
     a hyperparameters object.
   """
   return tf.contrib.training.HParams(
-      quantize=int(True),  # use 16-bit fixed-point
+      quantize=True,  # use 16-bit fixed-point
       quantization_scale=10.0 / tf.int16.max,
       optimizer="DietAdam",
       learning_rate=1.0,
@@ -46,7 +46,7 @@ def diet_adam_optimizer_params():
       epsilon=1e-10,
       beta1=0.0,  # we can save memory if beta1=0
       beta2=0.98,
-      factored_second_moment_accumulator=int(True),  # this saves memory
+      factored_second_moment_accumulator=True,  # this saves memory
   )
 
 

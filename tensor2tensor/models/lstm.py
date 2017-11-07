@@ -171,7 +171,7 @@ def lstm_attention_base():
   """Base attention params."""
   hparams = lstm_seq2seq()
   hparams.add_hparam("attention_layer_size", hparams.hidden_size)
-  hparams.add_hparam("output_attention", int(True))
+  hparams.add_hparam("output_attention", True)
   hparams.add_hparam("num_heads", 1)
   return hparams
 
