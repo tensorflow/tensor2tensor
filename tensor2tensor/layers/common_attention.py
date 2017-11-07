@@ -1812,7 +1812,7 @@ def local_attention_2d(q,
 
 
 def pad_to_multiple_2d(x, block_shape):
-  """Making sure x is a multiple of shape."""
+  """Making sure x is a multiple of shape. x is [batch, heads, h, w, depth]."""
   old_shape = x.get_shape().dims
   last = old_shape[-1]
   height_padding = -tf.shape(x)[2] % block_shape[0]
@@ -1913,6 +1913,121 @@ def make_2d_block_raster_mask(query_shape, memory_flange):
   return 1. - final_mask
 
 
+def get_memory_region(x,
+                      query_block_shape,
+                      memory_flange,
+                      q_indices):
+  """Get the memory regions that surround a 2d query.
+
+    The memory regions will be the left and top right.
+
+  Args:
+    x: A tensor with shape [batch, heads, height, width, depth]
+    query_block_shape: a 2-d tuple of integers
+    memory_flange: a 2-d tuple of integers
+    q_indices: a tensor of indices for each of the center blocks.
+      [num_blocks, block_length]
+  Returns:
+    x_flange: A tensor of shape [batch, heads, #blocks, block_length, depth]
+  """
+  # Padding x to be multiple of query_shape and then
+  # extracting the memory blocks from the same regions as the query blocks
+  x_query_padded = pad_to_multiple_2d(x, query_block_shape)
+  x_center = gather_blocks_2d(x_query_padded, q_indices)
+  # Then padding the flange region
+  paddings = [[0, 0], [0, 0], [memory_flange[0], 0],
+              [memory_flange[1], memory_flange[1]], [0, 0]]
+  x_memory_padded = tf.pad(x_query_padded, paddings)
+  left_x = None
+  top_x = None
+  # Extracting the memory regions around the query block. left_x_region extends
+  # to the left and the top_x_region is the combination of top left, top, and
+  # top right of the query block
+  # if no left region
+  if memory_flange[1] > 0:
+    left_x_region = x_memory_padded[:, :, memory_flange[0]:,
+                                    :-(query_block_shape[1]+memory_flange[1]),
+                                    :]
+    left_memory_shape = (query_block_shape[0], memory_flange[1])
+    left_indices = gather_indices_2d(left_x_region, left_memory_shape,
+                                     query_block_shape)
+    left_x = gather_blocks_2d(left_x_region, left_indices)
+  # if no top region
+  if memory_flange[0] > 0:
+    top_x_region = x_memory_padded[:, :, :-query_block_shape[0], :, :]
+
+    top_memory_shape = (memory_flange[0],
+                        query_block_shape[1]+2*memory_flange[1])
+
+    top_indices = gather_indices_2d(top_x_region, top_memory_shape,
+                                    query_block_shape)
+
+    top_x = gather_blocks_2d(top_x_region, top_indices)
+  x_flange = None
+  if top_x is not None and left_x is not None:
+    x_flange = tf.concat([top_x, left_x], axis=3)
+  else:
+    x_flange = top_x if top_x is not None else left_x
+  return x_flange, x_center
+
+
+def get_shifted_center_blocks(x, indices):
+  """Get right shifted blocks for masked local attention 2d.
+
+  Args:
+    x: A tensor with shape [batch, heads, height, width, depth]
+    indices: The indices to gather blocks
+
+  Returns:
+    x_shifted: a tensor of extracted blocks, each block right shifted along
+      length.
+  """
+  center_x = gather_blocks_2d(x, indices)
+  # Shift right along the length dimension
+  def shift_right_2d_blocks(x):
+    """Shift the second to last dimension of x right by one."""
+    shifted_targets = (
+        tf.pad(x, [[0, 0], [0, 0], [0, 0], [1, 0], [0, 0]])[:, :, :, :-1, :]
+    )
+    return shifted_targets
+  x_shifted = shift_right_2d_blocks(center_x)
+  return x_shifted
+
+
+def right_shift_blockwise(x, query_shape, name=None):
+  """Right shifts once in every block.
+
+  Args:
+    x: a tensor of shape [batch, height, width, depth]
+    query_shape: A 2d tuple of ints
+    name: a string
+
+  Returns:
+    output: a tensor of the same shape as x
+  """
+  with tf.variable_scope(
+      name, default_name="right_shift_blockwise", values=[x]):
+    x_list_shape = x.get_shape().as_list()
+    x_shape = tf.shape(x)
+    # Add a dummy dimension for heads
+    x = tf.expand_dims(x, axis=1)
+    x = pad_to_multiple_2d(x, query_shape)
+    padded_x_shape = tf.shape(x)
+    # Setting up q blocks
+    x_indices = gather_indices_2d(x, query_shape, query_shape)
+    x_new = get_shifted_center_blocks(x, x_indices)
+
+    # putting the representations back in the right place
+    output = scatter_blocks_2d(x_new, x_indices, padded_x_shape)
+    # Removing the dummy head dimension
+    output = tf.squeeze(output, axis=1)
+    # Remove the padding if introduced
+    output = tf.slice(output, [0, 0, 0, 0],
+                      [-1, x_shape[1], x_shape[2], -1])
+    output.set_shape(x_list_shape)
+    return output
+
+
 def masked_local_attention_2d(q,
                               k,
                               v,
@@ -1920,6 +2035,13 @@ def masked_local_attention_2d(q,
                               memory_flange=(8, 16),
                               name=None):
   """strided block local self-attention.
+
+    Each position in a query block can attend to all the generated queries in
+    the query block, which are generated in raster scan, and positions that are
+    generated to the left and top. The shapes are specified by query shape and
+    memory flange. Note that if you're using this function, you do not need to
+    right shift. Right shifting happens inside this function separately for each
+    block.
 
   Args:
     q: a Tensor with shape [batch, heads, h, w, depth_k]
@@ -1942,34 +2064,45 @@ def masked_local_attention_2d(q,
 
     q = pad_to_multiple_2d(q, query_shape)
     padded_q_shape = tf.shape(q)
-    k = pad_to_multiple_2d(k, query_shape)
-    v = pad_to_multiple_2d(v, query_shape)
-    # Setting up k and v values. Padding top, left, and right
-    paddings = [[0, 0], [0, 0], [memory_flange[0], 0],
-                [memory_flange[1], memory_flange[1]], [0, 0]]
-    k = tf.pad(k, paddings)
-    v = tf.pad(v, paddings)
     # Setting up q blocks
     q_indices = gather_indices_2d(q, query_shape, query_shape)
     q_new = gather_blocks_2d(q, q_indices)
     # Setting up k and v blocks
-    memory_shape = (query_shape[0]+memory_flange[0],
-                    query_shape[1]+memory_flange[1]*2)
-    k_and_v_indices = gather_indices_2d(k, memory_shape, query_shape)
-    k_new = gather_blocks_2d(k, k_and_v_indices)
-    v_new = gather_blocks_2d(v, k_and_v_indices)
-    # Combining the mask for padding and visible region
-    attention_mask_shape = [np.prod(query_shape),
-                            (query_shape[0]+memory_flange[0])*
-                            (query_shape[1]+2*memory_flange[1])]
-    attention_mask = tf.cast(
-        make_2d_block_raster_mask(query_shape, memory_flange), tf.bool)
-    # reshaping attention mask to have same dims as logits
-    attention_mask = tf.reshape(attention_mask, [1, 1, 1]+attention_mask_shape)
-    padding_mask = tf.expand_dims(
-        tf.cast(embedding_to_padding(k_new), tf.bool), axis=-2)
-    attention_bias = (
-        tf.to_float(tf.logical_or(attention_mask, padding_mask)) *-1e9)
+    k_flange, k_center = get_memory_region(k, query_shape, memory_flange,
+                                           q_indices)
+    v_flange, v_center = get_memory_region(v, query_shape, memory_flange,
+                                           q_indices)
+    if k_flange is not None:
+      k_new = tf.concat([k_flange, k_center], axis=3)
+      v_new = tf.concat([v_flange, v_center], axis=3)
+    else:
+      k_new = k_center
+      v_new = v_center
+    # Getting the masks ready
+    query_elements = np.prod(query_shape)
+    padding_mask = None
+    if k_flange is not None:
+      padding_mask = tf.expand_dims(
+          embedding_to_padding(k_flange)*-1e9, axis=-2)
+      padding_mask = tf.tile(padding_mask, [1, 1, 1, query_elements, 1])
+
+    center_attention_bias = attention_bias_lower_triangle(
+        np.prod(query_elements))
+    center_attention_bias = tf.reshape(center_attention_bias,
+                                       [1, 1, 1, query_elements, query_elements]
+                                      )
+    v_center_shape = tf.shape(v_center)
+    center_attention_bias = tf.tile(center_attention_bias,
+                                    [v_center_shape[0],
+                                     v_center_shape[1],
+                                     v_center_shape[2],
+                                     1, 1])
+    if padding_mask is not None:
+      # Combining the mask for padding and visible region
+      attention_bias = tf.concat([padding_mask, center_attention_bias], axis=4)
+    else:
+      attention_bias = center_attention_bias
+
     output = dot_product_attention(q_new, k_new, v_new, attention_bias,
                                    dropout_rate=0., name="masked_local_2d",
                                    make_image_summary=False)
