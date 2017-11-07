@@ -386,6 +386,38 @@ class ImageImagenet32(Image2ClassProblem):
 
 
 @registry.register_problem
+class ImageImagenet64(Image2ClassProblem):
+  """Imagenet rescaled to 64x64."""
+
+  def dataset_filename(self):
+    return "image_imagenet"  # Reuse Imagenet data.
+
+  @property
+  def is_small(self):
+    return True  # Modalities like for CIFAR.
+
+  @property
+  def num_classes(self):
+    return 1000
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    # TODO(lukaszkaiser): find a better way than printing this.
+    print("To generate the ImageNet dataset in the proper format, follow "
+          "instructions at https://github.com/tensorflow/models/blob/master"
+          "/inception/README.md#getting-started")
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    inputs = example["inputs"]
+    # Just resize with area.
+    if self._was_reversed:
+      example["inputs"] = resize_by_area(inputs, 64)
+    else:
+      example = imagenet_preprocess_example(example, mode)
+      example["inputs"] = example["inputs"] = resize_by_area(inputs, 64)
+    return example
+
+
+@registry.register_problem
 class Img2imgImagenet(ImageProblem):
   """Imagenet rescaled to 8x8 for input and 32x32 for output."""
 
