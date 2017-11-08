@@ -160,7 +160,8 @@ class Transformer(t2t_model.T2TModel):
       ValueError: If last_position_only if False
       NotImplementedError: If there are multiple data shards.
     """
-    decoded_ids = self._fast_decode(features, decode_length, last_position_only)
+    decoded_ids, _ = self._fast_decode(
+        features, decode_length, last_position_only)
     return decoded_ids, None, None
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams,
@@ -179,8 +180,10 @@ class Transformer(t2t_model.T2TModel):
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
     """
-    return self._fast_decode(features, decode_length, last_position_only,
-                             beam_size, top_beams, alpha)
+    decoded_ids, scores = self._fast_decode(
+        features, decode_length, last_position_only, beam_size, top_beams,
+        alpha)
+    return {"outputs": decoded_ids, "scores": scores}
 
   def _fast_decode(self,
                    features,
@@ -327,14 +330,9 @@ class Transformer(t2t_model.T2TModel):
           self._hparams.problems[self._problem_idx].target_modality)
       vocab_size = target_modality.top_dimensionality
       initial_ids = tf.zeros([batch_size], dtype=tf.int32)
-      decoded_ids, _ = beam_search.beam_search(
-          symbols_to_logits_fn,
-          initial_ids,
-          beam_size,
-          decode_length,
-          vocab_size,
-          alpha,
-          states=cache)
+      decoded_ids, scores = beam_search.beam_search(
+          symbols_to_logits_fn, initial_ids, beam_size, decode_length,
+          vocab_size, alpha, states=cache, stop_early=(top_beams == 1))
 
       if top_beams == 1:
         decoded_ids = decoded_ids[:, 0, 1:]
@@ -344,11 +342,15 @@ class Transformer(t2t_model.T2TModel):
 
       def inner_loop(i, next_id, decoded_ids, cache):
         logits, cache = symbols_to_logits_fn(next_id, i, cache)
-        next_id = tf.expand_dims(tf.argmax(logits, axis=-1), axis=1)
+        temperature = (0.0 if hparams.sampling_method == "argmax"
+                       else hparams.sampling_temp)
+        next_id = tf.expand_dims(
+            common_layers.sample_with_temperature(logits, temperature), axis=1)
         decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
         return i + 1, next_id, decoded_ids, cache
 
       decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
+      scores = None
       next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
       _, _, decoded_ids, _ = tf.while_loop(
           # TODO(llion): Early stopping.
@@ -362,7 +364,7 @@ class Transformer(t2t_model.T2TModel):
               nest.map_structure(lambda t: tf.TensorShape(t.shape), cache),
           ])
 
-    return decoded_ids
+    return decoded_ids, scores
 
 
 @registry.register_model
@@ -1093,3 +1095,23 @@ def update_hparams_for_tpu(hparams):
   # Each example in the batch will be of (padded) length hparams.max_length
   hparams.max_length = 64
   hparams.tpu_batch_size_per_shard = 16
+
+
+@registry.register_hparams
+def transformer_clean():
+  """No dropout, label smoothing, max_length."""
+  hparams = transformer_base_v2()
+  hparams.label_smoothing = 0.0
+  hparams.layer_prepostprocess_dropout = 0.0
+  hparams.attention_dropout = 0.0
+  hparams.relu_dropout = 0.0
+  hparams.max_length = 0
+  return hparams
+
+
+@registry.register_hparams
+def transformer_clean_big():
+  hparams = transformer_clean()
+  hparams.hidden_size = 1024
+  hparams.filter_size = 4096
+  return hparams

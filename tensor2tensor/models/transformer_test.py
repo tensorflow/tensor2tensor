@@ -140,7 +140,7 @@ class TransformerTest(tf.test.TestCase):
           beam_size=4,
           top_beams=1,
           last_position_only=True,
-          alpha=1.0)
+          alpha=1.0)["outputs"]
 
       fast_result = model._beam_decode(
           features,
@@ -148,7 +148,7 @@ class TransformerTest(tf.test.TestCase):
           beam_size=4,
           top_beams=1,
           last_position_only=True,
-          alpha=1.0)
+          alpha=1.0)["outputs"]
 
     with self.test_session():
       beam_res = beam_result.eval()

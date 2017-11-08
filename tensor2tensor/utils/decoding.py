@@ -329,9 +329,9 @@ def decode_interactively(estimator, decode_hp):
         tf.logging.info("BEAM %d:" % k)
         beam_string = targets_vocab.decode(_save_until_eos(beam, is_image))
         if scores is not None:
-          tf.logging.info("%s\tScore:%f" % (beam_string, scores[k]))
+          tf.logging.info("\"%s\"\tScore:%f" % (beam_string, scores[k]))
         else:
-          tf.logging.info(beam_string)
+          tf.logging.info("\"%s\"" % beam_string)
     else:
       if decode_hp.identity_output:
         tf.logging.info(" ".join(map(str, result["outputs"].flatten())))
