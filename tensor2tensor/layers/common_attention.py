@@ -2242,7 +2242,7 @@ def multihead_attention(query_antecedent,
 
   Args:
     query_antecedent: a Tensor with shape [batch, length_q, channels]
-    memory_antecedent: a Tensor with shape [batch, length_m, channels]
+    memory_antecedent: a Tensor with shape [batch, length_m, channels] or None
     bias: bias Tensor (see attention_bias())
     total_key_depth: an integer
     total_value_depth: an integer
@@ -2251,31 +2251,33 @@ def multihead_attention(query_antecedent,
     dropout_rate: a floating point number
     max_relative_position: Maximum distance between inputs to generate
                            unique relation embeddings for. Only relevant
-                           when using dot_product_relative attention.
+                           when using "dot_product_relative" attention.
     image_shapes: optional tuple of integer scalars.
-      see comments for attention_image_summary()
-    attention_type: a string, either "dot_product", "local_mask_right",
-                    "local_unmasked" or any attention function with the
-                    signature (q, k, v, **kwargs)
+                  see comments for attention_image_summary()
+    attention_type: a string, either "dot_product", "dot_product_relative",
+                    "local_mask_right", "local_unmasked", "masked_dilated_1d",
+                    "unmasked_dilated_1d" or any attention function with the
+                    signature (query, key, value, **kwargs)
     block_length: an integer - relevant for "local_mask_right"
     block_width: an integer - relevant for "local_unmasked"
     q_filter_width: An integer specifying how wide you want the query to be.
     kv_filter_width: An integer specifying how wide you want the keys and values
-    to be.
+                     to be.
     q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
-    kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
-    cache: dict, containing Tensors which are the results of previous
-        attentions, used for fast decoding. Expects the dict to contrain two
-        keys; 'k' and 'v', for the initial call the values for these keys should
-        be empty Tensors of the appropriate shape.
-            'k' [batch_size, 0, key_channels]
-            'v' [batch_size, 0, value_channels]
+               kv_padding: One of "VALID", "SAME" or "LEFT". Default is "VALID":
+               no padding.
+    cache: dict containing Tensors which are the results of previous
+           attentions, used for fast decoding. Expects the dict to contrain two
+           keys ('k' and 'v'), for the initial call the values for these keys
+           should be empty Tensors of the appropriate shape.
+               'k' [batch_size, 0, key_channels]
+               'v' [batch_size, 0, value_channels]
     gap_size: Integer option for dilated attention to indicate spacing between
-      memory blocks.
+              memory blocks.
     num_memory_blocks: Integer option to indicate how many memory blocks to look
-      at.
+                       at.
     name: an optional string
-    **kwargs (dict): Params for the attention function
+    **kwargs (dict): Parameters for the attention function
 
   Caching:
     WARNING: For decoder self-attention, i.e. when memory_antecedent == None,
@@ -2291,8 +2293,8 @@ def multihead_attention(query_antecedent,
         [batch_size, length_q, hidden_dim]
     unless the cache dict is provided in which case only the last memory
     position is calculated and the output shape is [batch_size, 1, hidden_dim]
-    Optionnaly return an additional loss parameters (ex: load balance loss for
-    the experts) returned by the attention_type function
+    Optionaly returns an additional loss parameters (ex: load balance loss for
+    the experts) returned by the attention_type function.
 
   Raises:
     ValueError: if the key depth or value depth are not divisible by the
