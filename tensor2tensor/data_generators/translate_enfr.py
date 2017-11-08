@@ -152,6 +152,10 @@ class TranslateEnfrWmtSmallCharacters(translate.TranslateProblem):
     return True
 
   @property
+  def use_small_dataset(self):
+    return True
+
+  @property
   def vocab_name(self):
     return "vocab.enfr"
 

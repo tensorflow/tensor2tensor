@@ -513,6 +513,9 @@ def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
     text = f.read()
     records = text.split(delimiter)
     inputs = [record.strip() for record in records]
+    # Strip the last empty line.
+    if not inputs[-1]:
+      inputs.pop()
   input_lens = [(i, len(line.split())) for i, line in enumerate(inputs)]
   sorted_input_lens = sorted(input_lens, key=operator.itemgetter(1))
   # We'll need the keys to rearrange the inputs back into their original order

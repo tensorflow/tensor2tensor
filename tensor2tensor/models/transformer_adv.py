@@ -92,6 +92,10 @@ def adv_transformer_internal(inputs, targets, target_space, hparams):
   with tf.variable_scope("adv_transformer"):
     batch_size = tf.shape(targets)[0]
     targets = tf.reshape(targets, [batch_size, -1, 1])
+    intermediate = tf.constant(34*1024 - 1)
+    intermediate += tf.zeros_like(targets)
+    targets = tf.concat([targets, intermediate], axis=2)
+    targets = tf.reshape(targets, [batch_size, -1, 1])
     embedding = tf.get_variable("embedding", [34*1024, hparams.hidden_size])
     targets_emb = tf.gather(embedding, targets)
 
@@ -111,9 +115,10 @@ def adv_transformer_internal(inputs, targets, target_space, hparams):
       ed = None
 
     # Masking.
-    masking = common_layers.inverse_lin_decay(60000)
-    masking *= common_layers.inverse_exp_decay(20000)  # Not much at start.
+    masking = common_layers.inverse_lin_decay(200000)
+    masking *= common_layers.inverse_exp_decay(50000)  # Not much at start.
     masking -= tf.random_uniform([]) * 0.4
+    masking = tf.minimum(tf.maximum(masking, 0.0), 1.0)
     mask = tf.less(masking, tf.random_uniform(tf.shape(targets)))
     mask = tf.expand_dims(tf.to_float(mask), 3)
     noise = tf.random_uniform(tf.shape(targets_emb))
@@ -125,7 +130,7 @@ def adv_transformer_internal(inputs, targets, target_space, hparams):
     res_emb = softmax_embed(res, embedding, batch_size, hparams)
 
     # Extra steps.
-    extra_step_prob = masking * 0.6
+    extra_step_prob = masking * 0.6 + 0.3
     if hparams.mode != tf.estimator.ModeKeys.TRAIN:
       extra_step_prob = 1.0
     for _ in xrange(hparams.extra_steps):
@@ -211,6 +216,7 @@ def transformer_adv_small():
   hparams.label_smoothing = 0.0
   hparams.weight_decay = 0.1
   hparams.symbol_modality_skip_top = True
+  hparams.target_modality = "symbol:ctc"
   hparams.add_hparam("num_compress_steps", 2)
   hparams.add_hparam("extra_steps", 0)
   hparams.add_hparam("noise_val", 0.3)
