@@ -44,7 +44,7 @@ def feature_placeholders(data_fields, data_items_to_decoders):
   example = {}
   for field, config in data_fields.items():
     if isinstance(config, tf.VarLenFeature):
-      shape = [None]
+      shape = [None, None]
     else:
       shape = config.shape
 
