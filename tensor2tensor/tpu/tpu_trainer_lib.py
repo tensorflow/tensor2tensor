@@ -26,7 +26,7 @@ import copy
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import model_builder
+from tensor2tensor.utils import optimize
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_utils
 
@@ -188,10 +188,10 @@ def get_model_fn(model_name, hp, use_tpu=True):
     assert mode == tf.estimator.ModeKeys.TRAIN
 
     # Learning rate
-    lr = hparams.learning_rate * model_builder.learning_rate_decay(hparams)
+    lr = hparams.learning_rate * optimize.learning_rate_decay(hparams)
 
     # Optimizer
-    opt = model_builder.ConditionalOptimizer(hparams.optimizer, lr, hparams)
+    opt = optimize.ConditionalOptimizer(hparams.optimizer, lr, hparams)
     if use_tpu:
       opt = tf.contrib.tpu.CrossShardOptimizer(opt)
 
