@@ -308,14 +308,14 @@ class T2TModel(object):
       decode_length += tf.shape(features["inputs"])[1]
     ids, scores = beam_search.beam_search(symbols_to_logits_fn, initial_ids,
                                           beam_size, decode_length, vocab_size,
-                                          alpha)
+                                          alpha, stop_early=(top_beams == 1))
 
     # Set inputs back to the unexpanded inputs to not to confuse the Estimator!
     if self.has_input:
       features["inputs"] = inputs_old
 
     # Return `top_beams` decodings (also remove initial id from the beam search)
-    return_scores = False  # TODO(lukaszkaiser): make it work multi-problem.
+    return_scores = True  # TODO(lukaszkaiser): make it work multi-problem.
     if top_beams == 1:
       if return_scores:
         return {"outputs": ids[:, 0, 1:], "scores": scores}
