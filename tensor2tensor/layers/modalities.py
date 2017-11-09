@@ -567,3 +567,22 @@ class IdentityModalityNoPad(modality.Modality):
     # (Since we're processing images and so have no padding and some pixel 0s.)
     return super(IdentityModalityNoPad, self).loss(
         top_out, targets, weights_fn=weights_fn)
+
+
+@registry.register_image_modality("no_loss")
+class NoLossModality(modality.Modality):
+  """Does nothing to the input and returns no loss."""
+
+  @property
+  def targets_dimensionality(self):
+    return self._vocab_size
+
+  def bottom(self, x):
+    return tf.to_float(x)
+
+  def top(self, body_output, _):
+    return body_output
+
+  def loss_sharded(self, sharded_top_out, sharded_targets, data_parallelism):
+    """Return nothing."""
+    return tf.constant(0.0, tf.float32)
