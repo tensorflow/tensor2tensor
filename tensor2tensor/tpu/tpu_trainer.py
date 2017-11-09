@@ -13,9 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Train on TPU.
-
-"""
+"""Train on TPU."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -26,12 +24,20 @@ from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.tpu import tpu_trainer_lib as lib
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
 
+# See trainer_utils.py for additional command-line flags.
+flags.DEFINE_string("t2t_usr_dir", "",
+                    "Path to a Python module that will be imported. The "
+                    "__init__.py file should include the necessary imports. "
+                    "The imported files should contain registrations, "
+                    "e.g. @registry.register_model calls, that will then be "
+                    "available to the t2t-trainer.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 1000,
                      "Number of iterations in a TPU training loop.")
@@ -71,16 +77,26 @@ def create_run_config():
       master=FLAGS.master,
       iterations_per_loop=FLAGS.iterations_per_loop,
       num_shards=FLAGS.tpu_num_shards,
-      log_device_placement=FLAGS.log_device_placement)
+      log_device_placement=FLAGS.log_device_placement,
+      save_checkpoints_steps=max(FLAGS.iterations_per_loop,
+                                 FLAGS.local_eval_frequency))
+
+
+def execute_schedule(exp):
+  if not hasattr(exp, FLAGS.schedule):
+    raise ValueError(
+        "Experiment has no method %s, from --schedule" % FLAGS.schedule)
+  getattr(exp, FLAGS.schedule)()
 
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   tf.set_random_seed(123)
+  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   exp_fn = create_experiment_fn()
   exp = exp_fn(create_run_config(), create_hparams())
-  exp.continuous_train_and_eval()
+  execute_schedule(exp)
 
 
 if __name__ == "__main__":

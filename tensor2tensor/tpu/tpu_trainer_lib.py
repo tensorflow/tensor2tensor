@@ -81,25 +81,32 @@ def get_input_fn(mode, hparams):
 
       return example
 
+    # Read and preprocess
     problem = hparams.problem_instances[0]
     data_dir = hparams.data_dir
     dataset = problem.dataset(
         mode=mode, data_dir=data_dir, num_threads=num_threads, hparams=hparams)
     dataset = dataset.map(
         data_reader.cast_int64_to_int32, num_threads=num_threads)
-    # TODO(rsepassi): In eval mode, should not repeat. Do so because TPU seems
-    # to crash if it runs out of data during eval.
-    dataset = dataset.repeat(None)
+    if is_training:
+      dataset = dataset.repeat(None)
 
+    # Batch (and pad)
     if are_shapes_fully_defined(dataset.output_shapes):
-      dataset = dataset.batch(batch_size)
+      dataset = dataset.apply(
+          tf.contrib.data.batch_and_drop_remainder(batch_size))
     else:
       # If shapes are not fully defined, filter out long ones and pad to
       # hparams.max_length
       dataset = dataset.filter(valid_size)
       padded_shapes = fill_shape_nones(
           dataset.output_shapes, none_filler=hparams.max_length)
-      dataset = data_reader.padded_batch(dataset, batch_size, padded_shapes)
+      if hasattr(tf.contrib.data, "padded_batch_and_drop_remainder"):
+        dataset = dataset.apply(
+            tf.contrib.data.padded_batch_and_drop_remainder(
+                batch_size, padded_shapes))
+      else:
+        dataset = data_reader.padded_batch(dataset, batch_size, padded_shapes)
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
     dataset = dataset.prefetch(1)
@@ -111,7 +118,7 @@ def get_input_fn(mode, hparams):
 
 
 def are_shapes_fully_defined(shapes_dict):
-  for _, shape in shapes_dict.iteritems():
+  for shape in shapes_dict.values():
     if not shape.is_fully_defined():
       return False
   return True
