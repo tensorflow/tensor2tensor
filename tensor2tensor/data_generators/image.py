@@ -658,9 +658,11 @@ class ImageCifar10Tune(ImageMnistTune):
     ]
 
   def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     if mode == tf.estimator.ModeKeys.TRAIN:
       example["inputs"] = common_layers.cifar_image_augmentation(
           example["inputs"])
+    example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
   def generator(self, data_dir, tmp_dir, is_training):
@@ -684,6 +686,7 @@ class ImageCifar10(ImageCifar10Tune):
 class ImageCifar10Plain(ImageCifar10):
 
   def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
