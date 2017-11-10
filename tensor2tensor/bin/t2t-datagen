@@ -15,8 +15,10 @@
 # limitations under the License.
 
 """Produces the training and dev data for --problem into --data_dir.
+
 Produces sharded and shuffled TFRecord files of tensorflow.Example protocol
 buffers for a variety of registered datasets.
+
 All Problems are registered with @registry.register_problem or are in
 _SUPPORTED_PROBLEM_GENERATORS in this file. Each entry maps a string name
 (selectable on the command-line with --problem) to a function that takes 2
@@ -215,3 +217,4 @@ def generate_data_for_registered_problem(problem_name):
 
 if __name__ == "__main__":
   tf.app.run()
+  
