@@ -434,8 +434,8 @@ class ClassLabelModality(modality.Modality):
     with tf.variable_scope(self.name):
       x = body_output
 
-      # Assume input is a square with self._body_input_depth channels.
       if self._is_2d:
+        # Assume input is a square with self._body_input_depth channels.
         x_shape = x.get_shape().as_list()
         if x_shape[1] is None or x_shape[2] is None:
           length_float = tf.to_float(tf.shape(x)[1])
@@ -454,8 +454,8 @@ class ClassLabelModality(modality.Modality):
         x = common_layers.conv_block_downsample(x, self._kernel, self._strides,
                                                 self._padding)
         x = tf.nn.relu(x)
-        x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
 
+      x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
       res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
 
