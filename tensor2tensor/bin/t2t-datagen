@@ -15,10 +15,8 @@
 # limitations under the License.
 
 """Produces the training and dev data for --problem into --data_dir.
-
 Produces sharded and shuffled TFRecord files of tensorflow.Example protocol
 buffers for a variety of registered datasets.
-
 All Problems are registered with @registry.register_problem or are in
 _SUPPORTED_PROBLEM_GENERATORS in this file. Each entry maps a string name
 (selectable on the command-line with --problem) to a function that takes 2
@@ -45,6 +43,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import translate
 from tensor2tensor.data_generators import wsj_parsing
+from tensor2tensor.data_generators import librispeech
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
@@ -114,6 +113,11 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
             vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
+    "librispeech": (
+        lambda: librispeech.librispeech_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True),
+        lambda: librispeech.librispeech_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False)),
 }
 
 # pylint: enable=g-long-lambda
