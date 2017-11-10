@@ -217,4 +217,3 @@ def generate_data_for_registered_problem(problem_name):
 
 if __name__ == "__main__":
   tf.app.run()
-  
