@@ -47,6 +47,8 @@ flags.DEFINE_integer("iterations_per_loop", 1000,
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
+  flags.DEFINE_string("schedule", "continuous_train_and_eval",
+                      "Method of Experiment to run.")
   flags.DEFINE_integer("eval_steps", 200, "Number of steps in evaluation.")
 except:  # pylint: disable=bare-except
   pass
