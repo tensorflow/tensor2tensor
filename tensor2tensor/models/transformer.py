@@ -143,13 +143,12 @@ class Transformer(t2t_model.T2TModel):
                        encoder_decoder_attention_bias,
                        decoder_self_attention_bias, hparams)
 
-  def _greedy_infer(self, features, decode_length, last_position_only=True):
+  def _greedy_infer(self, features, decode_length):
     """Fast version of greedy decoding.
 
     Args:
       features: an map of string to `Tensor`
       decode_length: an integer.  How many additional timesteps to decode.
-      last_position_only: MUST be true for fast decoding!
 
     Returns:
        samples: [batch_size, input_length + decode_length]
@@ -157,15 +156,13 @@ class Transformer(t2t_model.T2TModel):
        losses: Not returned
 
     Raises:
-      ValueError: If last_position_only if False
       NotImplementedError: If there are multiple data shards.
     """
-    decoded_ids, _ = self._fast_decode(
-        features, decode_length, last_position_only)
+    decoded_ids, _ = self._fast_decode(features, decode_length)
     return decoded_ids, None, None
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams,
-                   last_position_only, alpha):
+                   alpha):
     """Beam search decoding.
 
     Args:
@@ -173,7 +170,6 @@ class Transformer(t2t_model.T2TModel):
       decode_length: an integer.  How many additional timesteps to decode.
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
-      last_position_only: MUST be true for fast decoding!
       alpha: Float that controls the length penalty. larger the alpha, stronger
         the preference for slonger translations.
 
@@ -181,14 +177,12 @@ class Transformer(t2t_model.T2TModel):
        samples: an integer `Tensor`. Top samples from the beam search
     """
     decoded_ids, scores = self._fast_decode(
-        features, decode_length, last_position_only, beam_size, top_beams,
-        alpha)
+        features, decode_length, beam_size, top_beams, alpha)
     return {"outputs": decoded_ids, "scores": scores}
 
   def _fast_decode(self,
                    features,
                    decode_length,
-                   last_position_only=True,
                    beam_size=1,
                    top_beams=1,
                    alpha=1.0):
@@ -200,7 +194,6 @@ class Transformer(t2t_model.T2TModel):
     Args:
       features: a map of string to model  features.
       decode_length: an integer.  How many additional timesteps to decode.
-      last_position_only: MUST be true for fast decoding!
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
@@ -210,11 +203,8 @@ class Transformer(t2t_model.T2TModel):
        samples: an integer `Tensor`. Top samples from the beam search
 
     Raises:
-      ValueError: If last_position_only if False
       NotImplementedError: If there are multiple data shards.
     """
-    if not last_position_only:
-      raise ValueError("Fast decoding only deals with the last positions!")
     if self._num_datashards != 1:
       raise NotImplementedError("Fast decoding only supports a single shard.")
     dp = self._data_parallelism

@@ -49,6 +49,10 @@ class SymbolModality(modality.Modality):
   def top_dimensionality(self):
     return self._vocab_size
 
+  @property
+  def top_is_pointwise(self):
+    return True
+
   def _get_weights(self, hidden_dim=None):
     """Create or get concatenated embedding or softmax variable.
 

@@ -71,6 +71,22 @@ class Modality(object):
   def _body_input_depth(self):
     return self._model_hparams.hidden_size
 
+  @property
+  def top_is_pointwise(self):
+    """Whether the top mapping of the modality is pointwise.
+
+    An example of a pointwise top mapping is a linear layer followed by
+    a softmax. Given a tensor [batch, length, height, depth] it operates
+    only on the last axis, on every point in [batch, length, height] fully
+    independently. In contrast, a classifier that first averages over length
+    and height is not pointwise, as it depends on the whole field. It is useful
+    to know if a top is pointwise to speed up decoding in certain models.
+
+    Returns:
+      A Boolean, True if the modality is pointwise, False otherwise (default).
+    """
+    return False
+
   def bottom(self, x):
     """Transform one shard of input.
 
