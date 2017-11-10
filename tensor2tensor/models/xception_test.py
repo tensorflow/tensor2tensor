@@ -25,30 +25,40 @@ import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import xception
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
 
 class XceptionTest(tf.test.TestCase):
 
-  def testXception(self):
+  def _testXception(self, img_size, output_size):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 1, 1, 1))
+    batch_size = 3
+    x = np.random.random_integers(
+        0, high=255, size=(batch_size, img_size, img_size, 3))
+    y = np.random.random_integers(
+        1, high=vocab_size - 1, size=(batch_size, 1, 1, 1))
     hparams = xception.xception_tiny()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
+    p_hparams.input_modality["inputs"] = (registry.Modalities.IMAGE, None)
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),
       }
-      model = xception.Xception(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+      model = xception.Xception(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       sharded_logits, _ = model.model_fn(features)
       logits = tf.concat(sharded_logits, 0)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
-    self.assertEqual(res.shape, (3, 5, 1, 1, vocab_size))
+    self.assertEqual(res.shape, output_size + (1, vocab_size))
+
+  def testXceptionSmall(self):
+    self._testXception(img_size=9, output_size=(3, 5, 5))
+
+  def testXceptionLarge(self):
+    self._testXception(img_size=256, output_size=(3, 8, 8))
 
 
 if __name__ == "__main__":

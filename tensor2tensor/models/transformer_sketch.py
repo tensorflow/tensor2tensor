@@ -23,6 +23,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.models import transformer_vae
 from tensor2tensor.models.transformer import transformer_base
@@ -37,6 +38,14 @@ class TransformerSketch(transformer.Transformer):
 
   def encode(self, inputs, target_space, hparams):
     """Add two layers strided convolutions ontop of encode."""
+    inputs = common_layers.conv_block(
+        inputs,
+        hparams.hidden_size, [((1, 1), (3, 3))],
+        first_relu=False,
+        padding="SAME",
+        force2d=True,
+        name="small_image_conv")
+
     hparams.num_compress_steps = 2
     compressed_inputs = transformer_vae.compress(inputs, c=None, is_2d=True,
                                                  hparams=hparams,
