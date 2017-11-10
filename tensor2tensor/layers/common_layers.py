@@ -151,6 +151,16 @@ def standardize_images(x):
     return x
 
 
+def convert_rgb_to_real(x):
+  """Conversion of pixel values to real numbers."""
+  with tf.name_scope("rgb_to_real", [x]):
+    x = tf.to_float(x)
+    # Use the formula (value/128) - 1 to convert each channel value into a
+    # real number in the range -1 to 1.
+    x = (x /128) - 1
+    return x
+
+
 def image_augmentation(images, do_colors=False):
   """Image augmentation: cropping, flipping, and color transforms."""
   images = tf.random_crop(images, [299, 299, 3])
