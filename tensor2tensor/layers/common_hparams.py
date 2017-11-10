@@ -128,10 +128,10 @@ def basic_params1():
       # For each feature for which you want to override the default input
       # modality, add an entry to this semicolon-separated string. Entries are
       # formatted "feature_name:modality_type:modality_name", e.g.
-      # "inputs:image:small_image_modality;other_inputs:audio:identity".
+      # "inputs:symbol:default;other_inputs:audio:identity".
       input_modalities="default",  # We don't use empty string in params.
       # To override the default target modality, specify
-      # "modality_type:modality_name", e.g. "image:small_image_modality".
+      # "modality_type:modality_name", e.g. "symbol:ctc".
       target_modality="default",
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
