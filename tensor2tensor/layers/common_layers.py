@@ -569,7 +569,7 @@ def layer_preprocess(layer_input, hparams):
       sequence=hparams.layer_preprocess_sequence,
       dropout_rate=hparams.layer_prepostprocess_dropout,
       norm_type=hparams.norm_type,
-      depth=hparams.hidden_size,
+      depth=None,
       epsilon=hparams.norm_epsilon,
       default_name="layer_prepostprocess")
 
@@ -602,7 +602,7 @@ def layer_postprocess(layer_input, layer_output, hparams):
       sequence=hparams.layer_postprocess_sequence,
       dropout_rate=hparams.layer_prepostprocess_dropout,
       norm_type=hparams.norm_type,
-      depth=hparams.hidden_size,
+      depth=None,
       epsilon=hparams.norm_epsilon,
       default_name="layer_postprocess")
 
