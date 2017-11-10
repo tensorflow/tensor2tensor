@@ -166,7 +166,7 @@ class TransformerAdv(t2t_model.T2TModel):
         features["target_space_id"], self._hparams)
 
   def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
-            last_position_only=False, alpha=0.0):
+            alpha=0.0):
     """Produce predictions from the model."""
     if not features:
       features = {}
@@ -184,8 +184,7 @@ class TransformerAdv(t2t_model.T2TModel):
       initial_output = tf.zeros((batch_size, 2 * length, 1, 1), dtype=tf.int64)
 
     features["targets"] = initial_output
-    sharded_logits, _ = self.model_fn(
-        features, False, last_position_only=last_position_only)
+    sharded_logits, _ = self.model_fn(features, False)
     sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
     samples = tf.concat(sharded_samples, 0)
 
@@ -194,8 +193,7 @@ class TransformerAdv(t2t_model.T2TModel):
     for _ in xrange(how_many_more_steps):
       with tf.variable_scope(tf.get_variable_scope(), reuse=True):
         features["targets"] = samples
-        sharded_logits, _ = self.model_fn(
-            features, False, last_position_only=last_position_only)
+        sharded_logits, _ = self.model_fn(features, False)
         sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
         samples = tf.concat(sharded_samples, 0)
 

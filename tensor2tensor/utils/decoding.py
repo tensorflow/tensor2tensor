@@ -42,7 +42,6 @@ IMAGE_DECODE_LENGTH = 100
 def decode_hparams(overrides=""):
   """Hyperparameters for decoding."""
   hp = tf.contrib.training.HParams(
-      use_last_position_only=False,
       save_images=False,
       problem_idx=0,
       extra_length=50,
