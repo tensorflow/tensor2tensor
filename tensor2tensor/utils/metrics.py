@@ -413,9 +413,13 @@ def set_auc(predictions,
     labels = tf.cast(labels, tf.bool)
     labels = labels[:, 1:]
     predictions = tf.nn.sigmoid(predictions)
-    auc, update_op = tf.metrics.auc(labels, predictions)
-    return update_op, 1.0
-  
+    auc, update_op = tf.metrics.auc(labels, predictions, curve='PR')
+
+    with tf.control_dependencies([update_op]):
+      auc = tf.identity(auc)
+
+    return auc, tf.constant(1.0)
+    
 
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
