@@ -536,7 +536,7 @@ def _default_hparams():
       # During inference for autoregressive problems, if the batch_size is 1,
       # the inference will stop when the model predict a text_encoder.EOS_ID
       # token.
-      stop_at_eos=int(False),
+      stop_at_eos=False,
 
       # Modalities used to map from input features to a space compatible with
       # chosen model architecture.  One modality spec (which is a 2-tuple,

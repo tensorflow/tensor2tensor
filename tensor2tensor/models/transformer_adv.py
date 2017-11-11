@@ -92,6 +92,10 @@ def adv_transformer_internal(inputs, targets, target_space, hparams):
   with tf.variable_scope("adv_transformer"):
     batch_size = tf.shape(targets)[0]
     targets = tf.reshape(targets, [batch_size, -1, 1])
+    intermediate = tf.constant(34*1024 - 1)
+    intermediate += tf.zeros_like(targets)
+    targets = tf.concat([targets, intermediate], axis=2)
+    targets = tf.reshape(targets, [batch_size, -1, 1])
     embedding = tf.get_variable("embedding", [34*1024, hparams.hidden_size])
     targets_emb = tf.gather(embedding, targets)
 
@@ -111,9 +115,10 @@ def adv_transformer_internal(inputs, targets, target_space, hparams):
       ed = None
 
     # Masking.
-    masking = common_layers.inverse_lin_decay(60000)
-    masking *= common_layers.inverse_exp_decay(20000)  # Not much at start.
+    masking = common_layers.inverse_lin_decay(200000)
+    masking *= common_layers.inverse_exp_decay(50000)  # Not much at start.
     masking -= tf.random_uniform([]) * 0.4
+    masking = tf.minimum(tf.maximum(masking, 0.0), 1.0)
     mask = tf.less(masking, tf.random_uniform(tf.shape(targets)))
     mask = tf.expand_dims(tf.to_float(mask), 3)
     noise = tf.random_uniform(tf.shape(targets_emb))
@@ -125,7 +130,7 @@ def adv_transformer_internal(inputs, targets, target_space, hparams):
     res_emb = softmax_embed(res, embedding, batch_size, hparams)
 
     # Extra steps.
-    extra_step_prob = masking * 0.6
+    extra_step_prob = masking * 0.6 + 0.3
     if hparams.mode != tf.estimator.ModeKeys.TRAIN:
       extra_step_prob = 1.0
     for _ in xrange(hparams.extra_steps):
@@ -161,7 +166,7 @@ class TransformerAdv(t2t_model.T2TModel):
         features["target_space_id"], self._hparams)
 
   def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
-            last_position_only=False, alpha=0.0):
+            alpha=0.0):
     """Produce predictions from the model."""
     if not features:
       features = {}
@@ -179,8 +184,7 @@ class TransformerAdv(t2t_model.T2TModel):
       initial_output = tf.zeros((batch_size, 2 * length, 1, 1), dtype=tf.int64)
 
     features["targets"] = initial_output
-    sharded_logits, _ = self.model_fn(
-        features, False, last_position_only=last_position_only)
+    sharded_logits, _ = self.model_fn(features, False)
     sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
     samples = tf.concat(sharded_samples, 0)
 
@@ -189,8 +193,7 @@ class TransformerAdv(t2t_model.T2TModel):
     for _ in xrange(how_many_more_steps):
       with tf.variable_scope(tf.get_variable_scope(), reuse=True):
         features["targets"] = samples
-        sharded_logits, _ = self.model_fn(
-            features, False, last_position_only=last_position_only)
+        sharded_logits, _ = self.model_fn(features, False)
         sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
         samples = tf.concat(sharded_samples, 0)
 
@@ -210,7 +213,8 @@ def transformer_adv_small():
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
   hparams.weight_decay = 0.1
-  hparams.symbol_modality_skip_top = int(True)
+  hparams.symbol_modality_skip_top = True
+  hparams.target_modality = "symbol:ctc"
   hparams.add_hparam("num_compress_steps", 2)
   hparams.add_hparam("extra_steps", 0)
   hparams.add_hparam("noise_val", 0.3)

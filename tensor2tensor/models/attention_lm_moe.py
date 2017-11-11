@@ -483,7 +483,7 @@ def attention_lm_moe_base():
   hparams.optimizer_adam_beta2 = 0.98
   hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.0
-  hparams.shared_embedding_and_softmax_weights = int(False)
+  hparams.shared_embedding_and_softmax_weights = False
   hparams.add_hparam("filter_size", 2048)  # Add new ones like this.
   hparams.moe_num_experts = 32
   # attention-related flags
@@ -502,11 +502,11 @@ def attention_lm_moe_base():
   # layer type
   hparams.add_hparam("attention_layers", "")
   hparams.add_hparam("attention_type", AttentionType.MULTIHEAD)
-  hparams.add_hparam("attention_local", int(False))
+  hparams.add_hparam("attention_local", False)
   hparams.add_hparam("attention_moe_k", 2)
   hparams.add_hparam("attention_num_head", 1)
   hparams.add_hparam("attention_num_experts", 16)
-  hparams.add_hparam("attention_split_batch", int(False))
+  hparams.add_hparam("attention_split_batch", False)
   hparams.add_hparam("attention_red_factor", 3)
   hparams.add_hparam("attention_block_length", 128)
   hparams.add_hparam("attention_reduction_type", "conv")
@@ -526,14 +526,14 @@ def attention_lm_moe_base():
   hparams.add_hparam("attention_load_balance", 2e-2)
   # Locality-sensitive hashing params
   hparams.add_hparam("lsh_num_hyperplanes", 4)
-  hparams.add_hparam("lsh_use_map_fn", int(False))
+  hparams.add_hparam("lsh_use_map_fn", False)
 
-  hparams.add_hparam("use_sepconv", int(False))
-  hparams.add_hparam("diet_experts", int(False))
-  hparams.add_hparam("memory_efficient_ffn", int(False))
+  hparams.add_hparam("use_sepconv", False)
+  hparams.add_hparam("diet_experts", False)
+  hparams.add_hparam("memory_efficient_ffn", False)
   # if True, we learn a non-autoregressive model from "inputs" to "targets".
   # if False, we learn an autoregressive model to generate "targets"
-  hparams.add_hparam("use_inputs", int(False))
+  hparams.add_hparam("use_inputs", False)
   return hparams
 
 
@@ -543,9 +543,9 @@ def attention_lm_moe_base_long_seq():
   hparams = attention_lm_moe_base()
 
   hparams.max_length = 0  # max_length == batch_size
-  hparams.eval_drop_long_sequences = int(True)
+  hparams.eval_drop_long_sequences = True
   hparams.min_length_bucket = 256  # Avoid cyclic problems for big batches
-  hparams.use_sepconv = int(True)
+  hparams.use_sepconv = True
 
   return hparams
 
@@ -568,7 +568,7 @@ def attention_lm_moe_base_ae():
 def attention_lm_moe_base_local():
   """Base model with attention expert."""
   hparams = attention_lm_moe_base_long_seq()
-  hparams.attention_local = int(True)
+  hparams.attention_local = True
   return hparams
 
 
@@ -577,7 +577,7 @@ def attention_lm_moe_base_hybrid():
   """Base model with attention expert."""
   hparams = attention_lm_moe_base_long_seq()
   hparams.attention_layers = "hehe"  # Alternate local/expert
-  hparams.attention_local = int(True)
+  hparams.attention_local = True
 
   # hparams.layer_preprocess_sequence = "n"
   # hparams.layer_postprocess_sequence = "da"
@@ -588,7 +588,7 @@ def attention_lm_moe_base_hybrid():
 def attention_lm_hybrid_v2():
   hparams = attention_lm_moe_base_long_seq()
   hparams.attention_layers = "hheh"  # Alternate local/expert
-  hparams.attention_local = int(True)
+  hparams.attention_local = True
   hparams.attention_moe_k = 6
 
   hparams.layer_preprocess_sequence = "n"
@@ -622,7 +622,7 @@ def attention_lm_ae_extended():
   """Experiment with the exp_factor params."""
   hparams = attention_lm_moe_base_long_seq()
   hparams.attention_layers = "eeee"
-  hparams.attention_local = int(True)
+  hparams.attention_local = True
   # hparams.factored_logits=1  # Necessary when the number of expert grow bigger
   hparams.attention_moe_k = 2
   hparams.attention_exp_factor = 4
@@ -637,16 +637,16 @@ def attention_lm_ae_extended():
 def attention_lm_moe_base_memeff():
   """Base model with attention expert."""
   hparams = attention_lm_moe_base_long_seq()
-  hparams.use_sepconv = int(False)
+  hparams.use_sepconv = False
 
-  hparams.diet_experts = int(True)
+  hparams.diet_experts = True
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.memory_efficient_ffn = True
   hparams.attention_type = AttentionType.MEMORY_EFFICIENT
   hparams.num_heads = 8
-  hparams.factored_logits = int(True)
+  hparams.factored_logits = True
   return hparams
 
 
@@ -747,7 +747,7 @@ def attention_lm_moe_large():
 @registry.register_hparams
 def attention_lm_moe_large_diet():
   hparams = attention_lm_moe_large()
-  hparams.diet_experts = int(True)
+  hparams.diet_experts = True
   return hparams
 
 
@@ -755,14 +755,14 @@ def attention_lm_moe_large_diet():
 def attention_lm_moe_memory_efficient():
   """Memory-efficient version."""
   hparams = attention_lm_moe_large()
-  hparams.diet_experts = int(True)
+  hparams.diet_experts = True
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.memory_efficient_ffn = True
   hparams.attention_type = AttentionType.MEMORY_EFFICIENT
   hparams.num_heads = 8
-  hparams.factored_logits = int(True)
+  hparams.factored_logits = True
   return hparams
 
 
@@ -798,7 +798,7 @@ def attention_lm_moe_translation():
   hparams.layer_prepostprocess_dropout = 0.2
   hparams.num_hidden_layers = 6
   hparams.moe_layers = "0,1,2,3,4,5"
-  hparams.shared_embedding_and_softmax_weights = int(True)
+  hparams.shared_embedding_and_softmax_weights = True
   return hparams
 
 

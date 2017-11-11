@@ -111,10 +111,12 @@ def multi_conv_res(x, padding, name, layers, hparams, mask=None, source=None):
           hparams.separability - i
           for i in reversed(range(len(dilations_and_kernels2)))
       ]
+
     def norm_fn(x, name):
       with tf.variable_scope(name, default_name="norm"):
         return common_layers.apply_norm(
             x, hparams.norm_type, hparams.hidden_size, hparams.norm_epsilon)
+
     for layer in xrange(layers):
       with tf.variable_scope("layer_%d" % layer):
         y = common_layers.subseparable_conv_block(
@@ -174,10 +176,11 @@ def similarity_cost(inputs_encoded, targets_encoded):
 
 def slicenet_middle(inputs_encoded, targets, target_space_emb, mask, hparams):
   """Middle part of slicenet, connecting encoder and decoder."""
+
   def norm_fn(x, name):
     with tf.variable_scope(name, default_name="norm"):
-      return common_layers.apply_norm(
-          x, hparams.norm_type, hparams.hidden_size, hparams.norm_epsilon)
+      return common_layers.apply_norm(x, hparams.norm_type, hparams.hidden_size,
+                                      hparams.norm_epsilon)
 
   # Flatten targets and embed target_space_id.
   targets_flat = tf.expand_dims(common_layers.flatten4d3d(targets), axis=2)
@@ -236,9 +239,18 @@ def embedding_to_padding(emb):
   return tf.to_float(tf.equal(emb_sum, 0.0))
 
 
-def slicenet_internal(inputs, targets, target_space, problem_idx, hparams):
+def slicenet_internal(inputs, targets, target_space, hparams, run_decoder=True):
   """The slicenet model, main step used for training."""
   with tf.variable_scope("slicenet"):
+    # Project to hidden size if necessary
+    if inputs.get_shape().as_list()[-1] != hparams.hidden_size:
+      inputs = common_layers.conv_block(
+          inputs,
+          hparams.hidden_size, [((1, 1), (3, 3))],
+          first_relu=False,
+          padding="SAME",
+          force2d=True)
+
     # Flatten inputs and encode.
     inputs = tf.expand_dims(common_layers.flatten4d3d(inputs), axis=2)
     inputs_mask = 1.0 - embedding_to_padding(inputs)
@@ -247,9 +259,7 @@ def slicenet_internal(inputs, targets, target_space, problem_idx, hparams):
     extra_layers = int(hparams.num_hidden_layers * 1.5)
     inputs_encoded = multi_conv_res(
         inputs, "SAME", "encoder", extra_layers, hparams, mask=inputs_mask)
-    target_modality_name = hparams.problems[problem_idx].target_modality.name
-    if "class_label_modality" in target_modality_name:
-      # If we're just predicing a class, there is no use for a decoder.
+    if not run_decoder:
       return inputs_encoded
     # Do the middle part.
     decoder_start, similarity_loss = slicenet_middle(
@@ -270,9 +280,16 @@ def slicenet_internal(inputs, targets, target_space, problem_idx, hparams):
 class SliceNet(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
-    return slicenet_internal(features["inputs"], features["targets"],
-                             features["target_space_id"], self._problem_idx,
-                             self._hparams)
+    target_modality_name = (
+        self._hparams.problems[self._problem_idx].target_modality.name)
+    # If we're just predicing a class, there is no use for a decoder.
+    run_decoder = "class_label_modality" not in target_modality_name
+    return slicenet_internal(
+        features["inputs"],
+        features["targets"],
+        features["target_space_id"],
+        self._hparams,
+        run_decoder=run_decoder)
 
 
 _KERNEL_SCHEMES = {
@@ -329,7 +346,7 @@ def slicenet_params1():
   hparams.add_hparam("attention_value_channels", 0)
   hparams.add_hparam("sim_loss_mult", 0.0)  # Try 10.0 for experiments.
   hparams.add_hparam("attention_dropout", 0.2)
-  hparams.shared_embedding_and_softmax_weights = int(True)
+  hparams.shared_embedding_and_softmax_weights = True
   return hparams
 
 

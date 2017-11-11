@@ -49,12 +49,21 @@ class SymbolModality(modality.Modality):
   def top_dimensionality(self):
     return self._vocab_size
 
-  def _get_weights(self):
+  @property
+  def top_is_pointwise(self):
+    return True
+
+  def _get_weights(self, hidden_dim=None):
     """Create or get concatenated embedding or softmax variable.
+
+    Args:
+      hidden_dim: dim of the variable. Defaults fo self._body_input_depth
 
     Returns:
        a list of self._num_shards Tensors.
     """
+    if hidden_dim is None:
+      hidden_dim = self._body_input_depth
     num_shards = self._model_hparams.symbol_modality_num_shards
     shards = []
     for i in xrange(num_shards):
@@ -63,9 +72,8 @@ class SymbolModality(modality.Modality):
       var_name = "weights_%d" % i
       shards.append(
           tf.get_variable(
-              var_name, [shard_size, self._body_input_depth],
-              initializer=tf.random_normal_initializer(
-                  0.0, self._body_input_depth**-0.5)))
+              var_name, [shard_size, hidden_dim],
+              initializer=tf.random_normal_initializer(0.0, hidden_dim**-0.5)))
     if num_shards == 1:
       ret = shards[0]
     else:
@@ -109,36 +117,71 @@ class SymbolModality(modality.Modality):
     Returns:
       logits: A Tensor with shape  [batch, p0, p1, ?, vocab_size].
     """
+    if self._model_hparams.symbol_modality_skip_top:
+      return tf.expand_dims(body_output, 3)
+
     if self._model_hparams.shared_embedding_and_softmax_weights:
       scope_name = "shared"
       reuse = True
     else:
       scope_name = "softmax"
       reuse = False
-    if self._model_hparams.symbol_modality_skip_top:
-      return tf.expand_dims(body_output, 3)
+
     with tf.variable_scope(scope_name, reuse=reuse):
-      var = self._get_weights()
+      rank = len(body_output.get_shape().as_list())
+      body_output_shape = [
+          common_layers.shape_dim(body_output, i) for i in range(rank)
+      ]
+      var = self._get_weights(body_output_shape[-1])
       if (self._model_hparams.factored_logits and
           self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
         # insert channels dimension
         body_output = tf.expand_dims(body_output, 3)
         logits = common_layers.FactoredTensor(body_output, var)
       else:
-        shape = tf.shape(body_output)[:-1]
-        body_output = tf.reshape(body_output, [-1, self._body_input_depth])
+        body_output = tf.reshape(body_output, [-1, body_output_shape[-1]])
         logits = tf.matmul(body_output, var, transpose_b=True)
-        logits = tf.reshape(
-            logits, tf.concat([shape, [1, self._vocab_size]], 0))
+
+        out_shape = body_output_shape[:-1] + [1, self._vocab_size]
+        logits = tf.reshape(logits, out_shape)
       return logits
 
 
-@registry.register_image_modality
-class SmallImageModality(modality.Modality):
-  """Performs strided conv compressions for small image data."""
+@registry.register_symbol_modality("ctc")
+class CTCSymbolModality(SymbolModality):
+  """SymbolModality that uses CTC loss."""
+
+  def loss(self, logits, targets, weights_fn=common_layers.weights_nonzero):
+    """Compute the CTC loss."""
+    with tf.name_scope("ctc_loss", [logits, targets]):
+      # For CTC we assume targets are 1d, [batch, length, 1, 1] here.
+      targets_shape = targets.get_shape().as_list()
+      assert len(targets_shape) == 4
+      assert targets_shape[2] == 1
+      assert targets_shape[3] == 1
+      targets = tf.squeeze(targets, axis=[2, 3])
+      logits = tf.squeeze(logits, axis=[2, 3])
+      targets_mask = 1 - tf.to_int32(tf.equal(targets, 0))
+      targets_lengths = tf.reduce_sum(targets_mask, axis=1)
+      sparse_targets = tf.keras.backend.ctc_label_dense_to_sparse(
+          targets, targets_lengths)
+      xent = tf.nn.ctc_loss(
+          sparse_targets,
+          logits,
+          targets_lengths,
+          time_major=False,
+          preprocess_collapse_repeated=False,
+          ctc_merge_repeated=False)
+      weights = weights_fn(targets)
+      return tf.reduce_sum(xent), tf.reduce_sum(weights)
+
+
+@registry.register_image_modality("default")
+class ImageModality(modality.Modality):
+  """Modality for images."""
 
   def __init__(self, model_hparams, vocab_size):
-    super(SmallImageModality, self).__init__(model_hparams, vocab_size)
+    super(ImageModality, self).__init__(model_hparams, vocab_size)
     self._channels = 3
 
   @property
@@ -149,36 +192,34 @@ class SmallImageModality(modality.Modality):
     with tf.variable_scope(self.name):
       inputs = common_layers.standardize_images(inputs)
       tf.summary.image("inputs", inputs, max_outputs=2)
-      return common_layers.conv_block(
-          inputs,
-          self._body_input_depth, [((1, 1), (3, 3))],
-          first_relu=False,
-          padding="SAME",
-          force2d=True,
-          name="small_image_conv")
+      return tf.to_float(inputs)
 
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
       # Reshape inputs to 2-d tensor and embed the RGB pixel values.
-      shape = tf.shape(inputs)
-      inputs = common_layers.flatten4d3d(inputs)
       ret = common_layers.embedding(
-          tf.to_int32(inputs),
+          tf.to_int32(common_layers.flatten4d3d(inputs)),
           self.top_dimensionality,
           self._body_input_depth,
           name="input_rgb_embedding")
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
-      ret = tf.reshape(ret, [shape[0], shape[1], shape[2],
-                             self._body_input_depth * 3])
+
+      reshape_shape = [common_layers.shape_dim(inputs, i) for i in range(3)]
+      reshape_shape.append(self._body_input_depth * 3)
+      ret = tf.reshape(ret, reshape_shape)
       return tf.layers.dense(ret, self._body_input_depth)
 
   def top(self, body_output, _):
     with tf.variable_scope("rgb_softmax"):
-      shape = tf.shape(body_output)
+
+      reshape_shape = [
+          common_layers.shape_dim(body_output, i) for i in range(3)
+      ]
       dim = body_output.get_shape().as_list()[-1] // 3
-      out = tf.reshape(body_output, [shape[0], shape[1], shape[2],
-                                     self._channels, dim])
+      reshape_shape.extend([self._channels, dim])
+
+      out = tf.reshape(body_output, reshape_shape)
       res = tf.layers.dense(out, self.top_dimensionality)
       if not tf.get_variable_scope().reuse:
         res_argmax = tf.cast(tf.argmax(res, axis=-1), tf.uint8)
@@ -188,78 +229,78 @@ class SmallImageModality(modality.Modality):
   def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.
     # (Since we're processing images and so have no padding and some pixel 0s.)
-    return super(SmallImageModality, self).loss(
+    return super(ImageModality, self).loss(
         top_out, targets, weights_fn=weights_fn)
 
 
-@registry.register_image_modality("default")
-class ImageModality(modality.Modality):
-  """Performs embedding and strided conv compressions for large image data."""
+@registry.register_image_modality("image_identity_compress")
+class ImageIdentityCompressModality(modality.Modality):
+  """Modality for images used in generation."""
 
   @property
   def top_dimensionality(self):
     return 256
 
-  def bottom(self, inputs):
+  def bottom_compress(self, inputs, name="bottom"):
     """Transform input from data space to model space.
 
-    Perform the Xception "Entry flow", which consists of two convolutional
-    filter upscalings followed by three residually connected separable
-    convolution blocks.
+    Perform conversion of RGB pixel values to a real number and combine values
+    for each pixel to form representation of image_length x image_length dims.
 
     Args:
       inputs: A Tensor with shape [batch, ...]
+      name: string, scope.
     Returns:
       body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
     """
-    with tf.variable_scope(self.name):
-
-      def xnet_resblock(x, filters, res_relu, name):
-        with tf.variable_scope(name):
-          y = common_layers.separable_conv_block(
-              x,
-              filters, [((1, 1), (3, 3)), ((1, 1), (3, 3))],
-              first_relu=True,
-              padding="SAME",
-              force2d=True,
-              name="sep_conv_block")
-          y = common_layers.pool(y, (3, 3), "MAX", "SAME", strides=(2, 2))
-          return y + common_layers.conv_block(
-              x,
-              filters, [((1, 1), (1, 1))],
-              padding="SAME",
-              strides=(2, 2),
-              first_relu=res_relu,
-              force2d=True,
-              name="res_conv0")
-
-      inputs = common_layers.standardize_images(inputs)
-      # TODO(lukaszkaiser): summaries here don't work in multi-problem case yet.
-      # tf.summary.image("inputs", inputs, max_outputs=2)
+    with tf.variable_scope(name):
+      inputs = common_layers.convert_rgb_to_real(inputs)
+      ishape = tf.shape(inputs)
+      inputs = tf.reshape(inputs, [-1, ishape[1], ishape[2]*ishape[3], 1])
+      inputs.set_shape([None, None, None, 1])
+      # We compress RGB intensities for each pixel using a conv.
       x = common_layers.conv_block(
           inputs,
-          32, [((1, 1), (3, 3))],
+          self._body_input_depth, [((1, 1), (1, 3))],
           first_relu=False,
-          padding="SAME",
-          strides=(2, 2),
+          padding="VALID",
+          strides=(1, 3),
           force2d=True,
-          name="conv0")
-      x = common_layers.conv_block(
-          x, 64, [((1, 1), (3, 3))], padding="SAME", force2d=True, name="conv1")
-      x = xnet_resblock(x, min(128, self._body_input_depth), True, "block0")
-      x = xnet_resblock(x, min(256, self._body_input_depth), False, "block1")
-      return xnet_resblock(x, self._body_input_depth, False, "block2")
+          name="conv_input")
+      return x
+
+  def bottom(self, inputs):
+    return self.bottom_compress(inputs, "input_bottom")
+
+  def targets_bottom(self, inputs):
+    return self.bottom_compress(inputs, "output_bottom")
 
   def top(self, body_output, _):
-    # TODO(lukaszkaiser): work on a better way to generate large images.
     with tf.variable_scope(self.name):
-      decompressed_inputs = common_layers.deconv_stride2_multistep(
+      hidden_dim = self._model_hparams.hidden_size
+      img_len = self._model_hparams.img_len
+      channels = self._model_hparams.num_channels
+      batch = tf.shape(body_output)[0]
+      x = common_layers.conv(
           body_output,
-          self._model_hparams.compress_steps,
-          body_output.get_shape()[-1],
-          name="deconv")
-      return common_layers.conv(
-          decompressed_inputs, self._vocab_size, (1, 1), padding="SAME")
+          hidden_dim*channels, (1, 1),
+          padding="VALID",
+          activation=tf.nn.relu,
+          name="decompress_conv")
+      x = tf.reshape(x, [batch, img_len, img_len*channels, hidden_dim])
+      x.set_shape([None, None, None, hidden_dim])
+      x = common_layers.conv(x,
+                             self.top_dimensionality,
+                             (1, 1), name="output_conv")
+      x = tf.reshape(x, [-1, img_len, img_len,
+                         channels, self.top_dimensionality])
+      return x
+
+  def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
+    # Call the default implementation, but weight 1.0 on 0s by default.
+    # (Since we're processing images and so have no padding and some pixel 0s.)
+    return super(ImageIdentityCompressModality, self).loss(
+        top_out, targets, weights_fn=weights_fn)
 
 
 @registry.register_audio_modality("default")
@@ -349,16 +390,9 @@ class AudioSpectralModality(modality.Modality):
                            "compress_block_final")
 
 
-@registry.register_class_label_modality("2d")
+@registry.register_class_label_modality("default")
 class ClassLabelModality(modality.Modality):
-  """Used for label data; if is2d=True, uses Xception flow to logits."""
-
-  def __init__(self, model_hparams, vocab_size, is2d=True):
-    super(ClassLabelModality, self).__init__(model_hparams, vocab_size)
-    self._is_2d = is2d
-    self._kernel = (3, 3) if is2d else (5, 1)
-    self._strides = (2, 2) if is2d else (4, 1)
-    self._padding = "SAME" if is2d else "LEFT"
+  """Used for label data."""
 
   @property
   def name(self):
@@ -380,38 +414,23 @@ class ClassLabelModality(modality.Modality):
 
   def targets_bottom(self, x):
     with tf.variable_scope(self.name):
-      return tf.zeros([tf.shape(x)[0], 1, 1, self._body_input_depth])
+      return tf.zeros(
+          [common_layers.shape_dim(x, 0), 1, 1, self._body_input_depth])
 
   def top(self, body_output, _):
     """Transform inputs from model space to target space.
 
-    If instantiated with is2d=True, perform the Xception "Exit flow", consisting
-    of a single residual block and two separable convolutional upscalings
-    followed by global spatial average pooling.
-
-    Otherwise, a single linear layer to logits.
+    Average over inner dims and a linear layer to logits.
 
     Args:
       body_output: A Tensor with shape [batch, ?, ?, body_output_size].
+
     Returns:
       a Tensors, each with shape [batch_size, ?, ?, vocab_size]
     """
     with tf.variable_scope(self.name):
       x = body_output
-
-      # Assume input is a square with self._body_input_depth channels.
-      if self._is_2d:
-        length_float = tf.to_float(tf.shape(x)[1])
-        length_float *= tf.to_float(tf.shape(x)[2])
-        spatial_dim_float = tf.sqrt(length_float)
-        spatial_dim = tf.to_int32(spatial_dim_float)
-        x_depth = int(x.get_shape()[3])
-        x = tf.reshape(x, [-1, spatial_dim, spatial_dim, x_depth])
-        x = common_layers.conv_block_downsample(x, self._kernel, self._strides,
-                                                self._padding)
-        x = tf.nn.relu(x)
-        x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
-
+      x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
       res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
 
@@ -420,15 +439,6 @@ class ClassLabelModality(modality.Modality):
     # (Since we're processing images and so have no padding and some pixel 0s.)
     return super(ClassLabelModality, self).loss(
         top_out, targets, weights_fn=weights_fn)
-
-
-@registry.register_class_label_modality("default")
-class ClassLabel1DModality(ClassLabelModality):
-  """Used for label data."""
-
-  def __init__(self, model_hparams, vocab_size):
-    super(ClassLabel1DModality, self).__init__(
-        model_hparams=model_hparams, vocab_size=vocab_size, is2d=False)
 
 
 @registry.register_generic_modality("default")
@@ -523,3 +533,22 @@ class IdentityModalityNoPad(modality.Modality):
     # (Since we're processing images and so have no padding and some pixel 0s.)
     return super(IdentityModalityNoPad, self).loss(
         top_out, targets, weights_fn=weights_fn)
+
+
+@registry.register_image_modality("no_loss")
+class NoLossModality(modality.Modality):
+  """Does nothing to the input and returns no loss."""
+
+  @property
+  def targets_dimensionality(self):
+    return self._vocab_size
+
+  def bottom(self, x):
+    return tf.to_float(x)
+
+  def top(self, body_output, _):
+    return body_output
+
+  def loss_sharded(self, sharded_top_out, sharded_targets, data_parallelism):
+    """Return nothing."""
+    return tf.constant(0.0, tf.float32)

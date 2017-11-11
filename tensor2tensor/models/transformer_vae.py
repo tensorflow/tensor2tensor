@@ -620,8 +620,8 @@ def transformer_ae_small():
   hparams.add_hparam("d_mix", 0.5)
   # Bottleneck kinds supported: dense, semhash, gumbel-softmax.
   hparams.add_hparam("bottleneck_kind", "semhash")
-  hparams.add_hparam("do_ae", int(True))
-  hparams.add_hparam("drop_inputs", int(False))
+  hparams.add_hparam("do_ae", True)
+  hparams.add_hparam("drop_inputs", False)
   hparams.add_hparam("z_size", 128)
   hparams.add_hparam("v_size", 1024*64)
   hparams.add_hparam("max_context_length", 64)
@@ -631,11 +631,11 @@ def transformer_ae_small():
   hparams.add_hparam("kmeans_lr_factor", 0.002)
   hparams.add_hparam("z_dropout", 0.1)
   hparams.add_hparam("is_2d", 0)
-  hparams.add_hparam("use_gumbel_softmax", int(True))
+  hparams.add_hparam("use_gumbel_softmax", True)
   hparams.add_hparam("softmax_k", 0)
-  hparams.add_hparam("decode_autoregressive", int(True))
-  hparams.add_hparam("do_vae", int(True))
-  hparams.add_hparam("bit_vae", int(True))
+  hparams.add_hparam("decode_autoregressive", True)
+  hparams.add_hparam("do_vae", True)
+  hparams.add_hparam("bit_vae", True)
   return hparams
 
 

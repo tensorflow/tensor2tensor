@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
+
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -50,10 +52,87 @@ def xception_internal(inputs, hparams):
   """Xception body."""
   with tf.variable_scope("xception"):
     cur = inputs
+
+    if cur.get_shape().as_list()[1] > 200:
+      # Large image, Xception entry flow
+      cur = xception_entry(cur, hparams.hidden_size)
+    else:
+      # Small image, conv
+      cur = common_layers.conv_block(
+          cur,
+          hparams.hidden_size, [((1, 1), (3, 3))],
+          first_relu=False,
+          padding="SAME",
+          force2d=True,
+          name="small_image_conv")
+
     for i in xrange(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % i):
         cur = residual_block(cur, hparams)
-    return cur
+
+    return xception_exit(cur)
+
+
+def xception_entry(inputs, hidden_dim):
+  with tf.variable_scope("xception_entry"):
+
+    def xnet_resblock(x, filters, res_relu, name):
+      with tf.variable_scope(name):
+        y = common_layers.separable_conv_block(
+            x,
+            filters, [((1, 1), (3, 3)), ((1, 1), (3, 3))],
+            first_relu=True,
+            padding="SAME",
+            force2d=True,
+            name="sep_conv_block")
+        y = common_layers.pool(y, (3, 3), "MAX", "SAME", strides=(2, 2))
+        return y + common_layers.conv_block(
+            x,
+            filters, [((1, 1), (1, 1))],
+            padding="SAME",
+            strides=(2, 2),
+            first_relu=res_relu,
+            force2d=True,
+            name="res_conv0")
+
+    inputs = common_layers.standardize_images(inputs)
+    # TODO(lukaszkaiser): summaries here don't work in multi-problem case yet.
+    # tf.summary.image("inputs", inputs, max_outputs=2)
+    x = common_layers.conv_block(
+        inputs,
+        32, [((1, 1), (3, 3))],
+        first_relu=False,
+        padding="SAME",
+        strides=(2, 2),
+        force2d=True,
+        name="conv0")
+    x = common_layers.conv_block(
+        x, 64, [((1, 1), (3, 3))], padding="SAME", force2d=True, name="conv1")
+    x = xnet_resblock(x, min(128, hidden_dim), True, "block0")
+    x = xnet_resblock(x, min(256, hidden_dim), False, "block1")
+    return xnet_resblock(x, hidden_dim, False, "block2")
+
+
+def xception_exit(inputs):
+  with tf.variable_scope("xception_exit"):
+    x = inputs
+    x_shape = x.get_shape().as_list()
+    if x_shape[1] is None or x_shape[2] is None:
+      length_float = tf.to_float(tf.shape(x)[1])
+      length_float *= tf.to_float(tf.shape(x)[2])
+      spatial_dim_float = tf.sqrt(length_float)
+      spatial_dim = tf.to_int32(spatial_dim_float)
+      x_depth = x_shape[3]
+      x = tf.reshape(x, [-1, spatial_dim, spatial_dim, x_depth])
+    elif x_shape[1] != x_shape[2]:
+      spatial_dim = int(math.sqrt(float(x_shape[1] * x_shape[2])))
+      if spatial_dim * spatial_dim != x_shape[1] * x_shape[2]:
+        raise ValueError("Assumed inputs were square-able but they were "
+                         "not. Shape: %s" % x_shape)
+      x = tf.reshape(x, [-1, spatial_dim, spatial_dim, x_depth])
+
+    x = common_layers.conv_block_downsample(x, (3, 3), (2, 2), "SAME")
+    return tf.nn.relu(x)
 
 
 @registry.register_model
@@ -93,7 +172,18 @@ def xception_base():
 def xception_tiny():
   hparams = xception_base()
   hparams.batch_size = 1024
-  hparams.hidden_size = 128
-  hparams.num_hidden_layers = 4
+  hparams.hidden_size = 64
+  hparams.num_hidden_layers = 2
   hparams.learning_rate_decay_scheme = "none"
+  return hparams
+
+
+@registry.register_hparams
+def xception_tiny_tpu():
+  hparams = xception_base()
+  hparams.tpu_batch_size_per_shard = 2
+  # The base exp50k scheme uses a cond which fails to compile on TPU
+  hparams.learning_rate_decay_scheme = "noam"
+  hparams.num_hidden_layers = 2
+  hparams.hidden_size = 128
   return hparams

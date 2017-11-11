@@ -180,7 +180,8 @@ def beam_search(symbols_to_logits_fn,
                 vocab_size,
                 alpha,
                 states=None,
-                eos_id=EOS_ID):
+                eos_id=EOS_ID,
+                stop_early=True):
   """Beam search with length penalties.
 
   Requires a function that can take the currently decoded sybmols and return
@@ -216,6 +217,7 @@ def beam_search(symbols_to_logits_fn,
     alpha: alpha for length penalty.
     states: dict (possibly nested) of decoding states.
     eos_id: ID for end of sentence.
+    stop_early: a boolean - stop once best sequence is provably determined.
   Returns:
     Tuple of
     (decoded beams [batch_size, beam_size, decode_length]
@@ -475,6 +477,8 @@ def beam_search(symbols_to_logits_fn,
     Returns:
       Bool.
     """
+    if not stop_early:
+      return tf.less(i, decode_length)
     max_length_penalty = tf.pow(((5. + tf.to_float(decode_length)) / 6.), alpha)
     # The best possible score of the most likley alive sequence
     lower_bound_alive_scores = alive_log_probs[:, 0] / max_length_penalty

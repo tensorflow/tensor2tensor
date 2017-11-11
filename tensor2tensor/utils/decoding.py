@@ -42,7 +42,6 @@ IMAGE_DECODE_LENGTH = 100
 def decode_hparams(overrides=""):
   """Hyperparameters for decoding."""
   hp = tf.contrib.training.HParams(
-      use_last_position_only=False,
       save_images=False,
       problem_idx=0,
       extra_length=50,
@@ -329,9 +328,9 @@ def decode_interactively(estimator, decode_hp):
         tf.logging.info("BEAM %d:" % k)
         beam_string = targets_vocab.decode(_save_until_eos(beam, is_image))
         if scores is not None:
-          tf.logging.info("%s\tScore:%f" % (beam_string, scores[k]))
+          tf.logging.info("\"%s\"\tScore:%f" % (beam_string, scores[k]))
         else:
-          tf.logging.info(beam_string)
+          tf.logging.info("\"%s\"" % beam_string)
     else:
       if decode_hp.identity_output:
         tf.logging.info(" ".join(map(str, result["outputs"].flatten())))
@@ -512,7 +511,10 @@ def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
   with tf.gfile.Open(decode_filename) as f:
     text = f.read()
     records = text.split(delimiter)
-    inputs = [record.strip() for record in records[:-1]]
+    inputs = [record.strip() for record in records]
+    # Strip the last empty line.
+    if not inputs[-1]:
+      inputs.pop()
   input_lens = [(i, len(line.split())) for i, line in enumerate(inputs)]
   sorted_input_lens = sorted(input_lens, key=operator.itemgetter(1))
   # We'll need the keys to rearrange the inputs back into their original order
