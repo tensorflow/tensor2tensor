@@ -166,7 +166,10 @@ def register_hparams(name=None):
 
 def hparams(name):
   if name not in _HPARAMS:
-    raise LookupError("HParams set %s never registered." % name)
+    error_msg = "HParams set %s never registered. Sets registered:\n%s"
+    raise LookupError(
+        error_msg % (name,
+                     display_list_by_prefix(list_hparams(), starting_spaces=4)))
   return _HPARAMS[name]
 
 

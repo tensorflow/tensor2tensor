@@ -60,7 +60,7 @@ class TpuTrainerTest(tf.test.TestCase):
     with tf.variable_scope("eval"):
       spec = model_fn(features, targets, tf.estimator.ModeKeys.EVAL, params,
                       config)
-    self.assertTrue(spec.eval_metrics is not None)
+    self.assertTrue(spec.eval_metric_ops is not None)
 
 
 if __name__ == "__main__":

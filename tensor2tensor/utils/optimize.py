@@ -138,8 +138,4 @@ def learning_rate_decay(hparams, num_worker_replicas=1, num_train_steps=1):
   else:
     raise ValueError("Unrecognized learning rate decay scheme: %s" %
                      hparams.learning_rate_decay_scheme)
-  return tf.cond(
-      step < warmup_steps,
-      lambda: inv_decay,
-      lambda: decay,
-      name="learning_rate_decay_warump_cond")
+  return tf.where(step < warmup_steps, inv_decay, decay)

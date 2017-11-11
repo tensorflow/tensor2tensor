@@ -96,6 +96,19 @@ def add_name_scope(scope=None):
   return add_scope(scope, scope_fn=tf.name_scope)
 
 
+def _add_variable_proxy_methods(var, proxy_tensor):
+  """Proxy methods of underlying variable.
+
+  This enables our custom getters to still work with, e.g., batch norm.
+
+  Args:
+    var: Variable to proxy
+    proxy_tensor: Tensor that is identity of var
+  """
+  proxy_tensor.read_value = lambda: tf.identity(proxy_tensor)
+  proxy_tensor.assign_sub = var.assign_sub
+
+
 class Parallelism(object):
   """Helper class for creating sets of parallel function calls.
 
@@ -188,6 +201,7 @@ class Parallelism(object):
           var = getter(name, *args, **kwargs)
           v = tf.identity(var._ref())  # pylint: disable=protected-access
         # update the cache
+        _add_variable_proxy_methods(var, v)
         cache[name] = v
         cache[device_var_key] = v
         return v
@@ -202,6 +216,7 @@ class Parallelism(object):
           return cache[key]
         with tf.device(self._caching_devices[i]):
           ret = tf.identity(v._ref())  # pylint: disable=protected-access
+        _add_variable_proxy_methods(v, ret)
         cache[key] = ret
         return ret
 

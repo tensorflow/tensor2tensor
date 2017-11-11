@@ -23,6 +23,8 @@ import copy
 
 # Dependency imports
 
+import six
+
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
@@ -51,7 +53,10 @@ def get_input_fn(mode, hparams):
     """Input fn."""
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     num_threads = 4 if is_training else 1
-    batch_size = params["batch_size"]
+    if "batch_size" in params:
+      batch_size = params["batch_size"]
+    else:
+      batch_size = hparams.tpu_batch_size_per_shard
 
     def valid_size(example):
       return data_reader.example_valid_size(example, hparams.min_length,
@@ -72,7 +77,7 @@ def get_input_fn(mode, hparams):
       example["targets"] = targets
 
       # Ensure batch size is set on all features
-      for _, t in example.iteritems():
+      for _, t in six.iteritems(example):
         shape = t.get_shape().as_list()
         shape[0] = batch_size
         t.set_shape(t.get_shape().merge_with(shape))
@@ -126,7 +131,7 @@ def are_shapes_fully_defined(shapes_dict):
 
 def fill_shape_nones(shapes_dict, none_filler=None):
   padded_shapes = {}
-  for key, shape in shapes_dict.iteritems():
+  for key, shape in six.iteritems(shapes_dict):
     padded_shapes[key] = [
         (dim if dim is not None else none_filler) for dim in shape.as_list()
     ]
@@ -174,10 +179,10 @@ def get_model_fn(model_name, hp, use_tpu=True):
       logits = target_modality.top(outputs, labels)
 
       # If the length dim is unknown fix it to max_length
-      if logits.get_shape().as_list()[1] is None:
-        shape = [None] * logits.get_shape().ndims
+      if use_tpu and logits.get_shape().as_list()[1] is None:
+        shape = logits.get_shape().as_list()
         shape[1] = hparams.max_length
-        logits.set_shape(logits.get_shape().merge_with(shape))
+        logits.set_shape(shape)
 
       # Loss
       loss_num, loss_den = target_modality.loss(logits, labels)
@@ -185,12 +190,25 @@ def get_model_fn(model_name, hp, use_tpu=True):
 
     if mode == tf.estimator.ModeKeys.EVAL:
       problem = hp.problem_instances[0]
-      eval_metrics_fn = create_eval_metrics_fn(problem)
-      _remove_summaries()
-      return tf.contrib.tpu.TPUEstimatorSpec(
-          mode,
-          eval_metrics=(eval_metrics_fn, [logits, orig_features["targets"]]),
-          loss=loss)
+
+      if use_tpu:
+        eval_metrics_fn = create_eval_metrics_fn(problem)
+        _remove_summaries()
+        return tf.contrib.tpu.TPUEstimatorSpec(
+            mode,
+            eval_metrics=(eval_metrics_fn, [logits, orig_features["targets"]]),
+            loss=loss)
+      else:
+        eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
+        eval_metrics = {}
+        for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
+          eval_metrics[metric_name] = metric_fn(logits, features)
+
+        return tf.estimator.EstimatorSpec(
+            mode,
+            predictions={"predictions": logits},
+            eval_metric_ops=eval_metrics,
+            loss=loss)
 
     assert mode == tf.estimator.ModeKeys.TRAIN
 
@@ -212,7 +230,10 @@ def get_model_fn(model_name, hp, use_tpu=True):
       train_op = tf.identity(loss)
 
     _remove_summaries()
-    return tf.contrib.tpu.TPUEstimatorSpec(mode, loss=loss, train_op=train_op)
+    if use_tpu:
+      return tf.contrib.tpu.TPUEstimatorSpec(mode, loss=loss, train_op=train_op)
+    else:
+      return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
 
   return model_fn
 
@@ -290,29 +311,40 @@ def create_run_config(master="",
       save_summary_steps=0,
       save_checkpoints_steps=save_checkpoints_steps,
       tpu_config=tpu_config,
-      master=master,
-      evaluation_master=master)
+      master=master)
   return run_config
 
 
-def create_estimator(model_fn, run_config, batch_size=16):
-  return tf.contrib.tpu.TPUEstimator(
-      model_fn=model_fn,
-      model_dir=run_config.model_dir,
-      config=run_config,
-      train_batch_size=batch_size,
-      eval_batch_size=batch_size * 2)
+def create_estimator(model_fn, run_config, batch_size=16, use_tpu=True):
+  if use_tpu:
+    return tf.contrib.tpu.TPUEstimator(
+        model_fn=model_fn,
+        model_dir=run_config.model_dir,
+        config=run_config,
+        train_batch_size=batch_size,
+        eval_batch_size=batch_size * 2)
+  else:
+    return tf.estimator.Estimator(
+        model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
 
 
-def create_experiment(run_config, hparams, model_name, problem_name, data_dir,
-                      train_steps, eval_steps, min_eval_frequency):
+def create_experiment(run_config,
+                      hparams,
+                      model_name,
+                      problem_name,
+                      data_dir,
+                      train_steps,
+                      eval_steps,
+                      min_eval_frequency,
+                      use_tpu=True):
   """Create Experiment."""
   hparams.add_hparam("data_dir", data_dir)
   trainer_utils.add_problem_hparams(hparams, problem_name)
   batch_size = (
       hparams.tpu_batch_size_per_shard * run_config.tpu_config.num_shards)
-  model_fn = get_model_fn(model_name, hparams)
-  estimator = create_estimator(model_fn, run_config, batch_size)
+  model_fn = get_model_fn(model_name, hparams, use_tpu=use_tpu)
+  estimator = create_estimator(
+      model_fn, run_config, batch_size, use_tpu=use_tpu)
   train_input_fn = get_input_fn(tf.estimator.ModeKeys.TRAIN, hparams)
   eval_input_fn = get_input_fn(tf.estimator.ModeKeys.EVAL, hparams)
   return tf.contrib.learn.Experiment(

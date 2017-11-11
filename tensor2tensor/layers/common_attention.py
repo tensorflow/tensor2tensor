@@ -1323,12 +1323,20 @@ def masked_local_attention_1d(
   with tf.variable_scope(name, default_name="local_attention_1d",
                          values=[q, k, v]):
     v_shape = v.get_shape()
-    batch = tf.shape(q)[0]
-    heads = tf.shape(q)[1]
-    length = tf.shape(q)[2]
+    batch = common_layers.shape_dim(q, 0)
+    heads = common_layers.shape_dim(q, 1)
+    length = common_layers.shape_dim(q, 2)
+    if isinstance(block_length, tf.Tensor):
+      const = tf.contrib.util.constant_value(block_length)
+      if const is not None:
+        block_length = int(const)
+
     # If (length < 2 * block_length), then we use only one block.
-    block_length = tf.where(tf.less(length, block_length * 2),
-                            length, block_length)
+    if isinstance(length, int) and isinstance(block_length, int):
+      block_length = length if length < block_length * 2 else block_length
+    else:
+      block_length = tf.where(tf.less(length, block_length * 2),
+                              length, block_length)
     depth_k = tf.shape(k)[3]
     depth_v = tf.shape(v)[3]
     original_length = length
