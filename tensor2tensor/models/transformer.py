@@ -1084,7 +1084,7 @@ def update_hparams_for_tpu(hparams):
   # Inputs
   # Each example in the batch will be of (padded) length hparams.max_length
   hparams.max_length = 64
-  hparams.tpu_batch_size_per_shard = 16
+  hparams.tpu_batch_size_per_shard = 20
 
 
 @registry.register_hparams

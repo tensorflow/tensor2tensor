@@ -414,7 +414,8 @@ class ClassLabelModality(modality.Modality):
 
   def targets_bottom(self, x):
     with tf.variable_scope(self.name):
-      return tf.zeros([tf.shape(x)[0], 1, 1, self._body_input_depth])
+      return tf.zeros(
+          [common_layers.shape_dim(x, 0), 1, 1, self._body_input_depth])
 
   def top(self, body_output, _):
     """Transform inputs from model space to target space.

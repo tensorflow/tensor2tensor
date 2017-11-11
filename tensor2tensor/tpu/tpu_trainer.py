@@ -41,6 +41,7 @@ flags.DEFINE_string("t2t_usr_dir", "",
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 1000,
                      "Number of iterations in a TPU training loop.")
+flags.DEFINE_bool("use_tpu", True, "Whether to use TPU.")
 
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erroring. Apologies for the ugliness.
@@ -68,9 +69,14 @@ def create_hparams():
 
 
 def create_experiment_fn():
-  return lib.make_experiment_fn(FLAGS.model, get_problem_name(), FLAGS.data_dir,
-                                FLAGS.train_steps, FLAGS.eval_steps,
-                                FLAGS.local_eval_frequency)
+  return lib.make_experiment_fn(
+      FLAGS.model,
+      get_problem_name(),
+      FLAGS.data_dir,
+      FLAGS.train_steps,
+      FLAGS.eval_steps,
+      FLAGS.local_eval_frequency,
+      use_tpu=FLAGS.use_tpu)
 
 
 def create_run_config():

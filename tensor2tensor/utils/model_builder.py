@@ -199,7 +199,7 @@ def model_fn(model,
 
   if mode == tf.estimator.ModeKeys.EVAL:
     eval_metrics_fns = metrics.create_evaluation_metrics(
-        zip(problem_names, hparams.problem_instances), hparams)
+        hparams.problem_instances, hparams)
 
     eval_metrics = {}
     for metric_name, metric_fn in six.iteritems(eval_metrics_fns):

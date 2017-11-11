@@ -192,8 +192,7 @@ def padded_accuracy(predictions,
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
 
-def set_precision(predictions,
-                  labels,
+def set_precision(predictions, labels,
                   weights_fn=common_layers.weights_nonzero):
   """Precision of set predictions.
 
@@ -216,9 +215,7 @@ def set_precision(predictions,
     return tf.to_float(tf.equal(labels, predictions)), weights
 
 
-def set_recall(predictions,
-               labels,
-               weights_fn=common_layers.weights_nonzero):
+def set_recall(predictions, labels, weights_fn=common_layers.weights_nonzero):
   """Recall of set predictions.
 
   Args:
@@ -240,8 +237,7 @@ def set_recall(predictions,
     return tf.to_float(tf.equal(labels, predictions)), weights
 
 
-def image_summary(predictions,
-                  hparams):
+def image_summary(predictions, hparams):
   """Reshapes predictions and passes it to tensorboard.
 
   Args:
@@ -254,15 +250,16 @@ def image_summary(predictions,
   """
   predictions_reshaped = tf.reshape(
       predictions, [-1, hparams.height, hparams.width, hparams.colors])
-  return tf.summary.image("image_summary", predictions_reshaped,
-                          max_outputs=1), tf.zeros_like(predictions)
+  return tf.summary.image(
+      "image_summary", predictions_reshaped,
+      max_outputs=1), tf.zeros_like(predictions)
 
 
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
 
   Args:
-    problems: List of tuples (problem name, problem instance).
+    problems: List of Problem instances.
     model_hparams: a set of hparams.
 
   Returns:
@@ -302,12 +299,14 @@ def create_evaluation_metrics(problems, model_hparams):
     return problem_metric_fn
 
   eval_metrics = dict()
-  for problem_idx, (problem_name, problem_instance) in enumerate(problems):
+  for problem_idx, problem_instance in enumerate(problems):
+    problem_name = problem_instance.name
     metrics = problem_instance.eval_metrics()
     if not all([m in METRICS_FNS for m in metrics]):
       raise ValueError("Unrecognized metric. Problem %s specified metrics "
-                       "%s. Recognized metrics are %s." %
-                       (problem_name, metrics, METRICS_FNS.keys()))
+                       "%s. Recognized metrics are %s." % (problem_name,
+                                                           metrics,
+                                                           METRICS_FNS.keys()))
 
     class_output = "image" in problem_name and "coco" not in problem_name
     real_output = "gene_expression" in problem_name
@@ -321,7 +320,8 @@ def create_evaluation_metrics(problems, model_hparams):
     else:
       weights_fn = common_layers.weights_nonzero
 
-    def image_wrapped_metric_fn(predictions, labels,
+    def image_wrapped_metric_fn(predictions,
+                                labels,
                                 weights_fn=common_layers.weights_nonzero):
       _, _ = labels, weights_fn
       return metric_fn(predictions, model_hparams)
