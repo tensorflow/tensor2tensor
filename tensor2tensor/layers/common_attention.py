@@ -45,6 +45,229 @@ BatchInfo = collections.namedtuple(
 _expert_count = 0
 
 
+def get_standardized_layers(hparams, dp=None, ps_devices=None):
+  """Get the common attention and feed-forward layers.
+
+  The returned layer functions will have the following signature:
+
+    y, extra_loss = fct(x)
+
+  extra_loss is set to 0.0 if the layer doesn't have extra loss.
+  If dp is provided, the layers will be distributed within the devices.
+  If moe wants to be used, both dp and model need to be set.
+
+  Args:
+    hparams (tf.HParams): the model hparameters
+    dp (expert_utils.Parallelism): A data paralelism object. If not given,
+      the dp calls are simply ignored.
+    ps_devices: a reference to model._ps_devices (only used by the moe layer)
+
+  Returns:
+    dict[str:fct]: A dictionary containing the standardized functions
+  """
+
+  def partial(fct, *args, **kwargs):
+    """Same as functools.partial but with functools.wraps."""
+    return functools.wraps(fct)(functools.partial(fct, *args, **kwargs))
+
+  def register_layer(
+      fct,
+      default_args=None,
+      default_kwargs=None,
+      use_dp=True,
+  ):
+    """Turn a function into its standardized version.
+
+    Args:
+      fct (fct): The function to register
+      default_args (list): The default parameters to add to the function.
+      default_kwargs (dict): The default parameters to add to the function.
+        Those arguments can be overwriten when calling the function.
+      use_dp (bool): Wrap the function call within a dataparalellism object if
+        dp is available. Some layers (like moe) must be called without dp.
+
+    Returns:
+      fct: the standardized layer function.
+    """
+    # The kwargs given when calling the function overwrite the default ones
+    fct = partial(fct, *(default_args or []), **(default_kwargs or {}))
+
+    @functools.wraps(fct)
+    def decorator(x, *args, **kwargs):
+      """Call the layer function."""
+      # Eventually use dp (if given and not MoE)
+      if use_dp and dp is not None:
+        y = dp(fct, x, *args, **kwargs)
+      else:
+        y = fct(x, *args, **kwargs)
+
+      # Eventually capture the extra loss
+      extra_loss = 0.0
+      if isinstance(y, tuple):
+        y, extra_loss = y
+
+      return y, extra_loss
+    return decorator
+
+  total_key_depth = hparams.attention_key_channels or hparams.hidden_size
+  total_value_depth = hparams.attention_value_channels or hparams.hidden_size
+  is_train = hparams.mode == tf.estimator.ModeKeys.TRAIN
+
+  moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
+  # Use filter size if moe_hidden_sizes was not given
+  if not moe_hidden_sizes:
+    moe_hidden_sizes = [hparams.filter_size]
+  expert_fn = expert_utils.ffn_expert_fn(
+      hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
+
+  # Attention layers:
+
+  # === Multi-head full attention layer ===
+  multihead_attention_fn = register_layer(
+      multihead_attention,
+      default_kwargs=dict(
+          memory_antecedent=None,  # Self-attention by default
+          bias=None,
+          total_key_depth=total_key_depth,
+          total_value_depth=total_value_depth,
+          output_depth=hparams.hidden_size,
+          num_heads=hparams.num_heads,
+          dropout_rate=hparams.attention_dropout,
+      )
+  )
+
+  # === Local attention layer ===
+  # Reuse same parameters as multihead_attention
+  # Only works for self attention. Always mask the future.
+  local_attention_fn = partial(
+      multihead_attention_fn,
+      block_length=hparams.attention_loc_block_length,
+      attention_type="local_mask_right",
+  )
+
+  # === Memory-compressed multihead self attention layer ===
+  # Only works for self attention. Always mask the future.
+  compressed_attention_fn = register_layer(
+      multihead_self_attention_reduced,
+      default_kwargs=dict(
+          factor=hparams.attention_red_factor,
+          nonlinearity=hparams.attention_red_nonlinearity,
+          reduction_type=hparams.attention_red_type,
+          multihead_params=dict(
+              total_key_depth=total_key_depth,
+              total_value_depth=total_value_depth,
+              num_heads=hparams.num_heads,
+              dropout_rate=hparams.attention_dropout,
+          ),
+      ),
+  )
+
+  # Feed-forwards layers:
+
+  # === Mixture of expert layer ===
+  distributed_moe = register_layer(
+      expert_utils.distributed_moe,
+      default_args=[
+          dp,
+          ps_devices,
+      ],
+      default_kwargs=dict(
+          train=is_train,
+          input_size=hparams.hidden_size,
+          expert_fn=expert_fn,
+          num_experts=hparams.moe_num_experts,
+          k=hparams.moe_k,
+          loss_coef=hparams.moe_loss_coef,
+      ),
+      use_dp=False,
+  )
+
+  # === FC layer ===
+  conv_hidden_relu = register_layer(
+      common_layers.conv_hidden_relu,
+      default_kwargs=dict(
+          hidden_size=hparams.filter_size,
+          output_size=hparams.hidden_size,
+          dropout=hparams.relu_dropout,
+      ),
+  )
+
+  # === Separable convolution layer ===
+  # No mask applied
+  sep_conv_relu = partial(
+      conv_hidden_relu,
+      padding="SAME",
+      # Parameters copied from the transformer model, could add hparams
+      kernel_size=(3, 1),
+      second_kernel_size=(31, 1),
+  )
+
+  # === Separable convolution layer (masked version) ===
+  # Mask the future
+  sep_conv_relu_masked = partial(
+      sep_conv_relu,
+      padding="LEFT",  # Mask future for decoder
+  )
+
+  # Define all available layers
+
+  layers = dict(
+      a=multihead_attention_fn,  # Multihead full attention
+      loc=local_attention_fn,  # Local attention
+      red=compressed_attention_fn,  # Memory-compressed attention
+      mem=None,  # Memory efficient
+      fc=conv_hidden_relu,
+      sep=sep_conv_relu,  # Fully connected
+      sepm=sep_conv_relu_masked,  # masked separable convolution
+      moe=distributed_moe,  # Mixture of expert layer
+  )
+  return layers
+
+
+def add_standard_attention_hparams(hparams):
+  """Adds the hparams used by get_standadized_layers."""
+  # All hyperparameters ending in "dropout" are automatically set to 0.0
+  # when not in training mode.
+
+  # hparams used and which should have been defined outside (in
+  # common_hparams):
+  # Global flags
+  # hparams.mode
+  # hparams.hidden_size
+  # Pre-post processing flags
+  # hparams.layer_preprocess_sequence
+  # hparams.layer_postprocess_sequence
+  # hparams.layer_prepostprocess_dropout
+  # hparams.norm_type
+  # hparams.norm_epsilon
+  # Mixture-of-Expert flags
+  # hparams.moe_hidden_sizes
+  # hparams.moe_num_experts
+  # hparams.moe_k
+  # hparams.moe_loss_coef
+
+  # Attention layers flags
+  hparams.add_hparam("num_heads", 8)
+  hparams.add_hparam("attention_key_channels", 0)
+  hparams.add_hparam("attention_value_channels", 0)
+  hparams.add_hparam("attention_dropout", 0.0)
+  # Attention: Local
+  hparams.add_hparam("attention_loc_block_length", 256)
+  # Attention: Memory-compressed
+  hparams.add_hparam("attention_red_factor", 3)
+  hparams.add_hparam("attention_red_type", "conv")
+  hparams.add_hparam("attention_red_nonlinearity", "none")
+
+  # Fully connected layers flags
+  # To be more concistent, should use filter_size to also controle the moe
+  # size if moe_hidden_sizes not set
+  hparams.add_hparam("filter_size", 2048)
+  hparams.add_hparam("relu_dropout", 0.0)
+
+  return hparams
+
+
+@expert_utils.add_name_scope()
 def get_timing_signal_1d(
     length, channels, min_timescale=1.0, max_timescale=1.0e4):
   """Gets a bunch of sinusoids of different frequencies.
@@ -90,6 +313,7 @@ def get_timing_signal_1d(
   return signal
 
 
+@expert_utils.add_name_scope()
 def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
   """Adds a bunch of sinusoids of different frequencies to a Tensor.
 
@@ -124,6 +348,7 @@ def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
   return x + signal
 
 
+@expert_utils.add_name_scope()
 def add_timing_signal_1d_given_position(x, position, min_timescale=1.0,
                                         max_timescale=1.0e4):
   """Adds sinusoids of diff frequencies to a Tensor, with timing position given.
@@ -151,6 +376,7 @@ def add_timing_signal_1d_given_position(x, position, min_timescale=1.0,
   return x + signal
 
 
+@expert_utils.add_name_scope()
 def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
   """Adds a bunch of sinusoids of different frequencies to a Tensor.
 
@@ -208,6 +434,7 @@ def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
   return x
 
 
+@expert_utils.add_name_scope()
 def add_positional_embedding_nd(x, max_length, name):
   """Add n-dimensional positional embedding.
 
@@ -325,6 +552,7 @@ class LshGating(object):
     return x
 
 
+@expert_utils.add_name_scope()
 def embedding_to_padding(emb):
   """Calculates the padding mask based on which embeddings are all zero.
 
@@ -339,6 +567,7 @@ def embedding_to_padding(emb):
   return tf.to_float(tf.equal(emb_sum, 0.0))
 
 
+@expert_utils.add_name_scope()
 def attention_bias_local(length, max_backward, max_forward):
   """Create an bias tensor to be added to attention logits.
 
@@ -363,6 +592,7 @@ def attention_bias_local(length, max_backward, max_forward):
   return tf.reshape(ret, [1, 1, length, length])
 
 
+@expert_utils.add_name_scope()
 def attention_bias_lower_triangle(length):
   """Create an bias tensor to be added to attention logits.
 
@@ -377,6 +607,7 @@ def attention_bias_lower_triangle(length):
   return attention_bias_local(length, -1, 0)
 
 
+@expert_utils.add_name_scope()
 def attention_bias_ignore_padding(memory_padding):
   """Create an bias tensor to be added to attention logits.
 
@@ -390,6 +621,7 @@ def attention_bias_ignore_padding(memory_padding):
   return tf.expand_dims(tf.expand_dims(ret, axis=1), axis=1)
 
 
+@expert_utils.add_name_scope()
 def attention_bias_to_padding(attention_bias):
   """Inverse of attention_bias_ignore_padding().
 
@@ -406,6 +638,7 @@ def attention_bias_to_padding(attention_bias):
   return tf.squeeze(tf.to_float(tf.less(attention_bias, -1)), axis=[1, 2])
 
 
+@expert_utils.add_name_scope()
 def attention_bias_prepend_inputs_full_attention(padding):
   """Create a bias tensor for prepend_mode="prepend_inputs_full_attention".
 
@@ -439,6 +672,7 @@ def attention_bias_prepend_inputs_full_attention(padding):
   return bias
 
 
+@expert_utils.add_name_scope()
 def attention_bias_proximal(length):
   """Bias for self-attention to encourage attention to close positions.
 
@@ -507,6 +741,7 @@ attention_bias_future = functools.partial(
 )
 
 
+@expert_utils.add_name_scope()
 def split_last_dimension(x, n):
   """Reshape x so that the last dimension becomes two dimensions.
 
@@ -527,6 +762,7 @@ def split_last_dimension(x, n):
   return ret
 
 
+@expert_utils.add_name_scope()
 def combine_last_two_dimensions(x):
   """Reshape x so that the last two dimension become one.
 
@@ -544,6 +780,7 @@ def combine_last_two_dimensions(x):
   return ret
 
 
+@expert_utils.add_name_scope()
 def combine_first_two_dimensions(x):
   """Reshape x so that the first two dimension become one.
 
@@ -561,6 +798,7 @@ def combine_first_two_dimensions(x):
   return ret
 
 
+@expert_utils.add_name_scope()
 def split_heads(x, num_heads):
   """Split channels (dimension 3) into multiple heads (becomes dimension 1).
 
@@ -574,6 +812,7 @@ def split_heads(x, num_heads):
   return tf.transpose(split_last_dimension(x, num_heads), [0, 2, 1, 3])
 
 
+@expert_utils.add_name_scope()
 def split_heads_2d(x, num_heads):
   """Split channels (dimension 4) into multiple heads (becomes dimension 1).
 
@@ -587,6 +826,7 @@ def split_heads_2d(x, num_heads):
   return tf.transpose(split_last_dimension(x, num_heads), [0, 3, 1, 2, 4])
 
 
+@expert_utils.add_name_scope()
 def combine_heads(x):
   """Inverse of split_heads.
 
@@ -599,6 +839,7 @@ def combine_heads(x):
   return combine_last_two_dimensions(tf.transpose(x, [0, 2, 1, 3]))
 
 
+@expert_utils.add_name_scope()
 def combine_heads_2d(x):
   """Inverse of split_heads_2d.
 
@@ -1082,12 +1323,20 @@ def masked_local_attention_1d(
   with tf.variable_scope(name, default_name="local_attention_1d",
                          values=[q, k, v]):
     v_shape = v.get_shape()
-    batch = tf.shape(q)[0]
-    heads = tf.shape(q)[1]
-    length = tf.shape(q)[2]
+    batch = common_layers.shape_dim(q, 0)
+    heads = common_layers.shape_dim(q, 1)
+    length = common_layers.shape_dim(q, 2)
+    if isinstance(block_length, tf.Tensor):
+      const = tf.contrib.util.constant_value(block_length)
+      if const is not None:
+        block_length = int(const)
+
     # If (length < 2 * block_length), then we use only one block.
-    block_length = tf.where(tf.less(length, block_length * 2),
-                            length, block_length)
+    if isinstance(length, int) and isinstance(block_length, int):
+      block_length = length if length < block_length * 2 else block_length
+    else:
+      block_length = tf.where(tf.less(length, block_length * 2),
+                              length, block_length)
     depth_k = tf.shape(k)[3]
     depth_v = tf.shape(v)[3]
     original_length = length
@@ -1571,7 +1820,7 @@ def local_attention_2d(q,
 
 
 def pad_to_multiple_2d(x, block_shape):
-  """Making sure x is a multiple of shape."""
+  """Making sure x is a multiple of shape. x is [batch, heads, h, w, depth]."""
   old_shape = x.get_shape().dims
   last = old_shape[-1]
   height_padding = -tf.shape(x)[2] % block_shape[0]
@@ -1672,6 +1921,121 @@ def make_2d_block_raster_mask(query_shape, memory_flange):
   return 1. - final_mask
 
 
+def get_memory_region(x,
+                      query_block_shape,
+                      memory_flange,
+                      q_indices):
+  """Get the memory regions that surround a 2d query.
+
+    The memory regions will be the left and top right.
+
+  Args:
+    x: A tensor with shape [batch, heads, height, width, depth]
+    query_block_shape: a 2-d tuple of integers
+    memory_flange: a 2-d tuple of integers
+    q_indices: a tensor of indices for each of the center blocks.
+      [num_blocks, block_length]
+  Returns:
+    x_flange: A tensor of shape [batch, heads, #blocks, block_length, depth]
+  """
+  # Padding x to be multiple of query_shape and then
+  # extracting the memory blocks from the same regions as the query blocks
+  x_query_padded = pad_to_multiple_2d(x, query_block_shape)
+  x_center = gather_blocks_2d(x_query_padded, q_indices)
+  # Then padding the flange region
+  paddings = [[0, 0], [0, 0], [memory_flange[0], 0],
+              [memory_flange[1], memory_flange[1]], [0, 0]]
+  x_memory_padded = tf.pad(x_query_padded, paddings)
+  left_x = None
+  top_x = None
+  # Extracting the memory regions around the query block. left_x_region extends
+  # to the left and the top_x_region is the combination of top left, top, and
+  # top right of the query block
+  # if no left region
+  if memory_flange[1] > 0:
+    left_x_region = x_memory_padded[:, :, memory_flange[0]:,
+                                    :-(query_block_shape[1]+memory_flange[1]),
+                                    :]
+    left_memory_shape = (query_block_shape[0], memory_flange[1])
+    left_indices = gather_indices_2d(left_x_region, left_memory_shape,
+                                     query_block_shape)
+    left_x = gather_blocks_2d(left_x_region, left_indices)
+  # if no top region
+  if memory_flange[0] > 0:
+    top_x_region = x_memory_padded[:, :, :-query_block_shape[0], :, :]
+
+    top_memory_shape = (memory_flange[0],
+                        query_block_shape[1]+2*memory_flange[1])
+
+    top_indices = gather_indices_2d(top_x_region, top_memory_shape,
+                                    query_block_shape)
+
+    top_x = gather_blocks_2d(top_x_region, top_indices)
+  x_flange = None
+  if top_x is not None and left_x is not None:
+    x_flange = tf.concat([top_x, left_x], axis=3)
+  else:
+    x_flange = top_x if top_x is not None else left_x
+  return x_flange, x_center
+
+
+def get_shifted_center_blocks(x, indices):
+  """Get right shifted blocks for masked local attention 2d.
+
+  Args:
+    x: A tensor with shape [batch, heads, height, width, depth]
+    indices: The indices to gather blocks
+
+  Returns:
+    x_shifted: a tensor of extracted blocks, each block right shifted along
+      length.
+  """
+  center_x = gather_blocks_2d(x, indices)
+  # Shift right along the length dimension
+  def shift_right_2d_blocks(x):
+    """Shift the second to last dimension of x right by one."""
+    shifted_targets = (
+        tf.pad(x, [[0, 0], [0, 0], [0, 0], [1, 0], [0, 0]])[:, :, :, :-1, :]
+    )
+    return shifted_targets
+  x_shifted = shift_right_2d_blocks(center_x)
+  return x_shifted
+
+
+def right_shift_blockwise(x, query_shape, name=None):
+  """Right shifts once in every block.
+
+  Args:
+    x: a tensor of shape [batch, height, width, depth]
+    query_shape: A 2d tuple of ints
+    name: a string
+
+  Returns:
+    output: a tensor of the same shape as x
+  """
+  with tf.variable_scope(
+      name, default_name="right_shift_blockwise", values=[x]):
+    x_list_shape = x.get_shape().as_list()
+    x_shape = tf.shape(x)
+    # Add a dummy dimension for heads
+    x = tf.expand_dims(x, axis=1)
+    x = pad_to_multiple_2d(x, query_shape)
+    padded_x_shape = tf.shape(x)
+    # Setting up q blocks
+    x_indices = gather_indices_2d(x, query_shape, query_shape)
+    x_new = get_shifted_center_blocks(x, x_indices)
+
+    # putting the representations back in the right place
+    output = scatter_blocks_2d(x_new, x_indices, padded_x_shape)
+    # Removing the dummy head dimension
+    output = tf.squeeze(output, axis=1)
+    # Remove the padding if introduced
+    output = tf.slice(output, [0, 0, 0, 0],
+                      [-1, x_shape[1], x_shape[2], -1])
+    output.set_shape(x_list_shape)
+    return output
+
+
 def masked_local_attention_2d(q,
                               k,
                               v,
@@ -1679,6 +2043,13 @@ def masked_local_attention_2d(q,
                               memory_flange=(8, 16),
                               name=None):
   """strided block local self-attention.
+
+    Each position in a query block can attend to all the generated queries in
+    the query block, which are generated in raster scan, and positions that are
+    generated to the left and top. The shapes are specified by query shape and
+    memory flange. Note that if you're using this function, you do not need to
+    right shift. Right shifting happens inside this function separately for each
+    block.
 
   Args:
     q: a Tensor with shape [batch, heads, h, w, depth_k]
@@ -1701,34 +2072,45 @@ def masked_local_attention_2d(q,
 
     q = pad_to_multiple_2d(q, query_shape)
     padded_q_shape = tf.shape(q)
-    k = pad_to_multiple_2d(k, query_shape)
-    v = pad_to_multiple_2d(v, query_shape)
-    # Setting up k and v values. Padding top, left, and right
-    paddings = [[0, 0], [0, 0], [memory_flange[0], 0],
-                [memory_flange[1], memory_flange[1]], [0, 0]]
-    k = tf.pad(k, paddings)
-    v = tf.pad(v, paddings)
     # Setting up q blocks
     q_indices = gather_indices_2d(q, query_shape, query_shape)
     q_new = gather_blocks_2d(q, q_indices)
     # Setting up k and v blocks
-    memory_shape = (query_shape[0]+memory_flange[0],
-                    query_shape[1]+memory_flange[1]*2)
-    k_and_v_indices = gather_indices_2d(k, memory_shape, query_shape)
-    k_new = gather_blocks_2d(k, k_and_v_indices)
-    v_new = gather_blocks_2d(v, k_and_v_indices)
-    # Combining the mask for padding and visible region
-    attention_mask_shape = [np.prod(query_shape),
-                            (query_shape[0]+memory_flange[0])*
-                            (query_shape[1]+2*memory_flange[1])]
-    attention_mask = tf.cast(
-        make_2d_block_raster_mask(query_shape, memory_flange), tf.bool)
-    # reshaping attention mask to have same dims as logits
-    attention_mask = tf.reshape(attention_mask, [1, 1, 1]+attention_mask_shape)
-    padding_mask = tf.expand_dims(
-        tf.cast(embedding_to_padding(k_new), tf.bool), axis=-2)
-    attention_bias = (
-        tf.to_float(tf.logical_or(attention_mask, padding_mask)) *-1e9)
+    k_flange, k_center = get_memory_region(k, query_shape, memory_flange,
+                                           q_indices)
+    v_flange, v_center = get_memory_region(v, query_shape, memory_flange,
+                                           q_indices)
+    if k_flange is not None:
+      k_new = tf.concat([k_flange, k_center], axis=3)
+      v_new = tf.concat([v_flange, v_center], axis=3)
+    else:
+      k_new = k_center
+      v_new = v_center
+    # Getting the masks ready
+    query_elements = np.prod(query_shape)
+    padding_mask = None
+    if k_flange is not None:
+      padding_mask = tf.expand_dims(
+          embedding_to_padding(k_flange)*-1e9, axis=-2)
+      padding_mask = tf.tile(padding_mask, [1, 1, 1, query_elements, 1])
+
+    center_attention_bias = attention_bias_lower_triangle(
+        np.prod(query_elements))
+    center_attention_bias = tf.reshape(center_attention_bias,
+                                       [1, 1, 1, query_elements, query_elements]
+                                      )
+    v_center_shape = tf.shape(v_center)
+    center_attention_bias = tf.tile(center_attention_bias,
+                                    [v_center_shape[0],
+                                     v_center_shape[1],
+                                     v_center_shape[2],
+                                     1, 1])
+    if padding_mask is not None:
+      # Combining the mask for padding and visible region
+      attention_bias = tf.concat([padding_mask, center_attention_bias], axis=4)
+    else:
+      attention_bias = center_attention_bias
+
     output = dot_product_attention(q_new, k_new, v_new, attention_bias,
                                    dropout_rate=0., name="masked_local_2d",
                                    make_image_summary=False)
@@ -1868,7 +2250,7 @@ def multihead_attention(query_antecedent,
 
   Args:
     query_antecedent: a Tensor with shape [batch, length_q, channels]
-    memory_antecedent: a Tensor with shape [batch, length_m, channels]
+    memory_antecedent: a Tensor with shape [batch, length_m, channels] or None
     bias: bias Tensor (see attention_bias())
     total_key_depth: an integer
     total_value_depth: an integer
@@ -1877,31 +2259,33 @@ def multihead_attention(query_antecedent,
     dropout_rate: a floating point number
     max_relative_position: Maximum distance between inputs to generate
                            unique relation embeddings for. Only relevant
-                           when using dot_product_relative attention.
+                           when using "dot_product_relative" attention.
     image_shapes: optional tuple of integer scalars.
-      see comments for attention_image_summary()
-    attention_type: a string, either "dot_product", "local_mask_right",
-                    "local_unmasked" or any attention function with the
-                    signature (q, k, v, **kwargs)
+                  see comments for attention_image_summary()
+    attention_type: a string, either "dot_product", "dot_product_relative",
+                    "local_mask_right", "local_unmasked", "masked_dilated_1d",
+                    "unmasked_dilated_1d" or any attention function with the
+                    signature (query, key, value, **kwargs)
     block_length: an integer - relevant for "local_mask_right"
     block_width: an integer - relevant for "local_unmasked"
     q_filter_width: An integer specifying how wide you want the query to be.
     kv_filter_width: An integer specifying how wide you want the keys and values
-    to be.
+                     to be.
     q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
-    kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
-    cache: dict, containing Tensors which are the results of previous
-        attentions, used for fast decoding. Expects the dict to contrain two
-        keys; 'k' and 'v', for the initial call the values for these keys should
-        be empty Tensors of the appropriate shape.
-            'k' [batch_size, 0, key_channels]
-            'v' [batch_size, 0, value_channels]
+               kv_padding: One of "VALID", "SAME" or "LEFT". Default is "VALID":
+               no padding.
+    cache: dict containing Tensors which are the results of previous
+           attentions, used for fast decoding. Expects the dict to contrain two
+           keys ('k' and 'v'), for the initial call the values for these keys
+           should be empty Tensors of the appropriate shape.
+               'k' [batch_size, 0, key_channels]
+               'v' [batch_size, 0, value_channels]
     gap_size: Integer option for dilated attention to indicate spacing between
-      memory blocks.
+              memory blocks.
     num_memory_blocks: Integer option to indicate how many memory blocks to look
-      at.
+                       at.
     name: an optional string
-    **kwargs (dict): Params for the attention function
+    **kwargs (dict): Parameters for the attention function
 
   Caching:
     WARNING: For decoder self-attention, i.e. when memory_antecedent == None,
@@ -1917,8 +2301,8 @@ def multihead_attention(query_antecedent,
         [batch_size, length_q, hidden_dim]
     unless the cache dict is provided in which case only the last memory
     position is calculated and the output shape is [batch_size, 1, hidden_dim]
-    Optionnaly return an additional loss parameters (ex: load balance loss for
-    the experts) returned by the attention_type function
+    Optionaly returns an additional loss parameters (ex: load balance loss for
+    the experts) returned by the attention_type function.
 
   Raises:
     ValueError: if the key depth or value depth are not divisible by the
@@ -2959,8 +3343,10 @@ def local_reduction_attention(x, block_length, multihead_params):
 @expert_utils.add_var_scope()
 def multihead_self_attention_reduced(
     x,
-    factor,
-    multihead_params,
+    memory_antecedent=None,
+    bias=None,
+    factor=None,
+    multihead_params=None,
     nonlinearity="none",
     reduction_type="conv",
 ):
@@ -2968,6 +3354,8 @@ def multihead_self_attention_reduced(
 
   Args:
     x (tf.Tensor): float32 of shape [batch, length, depth]
+    memory_antecedent (tf.Tensor): Unsuported for now
+    bias (tf.Tensor): Ignored
     factor (int): compression factor for the memory sequence
     multihead_params (dict): parameters for multihead attention
     nonlinearity (str): Add some non-linearity after the memory block
@@ -2979,6 +3367,12 @@ def multihead_self_attention_reduced(
   Raises:
     ValueError: If reduction_type or nonlinearity is invalid
   """
+  if not factor or not multihead_params:
+    raise ValueError("factor and multihead_params should be set")
+  if memory_antecedent is not None:
+    raise NotImplementedError(
+        "multihead_self_attention_reduced only works with self-attention")
+
   depth = x.get_shape().as_list()[-1]
 
   # Could try to have some overlapp between the blocks but that would

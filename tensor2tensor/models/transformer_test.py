@@ -56,8 +56,7 @@ class TransformerTest(tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32),
     }
 
-    return transformer.Transformer(
-        hparams, tf.estimator.ModeKeys.PREDICT, p_hparams), features
+    return transformer.Transformer(hparams, mode, p_hparams), features
 
   def testTransformer(self):
     model, features = self.getModel(transformer.transformer_small())
@@ -99,8 +98,7 @@ class TransformerTest(tf.test.TestCase):
                              mode=tf.estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-      greedy_result, _, _ = model._slow_greedy_infer(
-          features, decode_length, last_position_only=True)
+      greedy_result, _, _ = model._slow_greedy_infer(features, decode_length)
       greedy_result = tf.squeeze(greedy_result, axis=[2, 3])
 
       fast_result, _, _ = model._greedy_infer(features, decode_length)
@@ -139,16 +137,14 @@ class TransformerTest(tf.test.TestCase):
           decode_length,
           beam_size=4,
           top_beams=1,
-          last_position_only=True,
-          alpha=1.0)
+          alpha=1.0)["outputs"]
 
       fast_result = model._beam_decode(
           features,
           decode_length,
           beam_size=4,
           top_beams=1,
-          last_position_only=True,
-          alpha=1.0)
+          alpha=1.0)["outputs"]
 
     with self.test_session():
       beam_res = beam_result.eval()

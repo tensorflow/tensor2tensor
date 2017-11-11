@@ -51,15 +51,17 @@ def resize_by_area(img, size):
 
 class ImageProblem(problem.Problem):
 
-  def example_reading_spec(self, label_key=None):
-    if label_key is None:
-      label_key = "image/class/label"
+  def example_reading_spec(self, label_repr=None):
+    if label_repr is None:
+      label_repr = ("image/class/label", tf.FixedLenFeature((1,), tf.int64))
 
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
-        label_key: tf.VarLenFeature(tf.int64)
     }
+    label_key, label_type = label_repr  # pylint: disable=unpacking-non-sequence
+    data_fields[label_key] = label_type
+
     data_items_to_decoders = {
         "inputs":
             tf.contrib.slim.tfexample_decoder.Image(
@@ -244,8 +246,9 @@ class ImageFSNS(ImageProblem):
 
   def example_reading_spec(self):
     label_key = "image/unpadded_label"
+    label_type = tf.VarLenFeature(tf.int64)
     return super(ImageFSNS, self).example_reading_spec(
-        self, label_key=label_key)
+        self, label_repr=(label_key, label_type))
 
 
 class Image2ClassProblem(ImageProblem):
@@ -283,10 +286,8 @@ class Image2ClassProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    small_modality = "%s:small_image_modality" % registry.Modalities.IMAGE
-    modality = small_modality if self.is_small else registry.Modalities.IMAGE
-    p.input_modality = {"inputs": (modality, None)}
-    p.target_modality = ("%s:2d" % registry.Modalities.CLASS_LABEL,
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    p.target_modality = (registry.Modalities.CLASS_LABEL,
                          self.num_classes)
     p.batch_size_multiplier = 4 if self.is_small else 256
     p.max_expected_batch_size_per_shard = 8 if self.is_small else 2
@@ -379,6 +380,38 @@ class ImageImagenet32(Image2ClassProblem):
       example = imagenet_preprocess_example(example, mode)
       example["inputs"] = tf.to_int64(
           tf.image.resize_images(example["inputs"], [32, 32]))
+    return example
+
+
+@registry.register_problem
+class ImageImagenet64(Image2ClassProblem):
+  """Imagenet rescaled to 64x64."""
+
+  def dataset_filename(self):
+    return "image_imagenet"  # Reuse Imagenet data.
+
+  @property
+  def is_small(self):
+    return True  # Modalities like for CIFAR.
+
+  @property
+  def num_classes(self):
+    return 1000
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    # TODO(lukaszkaiser): find a better way than printing this.
+    print("To generate the ImageNet dataset in the proper format, follow "
+          "instructions at https://github.com/tensorflow/models/blob/master"
+          "/inception/README.md#getting-started")
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    inputs = example["inputs"]
+    # Just resize with area.
+    if self._was_reversed:
+      example["inputs"] = resize_by_area(inputs, 64)
+    else:
+      example = imagenet_preprocess_example(example, mode)
+      example["inputs"] = example["inputs"] = resize_by_area(inputs, 64)
     return example
 
 
@@ -623,9 +656,11 @@ class ImageCifar10Tune(ImageMnistTune):
     ]
 
   def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     if mode == tf.estimator.ModeKeys.TRAIN:
       example["inputs"] = common_layers.cifar_image_augmentation(
           example["inputs"])
+    example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
   def generator(self, data_dir, tmp_dir, is_training):
@@ -649,6 +684,7 @@ class ImageCifar10(ImageCifar10Tune):
 class ImageCifar10Plain(ImageCifar10):
 
   def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     example["inputs"] = tf.to_int64(example["inputs"])
     return example
 

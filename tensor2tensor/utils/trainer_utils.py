@@ -60,7 +60,14 @@ flags.DEFINE_string(
     model.""")
 flags.DEFINE_string("problems", "", "Dash separated list of problems to "
                     "solve.")
-flags.DEFINE_string("data_dir", None, "Directory with training data.")
+
+
+# data_dir is a common flag name - catch conflicts and define it once.
+try:
+  flags.DEFINE_string("data_dir", None, "Directory with training data.")
+except:  # pylint: disable=bare-except
+  pass
+
 flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
 flags.DEFINE_string("eval_early_stopping_metric", "loss",
@@ -192,6 +199,7 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
       eval_steps=eval_steps,
       train_monitors=train_monitors,
       eval_hooks=eval_hooks,
+      train_steps_per_iteration=FLAGS.local_eval_frequency,
       eval_delay_secs=0,
       **optional_kwargs)
 
