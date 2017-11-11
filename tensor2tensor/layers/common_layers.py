@@ -1241,10 +1241,6 @@ def conv_hidden_relu(inputs,
         **kwargs)
     if dropout != 0.0:
       h = tf.nn.dropout(h, 1.0 - dropout)
-    if not tf.get_variable_scope().reuse:
-      tf.summary.histogram("hidden_density_logit",
-                           relu_density_logit(
-                               h, list(range(inputs.shape.ndims - 1))))
     conv_f2 = conv if second_kernel_size == (1, 1) else separable_conv
     ret = conv_f2(h, output_size, second_kernel_size, name="conv2", **kwargs)
     if is_3d:
