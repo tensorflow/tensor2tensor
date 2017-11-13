@@ -174,17 +174,6 @@ def model_fn(model,
       scores = None
 
     predictions = model_output
-      
-    # batched_problem_choice = (features["problem_choice"] * tf.ones(
-    #     (tf.shape(features["inputs"])[0],), dtype=tf.int32))
-    # predictions = {
-    #     "outputs": outputs,
-    #     "scores": scores,
-    #     "inputs": features.get("inputs", None),
-    #     "targets": features.get("infer_targets", None),
-    #     "problem_choice": batched_problem_choice,
-    # }
-    # _del_dict_nones(predictions)
 
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:

@@ -21,7 +21,6 @@ from __future__ import print_function
 
 import os
 import sys
-import numpy as np
 
 # Dependency imports
 
@@ -153,13 +152,16 @@ class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
     # values so that we don't stop until we have filled up the
     # values_seen buffer with real values.
     if self.high_optimal:
-      self.values_seen = np.zeros(self.patience) - np.inf
+      self.values_seen = [float('-inf')] * self.patience
     else:
-      self.values_seen = np.zeros(self.patience) + np.inf
+      self.values_seen = [float('inf')] * self.patience
       
   def _early_stopping_predicate(self, results):
     """Predicate that returns True if we should continue based on the
     results seen so far.
+
+    Returns True when the current iteration is better than some
+    iteration seen in the last 'patience' iterations.
 
     Args:
       results: dict mapping metric names to values
@@ -167,6 +169,7 @@ class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
     Returns:
       return_value: True if we should keep training, False if we
                     should stop
+
     """
     # The first time this gets called, results will be None, and we
     # don't want to stop
@@ -174,16 +177,14 @@ class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
       return True
 
     # Add new value and forget oldest value
-    self.values_seen[:-1] = self.values_seen[1:]
-    self.values_seen[-1] = results[self.metric]
+    self.values_seen.pop(0)
+    self.values_seen.append(results[self.metric])
 
-    print(self.values_seen)
-    
     # have we seen any iterations worse than this one recently?
     if self.high_optimal:
-      any_worse_iterations = np.any(self.values_seen < self.values_seen[-1])
+      any_worse_iterations = any(x < self.values_seen[-1] for x in self.values_seen)
     else:
-      any_worse_iterations = np.any(self.values_seen > self.values_seen[-1])
+      any_worse_iterations = any(x > self.values_seen[-1] for x in self.values_seen)
       
     if not any_worse_iterations:
       print("\nEarly stopping on metric %s with value %f" % (self.metric, self.values_seen[-1]))
