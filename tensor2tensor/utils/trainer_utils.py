@@ -123,12 +123,8 @@ flags.DEFINE_string(
     "See decoding.decode_hparams for defaults.")
 
 # Early stopping flags
-flags.DEFINE_string("early_stopping_metric", "loss",
-                    "Metric to use to decide on early stopping")
-flags.DEFINE_integer("early_stopping_patience", 4,
-                     "How many iterations we will wait before doing early stopping.")
 flags.DEFINE_integer("train_steps_per_iteration", 100,
-                     "How many training steps count as an iterations when doing early"
+                     "How many training steps count as an iteration when doing early"
                      "stopping.")
 
 
@@ -138,12 +134,12 @@ class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
       *args,
       train_steps_per_iteration=FLAGS.train_steps_per_iteration,
       **kwargs)
-    self.patience = FLAGS.early_stopping_patience
-    self.metric = FLAGS.early_stopping_metric
+    self.patience = FLAGS.eval_early_stopping_steps
+    self.metric = FLAGS.eval_early_stopping_metric
 
     # For loss, we want low numbers, for all others we want high
     # numbers
-    if self.metric == 'loss':
+    if FLAGS.eval_early_stopping_metric_minimize:
       self.high_optimal = False
     else:
       self.high_optimal = True

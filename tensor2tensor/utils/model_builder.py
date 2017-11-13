@@ -86,6 +86,7 @@ def model_fn(model,
   # Add input statistics for incoming features.
   with tf.name_scope("input_stats"):
     for (k, v) in six.iteritems(features):
+      # (epurdy) we sometimes have strings, which cause an error
       if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1 and v.dtype != tf.string:
         tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // dp.n)
         tf.summary.scalar("%s_length" % k, tf.shape(v)[1])
@@ -173,8 +174,21 @@ def model_fn(model,
       outputs = model_output
       scores = None
 
-    predictions = model_output
+    batched_problem_choice = (features["problem_choice"] * tf.ones(
+        (tf.shape(features["inputs"])[0],), dtype=tf.int32))
+    predictions = {
+        "outputs": outputs,
+        "scores": scores,
+        "inputs": features.get("inputs", None),
+        "targets": features.get("infer_targets", None),
+        "problem_choice": batched_problem_choice,
+    }
+    _del_dict_nones(predictions)
 
+    # (epurdy) allow model to emit additional outputs
+    for k in model_output:
+      predictions[k] = model_output[k]
+    
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
       export_out["scores"] = predictions["scores"]
