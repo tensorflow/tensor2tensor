@@ -186,8 +186,12 @@ def model_fn(model,
     _del_dict_nones(predictions)
 
     # (epurdy) allow model to emit additional outputs
+    # hardcoding in feature keys t2t uses
+    SKIP_FEATURES = ['inputs', 'infer_targets', 'outputs', 'scores']
     for k in model_output:
-      predictions[k] = model_output[k]
+      if k in SKIP_FEATURES: continue
+      assert k not in predictions
+        predictions[k] = model_output[k]
     
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
