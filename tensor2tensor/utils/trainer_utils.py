@@ -122,19 +122,13 @@ flags.DEFINE_string(
     "Comma-separated list of name=value pairs to control decode behavior. "
     "See decoding.decode_hparams for defaults.")
 
-# Early stopping flags
-flags.DEFINE_integer("train_steps_per_iteration", 100,
-                     "How many training steps count as an iteration when doing early"
-                     "stopping.")
-
 
 class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
   def __init__(self, *args, **kwargs):
     super(EarlyStoppingExperiment, self).__init__(
       *args,
-      train_steps_per_iteration=FLAGS.train_steps_per_iteration,
       **kwargs)
-    self.patience = FLAGS.eval_early_stopping_steps
+    self.patience = FLAGS.eval_early_stopping_steps or 6
     self.metric = FLAGS.eval_early_stopping_metric
 
     # For loss, we want low numbers, for all others we want high
@@ -231,7 +225,7 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
     # Recorded traces can be visualized with chrome://tracing/
     # The memory/tensor lifetime is also profiled
     train_monitors.append(
-        tf.contrib.hooks.ProfilerHook(
+        tf.train.ProfilerHook(
             save_steps=10,
             output_dir=run_config.model_dir,
             show_dataflow=True,
@@ -266,6 +260,7 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
       eval_steps=eval_steps,
       train_monitors=train_monitors,
       eval_hooks=eval_hooks,
+      train_steps_per_iteration=FLAGS.local_eval_frequency,
       eval_delay_secs=0,
       **optional_kwargs)
 
