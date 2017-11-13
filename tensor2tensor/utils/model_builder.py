@@ -191,7 +191,7 @@ def model_fn(model,
     for k in model_output:
       if k in SKIP_FEATURES: continue
       assert k not in predictions
-        predictions[k] = model_output[k]
+      predictions[k] = model_output[k]
     
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
