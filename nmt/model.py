@@ -138,17 +138,18 @@ class BaseModel(object):
           params,
           colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
-      clipped_gradients, gradient_norm_summary = model_helper.gradient_clip(
+      clipped_grads, grad_norm_summary, grad_norm = model_helper.gradient_clip(
           gradients, max_gradient_norm=hparams.max_gradient_norm)
+      self.grad_norm = grad_norm
 
       self.update = opt.apply_gradients(
-          zip(clipped_gradients, params), global_step=self.global_step)
+          zip(clipped_grads, params), global_step=self.global_step)
 
       # Summary
       self.train_summary = tf.summary.merge([
           tf.summary.scalar("lr", self.learning_rate),
           tf.summary.scalar("train_loss", self.train_loss),
-      ] + gradient_norm_summary)
+      ] + grad_norm_summary)
 
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
       self.infer_summary = self._get_infer_summary(hparams)
@@ -239,7 +240,9 @@ class BaseModel(object):
                      self.train_summary,
                      self.global_step,
                      self.word_count,
-                     self.batch_size])
+                     self.batch_size,
+                     self.grad_norm,
+                     self.learning_rate])
 
   def eval(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.EVAL

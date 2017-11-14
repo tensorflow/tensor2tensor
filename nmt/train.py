@@ -33,8 +33,8 @@ from .utils import nmt_utils
 utils.check_tensorflow_version()
 
 __all__ = [
-    "run_sample_decode",
-    "run_internal_eval", "run_external_eval", "run_full_eval", "train"
+    "run_sample_decode", "run_internal_eval", "run_external_eval",
+    "run_full_eval", "init_stats", "update_stats", "check_stats", "train"
 ]
 
 
@@ -52,7 +52,8 @@ def run_sample_decode(infer_model, infer_sess, model_dir, hparams,
 
 
 def run_internal_eval(
-    eval_model, eval_sess, model_dir, hparams, summary_writer, use_test_set=True):
+    eval_model, eval_sess, model_dir, hparams, summary_writer,
+    use_test_set=True):
   """Compute internal evaluation (perplexity) for both dev / test."""
   with eval_model.graph.as_default():
     loaded_eval_model, global_step = model_helper.create_or_load_model(
@@ -148,6 +149,56 @@ def run_full_eval(model_dir, infer_model, infer_sess, eval_model, eval_sess,
   return result_summary, global_step, dev_scores, test_scores, dev_ppl, test_ppl
 
 
+def init_stats():
+  """Initialize statistics that we want to keep."""
+  return {"step_time": 0.0, "grad_norm": 0.0, "checkpoint_loss": 0.0,
+          "checkpoint_predict_count": 0.0, "checkpoint_total_count": 0.0}
+
+
+def update_stats(stats, summary_writer, start_time, step_result):
+  """Update stats: write summary and accumulate statistics."""
+  (_, step_loss, step_predict_count, step_summary, global_step,
+   step_word_count, batch_size, grad_norm, learning_rate) = step_result
+
+  # Write step summary.
+  summary_writer.add_summary(step_summary, global_step)
+
+  # update statistics
+  stats["step_time"] += (time.time() - start_time)
+  stats["checkpoint_loss"] += (step_loss * batch_size)
+  stats["checkpoint_predict_count"] += step_predict_count
+  stats["checkpoint_total_count"] += float(step_word_count)
+  stats["checkpoint_grad_norm"] += grad_norm
+  stats["learning_rate"] = learning_rate
+
+  return global_step
+
+
+def check_stats(stats, global_step, steps_per_stats, hparams, log_f):
+  """Print statistics and also check for overflow."""
+  # Print statistics for the previous epoch.
+  avg_step_time = stats["step_time"] / steps_per_stats
+  avg_grad_norm = stats["grad_norm"] / steps_per_stats
+  train_ppl = utils.safe_exp(
+      stats["checkpoint_loss"] / stats["checkpoint_predict_count"])
+  speed = stats["checkpoint_total_count"] / (1000 * stats["step_time"])
+  utils.print_out(
+      "  global step %d lr %g "
+      "step-time %.2fs wps %.2fK ppl %.2f gN %.2f %s" %
+      (global_step, stats["learning_rate"],
+       avg_step_time, speed, train_ppl, avg_grad_norm,
+       _get_best_results(hparams)),
+      log_f)
+
+  # Check for overflow
+  is_overflow = False
+  if math.isnan(train_ppl) or math.isinf(train_ppl) or train_ppl > 1e20:
+    utils.print_out("  step %d overflow, stop early" % global_step, log_f)
+    is_overflow = True
+
+  return is_overflow
+
+
 def train(hparams, scope=None, target_session=""):
   """Train a translation model."""
   log_device_placement = hparams.log_device_placement
@@ -219,8 +270,7 @@ def train(hparams, scope=None, target_session=""):
   last_external_eval_step = global_step
 
   # This is the training loop.
-  step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
-  checkpoint_total_count = 0.0
+  stats = init_stats()
   speed, train_ppl = 0.0, 0.0
   start_train_time = time.time()
 
@@ -242,8 +292,6 @@ def train(hparams, scope=None, target_session=""):
     start_time = time.time()
     try:
       step_result = loaded_train_model.train(train_sess)
-      (_, step_loss, step_predict_count, step_summary, global_step,
-       step_word_count, batch_size) = step_result
       hparams.epoch_step += 1
     except tf.errors.OutOfRangeError:
       # Finished going through the training dataset.  Go to next epoch.
@@ -262,37 +310,19 @@ def train(hparams, scope=None, target_session=""):
           feed_dict={train_model.skip_count_placeholder: 0})
       continue
 
-    # Write step summary.
-    summary_writer.add_summary(step_summary, global_step)
-
-    # update statistics
-    step_time += (time.time() - start_time)
-
-    checkpoint_loss += (step_loss * batch_size)
-    checkpoint_predict_count += step_predict_count
-    checkpoint_total_count += float(step_word_count)
+    # Write step summary and accumulate statistics
+    global_step = update_stats(stats, summary_writer, start_time, step_result)
 
     # Once in a while, we print statistics.
     if global_step - last_stats_step >= steps_per_stats:
       last_stats_step = global_step
-
-      # Print statistics for the previous epoch.
-      avg_step_time = step_time / steps_per_stats
-      train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
-      speed = checkpoint_total_count / (1000 * step_time)
-      utils.print_out(
-          "  global step %d lr %g "
-          "step-time %.2fs wps %.2fK ppl %.2f %s" %
-          (global_step,
-           loaded_train_model.learning_rate.eval(session=train_sess),
-           avg_step_time, speed, train_ppl, _get_best_results(hparams)),
-          log_f)
-      if math.isnan(train_ppl):
+      is_overflow = check_stats(stats, global_step, steps_per_stats, hparams,
+                                log_f)
+      if is_overflow:
         break
 
-      # Reset timer and loss.
-      step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
-      checkpoint_total_count = 0.0
+      # Reset statistics
+      stats = init_stats()
 
     if global_step - last_eval_step >= steps_per_eval:
       last_eval_step = global_step
