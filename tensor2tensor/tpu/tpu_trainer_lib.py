@@ -25,7 +25,6 @@ import copy
 
 import six
 
-from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import optimize
@@ -192,7 +191,7 @@ def get_model_fn(model_name, hp, use_tpu=True):
       problem = hp.problem_instances[0]
 
       if use_tpu:
-        eval_metrics_fn = create_eval_metrics_fn(problem)
+        eval_metrics_fn = create_eval_metrics_fn(problem, hparams)
         _remove_summaries()
         return tf.contrib.tpu.TPUEstimatorSpec(
             mode,
@@ -245,14 +244,18 @@ TPU_METRIC_BLACKLIST = set([
 ])
 
 
-def create_eval_metrics_fn(problem):
+def create_eval_metrics_fn(problem, hparams):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
+
+  tm = problem.get_hparams().target_modality
+  if isinstance(tm, tuple):
+    tm = registry.create_modality(tm, hparams)
+  weights_fn = tm.weights_fn
 
   def make_metric_fn(metric_fn):
 
     def wrapped_metric_fn(logits, labels):
-      num, den = metric_fn(
-          logits, labels, weights_fn=common_layers.weights_nonzero)
+      num, den = metric_fn(logits, labels, weights_fn=weights_fn)
       return tf.metrics.mean(num, den)
 
     return wrapped_metric_fn

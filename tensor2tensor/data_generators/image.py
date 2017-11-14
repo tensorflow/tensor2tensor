@@ -112,8 +112,8 @@ class ImageCeleba(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-    p.target_modality = ("image:identity_no_pad", None)
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
@@ -236,7 +236,7 @@ class ImageFSNS(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
     vocab_size = self._encoders["targets"].vocab_size
     p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
     p.batch_size_multiplier = 256
@@ -286,7 +286,7 @@ class Image2ClassProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
     p.target_modality = (registry.Modalities.CLASS_LABEL,
                          self.num_classes)
     p.batch_size_multiplier = 4 if self.is_small else 256
@@ -432,8 +432,8 @@ class Img2imgImagenet(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-    p.target_modality = ("image:identity_no_pad", None)
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
@@ -718,8 +718,8 @@ class Img2imgCifar10(ImageCifar10):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-    p.target_modality = ("image:identity_no_pad", None)
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
@@ -863,7 +863,7 @@ class Image2TextProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
     encoder = self._encoders["targets"]
     p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
     p.batch_size_multiplier = 256
