@@ -24,6 +24,7 @@ import inspect
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import rouge
 
 import tensorflow as tf
@@ -284,7 +285,7 @@ def create_evaluation_metrics(problems, model_hparams):
       # "features".
       kwargs = {}
       args, _, keywords, _ = inspect.getargspec(metric_fn)
-      if "features" in args or keywords:
+      if ("features" in args) or keywords:
         kwargs["features"] = features
 
       def wrapped_metric_fn():
@@ -308,28 +309,21 @@ def create_evaluation_metrics(problems, model_hparams):
                                                            metrics,
                                                            METRICS_FNS.keys()))
 
-    class_output = "image" in problem_name and "coco" not in problem_name
-    real_output = "gene_expression" in problem_name
-    if model_hparams.prepend_mode != "none":
-      assert (model_hparams.prepend_mode == "prepend_inputs_masked_attention" or
-              model_hparams.prepend_mode == "prepend_inputs_full_attention")
-      assert not class_output
-      weights_fn = common_layers.weights_prepend_inputs_to_targets
-    elif class_output or real_output:
-      weights_fn = common_layers.weights_all
-    else:
-      weights_fn = common_layers.weights_nonzero
-
     def image_wrapped_metric_fn(predictions,
                                 labels,
                                 weights_fn=common_layers.weights_nonzero):
       _, _ = labels, weights_fn
       return metric_fn(predictions, model_hparams)
 
+    tm = problem_instance.get_hparams().target_modality
+    if isinstance(tm, tuple):
+      tm = registry.create_modality(tm, model_hparams)
+    weights_fn = tm.weights_fn
+
     for metric in metrics:
       metric_fn = METRICS_FNS[metric]
       metric_name = "metrics-%s/%s" % (problem_name, metric)
-      if "image" in metric:
+      if metric == Metrics.IMAGE_SUMMARY:
         eval_metrics[metric_name] = image_wrapped_metric_fn
       else:
         problem_metric_fn = make_problem_specific_metric_fn(
