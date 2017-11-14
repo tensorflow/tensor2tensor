@@ -200,8 +200,8 @@ class Parallelism(object):
         else:
           var = getter(name, *args, **kwargs)
           v = tf.identity(var._ref())  # pylint: disable=protected-access
+          _add_variable_proxy_methods(var, v)
         # update the cache
-        _add_variable_proxy_methods(var, v)
         cache[name] = v
         cache[device_var_key] = v
         return v
@@ -210,10 +210,12 @@ class Parallelism(object):
       # so we make a custom getter that uses identity to cache the variable.
       # pylint: disable=cell-var-from-loop
       def caching_getter(getter, name, *args, **kwargs):
-        v = getter(name, *args, **kwargs)
+        """Cache variables on device."""
         key = (self._caching_devices[i], name)
         if key in cache:
           return cache[key]
+
+        v = getter(name, *args, **kwargs)
         with tf.device(self._caching_devices[i]):
           ret = tf.identity(v._ref())  # pylint: disable=protected-access
         _add_variable_proxy_methods(v, ret)

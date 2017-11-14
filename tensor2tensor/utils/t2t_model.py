@@ -505,13 +505,15 @@ class T2TModel(object):
                                                        0))
     return sharded_features
 
-  def model_fn(self, features, skip=False):
+  def model_fn(self, features, skip=False, force_full_predict=False):
     """Computes the entire model and produces sharded logits and losses.
 
     Args:
       features: A dictionary of feature name to tensor.
-      skip: a boolean, if we're just dummy-calling and actually skip this model
+      skip: a Boolean, if we're just dummy-calling and actually skip this model
         (but we need to create variables to not confuse distributed training).
+      force_full_predict: a Boolean, if set, then last-position-only
+        optimizations are not used even when allowed and in PREDICT mode.
 
     Returns:
       sharded_logits: a list of `Tensor`s, one per datashard.
@@ -579,7 +581,8 @@ class T2TModel(object):
 
     with tf.variable_scope(target_modality.name, reuse=target_reuse):
       last_only = (target_modality.top_is_pointwise and
-                   self._hparams.mode == tf.estimator.ModeKeys.PREDICT)
+                   self._hparams.mode == tf.estimator.ModeKeys.PREDICT and
+                   not force_full_predict)
       if not last_only:
         sharded_logits = target_modality.top_sharded(
             body_outputs, sharded_features["targets"], dp)
