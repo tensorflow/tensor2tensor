@@ -300,11 +300,11 @@ def compress(x, c, is_2d, hparams, name):
     # Run compression by strided convs.
     cur = x
     k1 = (3, 3) if is_2d else (3, 1)
+    cur = residual_conv(cur, hparams.num_compress_steps, k1, hparams, "rc")
     k2 = (2, 2) if is_2d else (2, 1)
     for i in xrange(hparams.num_compress_steps):
       if c is not None:
         cur = attend(cur, c, hparams, "compress_attend_%d" % i)
-      cur = residual_conv(cur, 1, k1, hparams, "compress_rc_%d" % i)
       cur = common_layers.conv_block(
           cur, hparams.hidden_size, [((1, 1), k2)],
           strides=k2, name="compress_%d" % i)
@@ -493,20 +493,24 @@ def ae_latent_sample(t_c, inputs, ed, embed, iters, hparams):
   t_pred = decode_transformer(inputs, ed, t_c, hparams, "extra")
   t_pred = tf.layers.dense(t_pred, 2**16, name="extra_logits")
   t_bit = multinomial_sample(t_pred, 2**16, hparams.sampling_temp)
-  for i in xrange(iters):
+
+  def next_bit(t_bit, i):
     t_bit_prev = t_bit
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       t_c = embed(t_bit)
       t_pred = decode_transformer(inputs, ed, t_c, hparams, "extra")
       t_pred = tf.layers.dense(t_pred, 2**16, name="extra_logits")
       t_bit = multinomial_sample(t_pred, 2**16, hparams.sampling_temp)
-      t_bit = tf.concat([t_bit_prev[:, :(i+1), :],
-                         t_bit[:, (i+1):, :]], axis=1)
+      return tf.concat([t_bit_prev[:, :(i+1), :],
+                        t_bit[:, (i+1):, :]], axis=1)
+
+  for i in xrange(iters):
+    t_bit = next_bit(t_bit, i)
   return t_bit
 
 
 def ae_transformer_internal(inputs, targets, target_space, hparams,
-                            beam_size, cache=None):
+                            beam_size, cache=None, predict_mask=1.0):
   """AE Transformer, main step used for training."""
   hparams.z_size = hparams.hidden_size
   with tf.variable_scope("ae_transformer"):
@@ -525,12 +529,10 @@ def ae_transformer_internal(inputs, targets, target_space, hparams,
 
     # Autoencoding.
     losses = {"vc": tf.constant(0.0), "sm": tf.constant(0.0)}
-    latent_len = hparams.latent_length
     if hparams.do_ae:
-      targets_pad, _ = common_layers.pad_to_same_length(
-          targets, targets, final_length_divisible_by=latent_len * 2**k)
-      targets_c = compress(targets_pad, None, False, hparams, "compress")
-      targets_c = targets_c[:, :latent_len, :, :]
+      targets, _ = common_layers.pad_to_same_length(
+          targets, targets, final_length_divisible_by=2**k)
+      targets_c = compress(targets, None, False, hparams, "compress")
       if hparams.mode != tf.estimator.ModeKeys.PREDICT:
         # Compress and bottleneck.
         t_c, t_bit, vc_loss, _ = bottleneck(targets_c, hparams, 2*2048, "vc")
@@ -546,31 +548,55 @@ def ae_transformer_internal(inputs, targets, target_space, hparams,
         t_pred = tf.layers.dense(t_pred, 2**16, name="extra_logits")
         losses["sm"] = tf.nn.sparse_softmax_cross_entropy_with_logits(
             labels=t_bit, logits=t_pred)
-        losses["sm"] = tf.reduce_mean(losses["sm"]) * 0.2 * tf.to_float(cond)
+        losses["sm"] = tf.reduce_mean(losses["sm"]) * 0.5 * tf.to_float(cond)
       else:
+        latent_len = tf.shape(targets_c)[1]
         _, _, _, embed = bottleneck(targets_c, hparams, 2*2048, "vc")
-        t_c = tf.zeros_like(targets_c)
+        t_c = tf.zeros_like(targets_c[:, :latent_len, :, :])
         if cache is None:
-          cache = ae_latent_sample(t_c, inputs, ed, embed, 3, hparams)
+          cache = ae_latent_sample(t_c, inputs, ed, embed, 8, hparams)
           cache = cache[0, :, :]
           cache = tf.reshape(cache, [1, latent_len, 1])
           cache = tf.tile(cache, [beam_size, 1, 1])
         t_c = embed(cache)
       # Postprocess.
-      pos = tf.get_variable("pos", [1, latent_len + 1, 1, hparams.hidden_size])
+      d = t_c
+      pos = tf.get_variable("pos", [1, 1000, 1, hparams.hidden_size])
+      pos = pos[:, :tf.shape(t_c)[1] + 1, :, :]
       t_c = tf.pad(t_c, [[0, 0], [1, 0], [0, 0], [0, 0]]) + pos
+
+      # Masking.
+      if hparams.do_mask:
+        masking = common_layers.inverse_lin_decay(100000)
+        masking *= common_layers.inverse_exp_decay(25000)  # Not much at start.
+        masking -= tf.random_uniform([]) * 0.3
+        masking = tf.minimum(tf.maximum(masking, 0.0), 1.0)
+        if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+          masking = predict_mask
+        mask = tf.less(masking, tf.random_uniform(tf.shape(targets)[:-1]))
+        mask = tf.expand_dims(tf.to_float(mask), 3)
+        for i in xrange(hparams.num_compress_steps):
+          j = hparams.num_compress_steps - i - 1
+          d = residual_conv(d, 1, (3, 1), hparams, "decompress_rc_%d" % j)
+          d = decompress_step(d, None, hparams,
+                              i > 0, False, "decompress_%d" % j)
+        noise = d  # tf.random_uniform(tf.shape(targets))
+        targets = mask * targets + (1.0 - mask) * noise
       targets = tf.concat([tf.reverse(t_c, [1]), targets], axis=1)
-    else:
-      targets = tf.pad(targets, [[0, 0], [latent_len + 1, 0], [0, 0], [0, 0]])
 
     res = decode_transformer(inputs, ed, targets, hparams, "decoder")
-    res = res[:, latent_len + 1:, :, :]
+    if hparams.do_ae:
+      res = res[:, tf.shape(t_c)[1]:, :, :]
     return res, losses, cache
 
 
 @registry.register_model
 class TransformerAE(t2t_model.T2TModel):
   """Autoencoder-augmented Transformer."""
+
+  def __init__(self, *args, **kwargs):
+    super(TransformerAE, self).__init__(*args, **kwargs)
+    self.predict_mask = 1.0
 
   @property
   def has_input(self):
@@ -585,7 +611,8 @@ class TransformerAE(t2t_model.T2TModel):
     with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
       res, loss, _ = ae_transformer_internal(
           inputs, features["targets"], features["target_space_id"],
-          self._hparams, beam_size, features.get("cache_raw", None))
+          self._hparams, beam_size, features.get("cache_raw", None),
+          predict_mask=self.predict_mask)
       return res, loss
 
   def prepare_features_for_infer(self, features):
@@ -603,6 +630,38 @@ class TransformerAE(t2t_model.T2TModel):
           self._hparams, beam_size)
     features["cache_raw"] = cache
 
+  def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
+            alpha=0.0):
+    """Produce predictions from the model."""
+    if not self._hparams.do_mask:
+      return super(TransformerAE, self).infer(
+          features, decode_length, beam_size, top_beams, alpha)
+    if not features:
+      features = {}
+    inputs_old = None
+    if "inputs" in features and len(features["inputs"].shape) < 4:
+      inputs_old = features["inputs"]
+      features["inputs"] = tf.expand_dims(features["inputs"], 2)
+
+    # Create an initial targets tensor.
+    if "partial_targets" in features:
+      initial_output = tf.convert_to_tensor(features["partial_targets"])
+    else:
+      batch_size = tf.shape(features["inputs"])[0]
+      length = tf.shape(features["inputs"])[1]
+      target_length = tf.to_int32(1.3 * tf.to_float(length))
+      initial_output = tf.zeros((batch_size, target_length, 1, 1),
+                                dtype=tf.int64)
+
+    features["targets"] = initial_output
+    sharded_logits, _ = self.model_fn(features, False, force_full_predict=True)
+    sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
+    samples = tf.concat(sharded_samples, 0)
+
+    if inputs_old is not None:  # Restore to not confuse Estimator.
+      features["inputs"] = inputs_old
+    return samples
+
 
 @registry.register_hparams
 def transformer_ae_small():
@@ -615,12 +674,12 @@ def transformer_ae_small():
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
   hparams.add_hparam("c_size", 16)
-  hparams.add_hparam("latent_length", 4)
   hparams.add_hparam("noise_dev", 1.0)
   hparams.add_hparam("d_mix", 0.5)
   # Bottleneck kinds supported: dense, semhash, gumbel-softmax.
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("do_ae", True)
+  hparams.add_hparam("do_mask", True)
   hparams.add_hparam("drop_inputs", False)
   hparams.add_hparam("z_size", 128)
   hparams.add_hparam("v_size", 1024*64)
