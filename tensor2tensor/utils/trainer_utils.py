@@ -35,6 +35,7 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
+from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
 flags = tf.flags
@@ -416,12 +417,12 @@ def session_config():
           opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
 
   if FLAGS.experimental_optimize_placement:
-    rewrite_options = tf.RewriterConfig(optimize_tensor_layout=True)
+    rewrite_options = rewriter_config_pb2.RewriterConfig()
     rewrite_options.optimizers.append("pruning")
     rewrite_options.optimizers.append("constfold")
+    rewrite_options.optimizers.append("arithmetic")
     rewrite_options.optimizers.append("layout")
-    graph_options = tf.GraphOptions(
-        rewrite_options=rewrite_options, infer_shapes=True)
+    graph_options = tf.GraphOptions(rewrite_options=rewrite_options)
 
   gpu_options = tf.GPUOptions(
       per_process_gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction)
