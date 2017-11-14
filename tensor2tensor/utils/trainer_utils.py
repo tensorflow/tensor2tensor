@@ -36,6 +36,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python import debug
+from tensorflow.python.training import saver
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -138,13 +139,18 @@ class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
     else:
       self.high_optimal = True
 
-    # The most recent values seen; initialize with the worst possible
+    # The most recent values seen, and the best value seen (as well as
+    # step at which it was seen); initialize with the worst possible
     # values so that we don't stop until we have filled up the
     # values_seen buffer with real values.
     if self.high_optimal:
       self.values_seen = [float('-inf')] * self.patience
+      self.best_seen = float('-inf')
+      self.best_step = None
     else:
       self.values_seen = [float('inf')] * self.patience
+      self.best_seen = float('inf')
+      self.best_step = None
       
   def _early_stopping_predicate(self, results):
     """Predicate that returns True if we should continue based on the
@@ -173,13 +179,19 @@ class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
     # have we seen any iterations worse than this one recently?
     if self.high_optimal:
       any_worse_iterations = any(x < self.values_seen[-1] for x in self.values_seen)
+      this_is_best_iteration = self.values_seen[-1] > self.best_seen
     else:
       any_worse_iterations = any(x > self.values_seen[-1] for x in self.values_seen)
+      this_is_best_iteration = self.values_seen[-1] < self.best_seen
       
     if not any_worse_iterations:
       print("\nEarly stopping on metric %s with value %f" % (self.metric, self.values_seen[-1]))
       return False
 
+    if this_is_best_iteration:
+      self.best_seen = self.values_seen[-1]
+      self.best_step = results['global_step']
+    
     return True
     
   def early_stopping_train_and_eval(self, *args, **kwargs):
@@ -189,6 +201,18 @@ class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
       *args,
       continuous_eval_predicate_fn=self._early_stopping_predicate,
       **kwargs)
+
+    assert self.best_step is not None
+
+    # update the checkpoint so that it points to the best model
+    checkpoint_path = os.path.join(self.estimator.model_dir,
+                                   'model.ckpt-{}'.format(self.best_step))
+    checkpoint_state = saver.get_checkpoint_state(self.estimator.model_dir)
+    all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
+    saver.update_checkpoint_state(
+      self.estimator.model_dir,
+      checkpoint_path,
+      all_checkpoint_paths + [checkpoint_path])
 
     
 def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
