@@ -121,13 +121,15 @@ def main(_):
           path: a path, e.g., model.ckpt-17
 
       Returns:
-          step: the step number, e.g., 17
+          step: the step number as an int, e.g., 17
       """
       return int(path[path.rindex('-') + 1:])
 
     # get available step numbers
-    steps = [extract_step(path) for path in all_checkpoint_paths]
-
+    steps = [(extract_step(path), path) for path in all_checkpoint_paths]
+    steps = sorted(steps)
+    steps, all_checkpoint_paths = zip(*steps)
+    
     # the step we want is the last one that would have allowed us to
     # stop when we did (at steps[-1])
     thresh = steps[-1] - FLAGS.eval_early_stopping_steps
