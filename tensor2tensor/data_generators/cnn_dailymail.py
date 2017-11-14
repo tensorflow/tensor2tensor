@@ -19,10 +19,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import io
+import hashlib
 import os
 import tarfile
-import hashlib
 
 # Dependency imports
 
@@ -47,7 +46,7 @@ _DAILYMAIL_STORIES_DRIVE_URL = "https://drive.google.com/uc?export=download&id=0
 # Train/Dev/Test Splits for summarization data
 _TRAIN_URLS = "https://raw.githubusercontent.com/abisee/cnn-dailymail/master/url_lists/all_train.txt"
 _DEV_URLS = "https://raw.githubusercontent.com/abisee/cnn-dailymail/master/url_lists/all_val.txt"
-_TEST_URLS = "https://raw.githubusercontent.com/abisee/cnn-dailymail/master/url_lists/all_test.txt"
+_TEST_URLS = "https://github.com/abisee/cnn-dailymail/blob/master/url_lists/all_test.txt"
 
 
 # End-of-sentence marker.
@@ -129,7 +128,9 @@ def example_splits(url_file, all_files):
 
   return filelist
 
-def example_generator(all_files, urls_path, sum_token):
+
+def example_generator(tmp_dir, is_training, sum_token):
+  """Generate examples."""
   def fix_run_on_sents(line):
     if u"@highlight" in line:
       return line
@@ -139,6 +140,7 @@ def example_generator(all_files, urls_path, sum_token):
       return line
     return line + u"."
 
+  all_files, urls_path = _maybe_download_corpora(tmp_dir, is_training)
   filelist = example_splits(urls_path, all_files)
   story_summary_split_token = u" <summary> " if sum_token else " "
 
@@ -168,29 +170,13 @@ def example_generator(all_files, urls_path, sum_token):
 
     yield " ".join(story) + story_summary_split_token + " ".join(summary)
 
+
 def _story_summary_split(story):
   split_str = u" <summary> "
   split_str_len = len(split_str)
   split_pos = story.find(split_str)
   return story[:split_pos], story[split_pos+split_str_len:]  # story, summary
 
-def write_raw_text_to_files(all_files, urls_path, data_dir, tmp_dir, is_training):
-  def write_to_file(all_files, urls_path, data_dir, filename):
-    with io.open(os.path.join(data_dir, filename+".source"), "w") as fstory, io.open(os.path.join(data_dir, filename+".target"), "w") as fsummary:
-      for example in example_generator(all_files, urls_path, sum_token=True):
-        story, summary = _story_summary_split(example)
-        fstory.write(story+"\n")
-        fsummary.write(summary+"\n")
-
-  filename = "cnndm.train" if is_training else "cnndm.dev"
-  tf.logging.info("Writing %s" % filename)
-  write_to_file(all_files, urls_path, data_dir, filename)
-
-  if not is_training:
-    test_urls_path = generator_utils.maybe_download(tmp_dir, "all_test.txt", _TEST_URLS)
-    filename = "cnndm.test"
-    tf.logging.info("Writing %s" % filename)
-    write_to_file(all_files, test_urls_path, data_dir, filename)
 
 @registry.register_problem
 class SummarizeCnnDailymail32k(problem.Text2TextProblem):
@@ -233,12 +219,10 @@ class SummarizeCnnDailymail32k(problem.Text2TextProblem):
     return False
 
   def generator(self, data_dir, tmp_dir, is_training):
-    all_files, urls_path = _maybe_download_corpora(tmp_dir, is_training)
     encoder = generator_utils.get_or_generate_vocab_inner(
         data_dir, self.vocab_file, self.targeted_vocab_size,
-        example_generator(all_files, urls_path, sum_token=False))
-    write_raw_text_to_files(all_files, urls_path, data_dir, tmp_dir, is_training)
-    for example in example_generator(all_files, urls_path, sum_token=True):
+        example_generator(tmp_dir, is_training, sum_token=False))
+    for example in example_generator(tmp_dir, is_training, sum_token=True):
       story, summary = _story_summary_split(example)
       encoded_summary = encoder.encode(summary) + [EOS]
       encoded_story = encoder.encode(story) + [EOS]

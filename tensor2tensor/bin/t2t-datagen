@@ -112,7 +112,7 @@ _SUPPORTED_PROBLEM_GENERATORS = {
             vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15),
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
-            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),     
+            vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
 }
 
 # pylint: enable=g-long-lambda

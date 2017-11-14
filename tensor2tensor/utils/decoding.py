@@ -83,9 +83,9 @@ def log_decode_results(inputs,
 
   decoded_targets = None
   if identity_output:
-    decoded_outputs = "".join(map(str, outputs.flatten()))
+    decoded_outputs = " ".join(map(str, outputs.flatten()))
     if targets is not None:
-      decoded_targets = "".join(map(str, targets.flatten()))
+      decoded_targets = " ".join(map(str, targets.flatten()))
   else:
     decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
     if targets is not None:
@@ -252,14 +252,17 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   # _decode_batch_input_fn
   sorted_inputs.reverse()
   decodes.reverse()
-  # If decode_to_file was provided use it as the output filename without any change
-  # (except for adding shard_id if using more shards for decoding).
-  # Otherwise, use the input filename plus model, hp, problem, beam, alpha.
-  decode_filename = decode_to_file if decode_to_file else filename
+  # Dumping inputs and outputs to file filename.decodes in
+  # format result\tinput in the same order as original inputs
+  if decode_to_file:
+    output_filename = decode_to_file
+  else:
+    output_filename = filename
   if decode_hp.shards > 1:
-    decode_filename = decode_filename + ("%.2d" % decode_hp.shard_id)
-  if not decode_to_file:
-    decode_filename = _decode_filename(decode_filename, problem_name, decode_hp)
+    base_filename = output_filename + ("%.2d" % decode_hp.shard_id)
+  else:
+    base_filename = output_filename
+  decode_filename = _decode_filename(base_filename, problem_name, decode_hp)
   tf.logging.info("Writing decodes into %s" % decode_filename)
   outfile = tf.gfile.Open(decode_filename, "w")
   for index in range(len(sorted_inputs)):

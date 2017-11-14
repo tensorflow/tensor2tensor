@@ -66,7 +66,7 @@ def transformer_sketch():
   hparams.learning_rate = 0.2
   hparams.learning_rate_warmup_steps = 10000
   hparams.num_hidden_layers = 6
-  hparams.initializer = "orthogonal"
+  # hparams.initializer = "orthogonal"
   hparams.sampling_method = "random"
   return hparams
 
