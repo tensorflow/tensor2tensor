@@ -23,7 +23,7 @@ All tasks produce TFRecord files of `tensorflow.Example` protocol buffers.
 To add a new problem, subclass
 [`Problem`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py)
 and register it with `@registry.register_problem`. See
-[`WMTEnDeTokens8k`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt.py)
+[`TranslateEndeWmt8k`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate_ende.py)
 for an example.
 
 `Problem`s support data generation, training, and decoding.
@@ -37,12 +37,12 @@ for training/decoding, e.g. a vocabulary file.
 A particularly easy way to implement `Problem.generate_data` for your dataset is
 to create 2 Python generators, one for the training data and another for the
 dev data, and pass them to `generator_utils.generate_dataset_and_shuffle`. See
-[`WMTEnDeTokens8k.generate_data`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt.py)
+[`TranslateEndeWmt8k.generate_data`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate_ende.py)
 for an example of usage.
 
 The generators should yield dictionaries with string keys and values being lists
 of {int, float, str}.  Here is a very simple generator for a data-set where
-inputs are lists of 2s with length upto 100 and targets are lists of length 1
+inputs are lists of 2s with length up to 100 and targets are lists of length 1
 with an integer denoting the length of the input list.
 
 ```
@@ -66,5 +66,5 @@ Some examples:
 
 *   [Algorithmic problems](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/algorithmic.py)
     and their [unit tests](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/algorithmic_test.py)
-*   [WMT problems](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt.py)
+*   [WMT En-De problems](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate_ende.py)
     and their [unit tests](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt_test.py)

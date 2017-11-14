@@ -86,7 +86,8 @@ def model_fn(model,
   # Add input statistics for incoming features.
   with tf.name_scope("input_stats"):
     for (k, v) in six.iteritems(features):
-      if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1:
+      # (epurdy) we sometimes have strings, which cause an error
+      if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1 and v.dtype != tf.string:
         tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // dp.n)
         tf.summary.scalar("%s_length" % k, tf.shape(v)[1])
         nonpadding = tf.to_float(tf.not_equal(v, 0))
@@ -108,7 +109,8 @@ def model_fn(model,
         hparams.problems[n],
         n,
         dp,
-        devices.ps_devices(all_workers=True))
+        devices.ps_devices(all_workers=True),
+        decode_hparams=decode_hparams)
     if mode == tf.estimator.ModeKeys.PREDICT:
       return model_class.infer(
           features,
@@ -183,6 +185,14 @@ def model_fn(model,
     }
     _del_dict_nones(predictions)
 
+    # (epurdy) allow model to emit additional outputs
+    # hardcoding in feature keys t2t uses
+    SKIP_FEATURES = ['inputs', 'infer_targets', 'outputs', 'scores']
+    for k in model_output:
+      if k in SKIP_FEATURES: continue
+      assert k not in predictions
+      predictions[k] = model_output[k]
+    
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
       export_out["scores"] = predictions["scores"]

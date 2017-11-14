@@ -19,9 +19,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import hashlib
 import os
 import tarfile
-import hashlib
 
 # Dependency imports
 
@@ -39,6 +39,7 @@ _CNN_STORIES_DRIVE_URL = "https://drive.google.com/uc?export=download&id=0BwmD_V
 
 _DAILYMAIL_STORIES_DRIVE_URL = "https://drive.google.com/uc?export=download&id=0BwmD_VLjROrfM1BxdkxVaTY2bWs"
 
+
 # Note: using See et al. (2017) as reference for data generation
 # For more info, use the links below
 
@@ -47,13 +48,17 @@ _TRAIN_URLS = "https://raw.githubusercontent.com/abisee/cnn-dailymail/master/url
 _DEV_URLS = "https://raw.githubusercontent.com/abisee/cnn-dailymail/master/url_lists/all_val.txt"
 _TEST_URLS = "https://github.com/abisee/cnn-dailymail/blob/master/url_lists/all_test.txt"
 
+
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
 
+
 # Techniques for data prep from See et al. (2017)
-dm_single_close_quote = u'\u2019' # unicode
-dm_double_close_quote = u'\u201d'
-END_TOKENS = [u'.', u'!', u'?', u'...', u"'", u"`", u'"', dm_single_close_quote, dm_double_close_quote, u")"] # acceptable ways to end a sentence
+dm_single_close_quote = u"\u2019"  # unicode
+dm_double_close_quote = u"\u201d"
+# Acceptable ways to end a sentence.
+END_TOKENS = [u".", u"!", u"?", u"...", u"'", u"`", u"\"",
+              dm_single_close_quote, dm_double_close_quote, u")"]
 
 
 def _maybe_download_corpora(tmp_dir, is_training):
@@ -61,9 +66,11 @@ def _maybe_download_corpora(tmp_dir, is_training):
 
   Args:
     tmp_dir: directory containing dataset.
+    is_training: whether we're in training mode or not.
 
   Returns:
-    list of all files generated and path to file containing train/dev/test split info.
+    List of all files generated and path to file containing
+      train/dev/test split info.
   """
   cnn_filename = "cnn_stories.tgz"
   cnn_finalpath = os.path.join(tmp_dir, "cnn/stories/")
@@ -85,43 +92,52 @@ def _maybe_download_corpora(tmp_dir, is_training):
   all_files = cnn_files + dailymail_files
 
   if is_training:
-    urls_path = generator_utils.maybe_download(tmp_dir, "all_train.txt", _TRAIN_URLS)
+    urls_path = generator_utils.maybe_download(
+        tmp_dir, "all_train.txt", _TRAIN_URLS)
   else:
-    urls_path = generator_utils.maybe_download(tmp_dir, "all_val.txt", _DEV_URLS)
+    urls_path = generator_utils.maybe_download(
+        tmp_dir, "all_val.txt", _DEV_URLS)
 
   return all_files, urls_path
 
-def example_splits(url_file, all_files):
-  def generate_hash(inp):
-      """Generate a sha1 hash to match the raw url to the filename extracted"""
-      h = hashlib.sha1()
-      h.update(inp)
-      return h.hexdigest()
 
-  all_files_map = {f.split("/")[-1]:f for f in all_files}
+def example_splits(url_file, all_files):
+  """Generate splits of the data."""
+  def generate_hash(inp):
+    """Generate a sha1 hash to match the raw url to the filename extracted."""
+    h = hashlib.sha1()
+    h.update(inp)
+    return h.hexdigest()
+
+  all_files_map = {f.split("/")[-1]: f for f in all_files}
 
   urls = []
   for line in tf.gfile.Open(url_file):
-    urls.append(line.strip().encode('utf-8'))
+    urls.append(line.strip().encode("utf-8"))
 
   filelist = []
   for url in urls:
-      url_hash = generate_hash(url)
-      filename = url_hash + ".story"
-      if filename not in all_files_map:
-        tf.logging.info("Missing file: %s" % url)
-        continue
-      filelist.append(all_files_map[filename])
+    url_hash = generate_hash(url)
+    filename = url_hash + ".story"
+    if filename not in all_files_map:
+      tf.logging.info("Missing file: %s" % url)
+      continue
+    filelist.append(all_files_map[filename])
 
   tf.logging.info("Found %d examples" % len(filelist))
 
   return filelist
 
+
 def example_generator(tmp_dir, is_training, sum_token):
+  """Generate examples."""
   def fix_run_on_sents(line):
-    if u"@highlight" in line: return line
-    if line=="": return line
-    if line[-1] in END_TOKENS: return line
+    if u"@highlight" in line:
+      return line
+    if not line:
+      return line
+    if line[-1] in END_TOKENS:
+      return line
     return line + u"."
 
   all_files, urls_path = _maybe_download_corpora(tmp_dir, is_training)
@@ -133,28 +149,33 @@ def example_generator(tmp_dir, is_training, sum_token):
     summary = []
     reading_highlights = False
     for line in tf.gfile.Open(story_file, "rb"):
-      line = unicode(line.strip(), "utf-8") if six.PY2 else line.strip().decode("utf-8")
-      line = fix_run_on_sents(line)
-      if line == "":
-          continue
-      elif line.startswith(u"@highlight"):
-          if len(story) == 0: break # No article text
-          reading_highlights = True
-      elif reading_highlights:
-          summary.append(line)
+      if six.PY2:
+        line = unicode(line.strip(), "utf-8")
       else:
-          story.append(line)
-
-    if len(story) == 0 or len(summary) == 0:
+        line = line.strip().decode("utf-8")
+      line = fix_run_on_sents(line)
+      if not line:
         continue
+      elif line.startswith(u"@highlight"):
+        if not story:
+          break  # No article text.
+        reading_highlights = True
+      elif reading_highlights:
+        summary.append(line)
+      else:
+        story.append(line)
+
+    if (not story) or not summary:
+      continue
 
     yield " ".join(story) + story_summary_split_token + " ".join(summary)
+
 
 def _story_summary_split(story):
   split_str = u" <summary> "
   split_str_len = len(split_str)
   split_pos = story.find(split_str)
-  return story[:split_pos], story[split_pos+split_str_len:] # story, summary
+  return story[:split_pos], story[split_pos+split_str_len:]  # story, summary
 
 
 @registry.register_problem

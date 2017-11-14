@@ -346,14 +346,16 @@ def _recompute_grad(fn, args):
   """See recompute_grad."""
 
   cached_vs = []
+  cached_arg_scope = []
 
   def grad_fn(inputs, variables, outputs, output_grads):
     """Recompute outputs for gradient computation."""
     del outputs
     # Recompute outputs
     with tf.control_dependencies(output_grads):
-      with tf.variable_scope(cached_vs[0], reuse=True):
-        outputs = fn(*inputs)
+      with tf.contrib.framework.arg_scope(cached_arg_scope[0]):
+        with tf.variable_scope(cached_vs[0], reuse=True):
+          outputs = fn(*inputs)
 
     if not (isinstance(outputs, list) or isinstance(outputs, tuple)):
       outputs = [outputs]
@@ -366,6 +368,11 @@ def _recompute_grad(fn, args):
   @common_layers.fn_with_custom_grad(grad_fn)
   def fn_with_recompute(*args):
     cached_vs.append(tf.get_variable_scope())
+    # TODO(rsepassi): Rm conditional in TF 1.4
+    if hasattr(tf.contrib.framework, "current_arg_scope"):
+      cached_arg_scope.append(tf.contrib.framework.current_arg_scope())
+    else:
+      cached_arg_scope.append({})
     return fn(*args)
 
   return fn_with_recompute(*args)

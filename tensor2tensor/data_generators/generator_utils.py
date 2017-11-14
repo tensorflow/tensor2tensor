@@ -21,9 +21,9 @@ from __future__ import print_function
 
 from collections import defaultdict
 import gzip
-import io
 import os
 import random
+import stat
 import tarfile
 
 # Dependency imports
@@ -190,8 +190,8 @@ def maybe_download(directory, filename, url):
     print()
     tf.gfile.Rename(inprogress_filepath, filepath)
     statinfo = os.stat(filepath)
-    tf.logging.info("Succesfully downloaded %s, %s bytes." % (filename,
-                                                              statinfo.st_size))
+    tf.logging.info("Successfully downloaded %s, %s bytes." %
+                    (filename, statinfo.st_size))
   else:
     tf.logging.info("Not downloading, file already found: %s" % filepath)
   return filepath
@@ -242,8 +242,8 @@ def maybe_download_from_drive(directory, filename, url):
   # Print newline to clear the carriage return from the download progress
   print()
   statinfo = os.stat(filepath)
-  tf.logging.info("Succesfully downloaded %s, %s bytes." % (filename,
-                                                            statinfo.st_size))
+  tf.logging.info("Successfully downloaded %s, %s bytes." % (filename,
+                                                             statinfo.st_size))
   return filepath
 
 
@@ -258,10 +258,14 @@ def gunzip_file(gz_path, new_path):
     tf.logging.info("File %s already exists, skipping unpacking" % new_path)
     return
   tf.logging.info("Unpacking %s to %s" % (gz_path, new_path))
+  # We may be unpacking into a newly created directory, add write mode.
+  mode = stat.S_IRWXU or stat.S_IXGRP or stat.S_IRGRP or stat.S_IROTH
+  os.chmod(os.path.dirname(new_path), mode)
   with gzip.open(gz_path, "rb") as gz_file:
-    with io.open(new_path, "wb") as new_file:
+    with tf.gfile.GFile(new_path, mode="wb") as new_file:
       for line in gz_file:
         new_file.write(line)
+
 
 def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
                                 generator):
@@ -301,10 +305,7 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
   return vocab
 
 
-def get_or_generate_vocab(data_dir,
-                          tmp_dir,
-                          vocab_filename,
-                          vocab_size,
+def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
                           sources):
   """Generate a vocabulary from the datasets in sources."""
 

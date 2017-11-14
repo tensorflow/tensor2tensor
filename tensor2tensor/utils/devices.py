@@ -109,14 +109,17 @@ def data_parallelism(all_workers=False):
         ps_tasks=FLAGS.ps_replicas,
         ps_device=FLAGS.ps_job + "/GPU:0" if FLAGS.ps_gpu > 0 else FLAGS.ps_job)
 
-  if FLAGS.schedule == "train_and_evaluate":
+  if FLAGS.schedule in ["train_and_evaluate", "continuous_train_and_eval"]:
     assert not FLAGS.sync
+    tf.logging.warn(
+        "Schedule=%s. Assuming that training is running on a single machine.",
+        FLAGS.schedule)
     datashard_devices = ["gpu:%d" % d for d in _gpu_order(FLAGS.worker_gpu)]
     if FLAGS.locally_shard_to_cpu or FLAGS.worker_gpu < 1:
       datashard_devices += ["cpu:0"]
     caching_devices = None
-  elif FLAGS.sync:
-    assert FLAGS.ps_replicas > 0
+  elif FLAGS.sync and FLAGS.ps_replicas > 0:
+    # compute on ps
     datashard_devices = [
         _replica_device_setter(d) for d in ps_devices(all_workers=all_workers)
     ]
@@ -128,7 +131,8 @@ def data_parallelism(all_workers=False):
     else:
       caching_devices = None
   else:
-    # old fashioned async - compute on worker
+    # compute on worker - this is either a single-worker setup or asynchronous
+    # with parameter servers.
     if FLAGS.worker_gpu > 1:
       datashard_devices = [
           _replica_device_setter(FLAGS.worker_job + "/GPU:%d" % d)

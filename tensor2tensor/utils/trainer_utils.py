@@ -63,6 +63,19 @@ flags.DEFINE_string("problems", "", "Dash separated list of problems to "
 flags.DEFINE_string("data_dir", None, "Directory with training data.")
 flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
+flags.DEFINE_string("eval_early_stopping_metric", "loss",
+                    "If --schedule=train_and_evaluate and "
+                    "--eval_early_stopping_steps is not None, then stop when "
+                    "--eval_early_stopping_metric has not decreased for "
+                    "--eval_early_stopping_steps")
+flags.DEFINE_integer("eval_early_stopping_steps", None,
+                     "If --schedule=train_and_evaluate and "
+                     "--eval_early_stopping_steps is not None, then stop when "
+                     "--eval_early_stopping_metric has not decreased for "
+                     "--eval_early_stopping_steps")
+flags.DEFINE_bool("eval_early_stopping_metric_minimize", True,
+                  "Whether to check for the early stopping metric going down "
+                  "or up.")
 flags.DEFINE_bool("eval_run_autoregressive", False,
                   "Run eval autoregressively where we condition on previous"
                   "generated output instead of the actual target.")
@@ -110,6 +123,74 @@ flags.DEFINE_string(
     "See decoding.decode_hparams for defaults.")
 
 
+class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
+  def __init__(self, *args, **kwargs):
+    super(EarlyStoppingExperiment, self).__init__(
+      *args,
+      **kwargs)
+    self.patience = FLAGS.eval_early_stopping_steps or 6
+    self.metric = FLAGS.eval_early_stopping_metric
+
+    # For loss, we want low numbers, for all others we want high
+    # numbers
+    if FLAGS.eval_early_stopping_metric_minimize:
+      self.high_optimal = False
+    else:
+      self.high_optimal = True
+
+    # The most recent values seen; initialize with the worst possible
+    # values so that we don't stop until we have filled up the
+    # values_seen buffer with real values.
+    if self.high_optimal:
+      self.values_seen = [float('-inf')] * self.patience
+    else:
+      self.values_seen = [float('inf')] * self.patience
+      
+  def _early_stopping_predicate(self, results):
+    """Predicate that returns True if we should continue based on the
+    results seen so far.
+
+    Returns True when the current iteration is better than some
+    iteration seen in the last 'patience' iterations.
+
+    Args:
+      results: dict mapping metric names to values
+
+    Returns:
+      return_value: True if we should keep training, False if we
+                    should stop
+
+    """
+    # The first time this gets called, results will be None, and we
+    # don't want to stop
+    if not results:
+      return True
+
+    # Add new value and forget oldest value
+    self.values_seen.pop(0)
+    self.values_seen.append(results[self.metric])
+
+    # have we seen any iterations worse than this one recently?
+    if self.high_optimal:
+      any_worse_iterations = any(x < self.values_seen[-1] for x in self.values_seen)
+    else:
+      any_worse_iterations = any(x > self.values_seen[-1] for x in self.values_seen)
+      
+    if not any_worse_iterations:
+      print("\nEarly stopping on metric %s with value %f" % (self.metric, self.values_seen[-1]))
+      return False
+
+    return True
+    
+  def early_stopping_train_and_eval(self, *args, **kwargs):
+    """Like train and eval, except we do early stopping.
+    """
+    self.continuous_train_and_eval(
+      *args,
+      continuous_eval_predicate_fn=self._early_stopping_predicate,
+      **kwargs)
+
+    
 def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
   """Returns experiment_fn for learn_runner. Wraps create_experiment."""
 
@@ -144,11 +225,24 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
     # Recorded traces can be visualized with chrome://tracing/
     # The memory/tensor lifetime is also profiled
     train_monitors.append(
-        tf.contrib.hooks.ProfilerHook(
+        tf.train.ProfilerHook(
             save_steps=10,
             output_dir=run_config.model_dir,
             show_dataflow=True,
-            show_memory=True,))
+            show_memory=True,
+        ))
+  if FLAGS.schedule == "train_and_evaluate":
+    if FLAGS.local_eval_frequency:
+      train_monitors.append(
+          tf.contrib.learn.monitors.ValidationMonitor(
+              input_fn=input_fns[tf.estimator.ModeKeys.EVAL],
+              eval_steps=eval_steps,
+              every_n_steps=FLAGS.local_eval_frequency,
+              hooks=eval_hooks,
+              early_stopping_rounds=FLAGS.eval_early_stopping_steps,
+              early_stopping_metric=FLAGS.eval_early_stopping_metric,
+              early_stopping_metric_minimize=FLAGS.
+              eval_early_stopping_metric_minimize))
 
   optional_kwargs = {}
   if FLAGS.export_saved_model:
@@ -158,15 +252,15 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
         make_export_strategy(problem, hparams)
     ]
 
-  return tf.contrib.learn.Experiment(
+  return EarlyStoppingExperiment(
       estimator=estimator,
       train_input_fn=input_fns[tf.estimator.ModeKeys.TRAIN],
       eval_input_fn=input_fns[tf.estimator.ModeKeys.EVAL],
       train_steps=train_steps,
       eval_steps=eval_steps,
-      min_eval_frequency=FLAGS.local_eval_frequency,
       train_monitors=train_monitors,
       eval_hooks=eval_hooks,
+      train_steps_per_iteration=FLAGS.local_eval_frequency,
       eval_delay_secs=0,
       **optional_kwargs)
 
@@ -378,8 +472,9 @@ def is_chief():
 
 def session_config():
   """The TensorFlow Session config to use."""
-  graph_options = tf.GraphOptions(optimizer_options=tf.OptimizerOptions(
-      opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
+  graph_options = tf.GraphOptions(
+      optimizer_options=tf.OptimizerOptions(
+          opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
 
   if FLAGS.experimental_optimize_placement:
     rewrite_options = tf.RewriterConfig(optimize_tensor_layout=True)

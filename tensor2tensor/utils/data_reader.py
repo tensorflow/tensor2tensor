@@ -44,7 +44,7 @@ def feature_placeholders(data_fields, data_items_to_decoders):
   example = {}
   for field, config in data_fields.items():
     if isinstance(config, tf.VarLenFeature):
-      shape = [None]
+      shape = [None, None]
     else:
       shape = config.shape
 
@@ -71,7 +71,8 @@ def input_pipeline(problem,
                    mode,
                    hparams,
                    batching_scheme,
-                   dataset_split=None):
+                   dataset_split=None,
+                   shard=None):
   """Input pipeline, returns a dictionary of batched and padded tensors.
 
   Args:
@@ -88,6 +89,7 @@ def input_pipeline(problem,
       "max_length": an integer.  We drop sequences which are longer.
     dataset_split: tf.estimator.ModeKeys + ["test"], which split of the dataset
       to use. Defaults to mode.
+    shard: int, if provided, will only read data from the specified shard.
 
   Returns:
     dict <feature name, batched and padded Tensor>
@@ -102,7 +104,8 @@ def input_pipeline(problem,
         num_threads=num_threads,
         output_buffer_size=capacity,
         hparams=hparams,
-        dataset_split=dataset_split)
+        dataset_split=dataset_split,
+        shard=shard)
     dataset = dataset.map(cast_int64_to_int32, num_threads=num_threads)
     dataset = dataset.filter(
         functools.partial(

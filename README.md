@@ -124,7 +124,7 @@ t2t-decoder \
   --model=$MODEL \
   --hparams_set=$HPARAMS \
   --output_dir=$TRAIN_DIR \
-  --decode_hparams="beam_size=$BEAM_SIZE,alpha=$ALPHA" \
+  --decode_hparams="beam_size=$BEAM_SIZE,alpha=$ALPHA,use_last_position_only=True" \
   --decode_from_file=$DECODE_FILE
 
 cat $DECODE_FILE.$MODEL.$HPARAMS.beam$BEAM_SIZE.alpha$ALPHA.decodes
@@ -286,7 +286,7 @@ registrations.
 To add a new dataset, subclass
 [`Problem`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py)
 and register it with `@registry.register_problem`. See
-[`TranslateEndeWmt8k`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/wmt.py)
+[`TranslateEndeWmt8k`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate_ende.py)
 for an example.
 
 Also see the [data generators

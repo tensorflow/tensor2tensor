@@ -112,5 +112,51 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(fast_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
     self.assertAllClose(greedy_res, fast_res)
 
+  def testBeamVsFast(self):
+    model, features = self.getModel(transformer.transformer_small())
+
+    decode_length = 2
+
+    out_logits, _ = model.model_fn(features)
+    out_logits = tf.squeeze(out_logits[0], axis=[2, 3])
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        logits=tf.reshape(out_logits, [-1, VOCAB_SIZE]),
+        labels=tf.reshape(features["targets"], [-1]))
+    loss = tf.reduce_mean(loss)
+    apply_grad = tf.train.AdamOptimizer(0.001).minimize(loss)
+
+    with self.test_session():
+      tf.global_variables_initializer().run()
+      for _ in range(100):
+        apply_grad.run()
+
+    model, _ = self.getModel(transformer.transformer_small(),
+                             mode=tf.estimator.ModeKeys.PREDICT)
+
+    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+      beam_result = model._beam_decode_slow(
+          features,
+          decode_length,
+          beam_size=4,
+          top_beams=1,
+          last_position_only=True,
+          alpha=1.0)
+
+      fast_result = model._beam_decode(
+          features,
+          decode_length,
+          beam_size=4,
+          top_beams=1,
+          last_position_only=True,
+          alpha=1.0)
+
+    with self.test_session():
+      beam_res = beam_result.eval()
+      fast_res = fast_result.eval()
+
+    self.assertEqual(fast_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertAllClose(beam_res, fast_res)
+
+
 if __name__ == "__main__":
   tf.test.main()
