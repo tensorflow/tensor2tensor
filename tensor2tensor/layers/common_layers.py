@@ -142,7 +142,8 @@ def standardize_images(x):
     x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keep_dims=True)
     x_variance = tf.reduce_mean(
         tf.square(x - x_mean), axis=[1, 2, 3], keep_dims=True)
-    num_pixels = tf.to_float(tf.shape(x)[1] * tf.shape(x)[2] * 3)
+    x_shape = shape_list(x)
+    num_pixels = tf.to_float(x_shape[1] * x_shape[2] * 3)
     x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
     # TODO(lukaszkaiser): remove hack below, needed for greedy decoding for now.
     if x.shape and len(x.shape) == 4 and x.shape[3] == 1:
@@ -157,7 +158,7 @@ def convert_rgb_to_real(x):
     x = tf.to_float(x)
     # Use the formula (value/128) - 1 to convert each channel value into a
     # real number in the range -1 to 1.
-    x = (x /128) - 1
+    x = (x / 128) - 1
     return x
 
 
@@ -191,11 +192,8 @@ def cifar_image_augmentation(images):
 
 def flatten4d3d(x):
   """Flatten a 4d-tensor into a 3d-tensor by joining width and height."""
-  xshape = tf.shape(x)
+  xshape = shape_list(x)
   result = tf.reshape(x, [xshape[0], xshape[1] * xshape[2], xshape[3]])
-  # Preserve static shapes when available.
-  xshape_static = x.get_shape()
-  result.set_shape([xshape_static[0], None, xshape_static[3]])
   return result
 
 
@@ -211,12 +209,12 @@ def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0):
     emb_x = tf.gather(embedding_var, x)
     if multiplier != 1.0:
       emb_x *= multiplier
-    shape, static_shape = tf.shape(emb_x), emb_x.shape.as_list()
-    if not static_shape or len(static_shape) < 5:
+    static_shape = emb_x.shape.as_list()
+    if len(static_shape) < 5:
       return emb_x
-    # If we had extra channel dimensions, assume it's 1, i.e. shape[3] == 1.
     assert len(static_shape) == 5
-    return tf.reshape(emb_x, [shape[0], shape[1], shape[2], static_shape[4]])
+    # If we had an extra channel dimension, assume it's 1, i.e. shape[3] == 1.
+    return tf.squeeze(emb_x, 3)
 
 
 def shift_right(x, pad_value=None):
@@ -298,7 +296,7 @@ def deconv_stride2_multistep(x,
       name, default_name="deconv_stride2_multistep", values=[x], reuse=reuse):
 
     def deconv1d(cur, i):
-      cur_shape = tf.shape(cur)
+      cur_shape = shape_list(cur)
       thicker = conv(
           cur,
           output_filters * 2, (1, 1),
@@ -322,10 +320,17 @@ def deconv_stride2_multistep(x,
       if cur.get_shape()[2] == 1:
         cur = deconv1d(cur, i)
       else:
-        cur = tf.cond(
-            tf.equal(tf.shape(cur)[2], 1),
-            lambda idx=i: deconv1d(cur, idx),
-            lambda idx=i: deconv2d(cur, idx))
+        cur_dim = shape_list(cur)[2]
+        if isinstance(cur_dim, int):
+          if cur_dim == 1:
+            cur = deconv1d(cur, i)
+          else:
+            cur = deconv2d(cur, i)
+        else:
+          cur = tf.cond(
+              tf.equal(cur_dim, 1),
+              lambda idx=i: deconv1d(cur, idx),
+              lambda idx=i: deconv2d(cur, idx))
     return cur
 
 
@@ -343,7 +348,7 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
     assert kernel_size[0] % 2 == 1 and kernel_size[1] % 2 == 1
     height_padding = 2 * (kernel_size[0] // 2) * dilation_rate[0]
     cond_padding = tf.cond(
-        tf.equal(tf.shape(inputs)[2], 1), lambda: tf.constant(0),
+        tf.equal(shape_list(inputs)[2], 1), lambda: tf.constant(0),
         lambda: tf.constant(2 * (kernel_size[1] // 2) * dilation_rate[1]))
     width_padding = 0 if static_shape[2] == 1 else cond_padding
     padding = [[0, 0], [height_padding, 0], [width_padding, 0], [0, 0]]
@@ -729,7 +734,7 @@ def pool(inputs, window_size, pooling_type, padding, strides=(1, 1)):
       else:
         height_padding = 2 * (window_size[0] // 2)
         cond_padding = tf.cond(
-            tf.equal(tf.shape(inputs)[2], 1), lambda: tf.constant(0),
+            tf.equal(shape_list(inputs)[2], 1), lambda: tf.constant(0),
             lambda: tf.constant(2 * (window_size[1] // 2)))
         width_padding = 0 if static_shape[2] == 1 else cond_padding
         padding_ = [[0, 0], [height_padding, 0], [width_padding, 0], [0, 0]]
@@ -808,9 +813,9 @@ def decompress_seqcnn(x,
     # We assume targets are [batch x block_size * N x block_size * N x C] if
     # is_2d=True or [batch, block_size * N, 1, C] otherwise, and C is static.
     # Let's shift targets to depth and embed.
-    targets_shape, targets_shape_static = tf.shape(targets), targets.get_shape()
-    channels = int(targets_shape_static[-1])
-    hidden_size = int(x.get_shape()[-1])
+    targets_shape = shape_list(targets)
+    channels = targets_shape[-1]
+    hidden_size = x.get_shape()[-1]
     if is_2d:
       depth_targets = tf.space_to_depth(targets, block_size)
       factor = channels * block_size * block_size
@@ -836,17 +841,17 @@ def decompress_seqcnn(x,
         dilations_and_kernels,
         padding="LEFT")
     # Reshape back to embedded targets shape.
+    targets_emb_shape = shape_list(targets_emb)
     outputs = tf.reshape(flat_outputs, [
-        tf.shape(targets_emb)[0],
-        tf.shape(targets_emb)[1],
-        tf.shape(targets_emb)[2], factor * hidden_size
+        targets_emb_shape[0], targets_emb_shape[1], targets_emb_shape[2],
+        factor * hidden_size
     ])
     # Move depth back to target space.
     if is_2d:
       outputs = tf.depth_to_space(outputs, 2)
     else:
       outputs = tf.reshape(outputs, [
-          tf.shape(outputs)[0], block_size * tf.shape(outputs)[1], 1,
+          shape_list(outputs)[0], block_size * shape_list(outputs)[1], 1,
           hidden_size
       ])
     # Final reshape before prediction to ensure target size.
@@ -872,8 +877,8 @@ def simple_attention(target, source, bias=None):
     a `Tensor` with same shape as `target`
   """
   with tf.name_scope("simple_attention", [target, source]):
-    target_shape = tf.shape(target)
-    source_shape = tf.shape(source)
+    target_shape = shape_list(target)
+    source_shape = shape_list(source)
     target = tf.reshape(
         target,
         [target_shape[0], target_shape[1] * target_shape[2], target_shape[3]])
@@ -881,7 +886,7 @@ def simple_attention(target, source, bias=None):
         source,
         [source_shape[0], source_shape[1] * source_shape[2], source_shape[3]])
     attention = tf.matmul(target, source, transpose_b=True)
-    attention *= tf.rsqrt(tf.to_float(tf.shape(target)[2]))
+    attention *= tf.rsqrt(tf.to_float(shape_list(target)[2]))
     if bias is not None:
       attention += tf.expand_dims(tf.squeeze(bias, axis=[2, 3]), axis=1)
     attention = tf.nn.softmax(attention)
@@ -1074,8 +1079,8 @@ def add_timing_signal(x, min_timescale=1, max_timescale=1e4, num_timescales=16):
   Returns:
     a Tensor the same shape as x.
   """
-  length = tf.shape(x)[1]
-  depth = tf.shape(x)[3]
+  length = shape_list(x)[1]
+  depth = shape_list(x)[3]
   signal = get_timing_signal(length, min_timescale, max_timescale,
                              num_timescales)
   padded_signal = tf.pad(signal, [[0, 0], [0, depth - 2 * num_timescales]])
@@ -1105,8 +1110,12 @@ def mask_leq(target_length, source_length):
   Returns:
     a Tensor with shape [1, target_length, source_length]
   """
-  return tf.expand_dims(
-      tf.matrix_band_part(tf.ones([target_length, source_length]), -1, 0), 0)
+  return ones_matrix_band_part(
+      target_length,
+      source_length,
+      -1,
+      0,
+      out_shape=[1, target_length, source_length])
 
 
 def attention_1d_v0(source,
@@ -1141,9 +1150,10 @@ def attention_1d_v0(source,
     a Tensor of shape [batch, length, output_size]
   """
   with tf.variable_scope(name, default_name="attention", values=[target]):
-    source_length = tf.shape(source)[1]
-    target_length = tf.shape(target)[1]
-    batch = tf.shape(source)[0]
+    source_shape = shape_list(source)
+    source_length = source_shape[1]
+    target_length = shape_list(target)[1]
+    batch = source_shape[0]
 
     def _maybe_transform(t, size, should_transform, name):
       if should_transform:
@@ -1345,8 +1355,8 @@ def pad_to_same_length(x, y, final_length_divisible_by=1, axis=1):
   if axis not in [1, 2]:
     raise ValueError("Only axis=1 and axis=2 supported for now.")
   with tf.name_scope("pad_to_same_length", [x, y]):
-    x_length = tf.shape(x)[axis]
-    y_length = tf.shape(y)[axis]
+    x_length = shape_list(x)[axis]
+    y_length = shape_list(y)[axis]
     max_length = tf.maximum(x_length, y_length)
     if final_length_divisible_by > 1:
       # Find the nearest larger-or-equal integer divisible by given number.
@@ -1472,7 +1482,7 @@ def padded_cross_entropy(logits,
         weights_fn=weights_fn,
         reduce_sum=reduce_sum)
   confidence = 1.0 - label_smoothing
-  vocab_size = tf.shape(logits)[-1]
+  vocab_size = shape_list(logits)[-1]
   with tf.name_scope("padded_cross_entropy", [logits, labels]):
     pad_logits, pad_labels = pad_with_zeros(logits, labels)
     xent = smoothing_cross_entropy(pad_logits, pad_labels, vocab_size,
@@ -1778,7 +1788,7 @@ def approximate_split(x, num_splits, axis=0):
   Returns:
     a list of num_splits Tensors.
   """
-  size = tf.shape(x)[axis]
+  size = shape_list(x)[axis]
   size_splits = [tf.div(size + i, num_splits) for i in xrange(num_splits)]
   return tf.split(x, size_splits, axis=axis)
 
@@ -1809,11 +1819,14 @@ class FactoredTensor(object):
     return self._b
 
   def to_tensor(self):
-    inner_dim = tf.shape(self.b)[1]
-    result_dim = tf.shape(self.b)[0]
+    """Convert to Tensor."""
+    a_shape = shape_list(self.a)
+    b_shape = shape_list(self.b)
+    inner_dim = b_shape[1]
+    result_dim = b_shape[0]
     flat_a = tf.reshape(self.a, [-1, inner_dim])
     product = tf.matmul(flat_a, self.b, transpose_b=True)
-    product_shape = tf.concat([tf.shape(self.a)[:-1], [result_dim]], 0)
+    product_shape = a_shape[:-1] + [result_dim]
     product = tf.reshape(product, product_shape)
     product.set_shape(
         self.a.get_shape().as_list()[:-1] + [self.b.get_shape()[0]])
@@ -1836,7 +1849,7 @@ def smoothing_cross_entropy_factored_grad(op, dy):
   labels = op.inputs[2]
   confidence = op.inputs[3]
   num_splits = 16
-  vocab_size = tf.shape(b)[0]
+  vocab_size = shape_list(b)[0]
   labels = approximate_split(labels, num_splits)
   a = approximate_split(a, num_splits)
   dy = approximate_split(dy, num_splits)
@@ -1880,7 +1893,7 @@ def smoothing_cross_entropy_factored(a, b, labels, confidence):
     A Tensor with shape [batch]
   """
   num_splits = 16
-  vocab_size = tf.shape(b)[0]
+  vocab_size = shape_list(b)[0]
   labels = approximate_split(labels, num_splits)
   a = approximate_split(a, num_splits)
   parts = []
@@ -1918,10 +1931,10 @@ def padded_cross_entropy_factored(factored_logits,
   confidence = 1.0 - label_smoothing
   with tf.name_scope("padded_cross_entropy_factored", [a, b, labels]):
     labels_flat = tf.reshape(labels, [-1])
-    a_flat = tf.reshape(a, [-1, tf.shape(b)[1]])
+    a_flat = tf.reshape(a, [-1, shape_list(b)[1]])
     xent = smoothing_cross_entropy_factored(a_flat, b, labels_flat,
                                             tf.convert_to_tensor(confidence))
-    xent = tf.reshape(xent, tf.shape(labels))
+    xent = tf.reshape(xent, shape_list(labels))
     weights = weights_fn(labels)
     if not reduce_sum:
       return xent * weights, weights
@@ -2054,7 +2067,7 @@ def conv_hidden_relu_memory_efficient(x,
     # split batch-wise to avoid exhausting memory in cast the batch is large
     # and the hidden layer is large.
     num_splits = 4
-    x_flat = tf.reshape(x, [-1, 1, tf.shape(x)[2]])
+    x_flat = tf.reshape(x, [-1, 1, shape_list(x)[2]])
     xs = approximate_split(x_flat, num_splits)
     ys = []
     for i in xrange(num_splits):
@@ -2065,7 +2078,7 @@ def conv_hidden_relu_memory_efficient(x,
         y = tf.nn.conv1d(y, f2, 1, "SAME")
         ys.append(y)
     y = tf.concat(ys, 0)
-    y = tf.reshape(y, tf.shape(x))
+    y = tf.reshape(y, shape_list(x))
     return y
 
   key = ("conv_hidden_relu_memory_efficient %s" % epsilon)
@@ -2079,7 +2092,7 @@ def conv_hidden_relu_memory_efficient(x,
     def grad_fn(x, f1, f2, scale, bias, dy):
       with tf.control_dependencies([dy]):
         num_splits = 4
-        x_shape = tf.shape(x)
+        x_shape = shape_list(x)
         flat_shape = [-1, 1, x_shape[2]]
         x = tf.reshape(x, flat_shape)
         dy = tf.reshape(dy, flat_shape)
@@ -2133,12 +2146,24 @@ def conv_hidden_relu_memory_efficient(x,
     return y
 
 
-def shape_dim(x, dim):
-  """Return shape(x)[dim], statically if possible."""
+def shape_list(x):
+  """Return list of dims, statically where possible."""
+  x = tf.convert_to_tensor(x)
+
+  # If unknown rank, return dynamic shape
+  if x.get_shape().dims is None:
+    return tf.shape(x)
+
   static = x.get_shape().as_list()
-  if dim < len(static) and static[dim] is not None:
-    return static[dim]
-  return tf.shape(x)[dim]
+  shape = tf.shape(x)
+
+  ret = []
+  for i in xrange(len(static)):
+    dim = static[i]
+    if dim is None:
+      dim = shape[i]
+    ret.append(dim)
+  return ret
 
 
 def sample_with_temperature(logits, temperature):
@@ -2156,8 +2181,30 @@ def sample_with_temperature(logits, temperature):
   else:
     assert temperature > 0.0
     reshaped_logits = (
-        tf.reshape(logits, [-1, tf.shape(logits)[-1]])/temperature)
+        tf.reshape(logits, [-1, shape_list(logits)[-1]]) / temperature)
     choices = tf.multinomial(reshaped_logits, 1)
     choices = tf.reshape(choices,
-                         tf.shape(logits)[:logits.get_shape().ndims - 1])
+                         shape_list(logits)[:logits.get_shape().ndims - 1])
     return choices
+
+
+def ones_matrix_band_part(rows, cols, num_lower, num_upper, out_shape=None):
+  """Matrix band part of ones."""
+  if all([isinstance(el, int) for el in [rows, cols, num_lower, num_upper]]):
+    # Needed info is constant, so we construct in numpy
+    if num_lower < 0:
+      num_lower = rows - 1
+    if num_upper < 0:
+      num_upper = cols - 1
+    lower_mask = np.tri(rows, cols, num_lower).T
+    upper_mask = np.tri(rows, cols, num_upper)
+    band = np.ones((rows, cols)) * lower_mask * upper_mask
+    if out_shape:
+      band = band.reshape(out_shape)
+    band = tf.constant(band, tf.float32)
+  else:
+    band = tf.matrix_band_part(tf.ones([rows, cols]), num_lower, num_upper)
+    if out_shape:
+      band = tf.reshape(band, out_shape)
+
+  return band

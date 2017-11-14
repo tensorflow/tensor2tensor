@@ -39,13 +39,11 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
-
 ModeKeys = tf.estimator.ModeKeys  # pylint: disable=invalid-name
 
 
 def _should_preprocess(layer_type):
-  return layer_type not in [
-      "timing", "pos_emb", "att_memory_efficient"]
+  return layer_type not in ["timing", "pos_emb", "att_memory_efficient"]
 
 
 def _should_postprocess(layer_type):
@@ -61,17 +59,23 @@ class Aligned(t2t_model.T2TModel):
     hparams = self._hparams
     dp = self._data_parallelism
     x = dp(tf.squeeze, sharded_features["inputs"], 2)
+
     def preprocess(x):
       return dp(common_layers.layer_preprocess, x, hparams)
+
     def postprocess(x, y):
       return dp(common_layers.layer_postprocess, x, y, hparams)
+
     x = dp(tf.nn.dropout, x, 1.0 - hparams.layer_prepostprocess_dropout)
     extra_loss = 0.0
     ffn_hidden_sizes = [int(s) for s in hparams.ffn_hidden_sizes.split(",")]
     moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
     if hparams.mask_right:
+
       def _bias(x):
-        return common_attention.attention_bias_lower_triangle(tf.shape(x)[1])
+        return common_attention.attention_bias_lower_triangle(
+            common_layers.shape_list(x)[1])
+
       bias = dp(_bias, x)
     else:
       bias = tf.zeros([1, 1, 1, 1])
@@ -96,8 +100,11 @@ class Aligned(t2t_model.T2TModel):
         if layer_type == "timing":
           y = dp(common_attention.add_timing_signal_nd, x)
         elif layer_type == "pos_emb":
-          y = dp(common_attention.add_positional_embedding_nd,
-                 x, hparams.max_length, name="pos_emb")
+          y = dp(
+              common_attention.add_positional_embedding_nd,
+              x,
+              hparams.max_length,
+              name="pos_emb")
         elif layer_type == "att":
           y = dp(
               common_attention.multihead_attention,
@@ -130,11 +137,8 @@ class Aligned(t2t_model.T2TModel):
           extra_loss += tf.add_n(loss) / dp.n
         elif layer_type == "att_memory_efficient":
           assert hparams.layer_preprocess_sequence == "n"
-          y = dp(
-              common_attention.multihead_self_attention_memory_efficient,
-              x,
-              bias,
-              hparams.num_heads)
+          y = dp(common_attention.multihead_self_attention_memory_efficient, x,
+                 bias, hparams.num_heads)
         elif layer_type == "att_local":
           y = dp(
               common_attention.multihead_attention,
@@ -146,9 +150,8 @@ class Aligned(t2t_model.T2TModel):
               hparams.hidden_size,
               hparams.num_heads,
               hparams.attention_dropout,
-              attention_type=(
-                  "local_mask_right" if hparams.mask_right
-                  else "local_unmasked"),
+              attention_type=("local_mask_right"
+                              if hparams.mask_right else "local_unmasked"),
               block_length=hparams.local_attention_window,
               block_width=hparams.local_attention_window)
         elif layer_type == "att_pseudolocal":
@@ -156,20 +159,15 @@ class Aligned(t2t_model.T2TModel):
           # purpose of testing model quality.
           def _pseudolocal_bias(x):
             return common_attention.attention_bias_local(
-                tf.shape(x)[1],
-                hparams.local_attention_window,
+                common_layers.shape_list(x)[1], hparams.local_attention_window,
                 0 if hparams.mask_right else hparams.local_attention_window)
+
           pseudolocal_bias = dp(_pseudolocal_bias, x)
-          y = dp(
-              common_attention.multihead_attention,
-              x,
-              None,
-              pseudolocal_bias,
-              hparams.attention_key_channels or hparams.hidden_size,
-              hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout)
+          y = dp(common_attention.multihead_attention, x, None,
+                 pseudolocal_bias, hparams.attention_key_channels or
+                 hparams.hidden_size, hparams.attention_value_channels or
+                 hparams.hidden_size, hparams.hidden_size, hparams.num_heads,
+                 hparams.attention_dropout)
         elif layer_type == "att_local_expert":
           y, loss = dp(
               common_attention.local_expert_attention,
@@ -202,15 +200,14 @@ class Aligned(t2t_model.T2TModel):
               hparams.attention_dropout,
 
               # Additional parameters
-              bi=[common_attention.BatchInfo(
-                  coordinates=batch_coordinate[i],
-                  order=None,  # No future mask
-              ) for i in range(dp.n)],
+              bi=[
+                  common_attention.BatchInfo(
+                      coordinates=batch_coordinate[i],
+                      order=None,  # No future mask
+                  ) for i in range(dp.n)
+              ],
               use_map_fn=False,
-              experts_params=dict(
-                  nb_hyperplanes=4,
-              )
-          )
+              experts_params=dict(nb_hyperplanes=4,))
           extra_loss += tf.add_n(loss) / dp.n
         elif layer_type == "moe":
           y, loss = expert_utils.distributed_moe(
@@ -226,10 +223,8 @@ class Aligned(t2t_model.T2TModel):
           extra_loss += loss
         elif layer_type == "ffn":
           y = dp(
-              expert_utils.ffn_expert_fn(
-                  hparams.hidden_size,
-                  ffn_hidden_sizes,
-                  hparams.hidden_size),
+              expert_utils.ffn_expert_fn(hparams.hidden_size, ffn_hidden_sizes,
+                                         hparams.hidden_size),
               dp(expert_utils.flatten_all_but_last, x))
           y = dp(expert_utils.reshape_like, y, x)
         elif layer_type == "conv":
@@ -257,7 +252,9 @@ def get_batch_coordinate(x):
   """Return a flat int32 tensor of shape [1, batch_size*length, 1]."""
   # Compute the batch coordinate before flattening all batches
   batch_coordinate = tf.expand_dims(
-      common_attention.coordinate_tensor(tf.shape(x)[:-1], axis=0), axis=-1)
+      common_attention.coordinate_tensor(
+          common_layers.shape_list(x)[:-1], axis=0),
+      axis=-1)
   return batch_coordinate
 
 

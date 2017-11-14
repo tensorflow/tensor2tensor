@@ -186,4 +186,5 @@ def xception_tiny_tpu():
   hparams.learning_rate_decay_scheme = "noam"
   hparams.num_hidden_layers = 2
   hparams.hidden_size = 128
+  hparams.optimizer = "TrueAdam"
   return hparams
