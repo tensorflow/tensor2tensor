@@ -134,7 +134,9 @@ def main(_):
     # stop when we did (at steps[-1])
     thresh = steps[-1] - FLAGS.eval_early_stopping_steps
 
-    # get the last step that is <= thresh
+    # get the last step that is <= thresh. Note that the early
+    # stopping flags are phrased in terms of step number, not how many
+    # times we've run eval.
     best_step_index = [ step <= thresh for step in steps ].index(False) - 1
     assert best_step_index >= 0, 'Early stopping stopped before it should have'
 
