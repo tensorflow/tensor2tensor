@@ -1,5 +1,15 @@
 # How to Contribute
 
+# Issues
+
+* Please tag your issue with `bug`, `feature request`, or `question` to help us
+  effectively respond.
+* Please include the versions of TensorFlow and Tensor2Tensor you are running
+  (run `pip list | grep tensor`)
+* Please provide the command line you ran as well as the log output.
+
+# Pull Requests
+
 We'd love to accept your patches and contributions to this project. There are
 just a few small guidelines you need to follow.
 
