@@ -142,7 +142,6 @@ def get_model_fn(model_name, hp, use_tpu=True):
 
   def model_fn(features, labels, mode, params, config):
     """Model fn."""
-    del params
     del config
     create_dummy_vars()
 
@@ -177,10 +176,13 @@ def get_model_fn(model_name, hp, use_tpu=True):
     with tf.variable_scope(target_modality.name):
       logits = target_modality.top(outputs, labels)
 
-      # If the length dim is unknown fix it to max_length
-      if use_tpu and logits.get_shape().as_list()[1] is None:
+      if use_tpu:
+        # Set known shapes
         shape = logits.get_shape().as_list()
-        shape[1] = hparams.max_length
+        if shape[0] is None:
+          shape[0] = params["batch_size"]
+        if shape[1] is None:
+          shape[1] = hparams.max_length
         logits.set_shape(shape)
 
       # Loss
@@ -211,25 +213,11 @@ def get_model_fn(model_name, hp, use_tpu=True):
 
     assert mode == tf.estimator.ModeKeys.TRAIN
 
-    # Learning rate
     lr = hparams.learning_rate * optimize.learning_rate_decay(hparams)
+    train_op = optimize.optimize(loss, lr, hparams, use_tpu=use_tpu)
 
-    # Optimizer
-    opt = optimize.ConditionalOptimizer(hparams.optimizer, lr, hparams)
     if use_tpu:
-      opt = tf.contrib.tpu.CrossShardOptimizer(opt)
-
-    # Optimize
-    gradients = opt.compute_gradients(loss, tf.trainable_variables())
-    if hparams.clip_grad_norm:
-      gradients = _clip_gradients_by_norm(gradients, hparams.clip_grad_norm)
-    train_op = opt.apply_gradients(
-        gradients, global_step=tf.train.get_or_create_global_step())
-    with tf.control_dependencies([train_op]):
-      train_op = tf.identity(loss)
-
-    _remove_summaries()
-    if use_tpu:
+      _remove_summaries()  # summaries not currently working on TPU
       return tf.contrib.tpu.TPUEstimatorSpec(mode, loss=loss, train_op=train_op)
     else:
       return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
@@ -237,6 +225,7 @@ def get_model_fn(model_name, hp, use_tpu=True):
   return model_fn
 
 
+# These metrics are implemented with py_funcs and therefore do no work with TPU
 TPU_METRIC_BLACKLIST = set([
     metrics.Metrics.APPROX_BLEU,
     metrics.Metrics.ROUGE_2_F,

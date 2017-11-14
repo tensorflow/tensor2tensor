@@ -93,7 +93,8 @@ def padded_accuracy_topk(predictions,
     padded_predictions, padded_labels = common_layers.pad_with_zeros(
         predictions, labels)
     weights = weights_fn(padded_labels)
-    effective_k = tf.minimum(k, tf.shape(padded_predictions)[-1])
+    effective_k = tf.minimum(k,
+                             common_layers.shape_list(padded_predictions)[-1])
     _, outputs = tf.nn.top_k(padded_predictions, k=effective_k)
     outputs = tf.to_int32(outputs)
     padded_labels = tf.to_int32(padded_labels)
@@ -167,7 +168,7 @@ def sequence_edit_distance(predictions,
                                            tf.shape(labels, out_type=tf.int64))
     distance = tf.reduce_sum(
         tf.edit_distance(sparse_outputs, label_sparse_outputs, normalize=False))
-    reference_length = tf.to_float(tf.shape(nonzero_idx)[0])
+    reference_length = tf.to_float(common_layers.shape_list(nonzero_idx)[0])
     return distance / reference_length, reference_length
 
 

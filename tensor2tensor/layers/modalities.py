@@ -136,10 +136,7 @@ class SymbolModality(modality.Modality):
       reuse = False
 
     with tf.variable_scope(scope_name, reuse=reuse):
-      rank = len(body_output.get_shape().as_list())
-      body_output_shape = [
-          common_layers.shape_dim(body_output, i) for i in range(rank)
-      ]
+      body_output_shape = common_layers.shape_list(body_output)
       var = self._get_weights(body_output_shape[-1])
       if (self._model_hparams.factored_logits and
           self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
@@ -206,7 +203,7 @@ class ImageModality(modality.Modality):
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
 
-      reshape_shape = [common_layers.shape_dim(inputs, i) for i in range(3)]
+      reshape_shape = common_layers.shape_list(inputs)[:3]
       reshape_shape.append(self._body_input_depth * 3)
       ret = tf.reshape(ret, reshape_shape)
       return tf.layers.dense(ret, self._body_input_depth)
@@ -214,10 +211,9 @@ class ImageModality(modality.Modality):
   def top(self, body_output, _):
     with tf.variable_scope("rgb_softmax"):
 
-      reshape_shape = [
-          common_layers.shape_dim(body_output, i) for i in range(3)
-      ]
-      dim = body_output.get_shape().as_list()[-1] // 3
+      body_output_shape = common_layers.shape_list(body_output)
+      reshape_shape = body_output_shape[:3]
+      dim = body_output_shape[-1] // 3
       reshape_shape.extend([self.NUM_CHANNELS, dim])
 
       out = tf.reshape(body_output, reshape_shape)
@@ -246,8 +242,8 @@ class ImageIdentityCompressModality(modality.Modality):
     """
     with tf.variable_scope(name):
       inputs = common_layers.convert_rgb_to_real(inputs)
-      ishape = tf.shape(inputs)
-      inputs = tf.reshape(inputs, [-1, ishape[1], ishape[2]*ishape[3], 1])
+      ishape = common_layers.shape_list(inputs)
+      inputs = tf.reshape(inputs, [-1, ishape[1], ishape[2] * ishape[3], 1])
       inputs.set_shape([None, None, None, 1])
       # We compress RGB intensities for each pixel using a conv.
       x = common_layers.conv_block(
@@ -271,20 +267,19 @@ class ImageIdentityCompressModality(modality.Modality):
       hidden_dim = self._model_hparams.hidden_size
       img_len = self._model_hparams.img_len
       channels = self._model_hparams.num_channels
-      batch = tf.shape(body_output)[0]
+      batch = common_layers.shape_list(body_output)[0]
       x = common_layers.conv(
           body_output,
-          hidden_dim*channels, (1, 1),
+          hidden_dim * channels, (1, 1),
           padding="VALID",
           activation=tf.nn.relu,
           name="decompress_conv")
-      x = tf.reshape(x, [batch, img_len, img_len*channels, hidden_dim])
+      x = tf.reshape(x, [batch, img_len, img_len * channels, hidden_dim])
       x.set_shape([None, None, None, hidden_dim])
-      x = common_layers.conv(x,
-                             self.top_dimensionality,
-                             (1, 1), name="output_conv")
-      x = tf.reshape(x, [-1, img_len, img_len,
-                         channels, self.top_dimensionality])
+      x = common_layers.conv(
+          x, self.top_dimensionality, (1, 1), name="output_conv")
+      x = tf.reshape(x,
+                     [-1, img_len, img_len, channels, self.top_dimensionality])
       return x
 
 
@@ -396,7 +391,7 @@ class ClassLabelModality(modality.Modality):
   def targets_bottom(self, x):
     with tf.variable_scope(self.name):
       return tf.zeros(
-          [common_layers.shape_dim(x, 0), 1, 1, self._body_input_depth])
+          [common_layers.shape_list(x)[0], 1, 1, self._body_input_depth])
 
   def top(self, body_output, _):
     """Transform inputs from model space to target space.

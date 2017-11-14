@@ -161,8 +161,7 @@ class Transformer(t2t_model.T2TModel):
     decoded_ids, _ = self._fast_decode(features, decode_length)
     return decoded_ids, None, None
 
-  def _beam_decode(self, features, decode_length, beam_size, top_beams,
-                   alpha):
+  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
     """Beam search decoding.
 
     Args:
@@ -176,8 +175,8 @@ class Transformer(t2t_model.T2TModel):
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
     """
-    decoded_ids, scores = self._fast_decode(
-        features, decode_length, beam_size, top_beams, alpha)
+    decoded_ids, scores = self._fast_decode(features, decode_length, beam_size,
+                                            top_beams, alpha)
     return {"outputs": decoded_ids, "scores": scores}
 
   def _fast_decode(self,
@@ -211,18 +210,18 @@ class Transformer(t2t_model.T2TModel):
     hparams = self._hparams
 
     inputs = features["inputs"]
-    batch_size = tf.shape(inputs)[0]
+    batch_size = common_layers.shape_list(inputs)[0]
     target_modality = self._problem_hparams.target_modality
     if t2t_model.is_class_modality(target_modality):
       decode_length = 1
     else:
-      decode_length = tf.shape(inputs)[1] + decode_length
+      decode_length = common_layers.shape_list(inputs)[1] + decode_length
 
     # TODO(llion): Clean up this reshaping logic.
     inputs = tf.expand_dims(inputs, axis=1)
     if len(inputs.shape) < 5:
       inputs = tf.expand_dims(inputs, axis=4)
-    s = tf.shape(inputs)
+    s = common_layers.shape_list(inputs)
     inputs = tf.reshape(inputs, [s[0] * s[1], s[2], s[3], s[4]])
     # _shard_features called to ensure that the variable names match
     inputs = self._shard_features({"inputs": inputs})["inputs"]
@@ -321,8 +320,14 @@ class Transformer(t2t_model.T2TModel):
       vocab_size = target_modality.top_dimensionality
       initial_ids = tf.zeros([batch_size], dtype=tf.int32)
       decoded_ids, scores = beam_search.beam_search(
-          symbols_to_logits_fn, initial_ids, beam_size, decode_length,
-          vocab_size, alpha, states=cache, stop_early=(top_beams == 1))
+          symbols_to_logits_fn,
+          initial_ids,
+          beam_size,
+          decode_length,
+          vocab_size,
+          alpha,
+          states=cache,
+          stop_early=(top_beams == 1))
 
       if top_beams == 1:
         decoded_ids = decoded_ids[:, 0, 1:]
@@ -332,8 +337,8 @@ class Transformer(t2t_model.T2TModel):
 
       def inner_loop(i, next_id, decoded_ids, cache):
         logits, cache = symbols_to_logits_fn(next_id, i, cache)
-        temperature = (0.0 if hparams.sampling_method == "argmax"
-                       else hparams.sampling_temp)
+        temperature = (0.0 if hparams.sampling_method == "argmax" else
+                       hparams.sampling_temp)
         next_id = tf.expand_dims(
             common_layers.sample_with_temperature(logits, temperature), axis=1)
         decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
@@ -403,7 +408,7 @@ def transformer_prepare_encoder(inputs, target_space, hparams):
   encoder_decoder_attention_bias = ignore_padding
   if hparams.proximity_bias:
     encoder_self_attention_bias += common_attention.attention_bias_proximal(
-        tf.shape(inputs)[1])
+        common_layers.shape_list(inputs)[1])
   # Append target_space_id embedding to inputs.
   emb_target_space = common_layers.embedding(
       target_space, 32, ishape_static[-1], name="target_space_embedding")
@@ -427,10 +432,11 @@ def transformer_prepare_decoder(targets, hparams):
     decoder_self_attention_bias: a bias tensor for use in encoder self-attention
   """
   decoder_self_attention_bias = (
-      common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
+      common_attention.attention_bias_lower_triangle(
+          common_layers.shape_list(targets)[1]))
   if hparams.proximity_bias:
     decoder_self_attention_bias += common_attention.attention_bias_proximal(
-        tf.shape(targets)[1])
+        common_layers.shape_list(targets)[1])
   decoder_input = common_layers.shift_right_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
@@ -569,9 +575,9 @@ def transformer_ffn_layer(x, hparams, pad_remover=None):
   if hparams.ffn_layer == "conv_hidden_relu":
     # In simple convolution mode, use `pad_remover` to speed up processing.
     if pad_remover:
-      original_shape = tf.shape(x)
+      original_shape = common_layers.shape_list(x)
       # Collapse `x` across examples, and remove padding positions.
-      x = tf.reshape(x, tf.concat([[-1], tf.shape(x)[2:]], axis=0))
+      x = tf.reshape(x, tf.concat([[-1], original_shape[2:]], axis=0))
       x = tf.expand_dims(pad_remover.remove(x), axis=0)
     conv_output = common_layers.conv_hidden_relu(
         x,

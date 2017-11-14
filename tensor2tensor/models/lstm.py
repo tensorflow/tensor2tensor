@@ -73,9 +73,7 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
       attention_layer_size=[hparams.attention_layer_size]*hparams.num_heads,
       output_attention=(hparams.output_attention == 1))
 
-  batch_size = inputs.get_shape()[0].value
-  if batch_size is None:
-    batch_size = tf.shape(inputs)[0]
+  batch_size = common_layers.shape_list(inputs)[0]
 
   initial_state = cell.zero_state(batch_size, tf.float32).clone(
       cell_state=initial_state)
