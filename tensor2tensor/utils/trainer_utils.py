@@ -122,75 +122,7 @@ flags.DEFINE_string(
     "Comma-separated list of name=value pairs to control decode behavior. "
     "See decoding.decode_hparams for defaults.")
 
-
-class EarlyStoppingExperiment(tf.contrib.learn.Experiment):
-  def __init__(self, *args, **kwargs):
-    super(EarlyStoppingExperiment, self).__init__(
-      *args,
-      **kwargs)
-    self.patience = FLAGS.eval_early_stopping_steps or 6
-    self.metric = FLAGS.eval_early_stopping_metric
-
-    # For loss, we want low numbers, for all others we want high
-    # numbers
-    if FLAGS.eval_early_stopping_metric_minimize:
-      self.high_optimal = False
-    else:
-      self.high_optimal = True
-
-    # The most recent values seen; initialize with the worst possible
-    # values so that we don't stop until we have filled up the
-    # values_seen buffer with real values.
-    if self.high_optimal:
-      self.values_seen = [float('-inf')] * self.patience
-    else:
-      self.values_seen = [float('inf')] * self.patience
-      
-  def _early_stopping_predicate(self, results):
-    """Predicate that returns True if we should continue based on the
-    results seen so far.
-
-    Returns True when the current iteration is better than some
-    iteration seen in the last 'patience' iterations.
-
-    Args:
-      results: dict mapping metric names to values
-
-    Returns:
-      return_value: True if we should keep training, False if we
-                    should stop
-
-    """
-    # The first time this gets called, results will be None, and we
-    # don't want to stop
-    if not results:
-      return True
-
-    # Add new value and forget oldest value
-    self.values_seen.pop(0)
-    self.values_seen.append(results[self.metric])
-
-    # have we seen any iterations worse than this one recently?
-    if self.high_optimal:
-      any_worse_iterations = any(x < self.values_seen[-1] for x in self.values_seen)
-    else:
-      any_worse_iterations = any(x > self.values_seen[-1] for x in self.values_seen)
-      
-    if not any_worse_iterations:
-      print("\nEarly stopping on metric %s with value %f" % (self.metric, self.values_seen[-1]))
-      return False
-
-    return True
-    
-  def early_stopping_train_and_eval(self, *args, **kwargs):
-    """Like train and eval, except we do early stopping.
-    """
-    self.continuous_train_and_eval(
-      *args,
-      continuous_eval_predicate_fn=self._early_stopping_predicate,
-      **kwargs)
-
-    
+   
 def make_experiment_fn(data_dir, model_name, train_steps, eval_steps):
   """Returns experiment_fn for learn_runner. Wraps create_experiment."""
 
@@ -252,7 +184,7 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
         make_export_strategy(problem, hparams)
     ]
 
-  return EarlyStoppingExperiment(
+  return tf.contrib.learn.Experiment(
       estimator=estimator,
       train_input_fn=input_fns[tf.estimator.ModeKeys.TRAIN],
       eval_input_fn=input_fns[tf.estimator.ModeKeys.EVAL],
