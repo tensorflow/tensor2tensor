@@ -44,6 +44,7 @@ from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wsj_parsing
+from tensor2tensor.data_generators import librispeech
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
@@ -113,6 +114,11 @@ _SUPPORTED_PROBLEM_GENERATORS = {
         lambda: audio.timit_generator(
             FLAGS.data_dir, FLAGS.tmp_dir, False, 626,
             vocab_filename="vocab.endefr.%d" % 2**15, vocab_size=2**15)),
+    "librispeech": (
+        lambda: librispeech.librispeech_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, True),
+        lambda: librispeech.librispeech_generator(
+            FLAGS.data_dir, FLAGS.tmp_dir, False)),
 }
 
 # pylint: enable=g-long-lambda
