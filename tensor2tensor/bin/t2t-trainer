@@ -39,6 +39,7 @@ import os
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_utils
 from tensor2tensor.utils import usr_dir
+from tensorflow.python.training import saver
 
 import tensorflow as tf
 
@@ -108,6 +109,28 @@ def main(_):
   else:
     run_experiment()
 
+  if FLAGS.eval_early_stopping_steps is not None: 
+    # update the checkpoint so that it points to the best model
+    checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)
+    all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
+
+    def extract_step(path):
+      """Extract the step number from a checkpoint path"""
+      return int(path[path.rindex('-') + 1:])
+
+    steps = [extract_step(path) for path in all_checkpoint_paths]
+    thresh = steps[-1] - FLAGS.eval_early_stopping_steps
+    best_step_index = [ step <= thresh for step in steps ].index(False) - 1
+    assert best_step_index >= 0, 'Early stopping stopped before it should have'
+    checkpoint_path = all_checkpoint_paths[best_step_index]
+
+    print('Early stopping chose checkpoint', checkpoint_path)
+    
+    saver.update_checkpoint_state(
+      FLAGS.output_dir,
+      checkpoint_path,
+      all_checkpoint_paths + [checkpoint_path])
+    
 
   
 if __name__ == "__main__":
