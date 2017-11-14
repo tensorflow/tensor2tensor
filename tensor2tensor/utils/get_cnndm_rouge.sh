@@ -1,8 +1,11 @@
 #!/bin/bash
 
+# Path to moses dir
 mosesdecoder=$1
 
+# Path to file containing gold summaries, one per line
 targets_file=$2
+# Path to file containing model generated summaries, one per line
 decodes_file=$3
 
 # Tokenize.

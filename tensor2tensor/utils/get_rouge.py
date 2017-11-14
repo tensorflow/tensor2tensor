@@ -37,10 +37,7 @@ tf.flags.DEFINE_string("decodes_filename", None, "File containing model generate
 tf.flags.DEFINE_string("targets_filename", None, "File containing model target summaries tokenized")
 
 def write_to_file(filename, data):
-    # TODO: ensure the output format (chars split by spaces) was as intended
     data = ".\n".join(data.split(". "))
-    if len(data.strip()) == 0:
-        print(data, filename)
     with open(filename, "w") as fp:
         fp.write(data)
 
@@ -63,9 +60,9 @@ def main(_):
 
     tmpdir = mkdtemp()
     tf.logging.info("tmpdir: %s" % tmpdir)
-    # system = decodes
+    # system = decodes/predictions
     system_dir = os.path.join(tmpdir, 'system')
-    # model = gold
+    # model = targets/gold
     model_dir = os.path.join(tmpdir, 'model')
     os.mkdir(system_dir)
     os.mkdir(model_dir)
