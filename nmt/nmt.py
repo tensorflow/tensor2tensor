@@ -76,6 +76,14 @@ def add_arguments(parser):
           attention.\
       """)
   parser.add_argument(
+      "--output_attention", type="bool", nargs="?", const=True,
+      default=True,
+      help="""\
+      Only used in standard attention_architecture. Whether use attention as
+      the cell output at each timestep.
+      .\
+      """)
+  parser.add_argument(
       "--pass_hidden_state", type="bool", nargs="?", const=True,
       default=True,
       help="""\
@@ -285,6 +293,7 @@ def create_hparams(flags):
       # Attention mechanisms
       attention=flags.attention,
       attention_architecture=flags.attention_architecture,
+      output_attention=flags.output_attention,
       pass_hidden_state=flags.pass_hidden_state,
 
       # Train

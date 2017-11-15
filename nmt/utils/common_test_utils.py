@@ -57,6 +57,7 @@ def create_test_hparams(unit_type="lstm",
       # Attention mechanisms
       attention=attention,
       attention_architecture=attention_architecture,
+      output_attention=True,
       pass_hidden_state=True,
 
       # Train
