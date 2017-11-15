@@ -151,8 +151,8 @@ def run_full_eval(model_dir, infer_model, infer_sess, eval_model, eval_sess,
 
 def init_stats():
   """Initialize statistics that we want to keep."""
-  return {"step_time": 0.0, "grad_norm": 0.0, "checkpoint_loss": 0.0,
-          "checkpoint_predict_count": 0.0, "checkpoint_total_count": 0.0}
+  return {"step_time": 0.0, "loss": 0.0, "predict_count": 0.0,
+          "total_count": 0.0, "grad_norm": 0.0}
 
 
 def update_stats(stats, summary_writer, start_time, step_result):
@@ -165,10 +165,10 @@ def update_stats(stats, summary_writer, start_time, step_result):
 
   # update statistics
   stats["step_time"] += (time.time() - start_time)
-  stats["checkpoint_loss"] += (step_loss * batch_size)
-  stats["checkpoint_predict_count"] += step_predict_count
-  stats["checkpoint_total_count"] += float(step_word_count)
-  stats["checkpoint_grad_norm"] += grad_norm
+  stats["loss"] += (step_loss * batch_size)
+  stats["predict_count"] += step_predict_count
+  stats["total_count"] += float(step_word_count)
+  stats["grad_norm"] += grad_norm
   stats["learning_rate"] = learning_rate
 
   return global_step
@@ -180,8 +180,8 @@ def check_stats(stats, global_step, steps_per_stats, hparams, log_f):
   avg_step_time = stats["step_time"] / steps_per_stats
   avg_grad_norm = stats["grad_norm"] / steps_per_stats
   train_ppl = utils.safe_exp(
-      stats["checkpoint_loss"] / stats["checkpoint_predict_count"])
-  speed = stats["checkpoint_total_count"] / (1000 * stats["step_time"])
+      stats["loss"] / stats["predict_count"])
+  speed = stats["total_count"] / (1000 * stats["step_time"])
   utils.print_out(
       "  global step %d lr %g "
       "step-time %.2fs wps %.2fK ppl %.2f gN %.2f %s" %
@@ -446,8 +446,8 @@ def _sample_decode(model, global_step, sess, hparams, iterator, src_data,
       sent_id=0,
       tgt_eos=hparams.eos,
       subword_option=hparams.subword_option)
-  utils.print_out("    src: %s" % src_data[decode_id])
-  utils.print_out("    ref: %s" % tgt_data[decode_id])
+  utils.print_out(b"    src: " + src_data[decode_id])
+  utils.print_out(b"    ref: " + tgt_data[decode_id])
   utils.print_out(b"    nmt: " + translation)
 
   # Summary
