@@ -55,10 +55,8 @@ def _rev_layer_forward(xs, f, g, f_side_input, g_side_input,
                        gate_outputs=False):
   """Forward for 1 reversible layer."""
   x1, x2 = xs
-  with tf.variable_scope("f"):
-    y1 = x1 + (f(x2, f_side_input) if f_side_input else f(x2))
-  with tf.variable_scope("g"):
-    y2 = x2 + (g(y1, g_side_input) if g_side_input else g(y1))
+  y1 = x1 + (f(x2, f_side_input) if f_side_input else f(x2))
+  y2 = x2 + (g(y1, g_side_input) if g_side_input else g(y1))
   if gate_outputs:
     return tf.tuple([y1, y2])
   else:
@@ -76,14 +74,12 @@ def _rev_layer_backward(ys, grad_ys, f, g, f_vars, f_side_input, g_vars,
   # grad function on the calls to tf.gradients.
   y1_stop = tf.stop_gradient(y1)
   g_side_input = [tf.stop_gradient(t) for t in g_side_input]
-  with tf.variable_scope("g"):
-    gy1 = g(y1_stop, g_side_input) if g_side_input else g(y1_stop)
+  gy1 = g(y1_stop, g_side_input) if g_side_input else g(y1_stop)
 
   x2 = y2 - gy1
   x2_stop = tf.stop_gradient(x2)
   f_side_input = [tf.stop_gradient(t) for t in f_side_input]
-  with tf.variable_scope("f"):
-    fx2 = f(x2_stop, f_side_input) if f_side_input else f(x2_stop)
+  fx2 = f(x2_stop, f_side_input) if f_side_input else f(x2_stop)
 
   x1 = y1 - fx2
 
@@ -91,8 +87,9 @@ def _rev_layer_backward(ys, grad_ys, f, g, f_vars, f_side_input, g_vars,
   # dL/dy2 * dG(y1)/y1
   grad_gy1_y2 = tf.gradients(gy1, y1_stop, grad_y2)[0]
   grad_x1 = grad_y1 + grad_gy1_y2
-  grad_x2 = (tf.gradients(fx2, x2_stop, grad_y1)[0] + grad_y2 +
-             tf.gradients(fx2, x2_stop, grad_gy1_y2)[0])
+  grad_x2 = (
+      tf.gradients(fx2, x2_stop, grad_y1)[0] + grad_y2 +
+      tf.gradients(fx2, x2_stop, grad_gy1_y2)[0])
 
   # Compute gradients wrt to vars and side inputs in f and g
   grads1 = tf.gradients(gy1, g_vars + g_side_input, grad_y2)
@@ -131,26 +128,187 @@ def _rev_block_forward(x1,
                        num_layers=1,
                        f_side_input=None,
                        g_side_input=None,
-                       layer_scopes=None,
-                       gate_outputs=False,
-                       name=None):
+                       gate_outputs=False):
   """Forward for a series of reversible layers."""
   out = (x1, x2)
-  with tf.variable_scope(name, default_name="revblock"):
-    for i in xrange(num_layers):
-      with tf.variable_scope("revlayer_%d" % i) as layer_vs:
-        if layer_scopes is not None:
-          layer_scopes.append(layer_vs)
-        out = _rev_layer_forward(
-            out,
-            f[i],
-            g[i],
-            f_side_input,
-            g_side_input,
-            gate_outputs=gate_outputs)
+  for i in xrange(num_layers):
+    out = _rev_layer_forward(
+        out, f[i], g[i], f_side_input, g_side_input, gate_outputs=gate_outputs)
 
   y1, y2 = out
   return y1, y2
+
+
+class RevBlock(object):
+  """Block of reversible layers. See rev_block."""
+
+  def __init__(self,
+               f,
+               g,
+               num_layers=1,
+               f_side_input=None,
+               g_side_input=None,
+               use_efficient_backprop=True):
+
+    if isinstance(f, list):
+      assert len(f) == num_layers
+    else:
+      f = [f] * num_layers
+
+    if isinstance(g, list):
+      assert len(g) == num_layers
+    else:
+      g = [g] * num_layers
+
+    scope_prefix = "revblock/revlayer_%d/"
+    f_scope = scope_prefix + "f"
+    g_scope = scope_prefix + "g"
+
+    f = [
+        tf.make_template(f_scope % i, fn, create_scope_now_=True)
+        for i, fn in enumerate(f)
+    ]
+    g = [
+        tf.make_template(g_scope % i, fn, create_scope_now_=True)
+        for i, fn in enumerate(g)
+    ]
+
+    self.f = f
+    self.g = g
+
+    self.num_layers = num_layers
+    self.f_side_input = f_side_input or []
+    self.g_side_input = g_side_input or []
+
+    self._use_efficient_backprop = use_efficient_backprop
+
+  def _efficient_grad_fn(self, inputs, variables, ys, grad_ys):
+    """Custom gradient fn for a block of reversible residual layers."""
+    side_inputs = inputs[2:]
+    f_side_idxs = [None] * len(self.f_side_input)
+    g_side_idxs = [None] * len(self.g_side_input)
+    assert len(side_inputs) == len(self.f_side_input) + len(self.g_side_input)
+
+    for i, t in enumerate(side_inputs):
+      if t in self.f_side_input:
+        f_side_idxs[self.f_side_input.index(t)] = i
+      elif t in self.g_side_input:
+        g_side_idxs[self.g_side_input.index(t)] = i
+      else:
+        assert False
+
+    f_vars = [[] for _ in range(self.num_layers)]
+    g_vars = [[] for _ in range(self.num_layers)]
+    f_vars_idxs = [[] for _ in range(self.num_layers)]
+    g_vars_idxs = [[] for _ in range(self.num_layers)]
+
+    for i, t in enumerate(variables):
+      ref = common_layers.underlying_variable_ref(t)
+
+      # Use the name to identify the layer number and function (f or g)
+      regex = LAYER_RE.match(ref.name)
+      layer_no = int(regex.group(1))
+      fn_name = regex.group(2)
+      if fn_name == "f":
+        f_vars[layer_no].append(ref)
+        f_vars_idxs[layer_no].append(i)
+      else:
+        assert fn_name == "g"
+        g_vars[layer_no].append(ref)
+        g_vars_idxs[layer_no].append(i)
+
+    f_var_grads = []
+    g_var_grads = []
+    f_side_grads = []
+    g_side_grads = []
+
+    # Reverse variable containers to go backward
+    f_vars.reverse()
+    g_vars.reverse()
+    f = list(self.f)
+    g = list(self.g)
+    f.reverse()
+    g.reverse()
+
+    for i in xrange(self.num_layers):
+      ys, grad_ys, f_ret, g_ret = _rev_layer_backward(
+          ys, grad_ys, f[i], g[i], f_vars[i], self.f_side_input, g_vars[i],
+          self.g_side_input)
+
+      grad_f_vars, grad_f_side = f_ret
+      grad_g_vars, grad_g_side = g_ret
+      f_var_grads.append(grad_f_vars)
+      g_var_grads.append(grad_g_vars)
+      f_side_grads.append(grad_f_side)
+      g_side_grads.append(grad_g_side)
+
+    # Accumulate layer gradients for f_side_input and g_side_input
+    acc_f_side_grads = _acc_grads(*f_side_grads)
+    acc_g_side_grads = _acc_grads(*g_side_grads)
+
+    # Use the stored idxs to put gradients in the passed-in order.
+    side_input_grads = [None] * len(side_inputs)
+    variable_grads = [None] * len(variables)
+
+    # Variable gradients were collected in reverse layer order. Reverse to match
+    # idxs.
+    f_var_grads.reverse()
+    g_var_grads.reverse()
+    for idxs, grads in list(zip(f_vars_idxs, f_var_grads)) + list(
+        zip(g_vars_idxs, g_var_grads)):
+      for i, grad in zip(idxs, grads):
+        variable_grads[i] = grad
+
+    for i, grad in zip(f_side_idxs, acc_f_side_grads):
+      side_input_grads[i] = grad
+    for i, grad in zip(g_side_idxs, acc_g_side_grads):
+      side_input_grads[i] = grad
+
+    grad_x1, grad_x2 = grad_ys
+    return [grad_x1, grad_x2] + side_input_grads, variable_grads
+
+  def forward(self, x1, x2):
+    """Run forward through the reversible layers."""
+
+    side_inputs = [self.f_side_input, self.g_side_input]
+    flat_side_inputs = tf.contrib.framework.nest.flatten(side_inputs)
+
+    custom_grad_fn = (
+        self._efficient_grad_fn if self._use_efficient_backprop else None)
+
+    @common_layers.fn_with_custom_grad(custom_grad_fn)
+    def _forward(x1_, x2_, *flat_side_inputs):
+      f_side, g_side = tf.contrib.framework.nest.pack_sequence_as(
+          side_inputs, flat_side_inputs)
+      return _rev_block_forward(
+          x1_,
+          x2_,
+          self.f,
+          self.g,
+          num_layers=self.num_layers,
+          f_side_input=f_side,
+          g_side_input=g_side,
+          gate_outputs=self._use_efficient_backprop)
+
+    return _forward(x1, x2, *flat_side_inputs)
+
+  def backward(self, y1, y2):
+    """Run backward through the reversible layers."""
+
+    f = list(self.f)
+    g = list(self.g)
+    f.reverse()
+    g.reverse()
+
+    for i in xrange(self.num_layers):
+      gy1 = g[i](y1, self.g_side_input) if self.g_side_input else g[i](y1)
+      x2 = y2 - gy1
+      fx2 = f[i](x2, self.f_side_input) if self.f_side_input else f[i](x2)
+      x1 = y1 - fx2
+
+      y1, y2 = x1, x2
+
+    return x1, x2
 
 
 def rev_block(x1,
@@ -201,125 +359,8 @@ def rev_block(x1,
   Returns:
     y1, y2: tuple of float Tensors.
   """
-  if f_side_input is None:
-    f_side_input = []
-  if g_side_input is None:
-    g_side_input = []
-  if isinstance(f, list):
-    assert len(f) == num_layers
-  else:
-    f = [f] * num_layers
-  if isinstance(g, list):
-    assert len(g) == num_layers
-  else:
-    g = [g] * num_layers
-
-  # Filled by the forward function below
-  layer_scopes = []
-
-  def custom_grad_fn(inputs, variables, ys, grad_ys):
-    """Custom gradient fn for a block of reversible residual layers."""
-    side_inputs = inputs[2:]
-    f_side_idxs = [None] * len(f_side_input)
-    g_side_idxs = [None] * len(g_side_input)
-    assert len(side_inputs) == len(f_side_input) + len(g_side_input)
-
-    for i, t in enumerate(side_inputs):
-      if t in f_side_input:
-        f_side_idxs[f_side_input.index(t)] = i
-      elif t in g_side_input:
-        g_side_idxs[g_side_input.index(t)] = i
-      else:
-        assert False
-
-    f_vars = [[] for _ in range(num_layers)]
-    g_vars = [[] for _ in range(num_layers)]
-    f_vars_idxs = [[] for _ in range(num_layers)]
-    g_vars_idxs = [[] for _ in range(num_layers)]
-
-    for i, t in enumerate(variables):
-      ref = common_layers.underlying_variable_ref(t)
-
-      # Use the name to identify the layer number and function (f or g)
-      regex = LAYER_RE.match(ref.name)
-      layer_no = int(regex.group(1))
-      fn_name = regex.group(2)
-      if fn_name == "f":
-        f_vars[layer_no].append(ref)
-        f_vars_idxs[layer_no].append(i)
-      else:
-        assert fn_name == "g"
-        g_vars[layer_no].append(ref)
-        g_vars_idxs[layer_no].append(i)
-
-    f_var_grads = []
-    g_var_grads = []
-    f_side_grads = []
-    g_side_grads = []
-
-    # Reverse variable containers to go backward
-    layer_scopes.reverse()
-    f_vars.reverse()
-    g_vars.reverse()
-    f.reverse()
-    g.reverse()
-
-    for i in xrange(num_layers):
-      with tf.variable_scope(layer_scopes[i], reuse=True):
-
-        ys, grad_ys, f_ret, g_ret = _rev_layer_backward(ys, grad_ys, f[i], g[i],
-                                                        f_vars[i], f_side_input,
-                                                        g_vars[i], g_side_input)
-
-        grad_f_vars, grad_f_side = f_ret
-        grad_g_vars, grad_g_side = g_ret
-        f_var_grads.append(grad_f_vars)
-        g_var_grads.append(grad_g_vars)
-        f_side_grads.append(grad_f_side)
-        g_side_grads.append(grad_g_side)
-
-    # Accumulate layer gradients for f_side_input and g_side_input
-    acc_f_side_grads = _acc_grads(*f_side_grads)
-    acc_g_side_grads = _acc_grads(*g_side_grads)
-
-    # Use the stored idxs to put gradients in the passed-in order.
-    side_input_grads = [None] * len(side_inputs)
-    variable_grads = [None] * len(variables)
-
-    # Variable gradients were collected in reverse layer order. Reverse to match
-    # idxs.
-    f_var_grads.reverse()
-    g_var_grads.reverse()
-    for idxs, grads in list(zip(f_vars_idxs, f_var_grads)) + list(
-        zip(g_vars_idxs, g_var_grads)):
-      for i, grad in zip(idxs, grads):
-        variable_grads[i] = grad
-
-    for i, grad in zip(f_side_idxs, acc_f_side_grads):
-      side_input_grads[i] = grad
-    for i, grad in zip(g_side_idxs, acc_g_side_grads):
-      side_input_grads[i] = grad
-
-    grad_x1, grad_x2 = grad_ys
-    return [grad_x1, grad_x2] + side_input_grads, variable_grads
-
-  # Need a forward function with positional arguments
-  @common_layers.fn_with_custom_grad(custom_grad_fn if is_training else None)
-  def forward(x1, x2, *side_inputs):
-    f_side = side_inputs[:len(f_side_input)]
-    g_side = side_inputs[len(f_side_input):]
-    return _rev_block_forward(
-        x1,
-        x2,
-        f,
-        g,
-        num_layers=num_layers,
-        f_side_input=f_side,
-        g_side_input=g_side,
-        layer_scopes=layer_scopes,
-        gate_outputs=is_training)
-
-  return forward(x1, x2, *(f_side_input + g_side_input))
+  block = RevBlock(f, g, num_layers, f_side_input, g_side_input, is_training)
+  return block.forward(x1, x2)
 
 
 def recompute_grad(fn):
