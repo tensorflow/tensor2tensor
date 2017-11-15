@@ -319,7 +319,7 @@ def create_evaluation_metrics(problems, model_hparams):
     tm = problem_instance.get_hparams().target_modality
     if isinstance(tm, tuple):
       tm = registry.create_modality(tm, model_hparams)
-    weights_fn = tm.weights_fn
+    weights_fn = tm.targets_weights_fn
 
     for metric in metrics:
       metric_fn = METRICS_FNS[metric]
