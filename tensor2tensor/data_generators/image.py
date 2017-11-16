@@ -287,8 +287,7 @@ class Image2ClassProblem(ImageProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
-    p.target_modality = (registry.Modalities.CLASS_LABEL,
-                         self.num_classes)
+    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
     p.batch_size_multiplier = 4 if self.is_small else 256
     p.max_expected_batch_size_per_shard = 8 if self.is_small else 2
     p.loss_multiplier = 3.0 if self.is_small else 1.0
@@ -305,16 +304,19 @@ class Image2ClassProblem(ImageProblem):
         self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
 
 
-def imagenet_preprocess_example(example, mode):
+def imagenet_preprocess_example(example, mode, resize_size=None):
   """Preprocessing used for Imagenet and similar problems."""
+  if resize_size is None:
+    resize_size = [299, 299]
 
   def preprocess(img):
     img = tf.image.resize_images(img, [360, 360])
-    img = common_layers.image_augmentation(tf.to_float(img) / 255.)
+    img = common_layers.image_augmentation(
+        tf.to_float(img) / 255., crop_size=resize_size)
     return tf.to_int64(img * 255.)
 
   def resize(img):
-    return tf.to_int64(tf.image.resize_images(img, [299, 299]))
+    return tf.to_int64(tf.image.resize_images(img, resize_size))
 
   inputs = tf.cast(example["inputs"], tf.int64)
   if mode == tf.estimator.ModeKeys.TRAIN:
@@ -347,6 +349,21 @@ class ImageImagenet(Image2ClassProblem):
 
   def preprocess_example(self, example, mode, _):
     return imagenet_preprocess_example(example, mode)
+
+
+@registry.register_problem
+class ImageImagenet224(ImageImagenet):
+  """Imagenet rescaled to 224x224."""
+
+  def dataset_filename(self):
+    return "image_imagenet"  # Reuse Imagenet data.
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    tf.logging.warning(
+        "Generate data for image_imagenet224 with image_imagenet")
+
+  def preprocess_example(self, example, mode, _):
+    return imagenet_preprocess_example(example, mode, resize_size=[224, 224])
 
 
 @registry.register_problem
@@ -784,8 +801,8 @@ def mscoco_generator(data_dir,
     vocab_symbolizer = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, vocab_filename, vocab_size)
   _get_mscoco(tmp_dir)
-  caption_filepath = (_MSCOCO_TRAIN_CAPTION_FILE
-                      if training else _MSCOCO_EVAL_CAPTION_FILE)
+  caption_filepath = (
+      _MSCOCO_TRAIN_CAPTION_FILE if training else _MSCOCO_EVAL_CAPTION_FILE)
   caption_filepath = os.path.join(tmp_dir, caption_filepath)
   prefix = _MSCOCO_TRAIN_PREFIX if training else _MSCOCO_EVAL_PREFIX
   caption_file = io.open(caption_filepath)
