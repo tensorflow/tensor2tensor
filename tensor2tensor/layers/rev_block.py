@@ -105,20 +105,10 @@ def _rev_layer_backward(ys, grad_ys, f, g, f_vars, f_side_input, g_vars,
   # Put returns in a tuple to ensure a constant memory budget (i.e. don't want
   # the subsequent layer to start computing and consuming memory based on a
   # subset of these values).
-  outs = tf.tuple([x1, x2, grad_x1, grad_x2] + grad_f_vars + grad_g_vars +
-                  grad_f_side + grad_g_side)
-  x1, x2, grad_x1, grad_x2 = outs[:4]
-  grad_f_vars_end = 4 + len(grad_f_vars)
-  grad_g_vars_end = grad_f_vars_end + len(grad_g_vars)
-  grad_f_side_end = grad_g_vars_end + len(grad_f_side)
-
-  grad_f_vars = outs[4:grad_f_vars_end]
-  grad_g_vars = outs[grad_f_vars_end:grad_g_vars_end]
-  grad_f_side = outs[grad_g_vars_end:grad_f_side_end]
-  grad_g_side = outs[grad_f_side_end:]
-
-  return ((x1, x2), (grad_x1, grad_x2), (grad_f_vars, grad_f_side),
-          (grad_g_vars, grad_g_side))
+  outputs = ((x1, x2), (grad_x1, grad_x2), (grad_f_vars, grad_f_side),
+             (grad_g_vars, grad_g_side))
+  tupled = tf.tuple(tf.contrib.framework.nest.flatten(outputs))
+  return tf.contrib.framework.nest.pack_sequence_as(outputs, tupled)
 
 
 def _rev_block_forward(x1,

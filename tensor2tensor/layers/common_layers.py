@@ -20,6 +20,7 @@ from __future__ import print_function
 
 from collections import defaultdict
 import contextlib
+import functools
 import math
 import random
 
@@ -1961,6 +1962,7 @@ def fn_with_custom_grad(grad_fn, use_global_vars=False):
 
   def dec(fn):
 
+    @functools.wraps(fn)
     def wrapped(*args):
       return _fn_with_custom_grad(
           fn, args, grad_fn, use_global_vars=use_global_vars)
@@ -1995,43 +1997,45 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
 
   if grad_fn is None:
     return outputs
-  else:
-    if not (isinstance(outputs, tuple) or isinstance(outputs, list)):
-      outputs = [outputs]
-    outputs = list(outputs)
 
-    in_types = [t.dtype for t in inputs]
-    out_types = [t.dtype for t in outputs]
-    var_types = [t.dtype for t in train_vars]
+  if not (isinstance(outputs, tuple) or isinstance(outputs, list)):
+    outputs = [outputs]
+  outputs = list(outputs)
 
-    def custom_grad_fn(op, *dys):
-      """Custom grad fn applying grad_fn for identity Defun."""
-      dys = list(dys)
-      fn_inputs = op.inputs[:len(inputs)]
-      fn_vars = op.inputs[len(inputs):len(inputs) + len(train_vars)]
-      fn_outputs = op.inputs[len(inputs) + len(train_vars):]
-      assert len(fn_outputs) == len(outputs)
-      assert len(fn_outputs) == len(dys)
+  defun_inputs = [inputs, train_vars, outputs]
 
-      grad_inputs, grad_vars = grad_fn(fn_inputs, fn_vars, fn_outputs, dys)
-      grad_outputs = [None] * len(fn_outputs)
-      return tuple(grad_inputs + grad_vars + grad_outputs)
+  def custom_grad_fn(op, *dys):
+    """Custom grad fn applying grad_fn for identity Defun."""
+    fn_inputs, fn_vars, fn_outputs = tf.contrib.framework.nest.pack_sequence_as(
+        defun_inputs, list(op.inputs))
+    dys = list(dys)
+    assert len(fn_outputs) == len(outputs)
+    assert len(fn_outputs) == len(dys)
 
-    # The Defun takes as input the original inputs, the trainable variables
-    # created in fn, and the outputs. In the forward it passes through the
-    # outputs. In the backwards, it produces gradients for the original inputs
-    # and the trainable variables.
-    @function.Defun(
-        *(in_types + var_types + out_types),
-        func_name="identity_custom_grad%d" % random.randint(1, 10**9),
-        python_grad_func=custom_grad_fn,
-        shape_func=lambda _: [t.get_shape() for t in outputs])
-    def identity(*args):
-      outs = args[len(inputs) + len(train_vars):]
-      return tuple([tf.identity(t) for t in outs])
+    grad_inputs, grad_vars = grad_fn(fn_inputs, fn_vars, fn_outputs, dys)
+    grad_outputs = [None] * len(fn_outputs)
+    return tuple(grad_inputs + grad_vars + grad_outputs)
 
-    id_out = identity(*(inputs + train_vars + outputs))
-    return id_out
+  # The Defun takes as input the original inputs, the trainable variables
+  # created in fn, and the outputs. In the forward it passes through the
+  # outputs. In the backwards, it produces gradients for the original inputs
+  # and the trainable variables.
+  in_types = [t.dtype for t in inputs]
+  out_types = [t.dtype for t in outputs]
+  var_types = [t.dtype for t in train_vars]
+
+  @function.Defun(
+      *(in_types + var_types + out_types),
+      func_name="identity_custom_grad%d" % random.randint(1, 10**9),
+      python_grad_func=custom_grad_fn,
+      shape_func=lambda _: [t.get_shape() for t in outputs])
+  def identity(*args):
+    _, _, outs = tf.contrib.framework.nest.pack_sequence_as(defun_inputs, args)
+    return tuple([tf.identity(t) for t in outs])
+
+  flat_inputs = tf.contrib.framework.nest.flatten(defun_inputs)
+  id_out = identity(*flat_inputs)
+  return id_out
 
 
 _function_cache = {}
