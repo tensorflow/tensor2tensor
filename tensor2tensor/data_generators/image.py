@@ -52,15 +52,10 @@ def resize_by_area(img, size):
 class ImageProblem(problem.Problem):
 
   def example_reading_spec(self, label_repr=None):
-    if label_repr is None:
-      label_repr = ("image/class/label", tf.FixedLenFeature((1,), tf.int64))
-
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
     }
-    label_key, label_type = label_repr  # pylint: disable=unpacking-non-sequence
-    data_fields[label_key] = label_type
 
     data_items_to_decoders = {
         "inputs":
@@ -68,8 +63,6 @@ class ImageProblem(problem.Problem):
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=3),
-        "targets":
-            tf.contrib.slim.tfexample_decoder.Tensor(label_key),
     }
 
     return data_fields, data_items_to_decoders
@@ -246,9 +239,12 @@ class ImageFSNS(ImageProblem):
 
   def example_reading_spec(self):
     label_key = "image/unpadded_label"
-    label_type = tf.VarLenFeature(tf.int64)
-    return super(ImageFSNS, self).example_reading_spec(
-        self, label_repr=(label_key, label_type))
+    data_fields, data_items_to_decoders = (
+        super(ImageFSNS, self).example_reading_spec())
+    data_fields[label_key] = tf.VarLenFeature(tf.int64)
+    data_items_to_decoders[
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    return data_fields, data_items_to_decoders
 
 
 class Image2ClassProblem(ImageProblem):
@@ -283,6 +279,16 @@ class Image2ClassProblem(ImageProblem):
 
   def generator(self, data_dir, tmp_dir, is_training):
     raise NotImplementedError()
+
+  def example_reading_spec(self):
+    label_key = "image/class/label"
+    data_fields, data_items_to_decoders = (
+        super(Image2ClassProblem, self).example_reading_spec())
+    data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
+
+    data_items_to_decoders[
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    return data_fields, data_items_to_decoders
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
@@ -868,6 +874,15 @@ class Image2TextProblem(ImageProblem):
 
   def generator(self, data_dir, tmp_dir, is_training):
     raise NotImplementedError()
+
+  def example_reading_spec(self):
+    label_key = "image/class/label"
+    data_fields, data_items_to_decoders = (
+        super(Image2TextProblem, self).example_reading_spec())
+    data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
+    data_items_to_decoders[
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    return data_fields, data_items_to_decoders
 
   def feature_encoders(self, data_dir):
     if self.is_character_level:
