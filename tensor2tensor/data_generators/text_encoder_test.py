@@ -240,6 +240,46 @@ class SubwordTextEncoderTest(tf.test.TestCase):
         encoder1.encode(c)
         encoder2.encode(c)
 
+  def test_save_and_reload(self):
+    corpus = "the quick brown fox jumps over the lazy dog"
+    token_counts = collections.Counter(corpus.split(" "))
+
+    # Deliberately exclude some required encoding chars from the alphabet
+    # and token list, making some strings unencodable.
+    encoder = text_encoder.SubwordTextEncoder.build_to_target_size(
+        100, token_counts, 2, 10)
+
+    filename = os.path.join(self.test_temp_dir, "out.voc")
+    encoder.store_to_file(filename)
+    new_encoder = text_encoder.SubwordTextEncoder(filename)
+
+    self.assertEqual(encoder._alphabet, new_encoder._alphabet)
+    self.assertEqual(encoder._all_subtoken_strings,
+                     new_encoder._all_subtoken_strings)
+    self.assertEqual(encoder._subtoken_string_to_id,
+                     new_encoder._subtoken_string_to_id)
+    self.assertEqual(encoder._max_subtoken_len, new_encoder._max_subtoken_len)
+
+  def test_save_and_reload_no_single_quotes(self):
+    corpus = "the quick brown fox jumps over the lazy dog"
+    token_counts = collections.Counter(corpus.split(" "))
+
+    # Deliberately exclude some required encoding chars from the alphabet
+    # and token list, making some strings unencodable.
+    encoder = text_encoder.SubwordTextEncoder.build_to_target_size(
+        100, token_counts, 2, 10)
+
+    filename = os.path.join(self.test_temp_dir, "out.voc")
+    encoder.store_to_file(filename, add_single_quotes=False)
+    new_encoder = text_encoder.SubwordTextEncoder(filename)
+
+    self.assertEqual(encoder._alphabet, new_encoder._alphabet)
+    self.assertEqual(encoder._all_subtoken_strings,
+                     new_encoder._all_subtoken_strings)
+    self.assertEqual(encoder._subtoken_string_to_id,
+                     new_encoder._subtoken_string_to_id)
+    self.assertEqual(encoder._max_subtoken_len, new_encoder._max_subtoken_len)
+
 
 if __name__ == "__main__":
   tf.test.main()
