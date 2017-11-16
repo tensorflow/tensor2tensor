@@ -163,9 +163,11 @@ def convert_rgb_to_real(x):
     return x
 
 
-def image_augmentation(images, do_colors=False):
+def image_augmentation(images, do_colors=False, crop_size=None):
   """Image augmentation: cropping, flipping, and color transforms."""
-  images = tf.random_crop(images, [299, 299, 3])
+  if crop_size is None:
+    crop_size = [299, 299]
+  images = tf.random_crop(images, crop_size + [3])
   images = tf.image.random_flip_left_right(images)
   if do_colors:  # More augmentation, but might be slow.
     images = tf.image.random_brightness(images, max_delta=32. / 255.)
