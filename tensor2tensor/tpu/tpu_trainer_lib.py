@@ -151,43 +151,32 @@ def get_model_fn(model_name, hp, use_tpu=True):
 
     # Instantiate model and retrieve modalities. Note that autoregressive models
     # have no input modality.
-    model_class = registry.model(model_name)(hparams, mode, problem_hp)
-    input_modality = problem_hp.input_modality.get("inputs")
-    target_modality = problem_hp.target_modality
+    model = registry.model(model_name)(hparams, mode, problem_hp)
 
-    # Transform features
-    transformed_features = {}
-    if input_modality is not None:
-      with tf.variable_scope(input_modality.name):
-        transformed_features["inputs"] = input_modality.bottom(
-            features["inputs"])
-    with tf.variable_scope(target_modality.name):
-      transformed_features["targets"] = target_modality.targets_bottom(
-          features["targets"])
-    transformed_features["problem_choice"] = tf.constant(0)
-    transformed_features["input_space_id"] = tf.constant(
-        problem_hp.input_space_id)
-    transformed_features["target_space_id"] = tf.constant(
-        problem_hp.target_space_id)
+    features["problem_choice"] = tf.constant(0)
+    features["input_space_id"] = tf.constant(problem_hp.input_space_id)
+    features["target_space_id"] = tf.constant(problem_hp.target_space_id)
 
-    # Model construction
-    with tf.variable_scope("body"):
-      outputs = model_class.model_fn_body(transformed_features)
-    with tf.variable_scope(target_modality.name):
-      logits = target_modality.top(outputs, labels)
+    sharded_logits, losses_dict = model.model_fn(features)
+    assert len(sharded_logits) == 1
+    logits, = sharded_logits
 
-      if use_tpu:
-        # Set known shapes
-        shape = logits.get_shape().as_list()
-        if shape[0] is None:
-          shape[0] = params["batch_size"]
-        if shape[1] is None:
-          shape[1] = hparams.max_length
-        logits.set_shape(shape)
+    if use_tpu:
+      # Set known shapes
+      shape = logits.get_shape().as_list()
+      if shape[0] is None:
+        shape[0] = params["batch_size"]
+      if shape[1] is None:
+        shape[1] = hparams.max_length
+      logits.set_shape(shape)
 
-      # Loss
-      loss_num, loss_den = target_modality.loss(logits, labels)
-      loss = loss_num / tf.maximum(1.0, loss_den)
+    # Loss
+    loss_num, loss_den = problem_hp.target_modality.loss(logits, labels)
+    loss = loss_num / tf.maximum(1.0, loss_den)
+
+    if losses_dict:
+      for loss_val in losses_dict.values():
+        loss += loss_val
 
     if mode == tf.estimator.ModeKeys.EVAL:
       problem = hp.problem_instances[0]
@@ -289,22 +278,29 @@ def create_run_config(master="",
                       iterations_per_loop=1000,
                       num_shards=8,
                       log_device_placement=False,
-                      save_checkpoints_steps=1000):
+                      save_checkpoints_steps=1000,
+                      use_tpu=True):
   """Create TPUConfig and tpu.RunConfig."""
-  tpu_config = tf.contrib.tpu.TPUConfig(
-      iterations_per_loop=iterations_per_loop,
-      num_shards=num_shards,
-      per_host_input_for_training=(num_shards <= 8))
   session_config = tf.ConfigProto(
       allow_soft_placement=True, log_device_placement=log_device_placement)
-  run_config = tf.contrib.tpu.RunConfig(
-      model_dir=model_dir,
-      session_config=session_config,
-      save_summary_steps=0,
-      save_checkpoints_steps=save_checkpoints_steps,
-      tpu_config=tpu_config,
-      master=master)
-  return run_config
+  run_config_args = {
+      "model_dir": model_dir,
+      "session_config": session_config,
+      "save_summary_steps": 0,
+      "save_checkpoints_steps": save_checkpoints_steps,
+  }
+  run_config_cls = tf.estimator.RunConfig
+
+  if use_tpu:
+    run_config_cls = tf.contrib.tpu.RunConfig
+    tpu_config = tf.contrib.tpu.TPUConfig(
+        iterations_per_loop=iterations_per_loop,
+        num_shards=num_shards,
+        per_host_input_for_training=(num_shards <= 8))
+    run_config_args["master"] = master
+    run_config_args["tpu_config"] = tpu_config
+
+  return run_config_cls(**run_config_args)
 
 
 def create_estimator(model_fn, run_config, batch_size=16, use_tpu=True):
@@ -332,8 +328,9 @@ def create_experiment(run_config,
   """Create Experiment."""
   hparams.add_hparam("data_dir", data_dir)
   trainer_utils.add_problem_hparams(hparams, problem_name)
-  batch_size = (
-      hparams.tpu_batch_size_per_shard * run_config.tpu_config.num_shards)
+  batch_size = hparams.tpu_batch_size_per_shard
+  if use_tpu:
+    batch_size *= run_config.tpu_config.num_shards
   model_fn = get_model_fn(model_name, hparams, use_tpu=use_tpu)
   estimator = create_estimator(
       model_fn, run_config, batch_size, use_tpu=use_tpu)
