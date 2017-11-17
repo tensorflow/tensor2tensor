@@ -26,6 +26,7 @@ import copy
 import six
 
 from tensor2tensor.utils import data_reader
+from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import optimize
 from tensor2tensor.utils import registry
@@ -34,7 +35,7 @@ from tensor2tensor.utils import trainer_utils
 import tensorflow as tf
 
 
-def create_dummy_vars():
+def _create_dummy_vars():
   """Dummy vars for restore to work when not using TPU codepath."""
   with tf.variable_scope("losses_avg"):
     with tf.variable_scope("problem_0"):
@@ -45,90 +46,120 @@ def create_dummy_vars():
     tf.get_variable("problem_0_steps", initializer=0, trainable=False)
 
 
+def _get_batch_size(params, hparams, config):
+  """Batch size determined by params dict, HParams, and RunConfig."""
+  # If params specifies batch size, use that. TPUEstimator passes batch size in
+  # params.
+  batch_size = params and params.get("batch_size")
+
+  # If not set, then we're running on CPU/GPU, so use the batch size from the
+  # hparams, and multiply by the number of data shards.
+  if not batch_size:
+    batch_size = hparams.tpu_batch_size_per_shard
+    if config:
+      batch_size *= config.t2t_device_info["num_shards"]
+
+  return batch_size
+
+
+def t2t_input_fn(problem, mode, hparams, params=None, config=None):
+  """Builds input pipeline for problem.
+
+  Args:
+    problem: Problem to build input pipeline for
+    mode: tf.estimator.ModeKeys
+    hparams: HParams
+    params: dict, may include "batch_size"
+    config: RunConfig
+
+  Returns:
+    (features_dict<str name, Tensor feature>, Tensor targets)
+  """
+  is_training = mode == tf.estimator.ModeKeys.TRAIN
+  num_threads = 4 if is_training else 1
+
+  batch_size = _get_batch_size(params, hparams, config)
+
+  def valid_size(example):
+    return data_reader.example_valid_size(example, hparams.min_length,
+                                          hparams.max_length)
+
+  def define_shapes(example):
+    """Set the right shapes for the features."""
+    inputs = example["inputs"]
+    targets = example["targets"]
+
+    # Ensure inputs and targets are proper rank.
+    while len(inputs.get_shape()) < 4:
+      inputs = tf.expand_dims(inputs, axis=-1)
+    while len(targets.get_shape()) < 4:
+      targets = tf.expand_dims(targets, axis=-1)
+
+    example["inputs"] = inputs
+    example["targets"] = targets
+
+    # Ensure batch size is set on all features
+    for _, t in six.iteritems(example):
+      shape = t.get_shape().as_list()
+      shape[0] = batch_size
+      t.set_shape(t.get_shape().merge_with(shape))
+      # Assert shapes are fully known
+      t.get_shape().assert_is_fully_defined()
+
+    return example
+
+  # Read and preprocess
+  data_dir = hparams.data_dir
+  dataset = problem.dataset(
+      mode=mode, data_dir=data_dir, num_threads=num_threads, hparams=hparams)
+  dataset = dataset.map(
+      data_reader.cast_int64_to_int32, num_threads=num_threads)
+  if is_training:
+    dataset = dataset.repeat(None)
+
+  # Batch (and pad)
+  if _are_shapes_fully_defined(dataset.output_shapes):
+    dataset = dataset.apply(
+        tf.contrib.data.batch_and_drop_remainder(batch_size))
+  else:
+    # If shapes are not fully defined, filter out long ones and pad to
+    # hparams.max_length
+    dataset = dataset.filter(valid_size)
+    padded_shapes = _fill_shape_nones(
+        dataset.output_shapes, none_filler=hparams.max_length)
+    dataset = dataset.apply(
+        tf.contrib.data.padded_batch_and_drop_remainder(batch_size,
+                                                        padded_shapes))
+
+  dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
+  dataset = dataset.prefetch(1)
+  features = dataset.make_one_shot_iterator().get_next()
+
+  return features, features["targets"]
+
+
 def get_input_fn(mode, hparams):
-  """Get basic T2T input fn."""
+  """Get input fn for Estimator. See input_fn."""
 
-  def input_fn(params):
-    """Input fn."""
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
-    num_threads = 4 if is_training else 1
-    if "batch_size" in params:
-      batch_size = params["batch_size"]
-    else:
-      batch_size = hparams.tpu_batch_size_per_shard
+  def wrapped_input_fn(params, config):
+    return t2t_input_fn(
+        hparams.problem_instances[0],
+        mode,
+        hparams,
+        params=params,
+        config=config)
 
-    def valid_size(example):
-      return data_reader.example_valid_size(example, hparams.min_length,
-                                            hparams.max_length)
-
-    def define_shapes(example):
-      """Set the right shapes for the features."""
-      inputs = example["inputs"]
-      targets = example["targets"]
-
-      # Ensure inputs and targets are proper rank.
-      while len(inputs.get_shape()) < 4:
-        inputs = tf.expand_dims(inputs, axis=-1)
-      while len(targets.get_shape()) < 4:
-        targets = tf.expand_dims(targets, axis=-1)
-
-      example["inputs"] = inputs
-      example["targets"] = targets
-
-      # Ensure batch size is set on all features
-      for _, t in six.iteritems(example):
-        shape = t.get_shape().as_list()
-        shape[0] = batch_size
-        t.set_shape(t.get_shape().merge_with(shape))
-        # Assert shapes are fully known
-        t.get_shape().assert_is_fully_defined()
-
-      return example
-
-    # Read and preprocess
-    problem = hparams.problem_instances[0]
-    data_dir = hparams.data_dir
-    dataset = problem.dataset(
-        mode=mode, data_dir=data_dir, num_threads=num_threads, hparams=hparams)
-    dataset = dataset.map(
-        data_reader.cast_int64_to_int32, num_threads=num_threads)
-    if is_training:
-      dataset = dataset.repeat(None)
-
-    # Batch (and pad)
-    if are_shapes_fully_defined(dataset.output_shapes):
-      dataset = dataset.apply(
-          tf.contrib.data.batch_and_drop_remainder(batch_size))
-    else:
-      # If shapes are not fully defined, filter out long ones and pad to
-      # hparams.max_length
-      dataset = dataset.filter(valid_size)
-      padded_shapes = fill_shape_nones(
-          dataset.output_shapes, none_filler=hparams.max_length)
-      if hasattr(tf.contrib.data, "padded_batch_and_drop_remainder"):
-        dataset = dataset.apply(
-            tf.contrib.data.padded_batch_and_drop_remainder(
-                batch_size, padded_shapes))
-      else:
-        dataset = data_reader.padded_batch(dataset, batch_size, padded_shapes)
-
-    dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
-    dataset = dataset.prefetch(1)
-    features = dataset.make_one_shot_iterator().get_next()
-
-    return features, features["targets"]
-
-  return input_fn
+  return wrapped_input_fn
 
 
-def are_shapes_fully_defined(shapes_dict):
+def _are_shapes_fully_defined(shapes_dict):
   for shape in shapes_dict.values():
     if not shape.is_fully_defined():
       return False
   return True
 
 
-def fill_shape_nones(shapes_dict, none_filler=None):
+def _fill_shape_nones(shapes_dict, none_filler=None):
   padded_shapes = {}
   for key, shape in six.iteritems(shapes_dict):
     padded_shapes[key] = [
@@ -137,81 +168,122 @@ def fill_shape_nones(shapes_dict, none_filler=None):
   return padded_shapes
 
 
-def get_model_fn(model_name, hp, use_tpu=True):
-  """Get simple T2T model fn."""
+def create_data_parallelism(num_gpus=1,
+                            gpu_order="",
+                            shard_to_cpu=False,
+                            num_shards=1):
+  """Create Parallelism object."""
+  gpus = list(range(num_gpus))
+  if gpu_order:
+    gpus = [int(s) for s in gpu_order.split(" ")]
+    assert len(gpus) == num_gpus
+  data_shard_devices = ["gpu:%d" % i for i in gpus]
+  if shard_to_cpu or num_gpus < 1:
+    data_shard_devices += ["cpu:0"]
+  assert len(data_shard_devices) == num_shards
+  tf.logging.info("Data parallel devices: %s", data_shard_devices)
+  return expert_utils.Parallelism(data_shard_devices, reuse=True)
 
-  def model_fn(features, labels, mode, params, config):
-    """Model fn."""
-    del config
-    create_dummy_vars()
 
-    hparams = copy.deepcopy(hp)
-    problem_hp = hparams.problems[0]
-    orig_features = features
+def t2t_model_fn(model_name,
+                 hparams,
+                 features,
+                 labels,
+                 mode,
+                 config=None,
+                 params=None,
+                 use_tpu=True):
+  """Model fn.
 
-    # Instantiate model and retrieve modalities. Note that autoregressive models
-    # have no input modality.
-    model = registry.model(model_name)(hparams, mode, problem_hp)
+  Args:
+    model_name: str, registered model name.
+    hparams: HParams
+    features: dict<str name, Tensor feature>
+    labels: Tensor
+    mode: tf.estimator.ModeKeys
+    config: RunConfig
+    params: dict, may include batch_size
+    use_tpu: bool, whether using TPU
 
-    features["problem_choice"] = tf.constant(0)
-    features["input_space_id"] = tf.constant(problem_hp.input_space_id)
-    features["target_space_id"] = tf.constant(problem_hp.target_space_id)
+  Returns:
+    EstimatorSpec or TPUEstimatorSpec
+  """
+  _create_dummy_vars()
 
-    sharded_logits, losses_dict = model.model_fn(features)
-    assert len(sharded_logits) == 1
-    logits, = sharded_logits
+  hparams = copy.deepcopy(hparams)
+  problem = hparams.problem_instances[0]
+  problem_hp = hparams.problems[0]
 
+  features["problem_choice"] = tf.constant(0)
+  features["input_space_id"] = tf.constant(problem_hp.input_space_id)
+  features["target_space_id"] = tf.constant(problem_hp.target_space_id)
+
+  # Build and call model
+  data_parallelism = (
+      expert_utils.Parallelism([""])
+      if use_tpu else create_data_parallelism(**config.t2t_device_info))
+  model = registry.model(model_name)(
+      hparams, mode, problem_hp, data_parallelism=data_parallelism)
+  sharded_logits, losses_dict = model.model_fn(features)
+
+  # Set known shapes
+  logits = tf.concat(sharded_logits, 0)
+  shape = logits.get_shape().as_list()
+  if shape[0] is None:
+    shape[0] = _get_batch_size(params, hparams, config)
+  if shape[1] is None:
+    shape[1] = hparams.max_length
+  logits.set_shape(shape)
+
+  # Accumulate losses
+  assert "training" in losses_dict
+  loss = sum(losses_dict.values())
+
+  if mode == tf.estimator.ModeKeys.EVAL:
     if use_tpu:
-      # Set known shapes
-      shape = logits.get_shape().as_list()
-      if shape[0] is None:
-        shape[0] = params["batch_size"]
-      if shape[1] is None:
-        shape[1] = hparams.max_length
-      logits.set_shape(shape)
-
-    # Loss
-    loss_num, loss_den = problem_hp.target_modality.loss(logits, labels)
-    loss = loss_num / tf.maximum(1.0, loss_den)
-
-    if losses_dict:
-      for loss_val in losses_dict.values():
-        loss += loss_val
-
-    if mode == tf.estimator.ModeKeys.EVAL:
-      problem = hp.problem_instances[0]
-
-      if use_tpu:
-        eval_metrics_fn = create_eval_metrics_fn(problem, hparams)
-        _remove_summaries()
-        return tf.contrib.tpu.TPUEstimatorSpec(
-            mode,
-            eval_metrics=(eval_metrics_fn, [logits, orig_features["targets"]]),
-            loss=loss)
-      else:
-        eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
-        eval_metrics = {}
-        for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
-          eval_metrics[metric_name] = metric_fn(logits, features)
-
-        return tf.estimator.EstimatorSpec(
-            mode,
-            predictions={"predictions": logits},
-            eval_metric_ops=eval_metrics,
-            loss=loss)
-
-    assert mode == tf.estimator.ModeKeys.TRAIN
-
-    lr = hparams.learning_rate * optimize.learning_rate_decay(hparams)
-    train_op = optimize.optimize(loss, lr, hparams, use_tpu=use_tpu)
-
-    if use_tpu:
-      _remove_summaries()  # summaries not currently working on TPU
-      return tf.contrib.tpu.TPUEstimatorSpec(mode, loss=loss, train_op=train_op)
+      eval_metrics_fn = create_eval_metrics_fn(problem, hparams)
+      _remove_summaries()
+      return tf.contrib.tpu.TPUEstimatorSpec(
+          mode, eval_metrics=(eval_metrics_fn, [logits, labels]), loss=loss)
     else:
-      return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
+      eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
+      eval_metrics = {}
+      for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
+        eval_metrics[metric_name] = metric_fn(logits, features)
 
-  return model_fn
+      return tf.estimator.EstimatorSpec(
+          mode,
+          predictions={"predictions": logits},
+          eval_metric_ops=eval_metrics,
+          loss=loss)
+
+  assert mode == tf.estimator.ModeKeys.TRAIN
+
+  lr = hparams.learning_rate * optimize.learning_rate_decay(hparams)
+  train_op = optimize.optimize(loss, lr, hparams, use_tpu=use_tpu)
+
+  if use_tpu:
+    _remove_summaries()  # summaries not currently working on TPU
+    return tf.contrib.tpu.TPUEstimatorSpec(mode, loss=loss, train_op=train_op)
+  else:
+    return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
+
+
+def get_model_fn(model_name, hparams, use_tpu=True):
+  """Model fn for Estimator. See model_fn."""
+
+  def wrapping_model_fn(features, labels, mode, params, config):
+    return t2t_model_fn(
+        model_name,
+        hparams,
+        features,
+        labels,
+        mode,
+        config=config,
+        params=params,
+        use_tpu=use_tpu)
+
+  return wrapping_model_fn
 
 
 # These metrics are implemented with py_funcs and therefore do no work with TPU
@@ -279,6 +351,9 @@ def create_run_config(master="",
                       num_shards=8,
                       log_device_placement=False,
                       save_checkpoints_steps=1000,
+                      num_gpus=1,
+                      gpu_order="",
+                      shard_to_cpu=False,
                       use_tpu=True):
   """Create TPUConfig and tpu.RunConfig."""
   session_config = tf.ConfigProto(
@@ -291,6 +366,7 @@ def create_run_config(master="",
   }
   run_config_cls = tf.estimator.RunConfig
 
+  # If using TPU, use TPU RunConfig, add TPUConfig, and add additional args
   if use_tpu:
     run_config_cls = tf.contrib.tpu.RunConfig
     tpu_config = tf.contrib.tpu.TPUConfig(
@@ -300,7 +376,18 @@ def create_run_config(master="",
     run_config_args["master"] = master
     run_config_args["tpu_config"] = tpu_config
 
-  return run_config_cls(**run_config_args)
+  config = run_config_cls(**run_config_args)
+
+  # If not using TPU, add device info for data_parallelism
+  if not use_tpu:
+    config.t2t_device_info = {
+        "num_gpus": num_gpus,
+        "gpu_order": gpu_order,
+        "shard_to_cpu": shard_to_cpu,
+        "num_shards": max(1, num_gpus + int(shard_to_cpu))
+    }
+
+  return config
 
 
 def create_estimator(model_fn, run_config, batch_size=16, use_tpu=True):
@@ -346,7 +433,7 @@ def create_experiment(run_config,
       train_steps_per_iteration=min_eval_frequency)
 
 
-def make_experiment_fn(*args, **kwargs):
+def create_experiment_fn(*args, **kwargs):
   """Wrapper for canonical experiment_fn. See create_experiment."""
 
   def experiment_fn(run_config, hparams):

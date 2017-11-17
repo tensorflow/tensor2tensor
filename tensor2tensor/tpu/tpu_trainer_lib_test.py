@@ -22,7 +22,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.tpu import tpu_trainer_lib as lib
-from tensor2tensor.utils import trainer_utils
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_utils_test
 
 import tensorflow as tf
@@ -34,33 +34,19 @@ class TpuTrainerTest(tf.test.TestCase):
   def setUpClass(cls):
     trainer_utils_test.TrainerUtilsTest.setUpClass()
 
-  def testSmoke(self):
-    data_dir = trainer_utils_test.TrainerUtilsTest.data_dir
-    problem_name = "tiny_algo"
-    model_name = "transformer"
-    hparams_set = "transformer_tpu"
-
-    hparams = trainer_utils.create_hparams(hparams_set, data_dir)
-    trainer_utils.add_problem_hparams(hparams, problem_name)
-
-    model_fn = lib.get_model_fn(model_name, hparams, use_tpu=False)
-    input_fn = lib.get_input_fn(tf.estimator.ModeKeys.TRAIN, hparams)
-
-    params = {"batch_size": 16}
-    config = tf.contrib.tpu.RunConfig(
-        tpu_config=tf.contrib.tpu.TPUConfig(num_shards=2))
-    features, targets = input_fn(params)
-    with tf.variable_scope("training"):
-      spec = model_fn(features, targets, tf.estimator.ModeKeys.TRAIN, params,
-                      config)
-
-    self.assertTrue(spec.loss is not None)
-    self.assertTrue(spec.train_op is not None)
-
-    with tf.variable_scope("eval"):
-      spec = model_fn(features, targets, tf.estimator.ModeKeys.EVAL, params,
-                      config)
-    self.assertTrue(spec.eval_metric_ops is not None)
+  def testExperiment(self):
+    exp_fn = lib.create_experiment_fn(
+        "transformer",
+        "tiny_algo",
+        trainer_utils_test.TrainerUtilsTest.data_dir,
+        train_steps=1,
+        eval_steps=1,
+        min_eval_frequency=1,
+        use_tpu=False)
+    run_config = lib.create_run_config(num_gpus=0, use_tpu=False)
+    hparams = registry.hparams("transformer_tiny_tpu")()
+    exp = exp_fn(run_config, hparams)
+    exp.test()
 
 
 if __name__ == "__main__":
