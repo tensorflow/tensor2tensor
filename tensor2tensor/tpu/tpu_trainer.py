@@ -87,7 +87,8 @@ def create_run_config():
       num_shards=FLAGS.tpu_num_shards,
       log_device_placement=FLAGS.log_device_placement,
       save_checkpoints_steps=max(FLAGS.iterations_per_loop,
-                                 FLAGS.local_eval_frequency))
+                                 FLAGS.local_eval_frequency),
+      use_tpu=FLAGS.use_tpu)
 
 
 def execute_schedule(exp):
