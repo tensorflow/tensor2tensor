@@ -69,7 +69,7 @@ def create_hparams():
 
 
 def create_experiment_fn():
-  return lib.make_experiment_fn(
+  return lib.create_experiment_fn(
       FLAGS.model,
       get_problem_name(),
       FLAGS.data_dir,
@@ -88,6 +88,9 @@ def create_run_config():
       log_device_placement=FLAGS.log_device_placement,
       save_checkpoints_steps=max(FLAGS.iterations_per_loop,
                                  FLAGS.local_eval_frequency),
+      num_gpus=FLAGS.worker_gpu,
+      gpu_order=FLAGS.gpu_order,
+      shard_to_cpu=FLAGS.locally_shard_to_cpu,
       use_tpu=FLAGS.use_tpu)
 
 
