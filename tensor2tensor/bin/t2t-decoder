@@ -47,9 +47,8 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("output_dir", "", "Training directory to load from.")
-flags.DEFINE_string("decode_from_file", None, "Path to decode file")
-flags.DEFINE_string("decode_to_file", None,
-                    "Path prefix to inference output file")
+flags.DEFINE_string("decode_from_file", None, "Path to the source file for decoding")
+flags.DEFINE_string("decode_to_file", None, "Path to the decoded (output) file")
 flags.DEFINE_bool("decode_interactive", False,
                   "Interactive local inference mode.")
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
