@@ -50,7 +50,7 @@ class SymbolModality(modality.Modality):
     return True
 
   @property
-  def weights_fn(self):
+  def targets_weights_fn(self):
     weights_fn = common_layers.weights_nonzero
 
     hp = self._model_hparams
