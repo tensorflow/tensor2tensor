@@ -20,6 +20,9 @@ from __future__ import print_function
 
 import collections
 import math
+import re
+import sys
+import unicodedata
 
 # Dependency imports
 
@@ -136,3 +139,52 @@ def bleu_score(predictions, labels, **unused_kwargs):
 
   bleu = tf.py_func(compute_bleu, (labels, outputs), tf.float32)
   return bleu, tf.constant(1.0)
+
+
+class UnicodeRegex:
+  """Ad-hoc hack to recognize all punctuation and symbols.
+
+  without dependening on https://pypi.python.org/pypi/regex/."""
+  def _property_chars(prefix):
+    return ''.join(chr(x) for x in range(sys.maxunicode)
+                   if unicodedata.category(chr(x)).startswith(prefix))
+  punctuation = _property_chars('P')
+  nondigit_punct_re = re.compile(r'([^\d])([' + punctuation + r'])')
+  punct_nondigit_re = re.compile(r'([' + punctuation + r'])([^\d])')
+  symbol_re = re.compile('([' + _property_chars('S') + '])')
+
+
+def bleu_tokenize(string):
+  """"Tokenize a string following the official BLEU implementation.
+
+  See https://github.com/moses-smt/mosesdecoder/blob/master/scripts/generic/mteval-v14.pl#L954-L983
+  In our case, the input string is expected to be just one line
+  and no HTML entities de-escaping is needed.
+  So we just tokenize on punctuation and symbols,
+  except when a punctuation is preceded and followed by a digit
+  (e.g. a comma/dot as a thousand/decimal separator).
+
+  Args:
+    string: the input string
+
+  Returns:
+    a list of tokens
+  """
+  string = UnicodeRegex.nondigit_punct_re.sub(r'\1 \2 ', string)
+  string = UnicodeRegex.punct_nondigit_re.sub(r' \1 \2', string)
+  string = UnicodeRegex.symbol_re.sub(r' \1 ', string)
+  return string.split()
+
+
+def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
+  """Compute BLEU for two files (reference and hypothesis translation)."""
+  # TODO: Does anyone care about Python2 compatibility?
+  ref_lines = open(ref_filename, 'rt', encoding='utf-8').read().splitlines()
+  hyp_lines = open(hyp_filename, 'rt', encoding='utf-8').read().splitlines()
+  assert len(ref_lines) == len(hyp_lines)
+  if not case_sensitive:
+    ref_lines = [x.lower() for x in ref_lines]
+    hyp_lines = [x.lower() for x in hyp_lines]
+  ref_tokens = [bleu_tokenize(x) for x in ref_lines]
+  hyp_tokens = [bleu_tokenize(x) for x in hyp_lines]
+  return compute_bleu(ref_tokens, hyp_tokens)
