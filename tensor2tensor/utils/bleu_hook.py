@@ -93,9 +93,14 @@ def compute_bleu(reference_corpus,
     for ngram in translation_ngram_counts:
       possible_matches_by_order[len(ngram)-1] += translation_ngram_counts[ngram]
   precisions = [0] * max_order
+  smooth = 1.0
   for i in xrange(0, max_order):
     if possible_matches_by_order[i] > 0:
-      precisions[i] = matches_by_order[i] / possible_matches_by_order[i]
+      if matches_by_order[i] > 0:
+        precisions[i] = matches_by_order[i] / possible_matches_by_order[i]
+      else:
+        smooth *= 2
+        precisions[i] = 1.0 / (smooth * possible_matches_by_order[i])
     else:
       precisions[i] = 0.0
 
