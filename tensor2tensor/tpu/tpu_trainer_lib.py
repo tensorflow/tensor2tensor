@@ -209,7 +209,6 @@ def t2t_model_fn(model_name,
     EstimatorSpec or TPUEstimatorSpec
   """
   _create_dummy_vars()
-
   hparams = copy.deepcopy(hparams)
   problem = hparams.problem_instances[0]
   problem_hp = hparams.problems[0]
@@ -224,10 +223,9 @@ def t2t_model_fn(model_name,
       if use_tpu else create_data_parallelism(**config.t2t_device_info))
   model = registry.model(model_name)(
       hparams, mode, problem_hp, data_parallelism=data_parallelism)
-  sharded_logits, losses_dict = model.model_fn(features)
+  logits, losses_dict = model(features)
 
   # Set known shapes
-  logits = tf.concat(sharded_logits, 0)
   shape = logits.get_shape().as_list()
   if shape[0] is None:
     shape[0] = _get_batch_size(params, hparams, config)

@@ -127,7 +127,7 @@ def model_fn(model,
     if eval_run_autoregressive and mode == tf.estimator.ModeKeys.EVAL:
       sharded_logits, losses_dict = model_class.eval_autoregressive(features)
     else:
-      sharded_logits, losses_dict = model_class.model_fn(
+      sharded_logits, losses_dict = model_class(
           features, skip=(skipping_is_on and skip_this_one))
     with tf.variable_scope("losses_avg"):
       total_loss, ops = 0.0, []
