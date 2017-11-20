@@ -51,17 +51,16 @@ class TransformerTest(tf.test.TestCase):
     targets = -1 + np.random.random_integers(
         VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
     features = {
-        "inputs": tf.constant(inputs, dtype=tf.int32),
-        "targets": tf.constant(targets, dtype=tf.int32),
-        "target_space_id": tf.constant(1, dtype=tf.int32),
+        "inputs": tf.constant(inputs, dtype=tf.int32, name="inputs"),
+        "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
+        "target_space_id": tf.constant(1, dtype=tf.int32)
     }
 
     return transformer.Transformer(hparams, mode, p_hparams), features
 
   def testTransformer(self):
     model, features = self.getModel(transformer.transformer_small())
-    shadred_logits, _ = model.model_fn(features)
-    logits = tf.concat(shadred_logits, 0)
+    logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -69,8 +68,7 @@ class TransformerTest(tf.test.TestCase):
 
   def testTransformerRelative(self):
     model, features = self.getModel(transformer.transformer_relative_tiny())
-    shadred_logits, _ = model.model_fn(features)
-    logits = tf.concat(shadred_logits, 0)
+    logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -81,8 +79,8 @@ class TransformerTest(tf.test.TestCase):
 
     decode_length = 2
 
-    out_logits, _ = model.model_fn(features)
-    out_logits = tf.squeeze(out_logits[0], axis=[2, 3])
+    out_logits, _ = model(features)
+    out_logits = tf.squeeze(out_logits, axis=[2, 3])
     loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
         logits=tf.reshape(out_logits, [-1, VOCAB_SIZE]),
         labels=tf.reshape(features["targets"], [-1]))
@@ -94,8 +92,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model, _ = self.getModel(transformer.transformer_small(),
-                             mode=tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf.estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       greedy_result, _, _ = model._slow_greedy_infer(features, decode_length)
@@ -115,8 +112,8 @@ class TransformerTest(tf.test.TestCase):
 
     decode_length = 2
 
-    out_logits, _ = model.model_fn(features)
-    out_logits = tf.squeeze(out_logits[0], axis=[2, 3])
+    out_logits, _ = model(features)
+    out_logits = tf.squeeze(out_logits, axis=[2, 3])
     loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
         logits=tf.reshape(out_logits, [-1, VOCAB_SIZE]),
         labels=tf.reshape(features["targets"], [-1]))
@@ -128,8 +125,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model, _ = self.getModel(transformer.transformer_small(),
-                             mode=tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf.estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       beam_result = model._beam_decode_slow(

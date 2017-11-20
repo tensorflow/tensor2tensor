@@ -654,9 +654,9 @@ class TransformerAE(t2t_model.T2TModel):
                                 dtype=tf.int64)
 
     features["targets"] = initial_output
-    sharded_logits, _ = self.model_fn(features, False, force_full_predict=True)
-    sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
-    samples = tf.concat(sharded_samples, 0)
+    logits, _ = self.__call__(
+        features, skip=False, force_full_predict=True)
+    samples = tf.argmax(logits, axis=-1)
 
     if inputs_old is not None:  # Restore to not confuse Estimator.
       features["inputs"] = inputs_old

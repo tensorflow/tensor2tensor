@@ -48,8 +48,7 @@ class XceptionTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
       }
       model = xception.Xception(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
-      sharded_logits, _ = model.model_fn(features)
-      logits = tf.concat(sharded_logits, 0)
+      logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, output_size + (1, vocab_size))

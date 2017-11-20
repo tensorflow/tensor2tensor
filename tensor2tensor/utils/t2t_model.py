@@ -34,6 +34,8 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+from tensorflow.python.layers import base
+
 
 def _with_timing(fn, msg):
 
@@ -54,16 +56,17 @@ def is_class_modality(mod):
   return mod.name[:len(prefix)] == prefix
 
 
-class T2TModel(object):
+class T2TModel(base.Layer):
   """Abstract base class for models.
 
   Subclassess generally only need to override `build_model`.
   """
+  REGISTERED_NAME = None  # Updated on registration.
 
   def __init__(self,
                hparams,
                mode,
-               problem_hparams,
+               problem_hparams=None,
                problem_idx=0,
                data_parallelism=None,
                ps_devices=None,
@@ -83,18 +86,20 @@ class T2TModel(object):
     Returns:
       a T2TModel
     """
+    # Determine name first: use registered name if possible, class name else.
+    default_name = registry.default_name(type(self))
+    name = self.REGISTERED_NAME or default_name
+    super(T2TModel, self).__init__(
+        trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name)
     if data_parallelism is None:
       data_parallelism = eu.Parallelism([""])
     if ps_devices is None:
       ps_devices = [""]
-    hparams = copy.copy(hparams)
-    hparams.add_hparam("mode", mode)
-    # When not in training mode, set all forms of dropout to zero.
-    if mode != tf.estimator.ModeKeys.TRAIN:
-      for key in hparams.values():
-        if key[-len("dropout"):] == "dropout":
-          setattr(hparams, key, 0.0)
+    if problem_hparams is None:
+      problem_hparams = hparams.problems[0]
+
     # If vocabularies differ, unset shared_embedding_and_softmax_weights.
+    hparams = copy.copy(hparams)
     if hparams.shared_embedding_and_softmax_weights:
       same_vocab_sizes = True
       for problem in hparams.problems:
@@ -104,7 +109,8 @@ class T2TModel(object):
       if not same_vocab_sizes:
         tf.logging.info("Unsetting shared_embedding_and_softmax_weights.")
         hparams.shared_embedding_and_softmax_weights = 0
-    self._hparams = hparams
+    self._original_hparams = hparams
+    self.set_mode(mode)
     self._decode_hparams = copy.copy(decode_hparams)
     self._data_parallelism = data_parallelism
     self._num_datashards = data_parallelism.n
@@ -112,6 +118,17 @@ class T2TModel(object):
     self._problem_hparams = problem_hparams
     self._problem_idx = problem_idx
     self._create_modalities(problem_hparams, hparams)
+
+  def set_mode(self, mode):
+    """Set hparams with the given mode."""
+    hparams = copy.copy(self._original_hparams)
+    hparams.add_hparam("mode", mode)
+    # When not in training mode, set all forms of dropout to zero.
+    if mode != tf.estimator.ModeKeys.TRAIN:
+      for key in hparams.values():
+        if key[-len("dropout"):] == "dropout":
+          setattr(hparams, key, 0.0)
+    self._hparams = hparams
 
   def _create_modalities(self, problem_hparams, hparams):
     """Construct modalities in problem_hparams."""
@@ -207,8 +224,8 @@ class T2TModel(object):
       samples, _, _ = self._greedy_infer(features, decode_length)
     else:
       tf.logging.info("Beam Decoding with beam size %d" % beam_size)
-      samples = self._beam_decode(features, decode_length, beam_size, top_beams,
-                                  alpha)
+      samples = self._beam_decode(
+          features, decode_length, beam_size, top_beams, alpha)
     return samples
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
@@ -263,11 +280,10 @@ class T2TModel(object):
 
       features["targets"] = ids
       self._coverage = None
-      sharded_logits, _ = self.model_fn(features, False)
+      logits, _ = self.__call__(features)
       # now self._coverage is a coverage tensor for the first datashard.
       # it has shape [batch_size] and contains floats between 0 and
       # source_length.
-      logits = sharded_logits[0]  # Assuming we have one shard.
       modality = self._hparams.problems[self._problem_idx].target_modality
       if modality.top_is_pointwise:
         return tf.squeeze(logits, axis=[1, 2, 3])
@@ -384,7 +400,7 @@ class T2TModel(object):
       samples.set_shape([None, None, None, 1])
 
       # Assuming we have one shard for logits.
-      logits = tf.concat([recent_logits, logits[0][:, -1:]], 1)
+      logits = tf.concat([recent_logits, logits[:, -1:]], 1)
       loss = sum([l for l in losses.values() if l is not None])
       return samples, logits, loss
 
@@ -477,13 +493,13 @@ class T2TModel(object):
        logits: a list of `Tensor`s, one per datashard.
        losses: a dictionary: {loss-name (string): floating point `Scalar`}.
     """
-    sharded_logits, losses = self.model_fn(features, False)
+    logits, losses = self.__call__(features)
     if self._hparams.sampling_method == "argmax":
-      sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
+      samples = tf.argmax(logits, axis=-1)
     else:
       assert self._hparams.sampling_method == "random"
 
-      def _multinomial_squeeze(logits, temperature=1.0):
+      def multinomial_squeeze(logits, temperature=1.0):
         logits_shape = common_layers.shape_list(logits)
         reshaped_logits = (
             tf.reshape(logits, [-1, logits_shape[-1]]) / temperature)
@@ -491,9 +507,9 @@ class T2TModel(object):
         choices = tf.reshape(choices, logits_shape[:-1])
         return choices
 
-      sharded_samples = self._data_parallelism(
-          _multinomial_squeeze, sharded_logits, self._hparams.sampling_temp)
-    return tf.concat(sharded_samples, 0), sharded_logits, losses
+      samples = multinomial_squeeze(logits, self._hparams.sampling_temp)
+
+    return samples, logits, losses
 
   def _shard_features(self, features):  # pylint: disable=missing-docstring
     sharded_features = dict()
@@ -502,13 +518,12 @@ class T2TModel(object):
       if not v.shape.as_list():
         v = tf.expand_dims(v, axis=-1)
         v = tf.tile(v, [self._num_datashards])
-      sharded_features[k] = self._data_parallelism(tf.identity,
-                                                   tf.split(
-                                                       v, self._num_datashards,
-                                                       0))
+      sharded_features[k] = self._data_parallelism(
+          tf.identity,
+          tf.split(v, self._num_datashards, 0))
     return sharded_features
 
-  def model_fn(self, features, skip=False, force_full_predict=False):
+  def _model_fn(self, features, skip=False, force_full_predict=False):
     """Computes the entire model and produces sharded logits and losses.
 
     Args:
@@ -661,6 +676,21 @@ class T2TModel(object):
 
     tf.logging.info("This model_fn took %.3f sec." % (time.time() - start_time))
     return sharded_logits, losses
+
+  def call(self, inputs_dict, skip=False, force_full_predict=False):
+    problem_hparams = self._problem_hparams
+    if "problem_choice" not in inputs_dict:
+      inputs_dict["problem_choice"] = tf.constant(
+          self._problem_idx, name="problem_choice")
+    if "input_space_id" not in inputs_dict:
+      inputs_dict["input_space_id"] = tf.constant(
+          problem_hparams.input_space_id, name="input_space_id")
+    if "target_space_id" not in inputs_dict:
+      inputs_dict["target_space_id"] = tf.constant(
+          problem_hparams.target_space_id, name="target_space_id")
+    sharded_logits, losses = self._model_fn(
+        inputs_dict, skip=skip, force_full_predict=force_full_predict)
+    return tf.concat(sharded_logits, 0), losses
 
   def model_fn_body_sharded(self, sharded_features):
     """Mixture-of-experts models will override this function.

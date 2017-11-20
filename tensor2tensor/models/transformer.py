@@ -158,7 +158,8 @@ class Transformer(t2t_model.T2TModel):
     Raises:
       NotImplementedError: If there are multiple data shards.
     """
-    decoded_ids, _ = self._fast_decode(features, decode_length)
+    with tf.variable_scope(self.name):
+      decoded_ids, _ = self._fast_decode(features, decode_length)
     return decoded_ids, None, None
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
@@ -175,8 +176,9 @@ class Transformer(t2t_model.T2TModel):
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
     """
-    decoded_ids, scores = self._fast_decode(features, decode_length, beam_size,
-                                            top_beams, alpha)
+    with tf.variable_scope(self.name):
+      decoded_ids, scores = self._fast_decode(
+          features, decode_length, beam_size, top_beams, alpha)
     return {"outputs": decoded_ids, "scores": scores}
 
   def _fast_decode(self,
