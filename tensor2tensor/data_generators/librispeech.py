@@ -14,7 +14,7 @@ import tarfile
 import wave
       
 
-'''_LIBRISPEECH_TRAIN_DATASETS = [
+_LIBRISPEECH_TRAIN_DATASETS = [
     [
         "http://www.openslr.org/resources/12/train-clean-100.tar.gz",  # pylint: disable=line-too-long
         "train-clean-100"
@@ -36,18 +36,6 @@ _LIBRISPEECH_TEST_DATASETS = [
     [
         "http://www.openslr.org/resources/12/dev-other.tar.gz",
         "dev-other"
-    ],
-]'''
-_LIBRISPEECH_TRAIN_DATASETS = [
-    [
-        "http://www.openslr.org/resources/12/dev-other.tar.gz",
-        "dev-other"
-    ],
-]
-_LIBRISPEECH_TEST_DATASETS = [
-    [
-        "http://www.openslr.org/resources/12/dev-clean.tar.gz",
-        "dev-clean"
     ],
 ]
 
