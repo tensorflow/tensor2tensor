@@ -35,7 +35,7 @@ def basic_params1():
       batch_size=4096,  # in tokens per batch per gpu
       # Fixed batch size turns off bucketing during training mode
       # and uses batch_size as minibatch size (use small batch_size<=32)
-      use_fixed_batch_size=int(False),
+      use_fixed_batch_size=False,
       num_hidden_layers=4,
       kernel_height=3,
       kernel_width=1,
@@ -46,7 +46,7 @@ def basic_params1():
       dropout=0.2,
       clip_grad_norm=2.0,
       grad_noise_scale=0.0,
-      summarize_grads=int(False),
+      summarize_grads=False,
       initializer="orthogonal",
       initializer_gain=1.5,
       label_smoothing=0.1,
@@ -65,7 +65,7 @@ def basic_params1():
       sampling_temp=1.0,  # temperature for sampling
       problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
       # expand the logits a piece at a time - saves memory.
-      factored_logits=int(False),
+      factored_logits=False,
       multiply_embedding_mode="sqrt_depth",
       # Parameters related to mixtures of experts.
       moe_hidden_sizes="2048",  # hidden layer sizes (comma-separated)
@@ -115,23 +115,23 @@ def basic_params1():
       length_bucket_step=1.1,
       # If set to True, drop sequences longer than max_length during eval.
       # This affects the validity of the evaluation metrics.
-      eval_drop_long_sequences=int(False),
+      eval_drop_long_sequences=False,
       # TODO(lukaszkaiser): these parameters should probably be set elsewhere.
       # in SymbolModality, share the output embeddings and the softmax
       # variables.
       # You can also share the input embeddings with the output embeddings
       # by using a problem_hparams that uses the same modality object for
       # the input_modality and target_modality.
-      shared_embedding_and_softmax_weights=int(False),
+      shared_embedding_and_softmax_weights=False,
       # In SymbolModality, skip the top layer, assume we're providing logits.
-      symbol_modality_skip_top=int(False),
+      symbol_modality_skip_top=False,
       # For each feature for which you want to override the default input
       # modality, add an entry to this semicolon-separated string. Entries are
       # formatted "feature_name:modality_type:modality_name", e.g.
-      # "inputs:image:small_image_modality;other_inputs:audio:identity".
+      # "inputs:symbol:default;other_inputs:audio:identity".
       input_modalities="default",  # We don't use empty string in params.
       # To override the default target modality, specify
-      # "modality_type:modality_name", e.g. "image:small_image_modality".
+      # "modality_type:modality_name", e.g. "symbol:ctc".
       target_modality="default",
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
@@ -178,7 +178,8 @@ def basic_params1():
       scheduled_sampling_gold_mixin_prob=0.5,
       # This is the actual batch size, *not* tokens per batch (i.e. for
       # language models this is the number of sentences in the batch)
-      tpu_batch_size_per_shard=24,)
+      tpu_batch_size_per_shard=24,
+  )
 
 
 class RangedHParams(object):
@@ -192,6 +193,7 @@ class RangedHParams(object):
   def __init__(self):
     self._categorical_params = {}
     self._discrete_params = {}
+    self._discrete_float_params = {}
     self._float_params = {}
     self._int_params = {}
 
@@ -203,7 +205,8 @@ class RangedHParams(object):
 
     ctr_names = [(self._categorical_params,
                   "categorical"), (self._discrete_params, "discrete"),
-                 (self._float_params, "float"), (self._int_params, "int")]
+                 (self._float_params, "float"), (self._int_params, "int"),
+                 (self._discrete_float_params, "discrete_float")]
     ctrs, names = list(zip(*ctr_names))
     orig_name = names[ctrs.index(orig_ctr)]
 
@@ -226,12 +229,29 @@ class RangedHParams(object):
     self._discrete_params[name] = (name, feasible_points, scale, length)
 
   def set_float(self, name, min_val, max_val, scale=None, length=None):
+    if name in self._discrete_float_params:
+      del self._discrete_float_params[name]
     self._check_reset_and_type_change(name, self._float_params)
     self._float_params[name] = (name, min_val, max_val, scale, length)
+
+  def set_discrete_float(self, name, val):
+    self._check_reset_and_type_change(name, self._discrete_float_params)
+    self._discrete_float_params[name] = (name, [val])
 
   def set_int(self, name, min_val, max_val, scale=None, length=None):
     self._check_reset_and_type_change(name, self._int_params)
     self._int_params[name] = (name, min_val, max_val, scale, length)
+
+  def fix_select_params(self, hp):
+    ctrs = [
+        self._categorical_params, self._discrete_params,
+        self._discrete_float_params, self._float_params, self._int_params
+    ]
+    for key, val in hp.values().iteritems():
+      for ctr in ctrs:
+        if key in ctr:
+          del ctr[key]
+      self.set_discrete(key, [val])
 
 
 def fill_ranged_hparams_from_hparams(hparams, ranged_hparams):
@@ -240,7 +260,8 @@ def fill_ranged_hparams_from_hparams(hparams, ranged_hparams):
   HParams are placed in RangedHParams with the following functions, according to
   type:
     * int: set_discrete
-    * float: set_float
+    * bool: set_discrete
+    * float: set_discrete_float
     * str: set_categorical
 
   Args:
@@ -260,8 +281,10 @@ def fill_ranged_hparams_from_hparams(hparams, ranged_hparams):
     val = getattr(hparams, name)
     if hp_type == int:
       ranged_hparams.set_discrete(name, [val])
+    elif hp_type == bool:
+      ranged_hparams.set_discrete(name, [int(val)])
     elif hp_type == float:
-      ranged_hparams.set_float(name, val, val)
+      ranged_hparams.set_discrete_float(name, val)
     elif hp_type == str:
       ranged_hparams.set_categorical(name, [val])
     else:
@@ -295,6 +318,6 @@ def basic_range1(ranged_hparams):
   rhp.set_float("optimizer_adam_epsilon", 1e-7, 1e-2, scale=rhp.LOG_SCALE)
   rhp.set_float("optimizer_adam_beta1", 0.8, 0.9)
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)
-  rhp.set_categorical("optimizer", [
-      "Adam", "Adagrad", "Momentum", "RMSProp", "SGD", "YellowFin"
-  ])
+  rhp.set_categorical(
+      "optimizer",
+      ["Adam", "Adagrad", "Momentum", "RMSProp", "SGD", "YellowFin"])

@@ -156,8 +156,7 @@ class T2TModel(object):
   def eval_autoregressive(self,
                           features=None,
                           extra_decode_length=50,
-                          max_decode_length=0,
-                          last_position_only=False):
+                          max_decode_length=0):
     """Autoregressive eval.
 
     Quadratic time in decode_length.
@@ -167,7 +166,6 @@ class T2TModel(object):
       extra_decode_length: an integer. How many additional timesteps to decode.
       max_decode_length: an integer. Max timesteps to decode.
         (inputs_len + extra_decode_length if max_decode_length < 1)
-      last_position_only: a boolean, speed-up by computing last position only.
 
     Returns:
       sharded_logits: a list of `Tensor`s. Assumes one datashard.
@@ -177,8 +175,7 @@ class T2TModel(object):
     _, logits, losses = self._slow_greedy_infer(
         features,
         extra_decode_length=extra_decode_length,
-        max_decode_length=max_decode_length,
-        last_position_only=last_position_only)
+        max_decode_length=max_decode_length)
     return [logits], losses
 
   def infer(self,
@@ -187,7 +184,6 @@ class T2TModel(object):
             max_decode_length=0,
             beam_size=1,
             top_beams=1,
-            last_position_only=False,
             alpha=0.0):
     """A inference method.
 
@@ -200,7 +196,6 @@ class T2TModel(object):
         (inputs_len + extra_decode_length if max_decode_length < 1)
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
-      last_position_only: a boolean, speed-up by computing last position only.
       alpha: Float that controls the length penalty. larger the alpha, stronger
         the preference for slonger translations.
 
@@ -220,16 +215,16 @@ class T2TModel(object):
     if beam_size == 1:
       tf.logging.info("Greedy Decoding")
       samples, _, _ = self._greedy_infer(features, extra_decode_length,
-                                         max_decode_length, last_position_only)
+                                         max_decode_length)
     else:
       tf.logging.info("Beam Decoding with beam size %d" % beam_size)
       samples = self._beam_decode(features, extra_decode_length, 
                                   max_decode_length, beam_size, top_beams,
-                                  last_position_only, alpha)
+                                  alpha)
     return samples
 
   def _beam_decode(self, features, extra_decode_length, max_decode_length,
-                   beam_size, top_beams, last_position_only, alpha):
+                   beam_size, top_beams, alpha):
     """Beam search decoding.
 
     Models should ideally implement a more efficient version of this function.
@@ -241,7 +236,6 @@ class T2TModel(object):
         (inputs_len + extra_decode_length if max_decode_length < 1)
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
-      last_position_only: a boolean, speed-up by computing last position only.
       alpha: Float that controls the length penalty. larger the alpha, stronger
         the preference for slonger translations.
 
@@ -250,10 +244,10 @@ class T2TModel(object):
     """
     return self._beam_decode_slow(features, extra_decode_length,
                                   max_decode_length, beam_size, top_beams,
-                                  last_position_only, alpha)
+                                  alpha)
 
   def _beam_decode_slow(self, features, extra_decode_length, max_decode_length,
-                        beam_size, top_beams, last_position_only, alpha):
+                        beam_size, top_beams, alpha):
     """Slow version of Beam search decoding.
 
     Quadratic time in decode_length.
@@ -265,7 +259,6 @@ class T2TModel(object):
         (inputs_len + extra_decode_length if max_decode_length < 1)
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
-      last_position_only: a boolean, speed-up by computing last position only.
       alpha: Float that controls the length penalty. larger the alpha, stronger
         the preference for slonger translations.
 
@@ -288,13 +281,13 @@ class T2TModel(object):
 
       features["targets"] = ids
       self._coverage = None
-      sharded_logits, _ = self.model_fn(
-          features, False, last_position_only=last_position_only)
+      sharded_logits, _ = self.model_fn(features, False)
       # now self._coverage is a coverage tensor for the first datashard.
       # it has shape [batch_size] and contains floats between 0 and
       # source_length.
       logits = sharded_logits[0]  # Assuming we have one shard.
-      if last_position_only:
+      modality = self._hparams.problems[self._problem_idx].target_modality
+      if modality.top_is_pointwise:
         return tf.squeeze(logits, axis=[1, 2, 3])
       current_output_position = tf.shape(ids)[1] - 1  # -1 due to the pad above.
       logits = logits[:, current_output_position, :, :]
@@ -326,14 +319,14 @@ class T2TModel(object):
                               lambda: max_decode_length)
     ids, scores = beam_search.beam_search(symbols_to_logits_fn, initial_ids,
                                           beam_size, decode_length, vocab_size,
-                                          alpha)
+                                          alpha, stop_early=(top_beams == 1))
 
     # Set inputs back to the unexpanded inputs to not to confuse the Estimator!
     if self.has_input:
       features["inputs"] = inputs_old
 
     # Return `top_beams` decodings (also remove initial id from the beam search)
-    return_scores = False  # TODO(lukaszkaiser): make it work multi-problem.
+    return_scores = True  # TODO(lukaszkaiser): make it work multi-problem.
     if top_beams == 1:
       if return_scores:
         return {"outputs": ids[:, 0, 1:], "scores": scores}
@@ -343,8 +336,7 @@ class T2TModel(object):
         return {"outputs": ids[:, :top_beams, 1:], "scores": scores}
       return ids[:, :top_beams, 1:]
 
-  def  _greedy_infer(self, features, extra_decode_length, max_decode_length,
-                     last_position_only):
+  def  _greedy_infer(self, features, extra_decode_length, max_decode_length):
     """A greedy inference method.
 
     Models should ideally implement a more efficient version of this function.
@@ -354,18 +346,17 @@ class T2TModel(object):
       extra_decode_length: an integer. How many additional timesteps to decode.
       max_decode_length: an integer. Max timesteps to decode.
         (inputs_len + extra_decode_length if max_decode_length < 1)
-      last_position_only: a boolean, speed-up by computing last position only.
 
     Returns:
        samples: an integer `Tensor`.
        logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
        losses: a dictionary: {loss-name (string): floating point `Scalar`}
     """
-    return self._slow_greedy_infer(features, extra_decode_length,
-                                   last_position_only)
+    return self._slow_greedy_infer(features, extra_decode_length, 
+                                   max_decode_length)
 
   def _slow_greedy_infer(self, features, extra_decode_length,
-                         max_decode_length, last_position_only):
+                         max_decode_length):
     """A slow greedy inference method.
 
     Quadratic time in decode_length.
@@ -375,7 +366,6 @@ class T2TModel(object):
       extra_decode_length: an integer. How many additional timesteps to decode.
       max_decode_length: an integer. Max timesteps to decode.
         (inputs_len + extra_decode_length if max_decode_length < 1)
-      last_position_only: a boolean, speed-up by computing last position only.
 
     Returns:
        samples: an integer `Tensor`.
@@ -395,18 +385,18 @@ class T2TModel(object):
     # in metric functions stays in the same frame as other vars.
     targets_old = features.get("targets", None)
 
+    target_modality = self._hparams.problems[self._problem_idx].target_modality
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
       recent_output.set_shape([None, None, None, 1])
       padded = tf.pad(recent_output, [[0, 0], [0, 1], [0, 0], [0, 0]])
       features["targets"] = padded
       # This is inefficient in that it generates samples at all timesteps,
-      # not just the last one, except if last_position_only is set (dangerous).
-      samples, logits, losses = self.sample(
-          features, last_position_only=last_position_only)
+      # not just the last one, except if target_modality is pointwise.
+      samples, logits, losses = self.sample(features)
       # Concatenate the already-generated recent_output with last timestep
       # of the newly-generated samples.
-      if last_position_only:
+      if target_modality.top_is_pointwise:
         cur_sample = samples[:, -1, :, :]
       else:
         cur_sample = samples[:, tf.shape(recent_output)[1], :, :]
@@ -502,20 +492,18 @@ class T2TModel(object):
           result, [0, partial_target_length, 0, 0], [-1, -1, -1, -1])
     return result, logits, losses
 
-  def sample(self, features, last_position_only=False):
+  def sample(self, features):
     """Run the model and extract samples.
 
     Args:
       features: an map of string to `Tensor`.
-      last_position_only: a boolean, speed-up by computing last position only.
 
     Returns:
        samples: an integer `Tensor`.
        logits: a list of `Tensor`s, one per datashard.
        losses: a dictionary: {loss-name (string): floating point `Scalar`}.
     """
-    sharded_logits, losses = self.model_fn(
-        features, False, last_position_only=last_position_only)
+    sharded_logits, losses = self.model_fn(features, False)
     if self._hparams.sampling_method == "argmax":
       sharded_samples = self._data_parallelism(tf.argmax, sharded_logits, 4)
     else:
@@ -547,14 +535,15 @@ class T2TModel(object):
                                                        0))
     return sharded_features
 
-  def model_fn(self, features, skip=False, last_position_only=False):
+  def model_fn(self, features, skip=False, force_full_predict=False):
     """Computes the entire model and produces sharded logits and losses.
 
     Args:
       features: A dictionary of feature name to tensor.
-      skip: a boolean, if we're just dummy-calling and actually skip this model
+      skip: a Boolean, if we're just dummy-calling and actually skip this model
         (but we need to create variables to not confuse distributed training).
-      last_position_only: a boolean, compute logits for only the last position.
+      force_full_predict: a Boolean, if set, then last-position-only
+        optimizations are not used even when allowed and in PREDICT mode.
 
     Returns:
       sharded_logits: a list of `Tensor`s, one per datashard.
@@ -621,7 +610,10 @@ class T2TModel(object):
           losses = {"extra": losses}
 
     with tf.variable_scope(target_modality.name, reuse=target_reuse):
-      if not last_position_only:
+      last_only = (target_modality.top_is_pointwise and
+                   self._hparams.mode == tf.estimator.ModeKeys.PREDICT and
+                   not force_full_predict)
+      if not last_only:
         sharded_logits = target_modality.top_sharded(
             body_outputs, sharded_features["targets"], dp)
         training_loss = target_modality.loss_sharded(
@@ -630,7 +622,6 @@ class T2TModel(object):
         training_loss *= self._problem_hparams.loss_multiplier
       else:
         # Take body outputs for the last position only, and targets too.
-        # TODO(lukaszkaiser): warning, this doesn't work for all modalities!
         last_position_body_outputs = [
             tf.expand_dims(body_shard[:, -1, :, :], axis=[1])
             for body_shard in body_outputs

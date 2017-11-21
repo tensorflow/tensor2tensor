@@ -98,11 +98,14 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
 def lstm_seq2seq_internal(inputs, targets, hparams, train):
   """The basic LSTM seq2seq model, main step used for training."""
   with tf.variable_scope("lstm_seq2seq"):
-    # Flatten inputs.
-    inputs = common_layers.flatten4d3d(inputs)
-    # LSTM encoder.
-    _, final_encoder_state = lstm(
-        tf.reverse(inputs, axis=[1]), hparams, train, "encoder")
+    if inputs is not None:
+      # Flatten inputs.
+      inputs = common_layers.flatten4d3d(inputs)
+      # LSTM encoder.
+      _, final_encoder_state = lstm(
+          tf.reverse(inputs, axis=[1]), hparams, train, "encoder")
+    else:
+      final_encoder_state = None
     # LSTM decoder.
     shifted_targets = common_layers.shift_right(targets)
     decoder_outputs, _ = lstm(
@@ -138,7 +141,7 @@ class LSTMSeq2seq(t2t_model.T2TModel):
     if self._hparams.initializer == "orthogonal":
       raise ValueError("LSTM models fail with orthogonal initializer.")
     train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
-    return lstm_seq2seq_internal(features["inputs"], features["targets"],
+    return lstm_seq2seq_internal(features.get("inputs"), features["targets"],
                                  self._hparams, train)
 
 
@@ -151,7 +154,7 @@ class LSTMSeq2seqAttention(t2t_model.T2TModel):
       raise ValueError("LSTM models fail with orthogonal initializer.")
     train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
     return lstm_seq2seq_internal_attention(
-        features["inputs"], features["targets"], self._hparams, train)
+        features.get("inputs"), features["targets"], self._hparams, train)
 
 
 @registry.register_hparams
@@ -171,7 +174,7 @@ def lstm_attention_base():
   """Base attention params."""
   hparams = lstm_seq2seq()
   hparams.add_hparam("attention_layer_size", hparams.hidden_size)
-  hparams.add_hparam("output_attention", int(True))
+  hparams.add_hparam("output_attention", True)
   hparams.add_hparam("num_heads", 1)
   return hparams
 

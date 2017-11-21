@@ -78,8 +78,8 @@ def conv_experts(xs, hparams, dp, ps, padding, mask, layer_id):
   conv_out = dp(conv_res_step, xs, hparams, padding, mask)
   loss = 0.0
   moe_hidden_sizes = [hparams.filter_size]
-  expert_fn = expert_utils.ffn_expert_fn(
-      hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
+  expert_fn = expert_utils.ffn_expert_fn(hparams.hidden_size, moe_hidden_sizes,
+                                         hparams.hidden_size)
   moe_out, loss = expert_utils.distributed_moe(
       dp,
       ps,
@@ -113,10 +113,23 @@ class MultiModel(t2t_model.T2TModel):
     dp = self._data_parallelism
     hparams = self._hparams
 
+    def project_to_hidden(inputs):
+      return common_layers.conv_block(
+          inputs,
+          hparams.hidden_size, [((1, 1), (3, 3))],
+          first_relu=False,
+          padding="SAME",
+          force2d=True)
+
     def flatten(inputs):
       return tf.expand_dims(common_layers.flatten4d3d(inputs), axis=2)
 
-    inputs = dp(flatten, sharded_features["inputs"])
+    # Project to hidden size if necessary
+    if (sharded_features["inputs"][0].get_shape().as_list()[-1] !=
+        hparams.hidden_size):
+      inputs = dp(project_to_hidden, sharded_features["inputs"])
+
+    inputs = dp(flatten, inputs)
     inputs_pad = dp(slicenet.embedding_to_padding, inputs)
     inputs_mask = dp(lambda x: 1.0 - x, inputs_pad)
     inputs_encoded = dp(common_layers.add_timing_signal, inputs)

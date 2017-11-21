@@ -87,8 +87,26 @@ def add_scope(scope=None, scope_fn=None):
 
   return decorator
 
-add_var_scope = functools.partial(add_scope, scope_fn=tf.variable_scope)
-add_name_scope = functools.partial(add_scope, scope_fn=tf.name_scope)
+
+def add_var_scope(scope=None):
+  return add_scope(scope, scope_fn=tf.variable_scope)
+
+
+def add_name_scope(scope=None):
+  return add_scope(scope, scope_fn=tf.name_scope)
+
+
+def _add_variable_proxy_methods(var, proxy_tensor):
+  """Proxy methods of underlying variable.
+
+  This enables our custom getters to still work with, e.g., batch norm.
+
+  Args:
+    var: Variable to proxy
+    proxy_tensor: Tensor that is identity of var
+  """
+  proxy_tensor.read_value = lambda: tf.identity(proxy_tensor)
+  proxy_tensor.assign_sub = var.assign_sub
 
 
 class Parallelism(object):
@@ -182,6 +200,7 @@ class Parallelism(object):
         else:
           var = getter(name, *args, **kwargs)
           v = tf.identity(var._ref())  # pylint: disable=protected-access
+          _add_variable_proxy_methods(var, v)
         # update the cache
         cache[name] = v
         cache[device_var_key] = v
@@ -191,12 +210,15 @@ class Parallelism(object):
       # so we make a custom getter that uses identity to cache the variable.
       # pylint: disable=cell-var-from-loop
       def caching_getter(getter, name, *args, **kwargs):
-        v = getter(name, *args, **kwargs)
+        """Cache variables on device."""
         key = (self._caching_devices[i], name)
         if key in cache:
           return cache[key]
+
+        v = getter(name, *args, **kwargs)
         with tf.device(self._caching_devices[i]):
           ret = tf.identity(v._ref())  # pylint: disable=protected-access
+        _add_variable_proxy_methods(v, ret)
         cache[key] = ret
         return ret
 

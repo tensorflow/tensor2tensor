@@ -290,7 +290,7 @@ def aligned_base():
   hparams.weight_decay = 0.0
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
-  hparams.shared_embedding_and_softmax_weights = int(True)
+  hparams.shared_embedding_and_softmax_weights = True
   hparams.add_hparam("ffn_hidden_sizes", "2048")  # Add new ones like this.
   hparams.moe_num_experts = 32
   hparams.layer_preprocess_sequence = "n"
@@ -306,28 +306,28 @@ def aligned_base():
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
   # moe params. local attention moe.
-  hparams.add_hparam("attention_local", int(False))
+  hparams.add_hparam("attention_local", False)
   hparams.add_hparam("attention_moe_k", 2)
   hparams.add_hparam("attention_num_experts", 16)
-  hparams.add_hparam("attention_split_batch", int(False))
+  hparams.add_hparam("attention_split_batch", False)
   # Key, query and value dimensions for the attention
   hparams.add_hparam("attention_kq_size", 128)
   hparams.add_hparam("attention_v_size", 256)
   # Loss coef for load balancing
   hparams.add_hparam("attention_load_balance", 2e-2)
-  hparams.add_hparam("diet_experts", int(False))
-  hparams.add_hparam("memory_efficient_ffn", int(False))
+  hparams.add_hparam("diet_experts", False)
+  hparams.add_hparam("memory_efficient_ffn", False)
   hparams.add_hparam("local_attention_window", 128)
   hparams.add_hparam("attention_num_groups", 8)
   hparams.add_hparam("memory_target_density", 2.0)
   hparams.add_hparam("multiplicative_overhead", 1.25)
   hparams.add_hparam("multiplicative_overhead_eval", 2.0)
-  hparams.add_hparam("attention_image_summary", int(True))
+  hparams.add_hparam("attention_image_summary", True)
   # LSH params
-  hparams.add_hparam("lsh_truncated", int(True))
+  hparams.add_hparam("lsh_truncated", True)
   # For testing right-masking.
   # This is not implemented in all layers.
-  hparams.add_hparam("mask_right", int(False))
+  hparams.add_hparam("mask_right", False)
   return hparams
 
 
@@ -547,7 +547,7 @@ def aligned_8k_grouped():
   """
   hparams = aligned_grouped()
   hparams.batch_size = 8192
-  # hparams.attention_image_summary = int(False)
+  # hparams.attention_image_summary = False
   hparams.num_groups = 16
   hparams.multiplicative_overhead = 1.1
   return hparams
