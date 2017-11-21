@@ -149,8 +149,11 @@ def main(_):
       FLAGS.output_dir,
       checkpoint_path,
       all_checkpoint_paths + [checkpoint_path])
-    
 
+  # upload to GCS
+  checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)    
+  checkpoint_path = checkpoint_state.model_checkpoint_path
+  
   
 if __name__ == "__main__":
   tf.app.run(main)

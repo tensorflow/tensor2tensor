@@ -35,11 +35,14 @@ from __future__ import print_function
 
 import os
 
+import fathomt2t
+
 # Dependency imports
 
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import trainer_utils
 from tensor2tensor.utils import usr_dir
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -91,13 +94,18 @@ def main(_):
     decoding.decode_from_file(estimator, FLAGS.decode_from_file, decode_hp,
                               FLAGS.decode_to_file)
   else:
-    decoding.decode_from_dataset(
+    predictions = decoding.decode_from_dataset(
         estimator,
         FLAGS.problems.split("-"),
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
         dataset_split="test" if FLAGS.eval_use_test_set else None)
 
+    print('Assuming only one problem...')
+    problem = FLAGS.problems.split('-')[0]
+    problem = registry.problem(problem)    
+    
+    problem.output_predictions(predictions)
 
 if __name__ == "__main__":
   tf.app.run()
