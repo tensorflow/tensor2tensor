@@ -13,3 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
+import logging
+import tensorflow as tf
+
+def _set_time_logging():
+  handler = tf.logging._handler
+  handler.setFormatter(logging.Formatter("%(asctime)s:" + logging.BASIC_FORMAT, None))
