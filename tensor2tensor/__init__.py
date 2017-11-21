@@ -18,8 +18,5 @@ import logging
 import tensorflow as tf
 
 def _set_time_logging():
-  handler = logging.StreamHandler(sys.stderr)
+  handler = tf.logging._handler
   handler.setFormatter(logging.Formatter("%(asctime)s:" + logging.BASIC_FORMAT, None))
-  logger = logging.getLogger("tensorflow")
-  logger.removeHandler(tf.logging._handler)
-  logger.addHandler(handler)
