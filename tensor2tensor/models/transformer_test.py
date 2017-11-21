@@ -182,20 +182,18 @@ class TransformerTest(tf.test.TestCase):
                              mode=tf.estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-      result = model._fast_decode(
+      result, _ = model._fast_decode(
           features,
           extra_decode_length,
           max_decode_length=0,
           beam_size=4,
           top_beams=1,
-          last_position_only=True,
           alpha=1.0)
 
     with self.test_session():
       res = result.eval()
 
-    self.assertEqual(res.shape,
-                     (BATCH_SIZE, max_decode_length))
+    self.assertEqual(res.shape, (BATCH_SIZE, max_decode_length))
 
 
 if __name__ == "__main__":
