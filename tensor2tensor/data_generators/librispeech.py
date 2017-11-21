@@ -82,7 +82,7 @@ def _get_audio_data(filepath):
 class LibrispeechTextEncoder(text_encoder.TextEncoder):
 
   def encode(self, s):
-    return [ord[c] for c in s]
+    return [self._num_reserved_ids + ord(c) for c in s]
 
   def decode(self, ids):
     """Transform a sequence of int ids into a human-readable string.
@@ -97,7 +97,7 @@ class LibrispeechTextEncoder(text_encoder.TextEncoder):
       if 0 <= id_ < self._num_reserved_ids:
         decoded_ids.append(RESERVED_TOKENS[int(id_)])
       else:
-        decoded_ids.append(id_)
+        decoded_ids.append(id_ - self._num_reserved_ids)
     return "".join([chr(d) for d in decoded_ids])
  
 
@@ -199,7 +199,7 @@ class Librispeech(problem.Problem):
 
   @property
   def num_shards(self):
-    return 10
+    return 100
 
   @property
   def use_subword_tokenizer(self):
@@ -214,9 +214,9 @@ class Librispeech(problem.Problem):
     """If true, we only generate training data and hold out shards for dev."""
     return False
           
-  def feature_encoders(self, data_dir):
+  def feature_encoders(self, _):
     return {
-        "inputs": text_encoder.TextEncoder(), #None, #DoNothingEncoder(),
+        "inputs": text_encoder.TextEncoder(),
         "targets": LibrispeechTextEncoder(),
     }
     
@@ -233,8 +233,9 @@ class Librispeech(problem.Problem):
 
     
   def generator(self, data_dir, tmp_dir, training, eos_list=None, start_from=0, how_many=0):
-    eos_list = [1]
+    eos_list = [1] if eos_list is None else eos_list
     datasets = (_LIBRISPEECH_TRAIN_DATASETS if training else _LIBRISPEECH_TEST_DATASETS)
+    num_reserved_ids = self.feature_encoders(None)["targets"].num_reserved_ids
     i = 0
     for url, subdir in datasets:
       filename = os.path.basename(url)
@@ -260,7 +261,7 @@ class Librispeech(problem.Problem):
         i += 1
         audio_data, sample_count, sample_width, num_channels = _get_audio_data(
             media_file)
-        label = [ord(c) for c in text_data] + eos_list
+        label = [num_reserved_ids + ord(c) for c in text_data] + eos_list
         yield {
             "inputs": audio_data,
             "audio/channel_count": [num_channels],
