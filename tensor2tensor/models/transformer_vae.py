@@ -630,12 +630,14 @@ class TransformerAE(t2t_model.T2TModel):
           self._hparams, beam_size)
     features["cache_raw"] = cache
 
-  def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
+  def infer(self, features=None, extra_decode_length=50,
+            max_decode_length=0, beam_size=1, top_beams=1,
             alpha=0.0):
     """Produce predictions from the model."""
     if not self._hparams.do_mask:
       return super(TransformerAE, self).infer(
-          features, decode_length, beam_size, top_beams, alpha)
+          features, extra_decode_length, max_decode_length,
+          beam_size, top_beams, alpha)
     if not features:
       features = {}
     inputs_old = None
