@@ -140,10 +140,11 @@ def vae(x, z_size, name):
 def nearest(x, means, hparams):
   """Find the nearest means to elements in x."""
   x, means = tf.stop_gradient(x), tf.stop_gradient(means)
-  means = tf.nn.l2_normalize(means, dim=1)
   x_flat = tf.reshape(x, [-1, hparams.hidden_size])
-  # dist = tf.reduce_sum(tf.square(x_flat - tf.expand_dims(means, 0)), axis=2)
-  dist = - tf.matmul(x_flat, means, transpose_b=True)
+  x_norm = tf.norm(x_flat, axis=-1, keep_dims=True)
+  means_norm = tf.norm(means, axis=-1, keep_dims=True)
+  dist = x_norm + tf.transpose(means_norm) - 2 * tf.matmul(x_flat, means,
+                                                           transpose_b=True)
   _, nearest_idx = tf.nn.top_k(- dist, k=1)
   nearest_hot = tf.one_hot(tf.squeeze(nearest_idx, axis=1), hparams.v_size)
   nearest_hot = tf.reshape(nearest_hot, [tf.shape(x)[0], tf.shape(x)[1],
