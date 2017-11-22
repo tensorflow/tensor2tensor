@@ -155,7 +155,7 @@ class UnicodeRegex:
 
 
 def bleu_tokenize(string):
-  """"Tokenize a string following the official BLEU implementation.
+  r"""Tokenize a string following the official BLEU implementation.
 
   See https://github.com/moses-smt/mosesdecoder/blob/master/scripts/generic/mteval-v14.pl#L954-L983
   In our case, the input string is expected to be just one line
@@ -163,6 +163,12 @@ def bleu_tokenize(string):
   So we just tokenize on punctuation and symbols,
   except when a punctuation is preceded and followed by a digit
   (e.g. a comma/dot as a thousand/decimal separator).
+
+  Note that a numer (e.g. a year) followed by a dot at the end of sentence is NOT tokenized,
+  i.e. the dot stays with the number because `s/(\p{P})(\P{N})/ $1 $2/g`
+  does not match this case (unless we add a space after each sentence).
+  However, this error is already in the original mteval-v14.pl
+  and we want to be consistent with it.
 
   Args:
     string: the input string
