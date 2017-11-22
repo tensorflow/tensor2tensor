@@ -84,17 +84,19 @@ class BaseModel(object):
 
     # Embeddings
     # TODO(ebrevdo): Only do this if the mode is TRAIN?
-    self.init_embeddings(hparams, scope)
+    #self.init_embeddings(hparams, scope)
     self.batch_size = tf.size(self.iterator.source_sequence_length)
 
     # Projection
     with tf.variable_scope(scope or "build_network"):
       with tf.variable_scope("decoder/output_projection"):
-        self.output_layer = layers_core.Dense(
-            hparams.tgt_vocab_size, use_bias=False, name="output_projection")
+        #self.output_layer = layers_core.Dense(
+        #    hparams.tgt_vocab_size, use_bias=False, name="output_projection")
+        self.output_layer = lambda x: x
 
     ## Train graph
     res = self.build_graph(hparams, scope=scope)
+    self.logits = res[0]
 
     if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
       self.train_loss = res[1]
@@ -113,7 +115,7 @@ class BaseModel(object):
       self.predict_count = tf.reduce_sum(
           self.iterator.target_sequence_length)
 
-    self.global_step = tf.Variable(0, trainable=False)
+    #self.global_step = tf.Variable(0, trainable=False)
     params = tf.trainable_variables()
 
     # Gradients and SGD update operation for training the model.
@@ -284,11 +286,12 @@ class BaseModel(object):
           encoder_outputs, encoder_state, hparams)
 
       ## Loss
-      if self.mode != tf.contrib.learn.ModeKeys.INFER:
-        with tf.device(model_helper.get_device_str(num_layers - 1, num_gpus)):
-          loss = self._compute_loss(logits)
-      else:
-        loss = None
+      #if self.mode != tf.contrib.learn.ModeKeys.INFER:
+      #  with tf.device(model_helper.get_device_str(num_layers - 1, num_gpus)):
+      #    loss = self._compute_loss(logits)
+      #else:
+      #  loss = None
+      loss = None
 
       return logits, loss, final_context_state, sample_id
 
@@ -373,8 +376,9 @@ class BaseModel(object):
         target_input = iterator.target_input
         if self.time_major:
           target_input = tf.transpose(target_input)
-        decoder_emb_inp = tf.nn.embedding_lookup(
-            self.embedding_decoder, target_input)
+        #decoder_emb_inp = tf.nn.embedding_lookup(
+        #    self.embedding_decoder, target_input)
+        decoder_emb_inp = target_input
 
         # Helper
         helper = tf.contrib.seq2seq.TrainingHelper(
@@ -539,8 +543,9 @@ class Model(BaseModel):
     with tf.variable_scope("encoder") as scope:
       dtype = scope.dtype
       # Look up embedding, emp_inp: [max_time, batch_size, num_units]
-      encoder_emb_inp = tf.nn.embedding_lookup(
-          self.embedding_encoder, source)
+      #encoder_emb_inp = tf.nn.embedding_lookup(
+      #    self.embedding_encoder, source)
+      encoder_emb_inp = source
 
       # Encoder_outpus: [max_time, batch_size, num_units]
       if hparams.encoder_type == "uni":
@@ -556,9 +561,13 @@ class Model(BaseModel):
             sequence_length=iterator.source_sequence_length,
             time_major=self.time_major,
             swap_memory=True)
-      elif hparams.encoder_type == "bi":
-        num_bi_layers = int(num_layers / 2)
-        num_bi_residual_layers = int(num_residual_layers / 2)
+      elif hparams.encoder_type in ["bi", "bi2"]:
+        if hparams.encoder_type == "bi":
+          num_bi_layers = int(num_layers / 2)
+          num_bi_residual_layers = int(num_residual_layers / 2)
+        else:
+          num_bi_layers = num_layers
+          num_bi_residual_layers = num_residual_layers
         utils.print_out("  num_bi_layers = %d, num_bi_residual_layers=%d" %
                         (num_bi_layers, num_bi_residual_layers))
 

@@ -313,8 +313,13 @@ def _single_cell(unit_type, num_units, forget_bias, dropout, mode,
 
   # Residual
   if residual_connection:
-    single_cell = tf.contrib.rnn.ResidualWrapper(
-        single_cell, residual_fn=residual_fn)
+    # TODO(fstahlberg): Remove try-except block when T2T upgrades to TF 1.4
+    try:
+      single_cell = tf.contrib.rnn.ResidualWrapper(
+          single_cell, residual_fn=residual_fn)
+    except TypeError:
+      utils.print_out("Consider upgrading to TF 1.4!")
+      single_cell = tf.contrib.rnn.ResidualWrapper(single_cell)
     utils.print_out("  %s" % type(single_cell).__name__, new_line=False)
 
   # Device Wrapper

@@ -27,39 +27,16 @@ from . import attention_model
 from . import model_helper
 from .utils import misc_utils as utils
 
-__all__ = ["GNMTModel"]
+__all__ = ["GNMTEncoderModel", "GNMTModel"]
 
 
-class GNMTModel(attention_model.AttentionModel):
-  """Sequence-to-sequence dynamic model with GNMT attention architecture.
-  """
-
-  def __init__(self,
-               hparams,
-               mode,
-               iterator,
-               source_vocab_table,
-               target_vocab_table,
-               reverse_target_vocab_table=None,
-               scope=None,
-               extra_args=None):
-    super(GNMTModel, self).__init__(
-        hparams=hparams,
-        mode=mode,
-        iterator=iterator,
-        source_vocab_table=source_vocab_table,
-        target_vocab_table=target_vocab_table,
-        reverse_target_vocab_table=reverse_target_vocab_table,
-        scope=scope,
-        extra_args=extra_args)
+class GNMTEncoderModel(attention_model.AttentionModel):
+  """Sequence-to-sequence dynamic model with GNMT encoder architecture."""
 
   def _build_encoder(self, hparams):
     """Build a GNMT encoder."""
-    if hparams.encoder_type == "uni" or hparams.encoder_type == "bi":
-      return super(GNMTModel, self)._build_encoder(hparams)
-
     if hparams.encoder_type != "gnmt":
-      raise ValueError("Unknown encoder_type %s" % hparams.encoder_type)
+      return super(GNMTEncoderModel, self)._build_encoder(hparams)
 
     # Build GNMT encoder.
     num_layers = hparams.num_layers
@@ -79,8 +56,9 @@ class GNMTModel(attention_model.AttentionModel):
 
       # Look up embedding, emp_inp: [max_time, batch_size, num_units]
       #   when time_major = True
-      encoder_emb_inp = tf.nn.embedding_lookup(self.embedding_encoder,
-                                               source)
+      #encoder_emb_inp = tf.nn.embedding_lookup(self.embedding_encoder,
+      #                                         source)
+      encoder_emb_inp = source
 
       # Execute _build_bidirectional_rnn from Model class
       bi_encoder_outputs, bi_encoder_state = self._build_bidirectional_rnn(
@@ -119,6 +97,31 @@ class GNMTModel(attention_model.AttentionModel):
           (encoder_state,) if num_uni_layers == 1 else encoder_state)
 
     return encoder_outputs, encoder_state
+
+
+class GNMTModel(GNMTEncoderModel):
+  """Sequence-to-sequence dynamic model with GNMT attention architecture.
+  """
+
+  def __init__(self,
+               hparams,
+               mode,
+               iterator,
+               source_vocab_table,
+               target_vocab_table,
+               reverse_target_vocab_table=None,
+               scope=None,
+               extra_args=None):
+    super(GNMTModel, self).__init__(
+        hparams=hparams,
+        mode=mode,
+        iterator=iterator,
+        source_vocab_table=source_vocab_table,
+        target_vocab_table=target_vocab_table,
+        reverse_target_vocab_table=reverse_target_vocab_table,
+        scope=scope,
+        extra_args=extra_args)
+
 
   def _build_decoder_cell(self, hparams, encoder_outputs, encoder_state,
                           source_sequence_length):
