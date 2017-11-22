@@ -169,7 +169,8 @@ def main(_):
   checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)    
   checkpoint_path = checkpoint_state.model_checkpoint_path
   files = os.listdir(FLAGS.output_dir)
-  files = [x for x in files if x.startswith(checkpoint_path + '.')] + ['checkpoint']
+  checkpoint_file = os.path.basename(checkpoint_path)
+  files = [x for x in files if x.startswith(checkpoint_file + '.')] + ['checkpoint']
 
   # clean up dir if it exists, create if it does not
   model_name = _model_name(FLAGS.model)
