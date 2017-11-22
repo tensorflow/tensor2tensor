@@ -47,7 +47,7 @@ class TransformerSketch(transformer.Transformer):
         name="small_image_conv")
 
     hparams.num_compress_steps = 2
-    compressed_inputs = transformer_vae.compress(inputs, c=None, is_2d=True,
+    compressed_inputs = transformer_vae.compress(inputs, is_2d=True,
                                                  hparams=hparams,
                                                  name="convolutions")
 
