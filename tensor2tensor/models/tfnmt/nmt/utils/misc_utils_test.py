@@ -46,7 +46,7 @@ class MiscUtilsTest(tf.test.TestCase):
 
 
 if __name__ == "__main__":
- import sys
+  import sys
   if sys.version_info.major == 2:
     tf.test.main()
 
