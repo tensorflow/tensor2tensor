@@ -123,7 +123,7 @@ def main(_):
   else:
     run_experiment()
 
-  if FLAGS.eval_early_stopping_steps is not None: 
+  if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None: 
     # update the checkpoint so that it points to the best model
     checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)
     all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
