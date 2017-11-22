@@ -102,6 +102,7 @@ def main(_):
         dataset_split="test" if FLAGS.eval_use_test_set else None)
 
     print('Assuming only one problem...')
+    assert '-' not in FLAGS.problems
     problem = FLAGS.problems.split('-')[0]
     problem = registry.problem(problem)    
     
