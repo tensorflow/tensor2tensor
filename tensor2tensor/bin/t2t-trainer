@@ -150,10 +150,26 @@ def main(_):
       checkpoint_path,
       all_checkpoint_paths + [checkpoint_path])
 
-  # upload to GCS
+  # assemble files we want
   checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)    
   checkpoint_path = checkpoint_state.model_checkpoint_path
-  
-  
+  files = os.listdir(FLAGS.output_dir)
+  files = [x for x in files if x.startswith(checkpoint_path + '.')] + ['checkpoint']
+
+  # clean up dir if it exists, create if it does not
+  dir_path = os.path.join(FLAGS.output_dir, 'gcs')
+  if os.path.exists(dir_path):
+    stale_dir_files = [os.path.join(dir_path, x) for x in os.listdir(dir_path)]
+    for path in stale_dir_files:
+      os.remove(path)
+  else:
+    dir = os.makedirs(dir_path, exist_ok=False)
+
+  # move files into dir
+  for path in files:
+    os.rename(os.path.join(FLAGS.output_dir, path),
+              os.path.join(dir_path, path))
+    
+    
 if __name__ == "__main__":
   tf.app.run(main)
