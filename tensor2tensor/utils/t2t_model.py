@@ -117,7 +117,7 @@ class T2TModel(base.Layer):
     self._ps_devices = ps_devices
     self._problem_hparams = problem_hparams
     self._problem_idx = problem_idx
-    self._create_modalities(problem_hparams, hparams)
+    self._create_modalities(problem_hparams, self._hparams)
 
   def set_mode(self, mode):
     """Set hparams with the given mode."""
