@@ -85,6 +85,7 @@ class SymbolModality(modality.Modality):
       return ret
 
   def bottom(self, x):
+    self._bottom_was_called = True
     if self._model_hparams.shared_embedding_and_softmax_weights:
       return self.bottom_simple(x, "shared", reuse=None)
     else:
@@ -92,7 +93,11 @@ class SymbolModality(modality.Modality):
 
   def targets_bottom(self, x):
     if self._model_hparams.shared_embedding_and_softmax_weights:
-      return self.bottom_simple(x, "shared", reuse=True)
+      try:
+        return self.bottom_simple(x, "shared", reuse=True)
+      except ValueError:
+        # perhaps there were no inputs, and this is a new variable.
+        return self.bottom_simple(x, "shared", reuse=None)
     else:
       return self.bottom_simple(x, "target_emb", reuse=None)
 
@@ -110,6 +115,8 @@ class SymbolModality(modality.Modality):
     else:
       scope_name = "softmax"
       reuse = False
+    if self._model_hparams.symbol_modality_skip_top:
+      return tf.expand_dims(body_output, 3)
     with tf.variable_scope(scope_name, reuse=reuse):
       var = self._get_weights()
       if (self._model_hparams.factored_logits and
@@ -172,7 +179,11 @@ class SmallImageModality(modality.Modality):
       dim = body_output.get_shape().as_list()[-1] // 3
       out = tf.reshape(body_output, [shape[0], shape[1], shape[2],
                                      self._channels, dim])
-      return tf.layers.dense(out, self.top_dimensionality)
+      res = tf.layers.dense(out, self.top_dimensionality)
+      if not tf.get_variable_scope().reuse:
+        res_argmax = tf.cast(tf.argmax(res, axis=-1), tf.uint8)
+        tf.summary.image("result", res_argmax, max_outputs=1)
+      return res
 
   def loss(self, top_out, targets, weights_fn=common_layers.weights_all):
     # Call the default implementation, but weight 1.0 on 0s by default.

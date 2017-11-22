@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""WMT generators test."""
+"""Translate generators test."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -27,12 +27,12 @@ import tempfile
 
 import six
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import wmt
+from tensor2tensor.data_generators import translate
 
 import tensorflow as tf
 
 
-class WMTTest(tf.test.TestCase):
+class TranslateTest(tf.test.TestCase):
 
   def testCharacterGenerator(self):
     # Generate a trivial source and target file.
@@ -52,7 +52,7 @@ class WMTTest(tf.test.TestCase):
     # Call character generator on the generated files.
     results_src, results_tgt = [], []
     character_vocab = text_encoder.ByteTextEncoder()
-    for dictionary in wmt.character_generator(
+    for dictionary in translate.character_generator(
         tmp_file_path + ".src", tmp_file_path + ".tgt", character_vocab):
       self.assertEqual(sorted(list(dictionary)), ["inputs", "targets"])
       results_src.append(dictionary["inputs"])
@@ -62,24 +62,16 @@ class WMTTest(tf.test.TestCase):
     # First check that the results match the encoded original strings;
     # this is a comparison of integer arrays.
     self.assertEqual(len(results_src), 2)
-    self.assertEqual(results_src[0],
-                     character_vocab.encode("source1"))
-    self.assertEqual(results_src[1],
-                     character_vocab.encode("source2"))
-    self.assertEqual(results_tgt[0],
-                     character_vocab.encode("target1"))
-    self.assertEqual(results_tgt[1],
-                     character_vocab.encode("target2"))
+    self.assertEqual(results_src[0], character_vocab.encode("source1"))
+    self.assertEqual(results_src[1], character_vocab.encode("source2"))
+    self.assertEqual(results_tgt[0], character_vocab.encode("target1"))
+    self.assertEqual(results_tgt[1], character_vocab.encode("target2"))
     # Then decode the results and compare with the original strings;
     # this is a comparison of strings
-    self.assertEqual(character_vocab.decode(results_src[0]),
-                     "source1")
-    self.assertEqual(character_vocab.decode(results_src[1]),
-                     "source2")
-    self.assertEqual(character_vocab.decode(results_tgt[0]),
-                     "target1")
-    self.assertEqual(character_vocab.decode(results_tgt[1]),
-                     "target2")
+    self.assertEqual(character_vocab.decode(results_src[0]), "source1")
+    self.assertEqual(character_vocab.decode(results_src[1]), "source2")
+    self.assertEqual(character_vocab.decode(results_tgt[0]), "target1")
+    self.assertEqual(character_vocab.decode(results_tgt[1]), "target2")
 
     # Clean up.
     os.remove(tmp_file_path + ".src")

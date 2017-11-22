@@ -39,6 +39,7 @@ import os
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_utils
 from tensor2tensor.utils import usr_dir
+from tensorflow.python.training import saver
 
 import tensorflow as tf
 
@@ -62,12 +63,14 @@ flags.DEFINE_string("master", "", "Address of TensorFlow master.")
 flags.DEFINE_string("schedule", "train_and_evaluate",
                     "Method of tf.contrib.learn.Experiment to run.")
 
+
 ##################
 #
 # FATHOM ADDITIONS
 #
 ##################
 flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
+flags.DEFINE_bool("profile", False, "Profile performance?")
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
@@ -95,14 +98,70 @@ def main(_):
     FLAGS.eval_steps = 1
 
   # Run the trainer.
-  trainer_utils.run(
+
+  def run_experiment():
+    trainer_utils.run(
       data_dir=data_dir,
       model=FLAGS.model,
       output_dir=output_dir,
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
       schedule=FLAGS.schedule)
+  
+  if FLAGS.profile:
+    with tf.contrib.tfprof.ProfileContext('/usr/data/output/tfprof',
+                                          trace_steps=range(100),
+                                          dump_steps=range(100)) as pctx:
+      opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
+      pctx.add_auto_profiling('op', opts, range(100))
 
+      run_experiment()
 
+  else:
+    run_experiment()
+
+  if FLAGS.eval_early_stopping_steps is not None: 
+    # update the checkpoint so that it points to the best model
+    checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)
+    all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
+
+    def extract_step(path):
+      """Extract the step number from a checkpoint path
+
+      Args:
+          path: a path, e.g., model.ckpt-17
+
+      Returns:
+          step: the step number as an int, e.g., 17
+      """
+      return int(path[path.rindex('-') + 1:])
+
+    # get available step numbers
+    steps = [(extract_step(path), path) for path in all_checkpoint_paths]
+    steps = sorted(steps)
+    steps, all_checkpoint_paths = zip(*steps)
+    
+    # the step we want is the last one that would have allowed us to
+    # stop when we did (at steps[-1])
+    thresh = steps[-1] - FLAGS.eval_early_stopping_steps
+
+    # get the last step that is <= thresh. Note that the early
+    # stopping flags are phrased in terms of step number, not how many
+    # times we've run eval.
+    best_step_index = [ step <= thresh for step in steps ].index(False) - 1
+    assert best_step_index >= 0, 'Early stopping stopped before it should have'
+
+    # this is the checkpoint we want
+    checkpoint_path = all_checkpoint_paths[best_step_index]
+
+    print('Early stopping chose checkpoint', checkpoint_path)
+    
+    saver.update_checkpoint_state(
+      FLAGS.output_dir,
+      checkpoint_path,
+      all_checkpoint_paths + [checkpoint_path])
+    
+
+  
 if __name__ == "__main__":
   tf.app.run(main)

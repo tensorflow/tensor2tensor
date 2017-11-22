@@ -130,7 +130,7 @@ class Problem(object):
   Data generation:
     * generate_data(data_dir, tmp_dir)
         - Generate training and dev datasets into data_dir.
-        - Additonal files, e.g. vocabulary files, should also be written to
+        - Additional files, e.g. vocabulary files, should also be written to
           data_dir. Vocab files are newline-separated files with each line
           containing a token. The standard convention for the filename is to
           set it to be
@@ -234,7 +234,7 @@ class Problem(object):
     return generator_utils.test_data_filenames(file_basename, data_dir,
                                                num_shards)
 
-  def filepattern(self, data_dir, mode):
+  def filepattern(self, data_dir, mode, shard=None):
     """Get filepattern for data files for mode.
 
     Matches mode to a suffix.
@@ -246,12 +246,13 @@ class Problem(object):
     Args:
       data_dir: str, data directory.
       mode: tf.estimator.ModeKeys or "test".
+      shard: int, if provided, will only read data from the specified shard.
 
     Returns:
       filepattern str
     """
     path = os.path.join(data_dir, self.dataset_filename())
-
+    shard_str = "-%05d" % shard if shard is not None else ""
     if mode == tf.estimator.ModeKeys.TRAIN:
       suffix = "train"
     elif mode in [tf.estimator.ModeKeys.EVAL, tf.estimator.ModeKeys.PREDICT]:
@@ -260,7 +261,7 @@ class Problem(object):
       assert mode == "test"
       suffix = "test"
 
-    return "%s-%s*" % (path, suffix)
+    return "%s-%s%s*" % (path, suffix, shard_str)
 
   def __init__(self, was_reversed=False, was_copy=False):
     """Create a Problem.
@@ -328,7 +329,8 @@ class Problem(object):
               shuffle_files=None,
               hparams=None,
               preprocess=True,
-              dataset_split=None):
+              dataset_split=None,
+              shard=None):
     """Build a Dataset for this problem.
 
     Args:
@@ -347,6 +349,7 @@ class Problem(object):
         Problem.preprocess_example.
       dataset_split: tf.estimator.ModeKeys + ["test"], which split to read data
         from (TRAIN:"-train", EVAL:"-dev", "test":"-test"). Defaults to mode.
+      shard: int, if provided, will only read data from the specified shard.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
@@ -372,7 +375,7 @@ class Problem(object):
       }
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    data_filepattern = self.filepattern(data_dir, dataset_split)
+    data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
     tf.logging.info("Reading data files from %s", data_filepattern)
     data_files = tf.contrib.slim.parallel_reader.get_data_files(
         data_filepattern)
@@ -512,7 +515,7 @@ def _default_hparams():
   return tf.contrib.training.HParams(
       # Use this parameter to get comparable perplexity numbers with different
       # tokenizations.  This value should be set to the ratio of the number of
-      # tokens in the test set according to the tokeization used to the number
+      # tokens in the test set according to the tokenization used to the number
       # of tokens in the test set in the "official" tokenization.  For
       # example, if we are using a word-piece based model and we want to
       # compute per-word perplexity, then we set loss_multiplier to the number
@@ -529,6 +532,11 @@ def _default_hparams():
       # of input readers and memory use. The defaults should be safe and fast,
       # but decrease if your reader uses a lot of memory and increase if slow.
       max_expected_batch_size_per_shard=64,
+
+      # During inference for autoregressive problems, if the batch_size is 1,
+      # the inference will stop when the model predict a text_encoder.EOS_ID
+      # token.
+      stop_at_eos=int(False),
 
       # Modalities used to map from input features to a space compatible with
       # chosen model architecture.  One modality spec (which is a 2-tuple,
@@ -644,6 +652,7 @@ class Text2TextProblem(Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
+    p.stop_at_eos = int(True)
 
     if self.has_inputs:
       source_vocab_size = self._encoders["inputs"].vocab_size

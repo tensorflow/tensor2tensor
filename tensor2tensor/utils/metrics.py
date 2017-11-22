@@ -190,31 +190,58 @@ def padded_accuracy(predictions,
     padded_labels = tf.to_int32(padded_labels)
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
+
 def set_precision(predictions,
                   labels,
                   weights_fn=common_layers.weights_nonzero):
   """Precision of set predictions.
 
   Args:
-    predictions : A Tensor of scores of shape (batch, nlabels)
-    labels: A Tensor of int32s giving true set elements of shape (batch, seq_length)
+    predictions : A Tensor of scores of shape [batch, nlabels].
+    labels: A Tensor of int32s giving true set elements,
+      of shape [batch, seq_length].
+    weights_fn: A function to weight the elements.
 
   Returns:
-    hits: A Tensor of shape (batch, nlabels)
-    weights: A Tensor of shape (batch, nlabels)
+    hits: A Tensor of shape [batch, nlabels].
+    weights: A Tensor of shape [batch, nlabels].
   """
   with tf.variable_scope("set_precision", values=[predictions, labels]):
     labels = tf.squeeze(labels, [2, 3])
+    weights = weights_fn(labels)
     labels = tf.one_hot(labels, predictions.shape[-1])
     labels = tf.reduce_max(labels, axis=1)
     labels = tf.cast(labels, tf.bool)
-    predictions = predictions > 0
-    return tf.to_float(tf.equal(labels, predictions)), tf.to_float(predictions)
-  
+    return tf.to_float(tf.equal(labels, predictions)), weights
+
+
 def set_recall(predictions,
-                    labels,
-                    weights_fn=common_layers.weights_nonzero):
+               labels,
+               weights_fn=common_layers.weights_nonzero):
   """Recall of set predictions.
+
+  Args:
+    predictions : A Tensor of scores of shape [batch, nlabels].
+    labels: A Tensor of int32s giving true set elements,
+      of shape [batch, seq_length].
+    weights_fn: A function to weight the elements.
+
+  Returns:
+    hits: A Tensor of shape [batch, nlabels].
+    weights: A Tensor of shape [batch, nlabels].
+  """
+  with tf.variable_scope("set_recall", values=[predictions, labels]):
+    labels = tf.squeeze(labels, [2, 3])
+    weights = weights_fn(labels)
+    labels = tf.one_hot(labels, predictions.shape[-1])
+    labels = tf.reduce_max(labels, axis=1)
+    labels = tf.cast(labels, tf.bool)
+    return tf.to_float(tf.equal(labels, predictions)), weights
+
+def set_auc(predictions,
+            labels,
+            weights_fn=common_layers.weights_nonzero):
+  """AUC of set predictions.
 
   Args:
     predictions : A Tensor of scores of shape (batch, nlabels)
@@ -224,13 +251,14 @@ def set_recall(predictions,
     hits: A Tensor of shape (batch, nlabels)
     weights: A Tensor of shape (batch, nlabels)
   """
-  with tf.variable_scope("set_recall", values=[predictions, labels]):
+  with tf.variable_scope("set_auc", values=[predictions, labels]):
     labels = tf.squeeze(labels, [2, 3])
-    labels = tf.one_hot(labels, predictions.shape[-1])
+    labels = tf.one_hot(labels, predictions.shape[-1] + 1)
     labels = tf.reduce_max(labels, axis=1)
     labels = tf.cast(labels, tf.bool)
-    predictions = predictions > 0
-    return tf.to_float(tf.equal(labels, predictions)), tf.to_float(labels)
+    labels = labels[:, 1:]
+    predictions = tf.nn.sigmoid(predictions)
+    auc, update_op = tf.metrics.auc(labels, predictions, curve='PR')
 
 def set_auc(predictions,
             labels,
@@ -253,8 +281,12 @@ def set_auc(predictions,
     labels = labels[:, 1:]
     predictions = tf.nn.sigmoid(predictions)
     auc, update_op = tf.metrics.auc(labels, predictions)
-    return update_op, 1.0
-  
+
+    with tf.control_dependencies([update_op]):
+      auc = tf.identity(auc)
+
+    return auc, tf.constant(1.0)
+
 
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
@@ -323,7 +355,10 @@ def create_evaluation_metrics(problems, model_hparams):
       metric_fn = METRICS_FNS[metric]
       problem_metric_fn = make_problem_specific_metric_fn(
           metric_fn, problem_idx, weights_fn)
-      eval_metrics["metrics-%s/%s" % (problem_name, metric)] = problem_metric_fn
+
+      metric_name = "metrics-%s/%s" % (problem_name, metric)
+
+      eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
 

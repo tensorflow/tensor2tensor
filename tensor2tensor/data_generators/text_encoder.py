@@ -27,6 +27,7 @@ from __future__ import print_function
 import collections
 from itertools import chain
 import re
+import tempfile
 
 # Dependency imports
 
@@ -464,9 +465,24 @@ class SubwordTextEncoder(TextEncoder):
     """
     ret = []
     for token in tokens:
-      ret.extend(
-          self._escaped_token_to_subtoken_ids(
-              _escape_token(token, self._alphabet)))
+      ret.extend(self._token_to_subtoken_ids(token))
+    return ret
+
+  def _token_to_subtoken_ids(self, token):
+    """Converts token to a list of subtoken ids.
+
+    Args:
+      token: a string.
+    Returns:
+      a list of integers in the range [0, vocab_size)
+    """
+    cache_location = hash(token) % self._cache_size
+    cache_key, cache_value = self._cache[cache_location]
+    if cache_key == token:
+      return cache_value
+    ret = self._escaped_token_to_subtoken_ids(
+        _escape_token(token, self._alphabet))
+    self._cache[cache_location] = (token, ret)
     return ret
 
   def _subtoken_ids_to_tokens(self, subtokens):
@@ -480,7 +496,13 @@ class SubwordTextEncoder(TextEncoder):
     concatenated = "".join(
         [self._subtoken_id_to_subtoken_string(s) for s in subtokens])
     split = concatenated.split("_")
-    return [_unescape_token(t + "_") for t in split if t]
+    ret = []
+    for t in split:
+      if t:
+        unescaped = _unescape_token(t + "_")
+        if unescaped:
+          ret.append(unescaped)
+    return ret
 
   def _subtoken_id_to_subtoken_string(self, subtoken):
     """Converts a subtoken integer ID to a subtoken string."""
@@ -717,6 +739,9 @@ class SubwordTextEncoder(TextEncoder):
         s: i + reserved
         for i, s in enumerate(subtoken_strings) if s
     }
+    # Initialize the cache to empty.
+    self._cache_size = 2 ** 20
+    self._cache = [(None, None)] * self._cache_size
 
   def _init_alphabet_from_tokens(self, tokens):
     """Initialize alphabet from an iterable of token or subtoken strings."""
@@ -755,3 +780,72 @@ class SubwordTextEncoder(TextEncoder):
     with tf.gfile.Open(filename, "w") as f:
       for subtoken_string in self._all_subtoken_strings:
         f.write("'" + unicode_to_native(subtoken_string) + "'\n")
+
+
+class ImageEncoder(object):
+  """Encoder class for saving and loading images."""
+
+  def __init__(self, num_reserved_ids=0, height=32, width=32, channels=3):
+    assert num_reserved_ids == 0
+    self._height = height
+    self._width = width
+    self._channels = channels
+
+  @property
+  def num_reserved_ids(self):
+    return 0
+
+  def encode(self, s):
+    """Transform a string with a filename into a list of RGB integers.
+
+    Args:
+      s: path to the file with an image.
+
+    Returns:
+      ids: list of integers
+    """
+    # TODO(lukaszkaiser): implement this.
+    raise NotImplementedError
+
+  def decode(self, ids):
+    """Transform a sequence of int ids into an image file.
+
+    Args:
+      ids: list of integers to be converted.
+
+    Returns:
+      Path to the temporary file where the image was saved.
+
+    Raises:
+      ValueError: if the ids are not of the appropriate size.
+    """
+    _, tmp_file_path = tempfile.mkstemp()
+    length = self._height * self._width * self._channels
+    if len(ids) != length:
+      raise ValueError("Length of ids (%d) must be height (%d) x width (%d) x "
+                       "channels (%d); %d != %d.\n Ids: %s"
+                       % (len(ids), self._height, self._width, self._channels,
+                          len(ids), length, " ".join([str(i) for i in ids])))
+    with tf.Graph().as_default():
+      raw = tf.constant(ids, dtype=tf.uint8)
+      img = tf.reshape(raw, [self._height, self._width, self._channels])
+      png = tf.image.encode_png(img)
+      op = tf.write_file(tmp_file_path, png)
+      with tf.Session() as sess:
+        sess.run(op)
+    return tmp_file_path
+
+  def decode_list(self, ids):
+    """Transform a sequence of int ids into an image file.
+
+    Args:
+      ids: list of integers to be converted.
+
+    Returns:
+      Singleton list: path to the temporary file where the image was saved.
+    """
+    return [self.decode(ids)]
+
+  @property
+  def vocab_size(self):
+    return 256

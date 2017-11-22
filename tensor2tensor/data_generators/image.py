@@ -24,6 +24,7 @@ import io
 import json
 import os
 import random
+import struct
 import tarfile
 import zipfile
 
@@ -40,6 +41,12 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
+
+def resize_by_area(img, size):
+  """image resize function used by quite a few image problems."""
+  return tf.to_int64(
+      tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
 
 
 class ImageProblem(problem.Problem):
@@ -93,16 +100,12 @@ class ImageCeleba(ImageProblem):
 
   def preprocess_example(self, example, unused_mode, unused_hparams):
 
-    def resize(img, size):
-      return tf.to_int64(
-          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
-
     inputs = example["inputs"]
     # Remove boundaries in CelebA images. Remove 40 pixels each side
     # vertically and 20 pixels each side horizontally.
     inputs = tf.image.crop_to_bounding_box(inputs, 40, 20, 218 - 80, 178 - 40)
-    example["inputs"] = resize(inputs, 8)
-    example["targets"] = resize(inputs, 32)
+    example["inputs"] = resize_by_area(inputs, 8)
+    example["targets"] = resize_by_area(inputs, 32)
     return example
 
   def hparams(self, defaults, unused_model_hparams):
@@ -225,7 +228,7 @@ class ImageFSNS(ImageProblem):
     # This vocab file must be present within the data directory.
     vocab_filename = os.path.join(data_dir, "charset_size134.txt")
     return {
-        "inputs": text_encoder.TextEncoder(),
+        "inputs": text_encoder.ImageEncoder(),
         "targets": text_encoder.SubwordTextEncoder(vocab_filename)
     }
 
@@ -271,7 +274,7 @@ class Image2ClassProblem(ImageProblem):
   def feature_encoders(self, data_dir):
     del data_dir
     return {
-        "inputs": text_encoder.TextEncoder(),
+        "inputs": text_encoder.ImageEncoder(),
         "targets": text_encoder.ClassLabelEncoder(self.class_labels)
     }
 
@@ -388,14 +391,10 @@ class Img2imgImagenet(ImageProblem):
 
   def preprocess_example(self, example, unused_mode, unused_hparams):
 
-    def resize(img, size):
-      return tf.to_int64(
-          tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
-
     inputs = example["inputs"]
     # For Img2Img resize input and output images as desired.
-    example["inputs"] = resize(inputs, 8)
-    example["targets"] = resize(inputs, 32)
+    example["inputs"] = resize_by_area(inputs, 8)
+    example["targets"] = resize_by_area(inputs, 32)
     return example
 
   def hparams(self, defaults, unused_model_hparams):
@@ -654,6 +653,43 @@ class ImageCifar10Plain(ImageCifar10):
     return example
 
 
+@registry.register_problem
+class ImageCifar10Plain8(ImageCifar10):
+  """CIFAR-10 rescaled to 8x8 for output: Conditional image generation."""
+
+  def dataset_filename(self):
+    return "image_cifar10_plain"  # Reuse CIFAR-10 plain data.
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"] = resize_by_area(example["inputs"], 8)
+    return example
+
+
+@registry.register_problem
+class Img2imgCifar10(ImageCifar10):
+  """CIFAR-10 rescaled to 8x8 for input and 32x32 for output."""
+
+  def dataset_filename(self):
+    return "image_cifar10_plain"  # Reuse CIFAR-10 plain data.
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+
+    inputs = example["inputs"]
+    # For Img2Img resize input and output images as desired.
+    example["inputs"] = resize_by_area(inputs, 8)
+    example["targets"] = resize_by_area(inputs, 32)
+    return example
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
+    p.target_modality = ("image:identity_no_pad", None)
+    p.batch_size_multiplier = 256
+    p.max_expected_batch_size_per_shard = 4
+    p.input_space_id = 1
+    p.target_space_id = 1
+
+
 # URLs and filenames for MSCOCO data.
 _MSCOCO_ROOT_URL = "http://msvocds.blob.core.windows.net/"
 _MSCOCO_URLS = [
@@ -890,3 +926,58 @@ class ImageMsCocoTokens32k(ImageMsCocoTokens8k):
   @property
   def targeted_vocab_size(self):
     return 2**15  # 32768
+
+
+@registry.register_problem
+class OcrTest(Image2TextProblem):
+  """OCR test problem."""
+
+  @property
+  def is_small(self):
+    return True
+
+  @property
+  def is_character_level(self):
+    return True
+
+  @property
+  def target_space_id(self):
+    return problem.SpaceID.EN_CHR
+
+  @property
+  def train_shards(self):
+    return 1
+
+  @property
+  def dev_shards(self):
+    return 1
+
+  def preprocess_example(self, example, mode, _):
+    # Resize from usual size ~1350x60 to 90x4 in this test.
+    img = example["inputs"]
+    example["inputs"] = tf.to_int64(
+        tf.image.resize_images(img, [90, 4], tf.image.ResizeMethod.AREA))
+    return example
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    # In this test problem, we assume that the data is in tmp_dir/ocr/ in
+    # files names 0.png, 0.txt, 1.png, 1.txt and so on until num_examples.
+    num_examples = 2
+    ocr_dir = os.path.join(tmp_dir, "ocr/")
+    tf.logging.info("Looking for OCR data in %s." % ocr_dir)
+    for i in xrange(num_examples):
+      image_filepath = os.path.join(ocr_dir, "%d.png" % i)
+      text_filepath = os.path.join(ocr_dir, "%d.txt" % i)
+      with tf.gfile.Open(text_filepath, "rb") as f:
+        label = f.read()
+      with tf.gfile.Open(image_filepath, "rb") as f:
+        encoded_image_data = f.read()
+      # In PNG files width and height are stored in these bytes.
+      width, height = struct.unpack(">ii", encoded_image_data[16:24])
+      yield {
+          "image/encoded": [encoded_image_data],
+          "image/format": ["png"],
+          "image/class/label": label.strip(),
+          "image/height": [height],
+          "image/width": [width]
+      }

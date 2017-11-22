@@ -40,6 +40,7 @@ class ModalityTest(tf.test.TestCase):
         symbol_modality_num_shards=4,
         hidden_size=hidden_size,
         multiply_embedding_mode="sqrt_depth",
+        symbol_modality_skip_top=0,
         shared_embedding_and_softmax_weights=0)
     x = -1 + np.random.random_integers(
         vocab_size, size=(batch_size, length, 1, 1))
@@ -65,6 +66,7 @@ class ModalityTest(tf.test.TestCase):
         symbol_modality_num_shards=4,
         hidden_size=hidden_size,
         label_smoothing=0.2,
+        symbol_modality_skip_top=0,
         shared_embedding_and_softmax_weights=0,
         factored_logits=0,
         mode=tf.estimator.ModeKeys.TRAIN)
@@ -99,6 +101,7 @@ class ModalityTest(tf.test.TestCase):
         symbol_modality_num_shards=4,
         hidden_size=hidden_size,
         label_smoothing=0.2,
+        symbol_modality_skip_top=0,
         shared_embedding_and_softmax_weights=0,
         factored_logits=1,
         mode=tf.estimator.ModeKeys.TRAIN)

@@ -258,6 +258,64 @@ class CommonAttentionTest(tf.test.TestCase):
       res = session.run(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
+  def testBiasBatchCoordinates(self):
+    """Testing the batch cooridnates mask."""
+    q = tf.constant([0, 0, 1, 1, 1, 1, 2, 2, 2], dtype=tf.int32)
+    q = tf.expand_dims(q, axis=-1)
+
+    k = tf.constant([0, 0, 0, 2, 2, 3, 3, 3], dtype=tf.int32)
+    k = tf.expand_dims(k, axis=-1)
+
+    ground_truth = np.array([
+        [0, 0, 0, 1, 1, 1, 1, 1],  # 0
+        [0, 0, 0, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1],  # 1 (just masked)
+        [1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 0, 0, 1, 1, 1],  # 2
+        [1, 1, 1, 0, 0, 1, 1, 1],
+        [1, 1, 1, 0, 0, 1, 1, 1],
+    ], np.float32) * -1e9
+
+    bias = common_attention.attention_bias_coordinates(q, k)
+
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      self.assertAllClose(
+          bias.eval(),
+          ground_truth,
+      )
+
+  def testBiasFuture(self):
+    """Testing the sequence order mask."""
+    q = tf.constant([0, 1, 2, 3, 0, 1, 2, 0, 1], dtype=tf.int32)
+    q = tf.expand_dims(q, axis=-1)
+
+    k = tf.constant([0, 1, 2, 3, 4, 0, 1, 2], dtype=tf.int32)
+    k = tf.expand_dims(k, axis=-1)
+
+    ground_truth = np.array([
+        [0, 1, 1, 1, 1, 0, 1, 1],  # 0
+        [0, 0, 1, 1, 1, 0, 0, 1],  # 1
+        [0, 0, 0, 1, 1, 0, 0, 0],  # 2
+        [0, 0, 0, 0, 1, 0, 0, 0],  # 3
+        [0, 1, 1, 1, 1, 0, 1, 1],  # 0
+        [0, 0, 1, 1, 1, 0, 0, 1],  # 1
+        [0, 0, 0, 1, 1, 0, 0, 0],  # 2
+        [0, 1, 1, 1, 1, 0, 1, 1],  # 0
+        [0, 0, 1, 1, 1, 0, 0, 1],  # 1
+    ], np.float32) * -1e9
+
+    bias = common_attention.attention_bias_future(q, k)
+
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      self.assertAllClose(
+          bias.eval(),
+          ground_truth,
+      )
+
 
 if __name__ == "__main__":
   tf.test.main()

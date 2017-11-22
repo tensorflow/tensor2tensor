@@ -86,7 +86,8 @@ def model_fn(model,
   # Add input statistics for incoming features.
   with tf.name_scope("input_stats"):
     for (k, v) in six.iteritems(features):
-      if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1:
+      # (epurdy) we sometimes have strings, which cause an error
+      if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1 and v.dtype != tf.string:
         tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // dp.n)
         tf.summary.scalar("%s_length" % k, tf.shape(v)[1])
         nonpadding = tf.to_float(tf.not_equal(v, 0))
@@ -108,7 +109,8 @@ def model_fn(model,
         hparams.problems[n],
         n,
         dp,
-        devices.ps_devices(all_workers=True))
+        devices.ps_devices(all_workers=True),
+        decode_hparams=decode_hparams)
     if mode == tf.estimator.ModeKeys.PREDICT:
       return model_class.infer(
           features,
@@ -183,6 +185,14 @@ def model_fn(model,
     }
     _del_dict_nones(predictions)
 
+    # (epurdy) allow model to emit additional outputs
+    # hardcoding in feature keys t2t uses
+    SKIP_FEATURES = ['inputs', 'infer_targets', 'outputs', 'scores']
+    for k in model_output:
+      if k in SKIP_FEATURES: continue
+      assert k not in predictions
+      predictions[k] = model_output[k]
+    
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
       export_out["scores"] = predictions["scores"]
@@ -292,7 +302,7 @@ def model_fn(model,
 
   # Optimize
   total_loss = tf.identity(total_loss, name="total_loss")
-  opt = _ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
+  opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
   opt_summaries = ["learning_rate", "loss"]
   if hparams.summarize_grads:
     opt_summaries.extend(["gradients", "gradient_norm"])
@@ -350,7 +360,7 @@ def build_model_fn(model, **kwargs):
   return wrapping_model_fn
 
 
-class _ConditionalOptimizer(tf.train.Optimizer):
+class ConditionalOptimizer(tf.train.Optimizer):
   """Conditional optimizer."""
 
   def __init__(self, optimizer_name, lr, hparams):
@@ -369,16 +379,21 @@ class _ConditionalOptimizer(tf.train.Optimizer):
       tf.logging.info("Init YellowFin Optimizer.")
       self._opt = yellowfin.YellowFinOptimizer(
           learning_rate=lr, momentum=hparams.optimizer_momentum_momentum)
+    elif optimizer_name == "TrueAdam":
+      self._opt = tf.train.AdamOptimizer(
+          lr / 500.0,
+          beta1=hparams.optimizer_adam_beta1,
+          beta2=hparams.optimizer_adam_beta2,
+          epsilon=hparams.optimizer_adam_epsilon)
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
-  def compute_gradients(self, loss, var_list, colocate_gradients_with_ops):
-    return self._opt.compute_gradients(
-        loss, var_list, colocate_gradients_with_ops=colocate_gradients_with_ops)
+  def compute_gradients(self, loss, var_list=None, **kwargs):
+    return self._opt.compute_gradients(loss, var_list, **kwargs)
 
-  def apply_gradients(self, gradients, global_step=None, name=None):
+  def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     return self._opt.apply_gradients(
-        gradients, global_step=global_step, name=name)
+        grads_and_vars, global_step=global_step, name=name)
 
 
 def _sqrt_decay(step):
