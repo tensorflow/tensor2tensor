@@ -143,6 +143,7 @@ def main(_):
     steps = [(extract_step(path), path) for path in all_checkpoint_paths]
     steps = sorted(steps)
     steps, all_checkpoint_paths = zip(*steps)
+    all_checkpoint_paths = list(all_checkpoint_paths)
     
     # the step we want is the last one that would have allowed us to
     # stop when we did (at steps[-1])
