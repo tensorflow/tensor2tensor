@@ -26,15 +26,9 @@ class TFNmt(t2t_model.T2TModel):
   """Adaptor class for TF-NMT models."""
 
   def model_fn_body(self, features):
-    print(features)
     hparams = self._hparams
-    inputs, inputs_length = get_feature_with_length(features, 
-                                                              "inputs")
-    targets, targets_length = get_feature_with_length(features, 
-                                                                "targets")
-    # We need to do +1 for inference since get_feature_with_length()
-    # may not have direct access to sequence lengths and returns
-    # a length of 0 for the first inference step. 
+    inputs, inputs_length = get_feature_with_length(features, "inputs")
+    targets, targets_length = get_feature_with_length(features, "targets")
     if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
       targets_length = targets_length + 1
     # inputs_length of 0 breaks things
@@ -52,7 +46,7 @@ def get_feature_with_length(features, name):
   Args:
     features (dict): Dictionary with features.
     name (string): Feature to extract (will read features[name] and
-                   features[name_raw]
+                   features[name_raw])
 
   Returns:
     Pair of (embed, length) tensors, where `embed` is a (batch_size,
@@ -68,7 +62,6 @@ def get_feature_with_length(features, name):
   indices = tf.where(tf.logical_not(not_padding_with_guardian))
   length = tf.segment_min(indices[:, 1], indices[:, 0])
   return embed, tf.cast(length, tf.int32)
-
 
 
 def get_tfnmt_model(hparams, inputs, inputs_length, targets, targets_length):
@@ -92,6 +85,7 @@ def get_tfnmt_model(hparams, inputs, inputs_length, targets, targets_length):
 
 
 class FakeVocabTable(object):
+  """A null-object vocab table implementation."""
   def lookup(self, unused_arg):
     return 99999999
 
@@ -149,7 +143,7 @@ def tfnmt_base():
 
 
 def tfnmt_default():
-  """Similar to the stacked architecture in the WMT17 UEdin submission.
+  """Inspired by the stacked architecture in the WMT17 UEdin submission.
   
   Differs from the evaluation system as follows:
     - No backtranslation
@@ -311,7 +305,7 @@ def tfnmt_wmt16_gnmt_8_layer_adam():
 
 @registry.register_hparams
 def tfnmt_wmt16_gnmt_8_layer_layer_norm():
-  """GNMT wmt16_gnmt_8_layer configuration with Adam."""
+  """GNMT wmt16_gnmt_8_layer configuration with layer normalization."""
   hparams = tfnmt_wmt16_gnmt_8_layer()
   hparams.unit_type = "layer_norm_lstm"
   return hparams
@@ -319,7 +313,7 @@ def tfnmt_wmt16_gnmt_8_layer_layer_norm():
 
 @registry.register_hparams
 def tfnmt_wmt16_gnmt_8_layer_adam_layer_norm():
-  """GNMT wmt16_gnmt_8_layer configuration with Adam."""
+  """GNMT wmt16_gnmt_8_layer configuration with Adam and layer norm."""
   hparams = tfnmt_wmt16_gnmt_8_layer_adam()
   hparams.unit_type = "layer_norm_lstm"
   return hparams
@@ -345,3 +339,4 @@ def tfnmt_12gb_gpu_alternating():
   hparams.encoder_type = "alternating"
   hparams.batch_size = 4096
   return hparams
+
