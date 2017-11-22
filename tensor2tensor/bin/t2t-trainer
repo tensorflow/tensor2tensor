@@ -31,6 +31,7 @@ from __future__ import division
 from __future__ import print_function
 
 import fathomt2t
+import fathomairflow.dags.dag_management.xcom_manipulation as xcom
 from gcloud.download_data import upload_file_to_gcs
 from gcloud.gcs_registry import get_gcs_location
 
@@ -76,6 +77,10 @@ flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
 flags.DEFINE_bool("profile", False, "Profile performance?")
 
 def main(_):
+  # Change the output_dir to one constructed just for this run
+  model_name = _model_name(FLAGS.model)
+  FLAGS.output_dir = os.path.join(FLAGS.output_dir, model_name)
+
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   trainer_utils.log_registry()
@@ -172,9 +177,10 @@ def main(_):
   checkpoint_file = os.path.basename(checkpoint_path)
   files = [x for x in files if x.startswith(checkpoint_file + '.')] + ['checkpoint']
 
+  # create a dir to export
+  dir_path = os.path.join(FLAGS.output_dir, 'export')
+  
   # clean up dir if it exists, create if it does not
-  model_name = _model_name(FLAGS.model)
-  dir_path = os.path.join(FLAGS.output_dir, model_name)
   if os.path.exists(dir_path):
     stale_dir_files = [os.path.join(dir_path, x) for x in os.listdir(dir_path)]
     for path in stale_dir_files:
@@ -189,6 +195,7 @@ def main(_):
 
   _upload_to_gcs(dir_path, model_name)
 
+  xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path})
 
 def _model_name(model_type:str) -> str:
   """
