@@ -57,4 +57,6 @@ class VocabUtilsTest(tf.test.TestCase):
 
 
 if __name__ == "__main__":
-  tf.test.main()
+ import sys
+  if sys.version_info.major == 2:
+    tf.test.main()

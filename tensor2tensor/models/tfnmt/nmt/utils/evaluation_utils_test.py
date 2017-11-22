@@ -70,6 +70,7 @@ class EvaluationUtilsTest(tf.test.TestCase):
         label_ref, pred_output, "word_accuracy")
     self.assertAlmostEqual(expected_word_accuracy_score, word_accuracy_score)
 
-
 if __name__ == "__main__":
-  tf.test.main()
+  import sys
+  if sys.version_info.major == 2:
+    tf.test.main()
