@@ -32,7 +32,7 @@ import tensorflow as tf
 
 def discriminator(x, compress, hparams, name, reuse=None):
   with tf.variable_scope(name, reuse=reuse):
-    x = tf.stop_gradient(2 * x) - x  # Reverse gradient.
+    x = tf.stop_gradient(2 * x) - x  # Reverse gradient. 
     if compress:
       x = transformer_vae.compress(x, None, False, hparams, "compress")
     else:
