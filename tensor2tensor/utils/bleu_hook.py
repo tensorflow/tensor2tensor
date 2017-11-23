@@ -30,6 +30,7 @@ import numpy as np
 # pylint: disable=redefined-builtin
 from six.moves import xrange
 from six.moves import zip
+import six
 # pylint: enable=redefined-builtin
 
 import tensorflow as tf
@@ -146,8 +147,8 @@ class UnicodeRegex:
 
   without dependening on https://pypi.python.org/pypi/regex/."""
   def _property_chars(prefix):
-    return ''.join(chr(x) for x in range(sys.maxunicode)
-                   if unicodedata.category(chr(x)).startswith(prefix))
+    return ''.join(six.unichr(x) for x in range(sys.maxunicode)
+                   if unicodedata.category(six.unichr(x)).startswith(prefix))
   punctuation = _property_chars('P')
   nondigit_punct_re = re.compile(r'([^\d])([' + punctuation + r'])')
   punct_nondigit_re = re.compile(r'([' + punctuation + r'])([^\d])')
