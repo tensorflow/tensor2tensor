@@ -418,7 +418,8 @@ def transformer_prepare_encoder(inputs, target_space, hparams):
         common_layers.shape_list(inputs)[1])
   # Append target_space_id embedding to inputs.
   emb_target_space = common_layers.embedding(
-      target_space, 32, ishape_static[-1], name="target_space_embedding")
+      target_space, 32, ishape_static[-1], name="target_space_embedding",
+      use_eager_mode=hparams.use_eager_mode)
   emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
   encoder_input += emb_target_space
   if hparams.pos == "timing":

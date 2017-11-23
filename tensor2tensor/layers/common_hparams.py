@@ -182,6 +182,9 @@ def basic_params1():
       # Set by tpu_trainer to let the model know whether we are on TPU.
       # Switching on/off tpu should not invalidate checkpoints.
       use_tpu=False,
+      # Things not compatible with eager mode use this flag to implement
+      # alternative functionality. We expect this to go away soon.
+      use_eager_mode=False,
   )
 
 
