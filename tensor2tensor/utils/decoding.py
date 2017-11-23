@@ -83,9 +83,9 @@ def log_decode_results(inputs,
 
   decoded_targets = None
   if identity_output:
-    decoded_outputs = " ".join(map(str, outputs.flatten()))
+    decoded_outputs = "".join(map(str, outputs.flatten()))
     if targets is not None:
-      decoded_targets = " ".join(map(str, targets.flatten()))
+      decoded_targets = "".join(map(str, targets.flatten()))
   else:
     decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
     if targets is not None:
