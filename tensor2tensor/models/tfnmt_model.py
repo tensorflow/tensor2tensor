@@ -12,13 +12,41 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_hparams
-from tensor2tensor.models.tfnmt.nmt import alternating_model
-from tensor2tensor.models.tfnmt.nmt import gnmt_model
-from tensor2tensor.models.tfnmt.nmt import model as nmt_model
-from tensor2tensor.models.tfnmt.nmt.utils import iterator_utils
+from tensor2tensor.models.tfnmt import alternating_model
+from tensor2tensor.models.tfnmt import gnmt_model
+from tensor2tensor.models.tfnmt import model as nmt_model
+from tensor2tensor.models.tfnmt.utils import iterator_utils
 from tensor2tensor.data_generators import text_encoder
 
 import tensorflow as tf
+
+def _print_shape_py(t, msg):
+  print("%s shape: %s" % (msg, t.shape))
+  return sum(t.shape)
+
+
+def print_shape(t, msg="", dtype=tf.float32):
+  """Print shape of the tensor for debugging."""
+  add = tf.py_func(_print_shape_py, [t, msg], tf.int64)
+  shp = t.get_shape()
+  ret = t + tf.cast(tf.reduce_max(add) - tf.reduce_max(add), dtype=dtype)
+  ret.set_shape(shp)
+  return ret
+
+
+def _print_data_py(t, msg):
+  print("%s shape: %s" % (msg, t.shape))
+  print("%s data: %s" % (msg, t))
+  return sum(t.shape)
+
+
+def print_data(t, msg="", dtype=tf.float32):
+  """Print shape and content of the tensor for debugging."""
+  add = tf.py_func(_print_data_py, [t, msg], tf.int64)
+  shp = t.get_shape()
+  ret = t + tf.cast(tf.reduce_max(add) - tf.reduce_max(add), dtype=dtype)
+  ret.set_shape(shp)
+  return ret
 
 
 @registry.register_model
@@ -31,11 +59,16 @@ class TFNmt(t2t_model.T2TModel):
     targets, targets_length = get_feature_with_length(features, "targets")
     if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
       targets_length = targets_length + 1
+    #inputs = print_shape(inputs, "inputs", dtype=tf.float32)
+    #targets = print_shape(targets, "targets", dtype=tf.float32)
+    #inputs_length = print_data(inputs_length, "inputs_length", dtype=tf.int32)
+    #targets_length = print_data(targets_length, "targets_length", dtype=tf.int32)
     # inputs_length of 0 breaks things
     inputs_length = tf.maximum(inputs_length, 1)
     tfnmt_model = get_tfnmt_model(
         hparams, inputs, inputs_length, targets, targets_length)
     decoder_output = tfnmt_model.logits
+    #decoder_output= print_shape(decoder_output, "decoder_output", dtype=tf.float32)
     return tf.expand_dims(decoder_output, axis=2)
 
 
