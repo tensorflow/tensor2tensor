@@ -179,9 +179,6 @@ def basic_params1():
       # This is the actual batch size, *not* tokens per batch (i.e. for
       # language models this is the number of sentences in the batch)
       tpu_batch_size_per_shard=24,
-      # Set by tpu_trainer to let the model know whether we are on TPU.
-      # Switching on/off tpu should not invalidate checkpoints.
-      use_tpu=False,
       # Things not compatible with eager mode use this flag to implement
       # alternative functionality. We expect this to go away soon.
       use_eager_mode=False,

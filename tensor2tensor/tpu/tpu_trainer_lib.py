@@ -212,7 +212,6 @@ def t2t_model_fn(model_name,
   hparams = copy.deepcopy(hparams)
   problem = hparams.problem_instances[0]
   problem_hp = hparams.problems[0]
-  hparams.use_tpu = use_tpu
 
   features["problem_choice"] = tf.constant(0)
   features["input_space_id"] = tf.constant(problem_hp.input_space_id)

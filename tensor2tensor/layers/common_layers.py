@@ -1231,15 +1231,6 @@ def relu_density_logit(x, reduce_dims):
   return scaled
 
 
-def conv_hidden_relu_simple(inputs, hidden_size, output_size, dropout=0.0):
-  h = tf.layers.dense(
-      inputs, hidden_size, use_bias=False, activation=tf.nn.relu, name="conv1")
-  if dropout != 0.0:
-    h = tf.nn.dropout(h, 1.0 - dropout)
-  o = tf.layers.dense(h, output_size, use_bias=False, name="conv2")
-  return o
-
-
 def conv_hidden_relu(inputs,
                      hidden_size,
                      output_size,
@@ -1250,9 +1241,6 @@ def conv_hidden_relu(inputs,
   """Hidden layer with RELU activation followed by linear projection."""
   name = kwargs.pop("name") if "name" in kwargs else None
   with tf.variable_scope(name, "conv_hidden_relu", [inputs]):
-    if kernel_size == (1, 1) and second_kernel_size == (1, 1):
-      return conv_hidden_relu_simple(
-          inputs, hidden_size, output_size, dropout=dropout)
     if inputs.get_shape().ndims == 3:
       is_3d = True
       inputs = tf.expand_dims(inputs, 2)
@@ -1501,15 +1489,10 @@ def padded_cross_entropy(logits,
   confidence = 1.0 - label_smoothing
   vocab_size = shape_list(logits)[-1]
   with tf.name_scope("padded_cross_entropy", [logits, labels]):
-    if len(logits.get_shape().as_list()) == 2:
-      # Deal with the case where we did not insert extra dimensions due to
-      # TPU issues.  No pad-to-same-length happens in this case.
-      # TODO(noam): remove this logic once TPU can handle extra dimensions.
-      labels = tf.reshape(labels, [-1])
-    else:
-      logits, labels = pad_with_zeros(logits, labels)
-    xent = smoothing_cross_entropy(logits, labels, vocab_size, confidence)
-    weights = weights_fn(labels)
+    pad_logits, pad_labels = pad_with_zeros(logits, labels)
+    xent = smoothing_cross_entropy(pad_logits, pad_labels, vocab_size,
+                                   confidence)
+    weights = weights_fn(pad_labels)
     if not reduce_sum:
       return xent * weights, weights
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
