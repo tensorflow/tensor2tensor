@@ -801,7 +801,7 @@ def combine_first_two_dimensions(x):
 
 @expert_utils.add_name_scope()
 def split_heads(x, num_heads):
-  """Split channels (dimension 3) into multiple heads (becomes dimension 1).
+  """Split channels (dimension 2) into multiple heads (becomes dimension 1).
 
   Args:
     x: a Tensor with shape [batch, length, channels]
@@ -815,7 +815,7 @@ def split_heads(x, num_heads):
 
 @expert_utils.add_name_scope()
 def split_heads_2d(x, num_heads):
-  """Split channels (dimension 4) into multiple heads (becomes dimension 1).
+  """Split channels (dimension 3) into multiple heads (becomes dimension 1).
 
   Args:
     x: a Tensor with shape [batch, height, width, channels]
@@ -2191,10 +2191,10 @@ def compute_qkv(query_antecedent,
   """
   if memory_antecedent is None and q_filter_width == kv_filter_width == 1:
     # self attention with single position q, k, and v
-    combined = common_layers.conv1d(
+    combined = tf.layers.dense(
         query_antecedent,
         total_key_depth * 2 + total_value_depth,
-        1,
+        use_bias=False,
         name="qkv_transform")
     q, k, v = tf.split(
         combined, [total_key_depth, total_key_depth, total_value_depth], axis=2)
@@ -2250,22 +2250,19 @@ def compute_qkv_2d(query_antecedent, memory_antecedent, total_key_depth,
   """
   # self attention with single position q, k, and v
   if memory_antecedent is None:
-    combined = tf.layers.conv2d(
-        query_antecedent,
-        total_key_depth * 2 + total_value_depth, (1, 1),
-        name="qkv_transform")
+    combined = tf.layers.dense(
+        query_antecedent, total_key_depth * 2 + total_value_depth,
+        use_bias=False, name="qkv_transform")
     q, k, v = tf.split(
         combined, [total_key_depth, total_key_depth, total_value_depth],
         axis=-1)
     return q, k, v
 
   # Encoder decoder attention
-  q = common_layers.conv1d(
-      query_antecedent, total_key_depth, 1, name="q_transform")
-  combined = common_layers.conv1d(
-      memory_antecedent,
-      total_key_depth + total_value_depth,
-      1,
+  q = tf.layers.dense(
+      query_antecedent, total_key_depth, use_bias=False, name="q_transform")
+  combined = tf.layers.dense(
+      memory_antecedent, total_key_depth + total_value_depth, use_bias=False,
       name="kv_transform")
   k, v = tf.split(combined, [total_key_depth, total_value_depth], axis=2)
 
@@ -2410,7 +2407,8 @@ def multihead_attention(query_antecedent,
       x = dilated_self_attention_1d(q, k, v, block_length, block_width,
                                     gap_size, num_memory_blocks)
     x = combine_heads(x)
-    x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
+    x = tf.layers.dense(
+        x, output_depth, use_bias=False, name="output_transform")
     if additional_returned_value is not None:
       return x, additional_returned_value
     return x
