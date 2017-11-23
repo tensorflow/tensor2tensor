@@ -28,6 +28,7 @@ from tensor2tensor.data_generators import desc2code
 from tensor2tensor.data_generators import ice_parsing
 from tensor2tensor.data_generators import image
 from tensor2tensor.data_generators import imdb
+from tensor2tensor.data_generators import librispeech
 from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import multinli
 from tensor2tensor.data_generators import problem_hparams
