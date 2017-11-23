@@ -95,7 +95,9 @@ class SymbolModality(modality.Modality):
       ret = shards[0]
     else:
       ret = tf.concat(shards, 0)
-    ret = eu.convert_gradient_to_tensor(ret)
+    # Convert ret to tensor.
+    if not self._model_hparams.use_eager_mode:
+      ret = eu.convert_gradient_to_tensor(ret)
     return ret
 
   def bottom_simple(self, x, name, reuse):
@@ -213,7 +215,8 @@ class ImageModality(modality.Modality):
           tf.to_int32(common_layers.flatten4d3d(inputs)),
           self.top_dimensionality,
           self._body_input_depth,
-          name="input_rgb_embedding")
+          name="input_rgb_embedding",
+          use_eager_mode=self._model_hparams.use_eager_mode)
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
 
