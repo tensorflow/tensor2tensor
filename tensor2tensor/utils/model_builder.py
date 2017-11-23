@@ -116,7 +116,8 @@ def model_fn(model,
           beam_size=decode_hp.beam_size,
           top_beams=(decode_hp.beam_size if decode_hp.return_beams else 1),
           alpha=decode_hp.alpha,
-          decode_length=decode_hp.extra_length)
+          extra_decode_length=decode_hp.extra_decode_length,
+          max_decode_length=decode_hp.max_decode_length)
     # In distributed mode, we build graph for problem=0 and problem=worker_id.
     skipping_is_on = hparams.problem_choice == "distributed" and is_training
     problem_worker_id = worker_id % len(hparams.problems)

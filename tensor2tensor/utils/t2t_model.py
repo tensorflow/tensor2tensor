@@ -155,14 +155,17 @@ class T2TModel(object):
 
   def eval_autoregressive(self,
                           features=None,
-                          decode_length=50):
+                          extra_decode_length=50,
+                          max_decode_length=0):
     """Autoregressive eval.
 
     Quadratic time in decode_length.
 
     Args:
       features: an map of string to `Tensor`
-      decode_length: an integer.  How many additional timesteps to decode.
+      extra_decode_length: an integer. How many additional timesteps to decode.
+      max_decode_length: an integer. Max timesteps to decode.
+        (inputs_len + extra_decode_length if max_decode_length < 1)
 
     Returns:
       sharded_logits: a list of `Tensor`s. Assumes one datashard.
@@ -171,12 +174,14 @@ class T2TModel(object):
     """
     _, logits, losses = self._slow_greedy_infer(
         features,
-        decode_length=decode_length)
+        extra_decode_length=extra_decode_length,
+        max_decode_length=max_decode_length)
     return [logits], losses
 
   def infer(self,
             features=None,
-            decode_length=50,
+            extra_decode_length=50,
+            max_decode_length=0,
             beam_size=1,
             top_beams=1,
             alpha=0.0):
@@ -186,7 +191,9 @@ class T2TModel(object):
 
     Args:
       features: an map of string to `Tensor`
-      decode_length: an integer.  How many additional timesteps to decode.
+      extra_decode_length: an integer. How many additional timesteps to decode.
+      max_decode_length: an integer. Max timesteps to decode.
+        (inputs_len + extra_decode_length if max_decode_length < 1)
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
@@ -207,22 +214,26 @@ class T2TModel(object):
       beam_size = 1  # No use to run beam-search for a single class.
     if beam_size == 1:
       tf.logging.info("Greedy Decoding")
-      samples, _, _ = self._greedy_infer(features, decode_length)
+      samples, _, _ = self._greedy_infer(features, extra_decode_length,
+                                         max_decode_length)
     else:
       tf.logging.info("Beam Decoding with beam size %d" % beam_size)
-      samples = self._beam_decode(features, decode_length, beam_size, top_beams,
+      samples = self._beam_decode(features, extra_decode_length, 
+                                  max_decode_length, beam_size, top_beams,
                                   alpha)
     return samples
 
-  def _beam_decode(self, features, decode_length, beam_size, top_beams,
-                   alpha):
+  def _beam_decode(self, features, extra_decode_length, max_decode_length,
+                   beam_size, top_beams, alpha):
     """Beam search decoding.
 
     Models should ideally implement a more efficient version of this function.
 
     Args:
       features: an map of string to `Tensor`
-      decode_length: an integer.  How many additional timesteps to decode.
+      extra_decode_length: an integer. How many additional timesteps to decode.
+      max_decode_length: an integer. Max timesteps to decode.
+        (inputs_len + extra_decode_length if max_decode_length < 1)
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
@@ -231,18 +242,21 @@ class T2TModel(object):
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
     """
-    return self._beam_decode_slow(features, decode_length, beam_size, top_beams,
+    return self._beam_decode_slow(features, extra_decode_length,
+                                  max_decode_length, beam_size, top_beams,
                                   alpha)
 
-  def _beam_decode_slow(self, features, decode_length, beam_size, top_beams,
-                        alpha):
+  def _beam_decode_slow(self, features, extra_decode_length, max_decode_length,
+                        beam_size, top_beams, alpha):
     """Slow version of Beam search decoding.
 
     Quadratic time in decode_length.
 
     Args:
       features: an map of string to `Tensor`
-      decode_length: an integer.  How many additional timesteps to decode.
+      extra_decode_length: an integer. How many additional timesteps to decode.
+      max_decode_length: an integer. Max timesteps to decode.
+        (inputs_len + extra_decode_length if max_decode_length < 1)
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
@@ -294,10 +308,15 @@ class T2TModel(object):
 
     target_modality = self._hparams.problems[self._problem_idx].target_modality
     vocab_size = target_modality.top_dimensionality
-    # Setting decode length to input length + decode_length
-    decode_length = tf.constant(decode_length)
+    # Setting decode length to input length + extra_decode_length
+    decode_length = tf.constant(extra_decode_length)
     if "partial_targets" not in features:
       decode_length += tf.shape(features["inputs"])[1]
+    if max_decode_length > 1:
+      # if max decode length > 1, add checking on decode length
+      decode_length = tf.cond(tf.greater(decode_length, max_decode_length),
+                              lambda: decode_length,
+                              lambda: max_decode_length)
     ids, scores = beam_search.beam_search(symbols_to_logits_fn, initial_ids,
                                           beam_size, decode_length, vocab_size,
                                           alpha, stop_early=(top_beams == 1))
@@ -317,30 +336,36 @@ class T2TModel(object):
         return {"outputs": ids[:, :top_beams, 1:], "scores": scores}
       return ids[:, :top_beams, 1:]
 
-  def  _greedy_infer(self, features, decode_length):
+  def  _greedy_infer(self, features, extra_decode_length, max_decode_length):
     """A greedy inference method.
 
     Models should ideally implement a more efficient version of this function.
 
     Args:
       features: an map of string to `Tensor`
-      decode_length: an integer.  How many additional timesteps to decode.
+      extra_decode_length: an integer. How many additional timesteps to decode.
+      max_decode_length: an integer. Max timesteps to decode.
+        (inputs_len + extra_decode_length if max_decode_length < 1)
 
     Returns:
        samples: an integer `Tensor`.
        logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
        losses: a dictionary: {loss-name (string): floating point `Scalar`}
     """
-    return self._slow_greedy_infer(features, decode_length)
+    return self._slow_greedy_infer(features, extra_decode_length, 
+                                   max_decode_length)
 
-  def _slow_greedy_infer(self, features, decode_length):
+  def _slow_greedy_infer(self, features, extra_decode_length,
+                         max_decode_length):
     """A slow greedy inference method.
 
     Quadratic time in decode_length.
 
     Args:
       features: an map of string to `Tensor`
-      decode_length: an integer.  How many additional timesteps to decode.
+      extra_decode_length: an integer. How many additional timesteps to decode.
+      max_decode_length: an integer. Max timesteps to decode.
+        (inputs_len + extra_decode_length if max_decode_length < 1)
 
     Returns:
        samples: an integer `Tensor`.
@@ -402,7 +427,12 @@ class T2TModel(object):
     if is_class_modality(target_modality):
       decode_length = 1
     else:
-      decode_length = tf.shape(features["inputs"])[1] + decode_length
+      decode_length = tf.shape(features["inputs"])[1] + extra_decode_length
+      if max_decode_length > 1:
+        # if max decode length > 1, add checking on decode length
+        decode_length = tf.cond(tf.greater(decode_length, max_decode_length),
+                                lambda: decode_length,
+                                lambda: max_decode_length)
     # Initial values of result, logits and loss.
     result = initial_output
     # tensor of shape [batch_size, time, 1, 1, vocab_size]

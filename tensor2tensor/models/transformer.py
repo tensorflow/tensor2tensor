@@ -143,12 +143,14 @@ class Transformer(t2t_model.T2TModel):
                        encoder_decoder_attention_bias,
                        decoder_self_attention_bias, hparams)
 
-  def _greedy_infer(self, features, decode_length):
+  def _greedy_infer(self, features, extra_decode_length, max_decode_length=0):
     """Fast version of greedy decoding.
 
     Args:
       features: an map of string to `Tensor`
-      decode_length: an integer.  How many additional timesteps to decode.
+      extra_decode_length: an integer. How many additional timesteps to decode.
+      max_decode_length: an integer. Max timesteps to decode.
+        (inputs_len + extra_decode_length if max_decode_length < 1)
 
     Returns:
        samples: [batch_size, input_length + decode_length]
@@ -158,16 +160,19 @@ class Transformer(t2t_model.T2TModel):
     Raises:
       NotImplementedError: If there are multiple data shards.
     """
-    decoded_ids, _ = self._fast_decode(features, decode_length)
+    decoded_ids, _ = self._fast_decode(features, extra_decode_length,
+        max_decode_length)
     return decoded_ids, None, None
 
-  def _beam_decode(self, features, decode_length, beam_size, top_beams,
-                   alpha):
+  def _beam_decode(self, features, extra_decode_length, max_decode_length,
+                   beam_size, top_beams, alpha):
     """Beam search decoding.
 
     Args:
       features: an map of string to `Tensor`
-      decode_length: an integer.  How many additional timesteps to decode.
+      extra_decode_length: an integer. How many additional timesteps to decode.
+      max_decode_length: an integer. Max timesteps to decode.
+        (inputs_len + extra_decode_length if max_decode_length < 1)
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
@@ -177,12 +182,13 @@ class Transformer(t2t_model.T2TModel):
        samples: an integer `Tensor`. Top samples from the beam search
     """
     decoded_ids, scores = self._fast_decode(
-        features, decode_length, beam_size, top_beams, alpha)
+        features, extra_decode_length, max_decode_length,beam_size, top_beams, alpha)
     return {"outputs": decoded_ids, "scores": scores}
 
   def _fast_decode(self,
                    features,
-                   decode_length,
+                   extra_decode_length,
+                   max_decode_length=0,
                    beam_size=1,
                    top_beams=1,
                    alpha=1.0):
@@ -193,7 +199,10 @@ class Transformer(t2t_model.T2TModel):
 
     Args:
       features: a map of string to model  features.
-      decode_length: an integer.  How many additional timesteps to decode.
+      extra_decode_length: an integer. How many additional timesteps to decode.
+      max_decode_length: an integer. Max timesteps to decode.
+        (inputs_len + extra_decode_length if max_decode_length < 1)
+      last_position_only: MUST be true for fast decoding!
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
@@ -216,7 +225,12 @@ class Transformer(t2t_model.T2TModel):
     if t2t_model.is_class_modality(target_modality):
       decode_length = 1
     else:
-      decode_length = tf.shape(inputs)[1] + decode_length
+      decode_length = tf.shape(inputs)[1] + extra_decode_length
+      if max_decode_length > 1:
+        # if max decode length > 1, add checking logit on decode length
+        decode_length = tf.cond(tf.greater(decode_length, max_decode_length),
+                                lambda: decode_length,
+                                lambda: max_decode_length)
 
     # TODO(llion): Clean up this reshaping logic.
     inputs = tf.expand_dims(inputs, axis=1)
