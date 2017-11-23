@@ -108,8 +108,13 @@ class Transformer(t2t_model.T2TModel):
         hparams,
         cache=cache)
 
-    # Expand since t2t expects 4d tensors.
-    return tf.expand_dims(decoder_output, axis=2)
+    if hparams.use_tpu and hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      # TPU does not react kindly to extra dimensions.
+      # TODO(noam): remove this once TPU is more forgiving of extra dims.
+      return decoder_output
+    else:
+      # Expand since t2t expects 4d tensors.
+      return tf.expand_dims(decoder_output, axis=2)
 
   def model_fn_body(self, features):
     """Transformer main model_fn.
@@ -1112,4 +1117,21 @@ def transformer_clean_big():
   hparams = transformer_clean()
   hparams.hidden_size = 1024
   hparams.filter_size = 4096
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tpu_lm1b():
+  """Hparams for training languagemodel_lm1b8k_concat on tpu."""
+  hparams = transformer_clean()
+  update_hparams_for_tpu(hparams)
+  hparams.max_length = 512
+  hparams.tpu_batch_size_per_shard = 8
+  hparams.hidden_size = 1024
+  hparams.filter_size = 4096
+  hparams.num_heads = 4
+  hparams.label_smoothing = 0.0
+  hparams.layer_prepostprocess_dropout = 0.0
+  hparams.attention_dropout = 0.0
+  hparams.relu_dropout = 0.0
   return hparams
