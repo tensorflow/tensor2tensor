@@ -447,3 +447,68 @@ def shuffle_dataset(filenames):
     out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
     write_records(records, out_fname)
     tf.gfile.Remove(fname)
+
+
+def combine_examples_no_inputs(examples, max_length):
+  """Combine examples into longer examples.
+
+  Concatenate targets to form target sequences with length up to max_length.
+  Target sequences longer than max_length are chopped into multiple sequences.
+
+  Args:
+    examples: a generator returning feature dictionaries.
+    max_length: an integer.
+
+  Yields:
+    feature dictionaries.
+  """
+  partial = []
+  for example in examples:
+    x = example["targets"]
+    if len(x) + len(partial) > max_length:
+      if partial:
+        yield {"inputs": [0], "targets": partial}
+        partial = []
+    if len(x) > max_length:
+      num_fragments = len(x) // max_length
+      for i in xrange(num_fragments):
+        yield {"inputs": [0], "targets": x[max_length * i:max_length * (i + 1)]}
+      partial = x[max_length * num_fragments:]
+    else:
+      partial += x
+  if partial:
+    yield {"inputs": [0], "targets": partial}
+
+
+def combine_examples_with_inputs(examples, max_length):
+  """Combine examples into longer examples.
+
+  We combine multiple examples by concatenating the inputs and concatenating
+  the targets.  Sequences where the inputs or the targets are too long are
+  emitted as singletons (not chopped).
+
+  Args:
+    examples: a generator returning feature dictionaries.
+    max_length: an integer.
+
+  Yields:
+    feature dictionaries.
+  """
+  partial_a = []
+  partial_b = []
+  for example in examples:
+    a = example["inputs"]
+    b = example["targets"]
+    if (len(a) + len(partial_a) > max_length or
+        len(b) + len(partial_b) > max_length):
+      if partial_a or partial_b:
+        yield {"inputs": partial_a, "targets": partial_b}
+        partial_a = []
+        partial_b = []
+    if len(a) > max_length or len(b) > max_length:
+      yield {"inputs": a, "targets": b}
+    else:
+      partial_a += a
+      partial_b += b
+  if partial_a or partial_b:
+    yield {"inputs": partial_a, "targets": partial_b}

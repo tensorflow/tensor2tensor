@@ -112,12 +112,15 @@ def _maybe_download_corpus(tmp_dir):
       corpus_tar.extractall(tmp_dir)
 
 
-def _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath):
+def _get_or_build_subword_text_encoder(tmp_dir,
+                                       vocab_filepath,
+                                       target_size):
   """Builds a SubwordTextEncoder based on the corpus.
 
   Args:
     tmp_dir: directory containing dataset.
     vocab_filepath: path to store (or load) vocab.
+    target_size: an optional integer.
 
   Returns:
     a SubwordTextEncoder.
@@ -137,8 +140,13 @@ def _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath):
     line_count += 1
     if line_count >= max_lines:
       break
-  ret = text_encoder.SubwordTextEncoder()
-  ret.build_from_token_counts(token_counts, min_count=5)
+  if target_size == 2 ** 15:
+    # legacy behavior
+    ret = text_encoder.SubwordTextEncoder()
+    ret.build_from_token_counts(token_counts, min_count=5)
+  else:
+    ret = text_encoder.SubwordTextEncoder.build_to_target_size(
+        target_size, token_counts, 1, 1000)
   ret.store_to_file(vocab_filepath)
   return ret
 
@@ -183,7 +191,7 @@ class LanguagemodelLm1b32k(problem.Text2TextProblem):
 
   @property
   def use_train_shards_for_dev(self):
-    return True
+    return False
 
   def generator(self, data_dir, tmp_dir, is_training):
     """Generator for lm1b sentences.
@@ -204,7 +212,8 @@ class LanguagemodelLm1b32k(problem.Text2TextProblem):
       encoder = text_encoder.ByteTextEncoder()
     else:
       vocab_filepath = os.path.join(data_dir, self.vocab_file)
-      encoder = _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath)
+      encoder = _get_or_build_subword_text_encoder(
+          tmp_dir, vocab_filepath, self.targeted_vocab_size)
     for filepath in files:
       tf.logging.info("filepath = %s", filepath)
       for line in tf.gfile.Open(filepath):
@@ -212,6 +221,28 @@ class LanguagemodelLm1b32k(problem.Text2TextProblem):
             _replace_oov(original_vocab, text_encoder.native_to_unicode(line)))
         tokens.append(EOS)
         yield {"inputs": [0], "targets": tokens}
+
+
+@registry.register_problem
+class LanguagemodelLm1b8kConcat512(LanguagemodelLm1b32k):
+  """A language model on the 1B words corpus.
+
+  8k vocabualry.
+  Training/eval examples are concatenated to a maximum length of 512.
+
+  Happy TPU Training.
+
+  Ratio of dev tokens (including eos) to dev words (including eos)
+  207351 / 159658 = 1.29872; multiply ppx by this to compare results.
+  """
+
+  @property
+  def targeted_vocab_size(self):
+    return 2**13  # 8192
+
+  @property
+  def combine_to_length(self):
+    return 512
 
 
 @registry.register_problem
