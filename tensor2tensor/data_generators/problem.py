@@ -585,6 +585,22 @@ class Text2TextProblem(Problem):
     """
     raise NotImplementedError()
 
+  def maybe_combine_examples(self, generator):
+    if self.combine_to_length:
+      if self.has_inputs:
+        return generator_utils.combine_examples_with_inputs(
+            generator, self.combine_to_length)
+      else:
+        return generator_utils.combine_examples_no_inputs(
+            generator, self.combine_to_length)
+    else:
+      return generator
+
+  @property
+  def combine_to_length(self):
+    """An optional integer. Concatenate examples into bigger examples."""
+    return None
+
   @property
   def use_train_shards_for_dev(self):
     """If true, we only generate training data and hold out shards for dev."""
@@ -630,12 +646,15 @@ class Text2TextProblem(Problem):
     if self.use_train_shards_for_dev:
       all_paths = train_paths + dev_paths
       generator_utils.generate_files(
-          self.generator(data_dir, tmp_dir, True), all_paths)
+          self.maybe_combine_examples(self.generator(data_dir, tmp_dir, True)),
+          all_paths)
       generator_utils.shuffle_dataset(all_paths)
     else:
       generator_utils.generate_dataset_and_shuffle(
-          self.generator(data_dir, tmp_dir, True), train_paths,
-          self.generator(data_dir, tmp_dir, False), dev_paths)
+          self.maybe_combine_examples(self.generator(data_dir, tmp_dir, True)),
+          train_paths,
+          self.maybe_combine_examples(self.generator(data_dir, tmp_dir, False)),
+          dev_paths)
 
   def feature_encoders(self, data_dir):
     if self.is_character_level:
