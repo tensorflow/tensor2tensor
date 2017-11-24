@@ -30,6 +30,27 @@ To evaluate all checkpoints in a given directory:
   --hparams_set=transformer_big_single_gpu
   --source=wmt13_deen.en
   --reference=wmt13_deen.de`
+
+In addition to the above-mentioned compulsory parameters,
+there are optional parameters:
+
+ * bleu_variant: cased (case-sensitive), uncased, both (default).
+ * translations_dir: Where to store the translated files? Default="translations".
+ * even_subdir: Where in the model_dir to store the even file? Default="",
+   which means TensorBoard will show it as the same run as the training, but it will warn
+   about "more than one metagraph event per run". event_subdir can be used e.g. if running
+   this script several times with different `--decode_hparams="beam_size=$BEAM_SIZE,alpha=$ALPHA"`.
+ * tag_suffix: Default="", so the tags will be BLEU_cased and BLEU_uncased. Again, tag_suffix
+   can be used e.g. for different beam sizes if these should be plotted in different graphs.
+ * min_steps: Don't evaluate checkpoints with less steps.
+   Default=-1 means check the `last_evaluated_step.txt` file, which contains the number of steps
+   of the last successfully evaluated checkpoint.
+ * report_zero: Store BLEU=0 and guess its time based on flags.txt. Default=True.
+   This is useful, so TensorBoard reports correct relative time for the remaining checkpoints.
+   This flag is set to False if min_steps is > 0.
+ * wait_secs: Wait upto N seconds for a new checkpoint. Default=0.
+   This is useful for continuous evaluation of a running training,
+   in which case this should be equal to save_checkpoints_secs plus some reserve.
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -53,7 +74,11 @@ flags.DEFINE_string("translation", None, "Path to the MT system translation file
 flags.DEFINE_string("source", None, "Path to the source-language file to be translated")
 flags.DEFINE_string("reference", None, "Path to the reference translation file")
 flags.DEFINE_string("translations_dir", "translations", "Where to store the translated files")
-flags.DEFINE_bool("report_zero", True, "Store BLEU=0 and guess its time via flags.txt")
+flags.DEFINE_string("event_subdir", "", "Where in model_dir to store the event file")
+flags.DEFINE_string("tag_suffix", "", "What to add to BLEU_cased and BLEU_uncased tags. Default=''.")
+flags.DEFINE_integer("min_steps", -1, "Don't evaluate checkpoints with less steps.")
+flags.DEFINE_integer("wait_secs", 0, "Wait upto N seconds for a new checkpoint, cf. save_checkpoints_secs.")
+flags.DEFINE_bool("report_zero", None, "Store BLEU=0 and guess its time based on flags.txt")
 
 # options derived from t2t-decode
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
@@ -69,6 +94,11 @@ flags.DEFINE_string("schedule", "train_and_evaluate",
 
 Model = namedtuple('Model', 'filename time steps')
 
+
+def read_checkpoints_list(model_dir, min_steps):
+  models = [Model(x[:-6], os.path.getctime(x), int(x[:-6].rsplit('-')[-1]))
+            for x in tf.gfile.Glob(os.path.join(model_dir, 'model.ckpt-*.index'))]
+  return sorted((x for x in models if x.steps > min_steps), key=lambda x: x.steps)
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
@@ -107,22 +137,43 @@ def main(_):
 
   os.makedirs(FLAGS.translations_dir, exist_ok=True)
   translated_base_file = os.path.join(FLAGS.translations_dir, FLAGS.problems)
-  models = [Model(x[:-6], os.path.getctime(x), int(x[:-6].rsplit('-')[-1]))
-            for x in tf.gfile.Glob(os.path.join(model_dir, 'model.ckpt-*.index'))]
-  models = sorted(models, key=lambda x: x.time)
+  event_dir = os.path.join(FLAGS.model_dir, FLAGS.event_subdir)
+  last_step_file = os.path.join(event_dir, 'last_evaluated_step.txt')
+  if FLAGS.min_steps == -1:
+    try:
+      with open(last_step_file) as ls_file:
+        FLAGS.min_steps = int(ls_file.read())
+    except FileNotFoundError:
+      FLAGS.min_steps = 0
+  if FLAGS.report_zero is None:
+    FLAGS.report_zero = FLAGS.min_steps == 0
+
+  models = read_checkpoints_list(model_dir, FLAGS.min_steps)
   tf.logging.info("Found %d models with steps: %s" % (len(models), ", ".join(str(x.steps) for x in models)))
 
-  writer = tf.summary.FileWriter(FLAGS.model_dir)
+  writer = tf.summary.FileWriter(event_dir)
   if FLAGS.report_zero:
     start_time = os.path.getctime(os.path.join(model_dir, 'flags.txt'))
     values = []
     if FLAGS.bleu_variant in ('uncased', 'both'):
-      values.append(tf.Summary.Value(tag='BLEU_uncased', simple_value=0))
+      values.append(tf.Summary.Value(tag='BLEU_uncased' + FLAGS.tag_suffix, simple_value=0))
     if FLAGS.bleu_variant in ('cased', 'both'):
-      values.append(tf.Summary.Value(tag='BLEU_cased', simple_value=0))
+      values.append(tf.Summary.Value(tag='BLEU_cased' + FLAGS.tag_suffix, simple_value=0))
     writer.add_event(tf.summary.Event(summary=tf.Summary(value=values), wall_time=start_time, step=0))
 
-  for model in models:
+  exit_time = time.time() + FLAGS.wait_secs
+  min_steps = FLAGS.min_steps
+  while True:
+    if not models and FLAGS.wait_secs:
+      tf.logging.info('All checkpoints evaluated. Waiting till %s if a new checkpoint appears' % time.asctime(time.localtime(exit_time)))
+      while not models and time.time() < exit_time:
+        time.sleep(10)
+        models = read_checkpoints_list(model_dir, min_steps)
+    if not models:
+      return
+
+    model = models.pop(0)
+    exit_time, min_steps = model.time + FLAGS.wait_secs, model.steps
     tf.logging.info("Evaluating " + model.filename)
     out_file = translated_base_file + '-' + str(model.steps)
     tf.logging.set_verbosity(tf.logging.ERROR) # decode_from_file logs all the translations as INFO
@@ -131,15 +182,17 @@ def main(_):
     values = []
     if FLAGS.bleu_variant in ('uncased', 'both'):
       bleu = 100 * bleu_hook.bleu_wrapper(FLAGS.reference, out_file, case_sensitive=False)
-      values.append(tf.Summary.Value(tag='BLEU_uncased', simple_value=bleu))
+      values.append(tf.Summary.Value(tag='BLEU_uncased' + FLAGS.tag_suffix, simple_value=bleu))
       tf.logging.info("%s: BLEU_uncased = %6.2f" % (model.filename, bleu))
     if FLAGS.bleu_variant in ('cased', 'both'):
       bleu = 100 * bleu_hook.bleu_wrapper(FLAGS.reference, out_file, case_sensitive=True)
-      values.append(tf.Summary.Value(tag='BLEU_cased', simple_value=bleu))
+      values.append(tf.Summary.Value(tag='BLEU_cased' + FLAGS.tag_suffix, simple_value=bleu))
       tf.logging.info("%s: BLEU_cased = %6.2f" % (model.filename, bleu))
     writer.add_event(tf.summary.Event(summary=tf.Summary(value=values), wall_time=model.time, step=model.steps))
+    writer.flush()
+    with open(last_step_file, 'w') as ls_file:
+      ls_file.write(str(model.steps) + '\n')
 
-  writer.flush()
 
 if __name__ == "__main__":
   tf.app.run()
