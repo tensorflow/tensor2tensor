@@ -163,6 +163,10 @@ def main(_):
     # this is the checkpoint we want
     checkpoint_path = all_checkpoint_paths[best_step_index]
 
+    # hack FIXME TODO XXX
+    dirname, basename = os.path.split(checkpoint_path)
+    checkpoint_path = os.path.join(dirname, 'export', basename)
+    
     print('Early stopping chose checkpoint', checkpoint_path)
     
     saver.update_checkpoint_state(
