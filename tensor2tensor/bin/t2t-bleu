@@ -166,9 +166,11 @@ def main(_):
   while True:
     if not models and FLAGS.wait_secs:
       tf.logging.info('All checkpoints evaluated. Waiting till %s if a new checkpoint appears' % time.asctime(time.localtime(exit_time)))
-      while not models and time.time() < exit_time:
+      while True:
         time.sleep(10)
         models = read_checkpoints_list(model_dir, min_steps)
+        if models or time.time() > exit_time:
+          break
     if not models:
       return
 
