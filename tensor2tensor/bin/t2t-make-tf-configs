@@ -34,6 +34,8 @@ import json
 
 # Dependency imports
 
+from tensor2tensor import _set_time_logging
+
 import tensorflow as tf
 
 flags = tf.flags
@@ -44,6 +46,7 @@ flags.DEFINE_string("ps", "", "Comma-separated list of ps addresses")
 
 
 def main(_):
+  _set_time_logging()
   if not (FLAGS.masters and FLAGS.ps):
     raise ValueError("Must provide --masters and --ps")
 
