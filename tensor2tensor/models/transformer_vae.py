@@ -460,8 +460,7 @@ class TransformerAE(t2t_model.T2TModel):
                                 dtype=tf.int64)
 
     features["targets"] = initial_output
-    logits, _ = self.__call__(
-        features, skip=False, force_full_predict=True)
+    logits, _ = self(features, skip=False, force_full_predict=True)  # pylint: disable=not-callable
     samples = tf.argmax(logits, axis=-1)
 
     if inputs_old is not None:  # Restore to not confuse Estimator.

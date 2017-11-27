@@ -122,7 +122,7 @@ def register_model(name=None):
     model_name = registration_name or default_name(model_cls)
     if model_name in _MODELS:
       raise LookupError("Model %s already registered." % model_name)
-    model_cls.REGISTERED_NAME = property(lambda _: model_name)
+    model_cls.REGISTERED_NAME = model_name
     _MODELS[model_name] = model_cls
     return model_cls
 
