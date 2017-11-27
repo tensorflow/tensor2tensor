@@ -128,9 +128,10 @@ def main(_):
   if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None: 
     _pick_optimal_model()
 
-  dir_path = _upload_model_to_gcs()
+  dir_path, model_name = _upload_model_to_gcs()
 
-  xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path})
+  xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path,
+                                  'model_name': model_name})
 
 
 def _upload_model_to_gcs() -> str:
@@ -138,6 +139,7 @@ def _upload_model_to_gcs() -> str:
 
   Returns:
      dir_path: local directory where saved model is stored
+     model_name: name to save model under in GCS
   """
   # assemble all checkpoint files for the checkpoint we want to use
   checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)    
@@ -162,10 +164,28 @@ def _upload_model_to_gcs() -> str:
     os.rename(os.path.join(FLAGS.output_dir, path),
               os.path.join(dir_path, path))
 
+  # Create a model name that includes both the model name and the
+  # timestamp
+  model_name = _model_name(FLAGS.model, FLAGS.output_dir)
+    
   _upload_model_dir_to_gcs(dir_path, model_name)
 
-  return dir_path
+  return dir_path, model_name
 
+def _model_name(model_type:str, output_dir:str) -> str:
+  """Creates a model name based on current time and model type
+
+  Args:
+    model_type: type of the model create (ie. blstm, cnn)
+  """
+  # remove the trailing slash if it is there
+  norm_output_dir = os.path.normpath(output_dir)
+
+  # get the last directory in the path
+  dirname = os.path.basename(norm_output_dir)
+  
+  return "{}_{}".format(model_type, dirname)
+    
 
 def _upload_model_dir_to_gcs(dir_path:str, model_name:str) -> None:
   """
