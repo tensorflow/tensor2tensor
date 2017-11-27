@@ -149,7 +149,11 @@ def _upload_model_to_gcs() -> str:
   # create a dir to export
   dir_path = os.path.join(FLAGS.output_dir, 'export')
   
-  # Remove all files from dir if it exists, create if it does not
+  # Remove dir if it exists. We create it first so that rmtree doesn't
+  # die if it doesn't exist. We could instead do a try-catch but this
+  # is nice because a) it's simple, and b) it still fails when rmtree
+  # is unable to delete the directory for some reason.
+  os.makedirs(dir_path, exist_ok=True)
   shutil.rmtree(dir_path)
   os.makedirs(dir_path, exist_ok=False)
 
@@ -161,6 +165,21 @@ def _upload_model_to_gcs() -> str:
   _upload_model_dir_to_gcs(dir_path, model_name)
 
   return dir_path
+
+
+def _upload_model_dir_to_gcs(dir_path:str, model_name:str) -> None:
+  """
+  Tars and uploads a directory with all the files required for a model
+
+  Args:
+    dir_path: path where all the model files are 
+    model_name: a unique name for a model
+  """
+  tar_name = "{}.tar.gz".format(model_name)
+  location = get_gcs_location(namespace='T2T_MODELS',
+          file_path=tar_name)
+  upload_file_to_gcs(location, dir_path)
+
 
 def _pick_optimal_model() -> None:
   """Update the checkpoint so that it points to the best model that was
@@ -216,20 +235,6 @@ def _pick_optimal_model() -> None:
     FLAGS.output_dir,
     checkpoint_path,
     all_checkpoint_paths + [checkpoint_path])
-
-
-def _upload_model_dir_to_gcs(dir_path:str, model_name:str) -> None:
-  """
-  Tars and uploads a directory with all the files required for a model
-
-  Args:
-    dir_path: path where all the model files are 
-    model_name: a unique name for a model
-  """
-  tar_name = "{}.tar.gz".format(model_name)
-  location = get_gcs_location(namespace='T2T_MODELS',
-          file_path=tar_name)
-  upload_file_to_gcs(location, dir_path)
   
     
 if __name__ == "__main__":
