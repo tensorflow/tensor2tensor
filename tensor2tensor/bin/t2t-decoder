@@ -103,8 +103,7 @@ def main(_):
 
     print('Assuming only one problem...')
     assert '-' not in FLAGS.problems
-    problem = FLAGS.problems.split('-')[0]
-    problem = registry.problem(problem)    
+    problem = registry.problem(FLAGS.problems)
     
     problem.output_predictions(predictions)
 

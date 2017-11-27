@@ -37,6 +37,7 @@ from gcloud.gcs_registry import get_gcs_location
 
 import os
 import time
+import shutil
 
 # Dependency imports
 
@@ -77,10 +78,6 @@ flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
 flags.DEFINE_bool("profile", False, "Profile performance?")
 
 def main(_):
-  # Change the output_dir to one constructed just for this run
-  model_name = _model_name(FLAGS.model)
-  FLAGS.output_dir = os.path.join(FLAGS.output_dir, model_name)
-
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   trainer_utils.log_registry()
@@ -129,51 +126,19 @@ def main(_):
     run_experiment()
 
   if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None: 
-    # update the checkpoint so that it points to the best model
-    checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)
-    all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
+    _pick_optimal_model()
 
-    def extract_step(path):
-      """Extract the step number from a checkpoint path
+  dir_path = _upload_model_to_gcs()
 
-      Args:
-          path: a path, e.g., model.ckpt-17
+  xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path})
 
-      Returns:
-          step: the step number as an int, e.g., 17
-      """
-      return int(path[path.rindex('-') + 1:])
 
-    # get available step numbers
-    steps = [(extract_step(path), path) for path in all_checkpoint_paths]
-    steps = sorted(steps)
-    steps, all_checkpoint_paths = zip(*steps)
-    all_checkpoint_paths = list(all_checkpoint_paths)
-    
-    # the step we want is the last one that would have allowed us to
-    # stop when we did (at steps[-1])
-    thresh = steps[-1] - FLAGS.eval_early_stopping_steps
+def _upload_model_to_gcs() -> str:
+  """Upload a model to Google cloud storage.
 
-    # get the last step that is <= thresh. Note that the early
-    # stopping flags are phrased in terms of step number, not how many
-    # times we've run eval.
-    best_step_index = [ step <= thresh for step in steps ].index(False) - 1
-    assert best_step_index >= 0, 'Early stopping stopped before it should have'
-
-    # this is the checkpoint we want
-    checkpoint_path = all_checkpoint_paths[best_step_index]
-
-    # hack FIXME TODO XXX
-    dirname, basename = os.path.split(checkpoint_path)
-    checkpoint_path = os.path.join(dirname, 'export', basename)
-    
-    print('Early stopping chose checkpoint', checkpoint_path)
-    
-    saver.update_checkpoint_state(
-      FLAGS.output_dir,
-      checkpoint_path,
-      all_checkpoint_paths + [checkpoint_path])
-
+  Returns:
+     dir_path: local directory where saved model is stored
+  """
   # assemble all checkpoint files for the checkpoint we want to use
   checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)    
   checkpoint_path = checkpoint_state.model_checkpoint_path
@@ -185,12 +150,8 @@ def main(_):
   dir_path = os.path.join(FLAGS.output_dir, 'export')
   
   # Remove all files from dir if it exists, create if it does not
-  if os.path.exists(dir_path):
-    stale_dir_files = [os.path.join(dir_path, x) for x in os.listdir(dir_path)]
-    for path in stale_dir_files:
-      os.remove(path)
-  else:
-    dir = os.makedirs(dir_path, exist_ok=False)
+  shutil.rmtree(dir_path)
+  os.makedirs(dir_path, exist_ok=False)
 
   # move all checkpoint files for the chosen checkpoint into dir
   for path in files:
@@ -199,18 +160,62 @@ def main(_):
 
   _upload_model_dir_to_gcs(dir_path, model_name)
 
-  xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path})
+  return dir_path
 
-def _model_name(model_type:str) -> str:
-  """
-  Creates a model name based on current time and model type
+def _pick_optimal_model() -> None:
+  """Update the checkpoint so that it points to the best model that was
+  encountered during training. Here "best" is defined as the lowest or
+  highest value of the chosen early stopping metric. (By default,
+  lowest loss.)
 
-  Args:
-    model_type: type of the model create (ie. blstm, cnn)
+  We do this automatically based on knowledge of how early stopping
+  works; i.e., we take the model that prevented early stopping from
+  stopping before it did.
   """
-  return "{}_{}".format(
-      time.strftime("%Y%m%d-%H%M%S"),
-      model_type)
+  checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)
+  all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
+
+  def extract_step(path):
+    """Extract the step number from a checkpoint path
+
+    Args:
+        path: a path, e.g., model.ckpt-17
+
+    Returns:
+        step: the step number as an int, e.g., 17
+    """
+    return int(path[path.rindex('-') + 1:])
+
+  # get available step numbers
+  steps = [(extract_step(path), path) for path in all_checkpoint_paths]
+  steps = sorted(steps)
+  steps, all_checkpoint_paths = zip(*steps)
+  all_checkpoint_paths = list(all_checkpoint_paths)
+  
+  # the step we want is the last one that would have allowed us to
+  # stop when we did (at steps[-1])
+  thresh = steps[-1] - FLAGS.eval_early_stopping_steps
+
+  # get the last step that is <= thresh. Note that the early
+  # stopping flags are phrased in terms of step number, not how many
+  # times we've run eval.
+  best_step_index = [ step <= thresh for step in steps ].index(False) - 1
+  assert best_step_index >= 0, 'Early stopping stopped before it should have'
+
+  # this is the checkpoint we want
+  checkpoint_path = all_checkpoint_paths[best_step_index]
+
+  # hack FIXME TODO XXX
+  # We are about to move the best model into an export folder
+  dirname, basename = os.path.split(checkpoint_path)
+  checkpoint_path = os.path.join(dirname, 'export', basename)
+  
+  print('Early stopping chose checkpoint', checkpoint_path)
+  
+  saver.update_checkpoint_state(
+    FLAGS.output_dir,
+    checkpoint_path,
+    all_checkpoint_paths + [checkpoint_path])
 
 
 def _upload_model_dir_to_gcs(dir_path:str, model_name:str) -> None:
