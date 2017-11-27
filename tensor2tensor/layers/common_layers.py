@@ -2211,7 +2211,9 @@ def ones_matrix_band_part(rows, cols, num_lower, num_upper, out_shape=None):
       band = band.reshape(out_shape)
     band = tf.constant(band, tf.float32)
   else:
-    band = tf.matrix_band_part(tf.ones([rows, cols]), num_lower, num_upper)
+    band = tf.matrix_band_part(tf.ones([rows, cols]),
+                               tf.cast(num_lower, tf.int64),
+                               tf.cast(num_upper, tf.int64))
     if out_shape:
       band = tf.reshape(band, out_shape)
 
