@@ -125,9 +125,9 @@ def model_fn(model,
     # TODO(lukaszkaiser): why is this hack needed for variables init? Repair.
     skip_this_one = skip_this_one and (worker_id != 0 or n > 1)
     if eval_run_autoregressive and mode == tf.estimator.ModeKeys.EVAL:
-      sharded_logits, losses_dict = model_class.eval_autoregressive(features)
+      logits, losses_dict = model_class.eval_autoregressive(features)
     else:
-      sharded_logits, losses_dict = model_class(
+      logits, losses_dict = model_class(
           features, skip=(skipping_is_on and skip_this_one))
     with tf.variable_scope("losses_avg"):
       total_loss, ops = 0.0, []
@@ -155,7 +155,7 @@ def model_fn(model,
     with tf.control_dependencies(ops):  # Make sure the ops run.
       # Ensure the loss is a scalar here.
       total_loss = tf.reshape(total_loss, [], name="total_loss_control_id")
-    return [total_loss, tf.concat(sharded_logits, 0)]
+    return [total_loss, logits]
 
   model_output = input_fn_builder.cond_on_index(
       nth_model,

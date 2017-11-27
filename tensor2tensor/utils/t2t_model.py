@@ -180,13 +180,13 @@ class T2TModel(base.Layer):
       decode_length: an integer.  How many additional timesteps to decode.
 
     Returns:
-      sharded_logits: a list of `Tensor`s. Assumes one datashard.
+      logits: `Tensor`
       losses: a dictionary: {loss-name (string): floating point `Scalar`}.
           Contains a single key "training".
     """
     _, logits, losses = self._slow_greedy_infer(
         features, decode_length=decode_length)
-    return [logits], losses
+    return logits, losses
 
   def infer(self,
             features=None,
@@ -280,7 +280,7 @@ class T2TModel(base.Layer):
 
       features["targets"] = ids
       self._coverage = None
-      logits, _ = self.__call__(features)
+      logits, _ = self(features)  # pylint: disable=not-callable
       # now self._coverage is a coverage tensor for the first datashard.
       # it has shape [batch_size] and contains floats between 0 and
       # source_length.
@@ -493,7 +493,7 @@ class T2TModel(base.Layer):
        logits: a list of `Tensor`s, one per datashard.
        losses: a dictionary: {loss-name (string): floating point `Scalar`}.
     """
-    logits, losses = self.__call__(features)
+    logits, losses = self(features)  # pylint: disable=not-callable
     if self._hparams.sampling_method == "argmax":
       samples = tf.argmax(logits, axis=-1)
     else:
@@ -534,7 +534,7 @@ class T2TModel(base.Layer):
         optimizations are not used even when allowed and in PREDICT mode.
 
     Returns:
-      sharded_logits: a list of `Tensor`s, one per datashard.
+      logits: `Tensor`
       losses: a dictionary: {loss-name (string): floating point `Scalar`}.
     """
     start_time = time.time()
