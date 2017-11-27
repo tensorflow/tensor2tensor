@@ -59,6 +59,7 @@ flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 flags.DEFINE_string("master", "", "Address of TensorFlow master.")
 flags.DEFINE_string("schedule", "train_and_evaluate",
                     "Method of tf.contrib.learn.Experiment to run.")
+flags.DEFINE_bool("profile", False, "Profile performance?")
 
 
 def main(_):
@@ -83,13 +84,24 @@ def main(_):
       problem.generate_data(data_dir, tmp_dir)
 
   # Run the trainer.
-  trainer_utils.run(
-      data_dir=data_dir,
-      model=FLAGS.model,
-      output_dir=output_dir,
-      train_steps=FLAGS.train_steps,
-      eval_steps=FLAGS.eval_steps,
-      schedule=FLAGS.schedule)
+  def run_experiment():
+    trainer_utils.run(
+        data_dir=data_dir,
+        model=FLAGS.model,
+        output_dir=output_dir,
+        train_steps=FLAGS.train_steps,
+        eval_steps=FLAGS.eval_steps,
+        schedule=FLAGS.schedule)
+
+  if FLAGS.profile:
+    with tf.contrib.tfprof.ProfileContext("t2tprof",
+                                          trace_steps=range(100),
+                                          dump_steps=range(100)) as pctx:
+      opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
+      pctx.add_auto_profiling("op", opts, range(100))
+      run_experiment()
+  else:
+    run_experiment()
 
 
 if __name__ == "__main__":
