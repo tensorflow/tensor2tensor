@@ -146,7 +146,9 @@ def decode_from_dataset(estimator,
     inputs_vocab_key = "inputs" if has_input else "targets"
     inputs_vocab = problem_hparams.vocabulary[inputs_vocab_key]
     targets_vocab = problem_hparams.vocabulary["targets"]
+    predictions_out = []
     for num_predictions, prediction in enumerate(predictions):
+      predictions_out.append(prediction)
       num_predictions += 1
       inputs = prediction["inputs"]
       targets = prediction["targets"]
@@ -200,6 +202,7 @@ def decode_from_dataset(estimator,
 
     tf.logging.info("Completed inference on %d samples." % num_predictions)  # pylint: disable=undefined-loop-variable
 
+    return predictions_out
 
 def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   """Compute predictions on entries in filename and write them out."""
