@@ -109,8 +109,6 @@ flags.DEFINE_integer("local_eval_frequency", 2000,
 flags.DEFINE_bool("locally_shard_to_cpu", False,
                   "Use CPU as a sharding device running locally. This allows "
                   "to test sharded model construction on a machine with 1 GPU.")
-flags.DEFINE_bool("daisy_chain_variables", True,
-                  "copy variables around in a daisy chain")
 flags.DEFINE_bool("sync", False, "Sync compute on PS.")
 flags.DEFINE_string("worker_job", "/job:localhost", "name of worker job")
 flags.DEFINE_integer("worker_gpu", 1, "How many GPUs to use.")
@@ -219,7 +217,7 @@ def create_experiment_components(data_dir, model_name, hparams, run_config):
 
   # hparams batch_size is used as minibatch size instead of tokens in batch
   batch_size = (hparams.use_fixed_batch_size and hparams.batch_size) or None
-  num_datashards = devices.data_parallelism().n
+  num_datashards = devices.data_parallelism(hparams).n
   train_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.TRAIN,
       hparams=hparams,

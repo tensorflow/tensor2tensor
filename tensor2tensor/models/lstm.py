@@ -159,6 +159,7 @@ class LSTMSeq2seqAttention(t2t_model.T2TModel):
 def lstm_seq2seq():
   """hparams for LSTM."""
   hparams = common_hparams.basic_params1()
+  hparams.daisy_chain_variables = False
   hparams.batch_size = 1024
   hparams.hidden_size = 128
   hparams.num_hidden_layers = 2
