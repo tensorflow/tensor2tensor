@@ -23,6 +23,7 @@ import re
 # Dependency imports
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -194,3 +195,7 @@ class Modality(object):
     loss = tf.add_n(sharded_loss_num) / tf.maximum(1.0,
                                                    tf.add_n(sharded_loss_den))
     return loss
+
+  @property
+  def is_class_modality(self):
+    return self.name.startswith(registry.Modalities.CLASS_LABEL)

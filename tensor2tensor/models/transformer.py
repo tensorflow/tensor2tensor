@@ -225,7 +225,7 @@ class Transformer(t2t_model.T2TModel):
     inputs = features["inputs"]
     batch_size = common_layers.shape_list(inputs)[0]
     target_modality = self._problem_hparams.target_modality
-    if t2t_model.is_class_modality(target_modality):
+    if target_modality.is_class_modality:
       decode_length = 1
     else:
       decode_length = common_layers.shape_list(inputs)[1] + decode_length
