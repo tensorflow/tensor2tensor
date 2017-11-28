@@ -78,7 +78,7 @@ def model_fn(model,
   decode_hp = decode_hparams
 
   # TODO(rsepassi): This still depends on FLAGS. Rm eventually.
-  dp = devices.data_parallelism()
+  dp = devices.data_parallelism(hparams)
 
   tf.get_variable_scope().set_initializer(_get_variable_initializer(hparams))
   is_training = mode == tf.estimator.ModeKeys.TRAIN
