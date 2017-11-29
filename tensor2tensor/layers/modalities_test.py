@@ -43,7 +43,8 @@ class ModalityTest(tf.test.TestCase):
         symbol_modality_skip_top=0,
         shared_embedding_and_softmax_weights=0,
         prepend_mode="none",
-        use_eager_mode=False)
+        use_eager_mode=False,
+        use_tpu=False)
     x = -1 + np.random.random_integers(
         vocab_size, size=(batch_size, length, 1, 1))
     m = modalities.SymbolModality(model_hparams, vocab_size)
@@ -73,7 +74,8 @@ class ModalityTest(tf.test.TestCase):
         factored_logits=0,
         mode=tf.estimator.ModeKeys.TRAIN,
         prepend_mode="none",
-        use_eager_mode=False)
+        use_eager_mode=False,
+        use_tpu=False)
     body_output = -1 + np.random.random_integers(
         100, size=(batch_size, length, height, hidden_size))
     targets = -1 + np.random.random_integers(
@@ -110,7 +112,8 @@ class ModalityTest(tf.test.TestCase):
         factored_logits=1,
         mode=tf.estimator.ModeKeys.TRAIN,
         prepend_mode="none",
-        use_eager_mode=False)
+        use_eager_mode=False,
+        use_tpu=False)
     body_output = -1 + np.random.random_integers(
         100, size=(batch_size, length, height, hidden_size))
     targets = -1 + np.random.random_integers(

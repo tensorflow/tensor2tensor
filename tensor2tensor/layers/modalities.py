@@ -30,6 +30,15 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
+# TODO(noam): remove this function after TPUs do gather faster.
+def tpu_gather(params, indices):
+  vocab_size = params.get_shape().as_list()[0]
+  indices_flat = tf.reshape(indices, [-1])
+  out = tf.matmul(tf.one_hot(indices_flat, vocab_size), params)
+  out = eu.reshape_like(out, tf.expand_dims(indices, -1))
+  return out
+
+
 @registry.register_symbol_modality("default")
 class SymbolModality(modality.Modality):
   """Modality for sets of discrete symbols.
@@ -96,7 +105,8 @@ class SymbolModality(modality.Modality):
       # Squeeze out the channels dimension.
       x = tf.squeeze(x, axis=3)
       var = self._get_weights()
-      ret = tf.gather(var, x)
+      ret = (tpu_gather(var, x) if self._model_hparams.use_tpu
+             else tf.gather(var, x))
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
       ret *= tf.expand_dims(tf.to_float(tf.not_equal(x, 0)), -1)
@@ -144,14 +154,18 @@ class SymbolModality(modality.Modality):
           self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
         # insert channels dimension
         body_output = tf.expand_dims(body_output, 3)
-        logits = common_layers.FactoredTensor(body_output, var)
+        return common_layers.FactoredTensor(body_output, var)
       else:
         body_output = tf.reshape(body_output, [-1, body_output_shape[-1]])
         logits = tf.matmul(body_output, var, transpose_b=True)
-
-        out_shape = body_output_shape[:-1] + [1, self._vocab_size]
-        logits = tf.reshape(logits, out_shape)
-      return logits
+        if (self._model_hparams.use_tpu and
+            self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
+          # TPU does not react kindly to extra dimensions.
+          # TODO(noam): remove this once TPU is more forgiving of extra dims.
+          return logits
+        else:
+          return tf.reshape(
+              logits, body_output_shape[:-1] + [1, self._vocab_size])
 
 
 @registry.register_symbol_modality("ctc")

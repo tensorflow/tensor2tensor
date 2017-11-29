@@ -790,6 +790,7 @@ class T2TModel(base.Layer):
                        "in tpu_trainer.")
     _create_dummy_vars()
     hparams = copy.deepcopy(hparams)
+    hparams.use_tpu = use_tpu
     problem = hparams.problem_instances[0]
 
     # Instantiate model

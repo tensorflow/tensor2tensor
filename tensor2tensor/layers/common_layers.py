@@ -439,6 +439,40 @@ def subseparable_conv(inputs, filters, kernel_size, **kwargs):
   return conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs)
 
 
+def tpu_conv1d(inputs, filters, kernel_size, padding="SAME", name="tpu_conv1d"):
+  """Version of conv1d that works on TPU (as of 11/2017).
+
+  Args:
+    inputs: a Tensor with shape [batch, length, input_depth].
+    filters: an integer.
+    kernel_size: an integer.
+    padding: a string - "SAME" or "LEFT".
+    name: a string.
+
+  Returns:
+    a Tensor with shape [batch, length, filters].
+  """
+  if kernel_size == 1:
+    return tf.layers.dense(inputs, filters, name=name, use_bias=True)
+  if padding == "SAME":
+    assert kernel_size % 2 == 1
+    first_offset = -((kernel_size - 1) // 2)
+  else:
+    assert padding == "LEFT"
+    first_offset = -(kernel_size - 1)
+  last_offset = first_offset + kernel_size - 1
+  results = []
+  padded = tf.pad(inputs, [[0, 0], [-first_offset, last_offset], [0, 0]])
+  for i in xrange(kernel_size):
+    shifted = tf.slice(padded, [0, i, 0], tf.shape(inputs)) if i else inputs
+    shifted.set_shape(inputs.get_shape())
+    results.append(tf.layers.dense(
+        shifted, filters, use_bias=(i == 0), name=name + "_%d" % i))
+  ret = tf.add_n(results)
+  ret *= kernel_size ** -0.5
+  return ret
+
+
 def layer_norm_vars(filters):
   """Create Variables for layer norm."""
   scale = tf.get_variable(
@@ -1231,6 +1265,94 @@ def relu_density_logit(x, reduce_dims):
   return scaled
 
 
+def maybe_zero_out_padding(inputs, kernel_size, padding, nonpadding_mask):
+  """If necessary, zero out inputs to a conv for padding positions.
+
+  Args:
+    inputs: a Tensor with shape [batch, length, ...]
+    kernel_size: an integer or pair of integers
+    padding: a string, e.g. "SAME"
+    nonpadding_mask: a Tensor with shape [batch, length]
+
+  Returns:
+    a Tensor with the same shape as inputs
+  """
+  if (kernel_size != 1 and
+      kernel_size != (1, 1) and
+      padding == "SAME" and
+      nonpadding_mask is not None):
+    while nonpadding_mask.get_shape().ndims < inputs.get_shape().ndims:
+      nonpadding_mask = tf.expand_dims(nonpadding_mask, -1)
+    return inputs * nonpadding_mask
+  else:
+    return inputs
+
+
+def dense_relu_dense(inputs, filter_size, output_size, dropout=0.0):
+  """Hidden layer with RELU activation followed by linear projection."""
+  h = tf.layers.dense(
+      inputs, filter_size, use_bias=True, activation=tf.nn.relu, name="conv1")
+  if dropout != 0.0:
+    h = tf.nn.dropout(h, 1.0 - dropout)
+  o = tf.layers.dense(h, output_size, use_bias=True, name="conv2")
+  return o
+
+
+def conv_relu_conv(inputs,
+                   filter_size,
+                   output_size,
+                   first_kernel_size=3,
+                   second_kernel_size=3,
+                   padding="SAME",
+                   nonpadding_mask=None,
+                   dropout=0.0,
+                   name=None):
+  """Hidden layer with RELU activation followed by linear projection."""
+  with tf.variable_scope(name, "conv_relu_conv", [inputs]):
+    inputs = maybe_zero_out_padding(
+        inputs, first_kernel_size, padding, nonpadding_mask)
+    h = tpu_conv1d(inputs, filter_size, first_kernel_size, padding=padding,
+                   name="conv1")
+    h = tf.nn.relu(h)
+    if dropout != 0.0:
+      h = tf.nn.dropout(h, 1.0 - dropout)
+    h = maybe_zero_out_padding(h, second_kernel_size, padding, nonpadding_mask)
+    return tpu_conv1d(h, output_size, second_kernel_size, padding=padding,
+                      name="conv2")
+
+
+def sepconv_relu_sepconv(inputs,
+                         filter_size,
+                         output_size,
+                         first_kernel_size=(1, 1),
+                         second_kernel_size=(1, 1),
+                         padding="LEFT",
+                         nonpadding_mask=None,
+                         dropout=0.0,
+                         name=None):
+  """Hidden layer with RELU activation followed by linear projection."""
+  with tf.variable_scope(name, "sepconv_relu_sepconv", [inputs]):
+    inputs = maybe_zero_out_padding(
+        inputs, first_kernel_size, padding, nonpadding_mask)
+    if inputs.get_shape().ndims == 3:
+      is_3d = True
+      inputs = tf.expand_dims(inputs, 2)
+    else:
+      is_3d = False
+    h = separable_conv(
+        inputs, filter_size, first_kernel_size, ctivation=tf.nn.relu,
+        padding=padding, name="conv1")
+    if dropout != 0.0:
+      h = tf.nn.dropout(h, 1.0 - dropout)
+    h = maybe_zero_out_padding(h, second_kernel_size, padding, nonpadding_mask)
+    ret = separable_conv(
+        h, output_size, second_kernel_size, padding=padding, name="conv2")
+    if is_3d:
+      ret = tf.squeeze(ret, 2)
+    return ret
+
+
+# DEPRECATED - use dense_relu_dense, conv_relu_conv, sepconv_relu_sepconv
 def conv_hidden_relu(inputs,
                      hidden_size,
                      output_size,
@@ -1489,10 +1611,15 @@ def padded_cross_entropy(logits,
   confidence = 1.0 - label_smoothing
   vocab_size = shape_list(logits)[-1]
   with tf.name_scope("padded_cross_entropy", [logits, labels]):
-    pad_logits, pad_labels = pad_with_zeros(logits, labels)
-    xent = smoothing_cross_entropy(pad_logits, pad_labels, vocab_size,
-                                   confidence)
-    weights = weights_fn(pad_labels)
+    if len(logits.get_shape().as_list()) == 2:
+      # Deal with the case where we did not insert extra dimensions due to
+      # TPU issues.  No pad-to-same-length happens in this case.
+      # TODO(noam): remove this logic once TPU can handle extra dimensions.
+      labels = tf.reshape(labels, [-1])
+    else:
+      logits, labels = pad_with_zeros(logits, labels)
+    xent = smoothing_cross_entropy(logits, labels, vocab_size, confidence)
+    weights = weights_fn(labels)
     if not reduce_sum:
       return xent * weights, weights
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
