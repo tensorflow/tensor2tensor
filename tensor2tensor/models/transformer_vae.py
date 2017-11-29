@@ -147,8 +147,9 @@ def nearest(x, means, hparams):
                                                            transpose_b=True)
   _, nearest_idx = tf.nn.top_k(- dist, k=1)
   nearest_hot = tf.one_hot(tf.squeeze(nearest_idx, axis=1), hparams.v_size)
-  nearest_hot = tf.reshape(nearest_hot, [tf.shape(x)[0], tf.shape(x)[1],
-                                         tf.shape(x)[2], hparams.v_size])
+  shape = common_layers.shape_list(x)
+  shape[-1] = hparams.v_size
+  nearest_hot = tf.reshape(nearest_hot, shape=shape)
   return tf.stop_gradient(nearest_hot)
 
 
@@ -156,8 +157,12 @@ def kmeans(x, means, hparams, name):
   with tf.variable_scope(name):
     x_means_hot = nearest(x, means, hparams)
     x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
-    kl = tf.reduce_sum(tf.square(x - x_means), axis=-1)
-    return x_means_hot, tf.reduce_mean(kl)  # * 10.0
+    x_flat = tf.reshape(x, [-1, hparams.hidden_size])
+    kl = tf.reduce_mean(tf.reduce_sum(tf.square(x_flat - x_means), axis=-1))
+    reg_loss1 = tf.nn.l2_loss((tf.stop_gradient(x) - x_means))
+    reg_loss2 = hparams.beta * tf.nn.l2_loss((x - tf.stop_gradient(x_means)))
+    l = kl + reg_loss1 + reg_loss2
+    return x_means_hot, x_means, l
 
 
 def bit_to_int(x_bit, nbits):
@@ -233,6 +238,12 @@ def bottleneck(x, hparams, filter_size, name):
       _, hot, l = dae(x, hparams, name)
       c = tf.argmax(hot, axis=-1)
       h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
+    if hparams.bottleneck_kind == "vq-vae":
+      means = tf.get_variable(name="means", shape=[hparams.v_size,
+                                                   hparams.hidden_size])
+      x_means_hot, x_means, l = kmeans(x, means, hparams, name="vq-vae-kmeans")
+      h1 = x_means
+      c = tf.argmax(x_means_hot, axis=-1)
     h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
     res = tf.layers.dense(tf.nn.relu(h2), hparams.hidden_size, name="vcfin")
     return res, c, l, embed
@@ -500,6 +511,8 @@ def transformer_ae_small():
   hparams.add_hparam("decode_autoregressive", True)
   hparams.add_hparam("do_vae", True)
   hparams.add_hparam("bit_vae", True)
+  hparams.add_hparam("beta", 0.25)
+  hparams.kl_warmup_steps = 150000
   return hparams
 
 

@@ -200,7 +200,7 @@ def decode_from_dataset(estimator,
     tf.logging.info("Completed inference on %d samples." % num_predictions)  # pylint: disable=undefined-loop-variable
 
 
-def decode_from_file(estimator, filename, decode_hp, decode_to_file=None, checkpoint_path=None):
+def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   """Compute predictions on entries in filename and write them out."""
   if not decode_hp.batch_size:
     decode_hp.batch_size = 32
@@ -230,7 +230,7 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None, checkp
     return _decode_input_tensor_to_features_dict(example, hparams)
 
   decodes = []
-  result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
+  result_iter = estimator.predict(input_fn)
   for result in result_iter:
     if decode_hp.return_beams:
       beam_decodes = []
