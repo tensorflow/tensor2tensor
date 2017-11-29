@@ -23,6 +23,7 @@ import re
 # Dependency imports
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -65,7 +66,7 @@ class Modality(object):
   @property
   def top_dimensionality(self):
     """Integer, the last dimension of the predictions (vocab size)."""
-    raise NotImplementedError("Abstract Method")
+    return self._vocab_size
 
   @property
   def _body_input_depth(self):
@@ -86,6 +87,22 @@ class Modality(object):
       A Boolean, True if the modality is pointwise, False otherwise (default).
     """
     return False
+
+  @property
+  def targets_weights_fn(self):
+    """The weights function to use for loss and eval metrics.
+
+    A weights function takes labels and returns a Tensor that assigns weights
+    (usually either 1. or 0.) to each one.
+
+    Common weights functions are:
+      * weights_all: 1. for all labels
+      * weights_nonzero: 1. for all non-zero labels (e.g. to deal with padding)
+
+    Returns:
+      Callable: (targets) -> weights Tensor
+    """
+    return common_layers.weights_all
 
   def bottom(self, x):
     """Transform one shard of input.
@@ -162,14 +179,14 @@ class Modality(object):
     """
     return data_parallelism(self.top, sharded_body_output, sharded_targets)
 
-  def loss(self, top_out, targets, weights_fn=common_layers.weights_nonzero):
+  def loss(self, top_out, targets):
     """Compute loss numerator and denominator for one shard of output."""
     logits = top_out
     return common_layers.padded_cross_entropy(
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        weights_fn=weights_fn)
+        weights_fn=self.targets_weights_fn)
 
   def loss_sharded(self, sharded_top_out, sharded_targets, data_parallelism):
     """Compute loss for all shards."""
@@ -178,3 +195,7 @@ class Modality(object):
     loss = tf.add_n(sharded_loss_num) / tf.maximum(1.0,
                                                    tf.add_n(sharded_loss_den))
     return loss
+
+  @property
+  def is_class_modality(self):
+    return self.name.startswith(registry.Modalities.CLASS_LABEL)

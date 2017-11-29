@@ -245,5 +245,7 @@ def resnet_base():
   hparams.add_hparam("use_nchw", True)
   hparams.add_hparam("num_filters", [64, 128, 256, 512])
   hparams.add_hparam("strides", [1, 2, 2, 2])
-  hparams.tpu_batch_size_per_shard = 48
+
+  # Can run with a batch size of 128 with Problem ImageImagenet224
+  hparams.tpu_batch_size_per_shard = 128
   return hparams

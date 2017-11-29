@@ -176,9 +176,20 @@ def basic_params1():
       scheduled_sampling_prob=0.0,
       scheduled_sampling_warmup_steps=50000,
       scheduled_sampling_gold_mixin_prob=0.5,
+      # This setting controls whether to copy variables around in a daisy chain
+      # (if true) or leave their placement to Tensorflow. It only affects multi
+      # device training and mostly should be turned on for performance. One
+      # exception are recurrent models: with dynamic loops it must be off.
+      daisy_chain_variables=True,
       # This is the actual batch size, *not* tokens per batch (i.e. for
       # language models this is the number of sentences in the batch)
       tpu_batch_size_per_shard=24,
+      # Things not compatible with eager mode use this flag to implement
+      # alternative functionality. We expect this to go away soon.
+      use_eager_mode=False,
+      # Set by tpu_trainer to let the model know whether we are on TPU.
+      # Switching on/off tpu should not invalidate checkpoints.
+      use_tpu=False,
   )
 
 

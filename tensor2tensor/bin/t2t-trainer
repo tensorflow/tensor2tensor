@@ -61,6 +61,7 @@ flags.DEFINE_string("schedule", "train_and_evaluate",
                     "Method of tf.contrib.learn.Experiment to run.")
 flags.DEFINE_bool("profile", False, "Profile performance?")
 
+
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
@@ -85,22 +86,20 @@ def main(_):
   # Run the trainer.
   def run_experiment():
     trainer_utils.run(
-      data_dir=data_dir,
-      model=FLAGS.model,
-      output_dir=output_dir,
-      train_steps=FLAGS.train_steps,
-      eval_steps=FLAGS.eval_steps,
-      schedule=FLAGS.schedule)
-  
+        data_dir=data_dir,
+        model=FLAGS.model,
+        output_dir=output_dir,
+        train_steps=FLAGS.train_steps,
+        eval_steps=FLAGS.eval_steps,
+        schedule=FLAGS.schedule)
+
   if FLAGS.profile:
-    with tf.contrib.tfprof.ProfileContext('t2tprof',
+    with tf.contrib.tfprof.ProfileContext("t2tprof",
                                           trace_steps=range(100),
                                           dump_steps=range(100)) as pctx:
       opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
-      pctx.add_auto_profiling('op', opts, range(100))
-
+      pctx.add_auto_profiling("op", opts, range(100))
       run_experiment()
-
   else:
     run_experiment()
 

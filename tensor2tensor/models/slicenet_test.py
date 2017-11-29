@@ -49,8 +49,7 @@ class SliceNetTest(tf.test.TestCase):
       }
       model = slicenet.SliceNet(hparams, tf.estimator.ModeKeys.TRAIN,
                                 p_hparams)
-      sharded_logits, _ = model.model_fn(features)
-      logits = tf.concat(sharded_logits, 0)
+      logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 1, 1, 1, 10))

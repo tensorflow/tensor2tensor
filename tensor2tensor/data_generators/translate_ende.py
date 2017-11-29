@@ -99,8 +99,10 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
     token_tmp_path = os.path.join(tmp_dir, self.vocab_file)
     token_path = os.path.join(data_dir, self.vocab_file)
     tf.gfile.Copy(token_tmp_path, token_path, overwrite=True)
-    with tf.gfile.GFile(token_path, mode="a") as f:
-      f.write("UNK\n")  # Add UNK to the vocab.
+    with tf.gfile.GFile(token_path, mode="r") as f:
+      vocab_data = "<pad>\n<EOS>\n" + f.read() + "UNK\n"
+    with tf.gfile.GFile(token_path, mode="w") as f:
+      f.write(vocab_data)
     token_vocab = text_encoder.TokenTextEncoder(token_path, replace_oov="UNK")
     return translate.token_generator(train_path + ".en", train_path + ".de",
                                      token_vocab, EOS)
@@ -112,6 +114,18 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
   @property
   def target_space_id(self):
     return problem.SpaceID.DE_BPE_TOK
+
+
+@registry.register_problem
+class TranslateEndeWmtBpe32kConcat512(TranslateEndeWmtBpe32k):
+  """Problem spec for WMT En-De translation, BPE version.
+
+  Training/eval examples are concatenated to a maximum length of 512.
+  """
+
+  @property
+  def combine_to_length(self):
+    return 512
 
 
 @registry.register_problem

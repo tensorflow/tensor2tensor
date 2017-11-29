@@ -31,7 +31,7 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def neural_gpu(inputs, hparams, name=None):
+def neural_gpu_body(inputs, hparams, name=None):
   """The core Neural GPU."""
   with tf.variable_scope(name, "neural_gpu"):
 
@@ -59,7 +59,7 @@ def neural_gpu(inputs, hparams, name=None):
 class NeuralGPU(t2t_model.T2TModel):
 
   def model_fn_body(self, features):
-    return neural_gpu(features["inputs"], self._hparams)
+    return neural_gpu_body(features["inputs"], self._hparams)
 
 
 def diagonal_neural_gpu(inputs, hparams, name=None):
@@ -97,10 +97,11 @@ class DiagonalNeuralGPU(t2t_model.T2TModel):
     return diagonal_neural_gpu(features["inputs"], self._hparams)
 
 
-@registry.register_hparams("neuralgpu_1")
-def neural_gpu_params1():
+@registry.register_hparams
+def neural_gpu():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
+  hparams.daisy_chain_variables = False
   hparams.batch_size = 1024
   hparams.num_hidden_layers = 1
   hparams.hidden_size = 256

@@ -124,9 +124,9 @@ class TrainerUtilsTest(tf.test.TestCase):
     features = {
         "inputs": batch_inputs,
         "targets": batch_targets,
-        "problem_choice": 0,  # We run on the first problem here.
-        "input_space_id": hparams.problems[0].input_space_id,
-        "target_space_id": hparams.problems[0].target_space_id
+        "problem_choice": tf.constant(0),  # We run on the first problem here.
+        "input_space_id": tf.constant(hparams.problems[0].input_space_id),
+        "target_space_id": tf.constant(hparams.problems[0].target_space_id)
     }
 
     # Now set a mode and create the graph by invoking model_fn.
@@ -152,6 +152,56 @@ class TrainerUtilsTest(tf.test.TestCase):
       # Check that the result has the correct shape: batch x length x vocab_size
       #   where, for us, batch = 1, length = 3, vocab_size = 4.
       self.assertEqual(np_predictions.shape, (1, 3, 4))
+
+  def testSingleTrainStepCall(self):
+    """Illustrate how to run a T2T model in a raw session."""
+
+    # Set model name, hparams, problems as would be set on command line.
+    model_name = "transformer"
+    FLAGS.hparams_set = "transformer_test"
+    FLAGS.problems = "tiny_algo"
+    data_dir = "/tmp"  # Used only when a vocab file or such like is needed.
+
+    # Create the problem object, hparams, placeholders, features dict.
+    encoders = registry.problem(FLAGS.problems).feature_encoders(data_dir)
+    hparams = trainer_utils.create_hparams(FLAGS.hparams_set, data_dir)
+    trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
+
+    # Now set a mode and create the model.
+    mode = tf.estimator.ModeKeys.TRAIN
+    model = registry.model(model_name)(hparams, mode)
+
+    # Create placeholder for features and make them batch-sized.
+    inputs_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
+    batch_inputs = tf.reshape(inputs_ph, [1, -1, 1, 1])  # Make it 4D.
+    targets_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
+    batch_targets = tf.reshape(targets_ph, [1, -1, 1, 1])  # Make it 4D.
+    features = {
+        "inputs": batch_inputs,
+        "targets": batch_targets,
+        "target_space_id": tf.constant(hparams.problems[0].target_space_id)
+    }
+
+    # Call the model.
+    predictions, _ = model(features)
+    nvars = len(tf.trainable_variables())
+    model(features)  # Call again and check that reuse works.
+    self.assertEqual(nvars, len(tf.trainable_variables()))
+
+    # Having the graph, let's run it on some data.
+    with self.test_session() as sess:
+      sess.run(tf.global_variables_initializer())
+      inputs = "0 1 0"
+      targets = "0 1 0"
+      # Encode from raw string to numpy input array using problem encoders.
+      inputs_numpy = encoders["inputs"].encode(inputs)
+      targets_numpy = encoders["targets"].encode(targets)
+      # Feed the encoded inputs and targets and run session.
+      feed = {inputs_ph: inputs_numpy, targets_ph: targets_numpy}
+      np_predictions = sess.run(predictions, feed)
+      # Check that the result has the correct shape: batch x length x vocab_size
+      #   where, for us, batch = 1, length = 3, vocab_size = 4.
+      self.assertEqual(np_predictions.shape, (1, 3, 1, 1, 4))
 
 
 if __name__ == "__main__":
