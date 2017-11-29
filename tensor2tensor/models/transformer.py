@@ -163,12 +163,12 @@ class Transformer(t2t_model.T2TModel):
     Raises:
       NotImplementedError: If there are multiple data shards.
     """
-    with tf.variable_scope(self.name):
-      # TODO(nikip): Remove slow decoding for eager. Eager mode doesn't work
-      # with accessing _shape which is used in fast decoding currently.
-      if self._hparams.use_eager_mode:
-        return self._slow_greedy_infer(features, decode_length)
-      else:
+    # TODO(nikip): Remove slow decoding for eager. Eager mode doesn't work
+    # with accessing _shape which is used in fast decoding currently.
+    if self._hparams.use_eager_mode:
+      return self._slow_greedy_infer(features, decode_length)
+    else:
+      with tf.variable_scope(self.name):
         decoded_ids, _ = self._fast_decode(features, decode_length)
         return decoded_ids, None, None
 
@@ -186,13 +186,13 @@ class Transformer(t2t_model.T2TModel):
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
     """
-    with tf.variable_scope(self.name):
-      # TODO(nikip): Remove slow decoding for eager. Eager mode doesn't work
-      # with accessing _shape which is used in fast decoding currently.
-      if self._hparams.use_eager_mode:
-        return self._beam_decode_slow(
-            features, decode_length, beam_size, top_beams, alpha)
-      else:
+    # TODO(nikip): Remove slow decoding for eager. Eager mode doesn't work
+    # with accessing _shape which is used in fast decoding currently.
+    if self._hparams.use_eager_mode:
+      return self._beam_decode_slow(
+          features, decode_length, beam_size, top_beams, alpha)
+    else:
+      with tf.variable_scope(self.name):
         decoded_ids, scores = self._fast_decode(features, decode_length,
                                                 beam_size, top_beams, alpha)
         return {"outputs": decoded_ids, "scores": scores}
