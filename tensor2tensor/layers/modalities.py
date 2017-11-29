@@ -205,7 +205,8 @@ class ImageModality(modality.Modality):
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
       inputs = common_layers.standardize_images(inputs)
-      tf.summary.image("inputs", inputs, max_outputs=2)
+      if not self._model_hparams.use_eager_mode:
+        tf.summary.image("inputs", inputs, max_outputs=2)
       return tf.to_float(inputs)
 
   def targets_bottom(self, inputs):
