@@ -801,7 +801,7 @@ def combine_first_two_dimensions(x):
 
 @expert_utils.add_name_scope()
 def split_heads(x, num_heads):
-  """Split channels (dimension 3) into multiple heads (becomes dimension 1).
+  """Split channels (dimension 2) into multiple heads (becomes dimension 1).
 
   Args:
     x: a Tensor with shape [batch, length, channels]
@@ -815,7 +815,7 @@ def split_heads(x, num_heads):
 
 @expert_utils.add_name_scope()
 def split_heads_2d(x, num_heads):
-  """Split channels (dimension 4) into multiple heads (becomes dimension 1).
+  """Split channels (dimension 3) into multiple heads (becomes dimension 1).
 
   Args:
     x: a Tensor with shape [batch, height, width, channels]
@@ -968,12 +968,12 @@ def grouped_attention_multihead(query_antecedent,
       name,
       default_name="multihead_attention_sparse",
       values=[query_antecedent, memory_antecedent]):
-    q = common_layers.conv1d(
-        query_antecedent, total_key_depth, 1, name="q_transform")
-    kv = common_layers.conv1d(
+    q = tf.layers.dense(
+        query_antecedent, total_key_depth, use_bias=False, name="q_transform")
+    kv = tf.layers.dense(
         memory_antecedent,
         total_key_depth + total_value_depth,
-        1,
+        use_bias=False,
         name="kv_transform")
     q = split_heads(q, num_heads)
     kv = split_heads(kv, num_heads)
@@ -982,18 +982,18 @@ def grouped_attention_multihead(query_antecedent,
     # We will train these by auxiliary losses.  We use stop_gradient here
     # to keep these losses from back-propagating to the rest of the model.
     # We add biases that help balance the usage of the experts.
-    q_pred = common_layers.conv1d(
+    q_pred = tf.layers.dense(
         tf.stop_gradient(query_antecedent),
         num_heads * num_groups,
-        1,
+        use_bias=False,
         name="q_pred")
     q_pred = split_heads(q_pred, num_heads)
     q_bias = tf.get_variable("q_bias", [1, num_heads, 1, num_groups])
     q_pred_biased = q_pred + q_bias
-    m_pred = common_layers.conv1d(
+    m_pred = tf.layers.dense(
         tf.stop_gradient(memory_antecedent),
         num_heads * num_groups,
-        1,
+        use_bias=False,
         name="m_pred")
     m_pred = split_heads(m_pred, num_heads)
     m_bias = tf.get_variable("m_bias", [1, num_heads, 1, num_groups])
@@ -1059,7 +1059,8 @@ def grouped_attention_multihead(query_antecedent,
 
     o = tf.reshape(o, [batch, num_heads, length_q, depth_v])
     o = combine_heads(o)
-    o = common_layers.conv1d(o, output_depth, 1, name="output_transform")
+    o = tf.layers.dense(
+        o, output_depth, use_bias=False, name="output_transform")
 
     m_total = m_dispatcher.combine(m_total)
     q_total = q_dispatcher.combine(q_total)
@@ -2189,86 +2190,19 @@ def compute_qkv(query_antecedent,
   Returns:
     q, k, v : [batch, length, depth] tensors
   """
-  if memory_antecedent is None and q_filter_width == kv_filter_width == 1:
-    # self attention with single position q, k, and v
-    combined = common_layers.conv1d(
-        query_antecedent,
-        total_key_depth * 2 + total_value_depth,
-        1,
-        name="qkv_transform")
-    q, k, v = tf.split(
-        combined, [total_key_depth, total_key_depth, total_value_depth], axis=2)
-    return q, k, v
-
   if memory_antecedent is None:
-    # self attention
-    q = common_layers.conv1d(
-        query_antecedent,
-        total_key_depth,
-        q_filter_width,
-        padding=q_padding,
-        name="q_transform")
-    kv_combined = common_layers.conv1d(
-        query_antecedent,
-        total_key_depth + total_value_depth,
-        kv_filter_width,
-        padding=kv_padding,
-        name="kv_transform")
-    k, v = tf.split(kv_combined, [total_key_depth, total_value_depth], axis=2)
-    return q, k, v
-
-  # encoder-decoder attention
-  q = common_layers.conv1d(
-      query_antecedent,
-      total_key_depth,
-      q_filter_width,
-      padding=q_padding,
-      name="q_transform")
-  combined = common_layers.conv1d(
-      memory_antecedent,
-      total_key_depth + total_value_depth,
-      1,
-      padding=kv_padding,
-      name="kv_transform")
-  k, v = tf.split(combined, [total_key_depth, total_value_depth], axis=2)
-
-  return q, k, v
-
-
-def compute_qkv_2d(query_antecedent, memory_antecedent, total_key_depth,
-                   total_value_depth):
-  """Computes query, key and value.
-
-  Args:
-    query_antecedent: a Tensor with shape [batch, h, w, depth_k]
-    memory_antecedent: a Tensor with shape [batch, h, w, depth_k]
-    total_key_depth: an integer
-    total_value_depth: and integer
-
-  Returns:
-    q, k, v : [batch, h, w, depth_k] tensors
-  """
-  # self attention with single position q, k, and v
-  if memory_antecedent is None:
-    combined = tf.layers.conv2d(
-        query_antecedent,
-        total_key_depth * 2 + total_value_depth, (1, 1),
-        name="qkv_transform")
-    q, k, v = tf.split(
-        combined, [total_key_depth, total_key_depth, total_value_depth],
-        axis=-1)
-    return q, k, v
-
-  # Encoder decoder attention
-  q = common_layers.conv1d(
-      query_antecedent, total_key_depth, 1, name="q_transform")
-  combined = common_layers.conv1d(
-      memory_antecedent,
-      total_key_depth + total_value_depth,
-      1,
-      name="kv_transform")
-  k, v = tf.split(combined, [total_key_depth, total_value_depth], axis=2)
-
+    memory_antecedent = query_antecedent
+  def _compute(inp, depth, filter_width, padding, name):
+    if filter_width == 1:
+      return tf.layers.dense(inp, depth, use_bias=False, name=name)
+    else:
+      return common_layers.conv1d(inp, depth, filter_width, padding, name=name)
+  q = _compute(
+      query_antecedent, total_key_depth, q_filter_width, q_padding, "q")
+  k = _compute(
+      memory_antecedent, total_key_depth, kv_filter_width, kv_padding, "k")
+  v = _compute(
+      memory_antecedent, total_value_depth, kv_filter_width, kv_padding, "v")
   return q, k, v
 
 
@@ -2410,7 +2344,8 @@ def multihead_attention(query_antecedent,
       x = dilated_self_attention_1d(q, k, v, block_length, block_width,
                                     gap_size, num_memory_blocks)
     x = combine_heads(x)
-    x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
+    x = tf.layers.dense(
+        x, output_depth, use_bias=False, name="output_transform")
     if additional_returned_value is not None:
       return x, additional_returned_value
     return x
@@ -2457,8 +2392,8 @@ def multihead_attention_2d(query_antecedent,
       name,
       default_name="multihead_attention_2d",
       values=[query_antecedent, memory_antecedent]):
-    q, k, v = compute_qkv_2d(query_antecedent, memory_antecedent,
-                             total_key_depth, total_value_depth)
+    q, k, v = compute_qkv(query_antecedent, memory_antecedent,
+                          total_key_depth, total_value_depth)
     # after splitting, shape is [batch, heads, h, w, depth]
     q = split_heads_2d(q, num_heads)
     k = split_heads_2d(k, num_heads)
@@ -2473,7 +2408,8 @@ def multihead_attention_2d(query_antecedent,
       x = masked_local_attention_2d(
           q, k, v, query_shape=query_shape, memory_flange=memory_flange)
     x = combine_heads_2d(x)
-    x = tf.layers.conv2d(x, output_depth, (1, 1), name="output_transform")
+    x = tf.layers.dense(
+        x, output_depth, use_bias=False, name="output_transform")
     return x
 
 
@@ -2512,16 +2448,18 @@ def ffn_self_attention_layer(x,
     x_shape = common_layers.shape_list(x)
     part_depth = filter_depth // num_parts
     if not share_kv:
-      combined = common_layers.conv1d(
-          x, filter_depth * 3, 1, name="qkv_transform")
+      combined = tf.layers.dense(
+          x, filter_depth * 3, use_bias=False, name="qkv_transform")
       combined = tf.expand_dims(combined, axis=2)
       q, k, v = tf.split(combined, 3, axis=3)
     else:
       q = tf.expand_dims(
-          common_layers.conv1d(x, filter_depth, 1, name="q_transform"), axis=2)
+          tf.layers.dense(
+              x, filter_depth, use_bias=False, name="q_transform"), axis=2)
       kv_combined = tf.expand_dims(
-          common_layers.conv1d(
-              tf.concat([x, x], axis=1), filter_depth, 1, name="kv_transform"),
+          tf.layers.dense(
+              tf.concat([x, x], axis=1), filter_depth, use_bias=False,
+              name="kv_transform"),
           axis=2)
       k, v = tf.split(kv_combined, [x_shape[1], x_shape[1]], axis=1)
 
@@ -2534,7 +2472,8 @@ def ffn_self_attention_layer(x,
     bias = None
     x = dot_product_attention(batch_q, batch_k, batch_v, bias, dropout_rate)
     x = tf.reshape(x, [x_shape[0], x_shape[1], filter_depth])
-    x = common_layers.conv1d(x, output_depth, 1, name="output_transform")
+    x = tf.layers.dense(
+        x, output_depth, use_bias=False, name="output_transform")
     return x
 
 
@@ -2585,7 +2524,7 @@ def parameter_attention(x,
             output_depth**0.5)
     batch_size = common_layers.shape_list(x)[0]
     length = common_layers.shape_list(x)[1]
-    q = common_layers.conv1d(x, total_key_depth, 1, name="q_transform")
+    q = tf.layers.dense(x, total_key_depth, use_bias=False, name="q_transform")
     if dropout_rate:
       # This is a cheaper form of attention dropout where we use to use
       # the same dropout decisions across batch elemets and query positions,
@@ -2604,7 +2543,8 @@ def parameter_attention(x,
     y = tf.transpose(y, [1, 2, 0, 3])
     y = tf.reshape(y, [batch_size, length, total_value_depth])
     y.set_shape([None, None, total_value_depth])
-    y = common_layers.conv1d(y, output_depth, 1, name="output_transform")
+    y = tf.layers.dense(
+        y, output_depth, use_bias=False, name="output_transform")
     return y
 
 

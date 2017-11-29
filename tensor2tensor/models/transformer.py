@@ -108,8 +108,13 @@ class Transformer(t2t_model.T2TModel):
         hparams,
         cache=cache)
 
-    # Expand since t2t expects 4d tensors.
-    return tf.expand_dims(decoder_output, axis=2)
+    if hparams.use_tpu and hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      # TPU does not react kindly to extra dimensions.
+      # TODO(noam): remove this once TPU is more forgiving of extra dims.
+      return decoder_output
+    else:
+      # Expand since t2t expects 4d tensors.
+      return tf.expand_dims(decoder_output, axis=2)
 
   def model_fn_body(self, features):
     """Transformer main model_fn.
@@ -475,11 +480,12 @@ def transformer_encoder(encoder_input,
   """
   x = encoder_input
   with tf.variable_scope(name):
+    # TODO(noam): We should pass in the padding directly.
+    padding = common_attention.attention_bias_to_padding(
+        encoder_self_attention_bias)
     pad_remover = None
     if hparams.use_pad_remover:
-      pad_remover = expert_utils.PadRemover(
-          common_attention.attention_bias_to_padding(
-              encoder_self_attention_bias))
+      pad_remover = expert_utils.PadRemover(padding)
     for layer in xrange(hparams.num_encoder_layers or
                         hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
@@ -498,7 +504,8 @@ def transformer_encoder(encoder_input,
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
-              common_layers.layer_preprocess(x, hparams), hparams, pad_remover)
+              common_layers.layer_preprocess(x, hparams), hparams, pad_remover,
+              conv_padding="SAME", nonpadding_mask=1.0 - padding)
           x = common_layers.layer_postprocess(x, y, hparams)
     # if normalization is done in layer_preprocess, then it shuold also be done
     # on the output, since the output can grow very large, being the sum of
@@ -564,7 +571,8 @@ def transformer_decoder(decoder_input,
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
-              common_layers.layer_preprocess(x, hparams), hparams)
+              common_layers.layer_preprocess(x, hparams), hparams,
+              conv_padding="LEFT")
           x = common_layers.layer_postprocess(x, y, hparams)
     # if normalization is done in layer_preprocess, then it shuold also be done
     # on the output, since the output can grow very large, being the sum of
@@ -572,7 +580,11 @@ def transformer_decoder(decoder_input,
     return common_layers.layer_preprocess(x, hparams)
 
 
-def transformer_ffn_layer(x, hparams, pad_remover=None):
+def transformer_ffn_layer(x,
+                          hparams,
+                          pad_remover=None,
+                          conv_padding="LEFT",
+                          nonpadding_mask=None):
   """Feed-forward layer in the transformer.
 
   Args:
@@ -582,18 +594,26 @@ def transformer_ffn_layer(x, hparams, pad_remover=None):
       positions. If provided, when using convolutional settings, the padding
       is removed before applying the convolution, and restored afterward. This
       can give a significant speedup.
+    conv_padding: a string - either "LEFT" or "SAME".
+    nonpadding_mask: an optional Tensor with shape [batch_size, length].
+      needed for convolutoinal layers with "SAME" padding.
+      Contains 1.0 in positions corresponding to nonpadding.
 
   Returns:
     a Tensor of shape [batch_size, length, hparams.hidden_size]
   """
-  if hparams.ffn_layer == "conv_hidden_relu":
+  ffn_layer = hparams.ffn_layer
+  if ffn_layer == "conv_hidden_relu":
+    # Backwards compatibility
+    ffn_layer = "dense_relu_dense"
+  if ffn_layer == "dense_relu_dense":
     # In simple convolution mode, use `pad_remover` to speed up processing.
     if pad_remover:
       original_shape = common_layers.shape_list(x)
       # Collapse `x` across examples, and remove padding positions.
       x = tf.reshape(x, tf.concat([[-1], original_shape[2:]], axis=0))
       x = tf.expand_dims(pad_remover.remove(x), axis=0)
-    conv_output = common_layers.conv_hidden_relu(
+    conv_output = common_layers.dense_relu_dense(
         x,
         hparams.filter_size,
         hparams.hidden_size,
@@ -603,13 +623,23 @@ def transformer_ffn_layer(x, hparams, pad_remover=None):
       conv_output = tf.reshape(
           pad_remover.restore(tf.squeeze(conv_output, axis=0)), original_shape)
     return conv_output
-  elif hparams.ffn_layer == "parameter_attention":
+  elif ffn_layer == "conv_relu_conv":
+    return common_layers.conv_relu_conv(
+        x,
+        hparams.filter_size,
+        hparams.hidden_size,
+        first_kernel_size=3,
+        second_kernel_size=1,
+        padding=conv_padding,
+        nonpadding_mask=nonpadding_mask,
+        dropout=hparams.relu_dropout)
+  elif ffn_layer == "parameter_attention":
     return common_attention.parameter_attention(
         x, hparams.parameter_attention_key_channels or hparams.hidden_size,
         hparams.parameter_attention_value_channels or hparams.hidden_size,
         hparams.hidden_size, hparams.filter_size, hparams.num_heads,
         hparams.attention_dropout)
-  elif hparams.ffn_layer == "conv_hidden_relu_with_sepconv":
+  elif ffn_layer == "conv_hidden_relu_with_sepconv":
     return common_layers.conv_hidden_relu(
         x,
         hparams.filter_size,
@@ -619,7 +649,7 @@ def transformer_ffn_layer(x, hparams, pad_remover=None):
         padding="LEFT",
         dropout=hparams.relu_dropout)
   else:
-    assert hparams.ffn_layer == "none"
+    assert ffn_layer == "none"
     return x
 
 
@@ -654,7 +684,7 @@ def transformer_base_v1():
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("attention_key_channels", 0)
   hparams.add_hparam("attention_value_channels", 0)
-  hparams.add_hparam("ffn_layer", "conv_hidden_relu")
+  hparams.add_hparam("ffn_layer", "dense_relu_dense")
   hparams.add_hparam("parameter_attention_key_channels", 0)
   hparams.add_hparam("parameter_attention_value_channels", 0)
   # All hyperparameters ending in "dropout" are automatically set to 0.0
@@ -1080,8 +1110,7 @@ def transformer_tpu_range(rhp):
 def transformer_tpu_batch_range(rhp):
   hparams = transformer_tpu()
   common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
-  rhp.set_discrete("tpu_batch_size_per_shard", [1] + list(range(2, 16, 2)))
-  rhp.set_discrete("max_length", list(range(128, 416, 16)))
+  rhp.set_discrete("tpu_batch_size_per_shard", [1, 2, 3, 4])
 
 
 @registry.register_hparams
@@ -1097,14 +1126,18 @@ def transformer_small_tpu():
 
 
 def update_hparams_for_tpu(hparams):
+  """Change hparams to be compatible with TPU training."""
   hparams.use_pad_remover = False  # where op not supported
   hparams.optimizer = "TrueAdam"
   hparams.learning_rate = 0.2
 
   # Inputs
   # Each example in the batch will be of (padded) length hparams.max_length
-  hparams.max_length = 64
-  hparams.tpu_batch_size_per_shard = 20
+  # It is suggested to use a dataset that where examples have been combined
+  # to this length.
+  # TODO(noam): Prepare and debug these datasets.
+  hparams.max_length = 256
+  hparams.tpu_batch_size_per_shard = 8
 
 
 @registry.register_hparams
@@ -1124,4 +1157,25 @@ def transformer_clean_big():
   hparams = transformer_clean()
   hparams.hidden_size = 1024
   hparams.filter_size = 4096
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tpu_with_conv():
+  """Cut down on the number of heads, and use convs instead."""
+  hparams = transformer_tpu()
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.ffn_layer = "conv_relu_conv"
+  return hparams
+
+
+@registry.register_hparams
+def transformer_tpu_base_language_model():
+  """Hparams for training languagemodel_lm1b8k on tpu."""
+  hparams = transformer_clean_big()
+  update_hparams_for_tpu(hparams)
+  hparams.tpu_batch_size_per_shard = 16
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.learning_rate_warmup_steps = 1000
+  hparams.shared_embedding_and_softmax_weights = False
   return hparams
