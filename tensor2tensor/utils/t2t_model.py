@@ -75,7 +75,7 @@ class T2TModel(base.Layer):
     super(T2TModel, self).__init__(
         trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name)
     if data_parallelism is None:
-      data_parallelism = eu.Parallelism([""])
+      data_parallelism = eu.Parallelism([""], reuse=True)
     if ps_devices is None:
       ps_devices = [""]
     if problem_hparams is None:
