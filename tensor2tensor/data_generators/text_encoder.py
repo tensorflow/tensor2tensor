@@ -699,9 +699,15 @@ class SubwordTextEncoder(TextEncoder):
       new_subtoken_strings.sort(reverse=True)
 
       # Reinitialize to the candidate vocabulary.
-      self._init_subtokens_from_list(
-          [subtoken for _, subtoken in new_subtoken_strings],
-          reserved=num_reserved_ids)
+      new_subtoken_strings = [subtoken for _, subtoken in new_subtoken_strings]
+      if num_reserved_ids == len(RESERVED_TOKENS):
+        new_subtoken_strings = RESERVED_TOKENS + new_subtoken_strings
+      elif num_reserved_ids == 0:
+        pass
+      else:
+        raise ValueError("num_reserved_ids must be 0 or %d but was %d" %
+                         NUM_RESERVED_TOKENS, num_reserved_ids)
+      self._init_subtokens_from_list(new_subtoken_strings)
       tf.logging.info("vocab_size = %d" % self.vocab_size)
 
   def dump(self):
@@ -776,10 +782,13 @@ class SubwordTextEncoder(TextEncoder):
     with tf.gfile.Open(filename) as f:
       self._load_from_file_object(f)
 
-  def store_to_file(self, filename):
+  def store_to_file(self, filename, add_single_quotes=True):
     with tf.gfile.Open(filename, "w") as f:
       for subtoken_string in self._all_subtoken_strings:
-        f.write("'" + unicode_to_native(subtoken_string) + "'\n")
+        if add_single_quotes:
+          f.write("'" + unicode_to_native(subtoken_string) + "'\n")
+        else:
+          f.write(unicode_to_native(subtoken_string) + "\n")
 
 
 class ImageEncoder(object):

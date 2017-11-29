@@ -52,15 +52,10 @@ def resize_by_area(img, size):
 class ImageProblem(problem.Problem):
 
   def example_reading_spec(self, label_repr=None):
-    if label_repr is None:
-      label_repr = ("image/class/label", tf.FixedLenFeature((1,), tf.int64))
-
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
     }
-    label_key, label_type = label_repr  # pylint: disable=unpacking-non-sequence
-    data_fields[label_key] = label_type
 
     data_items_to_decoders = {
         "inputs":
@@ -68,8 +63,6 @@ class ImageProblem(problem.Problem):
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=3),
-        "targets":
-            tf.contrib.slim.tfexample_decoder.Tensor(label_key),
     }
 
     return data_fields, data_items_to_decoders
@@ -112,8 +105,8 @@ class ImageCeleba(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-    p.target_modality = ("image:identity_no_pad", None)
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
@@ -236,7 +229,7 @@ class ImageFSNS(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
     vocab_size = self._encoders["targets"].vocab_size
     p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
     p.batch_size_multiplier = 256
@@ -246,9 +239,12 @@ class ImageFSNS(ImageProblem):
 
   def example_reading_spec(self):
     label_key = "image/unpadded_label"
-    label_type = tf.VarLenFeature(tf.int64)
-    return super(ImageFSNS, self).example_reading_spec(
-        self, label_repr=(label_key, label_type))
+    data_fields, data_items_to_decoders = (
+        super(ImageFSNS, self).example_reading_spec())
+    data_fields[label_key] = tf.VarLenFeature(tf.int64)
+    data_items_to_decoders[
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    return data_fields, data_items_to_decoders
 
 
 class Image2ClassProblem(ImageProblem):
@@ -284,11 +280,20 @@ class Image2ClassProblem(ImageProblem):
   def generator(self, data_dir, tmp_dir, is_training):
     raise NotImplementedError()
 
+  def example_reading_spec(self):
+    label_key = "image/class/label"
+    data_fields, data_items_to_decoders = (
+        super(Image2ClassProblem, self).example_reading_spec())
+    data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
+
+    data_items_to_decoders[
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    return data_fields, data_items_to_decoders
+
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
-    p.target_modality = (registry.Modalities.CLASS_LABEL,
-                         self.num_classes)
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
+    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
     p.batch_size_multiplier = 4 if self.is_small else 256
     p.max_expected_batch_size_per_shard = 8 if self.is_small else 2
     p.loss_multiplier = 3.0 if self.is_small else 1.0
@@ -305,16 +310,19 @@ class Image2ClassProblem(ImageProblem):
         self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
 
 
-def imagenet_preprocess_example(example, mode):
+def imagenet_preprocess_example(example, mode, resize_size=None):
   """Preprocessing used for Imagenet and similar problems."""
+  if resize_size is None:
+    resize_size = [299, 299]
 
   def preprocess(img):
     img = tf.image.resize_images(img, [360, 360])
-    img = common_layers.image_augmentation(tf.to_float(img) / 255.)
+    img = common_layers.image_augmentation(
+        tf.to_float(img) / 255., crop_size=resize_size)
     return tf.to_int64(img * 255.)
 
   def resize(img):
-    return tf.to_int64(tf.image.resize_images(img, [299, 299]))
+    return tf.to_int64(tf.image.resize_images(img, resize_size))
 
   inputs = tf.cast(example["inputs"], tf.int64)
   if mode == tf.estimator.ModeKeys.TRAIN:
@@ -347,6 +355,21 @@ class ImageImagenet(Image2ClassProblem):
 
   def preprocess_example(self, example, mode, _):
     return imagenet_preprocess_example(example, mode)
+
+
+@registry.register_problem
+class ImageImagenet224(ImageImagenet):
+  """Imagenet rescaled to 224x224."""
+
+  def dataset_filename(self):
+    return "image_imagenet"  # Reuse Imagenet data.
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    tf.logging.warning(
+        "Generate data for image_imagenet224 with image_imagenet")
+
+  def preprocess_example(self, example, mode, _):
+    return imagenet_preprocess_example(example, mode, resize_size=[224, 224])
 
 
 @registry.register_problem
@@ -432,8 +455,8 @@ class Img2imgImagenet(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-    p.target_modality = ("image:identity_no_pad", None)
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
@@ -718,8 +741,8 @@ class Img2imgCifar10(ImageCifar10):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-    p.target_modality = ("image:identity_no_pad", None)
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
@@ -784,8 +807,8 @@ def mscoco_generator(data_dir,
     vocab_symbolizer = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, vocab_filename, vocab_size)
   _get_mscoco(tmp_dir)
-  caption_filepath = (_MSCOCO_TRAIN_CAPTION_FILE
-                      if training else _MSCOCO_EVAL_CAPTION_FILE)
+  caption_filepath = (
+      _MSCOCO_TRAIN_CAPTION_FILE if training else _MSCOCO_EVAL_CAPTION_FILE)
   caption_filepath = os.path.join(tmp_dir, caption_filepath)
   prefix = _MSCOCO_TRAIN_PREFIX if training else _MSCOCO_EVAL_PREFIX
   caption_file = io.open(caption_filepath)
@@ -852,6 +875,15 @@ class Image2TextProblem(ImageProblem):
   def generator(self, data_dir, tmp_dir, is_training):
     raise NotImplementedError()
 
+  def example_reading_spec(self):
+    label_key = "image/class/label"
+    data_fields, data_items_to_decoders = (
+        super(Image2TextProblem, self).example_reading_spec())
+    data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
+    data_items_to_decoders[
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    return data_fields, data_items_to_decoders
+
   def feature_encoders(self, data_dir):
     if self.is_character_level:
       encoder = text_encoder.ByteTextEncoder()
@@ -863,7 +895,7 @@ class Image2TextProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
     encoder = self._encoders["targets"]
     p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
     p.batch_size_multiplier = 256

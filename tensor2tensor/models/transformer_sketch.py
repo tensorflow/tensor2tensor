@@ -47,7 +47,7 @@ class TransformerSketch(transformer.Transformer):
         name="small_image_conv")
 
     hparams.num_compress_steps = 2
-    compressed_inputs = transformer_vae.compress(inputs, c=None, is_2d=True,
+    compressed_inputs = transformer_vae.compress(inputs, is_2d=True,
                                                  hparams=hparams,
                                                  name="convolutions")
 
@@ -66,7 +66,7 @@ def transformer_sketch():
   hparams.learning_rate = 0.2
   hparams.learning_rate_warmup_steps = 10000
   hparams.num_hidden_layers = 6
-  hparams.initializer = "orthogonal"
+  # hparams.initializer = "orthogonal"
   hparams.sampling_method = "random"
   return hparams
 

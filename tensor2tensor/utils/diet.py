@@ -243,7 +243,7 @@ def _quantize(x, params, randomize=True):
   abs_x = tf.abs(x)
   sign_x = tf.sign(x)
   y = abs_x / params.quantization_scale
-  y = tf.floor(y + tf.random_uniform(tf.shape(x)))
+  y = tf.floor(y + tf.random_uniform(common_layers.shape_list(x)))
   y = tf.minimum(y, tf.int16.max) * sign_x
   q = tf.bitcast(tf.cast(y, tf.int16), tf.float16)
   return q

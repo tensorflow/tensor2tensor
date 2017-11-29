@@ -28,10 +28,12 @@ import tensorflow as tf
 
 
 
-def optimize(loss, learning_rate, hparams):
+def optimize(loss, learning_rate, hparams, use_tpu=False):
   """Minimize loss."""
   loss = tf.identity(loss, name="total_loss")
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
+  if use_tpu:
+    opt = tf.contrib.tpu.CrossShardOptimizer(opt)
   opt_summaries = ["learning_rate", "loss"]
   if hparams.summarize_grads:
     opt_summaries.extend(["gradients", "gradient_norm"])

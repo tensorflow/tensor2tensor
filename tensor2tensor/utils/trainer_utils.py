@@ -35,6 +35,7 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
+from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
 flags = tf.flags
@@ -108,8 +109,6 @@ flags.DEFINE_integer("local_eval_frequency", 2000,
 flags.DEFINE_bool("locally_shard_to_cpu", False,
                   "Use CPU as a sharding device running locally. This allows "
                   "to test sharded model construction on a machine with 1 GPU.")
-flags.DEFINE_bool("daisy_chain_variables", True,
-                  "copy variables around in a daisy chain")
 flags.DEFINE_bool("sync", False, "Sync compute on PS.")
 flags.DEFINE_string("worker_job", "/job:localhost", "name of worker job")
 flags.DEFINE_integer("worker_gpu", 1, "How many GPUs to use.")
@@ -218,7 +217,7 @@ def create_experiment_components(data_dir, model_name, hparams, run_config):
 
   # hparams batch_size is used as minibatch size instead of tokens in batch
   batch_size = (hparams.use_fixed_batch_size and hparams.batch_size) or None
-  num_datashards = devices.data_parallelism().n
+  num_datashards = devices.data_parallelism(hparams).n
   train_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.TRAIN,
       hparams=hparams,
@@ -416,12 +415,12 @@ def session_config():
           opt_level=tf.OptimizerOptions.L1, do_function_inlining=False))
 
   if FLAGS.experimental_optimize_placement:
-    rewrite_options = tf.RewriterConfig(optimize_tensor_layout=True)
+    rewrite_options = rewriter_config_pb2.RewriterConfig()
     rewrite_options.optimizers.append("pruning")
     rewrite_options.optimizers.append("constfold")
+    rewrite_options.optimizers.append("arithmetic")
     rewrite_options.optimizers.append("layout")
-    graph_options = tf.GraphOptions(
-        rewrite_options=rewrite_options, infer_shapes=True)
+    graph_options = tf.GraphOptions(rewrite_options=rewrite_options)
 
   gpu_options = tf.GPUOptions(
       per_process_gpu_memory_fraction=FLAGS.worker_gpu_memory_fraction)

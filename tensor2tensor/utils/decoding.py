@@ -114,7 +114,7 @@ def decode_from_dataset(estimator,
         mode=tf.estimator.ModeKeys.PREDICT,
         hparams=hparams,
         data_dir=hparams.data_dir,
-        num_datashards=devices.data_parallelism().n,
+        num_datashards=devices.data_parallelism(hparams).n,
         fixed_problem=problem_idx,
         batch_size=decode_hp.batch_size,
         dataset_split=dataset_split,
@@ -252,12 +252,12 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   # _decode_batch_input_fn
   sorted_inputs.reverse()
   decodes.reverse()
-  # If decode_to_file was provided use it as the output filename without any change
+  # If decode_to_file was provided use it as the output filename without change
   # (except for adding shard_id if using more shards for decoding).
   # Otherwise, use the input filename plus model, hp, problem, beam, alpha.
   decode_filename = decode_to_file if decode_to_file else filename
   if decode_hp.shards > 1:
-    decode_filename = decode_filename + ("%.2d" % decode_hp.shard_id)
+    decode_filename += "%.2d" % decode_hp.shard_id
   if not decode_to_file:
     decode_filename = _decode_filename(decode_filename, problem_name, decode_hp)
   tf.logging.info("Writing decodes into %s" % decode_filename)

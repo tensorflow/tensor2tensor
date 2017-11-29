@@ -81,7 +81,7 @@ def ps_devices(all_workers=False):
       return [""]
 
 
-def data_parallelism(all_workers=False):
+def data_parallelism(hparams, all_workers=False):
   """Over which devices do we split each training batch.
 
   In old-fashioned async mode, we split the batch over all GPUs on the
@@ -95,6 +95,7 @@ def data_parallelism(all_workers=False):
   between datashards.
 
   Args:
+    hparams: model hyperparameters (an HParams object).
     all_workers: whether the devices are all async workers or just this one.
 
   Returns:
@@ -148,4 +149,4 @@ def data_parallelism(all_workers=False):
       datashard_devices,
       reuse=True,
       caching_devices=caching_devices,
-      daisy_chain_variables=FLAGS.daisy_chain_variables)
+      daisy_chain_variables=hparams.daisy_chain_variables)

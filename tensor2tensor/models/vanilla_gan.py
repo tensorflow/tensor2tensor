@@ -146,8 +146,8 @@ def vanilla_gan():
 
   hparams = common_hparams.basic_params1()
 
-  hparams.input_modalities = "image:no_loss"
-  hparams.target_modality = "image:no_loss"
+  hparams.input_modalities = "inputs:image:zero_loss"
+  hparams.target_modality = "image:zero_loss"
 
   hparams.batch_size = 2048  # 3136
   hparams.label_smoothing = 0.0
