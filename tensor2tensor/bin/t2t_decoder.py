@@ -173,6 +173,10 @@ def score_file(filename):
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
+
+  # Fathom
+  fathom_t2t_model_setup()
+
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   if FLAGS.score_file:
