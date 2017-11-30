@@ -49,7 +49,7 @@ class ModalityTest(tf.test.TestCase):
         vocab_size, size=(batch_size, length, 1, 1))
     m = modalities.SymbolModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(
-        ["/device:CPU:0"] * num_datashards, reuse=True)
+        ["/device:CPU:0"] * num_datashards)
     with self.test_session() as session:
       xs = tf.split(x, num_datashards)
       sharded_output = m.bottom_sharded(xs, data_parallelism)
@@ -82,7 +82,7 @@ class ModalityTest(tf.test.TestCase):
         vocab_size, size=(batch_size, length, height, 1))
     m = modalities.SymbolModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(
-        ["/device:CPU:0"] * num_datashards, reuse=True)
+        ["/device:CPU:0"] * num_datashards)
     with self.test_session() as session:
       sharded_body_output = tf.split(tf.to_float(body_output), num_datashards)
       sharded_targets = tf.split(targets, num_datashards)
@@ -120,7 +120,7 @@ class ModalityTest(tf.test.TestCase):
         vocab_size, size=(batch_size, length, height, 1))
     m = modalities.SymbolModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(
-        ["/device:CPU:0"] * num_datashards, reuse=True)
+        ["/device:CPU:0"] * num_datashards)
     with self.test_session() as session:
       sharded_body_output = tf.split(tf.to_float(body_output), num_datashards)
       sharded_targets = tf.split(targets, num_datashards)

@@ -129,7 +129,7 @@ class Parallelism(object):
 
   def __init__(self,
                device_names_or_functions,
-               reuse=None,
+               reuse=True,
                caching_devices=None,
                daisy_chain_variables=False):
     """Create a Parallelism.
@@ -945,7 +945,8 @@ def distributed_moe(data_parallelism,
   #   We use the default of reuse=False.  Otherwise, the experts would all
   #   use the same variables.
   ep = Parallelism(
-      [expert_devices[i % len(expert_devices)] for i in xrange(num_experts)])
+      [expert_devices[i % len(expert_devices)] for i in xrange(num_experts)],
+      reuse=None)
   # Experts expect 2d input tensors, so flatten the batch dimension and all
   # spatial dimensions together.
   xs_flat = dp(tf.reshape, xs, [[-1, input_size]] * dp.n)
@@ -1034,7 +1035,7 @@ def local_moe(x,
       v = flatten_all_but_last(v)
       expert_kwargs[k] = dispatcher.dispatch(v)
 
-    ep = Parallelism([DEFAULT_DEV_STRING] * num_experts)
+    ep = Parallelism([DEFAULT_DEV_STRING] * num_experts, reuse=None)
     expert_outputs = ep(expert_fn, **expert_kwargs)
 
     y_flat = dispatcher.combine(expert_outputs)

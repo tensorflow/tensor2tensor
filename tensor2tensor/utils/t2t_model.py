@@ -75,7 +75,7 @@ class T2TModel(base.Layer):
     super(T2TModel, self).__init__(
         trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name)
     if data_parallelism is None:
-      data_parallelism = eu.Parallelism([""], reuse=True)
+      data_parallelism = eu.Parallelism([""])
     if ps_devices is None:
       ps_devices = [""]
     if problem_hparams is None:
@@ -971,7 +971,7 @@ def _create_data_parallelism(num_gpus=1,
     data_shard_devices += ["cpu:0"]
   assert len(data_shard_devices) == num_shards
   tf.logging.info("Data parallel devices: %s", data_shard_devices)
-  return eu.Parallelism(data_shard_devices, reuse=True)
+  return eu.Parallelism(data_shard_devices)
 
 
 # These metrics are implemented with py_funcs and therefore do no work with TPU
