@@ -94,12 +94,18 @@ def main(_):
     decoding.decode_from_file(estimator, FLAGS.decode_from_file, decode_hp,
                               FLAGS.decode_to_file)
   else:
+    # Without a batch size, we will bucket by sequence length and
+    # predictions will be out of order and we will run out of memory
+    # on large datasets!
+    assert decode_hp.batch_size, 'Need to specify a non-zero batch size!'
     predictions = decoding.decode_from_dataset(
         estimator,
         FLAGS.problems.split("-"),
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
-        dataset_split="test" if FLAGS.eval_use_test_set else None)
+        dataset_split="test" if FLAGS.eval_use_test_set else None,
+        return_generator=True,
+    )
 
     print('Assuming only one problem...')
     assert '-' not in FLAGS.problems

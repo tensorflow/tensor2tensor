@@ -102,7 +102,8 @@ def decode_from_dataset(estimator,
                         problem_names,
                         decode_hp,
                         decode_to_file=None,
-                        dataset_split=None):
+                        dataset_split=None,
+                        return_generator=False):
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))
   hparams = estimator.params
@@ -124,6 +125,10 @@ def decode_from_dataset(estimator,
     # Get the predictions as an iterable
     predictions = estimator.predict(infer_input_fn)
 
+    # Just return the generator directly if requested
+    if return_generator:
+      return predictions
+    
     # Prepare output file writers if decode_to_file passed
     if decode_to_file:
       if decode_hp.shards > 1:
