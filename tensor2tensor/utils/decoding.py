@@ -103,14 +103,17 @@ def decode_from_dataset(estimator,
                         decode_to_file=None,
                         dataset_split=None,
                         return_generator=False):
-  """Decode from a dataset
+  """Decode from a dataset.
 
   Args:
-      return_generator: if True, return the tf.Estimator predictions
-                        generator. Otherwise, log predictions to
-                        screen, and output to a file if decode_to_file
-                        is not None.
-
+      estimator: tf.Estimator instance
+      problem_names: names of problems to decode from
+      decode_hp: Decode hyperparameters
+      decode_to_file: file to output decoded things to
+      dataset_split: if 'test', decode from test dataset, otherwise
+                     use dev dataset
+      return_generator: if True, return the predictions generator
+                        directly and do not write to file
   """
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))

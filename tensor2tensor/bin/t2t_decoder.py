@@ -106,6 +106,10 @@ def decode(estimator, hparams, decode_hp):
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
+
+  # Fathom
+  _ = fathom_t2t_model_setup()
+
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   FLAGS.use_tpu = False  # decoding not supported on TPU
 
