@@ -147,6 +147,5 @@ def data_parallelism(hparams, all_workers=False):
   tf.logging.info("caching_devices: %s", caching_devices)
   return eu.Parallelism(
       datashard_devices,
-      reuse=True,
       caching_devices=caching_devices,
       daisy_chain_variables=hparams.daisy_chain_variables)
