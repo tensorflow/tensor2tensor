@@ -1265,13 +1265,12 @@ def relu_density_logit(x, reduce_dims):
   return scaled
 
 
-def maybe_zero_out_padding(inputs, kernel_size, padding, nonpadding_mask):
+def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
   """If necessary, zero out inputs to a conv for padding positions.
 
   Args:
     inputs: a Tensor with shape [batch, length, ...]
     kernel_size: an integer or pair of integers
-    padding: a string, e.g. "SAME"
     nonpadding_mask: a Tensor with shape [batch, length]
 
   Returns:
@@ -1279,7 +1278,6 @@ def maybe_zero_out_padding(inputs, kernel_size, padding, nonpadding_mask):
   """
   if (kernel_size != 1 and
       kernel_size != (1, 1) and
-      padding == "SAME" and
       nonpadding_mask is not None):
     while nonpadding_mask.get_shape().ndims < inputs.get_shape().ndims:
       nonpadding_mask = tf.expand_dims(nonpadding_mask, -1)
@@ -1310,13 +1308,13 @@ def conv_relu_conv(inputs,
   """Hidden layer with RELU activation followed by linear projection."""
   with tf.variable_scope(name, "conv_relu_conv", [inputs]):
     inputs = maybe_zero_out_padding(
-        inputs, first_kernel_size, padding, nonpadding_mask)
+        inputs, first_kernel_size, nonpadding_mask)
     h = tpu_conv1d(inputs, filter_size, first_kernel_size, padding=padding,
                    name="conv1")
     h = tf.nn.relu(h)
     if dropout != 0.0:
       h = tf.nn.dropout(h, 1.0 - dropout)
-    h = maybe_zero_out_padding(h, second_kernel_size, padding, nonpadding_mask)
+    h = maybe_zero_out_padding(h, second_kernel_size, nonpadding_mask)
     return tpu_conv1d(h, output_size, second_kernel_size, padding=padding,
                       name="conv2")
 
@@ -1333,7 +1331,7 @@ def sepconv_relu_sepconv(inputs,
   """Hidden layer with RELU activation followed by linear projection."""
   with tf.variable_scope(name, "sepconv_relu_sepconv", [inputs]):
     inputs = maybe_zero_out_padding(
-        inputs, first_kernel_size, padding, nonpadding_mask)
+        inputs, first_kernel_size, nonpadding_mask)
     if inputs.get_shape().ndims == 3:
       is_3d = True
       inputs = tf.expand_dims(inputs, 2)
@@ -1344,7 +1342,7 @@ def sepconv_relu_sepconv(inputs,
         padding=padding, name="conv1")
     if dropout != 0.0:
       h = tf.nn.dropout(h, 1.0 - dropout)
-    h = maybe_zero_out_padding(h, second_kernel_size, padding, nonpadding_mask)
+    h = maybe_zero_out_padding(h, second_kernel_size, nonpadding_mask)
     ret = separable_conv(
         h, output_size, second_kernel_size, padding=padding, name="conv2")
     if is_3d:

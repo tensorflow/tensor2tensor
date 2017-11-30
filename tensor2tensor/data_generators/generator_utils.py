@@ -449,66 +449,131 @@ def shuffle_dataset(filenames):
     tf.gfile.Remove(fname)
 
 
-def combine_examples_no_inputs(examples, max_length):
-  """Combine examples into longer examples.
+class SequencePacker(object):
+  """Helper for constructing a packed example of sequence examples.
 
-  Concatenate targets to form target sequences with length up to max_length.
-  Target sequences longer than max_length are chopped into multiple sequences.
+  See comments to pack_examples()
+  """
+
+  def __init__(self, first_sequence, spacing=2):
+    self._spacing = spacing
+    self._ids = first_sequence[:]
+    self._segmentation = [1] * len(first_sequence)
+    self._position = range(len(first_sequence))
+
+  def add(self, ids):
+    padding = [0] * self._spacing
+    self._ids.extend(padding + ids)
+    next_segment_num = self._segmentation[-1] + 1 if self._segmentation else 1
+    self._segmentation.extend(padding + [next_segment_num] * len(ids))
+    self._position.extend(padding + range(len(ids)))
+
+  def can_fit(self, ids, packed_length):
+    return len(self._ids) + self._spacing + len(ids) <= packed_length
+
+  def to_dict(self):
+    return {"inputs": [0],
+            "targets": self._ids,
+            "targets_segmentation": self._segmentation,
+            "targets_position": self._position}
+
+
+class SequencePairPacker(object):
+  """Helper for packing sequence-to-sequence examples into bigger examples.
+
+  See comments to pack_examples()
+  """
+
+  def __init__(self, first_sequence_pair, spacing=2):
+    self._inputs = SequencePacker(first_sequence_pair[0], spacing)
+    self._targets = SequencePacker(first_sequence_pair[1], spacing)
+
+  def add(self, pair):
+    self._inputs.add(pair[0])
+    self._targets.add(pair[1])
+
+  def can_fit(self, pair, packed_length):
+    return (self._inputs.can_fit(pair[0], packed_length) and
+            self._targets.can_fit(pair[1], packed_length))
+
+  def to_dict(self):
+    ret = self._targets.to_dict()
+    inputs_dict = self._inputs.to_dict()
+    ret["inputs"] = inputs_dict["targets"]
+    ret["inputs_segmentation"] = inputs_dict["targets_segmentation"]
+    ret["inputs_position"] = inputs_dict["targets_position"]
+    return ret
+
+
+def pack_examples(examples,
+                  has_inputs,
+                  packed_length=256,
+                  spacing=2,
+                  queue_size=10,
+                  chop_long_sequences=False):
+  """Pack examples into longer examples.
+
+  If has_inputs=False, we are packing single-sequence examples with
+  targets only and no inputs.
+
+  In this case, we concatenate the targets from several examples to form
+  each new example.  We insert a number of zeros for spacing between the
+  original sequences.  This is to help the sequences stay separate
+  under convolutions.  If chop_long_sequences is set, then any input sequence
+  longer than packed_length gets chopped up into multiple examples.  Otherwise,
+  long sequences are emitted as singletons.
+
+  If has_inputs=True, then we are packing sequence-to-sequence
+  examples.  We combine several examples by concatenating the inputs
+  (as above) and concatenating the targets (as above).  Chopping of
+  long sequences is not supported.
+
+  The packed examples are represented as dictionaries containing:
+    "inputs", "targets": the packed sequences described above
+    "inputs_segmentation", "targets_segmentation":
+       Sequences aligned with "inputs", "targets" specifying to which original
+       sequence each position belongs.  Numbering starts from 1, and 0 is used
+       for spacing.  This information is useful for preventing attention across
+       segments.
+       e.g. [1 1 1 1 1 1 0 0 2 2 2 0 0 3 3 3 3 3 0 0 4 4 4]
+     "inputs_position", "targets_position":
+       Sequences aligned with "inputs", "targets" specifying position within
+       the original sequence.  This is useful for positional encodings.
+       e.g. [0 1 2 3 4 5 0 0 0 1 2 0 0 0 1 2 3 4 0 0 0 1 2]
 
   Args:
     examples: a generator returning feature dictionaries.
-    max_length: an integer.
+    has_inputs: a boolean
+    packed_length: an integer
+    spacing: an integer
+    queue_size: an integer
+    chop_long_sequences: a boolean
 
   Yields:
     feature dictionaries.
   """
-  partial = []
+  packer = SequencePairPacker if has_inputs else SequencePacker
+  combined = []
   for example in examples:
-    x = example["targets"]
-    if len(x) + len(partial) > max_length:
-      if partial:
-        yield {"inputs": [0], "targets": partial}
-        partial = []
-    if len(x) > max_length:
-      num_fragments = len(x) // max_length
+    x = ((example["inputs"], example["targets"])
+         if has_inputs else example["targets"])
+    if chop_long_sequences and len(x) > packed_length:
+      assert not has_inputs
+      num_fragments = len(x) // packed_length
       for i in xrange(num_fragments):
-        yield {"inputs": [0], "targets": x[max_length * i:max_length * (i + 1)]}
-      partial = x[max_length * num_fragments:]
-    else:
-      partial += x
-  if partial:
-    yield {"inputs": [0], "targets": partial}
-
-
-def combine_examples_with_inputs(examples, max_length):
-  """Combine examples into longer examples.
-
-  We combine multiple examples by concatenating the inputs and concatenating
-  the targets.  Sequences where the inputs or the targets are too long are
-  emitted as singletons (not chopped).
-
-  Args:
-    examples: a generator returning feature dictionaries.
-    max_length: an integer.
-
-  Yields:
-    feature dictionaries.
-  """
-  partial_a = []
-  partial_b = []
-  for example in examples:
-    a = example["inputs"]
-    b = example["targets"]
-    if (len(a) + len(partial_a) > max_length or
-        len(b) + len(partial_b) > max_length):
-      if partial_a or partial_b:
-        yield {"inputs": partial_a, "targets": partial_b}
-        partial_a = []
-        partial_b = []
-    if len(a) > max_length or len(b) > max_length:
-      yield {"inputs": a, "targets": b}
-    else:
-      partial_a += a
-      partial_b += b
-  if partial_a or partial_b:
-    yield {"inputs": partial_a, "targets": partial_b}
+        yield packer(
+            x[packed_length * i:packed_length * (i + 1)], spacing).to_dict()
+      x = x[packed_length * num_fragments:]
+    added = False
+    for c in combined:
+      if c.can_fit(x, packed_length):
+        c.add(x)
+        added = True
+        break
+    if not added:
+      if len(combined) == queue_size:
+        yield combined[0].to_dict()
+        combined = combined[1:]
+      combined.append(packer(x, spacing))
+  for c in combined:
+    yield c.to_dict()

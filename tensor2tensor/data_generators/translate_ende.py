@@ -117,15 +117,15 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
 
 
 @registry.register_problem
-class TranslateEndeWmtBpe32kConcat512(TranslateEndeWmtBpe32k):
+class TranslateEndeWmtBpe32kPacked(TranslateEndeWmtBpe32k):
   """Problem spec for WMT En-De translation, BPE version.
 
-  Training/eval examples are concatenated to a maximum length of 512.
+  Training/eval examples are concatenated to a maximum length of 256.
   """
 
   @property
-  def combine_to_length(self):
-    return 512
+  def packed_length(self):
+    return 256
 
 
 @registry.register_problem
@@ -166,6 +166,14 @@ class TranslateEndeWmt32k(TranslateEndeWmt8k):
   @property
   def targeted_vocab_size(self):
     return 2**15  # 32768
+
+
+@registry.register_problem
+class TranslateEndeWmt32kPacked(TranslateEndeWmt32k):
+
+  @property
+  def packed_length(self):
+    return 256
 
 
 @registry.register_problem

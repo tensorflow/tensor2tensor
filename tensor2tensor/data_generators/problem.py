@@ -670,20 +670,15 @@ class Text2TextProblem(Problem):
     """
     raise NotImplementedError()
 
-  def maybe_combine_examples(self, generator):
-    if self.combine_to_length:
-      if self.has_inputs:
-        return generator_utils.combine_examples_with_inputs(
-            generator, self.combine_to_length)
-      else:
-        return generator_utils.combine_examples_no_inputs(
-            generator, self.combine_to_length)
-    else:
-      return generator
-
   @property
-  def combine_to_length(self):
-    """An optional integer. Concatenate examples into bigger examples."""
+  def packed_length(self):
+    """Pack multiple examples into a single example of constant length.
+
+    This is useful for TPU training.  See generator_utils.pack_examples().
+
+    Returns:
+      an optional integer
+    """
     return None
 
   @property
@@ -723,6 +718,15 @@ class Text2TextProblem(Problem):
   def has_inputs(self):
     return True  # Set to False for language models.
 
+  def _maybe_pack_examples(self, generator):
+    """Helper to generate_data()."""
+    if self.packed_length:
+      return generator_utils.pack_examples(
+          generator, self.has_inputs, self.packed_length,
+          chop_long_sequences=not self.has_inputs)
+    else:
+      return generator
+
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     train_paths = self.training_filepaths(
         data_dir, self.num_shards, shuffled=False)
@@ -731,14 +735,14 @@ class Text2TextProblem(Problem):
     if self.use_train_shards_for_dev:
       all_paths = train_paths + dev_paths
       generator_utils.generate_files(
-          self.maybe_combine_examples(self.generator(data_dir, tmp_dir, True)),
+          self._maybe_pack_examples(self.generator(data_dir, tmp_dir, True)),
           all_paths)
       generator_utils.shuffle_dataset(all_paths)
     else:
       generator_utils.generate_dataset_and_shuffle(
-          self.maybe_combine_examples(self.generator(data_dir, tmp_dir, True)),
+          self._maybe_pack_examples(self.generator(data_dir, tmp_dir, True)),
           train_paths,
-          self.maybe_combine_examples(self.generator(data_dir, tmp_dir, False)),
+          self._maybe_pack_examples(self.generator(data_dir, tmp_dir, False)),
           dev_paths)
 
   def feature_encoders(self, data_dir):
@@ -770,6 +774,30 @@ class Text2TextProblem(Problem):
     p.target_space_id = self.target_space_id
     if self.is_character_level:
       p.loss_multiplier = 2.0
+    if self.packed_length:
+      identity = (registry.Modalities.GENERIC, None)
+      if self.has_inputs:
+        p.input_modality["inputs_segmentation"] = identity
+        p.input_modality["inputs_position"] = identity
+      p.input_modality["targets_segmentation"] = identity
+      p.input_modality["targets_position"] = identity
+
+  def example_reading_spec(self):
+    data_fields = {
+        "targets": tf.VarLenFeature(tf.int64)
+    }
+    if self.has_inputs:
+      data_fields["inputs"] = tf.VarLenFeature(tf.int64)
+
+    if self.packed_length:
+      if self.has_inputs:
+        data_fields["inputs_segmentation"] = tf.VarLenFeature(tf.int64)
+        data_fields["inputs_position"] = tf.VarLenFeature(tf.int64)
+      data_fields["targets_segmentation"] = tf.VarLenFeature(tf.int64)
+      data_fields["targets_position"] = tf.VarLenFeature(tf.int64)
+
+    data_items_to_decoders = None
+    return (data_fields, data_items_to_decoders)
 
   def eval_metrics(self):
     return [
