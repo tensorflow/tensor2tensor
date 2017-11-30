@@ -117,18 +117,6 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
 
 
 @registry.register_problem
-class TranslateEndeWmtBpe32kPacked(TranslateEndeWmtBpe32k):
-  """Problem spec for WMT En-De translation, BPE version.
-
-  Training/eval examples are concatenated to a maximum length of 256.
-  """
-
-  @property
-  def packed_length(self):
-    return 256
-
-
-@registry.register_problem
 class TranslateEndeWmt8k(translate.TranslateProblem):
   """Problem spec for WMT En-De translation."""
 
