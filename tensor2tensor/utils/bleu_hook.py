@@ -96,6 +96,8 @@ def compute_bleu(reference_corpus,
       matches_by_order[len(ngram) - 1] += overlap[ngram]
     for ngram in translation_ngram_counts:
       possible_matches_by_order[len(ngram)-1] += translation_ngram_counts[ngram]
+  assert reference_length, "no reference provided"
+  assert translation_length, "no translation provided"
   precisions = [0] * max_order
   smooth = 1.0
   for i in xrange(0, max_order):
