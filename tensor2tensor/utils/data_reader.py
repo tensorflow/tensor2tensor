@@ -106,7 +106,7 @@ def input_pipeline(problem,
         hparams=hparams,
         dataset_split=dataset_split,
         shard=shard)
-    dataset = dataset.map(cast_int64_to_int32, num_threads=num_threads)
+    dataset = dataset.map(cast_int64_to_int32, num_parallel_calls=num_threads)
     dataset = dataset.filter(
         functools.partial(
             example_valid_size,
@@ -132,12 +132,6 @@ def input_pipeline(problem,
         batching_scheme["window_size"],
         padded_shapes=batching_scheme["padded_shapes"])
 
-    # We reshuffle the batches to prevent many long-sequence batches at once.
-    # TODO(rsepassi): Rm hasattr call once new dynamic window size functionality
-    # is in a stable TF release.
-    if (batching_scheme["shuffle_queue_size"] is not None and
-        not hasattr(dataset, "apply")):
-      dataset = dataset.shuffle(batching_scheme["shuffle_queue_size"])
     batched_examples = dataset.make_one_shot_iterator().get_next()
     return batched_examples
 
@@ -182,6 +176,7 @@ def bucket_by_sequence_length(dataset,
   Returns:
     Dataset of padded and batched examples.
   """
+  del window_size
   with tf.name_scope("bucket_by_seq_length"):
 
     def example_to_bucket_id(example):
@@ -209,16 +204,9 @@ def bucket_by_sequence_length(dataset,
       batch_size = batch_sizes[bucket_id]
       return padded_batch(grouped_dataset, batch_size, padded_shapes)
 
-    # TODO(rsepassi): Rm branch once the new group_by_window functionality is in
-    # a stable TF release.
-    if hasattr(dataset, "apply"):
-      # If the Dataset supports dynamic window size, use it.
-      dataset = dataset.apply(
-          tf.contrib.data.group_by_window(example_to_bucket_id, batching_fn,
-                                          None, window_size_fn))
-    else:
-      dataset = dataset.group_by_window(example_to_bucket_id, batching_fn,
-                                        window_size)
+    dataset = dataset.apply(
+        tf.contrib.data.group_by_window(example_to_bucket_id, batching_fn, None,
+                                        window_size_fn))
     return dataset
 
 

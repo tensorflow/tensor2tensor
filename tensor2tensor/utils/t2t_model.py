@@ -175,6 +175,20 @@ class T2TModel(base.Layer):
         features, decode_length=decode_length)
     return logits, losses
 
+  def _fill_problem_hparams_features(self, features):
+    if features is None:
+      return
+    problem_hparams = self._problem_hparams
+    if "problem_choice" not in features:
+      features["problem_choice"] = tf.constant(
+          self._problem_idx, name="problem_choice")
+    if "input_space_id" not in features:
+      features["input_space_id"] = tf.constant(
+          problem_hparams.input_space_id, name="input_space_id")
+    if "target_space_id" not in features:
+      features["target_space_id"] = tf.constant(
+          problem_hparams.target_space_id, name="target_space_id")
+
   def infer(self,
             features=None,
             decode_length=50,
@@ -203,6 +217,7 @@ class T2TModel(base.Layer):
       tf.logging.warn("Beam searching for a model with no inputs.")
     if not self.has_input and self.hparams.sampling_method != "random":
       tf.logging.warn("Non-random sampling for a model with no inputs.")
+    self._fill_problem_hparams_features(features)
 
     target_modality = self.hparams.problems[self._problem_idx].target_modality
     if target_modality.is_class_modality:
@@ -370,7 +385,8 @@ class T2TModel(base.Layer):
 
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
-      recent_output.set_shape([None, None, None, 1])
+      if not self.hparams.use_eager_mode:
+        recent_output.set_shape([None, None, None, 1])
       padded = tf.pad(recent_output, [[0, 0], [0, 1], [0, 0], [0, 0]])
       features["targets"] = padded
       # This is inefficient in that it generates samples at all timesteps,
@@ -385,7 +401,8 @@ class T2TModel(base.Layer):
                              common_layers.shape_list(recent_output)[1], :, :]
       cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
       samples = tf.concat([recent_output, cur_sample], axis=1)
-      samples.set_shape([None, None, None, 1])
+      if not self.hparams.use_eager_mode:
+        samples.set_shape([None, None, None, 1])
 
       # Assuming we have one shard for logits.
       logits = tf.concat([recent_logits, logits[:, -1:]], 1)
@@ -416,7 +433,8 @@ class T2TModel(base.Layer):
     result = initial_output
     # tensor of shape [batch_size, time, 1, 1, vocab_size]
     logits = tf.zeros((batch_size, 0, 1, 1, target_modality.top_dimensionality))
-    logits.set_shape([None, None, None, None, None])
+    if not self.hparams.use_eager_mode:
+      logits.set_shape([None, None, None, None, None])
     loss = 0.0
 
     def while_exit_cond(result, logits, loss):  # pylint: disable=unused-argument
@@ -662,20 +680,13 @@ class T2TModel(base.Layer):
           tf.less(tf.random_uniform([]), prob), sampled_results,
           lambda: (sharded_logits, losses))
 
-    tf.logging.info("This model_fn took %.3f sec." % (time.time() - start_time))
+    if not self.hparams.use_eager_mode:
+      tf.logging.info("This model_fn took %.3f sec." %
+                      (time.time() - start_time))
     return sharded_logits, losses
 
   def call(self, inputs_dict, skip=False, force_full_predict=False):
-    problem_hparams = self._problem_hparams
-    if "problem_choice" not in inputs_dict:
-      inputs_dict["problem_choice"] = tf.constant(
-          self._problem_idx, name="problem_choice")
-    if "input_space_id" not in inputs_dict:
-      inputs_dict["input_space_id"] = tf.constant(
-          problem_hparams.input_space_id, name="input_space_id")
-    if "target_space_id" not in inputs_dict:
-      inputs_dict["target_space_id"] = tf.constant(
-          problem_hparams.target_space_id, name="target_space_id")
+    self._fill_problem_hparams_features(inputs_dict)
     sharded_logits, losses = self._model_fn(
         inputs_dict, skip=skip, force_full_predict=force_full_predict)
     return tf.concat(sharded_logits, 0), losses
@@ -701,8 +712,10 @@ class T2TModel(base.Layer):
       }
                                for d in xrange(self._num_datashards)]
       output = self._data_parallelism(
-          _with_timing(self.model_fn_body, "model_fn_body"),
-          datashard_to_features)
+          _with_timing(
+              self.model_fn_body,
+              "model_fn_body",
+              silent=self.hparams.use_eager_mode), datashard_to_features)
       if isinstance(output, tuple):
         losses_sharded = output[1]
         if isinstance(losses_sharded[0], dict):
@@ -919,12 +932,14 @@ def _warn_changed_modality_type(new_name, old_name, feature_name):
                        feature_name, old_type, old_name, new_type, new_name)
 
 
-def _with_timing(fn, msg):
+def _with_timing(fn, msg, silent=False):
 
   def fn_with_timing(*args, **kwargs):
     start_time = time.time()
     res = fn(*args, **kwargs)
-    tf.logging.info("Doing %s took %.3f sec." % (msg, time.time() - start_time))
+    if not silent:
+      tf.logging.info("Doing %s took %.3f sec." % (msg,
+                                                   time.time() - start_time))
     return res
 
   return fn_with_timing

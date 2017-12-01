@@ -33,6 +33,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
+from tensorflow.python.eager import context
 from tensorflow.python.framework import function
 
 DEFAULT_DEV_STRING = "existing_device"
@@ -186,6 +187,7 @@ class Parallelism(object):
     # Now make the parallel call.
     outputs = []
     cache = {}
+    tensor_to_var = {}
     for i in xrange(self.n):
 
       def daisy_chain_getter(getter, name, *args, **kwargs):
@@ -196,11 +198,16 @@ class Parallelism(object):
           return cache[device_var_key]
         if name in cache:
           # if we have it on a different device, copy it from the last device
-          v = tf.identity(cache[name])
+          last_device_v = cache[name]
+          var = tensor_to_var[last_device_v]
+          v = tf.identity(last_device_v)
         else:
           var = getter(name, *args, **kwargs)
           v = tf.identity(var._ref())  # pylint: disable=protected-access
-          _add_variable_proxy_methods(var, v)
+
+        # keep track of the original variable
+        tensor_to_var[v] = var
+        _add_variable_proxy_methods(tensor_to_var[v], v)
         # update the cache
         cache[name] = v
         cache[device_var_key] = v
@@ -546,9 +553,10 @@ class PadRemover(object):
           x,
           indices=self.nonpad_ids,
       )
-      # This is a hack but for some reason, gather_nd return a tensor of
-      # undefined shape, so the shape is set up manually
-      x.set_shape([None] + x_shape[1:])
+      if not context.in_eager_mode():
+        # This is a hack but for some reason, gather_nd return a tensor of
+        # undefined shape, so the shape is set up manually
+        x.set_shape([None] + x_shape[1:])
     return x
 
   def restore(self, x):
@@ -894,14 +902,16 @@ def ffn_expert_fn(input_size,
 def reshape_like(a, b):
   """Reshapes a to match the shape of b in all but the last dimension."""
   ret = tf.reshape(a, tf.concat([tf.shape(b)[:-1], tf.shape(a)[-1:]], 0))
-  ret.set_shape(b.get_shape().as_list()[:-1] + a.get_shape().as_list()[-1:])
+  if not context.in_eager_mode():
+    ret.set_shape(b.get_shape().as_list()[:-1] + a.get_shape().as_list()[-1:])
   return ret
 
 
 def flatten_all_but_last(a):
   """Flatten all dimensions of a except the last."""
   ret = tf.reshape(a, [-1, tf.shape(a)[-1]])
-  ret.set_shape([None] + a.get_shape().as_list()[-1:])
+  if not context.in_eager_mode():
+    ret.set_shape([None] + a.get_shape().as_list()[-1:])
   return ret
 
 
