@@ -15,8 +15,7 @@ setup(
     package_data={
         'tensor2tensor.data_generators': ['test_data/*'],
         'tensor2tensor.visualization': [
-            'attention.js',
-            'TransformerVisualization.ipynb'
+            'attention.js', 'TransformerVisualization.ipynb'
         ],
     },
     scripts=[
@@ -34,8 +33,8 @@ setup(
         'six',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.3.0'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.3.0'],
+        'tensorflow': ['tensorflow>=1.4.0'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.4.0'],
         'tests': ['pytest', 'h5py', 'mock'],
     },
     classifiers=[
@@ -45,4 +44,5 @@ setup(
         'License :: OSI Approved :: Apache Software License',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
     ],
-    keywords='tensorflow machine learning',)
+    keywords='tensorflow machine learning',
+)

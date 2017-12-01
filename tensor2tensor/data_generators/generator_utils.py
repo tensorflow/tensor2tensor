@@ -125,6 +125,13 @@ def shard_filepath(fname, num_shards):
   ]
 
 
+def outputs_exist(filenames):
+  for out_fname in filenames:
+    out_fname = out_fname.replace(UNSHUFFLED_SUFFIX, "")
+    if tf.gfile.Exists(out_fname):
+      return out_fname
+
+
 def generate_files(generator, output_filenames, max_cases=None):
   """Generate cases from a generator and save as TFRecord files.
 
@@ -137,6 +144,9 @@ def generate_files(generator, output_filenames, max_cases=None):
     max_cases: maximum number of cases to get from the generator;
       if None (default), we use the generator until StopIteration is raised.
   """
+  if outputs_exist(output_filenames):
+    tf.logging.info("Skipping generator because outputs files exist")
+    return
   num_shards = len(output_filenames)
   writers = [tf.python_io.TFRecordWriter(fname) for fname in output_filenames]
   counter, shard = 0, 0
@@ -440,6 +450,9 @@ def generate_dataset_and_shuffle(train_gen,
 
 
 def shuffle_dataset(filenames):
+  if outputs_exist(filenames):
+    tf.logging.info("Skipping shuffle because output files exist")
+    return
   tf.logging.info("Shuffling data...")
   for fname in filenames:
     records = read_records(fname)
