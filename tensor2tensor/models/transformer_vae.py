@@ -139,7 +139,7 @@ def vae(x, z_size, name):
     kl = 0.5 * tf.reduce_mean(
         tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
     free_bits = z_size // 2
-    kl_loss = tf.maximum(tf.reduce_mean(kl) - free_bits, 0.0)
+    kl_loss = tf.reduce_mean(tf.maximum(kl - free_bits, 0.0))
     return z, kl_loss, mu, log_sigma
 
 
