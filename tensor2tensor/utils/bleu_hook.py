@@ -27,10 +27,10 @@ import unicodedata
 # Dependency imports
 
 import numpy as np
+import six
 # pylint: disable=redefined-builtin
 from six.moves import xrange
 from six.moves import zip
-import six
 # pylint: enable=redefined-builtin
 
 import tensorflow as tf
@@ -96,12 +96,11 @@ def compute_bleu(reference_corpus,
       matches_by_order[len(ngram) - 1] += overlap[ngram]
     for ngram in translation_ngram_counts:
       possible_matches_by_order[len(ngram)-1] += translation_ngram_counts[ngram]
-  assert reference_length, "no reference provided"
-  assert translation_length, "no translation provided"
   precisions = [0] * max_order
   smooth = 1.0
   for i in xrange(0, max_order):
     if possible_matches_by_order[i] > 0:
+      precisions[i] = matches_by_order[i] / possible_matches_by_order[i]
       if matches_by_order[i] > 0:
         precisions[i] = matches_by_order[i] / possible_matches_by_order[i]
       else:
@@ -144,30 +143,32 @@ def bleu_score(predictions, labels, **unused_kwargs):
   return bleu, tf.constant(1.0)
 
 
-class UnicodeRegex:
-  """Ad-hoc hack to recognize all punctuation and symbols.
+class UnicodeRegex(object):
+  """Ad-hoc hack to recognize all punctuation and symbols."""
 
-  without dependening on https://pypi.python.org/pypi/regex/."""
-  def _property_chars(prefix):
-    return ''.join(six.unichr(x) for x in range(sys.maxunicode)
-                   if unicodedata.category(six.unichr(x)).startswith(prefix))
-  punctuation = _property_chars('P')
-  nondigit_punct_re = re.compile(r'([^\d])([' + punctuation + r'])')
-  punct_nondigit_re = re.compile(r'([' + punctuation + r'])([^\d])')
-  symbol_re = re.compile('([' + _property_chars('S') + '])')
+  def __init__(self):
+    def _property_chars(prefix):
+      return ''.join(six.unichr(x) for x in range(sys.maxunicode)
+                     if unicodedata.category(six.unichr(x)).startswith(prefix))
+    punctuation = self._property_chars('P')
+    self.nondigit_punct_re = re.compile(r'([^\d])([' + punctuation + r'])')
+    self.punct_nondigit_re = re.compile(r'([' + punctuation + r'])([^\d])')
+    self.symbol_re = re.compile('([' + _property_chars('S') + '])')
 
 
 def bleu_tokenize(string):
   r"""Tokenize a string following the official BLEU implementation.
 
-  See https://github.com/moses-smt/mosesdecoder/blob/master/scripts/generic/mteval-v14.pl#L954-L983
+  See https://github.com/moses-smt/mosesdecoder/"
+           "blob/master/scripts/generic/mteval-v14.pl#L954-L983
   In our case, the input string is expected to be just one line
   and no HTML entities de-escaping is needed.
   So we just tokenize on punctuation and symbols,
   except when a punctuation is preceded and followed by a digit
   (e.g. a comma/dot as a thousand/decimal separator).
 
-  Note that a numer (e.g. a year) followed by a dot at the end of sentence is NOT tokenized,
+  Note that a numer (e.g. a year) followed by a dot at the end of sentence
+  is NOT tokenized,
   i.e. the dot stays with the number because `s/(\p{P})(\P{N})/ $1 $2/g`
   does not match this case (unless we add a space after each sentence).
   However, this error is already in the original mteval-v14.pl
@@ -187,9 +188,8 @@ def bleu_tokenize(string):
 
 def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
   """Compute BLEU for two files (reference and hypothesis translation)."""
-  # TODO: Does anyone care about Python2 compatibility?
-  ref_lines = open(ref_filename, 'rt', encoding='utf-8').read().splitlines()
-  hyp_lines = open(hyp_filename, 'rt', encoding='utf-8').read().splitlines()
+  ref_lines = open(ref_filename).read().splitlines()
+  hyp_lines = open(hyp_filename).read().splitlines()
   assert len(ref_lines) == len(hyp_lines)
   if not case_sensitive:
     ref_lines = [x.lower() for x in ref_lines]

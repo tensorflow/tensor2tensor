@@ -75,7 +75,7 @@ hooks in the `Problem` class and the model's `HParams` object (typically
 registered in the model's file and specified by the `--hparams_set` flag).
 
 The entire input pipeline is implemented with the new `tf.data.Dataset` API
-(previously `tf.contrib.data.Dataset`).
+(previously `tf.data.Dataset`).
 
 The key function in the codebase for the input pipeline is
 [`data_reader.input_pipeline`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/utils/data_reader.py).

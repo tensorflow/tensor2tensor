@@ -126,12 +126,9 @@ t2t-decoder \
   --output_dir=$TRAIN_DIR \
   --decode_hparams="beam_size=$BEAM_SIZE,alpha=$ALPHA" \
   --decode_from_file=$DECODE_FILE
-  --decode_to_file=translation.en
+
+cat $DECODE_FILE.$MODEL.$HPARAMS.beam$BEAM_SIZE.alpha$ALPHA.decodes
 ```
-
-# Eval BLEU
-
-t2t-bleu --translation=translation.en --reference=ref-translation.de
 
 ---
 
