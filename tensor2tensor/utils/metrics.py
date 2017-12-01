@@ -430,6 +430,13 @@ def create_evaluation_metrics(problems, model_hparams):
 
     def problem_metric_fn(predictions, features, labels):
       """Metric fn."""
+      labels = features.get("targets", None)
+      problem_choice = features.get("problem_choice", 0)
+
+      # (epurdy/fathom)
+      if isinstance(predictions, dict):
+        predictions = predictions['logits']
+      
       # Send along the entire features dict if the metric fn has the kwarg
       # "features".
       kwargs = {}
