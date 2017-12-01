@@ -32,7 +32,7 @@ from __future__ import print_function
 
 import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
-from gcloud.download_data import upload_file_to_gcs
+from gcloud.download_data import upload_to_gcs
 from gcloud.gcs_registry import get_gcs_location
 
 import os
@@ -198,7 +198,7 @@ def _upload_model_dir_to_gcs(dir_path:str, model_name:str) -> None:
   tar_name = "{}.tar.gz".format(model_name)
   location = get_gcs_location(namespace='T2T_MODELS',
           file_path=tar_name)
-  upload_file_to_gcs(location, dir_path)
+  upload_to_gcs(location, dir_path)
 
 
 def _pick_optimal_model() -> None:
