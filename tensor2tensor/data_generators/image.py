@@ -42,6 +42,8 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+from tensorflow.python.eager import context
+
 
 def resize_by_area(img, size):
   """image resize function used by quite a few image problems."""
@@ -463,6 +465,21 @@ class Img2imgImagenet(ImageProblem):
     p.target_space_id = 1
 
 
+def _encoded_images(images):
+  if context.in_eager_mode():
+    for image in images:
+      yield tf.image.encode_png(image).numpy()
+  else:
+    (width, height, channels) = images[0].shape
+    with tf.Graph().as_default():
+      image_t = tf.placeholder(dtype=tf.uint8, shape=(width, height, channels))
+      encoded_image_t = tf.image.encode_png(image_t)
+      with tf.Session() as sess:
+        for image in images:
+          enc_string = sess.run(encoded_image_t, feed_dict={image_t: image})
+          yield enc_string
+
+
 def image_generator(images, labels):
   """Generator for images that takes image and labels lists and creates pngs.
 
@@ -484,20 +501,15 @@ def image_generator(images, labels):
   """
   if not images:
     raise ValueError("Must provide some images for the generator.")
-  (width, height, channels) = images[0].shape
-  with tf.Graph().as_default():
-    image_t = tf.placeholder(dtype=tf.uint8, shape=(width, height, channels))
-    encoded_image_t = tf.image.encode_png(image_t)
-    with tf.Session() as sess:
-      for (image, label) in zip(images, labels):
-        enc_string = sess.run(encoded_image_t, feed_dict={image_t: image})
-        yield {
-            "image/encoded": [enc_string],
-            "image/format": ["png"],
-            "image/class/label": [int(label)],
-            "image/height": [height],
-            "image/width": [width]
-        }
+  width, height, _ = images[0].shape
+  for (enc_image, label) in zip(_encoded_images(images), labels):
+    yield {
+        "image/encoded": [enc_image],
+        "image/format": ["png"],
+        "image/class/label": [int(label)],
+        "image/height": [height],
+        "image/width": [width]
+    }
 
 
 # URLs and filenames for MNIST data.

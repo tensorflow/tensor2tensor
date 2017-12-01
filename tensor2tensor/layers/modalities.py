@@ -29,6 +29,8 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+from tensorflow.python.eager import context
+
 
 # TODO(noam): remove this function after TPUs do gather faster.
 def tpu_gather(params, indices):
@@ -96,7 +98,7 @@ class SymbolModality(modality.Modality):
     else:
       ret = tf.concat(shards, 0)
     # Convert ret to tensor.
-    if not self._model_hparams.use_eager_mode:
+    if not context.in_eager_mode():
       ret = eu.convert_gradient_to_tensor(ret)
     return ret
 
@@ -205,7 +207,7 @@ class ImageModality(modality.Modality):
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
       inputs = common_layers.standardize_images(inputs)
-      if not self._model_hparams.use_eager_mode:
+      if not context.in_eager_mode():
         tf.summary.image("inputs", inputs, max_outputs=2)
       return tf.to_float(inputs)
 
@@ -216,8 +218,7 @@ class ImageModality(modality.Modality):
           tf.to_int32(common_layers.flatten4d3d(inputs)),
           self.top_dimensionality,
           self._body_input_depth,
-          name="input_rgb_embedding",
-          use_eager_mode=self._model_hparams.use_eager_mode)
+          name="input_rgb_embedding")
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
 

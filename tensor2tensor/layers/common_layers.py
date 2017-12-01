@@ -32,6 +32,7 @@ from tensor2tensor.utils import expert_utils as eu
 
 import tensorflow as tf
 
+from tensorflow.python.eager import context as tfe_context
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops
 
@@ -200,8 +201,7 @@ def flatten4d3d(x):
   return result
 
 
-def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0,
-              use_eager_mode=False):
+def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0):
   """Embed x of type int64 into dense vectors, reducing to max 4 dimensions."""
   with tf.variable_scope(
       name, default_name="embedding", values=[x], reuse=reuse):
@@ -209,7 +209,7 @@ def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0,
     # On the backwards pass, we want to convert the gradient from
     # an indexed-slices to a regular tensor before sending it back to the
     # parameter server. This avoids excess computation on the parameter server.
-    if not use_eager_mode:
+    if not tfe_context.in_eager_mode():
       embedding_var = eu.convert_gradient_to_tensor(embedding_var)
     emb_x = tf.gather(embedding_var, x)
     if multiplier != 1.0:
@@ -1265,13 +1265,12 @@ def relu_density_logit(x, reduce_dims):
   return scaled
 
 
-def maybe_zero_out_padding(inputs, kernel_size, padding, nonpadding_mask):
+def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
   """If necessary, zero out inputs to a conv for padding positions.
 
   Args:
     inputs: a Tensor with shape [batch, length, ...]
     kernel_size: an integer or pair of integers
-    padding: a string, e.g. "SAME"
     nonpadding_mask: a Tensor with shape [batch, length]
 
   Returns:
@@ -1279,7 +1278,6 @@ def maybe_zero_out_padding(inputs, kernel_size, padding, nonpadding_mask):
   """
   if (kernel_size != 1 and
       kernel_size != (1, 1) and
-      padding == "SAME" and
       nonpadding_mask is not None):
     while nonpadding_mask.get_shape().ndims < inputs.get_shape().ndims:
       nonpadding_mask = tf.expand_dims(nonpadding_mask, -1)
@@ -1310,13 +1308,13 @@ def conv_relu_conv(inputs,
   """Hidden layer with RELU activation followed by linear projection."""
   with tf.variable_scope(name, "conv_relu_conv", [inputs]):
     inputs = maybe_zero_out_padding(
-        inputs, first_kernel_size, padding, nonpadding_mask)
+        inputs, first_kernel_size, nonpadding_mask)
     h = tpu_conv1d(inputs, filter_size, first_kernel_size, padding=padding,
                    name="conv1")
     h = tf.nn.relu(h)
     if dropout != 0.0:
       h = tf.nn.dropout(h, 1.0 - dropout)
-    h = maybe_zero_out_padding(h, second_kernel_size, padding, nonpadding_mask)
+    h = maybe_zero_out_padding(h, second_kernel_size, nonpadding_mask)
     return tpu_conv1d(h, output_size, second_kernel_size, padding=padding,
                       name="conv2")
 
@@ -1333,7 +1331,7 @@ def sepconv_relu_sepconv(inputs,
   """Hidden layer with RELU activation followed by linear projection."""
   with tf.variable_scope(name, "sepconv_relu_sepconv", [inputs]):
     inputs = maybe_zero_out_padding(
-        inputs, first_kernel_size, padding, nonpadding_mask)
+        inputs, first_kernel_size, nonpadding_mask)
     if inputs.get_shape().ndims == 3:
       is_3d = True
       inputs = tf.expand_dims(inputs, 2)
@@ -1344,7 +1342,7 @@ def sepconv_relu_sepconv(inputs,
         padding=padding, name="conv1")
     if dropout != 0.0:
       h = tf.nn.dropout(h, 1.0 - dropout)
-    h = maybe_zero_out_padding(h, second_kernel_size, padding, nonpadding_mask)
+    h = maybe_zero_out_padding(h, second_kernel_size, nonpadding_mask)
     ret = separable_conv(
         h, output_size, second_kernel_size, padding=padding, name="conv2")
     if is_3d:
