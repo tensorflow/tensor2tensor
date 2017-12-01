@@ -230,6 +230,9 @@ def model_fn(model,
     for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
       eval_metrics[metric_name] = metric_fn(logits, features)
 
+    # (epurdy/fathom)
+    logits = logits['logits']
+      
     return tf.estimator.EstimatorSpec(
         mode,
         predictions={"predictions": logits},
