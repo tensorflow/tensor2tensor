@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import contextlib
 import copy
 import time
 
@@ -36,7 +37,9 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+from tensorflow.python.eager import context
 from tensorflow.python.layers import base
+from tensorflow.python.ops import variable_scope
 
 
 class T2TModel(base.Layer):
@@ -101,6 +104,7 @@ class T2TModel(base.Layer):
     self._problem_hparams = problem_hparams
     self._problem_idx = problem_idx
     self._create_modalities(problem_hparams, self._hparams)
+    self._var_store = create_eager_var_store()
 
   @property
   def hparams(self):
@@ -210,26 +214,27 @@ class T2TModel(base.Layer):
     Returns:
        samples: an integer `Tensor`.
     """
-    # TODO(rsepassi): Make decoding work with real-valued model outputs
-    # (i.e. if the target modality is RealModality).
-    self.prepare_features_for_infer(features)
-    if not self.has_input and beam_size > 1:
-      tf.logging.warn("Beam searching for a model with no inputs.")
-    if not self.has_input and self.hparams.sampling_method != "random":
-      tf.logging.warn("Non-random sampling for a model with no inputs.")
-    self._fill_problem_hparams_features(features)
+    with self._var_store.as_default():
+      # TODO(rsepassi): Make decoding work with real-valued model outputs
+      # (i.e. if the target modality is RealModality).
+      self.prepare_features_for_infer(features)
+      if not self.has_input and beam_size > 1:
+        tf.logging.warn("Beam searching for a model with no inputs.")
+      if not self.has_input and self.hparams.sampling_method != "random":
+        tf.logging.warn("Non-random sampling for a model with no inputs.")
+      self._fill_problem_hparams_features(features)
 
-    target_modality = self.hparams.problems[self._problem_idx].target_modality
-    if target_modality.is_class_modality:
-      beam_size = 1  # No use to run beam-search for a single class.
-    if beam_size == 1:
-      tf.logging.info("Greedy Decoding")
-      samples, _, _ = self._greedy_infer(features, decode_length)
-    else:
-      tf.logging.info("Beam Decoding with beam size %d" % beam_size)
-      samples = self._beam_decode(
-          features, decode_length, beam_size, top_beams, alpha)
-    return samples
+      target_modality = self.hparams.problems[self._problem_idx].target_modality
+      if target_modality.is_class_modality:
+        beam_size = 1  # No use to run beam-search for a single class.
+      if beam_size == 1:
+        tf.logging.info("Greedy Decoding")
+        samples, _, _ = self._greedy_infer(features, decode_length)
+      else:
+        tf.logging.info("Beam Decoding with beam size %d" % beam_size)
+        samples = self._beam_decode(
+            features, decode_length, beam_size, top_beams, alpha)
+      return samples
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
     """Beam search decoding.
@@ -385,7 +390,7 @@ class T2TModel(base.Layer):
 
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
-      if not self.hparams.use_eager_mode:
+      if not context.in_eager_mode():
         recent_output.set_shape([None, None, None, 1])
       padded = tf.pad(recent_output, [[0, 0], [0, 1], [0, 0], [0, 0]])
       features["targets"] = padded
@@ -401,7 +406,7 @@ class T2TModel(base.Layer):
                              common_layers.shape_list(recent_output)[1], :, :]
       cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
       samples = tf.concat([recent_output, cur_sample], axis=1)
-      if not self.hparams.use_eager_mode:
+      if not context.in_eager_mode():
         samples.set_shape([None, None, None, 1])
 
       # Assuming we have one shard for logits.
@@ -433,7 +438,7 @@ class T2TModel(base.Layer):
     result = initial_output
     # tensor of shape [batch_size, time, 1, 1, vocab_size]
     logits = tf.zeros((batch_size, 0, 1, 1, target_modality.top_dimensionality))
-    if not self.hparams.use_eager_mode:
+    if not context.in_eager_mode():
       logits.set_shape([None, None, None, None, None])
     loss = 0.0
 
@@ -680,16 +685,17 @@ class T2TModel(base.Layer):
           tf.less(tf.random_uniform([]), prob), sampled_results,
           lambda: (sharded_logits, losses))
 
-    if not self.hparams.use_eager_mode:
+    if not context.in_eager_mode():
       tf.logging.info("This model_fn took %.3f sec." %
                       (time.time() - start_time))
     return sharded_logits, losses
 
   def call(self, inputs_dict, skip=False, force_full_predict=False):
-    self._fill_problem_hparams_features(inputs_dict)
-    sharded_logits, losses = self._model_fn(
-        inputs_dict, skip=skip, force_full_predict=force_full_predict)
-    return tf.concat(sharded_logits, 0), losses
+    with self._var_store.as_default():
+      self._fill_problem_hparams_features(inputs_dict)
+      sharded_logits, losses = self._model_fn(
+          inputs_dict, skip=skip, force_full_predict=force_full_predict)
+      return tf.concat(sharded_logits, 0), losses
 
   def model_fn_body_sharded(self, sharded_features):
     """Mixture-of-experts models will override this function.
@@ -715,7 +721,7 @@ class T2TModel(base.Layer):
           _with_timing(
               self.model_fn_body,
               "model_fn_body",
-              silent=self.hparams.use_eager_mode), datashard_to_features)
+              silent=context.in_eager_mode()), datashard_to_features)
       if isinstance(output, tuple):
         losses_sharded = output[1]
         if isinstance(losses_sharded[0], dict):
@@ -1052,3 +1058,17 @@ def _del_dict_nones(d):
   for k in list(d.keys()):
     if d[k] is None:
       del d[k]
+
+
+class DummyVariableStore(object):
+
+  @contextlib.contextmanager
+  def as_default(self):
+    yield
+
+
+def create_eager_var_store():
+  if context.in_eager_mode():
+    return variable_scope.EagerVariableStore()
+  else:
+    return DummyVariableStore()

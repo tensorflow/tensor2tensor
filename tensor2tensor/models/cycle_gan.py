@@ -66,11 +66,10 @@ def cycle_gan_internal(inputs, targets, _, hparams):
     # Embed inputs and targets.
     inputs_orig, targets_orig = tf.to_int32(inputs), tf.to_int32(targets)
     inputs = common_layers.embedding(
-        inputs_orig, hparams.vocab_size, hparams.hidden_size, "embed",
-        use_eager_mode=hparams.use_eager_mode)
+        inputs_orig, hparams.vocab_size, hparams.hidden_size, "embed")
     targets = common_layers.embedding(
         targets_orig, hparams.vocab_size, hparams.hidden_size,
-        "embed", reuse=True, use_eager_mode=hparams.use_eager_mode)
+        "embed", reuse=True)
 
     # Split the batch into input-input and target-target parts.
     inputs1, _ = split_on_batch(inputs)

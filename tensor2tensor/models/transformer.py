@@ -37,6 +37,7 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
+from tensorflow.python.eager import context
 from tensorflow.python.util import nest
 
 
@@ -324,7 +325,7 @@ class Transformer(t2t_model.T2TModel):
     # Note: Tensor.set_shape() does not work here since it merges shape info.
     # TODO(llion); Find a more robust solution.
     # pylint: disable=protected-access
-    if not self._hparams.use_eager_mode:
+    if not context.in_eager_mode():
       for layer in cache:
         cache[layer]["k"]._shape = tf.TensorShape([None, None, key_channels])
         cache[layer]["v"]._shape = tf.TensorShape([None, None, value_channels])
@@ -452,8 +453,7 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
         common_layers.shape_list(inputs)[1])
   # Append target_space_id embedding to inputs.
   emb_target_space = common_layers.embedding(
-      target_space, 32, ishape_static[-1], name="target_space_embedding",
-      use_eager_mode=hparams.use_eager_mode)
+      target_space, 32, ishape_static[-1], name="target_space_embedding")
   emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
   encoder_input += emb_target_space
   if hparams.pos == "timing":

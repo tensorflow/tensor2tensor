@@ -32,6 +32,7 @@ from tensor2tensor.utils import expert_utils as eu
 
 import tensorflow as tf
 
+from tensorflow.python.eager import context as tfe_context
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops
 
@@ -200,8 +201,7 @@ def flatten4d3d(x):
   return result
 
 
-def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0,
-              use_eager_mode=False):
+def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0):
   """Embed x of type int64 into dense vectors, reducing to max 4 dimensions."""
   with tf.variable_scope(
       name, default_name="embedding", values=[x], reuse=reuse):
@@ -209,7 +209,7 @@ def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0,
     # On the backwards pass, we want to convert the gradient from
     # an indexed-slices to a regular tensor before sending it back to the
     # parameter server. This avoids excess computation on the parameter server.
-    if not use_eager_mode:
+    if not tfe_context.in_eager_mode():
       embedding_var = eu.convert_gradient_to_tensor(embedding_var)
     emb_x = tf.gather(embedding_var, x)
     if multiplier != 1.0:
