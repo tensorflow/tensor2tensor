@@ -41,6 +41,19 @@ import tensorflow as tf
 from tensorflow.python.framework import dtypes
 
 
+def combine_shards(top_outputs):
+  """(Fathom) Combine the dicts that our modality tops emit, rather than
+  the tensors that standard T2T modality tops emit.
+
+  Args:
+      top_outputs: dict mapping strings to tensors
+  """
+  if len(top_outputs) == 1:
+    return top_outputs[0]
+
+  assert False, 'too lazy'
+
+
 def model_fn(model,
              features,
              mode,
@@ -157,7 +170,10 @@ def model_fn(model,
     with tf.control_dependencies(ops):  # Make sure the ops run.
       # Ensure the loss is a scalar here.
       total_loss = tf.reshape(total_loss, [], name="total_loss_control_id")
-    return [total_loss, tf.concat(sharded_logits, 0)]
+
+    logits = combine_shards(sharded_logits)
+
+    return [total_loss, logits]
 
   model_output = input_fn_builder.cond_on_index(
       nth_model,
