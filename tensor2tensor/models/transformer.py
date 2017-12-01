@@ -171,14 +171,9 @@ class Transformer(t2t_model.T2TModel):
     Raises:
       NotImplementedError: If there are multiple data shards.
     """
-    # TODO(nikip): Remove slow decoding for eager. Eager mode doesn't work
-    # with accessing _shape which is used in fast decoding currently.
-    if self._hparams.use_eager_mode:
-      return self._slow_greedy_infer(features, decode_length)
-    else:
-      with tf.variable_scope(self.name):
-        decoded_ids, _ = self._fast_decode(features, decode_length)
-        return decoded_ids, None, None
+    with tf.variable_scope(self.name):
+      decoded_ids, _ = self._fast_decode(features, decode_length)
+      return decoded_ids, None, None
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
     """Beam search decoding.
@@ -194,16 +189,10 @@ class Transformer(t2t_model.T2TModel):
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
     """
-    # TODO(nikip): Remove slow decoding for eager. Eager mode doesn't work
-    # with accessing _shape which is used in fast decoding currently.
-    if self._hparams.use_eager_mode:
-      return self._beam_decode_slow(
-          features, decode_length, beam_size, top_beams, alpha)
-    else:
-      with tf.variable_scope(self.name):
-        decoded_ids, scores = self._fast_decode(features, decode_length,
-                                                beam_size, top_beams, alpha)
-        return {"outputs": decoded_ids, "scores": scores}
+    with tf.variable_scope(self.name):
+      decoded_ids, scores = self._fast_decode(features, decode_length,
+                                              beam_size, top_beams, alpha)
+      return {"outputs": decoded_ids, "scores": scores}
 
   def _fast_decode(self,
                    features,
@@ -335,9 +324,10 @@ class Transformer(t2t_model.T2TModel):
     # Note: Tensor.set_shape() does not work here since it merges shape info.
     # TODO(llion); Find a more robust solution.
     # pylint: disable=protected-access
-    for layer in cache:
-      cache[layer]["k"]._shape = tf.TensorShape([None, None, key_channels])
-      cache[layer]["v"]._shape = tf.TensorShape([None, None, value_channels])
+    if not self._hparams.use_eager_mode:
+      for layer in cache:
+        cache[layer]["k"]._shape = tf.TensorShape([None, None, key_channels])
+        cache[layer]["v"]._shape = tf.TensorShape([None, None, value_channels])
     # pylint: enable=protected-access
     cache["encoder_output"] = encoder_output
     cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
