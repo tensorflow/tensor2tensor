@@ -46,7 +46,10 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("output_dir", "", "Training directory to load from.")
+flags.DEFINE_string("output_dir", "",
+                    "Training directory where the latest checkpoint is used.")
+flags.DEFINE_string("checkpoint_path", None,
+                    "Path to the model checkpoint. Overrides output_dir.")
 flags.DEFINE_string("decode_from_file", None,
                     "Path to the source file for decoding")
 flags.DEFINE_string("decode_to_file", None,
@@ -90,7 +93,7 @@ def main(_):
     decoding.decode_interactively(estimator, decode_hp)
   elif FLAGS.decode_from_file:
     decoding.decode_from_file(estimator, FLAGS.decode_from_file, decode_hp,
-                              FLAGS.decode_to_file)
+                              FLAGS.decode_to_file, checkpoint_path=FLAGS.checkpoint_path)
   else:
     decoding.decode_from_dataset(
         estimator,
