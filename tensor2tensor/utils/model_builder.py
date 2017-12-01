@@ -41,18 +41,20 @@ import tensorflow as tf
 from tensorflow.python.framework import dtypes
 
 
-def combine_shards(top_outputs):
+def combine_shards(sharded_top_outputs):
   """(Fathom) Combine the dicts that our modality tops emit, rather than
   the tensors that standard T2T modality tops emit.
 
   Args:
-      top_outputs: dict mapping strings to tensors
+      sharded_top_outputs: dict mapping strings to tensors
   """
-  if len(top_outputs) == 1:
-    return top_outputs[0]
+  assert len(sharded_top_outputs) >= 1
 
-  assert False, 'too lazy'
+  return_value = dict()
+  for k in sharded_top_outputs[0]:
+    return_value[k] = tf.concat([shard[k] for shard in sharded_top_outputs], 0)
 
+  return return_value
 
 def model_fn(model,
              features,
