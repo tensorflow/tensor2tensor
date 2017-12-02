@@ -38,6 +38,7 @@ class Metrics(object):
   """Available evaluation metrics."""
   # Entries here should match the keys in METRICS_FN below
   ACC = "accuracy"
+  ACC_OUTPUT = "accuracy_output"
   ACC_TOP5 = "accuracy_top5"
   ACC_PER_SEQ = "accuracy_per_sequence"
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
@@ -203,7 +204,22 @@ def padded_accuracy(predictions,
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
 
-def set_precision(predictions, labels,
+def padded_accuracy_outputs(predictions,
+                            labels,
+                            weights_fn=common_layers.weights_nonzero,
+                            outputs=None):
+  """Percentage of times that predictions (given by outputs) matches labels on non-0s."""
+  assert outputs is not None
+  with tf.variable_scope("padded_accuracy", values=[predictions, labels]):
+    padded_predictions, padded_labels = common_layers.pad_with_zeros(
+        predictions, labels)
+    weights = weights_fn(padded_labels)
+    padded_labels = tf.to_int32(padded_labels)
+    return tf.to_float(tf.equal(outputs, padded_labels)), weights
+  
+
+def set_precision(predictions,
+                  labels,
                   weights_fn=common_layers.weights_nonzero):
   """Precision of set predictions.
 
@@ -432,10 +448,6 @@ def create_evaluation_metrics(problems, model_hparams):
       """Metric fn."""
       labels = features.get("targets", None)
       problem_choice = features.get("problem_choice", 0)
-
-      # (epurdy/fathom)
-      if isinstance(predictions, dict):
-        predictions = predictions['logits']
       
       # Send along the entire features dict if the metric fn has the kwarg
       # "features".
@@ -444,7 +456,20 @@ def create_evaluation_metrics(problems, model_hparams):
       if ("features" in args) or keywords:
         kwargs["features"] = features
 
+<<<<<<< 530be245771bd0bc6a169788f260d76e617f80fd
       predictions, labels = reduce_dimensions(predictions, labels)
+=======
+      # (epurdy/fathom)
+      if isinstance(predictions, dict):
+        if 'outputs' in args or keywords:
+          kwargs['outputs'] = predictions['outputs']
+        logits = predictions['logits']
+      else:
+        logits = predictions  
+        
+      def wrapped_metric_fn():
+        return metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
+>>>>>>> An accuracy metric that works with CRF
 
       scores, weights = metric_fn(predictions, labels,
                                   weights_fn=weights_fn, **kwargs)
@@ -558,6 +583,7 @@ def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
 # The results are passed to tf.metrics.mean to accumulate properly.
 METRICS_FNS = {
     Metrics.ACC: padded_accuracy,
+    Metrics.ACC_OUTPUT: padded_accuracy_outputs,
     Metrics.ACC_TOP5: padded_accuracy_top5,
     Metrics.ACC_PER_SEQ: padded_sequence_accuracy,
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
