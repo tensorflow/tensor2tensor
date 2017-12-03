@@ -45,6 +45,10 @@ from tensorflow.python.util import nest
 class Transformer(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
+  def __init__(self, *args, **kwargs):
+    super(Transformer, self).__init__(*args, **kwargs)
+    self.attention_weights = dict()  # For vizualizing attention heads.
+
   def encode(self, inputs, target_space, hparams, features=None):
     """Encode transformer inputs.
 
@@ -73,7 +77,8 @@ class Transformer(t2t_model.T2TModel):
 
     encoder_output = transformer_encoder(
         encoder_input, self_attention_bias,
-        hparams, nonpadding=_features_to_nonpadding(features, "inputs"))
+        hparams, nonpadding=_features_to_nonpadding(features, "inputs"),
+        save_weights_to=self.attention_weights)
 
     return encoder_output, encoder_decoder_attention_bias
 
@@ -114,7 +119,8 @@ class Transformer(t2t_model.T2TModel):
         encoder_decoder_attention_bias,
         hparams,
         cache=cache,
-        nonpadding=nonpadding)
+        nonpadding=nonpadding,
+        save_weights_to=self.attention_weights)
 
     if hparams.use_tpu and hparams.mode == tf.estimator.ModeKeys.TRAIN:
       # TPU does not react kindly to extra dimensions.
@@ -507,7 +513,8 @@ def transformer_encoder(encoder_input,
                         encoder_self_attention_bias,
                         hparams,
                         name="encoder",
-                        nonpadding=None):
+                        nonpadding=None,
+                        save_weights_to=None):
   """A stack of transformer layers.
 
   Args:
@@ -522,6 +529,9 @@ def transformer_encoder(encoder_input,
       encoder_self_attention_bias.  The knowledge about padding is used
       for pad_remover(efficiency) and to mask out padding in convoltutional
       layers.
+    save_weights_to: an optional dictionary to capture attention weights
+      for vizualization; the weights tensor will be appended there under
+      a string key created from the variable scope (including name).
 
   Returns:
     y: a Tensors
@@ -551,6 +561,7 @@ def transformer_encoder(encoder_input,
               hparams.num_heads,
               hparams.attention_dropout,
               attention_type=hparams.self_attention_type,
+              save_weights_to=save_weights_to,
               max_relative_position=hparams.max_relative_position)
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
@@ -571,7 +582,8 @@ def transformer_decoder(decoder_input,
                         hparams,
                         cache=None,
                         name="decoder",
-                        nonpadding=None):
+                        nonpadding=None,
+                        save_weights_to=None):
   """A stack of transformer layers.
 
   Args:
@@ -590,6 +602,9 @@ def transformer_decoder(decoder_input,
       to mask out padding in convoltutional layers.  We generally only
       need this mask for "packed" datasets, because for ordinary datasets,
       no padding is ever followed by nonpadding.
+    save_weights_to: an optional dictionary to capture attention weights
+      for vizualization; the weights tensor will be appended there under
+      a string key created from the variable scope (including name).
 
   Returns:
     y: a Tensors
@@ -612,6 +627,7 @@ def transformer_decoder(decoder_input,
               hparams.num_heads,
               hparams.attention_dropout,
               attention_type=hparams.self_attention_type,
+              save_weights_to=save_weights_to,
               max_relative_position=hparams.max_relative_position,
               cache=layer_cache)
           x = common_layers.layer_postprocess(x, y, hparams)
@@ -624,7 +640,8 @@ def transformer_decoder(decoder_input,
                 hparams.attention_key_channels or hparams.hidden_size,
                 hparams.attention_value_channels or hparams.hidden_size,
                 hparams.hidden_size, hparams.num_heads,
-                hparams.attention_dropout)
+                hparams.attention_dropout,
+                save_weights_to=save_weights_to)
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
