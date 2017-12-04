@@ -144,6 +144,14 @@ class TranslateEnfrWmt32k(TranslateEnfrWmtSmall32k):
 
 
 @registry.register_problem
+class TranslateEnfrWmt32kPacked(TranslateEnfrWmt32k):
+
+  @property
+  def packed_length(self):
+    return 256
+
+
+@registry.register_problem
 class TranslateEnfrWmtSmallCharacters(translate.TranslateProblem):
   """Problem spec for WMT En-Fr translation."""
 
