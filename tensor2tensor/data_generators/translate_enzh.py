@@ -49,7 +49,7 @@ _ENZH_TRAIN_DATASETS = [[("http://data.statmt.org/wmt17/translation-task/"
 
 _ENZH_TEST_DATASETS = [[
     "http://data.statmt.org/wmt17/translation-task/dev.tgz",
-    ("dev/newsdev2017-enzh-src.en.sgm", "dev/newsdev2017-enzh-ref.zh.sgm")
+    ("dev/newsdev2017-zhen-src.en.sgm", "dev/newsdev2017-zhen-ref.zh.sgm")
 ]]
 
 
