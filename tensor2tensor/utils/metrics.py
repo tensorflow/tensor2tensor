@@ -198,9 +198,9 @@ def padded_accuracy_outputs(predictions,
                             outputs=None):
   """Percentage of times that predictions (given by outputs) matches labels on non-0s."""
   assert outputs is not None
-  with tf.variable_scope("padded_accuracy", values=[predictions, labels]):
-    padded_predictions, padded_labels = common_layers.pad_with_zeros(
-        predictions, labels)
+  with tf.variable_scope("padded_accuracy_outputs", values=[predictions, labels]):
+    padded_outputs, padded_labels = common_layers.pad_with_zeros(
+        outputs, labels)
     weights = weights_fn(padded_labels)
     padded_labels = tf.to_int32(padded_labels)
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
