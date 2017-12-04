@@ -32,19 +32,15 @@ from __future__ import print_function
 
 import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
-from fathomtf.services.model_management import (
-    upload_model_dir_to_gcs, upload_model_extra_to_gcs)
+from fathomtf.services.model_management import upload_model_to_gcs
 
 import os
-import time
-import shutil
 
 # Dependency imports
 
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_utils
 from tensor2tensor.utils import usr_dir
-from tensorflow.python.training import saver
 
 import tensorflow as tf
 
@@ -131,113 +127,13 @@ def main(_):
 
   if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None: 
     _pick_optimal_model()
+  dir_path, model_name = upload_model_to_gcs(FLAGS=FLAGS)
 
-  dir_path, model_name = _upload_model_to_gcs()
-
+  # NOTE: this must run LAST in the process, to make sure STDOUT is
+  # appropriately populated.
   xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path,
-                                  'model_name': model_name})
+                                  'gcs_subpath': model_name})
 
-
-def _upload_model_to_gcs() -> str:
-    """Upload a model to Google cloud storage.
-
-    Also checks for the following associated files and uploads,
-    if available:
-
-    * (TODO) Airflow pipeline yaml
-    * (TODO) targets vocab file
-    * (TODO) embedding file vocab??
-
-    Returns:
-       dir_path: local directory where saved model is stored
-       model_name: name to save model under in GCS
-    """
-    # assemble all checkpoint files for the checkpoint we want to use
-    checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)    
-    checkpoint_path = checkpoint_state.model_checkpoint_path
-    files = os.listdir(FLAGS.output_dir)
-    checkpoint_file = os.path.basename(checkpoint_path)
-    files = [x for x in files 
-             if x.startswith(
-                 checkpoint_file + '.')] + ['checkpoint']
-
-    # create a dir to export
-    dir_path = os.path.join(FLAGS.output_dir, 'export')
-      
-    # Remove dir if it exists. We create it first so that rmtree doesn't
-    # die if it doesn't exist. We could instead do a try-catch but this
-    # is nice because a) it's simple, and b) it still fails when rmtree
-    # is unable to delete the directory for some reason.
-    os.makedirs(dir_path, exist_ok=True)
-    shutil.rmtree(dir_path)
-    os.makedirs(dir_path, exist_ok=False)
-
-    # move all checkpoint files for the chosen checkpoint into dir
-    for path in files:
-        os.rename(os.path.join(FLAGS.output_dir, path),
-                  os.path.join(dir_path, path))
-
-    # Create a model name that includes both the model name and the
-    # timestamp
-    model_name = _model_name(model_type=FLAGS.model, 
-                             problem=FLAGS.problems,
-                             output_dir=FLAGS.output_dir)
-        
-    upload_location = upload_model_dir_to_gcs(dir_path, model_name)
-    
-    # now save airflow yaml
-    airflow_yaml = FLAGS.airflow_pipeline_yaml
-
-    print('UPLOADING', airflow_yaml)
-    upload_model_extra_to_gcs(model_name=model_name,
-                              source_path=airflow_yaml)
-
-    # lastly, save any vocab files
-    for_export = []
-    for problem_name in FLAGS.problems.split("-"):
-        problem = registry.problem(problem_name)
-        for_export += problem.file_flags_for_export_with_model()
-
-    print('EXPORTING', for_export)
-    for f in for_export:
-        to_export = FLAGS.__getattr__(f)
-        extension = os.path.splitext(to_export)[1]
-        if not extension.startswith('.'):
-            extension = ''
-        # probably the file should be named f ?  for ease of recovery?
-        upload_model_extra_to_gcs(model_name=model_name,
-                                  source_path=to_export,
-                                  gcs_filename=f+extension)
-
-
-    return dir_path, model_name
-
-def _model_name(model_type: str, 
-                problem: str,
-                output_dir: str) -> str:
-    """Creates a model name based on current time and model type
-
-    Args:
-    model_type: type of the model create (ie. blstm, cnn)
-    """
-    # remove the trailing slash if it is there
-    norm_output_dir = os.path.normpath(output_dir)
-
-    # get the last directory in the path
-    dirname = os.path.basename(norm_output_dir)
-
-    model_name = dirname
-
-    if FLAGS.description:
-        model_name = FLAGS.description + '_' + model_name
-
-    if FLAGS.debug_mode:
-        model_name = 'DEBUG_' + model_name
-
-    model_name = os.path.join(problem, model_type, model_name)
-
-    return model_name
-    
 
 def _pick_optimal_model() -> None:
     """Update the checkpoint so that it points to the best model that was
@@ -249,7 +145,7 @@ def _pick_optimal_model() -> None:
     works; i.e., we take the model that prevented early stopping from
     stopping before it did.
     """
-    checkpoint_state = saver.get_checkpoint_state(FLAGS.output_dir)
+    checkpoint_state = tf.train.get_checkpoint_state(FLAGS.output_dir)
     all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
 
     def extract_step(path):
@@ -289,7 +185,7 @@ def _pick_optimal_model() -> None:
 
     print('Early stopping chose checkpoint', checkpoint_path)
 
-    saver.update_checkpoint_state(
+    tf.train.update_checkpoint_state(
         FLAGS.output_dir,
         checkpoint_path,
         all_checkpoint_paths + [checkpoint_path])
