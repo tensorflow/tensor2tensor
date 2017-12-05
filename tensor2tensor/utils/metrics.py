@@ -202,6 +202,7 @@ def padded_accuracy_outputs(predictions,
     padded_outputs, padded_labels = common_layers.pad_with_zeros(
         outputs, labels)
     weights = weights_fn(padded_labels)
+    padded_outputs = tf.to_int32(padded_outputs)
     padded_labels = tf.to_int32(padded_labels)
     weights = tf.Print(weights, [weights], summarize=100, message='weights')
     return tf.to_float(tf.equal(padded_outputs, padded_labels)), weights
