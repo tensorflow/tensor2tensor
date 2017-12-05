@@ -72,19 +72,29 @@ def create_run_config(master="",
   return config
 
 
-def create_estimator(model_name, hparams, run_config, use_tpu=True):
+def create_estimator(model_name,
+                     hparams,
+                     run_config,
+                     schedule="train_and_evaluate",
+                     use_tpu=True):
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
       model_name, hparams, use_tpu=use_tpu)
 
   if use_tpu:
     batch_size = hparams.tpu_batch_size_per_shard
     batch_size *= run_config.tpu_config.num_shards
+    eval_batch_size = batch_size * 2
+    if schedule == "train":
+      # Estimator takes the presence of eval_batch_size as an indication that
+      # an eval is being performed, and complains about num_shards being too
+      # big.  So we have to eval_batch_size to None.
+      eval_batch_size = None
     return tf.contrib.tpu.TPUEstimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
         train_batch_size=batch_size,
-        eval_batch_size=batch_size * 2)
+        eval_batch_size=eval_batch_size)
   else:
     return tf.estimator.Estimator(
         model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
@@ -98,6 +108,7 @@ def create_experiment(run_config,
                       train_steps,
                       eval_steps,
                       min_eval_frequency,
+                      schedule="train_and_evaluate",
                       use_tpu=True):
   """Create Experiment."""
   # HParams
@@ -105,7 +116,8 @@ def create_experiment(run_config,
   trainer_utils.add_problem_hparams(hparams, problem_name)
 
   # Estimator
-  estimator = create_estimator(model_name, hparams, run_config, use_tpu=use_tpu)
+  estimator = create_estimator(
+      model_name, hparams, run_config, schedule, use_tpu=use_tpu)
 
   # Input fns from Problem
   problem = hparams.problem_instances[0]
