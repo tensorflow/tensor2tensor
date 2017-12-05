@@ -42,28 +42,125 @@ EOS = text_encoder.EOS_ID
 # This is far from being the real WMT17 task - only toyset here
 # you need to register to get UN data and CWT data. Also, by convention,
 # this is EN to ZH - use translate_enzh_wmt8k_rev for ZH to EN task
-_ENZH_TRAIN_DATASETS = [[("http://data.statmt.org/wmt17/translation-task/"
-                          "training-parallel-nc-v12.tgz"),
-                         ("training/news-commentary-v12.zh-en.en",
-                          "training/news-commentary-v12.zh-en.zh")]]
+#
+# News Commentary, around 220k lines
+# This dataset is only a small fraction of full WMT17 task
+_NC_TRAIN_DATASETS = [[
+        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",
+        ["training/news-commentary-v12.zh-en.en",
+            "training/news-commentary-v12.zh-en.zh"]]]
 
-_ENZH_TEST_DATASETS = [[
+# Test set from News Commentary. 2000 lines
+_NC_TEST_DATASETS = [[
     "http://data.statmt.org/wmt17/translation-task/dev.tgz",
-    ("dev/newsdev2017-zhen-src.en.sgm", "dev/newsdev2017-zhen-ref.zh.sgm")
+    ("dev/newsdev2017-enzh-src.en.sgm", "dev/newsdev2017-enzh-ref.zh.sgm")
 ]]
 
+# UN parallel corpus. 15,886,041 lines
+# NOTE: You need to register to download dataset from official source
+# place into tmp directory e.g. /tmp/t2t_datagen/dataset.tgz
+_UN_TRAIN_DATASETS = [[
+        "https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/UNv1.0.en-zh.tar.gz",
+        ["en-zh/UNv1.0.en-zh.en",
+            "en-zh/UNv1.0.en-zh.zh"]]]
+
+# CWMT corpus
+# 
+# casia2015: 1,050,000 lines
+# casict2015: 2,036,833 lines
+# datum2015:  1,000,003 lines
+# datum2017: 1,999,968 lines
+# NEU2017:  2,000,000 lines 
+#
+# NOTE: You need to register to download dataset from official source
+# place into tmp directory e.g. /tmp/t2t_datagen/dataset.tgz
+
+_CWMT_TRAIN_DATASETS = [
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/casia2015/casia2015_en.txt",
+            "cwmt/casia2015/casia2015_ch.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/casict2015/casict2015_en.txt",
+             "cwmt/casict2015/casict2015_ch.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/neu2017/NEU_en.txt",
+            "cwmt/neu2017/NEU_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2015/datum_en.txt",
+            "cwmt/datum2015/datum_ch.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book1_en.txt",
+            "cwmt/datum2017/Book1_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book2_en.txt",
+            "cwmt/datum2017/Book2_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book3_en.txt",
+            "cwmt/datum2017/Book3_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book4_en.txt",
+            "cwmt/datum2017/Book4_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book5_en.txt",
+            "cwmt/datum2017/Book5_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book6_en.txt",
+            "cwmt/datum2017/Book6_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book7_en.txt",
+            "cwmt/datum2017/Book7_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book8_en.txt",
+            "cwmt/datum2017/Book8_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book9_en.txt",
+            "cwmt/datum2017/Book9_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book10_en.txt",
+            "cwmt/datum2017/Book10_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book11_en.txt",
+            "cwmt/datum2017/Book11_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book12_en.txt",
+            "cwmt/datum2017/Book12_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book13_en.txt",
+            "cwmt/datum2017/Book13_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book14_en.txt",
+            "cwmt/datum2017/Book14_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book15_en.txt",
+            "cwmt/datum2017/Book15_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book16_en.txt",
+            "cwmt/datum2017/Book16_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book17_en.txt",
+            "cwmt/datum2017/Book17_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book18_en.txt",
+            "cwmt/datum2017/Book18_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book19_en.txt",
+            "cwmt/datum2017/Book19_cn.txt"]],
+    ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
+        ["cwmt/datum2017/Book20_en.txt",
+            "cwmt/datum2017/Book20_cn.txt"]]
+]
+
+
+def get_filename(dataset):
+  return dataset[0][0].split('/')[-1]
 
 @registry.register_problem
-class TranslateEnzhWmt8k(translate.TranslateProblem):
+class TranslateEnzhWmt(translate.TranslateProblem):
   """Problem spec for WMT En-Zh translation."""
 
   @property
   def targeted_vocab_size(self):
-    return 2**13  # 8192
-
-  @property
-  def num_shards(self):
-    return 10  # This is a small dataset.
+    return 2**15  # 32k
 
   @property
   def source_vocab_name(self):
@@ -72,17 +169,32 @@ class TranslateEnzhWmt8k(translate.TranslateProblem):
   @property
   def target_vocab_name(self):
     return "vocab.enzh-zh.%d" % self.targeted_vocab_size
+  
+  def get_training_dataset(self, tmp_dir):
+    """UN Parallel Corpus and CWMT Corpus need to be downloaded manually.
+    Append to training dataset if available
+    """
+    full_dataset = _NC_TRAIN_DATASETS
+    for dataset in [_CWMT_TRAIN_DATASETS, _UN_TRAIN_DATASETS]:
+      filename = get_filename(dataset)
+      tmp_filepath = os.path.join(tmp_dir, filename)
+      if tf.gfile.Exists(tmp_filepath):
+        full_dataset = full_dataset + dataset
+      else:
+        tf.logging.info("[TranslateEzhWmt] dataset incomplete, you need to manually download %s" % filename)
+    return full_dataset
 
   def generator(self, data_dir, tmp_dir, train):
-    datasets = _ENZH_TRAIN_DATASETS if train else _ENZH_TEST_DATASETS
-    source_datasets = [[item[0], [item[1][0]]] for item in _ENZH_TRAIN_DATASETS]
-    target_datasets = [[item[0], [item[1][1]]] for item in _ENZH_TRAIN_DATASETS]
+    TRAIN_DATASET = self.get_training_dataset(tmp_dir)
+    datasets = TRAIN_DATASET if train else _NC_TEST_DATASETS
+    source_datasets = [[item[0], [item[1][0]]] for item in TRAIN_DATASET]
+    target_datasets = [[item[0], [item[1][1]]] for item in TRAIN_DATASET]
     source_vocab = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, self.source_vocab_name, self.targeted_vocab_size,
-        source_datasets)
+        source_datasets, _file_byte_budget=1e8)
     target_vocab = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, self.target_vocab_name, self.targeted_vocab_size,
-        target_datasets)
+        target_datasets, _file_byte_budget=1e8)
     tag = "train" if train else "dev"
     data_path = translate.compile_data(tmp_dir, datasets,
                                        "wmt_enzh_tok_%s" % tag)
