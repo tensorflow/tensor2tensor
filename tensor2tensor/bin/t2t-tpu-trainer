@@ -77,6 +77,7 @@ def create_experiment_fn():
       FLAGS.train_steps,
       FLAGS.eval_steps,
       FLAGS.local_eval_frequency,
+      FLAGS.schedule,
       use_tpu=FLAGS.use_tpu)
 
 
@@ -88,7 +89,7 @@ def create_run_config():
       num_shards=FLAGS.tpu_num_shards,
       log_device_placement=FLAGS.log_device_placement,
       save_checkpoints_steps=max(FLAGS.iterations_per_loop,
-                                 FLAGS.local_eval_frequency),
+                                 FLAGS.local_eval_frequency) - 1,
       num_gpus=FLAGS.worker_gpu,
       gpu_order=FLAGS.gpu_order,
       shard_to_cpu=FLAGS.locally_shard_to_cpu,
