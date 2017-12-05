@@ -216,7 +216,7 @@ def padded_accuracy_outputs(predictions,
     weights = weights_fn(padded_labels)
     padded_outputs = tf.to_int32(padded_outputs)
     padded_labels = tf.to_int32(padded_labels)
-    weights = tf.Print(weights, [weights], summarize=100, message='weights')
+    padded_outputs = tf.to_int32(padded_outputs)
     return tf.to_float(tf.equal(padded_outputs, padded_labels)), weights
   
 
