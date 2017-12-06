@@ -98,9 +98,9 @@ def main(_):
       problem = registry.problem(problem_name)
       problem.generate_data(data_dir, tmp_dir)
 
-  #if FLAGS.debug_mode:
-  FLAGS.train_steps = 1
-  FLAGS.eval_steps = 1
+  if FLAGS.debug_mode:
+    FLAGS.train_steps = 1
+    FLAGS.eval_steps = 1
 
   # Run the trainer.
 
@@ -125,8 +125,8 @@ def main(_):
   else:
     run_experiment()
 
-  #if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None: 
-  #  _pick_optimal_model()
+  if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None: 
+    _pick_optimal_model()
 
   dir_path, model_name = _upload_model_to_gcs()
 
@@ -168,7 +168,7 @@ def _upload_model_to_gcs() -> str:
   # timestamp
   model_name = _model_name(FLAGS.model, FLAGS.output_dir)
     
-  #_upload_model_dir_to_gcs(dir_path, model_name)
+  _upload_model_dir_to_gcs(dir_path, model_name)
 
   return dir_path, model_name
 
