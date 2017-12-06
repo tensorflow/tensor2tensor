@@ -197,7 +197,7 @@ def _upload_model_dir_to_gcs(dir_path:str, model_name:str) -> None:
   """
   tar_name = "{}.tar.gz".format(model_name)
   location = get_gcs_location(namespace='T2T_MODELS',
-          file_path=tar_name)
+          path=tar_name)
   upload_to_gcs(location, dir_path)
 
 
