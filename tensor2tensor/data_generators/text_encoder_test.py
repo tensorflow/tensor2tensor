@@ -136,17 +136,17 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     # The substrings coded and coder are frequent enough in the corpus that
     # they should appear in the vocabulary even though they are substrings
     # of other included strings.
-    subtoken_strings = {encoder._all_subtoken_strings[i] for i in encoded}
+    subtoken_strings = {encoder.all_subtoken_strings[i] for i in encoded}
     self.assertIn("encoded_", subtoken_strings)
     self.assertIn("coded_", subtoken_strings)
-    self.assertIn("TextEncoder", encoder._all_subtoken_strings)
-    self.assertIn("coder", encoder._all_subtoken_strings)
+    self.assertIn("TextEncoder", encoder.all_subtoken_strings)
+    self.assertIn("coder", encoder.all_subtoken_strings)
 
     # Every character in the corpus should be in the encoders alphabet and
     # its subtoken vocabulary.
     self.assertTrue(alphabet.issubset(encoder._alphabet))
     for a in alphabet:
-      self.assertIn(a, encoder._all_subtoken_strings)
+      self.assertIn(a, encoder.all_subtoken_strings)
 
   def test_unicode(self):
     corpus = "Cat emoticons. \U0001F638 \U0001F639 \U0001F63A \U0001F63B"
@@ -156,7 +156,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
         100, token_counts, 2, 10)
 
     self.assertIn("\U0001F638", encoder._alphabet)
-    self.assertIn("\U0001F63B", encoder._all_subtoken_strings)
+    self.assertIn("\U0001F63B", encoder.all_subtoken_strings)
 
   def test_small_vocab(self):
     corpus = "The quick brown fox jumps over the lazy dog"
@@ -171,7 +171,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     # are encodable.
     self.assertTrue(alphabet.issubset(encoder._alphabet))
     for a in alphabet:
-      self.assertIn(a, encoder._all_subtoken_strings)
+      self.assertIn(a, encoder.all_subtoken_strings)
 
   def test_encodable_when_not_in_alphabet(self):
     corpus = "the quick brown fox jumps over the lazy dog"
@@ -187,7 +187,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     decoded = encoder.decode(encoded)
 
     self.assertEqual(original, decoded)
-    encoded_str = "".join(encoder._all_subtoken_strings[i] for i in encoded)
+    encoded_str = "".join(encoder.all_subtoken_strings[i] for i in encoded)
     self.assertIn("\\84;", encoded_str)
 
   @mock.patch.object(text_encoder, "_ESCAPE_CHARS", new=set("\\_;13579"))
@@ -213,7 +213,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
                         "and\n"
                         "of\n")
     encoder._load_from_file_object(vocab)
-    self.assertEqual(encoder._all_subtoken_strings, correct_vocab)
+    self.assertAllEqual(encoder.all_subtoken_strings, correct_vocab)
 
     # Test a vocab file with words wrapped in single quotes
     encoder = text_encoder.SubwordTextEncoder()
@@ -221,7 +221,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
                         "\"and\"\n"
                         "\"of\"\n")
     encoder._load_from_file_object(vocab)
-    self.assertEqual(encoder._all_subtoken_strings, correct_vocab)
+    self.assertAllEqual(encoder.all_subtoken_strings, correct_vocab)
 
   def test_reserved_token_chars_not_in_alphabet(self):
     corpus = "dog"
@@ -254,8 +254,8 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     new_encoder = text_encoder.SubwordTextEncoder(filename)
 
     self.assertEqual(encoder._alphabet, new_encoder._alphabet)
-    self.assertEqual(encoder._all_subtoken_strings,
-                     new_encoder._all_subtoken_strings)
+    self.assertEqual(encoder.all_subtoken_strings,
+                     new_encoder.all_subtoken_strings)
     self.assertEqual(encoder._subtoken_string_to_id,
                      new_encoder._subtoken_string_to_id)
     self.assertEqual(encoder._max_subtoken_len, new_encoder._max_subtoken_len)
@@ -274,8 +274,8 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     new_encoder = text_encoder.SubwordTextEncoder(filename)
 
     self.assertEqual(encoder._alphabet, new_encoder._alphabet)
-    self.assertEqual(encoder._all_subtoken_strings,
-                     new_encoder._all_subtoken_strings)
+    self.assertEqual(encoder.all_subtoken_strings,
+                     new_encoder.all_subtoken_strings)
     self.assertEqual(encoder._subtoken_string_to_id,
                      new_encoder._subtoken_string_to_id)
     self.assertEqual(encoder._max_subtoken_len, new_encoder._max_subtoken_len)
