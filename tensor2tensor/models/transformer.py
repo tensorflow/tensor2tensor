@@ -906,6 +906,20 @@ def transformer_small():
 
 
 @registry.register_hparams
+def transformer_g2p():
+  hparams = transformer_base()
+  hparams.num_hidden_layers = 2
+  hparams.hidden_size = 256
+  hparams.filter_size = 512
+  hparams.num_heads = 4
+  hparams.max_length = 30
+  hparams.eval_drop_long_sequences = True
+  hparams.min_length_bucket = 6
+  hparams.length_bucket_step = 1.5
+  return hparams
+
+
+@registry.register_hparams
 def transformer_l2():
   hparams = transformer_base()
   hparams.num_hidden_layers = 2
