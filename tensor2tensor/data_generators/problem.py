@@ -120,6 +120,21 @@ def preprocess_example_common(example, hparams, mode):
   return example
 
 
+def _file_num_records_cached(filename):
+  """Return the number of TFRecords in a file."""
+  # Cache the result, as this is expensive to compute
+  if filename in _file_num_records_cache:
+    return _file_num_records_cache[filename]
+  ret = 0
+  for _ in tf.python_io.tf_record_iterator(filename):
+    ret += 1
+  _file_num_records_cache[filename] = ret
+  return ret
+
+
+_file_num_records_cache = {}
+
+
 class Problem(object):
   """Problem base class. Specifies a T2T problem.
 
@@ -381,8 +396,15 @@ class Problem(object):
     data_files = tf.contrib.slim.parallel_reader.get_data_files(
         data_filepattern)
     if shuffle_files or shuffle_files is None and is_training:
+      # In addition to shuffling the list of file names, we skip a random
+      # fraction of the first file.  The skip is essential for synchronous
+      # highly-parallel training.  Otherwise, we have multiple replicas
+      # reading the same shard in lock-step.
+      num_skip = random.randint(0, _file_num_records_cached(data_files[0]))
       random.shuffle(data_files)
-    dataset = tf.data.TFRecordDataset(data_files)
+      dataset = tf.data.TFRecordDataset(data_files).skip(num_skip)
+    else:
+      dataset = tf.data.TFRecordDataset(data_files)
 
     def decode_record(record):
       """Serialized Example to dict of <feature name, Tensor>."""
