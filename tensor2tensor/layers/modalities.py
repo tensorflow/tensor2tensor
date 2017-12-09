@@ -49,10 +49,13 @@ class SymbolModality(modality.Modality):
   def top_dimensionality(self):
     return self._vocab_size
 
-  def _shard_weights_initializer(hidden_dim, **unused_args):
+  def _shard_weights_initializer(self, hidden_dim, shard_size, **unused_args):
       """
       """
-      return tf.random_normal_initializer(0.0, hidden_dim**-0.5)
+      initializer = tf.random_normal_initializer(0.0, hidden_dim**-0.5)
+      shape = [shard_size, hidden_dim]
+
+      return initializer, shape
 
   def _get_weights(self, hidden_dim=None):
     """Create or get concatenated embedding or softmax variable.
@@ -69,20 +72,24 @@ class SymbolModality(modality.Modality):
       shard_size = (self._vocab_size // num_shards) + (
           1 if i < self._vocab_size % num_shards else 0)
       var_name = "weights_%d" % i
+      initializer, shard_shape = self._shard_weights_initializer(
+          hidden_dim=hidden_dim,
+          index=i,
+          shard_size=shard_size)
       shards.append(
           tf.get_variable(
-              var_name, [shard_size, hidden_dim],
-              initializer=_shard_weights_initializer(
-                  hidden_dim=hidden_dim,
-                  index=i,
-                  shard_size=shard_size)
+              var_name,
+              shape=shard_shape,
+              initializer=initializer))
     if num_shards == 1:
       ret = shards[0]
     else:
       ret = tf.concat(shards, 0)
     # Convert ret to tensor.
-    if not context.in_eager_mode():
-      ret = eu.convert_gradient_to_tensor(ret)
+    # TODO: uncomment this when we re-base to newest t2t;
+    # our version doesn't currently have much of the, e.g., eager support.
+    #if not context.in_eager_mode():
+    ret = eu.convert_gradient_to_tensor(ret)
     return ret
 
   def bottom_simple(self, x, name, reuse):
