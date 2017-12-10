@@ -72,7 +72,7 @@ flags.DEFINE_string("schedule", "train_and_evaluate",
 flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
 flags.DEFINE_bool("profile", False, "Profile performance?")
 # NOTE: this is set as REQUIRED, in main()
-flags.DEFINE_string("airflow_pipeline_yaml", "",
+flags.DEFINE_string("airflow_pipeline_yaml", None,
     "For saving to assets.extra")
 flags.DEFINE_string("description", "", 
     "Description for this run.  Used in model name.  E.g., 'special_softmax'.")
