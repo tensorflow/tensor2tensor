@@ -565,6 +565,33 @@ def _extract_mnist_labels(filename, num_labels):
   return labels
 
 
+def mnist_common_generator(tmp_dir, training, how_many, data_filename,
+                           label_filename, start_from=0):
+  """Image generator for MNIST.
+
+  Args:
+    tmp_dir: path to temporary storage directory.
+    training: a Boolean; if true, we use the train set, otherwise the test set.
+    how_many: how many images and labels to generate.
+    data_filename: file that contains features data.
+    label_filename: file that contains labels.
+    start_from: from which image to start.
+
+  Returns:
+    An instance of image_generator that produces MNIST images.
+  """
+  data_path = os.path.join(tmp_dir, data_filename)
+  labels_path = os.path.join(tmp_dir, label_filename)
+  images = _extract_mnist_images(data_path, 60000 if training else 10000)
+  labels = _extract_mnist_labels(labels_path, 60000 if training else 10000)
+  # Shuffle the data to make sure classes are well distributed.
+  data = list(zip(images, labels))
+  random.shuffle(data)
+  images, labels = list(zip(*data))
+  return image_generator(images[start_from:start_from + how_many],
+                         labels[start_from:start_from + how_many])
+
+
 def mnist_generator(tmp_dir, training, how_many, start_from=0):
   """Image generator for MNIST.
 
@@ -580,16 +607,7 @@ def mnist_generator(tmp_dir, training, how_many, start_from=0):
   _get_mnist(tmp_dir)
   d = _MNIST_TRAIN_DATA_FILENAME if training else _MNIST_TEST_DATA_FILENAME
   l = _MNIST_TRAIN_LABELS_FILENAME if training else _MNIST_TEST_LABELS_FILENAME
-  data_path = os.path.join(tmp_dir, d)
-  labels_path = os.path.join(tmp_dir, l)
-  images = _extract_mnist_images(data_path, 60000 if training else 10000)
-  labels = _extract_mnist_labels(labels_path, 60000 if training else 10000)
-  # Shuffle the data to make sure classes are well distributed.
-  data = list(zip(images, labels))
-  random.shuffle(data)
-  images, labels = list(zip(*data))
-  return image_generator(images[start_from:start_from + how_many],
-                         labels[start_from:start_from + how_many])
+  return mnist_common_generator(tmp_dir, training, how_many, d, l, start_from)
 
 
 @registry.register_problem
@@ -627,6 +645,73 @@ class ImageMnist(ImageMnistTune):
       return mnist_generator(tmp_dir, True, 60000)
     else:
       return mnist_generator(tmp_dir, False, 10000)
+
+# URLs and filenames for MNIST data.
+_FASHION_MNIST_URL = ("http://fashion-mnist.s3-website.eu-central-1"
+                      ".amazonaws.com/")
+_FASHION_MNIST_LOCAL_FILE_PREFIX = "fashion-"
+_FASHION_MNIST_IMAGE_SIZE = 28
+
+
+def _get_fashion_mnist(directory):
+  """Download all FashionMNIST files to directory unless they are there."""
+  # Fashion mnist files have the same names as MNIST.
+  # We must choose a separate name (by adding 'fashion-' prefix) in the tmp_dir.
+  for filename in [
+      _MNIST_TRAIN_DATA_FILENAME, _MNIST_TRAIN_LABELS_FILENAME,
+      _MNIST_TEST_DATA_FILENAME, _MNIST_TEST_LABELS_FILENAME
+  ]:
+    generator_utils.maybe_download(directory,
+                                   _FASHION_MNIST_LOCAL_FILE_PREFIX + filename,
+                                   _FASHION_MNIST_URL + filename)
+
+
+def fashion_mnist_generator(tmp_dir, training, how_many, start_from=0):
+  """Image generator for FashionMNIST.
+
+  Args:
+    tmp_dir: path to temporary storage directory.
+    training: a Boolean; if true, we use the train set, otherwise the test set.
+    how_many: how many images and labels to generate.
+    start_from: from which image to start.
+
+  Returns:
+    An instance of image_generator that produces MNIST images.
+  """
+  _get_fashion_mnist(tmp_dir)
+  d = _FASHION_MNIST_LOCAL_FILE_PREFIX + (
+      _MNIST_TRAIN_DATA_FILENAME if training else _MNIST_TEST_DATA_FILENAME)
+  l = _FASHION_MNIST_LOCAL_FILE_PREFIX + (
+      _MNIST_TRAIN_LABELS_FILENAME if training else
+      _MNIST_TEST_LABELS_FILENAME)
+  return mnist_common_generator(tmp_dir, training, how_many, d, l, start_from)
+
+
+@registry.register_problem
+class ImageFashionMnist(Image2ClassProblem):
+  """Fashion MNIST."""
+
+  @property
+  def is_small(self):
+    return True
+
+  @property
+  def num_classes(self):
+    return 10
+
+  @property
+  def class_labels(self):
+    return [str(c) for c in range(self.num_classes)]
+
+  @property
+  def train_shards(self):
+    return 10
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return fashion_mnist_generator(tmp_dir, True, 60000)
+    else:
+      return fashion_mnist_generator(tmp_dir, False, 10000)
 
 
 # URLs and filenames for CIFAR data.
