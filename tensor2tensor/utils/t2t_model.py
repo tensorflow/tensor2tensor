@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import contextlib
 import copy
+import math
 import time
 
 # Dependency imports
@@ -691,6 +692,8 @@ class T2TModel(base.Layer):
     return sharded_logits, losses
 
   def call(self, inputs_dict, skip=False, force_full_predict=False):
+    tf.get_variable_scope().set_initializer(
+        optimize.get_variable_initializer(self.hparams))
     with self._var_store.as_default():
       self._fill_problem_hparams_features(inputs_dict)
       sharded_logits, losses = self._model_fn(
@@ -813,9 +816,8 @@ class T2TModel(base.Layer):
     problem = hparams.problem_instances[0]
 
     # Instantiate model
-    data_parallelism = (
-        eu.Parallelism([""])
-        if use_tpu else _create_data_parallelism(**config.t2t_device_info))
+    data_parallelism = _create_data_parallelism(
+        use_tpu=use_tpu, **config.t2t_device_info)
     model = cls(hparams, mode, data_parallelism=data_parallelism)
 
     # PREDICT mode
@@ -825,16 +827,19 @@ class T2TModel(base.Layer):
       return model.estimator_spec_predict(features, decode_hparams)
 
     # TRAIN and EVAL modes
-    logits, losses_dict = model(features)  # pylint: disable=not-callable
+    if hparams.eval_run_autoregressive and mode == tf.estimator.ModeKeys.EVAL:
+      logits, losses_dict = model.eval_autoregressive(features)
+    else:
+      logits, losses_dict = model(features)  # pylint: disable=not-callable
 
     # Set known shapes
-    # TODO(rsepassi): Add support for variable lengths and batch sizes
-    shape = logits.get_shape().as_list()
-    if shape[0] is None:
-      shape[0] = _get_batch_size(params, hparams, config)
-    if shape[1] is None:
-      shape[1] = hparams.max_length
-    logits.set_shape(shape)
+    if use_tpu:
+      shape = logits.get_shape().as_list()
+      if shape[0] is None:
+        shape[0] = _get_batch_size(params, hparams, config)
+      if shape[1] is None:
+        shape[1] = hparams.max_length
+      logits.set_shape(shape)
 
     # Accumulate losses
     assert "training" in losses_dict
@@ -847,11 +852,15 @@ class T2TModel(base.Layer):
 
     # TRAIN mode
     assert mode == tf.estimator.ModeKeys.TRAIN
-    return model.estimator_spec_train(loss, use_tpu=use_tpu)
+    num_async_replicas = (
+        1 if use_tpu else config.t2t_device_info["num_async_replicas"])
+    return model.estimator_spec_train(
+        loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
 
-  def estimator_spec_train(self, loss, use_tpu=False):
+  def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
     """Construct EstimatorSpec for TRAIN mode."""
     lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
+    lr /= math.sqrt(float(num_async_replicas))
     train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
 
     if use_tpu:
@@ -981,8 +990,15 @@ def _get_batch_size(params, hparams, config):
 def _create_data_parallelism(num_gpus=1,
                              gpu_order="",
                              shard_to_cpu=False,
-                             num_shards=1):
+                             num_shards=1,
+                             use_tpu=False,
+                             **kwargs):
   """Create Parallelism object."""
+  del kwargs
+
+  if use_tpu:
+    return eu.Parallelism([""])
+
   gpus = list(range(num_gpus))
   if gpu_order:
     gpus = [int(s) for s in gpu_order.split(" ")]

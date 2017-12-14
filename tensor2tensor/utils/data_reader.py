@@ -117,7 +117,7 @@ def input_pipeline(problem,
       dataset = dataset.shuffle(capacity)
       dataset = dataset.repeat(None)
 
-    bucket_id_fn = _example_length
+    bucket_id_fn = example_length
     if len(batching_scheme["boundaries"]) == 1:
       bucket_id_fn = lambda _: tf.constant(0)
 
@@ -129,14 +129,13 @@ def input_pipeline(problem,
         bucket_id_fn,
         batching_scheme["boundaries"],
         batching_scheme["batch_sizes"],
-        batching_scheme["window_size"],
         padded_shapes=batching_scheme["padded_shapes"])
 
     batched_examples = dataset.make_one_shot_iterator().get_next()
     return batched_examples
 
 
-def _example_length(example):
+def example_length(example):
   length = 0
   # Length of the example is the maximum length of the feature lengths
   for v in example.values():
@@ -148,7 +147,7 @@ def _example_length(example):
 
 
 def example_valid_size(example, min_length, max_length):
-  length = _example_length(example)
+  length = example_length(example)
   return tf.logical_and(
       length >= min_length,
       length <= max_length,
@@ -159,7 +158,6 @@ def bucket_by_sequence_length(dataset,
                               example_length_fn,
                               bucket_boundaries,
                               bucket_batch_sizes,
-                              window_size,
                               padded_shapes=None):
   """Bucket entries in dataset by length.
 
@@ -169,14 +167,12 @@ def bucket_by_sequence_length(dataset,
       the example, which will determine the bucket it goes into.
     bucket_boundaries: list<int>, boundaries of the buckets.
     bucket_batch_sizes: list<int>, batch size per bucket.
-    window_size: an integer divisible by all elements of bucket_batch_sizes
     padded_shapes: dict<feature name, list<int>>, optional, shapes of the
       features with None where feature should be padded to max in that dim.
 
   Returns:
     Dataset of padded and batched examples.
   """
-  del window_size
   with tf.name_scope("bucket_by_seq_length"):
 
     def example_to_bucket_id(example):
@@ -311,9 +307,7 @@ def _batching_scheme(batch_size,
       "min_length": min_length,
       "max_length": (max_length if drop_long_sequences else 10**9),
       "shuffle_queue_size": shuffle_queue_size,
-      "window_size": window_size,
   }
-  tf.logging.info("batching_scheme = %s" % ret)
   return ret
 
 
@@ -386,3 +380,14 @@ def serving_input_fn(problem, hparams):
 
   return tf.estimator.export.ServingInputReceiver(
       features=features, receiver_tensors=example)
+
+
+class DummyQueueRunner(object):
+  """Can stand-in for a QueueRunner but does nothing."""
+
+  def __init__(self):
+    pass
+
+  def create_threads(self, sess, coord=None, daemon=False, start=False):
+    del sess, coord, daemon, start
+    return []

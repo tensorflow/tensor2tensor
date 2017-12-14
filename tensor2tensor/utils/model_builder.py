@@ -24,7 +24,6 @@ import math
 
 # Dependency imports
 
-import numpy as np
 import six
 # pylint: disable=redefined-builtin
 from six.moves import xrange
@@ -38,7 +37,6 @@ from tensor2tensor.utils import optimize
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-from tensorflow.python.framework import dtypes
 
 
 def model_fn(model,
@@ -80,7 +78,8 @@ def model_fn(model,
   # TODO(rsepassi): This still depends on FLAGS. Rm eventually.
   dp = devices.data_parallelism(hparams)
 
-  tf.get_variable_scope().set_initializer(_get_variable_initializer(hparams))
+  tf.get_variable_scope().set_initializer(
+      optimize.get_variable_initializer(hparams))
   is_training = mode == tf.estimator.ModeKeys.TRAIN
 
   # Add input statistics for incoming features.
@@ -243,30 +242,6 @@ def model_fn(model,
                         tf.to_float(nth_steps) /
                         (tf.to_float(global_step) + 1.0))
 
-  # Add weight decay and noise.
-  total_size, weight_decay_loss = 0, 0.0
-  all_weights = {v.name: v for v in tf.trainable_variables()}
-  for v_name in sorted(list(all_weights)):
-    v = all_weights[v_name]
-    v_size = int(np.prod(np.array(v.shape.as_list())))
-    total_size += v_size
-    if hparams.weight_decay > 0.0 and len(v.shape.as_list()) > 1:
-      # Add weight regularization if set and the weight is not a bias (dim>1).
-      with tf.device(v._ref().device):  # pylint: disable=protected-access
-        v_loss = tf.nn.l2_loss(v) / v_size
-      weight_decay_loss += v_loss
-    is_body = len(v_name) > 5 and v_name[:5] == "body/"
-    if hparams.weight_noise > 0.0 and is_body:
-      # Add weight noise if set in hparams.
-      with tf.device(v._ref().device):  # pylint: disable=protected-access
-        scale = learning_rate * 0.001
-        noise = tf.truncated_normal(v.shape) * hparams.weight_noise * scale
-        noise_op = v.assign_add(noise)
-      with tf.control_dependencies([noise_op]):
-        total_loss = tf.identity(total_loss)
-  if hparams.weight_decay > 0.0:
-    total_loss += weight_decay_loss * hparams.weight_decay
-
   # The new data reader occasionally emits very small batches, which
   # cause the examples in those batches to be grossly overweighted.
   # We decrease the loss proportionally to the ratio of the size of this
@@ -283,13 +258,6 @@ def model_fn(model,
     small_batch_multiplier = targets_nonpadding_tokens / max_nonpadding
   tf.summary.scalar("small_batch_multiplier", small_batch_multiplier)
   total_loss *= small_batch_multiplier
-
-  # Log variable sizes
-  _log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
-  diet_vars = [
-      v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
-  ]
-  _log_variable_sizes(diet_vars, "Diet Variables")
 
   # Optimize
   train_op = optimize.optimize(total_loss, learning_rate, hparams)
@@ -334,41 +302,6 @@ def build_model_fn(model, **kwargs):
     return model_fn(model, features, mode, hparams, **kwargs)
 
   return wrapping_model_fn
-
-
-def _log_variable_sizes(var_list, tag):
-  """Log the sizes and shapes of variables, and the total size.
-
-  Args:
-    var_list: a list of varaibles
-    tag: a string
-  """
-  name_to_var = {v.name: v for v in var_list}
-  total_size = 0
-  for v_name in sorted(list(name_to_var)):
-    v = name_to_var[v_name]
-    v_size = int(np.prod(np.array(v.shape.as_list())))
-    tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
-                    v.name[:-2].ljust(80),
-                    str(v.shape).ljust(20), v_size)
-    total_size += v_size
-  tf.logging.info("%s Total size: %d", tag, total_size)
-
-
-def _get_variable_initializer(hparams):
-  if hparams.initializer == "orthogonal":
-    return tf.orthogonal_initializer(gain=hparams.initializer_gain)
-  elif hparams.initializer == "uniform":
-    max_val = 0.1 * hparams.initializer_gain
-    return tf.random_uniform_initializer(-max_val, max_val)
-  elif hparams.initializer == "normal_unit_scaling":
-    return tf.variance_scaling_initializer(
-        hparams.initializer_gain, mode="fan_avg", distribution="normal")
-  elif hparams.initializer == "uniform_unit_scaling":
-    return tf.variance_scaling_initializer(
-        hparams.initializer_gain, mode="fan_avg", distribution="uniform")
-  else:
-    raise ValueError("Unrecognized initializer: %s" % hparams.initializer)
 
 
 def _del_dict_nones(d):

@@ -116,6 +116,9 @@ def basic_params1():
       # If set to True, drop sequences longer than max_length during eval.
       # This affects the validity of the evaluation metrics.
       eval_drop_long_sequences=False,
+      # If True, run the model autoregressively instead of teacher-forcing
+      # during eval
+      eval_run_autoregressive=False,
       # TODO(lukaszkaiser): these parameters should probably be set elsewhere.
       # in SymbolModality, share the output embeddings and the softmax
       # variables.
