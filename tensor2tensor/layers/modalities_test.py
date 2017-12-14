@@ -22,6 +22,7 @@ from __future__ import print_function
 
 import numpy as np
 
+from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import expert_utils
 
@@ -36,14 +37,9 @@ class ModalityTest(tf.test.TestCase):
     length = 5
     vocab_size = 5000
     hidden_size = 9
-    model_hparams = tf.contrib.training.HParams(
-        symbol_modality_num_shards=4,
-        hidden_size=hidden_size,
-        multiply_embedding_mode="sqrt_depth",
-        symbol_modality_skip_top=0,
-        shared_embedding_and_softmax_weights=0,
-        prepend_mode="none",
-        use_tpu=False)
+    model_hparams = common_hparams.basic_params1()
+    model_hparams.hidden_size = hidden_size
+    model_hparams.mode = tf.estimator.ModeKeys.TRAIN
     x = -1 + np.random.random_integers(
         vocab_size, size=(batch_size, length, 1, 1))
     m = modalities.SymbolModality(model_hparams, vocab_size)
@@ -64,16 +60,9 @@ class ModalityTest(tf.test.TestCase):
     height = 7
     hidden_size = 9
     vocab_size = 11
-    model_hparams = tf.contrib.training.HParams(
-        symbol_modality_num_shards=4,
-        hidden_size=hidden_size,
-        label_smoothing=0.2,
-        symbol_modality_skip_top=0,
-        shared_embedding_and_softmax_weights=0,
-        factored_logits=0,
-        mode=tf.estimator.ModeKeys.TRAIN,
-        prepend_mode="none",
-        use_tpu=False)
+    model_hparams = common_hparams.basic_params1()
+    model_hparams.hidden_size = hidden_size
+    model_hparams.mode = tf.estimator.ModeKeys.TRAIN
     body_output = -1 + np.random.random_integers(
         100, size=(batch_size, length, height, hidden_size))
     targets = -1 + np.random.random_integers(
@@ -101,16 +90,10 @@ class ModalityTest(tf.test.TestCase):
     height = 7
     hidden_size = 9
     vocab_size = 11
-    model_hparams = tf.contrib.training.HParams(
-        symbol_modality_num_shards=4,
-        hidden_size=hidden_size,
-        label_smoothing=0.2,
-        symbol_modality_skip_top=0,
-        shared_embedding_and_softmax_weights=0,
-        factored_logits=1,
-        mode=tf.estimator.ModeKeys.TRAIN,
-        prepend_mode="none",
-        use_tpu=False)
+    model_hparams = common_hparams.basic_params1()
+    model_hparams.factored_logits = True
+    model_hparams.hidden_size = hidden_size
+    model_hparams.mode = tf.estimator.ModeKeys.TRAIN
     body_output = -1 + np.random.random_integers(
         100, size=(batch_size, length, height, hidden_size))
     targets = -1 + np.random.random_integers(

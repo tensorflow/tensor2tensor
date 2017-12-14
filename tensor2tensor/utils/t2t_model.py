@@ -615,10 +615,11 @@ class T2TModel(base.Layer):
       if not last_only:
         sharded_logits = target_modality.top_sharded(
             body_outputs, sharded_features["targets"], dp)
-        training_loss = target_modality.loss_sharded(
-            sharded_logits, sharded_features["targets"], dp)
-
-        training_loss *= self._problem_hparams.loss_multiplier
+        if "training" not in losses:
+          losses["training"] = (
+              target_modality.loss_sharded(
+                  sharded_logits, sharded_features["targets"], dp)
+              * self._problem_hparams.loss_multiplier)
       else:
         # Take body outputs for the last position only, and targets too.
         last_position_body_outputs = [
@@ -632,8 +633,7 @@ class T2TModel(base.Layer):
         sharded_logits = target_modality.top_sharded(last_position_body_outputs,
                                                      last_position_targets,
                                                      self._data_parallelism)
-        training_loss = None
-    losses["training"] = training_loss
+        losses["training"] = None
 
     # Scheduled sampling.
     do_scheduled_sampling = (  # Only do it if training and set for it.
@@ -672,10 +672,11 @@ class T2TModel(base.Layer):
           with tf.variable_scope(target_modality.name):
             new_sharded_logits = target_modality.top_sharded(
                 body_outputs, sharded_features["targets"], dp)
-            training_loss = target_modality.loss_sharded(
-                sharded_logits, sharded_features["targets"], dp)
-            training_loss *= self._problem_hparams.loss_multiplier
-          losses["training"] = training_loss
+            if "training" not in losses:
+              losses["training"] = (
+                  target_modality.loss_sharded(
+                      sharded_logits, sharded_features["targets"], dp)
+                  * self._problem_hparams.loss_multiplier)
         return new_sharded_logits, losses
 
       # Run the above conditionally.
@@ -752,7 +753,9 @@ class T2TModel(base.Layer):
     Returns:
       output: tensor of logits with shape [batch_size, O, P, body_output_size.
       losses: either single loss as a scalar, a list, a tensor (to be averaged)
-              or a dictionary of losses.
+              or a dictionary of losses.  If the dictionary contains the key
+              "training", this is interpreted as an override of the modality's
+              loss computation.
     """
     raise NotImplementedError("Abstract Method")
 

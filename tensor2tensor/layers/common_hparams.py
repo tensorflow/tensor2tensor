@@ -190,6 +190,8 @@ def basic_params1():
       # Set by tpu_trainer to let the model know whether we are on TPU.
       # Switching on/off tpu should not invalidate checkpoints.
       use_tpu=False,
+      # Set this for pure model parallelism.  There is only one data shard.
+      no_data_parallelism=False,
   )
 
 
