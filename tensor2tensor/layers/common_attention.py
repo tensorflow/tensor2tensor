@@ -3449,6 +3449,8 @@ def scaled_dot_product_attention_simple(q, k, v, bias, name=None):
     if bias is not None:
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
+    tf.summary.image(
+        "attention", tf.expand_dims(tf.pow(weights, 0.2), 3), max_outputs=1)
     return tf.matmul(weights, v)
 
 

@@ -240,6 +240,15 @@ def shift_right_3d(x, pad_value=None):
   return shifted_targets
 
 
+def shift_right_2d(x, pad_value=None):
+  """Shift the second dimension of x right by one."""
+  if pad_value is None:
+    shifted_targets = tf.pad(x, [[0, 0], [1, 0]])[:, :-1]
+  else:
+    shifted_targets = tf.concat([pad_value, x], axis=1)[:, :-1]
+  return shifted_targets
+
+
 def conv_stride2_multistep(x, nbr_steps, output_filters, name=None, reuse=None):
   """Use a strided convolution to downsample x by 2, `nbr_steps` times.
 
@@ -2343,3 +2352,135 @@ def ones_matrix_band_part(rows, cols, num_lower, num_upper, out_shape=None):
       band = tf.reshape(band, out_shape)
 
   return band
+
+
+def reshape_like_all_dims(a, b):
+  """Reshapes a to match the shape of b."""
+  ret = tf.reshape(a, tf.shape(b))
+  if not tfe_context.in_eager_mode():
+    ret.set_shape(b.get_shape())
+  return ret
+
+
+def reduce_by_device(parallelism, data, reduce_fn):
+  """Reduces data per device.
+
+  This can be useful, for example, if we want to all-reduce n tensors on k<n
+  devices (like during eval when we have only one device).  We call
+  reduce_by_device() to first sum the tensors per device, then call our usual
+  all-reduce operation to create one sum per device, followed by
+  expand_by_device, to create the appropriate number of pointers to these
+  results.  See all_reduce_ring() below for an example of how this is used.
+
+  Args:
+    parallelism: a expert_utils.Parallelism object
+    data: a list of Tensors with length parallelism.n
+    reduce_fn: a function taking a list of Tensors.  e.g. tf.add_n
+
+  Returns:
+    device_parallelism: a Parallelism object with each device listed only once.
+    reduced_data: A list of Tensors, one per device.
+  """
+  unique_devices = []
+  device_to_data = {}
+  for dev, datum in zip(parallelism.devices, data):
+    if dev not in device_to_data:
+      unique_devices.append(dev)
+      device_to_data[dev] = [datum]
+    else:
+      device_to_data[dev].append(datum)
+  device_parallelism = eu.Parallelism(unique_devices)
+  grouped_data = [device_to_data[dev] for dev in unique_devices]
+  return device_parallelism, device_parallelism(reduce_fn, grouped_data)
+
+
+def expand_by_device(original_parallelism, device_parallelism, data):
+  """Opposite of reduce_by_device().
+
+  Args:
+    original_parallelism: a expert_utils.Parallelism object.
+    device_parallelism: a expert_utils.Parallelism object.
+    data: a list of tensors with length device_parallelism.n
+
+  Returns:
+    a list of Tensors with length original_parallelism.n
+  """
+  device_to_datum = {
+      device_parallelism.devices[i]: data[i]
+      for i in xrange(device_parallelism.n)}
+  return [device_to_datum[d] for d in original_parallelism.devices]
+
+
+def all_reduce_ring(x, parallelism, maybe_reduce=True, use_bfloat16=True):
+  """Compute the sum of all Tensors and put the result everywhere.
+
+  Assumes that the devices are connected in a ring.
+
+  Args:
+    x: a list of Tensors with length parallelism.n
+    parallelism: a expert_utils.Parallelism object.
+    maybe_reduce: a boolean - first reduce per device.
+    use_bfloat16: a boolean - saves bandwidth but loses precision
+
+  Returns:
+    a list of Tensors with length parallelism.n
+  """
+  if parallelism.n == 1:
+    return x
+
+  if maybe_reduce:
+    original_parallelism = parallelism
+    parallelism, x = reduce_by_device(parallelism, x, tf.add_n)
+
+  if parallelism.n == 1:
+    y = x
+  else:
+    # first shard the input:
+    x_flat = parallelism(tf.reshape, x, [[-1]] * parallelism.n)
+    # [device, shard]
+    x_split = parallelism(approximate_split, x_flat, parallelism.n, 0)
+    def _step(source_replica, target_replica, x_split, op="plus_eq"):
+      """Helper function - one step of summing or copying.
+
+      If op == "plus_eq", then adds source_replica into target_replica
+      If op == "copy", then copies source_replica onto target_replica
+
+      These operations happen for all shards.  The replica numbers are offset
+      by the shard numbers to keep all physical links busy.
+
+      Args:
+        source_replica: an integer
+        target_replica: an integer
+        x_split: a list of lists of tensors
+        op: a string
+      """
+      for shard in xrange(parallelism.n):
+        source_device = (shard + source_replica) % parallelism.n
+        target_device = (shard + target_replica) % parallelism.n
+        source = x_split[source_device][shard]
+        if use_bfloat16:
+          with tf.device(parallelism.devices[source_device]):
+            source = tf.to_bfloat16(source)
+        with tf.device(parallelism.devices[target_device]):
+          source = tf.to_float(source)
+          if op == "plus_eq":
+            x_split[target_device][shard] += source
+          else:
+            assert op == "copy"
+            x_split[target_device][shard] = tf.identity(source)
+    center = parallelism.n // 2
+    # accumulate everything towards the center.
+    for i in range(center, parallelism.n - 1)[::-1]:
+      _step(i + 1, i, x_split, op="plus_eq")
+    for i in xrange(center):
+      _step(i, i + 1, x_split, op="plus_eq")
+    # copy everything away from the center.
+    for i in xrange(center, parallelism.n - 1):
+      _step(i, i + 1, x_split, op="copy")
+    for i in range(center)[::-1]:
+      _step(i + 1, i, x_split, op="copy")
+    x_concat = parallelism(tf.concat, x_split, 0)
+    y = parallelism(reshape_like_all_dims, x_concat, x)
+  if maybe_reduce:
+    y = expand_by_device(original_parallelism, parallelism, y)
+  return y

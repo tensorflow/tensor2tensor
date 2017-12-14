@@ -101,7 +101,8 @@ def data_parallelism(hparams, all_workers=False):
   Returns:
     a expert_utils.Parallelism.
   """
-
+  if hparams.no_data_parallelism:
+    return eu.Parallelism([""])
   def _replica_device_setter(worker_device):
     if FLAGS.ps_replicas == 0:
       return worker_device
