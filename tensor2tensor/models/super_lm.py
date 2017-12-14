@@ -53,7 +53,7 @@ def _embedding(inputs, vocab_size, dense_size):
 class SuperLM(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
-  def model_fn_body(self, features):
+  def body(self, features):
     # Remove dropout if not training
     hparams = self._hparams
     ps_devices = self._ps_devices

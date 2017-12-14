@@ -469,7 +469,7 @@ class TransformerAE(t2t_model.T2TModel):
   def has_input(self):
     return self._problem_hparams.input_modality
 
-  def model_fn_body(self, features):
+  def body(self, features):
     inputs = features["inputs"] if "inputs" in features else None
     if self._hparams.drop_inputs:
       inputs = None
@@ -521,7 +521,7 @@ class TransformerAE(t2t_model.T2TModel):
                                 dtype=tf.int64)
 
     features["targets"] = initial_output
-    logits, _ = self(features, skip=False, force_full_predict=True)  # pylint: disable=not-callable
+    logits, _ = self(features)  # pylint: disable=not-callable
     samples = tf.argmax(logits, axis=-1)
 
     if inputs_old is not None:  # Restore to not confuse Estimator.
@@ -563,6 +563,7 @@ def transformer_ae_small():
   hparams.add_hparam("bit_vae", True)
   hparams.add_hparam("beta", 0.25)
   hparams.kl_warmup_steps = 150000
+  hparams.force_full_predict = True
   return hparams
 
 

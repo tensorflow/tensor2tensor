@@ -58,7 +58,7 @@ def neural_gpu_body(inputs, hparams, name=None):
 @registry.register_model
 class NeuralGPU(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     return neural_gpu_body(features["inputs"], self._hparams)
 
 
@@ -93,7 +93,7 @@ def diagonal_neural_gpu(inputs, hparams, name=None):
 @registry.register_model
 class DiagonalNeuralGPU(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     return diagonal_neural_gpu(features["inputs"], self._hparams)
 
 

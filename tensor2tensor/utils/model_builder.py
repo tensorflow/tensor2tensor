@@ -118,6 +118,7 @@ def model_fn(model,
           decode_length=decode_hp.extra_length)
     # In distributed mode, we build graph for problem=0 and problem=worker_id.
     skipping_is_on = hparams.problem_choice == "distributed" and is_training
+    del skipping_is_on
     problem_worker_id = worker_id % len(hparams.problems)
     skip_this_one = n != 0 and n % worker_replicas != problem_worker_id
     # On worker 0 also build graph for problems <= 1.
@@ -126,8 +127,7 @@ def model_fn(model,
     if eval_run_autoregressive and mode == tf.estimator.ModeKeys.EVAL:
       logits, losses_dict = model_class.eval_autoregressive(features)
     else:
-      logits, losses_dict = model_class(
-          features, skip=(skipping_is_on and skip_this_one))
+      logits, losses_dict = model_class(features)
     with tf.variable_scope("losses_avg"):
       total_loss, ops = 0.0, []
       for loss_key, loss_value in six.iteritems(losses_dict):

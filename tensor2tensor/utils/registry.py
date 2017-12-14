@@ -260,7 +260,11 @@ def problem(name):
   base_name, was_reversed, was_copy = parse_problem_name(name)
 
   if base_name not in _PROBLEMS:
-    raise LookupError("Problem %s never registered." % name)
+    all_problem_names = sorted(list_problems())
+    error_lines = ["%s not in the set of supported problems:" % base_name
+                  ] + all_problem_names
+    error_msg = "\n  * ".join(error_lines)
+    raise LookupError(error_msg)
   return _PROBLEMS[base_name](was_reversed, was_copy)
 
 

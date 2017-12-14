@@ -138,7 +138,7 @@ def xception_exit(inputs):
 @registry.register_model
 class Xception(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     return xception_internal(features["inputs"], self._hparams)
 
 

@@ -161,13 +161,13 @@ transformed_features["inputs"] = input_modality.bottom(
 transformed_features["targets"] = target_modality.targets_bottom(
     features["targets"])  # for autoregressive models
 
-body_outputs = model.model_fn_body(transformed_features)
+body_outputs = model.body(transformed_features)
 
 predictions = target_modality.top(body_outputs, features["targets"])
 loss = target_modality.loss(predictions, features["targets"])
 ```
 
-Most `T2TModel`s only override `model_fn_body`.
+Most `T2TModel`s only override `body`.
 
 ## Training, Eval, Inference modes
 

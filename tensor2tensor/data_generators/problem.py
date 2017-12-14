@@ -504,7 +504,6 @@ class Problem(object):
                        "used in tpu_trainer.")
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     num_threads = 4 if is_training else 1
-    batch_size = _get_batch_size(params, hparams, config)
 
     def tpu_valid_size(example):
       return data_reader.example_valid_size(example, hparams.min_length,
@@ -535,7 +534,7 @@ class Problem(object):
         # Ensure batch size is set on all features
         for _, t in six.iteritems(example):
           shape = t.get_shape().as_list()
-          shape[0] = batch_size
+          shape[0] = params["batch_size"]
           t.set_shape(t.get_shape().merge_with(shape))
           # Assert shapes are fully known
           t.get_shape().assert_is_fully_defined()
@@ -553,8 +552,14 @@ class Problem(object):
 
     # Batching
     if _are_shapes_fully_defined(dataset.output_shapes):
-      dataset = dataset.apply(
-          tf.contrib.data.batch_and_drop_remainder(batch_size))
+      # Static shape features (e.g. images)
+      if config.use_tpu:
+        tpu_batch_size = params["batch_size"]
+        dataset = dataset.apply(
+            tf.contrib.data.batch_and_drop_remainder(tpu_batch_size))
+      else:
+        num_shards = config.t2t_device_info["num_shards"]
+        dataset = dataset.batch(hparams.batch_size * num_shards)
     else:
       # Variable length features
       if config.use_tpu:
@@ -563,8 +568,8 @@ class Problem(object):
         padded_shapes = _fill_shape_nones(
             dataset.output_shapes, none_filler=hparams.max_length)
         dataset = dataset.apply(
-            tf.contrib.data.padded_batch_and_drop_remainder(batch_size,
-                                                            padded_shapes))
+            tf.contrib.data.padded_batch_and_drop_remainder(
+                params["batch_size"], padded_shapes))
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
@@ -572,6 +577,9 @@ class Problem(object):
             hparams,
             shard_multiplier=config.t2t_device_info["num_shards"],
             length_multiplier=self.get_hparams().batch_size_multiplier)
+        if hparams.use_fixed_batch_size:
+          batching_scheme["batch_sizes"] = [hparams.batch_size]
+          batching_scheme["boundaries"] = []
         dataset = data_reader.bucket_by_sequence_length(
             dataset,
             data_reader.example_length,
@@ -866,22 +874,6 @@ def _are_shapes_fully_defined(shapes_dict):
     if not shape.is_fully_defined():
       return False
   return True
-
-
-def _get_batch_size(params, hparams, config):
-  """Batch size determined by params dict, HParams, and RunConfig."""
-  # If params specifies batch size, use that. TPUEstimator passes batch size in
-  # params.
-  batch_size = params and params.get("batch_size")
-
-  # If not set, then we're running on CPU/GPU, so use the batch size from the
-  # hparams, and multiply by the number of data shards.
-  if not batch_size:
-    batch_size = hparams.tpu_batch_size_per_shard
-    if config:
-      batch_size *= config.t2t_device_info["num_shards"]
-
-  return batch_size
 
 
 def _fill_shape_nones(shapes_dict, none_filler=None):

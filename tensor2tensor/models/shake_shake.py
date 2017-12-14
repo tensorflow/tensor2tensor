@@ -98,7 +98,7 @@ class ShakeShake(t2t_model.T2TModel):
   "Shake-Shake-Batch" in Table 1.
   """
 
-  def model_fn_body(self, features):
+  def body(self, features):
     hparams = self._hparams
     inputs = features["inputs"]
     assert (hparams.num_hidden_layers - 2) % 6 == 0
