@@ -93,6 +93,7 @@ def create_run_config():
       num_gpus=FLAGS.worker_gpu,
       gpu_order=FLAGS.gpu_order,
       shard_to_cpu=FLAGS.locally_shard_to_cpu,
+      num_async_replicas=FLAGS.worker_replicas,
       use_tpu=FLAGS.use_tpu)
 
 

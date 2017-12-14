@@ -26,17 +26,24 @@ from tensor2tensor.utils import yellowfin
 
 import tensorflow as tf
 
+from tensorflow.python.framework import dtypes
 
 
 def optimize(loss, learning_rate, hparams, use_tpu=False):
   """Minimize loss."""
+  loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
+  log_variable_sizes()
+  diet_vars = [
+      v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
+  ]
+  log_variable_sizes(diet_vars, "Diet Variables")
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
-  opt_summaries = ["learning_rate", "loss"]
+  opt_summaries = ["learning_rate", "loss", "gradient_norm"]
   if hparams.summarize_grads:
-    opt_summaries.extend(["gradients", "gradient_norm"])
+    opt_summaries.extend(["gradients"])
   train_op = tf.contrib.layers.optimize_loss(
       name="training",
       loss=loss,
@@ -141,3 +148,104 @@ def learning_rate_decay(hparams, num_worker_replicas=1, num_train_steps=1):
     raise ValueError("Unrecognized learning rate decay scheme: %s" %
                      hparams.learning_rate_decay_scheme)
   return tf.where(step < warmup_steps, inv_decay, decay)
+
+
+def weight_decay_and_noise(loss, hparams, learning_rate, var_list=None):
+  """Apply weight decay and weight noise."""
+  if var_list is None:
+    var_list = tf.trainable_variables()
+
+  decay_vars = [v for v in var_list if len(v.shape.as_list()) > 1]
+  noise_vars = [v for v in var_list if "/body/" in v.name]
+
+  weight_decay_loss = weight_decay(hparams.weight_decay, decay_vars)
+  tf.summary.scalar("weight_decay_loss", weight_decay_loss)
+  weight_noise_ops = weight_noise(hparams.weight_noise, learning_rate,
+                                  noise_vars)
+
+  with tf.control_dependencies(weight_noise_ops):
+    loss = tf.identity(loss)
+
+  loss += weight_decay_loss
+  return loss
+
+
+def weight_noise(noise_rate, learning_rate, var_list):
+  """Apply weight noise to vars in var_list."""
+  if not noise_rate:
+    return [tf.no_op()]
+
+  noise_ops = []
+
+  for v in var_list:
+    with tf.device(v._ref().device):  # pylint: disable=protected-access
+      scale = noise_rate * learning_rate * 0.001
+      tf.summary.scalar("weight_noise_scale", scale)
+      noise = tf.truncated_normal(v.shape) * scale
+      noise_op = v.assign_add(noise)
+      noise_ops.append(noise_op)
+
+  return noise_ops
+
+
+def weight_decay(decay_rate, var_list):
+  """Apply weight decay to vars in var_list."""
+  if not decay_rate:
+    return 0.
+
+  weight_decays = []
+  for v in var_list:
+    v_size = int(np.prod(np.array(v.shape.as_list())))
+
+    # Weight decay
+    is_bias = len(v.shape.as_list()) <= 1
+    if not is_bias:
+      with tf.device(v._ref().device):  # pylint: disable=protected-access
+        v_loss = tf.nn.l2_loss(v) / v_size
+      weight_decays.append(v_loss)
+
+  return tf.add_n(weight_decays) * decay_rate
+
+
+def log_variable_sizes(var_list=None, tag=None):
+  """Log the sizes and shapes of variables, and the total size.
+
+  Args:
+    var_list: a list of varaibles; defaults to trainable_variables
+    tag: a string; defaults to "Trainable Variables"
+  """
+  if var_list is None:
+    var_list = tf.trainable_variables()
+  if tag is None:
+    tag = "Trainable Variables"
+
+  if not var_list:
+    return
+
+  name_to_var = {v.name: v for v in var_list}
+  total_size = 0
+  for v_name in sorted(list(name_to_var)):
+    v = name_to_var[v_name]
+    v_size = int(np.prod(np.array(v.shape.as_list())))
+    tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
+                    v.name[:-2].ljust(80),
+                    str(v.shape).ljust(20), v_size)
+    total_size += v_size
+  tf.logging.info("%s Total size: %d", tag, total_size)
+
+
+def get_variable_initializer(hparams):
+  """Get variable initializer from hparams."""
+  if hparams.initializer == "orthogonal":
+    return tf.orthogonal_initializer(gain=hparams.initializer_gain)
+  elif hparams.initializer == "uniform":
+    max_val = 0.1 * hparams.initializer_gain
+    return tf.random_uniform_initializer(-max_val, max_val)
+  elif hparams.initializer == "normal_unit_scaling":
+    return tf.variance_scaling_initializer(
+        hparams.initializer_gain, mode="fan_avg", distribution="normal")
+  elif hparams.initializer == "uniform_unit_scaling":
+    return tf.variance_scaling_initializer(
+        hparams.initializer_gain, mode="fan_avg", distribution="uniform")
+  else:
+    raise ValueError("Unrecognized initializer: %s" % hparams.initializer)

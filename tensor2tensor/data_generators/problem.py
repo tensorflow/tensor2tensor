@@ -480,13 +480,14 @@ class Problem(object):
     return features
 
   def make_estimator_input_fn(self, mode, hparams):
+    """Return input_fn wrapped for Estimator."""
 
     def estimator_input_fn(params, config):
-      return self.input_pipeline(mode, hparams, params=params, config=config)
+      return self.input_fn(mode, hparams, params=params, config=config)
 
     return estimator_input_fn
 
-  def input_pipeline(self, mode, hparams, params=None, config=None):
+  def input_fn(self, mode, hparams, params=None, config=None):
     """Builds input pipeline for problem.
 
     Args:
@@ -498,16 +499,23 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
-    tf.logging.warning("Problem.input_pipeline implements a subset of "
+    tf.logging.warning("Problem.input_fn implements a subset of "
                        "input_fn_builder.build_input_fn and is currently only "
                        "used in tpu_trainer.")
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     num_threads = 4 if is_training else 1
     batch_size = _get_batch_size(params, hparams, config)
 
-    def valid_size(example):
+    def tpu_valid_size(example):
       return data_reader.example_valid_size(example, hparams.min_length,
                                             hparams.max_length)
+
+    def gpu_valid_size(example):
+      drop_long_sequences = is_training or hparams.eval_drop_long_sequences
+      return data_reader.example_valid_size(
+          example,
+          hparams.min_length,
+          hparams.max_length if drop_long_sequences else 10**9)
 
     def define_shapes(example):
       """Set the right shapes for the features."""
@@ -523,13 +531,14 @@ class Problem(object):
       example["inputs"] = inputs
       example["targets"] = targets
 
-      # Ensure batch size is set on all features
-      for _, t in six.iteritems(example):
-        shape = t.get_shape().as_list()
-        shape[0] = batch_size
-        t.set_shape(t.get_shape().merge_with(shape))
-        # Assert shapes are fully known
-        t.get_shape().assert_is_fully_defined()
+      if config.use_tpu:
+        # Ensure batch size is set on all features
+        for _, t in six.iteritems(example):
+          shape = t.get_shape().as_list()
+          shape[0] = batch_size
+          t.set_shape(t.get_shape().merge_with(shape))
+          # Assert shapes are fully known
+          t.get_shape().assert_is_fully_defined()
 
       return example
 
@@ -542,24 +551,47 @@ class Problem(object):
     if is_training:
       dataset = dataset.repeat(None)
 
-    # Batch (and pad)
-    # TODO(rsepassi): Add support for bucketing by length
+    # Batching
     if _are_shapes_fully_defined(dataset.output_shapes):
       dataset = dataset.apply(
           tf.contrib.data.batch_and_drop_remainder(batch_size))
     else:
-      # If shapes are not fully defined, filter out long ones and pad to
-      # hparams.max_length
-      dataset = dataset.filter(valid_size)
-      padded_shapes = _fill_shape_nones(
-          dataset.output_shapes, none_filler=hparams.max_length)
-      dataset = dataset.apply(
-          tf.contrib.data.padded_batch_and_drop_remainder(batch_size,
-                                                          padded_shapes))
+      # Variable length features
+      if config.use_tpu:
+        # On TPU, pad to hparams.max_length
+        dataset = dataset.filter(tpu_valid_size)
+        padded_shapes = _fill_shape_nones(
+            dataset.output_shapes, none_filler=hparams.max_length)
+        dataset = dataset.apply(
+            tf.contrib.data.padded_batch_and_drop_remainder(batch_size,
+                                                            padded_shapes))
+      else:
+        # On GPU, bucket by length
+        dataset = dataset.filter(gpu_valid_size)
+        batching_scheme = data_reader.hparams_to_batching_scheme(
+            hparams,
+            shard_multiplier=config.t2t_device_info["num_shards"],
+            length_multiplier=self.get_hparams().batch_size_multiplier)
+        dataset = data_reader.bucket_by_sequence_length(
+            dataset,
+            data_reader.example_length,
+            batching_scheme["boundaries"],
+            batching_scheme["batch_sizes"])
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
     dataset = dataset.prefetch(1)
     features = dataset.make_one_shot_iterator().get_next()
+    if not config.use_tpu:
+      _summarize_features(features, config.t2t_device_info["num_shards"])
+
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      features["infer_targets"] = features["targets"]
+      features["targets"] = None
+      # This is because of a bug in the Estimator that short-circuits prediction
+      # if it doesn't see a QueueRunner. DummyQueueRunner implements the
+      # minimal expected interface but does nothing.
+      tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS,
+                           data_reader.DummyQueueRunner())
 
     return features, features["targets"]
 
@@ -859,3 +891,16 @@ def _fill_shape_nones(shapes_dict, none_filler=None):
         (dim if dim is not None else none_filler) for dim in shape.as_list()
     ]
   return padded_shapes
+
+
+def _summarize_features(features, num_shards=1):
+  with tf.name_scope("input_stats"):
+    for (k, v) in six.iteritems(features):
+      if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1:
+        tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // num_shards)
+        tf.summary.scalar("%s_length" % k, tf.shape(v)[1])
+        nonpadding = tf.to_float(tf.not_equal(v, 0))
+        nonpadding_tokens = tf.reduce_sum(nonpadding)
+        tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
+        tf.summary.scalar("%s_nonpadding_fraction" % k,
+                          tf.reduce_mean(nonpadding))

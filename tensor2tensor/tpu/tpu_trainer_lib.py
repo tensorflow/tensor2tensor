@@ -36,6 +36,7 @@ def create_run_config(master="",
                       num_gpus=1,
                       gpu_order="",
                       shard_to_cpu=False,
+                      num_async_replicas=1,
                       use_tpu=True):
   """Create TPUConfig and tpu.RunConfig."""
   session_config = tf.ConfigProto(
@@ -61,12 +62,14 @@ def create_run_config(master="",
   config = run_config_cls(**run_config_args)
 
   # If not using TPU, add device info for data_parallelism
+  config.use_tpu = use_tpu
   if not use_tpu:
     config.t2t_device_info = {
         "num_gpus": num_gpus,
         "gpu_order": gpu_order,
         "shard_to_cpu": shard_to_cpu,
-        "num_shards": max(1, num_gpus + int(shard_to_cpu))
+        "num_shards": max(1, num_gpus + int(shard_to_cpu)),
+        "num_async_replicas": num_async_replicas,
     }
 
   return config
@@ -87,7 +90,7 @@ def create_estimator(model_name,
     if schedule == "train":
       # Estimator takes the presence of eval_batch_size as an indication that
       # an eval is being performed, and complains about num_shards being too
-      # big.  So we have to eval_batch_size to None.
+      # big. So we have to set eval_batch_size to None.
       eval_batch_size = None
     return tf.contrib.tpu.TPUEstimator(
         model_fn=model_fn,

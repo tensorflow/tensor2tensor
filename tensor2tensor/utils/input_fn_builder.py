@@ -146,9 +146,10 @@ def build_input_fn(mode,
       feature_map["targets"]._shape = tf.TensorShape([None, None, None, None])  # pylint: disable=protected-access
 
       # This is because of a bug in the Estimator that short-circuits prediction
-      # if it doesn't see a QueueRunner.  DummyQueueRunner implements the
+      # if it doesn't see a QueueRunner. DummyQueueRunner implements the
       # minimal expected interface but does nothing.
-      tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS, DummyQueueRunner())
+      tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS,
+                           data_reader.DummyQueueRunner())
       return feature_map, None
 
     return feature_map, feature_map["targets"]
@@ -188,17 +189,6 @@ def cond_on_index(fn, index_tensor, max_idx, cur_idx=0):
   )
 
 
-class DummyQueueRunner(object):
-  """Can stand-in for a QueueRunner but does nothing."""
-
-  def __init__(self):
-    pass
-
-  def create_threads(self, sess, coord=None, daemon=False, start=False):
-    del sess, coord, daemon, start
-    return []
-
-
 def features_for_problem(problem_instance,
                          p_hparams,
                          hparams,
@@ -223,8 +213,7 @@ def features_for_problem(problem_instance,
         # If batch_size is fixed, use a single input bucket
         batching_scheme["batch_sizes"] = [batch_size]
         batching_scheme["boundaries"] = []
-        # Log new batching scheme if updated
-        tf.logging.info("Updated batching_scheme = %s", batching_scheme)
+      tf.logging.info("batching_scheme = %s" % batching_scheme)
       feature_map = data_reader.input_pipeline(
           problem_instance,
           data_dir,
