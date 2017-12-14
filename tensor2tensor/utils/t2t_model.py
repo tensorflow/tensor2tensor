@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import contextlib
 import copy
 import math
@@ -26,7 +27,6 @@ import time
 # Dependency imports
 
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_layers
@@ -114,6 +114,161 @@ class T2TModel(base.Layer):
   @property
   def has_input(self):
     return self._problem_hparams.input_modality
+
+  def call(self, features):
+    tf.get_variable_scope().set_initializer(
+        optimize.get_variable_initializer(self.hparams))
+    with self._var_store.as_default():
+      self._fill_problem_hparams_features(features)
+      sharded_features = self._shard_features(features)
+      sharded_logits, losses = self.model_fn_sharded(sharded_features)
+      return tf.concat(sharded_logits, 0), losses
+
+  @property
+  def use_body_sharded(self):
+    return False
+
+  def body_sharded(self, sharded_features):
+    raise NotImplementedError("Models that wish to manually control sharding, "
+                              "e.g. MoE models, should override body_sharded "
+                              "and set use_body_sharded to True.")
+
+  def model_fn_sharded(self, sharded_features):
+    dp = self._data_parallelism
+    datashard_to_features = self._to_features_per_datashard(sharded_features)
+
+    if self.use_body_sharded:
+      # MoE models override body_sharded
+      transformed_features = dp(self.bottom, datashard_to_features)
+      body_out = self.body_sharded(
+          self._to_single_features_dict(transformed_features))
+      body_out, losses = self._normalize_body_output(body_out)
+      sharded_logits = dp(self.top, body_out, datashard_to_features)
+      if "training" not in losses:
+        sharded_losses = dp(self.loss, sharded_logits, datashard_to_features)
+        training_loss_dict = average_sharded_losses([{
+            "training": loss
+        } for loss in sharded_losses])
+        losses.update(training_loss_dict)
+    else:
+      sharded_logits, sharded_losses = dp(self.model_fn, datashard_to_features)
+      losses = average_sharded_losses(sharded_losses)
+
+    # TODO(rsepassi): Reenable scheduled sampling
+    # Disabled because of model_fn_sharded refactor
+    #
+    # do_scheduled_sampling = (  # Only do it if training and set for it.
+    #     self.hparams.scheduled_sampling_prob > 0.0 and
+    #     self.hparams.mode == tf.estimator.ModeKeys.TRAIN)
+    # if do_scheduled_sampling:
+    #   sharded_logits, losses = scheduled_sampling(
+    #       self.hparams, self._problem_hparams, dp,
+    #       sharded_logits, losses, sharded_features,
+    #       self._transformed_features, self)
+
+    return sharded_logits, losses
+
+  def model_fn(self, features):
+    transformed_features = self.bottom(features)
+    self._transformed_features = transformed_features
+
+    with tf.variable_scope("body"):
+      body_out = self.body(transformed_features)
+    output, losses = self._normalize_body_output(body_out)
+
+    logits = self.top(output, features)
+    if "training" not in losses:
+      losses["training"] = self.loss(logits, features)
+    return logits, losses
+
+  def bottom(self, features):
+    """Transform features to feed into body."""
+    transformed_features = {}
+    all_previous_modalities = []
+
+    # Transform the input features
+    for key, input_modality in six.iteritems(
+        self._problem_hparams.input_modality):
+      previous_modalities = [
+          self.hparams.problems[i].input_modality[key].name
+          for i in range(self._problem_idx)
+      ]
+      all_previous_modalities.extend(previous_modalities)
+      do_reuse = input_modality.name in all_previous_modalities
+      with tf.variable_scope(input_modality.name, reuse=do_reuse):
+        transformed_features[key] = input_modality.bottom(features[key])
+      all_previous_modalities.append(input_modality.name)
+
+    # Transform the targets (for autoregressive models)
+    previous_tgt_modalities = [
+        self.hparams.problems[i].target_modality.name
+        for i in range(self._problem_idx)
+    ]
+    all_previous_modalities.extend(previous_tgt_modalities)
+
+    target_modality = self._problem_hparams.target_modality
+    target_reuse = target_modality.name in previous_tgt_modalities
+    with tf.variable_scope(target_modality.name, reuse=target_reuse):
+      transformed_features["targets"] = target_modality.targets_bottom(
+          features["targets"])
+
+    for key in features:
+      if key not in transformed_features:
+        # For features without a modality, we pass them along as is
+        transformed_features[key] = features[key]
+      else:
+        # Other features get passed along with the "raw" suffix
+        transformed_features[key + "_raw"] = features[key]
+
+    return transformed_features
+
+  def body(self, features):
+    """Most models will override this function.
+
+    Compute label logits for one shard as a function of the transformed
+    features.
+
+    Args:
+      features: A dictionary of key to Tensor.  Each Tensor has shape
+         [batch_size, ?, ?, hidden_size].
+
+    Returns:
+      output: tensor of logits with shape [batch_size, O, P, body_output_size.
+      losses: either single loss as a scalar, a list, a tensor (to be averaged)
+              or a dictionary of losses.
+    """
+    raise NotImplementedError("Abstract Method")
+
+  def top(self, body_output, features):
+    target_modality = self._problem_hparams.target_modality
+    with tf.variable_scope(target_modality.name):
+      last_only = (
+          target_modality.top_is_pointwise and
+          self.hparams.mode == tf.estimator.ModeKeys.PREDICT and
+          not self.hparams.force_full_predict)
+      if not last_only:
+        logits = target_modality.top(body_output, features["targets"])
+      else:
+        # Take body outputs for the last position only, and targets too.
+        last_position_body_output = tf.expand_dims(
+            body_output[:, -1, :, :], axis=[1])
+        last_position_targets = tf.expand_dims(
+            features["targets"][:, -1:, :, :], axis=[1])
+        logits = target_modality.top(last_position_body_output,
+                                     last_position_targets)
+    return logits
+
+  def loss(self, logits, features):
+    target_modality = self._problem_hparams.target_modality
+    loss_num, loss_den = target_modality.loss(logits, features["targets"])
+    loss_num *= self._problem_hparams.loss_multiplier
+    return loss_num, loss_den
+
+  def optimize(self, loss, use_tpu=False):
+    """Return a training op minimizing loss."""
+    lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
+    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
+    return train_op
 
   def set_mode(self, mode):
     """Set hparams with the given mode."""
@@ -527,243 +682,32 @@ class T2TModel(base.Layer):
     sharded_features = dict()
     for k, v in six.iteritems(features):
       v = tf.convert_to_tensor(v)
-      if not v.shape.as_list():
+      v_shape = common_layers.shape_list(v)
+      if not v_shape:
         v = tf.expand_dims(v, axis=-1)
+        v_shape = [1]
+      if v_shape == [1]:
         v = tf.tile(v, [self._num_datashards])
       sharded_features[k] = self._data_parallelism(
           tf.identity,
           tf.split(v, self._num_datashards, 0))
     return sharded_features
 
-  def _model_fn(self, features, skip=False, force_full_predict=False):
-    """Computes the entire model and produces sharded logits and losses.
+  def _to_features_per_datashard(self, features):
+    datashard_features = []
+    assert len(features[features.keys()[0]]) == self._num_datashards
+    for d in range(self._num_datashards):
+      f = {k: v[d] for k, v in six.iteritems(features)}
+      datashard_features.append(f)
+    return datashard_features
 
-    Args:
-      features: A dictionary of feature name to tensor.
-      skip: a Boolean, if we're just dummy-calling and actually skip this model
-        (but we need to create variables to not confuse distributed training).
-      force_full_predict: a Boolean, if set, then last-position-only
-        optimizations are not used even when allowed and in PREDICT mode.
-
-    Returns:
-      logits: `Tensor`
-      losses: a dictionary: {loss-name (string): floating point `Scalar`}.
-    """
-    start_time = time.time()
-    dp = self._data_parallelism
-
-    sharded_features = self._shard_features(features)
-
-    # Construct the model bottom for inputs.
-    transformed_features = {}
-    all_previous_modalities = []
-
-    for key, input_modality in six.iteritems(
-        self._problem_hparams.input_modality):
-      previous_modalities = [
-          self.hparams.problems[i].input_modality[key].name
-          for i in xrange(self._problem_idx)
-      ]
-      all_previous_modalities.extend(previous_modalities)
-      do_reuse = input_modality.name in all_previous_modalities
-      transformed_features[key + "_raw"] = sharded_features[key]
-      with tf.variable_scope(input_modality.name, reuse=do_reuse):
-        transformed_features[key] = input_modality.bottom_sharded(
-            sharded_features[key], dp)
-      all_previous_modalities.append(input_modality.name)
-
-    # Target space id just gets copied to every shard.
-    if "target_space_id" in features:
-      transformed_features["target_space_id"] = [features["target_space_id"]
-                                                ] * self._num_datashards
-
-    # For features without a modality ending in "_raw", we pass them raw.
-    for key, feature in sharded_features.items():
-      if key not in transformed_features and key.endswith("_raw"):
-        transformed_features[key] = feature
-
-    # Targets are transformed by the autoregressive part of the modality
-    previous_tgt_modalities = [
-        self.hparams.problems[i].target_modality.name
-        for i in xrange(self._problem_idx)
-    ]
-    all_previous_modalities.extend(previous_tgt_modalities)
-
-    target_modality = self._problem_hparams.target_modality
-    target_reuse = target_modality.name in previous_tgt_modalities
-    with tf.variable_scope(target_modality.name, reuse=target_reuse):
-      transformed_features["targets"] = target_modality.targets_bottom_sharded(
-          sharded_features["targets"], dp)
-
-    # Allows later access to pre-embedding raw targets.
-    transformed_features["targets_raw"] = sharded_features["targets"]
-
-    # Construct the model body.
-    with tf.variable_scope("body", reuse=self._problem_idx > 0):
-      if skip:
-        body_outputs = transformed_features["targets"]
-        losses = {"extra": 0.0}
-      else:
-        body_outputs, losses = self.model_fn_body_sharded(transformed_features)
-        if not isinstance(losses, dict):  # If it's a single extra loss.
-          losses = {"extra": losses}
-
-    with tf.variable_scope(target_modality.name, reuse=target_reuse):
-      last_only = (target_modality.top_is_pointwise and
-                   self.hparams.mode == tf.estimator.ModeKeys.PREDICT and
-                   not force_full_predict)
-      if not last_only:
-        sharded_logits = target_modality.top_sharded(
-            body_outputs, sharded_features["targets"], dp)
-        if "training" not in losses:
-          losses["training"] = (
-              target_modality.loss_sharded(
-                  sharded_logits, sharded_features["targets"], dp)
-              * self._problem_hparams.loss_multiplier)
-      else:
-        # Take body outputs for the last position only, and targets too.
-        last_position_body_outputs = [
-            tf.expand_dims(body_shard[:, -1, :, :], axis=[1])
-            for body_shard in body_outputs
-        ]
-        last_position_targets = [
-            tf.expand_dims(target_shard[:, -1:, :, :], axis=[1])
-            for target_shard in sharded_features["targets"]
-        ]
-        sharded_logits = target_modality.top_sharded(last_position_body_outputs,
-                                                     last_position_targets,
-                                                     self._data_parallelism)
-        losses["training"] = None
-
-    # Scheduled sampling.
-    do_scheduled_sampling = (  # Only do it if training and set for it.
-        self.hparams.scheduled_sampling_prob > 0.0 and
-        self.hparams.mode == tf.estimator.ModeKeys.TRAIN and not skip)
-    if do_scheduled_sampling:
-
-      def sample(x):
-        """Multinomial sampling from a n-dimensional tensor."""
-        vocab_size = target_modality.top_dimensionality
-        samples = tf.multinomial(tf.reshape(x, [-1, vocab_size]), 1)
-        reshaped_samples = tf.reshape(samples, common_layers.shape_list(x)[:-1])
-        return tf.to_int32(reshaped_samples)
-
-      def mix_gold_sampled(gold_targets, sampled_targets):
-        return tf.where(
-            tf.less(
-                tf.random_uniform(common_layers.shape_list(sampled_targets)),
-                self.hparams.scheduled_sampling_gold_mixin_prob), gold_targets,
-            sampled_targets)
-
-      def sampled_results():
-        """Generate scheduled sampling results."""
-        sampled_targets = dp(sample, sharded_logits)
-        new_targets = dp(mix_gold_sampled, sharded_features["targets"],
-                         sampled_targets)
-        new_features = transformed_features
-        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-          with tf.variable_scope(target_modality.name):
-            new_features["targets"] = target_modality.targets_bottom_sharded(
-                new_targets, dp)
-          with tf.variable_scope("body"):
-            body_outputs, losses = self.model_fn_body_sharded(new_features)
-            if not isinstance(losses, dict):  # If it's a single extra loss.
-              losses = {"extra": losses}
-          with tf.variable_scope(target_modality.name):
-            new_sharded_logits = target_modality.top_sharded(
-                body_outputs, sharded_features["targets"], dp)
-            if "training" not in losses:
-              losses["training"] = (
-                  target_modality.loss_sharded(
-                      sharded_logits, sharded_features["targets"], dp)
-                  * self._problem_hparams.loss_multiplier)
-        return new_sharded_logits, losses
-
-      # Run the above conditionally.
-      prob = self.hparams.scheduled_sampling_prob
-      prob *= common_layers.inverse_exp_decay(
-          self.hparams.scheduled_sampling_warmup_steps, min_value=0.001)
-      sharded_logits, losses = tf.cond(
-          tf.less(tf.random_uniform([]), prob), sampled_results,
-          lambda: (sharded_logits, losses))
-
-    if not context.in_eager_mode():
-      tf.logging.info("This model_fn took %.3f sec." %
-                      (time.time() - start_time))
-    return sharded_logits, losses
-
-  def call(self, inputs_dict, skip=False, force_full_predict=False):
-    tf.get_variable_scope().set_initializer(
-        optimize.get_variable_initializer(self.hparams))
-    with self._var_store.as_default():
-      self._fill_problem_hparams_features(inputs_dict)
-      sharded_logits, losses = self._model_fn(
-          inputs_dict, skip=skip, force_full_predict=force_full_predict)
-      return tf.concat(sharded_logits, 0), losses
-
-  def model_fn_body_sharded(self, sharded_features):
-    """Mixture-of-experts models will override this function.
-
-    Compute model body on all datashards.
-
-    Args:
-      sharded_features: map from string to list of Tensors each with shape
-         [batch, ?, ?, body_input_size]
-
-    Returns:
-      sharded_body_output:
-          a list of Tensors, each with shape [batch, O, P, body_output_size]
-      extra_loss: a Scalar.
-    """
-    with tf.name_scope("model"):
-      datashard_to_features = [{
-          k: v[d]
-          for k, v in six.iteritems(sharded_features)
-      }
-                               for d in xrange(self._num_datashards)]
-      output = self._data_parallelism(
-          _with_timing(
-              self.model_fn_body,
-              "model_fn_body",
-              silent=context.in_eager_mode()), datashard_to_features)
-      if isinstance(output, tuple):
-        losses_sharded = output[1]
-        if isinstance(losses_sharded[0], dict):
-          loss = {}
-          for k in losses_sharded[0].keys():
-            k_loss_sharded = [losses[k] for losses in losses_sharded]
-            loss[k] = tf.reduce_mean(k_loss_sharded)
-        else:
-          loss = {"extra": tf.reduce_mean(losses_sharded)}
-        output = output[0]
-      else:
-        loss = {"extra": 0.0}
-      return output, loss
-
-  def model_fn_body(self, features):
-    """Most models will override this function.
-
-    Compute label logits for one shard as a function of the transformed
-    features.
-
-    Args:
-      features: A dictionary of key to Tensor.  Each Tensor has shape
-         [batch_size, ?, ?, hidden_size].
-
-    Returns:
-      output: tensor of logits with shape [batch_size, O, P, body_output_size.
-      losses: either single loss as a scalar, a list, a tensor (to be averaged)
-              or a dictionary of losses.  If the dictionary contains the key
-              "training", this is interpreted as an override of the modality's
-              loss computation.
-    """
-    raise NotImplementedError("Abstract Method")
-
-  def optimize(self, loss, use_tpu=False):
-    """Return a training op minimizing loss."""
-    lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
-    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
-    return train_op
+  def _to_single_features_dict(self, datashard_features):
+    assert len(datashard_features) == self._num_datashards
+    features = collections.defaultdict(list)
+    for feats in datashard_features:
+      for k, v in six.iteritems(feats):
+        features[k].append(v)
+    return features
 
   @staticmethod
   def make_estimator_model_fn(model_name,
@@ -819,8 +763,9 @@ class T2TModel(base.Layer):
     problem = hparams.problem_instances[0]
 
     # Instantiate model
-    data_parallelism = _create_data_parallelism(
-        use_tpu=use_tpu, **config.t2t_device_info)
+    data_parallelism = (
+        None if hparams.no_data_parallelism else _create_data_parallelism(
+            use_tpu=use_tpu, **config.t2t_device_info))
     model = cls(hparams, mode, data_parallelism=data_parallelism)
 
     # PREDICT mode
@@ -940,6 +885,17 @@ class T2TModel(base.Layer):
             "output": tf.estimator.export.PredictOutput(export_out)
         })
 
+  def _normalize_body_output(self, body_out):
+    if isinstance(body_out, tuple):
+      output, losses = body_out
+      if not isinstance(losses, dict):
+        losses = {"extra": tf.reduce_mean(losses)}
+    else:
+      output = body_out
+      losses = {"extra": 0.0}
+
+    return output, losses
+
 
 def _warn_changed_modality_type(new_name, old_name, feature_name):
   new_type, new_name = registry.parse_modality_name(new_name)
@@ -995,11 +951,12 @@ def _create_data_parallelism(num_gpus=1,
                              shard_to_cpu=False,
                              num_shards=1,
                              use_tpu=False,
+                             no_dp=False,
                              **kwargs):
   """Create Parallelism object."""
   del kwargs
 
-  if use_tpu:
+  if use_tpu or no_dp:
     return eu.Parallelism([""])
 
   gpus = list(range(num_gpus))
@@ -1091,3 +1048,80 @@ def create_eager_var_store():
     return variable_scope.EagerVariableStore()
   else:
     return DummyVariableStore()
+
+
+def scheduled_sampling(hparams, problem_hparams, dp, sharded_logits, losses,
+                       sharded_features, transformed_features, model):
+  """Scheduled sampling."""
+  target_modality = problem_hparams.target_modality
+
+  def sample(x):
+    """Multinomial sampling from a n-dimensional tensor."""
+    vocab_size = target_modality.top_dimensionality
+    samples = tf.multinomial(tf.reshape(x, [-1, vocab_size]), 1)
+    reshaped_samples = tf.reshape(samples, common_layers.shape_list(x)[:-1])
+    return tf.to_int32(reshaped_samples)
+
+  def mix_gold_sampled(gold_targets, sampled_targets):
+    return tf.where(
+        tf.less(
+            tf.random_uniform(common_layers.shape_list(sampled_targets)),
+            hparams.scheduled_sampling_gold_mixin_prob), gold_targets,
+        sampled_targets)
+
+  def sampled_results():
+    """Generate scheduled sampling results."""
+    sampled_targets = dp(sample, sharded_logits)
+    new_targets = dp(mix_gold_sampled, sharded_features["targets"],
+                     sampled_targets)
+    new_features = transformed_features
+    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+      with tf.variable_scope(target_modality.name):
+        new_features["targets"] = target_modality.targets_bottom_sharded(
+            new_targets, dp)
+      with tf.variable_scope("body"):
+        body_outputs, losses = model.model_fn_sharded(new_features)
+        if not isinstance(losses, dict):  # If it's a single extra loss.
+          losses = {"extra": losses}
+      with tf.variable_scope(target_modality.name):
+        new_sharded_logits = target_modality.top_sharded(
+            body_outputs, sharded_features["targets"], dp)
+        if "training" not in losses:
+          training_loss = target_modality.loss_sharded(
+              sharded_logits, sharded_features["targets"], dp)
+          training_loss *= problem_hparams.loss_multiplier
+          losses["training"] = training_loss
+    return new_sharded_logits, losses
+
+  # Run the above conditionally.
+  prob = hparams.scheduled_sampling_prob
+  prob *= common_layers.inverse_exp_decay(
+      hparams.scheduled_sampling_warmup_steps, min_value=0.001)
+  sharded_logits, losses = tf.cond(
+      tf.less(tf.random_uniform([]), prob), sampled_results,
+      lambda: (sharded_logits, losses))
+  return sharded_logits, losses
+
+
+def average_sharded_losses(sharded_losses):
+  """Average losses across datashards.
+
+  Args:
+    sharded_losses: list<dict<str loss_name, Tensor loss>>. The loss
+      can be a single Tensor or a 2-tuple (numerator and denominator).
+
+  Returns:
+    losses: dict<str loss_name, Tensor avg_loss>
+  """
+  losses = {}
+  for loss_name in sharded_losses[0]:
+    all_shards = [shard_losses[loss_name] for shard_losses in sharded_losses]
+    if isinstance(all_shards[0], tuple):
+      sharded_num, sharded_den = zip(*all_shards)
+      mean_loss = (
+          tf.add_n(sharded_num) / tf.maximum(1.0, tf.add_n(sharded_den)))
+    else:
+      mean_loss = tf.reduce_mean(all_shards)
+
+    losses[loss_name] = mean_loss
+  return losses

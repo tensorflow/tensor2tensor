@@ -233,7 +233,7 @@ def resnet50(inputs, hparams):
 @registry.register_model
 class Resnet50(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     return resnet50(features["inputs"], self.hparams)
 
 

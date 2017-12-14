@@ -42,7 +42,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-# See trainer_utils.py for additional command-line flags.
+# See flags.py for additional command-line flags.
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "

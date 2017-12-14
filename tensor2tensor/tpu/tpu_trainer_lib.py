@@ -21,8 +21,8 @@ from __future__ import print_function
 
 # Dependency imports
 
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
-from tensor2tensor.utils import trainer_utils
 
 import tensorflow as tf
 
@@ -88,7 +88,7 @@ def create_estimator(model_name,
     batch_size = hparams.tpu_batch_size_per_shard
     batch_size *= run_config.tpu_config.num_shards
     eval_batch_size = batch_size * 2
-    if schedule == "train":
+    if "eval" not in schedule:
       # Estimator takes the presence of eval_batch_size as an indication that
       # an eval is being performed, and complains about num_shards being too
       # big. So we have to set eval_batch_size to None.
@@ -117,7 +117,7 @@ def create_experiment(run_config,
   """Create Experiment."""
   # HParams
   hparams.add_hparam("data_dir", data_dir)
-  trainer_utils.add_problem_hparams(hparams, problem_name)
+  add_problem_hparams(hparams, problem_name)
 
   # Estimator
   estimator = create_estimator(
@@ -148,3 +148,15 @@ def create_experiment_fn(*args, **kwargs):
     return create_experiment(run_config, hparams, *args, **kwargs)
 
   return experiment_fn
+
+
+def add_problem_hparams(hparams, problems):
+  """Add problem hparams for the problems."""
+  hparams.problems = []
+  hparams.problem_instances = []
+  for problem_name in problems.split("-"):
+    problem = registry.problem(problem_name)
+    p_hparams = problem.get_hparams(hparams)
+
+    hparams.problem_instances.append(problem)
+    hparams.problems.append(p_hparams)

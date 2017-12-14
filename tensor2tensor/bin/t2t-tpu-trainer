@@ -24,6 +24,7 @@ from __future__ import print_function
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.tpu import tpu_trainer_lib as lib
+from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
@@ -32,7 +33,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-# See trainer_utils.py for additional command-line flags.
+# See flags.py for additional command-line flags.
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "

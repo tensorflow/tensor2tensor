@@ -84,7 +84,11 @@ LAYER_SYMBOLS = {
 class AttentionLmMoe(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
-  def model_fn_body_sharded(self, sharded_features):
+  @property
+  def use_body_sharded(self):
+    return True
+
+  def body_sharded(self, sharded_features):
     # Remove dropout if not training
     hparams = self._hparams
     dp = self._data_parallelism

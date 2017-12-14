@@ -109,7 +109,7 @@ class VanillaGan(t2t_model.T2TModel):
   """Simple GAN.
   """
 
-  def model_fn_body(self, features):
+  def body(self, features):
     """Computes the generator and discriminator loss.
 
     Args:
@@ -165,5 +165,3 @@ def vanilla_gan():
   hparams.learning_rate = 0.2
   hparams.learning_rate_decay_scheme = "none"
   return hparams
-
-
