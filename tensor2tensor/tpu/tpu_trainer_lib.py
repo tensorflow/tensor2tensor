@@ -63,6 +63,7 @@ def create_run_config(master="",
 
   # If not using TPU, add device info for data_parallelism
   config.use_tpu = use_tpu
+  config.t2t_device_info = {}
   if not use_tpu:
     config.t2t_device_info = {
         "num_gpus": num_gpus,
