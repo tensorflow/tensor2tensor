@@ -29,7 +29,6 @@ import six
 from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.utils import devices
 from tensor2tensor.utils import input_fn_builder
 import tensorflow as tf
 
@@ -99,26 +98,31 @@ def log_decode_results(inputs,
 
 def decode_from_dataset(estimator,
                         problem_names,
+                        hparams,
                         decode_hp,
                         decode_to_file=None,
                         dataset_split=None):
+  """Perform decoding from dataset."""
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))
-  hparams = estimator.params
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
 
+  # If decode_hp.batch_size is specified, use a fixed batch size
+  if decode_hp.batch_size:
+    hparams.batch_size = decode_hp.batch_size
+    hparams.use_fixed_batch_size = True
+
+  dataset_kwargs = {
+      "shard": shard,
+      "dataset_split": dataset_split,
+  }
+
   for problem_idx, problem_name in enumerate(problem_names):
     # Build the inference input function
-    infer_input_fn = input_fn_builder.build_input_fn(
-        mode=tf.estimator.ModeKeys.PREDICT,
-        hparams=hparams,
-        data_dir=hparams.data_dir,
-        num_datashards=devices.data_parallelism(hparams).n,
-        fixed_problem=problem_idx,
-        batch_size=decode_hp.batch_size,
-        dataset_split=dataset_split,
-        shard=shard)
+    problem = hparams.problem_instances[problem_idx]
+    infer_input_fn = problem.make_estimator_input_fn(
+        tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
 
     # Get the predictions as an iterable
     predictions = estimator.predict(infer_input_fn)
@@ -200,14 +204,17 @@ def decode_from_dataset(estimator,
     tf.logging.info("Completed inference on %d samples." % num_predictions)  # pylint: disable=undefined-loop-variable
 
 
-def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
+def decode_from_file(estimator,
+                     filename,
+                     hparams,
+                     decode_hp,
+                     decode_to_file=None):
   """Compute predictions on entries in filename and write them out."""
   if not decode_hp.batch_size:
     decode_hp.batch_size = 32
     tf.logging.info(
         "decode_hp.batch_size not specified; default=%d" % decode_hp.batch_size)
 
-  hparams = estimator.params
   problem_id = decode_hp.problem_idx
   # Inputs vocabulary is set to targets if there are no inputs in the problem,
   # e.g., for language models where the inputs are just a prefix of targets.
@@ -300,9 +307,8 @@ def make_input_fn_from_generator(gen):
   return input_fn
 
 
-def decode_interactively(estimator, decode_hp):
+def decode_interactively(estimator, hparams, decode_hp):
   """Interactive decoding."""
-  hparams = estimator.params
 
   def input_fn():
     gen_fn = make_input_fn_from_generator(_interactive_input_fn(hparams))

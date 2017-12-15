@@ -37,8 +37,9 @@ import os
 
 # Dependency imports
 
+from tensor2tensor.tpu import tpu_trainer
+from tensor2tensor.tpu import tpu_trainer_lib
 from tensor2tensor.utils import decoding
-from tensor2tensor.utils import trainer_utils
 from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
@@ -46,7 +47,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("output_dir", "", "Training directory to load from.")
+# Additional flags in tpu/tpu_trainer.py and utils/flags.py
 flags.DEFINE_string("decode_from_file", None,
                     "Path to the source file for decoding")
 flags.DEFINE_string("decode_to_file", None,
@@ -54,50 +55,54 @@ flags.DEFINE_string("decode_to_file", None,
 flags.DEFINE_bool("decode_interactive", False,
                   "Interactive local inference mode.")
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
-flags.DEFINE_string("t2t_usr_dir", "",
-                    "Path to a Python module that will be imported. The "
-                    "__init__.py file should include the necessary imports. "
-                    "The imported files should contain registrations, "
-                    "e.g. @registry.register_model calls, that will then be "
-                    "available to the t2t-decoder.")
-flags.DEFINE_string("master", "", "Address of TensorFlow master.")
-flags.DEFINE_string("schedule", "train_and_evaluate",
-                    "Must be train_and_evaluate for decoding.")
+
+
+def create_hparams():
+  hparams = tpu_trainer.create_hparams()
+  hparams.add_hparam("data_dir", os.path.expanduser(FLAGS.data_dir))
+  tpu_trainer_lib.add_problem_hparams(hparams, FLAGS.problems)
+  return hparams
+
+
+def create_decode_hparams():
+  decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
+  decode_hp.add_hparam("shards", FLAGS.decode_shards)
+  decode_hp.add_hparam("shard_id", FLAGS.worker_id)
+  return decode_hp
+
+
+def decode(estimator, hparams, decode_hp):
+  if FLAGS.decode_interactive:
+    decoding.decode_interactively(estimator, hparams, decode_hp)
+  elif FLAGS.decode_from_file:
+    decoding.decode_from_file(estimator, FLAGS.decode_from_file, hparams,
+                              decode_hp, FLAGS.decode_to_file)
+  else:
+    decoding.decode_from_dataset(
+        estimator,
+        FLAGS.problems.split("-"),
+        hparams,
+        decode_hp,
+        decode_to_file=FLAGS.decode_to_file,
+        dataset_split="test" if FLAGS.eval_use_test_set else None)
 
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  trainer_utils.log_registry()
-  trainer_utils.validate_flags()
-  assert FLAGS.schedule == "train_and_evaluate"
-  data_dir = os.path.expanduser(FLAGS.data_dir)
-  output_dir = os.path.expanduser(FLAGS.output_dir)
+  FLAGS.use_tpu = False
 
-  hparams = trainer_utils.create_hparams(
-      FLAGS.hparams_set, data_dir, passed_hparams=FLAGS.hparams)
-  trainer_utils.add_problem_hparams(hparams, FLAGS.problems)
-  estimator, _ = trainer_utils.create_experiment_components(
-      data_dir=data_dir,
-      model_name=FLAGS.model,
-      hparams=hparams,
-      run_config=trainer_utils.create_run_config(output_dir))
+  hp = create_hparams()
+  decode_hp = create_decode_hparams()
 
-  decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
-  decode_hp.add_hparam("shards", FLAGS.decode_shards)
-  decode_hp.add_hparam("shard_id", FLAGS.worker_id)
-  if FLAGS.decode_interactive:
-    decoding.decode_interactively(estimator, decode_hp)
-  elif FLAGS.decode_from_file:
-    decoding.decode_from_file(estimator, FLAGS.decode_from_file, decode_hp,
-                              FLAGS.decode_to_file)
-  else:
-    decoding.decode_from_dataset(
-        estimator,
-        FLAGS.problems.split("-"),
-        decode_hp,
-        decode_to_file=FLAGS.decode_to_file,
-        dataset_split="test" if FLAGS.eval_use_test_set else None)
+  estimator = tpu_trainer_lib.create_estimator(
+      FLAGS.model,
+      hp,
+      tpu_trainer.create_run_config(),
+      decode_hparams=decode_hp,
+      use_tpu=False)
+
+  decode(estimator, hp, decode_hp)
 
 
 if __name__ == "__main__":
