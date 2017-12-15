@@ -37,6 +37,7 @@ import os
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_utils
 from tensor2tensor.utils import usr_dir
+from tensor2tensor import _set_time_logging
 
 import tensorflow as tf
 
@@ -63,6 +64,7 @@ flags.DEFINE_bool("profile", False, "Profile performance?")
 
 
 def main(_):
+  _set_time_logging()
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   trainer_utils.log_registry()
