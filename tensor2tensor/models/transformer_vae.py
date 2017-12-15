@@ -253,7 +253,7 @@ def bottleneck(x, hparams, filter_size, name):
       means = tf.get_variable(name="means", shape=[hparams.v_size,
                                                    hparams.hidden_size])
       x_means_hot, x_means, l = kmeans(x, means, hparams, name="vq-vae-kmeans")
-      h1 = x_means
+      h1 = tf.stop_gradient(x_means) + x - tf.stop_gradient(x)
       c = tf.argmax(x_means_hot, axis=-1)
     h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
     res = tf.layers.dense(tf.nn.relu(h2), hparams.hidden_size, name="vcfin")
@@ -313,7 +313,10 @@ def decode_transformer(encoder_output,
 
 def multinomial_sample(x, vocab_size, temperature):
   """Multinomial sampling from a n-dimensional tensor."""
-  samples = tf.multinomial(tf.reshape(x, [-1, vocab_size]) / temperature, 1)
+  if temperature > 0:
+    samples = tf.multinomial(tf.reshape(x, [-1, vocab_size]) / temperature, 1)
+  else:
+    samples = tf.argmax(x, axis=-1)
   reshaped_samples = tf.reshape(samples, common_layers.shape_list(x)[:-1])
   return tf.to_int32(reshaped_samples)
 
@@ -446,8 +449,9 @@ def ae_transformer_internal(inputs, targets, target_space, hparams,
     if hparams.do_mask and hparams.do_refine:
       def refine_res():
         return residual_conv(res, 1, (5, 1), hparams, "refine")
-      all_masked = tf.less(tf.reduce_sum(mask), 0.1)
-      res = tf.cond(all_masked, refine_res, lambda: res)
+      masked_batches = tf.reduce_sum(mask, axis=[1, 2, 3])
+      all_masked = tf.less(masked_batches, 0.1)
+      res = tf.where(all_masked, refine_res(), res)
     latent_time = tf.less(200000, tf.to_int32(tf.train.get_global_step()))
     losses["latent_pred"] *= tf.to_float(latent_time)
     losses["extra"] *= 1.0 - tf.to_float(latent_time)
@@ -575,7 +579,7 @@ def transformer_ae_cifar():
   hparams.filter_size = 512
   hparams.batch_size = 1024 * 4
   hparams.num_compress_steps = 2
-  hparams.v_size = 1024 * 16
+  hparams.v_size = 1024 * 64
   hparams.kl_warmup_steps = 150000
   hparams.startup_steps = 20000
   hparams.kmeans_lr_factor = 0.0
