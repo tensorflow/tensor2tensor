@@ -79,10 +79,11 @@ def create_run_config(master="",
 def create_estimator(model_name,
                      hparams,
                      run_config,
+                     decode_hparams=None,
                      schedule="train_and_evaluate",
                      use_tpu=True):
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-      model_name, hparams, use_tpu=use_tpu)
+      model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
 
   if use_tpu:
     batch_size = hparams.tpu_batch_size_per_shard

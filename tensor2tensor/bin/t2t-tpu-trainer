@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 # Dependency imports
 
 from tensor2tensor import models  # pylint: disable=unused-import
@@ -74,7 +76,7 @@ def create_experiment_fn():
   return lib.create_experiment_fn(
       FLAGS.model,
       get_problem_name(),
-      FLAGS.data_dir,
+      os.path.expanduser(FLAGS.data_dir),
       FLAGS.train_steps,
       FLAGS.eval_steps,
       FLAGS.local_eval_frequency,
@@ -84,7 +86,7 @@ def create_experiment_fn():
 
 def create_run_config():
   return lib.create_run_config(
-      model_dir=FLAGS.output_dir,
+      model_dir=os.path.expanduser(FLAGS.output_dir),
       master=FLAGS.master,
       iterations_per_loop=FLAGS.iterations_per_loop,
       num_shards=FLAGS.tpu_num_shards,

@@ -921,6 +921,9 @@ def _with_timing(fn, msg, silent=False):
 
 def _create_dummy_vars():
   """Dummy vars for restore to work when not using TPU codepath."""
+  var_names = set([v.name for v in tf.global_variables()])
+  if "losses_avg/problem_0/total_loss:0" in var_names:
+    return
   with tf.variable_scope("losses_avg"):
     with tf.variable_scope("problem_0"):
       for var_name in ["total", "extra", "training"]:

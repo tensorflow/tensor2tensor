@@ -479,15 +479,17 @@ class Problem(object):
     self._feature_info = features
     return features
 
-  def make_estimator_input_fn(self, mode, hparams):
+  def make_estimator_input_fn(self, mode, hparams, dataset_kwargs=None):
     """Return input_fn wrapped for Estimator."""
 
     def estimator_input_fn(params, config):
-      return self.input_fn(mode, hparams, params=params, config=config)
+      return self.input_fn(mode, hparams, params=params, config=config,
+                           dataset_kwargs=dataset_kwargs)
 
     return estimator_input_fn
 
-  def input_fn(self, mode, hparams, params=None, config=None):
+  def input_fn(self, mode, hparams, params=None, config=None,
+               dataset_kwargs=None):
     """Builds input pipeline for problem.
 
     Args:
@@ -495,6 +497,8 @@ class Problem(object):
       hparams: HParams, model hparams
       params: dict, may include "batch_size"
       config: RunConfig; if passed, should include t2t_device_info dict
+      dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
+        method when called
 
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
@@ -543,8 +547,15 @@ class Problem(object):
 
     # Read and preprocess
     data_dir = hparams.data_dir
-    dataset = self.dataset(
-        mode=mode, data_dir=data_dir, num_threads=num_threads, hparams=hparams)
+
+    dataset_kwargs = dataset_kwargs or {}
+    dataset_kwargs.update({
+        "mode": mode,
+        "data_dir": data_dir,
+        "num_threads": num_threads,
+        "hparams": hparams})
+
+    dataset = self.dataset(**dataset_kwargs)
     dataset = dataset.map(
         data_reader.cast_int64_to_int32, num_parallel_calls=num_threads)
     if is_training:
