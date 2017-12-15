@@ -198,4 +198,5 @@ def _pick_optimal_model() -> None:
     
 if __name__ == "__main__":
   tf.flags.mark_flag_as_required('airflow_pipeline_yaml')
+  tf.flags.mark_flag_as_required('gcs-subpath')
   tf.app.run(main)
