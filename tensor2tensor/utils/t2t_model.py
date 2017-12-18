@@ -766,13 +766,14 @@ class T2TModel(base.Layer):
     data_parallelism = (
         None if hparams.no_data_parallelism else _create_data_parallelism(
             use_tpu=use_tpu, **config.t2t_device_info))
-    model = cls(hparams, mode, data_parallelism=data_parallelism)
+    model = cls(hparams, mode, data_parallelism=data_parallelism,
+                decode_hparams=decode_hparams)
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
       assert not use_tpu
       assert decode_hparams is not None
-      return model.estimator_spec_predict(features, decode_hparams)
+      return model.estimator_spec_predict(features)
 
     # TRAIN and EVAL modes
     if hparams.eval_run_autoregressive and mode == tf.estimator.ModeKeys.EVAL:
@@ -846,8 +847,9 @@ class T2TModel(base.Layer):
           eval_metric_ops=eval_metrics,
           loss=loss)
 
-  def estimator_spec_predict(self, features, decode_hparams):
+  def estimator_spec_predict(self, features):
     """Construct EstimatorSpec for PREDICT mode."""
+    decode_hparams = self._decode_hparams
     infer_out = self.infer(
         features,
         beam_size=decode_hparams.beam_size,
