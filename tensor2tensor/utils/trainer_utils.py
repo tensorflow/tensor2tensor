@@ -197,7 +197,7 @@ def save_metadata(output_dir, hparams):
     t2t_flags_str = "\n".join([
         "--%s=%s" % (f.name, f.value)
         for f in FLAGS.flags_by_module_dict()[
-            "tensor2tensor.utils.trainer_utils"]
+            "tensor2tensor.utils.flags"]
     ])
   else:
     flags_dict = FLAGS.__dict__["__flags"]
