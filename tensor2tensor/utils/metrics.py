@@ -211,8 +211,11 @@ def fathom_padded_accuracy(predictions,
       weights: tensor that tells us which examples to include in the weighted average
   """
   assert outputs is not None
-  return padded_accuracy(predictions=outputs, labels=labels, weights_fn=weights_fn)
-  
+  return padded_accuracy(
+    predictions=tf.one_hot(outputs, depth=tf.shape(predictions)[-1]),
+    labels=labels,
+    weights_fn=weights_fn)
+
 
 def set_precision(predictions,
                   labels,
