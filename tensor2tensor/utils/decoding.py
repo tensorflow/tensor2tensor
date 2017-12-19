@@ -106,7 +106,12 @@ def decode_from_dataset(estimator,
                         decode_to_file=None,
                         dataset_split=None,
                         return_generator=False):
-  """Perform decoding from dataset."""
+  """Decode from a dataset
+
+  Args:
+      return_generator: if True, return the tf.Estimator predictions
+                        generator
+  """
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_name))
   # We assume that worker_id corresponds to shard number.
