@@ -21,7 +21,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from tensor2tensor.tpu import tpu_trainer_lib as lib
+from tensor2tensor.tpu import tpu_trainer_lib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_utils_test
 
@@ -35,7 +35,7 @@ class TpuTrainerTest(tf.test.TestCase):
     trainer_utils_test.TrainerUtilsTest.setUpClass()
 
   def testExperiment(self):
-    exp_fn = lib.create_experiment_fn(
+    exp_fn = tpu_trainer_lib.create_experiment_fn(
         "transformer",
         "tiny_algo",
         trainer_utils_test.TrainerUtilsTest.data_dir,
@@ -43,7 +43,7 @@ class TpuTrainerTest(tf.test.TestCase):
         eval_steps=1,
         min_eval_frequency=1,
         use_tpu=False)
-    run_config = lib.create_run_config(num_gpus=0, use_tpu=False)
+    run_config = tpu_trainer_lib.create_run_config(num_gpus=0, use_tpu=False)
     hparams = registry.hparams("transformer_tiny_tpu")()
     exp = exp_fn(run_config, hparams)
     exp.test()

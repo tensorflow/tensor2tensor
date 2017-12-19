@@ -111,9 +111,11 @@ class TransformerModel(query_processor.QueryProcessor):
     data_dir = os.path.expanduser(data_dir)
 
     # Create the basic hyper parameters.
-    self.hparams = tpu_trainer.create_hparams()
-    self.hparams.add_hparam("data_dir", os.path.expanduser(data_dir))
-    tpu_trainer_lib.add_problem_hparams(self.hparams, FLAGS.problems)
+    self.hparams = tpu_trainer_lib.create_hparams(
+        FLAGS.hparams_set,
+        FLAGS.hparams,
+        data_dir=data_dir,
+        problem_name=FLAGS.problems)
 
     decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
     decode_hp.add_hparam("shards", 1)

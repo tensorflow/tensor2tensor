@@ -57,10 +57,11 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 
 
 def create_hparams():
-  hparams = tpu_trainer.create_hparams()
-  hparams.add_hparam("data_dir", os.path.expanduser(FLAGS.data_dir))
-  tpu_trainer_lib.add_problem_hparams(hparams, FLAGS.problems)
-  return hparams
+  return tpu_trainer_lib.create_hparams(
+      FLAGS.hparams_set,
+      FLAGS.hparams,
+      data_dir=os.path.expanduser(FLAGS.data_dir),
+      problem_name=FLAGS.problems)
 
 
 def create_decode_hparams():
@@ -89,7 +90,7 @@ def decode(estimator, hparams, decode_hp):
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  FLAGS.use_tpu = False
+  FLAGS.use_tpu = False  # decoding not supported on TPU
 
   hp = create_hparams()
   decode_hp = create_decode_hparams()

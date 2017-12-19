@@ -383,13 +383,6 @@ class Problem(object):
     # Construct the Problem's hparams so that items within it are accessible
     _ = self.get_hparams(hparams)
 
-    data_fields, data_items_to_decoders = self.example_reading_spec()
-    if data_items_to_decoders is None:
-      data_items_to_decoders = {
-          field: tf.contrib.slim.tfexample_decoder.Tensor(field)
-          for field in data_fields
-      }
-
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
     tf.logging.info("Reading data files from %s", data_filepattern)
@@ -406,22 +399,13 @@ class Problem(object):
     else:
       dataset = tf.data.TFRecordDataset(data_files)
 
-    def decode_record(record):
-      """Serialized Example to dict of <feature name, Tensor>."""
-      decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
-          data_fields, data_items_to_decoders)
-
-      decode_items = list(data_items_to_decoders)
-      decoded = decoder.decode(record, items=decode_items)
-      return dict(zip(decode_items, decoded))
-
     def _preprocess(example):
       example = self.preprocess_example(example, mode, hparams)
       self.maybe_reverse_features(example)
       self.maybe_copy_features(example)
       return example
 
-    dataset = dataset.map(decode_record, num_parallel_calls=num_threads)
+    dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
 
     if preprocess:
       dataset = dataset.map(_preprocess, num_parallel_calls=num_threads)
@@ -429,6 +413,22 @@ class Problem(object):
       dataset = dataset.prefetch(output_buffer_size)
 
     return dataset
+
+  def decode_example(self, serialized_example):
+    """Return a dict of Tensors from a serialized tensorflow.Example."""
+    data_fields, data_items_to_decoders = self.example_reading_spec()
+    if data_items_to_decoders is None:
+      data_items_to_decoders = {
+          field: tf.contrib.slim.tfexample_decoder.Tensor(field)
+          for field in data_fields
+      }
+
+    decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
+        data_fields, data_items_to_decoders)
+
+    decode_items = list(data_items_to_decoders)
+    decoded = decoder.decode(serialized_example, items=decode_items)
+    return dict(zip(decode_items, decoded))
 
   @property
   def has_inputs(self):
@@ -496,7 +496,8 @@ class Problem(object):
       mode: tf.estimator.ModeKeys
       hparams: HParams, model hparams
       params: dict, may include "batch_size"
-      config: RunConfig; if passed, should include t2t_device_info dict
+      config: RunConfig; should have the data_parallelism attribute if not using
+        TPU
       dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
         method when called
 
@@ -521,29 +522,8 @@ class Problem(object):
           hparams.max_length if drop_long_sequences else 10**9)
 
     def define_shapes(example):
-      """Set the right shapes for the features."""
-      inputs = example["inputs"]
-      targets = example["targets"]
-
-      # Ensure inputs and targets are proper rank.
-      while len(inputs.get_shape()) < 4:
-        inputs = tf.expand_dims(inputs, axis=-1)
-      while len(targets.get_shape()) < 4:
-        targets = tf.expand_dims(targets, axis=-1)
-
-      example["inputs"] = inputs
-      example["targets"] = targets
-
-      if config.use_tpu:
-        # Ensure batch size is set on all features
-        for _, t in six.iteritems(example):
-          shape = t.get_shape().as_list()
-          shape[0] = params["batch_size"]
-          t.set_shape(t.get_shape().merge_with(shape))
-          # Assert shapes are fully known
-          t.get_shape().assert_is_fully_defined()
-
-      return example
+      return _standardize_shapes(
+          example, batch_size=(config.use_tpu and params["batch_size"]))
 
     # Read and preprocess
     data_dir = hparams.data_dir
@@ -569,7 +549,7 @@ class Problem(object):
         dataset = dataset.apply(
             tf.contrib.data.batch_and_drop_remainder(tpu_batch_size))
       else:
-        num_shards = config.t2t_device_info["num_shards"]
+        num_shards = config.data_parallelism.n
         dataset = dataset.batch(hparams.batch_size * num_shards)
     else:
       # Variable length features
@@ -586,7 +566,7 @@ class Problem(object):
         dataset = dataset.filter(gpu_valid_size)
         batching_scheme = data_reader.hparams_to_batching_scheme(
             hparams,
-            shard_multiplier=config.t2t_device_info["num_shards"],
+            shard_multiplier=config.data_parallelism.n,
             length_multiplier=self.get_hparams().batch_size_multiplier)
         if hparams.use_fixed_batch_size:
           batching_scheme["batch_sizes"] = [hparams.batch_size]
@@ -601,7 +581,7 @@ class Problem(object):
     dataset = dataset.prefetch(1)
     features = dataset.make_one_shot_iterator().get_next()
     if not config.use_tpu:
-      _summarize_features(features, config.t2t_device_info["num_shards"])
+      _summarize_features(features, config.data_parallelism.n)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
       features["infer_targets"] = features["targets"]
@@ -613,6 +593,25 @@ class Problem(object):
                            data_reader.DummyQueueRunner())
 
     return features, features["targets"]
+
+  def serving_input_fn(self, hparams):
+    """Input fn for serving export, starting from serialized example."""
+    mode = tf.estimator.ModeKeys.PREDICT
+    serialized_example = tf.placeholder(
+        dtype=tf.string, shape=[None], name="serialized_example")
+    dataset = tf.data.Dataset.from_tensor_slices(serialized_example)
+    dataset = dataset.map(self.decode_example)
+    dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
+    dataset = dataset.map(data_reader.cast_int64_to_int32)
+    dataset = dataset.padded_batch(1000, dataset.output_shapes)
+    dataset = dataset.map(_standardize_shapes)
+    features = tf.contrib.data.get_single_element(dataset)
+
+    if self.has_inputs:
+      features.pop("targets", None)
+
+    return tf.estimator.export.ServingInputReceiver(
+        features=features, receiver_tensors=serialized_example)
 
 
 class FeatureInfo(object):
@@ -907,3 +906,28 @@ def _summarize_features(features, num_shards=1):
         tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
         tf.summary.scalar("%s_nonpadding_fraction" % k,
                           tf.reduce_mean(nonpadding))
+
+
+def _standardize_shapes(features, batch_size=None):
+  """Set the right shapes for the features."""
+
+  for fname in ["inputs", "targets"]:
+    if fname not in features:
+      continue
+
+    f = features[fname]
+    while len(f.get_shape()) < 4:
+      f = tf.expand_dims(f, axis=-1)
+
+    features[fname] = f
+
+  if batch_size:
+    # Ensure batch size is set on all features
+    for _, t in six.iteritems(features):
+      shape = t.get_shape().as_list()
+      shape[0] = batch_size
+      t.set_shape(t.get_shape().merge_with(shape))
+      # Assert shapes are fully known
+      t.get_shape().assert_is_fully_defined()
+
+  return features

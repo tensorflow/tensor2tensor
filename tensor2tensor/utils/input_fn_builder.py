@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Input function building."""
+# DEPRECATED
 
 from __future__ import absolute_import
 from __future__ import division

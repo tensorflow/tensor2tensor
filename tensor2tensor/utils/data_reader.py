@@ -65,6 +65,7 @@ def feature_placeholders(data_fields, data_items_to_decoders):
   return decoded_example
 
 
+# DEPRECATED
 def input_pipeline(problem,
                    data_dir,
                    capacity,
@@ -348,6 +349,7 @@ def constant_batching_scheme(constant_batch_size_in_sequences):
   }
 
 
+# DEPRECATED
 def serving_input_fn(problem, hparams):
   """Input fn for serving, starting from Placeholders."""
   data_fields, data_items_to_decoders = problem.example_reading_spec()

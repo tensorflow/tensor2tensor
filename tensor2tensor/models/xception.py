@@ -146,7 +146,7 @@ class Xception(t2t_model.T2TModel):
 def xception_base():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
-  hparams.batch_size = 4096
+  hparams.batch_size = 128
   hparams.hidden_size = 768
   hparams.dropout = 0.2
   hparams.symbol_dropout = 0.2
@@ -171,7 +171,7 @@ def xception_base():
 @registry.register_hparams
 def xception_tiny():
   hparams = xception_base()
-  hparams.batch_size = 1024
+  hparams.batch_size = 2
   hparams.hidden_size = 64
   hparams.num_hidden_layers = 2
   hparams.learning_rate_decay_scheme = "none"

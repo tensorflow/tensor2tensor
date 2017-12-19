@@ -135,8 +135,7 @@ def shakeshake_cifar10():
   tf.logging.warning("shakeshake_cifar10 hparams have not been verified to "
                      "achieve good performance.")
   hparams = common_hparams.basic_params1()
-  # This leads to effective batch size 128 when number of GPUs is 1
-  hparams.batch_size = 4096 * 8
+  hparams.batch_size = 128
   hparams.hidden_size = 16
   hparams.dropout = 0
   hparams.label_smoothing = 0.0
