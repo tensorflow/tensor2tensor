@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Model building."""
+# DEPRECATED
 
 from __future__ import absolute_import
 from __future__ import division
@@ -76,7 +77,7 @@ def model_fn(model,
   decode_hp = decode_hparams
 
   # TODO(rsepassi): This still depends on FLAGS. Rm eventually.
-  dp = devices.data_parallelism(hparams)
+  dp = devices.data_parallelism_from_flags(hparams)
 
   tf.get_variable_scope().set_initializer(
       optimize.get_variable_initializer(hparams))
@@ -107,7 +108,6 @@ def model_fn(model,
         hparams.problems[n],
         n,
         dp,
-        devices.ps_devices(all_workers=True),
         decode_hparams=decode_hparams)
     if mode == tf.estimator.ModeKeys.PREDICT:
       return model_class.infer(

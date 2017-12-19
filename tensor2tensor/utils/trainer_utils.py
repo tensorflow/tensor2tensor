@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Utilities for trainer binary."""
+# DEPRECATED
 
 from __future__ import absolute_import
 from __future__ import division
@@ -130,7 +131,7 @@ def create_experiment_components(data_dir, model_name, hparams, run_config):
 
   # hparams batch_size is used as minibatch size instead of tokens in batch
   batch_size = (hparams.use_fixed_batch_size and hparams.batch_size) or None
-  num_datashards = devices.data_parallelism(hparams).n
+  num_datashards = devices.data_parallelism_from_flags(hparams).n
   train_input_fn = input_fn_builder.build_input_fn(
       mode=tf.estimator.ModeKeys.TRAIN,
       hparams=hparams,

@@ -76,7 +76,7 @@ class SymbolModality(modality.Modality):
     """Create or get concatenated embedding or softmax variable.
 
     Args:
-      hidden_dim: dim of the variable. Defaults fo self._body_input_depth
+      hidden_dim: dim of the variable. Defaults to self._body_input_depth
 
     Returns:
        a list of self._num_shards Tensors.

@@ -247,5 +247,6 @@ def resnet_base():
   hparams.add_hparam("strides", [1, 2, 2, 2])
 
   # Can run with a batch size of 128 with Problem ImageImagenet224
+  hparams.batch_size = 128
   hparams.tpu_batch_size_per_shard = 128
   return hparams

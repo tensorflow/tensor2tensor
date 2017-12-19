@@ -23,6 +23,7 @@ setup(
         'tensor2tensor/bin/t2t-datagen',
         'tensor2tensor/bin/t2t-decoder',
         'tensor2tensor/bin/t2t-make-tf-configs',
+        'tensor2tensor/bin/t2t-tpu-trainer',
     ],
     install_requires=[
         'bz2file',

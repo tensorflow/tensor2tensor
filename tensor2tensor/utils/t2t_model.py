@@ -56,7 +56,6 @@ class T2TModel(base.Layer):
                problem_hparams=None,
                problem_idx=0,
                data_parallelism=None,
-               ps_devices=None,
                decode_hparams=None):
     """Create a T2TModel.
 
@@ -67,7 +66,6 @@ class T2TModel(base.Layer):
       problem_idx: an integer.
       data_parallelism: a expert_utils.parallelism
         (specifies devices for data parallelism).
-      ps_devices: a list of devices to be used for experts
       decode_hparams: a hyperparameter object with decoding parameters.
 
     Returns:
@@ -80,8 +78,6 @@ class T2TModel(base.Layer):
         trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name)
     if data_parallelism is None:
       data_parallelism = eu.Parallelism([""])
-    if ps_devices is None:
-      ps_devices = [""]
     if problem_hparams is None:
       problem_hparams = hparams.problems[0]
 
@@ -101,7 +97,7 @@ class T2TModel(base.Layer):
     self._decode_hparams = copy.copy(decode_hparams)
     self._data_parallelism = data_parallelism
     self._num_datashards = data_parallelism.n
-    self._ps_devices = ps_devices
+    self._ps_devices = data_parallelism.ps_devices
     self._problem_hparams = problem_hparams
     self._problem_idx = problem_idx
     self._create_modalities(problem_hparams, self._hparams)
@@ -264,9 +260,10 @@ class T2TModel(base.Layer):
     loss_num *= self._problem_hparams.loss_multiplier
     return loss_num, loss_den
 
-  def optimize(self, loss, use_tpu=False):
+  def optimize(self, loss, num_async_replicas=1, use_tpu=False):
     """Return a training op minimizing loss."""
     lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
+    lr /= math.sqrt(float(num_async_replicas))
     train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
     return train_op
 
@@ -746,7 +743,7 @@ class T2TModel(base.Layer):
       features: dict<str name, Tensor feature>
       labels: Tensor
       mode: tf.estimator.ModeKeys
-      config: RunConfig; if passed, should have t2t_device_info dict
+      config: RunConfig, possibly with data_parallelism attribute
       params: dict, may include batch_size
       decode_hparams: HParams, used when mode == PREDICT.
       use_tpu: bool, whether using TPU
@@ -763,9 +760,8 @@ class T2TModel(base.Layer):
     problem = hparams.problem_instances[0]
 
     # Instantiate model
-    data_parallelism = (
-        None if hparams.no_data_parallelism else _create_data_parallelism(
-            use_tpu=use_tpu, **config.t2t_device_info))
+    data_parallelism = (None if (hparams.no_data_parallelism or use_tpu)
+                        else config.data_parallelism)
     model = cls(hparams, mode, data_parallelism=data_parallelism,
                 decode_hparams=decode_hparams)
 
@@ -808,9 +804,8 @@ class T2TModel(base.Layer):
 
   def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
     """Construct EstimatorSpec for TRAIN mode."""
-    lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
-    lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
+    train_op = self.optimize(loss, num_async_replicas=num_async_replicas,
+                             use_tpu=use_tpu)
 
     if use_tpu:
       _remove_summaries()  # summaries not currently working on TPU
@@ -946,34 +941,9 @@ def _get_batch_size(params, hparams, config):
   if not batch_size:
     batch_size = hparams.tpu_batch_size_per_shard
     if config:
-      batch_size *= config.t2t_device_info["num_shards"]
+      batch_size *= config.data_parallelism.n
 
   return batch_size
-
-
-def _create_data_parallelism(num_gpus=1,
-                             gpu_order="",
-                             shard_to_cpu=False,
-                             num_shards=1,
-                             use_tpu=False,
-                             no_dp=False,
-                             **kwargs):
-  """Create Parallelism object."""
-  del kwargs
-
-  if use_tpu or no_dp:
-    return eu.Parallelism([""])
-
-  gpus = list(range(num_gpus))
-  if gpu_order:
-    gpus = [int(s) for s in gpu_order.split(" ")]
-    assert len(gpus) == num_gpus
-  data_shard_devices = ["gpu:%d" % i for i in gpus]
-  if shard_to_cpu or num_gpus < 1:
-    data_shard_devices += ["cpu:0"]
-  assert len(data_shard_devices) == num_shards
-  tf.logging.info("Data parallel devices: %s", data_shard_devices)
-  return eu.Parallelism(data_shard_devices)
 
 
 # These metrics are implemented with py_funcs and therefore do no work with TPU
