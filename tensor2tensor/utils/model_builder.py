@@ -46,14 +46,20 @@ def combine_shards(sharded_top_outputs: List[Dict[str, tf.Tensor]]) -> Dict[str,
   """(Fathom) Combine the dicts that our modality tops emit, rather than
   the tensors that standard T2T modality tops emit.
 
-  Args:
+  This is a relatively minor change, but shows up in many different
+  spots, so we discuss it here. The general format is a dict with keys
+  'logits' and 'outputs'. Other keys can be added if desired, but are
+  not required. This requires changes in the metrics and in this
+  module.
 
+  Args:
       sharded_top_outputs: dict mapping strings to tensors or None
                            (for each key, all shards should have a
                            tensor or all shards should have None)
 
   Returns:
       top_outputs: dict mapping string to tensor or None
+
   """
   assert len(sharded_top_outputs) >= 1
 
@@ -183,6 +189,7 @@ def model_fn(model,
       # Ensure the loss is a scalar here.
       total_loss = tf.reshape(total_loss, [], name="total_loss_control_id")
 
+    # (epurdy/fathom) see combine_shards for discussion
     logits = combine_shards(sharded_logits)
 
     return [total_loss, logits]
@@ -215,8 +222,6 @@ def model_fn(model,
 
     # (epurdy) allow model to emit additional outputs
     # hardcoding in feature keys t2t uses
-    if 'outputs' not in predictions:
-      predictions['outputs'] = None
     SKIP_FEATURES = ['inputs', 'infer_targets', 'outputs', 'scores']
     for k in model_output:
       if k in SKIP_FEATURES: continue
@@ -244,8 +249,9 @@ def model_fn(model,
     for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
       eval_metrics[metric_name] = metric_fn(logits, features)
 
-    # (epurdy/fathom)
-    logits = logits['logits']
+    # (epurdy/fathom) see combine_shards for discussion
+    if isinstance(logits, dict):
+      logits = logits['logits']
       
     return tf.estimator.EstimatorSpec(
         mode,

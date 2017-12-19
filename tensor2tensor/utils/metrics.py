@@ -33,7 +33,6 @@ class Metrics(object):
   """Available evaluation metrics."""
   # Entries here should match the keys in METRICS_FN below
   ACC = "accuracy"
-  ACC_OUTPUT = "accuracy_output"
   ACC_TOP5 = "accuracy_top5"
   ACC_PER_SEQ = "accuracy_per_sequence"
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
@@ -46,7 +45,10 @@ class Metrics(object):
   EDIT_DISTANCE = "edit_distance"
   SET_PRECISION = 'set_precision'
   SET_RECALL = 'set_recall'
-  SET_AUC = 'set_auc'
+
+  # fathom metrics
+  SET_AUC = 'set_auc'  
+  FATHOM_ACC = "fathom_accuracy"
 
 def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   predictions, labels = common_layers.pad_with_zeros(predictions, labels)
@@ -192,7 +194,7 @@ def padded_accuracy(predictions,
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
 
-def padded_accuracy_outputs(predictions,
+def fathom_padded_accuracy(predictions,
                             labels,
                             weights_fn=common_layers.weights_nonzero,
                             outputs=None):
@@ -209,14 +211,7 @@ def padded_accuracy_outputs(predictions,
       weights: tensor that tells us which examples to include in the weighted average
   """
   assert outputs is not None
-  with tf.variable_scope("padded_accuracy_outputs", values=[outputs, labels]):
-    padded_outputs, padded_labels = common_layers.pad_with_zeros(
-        outputs, labels)
-    weights = weights_fn(padded_labels)
-    padded_outputs = tf.to_int32(padded_outputs)
-    padded_labels = tf.to_int32(padded_labels)
-    padded_outputs = tf.to_int32(padded_outputs)
-    return tf.to_float(tf.equal(padded_outputs, padded_labels)), weights
+  return padded_accuracy(predictions=outputs, labels=labels, weights_fn=weights_fn)
   
 
 def set_precision(predictions,
@@ -326,7 +321,8 @@ def create_evaluation_metrics(problems, model_hparams):
       if "features" in args or keywords:
         kwargs["features"] = features
 
-      # (epurdy/fathom)
+      # (epurdy/fathom) see comment in model_builder.py, function
+      # combine_shards for discussion
       if isinstance(predictions, dict):
         if 'outputs' in args or keywords:
           kwargs['outputs'] = predictions['outputs']
@@ -384,7 +380,6 @@ def create_evaluation_metrics(problems, model_hparams):
 # The results are passed to tf.metrics.mean to accumulate properly.
 METRICS_FNS = {
     Metrics.ACC: padded_accuracy,
-    Metrics.ACC_OUTPUT: padded_accuracy_outputs,
     Metrics.ACC_TOP5: padded_accuracy_top5,
     Metrics.ACC_PER_SEQ: padded_sequence_accuracy,
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
@@ -397,5 +392,8 @@ METRICS_FNS = {
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
     Metrics.SET_PRECISION: set_precision,
     Metrics.SET_RECALL: set_recall,
+
+    # fathom metrics
     Metrics.SET_AUC: set_auc,
+    Metrics.FATHOM_ACC: fathom_padded_accuracy,
 }
