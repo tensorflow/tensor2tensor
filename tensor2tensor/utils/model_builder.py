@@ -47,15 +47,20 @@ def combine_shards(sharded_top_outputs: List[Dict[str, tf.Tensor]]) -> Dict[str,
   the tensors that standard T2T modality tops emit.
 
   Args:
-      sharded_top_outputs: dict mapping strings to tensors
+
+      sharded_top_outputs: dict mapping strings to tensors or None
+                           (for each key, all shards should have a
+                           tensor or all shards should have None)
 
   Returns:
-      top_outputs: dict mapping strings to tensors
+      top_outputs: dict mapping string to tensor or None
   """
   assert len(sharded_top_outputs) >= 1
 
   return_value = dict()
   for k in sharded_top_outputs[0]:
+    if all(shard[k] is None for shard in sharded_top_outputs):
+      return_value[k] = None
     return_value[k] = tf.concat([shard[k] for shard in sharded_top_outputs], 0)
 
   return return_value

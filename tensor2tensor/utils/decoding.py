@@ -104,6 +104,12 @@ def decode_from_dataset(estimator,
                         decode_to_file=None,
                         dataset_split=None,
                         return_generator=False):
+  """Decode from a dataset
+
+  Args:
+      return_generator: if True, return the tf.Estimator predictions
+                        generator
+  """
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))
   hparams = estimator.params
