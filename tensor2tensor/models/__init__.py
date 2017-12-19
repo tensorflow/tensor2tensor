@@ -34,6 +34,7 @@ from tensor2tensor.models import lstm
 from tensor2tensor.models import multimodel
 from tensor2tensor.models import neural_gpu
 from tensor2tensor.models import resnet
+from tensor2tensor.models import revnet
 from tensor2tensor.models import shake_shake
 from tensor2tensor.models import slicenet
 from tensor2tensor.models import super_lm
