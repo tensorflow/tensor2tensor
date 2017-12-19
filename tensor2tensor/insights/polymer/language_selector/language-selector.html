@@ -1,0 +1,42 @@
+<!--
+@license
+Copyright 2017 The Tensor2Tensor Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<link rel="import" href="../polymer/polymer.html">
+
+<link rel="import" href="../iron-flex-layout/iron-flex-layout-classes.html">
+
+<link rel="import" href="../paper-dropdown-menu/paper-dropdown-menu.html">
+<link rel="import" href="../paper-input/paper-input.html">
+<link rel="import" href="../paper-item/paper-item.html">
+
+<link rel="import" href="language-selector-content.html">
+
+<dom-module id="language-selector">
+  <template>
+    <custom-style>
+      <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
+    </custom-style>
+    <paper-dropdown-menu label="[[label]]" horizontal-align="left">
+      <language-selector-content id="selector"
+                                 class="dropdown-content"
+                                 default-code="[[defaultCode]]"
+                                 languages="[[languages]]"
+                                 value="{{value}}" slot="dropdown-content">
+      </language-selector-content>
+    </paper-dropdown-menu>
+  </template>
+  <script src="language-selector.js"></script>
+</dom-module>
