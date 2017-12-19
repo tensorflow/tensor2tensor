@@ -163,11 +163,9 @@ def kmeans(x, means, hparams, name):
   with tf.variable_scope(name):
     x_means_hot = nearest(x, means, hparams)
     x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
-    x_flat = tf.reshape(x, [-1, hparams.hidden_size])
-    kl = tf.reduce_mean(tf.reduce_sum(tf.square(x_flat - x_means), axis=-1))
     reg_loss1 = tf.nn.l2_loss((tf.stop_gradient(x) - x_means))
     reg_loss2 = hparams.beta * tf.nn.l2_loss((x - tf.stop_gradient(x_means)))
-    l = kl + reg_loss1 + reg_loss2
+    l = reg_loss1 + reg_loss2
     return x_means_hot, x_means, l
 
 
@@ -208,6 +206,8 @@ def bottleneck(x, hparams, filter_size, name):
         means = tf.get_variable(name="means",
                                 shape=[hparams.v_size, hparams.hidden_size])
         h1 = tf.gather(means, x)
+      elif hparams.bottleneck_kind == "rounding":
+        h1 = tf.round(x)
 
       h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
       return tf.layers.dense(tf.nn.relu(h2), hparams.hidden_size, name="vcfin")
@@ -255,6 +255,9 @@ def bottleneck(x, hparams, filter_size, name):
       x_means_hot, x_means, l = kmeans(x, means, hparams, name="vq-vae-kmeans")
       h1 = tf.stop_gradient(x_means) + x - tf.stop_gradient(x)
       c = tf.argmax(x_means_hot, axis=-1)
+    if hparams.bottleneck_kind == "round":
+      c = tf.round(x)
+      h1 = x + tf.stop_gradient(tf.round(x) - x)
     h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
     res = tf.layers.dense(tf.nn.relu(h2), hparams.hidden_size, name="vcfin")
     return res, c, l, embed
