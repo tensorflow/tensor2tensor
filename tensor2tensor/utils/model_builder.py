@@ -61,7 +61,8 @@ def combine_shards(sharded_top_outputs: List[Dict[str, tf.Tensor]]) -> Dict[str,
   for k in sharded_top_outputs[0]:
     if all(shard[k] is None for shard in sharded_top_outputs):
       return_value[k] = None
-    return_value[k] = tf.concat([shard[k] for shard in sharded_top_outputs], 0)
+    else:
+      return_value[k] = tf.concat([shard[k] for shard in sharded_top_outputs], 0)
 
   return return_value
 
