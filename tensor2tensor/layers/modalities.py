@@ -111,7 +111,7 @@ class SymbolModality(modality.Modality):
              else tf.gather(var, x))
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
-      ret *= tf.expand_dims(tf.to_float(tf.not_equal(x, 0)), -1)
+      ret *= tf.expand_dims(common_layers.weights_nonzero(x), -1)
       return ret
 
   def bottom(self, x):
