@@ -196,7 +196,18 @@ def padded_accuracy_outputs(predictions,
                             labels,
                             weights_fn=common_layers.weights_nonzero,
                             outputs=None):
-  """Percentage of times that predictions (given by outputs) matches labels on non-0s."""
+  """Percentage of times that predictions (given by outputs) matches labels on non-0s.
+
+  Args:
+      predictions: logits
+      labels: ground truth labels
+      weights_fn: function that says which exampels to weight based on labels
+      outputs: model output dict
+
+  Returns:
+      hits: tensor that is 1 where label is predicted correctly
+      weights: tensor that tells us which examples to include in the weighted average
+  """
   assert outputs is not None
   with tf.variable_scope("padded_accuracy_outputs", values=[outputs, labels]):
     padded_outputs, padded_labels = common_layers.pad_with_zeros(
@@ -307,7 +318,7 @@ def create_evaluation_metrics(problems, model_hparams):
       """Metric fn."""
       labels = features.get("targets", None)
       problem_choice = features.get("problem_choice", 0)
-      
+
       # Send along the entire features dict if the metric fn has the kwarg
       # "features".
       kwargs = {}
