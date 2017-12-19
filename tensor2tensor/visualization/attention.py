@@ -45,8 +45,10 @@ vis_js = open(os.path.join(__location__, 'attention.js')).read()
 
 
 def show(inp_text, out_text, enc_atts, dec_atts, encdec_atts):
+  enc_att, dec_att, encdec_att = (resize(enc_atts),
+                                  resize(dec_atts), resize(encdec_atts))
   attention = _get_attention(
-      inp_text, out_text, enc_atts, dec_atts, encdec_atts)
+      inp_text, out_text, enc_att, dec_att, encdec_att)
   att_json = json.dumps(attention)
   _show_attention(att_json)
 
@@ -55,6 +57,23 @@ def _show_attention(att_json):
   display.display(display.HTML(vis_html))
   display.display(display.Javascript('window.attention = %s' % att_json))
   display.display(display.Javascript(vis_js))
+
+
+def resize(att_mat, max_length=30):
+  """Normalize attention matrices and reshape as necessary."""
+  layer_mats = []
+  for att in att_mat:
+    # Sum across different heads.
+    att = att[ :, :max_length, :max_length]
+    row_sums = np.sum(att, axis=0)
+    # Normalize
+    layer_mat = att / row_sums[np.newaxis, :]
+    lsh = layer_mat.shape
+    # Add extra batch dim for viz code to work.
+    if len(np.shape(lsh)) == 3:
+      layer_mat = np.reshape(layer_mat, (1, lsh[0], lsh[1], lsh[2]))
+    layer_mats.append(layer_mat)
+  return layer_mats
 
 
 def _get_attention(inp_text, out_text, enc_atts, dec_atts, encdec_atts):
