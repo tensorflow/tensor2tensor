@@ -52,7 +52,7 @@ def combine_shards(sharded_top_outputs: List[Dict[str, tf.Tensor]]) -> Dict[str,
   not required. This requires changes in the metrics and in this
   module.
 
-  Note that this gracefully handles the behavior of exsiting t2t
+  Note that this gracefully handles the behavior of existing t2t
   modalities that emit logits.
 
   Args:
