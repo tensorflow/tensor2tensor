@@ -28,6 +28,7 @@ setup(
     install_requires=[
         'bz2file',
         'future',
+        'gym',
         'numpy',
         'requests',
         'sympy',
