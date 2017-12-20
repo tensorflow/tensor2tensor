@@ -45,7 +45,10 @@ class Metrics(object):
   EDIT_DISTANCE = "edit_distance"
   SET_PRECISION = 'set_precision'
   SET_RECALL = 'set_recall'
-  SET_AUC = 'set_auc'
+
+  # fathom metrics
+  SET_AUC = 'set_auc'  
+  FATHOM_ACC = "fathom_accuracy"
 
 def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   predictions, labels = common_layers.pad_with_zeros(predictions, labels)
@@ -191,6 +194,29 @@ def padded_accuracy(predictions,
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
 
+def fathom_padded_accuracy(predictions,
+                            labels,
+                            weights_fn=common_layers.weights_nonzero,
+                            outputs=None):
+  """Percentage of times that predictions (given by outputs) matches labels on non-0s.
+
+  Args:
+      predictions: logits
+      labels: ground truth labels
+      weights_fn: function that says which exampels to weight based on labels
+      outputs: model output dict
+
+  Returns:
+      hits: tensor that is 1 where label is predicted correctly
+      weights: tensor that tells us which examples to include in the weighted average
+  """
+  assert outputs is not None
+  return padded_accuracy(
+    predictions=tf.one_hot(outputs, depth=tf.shape(predictions)[-1]),
+    labels=labels,
+    weights_fn=weights_fn)
+
+
 def set_precision(predictions,
                   labels,
                   weights_fn=common_layers.weights_nonzero):
@@ -298,8 +324,17 @@ def create_evaluation_metrics(problems, model_hparams):
       if "features" in args or keywords:
         kwargs["features"] = features
 
+      # (epurdy/fathom) see comment in model_builder.py, function
+      # combine_shards for discussion
+      if isinstance(predictions, dict):
+        if 'outputs' in args or keywords:
+          kwargs['outputs'] = predictions['outputs']
+        logits = predictions['logits']
+      else:
+        logits = predictions  
+        
       def wrapped_metric_fn():
-        return metric_fn(predictions, labels, weights_fn=weights_fn, **kwargs)
+        return metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
 
       (scores, weights) = tf.cond(
           tf.equal(problem_idx, problem_choice), wrapped_metric_fn,
@@ -360,5 +395,8 @@ METRICS_FNS = {
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
     Metrics.SET_PRECISION: set_precision,
     Metrics.SET_RECALL: set_recall,
+
+    # fathom metrics
     Metrics.SET_AUC: set_auc,
+    Metrics.FATHOM_ACC: fathom_padded_accuracy,
 }

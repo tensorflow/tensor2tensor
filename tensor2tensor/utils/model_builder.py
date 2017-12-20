@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from typing import List, Dict
 import copy
 import math
 
@@ -40,6 +41,43 @@ from tensor2tensor.utils import yellowfin
 import tensorflow as tf
 from tensorflow.python.framework import dtypes
 
+
+def combine_shards(sharded_top_outputs: List[Dict[str, tf.Tensor]]) -> Dict[str, tf.Tensor]:
+  """(Fathom) Combine the dicts that our modality tops emit, rather than
+  the tensors that standard T2T modality tops emit.
+
+  This is a relatively minor change, but shows up in many different
+  spots, so we discuss it here. The general format is a dict with keys
+  'logits' and 'outputs'. Other keys can be added if desired, but are
+  not required. This requires changes in the metrics and in this
+  module.
+
+  Note that this gracefully handles the behavior of existing t2t
+  modalities that emit logits.
+
+  Args:
+      sharded_top_outputs: dict mapping strings to tensors or None
+                           (for each key, all shards should have a
+                           tensor or all shards should have None)
+
+  Returns:
+      top_outputs: dict mapping string to tensor or None
+
+  """
+  assert len(sharded_top_outputs) >= 1
+
+  # if a base t2t modality, just return the input
+  if not isinstance(sharded_top_outputs[0], dict):
+    return sharded_top_outputs
+  
+  return_value = dict()
+  for k in sharded_top_outputs[0]:
+    if all(shard[k] is None for shard in sharded_top_outputs):
+      return_value[k] = None
+    else:
+      return_value[k] = tf.concat([shard[k] for shard in sharded_top_outputs], 0)
+
+  return return_value
 
 def model_fn(model,
              features,
@@ -157,7 +195,11 @@ def model_fn(model,
     with tf.control_dependencies(ops):  # Make sure the ops run.
       # Ensure the loss is a scalar here.
       total_loss = tf.reshape(total_loss, [], name="total_loss_control_id")
-    return [total_loss, tf.concat(sharded_logits, 0)]
+
+    # (epurdy/fathom) see combine_shards for discussion
+    logits = combine_shards(sharded_logits)
+
+    return [total_loss, logits]
 
   model_output = input_fn_builder.cond_on_index(
       nth_model,
@@ -214,6 +256,10 @@ def model_fn(model,
     for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
       eval_metrics[metric_name] = metric_fn(logits, features)
 
+    # (epurdy/fathom) see combine_shards for discussion
+    if isinstance(logits, dict):
+      logits = logits['logits']
+      
     return tf.estimator.EstimatorSpec(
         mode,
         predictions={"predictions": logits},
