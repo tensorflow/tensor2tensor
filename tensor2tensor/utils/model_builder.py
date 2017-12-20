@@ -63,6 +63,10 @@ def combine_shards(sharded_top_outputs: List[Dict[str, tf.Tensor]]) -> Dict[str,
   """
   assert len(sharded_top_outputs) >= 1
 
+  # if a base t2t modality, just return the input
+  if not isinstance(sharded_top_outputs[0], dict):
+    return sharded_top_outputs
+  
   return_value = dict()
   for k in sharded_top_outputs[0]:
     if all(shard[k] is None for shard in sharded_top_outputs):
