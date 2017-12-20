@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Model building."""
 
 from __future__ import absolute_import
@@ -75,13 +74,11 @@ def model_fn(model,
     tf.estimator.EstimatorSpec
   """
   assert len(problem_names) == len(hparams.problem_instances)
-  decode_hp = decode_hparams
 
   # TODO(rsepassi): This still depends on FLAGS. Rm eventually.
   dp = devices.data_parallelism(hparams)
 
   tf.get_variable_scope().set_initializer(_get_variable_initializer(hparams))
-  is_training = mode == tf.estimator.ModeKeys.TRAIN
 
   # Add input statistics for incoming features.
   with tf.name_scope("input_stats"):
@@ -110,15 +107,18 @@ def model_fn(model,
         dp,
         devices.ps_devices(all_workers=True),
         decode_hparams=decode_hparams)
+
     if mode == tf.estimator.ModeKeys.PREDICT:
+      top_beams = decode_hparams.beam_size if decode_hparams.return_beams else 1
       return model_class.infer(
           features,
-          beam_size=decode_hp.beam_size,
-          top_beams=(decode_hp.beam_size if decode_hp.return_beams else 1),
-          alpha=decode_hp.alpha,
-          decode_length=decode_hp.extra_length)
+          beam_size=decode_hparams.beam_size,
+          top_beams=top_beams,
+          alpha=decode_hparams.alpha,
+          decode_length=decode_hparams.extra_length)
     # In distributed mode, we build graph for problem=0 and problem=worker_id.
-    skipping_is_on = hparams.problem_choice == "distributed" and is_training
+    skipping_is_on = (hparams.problem_choice == "distributed"
+                      and mode == tf.estimator.ModeKeys.TRAIN)
     problem_worker_id = worker_id % len(hparams.problems)
     skip_this_one = n != 0 and n % worker_replicas != problem_worker_id
     # On worker 0 also build graph for problems <= 1.
@@ -162,7 +162,7 @@ def model_fn(model,
       index_tensor=features["problem_choice"],
       max_idx=len(hparams.problems) - 1)
 
-  if mode == tf.estimator.ModeKeys.PREDICT:
+  def mode_predict():
     # If beam searching, model_output will be a dict with keys "outputs" and
     # "scores".
     if isinstance(model_output, dict):
@@ -172,9 +172,10 @@ def model_fn(model,
       outputs = model_output
       scores = None
 
-    batched_problem_choice = (
-        features["problem_choice"] * tf.ones(
-            (tf.shape(features["inputs"])[0],), dtype=tf.int32))
+    batched_problem_choice = features["problem_choice"] * tf.ones(
+        tf.shape(features["inputs"])[:1],
+        dtype=tf.int32,
+    )
     predictions = {
         "outputs": outputs,
         "scores": scores,
@@ -195,9 +196,7 @@ def model_fn(model,
             "output": tf.estimator.export.PredictOutput(export_out)
         })
 
-  total_loss, logits = model_output
-
-  if mode == tf.estimator.ModeKeys.EVAL:
+  def mode_eval():
     eval_metrics_fns = metrics.create_evaluation_metrics(
         hparams.problem_instances, hparams)
 
@@ -211,102 +210,121 @@ def model_fn(model,
         eval_metric_ops=eval_metrics,
         loss=total_loss)
 
+  def mode_train():
+    # Set learning rate
+    learning_rate = hparams.learning_rate * optimize.learning_rate_decay(
+        hparams,
+        num_worker_replicas=worker_replicas,
+        num_train_steps=train_steps)
+    learning_rate /= math.sqrt(float(worker_replicas))
+
+    # Get global step
+    global_step = tf.train.get_or_create_global_step()
+
+    # Some training statistics.
+    with tf.name_scope("training_stats"):
+      tf.summary.scalar("learning_rate", learning_rate)
+      for n in xrange(len(hparams.problems)):
+        names_and_vars = []
+        with tf.variable_scope("losses_avg", reuse=True):
+          total_loss_var = tf.get_variable("problem_%d/total_loss" % n)
+          names_and_vars.append(("total_loss", total_loss_var))
+        with tf.variable_scope("losses_avg", reuse=True):
+          for loss_name in loss_variable_names:
+            if loss_name.startswith("problem_%d/" % n):
+              loss_var = tf.get_variable(loss_name)
+              loss_suffix = loss_name[loss_name.index("/") + 1:]
+              names_and_vars.append((loss_suffix, loss_var))
+
+        for (loss_name, loss_var) in names_and_vars:
+          tf.summary.scalar("loss_avg_%d/%s" % (n, loss_name), loss_var)
+
+        with tf.variable_scope("train_stats", reuse=True):
+          nth_steps = tf.get_variable("problem_%d_steps" % n, dtype=tf.int32)
+
+        tf.summary.scalar("problem_%d_frequency" % n,
+                          tf.to_float(nth_steps) /
+                          (tf.to_float(global_step) + 1.0))
+
+    # Add weight decay and noise.
+    total_size = 0
+    weight_decay_loss = 0.0
+    all_weights = {v.name: v for v in tf.trainable_variables()}
+    for v_name in sorted(list(all_weights)):
+      v = all_weights[v_name]
+      v_size = int(np.prod(np.array(v.shape.as_list())))
+      total_size += v_size
+      if hparams.weight_decay > 0.0 and v.shape.ndims > 1:
+        # Add weight regularization if set and the weight is not a bias (dim>1).
+        with tf.device(v._ref().device):  # pylint: disable=protected-access
+          v_loss = tf.nn.l2_loss(v) / v_size
+        weight_decay_loss += v_loss
+      is_body = len(v_name) > 5 and v_name[:5] == "body/"
+      if hparams.weight_noise > 0.0 and is_body:
+        # Add weight noise if set in hparams.
+        with tf.device(v._ref().device):  # pylint: disable=protected-access
+          scale = learning_rate * 0.001
+          noise = tf.truncated_normal(v.shape) * hparams.weight_noise * scale
+          noise_op = v.assign_add(noise)
+
+        with tf.control_dependencies([noise_op]):
+          total_loss = tf.identity(total_loss)
+
+    if hparams.weight_decay > 0.0:
+      total_loss += weight_decay_loss * hparams.weight_decay
+
+    # The new data reader occasionally emits very small batches, which
+    # cause the examples in those batches to be grossly overweighted.
+    # We decrease the loss proportionally to the ratio of the size of this
+    # batch to the size of the largest training batch ever.
+    # TODO(noam): to be more sophisticated, we could keep separate
+    # maxima based on problem choice.
+    max_nonpadding_var = tf.get_variable(
+        "max_nonpadding",
+        shape=[],
+        initializer=tf.ones_initializer(),
+        trainable=False)
+    max_nonpadding = tf.maximum(max_nonpadding_var, targets_nonpadding_tokens)
+    with tf.control_dependencies(
+        [tf.assign(max_nonpadding_var, max_nonpadding)]):
+      small_batch_multiplier = targets_nonpadding_tokens / max_nonpadding
+
+    tf.summary.scalar("small_batch_multiplier", small_batch_multiplier)
+    total_loss *= small_batch_multiplier
+
+    # Log variable sizes
+    _log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
+    diet_vars = [
+        v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
+    ]
+    _log_variable_sizes(diet_vars, "Diet Variables")
+
+    # Optimize
+    train_op = optimize.optimize(total_loss, learning_rate, hparams)
+
+    # Remove summaries that will fail to run because they are in conditionals.
+    # TODO(cwhipkey): Test with this code removed, later in 2017.
+    summaries = tf.get_collection_ref(tf.GraphKeys.SUMMARIES)
+    for i in reversed(range(len(summaries))):
+      if summaries[i].name.startswith("cond_"):
+        del summaries[i]
+
+    tf.logging.info("Global model_fn finished.")
+    return tf.estimator.EstimatorSpec(
+        mode,
+        predictions={"problem_choice": features["problem_choice"]},
+        loss=total_loss,
+        train_op=train_op)
+
+  if mode == tf.estimator.ModeKeys.PREDICT:
+    return mode_predict()
+
+  total_loss, logits = model_output
+  if mode == tf.estimator.ModeKeys.EVAL:
+    return mode_eval()
+
   assert mode == tf.estimator.ModeKeys.TRAIN
-
-  # Set learning rate
-  learning_rate = hparams.learning_rate * optimize.learning_rate_decay(
-      hparams, num_worker_replicas=worker_replicas, num_train_steps=train_steps)
-  learning_rate /= math.sqrt(float(worker_replicas))
-
-  # Get global step
-  global_step = tf.train.get_or_create_global_step()
-
-  # Some training statistics.
-  with tf.name_scope("training_stats"):
-    tf.summary.scalar("learning_rate", learning_rate)
-    for n in xrange(len(hparams.problems)):
-      names_and_vars = []
-      with tf.variable_scope("losses_avg", reuse=True):
-        total_loss_var = tf.get_variable("problem_%d/total_loss" % n)
-        names_and_vars.append(("total_loss", total_loss_var))
-      with tf.variable_scope("losses_avg", reuse=True):
-        for loss_name in loss_variable_names:
-          if loss_name.startswith("problem_%d/" % n):
-            loss_var = tf.get_variable(loss_name)
-            loss_suffix = loss_name[loss_name.index("/") + 1:]
-            names_and_vars.append((loss_suffix, loss_var))
-      for (loss_name, loss_var) in names_and_vars:
-        tf.summary.scalar("loss_avg_%d/%s" % (n, loss_name), loss_var)
-      with tf.variable_scope("train_stats", reuse=True):
-        nth_steps = tf.get_variable("problem_%d_steps" % n, dtype=tf.int32)
-      tf.summary.scalar("problem_%d_frequency" % n,
-                        tf.to_float(nth_steps) /
-                        (tf.to_float(global_step) + 1.0))
-
-  # Add weight decay and noise.
-  total_size, weight_decay_loss = 0, 0.0
-  all_weights = {v.name: v for v in tf.trainable_variables()}
-  for v_name in sorted(list(all_weights)):
-    v = all_weights[v_name]
-    v_size = int(np.prod(np.array(v.shape.as_list())))
-    total_size += v_size
-    if hparams.weight_decay > 0.0 and len(v.shape.as_list()) > 1:
-      # Add weight regularization if set and the weight is not a bias (dim>1).
-      with tf.device(v._ref().device):  # pylint: disable=protected-access
-        v_loss = tf.nn.l2_loss(v) / v_size
-      weight_decay_loss += v_loss
-    is_body = len(v_name) > 5 and v_name[:5] == "body/"
-    if hparams.weight_noise > 0.0 and is_body:
-      # Add weight noise if set in hparams.
-      with tf.device(v._ref().device):  # pylint: disable=protected-access
-        scale = learning_rate * 0.001
-        noise = tf.truncated_normal(v.shape) * hparams.weight_noise * scale
-        noise_op = v.assign_add(noise)
-      with tf.control_dependencies([noise_op]):
-        total_loss = tf.identity(total_loss)
-  if hparams.weight_decay > 0.0:
-    total_loss += weight_decay_loss * hparams.weight_decay
-
-  # The new data reader occasionally emits very small batches, which
-  # cause the examples in those batches to be grossly overweighted.
-  # We decrease the loss proportionally to the ratio of the size of this
-  # batch to the size of the largest training batch ever.
-  # TODO(noam): to be more sophisticated, we could keep separate
-  # maxima based on problem choice.
-  max_nonpadding_var = tf.get_variable(
-      "max_nonpadding",
-      shape=[],
-      initializer=tf.ones_initializer(),
-      trainable=False)
-  max_nonpadding = tf.maximum(max_nonpadding_var, targets_nonpadding_tokens)
-  with tf.control_dependencies([tf.assign(max_nonpadding_var, max_nonpadding)]):
-    small_batch_multiplier = targets_nonpadding_tokens / max_nonpadding
-  tf.summary.scalar("small_batch_multiplier", small_batch_multiplier)
-  total_loss *= small_batch_multiplier
-
-  # Log variable sizes
-  _log_variable_sizes(tf.trainable_variables(), "Trainable Variables")
-  diet_vars = [
-      v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
-  ]
-  _log_variable_sizes(diet_vars, "Diet Variables")
-
-  # Optimize
-  train_op = optimize.optimize(total_loss, learning_rate, hparams)
-
-  # Remove summaries that will fail to run because they are in conditionals.
-  # TODO(cwhipkey): Test with this code removed, later in 2017.
-  summaries = tf.get_collection_ref(tf.GraphKeys.SUMMARIES)
-  for i in reversed(range(len(summaries))):
-    if summaries[i].name.startswith("cond_"):
-      del summaries[i]
-
-  tf.logging.info("Global model_fn finished.")
-  return tf.estimator.EstimatorSpec(
-      mode,
-      predictions={"problem_choice": features["problem_choice"]},
-      loss=total_loss,
-      train_op=train_op)
+  return mode_train()
 
 
 def build_model_fn(model, **kwargs):
