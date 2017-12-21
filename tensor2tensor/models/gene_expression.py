@@ -48,7 +48,7 @@ class GeneExpressionConv(t2t_model.T2TModel):
   (hparams.pooling_windows) at each conv layer (hparams.num_conv_layers).
   """
 
-  def model_fn_body(self, features):
+  def body(self, features):
     inputs = features["inputs"]
     inputs.get_shape().assert_has_rank(4)
 

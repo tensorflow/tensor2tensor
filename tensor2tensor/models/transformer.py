@@ -130,7 +130,7 @@ class Transformer(t2t_model.T2TModel):
       # Expand since t2t expects 4d tensors.
       return tf.expand_dims(decoder_output, axis=2)
 
-  def model_fn_body(self, features):
+  def body(self, features):
     """Transformer main model_fn.
 
     Args:
@@ -391,7 +391,7 @@ class Transformer(t2t_model.T2TModel):
 class TransformerEncoder(t2t_model.T2TModel):
   """Transformer, encoder only."""
 
-  def model_fn_body(self, features):
+  def body(self, features):
     hparams = self._hparams
     inputs = features["inputs"]
     target_space = features["target_space_id"]

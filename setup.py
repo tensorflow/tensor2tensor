@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.3.2',
+    version='1.4.0',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -27,6 +27,7 @@ setup(
     install_requires=[
         'bz2file',
         'future',
+        'gym',
         'numpy',
         'requests',
         'sympy',

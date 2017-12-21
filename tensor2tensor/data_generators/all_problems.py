@@ -25,6 +25,7 @@ from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import cipher
 from tensor2tensor.data_generators import cnn_dailymail
 from tensor2tensor.data_generators import desc2code
+from tensor2tensor.data_generators import gym
 from tensor2tensor.data_generators import ice_parsing
 from tensor2tensor.data_generators import image
 from tensor2tensor.data_generators import imdb

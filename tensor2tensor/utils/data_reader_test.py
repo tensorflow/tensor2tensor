@@ -90,8 +90,9 @@ class DataReaderTest(tf.test.TestCase):
         os.remove(f)
 
   def testBasicExampleReading(self):
-    dataset = self.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN, data_dir=self.data_dir)
+    dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
+                                   data_dir=self.data_dir,
+                                   shuffle_files=False)
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       # Check that there are multiple examples that have the right fields of the
@@ -107,8 +108,9 @@ class DataReaderTest(tf.test.TestCase):
           self.assertGreater(len(field), 0)
 
   def testPreprocess(self):
-    dataset = self.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN, data_dir=self.data_dir)
+    dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
+                                   data_dir=self.data_dir,
+                                   shuffle_files=False)
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       ex_val = sess.run(examples)
@@ -117,8 +119,9 @@ class DataReaderTest(tf.test.TestCase):
 
   def testLengthFilter(self):
     max_len = 15
-    dataset = self.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN, data_dir=self.data_dir)
+    dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
+                                   data_dir=self.data_dir,
+                                   shuffle_files=False)
     dataset = dataset.filter(
         lambda ex: data_reader.example_valid_size(ex, 0, max_len))
     examples = dataset.make_one_shot_iterator().get_next()
@@ -209,12 +212,12 @@ class DataReaderTest(tf.test.TestCase):
 
     boundaries = [10, 20, 30]
     batch_sizes = [10, 8, 4, 2]
-    window_size = 40
 
-    dataset = self.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN, data_dir=self.data_dir)
+    dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
+                                   data_dir=self.data_dir,
+                                   shuffle_files=False)
     dataset = data_reader.bucket_by_sequence_length(
-        dataset, example_len, boundaries, batch_sizes, window_size)
+        dataset, example_len, boundaries, batch_sizes)
     batch = dataset.make_one_shot_iterator().get_next()
 
     input_vals = []

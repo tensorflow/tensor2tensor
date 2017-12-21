@@ -433,7 +433,6 @@ class ClassLabelModality(modality.Modality):
 @registry.register_generic_modality("default")
 @registry.register_audio_modality("identity")
 @registry.register_image_modality("identity")
-@registry.register_symbol_modality("identity")
 @registry.register_class_label_modality("identity")
 @registry.register_real_modality("identity")
 class IdentityModality(modality.Modality):
@@ -502,3 +501,17 @@ class IdentityZeroLossModality(IdentityModality):
 
   def loss(self, top_out, targets):
     return tf.constant(0., tf.float32), tf.constant(0., tf.float32)
+
+
+@registry.register_symbol_modality("identity")
+class IdentitySymbolModality(SymbolModality):
+  """Symbol modality with identity top and bottom transformations.
+
+  Uses the weights_fn from SymbolModality so that loss/metrics ignore padding.
+  """
+
+  def bottom(self, x):
+    return tf.to_float(x)
+
+  def top(self, body_output, _):
+    return body_output
