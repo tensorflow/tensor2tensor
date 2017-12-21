@@ -18,17 +18,12 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
 # Dependency imports
-
-from six.moves import xrange  # pylint: disable=redefined-builtin
-
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
-
 import tensorflow as tf
 
 
@@ -207,7 +202,7 @@ def bottleneck(x, hparams, filter_size, name):
                                 shape=[hparams.v_size, hparams.hidden_size])
         h1 = tf.gather(means, x)
       elif hparams.bottleneck_kind == "rounding":
-        h1 = tf.round(x)
+        h1 = x
 
       h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
       return tf.layers.dense(tf.nn.relu(h2), hparams.hidden_size, name="vcfin")
@@ -255,9 +250,19 @@ def bottleneck(x, hparams, filter_size, name):
       x_means_hot, x_means, l = kmeans(x, means, hparams, name="vq-vae-kmeans")
       h1 = tf.stop_gradient(x_means) + x - tf.stop_gradient(x)
       c = tf.argmax(x_means_hot, axis=-1)
-    if hparams.bottleneck_kind == "round":
-      c = tf.round(x)
-      h1 = x + tf.stop_gradient(tf.round(x) - x)
+    if hparams.bottleneck_kind == "rounding":
+      h = tf.layers.dense(x, 1, name="vcc")
+
+      # Make h between 0 and 1
+      h = tf.sigmoid(h)
+
+      # Multiply by z_size to get it between [0, z_size]
+      h *= hparams.v_size
+
+      # Use the rounding bottleneck
+      h1 = h + tf.stop_gradient(tf.round(h) - h)
+      c = tf.squeeze(tf.round(h), axis=-1)
+      c = tf.to_int32(c)
     h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
     res = tf.layers.dense(tf.nn.relu(h2), hparams.hidden_size, name="vcfin")
     return res, c, l, embed
