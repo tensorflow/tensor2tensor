@@ -77,9 +77,6 @@ def create_hparams():
 
 
 def create_experiment_fn():
-  use_validation_monitor = (FLAGS.schedule in
-                            ["train_and_evaluate", "continuous_train_and_eval"]
-                            and FLAGS.local_eval_frequency)
   return tpu_trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
       problem_name=get_problem_name(),
@@ -92,9 +89,9 @@ def create_experiment_fn():
       decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams),
       use_tfdbg=FLAGS.tfdbg,
       use_dbgprofile=FLAGS.dbgprofile,
-      use_validation_monitor=use_validation_monitor,
       eval_early_stopping_steps=FLAGS.eval_early_stopping_steps,
       eval_early_stopping_metric=FLAGS.eval_early_stopping_metric,
+      eval_early_stopping_metric_delta=FLAGS.eval_early_stopping_metric_delta,
       eval_early_stopping_metric_minimize=FLAGS.
       eval_early_stopping_metric_minimize,
       use_tpu=FLAGS.use_tpu)
