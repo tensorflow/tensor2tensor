@@ -18,8 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
-
 # Dependency imports
 
 import numpy as np
@@ -37,103 +35,6 @@ def cast_int64_to_int32(features):
       v = tf.to_int32(v)
     f[k] = v
   return f
-
-
-def feature_placeholders(data_fields, data_items_to_decoders):
-  """Construct Placeholders and run decoders."""
-  example = {}
-  for field, config in data_fields.items():
-    if isinstance(config, tf.VarLenFeature):
-      shape = [None, None]
-    else:
-      shape = config.shape
-
-    example[field] = tf.placeholder(dtype=config.dtype, shape=shape, name=field)
-
-  # Decode
-  if data_items_to_decoders is None:
-    data_items_to_decoders = {
-        field: tf.contrib.slim.tfexample_decoder.Tensor(field)
-        for field in data_fields
-    }
-
-  decoded_example = {}
-  for field, decoder in data_items_to_decoders.items():
-    keys_to_tensors = {key: example[key] for key in decoder.keys}
-    decoded_example[field] = decoder.tensors_to_item(keys_to_tensors)
-
-  return decoded_example
-
-
-# DEPRECATED
-def input_pipeline(problem,
-                   data_dir,
-                   capacity,
-                   mode,
-                   hparams,
-                   batching_scheme,
-                   dataset_split=None,
-                   shard=None):
-  """Input pipeline, returns a dictionary of batched and padded tensors.
-
-  Args:
-    problem: Problem instance for which to build the input pipeline.
-    data_dir: directory with input data.
-    capacity: int, data pipeline buffer capacity.
-    mode: tf.estimator.ModeKeys entry.
-    hparams: an HParams object.
-    batching_scheme: a dictionary containing
-      "boundaries": a list of integers for the boundaries that will be
-        used for bucketing; see bucket_by_sequence_length for more details.
-      "batch_sizes": a list of batch sizes corresponding to the buckets
-      "min_length": an integer.  We drop sequences which are shorter.
-      "max_length": an integer.  We drop sequences which are longer.
-    dataset_split: tf.estimator.ModeKeys + ["test"], which split of the dataset
-      to use. Defaults to mode.
-    shard: int, if provided, will only read data from the specified shard.
-
-  Returns:
-    dict <feature name, batched and padded Tensor>
-  """
-  is_training = mode == tf.estimator.ModeKeys.TRAIN
-  num_threads = 4 if is_training else 1
-
-  with tf.name_scope("input_pipeline"):
-    dataset = problem.dataset(
-        mode,
-        data_dir=data_dir,
-        num_threads=num_threads,
-        output_buffer_size=capacity,
-        hparams=hparams,
-        dataset_split=dataset_split,
-        shard=shard)
-    dataset = dataset.map(cast_int64_to_int32, num_parallel_calls=num_threads)
-    dataset = dataset.filter(
-        functools.partial(
-            example_valid_size,
-            min_length=batching_scheme["min_length"],
-            max_length=batching_scheme["max_length"],
-        ))
-    if is_training:
-      dataset = dataset.shuffle(capacity)
-      dataset = dataset.repeat(None)
-
-    bucket_id_fn = example_length
-    if len(batching_scheme["boundaries"]) == 1:
-      bucket_id_fn = lambda _: tf.constant(0)
-
-    if "padded_shapes" not in batching_scheme:
-      batching_scheme["padded_shapes"] = None
-
-    dataset = bucket_by_sequence_length(
-        dataset,
-        bucket_id_fn,
-        batching_scheme["boundaries"],
-        batching_scheme["batch_sizes"],
-        padded_shapes=batching_scheme["padded_shapes"])
-
-    batched_examples = dataset.make_one_shot_iterator().get_next()
-    return batched_examples
 
 
 def example_length(example):
@@ -326,62 +227,6 @@ def hparams_to_batching_scheme(hparams,
       drop_long_sequences=drop_long_sequences,
       shard_multiplier=shard_multiplier,
       length_multiplier=length_multiplier)
-
-
-def constant_batching_scheme(constant_batch_size_in_sequences):
-  """A batching scheme with constant batch size.
-
-  Args:
-    constant_batch_size_in_sequences: an integer
-
-  Returns:
-     a dictionary
-  """
-  boundaries = _bucket_boundaries(1024)
-  batch_sizes = [constant_batch_size_in_sequences] * (1 + len(boundaries))
-  return {
-      "boundaries": boundaries,
-      "batch_sizes": batch_sizes,
-      "min_length": 0,
-      "max_length": 10**9,
-      "shuffle_queue_size": None,
-      "window_size": constant_batch_size_in_sequences,
-  }
-
-
-# DEPRECATED
-def serving_input_fn(problem, hparams):
-  """Input fn for serving, starting from Placeholders."""
-  data_fields, data_items_to_decoders = problem.example_reading_spec()
-
-  # Feature placeholders that mimic what's on disk
-  example = feature_placeholders(data_fields, data_items_to_decoders)
-
-  # Preprocess
-  example = problem.preprocess_example(example, tf.estimator.ModeKeys.PREDICT,
-                                       hparams)
-  example = cast_int64_to_int32(example)
-
-  # 4-D inputs and space ids
-  constants = {}
-  constants["target_space_id"] = tf.constant(
-      problem.get_hparams().target_space_id)
-  constants["problem_choice"] = tf.constant(0)
-  if problem.has_inputs:
-    while len(example["inputs"].get_shape()) != 4:
-      example["inputs"] = tf.expand_dims(example["inputs"], axis=-1)
-    constants["input_space_id"] = tf.constant(
-        problem.get_hparams().input_space_id)
-    example.pop("targets")
-  else:
-    while len(example["targets"].get_shape()) != 4:
-      example["targets"] = tf.expand_dims(example["targets"], axis=-1)
-
-  features = constants
-  features.update(example)
-
-  return tf.estimator.export.ServingInputReceiver(
-      features=features, receiver_tensors=example)
 
 
 class DummyQueueRunner(object):

@@ -29,7 +29,6 @@ import six
 from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.utils import input_fn_builder
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -48,6 +47,7 @@ def decode_hparams(overrides=""):
       beam_size=4,
       alpha=0.6,
       return_beams=False,
+      write_beam_scores=False,
       max_input_size=-1,
       identity_output=False,
       num_samples=-1,
@@ -157,10 +157,15 @@ def decode_from_dataset(estimator,
 
       # Log predictions
       decoded_outputs = []
+      decoded_scores = []
       if decode_hp.return_beams:
         output_beams = np.split(outputs, decode_hp.beam_size, axis=0)
+        scores = None
+        if "scores" in prediction:
+          scores = np.split(prediction["scores"], decode_hp.beam_size, axis=0)
         for i, beam in enumerate(output_beams):
           tf.logging.info("BEAM %d:" % i)
+          score = scores and scores[i]
           decoded = log_decode_results(
               inputs,
               beam,
@@ -173,6 +178,8 @@ def decode_from_dataset(estimator,
               identity_output=decode_hp.identity_output,
               targets=targets)
           decoded_outputs.append(decoded)
+          if decode_hp.write_beam_scores:
+            decoded_scores.append(score)
       else:
         decoded = log_decode_results(
             inputs,
@@ -189,8 +196,12 @@ def decode_from_dataset(estimator,
 
       # Write out predictions if decode_to_file passed
       if decode_to_file:
-        for decoded_output, decoded_target in decoded_outputs:
-          output_file.write(str(decoded_output) + decode_hp.delimiter)
+        for i, (decoded_output, decoded_target) in enumerate(decoded_outputs):
+          beam_score_str = ""
+          if decode_hp.write_beam_scores:
+            beam_score_str = "\t%.2f" % decoded_scores[i]
+          output_file.write(
+              str(decoded_output) + beam_score_str + decode_hp.delimiter)
           target_file.write(str(decoded_target) + decode_hp.delimiter)
 
       if (decode_hp.num_samples >= 0 and
@@ -241,14 +252,26 @@ def decode_from_file(estimator,
   for result in result_iter:
     if decode_hp.return_beams:
       beam_decodes = []
+      beam_scores = []
       output_beams = np.split(result["outputs"], decode_hp.beam_size, axis=0)
+      scores = None
+      if "scores" in result:
+        scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(output_beams):
         tf.logging.info("BEAM %d:" % k)
+        score = scores and scores[k]
         decoded_outputs, _ = log_decode_results(result["inputs"], beam,
                                                 problem_name, None,
                                                 inputs_vocab, targets_vocab)
         beam_decodes.append(decoded_outputs)
-      decodes.append("\t".join(beam_decodes))
+        if decode_hp.write_beam_scores:
+          beam_scores.append(score)
+      if decode_hp.write_beam_scores:
+        decodes.append("\t".join(
+            ["\t".join([d, "%.2f" % s]) for d, s
+             in zip(beam_decodes, beam_scores)]))
+      else:
+        decodes.append("\t".join(beam_decodes))
     else:
       decoded_outputs, _ = log_decode_results(result["inputs"],
                                               result["outputs"], problem_name,
@@ -575,7 +598,7 @@ def _interactive_input_tensor_to_features_dict(feature_map, hparams):
     return (tf.constant(p_hparams.input_space_id), tf.constant(
         p_hparams.target_space_id), x)
 
-  input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
+  input_space_id, target_space_id, x = cond_on_index(
       input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)
 
   features = {}
@@ -605,13 +628,13 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
 
   def input_fn(problem_choice, x=inputs):  # pylint: disable=missing-docstring
     p_hparams = hparams.problems[problem_choice]
-    # Add a third empty dimension dimension
+    # Add a third empty dimension
     x = tf.expand_dims(x, axis=[2])
     x = tf.to_int32(x)
     return (tf.constant(p_hparams.input_space_id), tf.constant(
         p_hparams.target_space_id), x)
 
-  input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
+  input_space_id, target_space_id, x = cond_on_index(
       input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)
 
   features = {}
@@ -622,3 +645,15 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
       IMAGE_DECODE_LENGTH if input_is_image else tf.shape(x)[1] + 50)
   features["inputs"] = x
   return features
+
+
+def cond_on_index(fn, index_tensor, max_idx, cur_idx=0):
+  """Call fn(index_tensor) using tf.cond in [cur_id, max_idx]."""
+  if cur_idx == max_idx:
+    return fn(cur_idx)
+
+  return tf.cond(
+      tf.equal(index_tensor, cur_idx),
+      lambda: fn(cur_idx),
+      lambda: cond_on_index(fn, index_tensor, max_idx, cur_idx + 1)
+  )

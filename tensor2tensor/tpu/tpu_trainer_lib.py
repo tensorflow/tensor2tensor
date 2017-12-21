@@ -35,7 +35,7 @@ from tensorflow.python import debug
 def create_session_config(log_device_placement=False,
                           enable_graph_rewriter=False,
                           gpu_mem_fraction=0.95,
-                          use_tpu=True):
+                          use_tpu=False):
   """The TensorFlow Session config to use."""
   if use_tpu:
     graph_options = tf.GraphOptions()
@@ -99,7 +99,7 @@ def create_run_config(master="",
                       ps_job="/job:ps",
                       ps_gpu=0,
                       sync=False,
-                      use_tpu=True):
+                      use_tpu=False):
   """Create RunConfig, TPUConfig, and Parallelism object."""
   session_config = create_session_config(
       log_device_placement=log_device_placement,
@@ -161,7 +161,7 @@ def create_estimator(model_name,
                      run_config,
                      schedule="train_and_evaluate",
                      decode_hparams=None,
-                     use_tpu=True):
+                     use_tpu=False):
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
       model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
 
@@ -218,7 +218,7 @@ def create_experiment(run_config,
                       data_dir,
                       train_steps,
                       eval_steps,
-                      min_eval_frequency,
+                      min_eval_frequency=2000,
                       schedule="train_and_evaluate",
                       export=False,
                       decode_hparams=None,
@@ -228,7 +228,7 @@ def create_experiment(run_config,
                       eval_early_stopping_steps=None,
                       eval_early_stopping_metric=None,
                       eval_early_stopping_metric_minimize=True,
-                      use_tpu=True):
+                      use_tpu=False):
   """Create Experiment."""
   # HParams
   hparams.add_hparam("data_dir", data_dir)
@@ -280,7 +280,7 @@ def create_experiment(run_config,
       train_steps=train_steps,
       eval_steps=eval_steps,
       min_eval_frequency=min_eval_frequency,
-      train_steps_per_iteration=min_eval_frequency,
+      train_steps_per_iteration=min(min_eval_frequency, train_steps),
       export_strategies=export_strategies,
       **hooks_kwargs)
 

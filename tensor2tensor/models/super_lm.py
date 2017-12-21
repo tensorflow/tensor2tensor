@@ -111,7 +111,7 @@ class SuperLM(t2t_model.T2TModel):
     logits_shard_0 = tf.expand_dims(logits_shard_0, 3)
     # On each device, we compute the loss for a part of the batch.
     # This is faster than computing the whole loss on one shard.
-    mp, logits = common_layers.reduce_by_device(mp, logits, lambda(l): l[0])
+    mp, logits = common_layers.reduce_by_device(mp, logits, lambda l: l[0])
     def _loss_for_shard(logits, targets, shard):
       if mp.n > 1:
         logits = common_layers.approximate_split(logits, mp.n, 0)[shard]

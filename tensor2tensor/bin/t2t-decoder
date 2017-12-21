@@ -99,7 +99,7 @@ def main(_):
   estimator = tpu_trainer_lib.create_estimator(
       FLAGS.model,
       hp,
-      tpu_trainer.create_run_config(),
+      tpu_trainer.create_run_config(hp),
       decode_hparams=decode_hp,
       use_tpu=False)
 
