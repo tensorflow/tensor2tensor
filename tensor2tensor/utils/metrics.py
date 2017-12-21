@@ -22,12 +22,16 @@ import inspect
 
 # Dependency imports
 
+import numpy as np
+
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import rouge
 
 import tensorflow as tf
+
+from tensorflow.contrib.eager.python import tfe
 
 
 class Metrics(object):
@@ -305,10 +309,11 @@ def create_evaluation_metrics(problems, model_hparams):
     problem_name = problem_instance.name
     metrics = problem_instance.eval_metrics()
     if not all([m in METRICS_FNS for m in metrics]):
-      raise ValueError("Unrecognized metric. Problem %s specified metrics "
-                       "%s. Recognized metrics are %s." % (problem_name,
-                                                           metrics,
-                                                           METRICS_FNS.keys()))
+      error_str = ("Unrecognized metric. Problem %s specified metrics "
+                   "%s. Recognized metrics are %s.")
+      raise ValueError(error_str % (problem_name,
+                                    metrics,
+                                    list(METRICS_FNS.keys())))
 
     def image_wrapped_metric_fn(predictions,
                                 labels,
@@ -332,6 +337,51 @@ def create_evaluation_metrics(problems, model_hparams):
         eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
+
+
+def create_eager_metrics_for_problem(problem, model_hparams=None):
+  """See create_eager_metrics."""
+  metric_names = problem.eval_metrics()
+  tm = problem.get_hparams().target_modality
+  if isinstance(tm, tuple):
+    assert model_hparams is not None
+    tm = registry.create_modality(tm, model_hparams)
+  return create_eager_metrics(metric_names, weights_fn=tm.targets_weights_fn)
+
+
+def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
+  """Create metrics accumulators and averager for Eager mode.
+
+  Args:
+    metric_names: list<str> from Metrics enum
+    weights_fn: function that takes labels and returns a weights mask. Defaults
+      to weights of all 1, i.e. common_layers.weights_all. Use
+      common_layers.weights_nonzero if labels have 0-padding.
+
+  Returns:
+    (accum_fn(predictions, targets) => None,
+     result_fn() => dict<str metric_name, float avg_val>
+  """
+  metric_fns = dict(
+      [(name, METRICS_FNS[name]) for name in metric_names])
+  tfe_metrics = dict()
+
+  for name in metric_names:
+    tfe_metrics[name] = tfe.metrics.Mean(name=name)
+
+  def metric_accum(predictions, targets):
+    for name, metric_fn in metric_fns.items():
+      val, weight = metric_fn(predictions, targets,
+                              weights_fn=weights_fn)
+      tfe_metrics[name](np.squeeze(val), np.squeeze(weight))
+
+  def metric_means():
+    avgs = {}
+    for name in metric_names:
+      avgs[name] = tfe_metrics[name].result().numpy()
+    return avgs
+
+  return metric_accum, metric_means
 
 
 # Metrics are functions that take predictions and labels and return

@@ -692,7 +692,7 @@ class T2TModel(base.Layer):
 
   def _to_features_per_datashard(self, features):
     datashard_features = []
-    assert len(features[features.keys()[0]]) == self._num_datashards
+    assert len(features[list(features.keys())[0]]) == self._num_datashards
     for d in range(self._num_datashards):
       f = {k: v[d] for k, v in six.iteritems(features)}
       datashard_features.append(f)
@@ -713,7 +713,7 @@ class T2TModel(base.Layer):
                               use_tpu=False):
     model_cls = registry.model(model_name)
 
-    def wrapping_model_fn(features, labels, mode, params, config):
+    def wrapping_model_fn(features, labels, mode, params=None, config=None):
       return model_cls.estimator_model_fn(
           hparams,
           features,
@@ -760,8 +760,9 @@ class T2TModel(base.Layer):
     problem = hparams.problem_instances[0]
 
     # Instantiate model
-    data_parallelism = (None if (hparams.no_data_parallelism or use_tpu)
-                        else config.data_parallelism)
+    data_parallelism = None
+    if not use_tpu and not hparams.no_data_parallelism and config:
+      data_parallelism = config.data_parallelism
     model = cls(hparams, mode, data_parallelism=data_parallelism,
                 decode_hparams=decode_hparams)
 
@@ -781,7 +782,7 @@ class T2TModel(base.Layer):
     if use_tpu:
       shape = logits.get_shape().as_list()
       if shape[0] is None:
-        shape[0] = _get_batch_size(params, hparams, config)
+        shape[0] = params["batch_size"]
       if shape[1] is None:
         shape[1] = hparams.max_length
       logits.set_shape(shape)
@@ -798,7 +799,8 @@ class T2TModel(base.Layer):
     # TRAIN mode
     assert mode == tf.estimator.ModeKeys.TRAIN
     num_async_replicas = (
-        1 if use_tpu else config.t2t_device_info["num_async_replicas"])
+        1 if (use_tpu or not config)
+        else config.t2t_device_info["num_async_replicas"])
     return model.estimator_spec_train(
         loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
 
@@ -928,22 +930,6 @@ def _create_dummy_vars():
             "%s_loss" % var_name, initializer=100.0, trainable=False)
   with tf.variable_scope("train_stats"):
     tf.get_variable("problem_0_steps", initializer=0, trainable=False)
-
-
-def _get_batch_size(params, hparams, config):
-  """Batch size determined by params dict, HParams, and RunConfig."""
-  # If params specifies batch size, use that. TPUEstimator passes batch size in
-  # params.
-  batch_size = params and params.get("batch_size")
-
-  # If not set, then we're running on CPU/GPU, so use the batch size from the
-  # hparams, and multiply by the number of data shards.
-  if not batch_size:
-    batch_size = hparams.tpu_batch_size_per_shard
-    if config:
-      batch_size *= config.data_parallelism.n
-
-  return batch_size
 
 
 # These metrics are implemented with py_funcs and therefore do no work with TPU

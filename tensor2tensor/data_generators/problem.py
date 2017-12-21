@@ -479,22 +479,24 @@ class Problem(object):
     self._feature_info = features
     return features
 
-  def make_estimator_input_fn(self, mode, hparams, dataset_kwargs=None):
+  def make_estimator_input_fn(self, mode, hparams, data_dir=None,
+                              dataset_kwargs=None):
     """Return input_fn wrapped for Estimator."""
 
     def estimator_input_fn(params, config):
-      return self.input_fn(mode, hparams, params=params, config=config,
-                           dataset_kwargs=dataset_kwargs)
+      return self.input_fn(mode, hparams, data_dir=data_dir, params=params,
+                           config=config, dataset_kwargs=dataset_kwargs)
 
     return estimator_input_fn
 
-  def input_fn(self, mode, hparams, params=None, config=None,
+  def input_fn(self, mode, hparams, data_dir=None, params=None, config=None,
                dataset_kwargs=None):
     """Builds input pipeline for problem.
 
     Args:
       mode: tf.estimator.ModeKeys
       hparams: HParams, model hparams
+      data_dir: str, data directory; if None, will use hparams.data_dir
       params: dict, may include "batch_size"
       config: RunConfig; should have the data_parallelism attribute if not using
         TPU
@@ -504,9 +506,6 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
-    tf.logging.warning("Problem.input_fn implements a subset of "
-                       "input_fn_builder.build_input_fn and is currently only "
-                       "used in tpu_trainer.")
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     num_threads = 4 if is_training else 1
 
@@ -522,11 +521,11 @@ class Problem(object):
           hparams.max_length if drop_long_sequences else 10**9)
 
     def define_shapes(example):
-      return _standardize_shapes(
-          example, batch_size=(config.use_tpu and params["batch_size"]))
+      batch_size = config and config.use_tpu and params["batch_size"]
+      return standardize_shapes(example, batch_size=batch_size)
 
     # Read and preprocess
-    data_dir = hparams.data_dir
+    data_dir = data_dir or hparams.data_dir
 
     dataset_kwargs = dataset_kwargs or {}
     dataset_kwargs.update({
@@ -544,16 +543,16 @@ class Problem(object):
     # Batching
     if _are_shapes_fully_defined(dataset.output_shapes):
       # Static shape features (e.g. images)
-      if config.use_tpu:
+      if config and config.use_tpu:
         tpu_batch_size = params["batch_size"]
         dataset = dataset.apply(
             tf.contrib.data.batch_and_drop_remainder(tpu_batch_size))
       else:
-        num_shards = config.data_parallelism.n
+        num_shards = (config and config.data_parallelism.n) or 1
         dataset = dataset.batch(hparams.batch_size * num_shards)
     else:
       # Variable length features
-      if config.use_tpu:
+      if config and config.use_tpu:
         # On TPU, pad to hparams.max_length
         dataset = dataset.filter(tpu_valid_size)
         padded_shapes = _fill_shape_nones(
@@ -566,7 +565,7 @@ class Problem(object):
         dataset = dataset.filter(gpu_valid_size)
         batching_scheme = data_reader.hparams_to_batching_scheme(
             hparams,
-            shard_multiplier=config.data_parallelism.n,
+            shard_multiplier=(config and config.data_parallelism.n) or 1,
             length_multiplier=self.get_hparams().batch_size_multiplier)
         if hparams.use_fixed_batch_size:
           batching_scheme["batch_sizes"] = [hparams.batch_size]
@@ -580,8 +579,8 @@ class Problem(object):
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
     dataset = dataset.prefetch(1)
     features = dataset.make_one_shot_iterator().get_next()
-    if not config.use_tpu:
-      _summarize_features(features, config.data_parallelism.n)
+    if not config or not config.use_tpu:
+      _summarize_features(features, (config and config.data_parallelism.n) or 1)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
       features["infer_targets"] = features["targets"]
@@ -604,7 +603,7 @@ class Problem(object):
     dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
     dataset = dataset.map(data_reader.cast_int64_to_int32)
     dataset = dataset.padded_batch(1000, dataset.output_shapes)
-    dataset = dataset.map(_standardize_shapes)
+    dataset = dataset.map(standardize_shapes)
     features = tf.contrib.data.get_single_element(dataset)
 
     if self.has_inputs:
@@ -908,7 +907,7 @@ def _summarize_features(features, num_shards=1):
                           tf.reduce_mean(nonpadding))
 
 
-def _standardize_shapes(features, batch_size=None):
+def standardize_shapes(features, batch_size=None):
   """Set the right shapes for the features."""
 
   for fname in ["inputs", "targets"]:

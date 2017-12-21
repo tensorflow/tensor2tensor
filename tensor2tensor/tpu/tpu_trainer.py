@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import contextlib
 import os
 import sys
 
@@ -47,6 +48,10 @@ flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 1000,
                      "Number of iterations in a TPU training loop.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
+flags.DEFINE_bool("generate_data", False, "Generate data before training?")
+flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
+                    "Temporary storage directory, used if --generate_data.")
+flags.DEFINE_bool("profile", False, "Profile performance?")
 
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erroring. Apologies for the ugliness.
@@ -75,13 +80,13 @@ def create_experiment_fn():
                             ["train_and_evaluate", "continuous_train_and_eval"]
                             and FLAGS.local_eval_frequency)
   return tpu_trainer_lib.create_experiment_fn(
-      FLAGS.model,
-      get_problem_name(),
-      os.path.expanduser(FLAGS.data_dir),
-      FLAGS.train_steps,
-      FLAGS.eval_steps,
-      FLAGS.local_eval_frequency,
-      FLAGS.schedule,
+      model_name=FLAGS.model,
+      problem_name=get_problem_name(),
+      data_dir=os.path.expanduser(FLAGS.data_dir),
+      train_steps=FLAGS.train_steps,
+      eval_steps=FLAGS.eval_steps,
+      min_eval_frequency=FLAGS.local_eval_frequency,
+      schedule=FLAGS.schedule,
       export=FLAGS.export_saved_model,
       decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams),
       use_tfdbg=FLAGS.tfdbg,
@@ -123,6 +128,31 @@ def create_run_config(hp):
       worker_job=FLAGS.worker_job)
 
 
+def generate_data():
+  # Generate data if requested.
+  data_dir = os.path.expanduser(FLAGS.data_dir)
+  tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
+  tf.gfile.MakeDirs(data_dir)
+  tf.gfile.MakeDirs(tmp_dir)
+
+  problem_name = get_problem_name()
+  tf.logging.info("Generating data for %s" % problem_name)
+  registry.problem(problem_name).generate_data(data_dir, tmp_dir)
+
+
+@contextlib.contextmanager
+def profile_context():
+  if FLAGS.profile:
+    with tf.contrib.tfprof.ProfileContext("t2tprof",
+                                          trace_steps=range(100),
+                                          dump_steps=range(100)) as pctx:
+      opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
+      pctx.add_auto_profiling("op", opts, range(100))
+      yield
+  else:
+    yield
+
+
 def log_registry():
   if FLAGS.registry_help:
     tf.logging.info(registry.help_string())
@@ -133,7 +163,8 @@ def execute_schedule(exp):
   if not hasattr(exp, FLAGS.schedule):
     raise ValueError(
         "Experiment has no method %s, from --schedule" % FLAGS.schedule)
-  getattr(exp, FLAGS.schedule)()
+  with profile_context():
+    getattr(exp, FLAGS.schedule)()
 
 
 def main(_):
@@ -141,6 +172,9 @@ def main(_):
   tf.set_random_seed(123)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
+
+  if FLAGS.generate_data:
+    generate_data()
 
   hparams = create_hparams()
   run_config = create_run_config(hparams)
