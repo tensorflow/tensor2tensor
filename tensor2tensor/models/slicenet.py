@@ -279,7 +279,7 @@ def slicenet_internal(inputs, targets, target_space, hparams, run_decoder=True):
 @registry.register_model
 class SliceNet(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     target_modality_name = (
         self._hparams.problems[self._problem_idx].target_modality.name)
     # If we're just predicing a class, there is no use for a decoder.

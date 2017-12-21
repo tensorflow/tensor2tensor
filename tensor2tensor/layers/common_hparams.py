@@ -32,9 +32,12 @@ import tensorflow as tf
 def basic_params1():
   """A set of basic hyperparameters."""
   return tf.contrib.training.HParams(
-      batch_size=4096,  # in tokens per batch per gpu
-      # Fixed batch size turns off bucketing during training mode
-      # and uses batch_size as minibatch size (use small batch_size<=32)
+      # If the features are variable length, this is in tokens per batch per
+      # GPU. If the features are of known shape (e.g. image problems), this is
+      # the actual batch size.
+      batch_size=4096,
+      # If True, then if the features are of variable length, the batch_size is
+      # used as the actual batch size (and not tokens per batch).
       use_fixed_batch_size=False,
       num_hidden_layers=4,
       kernel_height=3,
@@ -116,6 +119,9 @@ def basic_params1():
       # If set to True, drop sequences longer than max_length during eval.
       # This affects the validity of the evaluation metrics.
       eval_drop_long_sequences=False,
+      # If True, run the model autoregressively instead of teacher-forcing
+      # during eval
+      eval_run_autoregressive=False,
       # TODO(lukaszkaiser): these parameters should probably be set elsewhere.
       # in SymbolModality, share the output embeddings and the softmax
       # variables.
@@ -187,6 +193,11 @@ def basic_params1():
       # Set by tpu_trainer to let the model know whether we are on TPU.
       # Switching on/off tpu should not invalidate checkpoints.
       use_tpu=False,
+      # If True in PREDICT mode, then last-position-only optimizations are not
+      # used.
+      force_full_predict=False,
+      # Set this for pure model parallelism.  There is only one data shard.
+      no_data_parallelism=False,
   )
 
 

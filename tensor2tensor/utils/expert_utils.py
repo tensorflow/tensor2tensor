@@ -132,7 +132,8 @@ class Parallelism(object):
                device_names_or_functions,
                reuse=True,
                caching_devices=None,
-               daisy_chain_variables=False):
+               daisy_chain_variables=False,
+               ps_devices=None):
     """Create a Parallelism.
 
     Args:
@@ -144,6 +145,7 @@ class Parallelism(object):
         names.
       daisy_chain_variables: a boolean - if true, then copies variables in a
         daisy chain between devices.
+      ps_devices: list<str>, list of devices for experts.
 
     Returns:
       a Parallelism.
@@ -154,6 +156,7 @@ class Parallelism(object):
     self._reuse = reuse
     self._caching_devices = self._maybe_repeat(caching_devices)
     self._daisy_chain_variables = daisy_chain_variables
+    self._ps_devices = ps_devices or [""]
 
   def __call__(self, fn, *args, **kwargs):
     """A parallel set of function calls (using the specified devices).
@@ -263,6 +266,10 @@ class Parallelism(object):
   @property
   def devices(self):
     return self._devices
+
+  @property
+  def ps_devices(self):
+    return self._ps_devices
 
   def _maybe_repeat(self, x):
     """Utility function for processing arguments that are singletons or lists.

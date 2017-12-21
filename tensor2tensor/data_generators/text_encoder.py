@@ -710,6 +710,10 @@ class SubwordTextEncoder(TextEncoder):
       self._init_subtokens_from_list(new_subtoken_strings)
       tf.logging.info("vocab_size = %d" % self.vocab_size)
 
+  @property
+  def all_subtoken_strings(self):
+    return tuple(self._all_subtoken_strings)
+
   def dump(self):
     """Debugging dump of the current subtoken vocabulary."""
     subtoken_strings = [(i, s)

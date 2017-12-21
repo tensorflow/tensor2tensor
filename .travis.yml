@@ -14,9 +14,9 @@ env:
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
 script:
-  - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/utils/trainer_utils_test.py --ignore=tensor2tensor/problems_test.py --ignore=tensor2tensor/tpu/tpu_trainer_lib_test.py
+  - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/problems_test.py --ignore=tensor2tensor/tpu/tpu_trainer_lib_test.py
   - pytest tensor2tensor/utils/registry_test.py
-  - pytest tensor2tensor/utils/trainer_utils_test.py
+  - pytest tensor2tensor/tpu/tpu_trainer_lib_test.py
   - t2t-datagen 2>&1 | grep translate && echo passed
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
   - t2t-trainer --registry_help

@@ -134,7 +134,7 @@ def lstm_seq2seq_internal_attention(inputs, targets, hparams, train):
 @registry.register_model
 class LSTMSeq2seq(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     # TODO(lukaszkaiser): investigate this issue and repair.
     if self._hparams.initializer == "orthogonal":
       raise ValueError("LSTM models fail with orthogonal initializer.")
@@ -146,7 +146,7 @@ class LSTMSeq2seq(t2t_model.T2TModel):
 @registry.register_model
 class LSTMSeq2seqAttention(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     # TODO(lukaszkaiser): investigate this issue and repair.
     if self._hparams.initializer == "orthogonal":
       raise ValueError("LSTM models fail with orthogonal initializer.")
