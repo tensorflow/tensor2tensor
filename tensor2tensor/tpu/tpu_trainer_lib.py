@@ -20,8 +20,11 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import random
 
 # Dependency imports
+
+import numpy as np
 
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import expert_utils
@@ -336,3 +339,9 @@ def add_problem_hparams(hparams, problems):
 
     hparams.problem_instances.append(problem)
     hparams.problems.append(p_hparams)
+
+
+def set_random_seed(seed):
+  tf.set_random_seed(seed)
+  random.seed(seed)
+  np.random.seed(seed)

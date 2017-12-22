@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Tests for tensor2tensor.data_generators.algorithmic_math."""
+# TODO(rsepassi): This test is flaky. Disable, remove, or update.
 
 from __future__ import absolute_import
 from __future__ import division

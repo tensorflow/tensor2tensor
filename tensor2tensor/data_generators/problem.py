@@ -947,7 +947,7 @@ def standardize_shapes(features, batch_size=None):
 
 def pad_batch(features, batch_multiple):
   """Pad batch dim of features to nearest multiple of batch_multiple."""
-  feature = features.items()[0][1]
+  feature = list(features.items())[0][1]
   batch_size = tf.shape(feature)[0]
   mod = batch_size % batch_multiple
   has_mod = tf.cast(tf.cast(mod, tf.bool), tf.int32)

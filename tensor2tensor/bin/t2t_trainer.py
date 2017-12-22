@@ -44,6 +44,7 @@ flags.DEFINE_string("t2t_usr_dir", "",
                     "The imported files should contain registrations, "
                     "e.g. @registry.register_model calls, that will then be "
                     "available to the t2t-trainer.")
+flags.DEFINE_integer("random_seed", 1234, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 1000,
                      "Number of iterations in a TPU training loop.")
@@ -170,7 +171,7 @@ def execute_schedule(exp):
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-  tf.set_random_seed(123)
+  tpu_trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
 
