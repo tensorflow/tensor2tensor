@@ -74,14 +74,14 @@ class MetricsHookTest(tf.test.TestCase):
     ckpt_dir = self.ckpt_dir("stop")
     dummy = DummyHook(ckpt_dir, every_n_steps=10)
     with self.sess(dummy, ckpt_dir) as sess:
-      for _ in xrange(20):
+      for _ in range(20):
         sess.run(incr_global_step)
 
       # Summary files should now have 2 global step values in them
       self.flush()
 
       # Run for 10 more so that the hook gets triggered again
-      for _ in xrange(10):
+      for _ in range(10):
         sess.run(incr_global_step)
 
       # Check that the metrics have actually been collected.
@@ -93,7 +93,7 @@ class MetricsHookTest(tf.test.TestCase):
       self.assertTrue(len(steps) >= 2)
 
       # Run for 10 more so that the hook triggers stoppage
-      for _ in xrange(10):
+      for _ in range(10):
         sess.run(incr_global_step)
 
       with self.assertRaisesRegexp(RuntimeError, "after should_stop requested"):
@@ -117,7 +117,7 @@ class MetricsHookTest(tf.test.TestCase):
         plateau_decrease=False,
         every_n_steps=10)
     with self.sess(stop_hook, ckpt_dir) as sess:
-      for _ in xrange(20):
+      for _ in range(20):
         sess.run((incr_global_step, incr_counter))
 
       # Summary files should now have 2 values in them
@@ -125,13 +125,13 @@ class MetricsHookTest(tf.test.TestCase):
 
       # Run for more steps so that the hook gets triggered and we verify that we
       # don't stop.
-      for _ in xrange(30):
+      for _ in range(30):
         sess.run((incr_global_step, incr_counter))
 
       self.flush()
 
       # Run without incrementing the counter
-      for _ in xrange(40):
+      for _ in range(40):
         sess.run(incr_global_step)
 
       # Metrics should be written such that now the counter has gone >20 steps
@@ -140,7 +140,7 @@ class MetricsHookTest(tf.test.TestCase):
 
       # Check that we ask for stop
       with self.assertRaisesRegexp(RuntimeError, "after should_stop requested"):
-        for _ in xrange(30):
+        for _ in range(30):
           sess.run(incr_global_step)
 
   def testPlateauOpHook(self):
@@ -164,7 +164,7 @@ class MetricsHookTest(tf.test.TestCase):
         plateau_decrease=False,
         every_n_steps=10)
     with self.sess(stop_hook, ckpt_dir) as sess:
-      for _ in xrange(20):
+      for _ in range(20):
         sess.run((incr_global_step, incr_counter))
 
       # Summary files should now have 2 values in them
@@ -172,13 +172,13 @@ class MetricsHookTest(tf.test.TestCase):
 
       # Run for more steps so that the hook gets triggered and we verify that we
       # don't stop.
-      for _ in xrange(30):
+      for _ in range(30):
         sess.run((incr_global_step, incr_counter))
 
       self.flush()
 
       # Run without incrementing the counter
-      for _ in xrange(30):
+      for _ in range(30):
         sess.run(incr_global_step)
       self.flush()
 
@@ -187,8 +187,8 @@ class MetricsHookTest(tf.test.TestCase):
       # Metrics should be written such that now the counter has gone >20 steps
       # without being incremented.
       # Check that we run the incr_indicator op several times
-      for _ in xrange(3):
-        for _ in xrange(10):
+      for _ in range(3):
+        for _ in range(10):
           sess.run(incr_global_step)
         self.flush()
 
