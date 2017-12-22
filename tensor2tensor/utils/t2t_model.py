@@ -139,13 +139,15 @@ class T2TModel(base.Layer):
       body_out = self.body_sharded(
           self._to_single_features_dict(transformed_features))
       body_out, losses = self._normalize_body_output(body_out)
-      sharded_logits = dp(self.top, body_out, datashard_to_features)
       if "training" not in losses:
+        sharded_logits = dp(self.top, body_out, datashard_to_features)
         sharded_losses = dp(self.loss, sharded_logits, datashard_to_features)
         training_loss_dict = average_sharded_losses([{
             "training": loss
         } for loss in sharded_losses])
         losses.update(training_loss_dict)
+      else:
+        sharded_logits = body_out
     else:
       sharded_logits, sharded_losses = dp(self.model_fn, datashard_to_features)
       losses = average_sharded_losses(sharded_losses)
@@ -172,9 +174,11 @@ class T2TModel(base.Layer):
       body_out = self.body(transformed_features)
     output, losses = self._normalize_body_output(body_out)
 
-    logits = self.top(output, features)
     if "training" not in losses:
+      logits = self.top(output, features)
       losses["training"] = self.loss(logits, features)
+    else:
+      logits = output
     return logits, losses
 
   def bottom(self, features):

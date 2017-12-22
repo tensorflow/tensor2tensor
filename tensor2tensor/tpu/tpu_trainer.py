@@ -60,7 +60,11 @@ try:
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
   flags.DEFINE_string("schedule", "continuous_train_and_eval",
                       "Method of Experiment to run.")
-  flags.DEFINE_integer("eval_steps", 200, "Number of steps in evaluation.")
+  flags.DEFINE_integer("eval_steps", 10000,
+                       "Number of steps in evaluation. By default, eval will "
+                       "stop after eval_steps or when it runs through the eval "
+                       "dataset once in full, whichever comes first, so this "
+                       "can be a very large number.")
 except:  # pylint: disable=bare-except
   pass
 
