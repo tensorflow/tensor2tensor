@@ -44,6 +44,7 @@ flags.DEFINE_string("t2t_usr_dir", "",
                     "The imported files should contain registrations, "
                     "e.g. @registry.register_model calls, that will then be "
                     "available to the t2t-trainer.")
+flags.DEFINE_integer("random_seed", 1234, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 1000,
                      "Number of iterations in a TPU training loop.")
@@ -60,7 +61,11 @@ try:
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
   flags.DEFINE_string("schedule", "continuous_train_and_eval",
                       "Method of Experiment to run.")
-  flags.DEFINE_integer("eval_steps", 200, "Number of steps in evaluation.")
+  flags.DEFINE_integer("eval_steps", 10000,
+                       "Number of steps in evaluation. By default, eval will "
+                       "stop after eval_steps or when it runs through the eval "
+                       "dataset once in full, whichever comes first, so this "
+                       "can be a very large number.")
 except:  # pylint: disable=bare-except
   pass
 
@@ -76,9 +81,6 @@ def create_hparams():
 
 
 def create_experiment_fn():
-  use_validation_monitor = (FLAGS.schedule in
-                            ["train_and_evaluate", "continuous_train_and_eval"]
-                            and FLAGS.local_eval_frequency)
   return tpu_trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
       problem_name=get_problem_name(),
@@ -91,9 +93,9 @@ def create_experiment_fn():
       decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams),
       use_tfdbg=FLAGS.tfdbg,
       use_dbgprofile=FLAGS.dbgprofile,
-      use_validation_monitor=use_validation_monitor,
       eval_early_stopping_steps=FLAGS.eval_early_stopping_steps,
       eval_early_stopping_metric=FLAGS.eval_early_stopping_metric,
+      eval_early_stopping_metric_delta=FLAGS.eval_early_stopping_metric_delta,
       eval_early_stopping_metric_minimize=FLAGS.
       eval_early_stopping_metric_minimize,
       use_tpu=FLAGS.use_tpu)
@@ -169,7 +171,7 @@ def execute_schedule(exp):
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-  tf.set_random_seed(123)
+  tpu_trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
 
