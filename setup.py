@@ -30,6 +30,7 @@ setup(
         'gym',
         'numpy',
         'requests',
+        'scipy',
         'sympy',
         'six',
     ],
