@@ -576,6 +576,19 @@ class Problem(object):
             batching_scheme["boundaries"],
             batching_scheme["batch_sizes"])
 
+        if not is_training:
+          def _pad_batch(features):
+            if not config or config.data_parallelism.n <= 1:
+              return features
+            tf.logging.warn(
+                "Padding the batch to ensure that remainder eval batches have "
+                "a batch size divisible by the number of data shards. This may "
+                "lead to incorrect metrics for non-zero-padded features, e.g. "
+                "images. Use a single datashard (i.e. 1 GPU) in that case.")
+            return pad_batch(features, config.data_parallelism.n)
+
+          dataset = dataset.map(_pad_batch, num_parallel_calls=num_threads)
+
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
     dataset = dataset.prefetch(1)
     features = dataset.make_one_shot_iterator().get_next()
@@ -930,3 +943,23 @@ def standardize_shapes(features, batch_size=None):
       t.get_shape().assert_is_fully_defined()
 
   return features
+
+
+def pad_batch(features, batch_multiple):
+  """Pad batch dim of features to nearest multiple of batch_multiple."""
+  feature = list(features.items())[0][1]
+  batch_size = tf.shape(feature)[0]
+  mod = batch_size % batch_multiple
+  has_mod = tf.cast(tf.cast(mod, tf.bool), tf.int32)
+  batch_padding = batch_multiple * has_mod - mod
+
+  padded_features = {}
+  for k, feature in features.items():
+    rank = len(feature.shape)
+    paddings = []
+    for _ in range(rank):
+      paddings.append([0, 0])
+    paddings[0][1] = batch_padding
+    padded_feature = tf.pad(feature, paddings)
+    padded_features[k] = padded_feature
+  return padded_features

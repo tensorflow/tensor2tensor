@@ -55,14 +55,14 @@ except:  # pylint: disable=bare-except
 flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
 flags.DEFINE_string("eval_early_stopping_metric", "loss",
-                    "If --schedule=train_and_evaluate and "
-                    "--eval_early_stopping_steps is not None, then stop when "
-                    "--eval_early_stopping_metric has not decreased for "
+                    "If --eval_early_stopping_steps is not None, then stop "
+                    "when --eval_early_stopping_metric has not decreased for "
                     "--eval_early_stopping_steps")
+flags.DEFINE_float("eval_early_stopping_metric_delta", 0.1,
+                   "Delta determining whether metric has plateaued.")
 flags.DEFINE_integer("eval_early_stopping_steps", None,
-                     "If --schedule=train_and_evaluate and "
-                     "--eval_early_stopping_steps is not None, then stop when "
-                     "--eval_early_stopping_metric has not decreased for "
+                     "If --eval_early_stopping_steps is not None, then stop "
+                     "when --eval_early_stopping_metric has not decreased for "
                      "--eval_early_stopping_steps")
 flags.DEFINE_bool("eval_early_stopping_metric_minimize", True,
                   "Whether to check for the early stopping metric going down "

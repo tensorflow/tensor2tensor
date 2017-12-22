@@ -19,10 +19,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+import random
+
 # Dependency imports
+
+import numpy as np
 
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import expert_utils
+from tensor2tensor.utils import metrics_hook
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -186,7 +192,8 @@ def create_estimator(model_name,
 
 
 def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
-                 use_validation_monitor=False, validation_monitor_kwargs=None):
+                 use_validation_monitor=False, validation_monitor_kwargs=None,
+                 use_early_stopping=False, early_stopping_kwargs=None):
   """Create train and eval hooks for Experiment."""
   train_monitors = []
   eval_hooks = []
@@ -208,6 +215,12 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
         tf.contrib.learn.monitors.ValidationMonitor(
             hooks=eval_hooks, **validation_monitor_kwargs))
 
+  if use_early_stopping:
+    hook = metrics_hook.EarlyStoppingHook(**early_stopping_kwargs)
+    # Adding to both training and eval so that eval aborts as well
+    train_monitors.append(hook)
+    eval_hooks.append(hook)
+
   return train_monitors, eval_hooks
 
 
@@ -224,9 +237,9 @@ def create_experiment(run_config,
                       decode_hparams=None,
                       use_tfdbg=False,
                       use_dbgprofile=False,
-                      use_validation_monitor=False,
                       eval_early_stopping_steps=None,
                       eval_early_stopping_metric=None,
+                      eval_early_stopping_metric_delta=None,
                       eval_early_stopping_metric_minimize=True,
                       use_tpu=False):
   """Create Experiment."""
@@ -264,12 +277,29 @@ def create_experiment(run_config,
         early_stopping_rounds=eval_early_stopping_steps,
         early_stopping_metric=eval_early_stopping_metric,
         early_stopping_metric_minimize=eval_early_stopping_metric_minimize)
+    early_stopping_kwargs = dict(
+        events_dir=os.path.join(run_config.model_dir, "eval_continuous"),
+        tag=eval_early_stopping_metric,
+        num_plateau_steps=eval_early_stopping_steps,
+        plateau_decrease=eval_early_stopping_metric_minimize,
+        plateau_delta=eval_early_stopping_metric_delta,
+        every_n_steps=min_eval_frequency)
+
+    # In-process eval (and possible early stopping)
+    local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
+    use_validation_monitor = (
+        schedule in local_schedules and min_eval_frequency)
+    # Distributed early stopping
+    use_early_stopping = (
+        schedule not in local_schedules and eval_early_stopping_steps)
     train_monitors, eval_hooks = create_hooks(
         use_tfdbg=use_tfdbg,
         use_dbgprofile=use_dbgprofile,
         dbgprofile_kwargs=dbgprofile_kwargs,
         use_validation_monitor=use_validation_monitor,
-        validation_monitor_kwargs=validation_monitor_kwargs)
+        use_early_stopping=use_early_stopping,
+        validation_monitor_kwargs=validation_monitor_kwargs,
+        early_stopping_kwargs=early_stopping_kwargs)
     hooks_kwargs = {"train_monitors": train_monitors, "eval_hooks": eval_hooks}
 
   # Experiment
@@ -309,3 +339,9 @@ def add_problem_hparams(hparams, problems):
 
     hparams.problem_instances.append(problem)
     hparams.problems.append(p_hparams)
+
+
+def set_random_seed(seed):
+  tf.set_random_seed(seed)
+  random.seed(seed)
+  np.random.seed(seed)
