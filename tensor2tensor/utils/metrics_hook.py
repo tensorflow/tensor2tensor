@@ -159,11 +159,11 @@ class EarlyStoppingHook(MetricsBasedHook):
     if not metrics:
       return
 
-    if not metrics.values()[0]:
+    if not list(metrics.values())[0]:
       return
 
     # Metrics should have just a single subdir and a single tag
-    steps, vals = metrics.values()[0][self._tags[0]]
+    steps, vals = list(metrics.values())[0][self._tags[0]]
     return has_metric_plateaued(
         steps,
         vals,
@@ -224,11 +224,11 @@ class PlateauOpHook(MetricsBasedHook):
     if not metrics:
       return
 
-    if not metrics.values()[0]:
+    if not list(metrics.values())[0]:
       return
 
     # There should be only a single subdir and a single tag
-    steps, vals = metrics.values()[0][self._tags[0]]
+    steps, vals = list(metrics.values())[0][self._tags[0]]
 
     if not steps:
       return
