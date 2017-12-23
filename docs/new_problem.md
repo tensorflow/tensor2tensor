@@ -247,11 +247,8 @@ def word2def_hparams():
 ```
 
 # Test the data generation
-If you are using a local checkout of tensor2tensor, you can install the local version in developer mode with `pip installe -e .` from the tensor2tensor directory.
 
-You will also need to add your new file to the [`all_problems.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/all_problems.py) file too.
-
-You can test data generation with: 
+You can test data generation of your a problem in your own project with:
 
 ```bash
 PROBLEM=word2def
@@ -260,12 +257,17 @@ TMP_DIR=/tmp/t2t_datagen
 mkdir -p $DATA_DIR $TMP_DIR
 
 t2t-datagen \
+  --t2t_usr_dir=$PATH_TO_YOUR_PROBLEM_DIR \
   --data_dir=$DATA_DIR \
   --tmp_dir=$TMP_DIR \
   --problem=$PROBLEM
 ```
 
-The `PROBLEM` variable is a lower-case version of the class that was regered with `@registry.register_problem()`.
+Where:
+*   `PROBLEM` variable is the name of the class that was registered with `@registry.register_problem()`, but converted from `CamelCase` to `snake_case`.
+*   `PATH_TO_YOUR_PROBLEM_DIR` is a path to the directory where your python problem file is specified.
+
+If you are adding to the tensor2tensor repository, you can install the local cloned version in developer mode with `pip installe -e .` from the tensor2tensor directory. You will also need to add your new problem file to [`all_problems.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/all_problems.py).
 
 # Run the problem
 Now that we've gotten our problem set up, let's train a model and generate definitions. 
