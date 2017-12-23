@@ -267,7 +267,7 @@ Where:
 *   `PROBLEM` is the name of the class that was registered with `@registry.register_problem()`, but converted from `CamelCase` to `snake_case`.
 *   `PATH_TO_YOUR_PROBLEM_DIR` is a path to the directory of your python problem file.
 
-If you are adding to the tensor2tensor repository, you can install the local cloned version in developer mode with `pip installe -e .` from the tensor2tensor directory. You will also need to add your new problem file to [`all_problems.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/all_problems.py).
+If you plan to contribute to the tensor2tensor repository, you can install the local cloned version in developer mode with `pip install -e .` from the tensor2tensor directory. You can also add your new problem file to [`all_problems.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/all_problems.py).
 
 # Run the problem
 Now that we've gotten our problem set up, let's train a model and generate definitions. 
