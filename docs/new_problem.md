@@ -184,7 +184,7 @@ import os
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators.wmt import character_generator
+from tensor2tensor.data_generators.translate import character_generator
 
 from tensor2tensor.utils import registry
 
