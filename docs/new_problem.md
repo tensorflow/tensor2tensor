@@ -240,16 +240,38 @@ All hyperparamters inherit from `_default_hparams()` in `problem.py.` If you wou
 from tensor2tensor.models import transformer
 
 @registry.register_hparams
-def word2def_hparams(self):
+def word2def_hparams():
     hparams = transformer.transformer_base_single_gpu()  # Or whatever you'd like to build off.
     hparams.batch_size = 1024
     return hparams
 ```
 
+# Test the data generation
+If you are using a local checkout of tensor2tensor, you can install the local version in developer mode with `pip installe -e .` from the tensor2tensor directory.
+
+You will also need to add your new file to the [`all_problems.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/all_problems.py) file too.
+
+You can test data generation with: 
+
+```bash
+PROBLEM=word2def
+DATA_DIR=$HOME/t2t_data
+TMP_DIR=/tmp/t2t_datagen
+mkdir -p $DATA_DIR $TMP_DIR
+
+t2t-datagen \
+  --data_dir=$DATA_DIR \
+  --tmp_dir=$TMP_DIR \
+  --problem=$PROBLEM
+```
+
+The `PROBLEM` variable is a lower-case version of the class that was regered with `@registry.register_problem()`.
+
 # Run the problem
 Now that we've gotten our problem set up, let's train a model and generate definitions. 
 
-We specify our problem name, the model, and hparams.
+To train, specify the problem name, the model, and hparams:
+
 ```bash
 PROBLEM=word2def
 MODEL=transformer
@@ -257,7 +279,6 @@ HPARAMS=word2def_hparams
 ```
 
 The rest of the steps are as given in the [walkthrough](walkthrough.md).
-
 
 What if we wanted to train a model to generate words given definitions? In T2T, we can change the problem name to be `PROBLEM=word2def_rev`.
 
