@@ -57,6 +57,9 @@ _NC_TEST_DATASETS = [[
 ]]
 
 # UN parallel corpus. 15,886,041 lines
+# Visit source website to download manually:
+# https://conferences.unite.un.org/UNCorpus
+#
 # NOTE: You need to register to download dataset from official source
 # place into tmp directory e.g. /tmp/t2t_datagen/dataset.tgz
 _UN_TRAIN_DATASETS = [[
@@ -65,7 +68,9 @@ _UN_TRAIN_DATASETS = [[
             "en-zh/UNv1.0.en-zh.zh"]]]
 
 # CWMT corpus
-# 
+# Visit source website to download manually:
+# http://nlp.nju.edu.cn/cwmt-wmt/  
+#
 # casia2015: 1,050,000 lines
 # casict2015: 2,036,833 lines
 # datum2015:  1,000,003 lines
@@ -155,8 +160,23 @@ def get_filename(dataset):
   return dataset[0][0].split('/')[-1]
 
 @registry.register_problem
-class TranslateEnzhWmt(translate.TranslateProblem):
-  """Problem spec for WMT En-Zh translation."""
+class TranslateEnzhWmt32k(translate.TranslateProblem):
+  """Problem spec for WMT En-Zh translation.
+  Attempts to use full training dataset, which needs website 
+  registration and downloaded manually from official sources:
+
+  CWMT: 
+    - http://nlp.nju.edu.cn/cwmt-wmt/
+    - Website contrains instructions for FTP server access. 
+    - You'll need to download CASIA, CASICT, DATUM2015, DATUM2017, 
+        NEU datasets
+
+  UN Parallel Corpus: 
+    - https://conferences.unite.un.org/UNCorpus
+    - You'll need to register your to download the dataset. 
+
+  NOTE: place into tmp directory e.g. /tmp/t2t_datagen/dataset.tgz
+  """
 
   @property
   def targeted_vocab_size(self):
@@ -196,8 +216,8 @@ class TranslateEnzhWmt(translate.TranslateProblem):
         data_dir, tmp_dir, self.target_vocab_name, self.targeted_vocab_size,
         target_datasets, _file_byte_budget=1e8)
     tag = "train" if train else "dev"
-    data_path = translate.compile_data(tmp_dir, datasets,
-                                       "wmt_enzh_tok_%s" % tag)
+    filename_base = "wmt_enzh_%sk_tok_%s" % (self.targeted_vocab_size, tag)
+    data_path = translate.compile_data(tmp_dir, datasets, filename_base)
     return translate.bi_vocabs_token_generator(data_path + ".lang1",
                                                data_path + ".lang2",
                                                source_vocab, target_vocab, EOS)
@@ -219,3 +239,22 @@ class TranslateEnzhWmt(translate.TranslateProblem):
         "inputs": source_token,
         "targets": target_token,
     }
+
+
+@registry.register_problem
+class TranslateEnzhWmt8k(TranslateEnzhWmt32k):
+  """Problem spec for WMT En-Zh translation.
+  This is far from being the real WMT17 task - only toyset here
+  """
+
+  @property
+  def targeted_vocab_size(self):
+    return 2**13  # 8192
+
+  @property
+  def num_shards(self):
+    return 10  # This is a small dataset.
+  
+  def get_training_dataset(self, tmp_dir):
+    """Uses only News Commentary Dataset for training"""
+    return _NC_TRAIN_DATASETS
