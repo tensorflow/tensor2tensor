@@ -76,7 +76,7 @@ def shakeshake2_py(x, y, equal=False, individual=False):
   """The shake-shake sum of 2 tensors, python version."""
   if equal:
     alpha = 0.5
-  elif individual:
+  if individual:
     alpha = tf.random_uniform(tf.get_shape(x)[:1])
   else:
     alpha = tf.random_uniform([])
