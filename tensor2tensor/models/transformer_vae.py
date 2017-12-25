@@ -142,10 +142,11 @@ def nearest(x, means, hparams):
   """Find the nearest means to elements in x."""
   x, means = tf.stop_gradient(x), tf.stop_gradient(means)
   x_flat = tf.reshape(x, [-1, hparams.hidden_size])
-  x_norm = tf.norm(x_flat, axis=-1, keep_dims=True)
-  means_norm = tf.norm(means, axis=-1, keep_dims=True)
-  dist = x_norm + tf.transpose(means_norm) - 2 * tf.matmul(x_flat, means,
-                                                           transpose_b=True)
+  x_norm_sq = tf.reduce_sum(x_flat ** 2, axis=-1, keep_dims=True)
+  means_norm_sq = tf.reduce_sum(means ** 2, axis=-1, keep_dims=True)
+  dist = (
+      x_norm_sq + tf.transpose(means_norm_sq) -
+      2 * tf.matmul(x_flat, means, transpose_b=True))
   _, nearest_idx = tf.nn.top_k(- dist, k=1)
   nearest_hot = tf.one_hot(tf.squeeze(nearest_idx, axis=1), hparams.v_size)
   shape = common_layers.shape_list(x)
@@ -158,8 +159,9 @@ def kmeans(x, means, hparams, name):
   with tf.variable_scope(name):
     x_means_hot = nearest(x, means, hparams)
     x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
-    reg_loss1 = tf.nn.l2_loss((tf.stop_gradient(x) - x_means))
-    reg_loss2 = hparams.beta * tf.nn.l2_loss((x - tf.stop_gradient(x_means)))
+    reg_loss1 = tf.reduce_mean((tf.stop_gradient(x) - x_means)**2)
+    reg_loss2 = hparams.beta * tf.reduce_mean(
+        (x - tf.stop_gradient(x_means))**2)
     l = reg_loss1 + reg_loss2
     return x_means_hot, x_means, l
 
@@ -198,8 +200,10 @@ def bottleneck(x, hparams, filter_size, name):
         hot = tf.one_hot(x, hparams.v_size)
         h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
       elif hparams.bottleneck_kind == "vq-vae":
-        means = tf.get_variable(name="means",
-                                shape=[hparams.v_size, hparams.hidden_size])
+        means = tf.get_variable(
+            name="means",
+            shape=[hparams.v_size, hparams.hidden_size],
+            initializer=tf.random_normal_initializer())
         h1 = tf.gather(means, x)
       elif hparams.bottleneck_kind == "rounding":
         h1 = x
@@ -245,8 +249,10 @@ def bottleneck(x, hparams, filter_size, name):
       c = tf.argmax(hot, axis=-1)
       h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
     if hparams.bottleneck_kind == "vq-vae":
-      means = tf.get_variable(name="means", shape=[hparams.v_size,
-                                                   hparams.hidden_size])
+      means = tf.get_variable(
+          name="means",
+          shape=[hparams.v_size, hparams.hidden_size],
+          initializer=tf.random_normal_initializer())
       x_means_hot, x_means, l = kmeans(x, means, hparams, name="vq-vae-kmeans")
       h1 = tf.stop_gradient(x_means) + x - tf.stop_gradient(x)
       c = tf.argmax(x_means_hot, axis=-1)

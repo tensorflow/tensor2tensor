@@ -316,8 +316,7 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
 
 
 def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
-                          sources, 
-                          _file_byte_budget=1e6):
+                          sources):
   """Generate a vocabulary from the datasets in sources."""
 
   def generate():
@@ -350,7 +349,7 @@ def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
 
         # Use Tokenizer to count the word occurrences.
         with tf.gfile.GFile(filepath, mode="r") as source_file:
-          file_byte_budget = _file_byte_budget
+          file_byte_budget = 1e6
           counter = 0
           countermax = int(source_file.size() / file_byte_budget / 2)
           for line in source_file:
