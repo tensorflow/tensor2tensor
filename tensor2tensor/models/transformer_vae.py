@@ -25,6 +25,7 @@ from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 import tensorflow as tf
+from tensorflow.python.training import moving_averages
 
 
 _DO_SUMMARIES = True
@@ -140,15 +141,14 @@ def vae(x, z_size, name):
 
 def nearest(x, means, hparams):
   """Find the nearest means to elements in x."""
-  x, means = tf.stop_gradient(x), tf.stop_gradient(means)
   x_flat = tf.reshape(x, [-1, hparams.hidden_size])
   x_norm_sq = tf.reduce_sum(x_flat ** 2, axis=-1, keep_dims=True)
   means_norm_sq = tf.reduce_sum(means ** 2, axis=-1, keep_dims=True)
   dist = (
       x_norm_sq + tf.transpose(means_norm_sq) -
       2 * tf.matmul(x_flat, means, transpose_b=True))
-  _, nearest_idx = tf.nn.top_k(- dist, k=1)
-  nearest_hot = tf.one_hot(tf.squeeze(nearest_idx, axis=1), hparams.v_size)
+  nearest_idx = tf.argmax(-dist, axis=-1)
+  nearest_hot = tf.one_hot(nearest_idx, hparams.v_size)
   shape = common_layers.shape_list(x)
   shape[-1] = hparams.v_size
   nearest_hot = tf.reshape(nearest_hot, shape=shape)
@@ -156,14 +156,12 @@ def nearest(x, means, hparams):
 
 
 def kmeans(x, means, hparams, name):
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     x_means_hot = nearest(x, means, hparams)
     x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
-    reg_loss1 = tf.reduce_mean((tf.stop_gradient(x) - x_means)**2)
-    reg_loss2 = hparams.beta * tf.reduce_mean(
-        (x - tf.stop_gradient(x_means))**2)
-    l = reg_loss1 + reg_loss2
-    return x_means_hot, x_means, l
+    q_loss = tf.reduce_mean((tf.stop_gradient(x) - x_means)**2)
+    e_loss = tf.reduce_mean((x - tf.stop_gradient(x_means))**2)
+    return x_means_hot, x_means, q_loss, e_loss
 
 
 def bit_to_int(x_bit, nbits):
@@ -200,10 +198,17 @@ def bottleneck(x, hparams, filter_size, name):
         hot = tf.one_hot(x, hparams.v_size)
         h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
       elif hparams.bottleneck_kind == "vq-vae":
-        means = tf.get_variable(
-            name="means",
-            shape=[hparams.v_size, hparams.hidden_size],
-            initializer=tf.random_normal_initializer())
+        if hparams.ema:
+          ema_means = tf.get_variable(
+              name="ema_means",
+              shape=[hparams.v_size, hparams.hidden_size],
+              initializer=tf.random_normal_initializer())
+          means = ema_means
+        else:
+          means = tf.get_variable(
+              name="means",
+              shape=[hparams.v_size, hparams.hidden_size],
+              initializer=tf.random_normal_initializer())
         h1 = tf.gather(means, x)
       elif hparams.bottleneck_kind == "rounding":
         h1 = x
@@ -249,13 +254,49 @@ def bottleneck(x, hparams, filter_size, name):
       c = tf.argmax(hot, axis=-1)
       h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
     if hparams.bottleneck_kind == "vq-vae":
-      means = tf.get_variable(
-          name="means",
-          shape=[hparams.v_size, hparams.hidden_size],
-          initializer=tf.random_normal_initializer())
-      x_means_hot, x_means, l = kmeans(x, means, hparams, name="vq-vae-kmeans")
-      h1 = tf.stop_gradient(x_means) + x - tf.stop_gradient(x)
+      means = tf.Variable(
+          tf.random_normal([hparams.v_size, hparams.hidden_size]), name="means")
+
+      # Use EMA if ema flag is set
+      if hparams.ema:
+        ema_count = tf.get_variable(
+            "ema_count", [hparams.v_size],
+            initializer=tf.constant_initializer(0))
+        with tf.colocate_with(means):
+          ema_means = tf.get_variable(
+              "ema_means", initializer=means.initialized_value())
+
+      x_means_hot, x_means, q_loss, e_loss = kmeans(
+          x, means, hparams, name="vq-vae-kmeans")
       c = tf.argmax(x_means_hot, axis=-1)
+
+      # Update the ema variables
+      if hparams.ema:
+        tf.logging.info("Using EMA with beta = {}".format(hparams.beta))
+        x_means_hot_flat = tf.reshape(x_means_hot, shape=[-1, hparams.v_size])
+        updated_ema_count = moving_averages.assign_moving_average(
+            ema_count,
+            tf.reduce_sum(x_means_hot_flat, axis=0),
+            hparams.decay,
+            zero_debias=False)
+        x_flat = tf.reshape(x, [-1, hparams.hidden_size])
+        dw = tf.matmul(x_means_hot_flat, x_flat, transpose_a=True)
+        updated_ema_means = moving_averages.assign_moving_average(
+            ema_means, dw, hparams.decay, zero_debias=False)
+        n = tf.reduce_sum(updated_ema_count)
+        updated_ema_count = ((updated_ema_count + hparams.epsilon) /
+                             (n + hparams.v_size * hparams.epsilon) * n)
+        updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
+
+        with tf.control_dependencies([e_loss]):
+          update_w = tf.assign(means, updated_ema_means)
+          with tf.control_dependencies([update_w]):
+            l = hparams.beta * e_loss
+      else:
+        l = q_loss + e_loss
+
+      h1 = tf.stop_gradient(x_means) + x - tf.stop_gradient(x)
+
     if hparams.bottleneck_kind == "rounding":
       h = tf.layers.dense(x, 1, name="vcc")
 
@@ -594,6 +635,9 @@ def transformer_ae_small():
   hparams.add_hparam("do_vae", True)
   hparams.add_hparam("bit_vae", True)
   hparams.add_hparam("beta", 0.25)
+  hparams.add_hparam("epsilon", 1e-5)
+  hparams.add_hparam("decay", 0.999)
+  hparams.add_hparam("ema", True)
   hparams.kl_warmup_steps = 150000
   hparams.force_full_predict = True
   return hparams
@@ -609,7 +653,7 @@ def transformer_ae_cifar():
   hparams.num_compress_steps = 2
   hparams.v_size = 1024 * 64
   hparams.kl_warmup_steps = 150000
-  hparams.startup_steps = 20000
+  hparams.startup_steps = 10000
   hparams.kmeans_lr_factor = 0.0
   hparams.is_2d = 1
   hparams.learning_rate_warmup_steps = 8000
