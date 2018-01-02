@@ -104,6 +104,7 @@ def create_run_config(master="",
                       ps_replicas=0,
                       ps_job="/job:ps",
                       ps_gpu=0,
+                      random_seed=None,
                       sync=False,
                       use_tpu=False):
   """Create RunConfig, TPUConfig, and Parallelism object."""
@@ -122,6 +123,7 @@ def create_run_config(master="",
       "save_checkpoints_steps": save_checkpoints_steps,
       "keep_checkpoint_max": keep_checkpoint_max,
       "keep_checkpoint_every_n_hours": keep_checkpoint_every_n_hours,
+      "tf_random_seed": random_seed,
   }
   run_config_cls = tf.contrib.learn.RunConfig
 
