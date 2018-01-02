@@ -190,8 +190,8 @@ def basic_params1():
       # This is the actual batch size, *not* tokens per batch (i.e. for
       # language models this is the number of sentences in the batch)
       tpu_batch_size_per_shard=24,
-      # Set by tpu_trainer to let the model know whether we are on TPU.
-      # Switching on/off tpu should not invalidate checkpoints.
+      # Set by t2t_trainer if --use_tpu to let the model know whether we are on
+      # TPU. Switching on/off tpu should not invalidate checkpoints.
       use_tpu=False,
       # If True in PREDICT mode, then last-position-only optimizations are not
       # used.

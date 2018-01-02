@@ -739,7 +739,7 @@ class T2TModel(base.Layer):
                          config=None,
                          params=None,
                          decode_hparams=None,
-                         use_tpu=True):
+                         use_tpu=False):
     """Model fn for Estimator.
 
     Args:
@@ -755,9 +755,6 @@ class T2TModel(base.Layer):
     Returns:
       TPUEstimatorSpec if use tpu else EstimatorSpec
     """
-    tf.logging.warning("T2TModel.estimator_model_fn implements a subset of "
-                       "model_builder.model_fn and is currently only used "
-                       "in tpu_trainer.")
     _create_dummy_vars()
     hparams = copy.deepcopy(hparams)
     hparams.use_tpu = use_tpu

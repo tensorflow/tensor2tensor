@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for tpu_trainer_lib."""
+"""Tests for trainer_lib."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -28,8 +28,8 @@ from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem as problem_lib
-from tensor2tensor.tpu import tpu_trainer_lib
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 
@@ -47,7 +47,7 @@ class TinyAlgo(algorithmic.AlgorithmicIdentityBinary40):
         self.dev_filepaths(data_dir, 1, shuffled=True), 100)
 
 
-class TpuTrainerTest(tf.test.TestCase):
+class TrainerLibTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
@@ -60,7 +60,7 @@ class TpuTrainerTest(tf.test.TestCase):
     registry.problem("tiny_algo").generate_data(cls.data_dir, None)
 
   def testExperiment(self):
-    exp_fn = tpu_trainer_lib.create_experiment_fn(
+    exp_fn = trainer_lib.create_experiment_fn(
         "transformer",
         "tiny_algo",
         self.data_dir,
@@ -68,7 +68,7 @@ class TpuTrainerTest(tf.test.TestCase):
         eval_steps=1,
         min_eval_frequency=1,
         use_tpu=False)
-    run_config = tpu_trainer_lib.create_run_config(
+    run_config = trainer_lib.create_run_config(
         model_dir=self.data_dir, num_gpus=0, use_tpu=False)
     hparams = registry.hparams("transformer_tiny_tpu")()
     exp = exp_fn(run_config, hparams)
@@ -76,9 +76,9 @@ class TpuTrainerTest(tf.test.TestCase):
 
   def testModel(self):
     # HParams
-    hparams = tpu_trainer_lib.create_hparams("transformer_tiny",
-                                             data_dir=self.data_dir,
-                                             problem_name="tiny_algo")
+    hparams = trainer_lib.create_hparams("transformer_tiny",
+                                         data_dir=self.data_dir,
+                                         problem_name="tiny_algo")
 
     # Dataset
     problem = hparams.problem_instances[0]
