@@ -125,8 +125,8 @@ class TransformerModel(query_processor.QueryProcessor):
     self.estimator = trainer_lib.create_estimator(
         FLAGS.model,
         self.hparams,
-        t2t_trainer.create_run_config(),
-        decode_hp, use_tpu=False)
+        t2t_trainer.create_run_config(self.hparams),
+        decode_hparams=decode_hp, use_tpu=False)
 
     # Fetch the vocabulary and other helpful variables for decoding.
     self.source_vocab = self.hparams.problems[0].vocabulary["inputs"]
