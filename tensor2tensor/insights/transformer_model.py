@@ -24,12 +24,12 @@ import time
 
 import numpy as np
 
+from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.insights import graph
 from tensor2tensor.insights import query_processor
-from tensor2tensor.tpu import tpu_trainer
-from tensor2tensor.tpu import tpu_trainer_lib
 from tensor2tensor.utils import decoding
+from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
@@ -111,7 +111,7 @@ class TransformerModel(query_processor.QueryProcessor):
     data_dir = os.path.expanduser(data_dir)
 
     # Create the basic hyper parameters.
-    self.hparams = tpu_trainer_lib.create_hparams(
+    self.hparams = trainer_lib.create_hparams(
         FLAGS.hparams_set,
         FLAGS.hparams,
         data_dir=data_dir,
@@ -122,10 +122,10 @@ class TransformerModel(query_processor.QueryProcessor):
     decode_hp.add_hparam("shard_id", 0)
 
     # Create the estimator and final hyper parameters.
-    self.estimator = tpu_trainer_lib.create_estimator(
+    self.estimator = trainer_lib.create_estimator(
         FLAGS.model,
         self.hparams,
-        tpu_trainer.create_run_config(),
+        t2t_trainer.create_run_config(),
         decode_hp, use_tpu=False)
 
     # Fetch the vocabulary and other helpful variables for decoding.
