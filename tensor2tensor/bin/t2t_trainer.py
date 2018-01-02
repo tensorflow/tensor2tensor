@@ -162,6 +162,43 @@ def log_registry():
     sys.exit(0)
 
 
+def is_chief():
+  schedules = ["train", "train_and_evaluate", "continuous_train_and_eval"]
+  return FLAGS.worker_id == 0 and FLAGS.schedule in schedules
+
+
+def save_metadata(hparams):
+  """Saves FLAGS and hparams to output_dir."""
+  output_dir = os.path.expanduser(FLAGS.output_dir)
+  # Save FLAGS in txt file
+  if hasattr(FLAGS, "flags_into_string"):
+    flags_str = FLAGS.flags_into_string()
+    t2t_flags_str = "\n".join([
+        "--%s=%s" % (f.name, f.value)
+        for f in FLAGS.flags_by_module_dict()[
+            "tensor2tensor.utils.flags"]
+    ])
+  else:
+    flags_dict = FLAGS.__dict__["__flags"]
+    flags_str = "\n".join(
+        ["--%s=%s" % (name, str(f)) for (name, f) in flags_dict.items()])
+    t2t_flags_str = None
+
+  flags_txt = os.path.join(output_dir, "flags.txt")
+  with tf.gfile.Open(flags_txt, "w") as f:
+    f.write(flags_str)
+
+  if t2t_flags_str:
+    t2t_flags_txt = os.path.join(output_dir, "flags_t2t.txt")
+    with tf.gfile.Open(t2t_flags_txt, "w") as f:
+      f.write(t2t_flags_str)
+
+  # Save hparams as hparams.json
+  hparams_fname = os.path.join(output_dir, "hparams.json")
+  with tf.gfile.Open(hparams_fname, "w") as f:
+    f.write(hparams.to_json())
+
+
 def execute_schedule(exp):
   if not hasattr(exp, FLAGS.schedule):
     raise ValueError(
@@ -181,6 +218,9 @@ def main(_):
 
   hparams = create_hparams()
   run_config = create_run_config(hparams)
+
+  if is_chief():
+    save_metadata(hparams)
 
   exp_fn = create_experiment_fn()
   exp = exp_fn(run_config, hparams)

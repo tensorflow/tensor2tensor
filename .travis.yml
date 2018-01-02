@@ -18,6 +18,7 @@ script:
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
   - t2t-datagen 2>&1 | grep translate && echo passed
+  - t2t-trainer --registry_help --t2t_usr_dir=./tensor2tensor/test_data/example_usr_dir 2>&1 | grep my_very_own_hparams && echo passed
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
   - t2t-trainer --registry_help
   - mkdir $T2T_DATA_DIR
