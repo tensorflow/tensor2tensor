@@ -35,8 +35,8 @@ setup(
         'six',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.4.0'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.4.0'],
+        'tensorflow': ['tensorflow>=1.4.1'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.4.1'],
         'tests': ['pytest', 'h5py', 'mock'],
     },
     classifiers=[

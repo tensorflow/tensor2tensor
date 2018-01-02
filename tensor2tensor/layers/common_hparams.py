@@ -96,7 +96,7 @@ def basic_params1():
       norm_type="layer",  # "batch", layer", "noam", "none".
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
-      symbol_modality_num_shards=16,
+      symbol_modality_num_shards=1,
       # During training, we drop sequences whose inputs and targets are shorter
       # than min_length
       min_length=0,

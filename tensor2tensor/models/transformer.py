@@ -750,6 +750,7 @@ def transformer_base_v1():
   hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.1
   hparams.shared_embedding_and_softmax_weights = True
+  hparams.symbol_modality_num_shards = 16
   # Add new ones like this.
   hparams.add_hparam("filter_size", 2048)
   # Layer-related flags. If zero, these fall back on hparams.num_hidden_layers.

@@ -51,6 +51,8 @@ import re
 
 import six
 
+from tensorflow.python.eager import context
+
 _MODELS = {}
 _HPARAMS = {}
 _RANGED_HPARAMS = {}
@@ -120,7 +122,7 @@ def register_model(name=None):
   def decorator(model_cls, registration_name=None):
     """Registers & returns model_cls with registration_name or default name."""
     model_name = registration_name or default_name(model_cls)
-    if model_name in _MODELS:
+    if model_name in _MODELS and not context.in_eager_mode():
       raise LookupError("Model %s already registered." % model_name)
     model_cls.REGISTERED_NAME = model_name
     _MODELS[model_name] = model_cls
@@ -150,7 +152,7 @@ def register_hparams(name=None):
   def decorator(hp_fn, registration_name=None):
     """Registers & returns hp_fn with registration_name or default name."""
     hp_name = registration_name or default_name(hp_fn)
-    if hp_name in _HPARAMS:
+    if hp_name in _HPARAMS and not context.in_eager_mode():
       raise LookupError("HParams set %s already registered." % hp_name)
     _HPARAMS[hp_name] = hp_fn
     return hp_fn
@@ -217,7 +219,7 @@ def register_problem(name=None):
   def decorator(p_cls, registration_name=None):
     """Registers & returns p_cls with registration_name or default name."""
     p_name = registration_name or default_name(p_cls)
-    if p_name in _PROBLEMS:
+    if p_name in _PROBLEMS and not context.in_eager_mode():
       raise LookupError("Problem %s already registered." % p_name)
 
     _PROBLEMS[p_name] = p_cls
@@ -317,7 +319,7 @@ def _internal_register_modality(name, mod_collection, collection_str):
   def decorator(mod_cls, registration_name=None):
     """Registers & returns mod_cls with registration_name or default name."""
     mod_name = registration_name or default_name(mod_cls)
-    if mod_name in mod_collection:
+    if mod_name in mod_collection and not context.in_eager_mode():
       raise LookupError("%s modality %s already registered." % (collection_str,
                                                                 mod_name))
     mod_collection[mod_name] = mod_cls
