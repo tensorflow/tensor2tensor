@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-goog.module('nmt_insights.LanguageSelector');
 
 /**
  * `<language-selector>` provides a searchable dropdown of languages.
@@ -32,10 +31,16 @@ goog.module('nmt_insights.LanguageSelector');
  *   </language-selector>
  */
 class LanguageSelector extends Polymer.Element {
+  /**
+   * @return {string} The component name.
+   */
   static get is() {
     return 'language-selector';
   }
 
+  /**
+   * @return {!Object} The component properties.
+   */
   static get properties() {
     return {
       /**
@@ -78,5 +83,3 @@ class LanguageSelector extends Polymer.Element {
 }
 
 customElements.define(LanguageSelector.is, LanguageSelector);
-
-exports = {LanguageSelector};

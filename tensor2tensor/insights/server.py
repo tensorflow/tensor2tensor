@@ -78,11 +78,11 @@ def main(_):
   processors[transformer_key] = transformer_model.TransformerModel(
       FLAGS.t2t_data_dir, FLAGS.t2t_model_dir)
 
-  # Create flask to serve all paths starting with '/static' from the static
-  # path.
+  # Create flask to serve all paths starting with '/polymer' from the static
+  # path.  This is to served non-vulcanized components.
   app = Flask(
       __name__.split(".")[0],
-      static_url_path="/static",
+      static_url_path="/polymer",
       static_folder=FLAGS.static_path)
 
   # Disable static file caching.
@@ -160,7 +160,18 @@ def main(_):
     Returns:
       The landing page html text.
     """
-    del path
+    if (path == "index.js" or
+        path == "webcomponentsjs/custom-elements-es5-adapter.js" or
+        path == "webcomponentsjs/webcomponents-lite.js"):
+      # Some vulcanizing methods bundle the javascript into a index.js file
+      # paired with index.html but leave two important webcomponents js files
+      # outside of the bundle.  If requesting those special files, fetch them
+      # directly rather than from a /static sub-directory.
+      return send_from_directory(FLAGS.static_path, path)
+    # Everything else should redirect to the main landing page.  Since we
+    # use a single page app, any initial url requests may include random
+    # paths (that don't start with /api or /static) which all should be
+    # served by the main landing page.
     return send_from_directory(FLAGS.static_path, "index.html")
 
   # Run the server.

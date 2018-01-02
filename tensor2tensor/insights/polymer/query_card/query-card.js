@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-goog.module('t2t.QueryCard');
 
 /**
  * `<query-card>` presents a material card for selecting a supported mdoel.
@@ -52,10 +51,16 @@ class QueryCard extends Polymer.Element {
     this.languagePairToModelMap_ = {};
   }
 
+  /**
+   * @return {string} The component name.
+   */
   static get is() {
     return 'query-card';
   }
 
+  /**
+   * @return {!Object} The component properties.
+   */
   static get properties() {
     return {
       /**
@@ -106,6 +111,9 @@ class QueryCard extends Polymer.Element {
     };
   }
 
+  /**
+   * @return {!Array<string>} The component observers.
+   */
   static get observers() {
     return [
       'routeActiveUpdated_(routeActive)',
@@ -313,8 +321,6 @@ class QueryCard extends Polymer.Element {
 }
 
 customElements.define(QueryCard.is, QueryCard);
-
-exports = {QueryCard};
 
 /**
  * Returns the ordering of two language's based on their name.
