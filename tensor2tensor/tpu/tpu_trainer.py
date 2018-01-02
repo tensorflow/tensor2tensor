@@ -127,7 +127,8 @@ def create_run_config(hp):
       ps_gpu=FLAGS.ps_gpu,
       sync=FLAGS.sync,
       worker_id=FLAGS.worker_id,
-      worker_job=FLAGS.worker_job)
+      worker_job=FLAGS.worker_job,
+      random_seed=FLAGS.random_seed)
 
 
 def generate_data():
