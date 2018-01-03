@@ -286,7 +286,7 @@ def bottleneck(x,
           with tf.control_dependencies([update_means]):
             l = hparams.beta * e_loss
       else:
-        l = q_loss + e_loss
+        l = q_loss + hparams.beta * e_loss
 
       h1 = tf.stop_gradient(x_means) + x - tf.stop_gradient(x)
 
@@ -663,7 +663,7 @@ def transformer_ae_small():
   hparams.add_hparam("do_vae", True)
   hparams.add_hparam("bit_vae", True)
   hparams.add_hparam("beta", 0.25)
-  hparams.add_hparam("epsilon", 1e-1)
+  hparams.add_hparam("epsilon", 1e-5)
   hparams.add_hparam("decay", 0.999)
   hparams.add_hparam("ema", True)
   hparams.kl_warmup_steps = 150000
