@@ -170,6 +170,9 @@ def is_chief():
 def save_metadata(hparams):
   """Saves FLAGS and hparams to output_dir."""
   output_dir = os.path.expanduser(FLAGS.output_dir)
+  if not tf.gfile.Exists(output_dir):
+    tf.gfile.MakeDirs(output_dir)
+
   # Save FLAGS in txt file
   if hasattr(FLAGS, "flags_into_string"):
     flags_str = FLAGS.flags_into_string()

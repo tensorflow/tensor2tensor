@@ -41,9 +41,12 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
-  opt_summaries = ["learning_rate", "loss", "gradient_norm"]
+
+  tf.summary.scalar("learning_rate", learning_rate)
+  opt_summaries = ["loss", "gradient_norm", "global_gradient_norm"]
   if hparams.summarize_grads:
-    opt_summaries.extend(["gradients"])
+    opt_summaries.append("gradients")
+
   train_op = tf.contrib.layers.optimize_loss(
       name="training",
       loss=loss,
@@ -159,7 +162,7 @@ def weight_decay_and_noise(loss, hparams, learning_rate, var_list=None):
   noise_vars = [v for v in var_list if "/body/" in v.name]
 
   weight_decay_loss = weight_decay(hparams.weight_decay, decay_vars)
-  tf.summary.scalar("weight_decay_loss", weight_decay_loss)
+  tf.summary.scalar("losses/weight_decay", weight_decay_loss)
   weight_noise_ops = weight_noise(hparams.weight_noise, learning_rate,
                                   noise_vars)
 

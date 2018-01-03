@@ -31,6 +31,7 @@ import six
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import beam_search
+from tensor2tensor.utils import decoding
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import optimize
@@ -94,6 +95,8 @@ class T2TModel(base.Layer):
         hparams.shared_embedding_and_softmax_weights = 0
     self._original_hparams = hparams
     self.set_mode(mode)
+    if decode_hparams is None:
+      decode_hparams = decoding.decode_hparams()
     self._decode_hparams = copy.copy(decode_hparams)
     self._data_parallelism = data_parallelism
     self._num_datashards = data_parallelism.n
@@ -131,6 +134,7 @@ class T2TModel(base.Layer):
 
   def model_fn_sharded(self, sharded_features):
     dp = self._data_parallelism
+    summarize_features(sharded_features, num_shards=dp.n)
     datashard_to_features = self._to_features_per_datashard(sharded_features)
 
     if self.use_body_sharded:
@@ -770,7 +774,6 @@ class T2TModel(base.Layer):
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
       assert not use_tpu
-      assert decode_hparams is not None
       return model.estimator_spec_predict(features)
 
     # TRAIN and EVAL modes
@@ -788,8 +791,14 @@ class T2TModel(base.Layer):
         shape[1] = hparams.max_length
       logits.set_shape(shape)
 
-    # Accumulate losses
     assert "training" in losses_dict
+
+    # Summarize losses
+    with tf.name_scope("losses"):
+      for loss_name, loss_val in losses_dict.items():
+        tf.summary.scalar(loss_name, loss_val)
+
+    # Accumulate losses
     loss = sum(losses_dict.values())
 
     # EVAL mode
@@ -1087,3 +1096,16 @@ def average_sharded_losses(sharded_losses):
 
     losses[loss_name] = mean_loss
   return losses
+
+
+def summarize_features(features, num_shards=1):
+  with tf.name_scope("input_stats"):
+    for (k, v) in six.iteritems(features):
+      if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1:
+        tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // num_shards)
+        tf.summary.scalar("%s_length" % k, tf.shape(v)[1])
+        nonpadding = tf.to_float(tf.not_equal(v, 0))
+        nonpadding_tokens = tf.reduce_sum(nonpadding)
+        tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
+        tf.summary.scalar("%s_nonpadding_fraction" % k,
+                          tf.reduce_mean(nonpadding))
