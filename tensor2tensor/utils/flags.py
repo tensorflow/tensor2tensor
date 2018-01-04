@@ -30,12 +30,12 @@ flags.DEFINE_bool("registry_help", False,
 flags.DEFINE_bool("tfdbg", False,
                   "If True, use the TF debugger CLI on train/eval.")
 flags.DEFINE_bool("export_saved_model", False,
-                  "Whether to export a SavedModel for serving.")
+                  "DEPRECATED - see serving/export.py.")
 flags.DEFINE_bool("dbgprofile", False,
                   "If True, record the timeline for chrome://tracing/.")
-flags.DEFINE_string("model", "", "Which model to use.")
-flags.DEFINE_string("hparams_set", "", "Which parameters to use.")
-flags.DEFINE_string("hparams_range", "", "Parameters range.")
+flags.DEFINE_string("model", None, "Which model to use.")
+flags.DEFINE_string("hparams_set", None, "Which parameters to use.")
+flags.DEFINE_string("hparams_range", None, "Parameters range.")
 flags.DEFINE_string(
     "hparams", "",
     """A comma-separated list of `name=value` hyperparameter values. This flag
@@ -43,7 +43,7 @@ flags.DEFINE_string(
     hyperparameters or when using Vizier. If a hyperparameter setting is
     specified by this flag then it must be a valid hyperparameter name for the
     model.""")
-flags.DEFINE_string("problems", "", "Dash separated list of problems to "
+flags.DEFINE_string("problems", None, "Dash separated list of problems to "
                     "solve.")
 
 # data_dir is a common flag name - catch conflicts and define it once.

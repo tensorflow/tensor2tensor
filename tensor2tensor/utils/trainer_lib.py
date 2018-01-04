@@ -266,7 +266,9 @@ def create_experiment(run_config,
       tf.estimator.ModeKeys.EVAL, hparams)
 
   # Export
-  export_strategies = export and [create_export_strategy(problem, hparams)]
+  if export:
+    tf.logging.warn("Exporting from the trainer is deprecated. "
+                    "See serving/export.py.")
 
   # Hooks
   hooks_kwargs = {}
@@ -313,7 +315,6 @@ def create_experiment(run_config,
       eval_steps=eval_steps,
       min_eval_frequency=min_eval_frequency,
       train_steps_per_iteration=min(min_eval_frequency, train_steps),
-      export_strategies=export_strategies,
       eval_delay_secs=0 if schedule == "evaluate" else 120,
       **hooks_kwargs)
 

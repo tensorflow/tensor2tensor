@@ -38,7 +38,7 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 # See flags.py for additional command-line flags.
-flags.DEFINE_string("t2t_usr_dir", "",
+flags.DEFINE_string("t2t_usr_dir", None,
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
                     "The imported files should contain registrations, "
