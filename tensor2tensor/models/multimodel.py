@@ -146,7 +146,7 @@ class MultiModel(t2t_model.T2TModel):
         expert_loss += tf.reduce_mean(moe_loss) * hparams.moe_loss_coef
 
     # If we're just predicing a class, there is no use for a decoder, return.
-    if isinstance(hparams.problems[self._problem_idx].target_modality,
+    if isinstance(self._problem_hparams.target_modality,
                   modalities.ClassLabelModality):
       return inputs_encoded, tf.reduce_mean(expert_loss)
 

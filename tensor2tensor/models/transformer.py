@@ -342,7 +342,7 @@ class Transformer(t2t_model.T2TModel):
 
     if beam_size > 1:  # Beam Search
       target_modality = (
-          self._hparams.problems[self._problem_idx].target_modality)
+          self._problem_hparams.target_modality)
       vocab_size = target_modality.top_dimensionality
       initial_ids = tf.zeros([batch_size], dtype=tf.int32)
       decoded_ids, scores = beam_search.beam_search(
