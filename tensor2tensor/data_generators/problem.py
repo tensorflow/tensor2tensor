@@ -195,6 +195,30 @@ class Problem(object):
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     raise NotImplementedError()
 
+  @property
+  def multiprocess_generate(self):
+    """Whether to generate the data in multiple parallel processes."""
+    return False
+
+  @property
+  def num_generate_tasks(self):
+    """Needed if multiprocess_generate is True."""
+    raise NotImplementedError()
+
+  def prepare_to_generate(self, data_dir, tmp_dir):
+    """Prepare to generate data in parallel on different processes.
+
+    This function is called if multiprocess_generate is True.
+
+    Some things that might need to be done once are downloading the data
+    if it is not yet downloaded, and building the vocabulary.
+
+    Args:
+      data_dir: a string
+      tmp_dir: a string
+    """
+    raise NotImplementedError()
+
   def hparams(self, defaults, model_hparams):
     pass
 
@@ -889,6 +913,206 @@ class Text2TextProblem(Problem):
         metrics.Metrics.APPROX_BLEU, metrics.Metrics.ROUGE_2_F,
         metrics.Metrics.ROUGE_L_F
     ]
+
+
+class ChoppedTextProblem(Text2TextProblem):
+  """Tokenize and chop text files into fixed-length language-modeling examples.
+
+  The input data is a set of text files, as specified by
+  self.train_text_filenames() and self.dev_text_filenames().
+
+  The text is tokenized using a SubwordTextEncoder, and
+  then split into examples, each of length self.sequence_length().
+  """
+
+  def train_text_filenames(self, tmp_dir):
+    """Local filenames of text files containing training data.
+
+    This function may want to download the files if they do not exist.
+
+    Args:
+      tmp_dir: a string
+    Returns:
+      a list of strings.
+    """
+    raise NotImplementedError()
+
+  def dev_text_filenames(self, tmp_dir):
+    """Local filenames of text files containing dev data.
+
+    This function may want to download the files if they do not exist.
+
+    Args:
+      tmp_dir: a string
+    Returns:
+      a list of strings.
+    """
+    raise NotImplementedError()
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    raise NotImplementedError()
+
+  @property
+  def is_character_level(self):
+    return False
+
+  def text_filenames_for_task(self, tmp_dir, task_id):
+    """List of input filenames for a particular training or dev shard.
+
+    Args:
+      tmp_dir: a string
+      task_id: an integer less than self.num_shards
+    Returns:
+      a list of tuples (filepath, start_pos, num_bytes)
+    """
+    assert task_id >= 0
+    assert task_id < self.num_train_shards + self.num_dev_shards
+    if task_id < self.num_train_shards:
+      return [f for i, f in enumerate(self.train_text_filenames(tmp_dir))
+              if i % self.num_train_shards == task_id]
+    else:
+      return [f for i, f in enumerate(self.dev_text_filenames(tmp_dir))
+              if i % self.num_dev_shards == task_id - self.num_train_shards]
+
+  def file_generator(self, tmp_dir, task_id, max_files=None):
+    """Reads complete text of input files and returns as unicode.
+
+    Args:
+      tmp_dir: a string
+      task_id: an integer less than num_shards, or "train" for training shards
+      max_files: an optional integer
+    Yields:
+      unicode strings
+    """
+    count = 0
+    if task_id == "train":
+      fnames = self.train_text_filenames(tmp_dir)
+    else:
+      fnames = self.text_filenames_for_task(tmp_dir, task_id)
+    for fname in fnames:
+      tf.logging.info("reading file %s" % fname)
+      f = tf.gfile.Open(fname)
+      b = f.read()
+      yield _to_unicode_ignore_erros(b)
+      count += 1
+      if max_files and count == max_files:
+        return
+
+  def example_generator(self, encoder, tmp_dir, task_id):
+    """Generator for examples.
+
+    Args:
+      encoder: a TextEncoder
+      tmp_dir: a string
+      task_id: an integer
+    Yields:
+      feature dictionaries
+    """
+    for ftext in self.file_generator(tmp_dir, task_id):
+      encoded = encoder.encode(ftext)
+      for start_pos in xrange(0, len(encoded), self.sequence_length):
+        targets = encoded[start_pos:start_pos + self.sequence_length]
+        if len(targets) < self.sequence_length:
+          if self.remainder_policy == "pad":
+            targets += [0] * (self.sequence_length - len(targets))
+          else:
+            assert self.remainder_policy == "drop"
+            continue
+        yield {"inputs": [0], "targets": targets}
+
+  @property
+  def remainder_policy(self):
+    """What to do with leftover tokens.
+
+    Returns:
+      a string - either "pad" or  "drop".
+    """
+    return "pad"
+
+  def prepare_to_generate(self, data_dir, tmp_dir):
+    """Make sure that the data is prepared and the vocab is generated."""
+    self.get_or_generate_vocab(data_dir, tmp_dir)
+    self.train_text_filenames(tmp_dir)
+    self.dev_text_filenames(tmp_dir)
+
+  def get_or_generate_vocab(self, data_dir, tmp_dir):
+    return generator_utils.get_or_generate_vocab_inner(
+        data_dir, self.vocab_file, self.targeted_vocab_size,
+        self.file_generator(
+            tmp_dir, task_id="train", max_files=self.max_files_for_vocab))
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    """Generates training/dev data.
+
+    Args:
+      data_dir: a string
+      tmp_dir: a string
+      task_id: an optional integer
+    Returns:
+      shard or shards for which data was generated.
+    """
+    tf.logging.info("generate_data task_id=%s" % task_id)
+    encoder = self.get_or_generate_vocab(data_dir, tmp_dir)
+    assert task_id >= 0 and task_id < self.num_generate_tasks
+    if task_id < self.num_train_shards:
+      out_file = self.training_filepaths(
+          data_dir, self.num_train_shards, shuffled=False)[task_id]
+    else:
+      out_file = self.dev_filepaths(
+          data_dir, self.num_dev_shards,
+          shuffled=False)[task_id - self.num_train_shards]
+    generator_utils.generate_files(
+        self.example_generator(encoder, tmp_dir, task_id), [out_file])
+    generator_utils.shuffle_dataset([out_file])
+
+  @property
+  def max_files_for_vocab(self):
+    """Number of input files to read when generating vocab."""
+    return 10
+
+  @property
+  def target_space_id(self):
+    return SpaceID.EN_TOK
+
+  @property
+  def num_train_shards(self):
+    return 100
+
+  @property
+  def num_dev_shards(self):
+    return 1
+
+  @property
+  def multiprocess_generate(self):
+    return True
+
+  @property
+  def num_generate_tasks(self):
+    return self.num_train_shards + self.num_dev_shards
+
+  @property
+  def vocab_name(self):
+    raise NotImplementedError()
+
+  @property
+  def use_subword_tokenizer(self):
+    return True
+
+  @property
+  def has_inputs(self):
+    return False
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.NEG_LOG_PERPLEXITY
+    ]
+
+
+def _to_unicode_ignore_erros(s):
+  return (unicode(s, "utf-8", errors="ignore") if six.PY2 else
+          s.decode("utf-8", "ignore"))
 
 
 def _are_shapes_fully_defined(shapes_dict):
