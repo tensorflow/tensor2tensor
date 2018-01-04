@@ -436,6 +436,23 @@ class SubwordTextEncoder(TextEncoder):
     return self._tokens_to_subtoken_ids(
         tokenizer.encode(native_to_unicode(raw_text)))
 
+  def encode_without_tokenizing(self, token_text):
+    """Converts string to list of subtoken ids without calling tokenizer.
+
+    This treats `token_text` as a single token and directly converts it
+    to subtoken ids. This may be useful when the default tokenizer doesn't
+    do what we want (e.g., when encoding text with tokens composed of lots of
+    nonalphanumeric characters). It is then up to the caller to make sure that
+    raw text is consistently converted into tokens. Only use this if you are
+    sure that `encode` doesn't suit your needs.
+
+    Args:
+      token_text: A native string representation of a single token.
+    Returns:
+      A list of subword token ids; i.e., integers in the range [0, vocab_size).
+    """
+    return self._tokens_to_subtoken_ids([native_to_unicode(token_text)])
+
   def decode(self, subtokens):
     """Converts a sequence of subtoken ids to a native string.
 
@@ -559,6 +576,8 @@ class SubwordTextEncoder(TextEncoder):
                            token_counts,
                            min_val,
                            max_val,
+                           max_subtoken_length=None,
+                           reserved_tokens=None,
                            num_iterations=4):
     """Builds a SubwordTextEncoder that has `vocab_size` near `target_size`.
 
@@ -570,6 +589,13 @@ class SubwordTextEncoder(TextEncoder):
       token_counts: A dictionary of token counts, mapping string to int.
       min_val: An integer; lower bound for the minimum token count.
       max_val: An integer; upper bound for the minimum token count.
+      max_subtoken_length: Maximum length of a subtoken. If this is not set,
+        then the runtime and memory use of creating the vocab is quadratic in
+        the length of the longest token. If this is set, then it is instead
+        O(max_subtoken_length * length of longest token).
+      reserved_tokens: List of reserved tokens. The global variable
+        `RESERVED_TOKENS` must be a prefix of `reserved_tokens`. If this
+        argument is `None`, it will use `RESERVED_TOKENS`.
       num_iterations: An integer; how many iterations of refinement.
 
     Returns:
@@ -584,13 +610,18 @@ class SubwordTextEncoder(TextEncoder):
     if target_size < 1:
       raise ValueError("Target size must be positive.")
 
+    if reserved_tokens is None:
+      reserved_tokens = RESERVED_TOKENS
+
     def bisect(min_val, max_val):
       """Bisection to find the right size."""
       present_count = (max_val + min_val) // 2
       tf.logging.info("Trying min_count %d" % present_count)
       subtokenizer = cls()
-      subtokenizer.build_from_token_counts(token_counts, present_count,
-                                           num_iterations)
+      subtokenizer.build_from_token_counts(
+          token_counts, present_count, num_iterations,
+          max_subtoken_length=max_subtoken_length,
+          reserved_tokens=reserved_tokens)
 
       # Being within 1% of the target size is ok.
       is_ok = abs(subtokenizer.vocab_size - target_size) * 100 < target_size
@@ -617,36 +648,47 @@ class SubwordTextEncoder(TextEncoder):
                               token_counts,
                               min_count,
                               num_iterations=4,
-                              num_reserved_ids=NUM_RESERVED_TOKENS):
+                              reserved_tokens=None,
+                              max_subtoken_length=None):
     """Train a SubwordTextEncoder based on a dictionary of word counts.
 
     Args:
       token_counts: a dictionary of Unicode strings to int.
       min_count: an integer - discard subtokens with lower counts.
       num_iterations: an integer.  how many iterations of refinement.
-      num_reserved_ids: an integer.  how many ids to reserve for special tokens.
+      reserved_tokens: List of reserved tokens. The global variable
+        `RESERVED_TOKENS` must be a prefix of `reserved_tokens`. If this
+        argument is `None`, it will use `RESERVED_TOKENS`.
+      max_subtoken_length: Maximum length of a subtoken. If this is not set,
+        then the runtime and memory use of creating the vocab is quadratic in
+        the length of the longest token. If this is set, then it is instead
+        O(max_subtoken_length * length of longest token).
 
     Raises:
       ValueError: if reserved is not 0 or len(RESERVED_TOKENS). In this case, it
         is not clear what the space is being reserved for, or when it will be
         filled in.
     """
+    if reserved_tokens is None:
+      reserved_tokens = RESERVED_TOKENS
+    else:
+      # There is not complete freedom in replacing RESERVED_TOKENS.
+      for default, proposed in zip(RESERVED_TOKENS, reserved_tokens):
+        if default != proposed:
+          raise ValueError("RESERVED_TOKENS must be a prefix of "
+                           "reserved_tokens.")
+
     # Initialize the alphabet. Note, this must include reserved tokens or it can
     # result in encoding failures.
-    if num_reserved_ids == NUM_RESERVED_TOKENS:
-      alphabet_tokens = chain(six.iterkeys(token_counts),
-                              [native_to_unicode(t) for t in RESERVED_TOKENS])
-    elif num_reserved_ids == 0:
-      alphabet_tokens = six.iterkeys(token_counts)
-    else:
-      raise ValueError("Unexpected value for reserved. What is being reserved?")
+    alphabet_tokens = chain(six.iterkeys(token_counts),
+                            [native_to_unicode(t) for t in reserved_tokens])
 
     self._init_alphabet_from_tokens(alphabet_tokens)
 
     # Bootstrap the initial list of subtokens with the characters from the
     # alphabet plus the escaping characters.
-    self._init_subtokens_from_list(
-        list(self._alphabet), reserved=num_reserved_ids)
+    self._init_subtokens_from_list(list(self._alphabet),
+                                   reserved_tokens=reserved_tokens)
 
     # We build iteratively.  On each iteration, we segment all the words,
     # then count the resulting potential subtokens, keeping the ones
@@ -664,7 +706,11 @@ class SubwordTextEncoder(TextEncoder):
         subtokens = self._escaped_token_to_subtoken_strings(escaped_token)
         start = 0
         for subtoken in subtokens:
-          for end in xrange(start + 1, len(escaped_token) + 1):
+          last_position = len(escaped_token) + 1
+          if max_subtoken_length is not None:
+            last_position = min(last_position, start + max_subtoken_length)
+
+          for end in xrange(start + 1, last_position):
             new_subtoken = escaped_token[start:end]
             subtoken_counts[new_subtoken] += count
           start += len(subtoken)
@@ -700,13 +746,9 @@ class SubwordTextEncoder(TextEncoder):
 
       # Reinitialize to the candidate vocabulary.
       new_subtoken_strings = [subtoken for _, subtoken in new_subtoken_strings]
-      if num_reserved_ids == len(RESERVED_TOKENS):
-        new_subtoken_strings = RESERVED_TOKENS + new_subtoken_strings
-      elif num_reserved_ids == 0:
-        pass
-      else:
-        raise ValueError("num_reserved_ids must be 0 or %d but was %d" %
-                         NUM_RESERVED_TOKENS, num_reserved_ids)
+      if reserved_tokens:
+        new_subtoken_strings = reserved_tokens + new_subtoken_strings
+
       self._init_subtokens_from_list(new_subtoken_strings)
       tf.logging.info("vocab_size = %d" % self.vocab_size)
 
@@ -721,32 +763,33 @@ class SubwordTextEncoder(TextEncoder):
     print(u", ".join(u"{0} : '{1}'".format(i, s)
                      for i, s in sorted(subtoken_strings)))
 
-  def _init_subtokens_from_list(self, subtoken_strings, reserved=0):
+  def _init_subtokens_from_list(self, subtoken_strings, reserved_tokens=None):
     """Initialize token information from a list of subtoken strings.
 
     Args:
       subtoken_strings: a list of subtokens
-      reserved: number of spaces to save at the beginning for reserved tokens
+      reserved_tokens: List of reserved tokens. We must have `reserved_tokens`
+        as None or the empty list, or else the global variable `RESERVED_TOKENS`
+        must be a prefix of `reserved_tokens`.
 
     Raises:
       ValueError: if reserved is not 0 or len(RESERVED_TOKENS). In this case, it
         is not clear what the space is being reserved for, or when it will be
         filled in.
     """
-    if reserved == 0:
-      self._all_subtoken_strings = subtoken_strings
-    elif reserved == len(RESERVED_TOKENS):
-      self._all_subtoken_strings = RESERVED_TOKENS + subtoken_strings
+    if reserved_tokens is None:
+      reserved_tokens = []
+
+    if reserved_tokens:
+      self._all_subtoken_strings = reserved_tokens + subtoken_strings
     else:
-      # TODO(dtarlow): or should we fall back to the previous behavior and
-      # insert copies of "" for each reserved count?
-      raise ValueError("Unexpected value for reserved. What is being reserved?")
+      self._all_subtoken_strings = subtoken_strings
 
     # we remember the maximum length of any subtoken to avoid having to
     # check arbitrarily long strings.
     self._max_subtoken_len = max([len(s) for s in subtoken_strings])
     self._subtoken_string_to_id = {
-        s: i + reserved
+        s: i + len(reserved_tokens)
         for i, s in enumerate(subtoken_strings) if s
     }
     # Initialize the cache to empty.
