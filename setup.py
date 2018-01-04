@@ -23,7 +23,9 @@ setup(
         'tensor2tensor/bin/t2t-datagen',
         'tensor2tensor/bin/t2t-decoder',
         'tensor2tensor/bin/t2t-make-tf-configs',
-        'tensor2tensor/insights/server',
+        'tensor2tensor/bin/t2t-exporter',
+        'tensor2tensor/bin/t2t-query-server',
+        'tensor2tensor/bin/t2t-insights-server',
     ],
     install_requires=[
         'bz2file',
