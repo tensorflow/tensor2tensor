@@ -333,16 +333,13 @@ def create_export_strategy(problem, hparams):
       lambda: problem.serving_input_fn(hparams), as_text=True)
 
 
-def add_problem_hparams(hparams, problems):
+def add_problem_hparams(hparams, problem_name):
   """Add problem hparams for the problems."""
-  hparams.problems = []
-  hparams.problem_instances = []
-  for problem_name in problems.split("-"):
-    problem = registry.problem(problem_name)
-    p_hparams = problem.get_hparams(hparams)
+  problem = registry.problem(problem_name)
+  p_hparams = problem.get_hparams(hparams)
 
-    hparams.problem_instances.append(problem)
-    hparams.problems.append(p_hparams)
+  hparams.problem_instances = [problem]
+  hparams.problems = [p_hparams]
 
 
 def set_random_seed(seed):
