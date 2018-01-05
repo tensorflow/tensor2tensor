@@ -27,7 +27,6 @@ import random
 import numpy as np
 
 from tensor2tensor.utils import devices
-from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import metrics_hook
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -144,22 +143,20 @@ def create_run_config(master="",
     config.t2t_device_info = {
         "num_async_replicas": num_async_replicas,
     }
-    if no_data_parallelism:
-      config.data_parallelism = expert_utils.Parallelism([""])
-    else:
-      config.data_parallelism = devices.data_parallelism(
-          daisy_chain_variables=daisy_chain_variables,
-          ps_replicas=ps_replicas,
-          ps_job=ps_job,
-          ps_gpu=ps_gpu,
-          schedule=schedule,
-          sync=sync,
-          worker_gpu=num_gpus,
-          worker_replicas=num_async_replicas,
-          worker_id=worker_id,
-          gpu_order=gpu_order,
-          locally_shard_to_cpu=shard_to_cpu,
-          worker_job=worker_job)
+    config.data_parallelism = devices.data_parallelism(
+        daisy_chain_variables=daisy_chain_variables,
+        ps_replicas=ps_replicas,
+        ps_job=ps_job,
+        ps_gpu=ps_gpu,
+        schedule=schedule,
+        sync=sync,
+        worker_gpu=num_gpus,
+        worker_replicas=num_async_replicas,
+        worker_id=worker_id,
+        gpu_order=gpu_order,
+        locally_shard_to_cpu=shard_to_cpu,
+        worker_job=worker_job,
+        no_data_parallelism=no_data_parallelism)
 
   return config
 
