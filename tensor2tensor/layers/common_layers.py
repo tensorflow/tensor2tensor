@@ -910,6 +910,21 @@ def decompress_seqcnn(x,
     return tf.layers.dense(outputs, targets_vocab_size)
 
 
+def should_generate_image_summaries():
+  """Is this an appropriate context to generate image summaries.
+
+  Returns:
+    a boolean
+  """
+  if "while/" in tf.contrib.framework.get_name_scope():
+    # Summaries don't work well within tf.while_loop()
+    return False
+  if tf.get_variable_scope().reuse:
+    # Avoid generating separate summaries for different data shards
+    return False
+  return True
+
+
 def simple_attention(target, source, bias=None):
   """A simple attention function.
 
@@ -938,7 +953,7 @@ def simple_attention(target, source, bias=None):
     if bias is not None:
       attention += tf.expand_dims(tf.squeeze(bias, axis=[2, 3]), axis=1)
     attention = tf.nn.softmax(attention)
-    if not tf.get_variable_scope().reuse:
+    if should_generate_image_summaries():
       tf.summary.image("attention", tf.expand_dims(attention, 3), max_outputs=5)
     attended = tf.matmul(attention, source)
     return tf.reshape(attended, target_shape)
@@ -1233,7 +1248,7 @@ def attention_1d_v0(source,
       mask = (1.0 - mask) * -1e9
       attention += mask
     attention = tf.nn.softmax(attention)
-    if not tf.get_variable_scope().reuse:
+    if should_generate_image_summaries():
       # Compute a color image summary.
       image = tf.reshape(attention,
                          [batch, num_heads, target_length, source_length])
