@@ -222,6 +222,18 @@ class Problem(object):
   def hparams(self, defaults, model_hparams):
     pass
 
+  def max_length(self, model_hparams):
+    """Maximum sequence length.
+
+    Problems with fixed length should override.
+
+    Args:
+      model_hparams: model hyperparameters
+    Returns:
+      an integer
+    """
+    return model_hparams.max_length or model_hparams.batch_size
+
   def dataset_filename(self):
     return self.name
 
@@ -533,16 +545,18 @@ class Problem(object):
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     num_threads = 4 if is_training else 1
 
+    max_length = self.max_length(hparams)
+
     def tpu_valid_size(example):
       return data_reader.example_valid_size(example, hparams.min_length,
-                                            hparams.max_length)
+                                            max_length)
 
     def gpu_valid_size(example):
       drop_long_sequences = is_training or hparams.eval_drop_long_sequences
       return data_reader.example_valid_size(
           example,
           hparams.min_length,
-          hparams.max_length if drop_long_sequences else 10**9)
+          max_length if drop_long_sequences else 10**9)
 
     def define_shapes(example):
       batch_size = config and config.use_tpu and params["batch_size"]
@@ -577,10 +591,10 @@ class Problem(object):
     else:
       # Variable length features
       if config and config.use_tpu:
-        # On TPU, pad to hparams.max_length
+        # On TPU, pad to max_length
         dataset = dataset.filter(tpu_valid_size)
         padded_shapes = _fill_shape_nones(
-            dataset.output_shapes, none_filler=hparams.max_length)
+            dataset.output_shapes, none_filler=max_length)
         dataset = dataset.apply(
             tf.contrib.data.padded_batch_and_drop_remainder(
                 params["batch_size"], padded_shapes))
@@ -788,6 +802,12 @@ class Text2TextProblem(Problem):
     """
     return None
 
+  def max_length(self, model_hparams):
+    """Maximum sequence length."""
+    if self.packed_length:
+      return self.packed_length
+    return super(Text2TextProblem, self).max_length(model_hparams)
+
   @property
   def use_train_shards_for_dev(self):
     """If true, we only generate training data and hold out shards for dev."""
@@ -953,6 +973,9 @@ class ChoppedTextProblem(Text2TextProblem):
   def sequence_length(self):
     """Length of each example (in tokens)."""
     raise NotImplementedError()
+
+  def max_length(self, unused_model_hparams):
+    return self.sequence_length
 
   @property
   def is_character_level(self):
