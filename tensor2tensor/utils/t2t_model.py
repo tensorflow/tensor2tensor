@@ -786,7 +786,7 @@ class T2TModel(base.Layer):
 
     # Instantiate model
     data_parallelism = None
-    if not use_tpu and not hparams.no_data_parallelism and config:
+    if not use_tpu and config:
       data_parallelism = config.data_parallelism
     model = cls(hparams, mode, data_parallelism=data_parallelism,
                 decode_hparams=decode_hparams)

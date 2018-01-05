@@ -74,8 +74,12 @@ def data_parallelism(daisy_chain_variables=True,
                      worker_id=0,
                      gpu_order="",
                      locally_shard_to_cpu=False,
-                     worker_job="/job:localhost"):
+                     worker_job="/job:localhost",
+                     no_data_parallelism=False):
   """See data_parallelism_from_flags."""
+  tf.logging.info("schuedule=%s" % schedule)
+  tf.logging.info("worker_gpu=%s" % worker_gpu)
+  tf.logging.info("sync=%s" % sync)
   def _ps_replicas(all_workers=False):
     if all_workers:
       return list(range(ps_replicas))
@@ -130,7 +134,10 @@ def data_parallelism(daisy_chain_variables=True,
         ps_tasks=ps_replicas,
         ps_device=ps_job + "/GPU:0" if ps_gpu > 0 else ps_job)
 
-  if schedule in ["train_and_evaluate", "continuous_train_and_eval"]:
+  if no_data_parallelism:
+    datashard_devices = [""]
+    caching_devices = None
+  elif schedule in ["train_and_evaluate", "continuous_train_and_eval"]:
     assert not sync
     tf.logging.warn(
         "Schedule=%s. Assuming that training is running on a single machine.",
@@ -165,6 +172,7 @@ def data_parallelism(daisy_chain_variables=True,
       caching_devices = None
   tf.logging.info("datashard_devices: %s", datashard_devices)
   tf.logging.info("caching_devices: %s", caching_devices)
+  tf.logging.info("ps_devices: %s", ps_devices(all_workers=all_workers))
   return eu.Parallelism(
       datashard_devices,
       caching_devices=caching_devices,
