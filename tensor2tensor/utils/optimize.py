@@ -43,9 +43,9 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
 
   tf.summary.scalar("learning_rate", learning_rate)
-  opt_summaries = ["loss", "gradient_norm", "global_gradient_norm"]
+  opt_summaries = ["loss"]
   if hparams.summarize_grads:
-    opt_summaries.append("gradients")
+    opt_summaries.extend(["gradients", "gradient_norm", "global_gradient_norm"])
 
   train_op = tf.contrib.layers.optimize_loss(
       name="training",
