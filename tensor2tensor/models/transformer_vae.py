@@ -210,10 +210,7 @@ def bottleneck(x,
         h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
       elif hparams.bottleneck_kind == "vq-vae":
         if hparams.ema:
-          ema_means = tf.get_variable(name="ema_means")
           means = ema_means
-        else:
-          tf.logging.info("means = {}".format(means))
 
         h1 = tf.gather(means, x)
       elif hparams.bottleneck_kind == "rounding":
