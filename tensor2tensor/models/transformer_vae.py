@@ -468,7 +468,8 @@ def ae_transformer_internal(inputs,
                                             means, ema_count, ema_means)
       else:
         latent_len = common_layers.shape_list(targets_c)[1]
-        _, _, _, embed = bottleneck(targets_c, hparams, 2 * 2048, "vc", means)
+        _, _, _, embed = bottleneck(targets_c, hparams, 2 * 2048, "vc", means,
+                                    ema_count, ema_means)
         latents_dense = tf.zeros_like(targets_c[:, :latent_len, :, :])
         if cache is None:
           cache = ae_latent_sample(latents_dense, inputs, ed, embed, 8, hparams)
