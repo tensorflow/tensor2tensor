@@ -1123,7 +1123,7 @@ def grouped_attention_multihead(query_antecedent,
     extra_loss *= extra_loss_multiplier
 
     # Show a bunch of summaries.
-    if common_layers.should_generate_image_summaries() and make_image_summary:
+    if expert_utils.should_generate_summaries() and make_image_summary:
       tf.summary.histogram("q_group_size", q_group_size)
       tf.summary.histogram("m_group_size", m_group_size)
       tf.summary.scalar("q_loss", q_loss)
@@ -1211,7 +1211,7 @@ def dot_product_attention(q,
       save_weights_to[scope.name] = weights
     # dropping out the attention links for each of the heads
     weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
-    if common_layers.should_generate_image_summaries() and make_image_summary:
+    if expert_utils.should_generate_summaries() and make_image_summary:
       attention_image_summary(weights, image_shapes)
     return tf.matmul(weights, v)
 
@@ -3443,7 +3443,7 @@ def scaled_dot_product_attention_simple(q, k, v, bias, name=None):
     if bias is not None:
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
-    if common_layers.should_generate_image_summaries():
+    if expert_utils.should_generate_summaries():
       tf.summary.image(
           "attention", tf.expand_dims(tf.pow(weights, 0.2), 3), max_outputs=1)
     return tf.matmul(weights, v)
