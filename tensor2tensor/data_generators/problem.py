@@ -999,6 +999,22 @@ class ChoppedTextProblem(Text2TextProblem):
       return [f for i, f in enumerate(self.dev_text_filenames(tmp_dir))
               if i % self.num_dev_shards == task_id - self.num_train_shards]
 
+  def filename_to_unicode_text(self, filename):
+    """Read text out of an input file.
+
+    The default just reads the text and converts to unicode.
+
+    Subclasses can override this function in order to preprocess.
+
+    Args:
+      filename: a string
+    Returns:
+      a unicode string.
+    """
+    f = tf.gfile.Open(filename)
+    b = f.read()
+    return to_unicode_ignore_erros(b)
+
   def file_generator(self, tmp_dir, task_id, max_files=None):
     """Reads complete text of input files and returns as unicode.
 
@@ -1016,9 +1032,7 @@ class ChoppedTextProblem(Text2TextProblem):
       fnames = self.text_filenames_for_task(tmp_dir, task_id)
     for fname in fnames:
       tf.logging.info("reading file %s" % fname)
-      f = tf.gfile.Open(fname)
-      b = f.read()
-      yield _to_unicode_ignore_erros(b)
+      yield self.filename_to_unicode_text(fname)
       count += 1
       if max_files and count == max_files:
         return
@@ -1133,7 +1147,7 @@ class ChoppedTextProblem(Text2TextProblem):
     ]
 
 
-def _to_unicode_ignore_erros(s):
+def to_unicode_ignore_erros(s):
   return (unicode(s, "utf-8", errors="ignore") if six.PY2 else
           s.decode("utf-8", "ignore"))
 

@@ -101,6 +101,20 @@ class LanguagemodelWikiXmlV8kL1k(problem.ChoppedTextProblem):
     return 1024
 
 
+@registry.register_problem
+class LanguagemodelWikiXmlV8kL4k(LanguagemodelWikiXmlV8kL1k):
+  """A language model on English Wikipedia.
+
+  XML dump is chopped arbitrarily into sequences of length 4096 tokens,
+  without regard to article boundaries.
+  """
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 4096
+
+
 class LanguagemodelWikiScramble(LanguagemodelWikiXmlV8kL1k):
   """Language modeling on English wikipedia.
 
@@ -115,7 +129,7 @@ class LanguagemodelWikiScramble(LanguagemodelWikiXmlV8kL1k):
   def example_generator(self, encoder, tmp_dir, task_id):
     for x in super(LanguagemodelWikiScramble, self).example_generator(
         encoder, tmp_dir, task_id):
-      x["inputs"] = self.scramble(self["targets"])
+      x["inputs"] = self.scramble(x["targets"])
       yield x
 
   @property
@@ -133,6 +147,11 @@ class LanguagemodelWikiScramble(LanguagemodelWikiXmlV8kL1k):
   @property
   def targeted_vocab_size(self):
     return 2**13  # 8192
+
+  @property
+  def remainder_policy(self):
+    """What to do with leftover tokens."""
+    return "drop"
 
   def scramble(self, seq):
     seq = np.array(seq)
@@ -172,3 +191,176 @@ class LanguagemodelWikiScrambleL1k(LanguagemodelWikiScramble):
   @property
   def scramble_fraction(self):
     return 0.5
+
+
+@registry.register_problem
+class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
+  """A language model on English Wikipedia.
+
+  References and internal links are removed from the raw XML.
+
+  Special pages (non-articles) are dropped.
+
+  This more closely resemples plain text, though there are still some xml
+  elements, like tables.
+
+  Each article is prefixed by a line containing the title and length in
+  characters - e.g.
+  title: "Price of Tea in China" length: 12345
+  During inference time, you can forward generate starting with such a header
+  in order to obtain a randomly generated article with a given title and
+  (approximate) length.
+
+  Result is chopped arbitrarily into sequences of length 1024 tokens,
+  without regard to article boundaries.
+  """
+
+  @property
+  def vocab_name(self):
+    return "vocab.wiki_noref"
+
+  def filename_to_unicode_text(self, filename):
+    """Overriddes the base class to clean up the xml dump before tokenizing."""
+    dump = problem.to_unicode_ignore_erros(tf.gfile.Open(filename).read())
+    pages = _dump_to_pages(dump)
+    ret = u""
+    for p in pages:
+      title = _page_to_title(p)
+      text = _page_to_text(p)
+      text = _remove_triple_quotes(
+          _remove_double_brackets(_remove_references(text)))
+      if u":" in title:
+        # not a regular article
+        continue
+      if len(text) <= 140:
+        # Probably a redirect or something like that.  Skip it.
+        continue
+      ret += u"title: \"%s\" length: %d\n%s\n" % (title, len(text), text)
+    return ret
+
+
+def _dump_to_pages(dump):
+  """Extract pages from an xml dump.
+
+  Args:
+    dump: a unicode string
+  Returns:
+    a list of unicode strings
+  """
+  pos = 0
+  ret = []
+  start_tag = u"<page>\n"
+  end_tag = u"</page>\n"
+  while True:
+    start_pos = dump.find(start_tag, pos)
+    if start_pos == -1:
+      break
+    start_pos += len(start_tag)
+    end_pos = dump.find(end_tag, start_pos)
+    if end_pos == -1:
+      break
+    ret.append(dump[start_pos:end_pos])
+    pos = end_pos + len(end_tag)
+  return ret
+
+
+def _page_to_title(page):
+  """Extract the title from a page.
+
+  Args:
+    page: a unicode string
+  Returns:
+    a unicode string
+  """
+  # print("page=%s" % page)
+  start_tag = u"<title>"
+  end_tag = u"</title>"
+  start_pos = page.find(start_tag)
+  end_pos = page.find(end_tag)
+  assert start_pos != -1
+  assert end_pos != -1
+  start_pos += len(start_tag)
+  return page[start_pos:end_pos]
+
+
+def _page_to_text(page):
+  """Extract the text from a page.
+
+  Args:
+    page: a unicode string
+  Returns:
+    a unicode string
+  """
+  # text start tag looks like "<text ..otherstuff>"
+  start_pos = page.find(u"<text")
+  assert start_pos != -1
+  end_tag_pos = page.find(u">", start_pos)
+  assert end_tag_pos != -1
+  end_tag_pos += len(u">")
+  end_pos = page.find(u"</text>")
+  if end_pos == -1:
+    return u""
+  return page[end_tag_pos:end_pos]
+
+
+def _find_and_replace(text, start_string, end_string, replace_fn):
+  """Remove everything found between instances of start_string and end_string.
+
+  Replace each such instance with replace_fn(removed_text)
+
+  e.g. _find_and_replace(u"the [[fat]] cat [[sat]]", u"[[", u"]]", lambda x: x)
+    = u"the fat cat sat"
+
+  Args:
+    text: a unicode string
+    start_string: a unicode string
+    end_string: a unicode string
+    replace_fn: a unary function from unicode string to unicode string
+
+  Returns:
+    a string
+  """
+  ret = u""
+  current_pos = 0
+  while True:
+    start_pos = text.find(start_string, current_pos)
+    if start_pos == -1:
+      ret += text[current_pos:]
+      break
+    ret += text[current_pos:start_pos]
+    end_pos = text.find(end_string, start_pos + len(start_string))
+    if end_pos == -1:
+      break
+    ret += replace_fn(text[start_pos + len(start_string):end_pos])
+    current_pos = end_pos + len(end_string)
+  return ret
+
+
+def _remove_references(text):
+  """Strip out references from wikipedia xml."""
+  return _find_and_replace(text, u"&lt;ref", u"&lt;/ref&gt;", lambda s: "")
+
+
+def _remove_triple_quotes(text):
+  """Strip out triple quotes from wikipedia xml."""
+  return _find_and_replace(text, u"'''", u"'''", lambda s: s)
+
+
+def _remove_double_brackets(text):
+  """Remove double brackets (internal links) but leave the viewable text.
+
+  Args:
+    text: a unicode string
+  Returns:
+    a unicode string
+  """
+  def replacement_fn(s):
+    if u":" in s:
+      # this is probably a category or something like that.
+      return ""
+    # keep the part after the bar.
+    bar_pos = s.find(u"|")
+    if bar_pos == -1:
+      return s
+    return s[bar_pos + 1:]
+  return _find_and_replace(text, u"[[", u"]]", replacement_fn)
