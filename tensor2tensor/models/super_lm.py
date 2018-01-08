@@ -33,6 +33,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import diet
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -97,7 +98,7 @@ class SuperLM(t2t_model.T2TModel):
     decoder_input = mp(
         tf.nn.dropout, decoder_input,
         1.0 - hparams.layer_prepostprocess_dropout)
-    decoder_output = _super_stack(
+    decoder_output, extra_loss = _super_stack(
         decoder_input, decoder_self_attention_bias, hparams, mp)
     # Bypass the symbol modality and compute logits directly.
     # We compute a different set of logits on each shard, and sum them.
@@ -121,6 +122,8 @@ class SuperLM(t2t_model.T2TModel):
     num, denom = mp(_loss_for_shard, logits, targets, range(mp.n))
     # override training loss so that it is not computed externally.
     losses = {"training": tf.add_n(num) / tf.add_n(denom)}
+    if extra_loss is not None:
+      losses["extra"] = extra_loss
     return logits_shard_0, losses
 
 
@@ -140,16 +143,27 @@ def _super_stack(inputs,
     padding: a string
 
   Returns:
-    y: a Tensors
+    y: a list of Tensors
+    extra_loss: an optional scalar
   """
   layers = hparams.layers.strip(",").split(",")
   ffn_hidden_sizes = [int(s) for s in hparams.ffn_hidden_sizes.split(",")]
+  moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
+  if hparams.diet_experts:
+    hsize, = moe_hidden_sizes
+    def _diet_expert(x):
+      return diet.diet_expert(x, hsize, diet.diet_adam_optimizer_params())
+    expert_fn = _diet_expert
+  else:
+    expert_fn = expert_utils.ffn_expert_fn(
+        hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
   # scaled_dot_product_attention_with_projections uses a 3d attention bias
   # (no heads), where multihead_attention uses 4d attention bias.
   mix_size = int(hparams.mix_fraction * hparams.hidden_size)
   attention_bias_3d = mp(tf.squeeze, attention_bias, 1)
   accumulator = inputs
   x = inputs
+  extra_losses = []
   for layer_num, layer_type in enumerate(layers):
     with tf.variable_scope("%s_%d" % (layer_type, layer_num)):
       tf.logging.info("%s_%d" % (layer_type, layer_num))
@@ -210,9 +224,24 @@ def _super_stack(inputs,
             activation=tf.nn.relu,
             padding=padding,
         )
+      elif layer_type == "moe":
+        # mixture of experts - each model shard has its own local MoE.
+        x, loss = mp(
+            expert_utils.local_moe,
+            x,
+            train=hparams.mode == tf.estimator.ModeKeys.TRAIN,
+            expert_fn=expert_fn,
+            num_experts=hparams.moe_num_experts,
+            k=hparams.moe_k,
+            loss_coef=hparams.moe_loss_coef)
+        extra_losses.extend(loss)
       else:
         assert False, "unknown sublayer %s" % layer_type
-  return x
+  if extra_losses:
+    extra_loss = tf.add_n(extra_losses)
+  else:
+    extra_loss = None
+  return x, extra_loss
 
 
 @registry.register_hparams
@@ -220,8 +249,9 @@ def super_lm_base():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
   hparams.hidden_size = 512
+  hparams.moe_hidden_sizes = "512"
   hparams.batch_size = 16384
-  hparams.max_length = 256
+  hparams.max_length = 0
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.label_smoothing = 0.0
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
@@ -233,7 +263,7 @@ def super_lm_base():
   hparams.initializer = "uniform_unit_scaling"
   hparams.weight_decay = 0.0
   hparams.optimizer_adam_beta1 = 0.9
-  hparams.optimizer_adam_beta2 = 0.98
+  hparams.optimizer_adam_beta2 = 0.999
   hparams.shared_embedding_and_softmax_weights = False
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
@@ -244,7 +274,7 @@ def super_lm_base():
   hparams.add_hparam("ffn_hidden_sizes", "512")  # Add new ones like this.
   hparams.add_hparam("mix_fraction", 0.5)
   # attention-related flags
-  hparams.add_hparam("num_heads", 8)
+  hparams.add_hparam("num_heads", 4)
   hparams.add_hparam("attention_key_channels", 0)
   hparams.add_hparam("attention_value_channels", 0)
   # All hyperparameters ending in "dropout" are automatically set to 0.0
@@ -256,6 +286,7 @@ def super_lm_base():
   # Number of model shards - each one has separate parameters.
   # Changing this number invalidates checkpoints.
   hparams.add_hparam("num_model_shards", 8)
+  hparams.add_hparam("diet_experts", False)
   return hparams
 
 
@@ -298,4 +329,40 @@ def super_lm_b8k():
   """Smaller batch."""
   hparams = super_lm_base()
   hparams.batch_size = 8192
+  return hparams
+
+
+@registry.register_hparams
+def super_lm_moe():
+  """Add mixture of experts with ~1B params."""
+  hparams = super_lm_base()
+  hparams.layers = (
+      ("n,att,m,d,a," "n,moe,m,d,a,") * 4 + "n,ffn,d")
+  hparams.moe_num_experts = 32
+  hparams.moe_hidden_sizes = "1024"
+  return hparams
+
+
+@registry.register_hparams
+def super_lm_moe_h4():
+  """Add mixture of experts."""
+  hparams = super_lm_moe()
+  hparams.layers = (
+      ("n,multihead-att,m,d,a," "n,moe,m,d,a,") * 4 + "n,ffn,d")
+  return hparams
+
+
+@registry.register_hparams
+def super_lm_moe_4b_diet():
+  """Add mixture of experts with ~4B params and diet variables.
+
+  Currently, hangs.  See this issue:
+  https://github.com/tensorflow/tensorflow/issues/13351
+
+  Returns:
+    a hparams.
+  """
+  hparams = super_lm_moe()
+  hparams.moe_num_experts = 128
+  hparams.diet_experts = True
   return hparams
