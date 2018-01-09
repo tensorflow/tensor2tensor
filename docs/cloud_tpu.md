@@ -5,8 +5,10 @@ for ML training.
 
 Models and hparams that are known to work on TPU:
 * `transformer` with `transformer_tpu`
-* `xception` with `xception_base`
+* `transformer_encoder` with `transformer_tpu`
+* `transformer_decoder` with `transformer_tpu`
 * `resnet50` with `resnet_base`
+* `revnet104` with `revnet_base`
 
 To run on TPUs, you need to be part of the alpha program; if you're not, these
 commands won't work for you currently, but access will expand soon, so get
@@ -34,15 +36,14 @@ gcloud compute instances create $USER-vm \
 Launch the TPU instance; the Python program will connect to this to train on the
 TPU device.
 ```
+gcloud alpha compute tpus list
+# Make an IP with structure 10.240.X.2 that’s unique in the list
 TPU_IP=10.240.0.2
 gcloud alpha compute tpus create \
   $USER-tpu \
   --range=${TPU_IP/%2/0}/29 \
   --version=nightly
 ```
-
-To see all TPU instances running: `gcloud alpha compute tpus list`.  The
-`TPU_IP` should be unique amongst the list and follow the format `10.240.i.2`.
 
 SSH in with port forwarding for TensorBoard
 ```
@@ -52,7 +53,7 @@ gcloud compute ssh $USER-vm -- -L 6006:localhost:6006
 Now that you're on the cloud instance, install T2T:
 ```
 pip install tensor2tensor --user
-# If your python bin dir isn't already in your path
+# Add the python bin dir to your path
 export PATH=$HOME/.local/bin:$PATH
 ```
 
@@ -67,9 +68,9 @@ t2t-datagen --problem=translate_ende_wmt8k --data_dir=$DATA_DIR
 Setup some vars used below. `TPU_IP` and `DATA_DIR` should be the same as what
 was used above. Note that the `DATA_DIR` and `OUT_DIR` must be GCS buckets.
 ```
-TPU_IP=<IP of TPU machine>
+TPU_IP=10.240.0.2
 DATA_DIR=$GCS_BUCKET/t2t/data/
-OUT_DIR=$GCS_BUCKET/t2t/training/
+OUT_DIR=$GCS_BUCKET/t2t/training/transformer_ende_1
 TPU_MASTER=grpc://$TPU_IP:8470
 ```
 

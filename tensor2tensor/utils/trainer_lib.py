@@ -105,6 +105,7 @@ def create_run_config(master="",
                       ps_gpu=0,
                       random_seed=None,
                       sync=False,
+                      tpu_infeed_sleep_secs=None,
                       use_tpu=False):
   """Create RunConfig, TPUConfig, and Parallelism object."""
   session_config = create_session_config(
@@ -132,7 +133,8 @@ def create_run_config(master="",
     tpu_config = tf.contrib.tpu.TPUConfig(
         iterations_per_loop=iterations_per_loop,
         num_shards=num_shards,
-        per_host_input_for_training=(num_shards <= 8))
+        per_host_input_for_training=(num_shards <= 8),
+        initial_infeed_sleep_secs=tpu_infeed_sleep_secs)
     run_config_args["tpu_config"] = tpu_config
 
   config = run_config_cls(**run_config_args)
@@ -173,18 +175,12 @@ def create_estimator(model_name,
   if use_tpu:
     batch_size = hparams.tpu_batch_size_per_shard
     batch_size *= run_config.tpu_config.num_shards
-    eval_batch_size = batch_size * 2
-    if "eval" not in schedule:
-      # Estimator takes the presence of eval_batch_size as an indication that
-      # an eval is being performed, and complains about num_shards being too
-      # big. So we have to set eval_batch_size to None.
-      eval_batch_size = None
     return tf.contrib.tpu.TPUEstimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
         train_batch_size=batch_size,
-        eval_batch_size=eval_batch_size)
+        eval_batch_size=batch_size if "eval" in schedule else None)
   else:
     return tf.estimator.Estimator(
         model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)

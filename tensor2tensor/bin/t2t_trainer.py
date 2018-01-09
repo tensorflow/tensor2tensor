@@ -49,6 +49,8 @@ flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 1000,
                      "Number of iterations in a TPU training loop.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
+flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
+                     "How long to sleep the infeed thread.")
 flags.DEFINE_bool("generate_data", False, "Generate data before training?")
 flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
                     "Temporary storage directory, used if --generate_data.")
@@ -77,6 +79,10 @@ def get_problem_name():
 
 
 def create_hparams():
+  if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
+    tf.logging.warn("Not all hyperparameter sets work on TPU. When available "
+                    "for a given model, prefer hparams_sets with a '_tpu' "
+                    "suffix, e.g. transformer_tpu.")
   return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
 
@@ -128,7 +134,8 @@ def create_run_config(hp):
       sync=FLAGS.sync,
       worker_id=FLAGS.worker_id,
       worker_job=FLAGS.worker_job,
-      random_seed=FLAGS.random_seed)
+      random_seed=FLAGS.random_seed,
+      tpu_infeed_sleep_secs=FLAGS.tpu_infeed_sleep_secs)
 
 
 def generate_data():
