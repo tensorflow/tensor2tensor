@@ -532,9 +532,15 @@ def transformer_prepare_decoder(targets, hparams, features=None):
     decoder_input: a Tensor, bottom of decoder stack
     decoder_self_attention_bias: a bias tensor for use in encoder self-attention
   """
-  decoder_self_attention_bias = (
-      common_attention.attention_bias_lower_triangle(
-          common_layers.shape_list(targets)[1]))
+  if hparams.prepend_mode == "prepend_inputs_full_attention":
+    decoder_self_attention_bias = (
+        common_attention.attention_bias_prepended(
+            common_attention.embedding_to_padding(targets)))
+  else:
+    decoder_self_attention_bias = (
+        common_attention.attention_bias_lower_triangle(
+            common_layers.shape_list(targets)[1]))
+
   if features and "targets_segmentation" in features:
     # "Packed" dataset - keep the examples from seeing each other.
     targets_segmentation = features["targets_segmentation"]
@@ -1204,6 +1210,24 @@ def transformer_tpu():
   """HParams for Transformer model on TPU."""
   hparams = transformer_base()
   update_hparams_for_tpu(hparams)
+  hparams.tpu_batch_size_per_shard = 56
+  return hparams
+
+
+@registry.register_hparams
+def transformer_packed_tpu():
+  """For packed problems, length 256, batch 14."""
+  hparams = transformer_base()
+  update_hparams_for_tpu(hparams)
+  hparams.tpu_batch_size_per_shard = 14
+  return hparams
+
+
+@registry.register_hparams
+def transformer_big_tpu():
+  hparams = transformer_big()
+  update_hparams_for_tpu(hparams)
+  hparams.tpu_batch_size_per_shard = 16
   return hparams
 
 
@@ -1262,14 +1286,16 @@ def update_hparams_for_tpu(hparams):
   hparams.use_pad_remover = False  # where op not supported
   hparams.optimizer = "TrueAdam"
   hparams.learning_rate = 0.2
+  # Avoid an expensive concat on TPU
+  hparams.symbol_modality_num_shards = 1
 
   # Inputs
   # Each example in the batch will be of (padded) length hparams.max_length
   # It is suggested to use a dataset that where examples have been combined
-  # to this length.
-  # TODO(noam): Prepare and debug these datasets.
-  hparams.max_length = 256
-  hparams.tpu_batch_size_per_shard = 8
+  # to a longer length, e.g. the "_packed" datasets. If that's the case, reduce
+  # the tpu_batch_size_per_shard as necessary to fit in memory.
+  # For translate_ende_wmt32k_packed, transformer_packed_tpu is a good config.
+  hparams.max_length = 64
 
 
 @registry.register_hparams

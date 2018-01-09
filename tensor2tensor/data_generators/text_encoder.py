@@ -860,8 +860,13 @@ class ImageEncoder(object):
     Returns:
       ids: list of integers
     """
-    # TODO(lukaszkaiser): implement this.
-    raise NotImplementedError
+    try:
+      import matplotlib.image as im  # pylint: disable=g-import-not-at-top
+    except ImportError as e:
+      tf.logging.warning(
+          "Reading an image requires matplotlib to be installed: %s", e)
+      raise NotImplementedError("Image reading not implemented.")
+    return im.imread(s)
 
   def decode(self, ids):
     """Transform a sequence of int ids into an image file.

@@ -184,7 +184,7 @@ import os
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators.wmt import character_generator
+from tensor2tensor.data_generators.translate import character_generator
 
 from tensor2tensor.utils import registry
 
@@ -240,16 +240,46 @@ All hyperparamters inherit from `_default_hparams()` in `problem.py.` If you wou
 from tensor2tensor.models import transformer
 
 @registry.register_hparams
-def word2def_hparams(self):
+def word2def_hparams():
     hparams = transformer.transformer_base_single_gpu()  # Or whatever you'd like to build off.
     hparams.batch_size = 1024
     return hparams
 ```
 
-# Run the problem
-Now that we've gotten our problem set up, let's train a model and generate definitions. 
+# Test the data generation
 
-We specify our problem name, the model, and hparams.
+You can test data generation of your a problem in your own project with:
+
+```bash
+PROBLEM=word2def
+DATA_DIR=$HOME/t2t_data
+TMP_DIR=/tmp/t2t_datagen
+mkdir -p $DATA_DIR $TMP_DIR
+
+t2t-datagen \
+  --t2t_usr_dir=$PATH_TO_YOUR_PROBLEM_DIR \
+  --data_dir=$DATA_DIR \
+  --tmp_dir=$TMP_DIR \
+  --problem=$PROBLEM
+```
+
+Where:
+* `PROBLEM` is the name of the class that was registered with
+  `@registry.register_problem()`, but converted from `CamelCase` to
+  `snake_case`.
+* `PATH_TO_YOUR_PROBLEM_DIR` is a path to the directory of your python problem
+  file.
+
+If you plan to contribute to the tensor2tensor repository, you can install the
+local cloned version in developer mode with `pip install -e .` from the
+tensor2tensor directory. You can also add your new problem file to
+[`all_problems.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/all_problems.py).
+
+# Run the problem
+Now that we've gotten our problem set up, let's train a model and generate
+definitions.
+
+To train, specify the problem name, the model, and hparams:
 ```bash
 PROBLEM=word2def
 MODEL=transformer
@@ -258,7 +288,7 @@ HPARAMS=word2def_hparams
 
 The rest of the steps are as given in the [walkthrough](walkthrough.md).
 
-
-What if we wanted to train a model to generate words given definitions? In T2T, we can change the problem name to be `PROBLEM=word2def_rev`.
+What if we wanted to train a model to generate words given definitions? In T2T,
+we can change the problem name to be `PROBLEM=word2def_rev`.
 
 All done. Let us know what definitions your model generated.
