@@ -26,6 +26,9 @@ setup(
         'tensor2tensor/bin/t2t-exporter',
         'tensor2tensor/bin/t2t-query-server',
         'tensor2tensor/bin/t2t-insights-server',
+        'tensor2tensor/bin/t2t-avg-all',
+        'tensor2tensor/bin/t2t-bleu',
+        'tensor2tensor/bin/t2t-translate-all',
     ],
     install_requires=[
         'bz2file',
