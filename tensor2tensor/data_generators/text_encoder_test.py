@@ -30,6 +30,7 @@ import string
 # Dependency imports
 import mock
 import six
+from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
