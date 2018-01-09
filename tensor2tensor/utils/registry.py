@@ -138,12 +138,14 @@ def register_model(name=None):
 
 def model(name):
   if name not in _MODELS:
-    raise LookupError("Model %s never registered." % name)
+    raise LookupError("Model %s never registered.  Available models:\n %s" % (
+        name, "\n".join(list_models())))
+
   return _MODELS[name]
 
 
 def list_models():
-  return list(_MODELS)
+  return list(sorted(_MODELS))
 
 
 def register_hparams(name=None):
