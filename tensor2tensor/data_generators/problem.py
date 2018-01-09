@@ -424,16 +424,25 @@ class Problem(object):
     tf.logging.info("Reading data files from %s", data_filepattern)
     data_files = tf.contrib.slim.parallel_reader.get_data_files(
         data_filepattern)
+    dataset = tf.data.Dataset.list_files(data_filepattern)
+
     if shuffle_files or shuffle_files is None and is_training:
+      dataset = dataset.shuffle(buffer_size=1024)
+      dataset = dataset.repeat()
+
       # In addition to shuffling the list of file names, we skip a random
-      # fraction of the first file.  The skip is essential for synchronous
-      # highly-parallel training.  Otherwise, we have multiple replicas
-      # reading the same shard in lock-step.
+      # fraction at the beginning of the stream.  The skip is essential for
+      # synchronous highly-parallel training.  Otherwise, we have multiple
+      # replicas reading the same data in lock-step.
       num_skip = random.randint(0, _file_num_records_cached(data_files[0]))
-      random.shuffle(data_files)
-      dataset = tf.data.TFRecordDataset(data_files).skip(num_skip)
-    else:
-      dataset = tf.data.TFRecordDataset(data_files)
+      dataset = dataset.skip(num_skip)
+
+    def _load_records(filename):
+      return tf.data.TFRecordDataset(filename, buffer_size=16 * 1000 * 1000)
+
+    dataset = dataset.apply(
+        tf.contrib.data.parallel_interleave(
+            _load_records, sloppy=False, cycle_length=8))
 
     def _preprocess(example):
       example = self.preprocess_example(example, mode, hparams)
@@ -445,6 +454,7 @@ class Problem(object):
 
     if preprocess:
       dataset = dataset.map(_preprocess, num_parallel_calls=num_threads)
+
     if output_buffer_size:
       dataset = dataset.prefetch(output_buffer_size)
 
@@ -543,7 +553,10 @@ class Problem(object):
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    num_threads = 4 if is_training else 1
+    if config.use_tpu:
+      num_threads = 32
+    else:
+      num_threads = 4 if is_training else 1
 
     max_length = self.max_length(hparams)
 
