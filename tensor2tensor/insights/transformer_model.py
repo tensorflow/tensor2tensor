@@ -97,33 +97,33 @@ class TransformerModel(query_processor.QueryProcessor):
     - graph: A graph of the beam search process.
   """
 
-  def __init__(self, data_dir, model_dir):
+  def __init__(self, processor_configuration):
     """Creates the Transformer estimator.
 
     Args:
-      data_dir: The training data directory.
-      model_dir: The trained model directory.
+      processor_configuration: A ProcessorConfiguration protobuffer with the
+        transformer fields populated.
     """
     # Do the pre-setup tensor2tensor requires for flags and configurations.
-    FLAGS.output_dir = model_dir
-    FLAGS.data_dir = data_dir
+    transformer_config = processor_configuration.transformer
+    FLAGS.output_dir = transformer_config.model_dir
     usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-    data_dir = os.path.expanduser(data_dir)
+    data_dir = os.path.expanduser(transformer_config.data_dir)
 
     # Create the basic hyper parameters.
     self.hparams = trainer_lib.create_hparams(
-        FLAGS.hparams_set,
-        FLAGS.hparams,
+        transformer_config.hparams_set,
+        transformer_config.hparams,
         data_dir=data_dir,
-        problem_name=FLAGS.problems)
+        problem_name=transformer_config.problems)
 
-    decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
+    decode_hp = decoding.decode_hparams()
     decode_hp.add_hparam("shards", 1)
     decode_hp.add_hparam("shard_id", 0)
 
     # Create the estimator and final hyper parameters.
     self.estimator = trainer_lib.create_estimator(
-        FLAGS.model,
+        transformer_config.model,
         self.hparams,
         t2t_trainer.create_run_config(self.hparams),
         decode_hparams=decode_hp, use_tpu=False)
