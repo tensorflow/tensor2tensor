@@ -147,7 +147,15 @@ def nearest(x, means, hparams):
   dist = (
       x_norm_sq + tf.transpose(means_norm_sq) -
       2 * tf.matmul(x_flat, means, transpose_b=True))
-  nearest_idx = tf.argmax(-dist, axis=-1)
+  if hparams.random_top_k > 1:
+    _, top_k_idx = tf.nn.top_k(-dist, k=hparams.random_top_k)
+    nearest_idx = tf.gather(
+        top_k_idx,
+        tf.random_uniform(
+            [1], minval=0, maxval=hparams.random_top_k - 1, dtype=tf.int32),
+        axis=-1)
+  else:
+    nearest_idx = tf.argmax(-dist, axis=-1)
   nearest_hot = tf.one_hot(nearest_idx, hparams.v_size)
   shape = common_layers.shape_list(x)
   shape[-1] = hparams.v_size
@@ -210,9 +218,11 @@ def bottleneck(x,
         h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
       elif hparams.bottleneck_kind == "vq-vae":
         if hparams.ema:
-          means = ema_means
+          means_embed = ema_means
+        else:
+          means_embed = means
 
-        h1 = tf.gather(means, x)
+        h1 = tf.gather(means_embed, x)
       elif hparams.bottleneck_kind == "rounding":
         h1 = x
 
@@ -664,6 +674,7 @@ def transformer_ae_small():
   hparams.add_hparam("epsilon", 1e-5)
   hparams.add_hparam("decay", 0.999)
   hparams.add_hparam("ema", True)
+  hparams.add_hparam("random_top_k", 1)
   hparams.kl_warmup_steps = 150000
   hparams.force_full_predict = True
   return hparams
