@@ -78,7 +78,7 @@ class Transformer(t2t_model.T2TModel):
 
     encoder_output = transformer_encoder(
         encoder_input, self_attention_bias,
-        hparams, nonpadding=_features_to_nonpadding(features, "inputs"),
+        hparams, nonpadding=features_to_nonpadding(features, "inputs"),
         save_weights_to=self.attention_weights)
 
     return encoder_output, encoder_decoder_attention_bias
@@ -162,7 +162,7 @@ class Transformer(t2t_model.T2TModel):
     return self.decode(decoder_input, encoder_output,
                        encoder_decoder_attention_bias,
                        decoder_self_attention_bias, hparams,
-                       nonpadding=_features_to_nonpadding(features, "targets"))
+                       nonpadding=features_to_nonpadding(features, "targets"))
 
   def _greedy_infer(self, features, decode_length):
     """Fast version of greedy decoding.
@@ -308,7 +308,7 @@ class Transformer(t2t_model.T2TModel):
         body_outputs = dp(
             self.decode, targets, cache["encoder_output"],
             cache["encoder_decoder_attention_bias"], bias, hparams, cache,
-            nonpadding=_features_to_nonpadding(features, "targets"))
+            nonpadding=features_to_nonpadding(features, "targets"))
 
       with tf.variable_scope(target_modality.name):
         logits = target_modality.top_sharded(body_outputs, None, dp)[0]
@@ -452,13 +452,13 @@ class TransformerEncoder(t2t_model.T2TModel):
                                   1.0 - hparams.layer_prepostprocess_dropout)
     encoder_output = transformer_encoder(
         encoder_input, encoder_self_attention_bias, hparams,
-        nonpadding=_features_to_nonpadding(features, "inputs"))
+        nonpadding=features_to_nonpadding(features, "inputs"))
     encoder_output = tf.expand_dims(encoder_output, 2)
 
     return encoder_output
 
 
-def _features_to_nonpadding(features, inputs_or_targets="inputs"):
+def features_to_nonpadding(features, inputs_or_targets="inputs"):
   key = inputs_or_targets + "_segmentation"
   if features and key in features:
     return tf.minimum(features[key], 1.0)
