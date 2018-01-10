@@ -105,17 +105,17 @@ class TransformerModel(query_processor.QueryProcessor):
         transformer fields populated.
     """
     # Do the pre-setup tensor2tensor requires for flags and configurations.
-    transformer_config = processor_configuration.transformer
-    FLAGS.output_dir = transformer_config.model_dir
+    transformer_config = processor_configuration["transformer"]
+    FLAGS.output_dir = transformer_config["model_dir"]
     usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-    data_dir = os.path.expanduser(transformer_config.data_dir)
+    data_dir = os.path.expanduser(transformer_config["data_dir"])
 
     # Create the basic hyper parameters.
     self.hparams = trainer_lib.create_hparams(
-        transformer_config.hparams_set,
-        transformer_config.hparams,
+        transformer_config["hparams_set"],
+        transformer_config["hparams"],
         data_dir=data_dir,
-        problem_name=transformer_config.problems)
+        problem_name=transformer_config["problems"])
 
     decode_hp = decoding.decode_hparams()
     decode_hp.add_hparam("shards", 1)
@@ -123,7 +123,7 @@ class TransformerModel(query_processor.QueryProcessor):
 
     # Create the estimator and final hyper parameters.
     self.estimator = trainer_lib.create_estimator(
-        transformer_config.model,
+        transformer_config["model"],
         self.hparams,
         t2t_trainer.create_run_config(self.hparams),
         decode_hparams=decode_hp, use_tpu=False)
