@@ -15,18 +15,17 @@
 
 """A GUnicorn + Flask Debug Frontend for Transformer models."""
 
+import json
+
 from flask import Flask
 from flask import jsonify
 from flask import request
 from flask import send_from_directory
 from gunicorn.app.base import BaseApplication
 from gunicorn.six import iteritems
-from tensor2tensor.insights import insight_configuration_pb2
 from tensor2tensor.insights import transformer_model
 
 import tensorflow as tf
-
-from google3.net.proto2.python.public import json_format
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -76,25 +75,24 @@ class DebugFrontendApplication(BaseApplication):
 def main(_):
   # Create the models we support:
   with open(FLAGS.configuration) as configuration_file:
-    configuration = json_format.Parse(
-        configuration_file.read(),
-        insight_configuration_pb2.InsightConfiguration())
+    configuration = json.load(configuration_file)
 
   # Read in the set of query processors.
   processors = {}
-  for processor_configuration in configuration.configuration:
-    key = (processor_configuration.source_language,
-           processor_configuration.target_language,
-           processor_configuration.label)
+  for processor_configuration in configuration["configuration"]:
+    key = (processor_configuration["source_language"],
+           processor_configuration["target_language"],
+           processor_configuration["label"])
+
     processors[key] = transformer_model.TransformerModel(
         processor_configuration)
 
   # Read in the list of supported languages.
   languages = {}
-  for language in configuration.language:
-    languages[language.code] = {
-        "code": language.code,
-        "name": language.name,
+  for language in configuration["language"]:
+    languages[language["code"]] = {
+        "code": language["code"],
+        "name": language["name"],
     }
 
   # Create flask to serve all paths starting with '/polymer' from the static

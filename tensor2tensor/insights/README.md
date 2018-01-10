@@ -25,16 +25,40 @@ bower install
 popd
 ```
 
-Then you can run the insights server.  Using the model trained in the Quick
-Start guide, the command line would be:
+The models run by server is then configured by a JSON version of the
+InsightsConfiguration protocol buffer.  Using the model trained in the Quick
+Start guide, a sample configuration would be:
+
+```
+  {
+    "configuration": [{
+      "source_language": "en",
+      "target_language": "de",
+      "label": "transformers_wmt32k",
+      "transformer": {
+        "model": "transformer",
+        "model_dir": "/tmp/t2t/train",
+        "data_dir": "/tmp/t2t/data",
+        "hparams": "",
+        "hparams_set": "transformer_base_single_gpu",
+        "problems": "translate_ende_wmt32k"
+      },
+    }]
+    "language": [{
+      "code": "en",
+      "name": "English",
+    },{
+      "code": "de",
+      "name": "German",
+    }]
+  }
+```
+
+With that saved to `configuration.json`, run the following:
 
 ```
 t2t-insights-server \
-  --t2t_data_dir=~/t2t_data \
-  --t2t_model_dir=~/t2t_train/base \
-  --problems=translate_ende_wmt32k \
-  --model=transformer \
-  --hparams_set=transformer_base_single_gpu \
+  --configuration=configuration.json \
   --static_path=`pwd`/tensor2tensor/insights/polymer
 ```
 
