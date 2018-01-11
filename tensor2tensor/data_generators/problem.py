@@ -253,6 +253,19 @@ class Problem(object):
     return (data_fields, data_items_to_decoders)
 
   def preprocess_example(self, example, mode, hparams):
+    """Runtime preprocessing.
+
+    Return a dict or a tf.Data.Datset.from_tensor_slices (if you want each
+    example to turn into multiple).
+
+    Args:
+      example: dict, features
+      mode: tf.estimator.ModeKeys
+      hparams: HParams, model hyperparameters
+
+    Returns:
+      dict or Dataset
+    """
     return preprocess_example_common(example, hparams, mode)
 
   def eval_metrics(self):
@@ -379,6 +392,7 @@ class Problem(object):
               num_threads=None,
               output_buffer_size=None,
               shuffle_files=None,
+              repeat=None,
               hparams=None,
               preprocess=True,
               dataset_split=None,
@@ -394,6 +408,8 @@ class Problem(object):
         calls.
       shuffle_files: whether to shuffle input files. Default behavior (i.e. when
         shuffle_files=None) is to shuffle if mode == TRAIN.
+      repeat: whether to repeat the Dataset. Default behavior is to repeat if
+        mode == TRAIN.
       hparams: tf.contrib.training.HParams; hparams to be passed to
         Problem.preprocess_example and Problem.hparams. If None, will use a
         default set that is a no-op.
@@ -406,6 +422,10 @@ class Problem(object):
     Returns:
       Dataset containing dict<feature name, Tensor>.
     """
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    repeat = repeat or repeat is None and is_training
+    shuffle_files = shuffle_files or shuffle_files is None and is_training
+
     dataset_split = dataset_split or mode
     assert data_dir
 
@@ -419,41 +439,50 @@ class Problem(object):
     # Construct the Problem's hparams so that items within it are accessible
     _ = self.get_hparams(hparams)
 
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
     data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
     tf.logging.info("Reading data files from %s", data_filepattern)
-    data_files = tf.contrib.slim.parallel_reader.get_data_files(
-        data_filepattern)
     dataset = tf.data.Dataset.list_files(data_filepattern)
 
-    if shuffle_files or shuffle_files is None and is_training:
+    if shuffle_files:
       dataset = dataset.shuffle(buffer_size=1024)
-      dataset = dataset.repeat()
-
-      # In addition to shuffling the list of file names, we skip a random
-      # fraction at the beginning of the stream.  The skip is essential for
-      # synchronous highly-parallel training.  Otherwise, we have multiple
-      # replicas reading the same data in lock-step.
-      num_skip = random.randint(0, _file_num_records_cached(data_files[0]))
-      dataset = dataset.skip(num_skip)
 
     def _load_records(filename):
       return tf.data.TFRecordDataset(filename, buffer_size=16 * 1000 * 1000)
 
     dataset = dataset.apply(
         tf.contrib.data.parallel_interleave(
-            _load_records, sloppy=False, cycle_length=8))
+            _load_records, sloppy=is_training, cycle_length=8))
 
-    def _preprocess(example):
-      example = self.preprocess_example(example, mode, hparams)
+    if repeat:
+      dataset = dataset.repeat()
+
+    if shuffle_files:
+      # Skip a random fraction at the beginning of the stream.  The skip is
+      # essential for synchronous highly-parallel training to avoid multiple
+      # replicas reading the same data in lock-step.
+      data_files = tf.contrib.slim.parallel_reader.get_data_files(
+          data_filepattern)
+      num_skip = random.randint(0, _file_num_records_cached(data_files[0]))
+      dataset = dataset.skip(num_skip)
+
+    def _maybe_reverse_and_copy(example):
       self.maybe_reverse_features(example)
       self.maybe_copy_features(example)
       return example
 
+    def _preprocess(example):
+      examples = self.preprocess_example(example, mode, hparams)
+      if not isinstance(examples, tf.data.Dataset):
+        examples = tf.data.Dataset.from_tensors(examples)
+      return examples
+
     dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
 
     if preprocess:
-      dataset = dataset.map(_preprocess, num_parallel_calls=num_threads)
+      dataset = dataset.flat_map(_preprocess)
+
+    dataset = dataset.map(
+        _maybe_reverse_and_copy, num_parallel_calls=num_threads)
 
     if output_buffer_size:
       dataset = dataset.prefetch(output_buffer_size)
