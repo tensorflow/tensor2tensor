@@ -48,7 +48,7 @@ class LanguagemodelWikiXmlV8kL1k(problem.ChoppedTextProblem):
       tmp_dir: directory containing dataset.
 
     Returns:
-      list of filenames for local text files.
+      list of filepaths for local text files.
     """
     compressed_filename = os.path.basename(self.corpus_url)
     compressed_filepath = os.path.join(tmp_dir, compressed_filename)
@@ -70,11 +70,11 @@ class LanguagemodelWikiXmlV8kL1k(problem.ChoppedTextProblem):
     assert split_files
     return split_files
 
-  def train_text_filenames(self, tmp_dir):
+  def train_text_filepaths(self, tmp_dir):
     all_files = self.maybe_prepare_text(tmp_dir)
     return [f for i, f in enumerate(all_files) if i % self.dev_fraction != 0]
 
-  def dev_text_filenames(self, tmp_dir):
+  def dev_text_filepaths(self, tmp_dir):
     all_files = self.maybe_prepare_text(tmp_dir)
     return [f for i, f in enumerate(all_files) if i % self.dev_fraction == 0]
 
@@ -99,6 +99,12 @@ class LanguagemodelWikiXmlV8kL1k(problem.ChoppedTextProblem):
   def sequence_length(self):
     """Length of each example (in tokens)."""
     return 1024
+
+  @property
+  def max_chars_for_vocab(self):
+    """Number of characters of training data to use for generating vocab."""
+    # magic number for backwards compatibility
+    return 41800829
 
 
 @registry.register_problem
@@ -219,9 +225,9 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
   def vocab_name(self):
     return "vocab.wiki_noref"
 
-  def filename_to_unicode_text(self, filename):
+  def filepath_to_unicode_text(self, filepath):
     """Overriddes the base class to clean up the xml dump before tokenizing."""
-    dump = problem.to_unicode_ignore_erros(tf.gfile.Open(filename).read())
+    dump = problem.to_unicode_ignore_erros(tf.gfile.Open(filepath).read())
     pages = _dump_to_pages(dump)
     ret = u""
     for p in pages:
@@ -237,6 +243,12 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
         continue
       ret += u"title: \"%s\" length: %d\n%s\n" % (title, len(text), text)
     return ret
+
+  @property
+  def max_chars_for_vocab(self):
+    """Number of characters of training data to use for generating vocab."""
+    # magic number for backwards compatibility
+    return 21240483
 
 
 def _dump_to_pages(dump):
@@ -364,3 +376,16 @@ def _remove_double_brackets(text):
       return s
     return s[bar_pos + 1:]
   return _find_and_replace(text, u"[[", u"]]", replacement_fn)
+
+
+@registry.register_problem
+class LanguagemodelWikiNorefV8kL16k(LanguagemodelWikiNorefV8kL1k):
+  """A language model on English Wikipedia.
+
+  References removed.  Chopped into segments of 16k tokens.
+  """
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 2**14
