@@ -1219,7 +1219,7 @@ def transformer_packed_tpu():
   """For packed problems, length 256, batch 14."""
   hparams = transformer_base()
   update_hparams_for_tpu(hparams)
-  hparams.tpu_batch_size_per_shard = 14
+  hparams.tpu_batch_size_per_shard = 12
   return hparams
 
 
