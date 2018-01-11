@@ -151,6 +151,11 @@ def basic_params1():
       # You can change this behavior by overridding preprocess_example() method
       # in your problem class.
       max_target_seq_length=0,
+      # if nonzero, we split the target sequences on example read.
+      # This is for use with language modeling problems with fixed length
+      # examples.  e.g.  The examples may be written with length 65536, but we
+      # want to split each example into 64 examples of length 1024.
+      split_to_length=0,
       # This flag allows us to optionally treat a seq-to-seq problem
       # as a language model.  Legal values are:
       #

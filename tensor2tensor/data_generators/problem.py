@@ -102,6 +102,7 @@ def default_model_hparams():
       max_input_seq_length=0,
       max_target_seq_length=0,
       prepend_mode="none",
+      split_to_length=0,
       data_dir=None)
 
 
@@ -117,6 +118,12 @@ def preprocess_example_common(example, hparams, mode):
     else:
       example["targets"] = tf.concat(
           [example["inputs"], [0], example["targets"]], 0)
+  if hparams.split_to_length:
+    example["targets"] = tf.reshape(
+        example["targets"], [-1, hparams.split_to_length, 1, 1])
+    if len(example) != 1:
+      raise ValueError("split_to_length only works for LM problems")
+    return tf.data.Dataset.from_tensor_slices(example)
   return example
 
 
@@ -232,7 +239,29 @@ class Problem(object):
     Returns:
       an integer
     """
-    return model_hparams.max_length or model_hparams.batch_size
+    return (
+        model_hparams.split_to_length or
+        model_hparams.max_length or
+        model_hparams.batch_size)
+
+  @property
+  def batch_size_means_tokens(self):
+    """Do we specify hparams.batch_size in tokens per datashard per batch.
+
+    This is generally done for text problems.
+
+    If False, we assume that batch sizes are specified in examples per
+    datashard per batch.
+
+    TODO(noam): we should be more explicit and replace the hyperparameter
+    batch size with two hyperparameters:
+      hparams.examples_per_batch_per_datashard
+      hparams.tokens_per_batch_per_datashard
+
+    Returns:
+      a boolean
+    """
+    return False
 
   def dataset_filename(self):
     return self.name
@@ -620,10 +649,24 @@ class Problem(object):
     if is_training:
       dataset = dataset.repeat(None)
 
+    if self.batch_size_means_tokens:
+      batch_size_means_tokens = True
+    else:
+      if _are_shapes_fully_defined(dataset.output_shapes):
+        batch_size_means_tokens = False
+      else:
+        tf.logging.warning(
+            "Shapes are not fully defined. Assuming batch_size means tokens. "
+            "You should probably override batch_size_means_tokens() "
+            "in your problem subclass")
+        batch_size_means_tokens = True
+
     # Batching
-    if _are_shapes_fully_defined(dataset.output_shapes):
-      # Static shape features (e.g. images)
+    if not batch_size_means_tokens:
+      # Batch size means examples per datashard.
       if config and config.use_tpu:
+        # on TPU, we use params["batch_size"], which specifies the number of
+        # examples across all datashards
         tpu_batch_size = params["batch_size"]
         dataset = dataset.apply(
             tf.contrib.data.batch_and_drop_remainder(tpu_batch_size))
@@ -631,12 +674,14 @@ class Problem(object):
         num_shards = (config and config.data_parallelism.n) or 1
         dataset = dataset.batch(hparams.batch_size * num_shards)
     else:
-      # Variable length features
+      # batch_size means tokens per datashard
       if config and config.use_tpu:
         # On TPU, pad to max_length
         dataset = dataset.filter(tpu_valid_size)
         padded_shapes = _fill_shape_nones(
             dataset.output_shapes, none_filler=max_length)
+        # on TPU, we use params["batch_size"], which specifies the number of
+        # examples across all datashards
         dataset = dataset.apply(
             tf.contrib.data.padded_batch_and_drop_remainder(
                 params["batch_size"], padded_shapes))
@@ -648,6 +693,7 @@ class Problem(object):
             shard_multiplier=(config and config.data_parallelism.n) or 1,
             length_multiplier=self.get_hparams().batch_size_multiplier)
         if hparams.use_fixed_batch_size:
+          # Here  batch_size really means examples per datashard.
           batching_scheme["batch_sizes"] = [hparams.batch_size]
           batching_scheme["boundaries"] = []
         dataset = data_reader.bucket_by_sequence_length(
@@ -818,6 +864,10 @@ class Text2TextProblem(Problem):
   def targeted_vocab_size(self):
     raise NotImplementedError()  # Not needed if self.is_character_level.
 
+  @property
+  def batch_size_means_tokens(self):
+    return True
+
   def generator(self, data_dir, tmp_dir, is_training):
     """Generator for the training and evaluation data.
 
@@ -981,14 +1031,14 @@ class ChoppedTextProblem(Text2TextProblem):
   """Tokenize and chop text files into fixed-length language-modeling examples.
 
   The input data is a set of text files, as specified by
-  self.train_text_filenames() and self.dev_text_filenames().
+  self.train_text_filepaths() and self.dev_text_filepaths().
 
   The text is tokenized using a SubwordTextEncoder, and
   then split into examples, each of length self.sequence_length().
   """
 
-  def train_text_filenames(self, tmp_dir):
-    """Local filenames of text files containing training data.
+  def train_text_filepaths(self, tmp_dir):
+    """Local filepaths of text files containing training data.
 
     This function may want to download the files if they do not exist.
 
@@ -999,8 +1049,8 @@ class ChoppedTextProblem(Text2TextProblem):
     """
     raise NotImplementedError()
 
-  def dev_text_filenames(self, tmp_dir):
-    """Local filenames of text files containing dev data.
+  def dev_text_filepaths(self, tmp_dir):
+    """Local filepaths of text files containing dev data.
 
     This function may want to download the files if they do not exist.
 
@@ -1016,15 +1066,15 @@ class ChoppedTextProblem(Text2TextProblem):
     """Length of each example (in tokens)."""
     raise NotImplementedError()
 
-  def max_length(self, unused_model_hparams):
-    return self.sequence_length
+  def max_length(self, model_hparams):
+    return model_hparams.split_to_length or self.sequence_length
 
   @property
   def is_character_level(self):
     return False
 
-  def text_filenames_for_task(self, tmp_dir, task_id):
-    """List of input filenames for a particular training or dev shard.
+  def text_filepaths_for_task(self, tmp_dir, task_id):
+    """List of input filepaths for a particular training or dev shard.
 
     Args:
       tmp_dir: a string
@@ -1035,49 +1085,69 @@ class ChoppedTextProblem(Text2TextProblem):
     assert task_id >= 0
     assert task_id < self.num_train_shards + self.num_dev_shards
     if task_id < self.num_train_shards:
-      return [f for i, f in enumerate(self.train_text_filenames(tmp_dir))
+      return [f for i, f in enumerate(self.train_text_filepaths(tmp_dir))
               if i % self.num_train_shards == task_id]
     else:
-      return [f for i, f in enumerate(self.dev_text_filenames(tmp_dir))
+      return [f for i, f in enumerate(self.dev_text_filepaths(tmp_dir))
               if i % self.num_dev_shards == task_id - self.num_train_shards]
 
-  def filename_to_unicode_text(self, filename):
+  def filepath_to_unicode_strings(self, filepath):
     """Read text out of an input file.
 
-    The default just reads the text and converts to unicode.
+    The default just reads the text, converts to unicode and yields one
+    unicode string.
 
-    Subclasses can override this function in order to preprocess.
+    Subclasses can override this function in order to preprocess, and can
+    yield any number of strings.
 
     Args:
-      filename: a string
-    Returns:
-      a unicode string.
+      filepath: a string
+    Yields:
+      unicode strings.
     """
-    f = tf.gfile.Open(filename)
+    f = tf.gfile.Open(filepath)
     b = f.read()
-    return to_unicode_ignore_erros(b)
+    yield to_unicode_ignore_erros(b)
 
-  def file_generator(self, tmp_dir, task_id, max_files=None):
-    """Reads complete text of input files and returns as unicode.
+  def file_generator(self,
+                     filepaths,
+                     max_chars_per_file=None,
+                     max_chars_total=None):
+    """Read complete text of input files and yield unicode strings.
+
+    By default, one unicode string is produced per file, but this is
+    not guaranteed, since subclasses can override
+    filepath_to_unicode_strings().
+
+    max_chars_per_file and max_chars_total can also be specified, in which
+    case some strings may be truncated or dropped to limit the total
+    amount of output.
 
     Args:
-      tmp_dir: a string
-      task_id: an integer less than num_shards, or "train" for training shards
-      max_files: an optional integer
+      filepaths: a list of strings
+      max_chars_per_file: an optional integer
+      max_chars_total: an optional integer
     Yields:
       unicode strings
     """
-    count = 0
-    if task_id == "train":
-      fnames = self.train_text_filenames(tmp_dir)
-    else:
-      fnames = self.text_filenames_for_task(tmp_dir, task_id)
-    for fname in fnames:
+    chars_total = 0
+    for fname in filepaths:
+      chars_this_file = 0
       tf.logging.info("reading file %s" % fname)
-      yield self.filename_to_unicode_text(fname)
-      count += 1
-      if max_files and count == max_files:
-        return
+      for text in self.filepath_to_unicode_strings(fname):
+        if (max_chars_per_file and chars_this_file + len(text)
+            > max_chars_per_file):
+          text = text[:max_chars_per_file - chars_this_file]
+        if max_chars_total and chars_total + len(text) > max_chars_total:
+          text = text[:max_chars_total - chars_total]
+        chars_total += len(text)
+        chars_this_file += len(text)
+        if text:
+          yield text
+        if max_chars_per_file and chars_this_file >= max_chars_per_file:
+          break
+      if max_chars_total and chars_total >= max_chars_total:
+        break
 
   def example_generator(self, encoder, tmp_dir, task_id):
     """Generator for examples.
@@ -1089,17 +1159,29 @@ class ChoppedTextProblem(Text2TextProblem):
     Yields:
       feature dictionaries
     """
-    for ftext in self.file_generator(tmp_dir, task_id):
-      encoded = encoder.encode(ftext)
-      for start_pos in xrange(0, len(encoded), self.sequence_length):
-        targets = encoded[start_pos:start_pos + self.sequence_length]
-        if len(targets) < self.sequence_length:
-          if self.remainder_policy == "pad":
-            targets += [0] * (self.sequence_length - len(targets))
-          else:
-            assert self.remainder_policy == "drop"
-            continue
+    filepaths = self.text_filepaths_for_task(tmp_dir, task_id)
+    if task_id >= self.num_train_shards:
+      # this is dev data - limit the total length.
+      max_chars_per_file = self.max_dev_chars // (
+          self.num_dev_shards * len(filepaths))
+    else:
+      max_chars_per_file = None
+    tokens = []
+    for ftext in self.file_generator(
+        filepaths, max_chars_per_file=max_chars_per_file):
+      tokens.extend(encoder.encode(ftext))
+      pos = 0
+      while pos + self.sequence_length <= len(tokens):
+        yield {"inputs": [0], "targets": tokens[pos:pos + self.sequence_length]}
+        pos += self.sequence_length
+      if pos > 0:
+        tokens = tokens[pos:]
+    if self.remainder_policy == "pad":
+      if tokens:
+        targets = tokens + [0] * (self.sequence_length - len(tokens))
         yield {"inputs": [0], "targets": targets}
+    else:
+      assert self.remainder_policy == "drop"
 
   @property
   def remainder_policy(self):
@@ -1113,14 +1195,15 @@ class ChoppedTextProblem(Text2TextProblem):
   def prepare_to_generate(self, data_dir, tmp_dir):
     """Make sure that the data is prepared and the vocab is generated."""
     self.get_or_generate_vocab(data_dir, tmp_dir)
-    self.train_text_filenames(tmp_dir)
-    self.dev_text_filenames(tmp_dir)
+    self.train_text_filepaths(tmp_dir)
+    self.dev_text_filepaths(tmp_dir)
 
   def get_or_generate_vocab(self, data_dir, tmp_dir):
     return generator_utils.get_or_generate_vocab_inner(
         data_dir, self.vocab_file, self.targeted_vocab_size,
         self.file_generator(
-            tmp_dir, task_id="train", max_files=self.max_files_for_vocab))
+            self.train_text_filepaths(tmp_dir),
+            max_chars_total=self.max_chars_for_vocab))
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     """Generates training/dev data.
@@ -1147,9 +1230,9 @@ class ChoppedTextProblem(Text2TextProblem):
     generator_utils.shuffle_dataset([out_file])
 
   @property
-  def max_files_for_vocab(self):
-    """Number of input files to read when generating vocab."""
-    return 10
+  def max_chars_for_vocab(self):
+    """Number of characters of training data to use for generating vocab."""
+    return 10 ** 7
 
   @property
   def target_space_id(self):
@@ -1162,6 +1245,11 @@ class ChoppedTextProblem(Text2TextProblem):
   @property
   def num_dev_shards(self):
     return 1
+
+  @property
+  def max_dev_chars(self):
+    """Limit dev set to at most this many characters (default 10M)."""
+    return 10 ** 7
 
   @property
   def multiprocess_generate(self):
