@@ -478,9 +478,14 @@ class Problem(object):
     def _load_records(filename):
       return tf.data.TFRecordDataset(filename, buffer_size=16 * 1000 * 1000)
 
-    dataset = dataset.apply(
-        tf.contrib.data.parallel_interleave(
-            _load_records, sloppy=is_training, cycle_length=8))
+    if hasattr(tf.contrib.data, "parallel_interleave"):
+      interleave = lambda ds, fn: ds.apply(  # pylint: disable=g-long-lambda
+          tf.contrib.data.parallel_interleave(
+              fn, sloppy=is_training, cycle_length=16))
+    else:
+      interleave = lambda ds, fn: ds.interleave(fn, cycle_length=16)
+
+    dataset = interleave(dataset, _load_records)
 
     if repeat:
       dataset = dataset.repeat()
@@ -508,7 +513,7 @@ class Problem(object):
     dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
 
     if preprocess:
-      dataset = dataset.flat_map(_preprocess)
+      dataset = interleave(dataset, _preprocess)
 
     dataset = dataset.map(
         _maybe_reverse_and_copy, num_parallel_calls=num_threads)
@@ -716,7 +721,7 @@ class Problem(object):
           dataset = dataset.map(_pad_batch, num_parallel_calls=num_threads)
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
-    dataset = dataset.prefetch(1)
+    dataset = dataset.prefetch(2)
     features = dataset.make_one_shot_iterator().get_next()
     if not config or not config.use_tpu:
       _summarize_features(features, (config and config.data_parallelism.n) or 1)
