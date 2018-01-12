@@ -153,7 +153,7 @@ class UnicodeRegex(object):
     def _property_chars(prefix):
       return ''.join(six.unichr(x) for x in range(sys.maxunicode)
                      if unicodedata.category(six.unichr(x)).startswith(prefix))
-    punctuation = self._property_chars('P')
+    punctuation = _property_chars('P')
     self.nondigit_punct_re = re.compile(r'([^\d])([' + punctuation + r'])')
     self.punct_nondigit_re = re.compile(r'([' + punctuation + r'])([^\d])')
     self.symbol_re = re.compile('([' + _property_chars('S') + '])')
@@ -183,9 +183,10 @@ def bleu_tokenize(string):
   Returns:
     a list of tokens
   """
-  string = UnicodeRegex.nondigit_punct_re.sub(r'\1 \2 ', string)
-  string = UnicodeRegex.punct_nondigit_re.sub(r' \1 \2', string)
-  string = UnicodeRegex.symbol_re.sub(r' \1 ', string)
+  uregex = UnicodeRegex()
+  string = uregex.nondigit_punct_re.sub(r'\1 \2 ', string)
+  string = uregex.punct_nondigit_re.sub(r' \1 \2', string)
+  string = uregex.symbol_re.sub(r' \1 ', string)
   return string.split()
 
 
