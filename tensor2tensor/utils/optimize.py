@@ -113,11 +113,36 @@ def _exp_decay_after(step, rate, from_which_step):
       name="exponential_decay_step_cond")
 
 
-def learning_rate_decay(hparams, num_worker_replicas=1, num_train_steps=1):
+def piecewise_learning_rate(step, boundaries, values):
+  """Scale learning rate according to the given schedule.
+
+  Multipliers are not cumulative.
+
+  Args:
+    step: global step
+    boundaries: List of steps to transition on.
+    values: Multiplier to apply at each boundary transition.
+
+  Returns:
+    Scaled value for the learning rate.
+  """
+  values = [1.0] + values
+  return tf.train.piecewise_constant(
+      step, boundaries, values, name="piecewise_lr")
+
+
+def learning_rate_decay(hparams, num_worker_replicas=1):
   """Inverse-decay learning rate until warmup_steps, then decay."""
+  if hparams.learning_rate_decay_scheme == "piecewise":
+    return piecewise_learning_rate(tf.train.get_or_create_global_step(),
+                                   hparams.learning_rate_boundaries,
+                                   hparams.learning_rate_multiples)
+
   warmup_steps = tf.to_float(
       hparams.learning_rate_warmup_steps * num_worker_replicas)
+  num_train_steps = hparams.train_steps
   step = tf.to_float(tf.train.get_or_create_global_step())
+
   if hparams.learning_rate_decay_scheme == "noam":
     return 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
         (step + 1) * warmup_steps**-1.5, (step + 1)**-0.5)
@@ -139,6 +164,18 @@ def learning_rate_decay(hparams, num_worker_replicas=1, num_train_steps=1):
   inv_decay = inv_base**(warmup_steps - step)
   if hparams.learning_rate_decay_scheme == "sqrt":
     decay = _sqrt_decay(step - warmup_steps)
+  elif hparams.learning_rate_decay_scheme == "exp":
+    total_steps = num_train_steps - warmup_steps
+    assert num_train_steps > hparams.learning_rate_warmup_steps
+    assert hparams.learning_rate_minimum is not None, "Must specify final LR"
+    total_steps = num_train_steps - hparams.learning_rate_warmup_steps
+    decay_needed = hparams.learning_rate_minimum / hparams.learning_rate
+    decay_rate = decay_needed**(1.0 / total_steps)
+    tf.logging.info("Decay rate: %f.  LR %f -> %f", decay_rate,
+                    hparams.learning_rate, hparams.learning_rate_minimum)
+    decay = _exp_decay_after(step, decay_rate,
+                             hparams.learning_rate_warmup_steps)
+    return decay
   elif hparams.learning_rate_decay_scheme == "exp10k":
     decay = _exp_decay_after(step - warmup_steps, 0.9995,
                              num_train_steps - warmup_steps - 10000)
@@ -201,13 +238,11 @@ def weight_decay(decay_rate, var_list):
 
   weight_decays = []
   for v in var_list:
-    v_size = int(np.prod(np.array(v.shape.as_list())))
-
     # Weight decay
     is_bias = len(v.shape.as_list()) <= 1
     if not is_bias:
-      with tf.device(v._ref().device):  # pylint: disable=protected-access
-        v_loss = tf.nn.l2_loss(v) / v_size
+      with tf.device(v.device):
+        v_loss = tf.nn.l2_loss(v)
       weight_decays.append(v_loss)
 
   return tf.add_n(weight_decays) * decay_rate
@@ -217,7 +252,7 @@ def log_variable_sizes(var_list=None, tag=None):
   """Log the sizes and shapes of variables, and the total size.
 
   Args:
-    var_list: a list of varaibles; defaults to trainable_variables
+    var_list: a list of variables; defaults to trainable_variables
     tag: a string; defaults to "Trainable Variables"
   """
   if var_list is None:

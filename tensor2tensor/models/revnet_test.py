@@ -23,66 +23,68 @@ class RevnetTest(tf.test.TestCase):
 
   def testH(self):
     rev_block_input = tf.random_uniform([1, 299, 299, 3])
-    rev_block_output = revnet.h(rev_block_input, 256)
-    self.assertEquals(rev_block_output.get_shape(), [1, 299, 299, 256])
+    rev_block_output = revnet.downsample_bottleneck(rev_block_input, 256)
+    self.assertEquals(rev_block_output.get_shape().as_list(),
+                      [1, 299, 299, 256])
 
   def testHStride(self):
     rev_block_input = tf.random_uniform([2, 299, 299, 256])
-    rev_block_output = revnet.h(rev_block_input, 512, layer_stride=2,
-                                scope='HStride')
-    self.assertEquals(rev_block_output.get_shape(), [2, 150, 150, 512])
+    rev_block_output = revnet.downsample_bottleneck(
+        rev_block_input, 512, stride=2, scope='HStride')
+    self.assertEquals(rev_block_output.get_shape().as_list(),
+                      [2, 150, 150, 512])
 
   def testInit(self):
     images = tf.random_uniform([1, 299, 299, 3])
     x1, x2 = revnet.init(images, 32)
-    self.assertEquals(x1.get_shape(), [1, 74, 74, 16])
-    self.assertEquals(x2.get_shape(), [1, 74, 74, 16])
+    self.assertEquals(x1.get_shape().as_list(), [1, 74, 74, 16])
+    self.assertEquals(x2.get_shape().as_list(), [1, 74, 74, 16])
 
   def testInit3D(self):
     images = tf.random_uniform([1, 299, 299, 299, 3])
     x1, x2 = revnet.init(images, 32, dim='3d', scope='init3d')
-    self.assertEquals(x1.get_shape(), [1, 74, 74, 74, 16])
-    self.assertEquals(x2.get_shape(), [1, 74, 74, 74, 16])
+    self.assertEquals(x1.get_shape().as_list(), [1, 74, 74, 74, 16])
+    self.assertEquals(x2.get_shape().as_list(), [1, 74, 74, 74, 16])
 
   def testUnit1(self):
     x1 = tf.random_uniform([4, 74, 74, 256])
     x2 = tf.random_uniform([4, 74, 74, 256])
-    x1, x2 = revnet.unit(x1, x2, block_num=1, depth1=64, depth2=256,
+    x1, x2 = revnet.unit(x1, x2, block_num=1, depth=64,
                          first_batch_norm=True, num_layers=1)
-    self.assertEquals(x1.get_shape(), [4, 74, 74, 256])
-    self.assertEquals(x2.get_shape(), [4, 74, 74, 256])
+    self.assertEquals(x1.get_shape().as_list(), [4, 74, 74, 256])
+    self.assertEquals(x2.get_shape().as_list(), [4, 74, 74, 256])
 
   def testUnit2(self):
     x1 = tf.random_uniform([4, 74, 74, 256])
     x2 = tf.random_uniform([4, 74, 74, 256])
-    x1, x2 = revnet.unit(x1, x2, block_num=2, depth1=128, depth2=512,
+    x1, x2 = revnet.unit(x1, x2, block_num=2, depth=128,
                          num_layers=1, stride=2)
-    self.assertEquals(x1.get_shape(), [4, 37, 37, 512])
-    self.assertEquals(x2.get_shape(), [4, 37, 37, 512])
+    self.assertEquals(x1.get_shape().as_list(), [4, 37, 37, 512])
+    self.assertEquals(x2.get_shape().as_list(), [4, 37, 37, 512])
 
   def testUnit3(self):
     x1 = tf.random_uniform([1, 37, 37, 512])
     x2 = tf.random_uniform([1, 37, 37, 512])
-    x1, x2 = revnet.unit(x1, x2, block_num=3, depth1=256,
-                         depth2=1024, num_layers=10, stride=2)
-    self.assertEquals(x1.get_shape(), [1, 19, 19, 1024])
-    self.assertEquals(x2.get_shape(), [1, 19, 19, 1024])
+    x1, x2 = revnet.unit(x1, x2, block_num=3, depth=256,
+                         num_layers=10, stride=2)
+    self.assertEquals(x1.get_shape().as_list(), [1, 19, 19, 1024])
+    self.assertEquals(x2.get_shape().as_list(), [1, 19, 19, 1024])
 
   def testUnit4(self):
     x1 = tf.random_uniform([1, 19, 19, 1024])
     x2 = tf.random_uniform([1, 19, 19, 1024])
-    x1, x2 = revnet.unit(x1, x2, block_num=4, depth1=416,
-                         depth2=1664, num_layers=1, stride=2)
-    self.assertEquals(x1.get_shape(), [1, 10, 10, 1664])
-    self.assertEquals(x2.get_shape(), [1, 10, 10, 1664])
+    x1, x2 = revnet.unit(x1, x2, block_num=4, depth=416,
+                         num_layers=1, stride=2)
+    self.assertEquals(x1.get_shape().as_list(), [1, 10, 10, 1664])
+    self.assertEquals(x2.get_shape().as_list(), [1, 10, 10, 1664])
 
   def testUnit3D(self):
     x1 = tf.random_uniform([4, 74, 74, 74, 256])
     x2 = tf.random_uniform([4, 74, 74, 74, 256])
-    x1, x2 = revnet.unit(x1, x2, block_num=5, depth1=128, depth2=512,
+    x1, x2 = revnet.unit(x1, x2, block_num=5, depth=128,
                          num_layers=1, dim='3d', stride=2)
-    self.assertEquals(x1.get_shape(), [4, 37, 37, 37, 512])
-    self.assertEquals(x2.get_shape(), [4, 37, 37, 37, 512])
+    self.assertEquals(x1.get_shape().as_list(), [4, 37, 37, 37, 512])
+    self.assertEquals(x2.get_shape().as_list(), [4, 37, 37, 37, 512])
 
   def testFinalBlock(self):
     x1 = tf.random_uniform([5, 10, 10, 1024])
@@ -100,7 +102,7 @@ class RevnetTest(tf.test.TestCase):
     images = tf.random_uniform([1, 299, 299, 3])
     hparams = revnet.revnet_base()
     hparams.mode = tf.estimator.ModeKeys.TRAIN
-    logits = revnet.revnet104(images, hparams)
+    logits = revnet.revnet(images, hparams)
     self.assertEquals(logits.shape, [1, 1, 1, 3328])
 
   def testEndToEnd3D(self):
@@ -108,7 +110,7 @@ class RevnetTest(tf.test.TestCase):
     hparams = revnet.revnet_base()
     hparams.dim = '3d'
     hparams.mode = tf.estimator.ModeKeys.TRAIN
-    logits = revnet.revnet104(images, hparams)
+    logits = revnet.revnet(images, hparams)
     self.assertEquals(logits.shape, [1, 1, 1, 1, 3328])
 
 if __name__ == '__main__':

@@ -61,6 +61,8 @@ def basic_params1():
       weight_decay=0.1,
       weight_noise=0.0,
       learning_rate_decay_scheme="none",
+      learning_rate_minimum=None,
+      learning_rate_decay_rate=1.0,
       learning_rate_warmup_steps=100,
       learning_rate_cosine_cycle_steps=250000,
       learning_rate=0.1,

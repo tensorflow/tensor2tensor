@@ -240,6 +240,7 @@ def create_experiment(run_config,
   """Create Experiment."""
   # HParams
   hparams.add_hparam("data_dir", data_dir)
+  hparams.add_hparam("train_steps", train_steps)
   add_problem_hparams(hparams, problem_name)
 
   # Estimator
