@@ -57,5 +57,9 @@ class BleuHookTest(tf.test.TestCase):
     actual_bleu = 0.3436
     self.assertAllClose(bleu, actual_bleu, atol=1e-03)
 
+  def testBleuTokenize(self):
+    self.assertEqual(bleu_hook.bleu_tokenize('hi, “there”'), ['hi', ',', '“', 'there', '”'])
+
+
 if __name__ == '__main__':
   tf.test.main()
