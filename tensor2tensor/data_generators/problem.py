@@ -1144,10 +1144,10 @@ class ChoppedTextProblem(Text2TextProblem):
         chars_this_file += len(text)
         if text:
           yield text
+        if max_chars_total and chars_total >= max_chars_total:
+          return
         if max_chars_per_file and chars_this_file >= max_chars_per_file:
           break
-      if max_chars_total and chars_total >= max_chars_total:
-        break
 
   def example_generator(self, encoder, tmp_dir, task_id):
     """Generator for examples.
