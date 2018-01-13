@@ -264,16 +264,22 @@ t2t-datagen \
 ```
 
 Where:
-*   `PROBLEM` is the name of the class that was registered with `@registry.register_problem()`, but converted from `CamelCase` to `snake_case`.
-*   `PATH_TO_YOUR_PROBLEM_DIR` is a path to the directory of your python problem file.
+* `PROBLEM` is the name of the class that was registered with
+  `@registry.register_problem()`, but converted from `CamelCase` to
+  `snake_case`.
+* `PATH_TO_YOUR_PROBLEM_DIR` is a path to the directory of your python problem
+  file.
 
-If you plan to contribute to the tensor2tensor repository, you can install the local cloned version in developer mode with `pip install -e .` from the tensor2tensor directory. You can also add your new problem file to [`all_problems.py`](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/all_problems.py).
+If you plan to contribute to the tensor2tensor repository, you can install the
+local cloned version in developer mode with `pip install -e .` from the
+tensor2tensor directory. You can also add your new problem file to
+[`all_problems.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/all_problems.py).
 
 # Run the problem
-Now that we've gotten our problem set up, let's train a model and generate definitions. 
+Now that we've gotten our problem set up, let's train a model and generate
+definitions.
 
 To train, specify the problem name, the model, and hparams:
-
 ```bash
 PROBLEM=word2def
 MODEL=transformer
@@ -282,6 +288,7 @@ HPARAMS=word2def_hparams
 
 The rest of the steps are as given in the [walkthrough](walkthrough.md).
 
-What if we wanted to train a model to generate words given definitions? In T2T, we can change the problem name to be `PROBLEM=word2def_rev`.
+What if we wanted to train a model to generate words given definitions? In T2T,
+we can change the problem name to be `PROBLEM=word2def_rev`.
 
 All done. Let us know what definitions your model generated.

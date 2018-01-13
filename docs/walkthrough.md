@@ -296,36 +296,8 @@ specifying the `--t2t_usr_dir` flag in `t2t-trainer`.
 You can do so for models, hyperparameter sets, modalities, and problems. Please
 do submit a pull request if your component might be useful to others.
 
-Here's an example with a new hyperparameter set:
-
-```python
-# In ~/usr/t2t_usr/my_registrations.py
-
-from tensor2tensor.models import transformer
-from tensor2tensor.utils import registry
-
-@registry.register_hparams
-def transformer_my_very_own_hparams_set():
-  hparams = transformer.transformer_base()
-  hparams.hidden_size = 1024
-  ...
-```
-
-```python
-# In ~/usr/t2t_usr/__init__.py
-from . import my_registrations
-```
-
-```
-t2t-trainer --t2t_usr_dir=~/usr/t2t_usr --registry_help
-```
-
-You'll see under the registered HParams your
-`transformer_my_very_own_hparams_set`, which you can directly use on the command
-line with the `--hparams_set` flag.
-
-`t2t-datagen` also supports the `--t2t_usr_dir` flag for `Problem`
-registrations.
+See the [`example_usr_dir`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/test_data/example_usr_dir)
+for an example user directory.
 
 ## Adding a dataset
 

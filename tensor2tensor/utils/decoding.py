@@ -473,34 +473,21 @@ def _interactive_input_fn(hparams):
         x += [0] * (const_array_size - len(x))
         yield {
             "inputs": np.array(x).astype(np.int32),
-            "problem_choice": np.array(problem_id).astype(np.int32)
         }
       elif input_type == "image":
         input_path = input_string
-        img = read_image(input_path)
+        img = vocabulary.encode(input_path)
         yield {
             "inputs": img.astype(np.int32),
-            "problem_choice": np.array(problem_id).astype(np.int32)
         }
       elif input_type == "label":
         input_ids = [int(input_string)]
         x = [num_samples, decode_length, len(input_ids)] + input_ids
         yield {
             "inputs": np.array(x).astype(np.int32),
-            "problem_choice": np.array(problem_id).astype(np.int32)
         }
       else:
         raise Exception("Unsupported input type.")
-
-
-def read_image(path):
-  try:
-    import matplotlib.image as im  # pylint: disable=g-import-not-at-top
-  except ImportError as e:
-    tf.logging.warning(
-        "Reading an image requires matplotlib to be installed: %s", e)
-    raise NotImplementedError("Image reading not implemented.")
-  return im.imread(path)
 
 
 def show_and_save_image(img, save_path):

@@ -61,6 +61,8 @@ def basic_params1():
       weight_decay=0.1,
       weight_noise=0.0,
       learning_rate_decay_scheme="none",
+      learning_rate_minimum=None,
+      learning_rate_decay_rate=1.0,
       learning_rate_warmup_steps=100,
       learning_rate_cosine_cycle_steps=250000,
       learning_rate=0.1,
@@ -96,7 +98,7 @@ def basic_params1():
       norm_type="layer",  # "batch", layer", "noam", "none".
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
-      symbol_modality_num_shards=16,
+      symbol_modality_num_shards=1,
       # During training, we drop sequences whose inputs and targets are shorter
       # than min_length
       min_length=0,
@@ -151,6 +153,11 @@ def basic_params1():
       # You can change this behavior by overridding preprocess_example() method
       # in your problem class.
       max_target_seq_length=0,
+      # if nonzero, we split the target sequences on example read.
+      # This is for use with language modeling problems with fixed length
+      # examples.  e.g.  The examples may be written with length 65536, but we
+      # want to split each example into 64 examples of length 1024.
+      split_to_length=0,
       # This flag allows us to optionally treat a seq-to-seq problem
       # as a language model.  Legal values are:
       #
@@ -190,8 +197,8 @@ def basic_params1():
       # This is the actual batch size, *not* tokens per batch (i.e. for
       # language models this is the number of sentences in the batch)
       tpu_batch_size_per_shard=24,
-      # Set by tpu_trainer to let the model know whether we are on TPU.
-      # Switching on/off tpu should not invalidate checkpoints.
+      # Set by t2t_trainer if --use_tpu to let the model know whether we are on
+      # TPU. Switching on/off tpu should not invalidate checkpoints.
       use_tpu=False,
       # If True in PREDICT mode, then last-position-only optimizations are not
       # used.

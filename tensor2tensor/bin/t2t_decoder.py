@@ -36,9 +36,9 @@ import os
 
 # Dependency imports
 
-from tensor2tensor.tpu import tpu_trainer
-from tensor2tensor.tpu import tpu_trainer_lib
+from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.utils import decoding
+from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
@@ -46,7 +46,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-# Additional flags in tpu/tpu_trainer.py and utils/flags.py
+# Additional flags in bin/t2t_trainer.py and utils/flags.py
 flags.DEFINE_string("decode_from_file", None,
                     "Path to the source file for decoding")
 flags.DEFINE_string("decode_to_file", None,
@@ -57,7 +57,7 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 
 
 def create_hparams():
-  return tpu_trainer_lib.create_hparams(
+  return trainer_lib.create_hparams(
       FLAGS.hparams_set,
       FLAGS.hparams,
       data_dir=os.path.expanduser(FLAGS.data_dir),
@@ -95,10 +95,10 @@ def main(_):
   hp = create_hparams()
   decode_hp = create_decode_hparams()
 
-  estimator = tpu_trainer_lib.create_estimator(
+  estimator = trainer_lib.create_estimator(
       FLAGS.model,
       hp,
-      tpu_trainer.create_run_config(hp),
+      t2t_trainer.create_run_config(hp),
       decode_hparams=decode_hp,
       use_tpu=False)
 

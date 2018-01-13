@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# coding=utf-8
 """Tests for tensor2tensor.utils.bleu_hook."""
 
 from __future__ import absolute_import
@@ -58,8 +59,9 @@ class BleuHookTest(tf.test.TestCase):
     self.assertAllClose(bleu, actual_bleu, atol=1e-03)
 
   def testBleuTokenize(self):
-    self.assertEqual(bleu_hook.bleu_tokenize(u'hi, “there”'), [u'hi', u',', u'“', u'there', u'”'])
+    self.assertEqual(bleu_hook.bleu_tokenize(u"hi, “there”"),
+                     [u"hi", u",", u"“", u"there", u"”"])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   tf.test.main()

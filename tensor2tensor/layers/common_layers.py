@@ -938,7 +938,7 @@ def simple_attention(target, source, bias=None):
     if bias is not None:
       attention += tf.expand_dims(tf.squeeze(bias, axis=[2, 3]), axis=1)
     attention = tf.nn.softmax(attention)
-    if not tf.get_variable_scope().reuse:
+    if eu.should_generate_summaries():
       tf.summary.image("attention", tf.expand_dims(attention, 3), max_outputs=5)
     attended = tf.matmul(attention, source)
     return tf.reshape(attended, target_shape)
@@ -1233,7 +1233,7 @@ def attention_1d_v0(source,
       mask = (1.0 - mask) * -1e9
       attention += mask
     attention = tf.nn.softmax(attention)
-    if not tf.get_variable_scope().reuse:
+    if eu.should_generate_summaries():
       # Compute a color image summary.
       image = tf.reshape(attention,
                          [batch, num_heads, target_length, source_length])

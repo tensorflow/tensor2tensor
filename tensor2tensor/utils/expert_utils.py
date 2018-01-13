@@ -478,7 +478,7 @@ def noisy_top_k_gating(x,
       noisy_logits = clean_logits + (
           tf.random_normal(tf.shape(clean_logits)) * noise_stddev)
       logits = noisy_logits
-      if not tf.get_variable_scope().reuse:
+      if should_generate_summaries():
         tf.summary.histogram("noisy_logits", noisy_logits)
         tf.summary.histogram("noise_stddev", noise_stddev)
     else:
@@ -497,7 +497,7 @@ def noisy_top_k_gating(x,
                          k), 0)
     else:
       load = _gates_to_load(gates)
-    if not tf.get_variable_scope().reuse:
+    if should_generate_summaries():
       tf.summary.histogram("importance", tf.reduce_sum(gates, 0))
       tf.summary.histogram("load", load)
     return gates, load
@@ -1201,3 +1201,18 @@ class TruncatingDispatcher(object):
        integers in the range [0, length)
     """
     return self._indices
+
+
+def should_generate_summaries():
+  """Is this an appropriate context to generate summaries.
+
+  Returns:
+    a boolean
+  """
+  if "while/" in tf.contrib.framework.get_name_scope():
+    # Summaries don't work well within tf.while_loop()
+    return False
+  if tf.get_variable_scope().reuse:
+    # Avoid generating separate summaries for different data shards
+    return False
+  return True

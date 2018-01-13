@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-goog.module('t2t.ProcessingVisualization');
 
 /**
  * `<processing-visualization>` summarises pre/post processing steps.
@@ -28,10 +27,16 @@ goog.module('t2t.ProcessingVisualization');
  *   <processing-visualization data="[[data]]"></processing-visualization>
  */
 class ProcessingVisualization extends Polymer.Element {
+  /**
+   * @return {string} The component name.
+   */
   static get is() {
     return 'processing-visualization';
   }
 
+  /**
+   * @return {!Object} The component properties.
+   */
   static get properties() {
     return {
       /**
@@ -45,5 +50,3 @@ class ProcessingVisualization extends Polymer.Element {
 }
 
 customElements.define(ProcessingVisualization.is, ProcessingVisualization);
-
-exports = {ProcessingVisualization};

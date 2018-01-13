@@ -92,6 +92,7 @@ class DataReaderTest(tf.test.TestCase):
   def testBasicExampleReading(self):
     dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                    data_dir=self.data_dir,
+                                   repeat=False,
                                    shuffle_files=False)
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
@@ -110,6 +111,7 @@ class DataReaderTest(tf.test.TestCase):
   def testPreprocess(self):
     dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                    data_dir=self.data_dir,
+                                   repeat=False,
                                    shuffle_files=False)
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
@@ -121,6 +123,7 @@ class DataReaderTest(tf.test.TestCase):
     max_len = 15
     dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                    data_dir=self.data_dir,
+                                   repeat=False,
                                    shuffle_files=False)
     dataset = dataset.filter(
         lambda ex: data_reader.example_valid_size(ex, 0, max_len))
@@ -215,6 +218,7 @@ class DataReaderTest(tf.test.TestCase):
 
     dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                    data_dir=self.data_dir,
+                                   repeat=False,
                                    shuffle_files=False)
     dataset = data_reader.bucket_by_sequence_length(
         dataset, example_len, boundaries, batch_sizes)

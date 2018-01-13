@@ -25,15 +25,13 @@ limitations under the License.
 <link rel="import" href="../app-layout/app-header-layout/app-header-layout.html">
 <link rel="import" href="../app-layout/app-toolbar/app-toolbar.html">
 
-<link rel="import" href="../iron-icon/iron-icon.html">
-<link rel="import" href="../iron-icons/iron-icons.html">
 <link rel="import" href="../iron-pages/iron-pages.html">
 <link rel="import" href="../iron-selector/iron-selector.html">
 
 <link rel="import" href="../paper-icon-button/paper-icon-button.html">
 <link rel="import" href="../paper-item/paper-item.html">
 
-<link rel="import" href="../explore-view/explore-view.html">
+<link rel="import" href="../explore_view/explore-view.html">
 
 <dom-module id="insights-app">
   <template>
@@ -104,8 +102,6 @@ limitations under the License.
       -->
       <app-drawer id="drawer" slot="drawer">
         <app-toolbar>
-          <iron-icon src="https://www.gstatic.com/images/branding/product/1x/translate_64dp.png">
-          </iron-icon>
           <div>Debug Frontend</div>
         </app-toolbar>
         <iron-selector selected="[[page]]" attr-for-selected="name" class="drawer-list" role="navigation">
