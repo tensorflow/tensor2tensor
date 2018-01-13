@@ -46,9 +46,10 @@ EOS = text_encoder.EOS_ID
 # News Commentary, around 220k lines
 # This dataset is only a small fraction of full WMT17 task
 _NC_TRAIN_DATASETS = [[
-        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",
-        ["training/news-commentary-v12.zh-en.en",
-            "training/news-commentary-v12.zh-en.zh"]]]
+    "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12"
+    ".tgz",
+    ["training/news-commentary-v12.zh-en.en",
+     "training/news-commentary-v12.zh-en.zh"]]]
 
 # Test set from News Commentary. 2000 lines
 _NC_TEST_DATASETS = [[
@@ -63,117 +64,96 @@ _NC_TEST_DATASETS = [[
 # NOTE: You need to register to download dataset from official source
 # place into tmp directory e.g. /tmp/t2t_datagen/dataset.tgz
 _UN_TRAIN_DATASETS = [[
-        "https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/UNv1.0.en-zh.tar.gz",
-        ["en-zh/UNv1.0.en-zh.en",
-            "en-zh/UNv1.0.en-zh.zh"]]]
+    "https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/UNv1.0.en-zh.tar"
+    ".gz",
+    ["en-zh/UNv1.0.en-zh.en", "en-zh/UNv1.0.en-zh.zh"]]]
 
 # CWMT corpus
 # Visit source website to download manually:
-# http://nlp.nju.edu.cn/cwmt-wmt/  
+# http://nlp.nju.edu.cn/cwmt-wmt/
 #
 # casia2015: 1,050,000 lines
 # casict2015: 2,036,833 lines
 # datum2015:  1,000,003 lines
 # datum2017: 1,999,968 lines
-# NEU2017:  2,000,000 lines 
+# NEU2017:  2,000,000 lines
 #
 # NOTE: You need to register to download dataset from official source
 # place into tmp directory e.g. /tmp/t2t_datagen/dataset.tgz
 
 _CWMT_TRAIN_DATASETS = [
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/casia2015/casia2015_en.txt",
-            "cwmt/casia2015/casia2015_ch.txt"]],
+     ["cwmt/casia2015/casia2015_en.txt", "cwmt/casia2015/casia2015_ch.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/casict2015/casict2015_en.txt",
-             "cwmt/casict2015/casict2015_ch.txt"]],
+     ["cwmt/casict2015/casict2015_en.txt",
+      "cwmt/casict2015/casict2015_ch.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/neu2017/NEU_en.txt",
-            "cwmt/neu2017/NEU_cn.txt"]],
+     ["cwmt/neu2017/NEU_en.txt", "cwmt/neu2017/NEU_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2015/datum_en.txt",
-            "cwmt/datum2015/datum_ch.txt"]],
+     ["cwmt/datum2015/datum_en.txt", "cwmt/datum2015/datum_ch.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book1_en.txt",
-            "cwmt/datum2017/Book1_cn.txt"]],
+     ["cwmt/datum2017/Book1_en.txt", "cwmt/datum2017/Book1_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book2_en.txt",
-            "cwmt/datum2017/Book2_cn.txt"]],
+     ["cwmt/datum2017/Book2_en.txt", "cwmt/datum2017/Book2_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book3_en.txt",
-            "cwmt/datum2017/Book3_cn.txt"]],
+     ["cwmt/datum2017/Book3_en.txt", "cwmt/datum2017/Book3_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book4_en.txt",
-            "cwmt/datum2017/Book4_cn.txt"]],
+     ["cwmt/datum2017/Book4_en.txt", "cwmt/datum2017/Book4_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book5_en.txt",
-            "cwmt/datum2017/Book5_cn.txt"]],
+     ["cwmt/datum2017/Book5_en.txt", "cwmt/datum2017/Book5_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book6_en.txt",
-            "cwmt/datum2017/Book6_cn.txt"]],
+     ["cwmt/datum2017/Book6_en.txt", "cwmt/datum2017/Book6_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book7_en.txt",
-            "cwmt/datum2017/Book7_cn.txt"]],
+     ["cwmt/datum2017/Book7_en.txt", "cwmt/datum2017/Book7_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book8_en.txt",
-            "cwmt/datum2017/Book8_cn.txt"]],
+     ["cwmt/datum2017/Book8_en.txt", "cwmt/datum2017/Book8_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book9_en.txt",
-            "cwmt/datum2017/Book9_cn.txt"]],
+     ["cwmt/datum2017/Book9_en.txt", "cwmt/datum2017/Book9_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book10_en.txt",
-            "cwmt/datum2017/Book10_cn.txt"]],
+     ["cwmt/datum2017/Book10_en.txt", "cwmt/datum2017/Book10_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book11_en.txt",
-            "cwmt/datum2017/Book11_cn.txt"]],
+     ["cwmt/datum2017/Book11_en.txt", "cwmt/datum2017/Book11_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book12_en.txt",
-            "cwmt/datum2017/Book12_cn.txt"]],
+     ["cwmt/datum2017/Book12_en.txt", "cwmt/datum2017/Book12_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book13_en.txt",
-            "cwmt/datum2017/Book13_cn.txt"]],
+     ["cwmt/datum2017/Book13_en.txt", "cwmt/datum2017/Book13_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book14_en.txt",
-            "cwmt/datum2017/Book14_cn.txt"]],
+     ["cwmt/datum2017/Book14_en.txt", "cwmt/datum2017/Book14_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book15_en.txt",
-            "cwmt/datum2017/Book15_cn.txt"]],
+     ["cwmt/datum2017/Book15_en.txt", "cwmt/datum2017/Book15_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book16_en.txt",
-            "cwmt/datum2017/Book16_cn.txt"]],
+     ["cwmt/datum2017/Book16_en.txt", "cwmt/datum2017/Book16_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book17_en.txt",
-            "cwmt/datum2017/Book17_cn.txt"]],
+     ["cwmt/datum2017/Book17_en.txt", "cwmt/datum2017/Book17_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book18_en.txt",
-            "cwmt/datum2017/Book18_cn.txt"]],
+     ["cwmt/datum2017/Book18_en.txt", "cwmt/datum2017/Book18_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book19_en.txt",
-            "cwmt/datum2017/Book19_cn.txt"]],
+     ["cwmt/datum2017/Book19_en.txt", "cwmt/datum2017/Book19_cn.txt"]],
     ["https://s3-us-west-2.amazonaws.com/twairball.wmt17.zh-en/cwmt.tgz",
-        ["cwmt/datum2017/Book20_en.txt",
-            "cwmt/datum2017/Book20_cn.txt"]]
+     ["cwmt/datum2017/Book20_en.txt", "cwmt/datum2017/Book20_cn.txt"]]
 ]
 
 
 def get_filename(dataset):
-  return dataset[0][0].split('/')[-1]
+  return dataset[0][0].split("/")[-1]
+
 
 @registry.register_problem
 class TranslateEnzhWmt32k(translate.TranslateProblem):
   """Problem spec for WMT En-Zh translation.
-  Attempts to use full training dataset, which needs website 
+
+  Attempts to use full training dataset, which needs website
   registration and downloaded manually from official sources:
 
-  CWMT: 
+  CWMT:
     - http://nlp.nju.edu.cn/cwmt-wmt/
-    - Website contrains instructions for FTP server access. 
-    - You'll need to download CASIA, CASICT, DATUM2015, DATUM2017, 
+    - Website contrains instructions for FTP server access.
+    - You'll need to download CASIA, CASICT, DATUM2015, DATUM2017,
         NEU datasets
 
-  UN Parallel Corpus: 
+  UN Parallel Corpus:
     - https://conferences.unite.un.org/UNCorpus
-    - You'll need to register your to download the dataset. 
+    - You'll need to register your to download the dataset.
 
   NOTE: place into tmp directory e.g. /tmp/t2t_datagen/dataset.tgz
   """
@@ -189,32 +169,40 @@ class TranslateEnzhWmt32k(translate.TranslateProblem):
   @property
   def target_vocab_name(self):
     return "vocab.enzh-zh.%d" % self.targeted_vocab_size
-  
+
   def get_training_dataset(self, tmp_dir):
     """UN Parallel Corpus and CWMT Corpus need to be downloaded manually.
+
     Append to training dataset if available
+
+    Args:
+      tmp_dir: path to temporary dir with the data in it.
+
+    Returns:
+      paths
     """
     full_dataset = _NC_TRAIN_DATASETS
     for dataset in [_CWMT_TRAIN_DATASETS, _UN_TRAIN_DATASETS]:
       filename = get_filename(dataset)
       tmp_filepath = os.path.join(tmp_dir, filename)
       if tf.gfile.Exists(tmp_filepath):
-        full_dataset = full_dataset + dataset
+        full_dataset += dataset
       else:
-        tf.logging.info("[TranslateEzhWmt] dataset incomplete, you need to manually download %s" % filename)
+        tf.logging.info("[TranslateEzhWmt] dataset incomplete, you need to "
+                        "manually download %s" % filename)
     return full_dataset
 
   def generator(self, data_dir, tmp_dir, train):
-    TRAIN_DATASET = self.get_training_dataset(tmp_dir)
-    datasets = TRAIN_DATASET if train else _NC_TEST_DATASETS
-    source_datasets = [[item[0], [item[1][0]]] for item in TRAIN_DATASET]
-    target_datasets = [[item[0], [item[1][1]]] for item in TRAIN_DATASET]
+    train_dataset = self.get_training_dataset(tmp_dir)
+    datasets = train_dataset if train else _NC_TEST_DATASETS
+    source_datasets = [[item[0], [item[1][0]]] for item in train_dataset]
+    target_datasets = [[item[0], [item[1][1]]] for item in train_dataset]
     source_vocab = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, self.source_vocab_name, self.targeted_vocab_size,
-        source_datasets, _file_byte_budget=1e8)
+        source_datasets, file_byte_budget=1e8)
     target_vocab = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, self.target_vocab_name, self.targeted_vocab_size,
-        target_datasets, _file_byte_budget=1e8)
+        target_datasets, file_byte_budget=1e8)
     tag = "train" if train else "dev"
     filename_base = "wmt_enzh_%sk_tok_%s" % (self.targeted_vocab_size, tag)
     data_path = translate.compile_data(tmp_dir, datasets, filename_base)
@@ -244,6 +232,7 @@ class TranslateEnzhWmt32k(translate.TranslateProblem):
 @registry.register_problem
 class TranslateEnzhWmt8k(TranslateEnzhWmt32k):
   """Problem spec for WMT En-Zh translation.
+
   This is far from being the real WMT17 task - only toyset here
   """
 
@@ -254,7 +243,7 @@ class TranslateEnzhWmt8k(TranslateEnzhWmt32k):
   @property
   def num_shards(self):
     return 10  # This is a small dataset.
-  
+
   def get_training_dataset(self, tmp_dir):
-    """Uses only News Commentary Dataset for training"""
+    """Uses only News Commentary Dataset for training."""
     return _NC_TRAIN_DATASETS

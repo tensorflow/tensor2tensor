@@ -41,9 +41,12 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
-  opt_summaries = ["learning_rate", "loss", "gradient_norm"]
+
+  tf.summary.scalar("learning_rate", learning_rate)
+  opt_summaries = ["loss"]
   if hparams.summarize_grads:
-    opt_summaries.extend(["gradients"])
+    opt_summaries.extend(["gradients", "gradient_norm", "global_gradient_norm"])
+
   train_op = tf.contrib.layers.optimize_loss(
       name="training",
       loss=loss,
@@ -82,6 +85,9 @@ class ConditionalOptimizer(tf.train.Optimizer):
           beta1=hparams.optimizer_adam_beta1,
           beta2=hparams.optimizer_adam_beta2,
           epsilon=hparams.optimizer_adam_epsilon)
+    elif optimizer_name == "Adafactor":
+      self._opt = AdafactorOptimizer(
+          lr / 500.0, epsilon=hparams.optimizer_adam_epsilon)
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
@@ -107,11 +113,36 @@ def _exp_decay_after(step, rate, from_which_step):
       name="exponential_decay_step_cond")
 
 
-def learning_rate_decay(hparams, num_worker_replicas=1, num_train_steps=1):
+def piecewise_learning_rate(step, boundaries, values):
+  """Scale learning rate according to the given schedule.
+
+  Multipliers are not cumulative.
+
+  Args:
+    step: global step
+    boundaries: List of steps to transition on.
+    values: Multiplier to apply at each boundary transition.
+
+  Returns:
+    Scaled value for the learning rate.
+  """
+  values = [1.0] + values
+  return tf.train.piecewise_constant(
+      step, boundaries, values, name="piecewise_lr")
+
+
+def learning_rate_decay(hparams, num_worker_replicas=1):
   """Inverse-decay learning rate until warmup_steps, then decay."""
+  if hparams.learning_rate_decay_scheme == "piecewise":
+    return piecewise_learning_rate(tf.train.get_or_create_global_step(),
+                                   hparams.learning_rate_boundaries,
+                                   hparams.learning_rate_multiples)
+
   warmup_steps = tf.to_float(
       hparams.learning_rate_warmup_steps * num_worker_replicas)
+  num_train_steps = hparams.train_steps
   step = tf.to_float(tf.train.get_or_create_global_step())
+
   if hparams.learning_rate_decay_scheme == "noam":
     return 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
         (step + 1) * warmup_steps**-1.5, (step + 1)**-0.5)
@@ -133,6 +164,18 @@ def learning_rate_decay(hparams, num_worker_replicas=1, num_train_steps=1):
   inv_decay = inv_base**(warmup_steps - step)
   if hparams.learning_rate_decay_scheme == "sqrt":
     decay = _sqrt_decay(step - warmup_steps)
+  elif hparams.learning_rate_decay_scheme == "exp":
+    total_steps = num_train_steps - warmup_steps
+    assert num_train_steps > hparams.learning_rate_warmup_steps
+    assert hparams.learning_rate_minimum is not None, "Must specify final LR"
+    total_steps = num_train_steps - hparams.learning_rate_warmup_steps
+    decay_needed = hparams.learning_rate_minimum / hparams.learning_rate
+    decay_rate = decay_needed**(1.0 / total_steps)
+    tf.logging.info("Decay rate: %f.  LR %f -> %f", decay_rate,
+                    hparams.learning_rate, hparams.learning_rate_minimum)
+    decay = _exp_decay_after(step, decay_rate,
+                             hparams.learning_rate_warmup_steps)
+    return decay
   elif hparams.learning_rate_decay_scheme == "exp10k":
     decay = _exp_decay_after(step - warmup_steps, 0.9995,
                              num_train_steps - warmup_steps - 10000)
@@ -159,7 +202,7 @@ def weight_decay_and_noise(loss, hparams, learning_rate, var_list=None):
   noise_vars = [v for v in var_list if "/body/" in v.name]
 
   weight_decay_loss = weight_decay(hparams.weight_decay, decay_vars)
-  tf.summary.scalar("weight_decay_loss", weight_decay_loss)
+  tf.summary.scalar("losses/weight_decay", weight_decay_loss)
   weight_noise_ops = weight_noise(hparams.weight_noise, learning_rate,
                                   noise_vars)
 
@@ -195,13 +238,11 @@ def weight_decay(decay_rate, var_list):
 
   weight_decays = []
   for v in var_list:
-    v_size = int(np.prod(np.array(v.shape.as_list())))
-
     # Weight decay
     is_bias = len(v.shape.as_list()) <= 1
     if not is_bias:
-      with tf.device(v._ref().device):  # pylint: disable=protected-access
-        v_loss = tf.nn.l2_loss(v) / v_size
+      with tf.device(v.device):
+        v_loss = tf.nn.l2_loss(v)
       weight_decays.append(v_loss)
 
   return tf.add_n(weight_decays) * decay_rate
@@ -211,7 +252,7 @@ def log_variable_sizes(var_list=None, tag=None):
   """Log the sizes and shapes of variables, and the total size.
 
   Args:
-    var_list: a list of varaibles; defaults to trainable_variables
+    var_list: a list of variables; defaults to trainable_variables
     tag: a string; defaults to "Trainable Variables"
   """
   if var_list is None:
@@ -249,3 +290,158 @@ def get_variable_initializer(hparams):
         hparams.initializer_gain, mode="fan_avg", distribution="uniform")
   else:
     raise ValueError("Unrecognized initializer: %s" % hparams.initializer)
+
+
+class AdafactorOptimizer(tf.train.Optimizer):
+  """Optimizer that implements the Adafactor algorithm.
+
+  Adafactor is similar to Adam, but seeks to reduce the memory
+  requirements due to the moment estimates.  The auxiliary memory
+  requirements for an `AxB` weight matrix are `A+B` for Adafactor,
+  versus `2AB` for Adam.
+
+  Adam is described in [Kingma et al., 2014](http://arxiv.org/abs/1412.6980)
+  ([pdf](http://arxiv.org/pdf/1412.6980.pdf)).
+
+  The differences are as follows:
+
+  1. No momentum - this removes the first-moment estimate.
+  2. For an AxB weight matrix, instead of keeping a full AxB second-moment
+     estimate matrix, Adafactor keeps only the row and column means of that
+     estimate matrix, and estimate the full second-moment estimate matrix
+     from on the fly, based on the means.
+  3. Adafactor uses a variable decay rate for the second-moment estaimtes -
+     faster decay at the start of training and slower decay later. This
+     elimnates the awkwardness in Adam related to having biased moment
+     estimates at the start of training.
+
+  For non-2d variables:
+    We initialize
+    ```
+    t <- 0
+    v <- zeros(shape(var))
+    ```
+
+    The update rule is as follows:
+    ```
+    t <- t + 1
+    decay_horizon = min(t, t * relative_decay_horizon + absolute_decay_horizon)
+    decay_rate = 1 - 1 / decay_horizon
+    v <- decay_rate * v + (1 - decay_rate) * grad^2
+    var <- var - lr * grad / (sqrt(v) + epsilon)
+    ```
+
+  For 2d variables:
+    We initialize
+    ```
+    t <- 0
+    v_r <- zeros([num_rows])
+    v_c <- zeros([num_cols])
+    ```
+
+    The update rule is as follows:
+    ```
+    t <- t + 1
+    decay_horizon = min(t, t * relative_decay_horizon + absolute_decay_horizon)
+    decay_rate = 1 - 1 / decay_horizon
+    v_r <- decay_rate * v_r + (1 - decay_rate) * reduce_mean(grad^2, 1)
+    v_c <- decay_rate * v_c + (1 - decay_rate) * reduce_mean(grad^2, 0)
+    approx_v = expand_dims(v_r, 1) * expand_dims(v_c, 0) / reduce_mean(v_c)
+    var <- var - lr * grad / (sqrt(approx_v) + epsilon)
+    ```
+
+  TODO(noam): write a paper.
+  TODO(noam): we should also apply the 2d logic to the two final dimensions.
+    of >2d convolutional kernels.
+  """
+
+  def __init__(self,
+               learning_rate=0.001,
+               epsilon=1e-8,
+               relative_decay_horizon=0.2,
+               absolute_decay_horizon=100.0,
+               use_locking=False,
+               name="Adafactor"):
+    """Construct a new Adafactor optimizer.
+
+    See class comment.
+
+    Args:
+      learning_rate: A Tensor or a floating point value.  The learning rate.
+      epsilon: A small constant for numerical stability.
+      relative_decay_horizon: a floating point value <= 1
+      absolute_decay_horizon: a floating point value (representing a step count)
+      use_locking: If True use locks for update operations.
+      name: Optional name for the operations created when applying gradients.
+        Defaults to "AdafactorOptimizer".
+    """
+    super(AdafactorOptimizer, self).__init__(use_locking, name)
+    self._lr = learning_rate
+    self._relative_decay_horizon = relative_decay_horizon
+    self._absolute_decay_horizon = absolute_decay_horizon
+    self._epsilon = epsilon
+
+  def _prepare(self):
+    global_step = tf.to_float(tf.train.get_or_create_global_step()) + 1.0
+    decay_horizon = tf.minimum(global_step,
+                               global_step * self._relative_decay_horizon +
+                               self._absolute_decay_horizon)
+    self._mixing_rate = 1.0 / decay_horizon
+    self._decay_rate = 1.0 - self._mixing_rate
+    self._epsilon = tf.to_float(self._epsilon)
+    self._lr = tf.to_float(self._lr)
+
+  def _should_use_factored_second_moment_estimate(self, shape):
+    """Should we use a factored second moment estimator.
+
+    Based on the shape of the variable.
+
+    Args:
+      shape: a list of integers
+    Returns:
+      a boolean
+    """
+    return len(shape) == 2
+
+  def _create_slots(self, var_list):
+    for v in var_list:
+      shape = v.get_shape().as_list()
+      if self._should_use_factored_second_moment_estimate(shape):
+        r_val = tf.zeros([shape[0]], dtype=tf.float32)
+        c_val = tf.zeros([shape[1]], dtype=tf.float32)
+        self._get_or_make_slot(v, r_val, "vr", self._name)
+        self._get_or_make_slot(v, c_val, "vc", self._name)
+      else:
+        self._zeros_slot(v, "v", self._name)
+
+  def _apply_dense(self, grad, var):
+    return self._resource_apply_dense(grad, var)
+
+  def _resource_apply_dense(self, grad, var):
+    shape = var.get_shape().as_list()
+    grad_squared = tf.square(grad)
+    updates = []
+    if self._should_use_factored_second_moment_estimate(shape):
+      vr = self.get_slot(var, "vr")
+      new_vr = (self._decay_rate * vr +
+                self._mixing_rate * tf.reduce_mean(grad_squared, 1))
+      vc = self.get_slot(var, "vc")
+      new_vc = (self._decay_rate * vc +
+                self._mixing_rate * tf.reduce_mean(grad_squared, 0))
+      vr_update = tf.assign(vr, new_vr, use_locking=self._use_locking)
+      vc_update = tf.assign(vc, new_vc, use_locking=self._use_locking)
+      updates = [vr_update, vc_update]
+      vr = tf.sqrt(new_vr) + self._epsilon
+      vc = tf.sqrt(new_vc) + self._epsilon
+      vc /= tf.reduce_mean(vc)
+      denom = tf.expand_dims(vr, 1) * tf.expand_dims(vc, 0)
+    else:
+      v = self.get_slot(var, "v")
+      new_v = (self._decay_rate * v + self._mixing_rate * grad_squared)
+      v_update = tf.assign(v, new_v, use_locking=self._use_locking)
+      updates = [v_update]
+      denom = tf.sqrt(new_v) + self._epsilon
+    subtrahend = self._lr * grad / denom
+    var_update = tf.assign_sub(var, subtrahend, use_locking=self._use_locking)
+    updates = [var_update] + updates
+    return tf.group(*updates)

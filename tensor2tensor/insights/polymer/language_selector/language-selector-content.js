@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-goog.module('t2t.LanguageSelectorContent');
 
 /**
  * `<language-selector-content>` provides menu content for language selection.
@@ -33,10 +32,16 @@ goog.module('t2t.LanguageSelectorContent');
  *   </language-selector-content>
  */
 class LanguageSelectorContent extends Polymer.Element {
+  /**
+   * @return {string} The component name.
+   */
   static get is() {
     return 'language-selector-content';
   }
 
+  /**
+   * @return {!Object} The component properties.
+   */
   static get properties() {
     return {
       /**
@@ -63,6 +68,9 @@ class LanguageSelectorContent extends Polymer.Element {
     };
   }
 
+  /**
+   * @return {!Array<string>} The component observers.
+   */
   static get observers() {
     return [
       'selectDefault_(languages, renderedItemCount)',
@@ -233,5 +241,3 @@ class LanguageSelectorContent extends Polymer.Element {
 }
 
 customElements.define(LanguageSelectorContent.is, LanguageSelectorContent);
-
-exports = {LanguageSelectorContent};

@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-goog.module('t2t.InsightsApp');
 
 /**
  * `<insights-app>` Manages the views of the NMT Insights App.
@@ -25,10 +24,16 @@ goog.module('t2t.InsightsApp');
  *   </insights-app>
  */
 class InsightsApp extends Polymer.Element {
+  /**
+   * @return {string} The component name.
+   */
   static get is() {
     return 'insights-app';
   }
 
+  /**
+   * @return {!Object} The component properties.
+   */
   static get properties() {
     return {
       /**
@@ -41,6 +46,9 @@ class InsightsApp extends Polymer.Element {
     };
   }
 
+  /**
+   * @return {!Array<string>} The component observers.
+   */
   static get observers() {
     return [
       'routePageChanged_(routeData.page)',
@@ -68,5 +76,3 @@ class InsightsApp extends Polymer.Element {
 }
 
 customElements.define(InsightsApp.is, InsightsApp);
-
-exports = {InsightsApp};

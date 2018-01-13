@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-goog.module('t2t.TranslationResult');
 
 /**
  * `<translation-result>` Presents zero or more visualization of a translation.
@@ -29,10 +28,16 @@ goog.module('t2t.TranslationResult');
  *   </translation-result>
  */
 class TranslationResult extends Polymer.Element {
+  /**
+   * @return {string} The component name.
+   */
   static get is() {
     return 'translation-result';
   }
 
+  /**
+   * @return {!Object} The component properties.
+   */
   static get properties() {
     return {
       /**
@@ -107,5 +112,3 @@ class TranslationResult extends Polymer.Element {
 }
 
 customElements.define(TranslationResult.is, TranslationResult);
-
-exports = {TranslationResult};

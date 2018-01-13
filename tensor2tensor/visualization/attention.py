@@ -59,21 +59,20 @@ def _show_attention(att_json):
   display.display(display.Javascript(vis_js))
 
 
-def resize(att_mat, max_length=30):
+def resize(att_mat, max_length=None):
   """Normalize attention matrices and reshape as necessary."""
-  layer_mats = []
-  for att in att_mat:
-    # Sum across different heads.
-    att = att[ :, :max_length, :max_length]
-    row_sums = np.sum(att, axis=0)
-    # Normalize
-    layer_mat = att / row_sums[np.newaxis, :]
-    lsh = layer_mat.shape
+  for i, att in enumerate(att_mat):
     # Add extra batch dim for viz code to work.
-    if len(np.shape(lsh)) == 3:
-      layer_mat = np.reshape(layer_mat, (1, lsh[0], lsh[1], lsh[2]))
-    layer_mats.append(layer_mat)
-  return layer_mats
+    if att.ndim == 3:
+      att = np.expand_dims(att, axis=0)
+    if max_length is not None:
+      # Sum across different attention values for each token.
+      att = att[:, :, :max_length, :max_length]
+      row_sums = np.sum(att, axis=2)
+      # Normalize
+      att /= row_sums[:, :, np.newaxis]
+    att_mat[i] = att
+  return att_mat
 
 
 def _get_attention(inp_text, out_text, enc_atts, dec_atts, encdec_atts):

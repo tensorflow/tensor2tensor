@@ -149,6 +149,26 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(fast_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
     self.assertAllClose(beam_res, fast_res)
 
+  def testTransformerWithoutProblem(self):
+    hparams = transformer.transformer_test()
+
+    embedded_inputs = np.random.random_sample(
+        (BATCH_SIZE, INPUT_LENGTH, 1, hparams.hidden_size))
+    embedded_targets = np.random.random_sample(
+        (BATCH_SIZE, TARGET_LENGTH, 1, hparams.hidden_size))
+
+    transformed_features = {
+        "inputs": tf.constant(embedded_inputs, dtype=tf.float32),
+        "targets": tf.constant(embedded_targets, dtype=tf.float32)
+    }
+
+    model = transformer.Transformer(hparams)
+    body_out, _ = model(transformed_features)
+
+    self.assertAllEqual(
+        body_out.get_shape().as_list(),
+        [BATCH_SIZE, TARGET_LENGTH, 1, hparams.hidden_size])
+
 
 if __name__ == "__main__":
   tf.test.main()

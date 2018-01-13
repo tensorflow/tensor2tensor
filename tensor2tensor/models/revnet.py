@@ -35,6 +35,8 @@ For reference, the original paper can be found here:
 https://arxiv.org/pdf/1707.04585.pdf
 """
 
+import functools
+
 # Dependency imports
 
 from tensor2tensor.layers import common_hparams
@@ -44,13 +46,18 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
-CONFIG = {'2d': {'conv': tf.layers.conv2d,
+conv_initializer = tf.contrib.layers.variance_scaling_initializer(
+    factor=2.0, mode='FAN_OUT')
+
+CONFIG = {'2d': {'conv': functools.partial(
+    tf.layers.conv2d, kernel_initializer=conv_initializer),
                  'max_pool': tf.layers.max_pooling2d,
                  'avg_pool': tf.layers.average_pooling2d,
                  'split_axis': 3,
                  'reduction_dimensions': [1, 2]
                 },
-          '3d': {'conv': tf.layers.conv3d,
+          '3d': {'conv': functools.partial(
+              tf.layers.conv3d, kernel_initializer=conv_initializer),
                  'max_pool': tf.layers.max_pooling3d,
                  'avg_pool': tf.layers.average_pooling2d,
                  'split_axis': 4,
@@ -59,9 +66,9 @@ CONFIG = {'2d': {'conv': tf.layers.conv2d,
          }
 
 
-def f(x, depth1, depth2, dim='2d', first_batch_norm=True, layer_stride=1,
-      training=True, padding='SAME'):
-  """Applies bottleneck residual function for 104-layer RevNet.
+def f(x, depth1, depth2, dim='2d', first_batch_norm=True, stride=1,
+      training=True, bottleneck=True, padding='SAME'):
+  """Applies residual function for RevNet.
 
   Args:
     x: input tensor
@@ -70,14 +77,15 @@ def f(x, depth1, depth2, dim='2d', first_batch_norm=True, layer_stride=1,
     dim: '2d' if 2-dimensional, '3d' if 3-dimensional.
     first_batch_norm: Whether to keep the first batch norm layer or not.
       Typically used in the first RevNet block.
-    layer_stride: Stride for the first conv filter. Note that this particular
-      104-layer RevNet architecture only varies the stride for the first conv
+    stride: Stride for the first conv filter. Note that this particular
+      RevNet architecture only varies the stride for the first conv
       filter. The stride for the second conv filter is always set to 1.
     training: True for train phase, False for eval phase.
+    bottleneck: If true, apply bottleneck 1x1 down/up sampling.
     padding: Padding for each conv layer.
 
   Returns:
-    Output tensor after applying residual function for 104-layer RevNet.
+    Output tensor after applying residual function for RevNet.
   """
   conv = CONFIG[dim]['conv']
   with tf.variable_scope('f'):
@@ -86,53 +94,95 @@ def f(x, depth1, depth2, dim='2d', first_batch_norm=True, layer_stride=1,
       net = tf.nn.relu(net)
     else:
       net = x
-    net = conv(net, depth1, 1, strides=layer_stride,
-               padding=padding, activation=None)
 
-    net = tf.layers.batch_normalization(net, training=training)
-    net = tf.nn.relu(net)
-    net = conv(net, depth1, 3, strides=1,
-               padding=padding, activation=None)
+    if bottleneck:
+      net = conv(net, depth1, 1, strides=stride,
+                 padding=padding, activation=None)
 
-    net = tf.layers.batch_normalization(net, training=training)
-    net = tf.nn.relu(net)
-    net = conv(net, depth2, 1, strides=1,
-               padding=padding, activation=None)
+      net = tf.layers.batch_normalization(net, training=training)
+      net = tf.nn.relu(net)
+      net = conv(net, depth1, 3, strides=1,
+                 padding=padding, activation=None)
+
+      net = tf.layers.batch_normalization(net, training=training)
+      net = tf.nn.relu(net)
+      net = conv(net, depth2, 1, strides=1,
+                 padding=padding, activation=None)
+    else:
+      net = conv(net, depth2, 3, strides=stride,
+                 padding=padding, activation=None)
+      net = tf.layers.batch_normalization(x, training=training)
+      net = tf.nn.relu(net)
+      net = conv(net, depth2, 3, strides=stride,
+                 padding=padding, activation=None)
+
     return net
 
 
-def h(x, output_channels, dim='2d', layer_stride=1, scope='h'):
-  """Downsamples 'x' using a 1x1 convolution filter and a chosen stride.
+def downsample_bottleneck(x, output_channels, dim='2d', stride=1, scope='h'):
+  """Downsamples 'x' by `stride` using a 1x1 convolution filter.
 
   Args:
     x: input tensor of size [N, H, W, C]
     output_channels: Desired number of output channels.
     dim: '2d' if 2-dimensional, '3d' if 3-dimensional.
-    layer_stride: What stride to use. Usually 1 or 2.
-    scope: Optional variable scope for the h function.
-
-  This function uses a 1x1 convolution filter and a chosen stride to downsample
-  the input tensor x.
+    stride: What stride to use. Usually 1 or 2.
+    scope: Optional variable scope.
 
   Returns:
-    A downsampled tensor of size [N, H/2, W/2, output_channels] if layer_stride
+    A downsampled tensor of size [N, H/2, W/2, output_channels] if stride
     is 2, else returns a tensor of size [N, H, W, output_channels] if
-    layer_stride is 1.
+    stride is 1.
   """
   conv = CONFIG[dim]['conv']
   with tf.variable_scope(scope):
-    x = conv(x, output_channels, 1, strides=layer_stride, padding='SAME',
+    x = conv(x, output_channels, 1, strides=stride, padding='SAME',
              activation=None)
     return x
 
 
-def init(images, num_channels, dim='2d', training=True, scope='init'):
+def downsample_residual(x, output_channels, dim='2d', stride=1, scope='h'):
+  """Downsamples 'x' by `stride` using average pooling.
+
+  Args:
+    x: input tensor of size [N, H, W, C]
+    output_channels: Desired number of output channels.
+    dim: '2d' if 2-dimensional, '3d' if 3-dimensional.
+    stride: What stride to use. Usually 1 or 2.
+    scope: Optional variable scope.
+
+  Returns:
+    A downsampled tensor of size [N, H/2, W/2, output_channels] if stride
+    is 2, else returns a tensor of size [N, H, W, output_channels] if
+    stride is 1.
+  """
+  with tf.variable_scope(scope):
+    if stride > 1:
+      avg_pool = CONFIG[dim]['avg_pool']
+      x = avg_pool(x,
+                   pool_size=(stride, stride),
+                   strides=(stride, stride),
+                   padding='VALID')
+
+    input_channels = tf.shape(x)[3]
+    diff = output_channels - input_channels
+    x = tf.pad(
+        x, [[0, 0], [0, 0], [0, 0],
+            [diff // 2, diff // 2]])
+    return x
+
+
+def init(images, num_channels, dim='2d', stride=2,
+         kernel_size=7, maxpool=True, training=True, scope='init'):
   """Standard ResNet initial block used as first RevNet block.
 
   Args:
     images: [N, H, W, 3] tensor of input images to the model.
     num_channels: Output depth of convolutional layer in initial block.
     dim: '2d' if 2-dimensional, '3d' if 3-dimensional.
+    stride: stride for the convolution and pool layer.
+    kernel_size: Size of the initial convolution filter
+    maxpool: If true, apply a maxpool after the convolution
     training: True for train phase, False for eval phase.
     scope: Optional scope for the init block.
 
@@ -142,27 +192,28 @@ def init(images, num_channels, dim='2d', training=True, scope='init'):
   conv = CONFIG[dim]['conv']
   pool = CONFIG[dim]['max_pool']
   with tf.variable_scope(scope):
-    net = conv(images, num_channels, 7, strides=2,
+    net = conv(images, num_channels, kernel_size, strides=stride,
                padding='SAME', activation=None)
     net = tf.layers.batch_normalization(net, training=training)
     net = tf.nn.relu(net)
-    net = pool(net, pool_size=3, strides=2)
+    if maxpool:
+      net = pool(net, pool_size=3, strides=stride)
     x1, x2 = tf.split(net, 2, axis=CONFIG[dim]['split_axis'])
     return x1, x2
 
 
-def unit(x1, x2, block_num, depth1, depth2, num_layers, dim='2d',
-         first_batch_norm=True, stride=1, training=True):
-  """Implements bottleneck RevNet unit from authors' RevNet-104 architecture.
+def unit(x1, x2, block_num, depth, num_layers, dim='2d',
+         bottleneck=True, first_batch_norm=True, stride=1, training=True):
+  """Implements bottleneck RevNet unit from authors' RevNet architecture.
 
   Args:
     x1: [N, H, W, C] tensor of network activations.
     x2: [N, H, W, C] tensor of network activations.
     block_num: integer ID of block
-    depth1: First depth in bottleneck residual unit.
-    depth2: Second depth in bottleneck residual unit.
+    depth: First depth in bottleneck residual unit.
     num_layers: Number of layers in the RevNet block.
     dim: '2d' if 2-dimensional, '3d' if 3-dimensional.
+    bottleneck: Should a bottleneck layer be used.
     first_batch_norm: Whether to keep the first batch norm layer or not.
       Typically used in the first RevNet block.
     stride: Stride for the residual function.
@@ -172,25 +223,34 @@ def unit(x1, x2, block_num, depth1, depth2, num_layers, dim='2d',
     Two [N, H, W, C] output activation tensors.
   """
   scope_name = 'unit_%d' % block_num
+  if bottleneck:
+    depth1 = depth
+    depth2 = depth * 4
+  else:
+    depth1 = depth2 = depth
+
+  residual = functools.partial(f,
+                               depth1=depth1, depth2=depth2, dim=dim,
+                               training=training, bottleneck=bottleneck)
+
   with tf.variable_scope(scope_name):
+    downsample = downsample_bottleneck if bottleneck else downsample_residual
     # Manual implementation of downsampling
     with tf.variable_scope('downsampling'):
       with tf.variable_scope('x1'):
-        hx1 = h(x1, depth2, dim=dim, layer_stride=stride)
-        fx2 = f(x2, depth1, depth2, dim=dim, layer_stride=stride,
-                first_batch_norm=first_batch_norm, training=training)
+        hx1 = downsample(x1, depth2, dim=dim, stride=stride)
+        fx2 = residual(x2, stride=stride, first_batch_norm=first_batch_norm)
         x1 = hx1 + fx2
       with tf.variable_scope('x2'):
-        hx2 = h(x2, depth2, dim=dim, layer_stride=stride)
-        fx1 = f(x1, depth1, depth2, dim=dim, training=training)
+        hx2 = downsample(x2, depth2, dim=dim, stride=stride)
+        fx1 = residual(x1)
         x2 = hx2 + fx1
 
     # Full block using memory-efficient rev_block implementation.
     with tf.variable_scope('full_block'):
-      residual_func = lambda x: f(x, depth1, depth2, dim=dim, training=training)
       x1, x2 = rev_block.rev_block(x1, x2,
-                                   residual_func,
-                                   residual_func,
+                                   residual,
+                                   residual,
                                    num_layers=num_layers)
       return x1, x2
 
@@ -222,7 +282,7 @@ def final_block(x1, x2, dim='2d', training=True, scope='final_block'):
     return net
 
 
-def revnet104(inputs, hparams, reuse=None):
+def revnet(inputs, hparams, reuse=None):
   """Uses Tensor2Tensor memory optimized RevNet block to build a RevNet.
 
   Args:
@@ -252,17 +312,20 @@ def revnet104(inputs, hparams, reuse=None):
     [batch_size, hidden_dim] pre-logits tensor from the bottleneck RevNet.
   """
   training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-  with tf.variable_scope('RevNet104', reuse=reuse):
+  with tf.variable_scope('RevNet', reuse=reuse):
     x1, x2 = init(inputs,
                   num_channels=hparams.num_channels_init_block,
                   dim=hparams.dim,
+                  kernel_size=hparams.init_kernel_size,
+                  maxpool=hparams.init_maxpool,
+                  stride=hparams.init_stride,
                   training=training)
-    for block_num in range(1, len(hparams.num_layers_per_block)):
-      block = {'depth1': hparams.num_channels_first[block_num],
-               'depth2': hparams.num_channels_second[block_num],
+    for block_num in range(len(hparams.num_layers_per_block)):
+      block = {'depth': hparams.num_channels[block_num],
                'num_layers': hparams.num_layers_per_block[block_num],
                'first_batch_norm': hparams.first_batch_norm[block_num],
-               'stride': hparams.strides[block_num]}
+               'stride': hparams.strides[block_num],
+               'bottleneck': hparams.bottleneck}
       x1, x2 = unit(x1, x2, block_num, dim=hparams.dim, training=training,
                     **block)
     pre_logits = final_block(x1, x2, dim=hparams.dim, training=training)
@@ -270,27 +333,96 @@ def revnet104(inputs, hparams, reuse=None):
 
 
 @registry.register_model
-class Revnet104(t2t_model.T2TModel):
+class Revnet(t2t_model.T2TModel):
 
   def body(self, features):
-    return revnet104(features['inputs'], self.hparams)
+    return revnet(features['inputs'], self.hparams)
 
 
-@registry.register_hparams
 def revnet_base():
-  """Set of hyperparameters."""
+  """Default hparams for Revnet."""
   hparams = common_hparams.basic_params1()
-  hparams.add_hparam('num_channels_first', [64, 128, 256, 416])
-  hparams.add_hparam('num_channels_second', [256, 512, 1024, 1664])
+  hparams.add_hparam('num_channels', [64, 128, 256, 416])
   hparams.add_hparam('num_layers_per_block', [1, 1, 10, 1])
+  hparams.add_hparam('bottleneck', True)
   hparams.add_hparam('first_batch_norm', [False, True, True, True])
+  hparams.add_hparam('init_stride', 2)
+  hparams.add_hparam('init_kernel_size', 7)
+  hparams.add_hparam('init_maxpool', True)
   hparams.add_hparam('strides', [1, 2, 2, 2])
-  hparams.add_hparam('num_channels_init_block', 32)
+  hparams.add_hparam('num_channels_init_block', 64)
   hparams.add_hparam('dim', '2d')
 
   hparams.optimizer = 'Momentum'
-  hparams.learning_rate = 0.01
+  hparams.learning_rate = 0.4
+
+  hparams.learning_rate_boundaries = [40000, 80000, 120000, 140000]
+  hparams.learning_rate_multiples = [0.1, 0.01, 0.001, 0.0002]
+  hparams.learning_rate_decay_scheme = 'piecewise'
+
   hparams.weight_decay = 1e-4
+
   # Can run with a batch size of 128 with Problem ImageImagenet224
   hparams.tpu_batch_size_per_shard = 128
   return hparams
+
+
+@registry.register_hparams
+def revnet_104():
+  return revnet_base()
+
+
+def revnet_cifar_base():
+  """Tiny hparams suitable for CIFAR/etc."""
+  hparams = revnet_base()
+  hparams.num_channels_init_block = 32
+  hparams.first_batch_norm = [False, True, True]
+  hparams.init_stride = 1
+  hparams.init_kernel_size = 3
+  hparams.init_maxpool = False
+  hparams.strides = [1, 2, 2]
+  hparams.tpu_batch_size_per_shard = 128
+  hparams.weight_decay = 5e-3
+
+  hparams.learning_rate = 0.1
+  hparams.learning_rate_boundaries = [2000, 4000, 6000, 8000]
+  hparams.learning_rate_multiples = [0.1, 0.01, 0.001, 0.0001]
+  return hparams
+
+
+@registry.register_hparams
+def revnet_38_cifar():
+  hparams = revnet_cifar_base()
+  hparams.bottleneck = False
+  hparams.num_channels = [16, 32, 56]
+  hparams.num_layers_per_block = [2, 2, 2]
+  return hparams
+
+
+@registry.register_hparams
+def revnet_110_cifar():
+  """Tiny hparams suitable for CIFAR/etc."""
+  hparams = revnet_cifar_base()
+  hparams.bottleneck = False
+  hparams.num_channels = [16, 32, 64]
+  hparams.num_layers_per_block = [8, 8, 8]
+  return hparams
+
+
+@registry.register_hparams
+def revnet_164_cifar():
+  """Tiny hparams suitable for CIFAR/etc."""
+  hparams = revnet_cifar_base()
+  hparams.bottleneck = True
+  hparams.num_channels = [16, 32, 64]
+  hparams.num_layers_per_block = [8, 8, 8]
+  return hparams
+
+
+@registry.register_ranged_hparams
+def revnet_range(rhp):
+  """Hyperparameters for tuning revnet."""
+  rhp.set_float('learning_rate', 0.05, 0.2, scale=rhp.LOG_SCALE)
+  rhp.set_float('weight_decay', 1e-5, 1e-3, scale=rhp.LOG_SCALE)
+  rhp.set_discrete('num_channels_init_block', [64, 128])
+  return rhp

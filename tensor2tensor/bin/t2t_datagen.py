@@ -29,6 +29,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import multiprocessing
 import os
 import random
 import tempfile
@@ -66,6 +67,11 @@ flags.DEFINE_bool("only_list", False,
                   "If true, we only list the problems that will be generated.")
 flags.DEFINE_integer("random_seed", 429459, "Random seed to use.")
 flags.DEFINE_integer("task_id", -1, "For distributed data generation.")
+flags.DEFINE_integer("task_id_start", -1, "For distributed data generation.")
+flags.DEFINE_integer("task_id_end", -1, "For distributed data generation.")
+flags.DEFINE_integer(
+    "num_concurrent_processes", 10,
+    "Applies only to problems for which multiprocess_generate=True.")
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
@@ -195,17 +201,35 @@ def generate_data_for_problem(problem):
   generator_utils.shuffle_dataset(all_output_files)
 
 
+def generate_data_in_process(arg):
+  problem_name, data_dir, tmp_dir, task_id = arg
+  problem = registry.problem(problem_name)
+  problem.generate_data(data_dir, tmp_dir, task_id)
+
+
 def generate_data_for_registered_problem(problem_name):
   tf.logging.info("Generating data for %s.", problem_name)
   if FLAGS.num_shards:
     raise ValueError("--num_shards should not be set for registered Problem.")
   problem = registry.problem(problem_name)
   task_id = None if FLAGS.task_id < 0 else FLAGS.task_id
-  problem.generate_data(
-      os.path.expanduser(FLAGS.data_dir),
-      os.path.expanduser(FLAGS.tmp_dir),
-      task_id=task_id)
-
+  data_dir = os.path.expanduser(FLAGS.data_dir)
+  tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
+  if task_id is None and problem.multiprocess_generate:
+    if FLAGS.task_id_start != -1:
+      assert FLAGS.task_id_end != -1
+      task_id_start = FLAGS.task_id_start
+      task_id_end = FLAGS.task_id_end
+    else:
+      task_id_start = 0
+      task_id_end = problem.num_generate_tasks
+    pool = multiprocessing.Pool(processes=FLAGS.num_concurrent_processes)
+    problem.prepare_to_generate(data_dir, tmp_dir)
+    args = [(problem_name, data_dir, tmp_dir, task_id)
+            for task_id in range(task_id_start, task_id_end)]
+    pool.map(generate_data_in_process, args)
+  else:
+    problem.generate_data(data_dir, tmp_dir, task_id)
 
 if __name__ == "__main__":
   tf.app.run()

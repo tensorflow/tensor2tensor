@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Train on TPU."""
+"""Train and evaluate."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -26,10 +26,10 @@ import sys
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
-from tensor2tensor.tpu import tpu_trainer_lib
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
@@ -38,7 +38,7 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 # See flags.py for additional command-line flags.
-flags.DEFINE_string("t2t_usr_dir", "",
+flags.DEFINE_string("t2t_usr_dir", None,
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
                     "The imported files should contain registrations, "
@@ -49,6 +49,8 @@ flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 1000,
                      "Number of iterations in a TPU training loop.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
+flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
+                     "How long to sleep the infeed thread.")
 flags.DEFINE_bool("generate_data", False, "Generate data before training?")
 flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
                     "Temporary storage directory, used if --generate_data.")
@@ -77,11 +79,15 @@ def get_problem_name():
 
 
 def create_hparams():
-  return tpu_trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
+  if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
+    tf.logging.warn("Not all hyperparameter sets work on TPU. When available "
+                    "for a given model, prefer hparams_sets with a '_tpu' "
+                    "suffix, e.g. transformer_tpu.")
+  return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
 
 def create_experiment_fn():
-  return tpu_trainer_lib.create_experiment_fn(
+  return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
       problem_name=get_problem_name(),
       data_dir=os.path.expanduser(FLAGS.data_dir),
@@ -102,7 +108,7 @@ def create_experiment_fn():
 
 
 def create_run_config(hp):
-  return tpu_trainer_lib.create_run_config(
+  return trainer_lib.create_run_config(
       model_dir=os.path.expanduser(FLAGS.output_dir),
       master=FLAGS.master,
       iterations_per_loop=FLAGS.iterations_per_loop,
@@ -127,7 +133,9 @@ def create_run_config(hp):
       ps_gpu=FLAGS.ps_gpu,
       sync=FLAGS.sync,
       worker_id=FLAGS.worker_id,
-      worker_job=FLAGS.worker_job)
+      worker_job=FLAGS.worker_job,
+      random_seed=FLAGS.random_seed,
+      tpu_infeed_sleep_secs=FLAGS.tpu_infeed_sleep_secs)
 
 
 def generate_data():
@@ -161,6 +169,46 @@ def log_registry():
     sys.exit(0)
 
 
+def is_chief():
+  schedules = ["train", "train_and_evaluate", "continuous_train_and_eval"]
+  return FLAGS.worker_id == 0 and FLAGS.schedule in schedules
+
+
+def save_metadata(hparams):
+  """Saves FLAGS and hparams to output_dir."""
+  output_dir = os.path.expanduser(FLAGS.output_dir)
+  if not tf.gfile.Exists(output_dir):
+    tf.gfile.MakeDirs(output_dir)
+
+  # Save FLAGS in txt file
+  if hasattr(FLAGS, "flags_into_string"):
+    flags_str = FLAGS.flags_into_string()
+    t2t_flags_str = "\n".join([
+        "--%s=%s" % (f.name, f.value)
+        for f in FLAGS.flags_by_module_dict()[
+            "tensor2tensor.utils.flags"]
+    ])
+  else:
+    flags_dict = FLAGS.__dict__["__flags"]
+    flags_str = "\n".join(
+        ["--%s=%s" % (name, str(f)) for (name, f) in flags_dict.items()])
+    t2t_flags_str = None
+
+  flags_txt = os.path.join(output_dir, "flags.txt")
+  with tf.gfile.Open(flags_txt, "w") as f:
+    f.write(flags_str)
+
+  if t2t_flags_str:
+    t2t_flags_txt = os.path.join(output_dir, "flags_t2t.txt")
+    with tf.gfile.Open(t2t_flags_txt, "w") as f:
+      f.write(t2t_flags_str)
+
+  # Save hparams as hparams.json
+  hparams_fname = os.path.join(output_dir, "hparams.json")
+  with tf.gfile.Open(hparams_fname, "w") as f:
+    f.write(hparams.to_json())
+
+
 def execute_schedule(exp):
   if not hasattr(exp, FLAGS.schedule):
     raise ValueError(
@@ -171,7 +219,7 @@ def execute_schedule(exp):
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-  tpu_trainer_lib.set_random_seed(FLAGS.random_seed)
+  trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
 
@@ -180,6 +228,9 @@ def main(_):
 
   hparams = create_hparams()
   run_config = create_run_config(hparams)
+
+  if is_chief():
+    save_metadata(hparams)
 
   exp_fn = create_experiment_fn()
   exp = exp_fn(run_config, hparams)

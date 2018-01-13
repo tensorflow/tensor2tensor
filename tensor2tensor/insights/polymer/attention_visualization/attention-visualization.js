@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-goog.module('t2t.AttentionVisualization');
-
 /**
  * `<attention-visualization>` presents a heatmap of input-output associations.
  *
@@ -62,10 +60,16 @@ class AttentionVisualization extends Polymer.Element {
     this.zoom_ = undefined;
   }
 
+  /**
+   * @return {string} The component name.
+   */
   static get is() {
     return 'attention-visualization';
   }
 
+  /**
+   * @return {!Object} The component properties.
+   */
   static get properties() {
     return {
       /**
@@ -84,6 +88,9 @@ class AttentionVisualization extends Polymer.Element {
     };
   }
 
+  /**
+   * @return {!Array<string>} The component observers.
+   */
   static get observers() {
     return [
       'zoomDepthChanged_(zoomDepth_)',
@@ -308,5 +315,3 @@ class AttentionVisualization extends Polymer.Element {
 }
 
 customElements.define(AttentionVisualization.is, AttentionVisualization);
-
-exports = {AttentionVisualization};

@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package tensor2tensor;
+
+// Configures the Neural Machine Translation Insight Frontend with a set of
+// supported query processors and languages.
+message InsightConfiguration {
+  // Specifies zero or more models to inspect.
+  repeated QueryProcessorConfiguration configuration = 1;
+
+  // Specifies language codes and display names.
+  repeated Language language = 2;
+}
+
+// A displayable language name.
+message Language {
+  // The BCP-47 Language code.
+  string code = 1;
+  // The language's display name.
+  string name = 2;
+}
+
+// Configures a QueryProcessor and registers it with the Insight Frontend when
+// responding to analysis queries.
+message QueryProcessorConfiguration {
+  // The model's BCP-47 source language code.
+  string source_language = 1;
+  // The model's BCP-47 target language code.
+  string target_language = 2;
+  // A short label for the model.
+  string label = 3;
+  // The QueryProcessor to use.  By default we just use the TransformerModel.
+  string query_processor = 4;
+
+  // Configuration for the TransformerModel.
+  TransformerConfiguration transformer = 5;
+}
+
+// Specifies the parameters for a trained Transformer model to inspect.  These
+// parameters match those in t2t-trainer and t2t-decoder.
+message TransformerConfiguration {
+  // The model type.
+  string model = 1;
+  // The trained model directory.
+  string model_dir = 2;
+  // The data directory for the model.
+  string data_dir = 3;
+
+  // The hyperparameter set for running the model.
+  string hparams_set = 4;
+  // Overriding hyperparameters.
+  string hparams = 5;
+  // The problem sets over which this model was trained and configured.
+  string problems = 6;
+}

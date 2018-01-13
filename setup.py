@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.4.1',
+    version='1.4.2',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -23,10 +23,19 @@ setup(
         'tensor2tensor/bin/t2t-datagen',
         'tensor2tensor/bin/t2t-decoder',
         'tensor2tensor/bin/t2t-make-tf-configs',
+        'tensor2tensor/bin/t2t-exporter',
+        'tensor2tensor/bin/t2t-query-server',
+        'tensor2tensor/bin/t2t-insights-server',
+        'tensor2tensor/bin/t2t-avg-all',
+        'tensor2tensor/bin/t2t-bleu',
+        'tensor2tensor/bin/t2t-translate-all',
     ],
     install_requires=[
         'bz2file',
+        'flask',
         'future',
+        'gevent',
+        'gunicorn',
         'gym',
         'numpy',
         'requests',
@@ -35,8 +44,8 @@ setup(
         'six',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.4.0'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.4.0'],
+        'tensorflow': ['tensorflow>=1.4.1'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.4.1'],
         'tests': ['pytest', 'h5py', 'mock'],
     },
     classifiers=[

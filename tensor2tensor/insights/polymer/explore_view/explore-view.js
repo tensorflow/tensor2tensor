@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-goog.module('t2t.ExploreView');
 
 /**
  * `<explore-view>` Presents a view for debuging translations.
@@ -28,10 +27,16 @@ goog.module('t2t.ExploreView');
  *   <explore-view></explore-view>
  */
 class ExploreView extends Polymer.Element {
+  /**
+   * @return {string} The component name.
+   */
   static get is() {
     return 'explore-view';
   }
 
+  /**
+   * @return {!Object} The component properties.
+   */
   static get properties() {
     return {
       route: {
@@ -63,6 +68,9 @@ class ExploreView extends Polymer.Element {
     };
   }
 
+  /**
+   * @return {!Array<string>} The component observers.
+   */
   static get observers() {
     return [
       'modelChanged_(queryData, model_)',
@@ -201,5 +209,3 @@ class ExploreView extends Polymer.Element {
 }
 
 customElements.define(ExploreView.is, ExploreView);
-
-exports = {ExploreView};

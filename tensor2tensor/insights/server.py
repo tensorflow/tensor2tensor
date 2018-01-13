@@ -15,6 +15,8 @@
 
 """A GUnicorn + Flask Debug Frontend for Transformer models."""
 
+import json
+
 from flask import Flask
 from flask import jsonify
 from flask import request
@@ -28,8 +30,9 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("t2t_model_dir", "", "")
-flags.DEFINE_string("t2t_data_dir", "", "")
+flags.DEFINE_string("configuration", "",
+                    "A JSON InsightConfiguration message that configures which "
+                    "models to run in the insight frontend.")
 flags.DEFINE_string("static_path", "",
                     "Path to static javascript and html files to serve.")
 
@@ -71,18 +74,32 @@ class DebugFrontendApplication(BaseApplication):
 
 def main(_):
   # Create the models we support:
-  processors = {}
-  transformer_key = ("en", "de", "transformers_wmt32k")
-  # TODO(kstevens): Turn this into a text proto configuration that's read in on
-  # startup.
-  processors[transformer_key] = transformer_model.TransformerModel(
-      FLAGS.t2t_data_dir, FLAGS.t2t_model_dir)
+  with open(FLAGS.configuration) as configuration_file:
+    configuration = json.load(configuration_file)
 
-  # Create flask to serve all paths starting with '/static' from the static
-  # path.
+  # Read in the set of query processors.
+  processors = {}
+  for processor_configuration in configuration["configuration"]:
+    key = (processor_configuration["source_language"],
+           processor_configuration["target_language"],
+           processor_configuration["label"])
+
+    processors[key] = transformer_model.TransformerModel(
+        processor_configuration)
+
+  # Read in the list of supported languages.
+  languages = {}
+  for language in configuration["language"]:
+    languages[language["code"]] = {
+        "code": language["code"],
+        "name": language["name"],
+    }
+
+  # Create flask to serve all paths starting with '/polymer' from the static
+  # path.  This is to served non-vulcanized components.
   app = Flask(
       __name__.split(".")[0],
-      static_url_path="/static",
+      static_url_path="/polymer",
       static_folder=FLAGS.static_path)
 
   # Disable static file caching.
@@ -95,15 +112,9 @@ def main(_):
     Returns:
       JSON for the languages.
     """
-    # TODO(kstevens): Figure this out automatically by processing the
-    # configuration.
-    result = {
-        "language": [
-            {"code": "en", "name": "English"},
-            {"code": "de", "name": "German"},
-        ],
-    }
-    return jsonify(result)
+    return jsonify({
+        "language": languages.values()
+    })
 
   @app.route("/api/list_models/")
   def list_models():  # pylint: disable=unused-variable
@@ -113,24 +124,16 @@ def main(_):
     Returns:
       JSON for the supported models.
     """
-    # TODO(kstevens): Turn this into a configuration text proto that's read in
-    # on startup.
-    result = {
-        "configuration": [
-            {
-                "id": "transformers_wmt32k",
-                "source_language": {
-                    "code": "en",
-                    "name": "English",
-                },
-                "target_language": {
-                    "code": "de",
-                    "name": "German",
-                },
-            },
-        ],
-    }
-    return jsonify(result)
+    configuration_list = []
+    for source_code, target_code, label in processors:
+      configuration_list.append({
+          "id": label,
+          "source_language": languages[source_code],
+          "target_language": languages[target_code],
+      })
+    return jsonify({
+        "configuration": configuration_list
+    })
 
   @app.route("/debug", methods=["GET"])
   def query():  # pylint: disable=unused-variable
@@ -160,7 +163,18 @@ def main(_):
     Returns:
       The landing page html text.
     """
-    del path
+    if (path == "index.js" or
+        path == "webcomponentsjs/custom-elements-es5-adapter.js" or
+        path == "webcomponentsjs/webcomponents-lite.js"):
+      # Some vulcanizing methods bundle the javascript into a index.js file
+      # paired with index.html but leave two important webcomponents js files
+      # outside of the bundle.  If requesting those special files, fetch them
+      # directly rather than from a /static sub-directory.
+      return send_from_directory(FLAGS.static_path, path)
+    # Everything else should redirect to the main landing page.  Since we
+    # use a single page app, any initial url requests may include random
+    # paths (that don't start with /api or /static) which all should be
+    # served by the main landing page.
     return send_from_directory(FLAGS.static_path, "index.html")
 
   # Run the server.
