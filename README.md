@@ -133,7 +133,6 @@ t2t-trainer \
 DECODE_FILE=$DATA_DIR/decode_this.txt
 echo "Hello world" >> $DECODE_FILE
 echo "Goodbye world" >> $DECODE_FILE
-echo -e 'Hallo Welt\nAuf Wiedersehen Welt' > ref-translation.de
 
 BEAM_SIZE=4
 ALPHA=0.6
@@ -145,12 +144,9 @@ t2t-decoder \
   --hparams_set=$HPARAMS \
   --output_dir=$TRAIN_DIR \
   --decode_hparams="beam_size=$BEAM_SIZE,alpha=$ALPHA" \
-  --decode_from_file=$DECODE_FILE \
-  --decode_to_file=translation.en
+  --decode_from_file=$DECODE_FILE
 
-# Eval BLEU
-# (Always report proper BLEU in papers, not the internal approx_bleu.)
-t2t-bleu --translation=translation.en --reference=ref-translation.de
+cat $DECODE_FILE.$MODEL.$HPARAMS.beam$BEAM_SIZE.alpha$ALPHA.decodes
 ```
 
 ---
