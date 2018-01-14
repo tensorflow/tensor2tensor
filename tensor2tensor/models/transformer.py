@@ -37,7 +37,6 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
-from tensorflow.python.eager import context
 from tensorflow.python.util import nest
 
 
@@ -376,15 +375,6 @@ def fast_decode(encoder_output,
       for layer in range(num_layers)
   }
 
-  # Set 2nd dim to None since it's not invariant in the tf.while_loop
-  # Note: Tensor.set_shape() does not work here since it merges shape info.
-  # TODO(llion); Find a more robust solution.
-  # pylint: disable=protected-access
-  if not context.in_eager_mode():
-    for layer in cache:
-      cache[layer]["k"]._shape = tf.TensorShape([None, None, key_channels])
-      cache[layer]["v"]._shape = tf.TensorShape([None, None, value_channels])
-  # pylint: enable=protected-access
   cache["encoder_output"] = encoder_output
   cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
 
@@ -428,7 +418,7 @@ def fast_decode(encoder_output,
             tf.TensorShape([]),
             tf.TensorShape([None, None]),
             tf.TensorShape([None, None]),
-            nest.map_structure(lambda t: tf.TensorShape(t.shape), cache),
+            nest.map_structure(beam_search.get_state_shape_invariants, cache),
         ])
 
   return decoded_ids, scores

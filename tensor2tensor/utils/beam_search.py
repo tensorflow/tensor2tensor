@@ -81,6 +81,14 @@ def _expand_to_beam_size(tensor, beam_size):
   return tf.tile(tensor, tile_dims)
 
 
+def get_state_shape_invariants(tensor):
+  """Returns the shape of the tensor but sets middle dims to None."""
+  shape = tensor.shape.as_list()
+  for i in range(1, len(shape) - 1):
+    shape[i] = None
+  return tf.TensorShape(shape)
+
+
 def log_prob_from_logits(logits):
   return logits - tf.reduce_logsumexp(logits, axis=2, keep_dims=True)
 
@@ -199,6 +207,10 @@ def beam_search(symbols_to_logits_fn,
   The beam search steps will be processed sequentially in order, so when
   capturing observed from these operations, tensors, clients can make
   assumptions about which step is being recorded.
+
+  WARNING: Assumes 2nd dimension of tensors in `states` and not invariant, this
+  means that the shape of the 2nd dimension of these tensors will not be
+  available (i.e. set to None) inside symbols_to_logits_fn.
 
   Args:
     symbols_to_logits_fn: Interface to the model, to provide logits.
@@ -513,8 +525,7 @@ def beam_search(symbols_to_logits_fn,
            tf.TensorShape([None, None, None]),
            finished_scores.get_shape(),
            finished_flags.get_shape(),
-           nest.map_structure(
-               lambda tensor: tf.TensorShape(tensor.shape), states),
+           nest.map_structure(get_state_shape_invariants, states),
        ],
        parallel_iterations=1,
        back_prop=False)
