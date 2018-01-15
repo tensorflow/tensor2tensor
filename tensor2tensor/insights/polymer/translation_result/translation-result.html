@@ -1,0 +1,90 @@
+<!--
+@license
+Copyright 2017 The Tensor2Tensor Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<link rel="import" href="../polymer/polymer.html">
+
+<link rel="import" href="../iron-flex-layout/iron-flex-layout-classes.html">
+<link rel="import" href="../iron-icons/iron-icons.html">
+<link rel="import" href="../iron-pages/iron-pages.html">
+
+<link rel="import" href="../paper-card/paper-card.html">
+<link rel="import" href="../paper-dialog/paper-dialog.html">
+<link rel="import" href="../paper-icon-button/paper-icon-button.html">
+<link rel="import" href="../paper-input/paper-input.html">
+<link rel="import" href="../paper-tabs/paper-tab.html">
+<link rel="import" href="../paper-tabs/paper-tabs.html">
+<link rel="import" href="../paper-tooltip/paper-tooltip.html">
+
+<link rel="import" href="../attention_visualization/attention-visualization.html">
+<link rel="import" href="../graph_visualization/graph-visualization.html">
+<link rel="import" href="../processing_visualization/processing-visualization.html">
+
+<dom-module id="translation-result">
+  <template>
+    <custom-style>
+      <style
+        is="custom-style"
+        include="iron-flex iron-flex-alignment iron-flex-reverse">
+      </style>
+    </custom-style>
+    <style>
+      paper-card {
+        width: 100%;
+      }
+
+      div.content {
+        position: relative;
+      }
+      #container {
+        padding: 12px;
+      }
+
+      #view {
+        overflow-x: scroll;
+      }
+
+      #link {
+        height: 0px;
+        left: 10px;
+        position: absolute;
+        top: 10px;
+        width: 0px;
+        z-index: -1;
+      }
+    </style>
+    <paper-card>
+      <div class="content layout horizontal center-center">
+        <paper-tabs class="flex" selected="{{view}}" attr-for-selected="name" fit-container>
+          <template is="dom-repeat" items="[[result.response.result]]">
+            <paper-tab name="[[item.name]]">[[item.title]]</paper-tab>
+          </template>
+        </paper-tabs>
+      </div>
+      <div id="container">
+        <!--
+          Display the selected visualization.
+        -->
+        <iron-pages id="view" selected="[[view]]" attr-for-selected="name">
+          <!--
+            The visualziation elements are created dynamically based on the
+            data returned.
+          -->
+        </iron-pages>
+      </div>
+    </paper-card>
+  </template>
+  <script src="translation-result.js"></script>
+</dom-module>

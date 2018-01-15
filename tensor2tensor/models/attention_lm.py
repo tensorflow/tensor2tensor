@@ -42,7 +42,7 @@ import tensorflow as tf
 class AttentionLM(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
 
-  def model_fn_body(self, features):
+  def body(self, features):
     # Remove dropout if not training
     hparams = self._hparams
     targets = features["targets"]
@@ -51,10 +51,10 @@ class AttentionLM(t2t_model.T2TModel):
     (decoder_input, decoder_self_attention_bias) = attention_lm_prepare_decoder(
         targets, hparams)
 
-    decoder_input = tf.nn.dropout(
-        decoder_input, 1.0 - hparams.layer_prepostprocess_dropout)
-    decoder_output = attention_lm_decoder(
-        decoder_input, decoder_self_attention_bias, hparams)
+    decoder_input = tf.nn.dropout(decoder_input,
+                                  1.0 - hparams.layer_prepostprocess_dropout)
+    decoder_output = attention_lm_decoder(decoder_input,
+                                          decoder_self_attention_bias, hparams)
     decoder_output = tf.expand_dims(decoder_output, 2)
 
     return decoder_output
@@ -78,7 +78,8 @@ def attention_lm_prepare_decoder(targets, hparams):
             common_attention.embedding_to_padding(targets)))
   else:
     decoder_self_attention_bias = (
-        common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))
+        common_attention.attention_bias_lower_triangle(
+            common_layers.shape_list(targets)[1]))
   decoder_input = common_layers.shift_right_3d(targets)
   if hparams.pos == "timing":
     decoder_input = common_attention.add_timing_signal_1d(decoder_input)
@@ -107,14 +108,11 @@ def attention_lm_decoder(decoder_input,
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
-              common_layers.layer_preprocess(x, hparams),
-              None,
-              decoder_self_attention_bias,
+              common_layers.layer_preprocess(
+                  x, hparams), None, decoder_self_attention_bias,
               hparams.attention_key_channels or hparams.hidden_size,
               hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout)
+              hparams.hidden_size, hparams.num_heads, hparams.attention_dropout)
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = common_layers.conv_hidden_relu(
@@ -146,7 +144,7 @@ def attention_lm_base():
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
   hparams.label_smoothing = 0.0
-  hparams.shared_embedding_and_softmax_weights = int(False)
+  hparams.shared_embedding_and_softmax_weights = False
 
   hparams.add_hparam("filter_size", 4096)  # Add new ones like this.
   # attention-related flags
@@ -158,7 +156,7 @@ def attention_lm_base():
   hparams.add_hparam("attention_dropout", 0.0)
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("pos", "timing")  # timing, none
-  hparams.add_hparam("encoder_full_attention", int(False))
+  hparams.add_hparam("encoder_full_attention", False)
   return hparams
 
 
@@ -191,7 +189,7 @@ def attention_lm_translation():
   hparams.prepend_mode = "prepend_inputs_masked_attention"
   hparams.max_length = 512
   hparams.label_smoothing = 0.1
-  hparams.shared_embedding_and_softmax_weights = int(True)
+  hparams.shared_embedding_and_softmax_weights = True
   return hparams
 
 

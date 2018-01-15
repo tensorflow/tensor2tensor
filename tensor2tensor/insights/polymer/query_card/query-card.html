@@ -1,0 +1,93 @@
+<!--
+@license
+Copyright 2017 The Tensor2Tensor Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<link rel="import" href="../polymer/polymer.html">
+
+<link rel="import" href="../app-route/app-route.html">
+
+<link rel="import" href="../iron-ajax/iron-ajax.html">
+<link rel="import" href="../iron-flex-layout/iron-flex-layout-classes.html">
+
+<link rel="import" href="../paper-card/paper-card.html">
+<link rel="import" href="../paper-dropdown-menu/paper-dropdown-menu.html">
+<link rel="import" href="../paper-item/paper-item.html">
+<link rel="import" href="../paper-listbox/paper-listbox.html">
+
+<link rel="import" href="../language_selector/language-selector.html">
+
+<dom-module id="query-card">
+  <template>
+    <custom-style>
+      <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
+    </custom-style>
+    <style>
+      paper-card {
+        padding: 12px;
+        width: 100%;
+      }
+    </style>
+
+    <!--
+      Extract the language pair and model information from the url if it
+      exists.
+    -->
+    <app-route
+        active="{{routeActive}}"
+        route="{{route}}"
+        pattern="/:sourceLanguage/:targetLanguage/:modelId"
+        data="{{routeData}}"
+        tail="{{subRoute}}">
+    </app-route>
+    <iron-ajax
+      id="ajax"
+      auto
+      handle-as="json"
+      url="[[url]]"
+      last-response="{{modelConfigurations}}"></iron-ajax>
+
+    <paper-card>
+      <div class="layout vertical">
+        <language-selector
+            id="sourceSelector"
+            label="Source Language"
+            languages="[[sourceLanguages]]"
+            value="{{sourceLanguage_}}">
+        </language-selector>
+
+        <language-selector
+            id="targetSelector"
+            label="Target Language"
+            languages="[[targetLanguages]]"
+            value="{{targetLanguage_}}">
+        </language-selector>
+
+        <!--
+          Present a drop down menu for selecting a model.
+        -->
+        <paper-dropdown-menu label="Model" horizontal-align="left">
+          <paper-listbox class="dropdown-content" attr-for-selected="item" selected="{{model}}" slot="dropdown-content">
+            <template is="dom-repeat" items="[[modelList]]">
+              <paper-item item="[[item]]">[[item.id]]</paper-item>
+            </template>
+          </paper-listbox>
+        </paper-dropdown-menu>
+      </div>
+
+      <slot></slot>
+    </paper-card>
+  </template>
+  <script src="query-card.js"></script>
+</dom-module>

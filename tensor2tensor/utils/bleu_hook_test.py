@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# coding=utf-8
 """Tests for tensor2tensor.utils.bleu_hook."""
 
 from __future__ import absolute_import
@@ -39,8 +40,9 @@ class BleuHookTest(tf.test.TestCase):
     translation_corpus = [[1, 2, 3, 4]]
     reference_corpus = [[5, 6, 7, 8]]
     bleu = bleu_hook.compute_bleu(reference_corpus, translation_corpus)
-    actual_bleu = 0.0
-    self.assertEqual(bleu, actual_bleu)
+    # The smoothing prevents 0 for small corpora
+    actual_bleu = 0.0798679
+    self.assertAllClose(bleu, actual_bleu, atol=1e-03)
 
   def testComputeMultipleBatch(self):
     translation_corpus = [[1, 2, 3, 4], [5, 6, 7, 0]]
@@ -53,8 +55,13 @@ class BleuHookTest(tf.test.TestCase):
     reference_corpus = [[1, 2, 1, 13], [12, 6, 7, 4, 8, 9, 10]]
     translation_corpus = [[1, 2, 1, 3], [5, 6, 7, 4]]
     bleu = bleu_hook.compute_bleu(reference_corpus, translation_corpus)
-    actual_bleu = 0.486
+    actual_bleu = 0.3436
     self.assertAllClose(bleu, actual_bleu, atol=1e-03)
 
-if __name__ == '__main__':
+  def testBleuTokenize(self):
+    self.assertEqual(bleu_hook.bleu_tokenize(u"hi, “there”"),
+                     [u"hi", u",", u"“", u"there", u"”"])
+
+
+if __name__ == "__main__":
   tf.test.main()

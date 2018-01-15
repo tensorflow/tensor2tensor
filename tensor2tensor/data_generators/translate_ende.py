@@ -99,8 +99,10 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
     token_tmp_path = os.path.join(tmp_dir, self.vocab_file)
     token_path = os.path.join(data_dir, self.vocab_file)
     tf.gfile.Copy(token_tmp_path, token_path, overwrite=True)
-    with tf.gfile.GFile(token_path, mode="a") as f:
-      f.write("UNK\n")  # Add UNK to the vocab.
+    with tf.gfile.GFile(token_path, mode="r") as f:
+      vocab_data = "<pad>\n<EOS>\n" + f.read() + "UNK\n"
+    with tf.gfile.GFile(token_path, mode="w") as f:
+      f.write(vocab_data)
     token_vocab = text_encoder.TokenTextEncoder(token_path, replace_oov="UNK")
     return translate.token_generator(train_path + ".en", train_path + ".de",
                                      token_vocab, EOS)
@@ -152,6 +154,14 @@ class TranslateEndeWmt32k(TranslateEndeWmt8k):
   @property
   def targeted_vocab_size(self):
     return 2**15  # 32768
+
+
+@registry.register_problem
+class TranslateEndeWmt32kPacked(TranslateEndeWmt32k):
+
+  @property
+  def packed_length(self):
+    return 256
 
 
 @registry.register_problem

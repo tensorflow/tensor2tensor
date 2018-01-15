@@ -118,7 +118,7 @@ def cycle_gan_internal(inputs, targets, _, hparams):
 @registry.register_model
 class CycleGAN(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     return cycle_gan_internal(
         features["inputs"], features["targets"], features["target_space_id"],
         self._hparams)

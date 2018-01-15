@@ -44,8 +44,7 @@ class LSTMTest(tf.test.TestCase):
       }
       model = lstm.LSTMSeq2seq(hparams, tf.estimator.ModeKeys.TRAIN,
                                p_hparams)
-      sharded_logits, _ = model.model_fn(features)
-      logits = tf.concat(sharded_logits, 0)
+      logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 6, 1, 1, vocab_size))
@@ -67,8 +66,7 @@ class LSTMTest(tf.test.TestCase):
       }
       model = lstm.LSTMSeq2seqAttention(
           hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
-      sharded_logits, _ = model.model_fn(features)
-      logits = tf.concat(sharded_logits, 0)
+      logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 6, 1, 1, vocab_size))

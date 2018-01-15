@@ -47,7 +47,7 @@ class BeamSearchTest(tf.test.TestCase):
 
     self.assertEqual(final_ids.get_shape().as_list(), [None, beam_size, None])
 
-    self.assertEqual(final_probs.get_shape().as_list(), [None, beam_size])
+    self.assertEqual(final_probs.get_shape().as_list(), [batch_size, beam_size])
 
   def testComputeTopkScoresAndSeq(self):
     batch_size = 2

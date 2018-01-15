@@ -31,6 +31,50 @@ class RevBlockTest(tf.test.TestCase):
   NUM_LAYERS = 4
   BATCH_SIZE = 16
 
+  def testForwardBackward(self):
+
+    def f(x):
+      return tf.layers.dense(x, self.CHANNELS // 2, use_bias=True)
+
+    def g(x):
+      return tf.layers.dense(x, self.CHANNELS // 2, use_bias=True)
+
+    x = tf.random_uniform([self.BATCH_SIZE, self.CHANNELS], dtype=tf.float32)
+    x1, x2 = tf.split(x, 2, axis=-1)
+
+    block = rev_block.RevBlock(f, g, num_layers=3)
+    y1, y2 = block.forward(x1, x2)
+    x1_inv, x2_inv = block.backward(y1, y2)
+
+    with self.test_session() as sess:
+      sess.run(tf.global_variables_initializer())
+      x1, x2, x1_inv, x2_inv = sess.run([x1, x2, x1_inv, x2_inv])
+
+      self.assertAllClose(x1, x1_inv)
+      self.assertAllClose(x2, x2_inv)
+
+  def testBackwardForward(self):
+
+    def f(x):
+      return tf.layers.dense(x, self.CHANNELS // 2, use_bias=True)
+
+    def g(x):
+      return tf.layers.dense(x, self.CHANNELS // 2, use_bias=True)
+
+    y = tf.random_uniform([self.BATCH_SIZE, self.CHANNELS], dtype=tf.float32)
+    y1, y2 = tf.split(y, 2, axis=-1)
+
+    block = rev_block.RevBlock(f, g, num_layers=3)
+    x1, x2 = block.backward(y1, y2)
+    y1_inv, y2_inv = block.forward(x1, x2)
+
+    with self.test_session() as sess:
+      sess.run(tf.global_variables_initializer())
+      y1, y2, y1_inv, y2_inv = sess.run([y1, y2, y1_inv, y2_inv])
+
+      self.assertAllClose(y1, y1_inv)
+      self.assertAllClose(y2, y2_inv)
+
   def _testRevBlock(self,
                     x=None,
                     f=None,

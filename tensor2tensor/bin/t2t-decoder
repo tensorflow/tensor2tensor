@@ -1,38 +1,10 @@
 #!/usr/bin/env python
-# coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-r"""Decode from trained T2T models.
-
-This binary performs inference using the Estimator API.
-
-Example usage to decode from dataset:
-
-  t2t-decoder \
-      --data_dir ~/data \
-      --problems=algorithmic_identity_binary40 \
-      --model=transformer
-      --hparams_set=transformer_base
-
-Set FLAGS.decode_interactive or FLAGS.decode_from_file for alternative decode
-sources.
-"""
+"""t2t-decoder."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+<<<<<<< HEAD
 import os
 
 import fathomt2t
@@ -112,6 +84,15 @@ def main(_):
     problem = registry.problem(FLAGS.problems)
     
     problem.output_predictions(predictions)
+=======
+from tensor2tensor.bin import t2t_decoder
+
+import tensorflow as tf
+
+def main(argv):
+  t2t_decoder.main(argv)
+
+>>>>>>> a1d7ed7e7d96ea0d89ca153ba46b7f51d394580f
 
 if __name__ == "__main__":
   tf.app.run()

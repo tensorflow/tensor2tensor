@@ -40,6 +40,7 @@ tf.flags.DEFINE_bool("byte_text_encoder", False, "use a ByteTextEncoder")
 tf.flags.DEFINE_string("input_filename", "", "input filename")
 tf.flags.DEFINE_bool("print_inputs", False, "Print decoded inputs to stdout")
 tf.flags.DEFINE_bool("print_targets", False, "Print decoded targets to stdout")
+tf.flags.DEFINE_bool("print_all", False, "Print all fields")
 
 FLAGS = tf.flags.FLAGS
 
@@ -75,12 +76,15 @@ def main(_):
     total_sequences += 1
     max_input_length = max(max_input_length, len(inputs))
     max_target_length = max(max_target_length, len(targets))
+    if FLAGS.print_all:
+      for k, v in x.features.feature.iteritems():
+        print("%s: %s" % (k, v.int64_list.value))
 
-  tf.logging.info("total_sequences: %d", total_sequences)
-  tf.logging.info("total_input_tokens: %d", total_input_tokens)
-  tf.logging.info("total_target_tokens: %d", total_target_tokens)
-  tf.logging.info("max_input_length: %d", max_input_length)
-  tf.logging.info("max_target_length: %d", max_target_length)
+  print("total_sequences: %d" % total_sequences)
+  print("total_input_tokens: %d" % total_input_tokens)
+  print("total_target_tokens: %d" % total_target_tokens)
+  print("max_input_length: %d" % max_input_length)
+  print("max_target_length: %d" % max_target_length)
 
 
 if __name__ == "__main__":

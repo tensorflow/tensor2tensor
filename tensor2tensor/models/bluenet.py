@@ -451,7 +451,7 @@ def batch_deviation(x):
 @registry.register_model
 class BlueNet(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     hparams = self._hparams
     # TODO(rshin): Give identity_module lower weight by default.
     multi_conv = multi_conv_module(

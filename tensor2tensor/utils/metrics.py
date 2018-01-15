@@ -22,11 +22,16 @@ import inspect
 
 # Dependency imports
 
+import numpy as np
+
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import rouge
 
 import tensorflow as tf
+
+from tensorflow.contrib.eager.python import tfe
 
 
 class Metrics(object):
@@ -45,6 +50,7 @@ class Metrics(object):
   EDIT_DISTANCE = "edit_distance"
   SET_PRECISION = 'set_precision'
   SET_RECALL = 'set_recall'
+  IMAGE_SUMMARY = "image_summary"
 
   # fathom metrics
   SET_AUC = 'set_auc'  
@@ -94,7 +100,8 @@ def padded_accuracy_topk(predictions,
     padded_predictions, padded_labels = common_layers.pad_with_zeros(
         predictions, labels)
     weights = weights_fn(padded_labels)
-    effective_k = tf.minimum(k, tf.shape(padded_predictions)[-1])
+    effective_k = tf.minimum(k,
+                             common_layers.shape_list(padded_predictions)[-1])
     _, outputs = tf.nn.top_k(padded_predictions, k=effective_k)
     outputs = tf.to_int32(outputs)
     padded_labels = tf.to_int32(padded_labels)
@@ -168,7 +175,7 @@ def sequence_edit_distance(predictions,
                                            tf.shape(labels, out_type=tf.int64))
     distance = tf.reduce_sum(
         tf.edit_distance(sparse_outputs, label_sparse_outputs, normalize=False))
-    reference_length = tf.to_float(tf.shape(nonzero_idx)[0])
+    reference_length = tf.to_float(common_layers.shape_list(nonzero_idx)[0])
     return distance / reference_length, reference_length
 
 
@@ -241,9 +248,7 @@ def set_precision(predictions,
     return tf.to_float(tf.equal(labels, predictions)), weights
 
 
-def set_recall(predictions,
-               labels,
-               weights_fn=common_layers.weights_nonzero):
+def set_recall(predictions, labels, weights_fn=common_layers.weights_nonzero):
   """Recall of set predictions.
 
   Args:
@@ -292,11 +297,29 @@ def set_auc(predictions,
     return auc, tf.constant(1.0)
 
 
+def image_summary(predictions, hparams):
+  """Reshapes predictions and passes it to tensorboard.
+
+  Args:
+    predictions : A Tensor of scores of shape [batch, nlabels].
+    hparams: model_hparams
+
+  Returns:
+    summary_proto: containing the summary image for predictions
+    weights: A Tensor of zeros of shape [batch, nlabels].
+  """
+  predictions_reshaped = tf.reshape(
+      predictions, [-1, hparams.height, hparams.width, hparams.colors])
+  return tf.summary.image(
+      "image_summary", predictions_reshaped,
+      max_outputs=1), tf.zeros_like(predictions)
+
+
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
 
   Args:
-    problems: List of tuples (problem name, problem instance).
+    problems: List of Problem instances.
     model_hparams: a set of hparams.
 
   Returns:
@@ -321,7 +344,7 @@ def create_evaluation_metrics(problems, model_hparams):
       # "features".
       kwargs = {}
       args, _, keywords, _ = inspect.getargspec(metric_fn)
-      if "features" in args or keywords:
+      if ("features" in args) or keywords:
         kwargs["features"] = features
 
       # (epurdy/fathom) see comment in model_builder.py, function
@@ -345,35 +368,83 @@ def create_evaluation_metrics(problems, model_hparams):
     return problem_metric_fn
 
   eval_metrics = dict()
-  for problem_idx, (problem_name, problem_instance) in enumerate(problems):
+  for problem_idx, problem_instance in enumerate(problems):
+    problem_name = problem_instance.name
     metrics = problem_instance.eval_metrics()
     if not all([m in METRICS_FNS for m in metrics]):
-      raise ValueError("Unrecognized metric. Problem %s specified metrics "
-                       "%s. Recognized metrics are %s." %
-                       (problem_name, metrics, METRICS_FNS.keys()))
+      error_str = ("Unrecognized metric. Problem %s specified metrics "
+                   "%s. Recognized metrics are %s.")
+      raise ValueError(error_str % (problem_name,
+                                    metrics,
+                                    list(METRICS_FNS.keys())))
 
-    class_output = "image" in problem_name and "coco" not in problem_name
-    real_output = "gene_expression" in problem_name
-    if model_hparams.prepend_mode != "none":
-      assert (model_hparams.prepend_mode == "prepend_inputs_masked_attention" or
-              model_hparams.prepend_mode == "prepend_inputs_full_attention")
-      assert not class_output
-      weights_fn = common_layers.weights_prepend_inputs_to_targets
-    elif class_output or real_output:
-      weights_fn = common_layers.weights_all
-    else:
-      weights_fn = common_layers.weights_nonzero
+    def image_wrapped_metric_fn(predictions,
+                                labels,
+                                weights_fn=common_layers.weights_nonzero):
+      _, _ = labels, weights_fn
+      return metric_fn(predictions, model_hparams)
+
+    tm = problem_instance.get_hparams().target_modality
+    if isinstance(tm, tuple):
+      tm = registry.create_modality(tm, model_hparams)
+    weights_fn = tm.targets_weights_fn
 
     for metric in metrics:
       metric_fn = METRICS_FNS[metric]
-      problem_metric_fn = make_problem_specific_metric_fn(
-          metric_fn, problem_idx, weights_fn)
-
       metric_name = "metrics-%s/%s" % (problem_name, metric)
-
-      eval_metrics[metric_name] = problem_metric_fn
+      if metric == Metrics.IMAGE_SUMMARY:
+        eval_metrics[metric_name] = image_wrapped_metric_fn
+      else:
+        problem_metric_fn = make_problem_specific_metric_fn(
+            metric_fn, problem_idx, weights_fn)
+        eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
+
+
+def create_eager_metrics_for_problem(problem, model_hparams=None):
+  """See create_eager_metrics."""
+  metric_names = problem.eval_metrics()
+  tm = problem.get_hparams().target_modality
+  if isinstance(tm, tuple):
+    assert model_hparams is not None
+    tm = registry.create_modality(tm, model_hparams)
+  return create_eager_metrics(metric_names, weights_fn=tm.targets_weights_fn)
+
+
+def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
+  """Create metrics accumulators and averager for Eager mode.
+
+  Args:
+    metric_names: list<str> from Metrics enum
+    weights_fn: function that takes labels and returns a weights mask. Defaults
+      to weights of all 1, i.e. common_layers.weights_all. Use
+      common_layers.weights_nonzero if labels have 0-padding.
+
+  Returns:
+    (accum_fn(predictions, targets) => None,
+     result_fn() => dict<str metric_name, float avg_val>
+  """
+  metric_fns = dict(
+      [(name, METRICS_FNS[name]) for name in metric_names])
+  tfe_metrics = dict()
+
+  for name in metric_names:
+    tfe_metrics[name] = tfe.metrics.Mean(name=name)
+
+  def metric_accum(predictions, targets):
+    for name, metric_fn in metric_fns.items():
+      val, weight = metric_fn(predictions, targets,
+                              weights_fn=weights_fn)
+      tfe_metrics[name](np.squeeze(val), np.squeeze(weight))
+
+  def metric_means():
+    avgs = {}
+    for name in metric_names:
+      avgs[name] = tfe_metrics[name].result().numpy()
+    return avgs
+
+  return metric_accum, metric_means
 
 
 # Metrics are functions that take predictions and labels and return
@@ -395,6 +466,7 @@ METRICS_FNS = {
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
     Metrics.SET_PRECISION: set_precision,
     Metrics.SET_RECALL: set_recall,
+    Metrics.IMAGE_SUMMARY: image_summary,
 
     # fathom metrics
     Metrics.SET_AUC: set_auc,
