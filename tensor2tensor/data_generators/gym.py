@@ -23,8 +23,6 @@ import os
 
 # Dependency imports
 
-import gym
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.utils import registry
@@ -47,6 +45,7 @@ class GymDiscreteProblem(problem.Problem):
 
   @property
   def env(self):
+    import gym
     if self._env is None:
       self._env = gym.make(self.env_name)
     return self._env
