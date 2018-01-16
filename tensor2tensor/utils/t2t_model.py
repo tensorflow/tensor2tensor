@@ -1142,6 +1142,16 @@ class T2TModel(base.Layer):
     }
     _del_dict_nones(predictions)
 
+    # Fathom
+    # allow model to emit additional outputs hardcoding in feature
+    # keys t2t uses
+    SKIP_FEATURES = ['inputs', 'targets', 'infer_targets', 'outputs', 'scores', 'problem_choice']
+    for k in infer_out:
+      if k in SKIP_FEATURES: continue
+      assert k not in predictions
+      predictions[k] = infer_out[k]
+
+    
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
       export_out["scores"] = predictions["scores"]
