@@ -472,7 +472,7 @@ def create_evaluation_metrics(problems, model_hparams):
       # (epurdy/fathom) see comment in model_builder.py, function
       # combine_shards for discussion
       if isinstance(predictions, dict):
-        if 'outputs' in args or keywords:
+        if 'outputs' in args or 'outputs' in keywords:
           kwargs['outputs'] = predictions['outputs']
         logits = predictions['logits']
       else:
