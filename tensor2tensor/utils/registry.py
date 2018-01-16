@@ -51,6 +51,8 @@ import re
 
 import six
 
+from tensorflow.python.eager import context
+
 _MODELS = {}
 _HPARAMS = {}
 _RANGED_HPARAMS = {}
@@ -90,7 +92,7 @@ def _reset():
     ctr.clear()
 
 
-def _default_name(obj_class):
+def default_name(obj_class):
   """Convert a class name to the registry's default name for the class.
 
   Args:
@@ -99,7 +101,6 @@ def _default_name(obj_class):
   Returns:
     The registry's default name for the class.
   """
-
   return _convert_camel_to_snake(obj_class.__name__)
 
 
@@ -112,8 +113,7 @@ def default_object_name(obj):
   Returns:
     The registry's default name for the class of the object.
   """
-
-  return _default_name(obj.__class__)
+  return default_name(obj.__class__)
 
 
 def register_model(name=None):
@@ -121,28 +121,31 @@ def register_model(name=None):
 
   def decorator(model_cls, registration_name=None):
     """Registers & returns model_cls with registration_name or default name."""
-    model_name = registration_name or _default_name(model_cls)
-    if model_name in _MODELS:
+    model_name = registration_name or default_name(model_cls)
+    if model_name in _MODELS and not context.in_eager_mode():
       raise LookupError("Model %s already registered." % model_name)
+    model_cls.REGISTERED_NAME = model_name
     _MODELS[model_name] = model_cls
     return model_cls
 
   # Handle if decorator was used without parens
   if callable(name):
     model_cls = name
-    return decorator(model_cls, registration_name=_default_name(model_cls))
+    return decorator(model_cls, registration_name=default_name(model_cls))
 
   return lambda model_cls: decorator(model_cls, name)
 
 
 def model(name):
   if name not in _MODELS:
-    raise LookupError("Model %s never registered." % name)
+    raise LookupError("Model %s never registered.  Available models:\n %s" % (
+        name, "\n".join(list_models())))
+
   return _MODELS[name]
 
 
 def list_models():
-  return list(_MODELS)
+  return list(sorted(_MODELS))
 
 
 def register_hparams(name=None):
@@ -150,8 +153,8 @@ def register_hparams(name=None):
 
   def decorator(hp_fn, registration_name=None):
     """Registers & returns hp_fn with registration_name or default name."""
-    hp_name = registration_name or _default_name(hp_fn)
-    if hp_name in _HPARAMS:
+    hp_name = registration_name or default_name(hp_fn)
+    if hp_name in _HPARAMS and not context.in_eager_mode():
       raise LookupError("HParams set %s already registered." % hp_name)
     _HPARAMS[hp_name] = hp_fn
     return hp_fn
@@ -159,14 +162,17 @@ def register_hparams(name=None):
   # Handle if decorator was used without parens
   if callable(name):
     hp_fn = name
-    return decorator(hp_fn, registration_name=_default_name(hp_fn))
+    return decorator(hp_fn, registration_name=default_name(hp_fn))
 
   return lambda hp_fn: decorator(hp_fn, name)
 
 
 def hparams(name):
   if name not in _HPARAMS:
-    raise LookupError("HParams set %s never registered." % name)
+    error_msg = "HParams set %s never registered. Sets registered:\n%s"
+    raise LookupError(
+        error_msg % (name,
+                     display_list_by_prefix(list_hparams(), starting_spaces=4)))
   return _HPARAMS[name]
 
 
@@ -179,7 +185,7 @@ def register_ranged_hparams(name=None):
 
   def decorator(rhp_fn, registration_name=None):
     """Registers & returns hp_fn with registration_name or default name."""
-    rhp_name = registration_name or _default_name(rhp_fn)
+    rhp_name = registration_name or default_name(rhp_fn)
     if rhp_name in _RANGED_HPARAMS:
       raise LookupError("RangedHParams set %s already registered." % rhp_name)
     # Check that the fn takes a single argument
@@ -194,7 +200,7 @@ def register_ranged_hparams(name=None):
   # Handle if decorator was used without parens
   if callable(name):
     rhp_fn = name
-    return decorator(rhp_fn, registration_name=_default_name(rhp_fn))
+    return decorator(rhp_fn, registration_name=default_name(rhp_fn))
 
   return lambda rhp_fn: decorator(rhp_fn, name)
 
@@ -214,8 +220,8 @@ def register_problem(name=None):
 
   def decorator(p_cls, registration_name=None):
     """Registers & returns p_cls with registration_name or default name."""
-    p_name = registration_name or _default_name(p_cls)
-    if p_name in _PROBLEMS:
+    p_name = registration_name or default_name(p_cls)
+    if p_name in _PROBLEMS and not context.in_eager_mode():
       raise LookupError("Problem %s already registered." % p_name)
 
     _PROBLEMS[p_name] = p_cls
@@ -225,7 +231,7 @@ def register_problem(name=None):
   # Handle if decorator was used without parens
   if callable(name):
     p_cls = name
-    return decorator(p_cls, registration_name=_default_name(p_cls))
+    return decorator(p_cls, registration_name=default_name(p_cls))
 
   return lambda p_cls: decorator(p_cls, name)
 
@@ -258,7 +264,11 @@ def problem(name):
   base_name, was_reversed, was_copy = parse_problem_name(name)
 
   if base_name not in _PROBLEMS:
-    raise LookupError("Problem %s never registered." % name)
+    all_problem_names = sorted(list_problems())
+    error_lines = ["%s not in the set of supported problems:" % base_name
+                  ] + all_problem_names
+    error_msg = "\n  * ".join(error_lines)
+    raise LookupError(error_msg)
   return _PROBLEMS[base_name](was_reversed, was_copy)
 
 
@@ -310,8 +320,8 @@ def _internal_register_modality(name, mod_collection, collection_str):
 
   def decorator(mod_cls, registration_name=None):
     """Registers & returns mod_cls with registration_name or default name."""
-    mod_name = registration_name or _default_name(mod_cls)
-    if mod_name in mod_collection:
+    mod_name = registration_name or default_name(mod_cls)
+    if mod_name in mod_collection and not context.in_eager_mode():
       raise LookupError("%s modality %s already registered." % (collection_str,
                                                                 mod_name))
     mod_collection[mod_name] = mod_cls
@@ -320,7 +330,7 @@ def _internal_register_modality(name, mod_collection, collection_str):
   # Handle if decorator was used without parens
   if callable(name):
     mod_cls = name
-    return decorator(mod_cls, registration_name=_default_name(mod_cls))
+    return decorator(mod_cls, registration_name=default_name(mod_cls))
 
   return lambda mod_cls: decorator(mod_cls, name)
 

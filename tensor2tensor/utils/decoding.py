@@ -29,8 +29,6 @@ import six
 from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.utils import devices
-from tensor2tensor.utils import input_fn_builder
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -42,7 +40,6 @@ IMAGE_DECODE_LENGTH = 100
 def decode_hparams(overrides=""):
   """Hyperparameters for decoding."""
   hp = tf.contrib.training.HParams(
-      use_last_position_only=False,
       save_images=False,
       problem_idx=0,
       extra_length=50,
@@ -50,6 +47,7 @@ def decode_hparams(overrides=""):
       beam_size=4,
       alpha=0.6,
       return_beams=False,
+      write_beam_scores=False,
       max_input_size=-1,
       identity_output=False,
       num_samples=-1,
@@ -84,9 +82,9 @@ def log_decode_results(inputs,
 
   decoded_targets = None
   if identity_output:
-    decoded_outputs = " ".join(map(str, outputs.flatten()))
+    decoded_outputs = "".join(map(str, outputs.flatten()))
     if targets is not None:
-      decoded_targets = " ".join(map(str, targets.flatten()))
+      decoded_targets = "".join(map(str, targets.flatten()))
   else:
     decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
     if targets is not None:
@@ -100,6 +98,7 @@ def log_decode_results(inputs,
 
 def decode_from_dataset(estimator,
                         problem_names,
+                        hparams,
                         decode_hp,
                         decode_to_file=None,
                         dataset_split=None,
@@ -115,25 +114,29 @@ def decode_from_dataset(estimator,
   """
   tf.logging.info("Performing local inference from dataset for %s.",
                   str(problem_names))
-  hparams = estimator.params
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
 
+  # If decode_hp.batch_size is specified, use a fixed batch size
+  if decode_hp.batch_size:
+    hparams.batch_size = decode_hp.batch_size
+    hparams.use_fixed_batch_size = True
+
+  dataset_kwargs = {
+      "shard": shard,
+      "dataset_split": dataset_split,
+  }
+
   for problem_idx, problem_name in enumerate(problem_names):
     # Build the inference input function
-    infer_input_fn = input_fn_builder.build_input_fn(
-        mode=tf.estimator.ModeKeys.PREDICT,
-        hparams=hparams,
-        data_dir=hparams.data_dir,
-        num_datashards=devices.data_parallelism().n,
-        fixed_problem=problem_idx,
-        batch_size=decode_hp.batch_size,
-        dataset_split=dataset_split,
-        shard=shard)
+    problem = hparams.problem_instances[problem_idx]
+    infer_input_fn = problem.make_estimator_input_fn(
+        tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
 
     # Get the predictions as an iterable
     predictions = estimator.predict(infer_input_fn)
 
+    # Fathom
     # Just return the generator directly if requested
     if return_generator:
       return predictions
@@ -170,10 +173,15 @@ def decode_from_dataset(estimator,
 
       # Log predictions
       decoded_outputs = []
+      decoded_scores = []
       if decode_hp.return_beams:
         output_beams = np.split(outputs, decode_hp.beam_size, axis=0)
+        scores = None
+        if "scores" in prediction:
+          scores = np.split(prediction["scores"], decode_hp.beam_size, axis=0)
         for i, beam in enumerate(output_beams):
           tf.logging.info("BEAM %d:" % i)
+          score = scores and scores[i]
           decoded = log_decode_results(
               inputs,
               beam,
@@ -186,6 +194,8 @@ def decode_from_dataset(estimator,
               identity_output=decode_hp.identity_output,
               targets=targets)
           decoded_outputs.append(decoded)
+          if decode_hp.write_beam_scores:
+            decoded_scores.append(score)
       else:
         decoded = log_decode_results(
             inputs,
@@ -202,8 +212,12 @@ def decode_from_dataset(estimator,
 
       # Write out predictions if decode_to_file passed
       if decode_to_file:
-        for decoded_output, decoded_target in decoded_outputs:
-          output_file.write(str(decoded_output) + decode_hp.delimiter)
+        for i, (decoded_output, decoded_target) in enumerate(decoded_outputs):
+          beam_score_str = ""
+          if decode_hp.write_beam_scores:
+            beam_score_str = "\t%.2f" % decoded_scores[i]
+          output_file.write(
+              str(decoded_output) + beam_score_str + decode_hp.delimiter)
           target_file.write(str(decoded_target) + decode_hp.delimiter)
 
       if (decode_hp.num_samples >= 0 and
@@ -218,14 +232,17 @@ def decode_from_dataset(estimator,
 
     return predictions_out
 
-def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
+def decode_from_file(estimator,
+                     filename,
+                     hparams,
+                     decode_hp,
+                     decode_to_file=None):
   """Compute predictions on entries in filename and write them out."""
   if not decode_hp.batch_size:
     decode_hp.batch_size = 32
     tf.logging.info(
         "decode_hp.batch_size not specified; default=%d" % decode_hp.batch_size)
 
-  hparams = estimator.params
   problem_id = decode_hp.problem_idx
   # Inputs vocabulary is set to targets if there are no inputs in the problem,
   # e.g., for language models where the inputs are just a prefix of targets.
@@ -252,14 +269,26 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   for result in result_iter:
     if decode_hp.return_beams:
       beam_decodes = []
+      beam_scores = []
       output_beams = np.split(result["outputs"], decode_hp.beam_size, axis=0)
+      scores = None
+      if "scores" in result:
+        scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(output_beams):
         tf.logging.info("BEAM %d:" % k)
+        score = scores and scores[k]
         decoded_outputs, _ = log_decode_results(result["inputs"], beam,
                                                 problem_name, None,
                                                 inputs_vocab, targets_vocab)
         beam_decodes.append(decoded_outputs)
-      decodes.append("\t".join(beam_decodes))
+        if decode_hp.write_beam_scores:
+          beam_scores.append(score)
+      if decode_hp.write_beam_scores:
+        decodes.append("\t".join(
+            ["\t".join([d, "%.2f" % s]) for d, s
+             in zip(beam_decodes, beam_scores)]))
+      else:
+        decodes.append("\t".join(beam_decodes))
     else:
       decoded_outputs, _ = log_decode_results(result["inputs"],
                                               result["outputs"], problem_name,
@@ -270,17 +299,14 @@ def decode_from_file(estimator, filename, decode_hp, decode_to_file=None):
   # _decode_batch_input_fn
   sorted_inputs.reverse()
   decodes.reverse()
-  # Dumping inputs and outputs to file filename.decodes in
-  # format result\tinput in the same order as original inputs
-  if decode_to_file:
-    output_filename = decode_to_file
-  else:
-    output_filename = filename
+  # If decode_to_file was provided use it as the output filename without change
+  # (except for adding shard_id if using more shards for decoding).
+  # Otherwise, use the input filename plus model, hp, problem, beam, alpha.
+  decode_filename = decode_to_file if decode_to_file else filename
   if decode_hp.shards > 1:
-    base_filename = output_filename + ("%.2d" % decode_hp.shard_id)
-  else:
-    base_filename = output_filename
-  decode_filename = _decode_filename(base_filename, problem_name, decode_hp)
+    decode_filename += "%.2d" % decode_hp.shard_id
+  if not decode_to_file:
+    decode_filename = _decode_filename(decode_filename, problem_name, decode_hp)
   tf.logging.info("Writing decodes into %s" % decode_filename)
   outfile = tf.gfile.Open(decode_filename, "w")
   for index in range(len(sorted_inputs)):
@@ -321,9 +347,8 @@ def make_input_fn_from_generator(gen):
   return input_fn
 
 
-def decode_interactively(estimator, decode_hp):
+def decode_interactively(estimator, hparams, decode_hp):
   """Interactive decoding."""
-  hparams = estimator.params
 
   def input_fn():
     gen_fn = make_input_fn_from_generator(_interactive_input_fn(hparams))
@@ -346,9 +371,9 @@ def decode_interactively(estimator, decode_hp):
         tf.logging.info("BEAM %d:" % k)
         beam_string = targets_vocab.decode(_save_until_eos(beam, is_image))
         if scores is not None:
-          tf.logging.info("%s\tScore:%f" % (beam_string, scores[k]))
+          tf.logging.info("\"%s\"\tScore:%f" % (beam_string, scores[k]))
         else:
-          tf.logging.info(beam_string)
+          tf.logging.info("\"%s\"" % beam_string)
     else:
       if decode_hp.identity_output:
         tf.logging.info(" ".join(map(str, result["outputs"].flatten())))
@@ -465,34 +490,21 @@ def _interactive_input_fn(hparams):
         x += [0] * (const_array_size - len(x))
         yield {
             "inputs": np.array(x).astype(np.int32),
-            "problem_choice": np.array(problem_id).astype(np.int32)
         }
       elif input_type == "image":
         input_path = input_string
-        img = read_image(input_path)
+        img = vocabulary.encode(input_path)
         yield {
             "inputs": img.astype(np.int32),
-            "problem_choice": np.array(problem_id).astype(np.int32)
         }
       elif input_type == "label":
         input_ids = [int(input_string)]
         x = [num_samples, decode_length, len(input_ids)] + input_ids
         yield {
             "inputs": np.array(x).astype(np.int32),
-            "problem_choice": np.array(problem_id).astype(np.int32)
         }
       else:
         raise Exception("Unsupported input type.")
-
-
-def read_image(path):
-  try:
-    import matplotlib.image as im  # pylint: disable=g-import-not-at-top
-  except ImportError as e:
-    tf.logging.warning(
-        "Reading an image requires matplotlib to be installed: %s", e)
-    raise NotImplementedError("Image reading not implemented.")
-  return im.imread(path)
 
 
 def show_and_save_image(img, save_path):
@@ -529,7 +541,10 @@ def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
   with tf.gfile.Open(decode_filename) as f:
     text = f.read()
     records = text.split(delimiter)
-    inputs = [record.strip() for record in records[:-1]]
+    inputs = [record.strip() for record in records]
+    # Strip the last empty line.
+    if not inputs[-1]:
+      inputs.pop()
   input_lens = [(i, len(line.split())) for i, line in enumerate(inputs)]
   sorted_input_lens = sorted(input_lens, key=operator.itemgetter(1))
   # We'll need the keys to rearrange the inputs back into their original order
@@ -587,7 +602,7 @@ def _interactive_input_tensor_to_features_dict(feature_map, hparams):
     return (tf.constant(p_hparams.input_space_id), tf.constant(
         p_hparams.target_space_id), x)
 
-  input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
+  input_space_id, target_space_id, x = cond_on_index(
       input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)
 
   features = {}
@@ -617,13 +632,13 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
 
   def input_fn(problem_choice, x=inputs):  # pylint: disable=missing-docstring
     p_hparams = hparams.problems[problem_choice]
-    # Add a third empty dimension dimension
+    # Add a third empty dimension
     x = tf.expand_dims(x, axis=[2])
     x = tf.to_int32(x)
     return (tf.constant(p_hparams.input_space_id), tf.constant(
         p_hparams.target_space_id), x)
 
-  input_space_id, target_space_id, x = input_fn_builder.cond_on_index(
+  input_space_id, target_space_id, x = cond_on_index(
       input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)
 
   features = {}
@@ -634,3 +649,15 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
       IMAGE_DECODE_LENGTH if input_is_image else tf.shape(x)[1] + 50)
   features["inputs"] = x
   return features
+
+
+def cond_on_index(fn, index_tensor, max_idx, cur_idx=0):
+  """Call fn(index_tensor) using tf.cond in [cur_id, max_idx]."""
+  if cur_idx == max_idx:
+    return fn(cur_idx)
+
+  return tf.cond(
+      tf.equal(index_tensor, cur_idx),
+      lambda: fn(cur_idx),
+      lambda: cond_on_index(fn, index_tensor, max_idx, cur_idx + 1)
+  )

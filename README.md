@@ -1,4 +1,4 @@
-# T2T: Tensor2Tensor Transformers
+# Tensor2Tensor
 
 [![PyPI
 version](https://badge.fury.io/py/tensor2tensor.svg)](https://badge.fury.io/py/tensor2tensor)
@@ -10,11 +10,18 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 [![License](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Travis](https://img.shields.io/travis/tensorflow/tensor2tensor.svg)](https://travis-ci.org/tensorflow/tensor2tensor)
 
-[T2T](https://github.com/tensorflow/tensor2tensor) is a modular and extensible
-library and binaries for supervised learning with TensorFlow and with support
-for sequence tasks. It is actively used and maintained by researchers and
-engineers within the Google Brain team. You can read more about Tensor2Tensor in
-the recent [Google Research Blog post introducing
+[Tensor2Tensor](https://github.com/tensorflow/tensor2tensor), or
+[T2T](https://github.com/tensorflow/tensor2tensor) for short, is a library
+of deep learning models and datasets. It has binaries to train the models and
+to download and prepare the data for you. T2T is modular and extensible and can
+be used in [notebooks](https://goo.gl/wkHexj) for prototyping your own models
+or running existing ones on your data. It is actively used and maintained by
+researchers and engineers within
+the [Google Brain team](https://research.google.com/teams/brain/) and was used
+to develop state-of-the-art models for translation (see
+[Attention Is All You Need](https://arxiv.org/abs/1706.03762)), summarization,
+image generation and other tasks. You can read
+more about T2T in the [Google Research Blog post introducing
 it](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html).
 
 We're eager to collaborate with you on extending T2T, so please feel
@@ -29,8 +36,14 @@ You can chat with us and other users on
 [Google Group](https://groups.google.com/forum/#!forum/tensor2tensor) to keep up
 with T2T announcements.
 
-Here is a one-command version that installs tensor2tensor, downloads the data,
+### Quick Start
+
+[This iPython notebook](https://goo.gl/wkHexj) explains T2T and runs in your
+browser using a free VM from Google, no installation needed.
+
+Alternatively, here is a one-command version that installs T2T, downloads data,
 trains an English-German translation model, and evaluates it:
+
 ```
 pip install tensor2tensor && t2t-trainer \
   --generate_data \
@@ -53,11 +66,17 @@ t2t-decoder \
   --decode_interactive
 ```
 
-See the [Walkthrough](#walkthrough) below for more details on each step.
+See the [Walkthrough](#walkthrough) below for more details on each step
+and [Suggested Models](#suggested-models) for well performing models
+on common tasks.
 
 ### Contents
 
 * [Walkthrough](#walkthrough)
+* [Suggested Models](#suggested-models)
+  * [Translation](#translation)
+  * [Summarization](#summarization)
+  * [Image Classification](#image-classification)
 * [Installation](#installation)
 * [Features](#features)
 * [T2T Overview](#t2t-overview)
@@ -124,13 +143,40 @@ t2t-decoder \
   --model=$MODEL \
   --hparams_set=$HPARAMS \
   --output_dir=$TRAIN_DIR \
-  --decode_hparams="beam_size=$BEAM_SIZE,alpha=$ALPHA,use_last_position_only=True" \
+  --decode_hparams="beam_size=$BEAM_SIZE,alpha=$ALPHA" \
   --decode_from_file=$DECODE_FILE
 
 cat $DECODE_FILE.$MODEL.$HPARAMS.beam$BEAM_SIZE.alpha$ALPHA.decodes
 ```
 
 ---
+
+## Suggested Models
+
+Here are some combinations of models, hparams and problems that we found
+work well, so we suggest to use them if you're interested in that problem.
+
+### Translation
+
+For translation, esp. English-German and English-French, we suggest to use
+the Transformer model in base or big configurations, i.e.
+for `--problems=translate_ende_wmt32k` use `--model=transformer` and
+`--hparams_set=transformer_base`. When trained on 8 GPUs for 300K steps
+this should reach a BLEU score of about 28.
+
+### Summarization
+
+For summarization suggest to use the Transformer model in prepend mode, i.e.
+for `--problems=summarize_cnn_dailymail32k` use `--model=transformer` and
+`--hparams_set=transformer_prepend`.
+
+### Image Classification
+
+For image classification suggest to use the ResNet or Xception, i.e.
+for `--problems=image_imagenet` use `--model=resnet50` and
+`--hparams_set=resnet_base` or `--model=xception` and
+`--hparams_set=xception_base`.
+
 
 ## Installation
 
@@ -250,36 +296,8 @@ specifying the `--t2t_usr_dir` flag in `t2t-trainer`.
 You can do so for models, hyperparameter sets, modalities, and problems. Please
 do submit a pull request if your component might be useful to others.
 
-Here's an example with a new hyperparameter set:
-
-```python
-# In ~/usr/t2t_usr/my_registrations.py
-
-from tensor2tensor.models import transformer
-from tensor2tensor.utils import registry
-
-@registry.register_hparams
-def transformer_my_very_own_hparams_set():
-  hparams = transformer.transformer_base()
-  hparams.hidden_size = 1024
-  ...
-```
-
-```python
-# In ~/usr/t2t_usr/__init__.py
-from . import my_registrations
-```
-
-```
-t2t-trainer --t2t_usr_dir=~/usr/t2t_usr --registry_help
-```
-
-You'll see under the registered HParams your
-`transformer_my_very_own_hparams_set`, which you can directly use on the command
-line with the `--hparams_set` flag.
-
-`t2t-datagen` also supports the `--t2t_usr_dir` flag for `Problem`
-registrations.
+See the [`example_usr_dir`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/test_data/example_usr_dir)
+for an example user directory.
 
 ## Adding a dataset
 

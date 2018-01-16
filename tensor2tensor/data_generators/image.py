@@ -42,6 +42,8 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+from tensorflow.python.eager import context
+
 
 def resize_by_area(img, size):
   """image resize function used by quite a few image problems."""
@@ -51,23 +53,18 @@ def resize_by_area(img, size):
 
 class ImageProblem(problem.Problem):
 
-  def example_reading_spec(self, label_key=None):
-    if label_key is None:
-      label_key = "image/class/label"
-
+  def example_reading_spec(self, label_repr=None):
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
-        label_key: tf.VarLenFeature(tf.int64)
     }
+
     data_items_to_decoders = {
         "inputs":
             tf.contrib.slim.tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=3),
-        "targets":
-            tf.contrib.slim.tfexample_decoder.Tensor(label_key),
     }
 
     return data_fields, data_items_to_decoders
@@ -110,8 +107,8 @@ class ImageCeleba(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-    p.target_modality = ("image:identity_no_pad", None)
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
@@ -234,7 +231,7 @@ class ImageFSNS(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
     vocab_size = self._encoders["targets"].vocab_size
     p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
     p.batch_size_multiplier = 256
@@ -244,8 +241,12 @@ class ImageFSNS(ImageProblem):
 
   def example_reading_spec(self):
     label_key = "image/unpadded_label"
-    return super(ImageFSNS, self).example_reading_spec(
-        self, label_key=label_key)
+    data_fields, data_items_to_decoders = (
+        super(ImageFSNS, self).example_reading_spec())
+    data_fields[label_key] = tf.VarLenFeature(tf.int64)
+    data_items_to_decoders[
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    return data_fields, data_items_to_decoders
 
 
 class Image2ClassProblem(ImageProblem):
@@ -281,13 +282,20 @@ class Image2ClassProblem(ImageProblem):
   def generator(self, data_dir, tmp_dir, is_training):
     raise NotImplementedError()
 
+  def example_reading_spec(self):
+    label_key = "image/class/label"
+    data_fields, data_items_to_decoders = (
+        super(Image2ClassProblem, self).example_reading_spec())
+    data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
+
+    data_items_to_decoders[
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    return data_fields, data_items_to_decoders
+
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    small_modality = "%s:small_image_modality" % registry.Modalities.IMAGE
-    modality = small_modality if self.is_small else registry.Modalities.IMAGE
-    p.input_modality = {"inputs": (modality, None)}
-    p.target_modality = ("%s:2d" % registry.Modalities.CLASS_LABEL,
-                         self.num_classes)
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
+    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
     p.batch_size_multiplier = 4 if self.is_small else 256
     p.max_expected_batch_size_per_shard = 8 if self.is_small else 2
     p.loss_multiplier = 3.0 if self.is_small else 1.0
@@ -304,16 +312,19 @@ class Image2ClassProblem(ImageProblem):
         self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
 
 
-def imagenet_preprocess_example(example, mode):
+def imagenet_preprocess_example(example, mode, resize_size=None):
   """Preprocessing used for Imagenet and similar problems."""
+  if resize_size is None:
+    resize_size = [299, 299]
 
   def preprocess(img):
     img = tf.image.resize_images(img, [360, 360])
-    img = common_layers.image_augmentation(tf.to_float(img) / 255.)
+    img = common_layers.image_augmentation(
+        tf.to_float(img) / 255., crop_size=resize_size)
     return tf.to_int64(img * 255.)
 
   def resize(img):
-    return tf.to_int64(tf.image.resize_images(img, [299, 299]))
+    return tf.to_int64(tf.image.resize_images(img, resize_size))
 
   inputs = tf.cast(example["inputs"], tf.int64)
   if mode == tf.estimator.ModeKeys.TRAIN:
@@ -346,6 +357,21 @@ class ImageImagenet(Image2ClassProblem):
 
   def preprocess_example(self, example, mode, _):
     return imagenet_preprocess_example(example, mode)
+
+
+@registry.register_problem
+class ImageImagenet224(ImageImagenet):
+  """Imagenet rescaled to 224x224."""
+
+  def dataset_filename(self):
+    return "image_imagenet"  # Reuse Imagenet data.
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    tf.logging.warning(
+        "Generate data for image_imagenet224 with image_imagenet")
+
+  def preprocess_example(self, example, mode, _):
+    return imagenet_preprocess_example(example, mode, resize_size=[224, 224])
 
 
 @registry.register_problem
@@ -383,6 +409,38 @@ class ImageImagenet32(Image2ClassProblem):
 
 
 @registry.register_problem
+class ImageImagenet64(Image2ClassProblem):
+  """Imagenet rescaled to 64x64."""
+
+  def dataset_filename(self):
+    return "image_imagenet"  # Reuse Imagenet data.
+
+  @property
+  def is_small(self):
+    return True  # Modalities like for CIFAR.
+
+  @property
+  def num_classes(self):
+    return 1000
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    # TODO(lukaszkaiser): find a better way than printing this.
+    print("To generate the ImageNet dataset in the proper format, follow "
+          "instructions at https://github.com/tensorflow/models/blob/master"
+          "/inception/README.md#getting-started")
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    inputs = example["inputs"]
+    # Just resize with area.
+    if self._was_reversed:
+      example["inputs"] = resize_by_area(inputs, 64)
+    else:
+      example = imagenet_preprocess_example(example, mode)
+      example["inputs"] = example["inputs"] = resize_by_area(inputs, 64)
+    return example
+
+
+@registry.register_problem
 class Img2imgImagenet(ImageProblem):
   """Imagenet rescaled to 8x8 for input and 32x32 for output."""
 
@@ -399,12 +457,27 @@ class Img2imgImagenet(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-    p.target_modality = ("image:identity_no_pad", None)
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
     p.target_space_id = 1
+
+
+def _encoded_images(images):
+  if context.in_eager_mode():
+    for image in images:
+      yield tf.image.encode_png(image).numpy()
+  else:
+    (width, height, channels) = images[0].shape
+    with tf.Graph().as_default():
+      image_t = tf.placeholder(dtype=tf.uint8, shape=(width, height, channels))
+      encoded_image_t = tf.image.encode_png(image_t)
+      with tf.Session() as sess:
+        for image in images:
+          enc_string = sess.run(encoded_image_t, feed_dict={image_t: image})
+          yield enc_string
 
 
 def image_generator(images, labels):
@@ -428,20 +501,15 @@ def image_generator(images, labels):
   """
   if not images:
     raise ValueError("Must provide some images for the generator.")
-  (width, height, channels) = images[0].shape
-  with tf.Graph().as_default():
-    image_t = tf.placeholder(dtype=tf.uint8, shape=(width, height, channels))
-    encoded_image_t = tf.image.encode_png(image_t)
-    with tf.Session() as sess:
-      for (image, label) in zip(images, labels):
-        enc_string = sess.run(encoded_image_t, feed_dict={image_t: image})
-        yield {
-            "image/encoded": [enc_string],
-            "image/format": ["png"],
-            "image/class/label": [int(label)],
-            "image/height": [height],
-            "image/width": [width]
-        }
+  width, height, _ = images[0].shape
+  for (enc_image, label) in zip(_encoded_images(images), labels):
+    yield {
+        "image/encoded": [enc_image],
+        "image/format": ["png"],
+        "image/class/label": [int(label)],
+        "image/height": [height],
+        "image/width": [width]
+    }
 
 
 # URLs and filenames for MNIST data.
@@ -497,6 +565,33 @@ def _extract_mnist_labels(filename, num_labels):
   return labels
 
 
+def mnist_common_generator(tmp_dir, training, how_many, data_filename,
+                           label_filename, start_from=0):
+  """Image generator for MNIST.
+
+  Args:
+    tmp_dir: path to temporary storage directory.
+    training: a Boolean; if true, we use the train set, otherwise the test set.
+    how_many: how many images and labels to generate.
+    data_filename: file that contains features data.
+    label_filename: file that contains labels.
+    start_from: from which image to start.
+
+  Returns:
+    An instance of image_generator that produces MNIST images.
+  """
+  data_path = os.path.join(tmp_dir, data_filename)
+  labels_path = os.path.join(tmp_dir, label_filename)
+  images = _extract_mnist_images(data_path, 60000 if training else 10000)
+  labels = _extract_mnist_labels(labels_path, 60000 if training else 10000)
+  # Shuffle the data to make sure classes are well distributed.
+  data = list(zip(images, labels))
+  random.shuffle(data)
+  images, labels = list(zip(*data))
+  return image_generator(images[start_from:start_from + how_many],
+                         labels[start_from:start_from + how_many])
+
+
 def mnist_generator(tmp_dir, training, how_many, start_from=0):
   """Image generator for MNIST.
 
@@ -512,16 +607,7 @@ def mnist_generator(tmp_dir, training, how_many, start_from=0):
   _get_mnist(tmp_dir)
   d = _MNIST_TRAIN_DATA_FILENAME if training else _MNIST_TEST_DATA_FILENAME
   l = _MNIST_TRAIN_LABELS_FILENAME if training else _MNIST_TEST_LABELS_FILENAME
-  data_path = os.path.join(tmp_dir, d)
-  labels_path = os.path.join(tmp_dir, l)
-  images = _extract_mnist_images(data_path, 60000 if training else 10000)
-  labels = _extract_mnist_labels(labels_path, 60000 if training else 10000)
-  # Shuffle the data to make sure classes are well distributed.
-  data = list(zip(images, labels))
-  random.shuffle(data)
-  images, labels = list(zip(*data))
-  return image_generator(images[start_from:start_from + how_many],
-                         labels[start_from:start_from + how_many])
+  return mnist_common_generator(tmp_dir, training, how_many, d, l, start_from)
 
 
 @registry.register_problem
@@ -559,6 +645,73 @@ class ImageMnist(ImageMnistTune):
       return mnist_generator(tmp_dir, True, 60000)
     else:
       return mnist_generator(tmp_dir, False, 10000)
+
+# URLs and filenames for MNIST data.
+_FASHION_MNIST_URL = ("http://fashion-mnist.s3-website.eu-central-1"
+                      ".amazonaws.com/")
+_FASHION_MNIST_LOCAL_FILE_PREFIX = "fashion-"
+_FASHION_MNIST_IMAGE_SIZE = 28
+
+
+def _get_fashion_mnist(directory):
+  """Download all FashionMNIST files to directory unless they are there."""
+  # Fashion mnist files have the same names as MNIST.
+  # We must choose a separate name (by adding 'fashion-' prefix) in the tmp_dir.
+  for filename in [
+      _MNIST_TRAIN_DATA_FILENAME, _MNIST_TRAIN_LABELS_FILENAME,
+      _MNIST_TEST_DATA_FILENAME, _MNIST_TEST_LABELS_FILENAME
+  ]:
+    generator_utils.maybe_download(directory,
+                                   _FASHION_MNIST_LOCAL_FILE_PREFIX + filename,
+                                   _FASHION_MNIST_URL + filename)
+
+
+def fashion_mnist_generator(tmp_dir, training, how_many, start_from=0):
+  """Image generator for FashionMNIST.
+
+  Args:
+    tmp_dir: path to temporary storage directory.
+    training: a Boolean; if true, we use the train set, otherwise the test set.
+    how_many: how many images and labels to generate.
+    start_from: from which image to start.
+
+  Returns:
+    An instance of image_generator that produces MNIST images.
+  """
+  _get_fashion_mnist(tmp_dir)
+  d = _FASHION_MNIST_LOCAL_FILE_PREFIX + (
+      _MNIST_TRAIN_DATA_FILENAME if training else _MNIST_TEST_DATA_FILENAME)
+  l = _FASHION_MNIST_LOCAL_FILE_PREFIX + (
+      _MNIST_TRAIN_LABELS_FILENAME if training else
+      _MNIST_TEST_LABELS_FILENAME)
+  return mnist_common_generator(tmp_dir, training, how_many, d, l, start_from)
+
+
+@registry.register_problem
+class ImageFashionMnist(Image2ClassProblem):
+  """Fashion MNIST."""
+
+  @property
+  def is_small(self):
+    return True
+
+  @property
+  def num_classes(self):
+    return 10
+
+  @property
+  def class_labels(self):
+    return [str(c) for c in range(self.num_classes)]
+
+  @property
+  def train_shards(self):
+    return 10
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return fashion_mnist_generator(tmp_dir, True, 60000)
+    else:
+      return fashion_mnist_generator(tmp_dir, False, 10000)
 
 
 # URLs and filenames for CIFAR data.
@@ -623,9 +776,11 @@ class ImageCifar10Tune(ImageMnistTune):
     ]
 
   def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     if mode == tf.estimator.ModeKeys.TRAIN:
       example["inputs"] = common_layers.cifar_image_augmentation(
           example["inputs"])
+    example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
   def generator(self, data_dir, tmp_dir, is_training):
@@ -649,6 +804,7 @@ class ImageCifar10(ImageCifar10Tune):
 class ImageCifar10Plain(ImageCifar10):
 
   def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
@@ -682,8 +838,8 @@ class Img2imgCifar10(ImageCifar10):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity_no_pad", None)}
-    p.target_modality = ("image:identity_no_pad", None)
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
@@ -748,8 +904,8 @@ def mscoco_generator(data_dir,
     vocab_symbolizer = generator_utils.get_or_generate_vocab(
         data_dir, tmp_dir, vocab_filename, vocab_size)
   _get_mscoco(tmp_dir)
-  caption_filepath = (_MSCOCO_TRAIN_CAPTION_FILE
-                      if training else _MSCOCO_EVAL_CAPTION_FILE)
+  caption_filepath = (
+      _MSCOCO_TRAIN_CAPTION_FILE if training else _MSCOCO_EVAL_CAPTION_FILE)
   caption_filepath = os.path.join(tmp_dir, caption_filepath)
   prefix = _MSCOCO_TRAIN_PREFIX if training else _MSCOCO_EVAL_PREFIX
   caption_file = io.open(caption_filepath)
@@ -816,6 +972,15 @@ class Image2TextProblem(ImageProblem):
   def generator(self, data_dir, tmp_dir, is_training):
     raise NotImplementedError()
 
+  def example_reading_spec(self):
+    label_key = "image/class/label"
+    data_fields, data_items_to_decoders = (
+        super(Image2TextProblem, self).example_reading_spec())
+    data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
+    data_items_to_decoders[
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    return data_fields, data_items_to_decoders
+
   def feature_encoders(self, data_dir):
     if self.is_character_level:
       encoder = text_encoder.ByteTextEncoder()
@@ -827,7 +992,7 @@ class Image2TextProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, None)}
+    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
     encoder = self._encoders["targets"]
     p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
     p.batch_size_multiplier = 256

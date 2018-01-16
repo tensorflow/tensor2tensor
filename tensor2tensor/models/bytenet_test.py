@@ -44,8 +44,7 @@ class ByteNetTest(tf.test.TestCase):
       }
       model = bytenet.ByteNet(
           hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
-      sharded_logits, _ = model.model_fn(features)
-      logits = tf.concat(sharded_logits, 0)
+      logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 50, 1, 1, vocab_size))

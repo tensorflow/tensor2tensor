@@ -80,7 +80,7 @@ def bytenet_internal(inputs, targets, hparams):
 @registry.register_model
 class ByteNet(t2t_model.T2TModel):
 
-  def model_fn_body(self, features):
+  def body(self, features):
     return bytenet_internal(features["inputs"], features["targets"],
                             self._hparams)
 
