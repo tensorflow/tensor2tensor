@@ -36,6 +36,9 @@ import tempfile
 
 # Dependency imports
 
+# Fathom
+import fathomt2t
+
 import numpy as np
 
 from tensor2tensor.data_generators import algorithmic_math

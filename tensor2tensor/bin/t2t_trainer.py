@@ -326,7 +326,7 @@ def main(_):
   execute_schedule(exp)
 
   # Fathom
-  if FLAGS.eval_early_stopping_steps is not None: 
+  if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None: 
     _pick_optimal_model()
   dir_path, model_name = upload_model_to_gcs(FLAGS=FLAGS)
 

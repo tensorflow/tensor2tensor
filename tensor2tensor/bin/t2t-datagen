@@ -6,6 +6,7 @@ from __future__ import print_function
 
 import fathomt2t
 
+import t2t_datagen
 import tensorflow as tf
 
 def main(argv):

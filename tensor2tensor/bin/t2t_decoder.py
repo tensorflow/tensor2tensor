@@ -41,6 +41,7 @@ import fathomt2t
 
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.utils import decoding
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
@@ -58,6 +59,9 @@ flags.DEFINE_bool("decode_interactive", False,
                   "Interactive local inference mode.")
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 
+
+# Fathom
+flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 
 def create_hparams():
   return trainer_lib.create_hparams(
@@ -90,13 +94,14 @@ def decode(estimator, hparams, decode_hp):
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
         dataset_split="test" if FLAGS.eval_use_test_set else None,
-        return_generator=True)
+        return_generator=FLAGS.fathom_output_predictions)
 
     # Fathom
-    print('Assuming only one problem...')
-    assert '-' not in FLAGS.problems
-    problem = registry.problem(FLAGS.problems)
-    problem.output_predictions(predictions)
+    if FLAGS.fathom_output_predictions:
+      print('Assuming only one problem...')
+      assert '-' not in FLAGS.problems
+      problem = registry.problem(FLAGS.problems)
+      problem.output_predictions(predictions)
     
 
 def main(_):
