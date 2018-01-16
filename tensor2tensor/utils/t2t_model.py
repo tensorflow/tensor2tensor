@@ -1067,8 +1067,14 @@ class T2TModel(base.Layer):
     if not hasattr(hparams, "problem"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
 
-    problem = hparams.problem
+    # Fathom
+    if isinstance(logits, dict):
+      logits = logits['logits']
+    # Fathom
+    problem = hparams.problem_instances[0] or hparams.problem
+    
     if common_layers.is_on_tpu():
+      eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
       _remove_summaries()
       if isinstance(logits, dict):
         eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
