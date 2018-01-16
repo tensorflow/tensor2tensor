@@ -64,6 +64,9 @@ flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
 
 
+# Fathom
+flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
+
 def create_hparams():
   return trainer_lib.create_hparams(
       FLAGS.hparams_set,
@@ -101,7 +104,15 @@ def decode(estimator, hparams, decode_hp):
         hparams,
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
-        dataset_split="test" if FLAGS.eval_use_test_set else None)
+        dataset_split="test" if FLAGS.eval_use_test_set else None,
+        return_generator=FLAGS.fathom_output_predictions)
+
+    # Fathom
+    if FLAGS.fathom_output_predictions:
+      print('Assuming only one problem...')
+      assert '-' not in FLAGS.problems
+      problem = registry.problem(FLAGS.problems)
+      problem.output_predictions(predictions)
 
 
 def score_file(filename):

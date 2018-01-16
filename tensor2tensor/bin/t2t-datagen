@@ -18,6 +18,7 @@ from __future__ import print_function
 from tensor2tensor.bin import t2t_datagen
 import fathomt2t
 
+import t2t_datagen
 import tensorflow as tf
 
 def main(argv):

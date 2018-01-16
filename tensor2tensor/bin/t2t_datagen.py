@@ -35,6 +35,9 @@ import tempfile
 
 # Dependency imports
 
+# Fathom
+import fathomt2t
+
 import numpy as np
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import

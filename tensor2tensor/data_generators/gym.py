@@ -22,8 +22,7 @@ from collections import deque
 
 import functools
 # Dependency imports
-import gym
-
+#import gym
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 
@@ -92,6 +91,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   @property
   def env(self):
+    import gym
+
     if self._env is None:
       self._env = gym.make(self.env_name)
     return self._env

@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 """Trainer for Tensor2Tensor.
-
 This script is used to train your models in Tensor2Tensor.
-
 For example, to train a shake-shake model on MNIST run this:
-
 t2t-trainer \
   --generate_data \
   --problem=image_mnist \
@@ -27,6 +24,7 @@ import tensorflow as tf
 
 def main(argv):
   t2t_trainer.main(argv)
-  
+
+
 if __name__ == "__main__":
-  tf.app.run(main)
+  tf.app.run()
