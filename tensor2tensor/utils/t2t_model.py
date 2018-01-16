@@ -899,13 +899,12 @@ class T2TModel(base.Layer):
 
     if not hasattr(hparams, "problem_instances"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
-
-    # Fathom
-    # if isinstance(logits, dict):
-    #   logits = logits['logits']
     
     problem = hparams.problem_instances[0]
     if use_tpu:
+      # Fathom
+      assert False, 'Not supporting TPUs yet'
+      
       eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
       _remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(
@@ -917,6 +916,10 @@ class T2TModel(base.Layer):
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
         eval_metrics[metric_name] = metric_fn(logits, features)
 
+      # Fathom
+      if isinstance(logits, dict):
+        logits = logits['logits']
+        
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           predictions={"predictions": logits},
