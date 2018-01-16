@@ -901,8 +901,8 @@ class T2TModel(base.Layer):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
 
     # Fathom
-    if isinstance(logits, dict):
-      logits = logits['logits']
+    # if isinstance(logits, dict):
+    #   logits = logits['logits']
     
     problem = hparams.problem_instances[0]
     if use_tpu:
