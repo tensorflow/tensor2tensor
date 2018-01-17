@@ -159,6 +159,7 @@ class UnicodeRegex(object):
     return "".join(six.unichr(x) for x in range(sys.maxunicode)
                    if unicodedata.category(six.unichr(x)).startswith(prefix))
 
+uregex = UnicodeRegex()
 
 def bleu_tokenize(string):
   r"""Tokenize a string following the official BLEU implementation.
@@ -184,7 +185,6 @@ def bleu_tokenize(string):
   Returns:
     a list of tokens
   """
-  uregex = UnicodeRegex()
   string = uregex.nondigit_punct_re.sub(r"\1 \2 ", string)
   string = uregex.punct_nondigit_re.sub(r" \1 \2", string)
   string = uregex.symbol_re.sub(r" \1 ", string)
