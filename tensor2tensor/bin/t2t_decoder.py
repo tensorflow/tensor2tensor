@@ -61,6 +61,7 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 
 
 # Fathom
+flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 from fathomtf.services.model_management import fathom_t2t_model_setup
 
