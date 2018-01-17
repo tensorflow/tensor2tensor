@@ -67,6 +67,7 @@ flags.DEFINE_string("hparams_set", "transformer_big_single_gpu",
 
 
 def main(_):
+  FLAGS = flags.FLAGS
   tf.logging.set_verbosity(tf.logging.INFO)
   # pylint: disable=unused-variable
   model_dir = os.path.expanduser(FLAGS.model_dir)
