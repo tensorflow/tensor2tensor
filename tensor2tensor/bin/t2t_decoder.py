@@ -61,7 +61,11 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 
 
 # Fathom
+flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
+flags.DEFINE_bool("use_original_input", False,
+                  "Use the input that was used for validation during training?")
+from fathomtf.services.model_management import fathom_t2t_model_setup
 
 def create_hparams():
   return trainer_lib.create_hparams(
@@ -106,6 +110,10 @@ def decode(estimator, hparams, decode_hp):
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
+
+  # Fathom
+  _ = fathom_t2t_model_setup()
+
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   FLAGS.use_tpu = False  # decoding not supported on TPU
 
