@@ -68,7 +68,7 @@ flags.DEFINE_integer("intra_op_parallelism_threads", 0,
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
-  flags.DEFINE_string("schedule", "continuous_train_and_eval",
+  flags.DEFINE_string("schedule", "train_and_evaluate",
                       "Method of Experiment to run.")
   flags.DEFINE_integer("eval_steps", 100,
                        "Number of steps in evaluation. By default, eval will "
@@ -340,7 +340,14 @@ def main(argv):
 
   if cloud_mlengine.job_dir():
     FLAGS.output_dir = cloud_mlengine.job_dir()
+  # Fathom
+  if FLAGS.debug_mode:
+    FLAGS.train_steps = 1
+    FLAGS.eval_steps = 1
 
+  # Fathom
+  assert FLAGS.schedule == 'train_and_evaluate'
+    
   if argv:
     set_hparams_from_args(argv[1:])
   hparams = create_hparams()
