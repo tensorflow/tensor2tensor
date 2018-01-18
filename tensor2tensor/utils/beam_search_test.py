@@ -303,7 +303,8 @@ class BeamSearchTest(tf.test.TestCase):
     states = {
         "state": tf.zeros((batch_size, 1)),
     }
-    states["state"]._shape = tf.TensorShape((None, 1))
+    states["state"] = tf.placeholder_with_default(
+        states["state"], shape=(None, 1))
 
     final_ids, _ = beam_search.beam_search(
         symbols_to_logits,
@@ -352,7 +353,8 @@ class BeamSearchTest(tf.test.TestCase):
     states = {
         "state": tf.zeros((batch_size, 1)),
     }
-    states["state"]._shape = tf.TensorShape((None, 1))
+    states["state"] = tf.placeholder_with_default(
+        states["state"], shape=(None, 1))
 
     final_ids, _ = beam_search.beam_search(
         symbols_to_logits,
