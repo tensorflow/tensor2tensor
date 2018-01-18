@@ -6,8 +6,8 @@ before_install:
   - sudo apt-get update -qq
   - sudo apt-get install -qq libhdf5-dev
 install:
-  - pip install tensorflow | cat && exit ${PIPESTATUS[0]}
-  - pip install .[tests] | cat && exit ${PIPESTATUS[0]}
+  - pip install -q tensorflow
+  - pip install -q .[tests]
 env:
   global:
     - T2T_PROBLEM=algorithmic_reverse_binary40_test
