@@ -61,7 +61,7 @@ flags.DEFINE_bool("profile", False, "Profile performance?")
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
-  flags.DEFINE_string("schedule", "continuous_train_and_eval",
+  flags.DEFINE_string("schedule", "train_and_evaluate",
                       "Method of Experiment to run.")
   flags.DEFINE_integer("eval_steps", 10000,
                        "Number of steps in evaluation. By default, eval will "
@@ -314,6 +314,9 @@ def main(_):
   if FLAGS.debug_mode:
     FLAGS.train_steps = 1
     FLAGS.eval_steps = 1
+
+  # Fathom
+  assert FLAGS.schedule == 'train_and_evaluate'
     
   hparams = create_hparams()
   run_config = create_run_config(hparams)
