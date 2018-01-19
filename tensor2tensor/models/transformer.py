@@ -557,7 +557,8 @@ def transformer_encoder(encoder_input,
                         hparams,
                         name="encoder",
                         nonpadding=None,
-                        save_weights_to=None):
+                        save_weights_to=None,
+                        make_image_summary=True):
   """A stack of transformer layers.
 
   Args:
@@ -575,6 +576,7 @@ def transformer_encoder(encoder_input,
     save_weights_to: an optional dictionary to capture attention weights
       for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
+    make_image_summary: Whether to make an attention image summary.
 
   Returns:
     y: a Tensors
@@ -605,7 +607,8 @@ def transformer_encoder(encoder_input,
               hparams.attention_dropout,
               attention_type=hparams.self_attention_type,
               save_weights_to=save_weights_to,
-              max_relative_position=hparams.max_relative_position)
+              max_relative_position=hparams.max_relative_position,
+              make_image_summary=make_image_summary)
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -626,7 +629,8 @@ def transformer_decoder(decoder_input,
                         cache=None,
                         name="decoder",
                         nonpadding=None,
-                        save_weights_to=None):
+                        save_weights_to=None,
+                        make_image_summary=True):
   """A stack of transformer layers.
 
   Args:
@@ -648,6 +652,7 @@ def transformer_decoder(decoder_input,
     save_weights_to: an optional dictionary to capture attention weights
       for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
+    make_image_summary: Whether to make an attention image summary.
 
   Returns:
     y: a Tensors
@@ -672,19 +677,23 @@ def transformer_decoder(decoder_input,
               attention_type=hparams.self_attention_type,
               save_weights_to=save_weights_to,
               max_relative_position=hparams.max_relative_position,
-              cache=layer_cache)
+              cache=layer_cache,
+              make_image_summary=make_image_summary)
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
             # TODO(llion): Add caching.
             y = common_attention.multihead_attention(
-                common_layers.layer_preprocess(
-                    x, hparams), encoder_output, encoder_decoder_attention_bias,
+                common_layers.layer_preprocess(x, hparams),
+                encoder_output,
+                encoder_decoder_attention_bias,
                 hparams.attention_key_channels or hparams.hidden_size,
                 hparams.attention_value_channels or hparams.hidden_size,
-                hparams.hidden_size, hparams.num_heads,
+                hparams.hidden_size,
+                hparams.num_heads,
                 hparams.attention_dropout,
-                save_weights_to=save_weights_to)
+                save_weights_to=save_weights_to,
+                make_image_summary=make_image_summary)
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(

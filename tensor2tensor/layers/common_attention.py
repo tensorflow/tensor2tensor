@@ -1276,7 +1276,8 @@ def dot_product_attention_relative(q,
                                    max_relative_position,
                                    dropout_rate=0.0,
                                    image_shapes=None,
-                                   name=None):
+                                   name=None,
+                                   make_image_summary=True):
   """Calculate relative position-aware dot-product self-attention.
 
   The attention calculation is augmented with learned representations for the
@@ -1292,6 +1293,7 @@ def dot_product_attention_relative(q,
     dropout_rate: a floating point number.
     image_shapes: optional tuple of integer scalars.
     name: an optional string.
+    make_image_summary: Whether to make an attention image summary.
 
   Returns:
     A Tensor.
@@ -1326,7 +1328,7 @@ def dot_product_attention_relative(q,
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
     weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
-    if not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse and make_image_summary:
       attention_image_summary(weights, image_shapes)
     return _relative_attention_inner(weights, v, relations_values, False)
 
@@ -2246,6 +2248,7 @@ def multihead_attention(query_antecedent,
                         num_memory_blocks=2,
                         name=None,
                         save_weights_to=None,
+                        make_image_summary=True,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -2289,6 +2292,7 @@ def multihead_attention(query_antecedent,
     save_weights_to: an optional dictionary to capture attention weights
       for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
+    make_image_summary: Whether to make an attention image summary.
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -2350,10 +2354,12 @@ def multihead_attention(query_antecedent,
         x, additional_returned_value = x  # Unpack
     elif attention_type == "dot_product":
       x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
-                                save_weights_to=save_weights_to)
+                                save_weights_to=save_weights_to,
+                                make_image_summary=make_image_summary)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(q, k, v, bias, max_relative_position,
-                                         dropout_rate, image_shapes)
+                                         dropout_rate, image_shapes,
+                                         make_image_summary=make_image_summary)
     elif attention_type == "local_mask_right":
       x = masked_local_attention_1d(q, k, v, block_length=block_length)
     elif attention_type == "local_unmasked":
