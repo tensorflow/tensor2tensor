@@ -57,7 +57,7 @@ class LSTMTest(tf.test.TestCase):
 
     p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
     x = tf.constant(x, dtype=tf.int32)
-    x._shape = tf.TensorShape([None, None, 1, 1])
+    x = tf.placeholder_with_default(x, shape=[None, None, 1, 1])
 
     with self.test_session() as session:
       features = {
