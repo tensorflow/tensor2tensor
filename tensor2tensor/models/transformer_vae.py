@@ -18,6 +18,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+import math
 # Dependency imports
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
@@ -74,7 +75,7 @@ def top_k_softmax(x, k):
 
 def top_k_experts(x, k, hparams):
   x_shape = common_layers.shape_list(x)
-  x_flat = tf.reshape(x, [-1, x.get_shape().as_list()[-1]])
+  x_flat = tf.reshape(x, [-1, common_layers.shape_list(x)[-1]])
   is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
   gates, load = expert_utils.noisy_top_k_gating(
       x_flat, hparams.v_size, is_training, k)
@@ -142,11 +143,18 @@ def vae(x, z_size, name):
 def nearest(x, means, hparams):
   """Find the nearest means to elements in x."""
   x_flat = tf.reshape(x, [-1, hparams.hidden_size])
-  x_norm_sq = tf.reduce_sum(x_flat ** 2, axis=-1, keep_dims=True)
-  means_norm_sq = tf.reduce_sum(means ** 2, axis=-1, keep_dims=True)
-  dist = (
-      x_norm_sq + tf.transpose(means_norm_sq) -
-      2 * tf.matmul(x_flat, means, transpose_b=True))
+  x_projected = tf.matmul(
+      tf.stack([x_flat] * hparams.num_blocks, axis=0),
+      hparams.projection_tensors)
+  x_projected = tf.transpose(x_projected, perm=[1, 0, 2])
+  x_norm_sq = tf.reduce_sum(x_projected**2, axis=-1, keepdims=True)
+  means_norm_sq = tf.reduce_sum(means**2, axis=-1, keepdims=True)
+  scalar_prod = tf.matmul(
+      tf.transpose(x_projected, perm=[1, 0, 2]),
+      tf.transpose(means, perm=[0, 2, 1]))
+  scalar_prod = tf.transpose(scalar_prod, perm=[1, 0, 2])
+  dist = x_norm_sq + tf.transpose(
+      means_norm_sq, perm=[2, 0, 1]) - 2 * scalar_prod
   if hparams.random_top_k > 1:
     _, top_k_idx = tf.nn.top_k(-dist, k=hparams.random_top_k)
     nearest_idx = tf.gather(
@@ -156,37 +164,46 @@ def nearest(x, means, hparams):
         axis=-1)
   else:
     nearest_idx = tf.argmax(-dist, axis=-1)
-  nearest_hot = tf.one_hot(nearest_idx, hparams.v_size)
+  nearest_hot = tf.one_hot(nearest_idx, hparams.block_v_size)
   shape = common_layers.shape_list(x)
-  shape[-1] = hparams.v_size
+  shape[-1] = hparams.num_blocks
+  shape.append(hparams.block_v_size)
   nearest_hot = tf.reshape(nearest_hot, shape=shape)
   return tf.stop_gradient(nearest_hot)
 
 
 def kmeans(x, means, hparams):
+  """Compute the nearest neighbors and the loss for training the embeddings."""
   x_means_hot = nearest(x, means, hparams)
-  x_means = tf.gather(means, tf.argmax(x_means_hot, axis=-1))
+  x_means = tf.gather(
+      tf.transpose(means, perm=[1, 0, 2]), tf.argmax(x_means_hot, axis=-1))
+  x_means_list = [x_means[:, :, :, i, i, :] for i in range(hparams.num_blocks)]
+  x_means = tf.stack(x_means_list, axis=-2)
+  shape = common_layers.shape_list(x)
+  x_means = tf.reshape(x_means, shape=shape)
   q_loss = tf.reduce_mean((tf.stop_gradient(x) - x_means)**2)
   e_loss = tf.reduce_mean((x - tf.stop_gradient(x_means))**2)
   return x_means_hot, x_means, q_loss, e_loss
 
 
-def bit_to_int(x_bit, nbits):
+def bit_to_int(x_bit, nbits, base=2):
   """Turn x_bit representing numbers bitwise (lower-endian) to int tensor."""
   x_l = tf.stop_gradient(tf.reshape(x_bit, [-1, nbits]))
   x_labels = []
   for i in range(nbits):
-    x_labels.append(x_l[:, i] * 2**i)
+    x_labels.append(x_l[:, i] * tf.to_int64(base)**i)
   res = sum(x_labels)
   return tf.to_int32(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]))
 
 
-def int_to_bit(x_int, nbits):
+def int_to_bit(x_int, nbits, base=2):
   """Turn x_int representing numbers into a bitwise (lower-endian) tensor."""
   x_l = tf.expand_dims(x_int, axis=-1)
   x_labels = []
   for i in range(nbits):
-    x_labels.append(tf.floormod(tf.floordiv(x_l, 2**i), 2))
+    x_labels.append(
+        tf.floormod(tf.floordiv(x_l,
+                                tf.to_int64(base)**i), tf.to_int64(base)))
   res = tf.concat(x_labels, axis=-1)
   return tf.to_float(res)
 
@@ -222,7 +239,22 @@ def bottleneck(x,
         else:
           means_embed = means
 
-        h1 = tf.gather(means_embed, x)
+        c = int_to_bit(
+            x, hparams.num_blocks, base=int(math.log(hparams.num_blocks, 2)))
+        # Means is of shape [num_blocks, block_v_size, block_dim]
+        # Gather only gets the elements from the first axis
+        # tf.transpose(means_embed) to get [block_v_size, num_blocks, block_dim]
+        # x has the shape [bs, num_blocks], where in block i, we have the index
+        # corresponding to the table in means_embed[i, :, :] that was chosen
+        # But gather will select the entry from the index [bs, i] even from
+        # blocks in mean it is not supposed to, i.e. from means_embed[j, :, :]
+        # This is why we need to get the diagonal term, as block i's index
+        # should only reference means_embed[i, :, :]
+
+        h1 = tf.gather(tf.transpose(means_embed, perm=[1, 0, 2]), x)
+        h1 = tf.stack(
+            [h1[:, i, i, :] for i in range(hparams.num_blocks)], axis=-1)
+        h1 = tf.reshape(h1, [-1, hparams.hidden_size])
       elif hparams.bottleneck_kind == "rounding":
         h1 = x
 
@@ -268,19 +300,33 @@ def bottleneck(x,
       h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
     if hparams.bottleneck_kind == "vq-vae":
       x_means_hot, x_means, q_loss, e_loss = kmeans(x, means, hparams)
-      c = tf.argmax(x_means_hot, axis=-1)
+      c = bit_to_int(
+          tf.argmax(x_means_hot, axis=-1),
+          nbits=hparams.num_blocks,
+          base=math.log(hparams.num_blocks, 2))
 
       # Update the ema variables
       if hparams.ema:
         tf.logging.info("Using EMA with beta = {}".format(hparams.beta))
-        x_means_hot_flat = tf.reshape(x_means_hot, shape=[-1, hparams.v_size])
         updated_ema_count = moving_averages.assign_moving_average(
             ema_count,
-            tf.reduce_sum(x_means_hot_flat, axis=0),
+            tf.reduce_sum(
+                tf.reshape(
+                    x_means_hot,
+                    shape=[-1, hparams.num_blocks, hparams.block_v_size]),
+                axis=0),
             hparams.decay,
             zero_debias=False)
+
+        x_means_hot_flat = tf.reshape(x_means_hot, shape=[-1, hparams.v_size])
         x_flat = tf.reshape(x, [-1, hparams.hidden_size])
         dw = tf.matmul(x_means_hot_flat, x_flat, transpose_a=True)
+        dw = tf.reshape(dw, [
+            hparams.num_blocks, hparams.block_v_size, hparams.num_blocks,
+            hparams.block_dim
+        ])
+        dw = tf.stack(
+            [dw[i, :, i, :] for i in range(hparams.num_blocks)], axis=0)
         updated_ema_means = moving_averages.assign_moving_average(
             ema_means, dw, hparams.decay, zero_debias=False)
         n = tf.reduce_sum(updated_ema_count)
@@ -544,15 +590,35 @@ class TransformerAE(t2t_model.T2TModel):
     self.ema_count = None
     self.ema_means = None
     if self._hparams.bottleneck_kind == "vq-vae":
+      # Check that num_blocks exactly divides hidden_size and v_size
+      assert self._hparams.hidden_size % self._hparams.num_blocks == 0
+      assert self._hparams.v_size % self._hparams.num_blocks == 0
+
+      self._hparams.block_dim = int(
+          self._hparams.hidden_size / self._hparams.num_blocks)
+      self._hparams.block_v_size = int(
+          self._hparams.v_size / self._hparams.num_blocks)
+
+      self._hparams.projection_tensors = tf.get_variable(
+          name="projection",
+          shape=[
+              self._hparams.num_blocks, self._hparams.hidden_size,
+              self._hparams.block_dim
+          ],
+          initializer=tf.random_normal_initializer())
+
       self.means = tf.get_variable(
           name="means",
-          shape=[self._hparams.v_size, self._hparams.hidden_size],
+          shape=[
+              self._hparams.num_blocks, self._hparams.block_v_size,
+              self._hparams.block_dim
+          ],
           initializer=tf.random_normal_initializer())
 
       # Create the shadow variables if we are using EMA
       if self._hparams.ema:
         self.ema_count = tf.get_variable(
-            "ema_count", [self._hparams.v_size],
+            "ema_count", [self._hparams.num_blocks, self._hparams.block_v_size],
             initializer=tf.constant_initializer(0))
         with tf.colocate_with(self.means):
           self.ema_means = tf.get_variable(
@@ -653,6 +719,7 @@ def transformer_ae_small():
   hparams.add_hparam("d_mix", 0.5)
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, vq-vae.
   hparams.add_hparam("bottleneck_kind", "semhash")
+  hparams.add_hparam("num_blocks", 1)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
   hparams.add_hparam("do_refine", False)
