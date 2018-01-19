@@ -68,9 +68,12 @@ flags.DEFINE_integer("intra_op_parallelism_threads", 0,
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
+
+  # Fathom: we changed the default here from continuous_train_and_eval
+  # to train_and_evaluate
   flags.DEFINE_string("schedule", "train_and_evaluate",
                       "Method of Experiment to run.")
-  flags.DEFINE_integer("eval_steps", 100,
+  flags.DEFINE_integer("eval_steps", 10000,
                        "Number of steps in evaluation. By default, eval will "
                        "stop after eval_steps or when it runs through the eval "
                        "dataset once in full, whichever comes first, so this "
@@ -345,11 +348,14 @@ def main(argv):
     FLAGS.train_steps = 1
     FLAGS.eval_steps = 1
 
+<<<<<<< 9ba0829757d98e169f719efb7447e824af5a8835
   # Fathom
   assert FLAGS.schedule == 'train_and_evaluate'
     
   if argv:
     set_hparams_from_args(argv[1:])
+=======
+>>>>>>> Moved assert to a better place, added comment about change
   hparams = create_hparams()
 
   with maybe_cloud_tpu():
