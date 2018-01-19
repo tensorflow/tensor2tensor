@@ -33,6 +33,8 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
+from gcloud import fhfile
+
 import tensorflow as tf
 
 flags = tf.flags
@@ -82,6 +84,7 @@ try:
 except:  # pylint: disable=bare-except
   pass
 
+<<<<<<< 62a3749a3d6d2b9ea57df4bdfc4299157d1a1cce
 # Google Cloud TPUs
 flags.DEFINE_bool("cloud_tpu", False, "Whether to launch on Cloud TPUs.")
 flags.DEFINE_string("cloud_vm_name", "%s-vm" % os.getenv("USER"),
@@ -147,6 +150,35 @@ def set_hparams_from_args(args):
   if FLAGS.hparams:
     as_hparams = "," + as_hparams
   FLAGS.hparams += as_hparams
+=======
+
+##################
+#
+# FATHOM ADDITIONS
+#
+##################
+import fathomt2t
+import fathomairflow.dags.dag_management.xcom_manipulation as xcom
+from fathomtf.services.model_management import upload_model_to_gcs
+import os
+flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
+# NOTE: this is set as REQUIRED, in main()
+flags.DEFINE_string("airflow_pipeline_yaml", None,
+    "For saving to assets.extra")
+flags.DEFINE_string("description", "",
+    "Description for this run.  Used in model name.  E.g., 'special_softmax'.")
+##################
+#
+# END FATHOM ADDS
+#
+##################
+
+
+def get_problem_name():
+  problems = FLAGS.problems.split("-")
+  assert len(problems) == 1
+  return problems[0]
+>>>>>>> updating the path using fhfile
 
 
 def create_hparams():
@@ -160,8 +192,13 @@ def create_hparams():
 def create_experiment_fn():
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
+<<<<<<< 62a3749a3d6d2b9ea57df4bdfc4299157d1a1cce
       problem_name=FLAGS.problem,
       data_dir=os.path.expanduser(FLAGS.data_dir),
+=======
+      problem_name=get_problem_name(),
+      data_dir=update_data_dir(os.path.expanduser(FLAGS.data_dir)),
+>>>>>>> updating the path using fhfile
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
@@ -176,6 +213,11 @@ def create_experiment_fn():
       eval_early_stopping_metric_minimize=FLAGS.
       eval_early_stopping_metric_minimize,
       use_tpu=FLAGS.use_tpu)
+
+
+def update_data_dir(data_dir):
+  fhfile = FHFile(data_dir)
+  return fhfile.name
 
 
 def create_run_config(hp):
@@ -231,7 +273,7 @@ def create_run_config(hp):
 
 def generate_data():
   # Generate data if requested.
-  data_dir = os.path.expanduser(FLAGS.data_dir)
+  data_dir = update_data_dir(os.path.expanduser(FLAGS.data_dir))
   tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
@@ -359,12 +401,19 @@ def main(argv):
 >>>>>>> Moved assert to a better place, added comment about change
   hparams = create_hparams()
 
+<<<<<<< 62a3749a3d6d2b9ea57df4bdfc4299157d1a1cce
   with maybe_cloud_tpu():
     exp_fn = create_experiment_fn()
     exp = exp_fn(create_run_config(hparams), hparams)
     if is_chief():
       save_metadata(hparams)
     execute_schedule(exp)
+=======
+  # Fathom
+  if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None:
+    _pick_optimal_model()
+  dir_path, model_name = upload_model_to_gcs(FLAGS=FLAGS)
+>>>>>>> updating the path using fhfile
 
 
 if __name__ == "__main__":
