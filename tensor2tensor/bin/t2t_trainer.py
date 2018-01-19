@@ -70,7 +70,8 @@ try:
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 
   # Fathom: we changed the default here from continuous_train_and_eval
-  # to train_and_evaluate
+  # to train_and_evaluate. We did this because
+  # continuous_train_and_eval does not work with ValidationMonitor.
   flags.DEFINE_string("schedule", "train_and_evaluate",
                       "Method of Experiment to run.")
   flags.DEFINE_integer("eval_steps", 10000,
