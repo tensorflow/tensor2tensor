@@ -206,6 +206,9 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     train_monitors.append(tf.contrib.hooks.ProfilerHook(**defaults))
 
   if use_validation_monitor:
+    # continuous_train_and_eval does not respect the ValidationMonitor, 
+    # so we should refuse to attach it in this case
+    assert tf.flags.FLAGS.schedule != 'continuous_train_and_eval'
     train_monitors.append(
         tf.contrib.learn.monitors.ValidationMonitor(
             hooks=eval_hooks, **validation_monitor_kwargs))
