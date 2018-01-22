@@ -137,8 +137,8 @@ def create_experiment_fn():
 
 
 def update_data_dir(data_dir):
-  fhfile = FHFile(data_dir)
-  return fhfile.name
+  file_obj = fhfile.FHFile(data_dir)
+  return file_obj.name
 
 
 def create_run_config(hp):
