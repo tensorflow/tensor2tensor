@@ -82,7 +82,6 @@ flags.DEFINE_string("t2t_usr_dir", "",
                     "e.g. @registry.register_problem calls, that will then be "
                     "available to t2t-datagen.")
 
-FLAGS.data_dir = usr_dir.update_data_dir(FLAGS.data_dir)
 
 # Mapping from problems that we can generate data for to their generators.
 # pylint: disable=g-long-lambda
@@ -173,6 +172,7 @@ def main(_):
     tf.logging.warning("It is strongly recommended to specify --data_dir. "
                        "Data will be written to default data_dir=%s.",
                        FLAGS.data_dir)
+  FLAGS.data_dir = usr_dir.update_data_dir(FLAGS.data_dir)
 
   tf.logging.info("Generating problems:\n%s"
                   % registry.display_list_by_prefix(problems,
