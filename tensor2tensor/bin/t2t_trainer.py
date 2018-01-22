@@ -26,6 +26,7 @@ import sys
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
+from tensor2tensor.utils import cloud
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
@@ -71,6 +72,15 @@ try:
 except:  # pylint: disable=bare-except
   pass
 
+# Google Cloud TPUs
+flags.DEFINE_bool("cloud_tpu", False, "Whether to launch on Cloud TPUs.")
+flags.DEFINE_string("cloud_vm_name", "%s-vm" % os.getenv("USER"),
+                    "Name of Cloud VM to use or create.")
+flags.DEFINE_string("cloud_tpu_name", "%s-tpu" % os.getenv("USER"),
+                    "Name of Cloud TPU instance to use or create.")
+flags.DEFINE_bool("cloud_delete_on_done", False,
+                  "Whether to delete the VM and TPU instance when done.")
+
 
 def get_problem_name():
   problems = FLAGS.problems.split("-")
@@ -79,7 +89,7 @@ def get_problem_name():
 
 
 def create_hparams():
-  if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
+  if (FLAGS.cloud_tpu or FLAGS.use_tpu) and "tpu" not in FLAGS.hparams_set:
     tf.logging.warn("Not all hyperparameter sets work on TPU. When available "
                     "for a given model, prefer hparams_sets with a '_tpu' "
                     "suffix, e.g. transformer_tpu.")
@@ -153,9 +163,8 @@ def generate_data():
 @contextlib.contextmanager
 def profile_context():
   if FLAGS.profile:
-    with tf.contrib.tfprof.ProfileContext("t2tprof",
-                                          trace_steps=range(100),
-                                          dump_steps=range(100)) as pctx:
+    with tf.contrib.tfprof.ProfileContext(
+        "t2tprof", trace_steps=range(100), dump_steps=range(100)) as pctx:
       opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
       pctx.add_auto_profiling("op", opts, range(100))
       yield
@@ -185,8 +194,7 @@ def save_metadata(hparams):
     flags_str = FLAGS.flags_into_string()
     t2t_flags_str = "\n".join([
         "--%s=%s" % (f.name, f.value)
-        for f in FLAGS.flags_by_module_dict()[
-            "tensor2tensor.utils.flags"]
+        for f in FLAGS.flags_by_module_dict()["tensor2tensor.utils.flags"]
     ])
   else:
     flags_dict = FLAGS.__dict__["__flags"]
@@ -217,6 +225,29 @@ def execute_schedule(exp):
     getattr(exp, FLAGS.schedule)()
 
 
+@contextlib.contextmanager
+def maybe_cloud_tpu():
+  """If FLAGS.cloud_tpu is set, setup Cloud instances."""
+  if not FLAGS.cloud_tpu:
+    yield
+    return
+
+  tf.logging.info("Running on Cloud TPU")
+
+  if (not FLAGS.data_dir.startswith("gs://") or
+      not FLAGS.output_dir.startswith("gs://")):
+    raise ValueError("To run on Cloud TPUs, data_dir and output_dir need to "
+                     "be gs:// paths, i.e. on Google Cloud Storage.")
+
+  FLAGS.use_tpu = True
+  with cloud.cloud_tpu(
+      FLAGS.cloud_vm_name,
+      FLAGS.cloud_tpu_name,
+      delete_on_done=FLAGS.cloud_delete_on_done) as tpu_master:
+    FLAGS.master = tpu_master
+    yield
+
+
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
@@ -227,14 +258,13 @@ def main(_):
     generate_data()
 
   hparams = create_hparams()
-  run_config = create_run_config(hparams)
-
   if is_chief():
     save_metadata(hparams)
 
-  exp_fn = create_experiment_fn()
-  exp = exp_fn(run_config, hparams)
-  execute_schedule(exp)
+  with maybe_cloud_tpu():
+    exp_fn = create_experiment_fn()
+    exp = exp_fn(create_run_config(hparams), hparams)
+    execute_schedule(exp)
 
 
 if __name__ == "__main__":
