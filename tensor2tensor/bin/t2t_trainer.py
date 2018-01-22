@@ -32,7 +32,6 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
-from gcloud import fhfile
 
 import tensorflow as tf
 
@@ -119,7 +118,7 @@ def create_experiment_fn():
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
       problem_name=get_problem_name(),
-      data_dir=update_data_dir(os.path.expanduser(FLAGS.data_dir)),
+      data_dir=usr_dir.update_data_dir(os.path.expanduser(FLAGS.data_dir)),
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
@@ -135,10 +134,6 @@ def create_experiment_fn():
       eval_early_stopping_metric_minimize,
       use_tpu=FLAGS.use_tpu)
 
-
-def update_data_dir(data_dir):
-  file_obj = fhfile.FHFile(data_dir)
-  return file_obj.name
 
 
 def create_run_config(hp):
@@ -174,7 +169,7 @@ def create_run_config(hp):
 
 def generate_data():
   # Generate data if requested.
-  data_dir = update_data_dir(os.path.expanduser(FLAGS.data_dir))
+  data_dir = usr_dir.update_data_dir(os.path.expanduser(FLAGS.data_dir))
   tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
