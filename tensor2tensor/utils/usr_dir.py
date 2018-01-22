@@ -21,6 +21,8 @@ import importlib
 import os
 import sys
 
+from gcloud import fhfile
+
 # Dependency imports
 
 import tensorflow as tf
@@ -46,3 +48,7 @@ def import_usr_dir(usr_dir):
   sys.path.insert(0, containing_dir)
   importlib.import_module(module_name)
   sys.path.pop(0)
+
+def update_data_dir(data_dir):
+  file_obj = fhfile.FHFile(data_dir)
+  return file_obj.name
