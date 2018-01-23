@@ -36,13 +36,6 @@ class CommonLayersTest(tf.test.TestCase):
       res = session.run(y)
     self.assertEqual(res.shape, (5, 7, 7, 3))
 
-  def testImageAugmentation(self):
-    x = np.random.rand(500, 500, 3)
-    with self.test_session() as session:
-      y = common_layers.image_augmentation(tf.constant(x))
-      res = session.run(y)
-    self.assertEqual(res.shape, (299, 299, 3))
-
   def testSaturatingSigmoid(self):
     x = np.array([-120.0, -100.0, 0.0, 100.0, 120.0], dtype=np.float32)
     with self.test_session() as session:

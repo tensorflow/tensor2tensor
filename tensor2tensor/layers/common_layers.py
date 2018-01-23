@@ -164,36 +164,6 @@ def convert_rgb_to_real(x):
     return x
 
 
-def image_augmentation(images, do_colors=False, crop_size=None):
-  """Image augmentation: cropping, flipping, and color transforms."""
-  if crop_size is None:
-    crop_size = [299, 299]
-  images = tf.random_crop(images, crop_size + [3])
-  images = tf.image.random_flip_left_right(images)
-  if do_colors:  # More augmentation, but might be slow.
-    images = tf.image.random_brightness(images, max_delta=32. / 255.)
-    images = tf.image.random_saturation(images, lower=0.5, upper=1.5)
-    images = tf.image.random_hue(images, max_delta=0.2)
-    images = tf.image.random_contrast(images, lower=0.5, upper=1.5)
-  return images
-
-
-def cifar_image_augmentation(images):
-  """Image augmentation suitable for CIFAR-10/100.
-
-  As described in https://arxiv.org/pdf/1608.06993v3.pdf (page 5).
-
-  Args:
-    images: a Tensor.
-  Returns:
-    Tensor of the same shape as images.
-  """
-  images = tf.image.resize_image_with_crop_or_pad(images, 40, 40)
-  images = tf.random_crop(images, [32, 32, 3])
-  images = tf.image.random_flip_left_right(images)
-  return images
-
-
 def flatten4d3d(x):
   """Flatten a 4d-tensor into a 3d-tensor by joining width and height."""
   xshape = shape_list(x)
