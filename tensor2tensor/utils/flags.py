@@ -81,8 +81,8 @@ flags.DEFINE_integer("keep_checkpoint_every_n_hours", 10000,
                      "The default value 10,000 hours effectively disables it.")
 flags.DEFINE_integer("save_checkpoints_secs", 0,
                      "Save checkpoints every this many seconds. "
-                     "Default=0 means let tensorflow.contrib.learn.python.learn"
-                     " decide, which is currently set to 600 = 10 minutes.")
+                     "Default=0 means save checkpoints each x steps where x "
+                     "depends on iterations_per_loop and local_eval_frequency.")
 flags.DEFINE_bool("log_device_placement", False,
                   "Whether to log device placement.")
 
