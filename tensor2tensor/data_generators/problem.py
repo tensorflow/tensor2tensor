@@ -476,14 +476,14 @@ class Problem(object):
       dataset = dataset.shuffle(buffer_size=1024)
 
     def _load_records(filename):
-      return tf.data.TFRecordDataset(filename, buffer_size=16 * 1000 * 1000)
+      return tf.data.TFRecordDataset(filename, buffer_size=8 * 1024 * 1024)
 
     if hasattr(tf.contrib.data, "parallel_interleave"):
       interleave = lambda ds, fn: ds.apply(  # pylint: disable=g-long-lambda
           tf.contrib.data.parallel_interleave(
-              fn, sloppy=is_training, cycle_length=16))
+              fn, sloppy=is_training, cycle_length=8))
     else:
-      interleave = lambda ds, fn: ds.interleave(fn, cycle_length=16)
+      interleave = lambda ds, fn: ds.interleave(fn, cycle_length=8)
 
     dataset = interleave(dataset, _load_records)
 
@@ -617,7 +617,7 @@ class Problem(object):
     """
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     if config.use_tpu:
-      num_threads = 32
+      num_threads = 64
     else:
       num_threads = 4 if is_training else 1
 
@@ -662,8 +662,8 @@ class Problem(object):
       else:
         tf.logging.warning(
             "Shapes are not fully defined. Assuming batch_size means tokens. "
-            "You should probably override batch_size_means_tokens() "
-            "in your problem subclass")
+            "Override batch_size_means_tokens() "
+            "in your problem subclass if this is undesired behavior.")
         batch_size_means_tokens = True
 
     # Batching
