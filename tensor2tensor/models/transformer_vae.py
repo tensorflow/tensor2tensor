@@ -18,13 +18,18 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import math
+
 # Dependency imports
+
+from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
+
 import tensorflow as tf
 from tensorflow.python.training import moving_averages
 
@@ -47,6 +52,22 @@ def residual_conv(x, repeat, k, hparams, name, reuse=None):
         y = tf.nn.dropout(y, 1.0 - hparams.dropout)
         x += y
     return x
+
+
+def attend(x, source, hparams, name):
+  with tf.variable_scope(name):
+    x = tf.squeeze(x, axis=2)
+    if len(source.get_shape()) > 3:
+      source = tf.squeeze(source, axis=2)
+    source = common_attention.add_timing_signal_1d(source)
+    y = common_attention.multihead_attention(
+        common_layers.layer_preprocess(x, hparams), source, None,
+        hparams.attention_key_channels or hparams.hidden_size,
+        hparams.attention_value_channels or hparams.hidden_size,
+        hparams.hidden_size, hparams.num_heads,
+        hparams.attention_dropout)
+    res = common_layers.layer_postprocess(x, y, hparams)
+    return tf.expand_dims(res, axis=2)
 
 
 def decompress_step(source, hparams, first_relu, is_2d, name):
@@ -191,7 +212,7 @@ def bit_to_int(x_bit, nbits, base=2):
   x_l = tf.stop_gradient(tf.reshape(x_bit, [-1, nbits]))
   x_labels = []
   for i in range(nbits):
-    x_labels.append(x_l[:, i] * tf.to_int64(base)**i)
+    x_labels.append(x_l[:, i] * tf.to_int32(base)**tf.to_int32(i))
   res = sum(x_labels)
   return tf.to_int32(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]))
 
@@ -203,7 +224,7 @@ def int_to_bit(x_int, nbits, base=2):
   for i in range(nbits):
     x_labels.append(
         tf.floormod(tf.floordiv(x_l,
-                                tf.to_int64(base)**i), tf.to_int64(base)))
+                                tf.to_int32(base)**i), tf.to_int32(base)))
   res = tf.concat(x_labels, axis=-1)
   return tf.to_float(res)
 
@@ -361,15 +382,20 @@ def bottleneck(x,
     return res, c, l, embed
 
 
-def compress(x, is_2d, hparams, name):
+def compress(x, c, is_2d, hparams, name):
   """Compress."""
   with tf.variable_scope(name):
     # Run compression by strided convs.
     cur = x
     k1 = (3, 3) if is_2d else (3, 1)
-    cur = residual_conv(cur, hparams.num_compress_steps, k1, hparams, "rc")
     k2 = (2, 2) if is_2d else (2, 1)
+    cur = residual_conv(cur, hparams.num_compress_steps, k1, hparams, "rc")
+    if c is not None and hparams.do_attend_compress:
+      cur = attend(cur, c, hparams, "compress_attend")
     for i in xrange(hparams.num_compress_steps):
+      if hparams.do_residual_compress:
+        cur = residual_conv(cur, hparams.num_compress_steps, k1, hparams,
+                            "rc_%d" % i)
       cur = common_layers.conv_block(
           cur, hparams.hidden_size, [((1, 1), k2)],
           strides=k2, name="compress_%d" % i)
@@ -422,12 +448,25 @@ def multinomial_sample(x, vocab_size, temperature):
   return tf.to_int32(reshaped_samples)
 
 
+def ae_latent_softmax(latents_pred, latents_discrete, hparams):
+  vocab_size = hparams.v_size
+  if hparams.bottleneck_kind == "semhash":
+    vocab_size = 2**hparams.z_size
+  latents_logits = tf.layers.dense(latents_pred, vocab_size,
+                                   name="extra_logits")
+  return tf.nn.sparse_softmax_cross_entropy_with_logits(
+      labels=latents_discrete, logits=latents_logits)
+
+
 def ae_latent_sample(latents_dense, inputs, ed, embed, iters, hparams):
   """Sample from the latent space in the autoencoder."""
+  vocab_size = hparams.v_size
+  if hparams.bottleneck_kind == "semhash":
+    vocab_size = 2**hparams.z_size
   latents_pred = decode_transformer(inputs, ed, latents_dense, hparams, "extra")
-  latents_pred = tf.layers.dense(latents_pred, 2**16, name="extra_logits")
+  latents_pred = tf.layers.dense(latents_pred, vocab_size, name="extra_logits")
   latents_discrete = multinomial_sample(
-      latents_pred, 2**16, hparams.sampling_temp)
+      latents_pred, vocab_size, hparams.sampling_temp)
 
   def next_bit(latents_discrete, i):
     latents_discrete_prev = latents_discrete
@@ -435,9 +474,10 @@ def ae_latent_sample(latents_dense, inputs, ed, embed, iters, hparams):
       latents_dense = embed(latents_discrete)
       latents_pred = decode_transformer(
           inputs, ed, latents_dense, hparams, "extra")
-      latents_pred = tf.layers.dense(latents_pred, 2**16, name="extra_logits")
+      latents_pred = tf.layers.dense(latents_pred, vocab_size,
+                                     name="extra_logits")
       latents_discrete = multinomial_sample(
-          latents_pred, 2**16, hparams.sampling_temp)
+          latents_pred, vocab_size, hparams.sampling_temp)
       return tf.concat([latents_discrete_prev[:, :(i+1), :],
                         latents_discrete[:, (i+1):, :]], axis=1)
 
@@ -479,14 +519,14 @@ def ae_transformer_internal(inputs,
     targets, _ = common_layers.pad_to_same_length(
         targets, max_targets_len_from_inputs,
         final_length_divisible_by=2**hparams.num_compress_steps)
-    targets_c = compress(targets, False, hparams, "compress")
+    targets_c = compress(targets, inputs, False, hparams, "compress")
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
       latents_dense, latents_discrete, extra_loss, _ = bottleneck(
           targets_c, hparams, 2 * 2048, "vc", means, ema_count, ema_means)
       if _DO_SUMMARIES:
         tf.summary.histogram("b0", tf.reshape(latents_discrete[:, 0, :], [-1]))
-      pc = common_layers.inverse_exp_decay(hparams.startup_steps) * 0.95
+      pc = common_layers.inverse_exp_decay(hparams.startup_steps)
       pc = pc if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
       cond = tf.less(tf.random_uniform([batch_size]), pc)
       latents_dense = tf.where(cond, latents_dense, targets_c)
@@ -497,9 +537,8 @@ def ae_transformer_internal(inputs,
         latents_pred = decode_transformer(
             tf.stop_gradient(inputs), tf.stop_gradient(ed),
             tf.stop_gradient(latents_dense), hparams, "extra")
-        latents_pred = tf.layers.dense(latents_pred, 2**16, name="extra_logits")
-        losses["latent_pred"] = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            labels=latents_discrete, logits=latents_pred)
+        losses["latent_pred"] = ae_latent_softmax(
+            latents_pred, latents_discrete, hparams)
         losses["latent_pred"] = tf.reduce_mean(
             losses["latent_pred"] * 0.5 * tf.to_float(cond))
       else:
@@ -561,19 +600,16 @@ def ae_transformer_internal(inputs,
     res = res[:, common_layers.shape_list(latents_dense)[1]:, :, :]
     if hparams.do_mask and hparams.do_refine:
       def refine_res():
-        return residual_conv(res, 1, (5, 1), hparams, "refine")
+        # return residual_conv(res, 1, (5, 1), hparams, "refine")
+        r, _ = encode(tf.squeeze(res, axis=[2]),
+                      target_space, hparams, "refine_enc")
+        return tf.expand_dims(r, axis=2)
       masked_batches = tf.reduce_sum(mask, axis=[1, 2, 3])
       all_masked = tf.less(masked_batches, 0.1)
       res = tf.where(all_masked, refine_res(), res)
-    # We'll start training only the extra model of latents after 400K steps.
-    # Before we train only this, we decrease lr for other weights.
-    latent_time = tf.less(300000, tf.to_int32(tf.train.get_global_step()))
-    decreased_lr = common_layers.inverse_lin_decay(400000)
+    # We'll start training the extra model of latents after 200K steps.
+    latent_time = tf.less(200000, tf.to_int32(tf.train.get_global_step()))
     losses["latent_pred"] *= tf.to_float(latent_time)
-    losses["extra"] *= 1.0 - tf.to_float(latent_time)
-    decreased_lr_res = tf.stop_gradient(decreased_lr * res)
-    decreased_lr_res += (1.0 - decreased_lr) * res
-    res = tf.cond(latent_time, lambda: decreased_lr_res, lambda: res)
   return res, losses, cache
 
 
@@ -723,6 +759,8 @@ def transformer_ae_small():
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
   hparams.add_hparam("do_refine", False)
+  hparams.add_hparam("do_attend_compress", False)
+  hparams.add_hparam("do_residual_compress", False)
   hparams.add_hparam("drop_inputs", False)
   hparams.add_hparam("v_size", 1024*64)
   hparams.add_hparam("max_context_length", 64)
