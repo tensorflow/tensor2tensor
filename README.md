@@ -133,6 +133,7 @@ t2t-trainer \
 DECODE_FILE=$DATA_DIR/decode_this.txt
 echo "Hello world" >> $DECODE_FILE
 echo "Goodbye world" >> $DECODE_FILE
+echo -e 'Hallo Welt\nAuf Wiedersehen Welt' > ref-translation.de
 
 BEAM_SIZE=4
 ALPHA=0.6
