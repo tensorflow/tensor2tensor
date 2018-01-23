@@ -243,36 +243,37 @@ class ImageModality(modality.Modality):
       return res
 
 
-@registry.register_image_modality("image_identity_compress")
-class ImageIdentityCompressModality(modality.Modality):
-  """Modality for images used in generation."""
+@registry.register_image_modality("image_channel_compress")
+class ImageChannelCompressModality(modality.Modality):
+  """Modality for images using channel compression for generation."""
 
   def bottom_compress(self, inputs, name="bottom"):
     """Transform input from data space to model space.
 
-    Perform conversion of RGB pixel values to a real number and combine values
-    for each pixel to form representation of image_length x image_length dims.
+    Perform conversion of RGB pixel values to a real number in the range -1 to 1
+    and combine channel values for each pixel to form a representation of
+    size image_length x image_length dims.
 
     Args:
-      inputs: A Tensor with shape [batch, ...]
+      inputs: A Tensor representing pixel intensities as integers. [batch, ...]
       name: string, scope.
     Returns:
       body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
     """
     with tf.variable_scope(name):
+      tf.summary.image("inputs", inputs, max_outputs=2)
       inputs = common_layers.convert_rgb_to_real(inputs)
       ishape = common_layers.shape_list(inputs)
       inputs = tf.reshape(inputs, [-1, ishape[1], ishape[2] * ishape[3], 1])
       inputs.set_shape([None, None, None, 1])
       # We compress RGB intensities for each pixel using a conv.
-      x = common_layers.conv_block(
-          inputs,
-          self._body_input_depth, [((1, 1), (1, 3))],
-          first_relu=False,
-          padding="VALID",
-          strides=(1, 3),
-          force2d=True,
-          name="conv_input")
+      x = tf.layers.conv2d(inputs,
+                           self._body_input_depth, (1, 3),
+                           padding="VALID",
+                           strides=(1, 3),
+                           activation=tf.nn.relu,
+                           name="conv_input")
+      x.set_shape([None, None, None, self._body_input_depth])
       return x
 
   def bottom(self, inputs):
@@ -287,16 +288,18 @@ class ImageIdentityCompressModality(modality.Modality):
       img_len = self._model_hparams.img_len
       channels = self._model_hparams.num_channels
       batch = common_layers.shape_list(body_output)[0]
-      x = common_layers.conv(
+      x = tf.layers.conv2d(
           body_output,
-          hidden_dim * channels, (1, 1),
+          hidden_dim*channels, (1, 1),
+          strides=(1, 1),
           padding="VALID",
           activation=tf.nn.relu,
           name="decompress_conv")
       x = tf.reshape(x, [batch, img_len, img_len * channels, hidden_dim])
-      x.set_shape([None, None, None, hidden_dim])
-      x = common_layers.conv(
-          x, self.top_dimensionality, (1, 1), name="output_conv")
+      x = common_layers.layer_preprocess(x, self._model_hparams)
+      x = tf.layers.dense(x, 256,
+                          use_bias=True, activation=None,
+                          name="output_conv")
       x = tf.reshape(x,
                      [-1, img_len, img_len, channels, self.top_dimensionality])
       return x
