@@ -119,7 +119,8 @@ def create_experiment_fn():
 
 def create_run_config(hp):
   save_ckpt_steps = max(FLAGS.iterations_per_loop, FLAGS.local_eval_frequency)
-  if FLAGS.save_checkpoints_secs:
+  save_ckpt_secs = FLAGS.save_checkpoints_secs or None
+  if save_ckpt_secs:
     save_ckpt_steps = None
   return trainer_lib.create_run_config(
       model_dir=os.path.expanduser(FLAGS.output_dir),
@@ -128,7 +129,7 @@ def create_run_config(hp):
       num_shards=FLAGS.tpu_num_shards,
       log_device_placement=FLAGS.log_device_placement,
       save_checkpoints_steps=save_ckpt_steps,
-      save_checkpoints_secs=FLAGS.save_checkpoints_secs,
+      save_checkpoints_secs=save_ckpt_secs,
       keep_checkpoint_max=FLAGS.keep_checkpoint_max,
       keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
       num_gpus=FLAGS.worker_gpu,
