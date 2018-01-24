@@ -128,7 +128,7 @@ def create_run_config(hp):
       num_shards=FLAGS.tpu_num_shards,
       log_device_placement=FLAGS.log_device_placement,
       save_checkpoints_steps=save_ckpt_steps,
-      save_checkpoints_secs=FLAGS.save_checkpoints_steps,
+      save_checkpoints_secs=FLAGS.save_checkpoints_secs,
       keep_checkpoint_max=FLAGS.keep_checkpoint_max,
       keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
       num_gpus=FLAGS.worker_gpu,
