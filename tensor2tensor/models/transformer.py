@@ -397,29 +397,34 @@ def fast_decode(encoder_output,
       decoded_ids = decoded_ids[:, :top_beams, 1:]
   else:  # Greedy
 
-    def inner_loop(i, next_id, decoded_ids, cache):
+    def inner_loop(i, finished, next_id, decoded_ids, cache):
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       temperature = (0.0 if hparams.sampling_method == "argmax" else
                      hparams.sampling_temp)
-      next_id = tf.expand_dims(
-          common_layers.sample_with_temperature(logits, temperature), axis=1)
+      next_id = common_layers.sample_with_temperature(logits, temperature)
+      finished |= tf.equal(next_id, eos_id)
+      next_id = tf.expand_dims(next_id, axis=1)
       decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
-      return i + 1, next_id, decoded_ids, cache
+      return i + 1, finished, next_id, decoded_ids, cache
+
+    def is_not_finished(i, finished, *_):
+      return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
 
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
-    scores = None
+    finished = tf.constant(False, shape=[batch_size])
     next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
-    _, _, decoded_ids, _ = tf.while_loop(
-        # TODO(llion): Early stopping.
-        lambda i, *_: tf.less(i, decode_length),
+    _, _, _, decoded_ids, _ = tf.while_loop(
+        is_not_finished,
         inner_loop,
-        [tf.constant(0), next_id, decoded_ids, cache],
+        [tf.constant(0), finished, next_id, decoded_ids, cache],
         shape_invariants=[
             tf.TensorShape([]),
+            tf.TensorShape([None]),
             tf.TensorShape([None, None]),
             tf.TensorShape([None, None]),
             nest.map_structure(beam_search.get_state_shape_invariants, cache),
         ])
+    scores = None
 
   return decoded_ids, scores
 
