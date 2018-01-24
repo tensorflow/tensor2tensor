@@ -451,24 +451,48 @@ def multinomial_sample(x, vocab_size, temperature):
 
 
 def ae_latent_softmax(latents_pred, latents_discrete, hparams):
+  """Latent prediction and loss."""
   vocab_size = hparams.v_size
   if hparams.bottleneck_kind == "semhash":
     vocab_size = 2**hparams.z_size
-  latents_logits = tf.layers.dense(latents_pred, vocab_size,
-                                   name="extra_logits")
-  return tf.nn.sparse_softmax_cross_entropy_with_logits(
-      labels=latents_discrete, logits=latents_logits)
+  if hparams.num_blocks < 2:
+    latents_logits = tf.layers.dense(latents_pred, vocab_size,
+                                     name="extra_logits")
+    loss = None
+    if latents_discrete is not None:
+      loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+          labels=latents_discrete, logits=latents_logits)
+    sample = multinomial_sample(
+        latents_logits, vocab_size, hparams.sampling_temp)
+    return sample, loss
+
+  # Multi-block case.
+  vocab_bits = int(math.log(vocab_size, 2))
+  assert vocab_size == 2**vocab_bits
+  assert vocab_bits % hparams.num_blocks == 0
+  block_vocab_size = 2**(vocab_bits // hparams.num_blocks)
+  latents_logits = [tf.layers.dense(latents_pred, block_vocab_size,
+                                    name="extra_logits_%d" % i)
+                    for i in xrange(hparams.num_blocks)]
+  loss = None
+  if latents_discrete is not None:
+    losses = []
+    for i in xrange(hparams.num_blocks):
+      d = tf.floormod(tf.floordiv(latents_discrete,
+                                  block_vocab_size**i), block_vocab_size)
+      losses.append(tf.nn.sparse_softmax_cross_entropy_with_logits(
+          labels=d, logits=latents_logits[i]))
+    loss = sum(losses)
+  samples = [multinomial_sample(l, block_vocab_size, hparams.sampling_temp)
+             for l in latents_logits]
+  sample = sum([s * block_vocab_size**i for i, s in enumerate(samples)])
+  return sample, loss
 
 
 def ae_latent_sample(latents_dense, inputs, ed, embed, iters, hparams):
   """Sample from the latent space in the autoencoder."""
-  vocab_size = hparams.v_size
-  if hparams.bottleneck_kind == "semhash":
-    vocab_size = 2**hparams.z_size
   latents_pred = decode_transformer(inputs, ed, latents_dense, hparams, "extra")
-  latents_pred = tf.layers.dense(latents_pred, vocab_size, name="extra_logits")
-  latents_discrete = multinomial_sample(
-      latents_pred, vocab_size, hparams.sampling_temp)
+  latents_discrete, _ = ae_latent_softmax(latents_pred, None, hparams)
 
   def next_bit(latents_discrete, i):
     latents_discrete_prev = latents_discrete
@@ -476,10 +500,7 @@ def ae_latent_sample(latents_dense, inputs, ed, embed, iters, hparams):
       latents_dense = embed(latents_discrete)
       latents_pred = decode_transformer(
           inputs, ed, latents_dense, hparams, "extra")
-      latents_pred = tf.layers.dense(latents_pred, vocab_size,
-                                     name="extra_logits")
-      latents_discrete = multinomial_sample(
-          latents_pred, vocab_size, hparams.sampling_temp)
+      latents_discrete, _ = ae_latent_softmax(latents_pred, None, hparams)
       return tf.concat([latents_discrete_prev[:, :(i+1), :],
                         latents_discrete[:, (i+1):, :]], axis=1)
 
@@ -539,10 +560,10 @@ def ae_transformer_internal(inputs,
         latents_pred = decode_transformer(
             tf.stop_gradient(inputs), tf.stop_gradient(ed),
             tf.stop_gradient(latents_dense), hparams, "extra")
-        losses["latent_pred"] = ae_latent_softmax(
+        _, latent_pred_loss = ae_latent_softmax(
             latents_pred, latents_discrete, hparams)
         losses["latent_pred"] = tf.reduce_mean(
-            losses["latent_pred"] * 0.5 * tf.to_float(cond))
+            latent_pred_loss * 0.5 * tf.to_float(cond))
       else:
         inputs_c = decode_transformer(inputs, ed, targets_c, hparams, "dec_c")
         losses["latent_pred"] = tf.reduce_mean((inputs_c - targets_c)**2) * 20
