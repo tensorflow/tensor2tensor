@@ -244,6 +244,19 @@ class Problem(object):
         model_hparams.max_length or
         model_hparams.batch_size)
 
+  def tpu_batch_size_per_shard(self, model_hparams):
+    """Batch size in examples per TPU core.
+
+    Args:
+      model_hparams: model hyperparameters
+    Returns:
+      an integer
+    """
+    if self.batch_size_means_tokens:
+      return model_hparams.batch_size // self.max_length(model_hparams)
+    else:
+      return model_hparams.batch_size
+
   @property
   def batch_size_means_tokens(self):
     """Do we specify hparams.batch_size in tokens per datashard per batch.
@@ -470,34 +483,21 @@ class Problem(object):
 
     data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
     tf.logging.info("Reading data files from %s", data_filepattern)
-    dataset = tf.data.Dataset.list_files(data_filepattern)
-
+    data_files = tf.contrib.slim.parallel_reader.get_data_files(
+        data_filepattern)
     if shuffle_files:
-      dataset = dataset.shuffle(buffer_size=1024)
-
-    def _load_records(filename):
-      return tf.data.TFRecordDataset(filename, buffer_size=8 * 1024 * 1024)
-
-    if hasattr(tf.contrib.data, "parallel_interleave"):
-      interleave = lambda ds, fn: ds.apply(  # pylint: disable=g-long-lambda
-          tf.contrib.data.parallel_interleave(
-              fn, sloppy=is_training, cycle_length=8))
+      # In addition to shuffling the list of file names, we skip a random
+      # fraction of the first file.  The skip is essential for synchronous
+      # highly-parallel training.  Otherwise, we have multiple replicas
+      # reading the same shard in lock-step.
+      num_skip = random.randint(0, _file_num_records_cached(data_files[0]))
+      random.shuffle(data_files)
+      dataset = tf.data.TFRecordDataset(data_files).skip(num_skip)
     else:
-      interleave = lambda ds, fn: ds.interleave(fn, cycle_length=8)
-
-    dataset = interleave(dataset, _load_records)
+      dataset = tf.data.TFRecordDataset(data_files)
 
     if repeat:
       dataset = dataset.repeat()
-
-    if shuffle_files:
-      # Skip a random fraction at the beginning of the stream.  The skip is
-      # essential for synchronous highly-parallel training to avoid multiple
-      # replicas reading the same data in lock-step.
-      data_files = tf.contrib.slim.parallel_reader.get_data_files(
-          data_filepattern)
-      num_skip = random.randint(0, _file_num_records_cached(data_files[0]))
-      dataset = dataset.skip(num_skip)
 
     def _maybe_reverse_and_copy(example):
       self.maybe_reverse_features(example)
@@ -513,7 +513,7 @@ class Problem(object):
     dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
 
     if preprocess:
-      dataset = interleave(dataset, _preprocess)
+      dataset = dataset.flat_map(_preprocess)
 
     dataset = dataset.map(
         _maybe_reverse_and_copy, num_parallel_calls=num_threads)

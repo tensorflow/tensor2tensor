@@ -32,9 +32,10 @@ import tensorflow as tf
 def basic_params1():
   """A set of basic hyperparameters."""
   return tf.contrib.training.HParams(
-      # If the features are variable length, this is in tokens per batch per
-      # GPU. If the features are of known shape (e.g. image problems), this is
-      # the actual batch size.
+      # If the problem consists of variable-length sequences
+      # (see problem.batch_size_means_tokens()), then this is the number
+      # of tokens per batch per GPU or per TPU core.  Otherwise, this is
+      # the number of examples per GPU or per TPU core.
       batch_size=4096,
       # If True, then if the features are of variable length, the batch_size is
       # used as the actual batch size (and not tokens per batch).
@@ -94,6 +95,8 @@ def basic_params1():
       layer_postprocess_sequence="dan",
       # dropout rate to use during layer_preprocess and layer_postprocess
       layer_prepostprocess_dropout=0.1,
+      # dropout some symbols (set them to 0) before embedding.
+      symbol_dropout=0.0,
       # What type of normalization to use
       norm_type="layer",  # "batch", layer", "noam", "none".
       # epsilon parameter to normalization function
@@ -194,12 +197,6 @@ def basic_params1():
       # device training and mostly should be turned on for performance. One
       # exception are recurrent models: with dynamic loops it must be off.
       daisy_chain_variables=True,
-      # This is the actual batch size, *not* tokens per batch (i.e. for
-      # language models this is the number of sentences in the batch)
-      tpu_batch_size_per_shard=24,
-      # Set by t2t_trainer if --use_tpu to let the model know whether we are on
-      # TPU. Switching on/off tpu should not invalidate checkpoints.
-      use_tpu=False,
       # If True in PREDICT mode, then last-position-only optimizations are not
       # used.
       force_full_predict=False,

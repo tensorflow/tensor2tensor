@@ -32,15 +32,6 @@ import tensorflow as tf
 from tensorflow.python.eager import context
 
 
-# TODO(noam): remove this function after TPUs do gather faster.
-def tpu_gather(params, indices):
-  vocab_size = params.get_shape().as_list()[0]
-  indices_flat = tf.reshape(indices, [-1])
-  out = tf.matmul(tf.one_hot(indices_flat, vocab_size), params)
-  out = eu.reshape_like(out, tf.expand_dims(indices, -1))
-  return out
-
-
 @registry.register_symbol_modality("default")
 class SymbolModality(modality.Modality):
   """Modality for sets of discrete symbols.
@@ -107,8 +98,9 @@ class SymbolModality(modality.Modality):
       # Squeeze out the channels dimension.
       x = tf.squeeze(x, axis=3)
       var = self._get_weights()
-      ret = (tpu_gather(var, x) if self._model_hparams.use_tpu
-             else tf.gather(var, x))
+      x = common_layers.dropout_no_scaling(
+          x, 1.0 - self._model_hparams.symbol_dropout)
+      ret = common_layers.gather(var, x)
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
       ret *= tf.expand_dims(tf.to_float(tf.not_equal(x, 0)), -1)
@@ -160,7 +152,7 @@ class SymbolModality(modality.Modality):
       else:
         body_output = tf.reshape(body_output, [-1, body_output_shape[-1]])
         logits = tf.matmul(body_output, var, transpose_b=True)
-        if (self._model_hparams.use_tpu and
+        if (common_layers.is_on_tpu() and
             self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
           # TPU does not react kindly to extra dimensions.
           # TODO(noam): remove this once TPU is more forgiving of extra dims.
@@ -518,3 +510,7 @@ class IdentitySymbolModality(SymbolModality):
 
   def top(self, body_output, _):
     return body_output
+
+  def targets_bottom(self, x):
+    """SymbolModality overrides targets_bottom, so need to override here too."""
+    return self.bottom(x)

@@ -248,5 +248,4 @@ def resnet_base():
 
   # Can run with a batch size of 128 with Problem ImageImagenet224
   hparams.batch_size = 128
-  hparams.tpu_batch_size_per_shard = 128
   return hparams
