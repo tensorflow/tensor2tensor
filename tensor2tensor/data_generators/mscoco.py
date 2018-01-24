@@ -217,3 +217,14 @@ class ImageMsCocoTokens32k(ImageMsCocoTokens8k):
   @property
   def targeted_vocab_size(self):
     return 2**15  # 32768
+
+
+@registry.register_problem
+class ImageTextMsCoco(ImageMsCocoTokens8k):
+  """Problem for using MsCoco for generating images from text."""
+  _MSCOCO_IMAGE_SIZE = 32
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"] = image_utils.resize_by_area(
+        example["inputs"], self._MSCOCO_IMAGE_SIZE)
+    return example
