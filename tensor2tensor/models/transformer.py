@@ -122,7 +122,8 @@ class Transformer(t2t_model.T2TModel):
         nonpadding=nonpadding,
         save_weights_to=self.attention_weights)
 
-    if hparams.use_tpu and hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if (common_layers.is_on_tpu() and
+        hparams.mode == tf.estimator.ModeKeys.TRAIN):
       # TPU does not react kindly to extra dimensions.
       # TODO(noam): remove this once TPU is more forgiving of extra dims.
       return decoder_output
@@ -595,7 +596,7 @@ def transformer_encoder(encoder_input,
           encoder_self_attention_bias)
       nonpadding = 1.0 - padding
     pad_remover = None
-    if hparams.use_pad_remover:
+    if hparams.use_pad_remover and not common_layers.is_on_tpu():
       pad_remover = expert_utils.PadRemover(padding)
     for layer in xrange(hparams.num_encoder_layers or
                         hparams.num_hidden_layers):
@@ -802,7 +803,7 @@ def transformer_base_v1():
   hparams.initializer = "uniform_unit_scaling"
   hparams.weight_decay = 0.0
   hparams.optimizer_adam_beta1 = 0.9
-  hparams.optimizer_adam_beta2 = 0.98
+  hparams.optimizer_adam_beta2 = 0.997
   hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.1
   hparams.shared_embedding_and_softmax_weights = True
@@ -834,6 +835,7 @@ def transformer_base_v1():
 
 @registry.register_hparams
 def transformer_base_v2():
+  """Set of hyperparameters."""
   hparams = transformer_base_v1()
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
@@ -848,33 +850,6 @@ def transformer_base_v2():
 @registry.register_hparams
 def transformer_base():
   return transformer_base_v2()
-
-
-@registry.register_hparams
-def transformer_n_da():
-  """Normalize on layer input, instead of after residual connection.
-
-  This version seems to cure failure-to-learn bugs - for example, with very
-  deep networks or hard-to-learn mappings.
-
-  Probably this should become the default.
-
-  Returns:
-    a hyperparameters.
-  """
-  hparams = transformer_base()
-  hparams.layer_preprocess_sequence = "n"
-  hparams.layer_postprocess_sequence = "da"
-  # This version seems to benefit from a higher learning rate.
-  hparams.learning_rate = 0.4
-  return hparams
-
-
-@registry.register_hparams
-def transformer_n_da_l10():
-  hparams = transformer_n_da()
-  hparams.num_hidden_layers = 10
-  return hparams
 
 
 @registry.register_hparams
@@ -894,7 +869,6 @@ def transformer_big_single_gpu():
   hparams = transformer_big()
   hparams.layer_prepostprocess_dropout = 0.1
   hparams.learning_rate_warmup_steps = 16000
-  hparams.optimizer_adam_beta2 = 0.998
   return hparams
 
 
@@ -1209,29 +1183,53 @@ def transformer_relative_big():
   return hparams
 
 
+def update_hparams_for_tpu(hparams):
+  """Change hparams to be compatible with TPU training."""
+
+  # Adafactor uses less memory than Adam.
+  hparams.optimizer = "Adafactor"
+
+  # Avoid an expensive concat on TPU.
+  # >1 shards helps with faster parameter distribution on multi-GPU machines
+  hparams.symbol_modality_num_shards = 1
+
+  # Adaptive batch sizes and sequence lengths are not supported on TPU.
+  # Instead, every batch has the same sequence length and the same batch size.
+  # Longer sequences are dropped and shorter ones are padded.
+  #
+  # It is therefore suggested to use a problem where examples have been combined
+  # to a longer length, e.g. the "_packed" problems.
+  #
+  # For problems with variable sequence lengths, this parameter controls the
+  # maximum sequence length.  Shorter sequences are dropped and longer ones
+  # are padded.
+  #
+  # For problems with fixed sequence lengths - e.g. the "_packed" problems,
+  # this hyperparameter is ignored.
+  hparams.max_length = 64
+
+  # TPUs have less memory than GPUs, so decrease the batch size
+  hparams.batch_size = 2048
+
+
 @registry.register_hparams
 def transformer_tpu():
   """HParams for Transformer model on TPU."""
   hparams = transformer_base()
   update_hparams_for_tpu(hparams)
-  hparams.tpu_batch_size_per_shard = 56
   return hparams
 
 
 @registry.register_hparams
 def transformer_packed_tpu():
-  """For packed problems, length 256, batch 14."""
-  hparams = transformer_base()
-  update_hparams_for_tpu(hparams)
-  hparams.tpu_batch_size_per_shard = 12
-  return hparams
+  """Deprecated alias for transformer_tpu()."""
+  return transformer_tpu()
 
 
 @registry.register_hparams
 def transformer_big_tpu():
   hparams = transformer_big()
   update_hparams_for_tpu(hparams)
-  hparams.tpu_batch_size_per_shard = 16
   return hparams
 
 
@@ -1270,7 +1268,7 @@ def transformer_tpu_range(rhp):
 def transformer_tpu_batch_range(rhp):
   hparams = transformer_tpu()
   common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
-  rhp.set_discrete("tpu_batch_size_per_shard", [1, 2, 3, 4])
+  rhp.set_discrete("batch_size", [256, 512, 768, 1024])
 
 
 @registry.register_hparams
@@ -1283,23 +1281,6 @@ def transformer_small_tpu():
   hparams = transformer_small()
   update_hparams_for_tpu(hparams)
   return hparams
-
-
-def update_hparams_for_tpu(hparams):
-  """Change hparams to be compatible with TPU training."""
-  hparams.use_pad_remover = False  # where op not supported
-  hparams.optimizer = "TrueAdam"
-  hparams.learning_rate = 0.2
-  # Avoid an expensive concat on TPU
-  hparams.symbol_modality_num_shards = 1
-
-  # Inputs
-  # Each example in the batch will be of (padded) length hparams.max_length
-  # It is suggested to use a dataset that where examples have been combined
-  # to a longer length, e.g. the "_packed" datasets. If that's the case, reduce
-  # the tpu_batch_size_per_shard as necessary to fit in memory.
-  # For translate_ende_wmt32k_packed, transformer_packed_tpu is a good config.
-  hparams.max_length = 64
 
 
 @registry.register_hparams
@@ -1332,12 +1313,21 @@ def transformer_tpu_with_conv():
 
 
 @registry.register_hparams
-def transformer_tpu_base_language_model():
-  """Hparams for training languagemodel_lm1b8k on tpu."""
+def transformer_lm_tpu_0():
+  """Hparams for training languagemodel_lm1b8k on tpu.  92M Params."""
   hparams = transformer_clean_big()
   update_hparams_for_tpu(hparams)
-  hparams.tpu_batch_size_per_shard = 16
   hparams.num_heads = 4   # heads are expensive on tpu
-  hparams.learning_rate_warmup_steps = 1000
+  hparams.batch_size = 4096
   hparams.shared_embedding_and_softmax_weights = False
+  hparams.symbol_dropout = 0.1
+  return hparams
+
+
+@registry.register_hparams
+def transformer_lm_tpu_1():
+  """Hparams for training languagemodel_lm1b8k on tpu.  335M Params."""
+  hparams = transformer_lm_tpu_0()
+  hparams.hidden_size = 2048
+  hparams.filter_size = 8192
   return hparams

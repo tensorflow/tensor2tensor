@@ -175,8 +175,9 @@ def create_estimator(model_name,
       model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
 
   if use_tpu:
-    batch_size = hparams.tpu_batch_size_per_shard
-    batch_size *= run_config.tpu_config.num_shards
+    problem = hparams.problem_instances[0]
+    batch_size = (problem.tpu_batch_size_per_shard(hparams) *
+                  run_config.tpu_config.num_shards)
     return tf.contrib.tpu.TPUEstimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,

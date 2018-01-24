@@ -181,7 +181,7 @@ def xception_tiny():
 @registry.register_hparams
 def xception_tiny_tpu():
   hparams = xception_base()
-  hparams.tpu_batch_size_per_shard = 2
+  hparams.batch_size = 2
   # The base exp50k scheme uses a cond which fails to compile on TPU
   hparams.learning_rate_decay_scheme = "noam"
   hparams.num_hidden_layers = 2

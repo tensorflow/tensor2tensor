@@ -363,7 +363,7 @@ def revnet_base():
   hparams.weight_decay = 1e-4
 
   # Can run with a batch size of 128 with Problem ImageImagenet224
-  hparams.tpu_batch_size_per_shard = 128
+  hparams.batch_size = 128
   return hparams
 
 
@@ -381,7 +381,7 @@ def revnet_cifar_base():
   hparams.init_kernel_size = 3
   hparams.init_maxpool = False
   hparams.strides = [1, 2, 2]
-  hparams.tpu_batch_size_per_shard = 128
+  hparams.batch_size = 128
   hparams.weight_decay = 5e-3
 
   hparams.learning_rate = 0.1

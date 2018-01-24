@@ -183,52 +183,5 @@ class RevBlockTest(tf.test.TestCase):
     self._testRevBlock(x=x, f=f)
 
 
-class RecomputeTest(tf.test.TestCase):
-
-  def testRecompute(self):
-
-    def layer(x, name=None):
-      with tf.variable_scope(name, default_name="layer"):
-        x = tf.contrib.layers.layer_norm(x)
-        x = tf.layers.conv1d(
-            x,
-            10,
-            1,
-            use_bias=False,
-            kernel_initializer=tf.constant_initializer(42.42))
-        x = tf.nn.relu(x)
-        return x
-
-    def fn(x):
-      out = x
-      for _ in range(3):
-        out = layer(out)
-      return out
-
-    @rev_block.recompute_grad
-    def fn_recompute(x):
-      return fn(x)
-
-    x = tf.random_uniform((3, 1, 3))
-    recompute_vars = None
-    with tf.variable_scope("recompute") as vs:
-      out1 = tf.reduce_sum(fn_recompute(x))
-      recompute_vars = vs.trainable_variables()
-    reg_vars = None
-    with tf.variable_scope("regular") as vs:
-      out2 = tf.reduce_sum(fn(x))
-      reg_vars = vs.trainable_variables()
-
-    grad1 = tf.gradients(out1, recompute_vars)
-    grad2 = tf.gradients(out2, reg_vars)
-
-    with self.test_session() as sess:
-      sess.run(tf.global_variables_initializer())
-      outs = sess.run([out1, out2, grad1, grad2])
-      self.assertAllClose(outs[0], outs[1])
-      for g1, g2 in zip(outs[2], outs[3]):
-        self.assertAllClose(g1, g2)
-
-
 if __name__ == "__main__":
   tf.test.main()

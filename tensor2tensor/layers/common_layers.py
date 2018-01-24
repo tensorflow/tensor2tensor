@@ -40,6 +40,10 @@ from tensorflow.python.framework import ops
 allow_defun = False
 
 
+def is_on_tpu():
+  return tf.contrib.framework.get_name_scope().startswith("TPUReplicate")
+
+
 def saturating_sigmoid(x):
   """Saturating sigmoid: 1.2 * sigmoid(x) - 0.1 cut to [0, 1]."""
   with tf.name_scope("saturating_sigmoid", [x]):
@@ -171,7 +175,35 @@ def flatten4d3d(x):
   return result
 
 
-def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0):
+# TODO(noam): remove this function after TPUs do gather faster.
+def gather(params, indices):
+  """Version of tf.gather that works faster on tpu."""
+  if not is_on_tpu():
+    return tf.gather(params, indices)
+  vocab_size = params.get_shape().as_list()[0]
+  indices_flat = tf.reshape(indices, [-1])
+  out = tf.matmul(tf.one_hot(indices_flat, vocab_size), params)
+  out = eu.reshape_like(out, tf.expand_dims(indices, -1))
+  return out
+
+
+def dropout_no_scaling(x, keep_prob):
+  """Like tf.nn.dropout, but does not scale up.  Works on integers also.
+
+  Args:
+    x: a Tensor
+    keep_prob: a floating point number
+  Returns:
+    a Tensor of the same size and shape as x
+  """
+  if keep_prob == 1.0:
+    return x
+  return x * tf.cast(
+      tf.less(tf.random_uniform(tf.shape(x)), keep_prob), x.dtype)
+
+
+def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0,
+              symbol_dropout_rate=0.0):
   """Embed x of type int64 into dense vectors, reducing to max 4 dimensions."""
   with tf.variable_scope(
       name, default_name="embedding", values=[x], reuse=reuse):
@@ -181,7 +213,8 @@ def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0):
     # parameter server. This avoids excess computation on the parameter server.
     if not tfe_context.in_eager_mode():
       embedding_var = eu.convert_gradient_to_tensor(embedding_var)
-    emb_x = tf.gather(embedding_var, x)
+    x = dropout_no_scaling(x, 1.0 - symbol_dropout_rate)
+    emb_x = gather(embedding_var, x)
     if multiplier != 1.0:
       emb_x *= multiplier
     static_shape = emb_x.shape.as_list()
@@ -432,7 +465,7 @@ def tpu_conv1d(inputs, filters, kernel_size, padding="SAME", name="tpu_conv1d"):
     a Tensor with shape [batch, length, filters].
   """
   if kernel_size == 1:
-    return tf.layers.dense(inputs, filters, name=name, use_bias=True)
+    return dense(inputs, filters, name=name, use_bias=True)
   if padding == "SAME":
     assert kernel_size % 2 == 1
     first_offset = -((kernel_size - 1) // 2)
@@ -445,7 +478,7 @@ def tpu_conv1d(inputs, filters, kernel_size, padding="SAME", name="tpu_conv1d"):
   for i in xrange(kernel_size):
     shifted = tf.slice(padded, [0, i, 0], tf.shape(inputs)) if i else inputs
     shifted.set_shape(inputs.get_shape())
-    results.append(tf.layers.dense(
+    results.append(dense(
         shifted, filters, use_bias=(i == 0), name=name + "_%d" % i))
   ret = tf.add_n(results)
   ret *= kernel_size ** -0.5
@@ -877,7 +910,7 @@ def decompress_seqcnn(x,
         targets_shape[0], targets_shape[1], targets_shape[2], channels,
         hidden_size
     ])
-    return tf.layers.dense(outputs, targets_vocab_size)
+    return dense(outputs, targets_vocab_size)
 
 
 def simple_attention(target, source, bias=None):
@@ -1267,11 +1300,11 @@ def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
 
 def dense_relu_dense(inputs, filter_size, output_size, dropout=0.0):
   """Hidden layer with RELU activation followed by linear projection."""
-  h = tf.layers.dense(
+  h = dense(
       inputs, filter_size, use_bias=True, activation=tf.nn.relu, name="conv1")
   if dropout != 0.0:
     h = tf.nn.dropout(h, 1.0 - dropout)
-  o = tf.layers.dense(h, output_size, use_bias=True, name="conv2")
+  o = dense(h, output_size, use_bias=True, name="conv2")
   return o
 
 
@@ -2454,3 +2487,97 @@ def all_reduce_ring(x, parallelism, maybe_reduce=True, use_bfloat16=True):
   if maybe_reduce:
     y = expand_by_device(original_parallelism, parallelism, y)
   return y
+
+
+def recompute_grad(fn):
+  """Decorator that recomputes the function on the backwards pass.
+
+  Args:
+    fn: a function that takes Tensors (all as positional arguments) and returns
+      a tuple of Tensors.
+
+  Returns:
+    A wrapped fn that is identical to fn when called, but its activations will
+    be discarded and recomputed on the backwards pass (i.e. on a call to
+    tf.gradients).
+  """
+
+  @functools.wraps(fn)
+  def wrapped(*args):
+    return _recompute_grad(fn, args)
+
+  return wrapped
+
+
+def _recompute_grad(fn, args):
+  """See recompute_grad."""
+
+  cached_vs = []
+  cached_arg_scope = []
+
+  def grad_fn(inputs, variables, outputs, output_grads):
+    """Recompute outputs for gradient computation."""
+    del outputs
+    variables = [underlying_variable_ref(v) for v in variables]
+    # Recompute outputs
+    with tf.control_dependencies(output_grads):
+      with tf.contrib.framework.arg_scope(cached_arg_scope[0]):
+        with tf.variable_scope(cached_vs[0], reuse=True):
+          outputs = fn(*inputs)
+
+    if not (isinstance(outputs, list) or isinstance(outputs, tuple)):
+      outputs = [outputs]
+    outputs = list(outputs)
+    grads = tf.gradients(outputs, inputs + variables, output_grads)
+    grad_inputs = grads[:len(inputs)]
+    grad_vars = grads[len(inputs):]
+    if is_on_tpu():
+      # TODO(noam): remove this hack once XLA does the right thing.
+      # Force the gradinets on the inputs to be computed before the variables
+      # are updated.  This saves memory by preventing XLA from making an extra
+      # copy of the variables.
+      grad_vars = force_dependency(grad_vars, grad_inputs)
+    return grad_inputs, grad_vars
+
+  @fn_with_custom_grad(grad_fn)
+  def fn_with_recompute(*args):
+    cached_vs.append(tf.get_variable_scope())
+    # TODO(rsepassi): Rm conditional in TF 1.5
+    if hasattr(tf.contrib.framework, "current_arg_scope"):
+      cached_arg_scope.append(tf.contrib.framework.current_arg_scope())
+    else:
+      cached_arg_scope.append({})
+    return fn(*args)
+
+  return fn_with_recompute(*args)
+
+
+def force_dependency(xs, ys):
+  """Force all of xs to depend on all of ys, using a false data dependency.
+
+  XLA seems to ignore control dependencies.
+
+  Args:
+    xs: a list of tensors
+    ys: a list of tensors:
+  Returns:
+    a list of tensors of the same length as xs
+  """
+  def _first_element(x):
+    ndims = x.get_shape().ndims
+    return tf.reshape(tf.slice(x, [0] * ndims, [1] * ndims), [])
+  my_zero = tf.add_n([_first_element(y) for y  in ys if y is not None]) * 1e-30
+  return [x + my_zero for x in xs]
+
+
+def dense(x, units, **kwargs):
+  """Identical to tf.layers.dense, Memory optimization on tpu."""
+  fn = lambda x: tf.layers.dense(x, units, **kwargs)
+  if is_on_tpu():
+    # TODO(noam): remove this hack once XLA does the right thing.
+    # Forces the gradinets on the inputs to be computed before the variables
+    # are updated.  This saves memory by preventing XLA from making an extra
+    # copy of the variables.
+    return _recompute_grad(fn, [x])
+  else:
+    return fn(x)

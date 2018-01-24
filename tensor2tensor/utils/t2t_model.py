@@ -149,7 +149,6 @@ class T2TModel(base.Layer):
     dp = self._data_parallelism
     summarize_features(sharded_features, num_shards=dp.n)
     datashard_to_features = self._to_features_per_datashard(sharded_features)
-
     if self.use_body_sharded:
       # MoE models override body_sharded
       transformed_features = dp(self.bottom, datashard_to_features)
@@ -285,10 +284,10 @@ class T2TModel(base.Layer):
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
-    use_tpu = self.hparams.use_tpu
     lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
     lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
+    train_op = optimize.optimize(loss, lr, self.hparams,
+                                 use_tpu=common_layers.is_on_tpu())
     return train_op
 
   def set_mode(self, mode):
@@ -782,7 +781,6 @@ class T2TModel(base.Layer):
     """
     _create_dummy_vars()
     hparams = copy.deepcopy(hparams)
-    hparams.use_tpu = use_tpu
 
     # Instantiate model
     data_parallelism = None
@@ -835,10 +833,9 @@ class T2TModel(base.Layer):
 
   def estimator_spec_train(self, loss, num_async_replicas=1):
     """Construct EstimatorSpec for TRAIN mode."""
-    use_tpu = self.hparams.use_tpu
     train_op = self.optimize(loss, num_async_replicas=num_async_replicas)
 
-    if use_tpu:
+    if common_layers.is_on_tpu():
       _remove_summaries()  # summaries not currently working on TPU
       return tf.contrib.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
@@ -853,13 +850,12 @@ class T2TModel(base.Layer):
                           loss):
     """Construct EstimatorSpec for EVAL mode."""
     hparams = self.hparams
-    use_tpu = hparams.use_tpu
 
     if not hasattr(hparams, "problem_instances"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
 
     problem = hparams.problem_instances[0]
-    if use_tpu:
+    if common_layers.is_on_tpu():
       eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
       _remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(

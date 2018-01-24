@@ -38,7 +38,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
       v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
   ]
   log_variable_sizes(diet_vars, "Diet Variables")
-  opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams)
+  opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
 
@@ -63,7 +63,10 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
 class ConditionalOptimizer(tf.train.Optimizer):
   """Conditional optimizer."""
 
-  def __init__(self, optimizer_name, lr, hparams):
+  def __init__(self, optimizer_name, lr, hparams, use_tpu=False):
+    if optimizer_name == "Adam" and use_tpu:
+      # LazyAdamOptimizer does not work on TPU
+      optimizer_name = "TrueAdam"
     if optimizer_name == "Adam":
       # We change the default epsilon for Adam and re-scale lr.
       # Using LazyAdam as it's much faster for large vocabulary embeddings.
@@ -310,7 +313,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
      estimate matrix, Adafactor keeps only the row and column means of that
      estimate matrix, and estimate the full second-moment estimate matrix
      from on the fly, based on the means.
-  3. Adafactor uses a variable decay rate for the second-moment estaimtes -
+  3. Adafactor uses a variable decay rate for the second-moment estimates -
      faster decay at the start of training and slower decay later. This
      elimnates the awkwardness in Adam related to having biased moment
      estimates at the start of training.
@@ -325,8 +328,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
     The update rule is as follows:
     ```
     t <- t + 1
-    decay_horizon = min(t, t * relative_decay_horizon + absolute_decay_horizon)
-    decay_rate = 1 - 1 / decay_horizon
+    decay_rate = 1 - t ^ (-beta)
     v <- decay_rate * v + (1 - decay_rate) * grad^2
     var <- var - lr * grad / (sqrt(v) + epsilon)
     ```
@@ -342,8 +344,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
     The update rule is as follows:
     ```
     t <- t + 1
-    decay_horizon = min(t, t * relative_decay_horizon + absolute_decay_horizon)
-    decay_rate = 1 - 1 / decay_horizon
+    decay_rate = 1 - t ^ (-beta)
     v_r <- decay_rate * v_r + (1 - decay_rate) * reduce_mean(grad^2, 1)
     v_c <- decay_rate * v_c + (1 - decay_rate) * reduce_mean(grad^2, 0)
     approx_v = expand_dims(v_r, 1) * expand_dims(v_c, 0) / reduce_mean(v_c)
@@ -358,8 +359,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
   def __init__(self,
                learning_rate=0.001,
                epsilon=1e-8,
-               relative_decay_horizon=0.2,
-               absolute_decay_horizon=100.0,
+               beta=0.8,
                use_locking=False,
                name="Adafactor"):
     """Construct a new Adafactor optimizer.
@@ -369,24 +369,19 @@ class AdafactorOptimizer(tf.train.Optimizer):
     Args:
       learning_rate: A Tensor or a floating point value.  The learning rate.
       epsilon: A small constant for numerical stability.
-      relative_decay_horizon: a floating point value <= 1
-      absolute_decay_horizon: a floating point value (representing a step count)
+      beta: a floating point value between 0 and 1
       use_locking: If True use locks for update operations.
       name: Optional name for the operations created when applying gradients.
         Defaults to "AdafactorOptimizer".
     """
     super(AdafactorOptimizer, self).__init__(use_locking, name)
     self._lr = learning_rate
-    self._relative_decay_horizon = relative_decay_horizon
-    self._absolute_decay_horizon = absolute_decay_horizon
+    self._beta = beta
     self._epsilon = epsilon
 
   def _prepare(self):
     global_step = tf.to_float(tf.train.get_or_create_global_step()) + 1.0
-    decay_horizon = tf.minimum(global_step,
-                               global_step * self._relative_decay_horizon +
-                               self._absolute_decay_horizon)
-    self._mixing_rate = 1.0 / decay_horizon
+    self._mixing_rate = tf.pow(global_step, -self._beta)
     self._decay_rate = 1.0 - self._mixing_rate
     self._epsilon = tf.to_float(self._epsilon)
     self._lr = tf.to_float(self._lr)
@@ -421,13 +416,20 @@ class AdafactorOptimizer(tf.train.Optimizer):
     shape = var.get_shape().as_list()
     grad_squared = tf.square(grad)
     updates = []
+    # Add some imperceptible noise to these values.
+    # This confounds the rewriter and keeps it from fusing the scalar
+    # multiplication across different variables.  This fusion of the multiplies
+    # is a bad for HBM usage, since it causes the gradients to persist in
+    # memory.
+    my_zero = tf.random_uniform([]) * 1e-20
+    mixing_rate = self._mixing_rate + my_zero
+    decay_rate = self._decay_rate + my_zero
+    lr = self._lr + my_zero
     if self._should_use_factored_second_moment_estimate(shape):
       vr = self.get_slot(var, "vr")
-      new_vr = (self._decay_rate * vr +
-                self._mixing_rate * tf.reduce_mean(grad_squared, 1))
+      new_vr = (decay_rate * vr + mixing_rate * tf.reduce_mean(grad_squared, 1))
       vc = self.get_slot(var, "vc")
-      new_vc = (self._decay_rate * vc +
-                self._mixing_rate * tf.reduce_mean(grad_squared, 0))
+      new_vc = (decay_rate * vc + mixing_rate * tf.reduce_mean(grad_squared, 0))
       vr_update = tf.assign(vr, new_vr, use_locking=self._use_locking)
       vc_update = tf.assign(vc, new_vc, use_locking=self._use_locking)
       updates = [vr_update, vc_update]
@@ -437,11 +439,11 @@ class AdafactorOptimizer(tf.train.Optimizer):
       denom = tf.expand_dims(vr, 1) * tf.expand_dims(vc, 0)
     else:
       v = self.get_slot(var, "v")
-      new_v = (self._decay_rate * v + self._mixing_rate * grad_squared)
+      new_v = (decay_rate * v + mixing_rate * grad_squared)
       v_update = tf.assign(v, new_v, use_locking=self._use_locking)
       updates = [v_update]
       denom = tf.sqrt(new_v) + self._epsilon
-    subtrahend = self._lr * grad / denom
+    subtrahend = lr * grad / denom
     var_update = tf.assign_sub(var, subtrahend, use_locking=self._use_locking)
     updates = [var_update] + updates
     return tf.group(*updates)
