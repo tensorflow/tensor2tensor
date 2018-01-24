@@ -87,6 +87,7 @@ def create_run_config(master="",
                       num_shards=8,
                       log_device_placement=False,
                       save_checkpoints_steps=1000,
+                      save_checkpoints_secs=0,
                       keep_checkpoint_max=20,
                       keep_checkpoint_every_n_hours=10000,
                       num_gpus=1,
@@ -121,6 +122,7 @@ def create_run_config(master="",
       "session_config": session_config,
       "save_summary_steps": 100,
       "save_checkpoints_steps": save_checkpoints_steps,
+      "save_checkpoints_secs": save_checkpoints_secs,
       "keep_checkpoint_max": keep_checkpoint_max,
       "keep_checkpoint_every_n_hours": keep_checkpoint_every_n_hours,
       "tf_random_seed": random_seed,
@@ -201,16 +203,19 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
   if use_dbgprofile:
     # Recorded traces can be visualized with chrome://tracing/
     # The memory/tensor lifetime is also profiled
+    tf.logging.info("Using ProfilerHook")
     defaults = dict(save_steps=10, show_dataflow=True, show_memory=True)
     defaults.update(dbgprofile_kwargs)
     train_monitors.append(tf.contrib.hooks.ProfilerHook(**defaults))
 
   if use_validation_monitor:
+    tf.logging.info("Using ValidationMonitor")
     train_monitors.append(
         tf.contrib.learn.monitors.ValidationMonitor(
             hooks=eval_hooks, **validation_monitor_kwargs))
 
   if use_early_stopping:
+    tf.logging.info("Using EarlyStoppingHook")
     hook = metrics_hook.EarlyStoppingHook(**early_stopping_kwargs)
     # Adding to both training and eval so that eval aborts as well
     train_monitors.append(hook)
@@ -284,10 +289,13 @@ def create_experiment(run_config,
         every_n_steps=min_eval_frequency)
 
     # In-process eval (and possible early stopping)
-    local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
+    if schedule == "continuous_train_and_eval" and min_eval_frequency:
+      tf.logging.warn("ValidationMonitor only works with "
+                      "--schedule=train_and_evaluate")
     use_validation_monitor = (
-        schedule in local_schedules and min_eval_frequency)
+        schedule == "train_and_evaluate" and min_eval_frequency)
     # Distributed early stopping
+    local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
     use_early_stopping = (
         schedule not in local_schedules and eval_early_stopping_steps)
     train_monitors, eval_hooks = create_hooks(

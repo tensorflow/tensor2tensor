@@ -36,7 +36,6 @@ setup(
         'future',
         'gevent',
         'gunicorn',
-        'gym',
         'numpy',
         'requests',
         'scipy',
