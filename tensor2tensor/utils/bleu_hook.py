@@ -217,7 +217,7 @@ def _try_twice_tf_glob(pattern):
   """
   try:
     return tf.gfile.Glob(pattern)
-  except tensorflow.python.framework.errors_impl.NotFoundError:
+  except tf.errors.NotFoundError:
     return tf.gfile.Glob(pattern)
 
 def _read_stepfiles_list(path_prefix, path_suffix=".index", min_steps=0):
