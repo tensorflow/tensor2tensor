@@ -22,7 +22,7 @@ import importlib
 import os
 import sys
 
-from gcloud import fhfile
+from gcloud.gcs import fhfile
 
 # Dependency imports
 
