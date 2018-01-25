@@ -357,6 +357,67 @@ def maybe_cloud_tpu():
     FLAGS.master = tpu_master
     yield
 
+# Fathom
+def _pick_optimal_model() -> None:
+    """Update the checkpoint so that it points to the best model that was
+    encountered during training. Here "best" is defined as the lowest or
+    highest value of the chosen early stopping metric. (By default,
+    lowest loss.)
+
+    We do this automatically based on knowledge of how early stopping
+    works; i.e., we take the model that prevented early stopping from
+    stopping before it did.
+    """
+
+    if FLAGS.debug_mode:
+        return
+
+    checkpoint_state = tf.train.get_checkpoint_state(FLAGS.output_dir)
+    all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
+
+    def extract_step(path):
+        """Extract the step number from a checkpoint path
+
+        Args:
+            path: a path, e.g., model.ckpt-17
+
+        Returns:
+            step: the step number as an int, e.g., 17
+        """
+        return int(path[path.rindex('-') + 1:])
+
+    # get available step numbers
+    steps = [(extract_step(path), path) for path in all_checkpoint_paths]
+    steps = sorted(steps)
+    steps, all_checkpoint_paths = zip(*steps)
+    all_checkpoint_paths = list(all_checkpoint_paths)
+
+    # the step we want is the last one that would have allowed us to
+    # stop when we did (at steps[-1])
+    thresh = steps[-1] - FLAGS.eval_early_stopping_steps
+
+    # get the last step that is <= thresh. Note that the early
+    # stopping flags are phrased in terms of step number, not how many
+    # times we've run eval.
+    best_step_index = [step <= thresh for step in steps].index(False) - 1
+    assert best_step_index >= 0, 'Early stopping stopped before it should have'
+
+
+    # this is the checkpoint we want
+    checkpoint_path = all_checkpoint_paths[best_step_index]
+
+    # hack FIXME TODO XXX
+    # We are about to move the best model into an export folder
+    dirname, basename = os.path.split(checkpoint_path)
+    checkpoint_path = basename
+
+    print('Early stopping chose checkpoint', checkpoint_path)
+
+    tf.train.update_checkpoint_state(
+      FLAGS.output_dir,
+      checkpoint_path,
+      [checkpoint_path])
+
 
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
