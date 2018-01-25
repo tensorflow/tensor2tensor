@@ -314,6 +314,8 @@ def main(_):
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
 
+  FLAGS.output_dir = usr_dir.update_data_dir(FLAGS.output_dir)
+
   if FLAGS.generate_data:
     generate_data()
 
