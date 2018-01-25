@@ -31,6 +31,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import imagenet
 from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -64,8 +65,7 @@ def mscoco_generator(data_dir,
                      how_many,
                      start_from=0,
                      eos_list=None,
-                     vocab_filename=None,
-                     vocab_size=0):
+                     vocab_filename=None):
   """Image generator for MSCOCO captioning problem with token-wise captions.
 
   Args:
@@ -77,7 +77,6 @@ def mscoco_generator(data_dir,
     eos_list: optional list of end of sentence tokens, otherwise use default
       value `1`.
     vocab_filename: file within `tmp_dir` to read vocabulary from.
-    vocab_size: integer target to generate vocabulary size to.
 
   Yields:
     A dictionary representing the images with the following fields:
@@ -89,9 +88,19 @@ def mscoco_generator(data_dir,
     Every field is actually a list of the corresponding type.
   """
   eos_list = [1] if eos_list is None else eos_list
-  if vocab_filename is not None:
-    vocab_symbolizer = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, vocab_filename, vocab_size)
+  def get_vocab():
+    """Get vocab for caption text encoder."""
+    if data_dir is not None and vocab_filename is not None:
+      vocab_filepath = os.path.join(data_dir, vocab_filename)
+      if tf.gfile.Exists(vocab_filepath):
+        tf.logging.info("Found vocab file: %s", vocab_filepath)
+        vocab_symbolizer = text_encoder.SubwordTextEncoder(vocab_filepath)
+        return vocab_symbolizer
+      else:
+        raise ValueError("Vocab file does not exist: %s", vocab_filepath)
+    return None
+
+  vocab_symbolizer = get_vocab()
   _get_mscoco(tmp_dir)
   caption_filepath = (
       _MSCOCO_TRAIN_CAPTION_FILE if training else _MSCOCO_EVAL_CAPTION_FILE)
@@ -122,7 +131,7 @@ def mscoco_generator(data_dir,
       encoded_image_data = f.read()
       height, width = image_info[1], image_info[2]
       for label in labels:
-        if vocab_filename is None:
+        if vocab_filename is None or vocab_symbolizer is None:
           label = [ord(c) for c in label] + eos_list
         else:
           label = vocab_symbolizer.encode(label) + eos_list
@@ -167,7 +176,7 @@ class ImageMsCocoCharacters(image_utils.Image2TextProblem):
 
 
 @registry.register_problem
-class ImageMsCocoTokens8k(ImageMsCocoCharacters):
+class ImageMsCocoTokens32k(ImageMsCocoCharacters):
   """MSCOCO, 8k tokens vocab."""
 
   @property
@@ -176,7 +185,7 @@ class ImageMsCocoTokens8k(ImageMsCocoCharacters):
 
   @property
   def targeted_vocab_size(self):
-    return 2**13  # 8192
+    return 2**15  # 32768
 
   @property
   def target_space_id(self):
@@ -191,38 +200,33 @@ class ImageMsCocoTokens8k(ImageMsCocoCharacters):
     return 10
 
   def generator(self, data_dir, tmp_dir, is_training):
-    vocab_filename = "vocab.endefr.%d" % self.targeted_vocab_size
+    # We use the translate vocab file as the vocabulary for captions.
+    # This requires having the vocab file present in the data_dir for the
+    # generation pipeline to succeed.
+    vocab_filename = "vocab.ende.%d" % self.targeted_vocab_size
     if is_training:
       return mscoco_generator(
           data_dir,
           tmp_dir,
           True,
           80000,
-          vocab_filename=vocab_filename,
-          vocab_size=self.targeted_vocab_size)
+          vocab_filename=vocab_filename)
     else:
       return mscoco_generator(
           data_dir,
           tmp_dir,
           False,
           40000,
-          vocab_filename=vocab_filename,
-          vocab_size=self.targeted_vocab_size)
+          vocab_filename=vocab_filename)
 
 
 @registry.register_problem
-class ImageMsCocoTokens32k(ImageMsCocoTokens8k):
-  """MSCOCO, 32k tokens vocab."""
-
-  @property
-  def targeted_vocab_size(self):
-    return 2**15  # 32768
-
-
-@registry.register_problem
-class ImageTextMsCoco(ImageMsCocoTokens8k):
+class ImageTextMsCoco(ImageMsCocoTokens32k):
   """Problem for using MsCoco for generating images from text."""
   _MSCOCO_IMAGE_SIZE = 32
+
+  def dataset_filename(self):
+    return "image_ms_coco_tokens32k"
 
   def preprocess_example(self, example, mode, unused_hparams):
     example["inputs"] = image_utils.resize_by_area(

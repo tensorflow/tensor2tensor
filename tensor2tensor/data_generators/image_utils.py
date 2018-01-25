@@ -198,7 +198,7 @@ class Image2TextProblem(ImageProblem):
     label_key = "image/class/label"
     data_fields, data_items_to_decoders = (
         super(Image2TextProblem, self).example_reading_spec())
-    data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
+    data_fields[label_key] = tf.VarLenFeature(tf.int64)
     data_items_to_decoders[
         "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
     return data_fields, data_items_to_decoders
@@ -208,9 +208,10 @@ class Image2TextProblem(ImageProblem):
       encoder = text_encoder.ByteTextEncoder()
     else:
       vocab_filename = os.path.join(
-          data_dir, "vocab.endefr.%d" % self.targeted_vocab_size)
+          data_dir, "vocab.ende.%d" % self.targeted_vocab_size)
       encoder = text_encoder.SubwordTextEncoder(vocab_filename)
-    return {"targets": encoder}
+    input_encoder = text_encoder.ImageEncoder()
+    return {"inputs": input_encoder, "targets": encoder}
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
@@ -218,7 +219,7 @@ class Image2TextProblem(ImageProblem):
     encoder = self._encoders["targets"]
     p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
     p.batch_size_multiplier = 256
-    p.max_expected_batch_size_per_shard = 2
+    p.max_expected_batch_size_per_shard = 4
     p.loss_multiplier = 1.0
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = self.target_space_id
