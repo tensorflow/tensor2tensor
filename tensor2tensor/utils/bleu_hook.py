@@ -24,6 +24,7 @@ import os
 import re
 import sys
 import time
+import glob
 import unicodedata
 
 # Dependency imports
@@ -158,6 +159,7 @@ class UnicodeRegex(object):
     return "".join(six.unichr(x) for x in range(sys.maxunicode)
                    if unicodedata.category(six.unichr(x)).startswith(prefix))
 
+uregex = UnicodeRegex()
 
 def bleu_tokenize(string):
   r"""Tokenize a string following the official BLEU implementation.
@@ -183,7 +185,6 @@ def bleu_tokenize(string):
   Returns:
     a list of tokens
   """
-  uregex = UnicodeRegex()
   string = uregex.nondigit_punct_re.sub(r"\1 \2 ", string)
   string = uregex.punct_nondigit_re.sub(r" \1 \2", string)
   string = uregex.symbol_re.sub(r" \1 ", string)
@@ -205,11 +206,24 @@ def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
 
 StepFile = collections.namedtuple("StepFile", "filename mtime ctime steps")
 
+def _try_twice_tf_glob(pattern):
+  """tf.gfile.Glob may crash with
+  tensorflow.python.framework.errors_impl.NotFoundError:
+  xy/model.ckpt-1130761_temp_9cb4cb0b0f5f4382b5ea947aadfb7a40;
+  No such file or directory
+
+  Standard glob.glob does not have this bug, but does not hangle gs://...
+  So let's use tf.gfile.Glob twice to handle most concurrency problems.
+  """
+  try:
+    return tf.gfile.Glob(pattern)
+  except tf.errors.NotFoundError:
+    return tf.gfile.Glob(pattern)
 
 def _read_stepfiles_list(path_prefix, path_suffix=".index", min_steps=0):
   """Return list of StepFiles sorted by step from files at path_prefix."""
   stepfiles = []
-  for filename in tf.gfile.Glob(path_prefix + "*-[0-9]*" + path_suffix):
+  for filename in _try_twice_tf_glob(path_prefix + '*-[0-9]*' + path_suffix):
     basename = filename[:-len(path_suffix)] if len(path_suffix) else filename
     try:
       steps = int(basename.rsplit("-")[-1])
