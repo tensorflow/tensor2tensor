@@ -217,7 +217,7 @@ def bit_to_int(x_bit, nbits, base=2):
   x_l = tf.stop_gradient(tf.reshape(x_bit, [-1, nbits]))
   x_labels = []
   for i in range(nbits):
-    x_labels.append(x_l[:, i] * tf.to_int64(base)**tf.to_int64(i))
+    x_labels.append(x_l[:, i] * tf.to_int32(base)**tf.to_int32(i))
   res = sum(x_labels)
   return tf.to_int32(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]))
 
@@ -229,7 +229,7 @@ def int_to_bit(x_int, nbits, base=2):
   for i in range(nbits):
     x_labels.append(
         tf.floormod(tf.floordiv(x_l,
-                                tf.to_int64(base)**i), tf.to_int64(base)))
+                                tf.to_int32(base)**i), tf.to_int32(base)))
   res = tf.concat(x_labels, axis=-1)
   return tf.to_float(res)
 
@@ -337,7 +337,7 @@ def bottleneck(x,
       new_shape[-1] = int(math.log(hparams.v_size, 2))
       x_means_bits = tf.reshape(x_means_bits, shape=new_shape)
       c = bit_to_int(
-          tf.to_int64(x_means_bits),
+          tf.to_int32(x_means_bits),
           nbits=int(math.log(hparams.v_size, 2)),
           base=2)
 
