@@ -1359,3 +1359,15 @@ def pad_batch(features, batch_multiple):
     padded_feature = tf.pad(feature, paddings)
     padded_features[k] = padded_feature
   return padded_features
+
+
+def problem_hparams_to_features(problem_hparams):
+  input_space_id, target_space_id = 0, 0
+  if problem_hparams:
+    input_space_id = problem_hparams.input_space_id
+    target_space_id = problem_hparams.target_space_id
+  return {
+      "problem_choice": 0,
+      "input_space_id": input_space_id,
+      "target_space_id": target_space_id,
+  }
