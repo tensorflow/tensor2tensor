@@ -98,6 +98,11 @@ def basic_params1():
       layer_postprocess_sequence="dan",
       # dropout rate to use during layer_preprocess and layer_postprocess
       layer_prepostprocess_dropout=0.1,
+      # broadcast dimensions for layer_prepostprocess_dropout
+      # a comma-separated list of integers.
+      # see common_layers.dropout_with_broadcast_dims()
+      # Change this to "1" to save memory.
+      layer_prepostprocess_dropout_broadcast_dims="",
       # dropout some symbols (set them to 0) before embedding.
       symbol_dropout=0.0,
       # What type of normalization to use

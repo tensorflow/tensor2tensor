@@ -44,6 +44,36 @@ def is_on_tpu():
   return tf.contrib.framework.get_name_scope().startswith("TPUReplicate")
 
 
+def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
+  """Like tf.nn.dropout but takes broadcast_dims instead of noise_shape.
+
+  Instead of specifying noise_shape, this function takes broadcast_dims -
+  a list of dimension numbers in which noise_shape should be 1.  The random
+  keep/drop tensor has dimensionality 1 along these dimensions.
+
+  Args:
+    x: a floating point tensor.
+    keep_prob: A scalar Tensor with the same type as x.
+      The probability that each element is kept.
+    broadcast_dims: an optional list of integers
+      the dimensions along which to broadcast the keep/drop flags.
+    **kwargs: keyword arguments to tf.nn.dropout other than "noise_shape".
+  Returns:
+    A Tensor with the same size and shape as x.
+  """
+  assert "noise_shape" not in kwargs
+  if broadcast_dims:
+    shape = tf.shape(x)
+    ndims = len(x.get_shape())
+    kwargs["noise_shape"] = [
+        1 if i in broadcast_dims else shape[i] for i in xrange(ndims)]
+  return tf.nn.dropout(x, keep_prob, **kwargs)
+
+
+def comma_separated_string_to_integer_list(s):
+  return [int(i) for i in s.split(",") if i]
+
+
 def saturating_sigmoid(x):
   """Saturating sigmoid: 1.2 * sigmoid(x) - 0.1 cut to [0, 1]."""
   with tf.name_scope("saturating_sigmoid", [x]):
@@ -549,7 +579,8 @@ def layer_prepostprocess(previous_value,
                          depth,
                          epsilon,
                          default_name,
-                         name=None):
+                         name=None,
+                         dropout_broadcast_dims=None):
   """Apply a sequence of functions to the input or output of a layer.
 
   The sequence is specified as a string which may contain the following
@@ -571,6 +602,9 @@ def layer_prepostprocess(previous_value,
     epsilon: a float (parameter for normalization)
     default_name: a string
     name: a string
+    dropout_broadcast_dims:  an optional list of integers less than 3
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
 
   Returns:
     a Tensor
@@ -585,7 +619,8 @@ def layer_prepostprocess(previous_value,
         x = apply_norm(x, norm_type, depth, epsilon)
       else:
         assert c == "d", ("Unknown sequence step %s" % c)
-        x = tf.nn.dropout(x, 1.0 - dropout_rate)
+        x = dropout_with_broadcast_dims(
+            x, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
     return x
 
 
@@ -620,6 +655,8 @@ def layer_preprocess(layer_input, hparams):
       norm_type=hparams.norm_type,
       depth=None,
       epsilon=hparams.norm_epsilon,
+      dropout_broadcast_dims=comma_separated_string_to_integer_list(
+          hparams.layer_prepostprocess_dropout_broadcast_dims),
       default_name="layer_prepostprocess")
 
 
@@ -653,6 +690,8 @@ def layer_postprocess(layer_input, layer_output, hparams):
       norm_type=hparams.norm_type,
       depth=None,
       epsilon=hparams.norm_epsilon,
+      dropout_broadcast_dims=comma_separated_string_to_integer_list(
+          hparams.layer_prepostprocess_dropout_broadcast_dims),
       default_name="layer_postprocess")
 
 
@@ -1281,12 +1320,14 @@ def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
     return inputs
 
 
-def dense_relu_dense(inputs, filter_size, output_size, dropout=0.0):
+def dense_relu_dense(inputs, filter_size, output_size, dropout=0.0,
+                     dropout_broadcast_dims=None):
   """Hidden layer with RELU activation followed by linear projection."""
   h = dense(
       inputs, filter_size, use_bias=True, activation=tf.nn.relu, name="conv1")
   if dropout != 0.0:
-    h = tf.nn.dropout(h, 1.0 - dropout)
+    h = dropout_with_broadcast_dims(
+        h, 1.0 - dropout, broadcast_dims=dropout_broadcast_dims)
   o = dense(h, output_size, use_bias=True, name="conv2")
   return o
 
