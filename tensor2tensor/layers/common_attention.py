@@ -1180,7 +1180,8 @@ def dot_product_attention(q,
                           image_shapes=None,
                           name=None,
                           make_image_summary=True,
-                          save_weights_to=None):
+                          save_weights_to=None,
+                          dropout_broadcast_dims=None):
   """dot-product attention.
 
   Args:
@@ -1196,6 +1197,9 @@ def dot_product_attention(q,
     save_weights_to: an optional dictionary to capture attention weights
       for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
 
   Returns:
     A Tensor.
@@ -1210,7 +1214,8 @@ def dot_product_attention(q,
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
     # dropping out the attention links for each of the heads
-    weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
+    weights = common_layers.dropout_with_broadcast_dims(
+        weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
     if expert_utils.should_generate_summaries() and make_image_summary:
       attention_image_summary(weights, image_shapes)
     return tf.matmul(weights, v)
@@ -2249,6 +2254,7 @@ def multihead_attention(query_antecedent,
                         name=None,
                         save_weights_to=None,
                         make_image_summary=True,
+                        dropout_broadcast_dims=None,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -2293,6 +2299,9 @@ def multihead_attention(query_antecedent,
       for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
     make_image_summary: Whether to make an attention image summary.
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -2355,7 +2364,8 @@ def multihead_attention(query_antecedent,
     elif attention_type == "dot_product":
       x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
                                 save_weights_to=save_weights_to,
-                                make_image_summary=make_image_summary)
+                                make_image_summary=make_image_summary,
+                                dropout_broadcast_dims=dropout_broadcast_dims)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(q, k, v, bias, max_relative_position,
                                          dropout_rate, image_shapes,

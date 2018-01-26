@@ -588,6 +588,9 @@ def transformer_encoder(encoder_input,
     y: a Tensors
   """
   x = encoder_input
+  attention_dropout_broadcast_dims = (
+      common_layers.comma_separated_string_to_integer_list(
+          hparams.attention_dropout_broadcast_dims))
   with tf.variable_scope(name):
     if nonpadding is not None:
       padding = 1.0 - nonpadding
@@ -614,7 +617,8 @@ def transformer_encoder(encoder_input,
               attention_type=hparams.self_attention_type,
               save_weights_to=save_weights_to,
               max_relative_position=hparams.max_relative_position,
-              make_image_summary=make_image_summary)
+              make_image_summary=make_image_summary,
+              dropout_broadcast_dims=attention_dropout_broadcast_dims)
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -664,6 +668,9 @@ def transformer_decoder(decoder_input,
     y: a Tensors
   """
   x = decoder_input
+  attention_dropout_broadcast_dims = (
+      common_layers.comma_separated_string_to_integer_list(
+          hparams.attention_dropout_broadcast_dims))
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_decoder_layers or
                         hparams.num_hidden_layers):
@@ -684,7 +691,8 @@ def transformer_decoder(decoder_input,
               save_weights_to=save_weights_to,
               max_relative_position=hparams.max_relative_position,
               cache=layer_cache,
-              make_image_summary=make_image_summary)
+              make_image_summary=make_image_summary,
+              dropout_broadcast_dims=attention_dropout_broadcast_dims)
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
@@ -699,7 +707,8 @@ def transformer_decoder(decoder_input,
                 hparams.num_heads,
                 hparams.attention_dropout,
                 save_weights_to=save_weights_to,
-                make_image_summary=make_image_summary)
+                make_image_summary=make_image_summary,
+                dropout_broadcast_dims=attention_dropout_broadcast_dims)
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -735,6 +744,9 @@ def transformer_ffn_layer(x,
     a Tensor of shape [batch_size, length, hparams.hidden_size]
   """
   ffn_layer = hparams.ffn_layer
+  relu_dropout_broadcast_dims = (
+      common_layers.comma_separated_string_to_integer_list(
+          hparams.relu_dropout_broadcast_dims))
   if ffn_layer == "conv_hidden_relu":
     # Backwards compatibility
     ffn_layer = "dense_relu_dense"
@@ -749,7 +761,8 @@ def transformer_ffn_layer(x,
         x,
         hparams.filter_size,
         hparams.hidden_size,
-        dropout=hparams.relu_dropout)
+        dropout=hparams.relu_dropout,
+        dropout_broadcast_dims=relu_dropout_broadcast_dims)
     if pad_remover:
       # Restore `conv_output` to the original shape of `x`, including padding.
       conv_output = tf.reshape(
@@ -823,7 +836,9 @@ def transformer_base_v1():
   # All hyperparameters ending in "dropout" are automatically set to 0.0
   # when not in training mode.
   hparams.add_hparam("attention_dropout", 0.0)
+  hparams.add_hparam("attention_dropout_broadcast_dims", "")
   hparams.add_hparam("relu_dropout", 0.0)
+  hparams.add_hparam("relu_dropout_broadcast_dims", "")
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
   hparams.add_hparam("proximity_bias", False)
@@ -1210,6 +1225,11 @@ def update_hparams_for_tpu(hparams):
 
   # TPUs have less memory than GPUs, so decrease the batch size
   hparams.batch_size = 2048
+
+  # Using noise broadcast in the dropout layers saves memory during training.
+  hparams.attention_dropout_broadcast_dims = "0,1"  # batch, heads
+  hparams.relu_dropout_broadcast_dims = "1"  # length
+  hparams.layer_prepostprocess_dropout_broadcast_dims = "1"  # length
 
 
 @registry.register_hparams
