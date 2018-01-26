@@ -656,7 +656,7 @@ def layer_preprocess(layer_input, hparams):
       depth=None,
       epsilon=hparams.norm_epsilon,
       dropout_broadcast_dims=comma_separated_string_to_integer_list(
-          hparams.layer_prepostprocess_dropout_broadcast_dims),
+          getattr(hparams, "layer_prepostprocess_dropout_broadcast_dims", "")),
       default_name="layer_prepostprocess")
 
 
@@ -691,7 +691,7 @@ def layer_postprocess(layer_input, layer_output, hparams):
       depth=None,
       epsilon=hparams.norm_epsilon,
       dropout_broadcast_dims=comma_separated_string_to_integer_list(
-          hparams.layer_prepostprocess_dropout_broadcast_dims),
+          getattr(hparams, "layer_prepostprocess_dropout_broadcast_dims", "")),
       default_name="layer_postprocess")
 
 
