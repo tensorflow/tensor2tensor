@@ -590,7 +590,7 @@ def transformer_encoder(encoder_input,
   x = encoder_input
   attention_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
-          hparams.attention_dropout_broadcast_dims))
+          getattr(hparams, "attention_dropout_broadcast_dims", "")))
   with tf.variable_scope(name):
     if nonpadding is not None:
       padding = 1.0 - nonpadding
@@ -670,7 +670,7 @@ def transformer_decoder(decoder_input,
   x = decoder_input
   attention_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
-          hparams.attention_dropout_broadcast_dims))
+          getattr(hparams, "attention_dropout_broadcast_dims", "")))
   with tf.variable_scope(name):
     for layer in xrange(hparams.num_decoder_layers or
                         hparams.num_hidden_layers):
@@ -746,7 +746,7 @@ def transformer_ffn_layer(x,
   ffn_layer = hparams.ffn_layer
   relu_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
-          hparams.relu_dropout_broadcast_dims))
+          getattr(hparams, "relu_dropout_broadcast_dims", "")))
   if ffn_layer == "conv_hidden_relu":
     # Backwards compatibility
     ffn_layer = "dense_relu_dense"
