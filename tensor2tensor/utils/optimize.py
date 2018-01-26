@@ -33,19 +33,27 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
-  log_variable_sizes()
+  log_variable_sizes(verbose=hparams.summarize_vars)
   diet_vars = [
       v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
   ]
-  log_variable_sizes(diet_vars, "Diet Variables")
+  log_variable_sizes(
+      diet_vars, "Diet Variables", verbose=hparams.summarize_vars)
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
 
   tf.summary.scalar("learning_rate", learning_rate)
-  opt_summaries = ["loss"]
+  opt_summaries = ["loss", "global_gradient_norm"]
   if hparams.summarize_grads:
-    opt_summaries.extend(["gradients", "gradient_norm", "global_gradient_norm"])
+    tf.logging.info("Summarizing gradients")
+    opt_summaries.extend(["gradients", "gradient_norm"])
+
+  if hparams.clip_grad_norm:
+    tf.logging.info("Clipping gradients, norm: %0.5f", hparams.clip_grad_norm)
+  if hparams.grad_noise_scale:
+    tf.logging.info("Adding noise to gradients, noise scale: %0.5f",
+                    hparams.grad_noise_scale)
 
   train_op = tf.contrib.layers.optimize_loss(
       name="training",
@@ -67,6 +75,9 @@ class ConditionalOptimizer(tf.train.Optimizer):
     if optimizer_name == "Adam" and use_tpu:
       # LazyAdamOptimizer does not work on TPU
       optimizer_name = "TrueAdam"
+
+    tf.logging.info("Using optimizer %s", optimizer_name)
+
     if optimizer_name == "Adam":
       # We change the default epsilon for Adam and re-scale lr.
       # Using LazyAdam as it's much faster for large vocabulary embeddings.
@@ -77,9 +88,10 @@ class ConditionalOptimizer(tf.train.Optimizer):
           epsilon=hparams.optimizer_adam_epsilon)
     elif optimizer_name == "Momentum":
       self._opt = tf.train.MomentumOptimizer(
-          lr, momentum=hparams.optimizer_momentum_momentum)
+          lr,
+          momentum=hparams.optimizer_momentum_momentum,
+          use_nesterov=hparams.optimizer_momentum_nesterov)
     elif optimizer_name == "YellowFin":
-      tf.logging.info("Init YellowFin Optimizer.")
       self._opt = yellowfin.YellowFinOptimizer(
           learning_rate=lr, momentum=hparams.optimizer_momentum_momentum)
     elif optimizer_name == "TrueAdam":
@@ -135,26 +147,31 @@ def piecewise_learning_rate(step, boundaries, values):
 
 
 def learning_rate_decay(hparams, num_worker_replicas=1):
-  """Inverse-decay learning rate until warmup_steps, then decay."""
-  if hparams.learning_rate_decay_scheme == "piecewise":
-    return piecewise_learning_rate(tf.train.get_or_create_global_step(),
-                                   hparams.learning_rate_boundaries,
-                                   hparams.learning_rate_multiples)
-
-  warmup_steps = tf.to_float(
-      hparams.learning_rate_warmup_steps * num_worker_replicas)
+  """Learning rate decay rate based on hparams."""
+  scheme = hparams.learning_rate_decay_scheme
+  warmup_steps = hparams.learning_rate_warmup_steps * num_worker_replicas
+  tf.logging.info("Learning rate decay scheme: %s. Warmup steps: %d.", scheme,
+                  warmup_steps)
+  warmup_steps = tf.to_float(warmup_steps)
   num_train_steps = hparams.train_steps
   step = tf.to_float(tf.train.get_or_create_global_step())
 
-  if hparams.learning_rate_decay_scheme == "noam":
+  if scheme == "piecewise":
+    return piecewise_learning_rate(step, hparams.learning_rate_boundaries,
+                                   hparams.learning_rate_multiples)
+
+  if scheme == "noam":
     return 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
         (step + 1) * warmup_steps**-1.5, (step + 1)**-0.5)
-  elif hparams.learning_rate_decay_scheme == "exp100k":
+
+  if scheme == "exp100k":
     return 0.94**(step // 100000)
-  elif hparams.learning_rate_decay_scheme == "cosine":
+
+  if scheme == "cosine":
     cycle_steps = hparams.learning_rate_cosine_cycle_steps
     return 0.5 * (1 + tf.cos(np.pi * (step % cycle_steps) / cycle_steps))
-  elif hparams.learning_rate_decay_scheme == "cyclelinear10x":
+
+  if scheme == "cyclelinear10x":
     # Cycle the rate linearly by 10x every warmup_steps, up and down.
     cycle_steps = hparams.learning_rate_warmup_steps
     cycle_position = step % (2 * cycle_steps)
@@ -163,36 +180,37 @@ def learning_rate_decay(hparams, num_worker_replicas=1):
     cycle_position = 1.0 - tf.abs(cycle_position)  # 0 to 1 and back to 0.
     return (cycle_position + 0.1) * 3.0  # 10x difference each cycle (0.3-3).
 
-  inv_base = tf.exp(tf.log(0.01) / warmup_steps)
-  inv_decay = inv_base**(warmup_steps - step)
-  if hparams.learning_rate_decay_scheme == "sqrt":
+  # Inverse-decay learning rate until warmup_steps, then decay.
+  if scheme == "sqrt":
     decay = _sqrt_decay(step - warmup_steps)
-  elif hparams.learning_rate_decay_scheme == "exp":
+  elif scheme == "exp":
     total_steps = num_train_steps - warmup_steps
     assert num_train_steps > hparams.learning_rate_warmup_steps
-    assert hparams.learning_rate_minimum is not None, "Must specify final LR"
+    if hparams.learning_rate_minimum is None:
+      raise ValueError("Must specify final LR")
     total_steps = num_train_steps - hparams.learning_rate_warmup_steps
     decay_needed = hparams.learning_rate_minimum / hparams.learning_rate
     decay_rate = decay_needed**(1.0 / total_steps)
     tf.logging.info("Decay rate: %f.  LR %f -> %f", decay_rate,
                     hparams.learning_rate, hparams.learning_rate_minimum)
-    decay = _exp_decay_after(step, decay_rate,
+    decay = _exp_decay_after(step - warmup_steps, decay_rate,
                              hparams.learning_rate_warmup_steps)
-    return decay
-  elif hparams.learning_rate_decay_scheme == "exp10k":
+  elif scheme == "exp10k":
     decay = _exp_decay_after(step - warmup_steps, 0.9995,
                              num_train_steps - warmup_steps - 10000)
-  elif hparams.learning_rate_decay_scheme == "exp50k":
+  elif scheme == "exp50k":
     decay = _exp_decay_after(step - warmup_steps, 0.99995,
                              num_train_steps - warmup_steps - 50000)
-  elif hparams.learning_rate_decay_scheme == "exp500k":
+  elif scheme == "exp500k":
     decay = _exp_decay_after(step - warmup_steps, 0.9999955,
                              num_train_steps - warmup_steps - 500000)
-  elif hparams.learning_rate_decay_scheme == "none":
+  elif scheme == "none":
     decay = tf.constant(1.0)
   else:
     raise ValueError("Unrecognized learning rate decay scheme: %s" %
                      hparams.learning_rate_decay_scheme)
+
+  inv_decay = tf.exp(tf.log(0.01) / warmup_steps)**(warmup_steps - step)
   return tf.where(step < warmup_steps, inv_decay, decay)
 
 
@@ -221,6 +239,9 @@ def weight_noise(noise_rate, learning_rate, var_list):
   if not noise_rate:
     return [tf.no_op()]
 
+  tf.logging.info("Applying weight noise scaled by learning rate, "
+                  "noise_rate: %0.5f", noise_rate)
+
   noise_ops = []
 
   for v in var_list:
@@ -239,6 +260,8 @@ def weight_decay(decay_rate, var_list):
   if not decay_rate:
     return 0.
 
+  tf.logging.info("Applying weight decay, decay_rate: %0.5f", decay_rate)
+
   weight_decays = []
   for v in var_list:
     # Weight decay
@@ -251,12 +274,13 @@ def weight_decay(decay_rate, var_list):
   return tf.add_n(weight_decays) * decay_rate
 
 
-def log_variable_sizes(var_list=None, tag=None):
+def log_variable_sizes(var_list=None, tag=None, verbose=False):
   """Log the sizes and shapes of variables, and the total size.
 
   Args:
     var_list: a list of variables; defaults to trainable_variables
     tag: a string; defaults to "Trainable Variables"
+    verbose: bool, if True, log every weight; otherwise, log total size only.
   """
   if var_list is None:
     var_list = tf.trainable_variables()
@@ -271,15 +295,20 @@ def log_variable_sizes(var_list=None, tag=None):
   for v_name in sorted(list(name_to_var)):
     v = name_to_var[v_name]
     v_size = int(np.prod(np.array(v.shape.as_list())))
-    tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
-                    v.name[:-2].ljust(80),
-                    str(v.shape).ljust(20), v_size)
+    if verbose:
+      tf.logging.info("Weight    %s\tshape    %s\tsize    %d",
+                      v.name[:-2].ljust(80),
+                      str(v.shape).ljust(20), v_size)
     total_size += v_size
   tf.logging.info("%s Total size: %d", tag, total_size)
 
 
 def get_variable_initializer(hparams):
   """Get variable initializer from hparams."""
+  if not hparams.initializer:
+    return None
+
+  tf.logging.info("Using variable initializer: %s", hparams.initializer)
   if hparams.initializer == "orthogonal":
     return tf.orthogonal_initializer(gain=hparams.initializer_gain)
   elif hparams.initializer == "uniform":

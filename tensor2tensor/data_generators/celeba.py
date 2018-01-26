@@ -56,16 +56,6 @@ class ImageCeleba(image_utils.ImageProblem):
       "Wearing_Hat Wearing_Lipstick Wearing_Necklace Wearing_Necktie Young"
   ).split()
 
-  def preprocess_example(self, example, unused_mode, unused_hparams):
-
-    inputs = example["inputs"]
-    # Remove boundaries in CelebA images. Remove 40 pixels each side
-    # vertically and 20 pixels each side horizontally.
-    inputs = tf.image.crop_to_bounding_box(inputs, 40, 20, 218 - 80, 178 - 40)
-    example["inputs"] = image_utils.resize_by_area(inputs, 8)
-    example["targets"] = image_utils.resize_by_area(inputs, 32)
-    return example
-
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.input_modality = {"inputs": ("image:identity", 256)}
@@ -158,3 +148,22 @@ class ImageCeleba(image_utils.ImageProblem):
         self.training_filepaths(data_dir, self.train_shards, shuffled=False),
         self.generator(tmp_dir, 19867, 162770),  # dev
         self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
+
+
+class Img2imgCeleba(ImageCeleba):
+  """8px to 32px problem."""
+
+  def dataset_filename(self):
+    return "image_celeba"
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+    image = example["inputs"]
+    # Remove boundaries in CelebA images. Remove 40 pixels each side
+    # vertically and 20 pixels each side horizontally.
+    image = tf.image.crop_to_bounding_box(image, 40, 20, 218 - 80, 178 - 40)
+    image_8 = image_utils.resize_by_area(image, 8)
+    image_32 = image_utils.resize_by_area(image, 32)
+
+    example["inputs"] = image_8
+    example["targets"] = image_32
+    return example

@@ -47,7 +47,7 @@ flags.DEFINE_string("t2t_usr_dir", None,
                     "available to the t2t-trainer.")
 flags.DEFINE_integer("random_seed", 1234, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
-flags.DEFINE_integer("iterations_per_loop", 1000,
+flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
 flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
@@ -90,9 +90,9 @@ def get_problem_name():
 
 def create_hparams():
   if (FLAGS.cloud_tpu or FLAGS.use_tpu) and "tpu" not in FLAGS.hparams_set:
-    tf.logging.warn("Not all hyperparameter sets work on TPU. When available "
-                    "for a given model, prefer hparams_sets with a '_tpu' "
-                    "suffix, e.g. transformer_tpu.")
+    tf.logging.warn("Not all hyperparameter sets work on TPU. "
+                    "Prefer hparams_sets with a '_tpu' suffix, "
+                    "e.g. transformer_tpu, if available for your model.")
   return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
 

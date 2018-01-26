@@ -149,7 +149,7 @@ t2t-decoder \
   --decode_to_file=translation.en
 
 # See the translations
-cat $DECODE_FILE.$MODEL.$HPARAMS.beam$BEAM_SIZE.alpha$ALPHA.decodes
+cat translation.en
 
 # Evaluate the BLEU score
 # Note: Report this BLEU score in papers, not the internal approx_bleu metric.

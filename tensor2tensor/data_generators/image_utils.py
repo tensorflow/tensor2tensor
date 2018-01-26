@@ -40,6 +40,7 @@ def resize_by_area(img, size):
 
 
 class ImageProblem(problem.Problem):
+  """Base class for problems with images."""
 
   def example_reading_spec(self, label_repr=None):
     data_fields = {
@@ -56,6 +57,10 @@ class ImageProblem(problem.Problem):
     }
 
     return data_fields, data_items_to_decoders
+
+  def preprocess_example(self, example, mode, hparams):
+    example["inputs"] = tf.image.per_image_standardization(example["inputs"])
+    return example
 
 
 class Image2ClassProblem(ImageProblem):

@@ -57,8 +57,10 @@ class OcrTest(image_utils.Image2TextProblem):
   def preprocess_example(self, example, mode, _):
     # Resize from usual size ~1350x60 to 90x4 in this test.
     img = example["inputs"]
-    example["inputs"] = tf.to_int64(
+    img = tf.to_int64(
         tf.image.resize_images(img, [90, 4], tf.image.ResizeMethod.AREA))
+    img = tf.image.per_image_standardization(img)
+    example["inputs"] = img
     return example
 
   def generator(self, data_dir, tmp_dir, is_training):

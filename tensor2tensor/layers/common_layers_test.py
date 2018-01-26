@@ -29,13 +29,6 @@ import tensorflow as tf
 
 class CommonLayersTest(tf.test.TestCase):
 
-  def testStandardizeImages(self):
-    x = np.random.rand(5, 7, 7, 3)
-    with self.test_session() as session:
-      y = common_layers.standardize_images(tf.constant(x))
-      res = session.run(y)
-    self.assertEqual(res.shape, (5, 7, 7, 3))
-
   def testSaturatingSigmoid(self):
     x = np.array([-120.0, -100.0, 0.0, 100.0, 120.0], dtype=np.float32)
     with self.test_session() as session:

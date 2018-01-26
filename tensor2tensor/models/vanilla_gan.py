@@ -89,6 +89,8 @@ def vanilla_gan_internal(inputs, hparams, train):
     losses = {}
     losses["discriminator"] = d_loss
     losses["generator"] = g_loss
+    # Include a dummy training loss to skip self.top and self.loss
+    losses["training"] = tf.constant(0., dtype=tf.float32)
 
     z_sampled = tf.random_uniform(shape=[1, hparams.random_sample_size],
                                   minval=-1, maxval=1, name="z")
@@ -145,9 +147,6 @@ def vanilla_gan():
   """Basic parameters for a vanilla_gan."""
 
   hparams = common_hparams.basic_params1()
-
-  hparams.input_modalities = "inputs:image:zero_loss"
-  hparams.target_modality = "image:zero_loss"
 
   hparams.batch_size = 32
   hparams.label_smoothing = 0.0
