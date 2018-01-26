@@ -95,9 +95,7 @@ def xception_entry(inputs, hidden_dim):
             force2d=True,
             name="res_conv0")
 
-    inputs = common_layers.standardize_images(inputs)
-    # TODO(lukaszkaiser): summaries here don't work in multi-problem case yet.
-    # tf.summary.image("inputs", inputs, max_outputs=2)
+    tf.summary.image("inputs", inputs, max_outputs=2)
     x = common_layers.conv_block(
         inputs,
         32, [((1, 1), (3, 3))],

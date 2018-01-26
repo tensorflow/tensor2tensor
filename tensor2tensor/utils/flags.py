@@ -87,8 +87,9 @@ flags.DEFINE_bool("log_device_placement", False,
                   "Whether to log device placement.")
 
 # Distributed training flags
-flags.DEFINE_integer("local_eval_frequency", 2000,
-                     "Run evaluation every this steps during local training.")
+flags.DEFINE_integer("local_eval_frequency", 1000,
+                     "Save checkpoints and run evaluation every N steps during "
+                     "local training.")
 flags.DEFINE_bool("locally_shard_to_cpu", False,
                   "Use CPU as a sharding device running locally. This allows "
                   "to test sharded model construction on a machine with 1 GPU.")

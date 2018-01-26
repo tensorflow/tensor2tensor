@@ -51,6 +51,8 @@ def basic_params1():
       clip_grad_norm=2.0,
       grad_noise_scale=0.0,
       summarize_grads=False,
+      # Whether to log the name and size of every variable
+      summarize_vars=False,
       initializer="orthogonal",
       initializer_gain=1.5,
       label_smoothing=0.1,
@@ -59,6 +61,7 @@ def basic_params1():
       optimizer_adam_beta1=0.85,
       optimizer_adam_beta2=0.997,
       optimizer_momentum_momentum=0.9,
+      optimizer_momentum_nesterov=False,
       weight_decay=0.1,
       weight_noise=0.0,
       learning_rate_decay_scheme="none",

@@ -198,10 +198,10 @@ class ImageModality(modality.Modality):
 
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
-      inputs = common_layers.standardize_images(inputs)
+      inputs = tf.to_float(inputs)
       if not context.in_eager_mode():
         tf.summary.image("inputs", inputs, max_outputs=2)
-      return tf.to_float(inputs)
+      return inputs
 
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
@@ -253,6 +253,7 @@ class ImageChannelCompressModality(modality.Modality):
       body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
     """
     with tf.variable_scope(name):
+      inputs = tf.to_float(inputs)
       tf.summary.image("inputs", inputs, max_outputs=2)
       inputs = common_layers.convert_rgb_to_real(inputs)
       ishape = common_layers.shape_list(inputs)
@@ -483,19 +484,6 @@ class RealLogPoissonLossModality(RealModality):
 
       lp_loss = tf.nn.log_poisson_loss(targets, predictions)
       return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
-
-
-@registry.register_generic_modality("zero_loss")
-@registry.register_audio_modality("zero_loss")
-@registry.register_image_modality("zero_loss")
-@registry.register_symbol_modality("zero_loss")
-@registry.register_class_label_modality("zero_loss")
-@registry.register_real_modality("zero_loss")
-class IdentityZeroLossModality(IdentityModality):
-  """Identity with 0 loss."""
-
-  def loss(self, top_out, targets):
-    return tf.constant(0., tf.float32), tf.constant(0., tf.float32)
 
 
 @registry.register_symbol_modality("identity")

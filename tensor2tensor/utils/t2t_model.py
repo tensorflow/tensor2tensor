@@ -156,8 +156,8 @@ class T2TModel(base.Layer):
           self._to_single_features_dict(transformed_features))
       body_out, losses = self._normalize_body_output(body_out)
       if "training" in losses:
-        # If body has returned the training loss, the body outputs are
-        # considered the logits and no further work is done.
+        tf.logging.info("Skipping T2TModel top and loss because training loss "
+                        "returned from body")
         sharded_logits = body_out
       else:
         sharded_logits = dp(self.top, body_out, datashard_to_features)
@@ -188,10 +188,13 @@ class T2TModel(base.Layer):
     transformed_features = self.bottom(features)
 
     with tf.variable_scope("body"):
+      tf.logging.info("Building model body")
       body_out = self.body(transformed_features)
     output, losses = self._normalize_body_output(body_out)
 
     if "training" in losses:
+      tf.logging.info("Skipping T2TModel top and loss because training loss "
+                      "returned from body")
       logits = output
     else:
       logits = self.top(output, features)
@@ -212,12 +215,16 @@ class T2TModel(base.Layer):
         self._problem_hparams.input_modality):
       do_reuse = input_modality.name in all_previous_modalities
       with tf.variable_scope(input_modality.name, reuse=do_reuse):
+        tf.logging.info("Transforming feature '%s' with %s.bottom", key,
+                        input_modality.name)
         transformed_features[key] = input_modality.bottom(features[key])
       all_previous_modalities.append(input_modality.name)
 
     # Transform the targets (for autoregressive models)
     target_modality = self._problem_hparams.target_modality
     with tf.variable_scope(target_modality.name):
+      tf.logging.info("Transforming 'targets' with %s.targets_bottom",
+                      target_modality.name)
       transformed_features["targets"] = target_modality.targets_bottom(
           features["targets"])
 
@@ -255,6 +262,8 @@ class T2TModel(base.Layer):
 
     target_modality = self._problem_hparams.target_modality
     with tf.variable_scope(target_modality.name):
+      tf.logging.info("Transforming body output with %s.top",
+                      target_modality.name)
       last_only = (
           target_modality.top_is_pointwise and
           self.hparams.mode == tf.estimator.ModeKeys.PREDICT and
@@ -284,7 +293,11 @@ class T2TModel(base.Layer):
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
+    tf.logging.info("Base learning rate: %f", self.hparams.learning_rate)
     lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
+    if num_async_replicas > 1:
+      tf.logging.info("Dividing learning rate by num_async_replicas: %d",
+                      num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
     train_op = optimize.optimize(loss, lr, self.hparams,
                                  use_tpu=common_layers.is_on_tpu())
@@ -292,12 +305,14 @@ class T2TModel(base.Layer):
 
   def set_mode(self, mode):
     """Set hparams with the given mode."""
+    tf.logging.info("Setting T2TModel mode to '%s'", mode)
     hparams = copy.copy(self._original_hparams)
     hparams.add_hparam("mode", mode)
     # When not in training mode, set all forms of dropout to zero.
     if mode != tf.estimator.ModeKeys.TRAIN:
       for key in hparams.values():
         if key.endswith("dropout"):
+          tf.logging.info("Setting hparams.%s to 0.0", key)
           setattr(hparams, key, 0.0)
     self._hparams = hparams
 
@@ -1011,13 +1026,6 @@ def _remove_summaries():
   key = tf.GraphKeys.SUMMARIES
   del g.get_collection_ref(key)[:]
   assert not g.get_collection(key)
-
-
-def _clip_gradients_by_norm(grads_and_vars, clip_gradients):
-  """Clips gradients by global norm."""
-  gradients, variables = zip(*grads_and_vars)
-  clipped_gradients, _ = tf.clip_by_global_norm(gradients, clip_gradients)
-  return list(zip(clipped_gradients, variables))
 
 
 def _del_dict_nones(d):
