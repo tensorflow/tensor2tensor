@@ -47,10 +47,15 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 # Additional flags in bin/t2t_trainer.py and utils/flags.py
+flags.DEFINE_string("checkpoint_path", None,
+                    "Path to the model checkpoint. Overrides output_dir.")
 flags.DEFINE_string("decode_from_file", None,
                     "Path to the source file for decoding")
 flags.DEFINE_string("decode_to_file", None,
                     "Path to the decoded (output) file")
+flags.DEFINE_bool("keep_timestamp", False,
+                  "Set the mtime of the decoded file to the "
+                  "checkpoint_path+'.index' mtime.")
 flags.DEFINE_bool("decode_interactive", False,
                   "Interactive local inference mode.")
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
@@ -76,7 +81,11 @@ def decode(estimator, hparams, decode_hp):
     decoding.decode_interactively(estimator, hparams, decode_hp)
   elif FLAGS.decode_from_file:
     decoding.decode_from_file(estimator, FLAGS.decode_from_file, hparams,
-                              decode_hp, FLAGS.decode_to_file)
+                              decode_hp, FLAGS.decode_to_file,
+                              checkpoint_path=FLAGS.checkpoint_path)
+    if FLAGS.checkpoint_path and FLAGS.keep_timestamp:
+      ckpt_time = os.path.getmtime(FLAGS.checkpoint_path + ".index")
+      os.utime(FLAGS.decode_to_file, (ckpt_time, ckpt_time))
   else:
     decoding.decode_from_dataset(
         estimator,
