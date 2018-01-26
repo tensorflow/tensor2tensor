@@ -29,6 +29,7 @@ import time
 import six
 
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators.problem import problem_hparams_to_features
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import decoding
@@ -371,22 +372,11 @@ class T2TModel(base.Layer):
     return logits, losses
 
   def _fill_problem_hparams_features(self, features):
-    if features is None:
-      return
-
-    input_space_id, target_space_id = 0, 0
-    if self._problem_hparams:
-      input_space_id = self._problem_hparams.input_space_id
-      target_space_id = self._problem_hparams.target_space_id
-
-    if "problem_choice" not in features:
-      features["problem_choice"] = tf.constant(0, name="problem_choice")
-    if "input_space_id" not in features:
-      features["input_space_id"] = tf.constant(
-          input_space_id, name="input_space_id")
-    if "target_space_id" not in features:
-      features["target_space_id"] = tf.constant(
-          target_space_id, name="target_space_id")
+    if features is not None:
+      for k, v in six.iteritems(
+          problem_hparams_to_features(self._problem_hparams)):
+        if k not in features:
+          features[k] = tf.constant(v, name=k)
 
   def infer(self,
             features=None,

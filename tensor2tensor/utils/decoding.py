@@ -29,6 +29,7 @@ import six
 from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators.problem import problem_hparams_to_features
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -471,23 +472,26 @@ def _interactive_input_fn(hparams):
         x = [num_samples, decode_length, len(input_ids)] + input_ids
         assert len(x) < const_array_size
         x += [0] * (const_array_size - len(x))
-        yield {
+        features = {
             "inputs": np.array(x).astype(np.int32),
         }
       elif input_type == "image":
         input_path = input_string
         img = vocabulary.encode(input_path)
-        yield {
+        features = {
             "inputs": img.astype(np.int32),
         }
       elif input_type == "label":
         input_ids = [int(input_string)]
         x = [num_samples, decode_length, len(input_ids)] + input_ids
-        yield {
+        features = {
             "inputs": np.array(x).astype(np.int32),
         }
       else:
         raise Exception("Unsupported input type.")
+      for k, v in six.iteritems(problem_hparams_to_features(p_hparams)):
+        features[k] = np.array(v).astype(np.int32)
+      yield features
 
 
 def show_and_save_image(img, save_path):
