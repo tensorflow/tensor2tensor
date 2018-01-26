@@ -466,13 +466,13 @@ def resnet_base():
 
 
 @registry.register_hparams
-def resnet50():
+def resnet_50():
   hp = resnet_base()
   return hp
 
 
 @registry.register_hparams
-def resnet18():
+def resnet_18():
   hp = resnet_base()
   hp.block_fn = "residual"
   hp.layer_sizes = [2, 2, 2, 2]
@@ -480,28 +480,28 @@ def resnet18():
 
 
 @registry.register_hparams
-def resnet34():
+def resnet_34():
   hp = resnet_base()
   hp.block_fn = "residual"
   return hp
 
 
 @registry.register_hparams
-def resnet101():
+def resnet_101():
   hp = resnet_base()
   hp.layer_sizes = [3, 4, 23, 3]
   return hp
 
 
 @registry.register_hparams
-def resnet152():
+def resnet_152():
   hp = resnet_base()
   hp.layer_sizes = [3, 8, 36, 3]
   return hp
 
 
 @registry.register_hparams
-def resnet200():
+def resnet_200():
   hp = resnet_base()
   hp.layer_sizes = [3, 24, 36, 3]
   return hp

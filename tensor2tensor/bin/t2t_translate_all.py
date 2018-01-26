@@ -81,10 +81,12 @@ def main(_):
   if not os.path.exists(flags_path):
     shutil.copy2(os.path.join(model_dir, "flags.txt"), flags_path)
 
+  locals_and_flags = {"FLAGS": FLAGS}
   for model in bleu_hook.stepfiles_iterator(model_dir, FLAGS.wait_minutes,
                                             FLAGS.min_steps):
     tf.logging.info("Translating " + model.filename)
     out_file = translated_base_file + "-" + str(model.steps)
+    locals_and_flags.update(locals())
     if os.path.exists(out_file):
       tf.logging.info(out_file + " already exists, so skipping it.")
     else:
@@ -96,7 +98,7 @@ def main(_):
           "--model={FLAGS.model} --hparams_set={FLAGS.hparams_set} "
           "--checkpoint_path={model.filename} --decode_from_file={source} "
           "--decode_to_file={out_file}"
-      ).format(**locals())
+      ).format(**locals_and_flags)
       command = FLAGS.decoder_command.format(**locals())
       tf.logging.info("Running:\n" + command)
       os.system(command)

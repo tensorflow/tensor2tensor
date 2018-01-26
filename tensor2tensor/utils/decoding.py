@@ -220,7 +220,8 @@ def decode_from_file(estimator,
                      filename,
                      hparams,
                      decode_hp,
-                     decode_to_file=None):
+                     decode_to_file=None,
+                     checkpoint_path=None):
   """Compute predictions on entries in filename and write them out."""
   if not decode_hp.batch_size:
     decode_hp.batch_size = 32
@@ -249,7 +250,7 @@ def decode_from_file(estimator,
     return _decode_input_tensor_to_features_dict(example, hparams)
 
   decodes = []
-  result_iter = estimator.predict(input_fn)
+  result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
   for result in result_iter:
     if decode_hp.return_beams:
       beam_decodes = []
