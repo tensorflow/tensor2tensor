@@ -163,15 +163,30 @@ def vae(x, z_size, name):
     return z, kl_loss, mu, log_sigma
 
 
+def project(x, hparams):
+  """Project encoder hidden state into block_dim using projection tensors.
+
+  Args:
+    x: Encoder state of shape [-1, hidden_size]
+    hparams: Hparams
+
+  Returns:
+    Projected states of shape [-1, num_blocks, block_dim].
+  """
+  x = tf.reshape(x, shape=[1, -1, hparams.hidden_size])
+  x_tiled = tf.reshape(
+      tf.tile(x, multiples=[hparams.num_blocks, 1, 1]),
+      shape=[hparams.num_blocks, -1, hparams.hidden_size])
+  x_projected = tf.matmul(x_tiled, hparams.projection_tensors)
+  x_projected = tf.transpose(x_projected, perm=[1, 0, 2])
+  return x_projected
+
+
 def nearest(x, means, hparams):
   """Find the nearest means to elements in x."""
-  x_flat = tf.reshape(x, [-1, hparams.hidden_size])
-  x_projected = tf.matmul(
-      tf.stack([x_flat] * hparams.num_blocks, axis=0),
-      hparams.projection_tensors)
-  x_projected = tf.transpose(x_projected, perm=[1, 0, 2])
-  x_norm_sq = tf.reduce_sum(x_projected**2, axis=-1, keepdims=True)
-  means_norm_sq = tf.reduce_sum(means**2, axis=-1, keepdims=True)
+  x_projected = project(x, hparams)
+  x_norm_sq = tf.reduce_sum(tf.square(x_projected), axis=-1, keepdims=True)
+  means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True)
   scalar_prod = tf.matmul(
       tf.transpose(x_projected, perm=[1, 0, 2]),
       tf.transpose(means, perm=[0, 2, 1]))
@@ -202,11 +217,7 @@ def kmeans(x, means, hparams):
                                 [-1, hparams.num_blocks, hparams.block_v_size])
   x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
   x_means = tf.transpose(x_means, [1, 0, 2])
-  x_flat = tf.reshape(x, [-1, hparams.hidden_size])
-  x_projected = tf.matmul(
-      tf.stack([x_flat] * hparams.num_blocks, axis=0),
-      hparams.projection_tensors)
-  x_projected = tf.transpose(x_projected, perm=[1, 0, 2])
+  x_projected = project(x, hparams)
   q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x_projected) - x_means)))
   e_loss = tf.reduce_mean(tf.square(x_projected - tf.stop_gradient(x_means)))
   return x_means_hot, x_means, q_loss, e_loss
@@ -228,8 +239,9 @@ def int_to_bit(x_int, nbits, base=2):
   x_labels = []
   for i in range(nbits):
     x_labels.append(
-        tf.floormod(tf.floordiv(x_l,
-                                tf.to_int32(base)**i), tf.to_int32(base)))
+        tf.floormod(
+            tf.floordiv(tf.to_int32(x_l),
+                        tf.to_int32(base)**i), tf.to_int32(base)))
   res = tf.concat(x_labels, axis=-1)
   return tf.to_float(res)
 
@@ -356,17 +368,13 @@ def bottleneck(x,
 
         x_means_hot_flat = tf.reshape(
             x_means_hot, shape=[-1, hparams.num_blocks, hparams.block_v_size])
-        x_flat = tf.reshape(x, [-1, hparams.hidden_size])
-        x_projected = tf.matmul(
-            tf.stack([x_flat] * hparams.num_blocks, axis=0),
-            hparams.projection_tensors)
+        x_projected = project(x, hparams)
         dw = tf.matmul(
-            tf.transpose(x_means_hot_flat, perm=[1, 0, 2]),
-            x_projected,
-            transpose_a=True)
+            tf.transpose(x_means_hot_flat, perm=[1, 2, 0]),
+            tf.transpose(x_projected, perm=[1, 0, 2]))
         updated_ema_means = moving_averages.assign_moving_average(
             ema_means, dw, hparams.decay, zero_debias=False)
-        n = tf.reduce_sum(updated_ema_count)
+        n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
         updated_ema_count = ((updated_ema_count + hparams.epsilon) /
                              (n + hparams.v_size * hparams.epsilon) * n)
         updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
@@ -378,14 +386,14 @@ def bottleneck(x,
       else:
         l = q_loss + hparams.beta * e_loss
 
-      x_flat = tf.reshape(x, [-1, hparams.hidden_size])
-      x_projected = tf.matmul(
-          tf.stack([x_flat] * hparams.num_blocks, axis=0),
-          hparams.projection_tensors)
-      x_projected = tf.transpose(x_projected, perm=[1, 0, 2])
+      x_projected = project(x, hparams)
       shape = common_layers.shape_list(x)
       x_means = tf.reshape(x_means, shape)
       x_projected = tf.reshape(x_projected, shape)
+      tf.logging.info("Shape of x_means = {}".format(
+          x_means.get_shape().as_list()))
+      tf.logging.info("Shape of x_projected = {}".format(
+          x_projected.get_shape().as_list()))
       h1 = x_projected + tf.stop_gradient(x_means - x_projected)
 
     if hparams.bottleneck_kind == "rounding":
@@ -687,7 +695,7 @@ class TransformerAE(t2t_model.T2TModel):
               self._hparams.block_dim
           ],
           initializer=tf.random_normal_initializer(),
-          trainable=False)
+          trainable=self._hparams.trainable_projections)
 
       self.means = tf.get_variable(
           name="means",
@@ -802,6 +810,7 @@ def transformer_ae_small():
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, vq-vae.
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)
+  hparams.add_hparam("trainable_projections", False)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
   hparams.add_hparam("do_refine", False)
