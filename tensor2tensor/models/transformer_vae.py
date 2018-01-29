@@ -163,11 +163,11 @@ def vae(x, z_size, name):
     return z, kl_loss, mu, log_sigma
 
 
-def project(x, hparams):
+def project_hidden(x, hparams):
   """Project encoder hidden state into block_dim using projection tensors.
 
   Args:
-    x: Encoder state of shape [-1, hidden_size]
+    x: Encoder hidden state of shape [-1, hidden_size]
     hparams: Hparams
 
   Returns:
@@ -182,13 +182,28 @@ def project(x, hparams):
   return x_projected
 
 
+def slice_hidden(x, hparams):
+  """Slice encoder hidden state into block_dim.
+
+  Args:
+    x: Encoder hidden state of shape [-1, hidden_size]
+    hparams: Hparams
+
+  Returns:
+    Sliced states of shape [-1, num_blocks, block_dim].
+  """
+  assert hparams.num_blocks * hparams.block_dim == hparams.hidden_size
+  x_sliced = tf.reshape(x, shape=[-1, hparams.num_blocks, hparams.block_dim])
+  return x_sliced
+
+
 def nearest(x, means, hparams):
   """Find the nearest means to elements in x."""
-  x_projected = project(x, hparams)
-  x_norm_sq = tf.reduce_sum(tf.square(x_projected), axis=-1, keepdims=True)
+  x_reshaped = hparams.reshape_fn(x, hparams)
+  x_norm_sq = tf.reduce_sum(tf.square(x_reshaped), axis=-1, keepdims=True)
   means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True)
   scalar_prod = tf.matmul(
-      tf.transpose(x_projected, perm=[1, 0, 2]),
+      tf.transpose(x_reshaped, perm=[1, 0, 2]),
       tf.transpose(means, perm=[0, 2, 1]))
   scalar_prod = tf.transpose(scalar_prod, perm=[1, 0, 2])
   dist = x_norm_sq + tf.transpose(
@@ -217,9 +232,9 @@ def kmeans(x, means, hparams):
                                 [-1, hparams.num_blocks, hparams.block_v_size])
   x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
   x_means = tf.transpose(x_means, [1, 0, 2])
-  x_projected = project(x, hparams)
-  q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x_projected) - x_means)))
-  e_loss = tf.reduce_mean(tf.square(x_projected - tf.stop_gradient(x_means)))
+  x_reshaped = hparams.reshape_fn(x, hparams)
+  q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x_reshaped) - x_means)))
+  e_loss = tf.reduce_mean(tf.square(x_reshaped - tf.stop_gradient(x_means)))
   return x_means_hot, x_means, q_loss, e_loss
 
 
@@ -288,7 +303,6 @@ def bottleneck(x,
             nbits=int(math.log(hparams.v_size, 2) // hparams.num_blocks),
             base=2)
 
-        tf.logging.info("Shape of c = {}".format(c.get_shape().as_list()))
         c = tf.one_hot(c, depth=hparams.block_v_size)
         h1 = tf.matmul(tf.transpose(means_embed, perm=[1, 0, 2]), c)
       elif hparams.bottleneck_kind == "rounding":
@@ -368,10 +382,10 @@ def bottleneck(x,
 
         x_means_hot_flat = tf.reshape(
             x_means_hot, shape=[-1, hparams.num_blocks, hparams.block_v_size])
-        x_projected = project(x, hparams)
+        x_reshaped = hparams.reshape_fn(x, hparams)
         dw = tf.matmul(
             tf.transpose(x_means_hot_flat, perm=[1, 2, 0]),
-            tf.transpose(x_projected, perm=[1, 0, 2]))
+            tf.transpose(x_reshaped, perm=[1, 0, 2]))
         updated_ema_means = moving_averages.assign_moving_average(
             ema_means, dw, hparams.decay, zero_debias=False)
         n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
@@ -386,15 +400,11 @@ def bottleneck(x,
       else:
         l = q_loss + hparams.beta * e_loss
 
-      x_projected = project(x, hparams)
+      x_reshaped = hparams.reshape_fn(x, hparams)
       shape = common_layers.shape_list(x)
       x_means = tf.reshape(x_means, shape)
-      x_projected = tf.reshape(x_projected, shape)
-      tf.logging.info("Shape of x_means = {}".format(
-          x_means.get_shape().as_list()))
-      tf.logging.info("Shape of x_projected = {}".format(
-          x_projected.get_shape().as_list()))
-      h1 = x_projected + tf.stop_gradient(x_means - x_projected)
+      x_reshaped = tf.reshape(x_reshaped, shape)
+      h1 = x_reshaped + tf.stop_gradient(x_means - x_reshaped)
 
     if hparams.bottleneck_kind == "rounding":
       h = tf.layers.dense(x, 1, name="vcc")
@@ -688,14 +698,24 @@ class TransformerAE(t2t_model.T2TModel):
       self._hparams.block_v_size = int(
           self._hparams.v_size // self._hparams.num_blocks)
 
-      self._hparams.projection_tensors = tf.get_variable(
-          name="projection",
-          shape=[
-              self._hparams.num_blocks, self._hparams.hidden_size,
-              self._hparams.block_dim
-          ],
-          initializer=tf.random_normal_initializer(),
-          trainable=self._hparams.trainable_projections)
+      if self._hparams.reshape_method == "project":
+        tf.logging("Using random projections for hierarchical vq-vae")
+        tf.logging.info("Trainable projections = {}".format(
+            self._hparams.trainable_projections))
+        self._hparams.projection_tensors = tf.get_variable(
+            name="projection",
+            shape=[
+                self._hparams.num_blocks, self._hparams.hidden_size,
+                self._hparams.block_dim
+            ],
+            initializer=tf.orthognal_initializer(),
+            trainable=self._hparams.trainable_projections)
+        self._hparams.reshape_fn = project_hidden
+      elif self._hparams.reshape_method == "slice":
+        tf.logging.info("Using slices for hierarchical vq-vae")
+        self._hparams.reshape_fn = slice_hidden
+      else:
+        raise ValueError("Unknown reshape method")
 
       self.means = tf.get_variable(
           name="means",
@@ -810,6 +830,8 @@ def transformer_ae_small():
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, vq-vae.
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)
+  # Reshape method for hierarchical vq-vae: slice, project
+  hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
