@@ -701,7 +701,7 @@ class TransformerAE(t2t_model.T2TModel):
           self._hparams.v_size // self._hparams.num_blocks)
 
       if self._hparams.reshape_method == "project":
-        tf.logging("Using random projections for hierarchical vq-vae")
+        tf.logging.info("Using random projections for hierarchical vq-vae")
         tf.logging.info("Trainable projections = {}".format(
             self._hparams.trainable_projections))
         self._hparams.projection_tensors = tf.get_variable(
