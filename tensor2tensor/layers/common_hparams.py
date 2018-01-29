@@ -62,7 +62,7 @@ def basic_params1():
       optimizer_adam_beta2=0.997,
       optimizer_momentum_momentum=0.9,
       optimizer_momentum_nesterov=False,
-      weight_decay=0.1,
+      weight_decay=1e-6,
       weight_noise=0.0,
       learning_rate_decay_scheme="none",
       learning_rate_minimum=None,
