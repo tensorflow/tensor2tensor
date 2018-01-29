@@ -70,30 +70,40 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
     return functools.wraps(fct)(functools.partial(fct, *args, **kwargs))
 
   def register_layer(
-      fct,
+      fct_in,
       default_args=None,
       default_kwargs=None,
       use_dp=True,
+      recompute_grad=False,
   ):
     """Turn a function into its standardized version.
 
     Args:
-      fct (fct): The function to register
+      fct_in (fct): The function to register
       default_args (list): The default parameters to add to the function.
       default_kwargs (dict): The default parameters to add to the function.
         Those arguments can be overwriten when calling the function.
       use_dp (bool): Wrap the function call within a dataparalellism object if
         dp is available. Some layers (like moe) must be called without dp.
+      recompute_grad (bool): If True, recompute the function during the
+        backward pass to save memory
 
     Returns:
       fct: the standardized layer function.
     """
     # The kwargs given when calling the function overwrite the default ones
-    fct = partial(fct, *(default_args or []), **(default_kwargs or {}))
+    fct_in = partial(fct_in, *(default_args or []), **(default_kwargs or {}))
 
-    @functools.wraps(fct)
+    @functools.wraps(fct_in)
     def decorator(x, *args, **kwargs):
       """Call the layer function."""
+      fct = fct_in  # For closure. Could use nonlocal with Python 3
+      # Eventually create the memory optimized version of the function
+      if recompute_grad:
+        fct = partial(fct, **kwargs)  # recompute_grad only accept args
+        fct = common_layers.recompute_grad(fct)
+        kwargs = {}
+
       # Eventually use dp (if given and not MoE)
       if use_dp and dp is not None:
         y = dp(fct, x, *args, **kwargs)
@@ -135,10 +145,48 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
           dropout_rate=hparams.attention_dropout,
       ))
 
-  # === Local attention layer ===
+  # === Memory efficient full-attention layer ===
+  # Save memory by not storing the activations and
+  # recomputing them during the backward pass
+  memeff_attention_base_fn = register_layer(
+      multihead_attention,
+      default_kwargs=dict(
+          total_key_depth=total_key_depth,
+          total_value_depth=total_value_depth,
+          output_depth=hparams.hidden_size,
+          num_heads=hparams.num_heads,
+          dropout_rate=hparams.attention_dropout,
+      ),
+      recompute_grad=True,
+  )
+  def memeff_attention_fn(*args, **kwargs):
+    """Modify args/kwargs for compatibility with recompute_grad."""
+    kwargs = kwargs.copy()
+    assert len(args) == 1
+    x = args[0]
+    memory_antecedent = kwargs.pop("memory_antecedent", x)  # Same as x if None
+    if kwargs.get("bias", None) is not None:  # Case where bias has been set
+      args = (x, memory_antecedent, kwargs.pop("bias"))
+    else:
+      # Otherwise, only 2 args. This is necessary as recompute_grad does not
+      # support None values.
+      args = (x, memory_antecedent)
+    return memeff_attention_base_fn(*args, **kwargs)
+
+  # === Local attention (unmasked) layer ===
+  # Reuse same parameters as multihead_attention
+  # Don't mask the future
+  local_attention_fn = partial(
+      multihead_attention_fn,
+      block_length=hparams.attention_loc_block_length,
+      block_width=hparams.attention_loc_block_width,
+      attention_type="local_unmasked",
+  )
+
+  # === Local attention (masked) layer ===
   # Reuse same parameters as multihead_attention
   # Only works for self attention. Always mask the future.
-  local_attention_fn = partial(
+  local_attention_masked_fn = partial(
       multihead_attention_fn,
       block_length=hparams.attention_loc_block_length,
       attention_type="local_mask_right",
@@ -213,8 +261,9 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
   layers = dict(
       a=multihead_attention_fn,  # Multihead full attention
       loc=local_attention_fn,  # Local attention
+      locm=local_attention_masked_fn,  # Local masked attention
       red=compressed_attention_fn,  # Memory-compressed attention
-      mem=None,  # Memory efficient
+      mem=memeff_attention_fn,  # Memory efficient
       fc=conv_hidden_relu,
       sep=sep_conv_relu,  # Fully connected
       sepm=sep_conv_relu_masked,  # masked separable convolution
@@ -252,6 +301,8 @@ def add_standard_attention_hparams(hparams):
   hparams.add_hparam("attention_dropout", 0.0)
   # Attention: Local
   hparams.add_hparam("attention_loc_block_length", 256)
+  # Attention: Local (unmasked only): How much to look left.
+  hparams.add_hparam("attention_loc_block_width", 128)
   # Attention: Memory-compressed
   hparams.add_hparam("attention_red_factor", 3)
   hparams.add_hparam("attention_red_type", "conv")
