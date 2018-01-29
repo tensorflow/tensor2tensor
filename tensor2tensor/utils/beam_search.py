@@ -90,7 +90,7 @@ def get_state_shape_invariants(tensor):
 
 
 def log_prob_from_logits(logits):
-  return logits - tf.reduce_logsumexp(logits, axis=2, keep_dims=True)
+  return logits - tf.reduce_logsumexp(logits, axis=2, keepdims=True)
 
 
 def compute_batch_indices(batch_size, beam_size):
