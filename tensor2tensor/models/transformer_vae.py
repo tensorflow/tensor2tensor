@@ -90,9 +90,9 @@ def top_k_softmax(x, k):
   """Calculate softmax(x), select top-k and rescale to sum to 1."""
   x = tf.nn.softmax(x)
   top_x, _ = tf.nn.top_k(x, k=k+1)
-  min_top = tf.reduce_min(top_x, axis=-1, keep_dims=True)
+  min_top = tf.reduce_min(top_x, axis=-1, keepdims=True)
   x = tf.nn.relu((x - min_top) + 1e-12)
-  x /= tf.reduce_sum(x, axis=-1, keep_dims=True)
+  x /= tf.reduce_sum(x, axis=-1, keepdims=True)
   return x, tf.reduce_max(top_x, axis=-1)
 
 
@@ -140,7 +140,7 @@ def dae(x, hparams, name):
     maxvhot = tf.stop_gradient(tf.one_hot(maxvec, hparams.v_size))
     # Add losses that prevent too few being used.
     distrib = tf.reshape(logsm, [-1, hparams.v_size]) * maxvhot
-    d_mean = tf.reduce_mean(distrib, axis=[0], keep_dims=True)
+    d_mean = tf.reduce_mean(distrib, axis=[0], keepdims=True)
     d_variance = tf.reduce_mean(tf.square(distrib - d_mean), axis=[0])
     d_dev = - tf.reduce_mean(d_variance)
     ret = s
