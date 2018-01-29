@@ -420,6 +420,7 @@ class T2TModel(base.Layer):
         tf.logging.info("Beam Decoding with beam size %d" % beam_size)
         samples = self._beam_decode(
             features, decode_length, beam_size, top_beams, alpha)
+        samples = samples["outputs"]
       return samples
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
@@ -519,15 +520,13 @@ class T2TModel(base.Layer):
       features["inputs"] = inputs_old
 
     # Return `top_beams` decodings (also remove initial id from the beam search)
-    return_scores = True  # TODO(lukaszkaiser): make it work multi-problem.
+    # TODO(lukaszkaiser): make it work multi-problem.
     if top_beams == 1:
-      if return_scores:
-        return {"outputs": ids[:, 0, 1:], "scores": scores}
-      return ids[:, 0, 1:]
+      samples = ids[:, 0, 1:]
     else:
-      if return_scores:
-        return {"outputs": ids[:, :top_beams, 1:], "scores": scores}
-      return ids[:, :top_beams, 1:]
+      samples = ids[:, :top_beams, 1]
+
+    return {"outputs": samples, "scores": scores}
 
   def _greedy_infer(self, features, decode_length):
     """A greedy inference method.
