@@ -654,6 +654,8 @@ def ae_transformer_internal(inputs,
       for i in xrange(hparams.num_compress_steps):
         j = hparams.num_compress_steps - i - 1
         d = residual_conv(d, 1, (3, 1), hparams, "decompress_rc_%d" % j)
+        if hparams.do_attend_decompress:
+          d = attend(d, inputs, hparams, "decompress_attend_%d" % j)
         d = decompress_step(d, hparams, i > 0, False, "decompress_%d" % j)
       targets = mask * targets + (1.0 - mask) * d
     targets = tf.concat([tf.reverse(latents_dense, [1]), targets], axis=1)
@@ -837,6 +839,7 @@ def transformer_ae_small():
   hparams.add_hparam("do_mask", True)
   hparams.add_hparam("do_refine", False)
   hparams.add_hparam("do_attend_compress", False)
+  hparams.add_hparam("do_attend_decompress", True)
   hparams.add_hparam("do_residual_compress", False)
   hparams.add_hparam("drop_inputs", False)
   hparams.add_hparam("v_size", 1024*64)

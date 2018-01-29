@@ -169,7 +169,9 @@ def learning_rate_decay(hparams, num_worker_replicas=1):
 
   if scheme == "cosine":
     cycle_steps = hparams.learning_rate_cosine_cycle_steps
-    return 0.5 * (1 + tf.cos(np.pi * (step % cycle_steps) / cycle_steps))
+    cycle_position = step % (2 * cycle_steps)
+    cycle_position = cycle_steps - tf.abs(cycle_steps - cycle_position)
+    return 0.5 * (1 + tf.cos(np.pi * cycle_position / cycle_steps))
 
   if scheme == "cyclelinear10x":
     # Cycle the rate linearly by 10x every warmup_steps, up and down.
@@ -219,7 +221,7 @@ def weight_decay_and_noise(loss, hparams, learning_rate, var_list=None):
   if var_list is None:
     var_list = tf.trainable_variables()
 
-  decay_vars = [v for v in var_list if len(v.shape.as_list()) > 1]
+  decay_vars = [v for v in var_list]
   noise_vars = [v for v in var_list if "/body/" in v.name]
 
   weight_decay_loss = weight_decay(hparams.weight_decay, decay_vars)
@@ -255,7 +257,7 @@ def weight_noise(noise_rate, learning_rate, var_list):
   return noise_ops
 
 
-def weight_decay(decay_rate, var_list):
+def weight_decay(decay_rate, var_list, skip_biases=True):
   """Apply weight decay to vars in var_list."""
   if not decay_rate:
     return 0.
@@ -264,9 +266,10 @@ def weight_decay(decay_rate, var_list):
 
   weight_decays = []
   for v in var_list:
-    # Weight decay
-    is_bias = len(v.shape.as_list()) <= 1
-    if not is_bias:
+    # Weight decay.
+    # This is a heuristic way to detect biases that works for main tf.layers.
+    is_bias = len(v.shape.as_list()) == 1 and v.name.endswith("bias:0")
+    if not (skip_biases and is_bias):
       with tf.device(v.device):
         v_loss = tf.nn.l2_loss(v)
       weight_decays.append(v_loss)
