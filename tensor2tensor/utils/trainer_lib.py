@@ -114,8 +114,6 @@ def create_run_config(master="",
       enable_graph_rewriter=enable_graph_rewriter,
       gpu_mem_fraction=gpu_mem_fraction,
       use_tpu=use_tpu)
-  session_config = tf.ConfigProto(
-      allow_soft_placement=True, log_device_placement=log_device_placement)
   run_config_args = {
       "master": master,
       "model_dir": model_dir,
