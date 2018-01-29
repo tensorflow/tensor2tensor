@@ -3387,7 +3387,7 @@ def local_reduction_attention(x, block_length, multihead_params):
             block_length,
             block_length,  # Restore the block length dimension
         ])
-    weights = tf.reduce_sum(weights, axis=3, keep_dims=True)  # Compress block
+    weights = tf.reduce_sum(weights, axis=3, keepdims=True)  # Compress block
     v_out = tf.matmul(weights, v)  # [1, block_length] @ [block_length, depth]
     v_out = tf.squeeze(v_out, axis=3)
     return v_out
