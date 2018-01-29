@@ -150,6 +150,7 @@ class ImageCeleba(image_utils.ImageProblem):
         self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
 
 
+@registry.register_problem
 class Img2imgCeleba(ImageCeleba):
   """8px to 32px problem."""
 
