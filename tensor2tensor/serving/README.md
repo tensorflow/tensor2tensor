@@ -3,8 +3,7 @@
 Tensor2Tensor and the TensorFlow ecosystem make it easy to serve a model once
 trained.
 
-**Note**: The following requires recent features in TensorFlow as so if you get
-import errors or the like, try installing `tensorflow==1.5.0rc0`.
+**Note**: Requires TF 1.5+.
 
 ## 1. Export for Serving
 
