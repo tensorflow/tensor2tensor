@@ -325,16 +325,11 @@ def main(_):
     FLAGS.train_steps = 1
     FLAGS.eval_steps = 1
 
-  print("$$$$$$$$$$$$$$$$$$$$$")
   problem_name = get_problem_name()
-  print("problem_name={}".format(problem_name))
   problem = registry.problem(problem_name)
   for flag, _ in problem.file_flags_for_export_with_model().items():
-    print("flag={}".format(flag))
     curr_val = FLAGS.__getattr__(flag)
-    print("curr_val={}".format(curr_val))
     new_val = fhfile.get_workspace_path(curr_val)
-    print("new_val={}".format(new_val))
     FLAGS.__setattr__(flag, new_val)
 
   hparams = create_hparams()
