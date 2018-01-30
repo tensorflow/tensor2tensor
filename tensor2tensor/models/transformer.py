@@ -821,6 +821,10 @@ def transformer_base_v1():
   hparams.label_smoothing = 0.1
   hparams.shared_embedding_and_softmax_weights = True
   hparams.symbol_modality_num_shards = 16
+  # input performance is not relevant for text
+  # Better shuffling is important for distributed training.
+  hparams.use_interleaved_data_reading = False
+
   # Add new ones like this.
   hparams.add_hparam("filter_size", 2048)
   # Layer-related flags. If zero, these fall back on hparams.num_hidden_layers.
@@ -1324,6 +1328,13 @@ def transformer_clean_big():
 
 
 @registry.register_hparams
+def transformer_clean_big_tpu():
+  hparams = transformer_clean_big()
+  update_hparams_for_tpu(hparams)
+  return hparams
+
+
+@registry.register_hparams
 def transformer_tpu_with_conv():
   """Cut down on the number of heads, and use convs instead."""
   hparams = transformer_tpu()
@@ -1340,7 +1351,7 @@ def transformer_lm_tpu_0():
   hparams.num_heads = 4   # heads are expensive on tpu
   hparams.batch_size = 4096
   hparams.shared_embedding_and_softmax_weights = False
-  hparams.symbol_dropout = 0.1
+  hparams.layer_prepostprocess_dropout = 0.1
   return hparams
 
 
