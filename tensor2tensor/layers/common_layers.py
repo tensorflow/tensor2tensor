@@ -1773,6 +1773,29 @@ def running_global_pool_1d(inputs, pooling_type="MAX"):
   return output
 
 
+def gated_linear_unit_layer(x, name=None):
+  """Gated linear unit layer.
+
+  Paper: Language Modeling with Gated Convolutional Networks.
+  Link: https://arxiv.org/abs/1612.08083
+  x = Wx * sigmoid(W'x).
+
+  Args:
+    x: A tensor
+    name: A string
+
+  Returns:
+    x: A tensor
+  """
+
+  with tf.variable_scope(
+      name, default_name="glu_layer", values=[x]):
+    depth = shape_list(x)[-1]
+    x = tf.layers.dense(x, depth * 2, activation=None)
+    x, gating_x = tf.split(x, 2, axis=-1)
+    return x * tf.nn.sigmoid(gating_x)
+
+
 def linear_set_layer(layer_size,
                      inputs,
                      context=None,

@@ -135,6 +135,19 @@ class ImageCifar10Plain(ImageCifar10):
 
 
 @registry.register_problem
+class ImageCifar10PlainGen(ImageCifar10Plain):
+  """CIFAR-10 32x32 for image generation without standardization preprep."""
+
+  def dataset_filename(self):
+    return "image_cifar10_plain"  # Reuse CIFAR-10 plain data.
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    return example
+
+
+@registry.register_problem
 class ImageCifar10Plain8(ImageCifar10):
   """CIFAR-10 rescaled to 8x8 for output: Conditional image generation."""
 
