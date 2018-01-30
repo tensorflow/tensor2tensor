@@ -74,8 +74,8 @@ flags.DEFINE_bool("eval_use_test_set", False,
                   "Whether to use the '-test' data for EVAL (and PREDICT).")
 flags.DEFINE_integer("keep_checkpoint_max", 20,
                      "How many recent checkpoints to keep.")
-flags.DEFINE_bool("experimental_optimize_placement", False,
-                  "Optimize ops placement with experimental session options.")
+flags.DEFINE_bool("enable_graph_rewriter", False,
+                  "Enable graph optimizations that are not on by default.")
 flags.DEFINE_integer("keep_checkpoint_every_n_hours", 10000,
                      "Number of hours between each checkpoint to be saved. "
                      "The default value 10,000 hours effectively disables it.")

@@ -137,7 +137,7 @@ def create_run_config(hp):
       shard_to_cpu=FLAGS.locally_shard_to_cpu,
       num_async_replicas=FLAGS.worker_replicas,
       gpu_mem_fraction=FLAGS.worker_gpu_memory_fraction,
-      enable_graph_rewriter=FLAGS.experimental_optimize_placement,
+      enable_graph_rewriter=FLAGS.enable_graph_rewriter,
       use_tpu=FLAGS.use_tpu,
       schedule=FLAGS.schedule,
       no_data_parallelism=hp.no_data_parallelism,
