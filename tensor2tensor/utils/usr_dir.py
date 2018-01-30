@@ -21,9 +21,13 @@ import importlib
 import os
 import sys
 
+from tensor2tensor.utils import registry
+
 # Dependency imports
 
 import tensorflow as tf
+
+from gcloud.gcs import fhfile
 
 
 INTERNAL_USR_DIR_PACKAGE = "t2t_usr_dir_internal"
@@ -46,3 +50,23 @@ def import_usr_dir(usr_dir):
   sys.path.insert(0, containing_dir)
   importlib.import_module(module_name)
   sys.path.pop(0)
+
+
+#Fathom
+def fix_paths_for_workspace(FLAGS):
+  """Update FLAGs to using workspace directories"""
+  FLAGS.output_dir = fhfile.get_workspace_path(FLAGS.output_dir)
+  FLAGS.data_dir = fhfile.get_workspace_path(os.path.expanduser(FLAGS.data_dir))
+
+  problem_name = get_problem_name()
+  problem = registry.problem(problem_name)
+  for flag, _ in problem.file_flags_for_export_with_model().items():
+    curr_val = FLAGS.__getattr__(flag)
+    new_val = fhfile.get_workspace_path(curr_val)
+    FLAGS.__setattr__(flag, new_val)
+
+
+def get_problem_name(problems):
+  problems = problems.split("-")
+  assert len(problems) == 1
+  return problems[0]

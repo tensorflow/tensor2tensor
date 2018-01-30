@@ -139,6 +139,9 @@ def set_random_seed():
 
 
 def main(_):
+  # Fathom
+  fix_paths_for_workspace(FLAGS)
+
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
@@ -179,7 +182,6 @@ def main(_):
     tf.logging.warning("It is strongly recommended to specify --data_dir. "
                        "Data will be written to default data_dir=%s.",
                        FLAGS.data_dir)
-  FLAGS.data_dir = fhfile.get_workspace_path(FLAGS.data_dir)
 
   tf.logging.info("Generating problems:\n%s"
                   % registry.display_list_by_prefix(problems,
