@@ -38,6 +38,7 @@ import tempfile
 
 # Fathom
 import fathomt2t
+from gcloud.gcs import fhfile
 
 import numpy as np
 
@@ -172,7 +173,7 @@ def main(_):
     tf.logging.warning("It is strongly recommended to specify --data_dir. "
                        "Data will be written to default data_dir=%s.",
                        FLAGS.data_dir)
-  FLAGS.data_dir = usr_dir.update_data_dir(FLAGS.data_dir)
+  FLAGS.data_dir = fhfile.get_workspace_path(FLAGS.data_dir)
 
   tf.logging.info("Generating problems:\n%s"
                   % registry.display_list_by_prefix(problems,
