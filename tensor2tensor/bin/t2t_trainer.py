@@ -31,6 +31,8 @@ from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-imp
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
+from tensor2tensor.utils.usr_dir import (fix_paths_for_workspace,
+                                         get_problem_name)
 
 
 import tensorflow as tf
@@ -86,7 +88,6 @@ except:  # pylint: disable=bare-except
 import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
 from fathomtf.services.model_management import upload_model_to_gcs
-from gcloud.gcs import fhfile
 import os
 flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
 # NOTE: this is set as REQUIRED, in main()
@@ -101,12 +102,6 @@ flags.DEFINE_string("description", "",
 ##################
 
 
-def get_problem_name():
-  problems = FLAGS.problems.split("-")
-  assert len(problems) == 1
-  return problems[0]
-
-
 def create_hparams():
   if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
     tf.logging.warn("Not all hyperparameter sets work on TPU. When available "
@@ -118,8 +113,8 @@ def create_hparams():
 def create_experiment_fn():
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
-      problem_name=get_problem_name(),
-      data_dir=fhfile.get_workspace_path(os.path.expanduser(FLAGS.data_dir)),
+      problem_name=get_problem_name(FLAGS.problems),
+      data_dir=os.path.expanduser(FLAGS.data_dir),
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
@@ -170,12 +165,12 @@ def create_run_config(hp):
 
 def generate_data():
   # Generate data if requested.
-  data_dir = fhfile.get_workspace_path(os.path.expanduser(FLAGS.data_dir))
+  data_dir = os.path.expanduser(FLAGS.data_dir)
   tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
 
-  problem_name = get_problem_name()
+  problem_name = get_problem_name(FLAGS.problems)
   tf.logging.info("Generating data for %s" % problem_name)
   registry.problem(problem_name).generate_data(data_dir, tmp_dir)
 
@@ -309,13 +304,16 @@ def _pick_optimal_model() -> None:
         all_checkpoint_paths + [checkpoint_path])
 
 
+
+
 def main(_):
+  # Fathom
+  fix_paths_for_workspace(FLAGS)
+
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
-
-  FLAGS.output_dir = fhfile.get_workspace_path(FLAGS.output_dir)
 
   if FLAGS.generate_data:
     generate_data()
@@ -324,13 +322,6 @@ def main(_):
   if FLAGS.debug_mode:
     FLAGS.train_steps = 1
     FLAGS.eval_steps = 1
-
-  problem_name = get_problem_name()
-  problem = registry.problem(problem_name)
-  for flag, _ in problem.file_flags_for_export_with_model().items():
-    curr_val = FLAGS.__getattr__(flag)
-    new_val = fhfile.get_workspace_path(curr_val)
-    FLAGS.__setattr__(flag, new_val)
 
   hparams = create_hparams()
   run_config = create_run_config(hparams)
