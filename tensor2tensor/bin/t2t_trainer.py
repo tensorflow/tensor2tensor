@@ -294,14 +294,14 @@ def _pick_optimal_model() -> None:
     # hack FIXME TODO XXX
     # We are about to move the best model into an export folder
     dirname, basename = os.path.split(checkpoint_path)
-    checkpoint_path = os.path.join(dirname, 'export', basename)
+    checkpoint_path = basename
 
     print('Early stopping chose checkpoint', checkpoint_path)
 
     tf.train.update_checkpoint_state(
-        FLAGS.output_dir,
-        checkpoint_path,
-        all_checkpoint_paths + [checkpoint_path])
+      FLAGS.output_dir,
+      checkpoint_path,
+      [checkpoint_path])
 
 
 
