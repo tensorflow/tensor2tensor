@@ -101,8 +101,7 @@ class ConditionalOptimizer(tf.train.Optimizer):
           beta2=hparams.optimizer_adam_beta2,
           epsilon=hparams.optimizer_adam_epsilon)
     elif optimizer_name == "Adafactor":
-      self._opt = AdafactorOptimizer(
-          lr / 500.0, epsilon=hparams.optimizer_adam_epsilon)
+      self._opt = AdafactorOptimizer(lr / 500.0)
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
@@ -508,9 +507,8 @@ class AdafactorOptimizer(tf.train.Optimizer):
       anomaly_factor = self._anomaly_factor(grad_squared_mean, long_term_mean)
       # This is the computation we should do.
       # est_v = (tf.expand_dims(new_vr, 1) * tf.expand_dims(new_vc, 0)
-      #          / long_term_mean * anomaly_factor)
+      #          * anomaly_factor / long_term_mean)
       # subtrahend = grad * lr / tf.sqrt(est_v)
-      # tf.assign_sub(var, subtrahend)
       # Instead we do the following, which is mathematically equivalent.
       r_factor = lr * tf.rsqrt(new_vr * anomaly_factor / long_term_mean)
       c_factor = tf.rsqrt(new_vc)
@@ -526,7 +524,6 @@ class AdafactorOptimizer(tf.train.Optimizer):
       # This is the computation we should do.
       # est_v = (new_v * anomaly_factor)
       # subtrahend = grad * lr / tf.sqrt(est_v)
-      # tf.assign_sub(var, subtrahend)
       # Instead we do the following, which is mathematically equivalent.
       subtrahend = grad * (lr / tf.sqrt(anomaly_factor)) * tf.rsqrt(new_v)
     var_update = tf.assign_sub(var, subtrahend, use_locking=self._use_locking)
