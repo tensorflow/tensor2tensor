@@ -50,6 +50,7 @@ from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wsj_parsing
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
+from tensor2tensor.utils.usr_dir import fix_paths_for_workspace
 
 import tensorflow as tf
 
