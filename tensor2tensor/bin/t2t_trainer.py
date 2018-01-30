@@ -189,7 +189,7 @@ def create_experiment_fn():
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
       problem_name=get_problem_name(),
-      data_dir=os.path.expanduser(FLAGS.data_dir),
+      data_dir=fhfile.get_workspace_path(os.path.expanduser(FLAGS.data_dir)),
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
@@ -260,7 +260,7 @@ def create_run_config(hp):
 
 def generate_data():
   # Generate data if requested.
-  data_dir = usr_dir.update_data_dir(os.path.expanduser(FLAGS.data_dir))
+  data_dir = fhfile.get_workspace_path(os.path.expanduser(FLAGS.data_dir))
   tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
@@ -426,8 +426,12 @@ def main(argv):
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
 
+<<<<<<< bbc951d8610601e992515acca8f146e1170aa159
   if FLAGS.cloud_mlengine:
     return cloud_mlengine.launch()
+=======
+  FLAGS.output_dir = fhfile.get_workspace_path(FLAGS.output_dir)
+>>>>>>> using fhfile.get_workspace_path instead
 
   if FLAGS.generate_data:
     generate_data()

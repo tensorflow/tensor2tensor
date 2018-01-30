@@ -38,6 +38,7 @@ import tempfile
 # Fathom
 import fathomt2t
 from fathomtf.services.model_management import fathom_t2t_model_setup
+from gcloud.gcs import fhfile
 
 import numpy as np
 
@@ -142,7 +143,7 @@ def main(_):
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   # Fathom
-  _ = fathom_t2t_model_setup()
+  fathom_t2t_model_setup()
 
   # Calculate the list of problems to generate.
   problems = sorted(
@@ -178,8 +179,7 @@ def main(_):
     tf.logging.warning("It is strongly recommended to specify --data_dir. "
                        "Data will be written to default data_dir=%s.",
                        FLAGS.data_dir)
-  FLAGS.data_dir = os.path.expanduser(FLAGS.data_dir)
-  tf.gfile.MakeDirs(FLAGS.data_dir)
+  FLAGS.data_dir = fhfile.get_workspace_path(FLAGS.data_dir)
 
   tf.logging.info("Generating problems:\n%s"
                   % registry.display_list_by_prefix(problems,
