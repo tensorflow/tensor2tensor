@@ -55,14 +55,11 @@ def import_usr_dir(usr_dir):
 def fix_paths_for_workspace(FLAGS):
   """Update FLAGs to using workspace directories"""
   if hasattr(FLAGS, 'output_dir'):
-    print("UPDATING output_dir")
     FLAGS.output_dir = fhfile.get_workspace_path(FLAGS.output_dir)
   if hasattr(FLAGS, 'data_dir'):
-    print("UPDATING data_dir")
     FLAGS.data_dir = fhfile.get_workspace_path(os.path.expanduser(FLAGS.data_dir))
 
   if hasattr(FLAGS, 'problems'):
-    print("UPDATING problem flags")
     problem_name = get_problem_name(FLAGS.problems)
     problem = registry.problem(problem_name)
     for flag, _ in problem.file_flags_for_export_with_model().items():
