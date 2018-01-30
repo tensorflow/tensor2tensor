@@ -39,6 +39,7 @@ import tempfile
 # Fathom
 import fathomt2t
 from gcloud.gcs import fhfile
+from fathomtf.services.model_management import fathom_t2t_model_setup
 
 import numpy as np
 
@@ -55,6 +56,9 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
+
+# Fathom
+flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
 
 flags.DEFINE_string("data_dir", "", "Data directory.")
 flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
@@ -138,6 +142,9 @@ def set_random_seed():
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
+
+  # Fathom
+  _ = fathom_t2t_model_setup()
 
   # Calculate the list of problems to generate.
   problems = sorted(
