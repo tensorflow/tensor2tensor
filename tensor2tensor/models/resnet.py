@@ -452,16 +452,15 @@ def resnet_base():
   hparams.optimizer_momentum_momentum = 0.9
   hparams.optimizer_momentum_nesterov = True
   hparams.weight_decay = 1e-4
-  hparams.clip_grad_norm = 0
-  # (base_lr=0.1) * (batch_size=128*8=1024) / (256.)
+  hparams.clip_grad_norm = 0.0
+  # (base_lr=0.1) * (batch_size=128*8 (on TPU, or 8 GPUs)=1024) / (256.)
   hparams.learning_rate = 0.4
-  hparams.learning_rate_decay_scheme = "exp"
-  hparams.learning_rate_minimum = 0.001
-  hparams.learning_rate_warmup_steps = 5000
+  hparams.learning_rate_decay_scheme = "cosine"
+  # For image_imagenet224, 120k training steps, which effectively makes this a
+  # cosine decay (i.e. no cycles).
+  hparams.learning_rate_cosine_cycle_steps = 120000
 
-  # Batch sizes (for Problem image_imagenet224)
-  hparams.batch_size = 64
-  hparams.tpu_batch_size_per_shard = 128
+  hparams.batch_size = 128
   return hparams
 
 
