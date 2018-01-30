@@ -26,6 +26,7 @@ import sys
 
 import tensorflow as tf
 
+
 def import_usr_dir(usr_dir):
   """Import module at usr_dir, if provided."""
   if not usr_dir:
