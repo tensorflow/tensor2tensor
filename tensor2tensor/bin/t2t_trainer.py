@@ -157,6 +157,7 @@ def set_hparams_from_args(args):
 import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
 from fathomtf.services.model_management import upload_model_to_gcs
+from gcloud.gcs import fhfile
 import os
 flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
 # NOTE: this is set as REQUIRED, in main()
@@ -443,6 +444,18 @@ def main(argv):
     
   if argv:
     set_hparams_from_args(argv[1:])
+  print("$$$$$$$$$$$$$$$$$$$$$")
+  problem_name = get_problem_name()
+  print("problem_name={}".format(problem_name))
+  problem = registry.problem(problem_name)
+  for flag, _ in problem.file_flags_for_export_with_model().items():
+    print("flag={}".format(flag))
+    curr_val = FLAGS.__getattr__(flag)
+    print("curr_val={}".format(curr_val))
+    new_val = fhfile.get_workspace_path(curr_val)
+    print("new_val={}".format(new_val))
+    FLAGS.__setattr__(flag, new_val)
+
   hparams = create_hparams()
 
   with maybe_cloud_tpu():
