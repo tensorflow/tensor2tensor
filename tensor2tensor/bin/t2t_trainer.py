@@ -31,8 +31,6 @@ from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-imp
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
-from tensor2tensor.utils.usr_dir import (fix_paths_for_workspace,
-                                         get_problem_name)
 
 
 import tensorflow as tf
@@ -87,7 +85,8 @@ except:  # pylint: disable=bare-except
 ##################
 import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
-from fathomtf.services.model_management import upload_model_to_gcs
+from fathomtf.services.model_management import (upload_model_to_gcs,
+                                                fix_paths_for_workspace)
 import os
 flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
 # NOTE: this is set as REQUIRED, in main()
@@ -102,6 +101,12 @@ flags.DEFINE_string("description", "",
 ##################
 
 
+def get_problem_name():
+  problems = FLAGS.problems.split("-")
+  assert len(problems) == 1
+  return problems[0]
+
+
 def create_hparams():
   if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
     tf.logging.warn("Not all hyperparameter sets work on TPU. When available "
@@ -113,7 +118,7 @@ def create_hparams():
 def create_experiment_fn():
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
-      problem_name=get_problem_name(FLAGS.problems),
+      problem_name=get_problem_name(),
       data_dir=os.path.expanduser(FLAGS.data_dir),
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
@@ -170,7 +175,7 @@ def generate_data():
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
 
-  problem_name = get_problem_name(FLAGS.problems)
+  problem_name = get_problem_name()
   tf.logging.info("Generating data for %s" % problem_name)
   registry.problem(problem_name).generate_data(data_dir, tmp_dir)
 
@@ -308,7 +313,7 @@ def _pick_optimal_model() -> None:
 
 def main(_):
   # Fathom
-  fix_paths_for_workspace(FLAGS)
+  fix_paths_for_workspace(FLAGS, get_problem_name())
 
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)

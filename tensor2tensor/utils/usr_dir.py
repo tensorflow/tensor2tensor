@@ -22,13 +22,9 @@ import importlib
 import os
 import sys
 
-from tensor2tensor.utils import registry
-
 # Dependency imports
 
 import tensorflow as tf
-
-from gcloud.gcs import fhfile
 
 def import_usr_dir(usr_dir):
   """Import module at usr_dir, if provided."""
@@ -43,26 +39,3 @@ def import_usr_dir(usr_dir):
   sys.path.insert(0, containing_dir)
   importlib.import_module(module_name)
   sys.path.pop(0)
-
-
-#Fathom
-def fix_paths_for_workspace(FLAGS):
-  """Update FLAGs to using workspace directories"""
-  if hasattr(FLAGS, 'output_dir'):
-    FLAGS.output_dir = fhfile.get_workspace_path(FLAGS.output_dir)
-  if hasattr(FLAGS, 'data_dir'):
-    FLAGS.data_dir = fhfile.get_workspace_path(os.path.expanduser(FLAGS.data_dir))
-
-  if hasattr(FLAGS, 'problems'):
-    problem_name = get_problem_name(FLAGS.problems)
-    problem = registry.problem(problem_name)
-    for flag, _ in problem.file_flags_for_export_with_model().items():
-      curr_val = FLAGS.__getattr__(flag)
-      new_val = fhfile.get_workspace_path(curr_val)
-      FLAGS.__setattr__(flag, new_val)
-
-
-def get_problem_name(problems):
-  problems = problems.split("-")
-  assert len(problems) == 1
-  return problems[0]

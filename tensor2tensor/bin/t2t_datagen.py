@@ -38,7 +38,8 @@ import tempfile
 
 # Fathom
 import fathomt2t
-from fathomtf.services.model_management import fathom_t2t_model_setup
+from fathomtf.services.model_management import (fathom_t2t_model_setup,
+                                                fix_paths_for_workspace)
 
 import numpy as np
 
@@ -50,7 +51,6 @@ from tensor2tensor.data_generators import snli
 from tensor2tensor.data_generators import wsj_parsing
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
-from tensor2tensor.utils.usr_dir import fix_paths_for_workspace
 
 import tensorflow as tf
 
