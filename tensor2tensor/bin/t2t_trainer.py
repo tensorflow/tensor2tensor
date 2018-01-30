@@ -309,8 +309,6 @@ def _pick_optimal_model() -> None:
       [checkpoint_path])
 
 
-
-
 def main(_):
   # Fathom
   fix_paths_for_workspace(FLAGS, get_problem_name())
