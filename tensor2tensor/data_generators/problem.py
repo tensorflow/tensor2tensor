@@ -1351,6 +1351,13 @@ def pad_batch(features, batch_multiple):
 
   padded_features = {}
   for k, feature in features.items():
+
+    # Fathom: don't pad string features, because that is unsupported
+    # in tensorflow. 
+    if feature.dtype == tf.string:
+      padded_features[k] = feature
+      continue
+      
     rank = len(feature.shape)
     paddings = []
     for _ in range(rank):
