@@ -132,7 +132,7 @@ def create_run_config(master="",
     tpu_config = tf.contrib.tpu.TPUConfig(
         iterations_per_loop=iterations_per_loop,
         num_shards=num_shards,
-        per_host_input_for_training=(num_shards <= 8),
+        per_host_input_for_training=True,
         initial_infeed_sleep_secs=tpu_infeed_sleep_secs)
     run_config_args["tpu_config"] = tpu_config
 

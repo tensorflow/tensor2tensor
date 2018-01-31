@@ -821,9 +821,6 @@ def transformer_base_v1():
   hparams.label_smoothing = 0.1
   hparams.shared_embedding_and_softmax_weights = True
   hparams.symbol_modality_num_shards = 16
-  # input performance is not relevant for text
-  # Better shuffling is important for distributed training.
-  hparams.use_interleaved_data_reading = False
 
   # Add new ones like this.
   hparams.add_hparam("filter_size", 2048)
