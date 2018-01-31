@@ -322,7 +322,7 @@ def slicenet_params1():
   hparams.kernel_height = 3
   hparams.kernel_width = 1
   hparams.norm_type = "layer"
-  hparams.learning_rate_decay_scheme = "exp50k"
+  hparams.learning_rate_decay_scheme = "exp"
   hparams.learning_rate = 0.05
   hparams.learning_rate_warmup_steps = 3000
   hparams.initializer_gain = 1.0

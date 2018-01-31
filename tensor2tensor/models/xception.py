@@ -153,7 +153,7 @@ def xception_base():
   hparams.num_hidden_layers = 8
   hparams.kernel_height = 3
   hparams.kernel_width = 3
-  hparams.learning_rate_decay_scheme = "exp50k"
+  hparams.learning_rate_decay_scheme = "exp"
   hparams.learning_rate = 0.05
   hparams.learning_rate_warmup_steps = 3000
   hparams.initializer_gain = 1.0
@@ -180,8 +180,6 @@ def xception_tiny():
 def xception_tiny_tpu():
   hparams = xception_base()
   hparams.batch_size = 2
-  # The base exp50k scheme uses a cond which fails to compile on TPU
-  hparams.learning_rate_decay_scheme = "noam"
   hparams.num_hidden_layers = 2
   hparams.hidden_size = 128
   hparams.optimizer = "TrueAdam"

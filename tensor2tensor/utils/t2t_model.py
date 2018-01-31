@@ -108,8 +108,8 @@ class T2TModel(base.Layer):
     self._original_hparams = hparams
     self.set_mode(mode)
 
-    self._decode_hparams = copy.copy(
-        decode_hparams or decoding.decode_hparams())
+    self._decode_hparams = copy.copy(decode_hparams or
+                                     decoding.decode_hparams())
     self._data_parallelism = data_parallelism or eu.Parallelism([""])
     self._num_datashards = self._data_parallelism.n
     self._ps_devices = self._data_parallelism.ps_devices
@@ -295,13 +295,19 @@ class T2TModel(base.Layer):
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
     tf.logging.info("Base learning rate: %f", self.hparams.learning_rate)
-    lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
+    lr = self.hparams.learning_rate
+    decay_rate = optimize.learning_rate_decay_with_warmup(self.hparams)
+    lr *= decay_rate
+    if self.hparams.learning_rate_minimum:
+      lr_min = float(self.hparams.learning_rate_minimum)
+      tf.logging.info("Applying learning rate minimum: %f", lr_min)
+      lr = tf.max(lr, tf.to_float(lr_min))
     if num_async_replicas > 1:
       tf.logging.info("Dividing learning rate by num_async_replicas: %d",
                       num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(loss, lr, self.hparams,
-                                 use_tpu=common_layers.is_on_tpu())
+    train_op = optimize.optimize(
+        loss, lr, self.hparams, use_tpu=common_layers.is_on_tpu())
     return train_op
 
   def set_mode(self, mode):
@@ -418,8 +424,8 @@ class T2TModel(base.Layer):
         samples, _, _ = self._greedy_infer(features, decode_length)
       else:
         tf.logging.info("Beam Decoding with beam size %d" % beam_size)
-        samples = self._beam_decode(
-            features, decode_length, beam_size, top_beams, alpha)
+        samples = self._beam_decode(features, decode_length, beam_size,
+                                    top_beams, alpha)
         samples = samples["outputs"]
       return samples
 
@@ -717,9 +723,10 @@ class T2TModel(base.Layer):
         v_shape = [1]
       if v_shape == [1]:
         v = tf.tile(v, [self._num_datashards])
-      sharded_features[k] = self._data_parallelism(
-          tf.identity,
-          tf.split(v, self._num_datashards, 0))
+      sharded_features[k] = self._data_parallelism(tf.identity,
+                                                   tf.split(
+                                                       v, self._num_datashards,
+                                                       0))
     return sharded_features
 
   def _to_features_per_datashard(self, features):
@@ -790,8 +797,11 @@ class T2TModel(base.Layer):
     data_parallelism = None
     if not use_tpu and config:
       data_parallelism = config.data_parallelism
-    model = cls(hparams, mode, data_parallelism=data_parallelism,
-                decode_hparams=decode_hparams)
+    model = cls(
+        hparams,
+        mode,
+        data_parallelism=data_parallelism,
+        decode_hparams=decode_hparams)
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
@@ -829,11 +839,10 @@ class T2TModel(base.Layer):
 
     # TRAIN mode
     assert mode == tf.estimator.ModeKeys.TRAIN
-    num_async_replicas = (
-        1 if (use_tpu or not config)
-        else config.t2t_device_info["num_async_replicas"])
-    return model.estimator_spec_train(loss,
-                                      num_async_replicas=num_async_replicas)
+    num_async_replicas = (1 if (use_tpu or not config) else
+                          config.t2t_device_info["num_async_replicas"])
+    return model.estimator_spec_train(
+        loss, num_async_replicas=num_async_replicas)
 
   def estimator_spec_train(self, loss, num_async_replicas=1):
     """Construct EstimatorSpec for TRAIN mode."""
@@ -847,11 +856,7 @@ class T2TModel(base.Layer):
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
 
-  def estimator_spec_eval(self,
-                          features,
-                          logits,
-                          labels,
-                          loss):
+  def estimator_spec_eval(self, features, logits, labels, loss):
     """Construct EstimatorSpec for EVAL mode."""
     hparams = self.hparams
 
@@ -864,7 +869,8 @@ class T2TModel(base.Layer):
       _remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
-          eval_metrics=(eval_metrics_fn, [logits, labels]), loss=loss)
+          eval_metrics=(eval_metrics_fn, [logits, labels]),
+          loss=loss)
     else:
       eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
       eval_metrics = {}
@@ -883,8 +889,8 @@ class T2TModel(base.Layer):
     infer_out = self.infer(
         features,
         beam_size=decode_hparams.beam_size,
-        top_beams=(
-            decode_hparams.beam_size if decode_hparams.return_beams else 1),
+        top_beams=(decode_hparams.beam_size
+                   if decode_hparams.return_beams else 1),
         alpha=decode_hparams.alpha,
         decode_length=decode_hparams.extra_length)
     if isinstance(infer_out, dict):
@@ -895,8 +901,9 @@ class T2TModel(base.Layer):
       outputs = infer_out
       scores = None
 
-    batched_problem_choice = (features["problem_choice"] * tf.ones(
-        (common_layers.shape_list(features["inputs"])[0],), dtype=tf.int32))
+    batched_problem_choice = (
+        features["problem_choice"] * tf.ones(
+            (common_layers.shape_list(features["inputs"])[0],), dtype=tf.int32))
     predictions = {
         "outputs": outputs,
         "scores": scores,
