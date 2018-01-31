@@ -287,24 +287,25 @@ def bottleneck(x,
         hot = tf.one_hot(x, hparams.v_size)
         h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
       elif hparams.bottleneck_kind == "vq-vae":
-        if hparams.ema:
-          means_embed = ema_means
-        else:
-          means_embed = means
-
-        c = int_to_bit(x, nbits=int(math.log(hparams.v_size, 2)), base=2)
+        means_embed = means
+        shape_x = common_layers.shape_list(x)
+        x_flat = tf.reshape(x, [-1, 1])
+        c = int_to_bit(x_flat, nbits=int(math.log(hparams.v_size, 2)), base=2)
         shape = common_layers.shape_list(c)
         new_shape = shape
         new_shape[-1] = hparams.num_blocks
         new_shape.append(int(math.log(hparams.v_size, 2) // hparams.num_blocks))
-        c = tf.reshape(c, shape=new_shape)
+        c = tf.to_int32(tf.reshape(c, shape=new_shape))
         c = bit_to_int(
             c,
             nbits=int(math.log(hparams.v_size, 2) // hparams.num_blocks),
             base=2)
-
-        c = tf.one_hot(c, depth=hparams.block_v_size)
-        h1 = tf.matmul(tf.transpose(means_embed, perm=[1, 0, 2]), c)
+        h1 = tf.gather(tf.transpose(means_embed, [1, 0, 2]), c)
+        h1 = tf.stack(
+            [h1[:, :, i, i, :] for i in range(hparams.num_blocks)], axis=-2)
+        new_shape = shape_x
+        new_shape.append(hparams.hidden_size)
+        h1 = tf.reshape(h1, new_shape)
       elif hparams.bottleneck_kind == "rounding":
         h1 = x
 
@@ -673,7 +674,7 @@ def ae_transformer_internal(inputs,
       all_masked = tf.less(masked_batches, 0.1)
       res = tf.where(all_masked, refine_res(), res)
     # We'll start training the extra model of latents after 200K steps.
-    latent_time = tf.less(200000, tf.to_int32(tf.train.get_global_step()))
+    latent_time = tf.less(50000, tf.to_int32(tf.train.get_global_step()))
     losses["latent_pred"] *= tf.to_float(latent_time)
   return res, losses, cache
 
@@ -697,8 +698,9 @@ class TransformerAE(t2t_model.T2TModel):
 
       self._hparams.block_dim = int(
           self._hparams.hidden_size // self._hparams.num_blocks)
-      self._hparams.block_v_size = int(
-          self._hparams.v_size // self._hparams.num_blocks)
+      self._hparams.block_v_size = 2**(
+          math.log(self._hparams.v_size, 2) / self._hparams.num_blocks)
+      self._hparams.block_v_size = int(self._hparams.block_v_size + 1)
 
       if self._hparams.reshape_method == "project":
         tf.logging.info("Using random projections for hierarchical vq-vae")
@@ -710,7 +712,7 @@ class TransformerAE(t2t_model.T2TModel):
                 self._hparams.num_blocks, self._hparams.hidden_size,
                 self._hparams.block_dim
             ],
-            initializer=tf.orthognal_initializer(),
+            initializer=tf.random_normal_initializer(),
             trainable=self._hparams.trainable_projections)
         self._hparams.reshape_fn = project_hidden
       elif self._hparams.reshape_method == "slice":
