@@ -65,6 +65,9 @@ def basic_params1():
       weight_decay=1e-6,
       weight_noise=0.0,
       learning_rate_decay_scheme="none",
+      # decay_steps and decay_staircase for learning_rate_decay_scheme=="exp"
+      learning_rate_decay_steps=5000,
+      learning_rate_decay_staircase=False,
       learning_rate_minimum=None,
       learning_rate_decay_rate=1.0,
       learning_rate_warmup_steps=100,
@@ -350,7 +353,7 @@ def basic_range1(ranged_hparams):
                       ["uniform", "orthogonal", "uniform_unit_scaling"])
   rhp.set_float("initializer_gain", 0.5, 3.5)
   rhp.set_categorical("learning_rate_decay_scheme",
-                      ["none", "sqrt", "noam", "exp10k"])
+                      ["none", "sqrt", "noam", "exp"])
   rhp.set_float("optimizer_adam_epsilon", 1e-7, 1e-2, scale=rhp.LOG_SCALE)
   rhp.set_float("optimizer_adam_beta1", 0.8, 0.9)
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)

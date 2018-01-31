@@ -353,14 +353,22 @@ def revnet_base():
   hparams.add_hparam('num_channels_init_block', 64)
   hparams.add_hparam('dim', '2d')
 
+  # Variable init
+  hparams.initializer = 'normal_unit_scaling'
+  hparams.initializer_gain = 2.
+
+  # Optimization
   hparams.optimizer = 'Momentum'
-  hparams.learning_rate = 0.4
-
-  hparams.learning_rate_boundaries = [40000, 80000, 120000, 140000]
-  hparams.learning_rate_multiples = [0.1, 0.01, 0.001, 0.0002]
-  hparams.learning_rate_decay_scheme = 'piecewise'
-
+  hparams.optimizer_momentum_momentum = 0.9
+  hparams.optimizer_momentum_nesterov = True
   hparams.weight_decay = 1e-4
+  hparams.clip_grad_norm = 0.0
+  # (base_lr=0.1) * (batch_size=128*8 (on TPU, or 8 GPUs)=1024) / (256.)
+  hparams.learning_rate = 0.4
+  hparams.learning_rate_decay_scheme = 'cosine'
+  # For image_imagenet224, 120k training steps, which effectively makes this a
+  # cosine decay (i.e. no cycles).
+  hparams.learning_rate_cosine_cycle_steps = 120000
 
   # Can run with a batch size of 128 with Problem ImageImagenet224
   hparams.batch_size = 128

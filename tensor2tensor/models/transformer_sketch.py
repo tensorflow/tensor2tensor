@@ -147,7 +147,7 @@ def transformer_sketch_ranged(rhp):
                       ["uniform", "orthogonal", "uniform_unit_scaling"])
   rhp.set_float("initializer_gain", 0.5, 3.5)
   rhp.set_categorical("learning_rate_decay_scheme",
-                      ["none", "sqrt", "noam", "exp10k"])
+                      ["none", "sqrt", "noam", "exp"])
   rhp.set_float("optimizer_adam_epsilon", 1e-7, 1e-2, scale=rhp.LOG_SCALE)
   rhp.set_float("optimizer_adam_beta1", 0.8, 0.9)
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)

@@ -145,74 +145,83 @@ def piecewise_learning_rate(step, boundaries, values):
       step, boundaries, values, name="piecewise_lr")
 
 
-def learning_rate_decay(hparams, num_worker_replicas=1):
-  """Learning rate decay rate based on hparams."""
+def learning_rate_decay(hparams, warmup_steps=0):
+  """Learning rate decay multiplier."""
   scheme = hparams.learning_rate_decay_scheme
-  warmup_steps = hparams.learning_rate_warmup_steps * num_worker_replicas
-  tf.logging.info("Learning rate decay scheme: %s. Warmup steps: %d.", scheme,
-                  warmup_steps)
   warmup_steps = tf.to_float(warmup_steps)
-  num_train_steps = hparams.train_steps
-  step = tf.to_float(tf.train.get_or_create_global_step())
+  global_step = tf.to_float(tf.train.get_or_create_global_step())
+
+  if not scheme or scheme == "none":
+    return tf.constant(1.)
+
+  tf.logging.info("Applying learning rate decay: %s.", scheme)
+
+  if scheme == "exp":
+    decay_steps = hparams.learning_rate_decay_steps
+    p = (global_step - warmup_steps) / decay_steps
+    if hparams.learning_rate_decay_staircase:
+      p = tf.floor(p)
+    return tf.pow(hparams.learning_rate_decay_rate, p)
 
   if scheme == "piecewise":
-    return piecewise_learning_rate(step, hparams.learning_rate_boundaries,
+    return piecewise_learning_rate(global_step,
+                                   hparams.learning_rate_boundaries,
                                    hparams.learning_rate_multiples)
 
   if scheme == "noam":
     return 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
-        (step + 1) * warmup_steps**-1.5, (step + 1)**-0.5)
-
-  if scheme == "exp100k":
-    return 0.94**(step // 100000)
+        (global_step + 1) * warmup_steps**-1.5, (global_step + 1)**-0.5)
 
   if scheme == "cosine":
     cycle_steps = hparams.learning_rate_cosine_cycle_steps
-    cycle_position = step % (2 * cycle_steps)
+    cycle_position = global_step % (2 * cycle_steps)
     cycle_position = cycle_steps - tf.abs(cycle_steps - cycle_position)
     return 0.5 * (1 + tf.cos(np.pi * cycle_position / cycle_steps))
 
   if scheme == "cyclelinear10x":
     # Cycle the rate linearly by 10x every warmup_steps, up and down.
-    cycle_steps = hparams.learning_rate_warmup_steps
-    cycle_position = step % (2 * cycle_steps)
+    cycle_steps = warmup_steps
+    cycle_position = global_step % (2 * cycle_steps)
     cycle_position = tf.to_float(  # Normalize to the interval [-1, 1].
         cycle_position - cycle_steps) / float(cycle_steps)
     cycle_position = 1.0 - tf.abs(cycle_position)  # 0 to 1 and back to 0.
     return (cycle_position + 0.1) * 3.0  # 10x difference each cycle (0.3-3).
 
-  # Inverse-decay learning rate until warmup_steps, then decay.
   if scheme == "sqrt":
-    decay = _sqrt_decay(step - warmup_steps)
-  elif scheme == "exp":
-    total_steps = num_train_steps - warmup_steps
-    assert num_train_steps > hparams.learning_rate_warmup_steps
-    if hparams.learning_rate_minimum is None:
-      raise ValueError("Must specify final LR")
-    total_steps = num_train_steps - hparams.learning_rate_warmup_steps
-    decay_needed = hparams.learning_rate_minimum / hparams.learning_rate
-    decay_rate = decay_needed**(1.0 / total_steps)
-    tf.logging.info("Decay rate: %f.  LR %f -> %f", decay_rate,
-                    hparams.learning_rate, hparams.learning_rate_minimum)
-    decay = _exp_decay_after(step - warmup_steps, decay_rate,
-                             hparams.learning_rate_warmup_steps)
-  elif scheme == "exp10k":
-    decay = _exp_decay_after(step - warmup_steps, 0.9995,
-                             num_train_steps - warmup_steps - 10000)
-  elif scheme == "exp50k":
-    decay = _exp_decay_after(step - warmup_steps, 0.99995,
-                             num_train_steps - warmup_steps - 50000)
-  elif scheme == "exp500k":
-    decay = _exp_decay_after(step - warmup_steps, 0.9999955,
-                             num_train_steps - warmup_steps - 500000)
-  elif scheme == "none":
-    decay = tf.constant(1.0)
-  else:
-    raise ValueError("Unrecognized learning rate decay scheme: %s" %
-                     hparams.learning_rate_decay_scheme)
+    return _sqrt_decay(global_step - warmup_steps)
 
-  inv_decay = tf.exp(tf.log(0.01) / warmup_steps)**(warmup_steps - step)
-  return tf.where(step < warmup_steps, inv_decay, decay)
+  raise ValueError("Unrecognized learning rate decay scheme: %s" %
+                   hparams.learning_rate_decay_scheme)
+
+
+def learning_rate_warmup(warmup_steps, warmup_schedule="exp"):
+  """Learning rate warmup multiplier."""
+  if not warmup_steps:
+    return tf.constant(1.)
+
+  tf.logging.info("Applying %s learning rate warmup for %d steps",
+                  warmup_schedule, warmup_steps)
+
+  warmup_steps = tf.to_float(warmup_steps)
+  global_step = tf.to_float(tf.train.get_or_create_global_step())
+
+  if warmup_schedule == "exp":
+    return tf.exp(tf.log(0.01) / warmup_steps)**(warmup_steps - global_step)
+  else:
+    assert warmup_schedule == "linear"
+    start = tf.constant(0.35)
+    return ((tf.constant(1.) - start) / warmup_steps) * global_step + start
+
+
+def learning_rate_decay_with_warmup(hparams, num_worker_replicas=1):
+  """Learning rate decay rate with warmup based on hparams."""
+  warmup_steps = hparams.learning_rate_warmup_steps * num_worker_replicas
+  warmup = learning_rate_warmup(warmup_steps)
+
+  decay = learning_rate_decay(hparams, warmup_steps)
+
+  global_step = tf.train.get_or_create_global_step()
+  return tf.where(global_step < warmup_steps, warmup, decay)
 
 
 def weight_decay_and_noise(loss, hparams, learning_rate, var_list=None):

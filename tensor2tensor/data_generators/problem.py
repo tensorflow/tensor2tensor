@@ -30,6 +30,10 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
+# For multi-host TPU jobs, track the number of times the input function has been
+# called (will be called once for each host).
+_INPUT_FN_NUM_CALLS = 0
+
 
 class SpaceID(object):
   """Input and target space ids. Add more as needed."""
@@ -641,6 +645,17 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
+    # For larger TPU slices, there will be multiple hosts reading inputs. The
+    # input fn is called once for each host and so we use a global here to track
+    # which invocation we're on.
+    # pylint: disable=unused-variable
+    num_hosts = (config and hasattr(config, "tpu_config") and
+                 config.tpu_config.num_shards // 8) or 1
+    global _INPUT_FN_NUM_CALLS
+    host_id = _INPUT_FN_NUM_CALLS
+    _INPUT_FN_NUM_CALLS += 1
+    # pylint: enable=unused-variable
+
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     if config.use_tpu:
       num_threads = 64
