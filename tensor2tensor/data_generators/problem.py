@@ -30,10 +30,6 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-# For multi-host TPU jobs, track the number of times the input function has been
-# called (will be called once for each host).
-_INPUT_FN_NUM_CALLS = 0
-
 
 class SpaceID(object):
   """Input and target space ids. Add more as needed."""
@@ -107,8 +103,7 @@ def default_model_hparams():
       max_target_seq_length=0,
       prepend_mode="none",
       split_to_length=0,
-      data_dir=None,
-      use_interleaved_data_reading=True)
+      data_dir=None)
 
 
 def preprocess_example_common(example, hparams, mode):
@@ -441,7 +436,9 @@ class Problem(object):
               hparams=None,
               preprocess=True,
               dataset_split=None,
-              shard=None):
+              shard=None,
+              partition_id=0,
+              num_partitions=1):
     """Build a Dataset for this problem.
 
     Args:
@@ -462,9 +459,14 @@ class Problem(object):
       dataset_split: tf.estimator.ModeKeys + ["test"], which split to read data
         from (TRAIN:"-train", EVAL:"-dev", "test":"-test"). Defaults to mode.
       shard: int, if provided, will only read data from the specified shard.
+      partition_id: integer - which partition of the dataset to read from
+      num_partitions: how many partitions in the dataset
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
+
+    Raises:
+      ValueError: if num_partitions is greater than the number of data files.
     """
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     repeat = repeat or repeat is None and is_training
@@ -504,34 +506,27 @@ class Problem(object):
       self.maybe_copy_features(example)
       return example
 
-    if hparams.use_interleaved_data_reading:
-      dataset = tf.data.Dataset.list_files(data_filepattern)
-      dataset = dataset.shuffle(buffer_size=1024) if shuffle_files else dataset
+    if len(data_files) < num_partitions:
+      raise ValueError(
+          "number of data files (%d) must be at least the number of hosts (%d)"
+          % (len(data_files), num_partitions))
+    data_files = [f for (i, f) in enumerate(data_files)
+                  if i % num_partitions == partition_id]
+    tf.logging.info(
+        "partition: %d num_data_files: %d" % (partition_id, len(data_files)))
+    if shuffle_files:
+      random.shuffle(data_files)
+    dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
+    dataset = dataset.apply(
+        tf.contrib.data.parallel_interleave(
+            _load_records, sloppy=is_training, cycle_length=8))
+    if repeat:
+      dataset = dataset.repeat()
+    dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
+    if preprocess:
       dataset = dataset.apply(
           tf.contrib.data.parallel_interleave(
-              _load_records, sloppy=is_training, cycle_length=8))
-      if repeat:
-        dataset = dataset.repeat()
-      dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
-      if preprocess:
-        dataset = dataset.apply(
-            tf.contrib.data.parallel_interleave(
-                _preprocess, sloppy=is_training, cycle_length=8))
-    else:
-      # Slower input pipeline, but works better for highly parallel training.
-      if shuffle_files:
-        random.shuffle(data_files)
-        dataset = tf.data.TFRecordDataset(data_files)
-        dataset = skip_random_fraction(dataset, data_files[0])
-      else:
-        dataset = tf.data.TFRecordDataset(data_files)
-
-      if repeat:
-        dataset = dataset.repeat()
-      dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
-      if preprocess:
-        dataset = dataset.flat_map(_preprocess)
-
+              _preprocess, sloppy=is_training, cycle_length=8))
     dataset = dataset.map(
         _maybe_reverse_and_copy, num_parallel_calls=num_threads)
 
@@ -623,6 +618,33 @@ class Problem(object):
 
     return estimator_input_fn
 
+  def _dataset_partition(self, mode, config):
+    """Which part of the training data to read.
+
+    If there are multiple parallel calls to input_fn (multiple TPU hosts),
+    then we want each one to read from a separate partition of the training
+    data.
+
+    Args:
+      mode: tf.estimator.ModeKeys
+      config: RunConfig
+    Returns:
+      partition_id: an integer
+      num_partitions: an integer
+    """
+    if mode != tf.estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
+      return 0, 1
+    if config.tpu_config.per_host_input_for_training:
+      num_partitions = max(config.tpu_config.num_shards // 8, 1)
+    else:
+      num_partitions = config.tpu_config.num_shards
+    partition_id = getattr(self, "_next_partition_id", 0)
+    self._next_partition_id = partition_id + 1
+    tf.logging.info("num_partitions = %d partition_id = %d" %
+                    (num_partitions, partition_id))
+    assert partition_id < num_partitions
+    return partition_id, num_partitions
+
   def input_fn(self,
                mode,
                hparams,
@@ -645,16 +667,7 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
-    # For larger TPU slices, there will be multiple hosts reading inputs. The
-    # input fn is called once for each host and so we use a global here to track
-    # which invocation we're on.
-    # pylint: disable=unused-variable
-    num_hosts = (config and hasattr(config, "tpu_config") and
-                 config.tpu_config.num_shards // 8) or 1
-    global _INPUT_FN_NUM_CALLS
-    host_id = _INPUT_FN_NUM_CALLS
-    _INPUT_FN_NUM_CALLS += 1
-    # pylint: enable=unused-variable
+    partition_id, num_partitions = self._dataset_partition(mode, config)
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
     if config.use_tpu:
@@ -686,7 +699,9 @@ class Problem(object):
         "mode": mode,
         "data_dir": data_dir,
         "num_threads": num_threads,
-        "hparams": hparams
+        "hparams": hparams,
+        "partition_id": partition_id,
+        "num_partitions": num_partitions,
     })
 
     dataset = self.dataset(**dataset_kwargs)
