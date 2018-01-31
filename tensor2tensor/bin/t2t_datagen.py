@@ -38,7 +38,8 @@ import tempfile
 
 # Fathom
 import fathomt2t
-from fathomtf.services.model_management import fathom_t2t_model_setup
+from fathomtf.services.model_management import (fathom_t2t_model_setup,
+                                                fix_paths_for_workspace)
 
 import numpy as np
 
@@ -85,6 +86,7 @@ flags.DEFINE_string("t2t_usr_dir", "",
                     "The imported files should contain registrations, "
                     "e.g. @registry.register_problem calls, that will then be "
                     "available to t2t-datagen.")
+
 
 # Mapping from problems that we can generate data for to their generators.
 # pylint: disable=g-long-lambda
@@ -138,6 +140,9 @@ def set_random_seed():
 
 
 def main(_):
+  # Fathom
+  fix_paths_for_workspace(FLAGS)
+
   tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
