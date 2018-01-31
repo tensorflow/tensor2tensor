@@ -1285,21 +1285,16 @@ def _generate_relative_positions_matrix(length, max_relative_position):
   return final_mat
 
 
-def _generate_relative_positions_embeddings(heads, length, depth,
+def _generate_relative_positions_embeddings(length, depth,
                                             max_relative_position, name):
-  """Generates tensor of size [heads, length, length, depth]."""
+  """Generates tensor of size [length, length, depth]."""
   with tf.variable_scope(name):
     relative_positions_matrix = _generate_relative_positions_matrix(
         length, max_relative_position)
     vocab_size = max_relative_position * 2 + 1
-    # Generates embedding for each relative position of dimension heads * depth.
-    embeddings_table = tf.get_variable("embeddings",
-                                       [vocab_size, heads * depth])
+    # Generates embedding for each relative position of dimension depth.
+    embeddings_table = tf.get_variable("embeddings", [vocab_size, depth])
     embeddings = tf.gather(embeddings_table, relative_positions_matrix)
-    # Split embeddings per head.
-    embeddings = tf.reshape(embeddings, [length, length, heads, depth])
-    # Transpose to shape [heads, length, length, depth].
-    embeddings = tf.transpose(embeddings, [2, 0, 1, 3])
     return embeddings
 
 
@@ -1311,18 +1306,30 @@ def _relative_attention_inner(x, y, z, transpose):
   Args:
     x: Tensor with shape [batch_size, heads, length, length or depth].
     y: Tensor with shape [batch_size, heads, length, depth].
-    z: Tensor with shape [heads, length, length, depth].
+    z: Tensor with shape [length, length, depth].
     transpose: Whether to tranpose inner matrices of y and z. Should be true if
         last dimension of x is depth, not length.
 
   Returns:
-    A Tensor with shape [batch_size, heads, length, a].
+    A Tensor with shape [batch_size, heads, length, length or depth].
   """
+  batch_size = tf.shape(x)[0]
+  heads = x.get_shape().as_list()[1]
+  length = tf.shape(x)[2]
+
+  # xy_matmul is [batch_size, heads, length, length or depth]
   xy_matmul = tf.matmul(x, y, transpose_b=transpose)
-  x_t = tf.transpose(x, [1, 2, 0, 3])
-  x_tz_matmul = tf.matmul(x_t, z, transpose_b=transpose)
-  x_tz_matmul_t = tf.transpose(x_tz_matmul, [2, 0, 1, 3])
-  return xy_matmul + x_tz_matmul_t
+  # x_t is [length, batch_size, heads, length or depth]
+  x_t = tf.transpose(x, [2, 0, 1, 3])
+  # x_t_r is [length, batch_size * heads, length or depth]
+  x_t_r = tf.reshape(x_t, [length, heads * batch_size, -1])
+  # x_tz_matmul is [length, batch_size * heads, length or depth]
+  x_tz_matmul = tf.matmul(x_t_r, z, transpose_b=transpose)
+  # x_tz_matmul_r is [length, batch_size, heads, length or depth]
+  x_tz_matmul_r = tf.reshape(x_tz_matmul, [length, batch_size, heads, -1])
+  # x_tz_matmul_r_t is [batch_size, heads, length, length or depth]
+  x_tz_matmul_r_t = tf.transpose(x_tz_matmul_r, [1, 2, 0, 3])
+  return xy_matmul + x_tz_matmul_r_t
 
 
 def dot_product_attention_relative(q,
@@ -1369,14 +1376,12 @@ def dot_product_attention_relative(q,
     q.get_shape().assert_is_compatible_with(v.get_shape())
 
     # Use separate embeddings suitable for keys and values.
-    heads = q.get_shape().as_list()[1]
     depth = q.get_shape().as_list()[3]
     length = common_layers.shape_list(q)[2]
     relations_keys = _generate_relative_positions_embeddings(
-        heads, length, depth, max_relative_position, "relative_positions_keys")
+        length, depth, max_relative_position, "relative_positions_keys")
     relations_values = _generate_relative_positions_embeddings(
-        heads, length, depth, max_relative_position,
-        "relative_positions_values")
+        length, depth, max_relative_position, "relative_positions_values")
 
     # Compute self attention considering the relative position embeddings.
     logits = _relative_attention_inner(q, k, relations_keys, True)
