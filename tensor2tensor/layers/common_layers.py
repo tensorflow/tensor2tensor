@@ -1374,7 +1374,7 @@ def sepconv_relu_sepconv(inputs,
     else:
       is_3d = False
     h = separable_conv(
-        inputs, filter_size, first_kernel_size, ctivation=tf.nn.relu,
+        inputs, filter_size, first_kernel_size, activation=tf.nn.relu,
         padding=padding, name="conv1")
     if dropout != 0.0:
       h = tf.nn.dropout(h, 1.0 - dropout)
