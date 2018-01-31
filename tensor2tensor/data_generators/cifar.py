@@ -91,6 +91,10 @@ class ImageCifar10Tune(mnist.ImageMnistTune):
   """Cifar-10 Tune."""
 
   @property
+  def num_channels(self):
+    return 3
+
+  @property
   def class_labels(self):
     return [
         "airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse",
