@@ -26,6 +26,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.models import aligned
 from tensor2tensor.models import attention_lm
 from tensor2tensor.models import attention_lm_moe
+from tensor2tensor.models import basic
 from tensor2tensor.models import bytenet
 from tensor2tensor.models import cycle_gan
 from tensor2tensor.models import gene_expression

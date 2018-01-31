@@ -31,6 +31,8 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.utils import registry
 
+import tensorflow as tf
+
 # URLs and filenames for MNIST data.
 _MNIST_URL = "http://yann.lecun.com/exdb/mnist/"
 _MNIST_TRAIN_DATA_FILENAME = "train-images-idx3-ubyte.gz"
@@ -138,6 +140,10 @@ class ImageMnistTune(image_utils.Image2ClassProblem):
   """MNIST, tuning data."""
 
   @property
+  def num_channels(self):
+    return 1
+
+  @property
   def is_small(self):
     return True
 
@@ -152,6 +158,13 @@ class ImageMnistTune(image_utils.Image2ClassProblem):
   @property
   def train_shards(self):
     return 10
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    image = example["inputs"]
+    image.set_shape([_MNIST_IMAGE_SIZE, _MNIST_IMAGE_SIZE, 1])
+    image = tf.image.per_image_standardization(image)
+    example["inputs"] = image
+    return example
 
   def generator(self, data_dir, tmp_dir, is_training):
     if is_training:

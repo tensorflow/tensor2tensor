@@ -42,6 +42,11 @@ def resize_by_area(img, size):
 class ImageProblem(problem.Problem):
   """Base class for problems with images."""
 
+  @property
+  def num_channels(self):
+    """Number of color channels."""
+    return 3
+
   def example_reading_spec(self, label_repr=None):
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
@@ -53,7 +58,7 @@ class ImageProblem(problem.Problem):
             tf.contrib.slim.tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
-                channels=3),
+                channels=self.num_channels),
     }
 
     return data_fields, data_items_to_decoders
