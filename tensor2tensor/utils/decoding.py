@@ -69,6 +69,7 @@ def log_decode_results(inputs,
                        identity_output=False):
   """Log inference results."""
   is_image = "image" in problem_name
+  decoded_inputs = None
   if is_image and save_images:
     save_path = os.path.join(model_dir, "%s_prediction_%d.jpg" %
                              (problem_name, prediction_idx))
@@ -82,6 +83,7 @@ def log_decode_results(inputs,
     tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
   decoded_targets = None
+  decoded_outputs = None
   if identity_output:
     decoded_outputs = "".join(map(str, outputs.flatten()))
     if targets is not None:
@@ -94,7 +96,7 @@ def log_decode_results(inputs,
   tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None:
     tf.logging.info("Inference results TARGET: %s" % decoded_targets)
-  return decoded_outputs, decoded_targets
+  return decoded_inputs, decoded_outputs, decoded_targets
 
 
 def decode_from_dataset(estimator,
@@ -139,9 +141,12 @@ def decode_from_dataset(estimator,
       parts = output_filepath.split(".")
       parts[-1] = "targets"
       target_filepath = ".".join(parts)
+      parts[-1] = "inputs"
+      input_filepath = ".".join(parts)
 
       output_file = tf.gfile.Open(output_filepath, "w")
       target_file = tf.gfile.Open(target_filepath, "w")
+      input_file = tf.gfile.Open(input_filepath, "w")
 
     problem_hparams = hparams.problems[problem_idx]
     # Inputs vocabulary is set to targets if there are no inputs in the problem,
@@ -197,13 +202,14 @@ def decode_from_dataset(estimator,
 
       # Write out predictions if decode_to_file passed
       if decode_to_file:
-        for i, (decoded_output, decoded_target) in enumerate(decoded_outputs):
+        for i, (d_input, d_output, d_target) in enumerate(decoded_outputs):
           beam_score_str = ""
           if decode_hp.write_beam_scores:
             beam_score_str = "\t%.2f" % decoded_scores[i]
           output_file.write(
-              str(decoded_output) + beam_score_str + decode_hp.delimiter)
-          target_file.write(str(decoded_target) + decode_hp.delimiter)
+              str(d_output) + beam_score_str + decode_hp.delimiter)
+          target_file.write(str(d_target) + decode_hp.delimiter)
+          input_file.write(str(d_input) + decode_hp.delimiter)
 
       if (decode_hp.num_samples >= 0 and
           num_predictions >= decode_hp.num_samples):
@@ -212,6 +218,7 @@ def decode_from_dataset(estimator,
     if decode_to_file:
       output_file.close()
       target_file.close()
+      input_file.close()
 
     tf.logging.info("Completed inference on %d samples." % num_predictions)  # pylint: disable=undefined-loop-variable
 
@@ -262,9 +269,9 @@ def decode_from_file(estimator,
       for k, beam in enumerate(output_beams):
         tf.logging.info("BEAM %d:" % k)
         score = scores and scores[k]
-        decoded_outputs, _ = log_decode_results(result["inputs"], beam,
-                                                problem_name, None,
-                                                inputs_vocab, targets_vocab)
+        _, decoded_outputs, _ = log_decode_results(result["inputs"], beam,
+                                                   problem_name, None,
+                                                   inputs_vocab, targets_vocab)
         beam_decodes.append(decoded_outputs)
         if decode_hp.write_beam_scores:
           beam_scores.append(score)
@@ -275,9 +282,9 @@ def decode_from_file(estimator,
       else:
         decodes.append("\t".join(beam_decodes))
     else:
-      decoded_outputs, _ = log_decode_results(result["inputs"],
-                                              result["outputs"], problem_name,
-                                              None, inputs_vocab, targets_vocab)
+      _, decoded_outputs, _ = log_decode_results(
+          result["inputs"], result["outputs"], problem_name,
+          None, inputs_vocab, targets_vocab)
       decodes.append(decoded_outputs)
 
   # Reversing the decoded inputs and outputs because they were reversed in
