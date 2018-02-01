@@ -172,16 +172,19 @@ class Transformer(t2t_model.T2TModel):
       decode_length: an integer.  How many additional timesteps to decode.
 
     Returns:
-       samples: [batch_size, input_length + decode_length]
-       logits: Not returned
-       losses: Not returned
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": decoding log probs from the beam search,
+              None if using greedy decoding (beam_size=1)
+      }
 
     Raises:
       NotImplementedError: If there are multiple data shards.
     """
     with tf.variable_scope(self.name):
-      decoded_ids, _ = self._fast_decode(features, decode_length)
-      return decoded_ids, None, None
+      return self._fast_decode(features, decode_length)
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
     """Beam search decoding.
@@ -195,12 +198,17 @@ class Transformer(t2t_model.T2TModel):
         the preference for slonger translations.
 
     Returns:
-       samples: an integer `Tensor`. Top samples from the beam search
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": decoding log probs from the beam search,
+              None if using greedy decoding (beam_size=1)
+      }
     """
     with tf.variable_scope(self.name):
-      decoded_ids, scores = self._fast_decode(features, decode_length,
-                                              beam_size, top_beams, alpha)
-      return {"outputs": decoded_ids, "scores": scores}
+      return self._fast_decode(
+          features, decode_length, beam_size, top_beams, alpha)
 
   def _fast_decode(self,
                    features,
@@ -222,7 +230,13 @@ class Transformer(t2t_model.T2TModel):
         the preference for slonger translations.
 
     Returns:
-       samples: an integer `Tensor`. Top samples from the beam search
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": decoding log probs from the beam search,
+              None if using greedy decoding (beam_size=1)
+      }
 
     Raises:
       NotImplementedError: If there are multiple data shards.
@@ -358,9 +372,13 @@ def fast_decode(encoder_output,
     eos_id: End-of-sequence symbol in beam search.
 
   Returns:
-    Pair of tensors `(decoded_ids, scores)`, where `decoded_ids` is a 2-d or 3-d
-    (when doing beam search with top_beams > 1) tensor containing result of
-    decoding, and `scores` is the beam search scores.
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if top_beams == 1 or
+              [batch_size, top_beams, <= decode_length] otherwise
+          "scores": decoding log probs from the beam search,
+              None if using greedy decoding (beam_size=1)
+      }
   """
   batch_size = common_layers.shape_list(encoder_output)[0]
 
@@ -427,7 +445,7 @@ def fast_decode(encoder_output,
         ])
     scores = None
 
-  return decoded_ids, scores
+  return {"outputs": decoded_ids, "scores": scores}
 
 
 @registry.register_model

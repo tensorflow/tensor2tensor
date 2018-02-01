@@ -154,7 +154,7 @@ def build_model(hparams_set, model_name, data_dir, problem_name, beam_size=1):
   with tf.variable_scope(tf.get_variable_scope(), reuse=True):
     samples = translate_model.infer({
         'inputs': inputs,
-    }, beam_size=beam_size)
+    }, beam_size=beam_size)['outputs']
 
   return inputs, targets, samples, att_mats
 

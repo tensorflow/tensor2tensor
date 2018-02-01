@@ -373,9 +373,8 @@ class T2TModel(base.Layer):
       losses: a dictionary: {loss-name (string): floating point `Scalar`}.
           Contains a single key "training".
     """
-    _, logits, losses = self._slow_greedy_infer(
-        features, decode_length=decode_length)
-    return logits, losses
+    results = self._slow_greedy_infer(features, decode_length=decode_length)
+    return results["logits"], results["losses"]
 
   def _fill_problem_hparams_features(self, features):
     if features is not None:
@@ -403,7 +402,17 @@ class T2TModel(base.Layer):
         the preference for slonger translations.
 
     Returns:
-       samples: an integer `Tensor`.
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": decoding log probs from the beam search,
+              None if using greedy decoding (beam_size=1)
+      }
+      if slow greedy decoding is used then the dict will also contain {
+          "logits": `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+          "losses": a dictionary: {loss-name (string): floating point `Scalar`
+      }
     """
     with self._eager_var_store.as_default():
       # TODO(rsepassi): Make decoding work with real-valued model outputs
@@ -421,13 +430,13 @@ class T2TModel(base.Layer):
           beam_size = 1  # No use to run beam-search for a single class.
       if beam_size == 1:
         tf.logging.info("Greedy Decoding")
-        samples, _, _ = self._greedy_infer(features, decode_length)
+        results = self._greedy_infer(features, decode_length)
       else:
         tf.logging.info("Beam Decoding with beam size %d" % beam_size)
-        samples = self._beam_decode(features, decode_length, beam_size,
-                                    top_beams, alpha)
-        samples = samples["outputs"]
-      return samples
+        results = self._beam_decode(
+            features, decode_length, beam_size, top_beams, alpha)
+
+      return results
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
     """Beam search decoding.
@@ -544,9 +553,14 @@ class T2TModel(base.Layer):
       decode_length: an integer.  How many additional timesteps to decode.
 
     Returns:
-       samples: an integer `Tensor`.
-       logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
-       losses: a dictionary: {loss-name (string): floating point `Scalar`}
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": None
+          "logits": `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+          "losses": a dictionary: {loss-name (string): floating point `Scalar`}
+      }
     """
     return self._slow_greedy_infer(features, decode_length)
 
@@ -560,9 +574,14 @@ class T2TModel(base.Layer):
       decode_length: an integer.  How many additional timesteps to decode.
 
     Returns:
-       samples: an integer `Tensor`.
-       logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
-       losses: a dictionary: {loss-name (string): floating point `Scalar`}
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": None
+          "logits": `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+          "losses": a dictionary: {loss-name (string): floating point `Scalar`}
+      }
     """
     if not features:
       features = {}
@@ -682,7 +701,12 @@ class T2TModel(base.Layer):
           features["partial_targets"])[1]
       result = tf.slice(result, [0, partial_target_length, 0, 0],
                         [-1, -1, -1, -1])
-    return result, logits, losses
+    return {
+        "outputs": result,
+        "scores": None,
+        "logits": logits,
+        "losses": losses,
+    }
 
   def sample(self, features):
     """Run the model and extract samples.
@@ -894,7 +918,6 @@ class T2TModel(base.Layer):
         alpha=decode_hparams.alpha,
         decode_length=decode_hparams.extra_length)
     if isinstance(infer_out, dict):
-      # Beam searching
       outputs = infer_out["outputs"]
       scores = infer_out["scores"]
     else:
