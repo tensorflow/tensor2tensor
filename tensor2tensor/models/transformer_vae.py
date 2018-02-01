@@ -783,7 +783,7 @@ class TransformerAE(t2t_model.T2TModel):
     """Produce predictions from the model."""
     if not self._hparams.do_mask:
       return super(TransformerAE, self).infer(
-          features, decode_length, beam_size, top_beams, alpha)
+          features, decode_length, beam_size, top_beams, alpha)["outputs"]
     if not features:
       features = {}
     inputs_old = None
