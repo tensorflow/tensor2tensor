@@ -642,10 +642,11 @@ def ae_transformer_internal(inputs,
 
     # Masking.
     if hparams.do_mask:
-      masking = common_layers.inverse_lin_decay(100000)
-      masking *= common_layers.inverse_exp_decay(25000)  # Not much at start.
+      masking = common_layers.inverse_lin_decay(hparams.mask_startup_steps)
+      masking *= common_layers.inverse_exp_decay(
+          hparams.mask_startup_steps // 4)  # Not much at start.
       if not hparams.do_refine:
-        masking -= tf.random_uniform([]) * 0.3
+        masking -= tf.random_uniform([]) * hparams.unmasked_percentage
       masking = tf.minimum(tf.maximum(masking, 0.0), 1.0)
       if hparams.mode == tf.estimator.ModeKeys.PREDICT:
         masking = predict_mask
@@ -673,8 +674,9 @@ def ae_transformer_internal(inputs,
       masked_batches = tf.reduce_sum(mask, axis=[1, 2, 3])
       all_masked = tf.less(masked_batches, 0.1)
       res = tf.where(all_masked, refine_res(), res)
-    # We'll start training the extra model of latents after 200K steps.
-    latent_time = tf.less(50000, tf.to_int32(tf.train.get_global_step()))
+    # We'll start training the extra model of latents after mask_startup_steps.
+    latent_time = tf.less(hparams.mask_startup_steps,
+                          tf.to_int32(tf.train.get_global_step()))
     losses["latent_pred"] *= tf.to_float(latent_time)
   return res, losses, cache
 
@@ -828,6 +830,7 @@ def transformer_ae_small():
   hparams.hidden_size = 384
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
+  hparams.optimizer = "Adafactor"
   hparams.add_hparam("z_size", 16)
   hparams.add_hparam("noise_dev", 0.0)
   hparams.add_hparam("d_mix", 0.5)
@@ -837,6 +840,7 @@ def transformer_ae_small():
   # Reshape method for hierarchical vq-vae: slice, project
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
+  hparams.add_hparam("unmasked_percentage", 0.3)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
   hparams.add_hparam("do_refine", False)
@@ -849,6 +853,7 @@ def transformer_ae_small():
   hparams.add_hparam("num_compress_steps", 3)
   hparams.add_hparam("kl_steps", 35000)
   hparams.add_hparam("startup_steps", 10000)
+  hparams.add_hparam("mask_startup_steps", 50000)
   hparams.add_hparam("kmeans_lr_factor", 0.002)
   hparams.add_hparam("z_dropout", 0.1)
   hparams.add_hparam("is_2d", 0)
