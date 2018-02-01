@@ -700,7 +700,7 @@ class TransformerAE(t2t_model.T2TModel):
           self._hparams.hidden_size // self._hparams.num_blocks)
       self._hparams.block_v_size = 2**(
           math.log(self._hparams.v_size, 2) / self._hparams.num_blocks)
-      self._hparams.block_v_size = int(self._hparams.block_v_size + 1)
+      self._hparams.block_v_size = int(self._hparams.block_v_size)
 
       if self._hparams.reshape_method == "project":
         tf.logging.info("Using random projections for hierarchical vq-vae")
