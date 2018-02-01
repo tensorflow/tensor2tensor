@@ -77,7 +77,7 @@ def data_parallelism(daisy_chain_variables=True,
                      worker_job="/job:localhost",
                      no_data_parallelism=False):
   """See data_parallelism_from_flags."""
-  tf.logging.info("schuedule=%s" % schedule)
+  tf.logging.info("schedule=%s" % schedule)
   tf.logging.info("worker_gpu=%s" % worker_gpu)
   tf.logging.info("sync=%s" % sync)
   def _ps_replicas(all_workers=False):
