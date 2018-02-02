@@ -29,29 +29,39 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def reconstruct_loss(x, gt, hparams, reuse=None):
-  pred = tf.layers.dense(x, hparams.vocab_size, name="softmax", reuse=reuse)
-  xent, w = common_layers.padded_cross_entropy(pred, gt, 0.0)
-  return xent / w
-
-
 def discriminator(x, compress, hparams, name, reuse=None):
   with tf.variable_scope(name, reuse=reuse):
     x = tf.stop_gradient(2 * x) - x  # Reverse gradient.
     if compress:
-      x = transformer_vae.compress(x, None, hparams, "compress")
+      x = transformer_vae.compress(x, None, False, hparams, "compress")
     else:
-      x = transformer_vae.residual_conv(x, 1, hparams, "compress_rc")
+      x = transformer_vae.residual_conv(x, 1, 3, hparams, "compress_rc")
     y = tf.reduce_mean(x, axis=1)
     return tf.tanh(tf.layers.dense(y, 1, name="reduce"))
 
 
-def discriminate_loss(x, y, compress, hparams, name):
+def generator(x, hparams, name, reuse=False):
+  with tf.variable_scope(name, reuse=reuse):
+    return transformer_vae.residual_conv(x, 1, 3, hparams, "generator")
+
+
+def lossfn(real_input, fake_input, compress, hparams, lsgan, name):
+  eps = 1e-12
   with tf.variable_scope(name):
-    d1 = discriminator(x, compress, hparams, "discriminator")
-    d2 = discriminator(y, compress, hparams, "discriminator", reuse=True)
-    dloss = tf.reduce_mean(tf.abs(d1 - d2))
-    return - dloss
+    d1 = discriminator(real_input, compress, hparams, "discriminator")
+    d2 = discriminator(fake_input, compress, hparams, "discriminator",
+                       reuse=True)
+    if lsgan:
+      dloss = tf.reduce_mean(
+          tf.squared_difference(d1, 0.9)) + tf.reduce_mean(tf.square(d2))
+      gloss = tf.reduce_mean(tf.squared_difference(d2, 0.9))
+      loss = (dloss + gloss)/2
+    else:  # cross_entropy
+      dloss = -tf.reduce_mean(
+          tf.log(d1 + eps)) - tf.reduce_mean(tf.log(1 - d2 + eps))
+      gloss = -tf.reduce_mean(tf.log(d2 + eps))
+      loss = (dloss + gloss)/2
+    return loss
 
 
 def split_on_batch(x):
@@ -71,48 +81,37 @@ def cycle_gan_internal(inputs, targets, _, hparams):
         targets_orig, hparams.vocab_size, hparams.hidden_size,
         "embed", reuse=True)
 
-    # Split the batch into input-input and target-target parts.
-    inputs1, _ = split_on_batch(inputs)
-    _, targets2 = split_on_batch(targets)
+    x, _ = split_on_batch(inputs)
+    _, y = split_on_batch(targets)
 
-    # Define F and G, called inp2tgt and tgt2inp here.
-    def inp2tgt(x, reuse=False):
-      return transformer_vae.residual_conv(x, 1, hparams, "inp2tgt", reuse)
-    def tgt2inp(x, reuse=False):
-      return transformer_vae.residual_conv(x, 1, hparams, "tgt2inp", reuse)
+    # Y --> X
+    y_fake = generator(y, hparams, "Fy", reuse=False)
+    y_to_x_loss = lossfn(y, y_fake, True, hparams, True, "YtoX")
 
-    # Input-input part.
-    inp1_tgt = inp2tgt(inputs1)
-    inp1_back = tgt2inp(inp1_tgt)
+    # X --> Y
+    x_fake = generator(x, hparams, "Gx", reuse=False)
+    x_to_y_loss = lossfn(y, x_fake, True, hparams, True, "XtoY")
 
-    # Target-target part.
-    tgt2_inp = tgt2inp(targets2, reuse=True)
-    tgt2_back = inp2tgt(tgt2_inp, reuse=True)
+    # Cycle-Consistency
+    y_fake_ = generator(y_fake, hparams, "Gx", reuse=True)
+    x_fake_ = generator(x_fake, hparams, "Fy", reuse=True)
+    x_to_x_loss = hparams.cycle_loss_multiplier1 * tf.reduce_mean(
+        tf.abs(x_fake_ - x))
+    y_to_y_loss = hparams.cycle_loss_multiplier2 * tf.reduce_mean(
+        tf.abs(y_fake_ - y))
+    cycloss = x_to_x_loss + y_to_y_loss
 
-    # Reconstruction losses.
-    inp1_orig, _ = split_on_batch(inputs_orig)
-    _, tgt2_orig = split_on_batch(targets_orig)
-    inp1_loss = reconstruct_loss(
-        inp1_back, tf.squeeze(inp1_orig, axis=3), hparams)
-    tgt2_loss = reconstruct_loss(
-        tgt2_back, tf.squeeze(tgt2_orig, axis=3), hparams, reuse=True)
+    sample_generated = generator(inputs, hparams, "Gx", reuse=True)
+    sample_generated = tf.layers.dense(
+        sample_generated, hparams.vocab_size, name="softmax", reuse=None)
+    sample_generated = tf.stop_gradient(
+        tf.expand_dims(sample_generated, axis=2))
 
-    # Discriminator losses.
-    dloss1 = discriminate_loss(inputs1, tgt2_inp, True, hparams, "inp_disc")
-    dloss2 = discriminate_loss(targets2, inp1_tgt, True, hparams, "tgt_disc")
+    losses = {"cycloss": cycloss,
+              "y_to_x_loss": y_to_x_loss,
+              "x_to_y_loss": x_to_y_loss}
 
-    # Reconstruct targets from inputs.
-    tgt = inp2tgt(inputs, reuse=True)
-    tgt = tf.layers.dense(tgt, hparams.vocab_size, name="softmax", reuse=True)
-
-    # We use the reconstruction only for tracking progress, no gradients here!
-    tgt = tf.stop_gradient(tf.expand_dims(tgt, axis=2))
-
-    losses = {"input_input": hparams.cycle_loss_multiplier * inp1_loss,
-              "target_target": hparams.cycle_loss_multiplier * tgt2_loss,
-              "input_disc": dloss1,
-              "target_disc": dloss2}
-    return tgt, losses
+    return sample_generated, losses
 
 
 @registry.register_model
@@ -135,6 +134,7 @@ def cycle_gan_small():
   hparams.learning_rate = 0.05
   hparams.kl_warmup_steps = 5000
   hparams.learning_rate_warmup_steps = 3000
-  hparams.add_hparam("vocab_size", 32)  # Vocabulary size, need to set here.
-  hparams.add_hparam("cycle_loss_multiplier", 2.0)
+  hparams.add_hparam("vocab_size", 66)  # Vocabulary size, need to set here.
+  hparams.add_hparam("cycle_loss_multiplier1", 10.0)
+  hparams.add_hparam("cycle_loss_multiplier2", 10.0)
   return hparams
