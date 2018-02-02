@@ -830,8 +830,11 @@ def transformer_ae_small():
   hparams.hidden_size = 384
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
-  hparams.optimizer = "Adafactor"
-  hparams.add_hparam("z_size", 16)
+  hparams.optimizer = "Adafactor"  # Can be unstable, maybe try Adam.
+  hparams.optimizer_adam_epsilon = 1e-9
+  hparams.optimizer_adam_beta1 = 0.9
+  hparams.optimizer_adam_beta2 = 0.998  # Needs tuning, try 0.98 to 0.999.
+  hparams.add_hparam("z_size", 14)
   hparams.add_hparam("noise_dev", 0.0)
   hparams.add_hparam("d_mix", 0.5)
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, vq-vae.
@@ -840,7 +843,7 @@ def transformer_ae_small():
   # Reshape method for hierarchical vq-vae: slice, project
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
-  hparams.add_hparam("unmasked_percentage", 0.3)
+  hparams.add_hparam("unmasked_percentage", 0.1)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
   hparams.add_hparam("do_refine", False)
