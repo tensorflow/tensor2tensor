@@ -670,7 +670,7 @@ class Problem(object):
     partition_id, num_partitions = self._dataset_partition(mode, config)
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    if config.use_tpu:
+    if config and config.use_tpu:
       num_threads = 64
     else:
       num_threads = 4 if is_training else 1
