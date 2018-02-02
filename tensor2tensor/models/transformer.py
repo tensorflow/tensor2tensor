@@ -834,7 +834,7 @@ def transformer_base_v1():
   hparams.initializer = "uniform_unit_scaling"
   hparams.weight_decay = 0.0
   hparams.optimizer_adam_beta1 = 0.9
-  hparams.optimizer_adam_beta2 = 0.997
+  hparams.optimizer_adam_beta2 = 0.98
   hparams.num_sampled_classes = 0
   hparams.label_smoothing = 0.1
   hparams.shared_embedding_and_softmax_weights = True
@@ -883,7 +883,11 @@ def transformer_base_v2():
 
 @registry.register_hparams
 def transformer_base():
-  return transformer_base_v2()
+  # Update parameters here, then occasionally cut a versioned set, e.g.
+  # transformer_base_v2.
+  hparams = transformer_base_v2()
+  hparams.optimizer_adam_beta2 = 0.997
+  return hparams
 
 
 @registry.register_hparams
