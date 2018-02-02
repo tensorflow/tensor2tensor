@@ -168,6 +168,8 @@ def main(_):
     tf.logging.warning("It is strongly recommended to specify --data_dir. "
                        "Data will be written to default data_dir=%s.",
                        FLAGS.data_dir)
+  FLAGS.data_dir = os.path.expanduser(FLAGS.data_dir)
+  tf.gfile.MakeDirs(FLAGS.data_dir)
 
   tf.logging.info("Generating problems:\n%s"
                   % registry.display_list_by_prefix(problems,
