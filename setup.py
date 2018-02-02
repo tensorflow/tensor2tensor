@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.4.2',
+    version='1.4.3',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -36,7 +36,6 @@ setup(
         'future',
         'gevent',
         'gunicorn',
-        'gym',
         'numpy',
         'requests',
         'scipy',
@@ -44,8 +43,8 @@ setup(
         'six',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.4.1'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.4.1'],
+        'tensorflow': ['tensorflow>=1.5.0'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.5.0'],
         'tests': ['pytest', 'h5py', 'mock'],
     },
     classifiers=[

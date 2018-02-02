@@ -29,20 +29,6 @@ import tensorflow as tf
 
 class CommonLayersTest(tf.test.TestCase):
 
-  def testStandardizeImages(self):
-    x = np.random.rand(5, 7, 7, 3)
-    with self.test_session() as session:
-      y = common_layers.standardize_images(tf.constant(x))
-      res = session.run(y)
-    self.assertEqual(res.shape, (5, 7, 7, 3))
-
-  def testImageAugmentation(self):
-    x = np.random.rand(500, 500, 3)
-    with self.test_session() as session:
-      y = common_layers.image_augmentation(tf.constant(x))
-      res = session.run(y)
-    self.assertEqual(res.shape, (299, 299, 3))
-
   def testSaturatingSigmoid(self):
     x = np.array([-120.0, -100.0, 0.0, 100.0, 120.0], dtype=np.float32)
     with self.test_session() as session:
@@ -586,6 +572,53 @@ class FnWithCustomGradTest(tf.test.TestCase):
       sess.run(tf.global_variables_initializer())
       g_val, eg_val = sess.run([grads, expected_grads])
       for g1, g2 in zip(g_val, eg_val):
+        self.assertAllClose(g1, g2)
+
+
+class RecomputeTest(tf.test.TestCase):
+
+  def testRecompute(self):
+
+    def layer(x, name=None):
+      with tf.variable_scope(name, default_name="layer"):
+        x = tf.contrib.layers.layer_norm(x)
+        x = tf.layers.conv1d(
+            x,
+            10,
+            1,
+            use_bias=False,
+            kernel_initializer=tf.constant_initializer(42.42))
+        x = tf.nn.relu(x)
+        return x
+
+    def fn(x):
+      out = x
+      for _ in range(3):
+        out = layer(out)
+      return out
+
+    @common_layers.recompute_grad
+    def fn_recompute(x):
+      return fn(x)
+
+    x = tf.random_uniform((3, 1, 3))
+    recompute_vars = None
+    with tf.variable_scope("recompute") as vs:
+      out1 = tf.reduce_sum(fn_recompute(x))
+      recompute_vars = vs.trainable_variables()
+    reg_vars = None
+    with tf.variable_scope("regular") as vs:
+      out2 = tf.reduce_sum(fn(x))
+      reg_vars = vs.trainable_variables()
+
+    grad1 = tf.gradients(out1, recompute_vars)
+    grad2 = tf.gradients(out2, reg_vars)
+
+    with self.test_session() as sess:
+      sess.run(tf.global_variables_initializer())
+      outs = sess.run([out1, out2, grad1, grad2])
+      self.assertAllClose(outs[0], outs[1])
+      for g1, g2 in zip(outs[2], outs[3]):
         self.assertAllClose(g1, g2)
 
 

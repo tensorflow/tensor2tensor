@@ -1,7 +1,7 @@
 --eval_steps=1
 --hparams_range=
 --t2t_usr_dir=
---experimental_optimize_placement=False
+--enable_graph_rewriter=False
 --sync=False
 --eval_run_autoregressive=False
 --eval_use_test_set=False

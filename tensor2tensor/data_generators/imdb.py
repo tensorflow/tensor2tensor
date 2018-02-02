@@ -49,6 +49,10 @@ class SentimentIMDB(problem.Problem):
     return "sentiment_imdb.vocab"
 
   @property
+  def batch_size_means_tokens(self):
+    return True
+
+  @property
   def targeted_vocab_size(self):
     return 2**13  # 8k vocab suffices for this small dataset.
 

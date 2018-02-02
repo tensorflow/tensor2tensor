@@ -277,7 +277,7 @@ def final_block(x1, x2, dim='2d', training=True, scope='final_block'):
 
     # Global average pooling
     net = tf.reduce_mean(y, CONFIG[dim]['reduction_dimensions'],
-                         name='final_pool', keep_dims=True)
+                         name='final_pool', keepdims=True)
 
     return net
 
@@ -353,17 +353,25 @@ def revnet_base():
   hparams.add_hparam('num_channels_init_block', 64)
   hparams.add_hparam('dim', '2d')
 
+  # Variable init
+  hparams.initializer = 'normal_unit_scaling'
+  hparams.initializer_gain = 2.
+
+  # Optimization
   hparams.optimizer = 'Momentum'
-  hparams.learning_rate = 0.4
-
-  hparams.learning_rate_boundaries = [40000, 80000, 120000, 140000]
-  hparams.learning_rate_multiples = [0.1, 0.01, 0.001, 0.0002]
-  hparams.learning_rate_decay_scheme = 'piecewise'
-
+  hparams.optimizer_momentum_momentum = 0.9
+  hparams.optimizer_momentum_nesterov = True
   hparams.weight_decay = 1e-4
+  hparams.clip_grad_norm = 0.0
+  # (base_lr=0.1) * (batch_size=128*8 (on TPU, or 8 GPUs)=1024) / (256.)
+  hparams.learning_rate = 0.4
+  hparams.learning_rate_decay_scheme = 'cosine'
+  # For image_imagenet224, 120k training steps, which effectively makes this a
+  # cosine decay (i.e. no cycles).
+  hparams.learning_rate_cosine_cycle_steps = 120000
 
   # Can run with a batch size of 128 with Problem ImageImagenet224
-  hparams.tpu_batch_size_per_shard = 128
+  hparams.batch_size = 128
   return hparams
 
 
@@ -381,7 +389,7 @@ def revnet_cifar_base():
   hparams.init_kernel_size = 3
   hparams.init_maxpool = False
   hparams.strides = [1, 2, 2]
-  hparams.tpu_batch_size_per_shard = 128
+  hparams.batch_size = 128
   hparams.weight_decay = 5e-3
 
   hparams.learning_rate = 0.1

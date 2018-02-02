@@ -33,6 +33,7 @@ import scipy.signal
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
@@ -93,9 +94,7 @@ def compute_mel_filterbank_features(
     num_mel_bins: filterbank size
     log_noise_floor: clip small values to prevent numeric overflow in log
   Returns:
-    tuple of (filterbanks, filterbank_lens) where:
-      filterbanks are float32 tensor with shape [batch_size, len, num_bins, 1]
-      filterbank_lens are int64 tensor with shape [batch_size]
+    filterbanks: a float32 tensor with shape [batch_size, len, num_bins, 1]
   """
   # `stfts` is a complex64 Tensor representing the short-time Fourier
   # Transform of each signal in `signals`. Its shape is
@@ -214,6 +213,8 @@ class SpeechRecognitionProblem(problem.Problem):
   def hparams(self, defaults, model_hparams):
     p = model_hparams
     # Filterbank extraction
+    # The trainer seems to reserve memory for all members of the input dict
+    p.add_hparam("audio_keep_example_waveforms", False)
     p.add_hparam("audio_sample_rate", 16000)
     p.add_hparam("audio_preemphasis", 0.97)
     p.add_hparam("audio_dither", 1.0 / np.iinfo(np.int16).max)
@@ -243,6 +244,9 @@ class SpeechRecognitionProblem(problem.Problem):
 
   def feature_encoders(self, _):
     return {
+        "inputs": None,  # Put None to make sure that the logic in
+                         # decoding.py doesn't try to convert the floats
+                         # into text...
         "waveforms": AudioEncoder(),
         "targets": text_encoder.ByteTextEncoder(),
     }
@@ -274,12 +278,18 @@ class SpeechRecognitionProblem(problem.Problem):
       mel_fbanks = add_delta_deltas(mel_fbanks)
     fbank_size = common_layers.shape_list(mel_fbanks)
     assert fbank_size[0] == 1
-    # Later models like to flatten the two spatial dims. Instead, we add a unit
-    # spatial dim and flatten the frequencies and channels.
+    # Later models like to flatten the two spatial dims. Instead, we add a
+    # unit spatial dim and flatten the frequencies and channels.
     example["inputs"] = tf.reshape(
         mel_fbanks, [fbank_size[1], 1, fbank_size[2] * fbank_size[3]])
+    if not p.audio_keep_example_waveforms:
+      del example["waveforms"]
     return super(SpeechRecognitionProblem, self
                 ).preprocess_example(example, mode, hparams)
+
+  def eval_metrics(self):
+    defaults = super(SpeechRecognitionProblem, self).eval_metrics()
+    return defaults + [metrics.Metrics.EDIT_DISTANCE]
 
 
 @registry.register_audio_modality
@@ -303,8 +313,8 @@ class SpeechRecognitionModality(modality.Modality):
       num_mel_bins = p.audio_num_mel_bins
       num_channels = 3 if p.audio_add_delta_deltas else 1
       # The convention is that the models are flattened along the spatial,
-      # dimensions, thus the speech preprocessor treats frequencies and channels
-      # as image colors (last axis)
+      # dimensions, thus the speech preprocessor treats frequencies and
+      # channels as image colors (last axis)
       x.set_shape([None, None, 1, num_mel_bins * num_channels])
 
       # This replaces CMVN estimation on data

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Image generators test."""
+"""image_utils test."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -22,12 +22,19 @@ from __future__ import print_function
 # Dependency imports
 
 import numpy as np
-from tensor2tensor.data_generators import image
+from tensor2tensor.data_generators import image_utils
 
 import tensorflow as tf
 
 
 class ImageTest(tf.test.TestCase):
+
+  def testImageAugmentation(self):
+    x = np.random.rand(500, 500, 3)
+    with self.test_session() as session:
+      y = image_utils.image_augmentation(tf.constant(x))
+      res = session.run(y)
+    self.assertEqual(res.shape, (299, 299, 3))
 
   def testImageGenerator(self):
     # 2 random images
@@ -36,7 +43,7 @@ class ImageTest(tf.test.TestCase):
     image2 = np.random.randint(0, 255, size=(10, 12, 3))
     # Call image generator on the 2 images with labels [1, 2].
     encoded_imgs, labels = [], []
-    for dictionary in image.image_generator([image1, image2], [1, 2]):
+    for dictionary in image_utils.image_generator([image1, image2], [1, 2]):
       self.assertEqual(
           sorted(list(dictionary)), [
               "image/class/label", "image/encoded", "image/format",

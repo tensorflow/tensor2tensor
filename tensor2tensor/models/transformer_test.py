@@ -95,10 +95,11 @@ class TransformerTest(tf.test.TestCase):
     model.set_mode(tf.estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-      greedy_result, _, _ = model._slow_greedy_infer(features, decode_length)
+      greedy_result = model._slow_greedy_infer(
+          features, decode_length)["outputs"]
       greedy_result = tf.squeeze(greedy_result, axis=[2, 3])
 
-      fast_result, _, _ = model._greedy_infer(features, decode_length)
+      fast_result = model._greedy_infer(features, decode_length)["outputs"]
 
     with self.test_session():
       greedy_res = greedy_result.eval()

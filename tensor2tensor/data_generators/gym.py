@@ -23,14 +23,21 @@ import os
 
 # Dependency imports
 
-import gym
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+
+
+def gym_lib():
+  """Access to gym to allow for import of this file without a gym install."""
+  try:
+    import gym  # pylint: disable=g-import-not-at-top
+  except ImportError:
+    raise ImportError("pip install gym to use gym-based Problems")
+  return gym
 
 
 class GymDiscreteProblem(problem.Problem):
@@ -48,7 +55,7 @@ class GymDiscreteProblem(problem.Problem):
   @property
   def env(self):
     if self._env is None:
-      self._env = gym.make(self.env_name)
+      self._env = gym_lib().make(self.env_name)
     return self._env
 
   @property
