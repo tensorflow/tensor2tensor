@@ -20,6 +20,8 @@ Uses model-parallelism.
 Each shard (device) has a similar structure with different weights.
 Occasional cross-replica-sum across shards.
 
+Example problem: languagemodel_lm1b8k_packed
+
 """
 
 from __future__ import absolute_import
@@ -41,13 +43,6 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 ModeKeys = tf.estimator.ModeKeys  # pylint: disable=invalid-name
-
-
-def _embedding(inputs, vocab_size, dense_size):
-  embedding_var = tf.get_variable("embedding", [vocab_size, dense_size])
-  emb_x = tf.gather(embedding_var, tf.to_int32(inputs))
-  emb_x *= dense_size ** 0.5
-  return emb_x
 
 
 @registry.register_model
@@ -72,7 +67,10 @@ class SuperLM(t2t_model.T2TModel):
     shifted_targets = common_layers.shift_right_2d(targets)
     # Bypass the symbol modality and use a different embedding on each shard.
     decoder_input = mp(
-        _embedding, shifted_targets, vocab_size, hparams.hidden_size)
+        common_layers.embedding, shifted_targets, vocab_size,
+        hparams.hidden_size,
+        multiplier=hparams.hidden_size**0.5,
+        symbol_dropout_rate=hparams.symbol_dropout)
     decoder_self_attention_bias = mp(
         common_attention.attention_bias_lower_triangle,
         tf.shape(targets)[1])
@@ -147,7 +145,6 @@ def _super_stack(inputs,
     extra_loss: an optional scalar
   """
   layers = hparams.layers.strip(",").split(",")
-  ffn_hidden_sizes = [int(s) for s in hparams.ffn_hidden_sizes.split(",")]
   moe_hidden_sizes = [int(s) for s in hparams.moe_hidden_sizes.split(",")]
   if hparams.diet_experts:
     hsize, = moe_hidden_sizes
@@ -159,8 +156,8 @@ def _super_stack(inputs,
         hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
   # scaled_dot_product_attention_with_projections uses a 3d attention bias
   # (no heads), where multihead_attention uses 4d attention bias.
-  mix_size = int(hparams.mix_fraction * hparams.hidden_size)
   attention_bias_3d = mp(tf.squeeze, attention_bias, 1)
+  mix_size = int(hparams.mix_fraction * hparams.hidden_size)
   accumulator = inputs
   x = inputs
   extra_losses = []
@@ -203,17 +200,15 @@ def _super_stack(inputs,
             x,
             None,
             attention_bias,  # bias
-            hparams.attention_key_channels or hparams.hidden_size,
-            hparams.attention_value_channels or hparams.hidden_size,
+            hparams.multihead_attention_key_channels or hparams.hidden_size,
+            hparams.multihead_attention_value_channels or hparams.hidden_size,
             hparams.hidden_size,
-            hparams.num_heads,
+            hparams.multihead_attention_num_heads,
             hparams.attention_dropout)
       elif layer_type == "ffn":
-        y = mp(
-            expert_utils.ffn_expert_fn(
-                hparams.hidden_size, ffn_hidden_sizes, hparams.hidden_size),
-            mp(expert_utils.flatten_all_but_last, x))
-        x = mp(expert_utils.reshape_like, y, x)
+        x = mp(
+            common_layers.dense_relu_dense, x,
+            hparams.filter_size, hparams.hidden_size)
       elif layer_type == "conv":
         # convolution
         x = mp(
@@ -252,18 +247,20 @@ def super_lm_base():
   hparams.moe_hidden_sizes = "512"
   hparams.batch_size = 16384
   hparams.max_length = 0
+  # All hyperparameters ending in "dropout" are automatically set to 0.0
+  # when not in training mode.
   hparams.layer_prepostprocess_dropout = 0.0
+  hparams.symbol_dropout = 0.1
+  hparams.add_hparam("attention_dropout", 0.0)
   hparams.label_smoothing = 0.0
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
-  hparams.optimizer_adam_epsilon = 1e-9
+  hparams.optimizer = "Adafactor"
   hparams.learning_rate_decay_scheme = "noam"
   hparams.learning_rate = 0.1
   hparams.learning_rate_warmup_steps = 8000
   hparams.initializer_gain = 1.0
   hparams.initializer = "uniform_unit_scaling"
   hparams.weight_decay = 0.0
-  hparams.optimizer_adam_beta1 = 0.9
-  hparams.optimizer_adam_beta2 = 0.999
   hparams.shared_embedding_and_softmax_weights = False
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
@@ -271,15 +268,12 @@ def super_lm_base():
   hparams.no_data_parallelism = True
   # bypass the symbol modality so that we can use model parallelism.
   hparams.target_modality = "symbol:identity"
-  hparams.add_hparam("ffn_hidden_sizes", "512")  # Add new ones like this.
+  hparams.add_hparam("filter_size", 512)
   hparams.add_hparam("mix_fraction", 0.5)
   # attention-related flags
-  hparams.add_hparam("num_heads", 4)
-  hparams.add_hparam("attention_key_channels", 0)
-  hparams.add_hparam("attention_value_channels", 0)
-  # All hyperparameters ending in "dropout" are automatically set to 0.0
-  # when not in training mode.
-  hparams.add_hparam("attention_dropout", 0.0)
+  hparams.add_hparam("multihead_attention_num_heads", 4)
+  hparams.add_hparam("multihead_attention_key_channels", 0)
+  hparams.add_hparam("multihead_attention_value_channels", 0)
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam(
       "layers", ("n,att,m,d,a," "n,ffn,m,d,a,") * 4 + "n,ffn,d")
@@ -304,7 +298,7 @@ def super_lm_big():
   """Big model."""
   hparams = super_lm_base()
   hparams.hidden_size = 1024
-  hparams.ffn_hidden_sizes = "2048"
+  hparams.filter_size = 2048
   return hparams
 
 
@@ -365,4 +359,47 @@ def super_lm_moe_4b_diet():
   hparams = super_lm_moe()
   hparams.moe_num_experts = 128
   hparams.diet_experts = True
+  return hparams
+
+
+@registry.register_hparams
+def super_lm_tpu():
+  """Hyperparameters for data-parallel training on TPU.
+
+  This is not the intended usage - we would really like to use model-parallelism
+  with the model shards mapping to cores and cross_replica_sum used for
+  communication.  Currently, we replicate the entire model on each core.
+
+  Returns:
+    An hparams object.
+  """
+  hparams = super_lm_base()
+  hparams.batch_size = 4096
+  return hparams
+
+
+@registry.register_hparams
+def super_lm_big_tpu():
+  hparams = super_lm_big()
+  hparams.batch_size = 1024
+  return hparams
+
+
+@registry.register_hparams
+def super_lm_tpu_memtest():
+  """Crazy set of hyperparameters to test memory optimizations.
+
+  Quality will be very poor due to lack of attention layers.
+  853M parameters
+  This seems to run on TPU for languagemodel_lm1b8k_packed as of 2018-01-19.
+
+  Returns:
+    An hparams object.
+  """
+  hparams = super_lm_base()
+  hparams.num_model_shards = 1
+  hparams.layers = "ffn," * 8
+  hparams.hidden_size = 4096
+  hparams.filter_size = 12000
+  hparams.batch_size = 512
   return hparams

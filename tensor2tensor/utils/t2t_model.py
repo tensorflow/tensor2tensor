@@ -29,6 +29,7 @@ import time
 import six
 
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators.problem import problem_hparams_to_features
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import decoding
@@ -107,8 +108,8 @@ class T2TModel(base.Layer):
     self._original_hparams = hparams
     self.set_mode(mode)
 
-    self._decode_hparams = copy.copy(
-        decode_hparams or decoding.decode_hparams())
+    self._decode_hparams = copy.copy(decode_hparams or
+                                     decoding.decode_hparams())
     self._data_parallelism = data_parallelism or eu.Parallelism([""])
     self._num_datashards = self._data_parallelism.n
     self._ps_devices = self._data_parallelism.ps_devices
@@ -149,7 +150,6 @@ class T2TModel(base.Layer):
     dp = self._data_parallelism
     summarize_features(sharded_features, num_shards=dp.n)
     datashard_to_features = self._to_features_per_datashard(sharded_features)
-
     if self.use_body_sharded:
       # MoE models override body_sharded
       transformed_features = dp(self.bottom, datashard_to_features)
@@ -157,8 +157,8 @@ class T2TModel(base.Layer):
           self._to_single_features_dict(transformed_features))
       body_out, losses = self._normalize_body_output(body_out)
       if "training" in losses:
-        # If body has returned the training loss, the body outputs are
-        # considered the logits and no further work is done.
+        tf.logging.info("Skipping T2TModel top and loss because training loss "
+                        "returned from body")
         sharded_logits = body_out
       else:
         sharded_logits = dp(self.top, body_out, datashard_to_features)
@@ -189,10 +189,13 @@ class T2TModel(base.Layer):
     transformed_features = self.bottom(features)
 
     with tf.variable_scope("body"):
+      tf.logging.info("Building model body")
       body_out = self.body(transformed_features)
     output, losses = self._normalize_body_output(body_out)
 
     if "training" in losses:
+      tf.logging.info("Skipping T2TModel top and loss because training loss "
+                      "returned from body")
       logits = output
     else:
       logits = self.top(output, features)
@@ -213,12 +216,16 @@ class T2TModel(base.Layer):
         self._problem_hparams.input_modality):
       do_reuse = input_modality.name in all_previous_modalities
       with tf.variable_scope(input_modality.name, reuse=do_reuse):
+        tf.logging.info("Transforming feature '%s' with %s.bottom", key,
+                        input_modality.name)
         transformed_features[key] = input_modality.bottom(features[key])
       all_previous_modalities.append(input_modality.name)
 
     # Transform the targets (for autoregressive models)
     target_modality = self._problem_hparams.target_modality
     with tf.variable_scope(target_modality.name):
+      tf.logging.info("Transforming 'targets' with %s.targets_bottom",
+                      target_modality.name)
       transformed_features["targets"] = target_modality.targets_bottom(
           features["targets"])
 
@@ -256,6 +263,8 @@ class T2TModel(base.Layer):
 
     target_modality = self._problem_hparams.target_modality
     with tf.variable_scope(target_modality.name):
+      tf.logging.info("Transforming body output with %s.top",
+                      target_modality.name)
       last_only = (
           target_modality.top_is_pointwise and
           self.hparams.mode == tf.estimator.ModeKeys.PREDICT and
@@ -285,20 +294,32 @@ class T2TModel(base.Layer):
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
-    use_tpu = self.hparams.use_tpu
-    lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
+    tf.logging.info("Base learning rate: %f", self.hparams.learning_rate)
+    lr = self.hparams.learning_rate
+    decay_rate = optimize.learning_rate_decay_with_warmup(self.hparams)
+    lr *= decay_rate
+    if self.hparams.learning_rate_minimum:
+      lr_min = float(self.hparams.learning_rate_minimum)
+      tf.logging.info("Applying learning rate minimum: %f", lr_min)
+      lr = tf.max(lr, tf.to_float(lr_min))
+    if num_async_replicas > 1:
+      tf.logging.info("Dividing learning rate by num_async_replicas: %d",
+                      num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
+    train_op = optimize.optimize(
+        loss, lr, self.hparams, use_tpu=common_layers.is_on_tpu())
     return train_op
 
   def set_mode(self, mode):
     """Set hparams with the given mode."""
+    tf.logging.info("Setting T2TModel mode to '%s'", mode)
     hparams = copy.copy(self._original_hparams)
     hparams.add_hparam("mode", mode)
     # When not in training mode, set all forms of dropout to zero.
     if mode != tf.estimator.ModeKeys.TRAIN:
       for key in hparams.values():
         if key.endswith("dropout"):
+          tf.logging.info("Setting hparams.%s to 0.0", key)
           setattr(hparams, key, 0.0)
     self._hparams = hparams
 
@@ -352,27 +373,15 @@ class T2TModel(base.Layer):
       losses: a dictionary: {loss-name (string): floating point `Scalar`}.
           Contains a single key "training".
     """
-    _, logits, losses = self._slow_greedy_infer(
-        features, decode_length=decode_length)
-    return logits, losses
+    results = self._slow_greedy_infer(features, decode_length=decode_length)
+    return results["logits"], results["losses"]
 
   def _fill_problem_hparams_features(self, features):
-    if features is None:
-      return
-
-    input_space_id, target_space_id = 0, 0
-    if self._problem_hparams:
-      input_space_id = self._problem_hparams.input_space_id
-      target_space_id = self._problem_hparams.target_space_id
-
-    if "problem_choice" not in features:
-      features["problem_choice"] = tf.constant(0, name="problem_choice")
-    if "input_space_id" not in features:
-      features["input_space_id"] = tf.constant(
-          input_space_id, name="input_space_id")
-    if "target_space_id" not in features:
-      features["target_space_id"] = tf.constant(
-          target_space_id, name="target_space_id")
+    if features is not None:
+      for k, v in six.iteritems(
+          problem_hparams_to_features(self._problem_hparams)):
+        if k not in features:
+          features[k] = tf.constant(v, name=k)
 
   def infer(self,
             features=None,
@@ -393,7 +402,17 @@ class T2TModel(base.Layer):
         the preference for slonger translations.
 
     Returns:
-       samples: an integer `Tensor`.
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": decoding log probs from the beam search,
+              None if using greedy decoding (beam_size=1)
+      }
+      if slow greedy decoding is used then the dict will also contain {
+          "logits": `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+          "losses": a dictionary: {loss-name (string): floating point `Scalar`
+      }
     """
     with self._eager_var_store.as_default():
       # TODO(rsepassi): Make decoding work with real-valued model outputs
@@ -411,12 +430,13 @@ class T2TModel(base.Layer):
           beam_size = 1  # No use to run beam-search for a single class.
       if beam_size == 1:
         tf.logging.info("Greedy Decoding")
-        samples, _, _ = self._greedy_infer(features, decode_length)
+        results = self._greedy_infer(features, decode_length)
       else:
         tf.logging.info("Beam Decoding with beam size %d" % beam_size)
-        samples = self._beam_decode(
+        results = self._beam_decode(
             features, decode_length, beam_size, top_beams, alpha)
-      return samples
+
+      return results
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
     """Beam search decoding.
@@ -515,15 +535,13 @@ class T2TModel(base.Layer):
       features["inputs"] = inputs_old
 
     # Return `top_beams` decodings (also remove initial id from the beam search)
-    return_scores = True  # TODO(lukaszkaiser): make it work multi-problem.
+    # TODO(lukaszkaiser): make it work multi-problem.
     if top_beams == 1:
-      if return_scores:
-        return {"outputs": ids[:, 0, 1:], "scores": scores}
-      return ids[:, 0, 1:]
+      samples = ids[:, 0, 1:]
     else:
-      if return_scores:
-        return {"outputs": ids[:, :top_beams, 1:], "scores": scores}
-      return ids[:, :top_beams, 1:]
+      samples = ids[:, :top_beams, 1]
+
+    return {"outputs": samples, "scores": scores}
 
   def _greedy_infer(self, features, decode_length):
     """A greedy inference method.
@@ -535,9 +553,14 @@ class T2TModel(base.Layer):
       decode_length: an integer.  How many additional timesteps to decode.
 
     Returns:
-       samples: an integer `Tensor`.
-       logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
-       losses: a dictionary: {loss-name (string): floating point `Scalar`}
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": None
+          "logits": `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+          "losses": a dictionary: {loss-name (string): floating point `Scalar`}
+      }
     """
     return self._slow_greedy_infer(features, decode_length)
 
@@ -551,9 +574,14 @@ class T2TModel(base.Layer):
       decode_length: an integer.  How many additional timesteps to decode.
 
     Returns:
-       samples: an integer `Tensor`.
-       logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
-       losses: a dictionary: {loss-name (string): floating point `Scalar`}
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": None
+          "logits": `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+          "losses": a dictionary: {loss-name (string): floating point `Scalar`}
+      }
     """
     if not features:
       features = {}
@@ -673,7 +701,12 @@ class T2TModel(base.Layer):
           features["partial_targets"])[1]
       result = tf.slice(result, [0, partial_target_length, 0, 0],
                         [-1, -1, -1, -1])
-    return result, logits, losses
+    return {
+        "outputs": result,
+        "scores": None,
+        "logits": logits,
+        "losses": losses,
+    }
 
   def sample(self, features):
     """Run the model and extract samples.
@@ -714,9 +747,10 @@ class T2TModel(base.Layer):
         v_shape = [1]
       if v_shape == [1]:
         v = tf.tile(v, [self._num_datashards])
-      sharded_features[k] = self._data_parallelism(
-          tf.identity,
-          tf.split(v, self._num_datashards, 0))
+      sharded_features[k] = self._data_parallelism(tf.identity,
+                                                   tf.split(
+                                                       v, self._num_datashards,
+                                                       0))
     return sharded_features
 
   def _to_features_per_datashard(self, features):
@@ -782,14 +816,16 @@ class T2TModel(base.Layer):
     """
     _create_dummy_vars()
     hparams = copy.deepcopy(hparams)
-    hparams.use_tpu = use_tpu
 
     # Instantiate model
     data_parallelism = None
     if not use_tpu and config:
       data_parallelism = config.data_parallelism
-    model = cls(hparams, mode, data_parallelism=data_parallelism,
-                decode_hparams=decode_hparams)
+    model = cls(
+        hparams,
+        mode,
+        data_parallelism=data_parallelism,
+        decode_hparams=decode_hparams)
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
@@ -827,18 +863,16 @@ class T2TModel(base.Layer):
 
     # TRAIN mode
     assert mode == tf.estimator.ModeKeys.TRAIN
-    num_async_replicas = (
-        1 if (use_tpu or not config)
-        else config.t2t_device_info["num_async_replicas"])
-    return model.estimator_spec_train(loss,
-                                      num_async_replicas=num_async_replicas)
+    num_async_replicas = (1 if (use_tpu or not config) else
+                          config.t2t_device_info["num_async_replicas"])
+    return model.estimator_spec_train(
+        loss, num_async_replicas=num_async_replicas)
 
   def estimator_spec_train(self, loss, num_async_replicas=1):
     """Construct EstimatorSpec for TRAIN mode."""
-    use_tpu = self.hparams.use_tpu
     train_op = self.optimize(loss, num_async_replicas=num_async_replicas)
 
-    if use_tpu:
+    if common_layers.is_on_tpu():
       _remove_summaries()  # summaries not currently working on TPU
       return tf.contrib.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
@@ -846,25 +880,21 @@ class T2TModel(base.Layer):
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
 
-  def estimator_spec_eval(self,
-                          features,
-                          logits,
-                          labels,
-                          loss):
+  def estimator_spec_eval(self, features, logits, labels, loss):
     """Construct EstimatorSpec for EVAL mode."""
     hparams = self.hparams
-    use_tpu = hparams.use_tpu
 
     if not hasattr(hparams, "problem_instances"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
 
     problem = hparams.problem_instances[0]
-    if use_tpu:
+    if common_layers.is_on_tpu():
       eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
       _remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
-          eval_metrics=(eval_metrics_fn, [logits, labels]), loss=loss)
+          eval_metrics=(eval_metrics_fn, [logits, labels]),
+          loss=loss)
     else:
       eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
       eval_metrics = {}
@@ -883,20 +913,20 @@ class T2TModel(base.Layer):
     infer_out = self.infer(
         features,
         beam_size=decode_hparams.beam_size,
-        top_beams=(
-            decode_hparams.beam_size if decode_hparams.return_beams else 1),
+        top_beams=(decode_hparams.beam_size
+                   if decode_hparams.return_beams else 1),
         alpha=decode_hparams.alpha,
         decode_length=decode_hparams.extra_length)
     if isinstance(infer_out, dict):
-      # Beam searching
       outputs = infer_out["outputs"]
       scores = infer_out["scores"]
     else:
       outputs = infer_out
       scores = None
 
-    batched_problem_choice = (features["problem_choice"] * tf.ones(
-        (common_layers.shape_list(features["inputs"])[0],), dtype=tf.int32))
+    batched_problem_choice = (
+        features["problem_choice"] * tf.ones(
+            (common_layers.shape_list(features["inputs"])[0],), dtype=tf.int32))
     predictions = {
         "outputs": outputs,
         "scores": scores,
@@ -1015,13 +1045,6 @@ def _remove_summaries():
   key = tf.GraphKeys.SUMMARIES
   del g.get_collection_ref(key)[:]
   assert not g.get_collection(key)
-
-
-def _clip_gradients_by_norm(grads_and_vars, clip_gradients):
-  """Clips gradients by global norm."""
-  gradients, variables = zip(*grads_and_vars)
-  clipped_gradients, _ = tf.clip_by_global_norm(gradients, clip_gradients)
-  return list(zip(clipped_gradients, variables))
 
 
 def _del_dict_nones(d):

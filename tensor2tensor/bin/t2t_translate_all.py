@@ -81,7 +81,7 @@ def main(_):
   if not os.path.exists(flags_path):
     shutil.copy2(os.path.join(model_dir, "flags.txt"), flags_path)
 
-  locals_and_flags = {'FLAGS': FLAGS}
+  locals_and_flags = {"FLAGS": FLAGS}
   for model in bleu_hook.stepfiles_iterator(model_dir, FLAGS.wait_minutes,
                                             FLAGS.min_steps):
     tf.logging.info("Translating " + model.filename)

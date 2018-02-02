@@ -22,16 +22,22 @@ from __future__ import print_function
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import algorithmic_math
 from tensor2tensor.data_generators import audio
+from tensor2tensor.data_generators import celeba
+from tensor2tensor.data_generators import cifar
 from tensor2tensor.data_generators import cipher
 from tensor2tensor.data_generators import cnn_dailymail
 from tensor2tensor.data_generators import desc2code
+from tensor2tensor.data_generators import fsns
 from tensor2tensor.data_generators import gym
 from tensor2tensor.data_generators import ice_parsing
-from tensor2tensor.data_generators import image
+from tensor2tensor.data_generators import imagenet
 from tensor2tensor.data_generators import imdb
 from tensor2tensor.data_generators import librispeech
 from tensor2tensor.data_generators import lm1b
+from tensor2tensor.data_generators import mnist
+from tensor2tensor.data_generators import mscoco
 from tensor2tensor.data_generators import multinli
+from tensor2tensor.data_generators import ocr
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.data_generators import ptb
 from tensor2tensor.data_generators import snli
@@ -40,6 +46,7 @@ from tensor2tensor.data_generators import translate_ende
 from tensor2tensor.data_generators import translate_enfr
 from tensor2tensor.data_generators import translate_enmk
 from tensor2tensor.data_generators import translate_enzh
+from tensor2tensor.data_generators import twentybn
 from tensor2tensor.data_generators import wiki
 from tensor2tensor.data_generators import wsj_parsing
 

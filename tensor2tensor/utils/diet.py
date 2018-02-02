@@ -193,10 +193,10 @@ class DietAdamOptimizer(DietVariableOptimizer):
     beta2_pow = tf.pow(params.beta2, global_step)
     if params.factored_second_moment_accumulator and len(var.shape) == 2:
       vr_update = tf.assign(slots["adam_vr"], slots["adam_vr"] * params.beta2 +
-                            tf.reduce_mean(grad_squared, 1, keep_dims=True) *
+                            tf.reduce_mean(grad_squared, 1, keepdims=True) *
                             (1.0 - params.beta2))
       vc_update = tf.assign(slots["adam_vc"], slots["adam_vc"] * params.beta2 +
-                            tf.reduce_mean(grad_squared, 0, keep_dims=True) *
+                            tf.reduce_mean(grad_squared, 0, keepdims=True) *
                             (1.0 - params.beta2))
       with tf.control_dependencies([vr_update, vc_update]):
         vr = tf.sqrt(slots["adam_vr"] / (1.0 - beta2_pow)) + params.epsilon

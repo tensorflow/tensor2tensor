@@ -6,23 +6,33 @@ before_install:
   - sudo apt-get update -qq
   - sudo apt-get install -qq libhdf5-dev
 install:
-  - pip install -q tensorflow
+  - pip install -q .[tensorflow]
   - pip install -q .[tests]
+  # Make sure we have the latest version of numpy - avoid problems we were
+  # seeing with Python 3
+  - pip install -q -U numpy
 env:
   global:
     - T2T_PROBLEM=algorithmic_reverse_binary40_test
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
 script:
+  # Check import
+  - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
+
+  # Run tests
   - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/problems_test.py --ignore=tensor2tensor/utils/trainer_lib_test.py --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
+
+  # Run installed scripts
   - t2t-datagen 2>&1 | grep translate && echo passed
-  - t2t-trainer --registry_help --t2t_usr_dir=./tensor2tensor/test_data/example_usr_dir 2>&1 | grep my_very_own_hparams && echo passed
-  - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
   - t2t-trainer --registry_help
-  - mkdir $T2T_DATA_DIR
-  - mkdir $T2T_TRAIN_DIR
+
+  # Test --t2t_usr_dir
+  - t2t-trainer --registry_help --t2t_usr_dir=./tensor2tensor/test_data/example_usr_dir 2>&1 | grep my_very_own_hparams && echo passed
+
+  # Run data generation, training, and decoding on a dummy problem
   - t2t-datagen --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR
   - t2t-trainer --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
   - t2t-decoder --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'

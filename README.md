@@ -148,8 +148,11 @@ t2t-decoder \
   --decode_from_file=$DECODE_FILE \
   --decode_to_file=translation.en
 
-# Eval BLEU
-# (Always report proper BLEU in papers, not the internal approx_bleu.)
+# See the translations
+cat translation.en
+
+# Evaluate the BLEU score
+# Note: Report this BLEU score in papers, not the internal approx_bleu metric.
 t2t-bleu --translation=translation.en --reference=ref-translation.de
 ```
 

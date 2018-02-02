@@ -301,6 +301,74 @@ def transformer_moe_8k():
 
 
 @registry.register_hparams
+def transformer_moe_8k_lm():
+  """Language modeling params.
+
+  Will have the following architecture by default:
+  * No encoder.
+  * Decoder architecture:
+    * Layer 0: a - sepm  (masked self-attention/masked separable convolutions)
+    * Layer 1: a - sepm
+    * Layer 2: a - moe  (mixture of expert layers in the middle)
+    * Layer 3: a - sepm
+    * Layer 4: a - sepm
+
+  Returns:
+    hparams
+  """
+  hparams = transformer_moe_8k()
+
+  # Use masked versions of local attention and separable convolution
+  hparams.default_ff = "sepm"
+
+  # hparams.layer_types contains the network architecture:
+  # Start with '#' for decoder only architecture
+  hparams.layer_types = "#a/a/a-moe/a/a"  # 5 full attention layers with 1 moe
+  # For long sequences, if running out of memory, it's possible to use the
+  # one of those two optimized versions instead:
+  #  * Memory efficient multihead attention (slow):
+  # hparams.layer_types = "#mem/mem/mem-moe/mem/mem"
+  #  * Alternate between local/compressed attention layers (faster):
+  # hparams.layer_types = "#locm/red/locm-moe/red/locm"
+
+  return hparams
+
+
+@registry.register_hparams
+def transformer_moe_2k():
+  """Base transformers model with moe.
+
+  Will have the following architecture:
+  * No encoder.
+    * Layer 0: a - sep  (self-attention - unmasked separable convolutions)
+    * Layer 1: a - sep
+    * Layer 2: a - sep
+    * Layer 3: a - sep
+    * Layer 4: a - sep
+  * Decoder architecture:
+    * Layer 0: a - a - sepm  (self-attention - enco/deco-attention - masked sep)
+    * Layer 1: a - a - sepm
+    * Layer 2: a - a - moe  (mixture of expert layers in the middle)
+    * Layer 3: a - a - sepm
+    * Layer 4: a - a - sepm
+
+  Returns:
+    hparams
+  """
+  hparams = transformer_moe_8k()
+  hparams.batch_size = 2048
+
+  hparams.default_ff = "sep"
+
+  # hparams.layer_types contains the network architecture:
+  encoder_archi = "a/a/a/a/a"
+  decoder_archi = "a-sepm/a-sepm/a-moe/a-sepm/a-sepm"
+  hparams.layer_types = "{}#{}".format(encoder_archi, decoder_archi)
+
+  return hparams
+
+
+@registry.register_hparams
 def transformer_moe_12k():
   """Hyper parameters specifics for long sequence generation."""
   hparams = transformer_moe_8k()
@@ -317,6 +385,7 @@ def transformer_moe_prepend_8k():
   hparams.prepend_mode = "prepend_inputs_masked_attention"
   hparams.eval_drop_long_sequences = False
   hparams.max_input_seq_length = 7500,
-  hparams.layer_types = "loc/red/loc-moe/red/loc"
+  hparams.default_ff = "sepm"
+  hparams.layer_types = "locm/red/locm-moe/red/locm"
   hparams.moe_num_experts = 256
   return hparams

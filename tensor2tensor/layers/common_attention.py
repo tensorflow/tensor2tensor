@@ -70,30 +70,40 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
     return functools.wraps(fct)(functools.partial(fct, *args, **kwargs))
 
   def register_layer(
-      fct,
+      fct_in,
       default_args=None,
       default_kwargs=None,
       use_dp=True,
+      recompute_grad=False,
   ):
     """Turn a function into its standardized version.
 
     Args:
-      fct (fct): The function to register
+      fct_in (fct): The function to register
       default_args (list): The default parameters to add to the function.
       default_kwargs (dict): The default parameters to add to the function.
         Those arguments can be overwriten when calling the function.
       use_dp (bool): Wrap the function call within a dataparalellism object if
         dp is available. Some layers (like moe) must be called without dp.
+      recompute_grad (bool): If True, recompute the function during the
+        backward pass to save memory
 
     Returns:
       fct: the standardized layer function.
     """
     # The kwargs given when calling the function overwrite the default ones
-    fct = partial(fct, *(default_args or []), **(default_kwargs or {}))
+    fct_in = partial(fct_in, *(default_args or []), **(default_kwargs or {}))
 
-    @functools.wraps(fct)
+    @functools.wraps(fct_in)
     def decorator(x, *args, **kwargs):
       """Call the layer function."""
+      fct = fct_in  # For closure. Could use nonlocal with Python 3
+      # Eventually create the memory optimized version of the function
+      if recompute_grad:
+        fct = partial(fct, **kwargs)  # recompute_grad only accept args
+        fct = common_layers.recompute_grad(fct)
+        kwargs = {}
+
       # Eventually use dp (if given and not MoE)
       if use_dp and dp is not None:
         y = dp(fct, x, *args, **kwargs)
@@ -135,10 +145,48 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
           dropout_rate=hparams.attention_dropout,
       ))
 
-  # === Local attention layer ===
+  # === Memory efficient full-attention layer ===
+  # Save memory by not storing the activations and
+  # recomputing them during the backward pass
+  memeff_attention_base_fn = register_layer(
+      multihead_attention,
+      default_kwargs=dict(
+          total_key_depth=total_key_depth,
+          total_value_depth=total_value_depth,
+          output_depth=hparams.hidden_size,
+          num_heads=hparams.num_heads,
+          dropout_rate=hparams.attention_dropout,
+      ),
+      recompute_grad=True,
+  )
+  def memeff_attention_fn(*args, **kwargs):
+    """Modify args/kwargs for compatibility with recompute_grad."""
+    kwargs = kwargs.copy()
+    assert len(args) == 1
+    x = args[0]
+    memory_antecedent = kwargs.pop("memory_antecedent", x)  # Same as x if None
+    if kwargs.get("bias", None) is not None:  # Case where bias has been set
+      args = (x, memory_antecedent, kwargs.pop("bias"))
+    else:
+      # Otherwise, only 2 args. This is necessary as recompute_grad does not
+      # support None values.
+      args = (x, memory_antecedent)
+    return memeff_attention_base_fn(*args, **kwargs)
+
+  # === Local attention (unmasked) layer ===
+  # Reuse same parameters as multihead_attention
+  # Don't mask the future
+  local_attention_fn = partial(
+      multihead_attention_fn,
+      block_length=hparams.attention_loc_block_length,
+      block_width=hparams.attention_loc_block_width,
+      attention_type="local_unmasked",
+  )
+
+  # === Local attention (masked) layer ===
   # Reuse same parameters as multihead_attention
   # Only works for self attention. Always mask the future.
-  local_attention_fn = partial(
+  local_attention_masked_fn = partial(
       multihead_attention_fn,
       block_length=hparams.attention_loc_block_length,
       attention_type="local_mask_right",
@@ -213,8 +261,9 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
   layers = dict(
       a=multihead_attention_fn,  # Multihead full attention
       loc=local_attention_fn,  # Local attention
+      locm=local_attention_masked_fn,  # Local masked attention
       red=compressed_attention_fn,  # Memory-compressed attention
-      mem=None,  # Memory efficient
+      mem=memeff_attention_fn,  # Memory efficient
       fc=conv_hidden_relu,
       sep=sep_conv_relu,  # Fully connected
       sepm=sep_conv_relu_masked,  # masked separable convolution
@@ -252,6 +301,8 @@ def add_standard_attention_hparams(hparams):
   hparams.add_hparam("attention_dropout", 0.0)
   # Attention: Local
   hparams.add_hparam("attention_loc_block_length", 256)
+  # Attention: Local (unmasked only): How much to look left.
+  hparams.add_hparam("attention_loc_block_width", 128)
   # Attention: Memory-compressed
   hparams.add_hparam("attention_red_factor", 3)
   hparams.add_hparam("attention_red_type", "conv")
@@ -986,9 +1037,9 @@ def grouped_attention_multihead(query_antecedent,
       name,
       default_name="multihead_attention_sparse",
       values=[query_antecedent, memory_antecedent]):
-    q = tf.layers.dense(
+    q = common_layers.dense(
         query_antecedent, total_key_depth, use_bias=False, name="q_transform")
-    kv = tf.layers.dense(
+    kv = common_layers.dense(
         memory_antecedent,
         total_key_depth + total_value_depth,
         use_bias=False,
@@ -1000,7 +1051,7 @@ def grouped_attention_multihead(query_antecedent,
     # We will train these by auxiliary losses.  We use stop_gradient here
     # to keep these losses from back-propagating to the rest of the model.
     # We add biases that help balance the usage of the experts.
-    q_pred = tf.layers.dense(
+    q_pred = common_layers.dense(
         tf.stop_gradient(query_antecedent),
         num_heads * num_groups,
         use_bias=False,
@@ -1008,7 +1059,7 @@ def grouped_attention_multihead(query_antecedent,
     q_pred = split_heads(q_pred, num_heads)
     q_bias = tf.get_variable("q_bias", [1, num_heads, 1, num_groups])
     q_pred_biased = q_pred + q_bias
-    m_pred = tf.layers.dense(
+    m_pred = common_layers.dense(
         tf.stop_gradient(memory_antecedent),
         num_heads * num_groups,
         use_bias=False,
@@ -1077,7 +1128,7 @@ def grouped_attention_multihead(query_antecedent,
 
     o = tf.reshape(o, [batch, num_heads, length_q, depth_v])
     o = combine_heads(o)
-    o = tf.layers.dense(
+    o = common_layers.dense(
         o, output_depth, use_bias=False, name="output_transform")
 
     m_total = m_dispatcher.combine(m_total)
@@ -1180,7 +1231,8 @@ def dot_product_attention(q,
                           image_shapes=None,
                           name=None,
                           make_image_summary=True,
-                          save_weights_to=None):
+                          save_weights_to=None,
+                          dropout_broadcast_dims=None):
   """dot-product attention.
 
   Args:
@@ -1196,6 +1248,9 @@ def dot_product_attention(q,
     save_weights_to: an optional dictionary to capture attention weights
       for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
 
   Returns:
     A Tensor.
@@ -1210,7 +1265,8 @@ def dot_product_attention(q,
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
     # dropping out the attention links for each of the heads
-    weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
+    weights = common_layers.dropout_with_broadcast_dims(
+        weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
     if expert_utils.should_generate_summaries() and make_image_summary:
       attention_image_summary(weights, image_shapes)
     return tf.matmul(weights, v)
@@ -1229,21 +1285,16 @@ def _generate_relative_positions_matrix(length, max_relative_position):
   return final_mat
 
 
-def _generate_relative_positions_embeddings(heads, length, depth,
+def _generate_relative_positions_embeddings(length, depth,
                                             max_relative_position, name):
-  """Generates tensor of size [heads, length, length, depth]."""
+  """Generates tensor of size [length, length, depth]."""
   with tf.variable_scope(name):
     relative_positions_matrix = _generate_relative_positions_matrix(
         length, max_relative_position)
     vocab_size = max_relative_position * 2 + 1
-    # Generates embedding for each relative position of dimension heads * depth.
-    embeddings_table = tf.get_variable("embeddings",
-                                       [vocab_size, heads * depth])
+    # Generates embedding for each relative position of dimension depth.
+    embeddings_table = tf.get_variable("embeddings", [vocab_size, depth])
     embeddings = tf.gather(embeddings_table, relative_positions_matrix)
-    # Split embeddings per head.
-    embeddings = tf.reshape(embeddings, [length, length, heads, depth])
-    # Transpose to shape [heads, length, length, depth].
-    embeddings = tf.transpose(embeddings, [2, 0, 1, 3])
     return embeddings
 
 
@@ -1255,18 +1306,30 @@ def _relative_attention_inner(x, y, z, transpose):
   Args:
     x: Tensor with shape [batch_size, heads, length, length or depth].
     y: Tensor with shape [batch_size, heads, length, depth].
-    z: Tensor with shape [heads, length, length, depth].
+    z: Tensor with shape [length, length, depth].
     transpose: Whether to tranpose inner matrices of y and z. Should be true if
         last dimension of x is depth, not length.
 
   Returns:
-    A Tensor with shape [batch_size, heads, length, a].
+    A Tensor with shape [batch_size, heads, length, length or depth].
   """
+  batch_size = tf.shape(x)[0]
+  heads = x.get_shape().as_list()[1]
+  length = tf.shape(x)[2]
+
+  # xy_matmul is [batch_size, heads, length, length or depth]
   xy_matmul = tf.matmul(x, y, transpose_b=transpose)
-  x_t = tf.transpose(x, [1, 2, 0, 3])
-  x_tz_matmul = tf.matmul(x_t, z, transpose_b=transpose)
-  x_tz_matmul_t = tf.transpose(x_tz_matmul, [2, 0, 1, 3])
-  return xy_matmul + x_tz_matmul_t
+  # x_t is [length, batch_size, heads, length or depth]
+  x_t = tf.transpose(x, [2, 0, 1, 3])
+  # x_t_r is [length, batch_size * heads, length or depth]
+  x_t_r = tf.reshape(x_t, [length, heads * batch_size, -1])
+  # x_tz_matmul is [length, batch_size * heads, length or depth]
+  x_tz_matmul = tf.matmul(x_t_r, z, transpose_b=transpose)
+  # x_tz_matmul_r is [length, batch_size, heads, length or depth]
+  x_tz_matmul_r = tf.reshape(x_tz_matmul, [length, batch_size, heads, -1])
+  # x_tz_matmul_r_t is [batch_size, heads, length, length or depth]
+  x_tz_matmul_r_t = tf.transpose(x_tz_matmul_r, [1, 2, 0, 3])
+  return xy_matmul + x_tz_matmul_r_t
 
 
 def dot_product_attention_relative(q,
@@ -1276,7 +1339,8 @@ def dot_product_attention_relative(q,
                                    max_relative_position,
                                    dropout_rate=0.0,
                                    image_shapes=None,
-                                   name=None):
+                                   name=None,
+                                   make_image_summary=True):
   """Calculate relative position-aware dot-product self-attention.
 
   The attention calculation is augmented with learned representations for the
@@ -1292,6 +1356,7 @@ def dot_product_attention_relative(q,
     dropout_rate: a floating point number.
     image_shapes: optional tuple of integer scalars.
     name: an optional string.
+    make_image_summary: Whether to make an attention image summary.
 
   Returns:
     A Tensor.
@@ -1311,14 +1376,12 @@ def dot_product_attention_relative(q,
     q.get_shape().assert_is_compatible_with(v.get_shape())
 
     # Use separate embeddings suitable for keys and values.
-    heads = q.get_shape().as_list()[1]
     depth = q.get_shape().as_list()[3]
     length = common_layers.shape_list(q)[2]
     relations_keys = _generate_relative_positions_embeddings(
-        heads, length, depth, max_relative_position, "relative_positions_keys")
+        length, depth, max_relative_position, "relative_positions_keys")
     relations_values = _generate_relative_positions_embeddings(
-        heads, length, depth, max_relative_position,
-        "relative_positions_values")
+        length, depth, max_relative_position, "relative_positions_values")
 
     # Compute self attention considering the relative position embeddings.
     logits = _relative_attention_inner(q, k, relations_keys, True)
@@ -1326,7 +1389,7 @@ def dot_product_attention_relative(q,
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
     weights = tf.nn.dropout(weights, 1.0 - dropout_rate)
-    if not tf.get_variable_scope().reuse:
+    if not tf.get_variable_scope().reuse and make_image_summary:
       attention_image_summary(weights, image_shapes)
     return _relative_attention_inner(weights, v, relations_values, False)
 
@@ -2212,7 +2275,7 @@ def compute_qkv(query_antecedent,
     memory_antecedent = query_antecedent
   def _compute(inp, depth, filter_width, padding, name):
     if filter_width == 1:
-      return tf.layers.dense(inp, depth, use_bias=False, name=name)
+      return common_layers.dense(inp, depth, use_bias=False, name=name)
     else:
       return common_layers.conv1d(inp, depth, filter_width, padding, name=name)
   q = _compute(
@@ -2246,6 +2309,8 @@ def multihead_attention(query_antecedent,
                         num_memory_blocks=2,
                         name=None,
                         save_weights_to=None,
+                        make_image_summary=True,
+                        dropout_broadcast_dims=None,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -2289,6 +2354,10 @@ def multihead_attention(query_antecedent,
     save_weights_to: an optional dictionary to capture attention weights
       for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
+    make_image_summary: Whether to make an attention image summary.
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -2350,10 +2419,13 @@ def multihead_attention(query_antecedent,
         x, additional_returned_value = x  # Unpack
     elif attention_type == "dot_product":
       x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
-                                save_weights_to=save_weights_to)
+                                save_weights_to=save_weights_to,
+                                make_image_summary=make_image_summary,
+                                dropout_broadcast_dims=dropout_broadcast_dims)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(q, k, v, bias, max_relative_position,
-                                         dropout_rate, image_shapes)
+                                         dropout_rate, image_shapes,
+                                         make_image_summary=make_image_summary)
     elif attention_type == "local_mask_right":
       x = masked_local_attention_1d(q, k, v, block_length=block_length)
     elif attention_type == "local_unmasked":
@@ -2367,7 +2439,7 @@ def multihead_attention(query_antecedent,
       x = dilated_self_attention_1d(q, k, v, block_length, block_width,
                                     gap_size, num_memory_blocks)
     x = combine_heads(x)
-    x = tf.layers.dense(
+    x = common_layers.dense(
         x, output_depth, use_bias=False, name="output_transform")
     if additional_returned_value is not None:
       return x, additional_returned_value
@@ -2431,7 +2503,7 @@ def multihead_attention_2d(query_antecedent,
       x = masked_local_attention_2d(
           q, k, v, query_shape=query_shape, memory_flange=memory_flange)
     x = combine_heads_2d(x)
-    x = tf.layers.dense(
+    x = common_layers.dense(
         x, output_depth, use_bias=False, name="output_transform")
     return x
 
@@ -2471,16 +2543,16 @@ def ffn_self_attention_layer(x,
     x_shape = common_layers.shape_list(x)
     part_depth = filter_depth // num_parts
     if not share_kv:
-      combined = tf.layers.dense(
+      combined = common_layers.dense(
           x, filter_depth * 3, use_bias=False, name="qkv_transform")
       combined = tf.expand_dims(combined, axis=2)
       q, k, v = tf.split(combined, 3, axis=3)
     else:
       q = tf.expand_dims(
-          tf.layers.dense(
+          common_layers.dense(
               x, filter_depth, use_bias=False, name="q_transform"), axis=2)
       kv_combined = tf.expand_dims(
-          tf.layers.dense(
+          common_layers.dense(
               tf.concat([x, x], axis=1), filter_depth, use_bias=False,
               name="kv_transform"),
           axis=2)
@@ -2495,7 +2567,7 @@ def ffn_self_attention_layer(x,
     bias = None
     x = dot_product_attention(batch_q, batch_k, batch_v, bias, dropout_rate)
     x = tf.reshape(x, [x_shape[0], x_shape[1], filter_depth])
-    x = tf.layers.dense(
+    x = common_layers.dense(
         x, output_depth, use_bias=False, name="output_transform")
     return x
 
@@ -2547,7 +2619,8 @@ def parameter_attention(x,
             output_depth**0.5)
     batch_size = common_layers.shape_list(x)[0]
     length = common_layers.shape_list(x)[1]
-    q = tf.layers.dense(x, total_key_depth, use_bias=False, name="q_transform")
+    q = common_layers.dense(
+        x, total_key_depth, use_bias=False, name="q_transform")
     if dropout_rate:
       # This is a cheaper form of attention dropout where we use to use
       # the same dropout decisions across batch elemets and query positions,
@@ -2566,7 +2639,7 @@ def parameter_attention(x,
     y = tf.transpose(y, [1, 2, 0, 3])
     y = tf.reshape(y, [batch_size, length, total_value_depth])
     y.set_shape([None, None, total_value_depth])
-    y = tf.layers.dense(
+    y = common_layers.dense(
         y, output_depth, use_bias=False, name="output_transform")
     return y
 
@@ -3319,7 +3392,7 @@ def local_reduction_attention(x, block_length, multihead_params):
             block_length,
             block_length,  # Restore the block length dimension
         ])
-    weights = tf.reduce_sum(weights, axis=3, keep_dims=True)  # Compress block
+    weights = tf.reduce_sum(weights, axis=3, keepdims=True)  # Compress block
     v_out = tf.matmul(weights, v)  # [1, block_length] @ [block_length, depth]
     v_out = tf.squeeze(v_out, axis=3)
     return v_out

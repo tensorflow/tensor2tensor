@@ -214,3 +214,18 @@ def lstm_luong_attention_multi():
   hparams = lstm_luong_attention()
   hparams.num_heads = 4
   return hparams
+
+
+@registry.register_hparams
+def lstm_asr_v1():
+  """Basic LSTM Params."""
+  hparams = lstm_bahdanau_attention()
+  hparams.num_hidden_layers = 2
+  hparams.hidden_size = 256
+  hparams.batch_size = 36
+  hparams.max_input_seq_length = 600000
+  hparams.max_target_seq_length = 350
+  hparams.max_length = hparams.max_input_seq_length
+  hparams.min_length_bucket = hparams.max_input_seq_length // 2
+  hparams.learning_rate = 0.05
+  return hparams
