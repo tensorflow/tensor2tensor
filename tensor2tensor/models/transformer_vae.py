@@ -24,13 +24,14 @@ import math
 # Dependency imports
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
-
+from tensor2tensor.google.models import common_image_attention as cia
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
+
 
 import tensorflow as tf
 from tensorflow.python.training import moving_averages
@@ -459,26 +460,57 @@ def decode_transformer(encoder_output,
                        encoder_decoder_attention_bias,
                        targets,
                        hparams,
-                       name):
+                       name,
+                       task=None):
   """Original Transformer decoder."""
   with tf.variable_scope(name):
-    targets = common_layers.flatten4d3d(targets)
+    if task is None:
+      task = hparams.task
+    if task == "translate":
+      targets = common_layers.flatten4d3d(targets)
 
-    decoder_input, decoder_self_bias = transformer.transformer_prepare_decoder(
-        targets, hparams)
+      decoder_input, decoder_self_bias = (
+          transformer.transformer_prepare_decoder(targets, hparams))
 
-    decoder_input = tf.nn.dropout(decoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
+      decoder_input = tf.nn.dropout(decoder_input,
+                                    1.0 - hparams.layer_prepostprocess_dropout)
 
-    decoder_output = transformer.transformer_decoder(
-        decoder_input,
-        encoder_output,
-        decoder_self_bias,
-        encoder_decoder_attention_bias,
-        hparams)
+      decoder_output = transformer.transformer_decoder(
+          decoder_input,
+          encoder_output,
+          decoder_self_bias,
+          encoder_decoder_attention_bias,
+          hparams)
+      decoder_output = tf.expand_dims(decoder_output, axis=2)
+    else:
+      assert task == "image"
+      inputs = None
+      # have to reshape targets as b, 32, 32, 3 * hidden size] beacuse otherwise
+      # prepare_image will choke
+      targets = tf.reshape(targets, [tf.shape(targets)[0], hparams.img_len,
+                                     hparams.img_len,
+                                     hparams.num_channels*hparams.hidden_size])
 
+      # Prepare decoder inputs and bias.
+      decoder_input, _, _, bias = cia.prepare_decoder(targets, hparams)
+      # Add class label to decoder input.
+      if not hparams.drop_inputs:
+        decoder_input += tf.reshape(
+            inputs,
+            [common_layers.shape_list(targets)[0], 1, 1, hparams.hidden_size])
+      decoder_output = cia.transformer_decoder_layers(
+          decoder_input,
+          None,
+          bias,
+          hparams.num_decoder_layers or hparams.num_hidden_layers,
+          hparams,
+          attention_type=hparams.dec_attention_type,
+          name="decoder")
+    decoder_output_shape = common_layers.shape_list(decoder_output)
+    decoder_output = tf.reshape(decoder_output, [decoder_output_shape[0], -1, 1,
+                                                 hparams.hidden_size])
     # Expand since t2t expects 4d tensors.
-    return tf.expand_dims(decoder_output, axis=2)
+    return decoder_output
 
 
 def multinomial_sample(x, vocab_size, temperature):
@@ -566,7 +598,10 @@ def ae_transformer_internal(inputs,
     _DO_SUMMARIES = False
 
   # Prepare.
-  batch_size = common_layers.shape_list(inputs)[0]
+  if inputs is not None:
+    batch_size = common_layers.shape_list(inputs)[0]
+  else:
+    batch_size = common_layers.shape_list(targets)[0]
   targets = tf.reshape(targets, [batch_size, -1, 1, hparams.hidden_size])
 
   # Encoder.
@@ -579,7 +614,15 @@ def ae_transformer_internal(inputs,
   # Autoencoding.
   losses = {"extra": tf.constant(0.0), "latent_pred": tf.constant(0.0)}
   if hparams.do_ae:
-    max_targets_len_from_inputs = tf.concat([inputs, inputs], axis=1)
+    # flatten here
+    original_targets_shape = tf.shape(targets)
+    if hparams.task == "image":
+      cia.maybe_reshape_4d_to_3d(targets, hparams)
+    if hparams.task == "translate":
+      max_targets_len_from_inputs = tf.concat([inputs, inputs], axis=1)
+    else:
+      assert hparams.task == "image"
+      max_targets_len_from_inputs = targets
     targets, _ = common_layers.pad_to_same_length(
         targets, max_targets_len_from_inputs,
         final_length_divisible_by=2**hparams.num_compress_steps)
@@ -599,8 +642,10 @@ def ae_transformer_internal(inputs,
       # Extra loss predicting latent code from input. Discrete only.
       if hparams.bottleneck_kind not in ["dense", "vae"]:
         latents_pred = decode_transformer(
-            tf.stop_gradient(inputs), tf.stop_gradient(ed),
-            tf.stop_gradient(latents_dense), hparams, "extra")
+            tf.stop_gradient(inputs) if inputs is not None else None,
+            tf.stop_gradient(ed) if inputs is not None else None,
+            tf.stop_gradient(latents_dense), hparams, "extra",
+            task="translate")
         _, latent_pred_loss = ae_latent_softmax(
             latents_pred, latents_discrete, hparams)
         losses["latent_pred"] = tf.reduce_mean(
@@ -659,12 +704,18 @@ def ae_transformer_internal(inputs,
         if hparams.do_attend_decompress:
           d = attend(d, inputs, hparams, "decompress_attend_%d" % j)
         d = decompress_step(d, hparams, i > 0, False, "decompress_%d" % j)
+      # targets is always [batch, length, 1, depth]
       targets = mask * targets + (1.0 - mask) * d
-    targets = tf.concat([tf.reverse(latents_dense, [1]), targets], axis=1)
+      # reshape back to 4d here
+      if hparams.task == "image":
+        targets = tf.reshape(targets, original_targets_shape)
+    else:
+      targets = tf.concat([tf.reverse(latents_dense, [1]), targets], axis=1)
 
   res = decode_transformer(inputs, ed, targets, hparams, "decoder")
   if hparams.do_ae:
-    res = res[:, common_layers.shape_list(latents_dense)[1]:, :, :]
+    if not hparams.do_mask:
+      res = res[:, common_layers.shape_list(latents_dense)[1]:, :, :]
     if hparams.do_mask and hparams.do_refine:
       def refine_res():
         # return residual_conv(res, 1, (5, 1), hparams, "refine")
@@ -872,6 +923,9 @@ def transformer_ae_small():
   hparams.add_hparam("random_top_k", 1)
   hparams.kl_warmup_steps = 150000
   hparams.force_full_predict = True
+
+  # task params
+  hparams.add_hparam("task", "translate")  # translate or image tasks supported
   return hparams
 
 
@@ -891,6 +945,78 @@ def transformer_ae_cifar():
   hparams.learning_rate_warmup_steps = 8000
   hparams.learning_rate = 0.2
   hparams.ffn_layer = "conv_hidden_relu_with_sepconv"
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_ae_cifar():
+  """Hyperparameters for CIFAR-10 experiments."""
+  hparams = transformer_ae_small()
+  hparams.filter_size = 512
+  hparams.num_compress_steps = 3
+  hparams.v_size = 1024 * 64
+  hparams.startup_steps = 10000
+  hparams.kmeans_lr_factor = 0.0
+  hparams.is_2d = 0
+  hparams.learning_rate_warmup_steps = 8000
+  hparams.learning_rate = 0.2
+  hparams.hidden_size = 512
+  hparams.batch_size = 1
+  hparams.max_length = 256
+  hparams.dropout = 0.0
+  hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
+  hparams.optimizer_adam_epsilon = 1e-9
+  hparams.learning_rate_decay_scheme = "noam"
+  hparams.learning_rate = 0.1
+  hparams.initializer_gain = 0.2
+  hparams.num_hidden_layers = 6
+  hparams.initializer = "uniform_unit_scaling"
+  hparams.weight_decay = 0.0
+  hparams.optimizer_adam_beta1 = 0.9
+  hparams.optimizer_adam_beta2 = 0.98
+  hparams.label_smoothing = 0.0
+  hparams.norm_type = "layer"
+  hparams.layer_prepostprocess_dropout = 0.0
+  hparams.num_heads = 8
+  hparams.task = "image"
+  hparams.ffn_layer = "conv_hidden_relu"
+  # All hyperparameters ending in "dropout" are automatically set to 0.0
+  # when not in training mode.
+  hparams.attention_dropout = 0.0
+  hparams.relu_dropout = 0.
+  hparams.pos = "timing"  # timing, none
+  hparams.nbr_decoder_problems = 1
+  hparams.num_output_layers = 3
+  hparams.add_hparam("block_size", 1)
+
+  # dilated attention based flags
+  hparams.add_hparam("gap_sizes", [2, 4, 8, 16, 32, 64, 2, 4, 8, 16, 32, 64])
+  hparams.add_hparam("dilated_attention", False)
+
+  # image size related flags
+  # assuming that the image has same height and width
+  hparams.add_hparam("img_len", 32)
+  hparams.add_hparam("num_channels", 3)
+  # Local attention params
+  hparams.add_hparam("local_and_global_att", False)
+  hparams.add_hparam("block_length", 256)
+  hparams.add_hparam("block_width", 128)
+  hparams.num_encoder_layers = 4
+  hparams.num_decoder_layers = 12
+  hparams.sep_rgb_embed = False
+  hparams.add_hparam("dec_attention_type", cia.AttentionType.LOCAL_1D)
+  hparams.add_hparam("block_rastor_scan", False)
+
+  # multipos attention params
+  hparams.add_hparam("q_filter_width", 1)
+  hparams.add_hparam("kv_filter_width", 1)
+
+  hparams.add_hparam("unconditional", False)  # unconditional generation
+
+  hparams.target_modality = "image:channel_embeddings_bottom"
+  hparams.drop_inputs = True
+  hparams.do_attend_compress = False
+  hparams.do_attend_decompress = False
   return hparams
 
 
