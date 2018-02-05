@@ -135,6 +135,32 @@ def token_generator(source_path, target_path, token_vocab, eos=None):
         yield {"inputs": source_ints, "targets": target_ints}
         source, target = source_file.readline(), target_file.readline()
 
+def token_generator_by_source_target(source_path, target_path, source_token_vocab, targe_token_vocab, eos=None):
+  """Generator for sequence-to-sequence tasks that uses tokens.
+
+  自定义（与上面的 token_generator 相对应）：
+    分别使用 source_token_vocab，targe_token_vocab 对 source_file 和 target_file 进行encode
+
+  Args:
+    source_path: path to the file with source sentences.
+    target_path: path to the file with target sentences.
+    source_token_vocab: text_encoder.TextEncoder object.
+    targe_token_vocab: text_encoder.TextEncoder object.
+    eos: integer to append at the end of each sequence (default: None).
+  Yields:
+    A dictionary {"inputs": source-line, "targets": target-line} where
+    the lines are integer lists converted from tokens in the file lines.
+  """
+  eos_list = [] if eos is None else [eos]
+  with tf.gfile.GFile(source_path, mode="r") as source_file:
+    with tf.gfile.GFile(target_path, mode="r") as target_file:
+      source, target = source_file.readline(), target_file.readline()
+      while source and target:
+        source_ints = source_token_vocab.encode(source.strip()) + eos_list
+        target_ints = targe_token_vocab.encode(target.strip()) + eos_list
+        yield {"inputs": source_ints, "targets": target_ints}
+        source, target = source_file.readline(), target_file.readline()
+
 
 def bi_vocabs_token_generator(source_path,
                               target_path,

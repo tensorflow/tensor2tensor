@@ -276,6 +276,29 @@ def gunzip_file(gz_path, new_path):
       for line in gz_file:
         new_file.write(line)
 
+def get_local_vocab(data_dir, vocab_filename):
+  """ Added By Jack
+      Get local vocabularies
+
+  Args:
+    data_dir: The base directory where data and vocab files are stored. If None,
+        return None
+    vocab_filename: relative filename where vocab file is stored
+  Returns:
+    A SubwordTextEncoder vocabulary object.
+  """
+  if data_dir is None:
+    vocab_filepath = None
+  else:
+    vocab_filepath = os.path.join(data_dir, vocab_filename)
+
+  if not vocab_filepath or not tf.gfile.Exists(vocab_filepath):
+    return None
+
+  tf.logging.info("Found vocab file: %s", vocab_filepath)
+  vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
+
+  return vocab
 
 def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
                                 generator):
