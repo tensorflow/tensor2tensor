@@ -290,15 +290,15 @@ def bottleneck(x,
       elif hparams.bottleneck_kind == "vq-vae":
         shape_x = common_layers.shape_list(x)
         x_flat = tf.reshape(x, [-1, 1])
-        c = int_to_bit(x_flat, nbits=int(math.log(hparams.v_size, 2)), base=2)
+        c = int_to_bit(x_flat, nbits=hparams.z_size, base=2)
         shape = common_layers.shape_list(c)
         new_shape = shape
         new_shape[-1] = hparams.num_blocks
-        new_shape.append(int(math.log(hparams.v_size, 2) / hparams.num_blocks))
+        new_shape.append(int(hparams.z_size / hparams.num_blocks))
         c = tf.to_int32(tf.reshape(c, shape=new_shape))
         c = bit_to_int(
             c,
-            nbits=int(math.log(hparams.v_size, 2) / hparams.num_blocks),
+            nbits=int(hparams.z_size / hparams.num_blocks),
             base=2)
         c_hot = tf.one_hot(c, depth=hparams.block_v_size, axis=-1)
         c_hot_flat = tf.reshape(
@@ -360,15 +360,15 @@ def bottleneck(x,
       # Get the binary representation
       x_means_bits = int_to_bit(
           x_means_idx,
-          nbits=int(math.log(hparams.v_size, 2) / hparams.num_blocks),
+          nbits=int(hparams.z_size / hparams.num_blocks),
           base=2)
       shape = common_layers.shape_list(x_means_bits)
       new_shape = shape[:-1]
-      new_shape[-1] = int(math.log(hparams.v_size, 2))
+      new_shape[-1] = hparams.z_size
       x_means_bits = tf.reshape(x_means_bits, shape=new_shape)
       c = bit_to_int(
           tf.to_int32(x_means_bits),
-          nbits=int(math.log(hparams.v_size, 2)),
+          nbits=hparams.z_size,
           base=2)
 
       # Update the ema variables
