@@ -633,6 +633,8 @@ class Problem(object):
       num_partitions: an integer
     """
     if mode != tf.estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
+      # Reset in the case when using TPU but alternating TRAIN and EVAL.
+      self._next_partition_id = 0
       return 0, 1
     if config.tpu_config.per_host_input_for_training:
       num_partitions = max(config.tpu_config.num_shards // 8, 1)
