@@ -709,12 +709,12 @@ def ae_transformer_internal(inputs,
       # reshape back to 4d here
       if hparams.task == "image":
         targets = tf.reshape(targets, original_targets_shape)
-    else:
+    if hparams.task == "translate":
       targets = tf.concat([tf.reverse(latents_dense, [1]), targets], axis=1)
 
   res = decode_transformer(inputs, ed, targets, hparams, "decoder")
   if hparams.do_ae:
-    if not hparams.do_mask:
+    if hparams.task == "translate":
       res = res[:, common_layers.shape_list(latents_dense)[1]:, :, :]
     if hparams.do_mask and hparams.do_refine:
       def refine_res():
