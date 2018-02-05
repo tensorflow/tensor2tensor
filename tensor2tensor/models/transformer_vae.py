@@ -288,22 +288,23 @@ def bottleneck(x,
         hot = tf.one_hot(x, hparams.v_size)
         h1 = tf.layers.dense(hot, hparams.hidden_size, name="dae_dense")
       elif hparams.bottleneck_kind == "vq-vae":
-        means_embed = means
         shape_x = common_layers.shape_list(x)
         x_flat = tf.reshape(x, [-1, 1])
         c = int_to_bit(x_flat, nbits=int(math.log(hparams.v_size, 2)), base=2)
         shape = common_layers.shape_list(c)
         new_shape = shape
         new_shape[-1] = hparams.num_blocks
-        new_shape.append(int(math.log(hparams.v_size, 2) // hparams.num_blocks))
+        new_shape.append(int(math.log(hparams.v_size, 2) / hparams.num_blocks))
         c = tf.to_int32(tf.reshape(c, shape=new_shape))
         c = bit_to_int(
             c,
-            nbits=int(math.log(hparams.v_size, 2) // hparams.num_blocks),
+            nbits=int(math.log(hparams.v_size, 2) / hparams.num_blocks),
             base=2)
-        h1 = tf.gather(tf.transpose(means_embed, [1, 0, 2]), c)
-        h1 = tf.stack(
-            [h1[:, :, i, i, :] for i in range(hparams.num_blocks)], axis=-2)
+        c_hot = tf.one_hot(c, depth=hparams.block_v_size, axis=-1)
+        c_hot_flat = tf.reshape(
+            c_hot, shape=[-1, hparams.num_blocks, hparams.block_v_size])
+        h1 = tf.matmul(tf.transpose(c_hot_flat, perm=[1, 0, 2]), means)
+        h1 = tf.transpose(h1, perm=[1, 0, 2])
         new_shape = shape_x
         new_shape.append(hparams.hidden_size)
         h1 = tf.reshape(h1, new_shape)
@@ -355,10 +356,11 @@ def bottleneck(x,
 
       # Get the discrete latent represenation
       x_means_idx = tf.argmax(x_means_hot, axis=-1)
+
       # Get the binary representation
       x_means_bits = int_to_bit(
           x_means_idx,
-          nbits=int(math.log(hparams.v_size, 2) // hparams.num_blocks),
+          nbits=int(math.log(hparams.v_size, 2) / hparams.num_blocks),
           base=2)
       shape = common_layers.shape_list(x_means_bits)
       new_shape = shape[:-1]
@@ -528,7 +530,7 @@ def ae_latent_softmax(latents_pred, latents_discrete, hparams):
   vocab_size = hparams.v_size
   if hparams.bottleneck_kind == "semhash":
     vocab_size = 2**hparams.z_size
-  if hparams.num_blocks < 2:
+  if hparams.num_decode_blocks < 2:
     latents_logits = tf.layers.dense(latents_pred, vocab_size,
                                      name="extra_logits")
     loss = None
@@ -542,15 +544,17 @@ def ae_latent_softmax(latents_pred, latents_discrete, hparams):
   # Multi-block case.
   vocab_bits = int(math.log(vocab_size, 2))
   assert vocab_size == 2**vocab_bits
-  assert vocab_bits % hparams.num_blocks == 0
-  block_vocab_size = 2**(vocab_bits // hparams.num_blocks)
-  latents_logits = [tf.layers.dense(latents_pred, block_vocab_size,
-                                    name="extra_logits_%d" % i)
-                    for i in xrange(hparams.num_blocks)]
+  assert vocab_bits % hparams.num_decode_blocks == 0
+  block_vocab_size = 2**(vocab_bits // hparams.num_decode_blocks)
+  latents_logits = [
+      tf.layers.dense(
+          latents_pred, block_vocab_size, name="extra_logits_%d" % i)
+      for i in xrange(hparams.num_decode_blocks)
+  ]
   loss = None
   if latents_discrete is not None:
     losses = []
-    for i in xrange(hparams.num_blocks):
+    for i in xrange(hparams.num_decode_blocks):
       d = tf.floormod(tf.floordiv(latents_discrete,
                                   block_vocab_size**i), block_vocab_size)
       losses.append(tf.nn.sparse_softmax_cross_entropy_with_logits(
@@ -629,7 +633,7 @@ def ae_transformer_internal(inputs,
     targets_c = compress(targets, inputs, False, hparams, "compress")
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
-      latents_dense, latents_discrete, extra_loss, _ = bottleneck(
+      latents_dense, latents_discrete, extra_loss, embed = bottleneck(
           targets_c, hparams, 2 * 2048, "vc", means, ema_count, ema_means)
       if _DO_SUMMARIES:
         tf.summary.histogram("b0", tf.reshape(latents_discrete[:, 0, :], [-1]))
@@ -752,7 +756,7 @@ class TransformerAE(t2t_model.T2TModel):
       self._hparams.block_dim = int(
           self._hparams.hidden_size // self._hparams.num_blocks)
       self._hparams.block_v_size = 2**(
-          math.log(self._hparams.v_size, 2) / self._hparams.num_blocks)
+          self._hparams.z_size / self._hparams.num_blocks)
       self._hparams.block_v_size = int(self._hparams.block_v_size)
 
       if self._hparams.reshape_method == "project":
@@ -881,16 +885,17 @@ def transformer_ae_small():
   hparams.hidden_size = 384
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
-  hparams.optimizer = "Adafactor"  # Can be unstable, maybe try Adam.
+  hparams.optimizer = "Adam"  # Can be unstable, maybe try Adam.
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.optimizer_adam_beta1 = 0.9
-  hparams.optimizer_adam_beta2 = 0.998  # Needs tuning, try 0.98 to 0.999.
+  hparams.optimizer_adam_beta2 = 0.997  # Needs tuning, try 0.98 to 0.999.
   hparams.add_hparam("z_size", 14)
   hparams.add_hparam("noise_dev", 0.0)
   hparams.add_hparam("d_mix", 0.5)
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, vq-vae.
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)
+  hparams.add_hparam("num_decode_blocks", 1)
   # Reshape method for hierarchical vq-vae: slice, project
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
