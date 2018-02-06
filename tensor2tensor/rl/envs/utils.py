@@ -17,6 +17,8 @@
 # https://github.com/tensorflow/agents/blob/master/agents/tools/wrappers.py
 # https://github.com/tensorflow/agents/blob/master/agents/scripts/utility.py
 
+"""Utilities for using batched environments."""
+
 import atexit
 import multiprocessing
 import sys

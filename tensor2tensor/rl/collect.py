@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Collect trajectories from interactions of agent with environment."""
+
 import tensorflow as tf
 
 

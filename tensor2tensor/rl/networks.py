@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Neural networks for actor-critic algorithms."""
+
 import operator
 import functools
 import collections
