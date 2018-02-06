@@ -124,7 +124,7 @@ class T2TModel(base.Layer):
   @property
   def has_input(self):
     if self._problem_hparams:
-      return self._problem_hparams.input_modality
+      return "inputs" in self._problem_hparams.input_modality
     else:
       return True
 
