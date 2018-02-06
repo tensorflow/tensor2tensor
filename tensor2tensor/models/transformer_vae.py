@@ -760,7 +760,7 @@ class TransformerAE(t2t_model.T2TModel):
       self._hparams.block_v_size = int(self._hparams.block_v_size)
 
       if self._hparams.reshape_method == "project":
-        tf.logging.info("Using random projections for hierarchical vq-vae")
+        tf.logging.info("Using projections for decomposed vq-vae")
         tf.logging.info("Trainable projections = {}".format(
             self._hparams.trainable_projections))
         self._hparams.projection_tensors = tf.get_variable(
@@ -773,7 +773,7 @@ class TransformerAE(t2t_model.T2TModel):
             trainable=self._hparams.trainable_projections)
         self._hparams.reshape_fn = project_hidden
       elif self._hparams.reshape_method == "slice":
-        tf.logging.info("Using slices for hierarchical vq-vae")
+        tf.logging.info("Using slices for decomposed vq-vae")
         self._hparams.reshape_fn = slice_hidden
       else:
         raise ValueError("Unknown reshape method")
@@ -896,7 +896,7 @@ def transformer_ae_small():
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)
   hparams.add_hparam("num_decode_blocks", 1)
-  # Reshape method for hierarchical vq-vae: slice, project
+  # Reshape method for decomposed vq-vae: slice, project
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
   hparams.add_hparam("unmasked_percentage", 0.1)
