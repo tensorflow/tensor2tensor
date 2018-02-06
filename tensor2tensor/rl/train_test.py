@@ -17,7 +17,7 @@
 
 import tensorflow as tf
 
-from rl import train
+from tensor2tensor.rl import train
 
 
 FLAGS = tf.app.flags.FLAGS

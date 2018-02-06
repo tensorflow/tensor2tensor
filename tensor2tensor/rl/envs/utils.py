@@ -25,8 +25,8 @@ import sys
 import traceback
 import tensorflow as tf
 
-from . import batch_env
-from . import in_graph_batch_env
+from tensor2tensor.rl.envs import batch_env
+from tensor2tensor.rl.envs import in_graph_batch_env
 
 class ExternalProcessEnv(object):
   """Step environment in a separate process for lock free paralellism."""

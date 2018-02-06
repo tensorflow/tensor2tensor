@@ -21,9 +21,9 @@ import functools
 from munch import Munch
 import tensorflow as tf
 
-from rl.collect import define_collect
-from rl.envs.utils import define_batch_env
-from rl.ppo import define_ppo_epoch
+from tensor2tensor.rl.collect import define_collect
+from tensor2tensor.rl.envs.utils import define_batch_env
+from tensor2tensor.rl.ppo import define_ppo_epoch
 
 
 def define_train(policy_lambda, env_lambda, config):
