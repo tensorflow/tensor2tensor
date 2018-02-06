@@ -36,7 +36,7 @@ setup(
         'future',
         'gevent',
         'gunicorn',
-        'gym',
+        'gym<=0.9.5',  # gym in version 0.9.6 has some temporary issues.
         'munch',
         'numpy',
         'requests',
