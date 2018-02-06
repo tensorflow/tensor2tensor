@@ -61,7 +61,7 @@ def train(params):
 
 
 def example_params():
-  import rl.networks
+  from tensor2tensor.rl import networks
   config = {}
   config['init_mean_factor'] = 0.1
   config['init_logstd'] = 0.1
@@ -80,7 +80,7 @@ def example_params():
   config['epochs_num'] = 2000
 
   config = Munch(config)
-  return rl.networks.feed_forward_gaussian_fun, pendulum_lambda, config
+  return networks.feed_forward_gaussian_fun, pendulum_lambda, config
 
 
 def pendulum_lambda():

@@ -17,7 +17,7 @@
 
 import tensorflow as tf
 
-from tensor2tensor.bin.t2t_rl_trainer import train
+from tensor2tensor.bin import t2t_rl_trainer
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -26,9 +26,9 @@ FLAGS = tf.app.flags.FLAGS
 class TrainTest(tf.test.TestCase):
 
   def test_no_crash_pendulum(self):
-    params = train.example_params()
+    params = t2t_rl_trainer.example_params()
     params[2].epochs_num = 10
-    train.train(params)
+    t2t_rl_trainer.train(params)
 
 
 if __name__ == '__main__':
