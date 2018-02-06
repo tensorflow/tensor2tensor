@@ -33,6 +33,10 @@ from __future__ import print_function
 
 import os
 
+# Fathom
+import fathomt2t
+from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
+
 # Dependency imports
 
 from tensor2tensor.bin import t2t_trainer
@@ -179,7 +183,7 @@ def main(_):
   trainer_lib.set_random_seed(FLAGS.random_seed)
 
   # Fathom
-  fathom_t2t_model_setup()
+  checkpoint_path = fathom_t2t_model_setup()
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
@@ -207,6 +211,13 @@ def main(_):
       use_tpu=FLAGS.use_tpu)
 
   decode(estimator, hp, decode_hp)
+
+  # Fathom
+  # This xcom is here so that tasks after decode know the local path to the
+  # downloaded model. Train does this same xcom echo.
+  # Decode, predict, and evaluate code should
+  # converge to use the same fathom_t2t_model_setup.
+  echo_yaml_for_xcom_ingest({'output-dir': os.path.dirname(checkpoint_path)})
 
 
 if __name__ == "__main__":
