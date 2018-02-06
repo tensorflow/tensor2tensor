@@ -36,6 +36,7 @@ import os
 
 # Fathom
 import fathomt2t
+from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 
 # Dependency imports
 
@@ -112,7 +113,7 @@ def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
 
   # Fathom
-  _ = fathom_t2t_model_setup()
+  checkpoint_path = fathom_t2t_model_setup()
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   FLAGS.use_tpu = False  # decoding not supported on TPU
@@ -128,6 +129,13 @@ def main(_):
       use_tpu=False)
 
   decode(estimator, hp, decode_hp)
+
+  # Fathom
+  # This xcom is here so that tasks after decode know the local path to the
+  # downloaded model. Train does this same xcom echo.
+  # Decode, predict, and evaluate code should
+  # converge to use the same fathom_t2t_model_setup.
+  echo_yaml_for_xcom_ingest({'output-dir': os.path.dirname(checkpoint_path)})
 
 
 if __name__ == "__main__":
