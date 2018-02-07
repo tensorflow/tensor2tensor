@@ -160,10 +160,21 @@ class Transformer(t2t_model.T2TModel):
     decoder_input, decoder_self_attention_bias = transformer_prepare_decoder(
         targets, hparams, features=features)
 
-    return self.decode(decoder_input, encoder_output,
-                       encoder_decoder_attention_bias,
-                       decoder_self_attention_bias, hparams,
-                       nonpadding=features_to_nonpadding(features, "targets"))
+    decoder_output = self.decode(
+        decoder_input,
+        encoder_output,
+        encoder_decoder_attention_bias,
+        decoder_self_attention_bias,
+        hparams,
+        nonpadding=features_to_nonpadding(features, "targets"))
+
+    expected_attention_weights = features.get("expected_attention_weights")
+    if expected_attention_weights is not None:
+      attention_loss = common_attention.encoder_decoder_attention_loss(
+          expected_attention_weights, self.attention_weights)
+      return decoder_output, {"attention_loss": attention_loss}
+
+    return decoder_output
 
   def _greedy_infer(self, features, decode_length):
     """Fast version of greedy decoding.
