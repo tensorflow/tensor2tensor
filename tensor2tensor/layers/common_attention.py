@@ -327,6 +327,34 @@ def add_standard_attention_hparams(hparams):
   return hparams
 
 
+def encoder_decoder_attention_loss(expected_attention, actual_attentions):
+  """Computes encdec attention loss between expected and actual attentions.
+
+  Args:
+    expected_attention: Tensor storing the expected encoder-decoder attention
+      weights with shape [batch_size, target_length, input_length].
+    actual_attentions: Dictionary with actual attention weights for different
+      attention types and hidden layers.
+
+  Returns:
+    MSE loss between the actual and expected attention weights.
+  """
+  # For each hidden layer, we have an attention weight tensor with shape
+  # [batch_size, num_heads, target_length, input_length].
+  actual_encdec_attention_weights = [
+      t for layer_key, t in actual_attentions.items()
+      if "encdec_attention" in layer_key
+  ]
+  # Stack all hidden layer attention weight tensors to get a tensor with shape
+  # [num_hidden_layers, batch_size, num_heads, target_length, input_length].
+  actual_attention_weights = tf.stack(actual_encdec_attention_weights)
+  # Reduce mean across all layers (axis=0) and all heads (axis=2) to get a
+  # tensor with shape [batch_size, target_length, input_length].
+  actual_attention_weights = tf.reduce_mean(actual_attention_weights, [0, 2])
+  return tf.losses.mean_squared_error(expected_attention,
+                                      actual_attention_weights)
+
+
 @expert_utils.add_name_scope()
 def get_timing_signal_1d(length,
                          channels,
