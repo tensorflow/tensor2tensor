@@ -854,7 +854,7 @@ class TransformerAE(t2t_model.T2TModel):
       return res, loss
 
   def prepare_features_for_infer(self, features):
-    if not self._hparams.do_ae:
+    if self._hparams.do_mask or not self._hparams.do_ae:
       return features
     beam_batch_size = self._decode_hparams.beam_size
     beam_batch_size *= self._decode_hparams.batch_size
@@ -971,25 +971,6 @@ def transformer_ae_small():
 
 
 @registry.register_hparams
-def transformer_ae_cifar():
-  """Hyperparameters for CIFAR-10 experiments."""
-  hparams = transformer_ae_small()
-  hparams.hidden_size = 256
-  hparams.filter_size = 512
-  hparams.batch_size = 1024 * 4
-  hparams.num_compress_steps = 2
-  hparams.v_size = 1024 * 64
-  hparams.kl_warmup_steps = 150000
-  hparams.startup_steps = 10000
-  hparams.kmeans_lr_factor = 0.0
-  hparams.is_2d = 1
-  hparams.learning_rate_warmup_steps = 8000
-  hparams.learning_rate = 0.2
-  hparams.ffn_layer = "conv_hidden_relu_with_sepconv"
-  return hparams
-
-
-@registry.register_hparams
 def imagetransformer_ae_cifar():
   """Hyperparameters for CIFAR-10 experiments."""
   hparams = transformer_ae_small()
@@ -1065,7 +1046,7 @@ def imagetransformer_ae_cifar():
 def transformer_ae_base():
   """Set of hyperparameters."""
   hparams = transformer_ae_small()
-  hparams.batch_size = 1024
+  hparams.batch_size = 2048
   hparams.hidden_size = 512
   hparams.filter_size = 4096
   hparams.num_hidden_layers = 6
