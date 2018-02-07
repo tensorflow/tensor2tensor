@@ -28,6 +28,7 @@ from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
+from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -566,8 +567,42 @@ def ae_latent_softmax(latents_pred, latents_discrete, hparams):
   return sample, loss
 
 
+def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
+  """Sample from the latent space in the autoencoder."""
+  vocab_size = 2**hparams.z_size
+  beam_size = 1  # TODO(lukaszkaiser): larger beam sizes seem to work bad.
+  inputs = tf.tile(inputs, [beam_size, 1, 1])
+  ed = tf.tile(ed, [beam_size, 1, 1, 1])
+
+  def symbols_to_logits_fn(ids):
+    """Go from ids to logits."""
+    ids = tf.expand_dims(ids, axis=2)  # Ids start with added all-zeros.
+    latents_discrete = tf.pad(ids[:, 1:], [[0, 0], [0, 1], [0, 0]])
+
+    with tf.variable_scope(tf.get_variable_scope(), reuse=False):
+      latents_dense = embed(latents_discrete)
+      latents_pred = decode_transformer(
+          inputs, ed, latents_dense, hparams, "extra")
+      logits = tf.layers.dense(latents_pred, vocab_size, name="extra_logits")
+      current_output_position = common_layers.shape_list(ids)[1] - 1
+      logits = logits[:, current_output_position, :, :]
+    return tf.squeeze(logits, axis=[1])
+
+  initial_ids = tf.zeros([tf.shape(latents_dense_in)[0]], dtype=tf.int32)
+  length = tf.shape(latents_dense_in)[1]
+  ids, _ = beam_search.beam_search(
+      symbols_to_logits_fn, initial_ids, beam_size, length,
+      vocab_size, alpha=0.0, eos_id=-1, stop_early=False)
+
+  res = tf.expand_dims(ids[:, 0, :], axis=2)  # Pick first beam.
+  return res[:, 1:]  # Remove the added all-zeros from ids.
+
+
 def ae_latent_sample(latents_dense, inputs, ed, embed, iters, hparams):
   """Sample from the latent space in the autoencoder."""
+  if hparams.num_decode_blocks < 2:
+    # TODO(lukaszkaiser): beam-search only works in non-blocked mode for now.
+    return ae_latent_sample_beam(latents_dense, inputs, ed, embed, hparams)
   latents_pred = decode_transformer(inputs, ed, latents_dense, hparams, "extra")
   latents_discrete, _ = ae_latent_softmax(latents_pred, None, hparams)
 
@@ -680,7 +715,8 @@ def ae_transformer_internal(inputs,
                                     ema_count, ema_means)
         latents_dense = tf.zeros_like(targets_c[:, :latent_len, :, :])
         if cache is None:
-          cache = ae_latent_sample(latents_dense, inputs, ed, embed, 8, hparams)
+          cache = ae_latent_sample(
+              latents_dense, inputs, ed, embed, 16, hparams)
         latents_dense = embed(cache)
     # Postprocess.
     d = latents_dense
@@ -890,7 +926,7 @@ def transformer_ae_small():
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.997  # Needs tuning, try 0.98 to 0.999.
   hparams.add_hparam("z_size", 14)
-  hparams.add_hparam("noise_dev", 0.0)
+  hparams.add_hparam("noise_dev", 0.5)
   hparams.add_hparam("d_mix", 0.5)
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, vq-vae.
   hparams.add_hparam("bottleneck_kind", "semhash")
