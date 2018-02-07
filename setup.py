@@ -35,6 +35,7 @@ setup(
         'flask',
         'future',
         'gevent',
+        'google-api-python-client',
         'gunicorn',
         'numpy',
         'requests',
