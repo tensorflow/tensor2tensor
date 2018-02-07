@@ -92,9 +92,9 @@ def top_k_softmax(x, k):
   """Calculate softmax(x), select top-k and rescale to sum to 1."""
   x = tf.nn.softmax(x)
   top_x, _ = tf.nn.top_k(x, k=k+1)
-  min_top = tf.reduce_min(top_x, axis=-1, keepdims=True)
+  min_top = tf.reduce_min(top_x, axis=-1, keep_dims=True)
   x = tf.nn.relu((x - min_top) + 1e-12)
-  x /= tf.reduce_sum(x, axis=-1, keepdims=True)
+  x /= tf.reduce_sum(x, axis=-1, keep_dims=True)
   return x, tf.reduce_max(top_x, axis=-1)
 
 
@@ -142,7 +142,7 @@ def dae(x, hparams, name):
     maxvhot = tf.stop_gradient(tf.one_hot(maxvec, hparams.v_size))
     # Add losses that prevent too few being used.
     distrib = tf.reshape(logsm, [-1, hparams.v_size]) * maxvhot
-    d_mean = tf.reduce_mean(distrib, axis=[0], keepdims=True)
+    d_mean = tf.reduce_mean(distrib, axis=[0], keep_dims=True)
     d_variance = tf.reduce_mean(tf.square(distrib - d_mean), axis=[0])
     d_dev = - tf.reduce_mean(d_variance)
     ret = s
@@ -202,8 +202,8 @@ def slice_hidden(x, hparams):
 def nearest(x, means, hparams):
   """Find the nearest means to elements in x."""
   x_reshaped = hparams.reshape_fn(x, hparams)
-  x_norm_sq = tf.reduce_sum(tf.square(x_reshaped), axis=-1, keepdims=True)
-  means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True)
+  x_norm_sq = tf.reduce_sum(tf.square(x_reshaped), axis=-1, keep_dims=True)
+  means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keep_dims=True)
   scalar_prod = tf.matmul(
       tf.transpose(x_reshaped, perm=[1, 0, 2]),
       tf.transpose(means, perm=[0, 2, 1]))
@@ -393,7 +393,7 @@ def bottleneck(x,
             tf.transpose(x_reshaped, perm=[1, 0, 2]))
         updated_ema_means = moving_averages.assign_moving_average(
             ema_means, dw, hparams.decay, zero_debias=False)
-        n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
+        n = tf.reduce_sum(updated_ema_count, axis=-1, keep_dims=True)
         updated_ema_count = ((updated_ema_count + hparams.epsilon) /
                              (n + hparams.v_size * hparams.epsilon) * n)
         updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)

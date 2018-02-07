@@ -26,7 +26,8 @@ import sys
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
-from tensor2tensor.utils import cloud
+from tensor2tensor.utils import cloud_mlengine
+from tensor2tensor.utils import cloud_tpu
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
@@ -80,6 +81,18 @@ flags.DEFINE_string("cloud_tpu_name", "%s-tpu" % os.getenv("USER"),
                     "Name of Cloud TPU instance to use or create.")
 flags.DEFINE_bool("cloud_delete_on_done", False,
                   "Whether to delete the VM and TPU instance when done.")
+
+# Google Cloud ML Engine
+flags.DEFINE_bool("cloud_mlengine", False,
+                  "Whether to launch on Cloud ML Engine.")
+flags.DEFINE_string("cloud_mlengine_master_type", None,
+                    "Machine type for master on Cloud ML Engine. "
+                    "If provided, overrides default selections based on "
+                    "--worker_gpu. User is responsible for ensuring "
+                    "type is valid and that --worker_gpu matches number of "
+                    "GPUs on machine type. See documentation: "
+                    "https://cloud.google.com/ml-engine/reference/rest/v1/"
+                    "projects.jobs#traininginput")
 
 
 def get_problem_name():
@@ -244,7 +257,7 @@ def maybe_cloud_tpu():
                      "be gs:// paths, i.e. on Google Cloud Storage.")
 
   FLAGS.use_tpu = True
-  with cloud.cloud_tpu(
+  with cloud_tpu.cloud_tpu(
       FLAGS.cloud_vm_name,
       FLAGS.cloud_tpu_name,
       delete_on_done=FLAGS.cloud_delete_on_done) as tpu_master:
@@ -257,6 +270,12 @@ def main(_):
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
+
+  if FLAGS.cloud_mlengine:
+    assert not FLAGS.cloud_tpu
+    assert FLAGS.output_dir.startswith("gs://")
+    assert FLAGS.data_dir.startswith("gs://")
+    return cloud_mlengine.launch(dict(FLAGS.__dict__["__flags"]))
 
   if FLAGS.generate_data:
     generate_data()

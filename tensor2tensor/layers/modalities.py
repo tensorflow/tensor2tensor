@@ -461,7 +461,7 @@ class ClassLabelModality(modality.Modality):
     """
     with tf.variable_scope(self.name):
       x = body_output
-      x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+      x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
       res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
 
