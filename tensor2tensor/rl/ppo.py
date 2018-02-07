@@ -30,8 +30,8 @@ def define_ppo_step(observation, action, reward, done, value, old_pdf,
   clipped_ratio = tf.clip_by_value(ratio, 1 - config.clipping_coef,
                                    1 + config.clipping_coef)
 
-  advantage = calculate_discounted_return(
-      reward, value, done, config.gae_gamma, config.gae_lambda) - value
+  advantage = calculate_generalized_advantage_estimator(
+      reward, value, done, config.gae_gamma, config.gae_lambda)
 
   advantage_mean, advantage_variance = tf.nn.moments(advantage, axes=[0, 1],
                                                      keep_dims=True)
@@ -96,3 +96,21 @@ def calculate_discounted_return(reward, value, done, discount, unused_lambda):
       1,
       False), [0])
   return tf.check_numerics(return_, 'return')
+
+
+def calculate_generalized_advantage_estimator(reward, value, done, gae_gamma, gae_lambda):
+  """Generalized advantage estimator"""
+
+  #Below is slight wierdness, we set the last reward to 0.
+  # This makes the adventantage to be 0 in the last timestep
+  reward = tf.concat([reward[:-1,:], value[-1:,:]], axis=0)
+  next_value = tf.concat([value[1:,:], tf.zeros_like(value[-1:, :])], axis=0)
+  next_not_done = 1 - tf.cast(tf.concat([done[1:, :], tf.zeros_like(done[-1:, :])], axis=0), tf.float32)
+  delta = reward + gae_gamma * next_value * next_not_done - value
+
+  return_ = tf.reverse(tf.scan(
+      lambda agg, cur: cur[0] + cur[1] * gae_gamma * gae_lambda * agg,
+      [tf.reverse(delta, [0]), tf.reverse(next_not_done, [0])],
+      tf.zeros_like(delta[0, :]),
+      1,  False),  [0])
+  return tf.check_numerics(tf.stop_gradient(return_), 'return')
