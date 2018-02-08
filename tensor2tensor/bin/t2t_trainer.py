@@ -264,8 +264,8 @@ def _pick_optimal_model() -> None:
     stopping before it did.
     """
 
-    if FLAGS.debug_mode:
-        return
+    #if FLAGS.debug_mode:
+        #return
 
     checkpoint_state = tf.train.get_checkpoint_state(FLAGS.output_dir)
     all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
@@ -303,8 +303,8 @@ def _pick_optimal_model() -> None:
 
     # hack FIXME TODO XXX
     # We are about to move the best model into an export folder
-    dirname, basename = os.path.split(checkpoint_path)
-    checkpoint_path = basename
+    #dirname, basename = os.path.split(checkpoint_path)
+    #checkpoint_path = basename
 
     print('Early stopping chose checkpoint', checkpoint_path)
 
