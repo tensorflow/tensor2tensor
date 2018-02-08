@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -274,7 +274,7 @@ def save_metadata(hparams):
   # Save hparams as hparams.json
   hparams_fname = os.path.join(output_dir, "hparams.json")
   with tf.gfile.Open(hparams_fname, "w") as f:
-    f.write(hparams.to_json(indent=0, sort_keys=True))
+    f.write(hparams.to_json())
 
 
 def execute_schedule(exp):

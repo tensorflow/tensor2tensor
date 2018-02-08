@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,27 +18,26 @@
 import tensorflow as tf
 
 
-def define_collect(policy_factory, batch_env, hparams):
+def define_collect(policy_factory, batch_env, config):
   """Collect trajectories."""
-  memory_shape = [hparams.epoch_length] + [batch_env.observ.shape.as_list()[0]]
+  memory_shape = [config.epoch_length] + [batch_env.observ.shape.as_list()[0]]
   memories_shapes_and_types = [
       # observation
       (memory_shape + [batch_env.observ.shape.as_list()[1]], tf.float32),
       (memory_shape, tf.float32),      # reward
       (memory_shape, tf.bool),         # done
-      # action
-      (memory_shape + batch_env.action_shape, batch_env.action_dtype),
+      (memory_shape + batch_env.action_shape, tf.float32),  # action
       (memory_shape, tf.float32),      # pdf
       (memory_shape, tf.float32),      # value function
   ]
   memory = [tf.Variable(tf.zeros(shape, dtype), trainable=False)
             for (shape, dtype) in memories_shapes_and_types]
   cumulative_rewards = tf.Variable(
-      tf.zeros(hparams.num_agents, tf.float32), trainable=False)
+      tf.zeros(config.num_agents, tf.float32), trainable=False)
 
   should_reset_var = tf.Variable(True, trainable=False)
   reset_op = tf.cond(should_reset_var,
-                     lambda: batch_env.reset(tf.range(hparams.num_agents)),
+                     lambda: batch_env.reset(tf.range(config.num_agents)),
                      lambda: 0.0)
   with tf.control_dependencies([reset_op]):
     reset_once_op = tf.assign(should_reset_var, False)
@@ -59,7 +58,7 @@ def define_collect(policy_factory, batch_env, hparams):
       pdf = policy.prob(action)[0]
       with tf.control_dependencies(simulate_output):
         reward, done = simulate_output
-        done = tf.reshape(done, (hparams.num_agents,))
+        done = tf.reshape(done, (config.num_agents,))
         to_save = [obs_copy, reward, done, action[0, ...], pdf,
                    actor_critic.value[0]]
         save_ops = [tf.scatter_update(memory_slot, index, value)
@@ -83,7 +82,7 @@ def define_collect(policy_factory, batch_env, hparams):
 
     init = [tf.constant(0), tf.constant(0.0), tf.constant(0)]
     index, scores_sum, scores_num = tf.while_loop(
-        lambda c, _1, _2: c < hparams.epoch_length,
+        lambda c, _1, _2: c < config.epoch_length,
         step,
         init,
         parallel_iterations=1,
@@ -92,9 +91,5 @@ def define_collect(policy_factory, batch_env, hparams):
                        lambda: scores_sum / tf.cast(scores_num, tf.float32),
                        lambda: 0.)
   printing = tf.Print(0, [mean_score, scores_sum, scores_num], "mean_score: ")
-  with tf.control_dependencies([index, printing]):
-    memory = [tf.identity(mem) for mem in memory]
-    summaries = tf.summary.merge(
-        [tf.summary.scalar("mean_score_this_iter", mean_score),
-         tf.summary.scalar("episodes_finished_this_iter", scores_num)])
-    return memory, summaries
+  with tf.control_dependencies([printing]):
+    return tf.identity(index), memory

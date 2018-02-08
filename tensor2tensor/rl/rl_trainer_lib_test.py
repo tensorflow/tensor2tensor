@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,22 +17,17 @@
 
 # Dependency imports
 
-import tensorflow as tf
-
-from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.utils import trainer_lib
+
+import tensorflow as tf
 
 
 class TrainTest(tf.test.TestCase):
 
   def test_no_crash_pendulum(self):
-    hparams = trainer_lib.create_hparams("pendulum", "epochs_num=10")
-    rl_trainer_lib.train(hparams)
-
-  def test_no_crash_cartpole(self):
-    hparams = trainer_lib.create_hparams("cartpole", "epochs_num=10")
-    rl_trainer_lib.train(hparams)
+    params = rl_trainer_lib.example_params()
+    params[2].epochs_num = 10
+    rl_trainer_lib.train(params)
 
 
 if __name__ == '__main__':
