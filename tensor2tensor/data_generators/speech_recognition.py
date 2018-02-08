@@ -34,7 +34,6 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
@@ -242,7 +241,7 @@ class SpeechRecognitionProblem(problem.Problem):
     p = model_hparams
     # Filterbank extraction
     # Filterbank extraction in bottom instead of preprocess_example is faster.
-    p.add_hparam("audio_preproc_in_bottom", True)
+    p.add_hparam("audio_preproc_in_bottom", False)
     # The trainer seems to reserve memory for all members of the input dict
     p.add_hparam("audio_keep_example_waveforms", False)
     p.add_hparam("audio_sample_rate", 16000)
@@ -341,7 +340,6 @@ class SpeechRecognitionModality(modality.Modality):
       float32 tensor with shape [batch_size, shorter_len, 1, hidden_size]
     """
     p = self._model_hparams
-    training = p.mode == tf.estimator.ModeKeys.TRAIN
 
     num_mel_bins = p.audio_num_mel_bins
     num_channels = 3 if p.audio_add_delta_deltas else 1
@@ -376,18 +374,19 @@ class SpeechRecognitionModality(modality.Modality):
       x.set_shape([None, None, 1, num_mel_bins * num_channels])
 
       xshape = common_layers.shape_list(x)
-      x = tf.reshape(x, [-1, 1, num_mel_bins * num_channels])
 
-      padding_mask = common_attention.embedding_to_padding(x)
-      pad_remover = expert_utils.PadRemover(padding_mask)
-
-      x = pad_remover.remove(x)
+      nonpadding_mask = 1. - common_attention.embedding_to_padding(x)
+      num_of_nonpadding_elements = tf.reduce_sum(
+          nonpadding_mask) * num_mel_bins * num_channels
 
       # This replaces CMVN estimation on data
-      x = tf.layers.batch_normalization(
-          x, axis=2, center=False, scale=False, training=training)
-
-      x = pad_remover.restore(x)
+      mean = tf.reduce_sum(
+          x, axis=[1, 2], keepdims=True) / num_of_nonpadding_elements
+      variance = (num_of_nonpadding_elements * mean**2. -
+                  2. * mean * tf.reduce_sum(x, axis=[1, 2], keepdims=True) +
+                  tf.reduce_sum(x**2, axis=[1, 2], keepdims=True)
+                 ) / num_of_nonpadding_elements
+      x = (x - mean) / variance * tf.expand_dims(nonpadding_mask, -1)
 
       # restore batch_size x time x frequency x channel layout
       x = tf.reshape(x, [xshape[0], xshape[1], num_mel_bins, num_channels])
