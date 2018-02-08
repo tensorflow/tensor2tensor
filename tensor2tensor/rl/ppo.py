@@ -75,12 +75,17 @@ def define_ppo_epoch(memory, policy_factory, config):
       [0., 0., 0.],
       parallel_iterations=1)
 
-  print_losses = tf.group(
-      tf.Print(0, [tf.reduce_mean(policy_loss)], 'policy loss: '),
-      tf.Print(0, [tf.reduce_mean(value_loss)], 'value loss: '),
-      tf.Print(0, [tf.reduce_mean(entropy_loss)], 'entropy loss: '))
+  summaries = [tf.summary.scalar("policy loss", tf.reduce_mean(policy_loss)),
+               tf.summary.scalar("value loss", tf.reduce_mean(value_loss)),
+               tf.summary.scalar("entropy loss", tf.reduce_mean(entropy_loss))]
 
-  return print_losses
+  losses_summary = tf.summary.merge(summaries)
+
+  losses_summary = tf.Print(losses_summary, [tf.reduce_mean(policy_loss)], 'policy loss: ')
+  losses_summary = tf.Print(losses_summary, [tf.reduce_mean(value_loss)], 'value loss: ')
+  losses_summary = tf.Print(losses_summary, [tf.reduce_mean(entropy_loss)], 'entropy loss: ')
+
+  return losses_summary
 
 
 def calculate_discounted_return(reward, value, done, discount, unused_lambda):

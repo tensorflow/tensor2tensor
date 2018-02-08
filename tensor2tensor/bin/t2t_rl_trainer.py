@@ -38,12 +38,11 @@ def define_train(policy_lambda, env_lambda, config):
       functools.partial(policy_lambda, observation_space,
                         action_space, config))
 
-  (collect_op, memory) = define_collect(policy_factory, batch_env, config)
+  memory, collect_summary = define_collect(policy_factory, batch_env, config)
+  ppo_summary = define_ppo_epoch(memory, policy_factory, config)
+  summary = tf.summary.merge([collect_summary, ppo_summary])
 
-  with tf.control_dependencies([collect_op]):
-    ppo_op = define_ppo_epoch(memory, policy_factory, config)
-
-  return ppo_op
+  return summary
 
 
 def main():
@@ -52,12 +51,16 @@ def main():
 
 def train(params):
   policy_lambda, env_lambda, config = params
-  ppo_op = define_train(policy_lambda, env_lambda, config)
+  summary_op = define_train(policy_lambda, env_lambda, config)
+
+  summary_writer = tf.summary.FileWriter(
+      "/tmp", graph=tf.get_default_graph(), flush_secs=60)
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
-    for _ in range(config.epochs_num):
-      sess.run(ppo_op)
+    for ei in range(config.epochs_num):
+      summary = sess.run(summary_op)
+      summary_writer.add_summary(summary, ei)
 
 
 def example_params():
