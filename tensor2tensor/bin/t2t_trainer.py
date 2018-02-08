@@ -295,7 +295,7 @@ def _pick_optimal_model() -> None:
     # stopping flags are phrased in terms of step number, not how many
     # times we've run eval.
     best_step_index = [step <= thresh for step in steps].index(False) - 1
-    assert best_step_index >= 0, 'Early stopping stopped before it should have'
+    #assert best_step_index >= 0, 'Early stopping stopped before it should have'
 
 
     # this is the checkpoint we want
