@@ -90,5 +90,6 @@ def define_collect(policy_factory, batch_env, config):
                        lambda: scores_sum / tf.cast(scores_num, tf.float32),
                        lambda: 0.)
   printing = tf.Print(0, [mean_score, scores_sum, scores_num], "mean_score: ")
-  with tf.control_dependencies([printing]):
-    return tf.identity(index), memory
+  with tf.control_dependencies([index, printing, mean_score]):
+    memory = [tf.identity(mem) for mem in memory]
+    return memory, tf.summary.scalar("mean_score", mean_score)
