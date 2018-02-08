@@ -37,6 +37,7 @@ setup(
         'gevent',
         'google-api-python-client',
         'gunicorn',
+        'gym<=0.9.5',  # gym in version 0.9.6 has some temporary issues.
         'numpy',
         'requests',
         'scipy',
