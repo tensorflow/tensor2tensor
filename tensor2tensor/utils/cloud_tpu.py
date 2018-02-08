@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Launch on GCP."""
+"""Launch on TPU on GCP."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -191,6 +191,9 @@ class Gcloud(object):
   gcloud compute ssh {name} -- -N
   """
 
+  DEFAULT_PROJECT = "gcloud config get-value project"
+  DEFAULT_REGION = "gcloud config get-value compute/region"
+
 
 @contextlib.contextmanager
 def shell_background(cmd_, **kwargs):
@@ -222,6 +225,14 @@ def shell_run(cmd_, **kwargs):
 
 def format_cmd(cmd_, **kwargs):
   return cmd_.format(**kwargs).strip().split()
+
+
+def default_region():
+  return shell_output(Gcloud.DEFAULT_REGION).strip()
+
+
+def default_project():
+  return shell_output(Gcloud.DEFAULT_PROJECT).strip()
 
 
 def create_vm(vm_name):

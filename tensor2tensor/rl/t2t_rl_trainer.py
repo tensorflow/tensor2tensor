@@ -13,3 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Training of RL agent with PPO algorithm."""
+
+# Dependency imports
+
+from tensor2tensor.rl import rl_trainer_lib
+
+import tensorflow as tf
+
+
+def main(_):
+  rl_trainer_lib.train(rl_trainer_lib.example_params())
+
+
+if __name__ == "__main__":
+  tf.app.run()

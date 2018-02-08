@@ -124,7 +124,7 @@ class T2TModel(base.Layer):
   @property
   def has_input(self):
     if self._problem_hparams:
-      return self._problem_hparams.input_modality
+      return "inputs" in self._problem_hparams.input_modality
     else:
       return True
 
@@ -296,7 +296,7 @@ class T2TModel(base.Layer):
     """Return a training op minimizing loss."""
     tf.logging.info("Base learning rate: %f", self.hparams.learning_rate)
     lr = self.hparams.learning_rate
-    decay_rate = optimize.learning_rate_decay_with_warmup(self.hparams)
+    decay_rate = optimize.learning_rate_schedule(self.hparams)
     lr *= decay_rate
     if self.hparams.learning_rate_minimum:
       lr_min = float(self.hparams.learning_rate_minimum)

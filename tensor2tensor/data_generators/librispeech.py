@@ -66,8 +66,7 @@ def _collect_data(directory, input_ext, transcription_ext):
       transcript_path = os.path.join(root, transcript)
       with open(transcript_path, "r") as transcript_file:
         for transcript_line in transcript_file:
-          line_contents = transcript_line.split(" ", 1)
-          assert len(line_contents) == 2
+          line_contents = transcript_line.strip().split(" ", 1)
           media_base, label = line_contents
           key = os.path.join(root, media_base)
           assert key not in data_files

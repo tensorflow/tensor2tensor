@@ -168,10 +168,6 @@ def learning_rate_decay(hparams, warmup_steps=0):
                                    hparams.learning_rate_boundaries,
                                    hparams.learning_rate_multiples)
 
-  if scheme == "noam":
-    return 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
-        (global_step + 1) * warmup_steps**-1.5, (global_step + 1)**-0.5)
-
   if scheme == "cosine":
     cycle_steps = hparams.learning_rate_cosine_cycle_steps
     cycle_position = global_step % (2 * cycle_steps)
@@ -222,6 +218,23 @@ def learning_rate_decay_with_warmup(hparams, num_worker_replicas=1):
 
   global_step = tf.train.get_or_create_global_step()
   return tf.where(global_step < warmup_steps, warmup, decay)
+
+
+def learning_rate_schedule(hparams, num_worker_replicas=1):
+  """Learning rate schedule based on hparams."""
+  schedule = hparams.learning_rate_schedule
+  warmup_steps = tf.to_float(hparams.learning_rate_warmup_steps)
+  global_step = tf.to_float(tf.train.get_or_create_global_step())
+  if hparams.learning_rate_decay_scheme == "noam":
+    # backwards compatiblity with previous behavior
+    schedule = "linear_warmup_rsqrt_decay"
+  if schedule == "warmup_and_decay":
+    return learning_rate_decay_with_warmup(hparams, num_worker_replicas)
+  elif schedule == "linear_warmup_rsqrt_decay":
+    return 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
+        (global_step + 1) * warmup_steps**-1.5, (global_step + 1)**-0.5)
+  else:
+    raise ValueError("Unrecognized learning rate schedule: %s" % schedule)
 
 
 def weight_decay_and_noise(loss, hparams, learning_rate, var_list=None):
