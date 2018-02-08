@@ -25,6 +25,11 @@ from tensor2tensor.rl.collect import define_collect
 from tensor2tensor.rl.envs.utils import define_batch_env
 from tensor2tensor.rl.ppo import define_ppo_epoch
 
+flags = tf.flags
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string("event_dir", "/tmp",
+                    "Where to store the event file.")
 
 def define_train(policy_lambda, env_lambda, config):
   env = env_lambda()
@@ -54,13 +59,13 @@ def train(params):
   summary_op = define_train(policy_lambda, env_lambda, config)
 
   summary_writer = tf.summary.FileWriter(
-      "/tmp", graph=tf.get_default_graph(), flush_secs=60)
+      FLAGS.event_dir, graph=tf.get_default_graph(), flush_secs=60)
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
-    for ei in range(config.epochs_num):
+    for epoch_index in range(config.epochs_num):
       summary = sess.run(summary_op)
-      summary_writer.add_summary(summary, ei)
+      summary_writer.add_summary(summary, epoch_index)
 
 
 def example_params():
