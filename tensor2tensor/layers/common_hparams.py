@@ -63,6 +63,11 @@ def basic_params1():
       optimizer_momentum_nesterov=False,
       weight_decay=1e-6,
       weight_noise=0.0,
+      learning_rate_schedule="warmup_and_decay",
+      # If learning_rate_schedule=="warmup_and_decay", then this specifies
+      # the decay part of the schedule.
+      # The warmup is always exponential.
+      # TODO(noam): add a hyperparameter to control the warmup.
       learning_rate_decay_scheme="none",
       # decay_steps and decay_staircase for learning_rate_decay_scheme=="exp"
       learning_rate_decay_steps=5000,
