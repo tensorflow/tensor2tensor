@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,11 +18,13 @@
 Based on: https://arxiv.org/abs/1707.06347
 """
 
+
 import tensorflow as tf
+
 
 def define_ppo_step(observation, action, reward, done, value, old_pdf,
                     policy_factory, config):
-
+  """A step of PPO."""
   new_policy_dist, new_value, _ = policy_factory(observation)
   new_pdf = new_policy_dist.prob(action)
 
@@ -58,6 +60,7 @@ def define_ppo_step(observation, action, reward, done, value, old_pdf,
 
 
 def define_ppo_epoch(memory, policy_factory, config):
+  """An epoch of PPO."""
   observation, reward, done, action, old_pdf, value = memory
 
   # This is to avoid propagating gradients though simulation of simulation
@@ -69,8 +72,9 @@ def define_ppo_epoch(memory, policy_factory, config):
   old_pdf = tf.stop_gradient(old_pdf)
 
   policy_loss, value_loss, entropy_loss = tf.scan(
-      lambda _1, _2: define_ppo_step(observation, action, reward, done, value,
-                                     old_pdf, policy_factory, config),
+      lambda _1, _2: define_ppo_step(  # pylint: disable=g-long-lambda
+          observation, action, reward, done, value,
+          old_pdf, policy_factory, config),
       tf.range(config.optimization_epochs),
       [0., 0., 0.],
       parallel_iterations=1)

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,36 +18,38 @@
 from __future__ import absolute_import
 
 import functools
-from munch import Munch
-import tensorflow as tf
 
-from tensor2tensor.rl.collect import define_collect
-from tensor2tensor.rl.envs.utils import define_batch_env
-from tensor2tensor.rl.ppo import define_ppo_epoch
+# Dependency imports
+
+import gym
+from tensor2tensor.rl import collect
+from tensor2tensor.rl import networks
+from tensor2tensor.rl import ppo
+from tensor2tensor.rl.envs import utils
+
+import tensorflow as tf
 
 
 def define_train(policy_lambda, env_lambda, config):
+  """Define the training setup."""
   env = env_lambda()
   action_space = env.action_space
   observation_space = env.observation_space
 
-  batch_env = define_batch_env(env_lambda, config["num_agents"])
+  batch_env = utils.define_batch_env(env_lambda, config.num_agents)
 
   policy_factory = tf.make_template(
-      'network',
+      "network",
       functools.partial(policy_lambda, observation_space,
                         action_space, config))
 
-  (collect_op, memory) = define_collect(policy_factory, batch_env, config)
+  (collect_op, memory) = collect.define_collect(
+      policy_factory, batch_env, config)
 
   with tf.control_dependencies([collect_op]):
-    ppo_op = define_ppo_epoch(memory, policy_factory, config)
+    ppo_op = ppo.define_ppo_epoch(memory, policy_factory, config)
 
   return ppo_op
-
-
-def main():
-  train(example_params())
 
 
 def train(params):
@@ -61,32 +63,25 @@ def train(params):
 
 
 def example_params():
-  from tensor2tensor.rl import networks
-  config = {}
-  config['init_mean_factor'] = 0.1
-  config['init_logstd'] = 0.1
-  config['policy_layers'] = 100, 100
-  config['value_layers'] = 100, 100
-  config['num_agents'] = 30
-  config['clipping_coef'] = 0.2
-  config['gae_gamma'] = 0.99
-  config['gae_lambda'] = 0.95
-  config['entropy_loss_coef'] = 0.01
-  config['value_loss_coef'] = 1
-  config['optimizer'] = tf.train.AdamOptimizer
-  config['learning_rate'] = 1e-4
-  config['optimization_epochs'] = 15
-  config['epoch_length'] = 200
-  config['epochs_num'] = 2000
-
-  config = Munch(config)
+  """Example hyperparameters."""
+  config = tf.contrib.training.HParams(
+      init_mean_factor=0.1,
+      init_logstd=0.1,
+      policy_layers=(100, 100),
+      value_layers=(100, 100),
+      num_agents=30,
+      clipping_coef=0.2,
+      gae_gamma=0.99,
+      gae_lambda=0.95,
+      entropy_loss_coef=0.01,
+      value_loss_coef=1,
+      optimizer=tf.train.AdamOptimizer,
+      learning_rate=1e-4,
+      optimization_epochs=15,
+      epoch_length=200,
+      epochs_num=2000)
   return networks.feed_forward_gaussian_fun, pendulum_lambda, config
 
 
 def pendulum_lambda():
-  import gym
   return gym.make("Pendulum-v0")
-
-
-if __name__ == '__main__':
-  main()

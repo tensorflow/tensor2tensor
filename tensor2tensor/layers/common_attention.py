@@ -192,9 +192,9 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
       attention_type="local_mask_right",
   )
 
-  # === Memory-compressed multihead self attention layer ===
+  # === Masked memory-compressed multihead self attention layer ===
   # Only works for self attention. Always mask the future.
-  compressed_attention_fn = register_layer(
+  compressed_attention_masked_fn = register_layer(
       multihead_self_attention_reduced,
       default_kwargs=dict(
           factor=hparams.attention_red_factor,
@@ -207,6 +207,13 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
               dropout_rate=hparams.attention_dropout,
           ),
       ),
+  )
+
+  # === Unmasked memory-compressed multihead self attention layer ===
+  # Only works for self attention. Never mask the future. Bias never added
+  compressed_attention_fn = partial(
+      compressed_attention_masked_fn,
+      add_mask=False,
   )
 
   # Feed-forwards layers:
@@ -259,14 +266,17 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
   # Define all available layers
 
   layers = dict(
+      # Attention layers:
       a=multihead_attention_fn,  # Multihead full attention
       loc=local_attention_fn,  # Local attention
-      locm=local_attention_masked_fn,  # Local masked attention
+      locm=local_attention_masked_fn,  # Local attention (masked)
       red=compressed_attention_fn,  # Memory-compressed attention
+      redm=compressed_attention_masked_fn,  # Memory-compressed att (masked)
       mem=memeff_attention_fn,  # Memory efficient
-      fc=conv_hidden_relu,
-      sep=sep_conv_relu,  # Fully connected
-      sepm=sep_conv_relu_masked,  # masked separable convolution
+      # Feed-forward layers:
+      fc=conv_hidden_relu,  # Fully connected
+      sep=sep_conv_relu,  # Separable convolution (unmasked)
+      sepm=sep_conv_relu_masked,  # Separable convolution (masked)
       moe=distributed_moe,  # Mixture of expert layer
   )
   return layers
@@ -315,6 +325,34 @@ def add_standard_attention_hparams(hparams):
   hparams.add_hparam("relu_dropout", 0.0)
 
   return hparams
+
+
+def encoder_decoder_attention_loss(expected_attention, actual_attentions):
+  """Computes encdec attention loss between expected and actual attentions.
+
+  Args:
+    expected_attention: Tensor storing the expected encoder-decoder attention
+      weights with shape [batch_size, target_length, input_length].
+    actual_attentions: Dictionary with actual attention weights for different
+      attention types and hidden layers.
+
+  Returns:
+    MSE loss between the actual and expected attention weights.
+  """
+  # For each hidden layer, we have an attention weight tensor with shape
+  # [batch_size, num_heads, target_length, input_length].
+  actual_encdec_attention_weights = [
+      t for layer_key, t in actual_attentions.items()
+      if "encdec_attention" in layer_key
+  ]
+  # Stack all hidden layer attention weight tensors to get a tensor with shape
+  # [num_hidden_layers, batch_size, num_heads, target_length, input_length].
+  actual_attention_weights = tf.stack(actual_encdec_attention_weights)
+  # Reduce mean across all layers (axis=0) and all heads (axis=2) to get a
+  # tensor with shape [batch_size, target_length, input_length].
+  actual_attention_weights = tf.reduce_mean(actual_attention_weights, [0, 2])
+  return tf.losses.mean_squared_error(expected_attention,
+                                      actual_attention_weights)
 
 
 @expert_utils.add_name_scope()
@@ -3392,7 +3430,7 @@ def local_reduction_attention(x, block_length, multihead_params):
             block_length,
             block_length,  # Restore the block length dimension
         ])
-    weights = tf.reduce_sum(weights, axis=3, keepdims=True)  # Compress block
+    weights = tf.reduce_sum(weights, axis=3, keep_dims=True)  # Compress block
     v_out = tf.matmul(weights, v)  # [1, block_length] @ [block_length, depth]
     v_out = tf.squeeze(v_out, axis=3)
     return v_out
@@ -3415,6 +3453,7 @@ def multihead_self_attention_reduced(
     multihead_params=None,
     nonlinearity="none",
     reduction_type="conv",
+    add_mask=True,
 ):
   """Reduce the length dimension by compressing with conv.
 
@@ -3426,6 +3465,7 @@ def multihead_self_attention_reduced(
     multihead_params (dict): parameters for multihead attention
     nonlinearity (str): Add some non-linearity after the memory block
     reduction_type (str): type of compression
+    add_mask (bool): If True, add the bias to prevent attention to the future
 
   Returns:
     (tf.Tensor): float32 of shape [batch, length, depth]
@@ -3475,18 +3515,21 @@ def multihead_self_attention_reduced(
     # [1, length_k] or [length_q, 1]
     return length_coordinates
 
-  bias = tf.to_float(
-      tf.greater(
-          # Because we add the first elem to the memory block and it can be
-          # attended by anyone,we don't need to add +1 anymore to prevent self
-          # attention Use * factor to make sure the last tokens  of a block
-          # cannot attend the block
-          construct_bias_vectors(memory_x, 0) * factor,
-          # +epsilon to avoid float equality
-          construct_bias_vectors(x, 1) + 1e-3,
-      )) * -1e9
-  bias = tf.expand_dims(bias, axis=0)
-  bias = tf.expand_dims(bias, axis=0)  # [1, 1, length_k, length_q]
+  if add_mask:  # Create mask to prevent attention to the future
+    bias = tf.to_float(
+        tf.greater(
+            # Because we add the first elem to the memory block and it can be
+            # attended by anyone,we don't need to add +1 anymore to prevent self
+            # attention Use * factor to make sure the last tokens  of a block
+            # cannot attend the block
+            construct_bias_vectors(memory_x, 0) * factor,
+            # +epsilon to avoid float equality
+            construct_bias_vectors(x, 1) + 1e-3,
+        )) * -1e9
+    bias = tf.expand_dims(bias, axis=0)
+    bias = tf.expand_dims(bias, axis=0)  # [1, 1, length_k, length_q]
+  else:
+    bias = None
 
   return multihead_attention(
       query_antecedent=x,

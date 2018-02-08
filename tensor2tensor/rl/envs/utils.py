@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,20 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Utilities for using batched environments."""
+
 # The code was based on Danijar Hafner's code from tf.agents:
 # https://github.com/tensorflow/agents/blob/master/agents/tools/wrappers.py
 # https://github.com/tensorflow/agents/blob/master/agents/scripts/utility.py
-
-"""Utilities for using batched environments."""
 
 import atexit
 import multiprocessing
 import sys
 import traceback
-import tensorflow as tf
+
+# Dependency imports
 
 from tensor2tensor.rl.envs import batch_env
 from tensor2tensor.rl.envs import in_graph_batch_env
+import tensorflow as tf
+
 
 class ExternalProcessEnv(object):
   """Step environment in a separate process for lock free paralellism."""
@@ -201,6 +204,7 @@ class ExternalProcessEnv(object):
       tf.logging.error('Error in environment process: {}'.format(stacktrace))
       conn.send((self._EXCEPTION, stacktrace))
     conn.close()
+
 
 def define_batch_env(constructor, num_agents, env_processes=True):
   """Create environments and apply all desired wrappers.

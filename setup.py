@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.4.3',
+    version='1.4.4',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -35,9 +35,9 @@ setup(
         'flask',
         'future',
         'gevent',
+        'google-api-python-client',
         'gunicorn',
         'gym<=0.9.5',  # gym in version 0.9.6 has some temporary issues.
-        'munch',
         'numpy',
         'requests',
         'scipy',

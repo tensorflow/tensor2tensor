@@ -26,7 +26,8 @@ import sys
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
-from tensor2tensor.utils import cloud
+from tensor2tensor.utils import cloud_mlengine
+from tensor2tensor.utils import cloud_tpu
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
@@ -81,11 +82,66 @@ flags.DEFINE_string("cloud_tpu_name", "%s-tpu" % os.getenv("USER"),
 flags.DEFINE_bool("cloud_delete_on_done", False,
                   "Whether to delete the VM and TPU instance when done.")
 
+# Google Cloud ML Engine
+flags.DEFINE_bool("cloud_mlengine", False,
+                  "Whether to launch on Cloud ML Engine.")
+flags.DEFINE_string("cloud_mlengine_master_type", None,
+                    "Machine type for master on Cloud ML Engine. "
+                    "If provided, overrides default selections based on "
+                    "--worker_gpu. User is responsible for ensuring "
+                    "type is valid and that --worker_gpu matches number of "
+                    "GPUs on machine type. See documentation: "
+                    "https://cloud.google.com/ml-engine/reference/rest/v1/"
+                    "projects.jobs#traininginput")
+# Hyperparameter tuning on Cloud ML Engine
+# Pass an --hparams_range to enable
+flags.DEFINE_string("autotune_objective", None,
+                    "TensorBoard metric name to optimize.")
+flags.DEFINE_bool("autotune_maximize", True,
+                  "Whether to maximize (vs. minimize) autotune_objective.")
+flags.DEFINE_integer("autotune_max_trials", 10,
+                     "Maximum number of tuning experiments to run.")
+flags.DEFINE_integer("autotune_parallel_trials", 1,
+                     "How many trials to run in parallel (will spin up this "
+                     "many jobs.")
+# Note than in open-source TensorFlow, the dash gets converted to an underscore,
+# so access is FLAGS.job_dir.
+flags.DEFINE_string("job-dir", None,
+                    "DO NOT USE. Exists only for Cloud ML Engine to pass in "
+                    "during hyperparameter tuning. Overrides --output_dir.")
+
 
 def get_problem_name():
   problems = FLAGS.problems.split("-")
   assert len(problems) == 1
   return problems[0]
+
+
+def set_hparams_from_args(args):
+  """Set hparams overrides from unparsed args list."""
+  if not args:
+    return
+
+  hp_prefix = "--hp_"
+  tf.logging.info("Found unparsed command-line arguments. Checking if any "
+                  "start with %s and interpreting those as hparams "
+                  "settings.", hp_prefix)
+
+  pairs = []
+  i = 0
+  while i < len(args):
+    arg = args[i]
+    if arg.startswith(hp_prefix):
+      pairs.append((arg.lstrip(hp_prefix), args[i+1]))
+      i += 2
+    else:
+      tf.logging.warn("Found unknown flag: %s", arg)
+      i += 1
+
+  as_hparams = ",".join(["%s=%s" % (key, val) for key, val in pairs])
+  if FLAGS.hparams:
+    as_hparams = "," + as_hparams
+  FLAGS.hparams += as_hparams
 
 
 def create_hparams():
@@ -244,7 +300,7 @@ def maybe_cloud_tpu():
                      "be gs:// paths, i.e. on Google Cloud Storage.")
 
   FLAGS.use_tpu = True
-  with cloud.cloud_tpu(
+  with cloud_tpu.cloud_tpu(
       FLAGS.cloud_vm_name,
       FLAGS.cloud_tpu_name,
       delete_on_done=FLAGS.cloud_delete_on_done) as tpu_master:
@@ -252,15 +308,23 @@ def maybe_cloud_tpu():
     yield
 
 
-def main(_):
+def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
 
+  if FLAGS.cloud_mlengine:
+    return cloud_mlengine.launch()
+
   if FLAGS.generate_data:
     generate_data()
 
+  if hasattr(FLAGS, "job_dir") and FLAGS.job_dir:
+    FLAGS.output_dir = FLAGS.job_dir
+
+  if argv:
+    set_hparams_from_args(argv[1:])
   hparams = create_hparams()
   if is_chief():
     save_metadata(hparams)
