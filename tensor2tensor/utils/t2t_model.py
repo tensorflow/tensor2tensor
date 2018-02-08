@@ -296,7 +296,7 @@ class T2TModel(base.Layer):
     """Return a training op minimizing loss."""
     tf.logging.info("Base learning rate: %f", self.hparams.learning_rate)
     lr = self.hparams.learning_rate
-    decay_rate = optimize.learning_rate_decay_with_warmup(self.hparams)
+    decay_rate = optimize.learning_rate_schedule(self.hparams)
     lr *= decay_rate
     if self.hparams.learning_rate_minimum:
       lr_min = float(self.hparams.learning_rate_minimum)
