@@ -22,17 +22,14 @@ import tempfile
 
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
-from tensor2tensor.layers import common_hparams
 from tensor2tensor.utils import cloud_tpu as cloud
-from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir as usr_dir_lib
 import tensorflow as tf
-
-FLAGS = tf.flags.FLAGS
 
 CONSOLE_URL = 'https://console.cloud.google.com/mlengine/jobs/'
 
 # TODO(rsepassi):
+# * Support --autotune
 # * Add documentation clould_mlengine.md
 # * Enable multi-machine sync/async training
 
@@ -47,17 +44,15 @@ setup(
 """
 
 
-def flags_as_args():
-  """Convert FLAGS to list of args suitable for passing on cmd line."""
-  args_dict = dict(FLAGS.__dict__['__flags'])
+def args_dict_as_args(args_dict):
+  """Convert dict to list of args suitable for passing on cmd line."""
+  args_dict = dict(args_dict)
   del args_dict['cloud_mlengine']
   # Configured later
   del args_dict['t2t_usr_dir']
   args = []
   for name, val in args_dict.items():
     if val is None:
-      continue
-    if name.startswith('autotune'):
       continue
     args.extend(['--%s' % name, str(val)])
   return args
@@ -88,9 +83,9 @@ def machine_config(num_gpus=1, use_tpu=False, master_type=None):
   return config
 
 
-def configure_job():
+def configure_job(flags_dict):
   """Construct jobSpec for ML Engine job."""
-  train_dir = FLAGS.output_dir
+  train_dir = flags_dict['output_dir']
   assert train_dir.startswith('gs://')
   job_name = os.path.basename(train_dir)
 
@@ -98,27 +93,16 @@ def configure_job():
   # https://cloud.google.com/ml-engine/reference/rest/v1/projects.jobs#traininginput
   training_input = {
       'pythonModule': 'tensor2tensor.bin.t2t_trainer',
-      'args': flags_as_args(),
+      'args': args_dict_as_args(flags_dict),
       'region': cloud.default_region(),
       'runtimeVersion': '1.4',
       'pythonVersion': '3.5' if sys.version_info.major == 3 else '2.7',
-      'jobDir': train_dir,
   }
   training_input.update(
       machine_config(
-          num_gpus=FLAGS.worker_gpu,
-          use_tpu=FLAGS.use_tpu,
-          master_type=FLAGS.cloud_mlengine_master_type))
-  if FLAGS.hparams_range:
-    assert FLAGS.autotune_objective
-    tf.logging.info('Configuring hyperparameter tuning.')
-    training_input['hyperparameters'] = configure_autotune(
-        FLAGS.hparams_range,
-        FLAGS.autotune_objective,
-        FLAGS.autotune_maximize,
-        FLAGS.autotune_max_trials,
-        FLAGS.autotune_parallel_trials,
-    )
+          num_gpus=flags_dict['worker_gpu'],
+          use_tpu=flags_dict['use_tpu'],
+          master_type=flags_dict['cloud_mlengine_master_type']))
 
   if training_input['scaleTier'] == 'CUSTOM':
     assert 'masterType' in training_input
@@ -186,26 +170,6 @@ def tar_and_copy_usr_dir(usr_dir, train_dir):
   return usr_tar
 
 
-def autotune_paramspecs(hparams_range):
-  rhp = common_hparams.RangedHParams()
-  registry.ranged_hparams(hparams_range)(rhp)
-  return rhp.to_parameter_specs(name_prefix='hp_')
-
-
-def configure_autotune(hparams_range,
-                       objective,
-                       maximize=True,
-                       max_trials=10,
-                       parallel_trials=1):
-  return {
-      'goal': 'MAXIMIZE' if maximize else 'MINIMIZE',
-      'params': autotune_paramspecs(hparams_range),
-      'maxTrials': max_trials,
-      'maxParallelTrials': parallel_trials,
-      'hyperparameterMetricTag': objective,
-  }
-
-
 def configure_trainer_package(job_spec, t2t_tar):
   assert t2t_tar.startswith('gs://')
   job_spec['trainingInput']['packageUris'] = [t2t_tar]
@@ -218,25 +182,18 @@ def configure_usr_dir(job_spec, usr_tar):
   job_spec['trainingInput']['args'].extend(usr_args)
 
 
-def launch():
+def launch(flags_dict):
   """Launch t2t_trainer on Cloud ML Engine."""
-  assert not FLAGS.cloud_tpu
-  assert not FLAGS.job_dir
-  assert FLAGS.output_dir.startswith('gs://')
-  assert FLAGS.data_dir.startswith('gs://')
-  assert FLAGS.worker_replicas <= 1
-  assert FLAGS.ps_replicas <= 0
-
-  job_spec = configure_job()
+  job_spec = configure_job(flags_dict)
   job_name = job_spec['jobId']
   tf.logging.info('Launching job %s with ML Engine spec:\n%s', job_name,
                   job_spec)
   assert cloud.confirm()
-  train_dir = FLAGS.output_dir
+  train_dir = flags_dict['output_dir']
   t2t_tar = tar_and_copy_t2t(train_dir)
   configure_trainer_package(job_spec, t2t_tar)
-  if FLAGS.t2t_usr_dir:
-    usr_tar = tar_and_copy_usr_dir(FLAGS.t2t_usr_dir, train_dir)
+  if flags_dict['t2t_usr_dir']:
+    usr_tar = tar_and_copy_usr_dir(flags_dict['t2t_usr_dir'], train_dir)
     configure_usr_dir(job_spec, usr_tar)
   launch_job(job_spec)
   tf.logging.info('Launched %s. See console to track: %s.', job_name,

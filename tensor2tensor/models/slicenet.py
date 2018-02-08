@@ -381,6 +381,10 @@ def slicenet_params1_tiny():
 def slicenet_range1(ranged_hparams):
   """Small range of hyperparameters."""
   rhp = ranged_hparams
+
+  hparams = slicenet_params1()
+  common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
+
   rhp.set_float("clip_grad_norm", 1.0, 10.0, scale=rhp.LOG_SCALE)
   rhp.set_float("learning_rate", 0.02, 1.0, scale=rhp.LOG_SCALE)
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.998)

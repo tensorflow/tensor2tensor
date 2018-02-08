@@ -1228,9 +1228,11 @@ def transformer_prepend():
   return transformer_prepend_v2()
 
 
-@registry.register_ranged_hparams
+@registry.register_ranged_hparams("transformer_base")
 def transformer_base_range(rhp):
   """Small range of hyperparameters."""
+  hparams = transformer_base()
+  common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
   # After starting from base, set intervals for some parameters.
   rhp.set_float("learning_rate", 0.3, 3.0, scale=rhp.LOG_SCALE)
   rhp.set_discrete("learning_rate_warmup_steps",
@@ -1335,6 +1337,8 @@ def transformer_tiny_tpu():
 @registry.register_ranged_hparams
 def transformer_tiny_tpu_range(rhp):
   """Small range of hyperparameters."""
+  hparams = transformer_tiny_tpu()
+  common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
   rhp.set_float("learning_rate", 0.3, 3.0, scale=rhp.LOG_SCALE)
   rhp.set_float("weight_decay", 0.0, 2.0)
 
@@ -1342,6 +1346,8 @@ def transformer_tiny_tpu_range(rhp):
 @registry.register_ranged_hparams
 def transformer_tpu_range(rhp):
   """Small range of hyperparameters."""
+  hparams = transformer_tpu()
+  common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
   # After starting from base, set intervals for some parameters.
   rhp.set_float("learning_rate", 0.3, 3.0, scale=rhp.LOG_SCALE)
   rhp.set_discrete("learning_rate_warmup_steps",
@@ -1350,6 +1356,13 @@ def transformer_tpu_range(rhp):
   rhp.set_float("optimizer_adam_beta1", 0.85, 0.95)
   rhp.set_float("optimizer_adam_beta2", 0.97, 0.99)
   rhp.set_float("weight_decay", 0.0, 2.0)
+
+
+@registry.register_ranged_hparams
+def transformer_tpu_batch_range(rhp):
+  hparams = transformer_tpu()
+  common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
+  rhp.set_discrete("batch_size", [256, 512, 768, 1024])
 
 
 @registry.register_hparams

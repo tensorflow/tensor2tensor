@@ -22,6 +22,7 @@ from __future__ import print_function
 
 # Dependency imports
 
+from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.models import transformer_vae
@@ -124,6 +125,10 @@ def transformer_sketch_6layer():
 @registry.register_ranged_hparams("transformer_sketch_ranged")
 def transformer_sketch_ranged(rhp):
   """Range of hparams for vizier."""
+
+  hparams = transformer_sketch()
+  common_hparams.fill_ranged_hparams_from_hparams(hparams, rhp)
+
   rhp.set_categorical("ffn_layer",
                       ["conv_hidden_relu_with_sepconv", "conv_hidden_relu"])
   rhp.set_discrete("batch_size", [1024, 2048, 4096])
