@@ -303,8 +303,8 @@ def _pick_optimal_model() -> None:
 
     # hack FIXME TODO XXX
     # We are about to move the best model into an export folder
-    #dirname, basename = os.path.split(checkpoint_path)
-    #checkpoint_path = basename
+    dirname, basename = os.path.split(checkpoint_path)
+    checkpoint_path = basename
 
     print('Early stopping chose checkpoint', checkpoint_path)
 
