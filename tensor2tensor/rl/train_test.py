@@ -28,6 +28,7 @@ class TrainTest(tf.test.TestCase):
   def test_no_crash_pendulum(self):
     params = t2t_rl_trainer.example_params()
     params[2].epochs_num = 10
+    FLAGS.event_dir = tf.test.get_temp_dir()
     t2t_rl_trainer.train(params)
 
 
