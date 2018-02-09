@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Training of RL agent with PPO algorithm."""
+"""Library for training of RL agent with PPO algorithm."""
 
 from __future__ import absolute_import
 
@@ -29,11 +29,6 @@ from tensor2tensor.rl.envs import utils
 
 import tensorflow as tf
 
-flags = tf.flags
-FLAGS = flags.FLAGS
-
-flags.DEFINE_string("event_dir", "/tmp",
-                    "Where to store the event file.")
 
 def define_train(policy_lambda, env_lambda, config):
   """Define the training setup."""
@@ -48,25 +43,29 @@ def define_train(policy_lambda, env_lambda, config):
       functools.partial(policy_lambda, observation_space,
                         action_space, config))
 
-  memory, collect_summary = collect.define_collect(policy_factory, batch_env, config)
+  memory, collect_summary = collect.define_collect(policy_factory,
+                                                   batch_env, config)
   ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, config)
   summary = tf.summary.merge([collect_summary, ppo_summary])
 
   return summary
 
 
-def train(params):
+def train(params, event_dir=None):
   policy_lambda, env_lambda, config = params
   summary_op = define_train(policy_lambda, env_lambda, config)
 
-  summary_writer = tf.summary.FileWriter(
-      FLAGS.event_dir, graph=tf.get_default_graph(), flush_secs=60)
+  if event_dir:
+      summary_writer = tf.summary.FileWriter(event_dir, graph=tf.get_default_graph(), flush_secs=60)
+  else:
+      summary_writer = None
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     for epoch_index in range(config.epochs_num):
       summary = sess.run(summary_op)
-      summary_writer.add_summary(summary, epoch_index)
+      if summary_writer:
+        summary_writer.add_summary(summary, epoch_index)
 
 
 def example_params():

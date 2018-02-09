@@ -13,22 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests of basic flow of collecting trajectories and training PPO."""
-
-# Dependency imports
-
-from tensor2tensor.rl import rl_trainer_lib
+"""Training of RL agent with PPO algorithm."""
 
 import tensorflow as tf
 
-
-class TrainTest(tf.test.TestCase):
-
-  def test_no_crash_pendulum(self):
-    params = rl_trainer_lib.example_params()
-    params[2].epochs_num = 10
-    rl_trainer_lib.train(params)
+from tensor2tensor.rl import rl_trainer_lib
 
 
-if __name__ == '__main__':
-  tf.test.main()
+flags = tf.flags
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string("event_dir", None,
+                    "Where to store the event file.")
+
+
+def main(argv):
+  rl_trainer_lib.train(rl_trainer_lib.example_params(), FLAGS.event_dir)
+
+
+if __name__ == "__main__":
+  tf.app.run()
