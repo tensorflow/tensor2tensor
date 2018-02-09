@@ -17,22 +17,22 @@
 
 # Dependency imports
 
-from tensor2tensor.rl import rl_trainer_lib
-
 import tensorflow as tf
+
+from tensor2tensor import models  # pylint: disable=unused-import
+from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.utils import trainer_lib
 
 
 class TrainTest(tf.test.TestCase):
 
   def test_no_crash_pendulum(self):
-    params = rl_trainer_lib.pendulum_params()
-    params[2].epochs_num = 10
-    rl_trainer_lib.train(params)
+    hparams = trainer_lib.create_hparams("pendulum", "epochs_num=10")
+    rl_trainer_lib.train(hparams)
 
   def test_no_crash_cartpole(self):
-    params = rl_trainer_lib.cartpole_params()
-    params[2].epochs_num = 10
-    rl_trainer_lib.train(params)
+    hparams = trainer_lib.create_hparams("cartpole", "epochs_num=10")
+    rl_trainer_lib.train(hparams)
 
 
 if __name__ == '__main__':

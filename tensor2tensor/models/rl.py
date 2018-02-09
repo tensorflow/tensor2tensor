@@ -13,17 +13,57 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Neural networks for actor-critic algorithms."""
-
-import collections
-import functools
-import operator
+"""Reinforcement learning models and parameters."""
 
 # Dependency imports
 
+import collections
+import functools
 import gym
+import operator
 import tensorflow as tf
 
+from tensor2tensor.layers import common_hparams
+from tensor2tensor.rl import networks
+from tensor2tensor.utils import registry
+
+
+@registry.register_hparams
+def ppo_base_v1():
+  """Set of hyperparameters."""
+  hparams = common_hparams.basic_params1()
+  hparams.learning_rate = 1e-4
+  hparams.add_hparam("init_mean_factor", 0.1)
+  hparams.add_hparam("init_logstd", 0.1)
+  hparams.add_hparam("policy_layers", (100, 100))
+  hparams.add_hparam("value_layers", (100, 100))
+  hparams.add_hparam("num_agents", 30)
+  hparams.add_hparam("clipping_coef", 0.2)
+  hparams.add_hparam("gae_gamma", 0.99)
+  hparams.add_hparam("gae_lambda", 0.95)
+  hparams.add_hparam("entropy_loss_coef", 0.01)
+  hparams.add_hparam("value_loss_coef", 1)
+  hparams.add_hparam("optimization_epochs", 15)
+  hparams.add_hparam("epoch_length", 200)
+  hparams.add_hparam("epochs_num", 2000)
+  return hparams
+
+@registry.register_hparams
+def pendulum():
+  hparams = ppo_base_v1()
+  hparams.add_hparam("environment", "Pendulum-v0")
+  hparams.add_hparam("network", feed_forward_gaussian_fun)
+  return hparams
+
+@registry.register_hparams
+def cartpole():
+  hparams = ppo_base_v1()
+  hparams.add_hparam("environment", "CartPole-v0")
+  hparams.add_hparam("network", feed_forward_categorical_fun)
+  return hparams
+
+
+# Neural networks for actor-critic algorithms
 
 NetworkOutput = collections.namedtuple(
     'NetworkOutput', 'policy, value, action_postprocessing')
