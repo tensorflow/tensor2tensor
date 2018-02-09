@@ -23,7 +23,7 @@ import tensorflow as tf
 
 
 def main(_):
-  rl_trainer_lib.train(rl_trainer_lib.example_params())
+  rl_trainer_lib.train(rl_trainer_lib.pendulum_params())
 
 
 if __name__ == "__main__":

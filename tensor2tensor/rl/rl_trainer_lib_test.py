@@ -25,7 +25,12 @@ import tensorflow as tf
 class TrainTest(tf.test.TestCase):
 
   def test_no_crash_pendulum(self):
-    params = rl_trainer_lib.example_params()
+    params = rl_trainer_lib.pendulum_params()
+    params[2].epochs_num = 10
+    rl_trainer_lib.train(params)
+
+  def test_no_crash_cartpole(self):
+    params = rl_trainer_lib.cartpole_params()
     params[2].epochs_num = 10
     rl_trainer_lib.train(params)
 

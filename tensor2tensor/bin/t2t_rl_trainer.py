@@ -25,10 +25,19 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string("event_dir", None,
                     "Where to store the event file.")
+flags.DEFINE_string("environment", "pendulum",
+                    "Which environment should be used for training.")
 
 
 def main(argv):
-  rl_trainer_lib.train(rl_trainer_lib.example_params(), FLAGS.event_dir)
+  name_to_env = {
+      "pendulum": rl_trainer_lib.pendulum_params,
+      "cartpole": rl_trainer_lib.cartpole_params,
+  }
+  if FLAGS.environment not in name_to_env:
+    raise ValueError(
+        "Environment with name %s not configured." % FLAGS.environment)
+  rl_trainer_lib.train(name_to_env[FLAGS.environment](), FLAGS.event_dir)
 
 
 if __name__ == "__main__":
