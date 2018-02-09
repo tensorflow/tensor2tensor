@@ -24,7 +24,6 @@ import operator
 import tensorflow as tf
 
 from tensor2tensor.layers import common_hparams
-from tensor2tensor.rl import networks
 from tensor2tensor.utils import registry
 
 
