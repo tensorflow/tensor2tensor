@@ -517,16 +517,26 @@ class Problem(object):
     if shuffle_files:
       random.shuffle(data_files)
     dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
-    dataset = dataset.apply(
-        tf.contrib.data.parallel_interleave(
-            _load_records, sloppy=is_training, cycle_length=8))
+
+    if hasattr(tf.contrib.data, "parallel_interleave"):
+      dataset = dataset.apply(
+          tf.contrib.data.parallel_interleave(
+              _load_records, sloppy=is_training, cycle_length=8))
+    else:
+      dataset = dataset.interleave(_load_records, cycle_length=8,
+                                   block_length=16)
+
     if repeat:
       dataset = dataset.repeat()
     dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
     if preprocess:
-      dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
-              _preprocess, sloppy=is_training, cycle_length=8))
+      if hasattr(tf.contrib.data, "parallel_interleave"):
+        dataset = dataset.apply(
+            tf.contrib.data.parallel_interleave(
+                _preprocess, sloppy=is_training, cycle_length=8))
+      else:
+        dataset = dataset.interleave(_preprocess, cycle_length=8,
+                                     block_length=16)
     dataset = dataset.map(
         _maybe_reverse_and_copy, num_parallel_calls=num_threads)
 
@@ -633,6 +643,8 @@ class Problem(object):
       num_partitions: an integer
     """
     if mode != tf.estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
+      # Reset in the case when using TPU but alternating TRAIN and EVAL.
+      self._next_partition_id = 0
       return 0, 1
     if config.tpu_config.per_host_input_for_training:
       num_partitions = max(config.tpu_config.num_shards // 8, 1)
@@ -670,7 +682,7 @@ class Problem(object):
     partition_id, num_partitions = self._dataset_partition(mode, config)
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    if config.use_tpu:
+    if config and config.use_tpu:
       num_threads = 64
     else:
       num_threads = 4 if is_training else 1

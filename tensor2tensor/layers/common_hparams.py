@@ -21,7 +21,6 @@ from __future__ import print_function
 
 # Dependency imports
 
-import six
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import registry
 
@@ -64,6 +63,11 @@ def basic_params1():
       optimizer_momentum_nesterov=False,
       weight_decay=1e-6,
       weight_noise=0.0,
+      learning_rate_schedule="warmup_and_decay",
+      # If learning_rate_schedule=="warmup_and_decay", then this specifies
+      # the decay part of the schedule.
+      # The warmup is always exponential.
+      # TODO(noam): add a hyperparameter to control the warmup.
       learning_rate_decay_scheme="none",
       # decay_steps and decay_staircase for learning_rate_decay_scheme=="exp"
       learning_rate_decay_steps=5000,
@@ -224,10 +228,15 @@ class RangedHParams(object):
   LOG_SCALE = 2
   REVERSE_LOG_SCALE = 3
 
+  SCALES_STR = {
+      LINEAR_SCALE: "UNIT_LINEAR_SCALE",
+      LOG_SCALE: "UNIT_LOG_SCALE",
+      REVERSE_LOG_SCALE: "UNIT_REVERSE_LOG_SCALE",
+  }
+
   def __init__(self):
     self._categorical_params = {}
     self._discrete_params = {}
-    self._discrete_float_params = {}
     self._float_params = {}
     self._int_params = {}
 
@@ -237,10 +246,12 @@ class RangedHParams(object):
     if name in orig_ctr:
       tf.logging.warning("Overwriting hparam %s", name)
 
-    ctr_names = [(self._categorical_params,
-                  "categorical"), (self._discrete_params, "discrete"),
-                 (self._float_params, "float"), (self._int_params, "int"),
-                 (self._discrete_float_params, "discrete_float")]
+    ctr_names = [
+        (self._categorical_params, "categorical"),
+        (self._discrete_params, "discrete"),
+        (self._float_params, "float"),
+        (self._int_params, "int"),
+    ]
     ctrs, names = list(zip(*ctr_names))
     orig_name = names[ctrs.index(orig_ctr)]
 
@@ -263,14 +274,8 @@ class RangedHParams(object):
     self._discrete_params[name] = (name, feasible_points, scale, length)
 
   def set_float(self, name, min_val, max_val, scale=None, length=None):
-    if name in self._discrete_float_params:
-      del self._discrete_float_params[name]
     self._check_reset_and_type_change(name, self._float_params)
     self._float_params[name] = (name, min_val, max_val, scale, length)
-
-  def set_discrete_float(self, name, val):
-    self._check_reset_and_type_change(name, self._discrete_float_params)
-    self._discrete_float_params[name] = (name, [val])
 
   def set_int(self, name, min_val, max_val, scale=None, length=None):
     self._check_reset_and_type_change(name, self._int_params)
@@ -278,8 +283,8 @@ class RangedHParams(object):
 
   def fix_select_params(self, hp):
     ctrs = [
-        self._categorical_params, self._discrete_params,
-        self._discrete_float_params, self._float_params, self._int_params
+        self._categorical_params, self._discrete_params, self._float_params,
+        self._int_params
     ]
     for key, val in hp.values().iteritems():
       for ctr in ctrs:
@@ -287,52 +292,56 @@ class RangedHParams(object):
           del ctr[key]
       self.set_discrete(key, [val])
 
+  def to_parameter_specs(self, name_prefix=""):
+    """To list of dicts suitable for Cloud ML Engine hyperparameter tuning."""
+    specs = []
+    for name, categories, _ in self._categorical_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "CATEGORICAL",
+          "categoricalValues": categories,
+      }
+      specs.append(spec)
 
-def fill_ranged_hparams_from_hparams(hparams, ranged_hparams):
-  """Fill ranged_hparams with singleton values from hparams.
+    for name, feasible_points, scale, _ in self._discrete_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "DISCRETE",
+          "discreteValues": feasible_points,
+      }
+      if scale:
+        spec["scaleType"] = self.SCALES_STR[scale]
+      specs.append(spec)
 
-  HParams are placed in RangedHParams with the following functions, according to
-  type:
-    * int: set_discrete
-    * bool: set_discrete
-    * float: set_discrete_float
-    * str: set_categorical
+    for name, min_val, max_val, scale, _ in self._float_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "DOUBLE",
+          "minValue": min_val,
+          "maxValue": max_val,
+      }
+      if scale:
+        spec["scaleType"] = self.SCALES_STR[scale]
+      specs.append(spec)
 
-  Args:
-    hparams: tf.contrib.training.HParams; contains the hyperparameters to copy
-      over to ranged_hparams.
-    ranged_hparams: RangedHParams; will have hparams values copied to it.
+    for name, min_val, max_val, scale, _ in self._int_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "INTEGER",
+          "minValue": min_val,
+          "maxValue": max_val,
+      }
+      if scale:
+        spec["scaleType"] = self.SCALES_STR[scale]
+      specs.append(spec)
 
-  Raises:
-    ValueError: if hparams contains a hyperparameter not of type
-      {int, float, str, bool}.
-  """
-  for name, (hp_type, is_multivalent) in six.iteritems(hparams._hparam_types):  # pylint: disable=protected-access
-
-    if is_multivalent:
-      raise ValueError("Multivalent hparams not supported in RangedHParams. "
-                       "Hyperparameter %s is multivalent." % name)
-    val = getattr(hparams, name)
-    if hp_type == int:
-      ranged_hparams.set_discrete(name, [val])
-    elif hp_type == bool:
-      ranged_hparams.set_discrete(name, [int(val)])
-    elif hp_type == float:
-      ranged_hparams.set_discrete_float(name, val)
-    elif hp_type == str:
-      ranged_hparams.set_categorical(name, [val])
-    else:
-      raise ValueError("Unsupported type %s for param %s" % (hp_type, name))
+    return specs
 
 
 @registry.register_ranged_hparams("basic1")
 def basic_range1(ranged_hparams):
   """A basic range of hyperparameters."""
   rhp = ranged_hparams
-
-  hparams = basic_params1()
-  fill_ranged_hparams_from_hparams(hparams, rhp)
-
   rhp.set_discrete("batch_size", [1024, 2048, 4096])
   rhp.set_discrete("num_hidden_layers", [1, 2, 3, 4, 5, 6])
   rhp.set_discrete("hidden_size", [32, 64, 128, 256, 512], scale=rhp.LOG_SCALE)

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,11 +15,14 @@
 
 """Neural networks for actor-critic algorithms."""
 
-import operator
-import functools
 import collections
-import tensorflow as tf
+import functools
+import operator
+
+# Dependency imports
+
 import gym
+import tensorflow as tf
 
 
 NetworkOutput = collections.namedtuple(
@@ -28,6 +31,7 @@ NetworkOutput = collections.namedtuple(
 
 def feed_forward_gaussian_fun(observation_space, action_space, config,
                               observations):
+  """Feed-forward gaussian."""
   assert isinstance(observation_space, gym.spaces.box.Box)
 
   mean_weights_initializer = tf.contrib.layers.variance_scaling_initializer(

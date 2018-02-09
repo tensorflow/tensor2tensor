@@ -298,6 +298,46 @@ class ImageChannelCompressModality(modality.Modality):
       return x
 
 
+@registry.register_image_modality("channel_embeddings_bottom")
+class ImageChannelEmbeddingsBottom(modality.Modality):
+  """Modality for images using channel compression for generation."""
+
+  def get_channel_embeddings(self, io_depth, targets, hidden_size,
+                             name="channel"):
+    """Get separate embedding for each of the channels."""
+    targets_split = tf.split(targets, io_depth, axis=3)
+    rgb_embedding_var = tf.get_variable("rgb_target_emb_%s" % name,
+                                        [256 * io_depth, hidden_size])
+    rgb_embedding_var = tf.identity(rgb_embedding_var)
+    rgb_embedding_var *= float(hidden_size)**0.5
+    channel_target_embs = []
+    for i in xrange(io_depth):
+      # Adding the channel offsets to get the right embedding since the
+      # embedding tensor has shape 256 * io_depth, hidden_size
+      target_ids = tf.squeeze(targets_split[i], axis=3) + i * 256
+      target_embs = common_layers.gather(rgb_embedding_var, target_ids)
+      channel_target_embs.append(target_embs)
+
+    return tf.concat(channel_target_embs, axis=-1)
+
+  def targets_bottom(self, inputs):
+    io_depth = self._model_hparams.num_channels
+    hidden_size = self._model_hparams.hidden_size
+    return self.get_channel_embeddings(io_depth, inputs, hidden_size,
+                                       "input_bottom")
+
+  def top(self, body_output, _):
+    with tf.variable_scope(self.name):
+      img_len = self._model_hparams.img_len
+      channels = self._model_hparams.num_channels
+      x = tf.layers.dense(body_output, 256,
+                          use_bias=True, activation=None,
+                          name="output_conv")
+      x = tf.reshape(x,
+                     [-1, img_len, img_len, channels, self.top_dimensionality])
+      return x
+
+
 @registry.register_audio_modality("default")
 class AudioModality(modality.Modality):
   """Performs strided conv compressions for audio data."""
@@ -421,7 +461,7 @@ class ClassLabelModality(modality.Modality):
     """
     with tf.variable_scope(self.name):
       x = body_output
-      x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
+      x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
       res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
 

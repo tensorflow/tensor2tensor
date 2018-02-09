@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,25 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests of basic flow of collecting trajectories and training PPO."""
+"""Training of RL agent with PPO algorithm."""
+
+# Dependency imports
+
+from tensor2tensor.rl import rl_trainer_lib
 
 import tensorflow as tf
 
-from tensor2tensor.bin import t2t_rl_trainer
+
+def main(_):
+  rl_trainer_lib.train(rl_trainer_lib.example_params())
 
 
-FLAGS = tf.app.flags.FLAGS
-
-
-class TrainTest(tf.test.TestCase):
-
-  def test_no_crash_pendulum(self):
-    params = t2t_rl_trainer.example_params()
-    params[2].epochs_num = 10
-    FLAGS.event_dir = tf.test.get_temp_dir()
-    t2t_rl_trainer.train(params)
-
-
-if __name__ == '__main__':
-  FLAGS.config = 'unused'
-  tf.test.main()
+if __name__ == "__main__":
+  tf.app.run()

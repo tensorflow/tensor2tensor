@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,16 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Batch of environments inside the TensorFlow graph."""
+
 # The code was based on Danijar Hafner's code from tf.agents:
 # https://github.com/tensorflow/agents/blob/master/agents/tools/in_graph_batch_env.py
-
-"""Batch of environments inside the TensorFlow graph."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# Dependency imports
+
 import gym
+
 import tensorflow as tf
 
 
@@ -91,7 +94,6 @@ class InGraphBatchEnv(object):
       reward = tf.check_numerics(reward, 'reward')
       with tf.control_dependencies([self._observ.assign(observ)]):
         return tf.identity(reward), tf.identity(done)
-
 
   def reset(self, indices=None):
     """Reset the batch of environments.
