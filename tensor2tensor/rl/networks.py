@@ -29,11 +29,9 @@ NetworkOutput = collections.namedtuple(
     'NetworkOutput', 'policy, value, action_postprocessing')
 
 
-def feed_forward_gaussian_fun(observation_space, action_space, config,
-                              observations):
-  """Feed-forward gaussian."""
-  assert isinstance(observation_space, gym.spaces.box.Box)
-
+def feed_forward_gaussian_fun(action_space, config, observations):
+  assert isinstance(action_space, gym.spaces.box.Box), \
+      'Expecting continuous action space.'
   mean_weights_initializer = tf.contrib.layers.variance_scaling_initializer(
       factor=config.init_mean_factor)
   logstd_initializer = tf.random_normal_initializer(config.init_logstd, 1e-10)
@@ -67,3 +65,24 @@ def feed_forward_gaussian_fun(observation_space, action_space, config,
                                                            tf.exp(logstd))
 
   return NetworkOutput(policy, value, lambda a: tf.clip_by_value(a, -2., 2))
+
+
+def feed_forward_categorical_fun(action_space, config, observations):
+  assert isinstance(action_space, gym.spaces.Discrete), \
+      'Expecting discrete action space.'
+  flat_observations = tf.reshape(observations, [
+      tf.shape(observations)[0], tf.shape(observations)[1],
+      functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
+  with tf.variable_scope('policy'):
+    x = flat_observations
+    for size in config.policy_layers:
+      x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
+    logits = tf.contrib.layers.fully_connected(x, action_space.n,
+                                               activation_fn=None)
+  with tf.variable_scope('value'):
+    x = flat_observations
+    for size in config.value_layers:
+      x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
+    value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
+  policy = tf.contrib.distributions.Categorical(logits=logits)
+  return NetworkOutput(policy, value, lambda a: a)

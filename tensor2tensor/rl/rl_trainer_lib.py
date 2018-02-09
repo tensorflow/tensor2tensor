@@ -34,14 +34,12 @@ def define_train(policy_lambda, env_lambda, config):
   """Define the training setup."""
   env = env_lambda()
   action_space = env.action_space
-  observation_space = env.observation_space
 
   batch_env = utils.define_batch_env(env_lambda, config.num_agents)
 
   policy_factory = tf.make_template(
       "network",
-      functools.partial(policy_lambda, observation_space,
-                        action_space, config))
+      functools.partial(policy_lambda, action_space, config))
 
   memory, collect_summary = collect.define_collect(policy_factory,
                                                    batch_env, config)
@@ -68,9 +66,9 @@ def train(params, event_dir=None):
         summary_writer.add_summary(summary, epoch_index)
 
 
-def example_params():
+def basic_config():
   """Example hyperparameters."""
-  config = tf.contrib.training.HParams(
+  return tf.contrib.training.HParams(
       init_mean_factor=0.1,
       init_logstd=0.1,
       policy_layers=(100, 100),
@@ -86,8 +84,14 @@ def example_params():
       optimization_epochs=15,
       epoch_length=200,
       epochs_num=2000)
-  return networks.feed_forward_gaussian_fun, pendulum_lambda, config
 
 
-def pendulum_lambda():
-  return gym.make("Pendulum-v0")
+def pendulum_params():
+  config = basic_config()
+  return networks.feed_forward_gaussian_fun, lambda: gym.make("Pendulum-v0"), config
+
+
+def cartpole_params():
+  config = basic_config()
+  return networks.feed_forward_categorical_fun, lambda: gym.make("CartPole-v0"), config
+

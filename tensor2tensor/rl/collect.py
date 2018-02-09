@@ -26,7 +26,8 @@ def define_collect(policy_factory, batch_env, config):
       (memory_shape + [batch_env.observ.shape.as_list()[1]], tf.float32),
       (memory_shape, tf.float32),      # reward
       (memory_shape, tf.bool),         # done
-      (memory_shape + batch_env.action_shape, tf.float32),  # action
+      # action
+      (memory_shape + batch_env.action_shape, batch_env.action_dtype),
       (memory_shape, tf.float32),      # pdf
       (memory_shape, tf.float32),      # value function
   ]
