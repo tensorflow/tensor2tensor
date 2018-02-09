@@ -132,7 +132,7 @@ def outputs_exist(filenames):
       return out_fname
 
 # Fathom
-def generate_files(generator, output_filenames, max_cases=None, check_existing_files = True):
+def generate_files(generator, output_filenames, max_cases=None, check_existing_files=True):
   """Generate cases from a generator and save as TFRecord files.
 
   Generated cases are transformed to tf.Example protos and saved as TFRecords
