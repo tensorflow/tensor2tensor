@@ -24,9 +24,10 @@ script:
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
 
   # Run tests
-  - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/problems_test.py --ignore=tensor2tensor/utils/trainer_lib_test.py --ignore=tensor2tensor/data_generators/algorithmic_math_test.py --ignore=tensor2tensor/bin/t2t_trainer_test.py
+  - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/problems_test.py --ignore=tensor2tensor/utils/trainer_lib_test.py --ignore=tensor2tensor/data_generators/algorithmic_math_test.py --ignore=tensor2tensor/bin/t2t_trainer_test.py --ignore=tensor2tensor/rl/rl_trainer_lib_test.py
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
+  - pytest tensor2tensor/rl/rl_trainer_lib_test.py
 
   # Run installed scripts
   - t2t-datagen 2>&1 | grep translate && echo passed
