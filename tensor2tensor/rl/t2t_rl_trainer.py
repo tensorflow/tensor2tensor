@@ -29,7 +29,7 @@ flags.DEFINE_string("environment", "pendulum",
                     "Which environment should be used for training.")
 
 
-def main(argv):
+def main(_):
   name_to_env = {
       "pendulum": rl_trainer_lib.pendulum_params,
       "cartpole": rl_trainer_lib.cartpole_params,
