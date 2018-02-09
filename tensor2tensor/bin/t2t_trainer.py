@@ -132,7 +132,7 @@ def set_hparams_from_args(args):
   while i < len(args):
     arg = args[i]
     if arg.startswith(hp_prefix):
-      pairs.append((arg.lstrip(hp_prefix), args[i+1]))
+      pairs.append((arg[len(hp_prefix):], args[i+1]))
       i += 2
     else:
       tf.logging.warn("Found unknown flag: %s", arg)
