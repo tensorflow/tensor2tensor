@@ -53,7 +53,11 @@ def define_ppo_step(observation, action, reward, done, value, old_pdf,
 
   total_loss = policy_loss + value_loss + entropy_loss
 
-  optimization_op = config.optimizer(config.learning_rate).minimize(total_loss)
+  optimization_op = tf.contrib.layers.optimize_loss(
+      loss=total_loss,
+      global_step=tf.train.get_or_create_global_step(),
+      optimizer=config.optimizer,
+      learning_rate=config.learning_rate)
 
   with tf.control_dependencies([optimization_op]):
     return [tf.identity(x) for x in (policy_loss, value_loss, entropy_loss)]
