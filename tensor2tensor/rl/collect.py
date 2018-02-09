@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2017 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import tensorflow as tf
 
 
 def define_collect(policy_factory, batch_env, config):
-
+  """Collect trajectories."""
   memory_shape = [config.epoch_length] + [batch_env.observ.shape.as_list()[0]]
   memories_shapes_and_types = [
       # observation
@@ -45,6 +45,7 @@ def define_collect(policy_factory, batch_env, config):
   with tf.control_dependencies([reset_once_op]):
 
     def step(index, scores_sum, scores_num):
+      """Single step."""
       # Note - the only way to ensure making a copy of tensor is to run simple
       # operation. We are waiting for tf.copy:
       # https://github.com/tensorflow/tensorflow/issues/11186
@@ -63,17 +64,17 @@ def define_collect(policy_factory, batch_env, config):
         save_ops = [tf.scatter_update(memory_slot, index, value)
                     for memory_slot, value in zip(memory, to_save)]
         cumulate_rewards_op = cumulative_rewards.assign_add(reward)
-        agent_indicies_to_reset = tf.where(done)[:, 0]
+        agent_indices_to_reset = tf.where(done)[:, 0]
       with tf.control_dependencies([cumulate_rewards_op]):
         scores_sum_delta = tf.reduce_sum(
-            tf.gather(cumulative_rewards, agent_indicies_to_reset))
+            tf.gather(cumulative_rewards, agent_indices_to_reset))
         scores_num_delta = tf.count_nonzero(done, dtype=tf.int32)
       with tf.control_dependencies(save_ops + [scores_sum_delta,
                                                scores_num_delta]):
-        reset_env_op = batch_env.reset(agent_indicies_to_reset)
+        reset_env_op = batch_env.reset(agent_indices_to_reset)
         reset_cumulative_rewards_op = tf.scatter_update(
-            cumulative_rewards, agent_indicies_to_reset,
-            tf.zeros(tf.shape(agent_indicies_to_reset)))
+            cumulative_rewards, agent_indices_to_reset,
+            tf.zeros(tf.shape(agent_indices_to_reset)))
       with tf.control_dependencies([reset_env_op,
                                     reset_cumulative_rewards_op]):
         return [index + 1, scores_sum + scores_sum_delta,

@@ -191,3 +191,11 @@ def shakeshake_big():
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.hidden_size = 96
   return hparams
+
+
+@registry.register_hparams
+def shakeshake_tpu():
+  hparams = shakeshake_big()
+  hparams.learning_rate_cosine_cycle_steps = 180000
+  hparams.learning_rate = 0.6
+  return hparams

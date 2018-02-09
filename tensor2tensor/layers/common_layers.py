@@ -509,8 +509,8 @@ def layer_norm_vars(filters):
 
 def layer_norm_compute_python(x, epsilon, scale, bias):
   """Layer norm raw computation."""
-  mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
-  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keepdims=True)
+  mean = tf.reduce_mean(x, axis=[-1], keep_dims=True)
+  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keep_dims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
   return norm_x * scale + bias
 
@@ -1171,7 +1171,7 @@ def mask_from_embedding(emb):
   Returns:
     a 0.0/1.0 Tensor with shape [batch, width, height, 1].
   """
-  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keepdims=True))
+  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keep_dims=True))
 
 
 def mask_leq(target_length, source_length):
@@ -1703,7 +1703,7 @@ def smoothing_cross_entropy(logits,
           depth=vocab_size,
           on_value=confidence,
           off_value=low_confidence)
-    xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
+    xentropy = tf.nn.softmax_cross_entropy_with_logits(
         logits=logits, labels=soft_targets)
     return xentropy - normalizing
 
@@ -1737,7 +1737,7 @@ def global_pool_1d(inputs, pooling_type="MAX", mask=None):
       if mask is not None:
         # Some elems are dummy elems so we can't just reduce the average.
         output = tf.reduce_sum(inputs, axis=1)
-        num_elems = tf.reduce_sum(mask, axis=1, keepdims=True)
+        num_elems = tf.reduce_sum(mask, axis=1, keep_dims=True)
         output = tf.div(output, tf.maximum(num_elems, 1))
       else:
         output = tf.reduce_mean(inputs, axis=1)
