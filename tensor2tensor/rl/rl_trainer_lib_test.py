@@ -22,6 +22,9 @@ from tensor2tensor.rl import rl_trainer_lib
 import tensorflow as tf
 
 
+FLAGS = tf.app.flags.FLAGS
+
+
 class TrainTest(tf.test.TestCase):
 
   def test_no_crash_pendulum(self):
