@@ -148,7 +148,7 @@ def rouge_l_fscore(predictions, labels, **unused_kwargs):
   # Convert the outputs and labels to a [batch_size, input_length] tensor.
   outputs = tf.squeeze(outputs, axis=[-1, -2])
   labels = tf.squeeze(labels, axis=[-1, -2])
-  rouge_l_f_score = tf.py_func(rouge_l_sentence_level, (labels, outputs),
+  rouge_l_f_score = tf.py_func(rouge_l_sentence_level, (outputs, labels),
                                tf.float32)
   return rouge_l_f_score, tf.constant(1.0)
 
