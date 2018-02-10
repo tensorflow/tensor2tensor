@@ -8,4 +8,4 @@ Currently the only supported algorithm is Proximy Policy Optimization - PPO.
 
 ## Sample usage - training in Pendulum-v0 environment.
 
-```python rl/t2t_rl_trainer.py```
+```python rl/t2t_rl_trainer.py --hparams_set pendulum [--output_dir dir_location]```

@@ -15,15 +15,27 @@
 
 """Training of RL agent with PPO algorithm."""
 
-# Dependency imports
+import tensorflow as tf
 
+from tensor2tensor import models  # pylint: disable=unused-import
+from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
+from tensor2tensor.utils import trainer_lib
 from tensor2tensor.rl import rl_trainer_lib
 
-import tensorflow as tf
+flags = tf.flags
+FLAGS = flags.FLAGS
+
+# To maintain compatibility with some internal libs, we guard against these flag
+# definitions possibly erroring. Apologies for the ugliness.
+try:
+  flags.DEFINE_string("output_dir", "", "Base output directory for run.")
+except:  # pylint: disable=bare-except
+  pass
 
 
 def main(_):
-  rl_trainer_lib.train(rl_trainer_lib.example_params())
+  hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
+  rl_trainer_lib.train(hparams, FLAGS.output_dir)
 
 
 if __name__ == "__main__":
