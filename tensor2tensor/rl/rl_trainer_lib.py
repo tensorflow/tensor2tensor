@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Training of RL agent with PPO algorithm."""
+"""Library for training of RL agent with PPO algorithm."""
 
 from __future__ import absolute_import
 
@@ -22,66 +22,50 @@ import functools
 # Dependency imports
 
 import gym
+
+
+from tensor2tensor import models  # pylint: disable=unused-import
+from tensor2tensor.models import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import collect
-from tensor2tensor.rl import networks
 from tensor2tensor.rl import ppo
 from tensor2tensor.rl.envs import utils
 
 import tensorflow as tf
 
 
-def define_train(policy_lambda, env_lambda, config):
+def define_train(hparams, environment_name):
   """Define the training setup."""
+  env_lambda = lambda: gym.make(environment_name)
+  policy_lambda = hparams.network
   env = env_lambda()
   action_space = env.action_space
-  observation_space = env.observation_space
 
-  batch_env = utils.define_batch_env(env_lambda, config.num_agents)
+  batch_env = utils.define_batch_env(env_lambda, hparams.num_agents)
 
   policy_factory = tf.make_template(
       "network",
-      functools.partial(policy_lambda, observation_space,
-                        action_space, config))
+      functools.partial(policy_lambda, action_space, hparams))
 
-  (collect_op, memory) = collect.define_collect(
-      policy_factory, batch_env, config)
+  memory, collect_summary = collect.define_collect(policy_factory,
+                                                   batch_env, hparams)
+  ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
+  summary = tf.summary.merge([collect_summary, ppo_summary])
 
-  with tf.control_dependencies([collect_op]):
-    ppo_op = ppo.define_ppo_epoch(memory, policy_factory, config)
-
-  return ppo_op
+  return summary
 
 
-def train(params):
-  policy_lambda, env_lambda, config = params
-  ppo_op = define_train(policy_lambda, env_lambda, config)
+def train(hparams, environment_name, event_dir=None):
+  summary_op = define_train(hparams, environment_name)
+
+  if event_dir:
+    summary_writer = tf.summary.FileWriter(
+        event_dir, graph=tf.get_default_graph(), flush_secs=60)
+  else:
+    summary_writer = None
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
-    for _ in range(config.epochs_num):
-      sess.run(ppo_op)
-
-
-def example_params():
-  """Example hyperparameters."""
-  config = tf.contrib.training.HParams(
-      init_mean_factor=0.1,
-      init_logstd=0.1,
-      policy_layers=(100, 100),
-      value_layers=(100, 100),
-      num_agents=30,
-      clipping_coef=0.2,
-      gae_gamma=0.99,
-      gae_lambda=0.95,
-      entropy_loss_coef=0.01,
-      value_loss_coef=1,
-      optimizer=tf.train.AdamOptimizer,
-      learning_rate=1e-4,
-      optimization_epochs=15,
-      epoch_length=200,
-      epochs_num=2000)
-  return networks.feed_forward_gaussian_fun, pendulum_lambda, config
-
-
-def pendulum_lambda():
-  return gym.make("Pendulum-v0")
+    for epoch_index in range(hparams.epochs_num):
+      summary = sess.run(summary_op)
+      if summary_writer:
+        summary_writer.add_summary(summary, epoch_index)

@@ -18,6 +18,7 @@
 # Dependency imports
 
 from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 
@@ -25,10 +26,13 @@ import tensorflow as tf
 class TrainTest(tf.test.TestCase):
 
   def test_no_crash_pendulum(self):
-    params = rl_trainer_lib.example_params()
-    params[2].epochs_num = 10
-    rl_trainer_lib.train(params)
+    hparams = trainer_lib.create_hparams("pendulum_base", "epochs_num=10")
+    rl_trainer_lib.train(hparams, "Pendulum-v0")
+
+  def test_no_crash_cartpole(self):
+    hparams = trainer_lib.create_hparams("cartpole_base", "epochs_num=10")
+    rl_trainer_lib.train(hparams, "CartPole-v0")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   tf.test.main()
