@@ -18,7 +18,6 @@
 Based on: https://arxiv.org/abs/1707.06347
 """
 
-
 import tensorflow as tf
 
 
@@ -32,8 +31,8 @@ def define_ppo_step(observation, action, reward, done, value, old_pdf,
   clipped_ratio = tf.clip_by_value(ratio, 1 - config.clipping_coef,
                                    1 + config.clipping_coef)
 
-  advantage = calculate_discounted_return(
-      reward, value, done, config.gae_gamma, config.gae_lambda) - value
+  advantage = calculate_generalized_advantage_estimator(
+      reward, value, done, config.gae_gamma, config.gae_lambda)
 
   advantage_mean, advantage_variance = tf.nn.moments(advantage, axes=[0, 1],
                                                      keep_dims=True)
@@ -53,7 +52,11 @@ def define_ppo_step(observation, action, reward, done, value, old_pdf,
 
   total_loss = policy_loss + value_loss + entropy_loss
 
-  optimization_op = config.optimizer(config.learning_rate).minimize(total_loss)
+  optimization_op = tf.contrib.layers.optimize_loss(
+      loss=total_loss,
+      global_step=tf.train.get_or_create_global_step(),
+      optimizer=config.optimizer,
+      learning_rate=config.learning_rate)
 
   with tf.control_dependencies([optimization_op]):
     return [tf.identity(x) for x in (policy_loss, value_loss, entropy_loss)]
@@ -79,12 +82,20 @@ def define_ppo_epoch(memory, policy_factory, config):
       [0., 0., 0.],
       parallel_iterations=1)
 
-  print_losses = tf.group(
-      tf.Print(0, [tf.reduce_mean(policy_loss)], 'policy loss: '),
-      tf.Print(0, [tf.reduce_mean(value_loss)], 'value loss: '),
-      tf.Print(0, [tf.reduce_mean(entropy_loss)], 'entropy loss: '))
+  summaries = [tf.summary.scalar("policy loss", tf.reduce_mean(policy_loss)),
+               tf.summary.scalar("value loss", tf.reduce_mean(value_loss)),
+               tf.summary.scalar("entropy loss", tf.reduce_mean(entropy_loss))]
 
-  return print_losses
+  losses_summary = tf.summary.merge(summaries)
+
+  losses_summary = tf.Print(losses_summary,
+                            [tf.reduce_mean(policy_loss)], "policy loss: ")
+  losses_summary = tf.Print(losses_summary,
+                            [tf.reduce_mean(value_loss)], "value loss: ")
+  losses_summary = tf.Print(losses_summary,
+                            [tf.reduce_mean(entropy_loss)], "entropy loss: ")
+
+  return losses_summary
 
 
 def calculate_discounted_return(reward, value, done, discount, unused_lambda):
@@ -99,4 +110,23 @@ def calculate_discounted_return(reward, value, done, discount, unused_lambda):
       tf.zeros_like(reward[0, :]),  # initializer
       1,
       False), [0])
-  return tf.check_numerics(return_, 'return')
+  return tf.check_numerics(return_, "return")
+
+
+def calculate_generalized_advantage_estimator(
+    reward, value, done, gae_gamma, gae_lambda):
+  """Generalized advantage estimator."""
+  # Below is slight weirdness, we set the last reward to 0.
+  # This makes the adventantage to be 0 in the last timestep.
+  reward = tf.concat([reward[:-1, :], value[-1:, :]], axis=0)
+  next_value = tf.concat([value[1:, :], tf.zeros_like(value[-1:, :])], axis=0)
+  next_not_done = 1 - tf.cast(tf.concat(
+      [done[1:, :], tf.zeros_like(done[-1:, :])], axis=0), tf.float32)
+  delta = reward + gae_gamma * next_value * next_not_done - value
+
+  return_ = tf.reverse(tf.scan(
+      lambda agg, cur: cur[0] + cur[1] * gae_gamma * gae_lambda * agg,
+      [tf.reverse(delta, [0]), tf.reverse(next_not_done, [0])],
+      tf.zeros_like(delta[0, :]),
+      1, False), [0])
+  return tf.check_numerics(tf.stop_gradient(return_), "return")
