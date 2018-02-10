@@ -211,7 +211,7 @@ class TransformerTest(tf.test.TestCase):
     model, features = self.getModel(transformer.transformer_small())
     expected_attention_weights = np.random.random_sample(
         size=(BATCH_SIZE, TARGET_LENGTH, INPUT_LENGTH))
-    features["expected_attention_weights"] = tf.constant(
+    features["expected_attentions"] = tf.constant(
         expected_attention_weights, dtype=tf.float32)
     _, extra_loss = model(features)
     with self.test_session() as session:

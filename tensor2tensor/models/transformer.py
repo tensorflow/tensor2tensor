@@ -168,10 +168,10 @@ class Transformer(t2t_model.T2TModel):
         hparams,
         nonpadding=features_to_nonpadding(features, "targets"))
 
-    expected_attention_weights = features.get("expected_attention_weights")
-    if expected_attention_weights is not None:
+    expected_attentions = features.get("expected_attentions")
+    if expected_attentions is not None:
       attention_loss = common_attention.encoder_decoder_attention_loss(
-          expected_attention_weights, self.attention_weights)
+          expected_attentions, self.attention_weights)
       return decoder_output, {"attention_loss": attention_loss}
 
     return decoder_output
