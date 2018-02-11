@@ -19,7 +19,8 @@ or running existing ones on your data. It is actively used and maintained by
 researchers and engineers within
 the [Google Brain team](https://research.google.com/teams/brain/) and was used
 to develop state-of-the-art models for translation (see
-[Attention Is All You Need](https://arxiv.org/abs/1706.03762)), summarization,
+[Attention Is All You Need](https://arxiv.org/abs/1706.03762)),
+[summarization](https://arxiv.org/abs/1801.10198),
 image generation and other tasks. You can read
 more about T2T in the [Google Research Blog post introducing
 it](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html).
@@ -42,7 +43,20 @@ with T2T announcements.
 browser using a free VM from Google, no installation needed.
 
 Alternatively, here is a one-command version that installs T2T, downloads data,
-trains an English-German translation model, and evaluates it:
+trains an MNIST model and evaluates it:
+
+```
+pip install tensor2tensor && t2t-trainer \
+  --generate_data \
+  --data_dir=~/t2t_data \
+  --problems=image_mnist \
+  --model=shake_shake \
+  --hparams_set=shake_shake_quick \
+  --output_dir=~/t2t_train/mnist1
+```
+
+For a more demanding problem, here is how to train
+an English-German translation model and evaluate it:
 
 ```
 pip install tensor2tensor && t2t-trainer \
@@ -54,7 +68,7 @@ pip install tensor2tensor && t2t-trainer \
   --output_dir=~/t2t_train/base
 ```
 
-You can decode from the model interactively:
+You can decode from the model interactively to get translations:
 
 ```
 t2t-decoder \

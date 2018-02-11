@@ -13,10 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""transformer (attention).
+"""Transformer model from "Attention Is All You Need".
 
-encoder: [Self-Attention, Feed-forward] x n
-decoder: [Self-Attention, Source-Target-Attention, Feed-forward] x n
+The Transformer model consists of an encoder and a decoder. Both are stacks
+of self-attention layers followed by feed-forward layers. This model yields
+good results on a number of problems, especially in NLP and machine translation.
+
+See "Attention Is All You Need" (https://arxiv.org/abs/1706.03762) for the full
+description of the model and the results obtained with its early version.
 """
 
 from __future__ import absolute_import

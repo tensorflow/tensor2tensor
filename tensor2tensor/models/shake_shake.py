@@ -186,6 +186,16 @@ def shakeshake_small():
 
 
 @registry.register_hparams
+def shake_shake_quick():
+  hparams = shakeshake_small()
+  hparams.optimizer = "Adam"
+  hparams.learning_rate_cosine_cycle_steps = 1000
+  hparams.learning_rate = 0.5
+  hparams.batch_size = 100
+  return hparams
+
+
+@registry.register_hparams
 def shakeshake_big():
   hparams = shakeshake_small()
   hparams.layer_prepostprocess_dropout = 0.0
