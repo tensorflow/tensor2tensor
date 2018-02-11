@@ -1,5 +1,21 @@
 #!/usr/bin/env python
-"""t2t-trainer."""
+"""Trainer for Tensor2Tensor.
+
+This script is used to train your models in Tensor2Tensor.
+
+For example, to train a shake-shake model on MNIST run this:
+
+t2t-trainer \
+  --generate_data \
+  --problems=image_mnist \
+  --data_dir=~/t2t_data \
+  --tmp_dir=~/t2t_data/tmp
+  --model=shake_shake \
+  --hparams_set=shake_shake_quick \
+  --output_dir=~/t2t_train/mnist1 \
+  --train_steps=1000 \
+  --eval_steps=100
+"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
