@@ -22,7 +22,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.layers import common_layers
-from tensor2tensor.models import transformer_vae
+from tensor2tensor.models.research import transformer_vae
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 

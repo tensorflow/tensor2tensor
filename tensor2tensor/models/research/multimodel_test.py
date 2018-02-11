@@ -24,7 +24,7 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import cifar  # pylint: disable=unused-import
-from tensor2tensor.models import multimodel
+from tensor2tensor.models.research import multimodel
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
