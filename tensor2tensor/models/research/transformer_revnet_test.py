@@ -24,7 +24,7 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models import transformer_revnet
+from tensor2tensor.models.research import transformer_revnet
 
 import tensorflow as tf
 

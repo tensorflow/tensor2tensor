@@ -24,7 +24,7 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
-from tensor2tensor.models import transformer_vae
+from tensor2tensor.models.research import transformer_vae
 from tensor2tensor.models.transformer import transformer_base
 from tensor2tensor.models.transformer import transformer_small
 from tensor2tensor.utils import registry

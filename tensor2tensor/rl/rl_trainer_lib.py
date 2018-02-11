@@ -25,7 +25,7 @@ import gym
 
 
 from tensor2tensor import models  # pylint: disable=unused-import
-from tensor2tensor.models import rl  # pylint: disable=unused-import
+from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import collect
 from tensor2tensor.rl import ppo
 from tensor2tensor.rl.envs import utils
