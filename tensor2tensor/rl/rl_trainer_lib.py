@@ -33,7 +33,7 @@ from tensor2tensor.rl.envs import utils
 import tensorflow as tf
 
 
-def define_train(hparams, environment_name):
+def define_train(hparams, environment_name, event_dir):
   """Define the training setup."""
   env_lambda = lambda: gym.make(environment_name)
   policy_lambda = hparams.network
@@ -46,16 +46,22 @@ def define_train(hparams, environment_name):
       "network",
       functools.partial(policy_lambda, action_space, hparams))
 
-  memory, collect_summary = collect.define_collect(policy_factory,
-                                                   batch_env, hparams)
+  with tf.variable_scope("train"):
+    memory, collect_summary = collect.define_collect(
+      policy_factory, batch_env, hparams, eval=False)
   ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
   summary = tf.summary.merge([collect_summary, ppo_summary])
 
-  return summary
+  with tf.variable_scope("eval"):
+    _, eval_summary = collect.define_collect(
+      policy_factory,
+      utils.define_batch_env(env_lambda, hparams.num_eval_agents),
+      hparams, eval=True)
+  return summary, eval_summary
 
 
 def train(hparams, environment_name, event_dir=None):
-  summary_op = define_train(hparams, environment_name)
+  train_summary_op, eval_summary_op = define_train(hparams, environment_name, event_dir)
 
   if event_dir:
     summary_writer = tf.summary.FileWriter(
@@ -66,6 +72,10 @@ def train(hparams, environment_name, event_dir=None):
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     for epoch_index in range(hparams.epochs_num):
-      summary = sess.run(summary_op)
+      summary = sess.run(train_summary_op)
       if summary_writer:
         summary_writer.add_summary(summary, epoch_index)
+      if hparams.eval_every_epochs and epoch_index % hparams.eval_every_epochs == 0:
+        summary = sess.run(eval_summary_op)
+        if summary_writer:
+          summary_writer.add_summary(summary, epoch_index)
