@@ -103,7 +103,7 @@ class T2TModel(base.Layer):
             self._problem_hparams.target_modality):
           same_vocab_sizes = False
       if not same_vocab_sizes:
-        tf.logging.info("Unsetting shared_embedding_and_softmax_weights.")
+        log_info("Unsetting shared_embedding_and_softmax_weights.")
         hparams.shared_embedding_and_softmax_weights = 0
     self._original_hparams = hparams
     self.set_mode(mode)
@@ -157,8 +157,8 @@ class T2TModel(base.Layer):
           self._to_single_features_dict(transformed_features))
       body_out, losses = self._normalize_body_output(body_out)
       if "training" in losses:
-        tf.logging.info("Skipping T2TModel top and loss because training loss "
-                        "returned from body")
+        log_info("Skipping T2TModel top and loss because training loss "
+                 "returned from body")
         sharded_logits = body_out
       else:
         sharded_logits = dp(self.top, body_out, datashard_to_features)
@@ -189,13 +189,13 @@ class T2TModel(base.Layer):
     transformed_features = self.bottom(features)
 
     with tf.variable_scope("body"):
-      tf.logging.info("Building model body")
+      log_info("Building model body")
       body_out = self.body(transformed_features)
     output, losses = self._normalize_body_output(body_out)
 
     if "training" in losses:
-      tf.logging.info("Skipping T2TModel top and loss because training loss "
-                      "returned from body")
+      log_info("Skipping T2TModel top and loss because training loss "
+               "returned from body")
       logits = output
     else:
       logits = self.top(output, features)
@@ -205,7 +205,7 @@ class T2TModel(base.Layer):
   def bottom(self, features):
     """Transform features to feed into body."""
     if not self._problem_hparams:
-      tf.logging.warn("Without a Problem, T2TModel.bottom is a passthrough.")
+      log_warn("Without a Problem, T2TModel.bottom is a passthrough.")
       return features
 
     transformed_features = {}
@@ -216,16 +216,16 @@ class T2TModel(base.Layer):
         self._problem_hparams.input_modality):
       do_reuse = input_modality.name in all_previous_modalities
       with tf.variable_scope(input_modality.name, reuse=do_reuse):
-        tf.logging.info("Transforming feature '%s' with %s.bottom", key,
-                        input_modality.name)
+        log_info("Transforming feature '%s' with %s.bottom", key,
+                 input_modality.name)
         transformed_features[key] = input_modality.bottom(features[key])
       all_previous_modalities.append(input_modality.name)
 
     # Transform the targets (for autoregressive models)
     target_modality = self._problem_hparams.target_modality
     with tf.variable_scope(target_modality.name):
-      tf.logging.info("Transforming 'targets' with %s.targets_bottom",
-                      target_modality.name)
+      log_info("Transforming 'targets' with %s.targets_bottom",
+               target_modality.name)
       transformed_features["targets"] = target_modality.targets_bottom(
           features["targets"])
 
@@ -258,13 +258,12 @@ class T2TModel(base.Layer):
 
   def top(self, body_output, features):
     if not self._problem_hparams:
-      tf.logging.warn("Without a Problem, T2TModel.top is a passthrough.")
+      log_warn("Without a Problem, T2TModel.top is a passthrough.")
       return body_output
 
     target_modality = self._problem_hparams.target_modality
     with tf.variable_scope(target_modality.name):
-      tf.logging.info("Transforming body output with %s.top",
-                      target_modality.name)
+      log_info("Transforming body output with %s.top", target_modality.name)
       last_only = (
           target_modality.top_is_pointwise and
           self.hparams.mode == tf.estimator.ModeKeys.PREDICT and
@@ -283,7 +282,7 @@ class T2TModel(base.Layer):
 
   def loss(self, logits, features):
     if not self._problem_hparams:
-      tf.logging.warn(_no_problem_err("loss"))
+      log_warn(_no_problem_err("loss"))
       return (tf.constant(0., dtype=tf.float32),
               tf.constant(1., dtype=tf.float32))
 
@@ -294,17 +293,17 @@ class T2TModel(base.Layer):
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
-    tf.logging.info("Base learning rate: %f", self.hparams.learning_rate)
+    log_info("Base learning rate: %f", self.hparams.learning_rate)
     lr = self.hparams.learning_rate
     decay_rate = optimize.learning_rate_schedule(self.hparams)
     lr *= decay_rate
     if self.hparams.learning_rate_minimum:
       lr_min = float(self.hparams.learning_rate_minimum)
-      tf.logging.info("Applying learning rate minimum: %f", lr_min)
+      log_info("Applying learning rate minimum: %f", lr_min)
       lr = tf.max(lr, tf.to_float(lr_min))
     if num_async_replicas > 1:
-      tf.logging.info("Dividing learning rate by num_async_replicas: %d",
-                      num_async_replicas)
+      log_info("Dividing learning rate by num_async_replicas: %d",
+               num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
     train_op = optimize.optimize(
         loss, lr, self.hparams, use_tpu=common_layers.is_on_tpu())
@@ -312,14 +311,14 @@ class T2TModel(base.Layer):
 
   def set_mode(self, mode):
     """Set hparams with the given mode."""
-    tf.logging.info("Setting T2TModel mode to '%s'", mode)
+    log_info("Setting T2TModel mode to '%s'", mode)
     hparams = copy.copy(self._original_hparams)
     hparams.add_hparam("mode", mode)
     # When not in training mode, set all forms of dropout to zero.
     if mode != tf.estimator.ModeKeys.TRAIN:
       for key in hparams.values():
         if key.endswith("dropout"):
-          tf.logging.info("Setting hparams.%s to 0.0", key)
+          log_info("Setting hparams.%s to 0.0", key)
           setattr(hparams, key, 0.0)
     self._hparams = hparams
 
@@ -419,9 +418,9 @@ class T2TModel(base.Layer):
       # (i.e. if the target modality is RealModality).
       self.prepare_features_for_infer(features)
       if not self.has_input and beam_size > 1:
-        tf.logging.warn("Beam searching for a model with no inputs.")
+        log_warn("Beam searching for a model with no inputs.")
       if not self.has_input and self.hparams.sampling_method != "random":
-        tf.logging.warn("Non-random sampling for a model with no inputs.")
+        log_warn("Non-random sampling for a model with no inputs.")
       self._fill_problem_hparams_features(features)
 
       if self._problem_hparams:
@@ -429,10 +428,10 @@ class T2TModel(base.Layer):
         if target_modality.is_class_modality:
           beam_size = 1  # No use to run beam-search for a single class.
       if beam_size == 1:
-        tf.logging.info("Greedy Decoding")
+        log_info("Greedy Decoding")
         results = self._greedy_infer(features, decode_length)
       else:
-        tf.logging.info("Beam Decoding with beam size %d" % beam_size)
+        log_info("Beam Decoding with beam size %d" % beam_size)
         results = self._beam_decode(
             features, decode_length, beam_size, top_beams, alpha)
 
@@ -963,9 +962,9 @@ def _warn_changed_modality_type(new_name, old_name, feature_name):
   new_type, new_name = registry.parse_modality_name(new_name)
   old_type, old_name = registry.parse_modality_name(old_name)
   if new_type != old_type:
-    tf.logging.warning("%s has a designated modality type %s (%s) but has been "
-                       "overridden with a modality of type %s (%s).",
-                       feature_name, old_type, old_name, new_type, new_name)
+    log_warn("%s has a designated modality type %s (%s) but has been "
+             "overridden with a modality of type %s (%s).", feature_name,
+             old_type, old_name, new_type, new_name)
 
 
 def _with_timing(fn, msg, silent=False):
@@ -974,8 +973,7 @@ def _with_timing(fn, msg, silent=False):
     start_time = time.time()
     res = fn(*args, **kwargs)
     if not silent:
-      tf.logging.info("Doing %s took %.3f sec." % (msg,
-                                                   time.time() - start_time))
+      log_info("Doing %s took %.3f sec." % (msg, time.time() - start_time))
     return res
 
   return fn_with_timing
@@ -1024,7 +1022,7 @@ def _create_tpu_eval_metrics_fn(problem, hparams):
 
   for metric in eval_metrics:
     if metric in TPU_METRIC_BLACKLIST:
-      tf.logging.warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
+      log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
       continue
     name = "metrics-%s/%s" % (problem.name, metric)
     metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
@@ -1155,3 +1153,21 @@ def summarize_features(features, num_shards=1):
         tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
         tf.summary.scalar("%s_nonpadding_fraction" % k,
                           tf.reduce_mean(nonpadding))
+
+
+_already_logged = set()
+
+
+def _eager_log(level, *args):
+  if context.in_eager_mode() and args in _already_logged:
+    return
+  _already_logged.add(args)
+  getattr(tf.logging, level)(*args)
+
+
+def log_info(*args):
+  _eager_log("info", *args)
+
+
+def log_warn(*args):
+  _eager_log("warn", *args)
