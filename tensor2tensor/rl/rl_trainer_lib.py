@@ -53,9 +53,13 @@ def define_train(hparams, environment_name, event_dir):
   summary = tf.summary.merge([collect_summary, ppo_summary])
 
   with tf.variable_scope("eval"):
+    eval_env_lambda = env_lambda
+    if event_dir:
+      eval_env_lambda = lambda: gym.wrappers.Monitor(
+        env_lambda(), event_dir, video_callable=lambda _: True)
     _, eval_summary = collect.define_collect(
       policy_factory,
-      utils.define_batch_env(env_lambda, hparams.num_eval_agents),
+      utils.define_batch_env(eval_env_lambda, hparams.num_eval_agents, xvfb=True),
       hparams, eval=True)
   return summary, eval_summary
 
