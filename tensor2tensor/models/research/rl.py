@@ -46,6 +46,8 @@ def ppo_base_v1():
   hparams.add_hparam("optimization_epochs", 15)
   hparams.add_hparam("epoch_length", 200)
   hparams.add_hparam("epochs_num", 2000)
+  hparams.add_hparam("eval_every_epochs", 10)
+  hparams.add_hparam("num_eval_agents", 5)
   return hparams
 
 
