@@ -21,6 +21,10 @@
 
 import atexit
 import multiprocessing
+import os
+import random
+import signal
+import subprocess
 import sys
 import traceback
 
@@ -41,7 +45,7 @@ class ExternalProcessEnv(object):
   _EXCEPTION = 4
   _CLOSE = 5
 
-  def __init__(self, constructor):
+  def __init__(self, constructor, xvfb):
     """Step environment in a separate process for lock free paralellism.
 
     The environment will be created in the external process by calling the
@@ -57,8 +61,28 @@ class ExternalProcessEnv(object):
       action_space: The cached action space of the environment.
     """
     self._conn, conn = multiprocessing.Pipe()
-    self._process = multiprocessing.Process(
+    if xvfb:
+      server_id = random.randint(10000, 99999)
+      auth_file_id = random.randint(10000, 99999999999)
+
+      xauthority_path = '/tmp/Xauthority_{}'.format(auth_file_id)
+
+      command = 'xvfb-run -s "-screen 0 1400x900x24" -n {} -f {} sleep 1000d'.format(server_id, xauthority_path)
+
+      proc = subprocess.Popen(command, shell=True)
+      atexit.register(lambda: os.killpg(os.getpgid(proc.pid), signal.SIGTERM))
+
+      def constructor_using_xvfb():
+          os.environ["DISPLAY"] = ":{}".format(server_id)
+          os.environ["XAUTHORITY"] = xauthority_path
+          return constructor()
+
+      self._process = multiprocessing.Process(
+          target=self._worker, args=(constructor_using_xvfb, conn))
+    else:
+      self._process = multiprocessing.Process(
         target=self._worker, args=(constructor, conn))
+
     atexit.register(self.close)
     self._process.start()
     self._observ_space = None
@@ -206,7 +230,7 @@ class ExternalProcessEnv(object):
     conn.close()
 
 
-def define_batch_env(constructor, num_agents, env_processes=True):
+def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
   """Create environments and apply all desired wrappers.
 
   Args:
@@ -220,7 +244,7 @@ def define_batch_env(constructor, num_agents, env_processes=True):
   with tf.variable_scope('environments'):
     if env_processes:
       envs = [
-          ExternalProcessEnv(constructor)
+          ExternalProcessEnv(constructor, xvfb)
           for _ in range(num_agents)]
     else:
       envs = [constructor() for _ in range(num_agents)]
