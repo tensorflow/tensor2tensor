@@ -18,7 +18,6 @@ from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
 
