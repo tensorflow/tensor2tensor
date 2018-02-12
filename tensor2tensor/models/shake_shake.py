@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -182,6 +182,16 @@ def shakeshake_small():
   hparams.optimizer_momentum_momentum = 0.9
   hparams.add_hparam("shake_shake_num_branches", 2)
   hparams.add_hparam("shake_shake_concat", int(False))
+  return hparams
+
+
+@registry.register_hparams
+def shake_shake_quick():
+  hparams = shakeshake_small()
+  hparams.optimizer = "Adam"
+  hparams.learning_rate_cosine_cycle_steps = 1000
+  hparams.learning_rate = 0.5
+  hparams.batch_size = 100
   return hparams
 
 

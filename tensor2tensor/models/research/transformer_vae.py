@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -600,8 +600,9 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
 
 def ae_latent_sample(latents_dense, inputs, ed, embed, iters, hparams):
   """Sample from the latent space in the autoencoder."""
-  if hparams.num_decode_blocks < 2:
+  if hparams.num_decode_blocks < 2 and hparams.sampling_temp == 0.0:
     # TODO(lukaszkaiser): beam-search only works in non-blocked mode for now.
+    tf.logging.info("Running beam-search for latents with beam size 1.")
     return ae_latent_sample_beam(latents_dense, inputs, ed, embed, hparams)
   latents_pred = decode_transformer(inputs, ed, latents_dense, hparams, "extra")
   latents_discrete, _ = ae_latent_softmax(latents_pred, None, hparams)
@@ -681,9 +682,9 @@ def ae_transformer_internal(inputs,
       # Extra loss predicting latent code from input. Discrete only.
       if hparams.bottleneck_kind not in ["dense", "vae"]:
         latents_pred = decode_transformer(
-            tf.stop_gradient(inputs) if inputs is not None else None,
-            tf.stop_gradient(ed) if inputs is not None else None,
-            tf.stop_gradient(latents_dense), hparams, "extra",
+            inputs if inputs is not None else None,
+            ed if inputs is not None else None,
+            embed(latents_discrete), hparams, "extra",
             task="translate")
         _, latent_pred_loss = ae_latent_softmax(
             latents_pred, latents_discrete, hparams)
@@ -916,6 +917,7 @@ def transformer_ae_small():
   """Set of hyperparameters."""
   hparams = transformer.transformer_small()
   hparams.batch_size = 2048
+  hparams.learning_rate = 0.2
   hparams.learning_rate_warmup_steps = 4000
   hparams.num_hidden_layers = 3
   hparams.hidden_size = 384
@@ -946,7 +948,6 @@ def transformer_ae_small():
   hparams.add_hparam("v_size", 1024*64)
   hparams.add_hparam("max_context_length", 64)
   hparams.add_hparam("num_compress_steps", 3)
-  hparams.add_hparam("kl_steps", 35000)
   hparams.add_hparam("startup_steps", 10000)
   hparams.add_hparam("mask_startup_steps", 50000)
   hparams.add_hparam("kmeans_lr_factor", 0.002)

@@ -1,5 +1,16 @@
 #!/usr/bin/env python
-"""t2t-datagen."""
+"""Data generation for Tensor2Tensor.
+
+This script is used to generate data to train your models
+for a number problems for which open-source data is available.
+
+For example, to generate data for MNIST run this:
+
+t2t-datagen \
+  --problem=image_mnist \
+  --data_dir=~/t2t_data \
+  --tmp_dir=~/t2t_data/tmp
+"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
