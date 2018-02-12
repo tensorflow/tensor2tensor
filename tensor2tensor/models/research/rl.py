@@ -50,14 +50,14 @@ def ppo_base_v1():
 
 
 @registry.register_hparams
-def pendulum_base():
+def continuous_action_base():
   hparams = ppo_base_v1()
   hparams.add_hparam("network", feed_forward_gaussian_fun)
   return hparams
 
 
 @registry.register_hparams
-def cartpole_base():
+def discrete_action_base():
   hparams = ppo_base_v1()
   hparams.add_hparam("network", feed_forward_categorical_fun)
   return hparams

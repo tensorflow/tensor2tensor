@@ -26,11 +26,11 @@ import tensorflow as tf
 class TrainTest(tf.test.TestCase):
 
   def test_no_crash_pendulum(self):
-    hparams = trainer_lib.create_hparams("pendulum_base", "epochs_num=10")
+    hparams = trainer_lib.create_hparams("continuous_action_base", "epochs_num=10")
     rl_trainer_lib.train(hparams, "Pendulum-v0")
 
   def test_no_crash_cartpole(self):
-    hparams = trainer_lib.create_hparams("cartpole_base", "epochs_num=10")
+    hparams = trainer_lib.create_hparams("discrete_action_base", "epochs_num=10")
     rl_trainer_lib.train(hparams, "CartPole-v0")
 
 
