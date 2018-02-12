@@ -274,7 +274,9 @@ def save_metadata(hparams):
   # Save hparams as hparams.json
   hparams_fname = os.path.join(output_dir, "hparams.json")
   with tf.gfile.Open(hparams_fname, "w") as f:
-    f.write(hparams.to_json(indent=0, sort_keys=True))
+    # TODO(lukaszkaiser): use the first line once we require TF 1.5+.
+    # f.write(hparams.to_json(indent=0, sort_keys=True))
+    f.write(hparams.to_json())
 
 
 def execute_schedule(exp):
