@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -132,7 +132,7 @@ def set_hparams_from_args(args):
   while i < len(args):
     arg = args[i]
     if arg.startswith(hp_prefix):
-      pairs.append((arg.lstrip(hp_prefix), args[i+1]))
+      pairs.append((arg[len(hp_prefix):], args[i+1]))
       i += 2
     else:
       tf.logging.warn("Found unknown flag: %s", arg)

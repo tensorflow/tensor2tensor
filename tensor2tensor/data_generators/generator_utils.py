@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -83,8 +83,8 @@ def generate_files_distributed(generator,
     counter += 1
     if max_cases and counter > max_cases:
       break
-    sequence_example = to_example(case)
-    writer.write(sequence_example.SerializeToString())
+    example = to_example(case)
+    writer.write(example.SerializeToString())
 
   writer.close()
   return output_file
@@ -151,13 +151,15 @@ def generate_files(generator, output_filenames, max_cases=None):
   writers = [tf.python_io.TFRecordWriter(fname) for fname in output_filenames]
   counter, shard = 0, 0
   for case in generator:
+    if case is None:
+      continue
     if counter > 0 and counter % 100000 == 0:
       tf.logging.info("Generating case %d." % counter)
     counter += 1
     if max_cases and counter > max_cases:
       break
-    sequence_example = to_example(case)
-    writers[shard].write(sequence_example.SerializeToString())
+    example = to_example(case)
+    writers[shard].write(example.SerializeToString())
     shard = (shard + 1) % num_shards
 
   for writer in writers:

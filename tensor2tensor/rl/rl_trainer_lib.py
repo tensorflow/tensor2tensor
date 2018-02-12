@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +22,10 @@ import functools
 # Dependency imports
 
 import gym
+
+
+from tensor2tensor import models  # pylint: disable=unused-import
+from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import collect
 from tensor2tensor.rl import ppo
 from tensor2tensor.rl.envs import utils
@@ -29,9 +33,9 @@ from tensor2tensor.rl.envs import utils
 import tensorflow as tf
 
 
-def define_train(hparams):
+def define_train(hparams, environment_name):
   """Define the training setup."""
-  env_lambda = lambda: gym.make(hparams.environment)
+  env_lambda = lambda: gym.make(environment_name)
   policy_lambda = hparams.network
   env = env_lambda()
   action_space = env.action_space
@@ -50,13 +54,14 @@ def define_train(hparams):
   return summary
 
 
-def train(hparams, event_dir=None):
-  summary_op = define_train(hparams)
+def train(hparams, environment_name, event_dir=None):
+  summary_op = define_train(hparams, environment_name)
 
   if event_dir:
-      summary_writer = tf.summary.FileWriter(event_dir, graph=tf.get_default_graph(), flush_secs=60)
+    summary_writer = tf.summary.FileWriter(
+        event_dir, graph=tf.get_default_graph(), flush_secs=60)
   else:
-      summary_writer = None
+    summary_writer = None
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())

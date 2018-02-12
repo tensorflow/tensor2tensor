@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,10 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""transformer (attention).
+"""Transformer model from "Attention Is All You Need".
 
-encoder: [Self-Attention, Feed-forward] x n
-decoder: [Self-Attention, Source-Target-Attention, Feed-forward] x n
+The Transformer model consists of an encoder and a decoder. Both are stacks
+of self-attention layers followed by feed-forward layers. This model yields
+good results on a number of problems, especially in NLP and machine translation.
+
+See "Attention Is All You Need" (https://arxiv.org/abs/1706.03762) for the full
+description of the model and the results obtained with its early version.
 """
 
 from __future__ import absolute_import
@@ -168,10 +172,10 @@ class Transformer(t2t_model.T2TModel):
         hparams,
         nonpadding=features_to_nonpadding(features, "targets"))
 
-    expected_attention_weights = features.get("expected_attention_weights")
-    if expected_attention_weights is not None:
+    expected_attentions = features.get("expected_attentions")
+    if expected_attentions is not None:
       attention_loss = common_attention.encoder_decoder_attention_loss(
-          expected_attention_weights, self.attention_weights)
+          expected_attentions, self.attention_weights)
       return decoder_output, {"attention_loss": attention_loss}
 
     return decoder_output

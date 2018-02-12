@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 
 Based on: https://arxiv.org/abs/1707.06347
 """
-
 
 import tensorflow as tf
 
@@ -89,9 +88,12 @@ def define_ppo_epoch(memory, policy_factory, config):
 
   losses_summary = tf.summary.merge(summaries)
 
-  losses_summary = tf.Print(losses_summary, [tf.reduce_mean(policy_loss)], 'policy loss: ')
-  losses_summary = tf.Print(losses_summary, [tf.reduce_mean(value_loss)], 'value loss: ')
-  losses_summary = tf.Print(losses_summary, [tf.reduce_mean(entropy_loss)], 'entropy loss: ')
+  losses_summary = tf.Print(losses_summary,
+                            [tf.reduce_mean(policy_loss)], "policy loss: ")
+  losses_summary = tf.Print(losses_summary,
+                            [tf.reduce_mean(value_loss)], "value loss: ")
+  losses_summary = tf.Print(losses_summary,
+                            [tf.reduce_mean(entropy_loss)], "entropy loss: ")
 
   return losses_summary
 
@@ -108,22 +110,23 @@ def calculate_discounted_return(reward, value, done, discount, unused_lambda):
       tf.zeros_like(reward[0, :]),  # initializer
       1,
       False), [0])
-  return tf.check_numerics(return_, 'return')
+  return tf.check_numerics(return_, "return")
 
 
-def calculate_generalized_advantage_estimator(reward, value, done, gae_gamma, gae_lambda):
-  """Generalized advantage estimator"""
-
-  #Below is slight wierdness, we set the last reward to 0.
-  # This makes the adventantage to be 0 in the last timestep
-  reward = tf.concat([reward[:-1,:], value[-1:,:]], axis=0)
-  next_value = tf.concat([value[1:,:], tf.zeros_like(value[-1:, :])], axis=0)
-  next_not_done = 1 - tf.cast(tf.concat([done[1:, :], tf.zeros_like(done[-1:, :])], axis=0), tf.float32)
+def calculate_generalized_advantage_estimator(
+    reward, value, done, gae_gamma, gae_lambda):
+  """Generalized advantage estimator."""
+  # Below is slight weirdness, we set the last reward to 0.
+  # This makes the adventantage to be 0 in the last timestep.
+  reward = tf.concat([reward[:-1, :], value[-1:, :]], axis=0)
+  next_value = tf.concat([value[1:, :], tf.zeros_like(value[-1:, :])], axis=0)
+  next_not_done = 1 - tf.cast(tf.concat(
+      [done[1:, :], tf.zeros_like(done[-1:, :])], axis=0), tf.float32)
   delta = reward + gae_gamma * next_value * next_not_done - value
 
   return_ = tf.reverse(tf.scan(
       lambda agg, cur: cur[0] + cur[1] * gae_gamma * gae_lambda * agg,
       [tf.reverse(delta, [0]), tf.reverse(next_not_done, [0])],
       tf.zeros_like(delta[0, :]),
-      1,  False),  [0])
-  return tf.check_numerics(tf.stop_gradient(return_), 'return')
+      1, False), [0])
+  return tf.check_numerics(tf.stop_gradient(return_), "return")

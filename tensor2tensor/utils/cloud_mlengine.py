@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 
 """Launch on GCP's ML Engine."""
 
+import datetime
 import os
 import shutil
 import sys
@@ -91,7 +92,6 @@ def configure_job():
   """Construct jobSpec for ML Engine job."""
   train_dir = FLAGS.output_dir
   assert train_dir.startswith('gs://')
-  job_name = os.path.basename(train_dir)
 
   # See documentation:
   # https://cloud.google.com/ml-engine/reference/rest/v1/projects.jobs#traininginput
@@ -122,6 +122,8 @@ def configure_job():
   if training_input['scaleTier'] == 'CUSTOM':
     assert 'masterType' in training_input
 
+  timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+  job_name = '%s_%s_t2t_%s' % (FLAGS.model, FLAGS.problems, timestamp)
   job_spec = {'jobId': job_name, 'trainingInput': training_input}
   return job_spec
 

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,16 +15,17 @@
 
 """Reinforcement learning models and parameters."""
 
-# Dependency imports
-
 import collections
 import functools
-import gym
 import operator
-import tensorflow as tf
 
+# Dependency imports
+
+import gym
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.utils import registry
+
+import tensorflow as tf
 
 
 @registry.register_hparams
@@ -47,17 +48,17 @@ def ppo_base_v1():
   hparams.add_hparam("epochs_num", 2000)
   return hparams
 
+
 @registry.register_hparams
-def pendulum():
+def pendulum_base():
   hparams = ppo_base_v1()
-  hparams.add_hparam("environment", "Pendulum-v0")
   hparams.add_hparam("network", feed_forward_gaussian_fun)
   return hparams
 
+
 @registry.register_hparams
-def cartpole():
+def cartpole_base():
   hparams = ppo_base_v1()
-  hparams.add_hparam("environment", "CartPole-v0")
   hparams.add_hparam("network", feed_forward_categorical_fun)
   return hparams
 
@@ -65,12 +66,14 @@ def cartpole():
 # Neural networks for actor-critic algorithms
 
 NetworkOutput = collections.namedtuple(
-    'NetworkOutput', 'policy, value, action_postprocessing')
+    "NetworkOutput", "policy, value, action_postprocessing")
 
 
 def feed_forward_gaussian_fun(action_space, config, observations):
-  assert isinstance(action_space, gym.spaces.box.Box), \
-      'Expecting continuous action space.'
+  """Feed-forward Gaussian."""
+  if not isinstance(action_space, gym.spaces.box.Box):
+    raise ValueError("Expecting continuous action space.")
+
   mean_weights_initializer = tf.contrib.layers.variance_scaling_initializer(
       factor=config.init_mean_factor)
   logstd_initializer = tf.random_normal_initializer(config.init_logstd, 1e-10)
@@ -79,7 +82,7 @@ def feed_forward_gaussian_fun(action_space, config, observations):
       tf.shape(observations)[0], tf.shape(observations)[1],
       functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
 
-  with tf.variable_scope('policy'):
+  with tf.variable_scope("policy"):
     x = flat_observations
     for size in config.policy_layers:
       x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
@@ -87,18 +90,18 @@ def feed_forward_gaussian_fun(action_space, config, observations):
         x, action_space.shape[0], tf.tanh,
         weights_initializer=mean_weights_initializer)
     logstd = tf.get_variable(
-        'logstd', mean.shape[2:], tf.float32, logstd_initializer)
+        "logstd", mean.shape[2:], tf.float32, logstd_initializer)
     logstd = tf.tile(
         logstd[None, None],
         [tf.shape(mean)[0], tf.shape(mean)[1]] + [1] * (mean.shape.ndims - 2))
-  with tf.variable_scope('value'):
+  with tf.variable_scope("value"):
     x = flat_observations
     for size in config.value_layers:
       x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
     value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
-  mean = tf.check_numerics(mean, 'mean')
-  logstd = tf.check_numerics(logstd, 'logstd')
-  value = tf.check_numerics(value, 'value')
+  mean = tf.check_numerics(mean, "mean")
+  logstd = tf.check_numerics(logstd, "logstd")
+  value = tf.check_numerics(value, "value")
 
   policy = tf.contrib.distributions.MultivariateNormalDiag(mean,
                                                            tf.exp(logstd))
@@ -107,18 +110,19 @@ def feed_forward_gaussian_fun(action_space, config, observations):
 
 
 def feed_forward_categorical_fun(action_space, config, observations):
-  assert isinstance(action_space, gym.spaces.Discrete), \
-      'Expecting discrete action space.'
+  """Feed-forward categorical."""
+  if not isinstance(action_space, gym.spaces.Discrete):
+    raise ValueError("Expecting discrete action space.")
   flat_observations = tf.reshape(observations, [
       tf.shape(observations)[0], tf.shape(observations)[1],
       functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
-  with tf.variable_scope('policy'):
+  with tf.variable_scope("policy"):
     x = flat_observations
     for size in config.policy_layers:
       x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
     logits = tf.contrib.layers.fully_connected(x, action_space.n,
                                                activation_fn=None)
-  with tf.variable_scope('value'):
+  with tf.variable_scope("value"):
     x = flat_observations
     for size in config.value_layers:
       x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)

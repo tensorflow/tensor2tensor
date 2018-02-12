@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -211,7 +211,7 @@ class TransformerTest(tf.test.TestCase):
     model, features = self.getModel(transformer.transformer_small())
     expected_attention_weights = np.random.random_sample(
         size=(BATCH_SIZE, TARGET_LENGTH, INPUT_LENGTH))
-    features["expected_attention_weights"] = tf.constant(
+    features["expected_attentions"] = tf.constant(
         expected_attention_weights, dtype=tf.float32)
     _, extra_loss = model(features)
     with self.test_session() as session:

@@ -12,73 +12,50 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 
 [Tensor2Tensor](https://github.com/tensorflow/tensor2tensor), or
 [T2T](https://github.com/tensorflow/tensor2tensor) for short, is a library
-of deep learning models and datasets. It has binaries to train the models and
-to download and prepare the data for you. T2T is modular and extensible and can
-be used in [notebooks](https://goo.gl/wkHexj) for prototyping your own models
-or running existing ones on your data. It is actively used and maintained by
-researchers and engineers within
-the [Google Brain team](https://research.google.com/teams/brain/) and was used
-to develop state-of-the-art models for translation (see
-[Attention Is All You Need](https://arxiv.org/abs/1706.03762)), summarization,
-image generation and other tasks. You can read
-more about T2T in the [Google Research Blog post introducing
-it](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html).
+of deep learning models and datasets designed to [accelerate deep learning
+research](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html) and make it more accessible.
 
-We're eager to collaborate with you on extending T2T, so please feel
-free to [open an issue on
-GitHub](https://github.com/tensorflow/tensor2tensor/issues) or
-send along a pull request to add your dataset or model.
-See [our contribution
-doc](CONTRIBUTING.md) for details and our [open
-issues](https://github.com/tensorflow/tensor2tensor/issues).
-You can chat with us and other users on
-[Gitter](https://gitter.im/tensor2tensor/Lobby) and please join our
-[Google Group](https://groups.google.com/forum/#!forum/tensor2tensor) to keep up
-with T2T announcements.
+T2T is actively used and maintained by researchers and engineers within the
+[Google Brain team](https://research.google.com/teams/brain/) and a community
+of users. We're eager to collaborate with you too, so feel free to
+[open an issue on GitHub](https://github.com/tensorflow/tensor2tensor/issues)
+or send along a pull request (see [our contribution doc](CONTRIBUTING.md)).
+You can chat with us on
+[Gitter](https://gitter.im/tensor2tensor/Lobby) and join the
+[T2T Google Group](https://groups.google.com/forum/#!forum/tensor2tensor).
 
 ### Quick Start
 
 [This iPython notebook](https://goo.gl/wkHexj) explains T2T and runs in your
 browser using a free VM from Google, no installation needed.
-
-Alternatively, here is a one-command version that installs T2T, downloads data,
-trains an English-German translation model, and evaluates it:
+Alternatively, here is a one-command version that installs T2T, downloads MNIST,
+trains a model and evaluates it:
 
 ```
 pip install tensor2tensor && t2t-trainer \
   --generate_data \
   --data_dir=~/t2t_data \
-  --problems=translate_ende_wmt32k \
-  --model=transformer \
-  --hparams_set=transformer_base_single_gpu \
-  --output_dir=~/t2t_train/base
+  --output_dir=~/t2t_train/mnist \
+  --problems=image_mnist \
+  --model=shake_shake \
+  --hparams_set=shake_shake_quick \
+  --train_steps=1000 \
+  --eval_steps=100
 ```
-
-You can decode from the model interactively:
-
-```
-t2t-decoder \
-  --data_dir=~/t2t_data \
-  --problems=translate_ende_wmt32k \
-  --model=transformer \
-  --hparams_set=transformer_base_single_gpu \
-  --output_dir=~/t2t_train/base \
-  --decode_interactive
-```
-
-See the [Walkthrough](#walkthrough) below for more details on each step
-and [Suggested Models](#suggested-models) for well performing models
-on common tasks.
 
 ### Contents
 
-* [Walkthrough](#walkthrough)
-* [Suggested Models](#suggested-models)
-  * [Translation](#translation)
-  * [Summarization](#summarization)
+* [Suggested Datasets and Models](#suggested-datasets-and-models)
   * [Image Classification](#image-classification)
-* [Installation](#installation)
-* [Features](#features)
+  * [Language Modeling](#language-modeling)
+  * [Sentiment Analysis](#sentiment-analysis)
+  * [Speech Recognition](#speech-recognition)
+  * [Summarization](#summarization)
+  * [Translation](#translation)
+* [Basics](#basics)
+  * [Walkthrough](#walkthrough)
+  * [Installation](#installation)
+  * [Features](#features)
 * [T2T Overview](#t2t-overview)
   * [Datasets](#datasets)
   * [Problems and Modalities](#problems-and-modalities)
@@ -87,10 +64,102 @@ on common tasks.
   * [Trainer](#trainer)
 * [Adding your own components](#adding-your-own-components)
 * [Adding a dataset](#adding-a-dataset)
+* [Papers](#papers)
 
----
+## Suggested Datasets and Models
 
-## Walkthrough
+Below we list a number of tasks that can be solved with T2T when
+you train the appropriate model on the appropriate problem.
+We give the problem and model below and we suggest a setting of
+hyperparameters that we know works well in our setup. We usually
+run either on Cloud TPUs or on 8-GPU machines; you might need
+to modify the hyperparameters if you run on a different setup.
+
+### Image Classification
+
+For image classification, we have a number of standard data-sets:
+* ImageNet (a large data-set): `--problems=image_imagenet`, or one
+   of the re-scaled versions (`image_imagenet224`, `image_imagenet64`,
+   `image_imagenet32`)
+* CIFAR-10: `--problems=image_cifar10` (or
+    `--problems=image_cifar10_plain` to turn off data augmentation)
+* CIFAR-100: `--problems=image_cifar100`
+* MNIST: `--problems=image_mnist`
+
+For ImageNet, we suggest to use the ResNet or Xception, i.e.,
+use `--model=resnet --hparams_set=resnet_50` or
+`--model=xception --hparams_set=xception_base`.
+Resnet should get to above 76% top-1 accuracy on ImageNet.
+
+For CIFAR and MNIST, we suggest to try the shake-shake model:
+`--model=shake_shake --hparams_set=shakeshake_big`.
+This setting trained for `--train_steps=700000` should yield
+close to 97% accuracy on CIFAR-10.
+
+### Language Modeling
+
+For language modeling, we have these data-sets in T2T:
+* PTB (a small data-set): `--problems=languagemodel_ptb10k` for
+    word-level modeling and `--problems=languagemodel_ptb_characters`
+    for character-level modeling.
+* LM1B (a billion-word corpus): `--problems=languagemodel_lm1b32k` for
+    subword-level modeling and `--problems=languagemodel_lm1b_characters`
+    for character-level modeling.
+
+We suggest to start with `--model=transformer` on this task and use
+`--hparams_set=transformer_small` for PTB and
+`--hparams_set=transformer_base` for LM1B.
+
+### Sentiment Analysis
+
+For the task of recognizing the sentiment of a sentence, use
+* the IMDB data-set: `--problems=sentiment_imdb`
+
+We suggest to use `--model=transformer_encoder` here and since it is
+a small data-set, try `--hparams_set=transformer_tiny` and train for
+few steps (e.g., `--train_steps=2000`).
+
+### Speech Recognition
+
+For speech-to-text, we have these data-sets in T2T:
+* Librispeech (English speech to text): `--problems=librispeech` for
+    the whole set and `--problems=librispeech_clean` for a smaller
+    but nicely filtered part.
+
+### Summarization
+
+For summarizing longer text into shorter one we have these data-sets:
+* CNN/DailyMail articles summarized into a few sentences:
+  `--problems=summarize_cnn_dailymail32k`
+
+We suggest to use `--model=transformer` and
+`--hparams_set=transformer_prepend` for this task.
+This yields good ROUGE scores.
+
+### Translation
+
+There are a number of translation data-sets in T2T:
+* English-German: `--problems=translate_ende_wmt32k`
+* English-French: `--problems=translate_enfr_wmt32k`
+* English-Czech: `--problems=translate_encs_wmt32k`
+* English-Chinese: `--problems=translate_enzh_wmt32k`
+
+You can get translations in the other direction by appending `_rev` to
+the problem name, e.g., for German-English use
+`--problems=translate_ende_wmt32k_rev`.
+
+For all translation problems, we suggest to try the Transformer model:
+`--model=transformer`. At first it is best to try the base setting,
+`--hparams_set=transformer_base`. When trained on 8 GPUs for 300K steps
+this should reach a BLEU score of about 28 on the English-German data-set,
+which is close to state-of-the art. If training on a single GPU, try the
+`--hparams_set=transformer_base_single_gpu` setting. For very good results
+or larger data-sets (e.g., for English-French)m, try the big model
+with `--hparams_set=transformer_big`.
+
+## Basics
+
+### Walkthrough
 
 Here's a walkthrough training a good English-to-German translation
 model using the Transformer model from [*Attention Is All You
@@ -156,36 +225,8 @@ cat translation.en
 t2t-bleu --translation=translation.en --reference=ref-translation.de
 ```
 
----
+### Installation
 
-## Suggested Models
-
-Here are some combinations of models, hparams and problems that we found
-work well, so we suggest to use them if you're interested in that problem.
-
-### Translation
-
-For translation, esp. English-German and English-French, we suggest to use
-the Transformer model in base or big configurations, i.e.
-for `--problems=translate_ende_wmt32k` use `--model=transformer` and
-`--hparams_set=transformer_base`. When trained on 8 GPUs for 300K steps
-this should reach a BLEU score of about 28.
-
-### Summarization
-
-For summarization suggest to use the Transformer model in prepend mode, i.e.
-for `--problems=summarize_cnn_dailymail32k` use `--model=transformer` and
-`--hparams_set=transformer_prepend`.
-
-### Image Classification
-
-For image classification suggest to use the ResNet or Xception, i.e.
-for `--problems=image_imagenet` use `--model=resnet50` and
-`--hparams_set=resnet_base` or `--model=xception` and
-`--hparams_set=xception_base`.
-
-
-## Installation
 
 ```
 # Assumes tensorflow or tensorflow-gpu installed
@@ -214,9 +255,7 @@ Library usage:
 python -c "from tensor2tensor.models.transformer import Transformer"
 ```
 
----
-
-## Features
+### Features
 
 * Many state of the art and baseline models are built-in and new models can be
   added easily (open an issue or pull request!).
@@ -229,11 +268,10 @@ python -c "from tensor2tensor.models.transformer import Transformer"
   specification.
 * Support for multi-GPU machines and synchronous (1 master, many workers) and
   asynchronous (independent workers synchronizing through a parameter server)
-  [distributed training](https://github.com/tensorflow/tensor2tensor/tree/master/docs/distributed_training.md).
+  [distributed training](https://tensorflow.github.io/tensor2tensor/distributed_training.html).
 * Easily swap amongst datasets and models by command-line flag with the data
   generation script `t2t-datagen` and the training script `t2t-trainer`.
-
----
+* Train on [Google Cloud ML](https://tensorflow.github.io/tensor2tensor/cloud_mlengine.html) and [Cloud TPUs](https://tensorflow.github.io/tensor2tensor/cloud_tpu.html).
 
 ## T2T overview
 
@@ -289,9 +327,7 @@ inference. Users can easily switch between problems, models, and hyperparameter
 sets by using the `--model`, `--problems`, and `--hparams_set` flags. Specific
 hyperparameters can be overridden with the `--hparams` flag. `--schedule` and
 related flags control local and distributed training/evaluation
-([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/docs/distributed_training.md)).
-
----
+([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/g3doc/distributed_training.md)).
 
 ## Adding your own components
 
@@ -317,6 +353,21 @@ for an example.
 Also see the [data generators
 README](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/README.md).
 
----
+## Papers
+
+Tensor2Tensor was used to develop a number of state-of-the-art models
+and deep learning methods. Here we list some papers that were based on T2T
+from the start and benefited from its features and architecture in ways
+described in the [Google Research Blog post introducing
+T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html).
+
+* [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
+* [Depthwise Separable Convolutions for Neural Machine
+   Translation](https://arxiv.org/abs/1706.03059)
+* [One Model To Learn Them All](https://arxiv.org/abs/1706.05137)
+* [Discrete Autoencoders for Sequence Models](https://arxiv.org/abs/1801.09797)
+* [Generating Wikipedia by Summarizing Long
+   Sequences](https://arxiv.org/abs/1801.10198)
+* [Image Transformer](https://openreview.net/forum?id=r16Vyf-0-)
 
 *Note: This is not an official Google product.*
