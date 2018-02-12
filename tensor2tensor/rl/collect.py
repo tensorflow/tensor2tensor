@@ -18,13 +18,12 @@
 import tensorflow as tf
 
 
-def define_collect(policy_factory, batch_env, hparams, eval_phase):
+def define_collect(policy_factory, batch_env, hparams):
   """Collect trajectories."""
-  eval_phase = tf.convert_to_tensor(eval_phase)
   memory_shape = [hparams.epoch_length] + [batch_env.observ.shape.as_list()[0]]
   memories_shapes_and_types = [
       # observation
-      (memory_shape + batch_env.observ.shape.as_list()[1:], tf.float32),
+      (memory_shape + [batch_env.observ.shape.as_list()[1]], tf.float32),
       (memory_shape, tf.float32),      # reward
       (memory_shape, tf.bool),         # done
       # action
@@ -34,15 +33,13 @@ def define_collect(policy_factory, batch_env, hparams, eval_phase):
   ]
   memory = [tf.Variable(tf.zeros(shape, dtype), trainable=False)
             for (shape, dtype) in memories_shapes_and_types]
-  cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
-                                       trainable=False)
+  cumulative_rewards = tf.Variable(
+      tf.zeros(hparams.num_agents, tf.float32), trainable=False)
 
   should_reset_var = tf.Variable(True, trainable=False)
-  reset_op = tf.cond(
-      tf.logical_or(should_reset_var, eval_phase),
-      lambda: tf.group(batch_env.reset(tf.range(len(batch_env))),
-                       tf.assign(cumulative_rewards, tf.zeros(len(batch_env)))),
-      lambda: tf.no_op())
+  reset_op = tf.cond(should_reset_var,
+                     lambda: batch_env.reset(tf.range(hparams.num_agents)),
+                     lambda: 0.0)
   with tf.control_dependencies([reset_op]):
     reset_once_op = tf.assign(should_reset_var, False)
 
@@ -50,22 +47,19 @@ def define_collect(policy_factory, batch_env, hparams, eval_phase):
 
     def step(index, scores_sum, scores_num):
       """Single step."""
-      index = index % hparams.epoch_length  # Only needed in eval runs.
       # Note - the only way to ensure making a copy of tensor is to run simple
       # operation. We are waiting for tf.copy:
       # https://github.com/tensorflow/tensorflow/issues/11186
       obs_copy = batch_env.observ + 0
       actor_critic = policy_factory(tf.expand_dims(obs_copy, 0))
       policy = actor_critic.policy
-      action = tf.cond(eval_phase,
-                       policy.mode,
-                       policy.sample)
+      action = policy.sample()
       postprocessed_action = actor_critic.action_postprocessing(action)
       simulate_output = batch_env.simulate(postprocessed_action[0, ...])
       pdf = policy.prob(action)[0]
       with tf.control_dependencies(simulate_output):
         reward, done = simulate_output
-        done = tf.reshape(done, (len(batch_env),))
+        done = tf.reshape(done, (hparams.num_agents,))
         to_save = [obs_copy, reward, done, action[0, ...], pdf,
                    actor_critic.value[0]]
         save_ops = [tf.scatter_update(memory_slot, index, value)
@@ -87,14 +81,9 @@ def define_collect(policy_factory, batch_env, hparams, eval_phase):
         return [index + 1, scores_sum + scores_sum_delta,
                 scores_num + scores_num_delta]
 
-    def stop_condition(i, _, resets):
-        return tf.cond(eval_phase,
-                       lambda: resets < hparams.num_eval_agents,
-                       lambda: i < hparams.epoch_length)
-
     init = [tf.constant(0), tf.constant(0.0), tf.constant(0)]
     index, scores_sum, scores_num = tf.while_loop(
-        stop_condition,
+        lambda c, _1, _2: c < hparams.epoch_length,
         step,
         init,
         parallel_iterations=1,
@@ -105,11 +94,7 @@ def define_collect(policy_factory, batch_env, hparams, eval_phase):
   printing = tf.Print(0, [mean_score, scores_sum, scores_num], "mean_score: ")
   with tf.control_dependencies([index, printing]):
     memory = [tf.identity(mem) for mem in memory]
-    mean_score_summary = tf.cond(
-        tf.greater(scores_num, 0),
-        lambda: tf.summary.scalar("mean_score_this_iter", mean_score),
-        str)
     summaries = tf.summary.merge(
-        [mean_score_summary,
+        [tf.summary.scalar("mean_score_this_iter", mean_score),
          tf.summary.scalar("episodes_finished_this_iter", scores_num)])
     return memory, summaries
