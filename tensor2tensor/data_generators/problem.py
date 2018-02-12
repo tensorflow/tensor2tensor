@@ -528,6 +528,10 @@ class Problem(object):
 
     if repeat:
       dataset = dataset.repeat()
+
+    if shuffle_files:
+      dataset = skip_random_fraction(dataset, data_files[0])
+
     dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
     if preprocess:
       if hasattr(tf.contrib.data, "parallel_interleave"):
@@ -719,8 +723,6 @@ class Problem(object):
     dataset = self.dataset(**dataset_kwargs)
     dataset = dataset.map(
         data_reader.cast_int64_to_int32, num_parallel_calls=num_threads)
-    if is_training:
-      dataset = dataset.repeat(None)
 
     if self.batch_size_means_tokens:
       batch_size_means_tokens = True
