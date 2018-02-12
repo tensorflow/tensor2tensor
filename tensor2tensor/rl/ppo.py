@@ -93,8 +93,8 @@ def define_ppo_epoch(memory, policy_factory, config):
       parallel_iterations=1)
 
   ppo_summaries = [tf.reduce_mean(ret) for ret in ppo_step_rets]
-  summaries_names = ["policy loss", "value loss", "entropy loss",
-                     "policy gradient", "value gradient", "entropy gradient"]
+  summaries_names = ["policy_loss", "value_loss", "entropy_loss",
+                     "policy_gradient", "value_gradient", "entropy_gradient"]
 
   summaries = [tf.summary.scalar(summary_name, summary)
                for summary_name, summary in zip(summaries_names, ppo_summaries)]
