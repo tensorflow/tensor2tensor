@@ -227,6 +227,23 @@ def lstm_seq2seq_internal_attention_bid_encoder(inputs, targets, hparams,
 
 
 @registry.register_model
+class LSTMEncoder(t2t_model.T2TModel):
+  """LSTM encoder only."""
+
+  def body(self, features):
+    if self._hparams.initializer == "orthogonal":
+      raise ValueError("LSTM models fail with orthogonal initializer.")
+    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
+    inputs = features.get("inputs")
+    # Flatten inputs.
+    inputs = common_layers.flatten4d3d(inputs)
+    # LSTM encoder.
+    encoder_output, _ = lstm(
+        tf.reverse(inputs, axis=[1]), self._hparams, train, "encoder")
+    return tf.expand_dims(encoder_output, axis=2)
+
+
+@registry.register_model
 class LSTMSeq2seq(t2t_model.T2TModel):
 
   def body(self, features):
