@@ -20,6 +20,7 @@
 # https://github.com/tensorflow/agents/blob/master/agents/scripts/utility.py
 
 import atexit
+import gym
 import multiprocessing
 import os
 import random
@@ -33,6 +34,50 @@ import traceback
 from tensor2tensor.rl.envs import batch_env
 from tensor2tensor.rl.envs import in_graph_batch_env
 import tensorflow as tf
+
+
+class EvalVideoWrapper(gym.Wrapper):
+  """
+  Wrapper for recording videos during eval phase.
+
+  This wrapper is designed to record videos via gym.wrappers.Monitor and
+  simplifying its usage in t2t collect phase.
+  It alleviate the limitation of Monitor, which doesn't allow reset on an
+  active environment.
+
+  EvalVideoWrapper assumes that only every second trajectory (after every
+  second reset) will be used by the caller:
+  - on the "active" runs it behaves as gym.wrappers.Monitor,
+  - on the "inactive" runs it doesn't call underlying environment and only
+    returns last seen observation.
+  Videos are only generated during the active runs.
+  """
+  def __init__(self, env, directory):
+    super(EvalVideoWrapper, self).__init__(
+      gym.wrappers.Monitor(env, directory, video_callable=lambda i: i % 2 == 0))
+    self._reset_counter = 0
+    self._active = False
+    self._last_returned = None
+
+  def _step(self, action):
+    if self._active:
+      self._last_returned = self.env.step(action)
+    if self._last_returned == None:
+      raise Exception("Environment stepped before proper reset.")
+    return self._last_returned
+
+  def _reset(self, **kwargs):
+    self._reset_counter += 1
+    if self._reset_counter % 2 == 1:
+      self._active = True
+      return self.env.reset(**kwargs)
+    else:
+      self._active = False
+      self._last_returned = (self._last_returned[0],
+                             self._last_returned[1],
+                             False,  # done = False
+                             self._last_returned[3])
+      return self._last_returned[0]
 
 
 class ExternalProcessEnv(object):
