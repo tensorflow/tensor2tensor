@@ -131,8 +131,8 @@ def outputs_exist(filenames):
     if tf.gfile.Exists(out_fname):
       return out_fname
 
-
-def generate_files(generator, output_filenames, max_cases=None):
+# Fathom
+def generate_files(generator, output_filenames, max_cases=None, check_existing_files=True):
   """Generate cases from a generator and save as TFRecord files.
 
   Generated cases are transformed to tf.Example protos and saved as TFRecords
@@ -144,9 +144,11 @@ def generate_files(generator, output_filenames, max_cases=None):
     max_cases: maximum number of cases to get from the generator;
       if None (default), we use the generator until StopIteration is raised.
   """
-  if outputs_exist(output_filenames):
-    tf.logging.info("Skipping generator because outputs files exist")
-    return
+  # Fathom
+  if check_existing_files:
+    if outputs_exist(output_filenames):
+      tf.logging.info("Skipping generator because outputs files exist")
+      return
   num_shards = len(output_filenames)
   writers = [tf.python_io.TFRecordWriter(fname) for fname in output_filenames]
   counter, shard = 0, 0
