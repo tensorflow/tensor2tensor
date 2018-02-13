@@ -129,3 +129,26 @@ def feed_forward_categorical_fun(action_space, config, observations):
     value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
   policy = tf.contrib.distributions.Categorical(logits=logits)
   return NetworkOutput(policy, value, lambda a: a)
+
+
+def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
+  """Small cnn network with categorical output."""
+  obs_shape = observations.shape.as_list()
+  x = tf.reshape(observations, [-1]+ obs_shape[2:])
+
+  with tf.variable_scope('policy'):
+    x = tf.to_float(x)/255.0
+    x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2], activation_fn= tf.nn.relu, padding="SAME")
+    x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2], activation_fn=tf.nn.relu, padding="SAME")
+
+    flat_x = tf.reshape(x, [
+      tf.shape(observations)[0], tf.shape(observations)[1],
+      functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
+
+    x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
+    logits = tf.contrib.layers.fully_connected(x, action_space.n, activation_fn=None)
+
+    value = tf.contrib.layers.fully_connected(x, 1, activation_fn=None)[..., 0]
+    policy = tf.contrib.distributions.Categorical(logits=logits)
+
+  return NetworkOutput(policy, value, lambda a: a)
