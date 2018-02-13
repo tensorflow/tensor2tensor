@@ -810,7 +810,7 @@ class TransformerAE(t2t_model.T2TModel):
                 self._hparams.num_blocks, self._hparams.hidden_size,
                 self._hparams.block_dim
             ],
-            initializer=tf.random_normal_initializer(),
+            initializer=tf.contrib.layers.xavier_initializer(),
             trainable=self._hparams.trainable_projections)
         self._hparams.reshape_fn = project_hidden
       elif self._hparams.reshape_method == "slice":
