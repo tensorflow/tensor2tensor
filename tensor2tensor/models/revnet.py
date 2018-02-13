@@ -390,11 +390,10 @@ def revnet_cifar_base():
   hparams.init_maxpool = False
   hparams.strides = [1, 2, 2]
   hparams.batch_size = 128
-  hparams.weight_decay = 5e-3
+  hparams.weight_decay = 1e-4
 
   hparams.learning_rate = 0.1
-  hparams.learning_rate_boundaries = [2000, 4000, 6000, 8000]
-  hparams.learning_rate_multiples = [0.1, 0.01, 0.001, 0.0001]
+  hparams.learning_rate_cosine_cycle_steps = 5000
   return hparams
 
 
@@ -404,6 +403,8 @@ def revnet_38_cifar():
   hparams.bottleneck = False
   hparams.num_channels = [16, 32, 56]
   hparams.num_layers_per_block = [2, 2, 2]
+  hparams.initializer = 'normal_unit_scaling'
+  hparams.initializer_gain = 1.5
   return hparams
 
 
