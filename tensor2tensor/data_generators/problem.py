@@ -752,10 +752,8 @@ class Problem(object):
     else:
       # batch_size means tokens per datashard
       if config and config.use_tpu:
-        # On TPU, pad to max_length
         dataset = dataset.filter(tpu_valid_size)
-        padded_shapes = _fill_shape_nones(
-            dataset.output_shapes, none_filler=max_length)
+        padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
         # on TPU, we use params["batch_size"], which specifies the number of
         # examples across all datashards
         batch_size = params["batch_size"]
@@ -826,6 +824,33 @@ class Problem(object):
 
     return tf.estimator.export.ServingInputReceiver(
         features=features, receiver_tensors=serialized_example)
+
+  def _pad_for_tpu(self, shapes_dict, hparams):
+    """Pads unknown features' dimensions for TPU."""
+    max_length = self.max_length(hparams)
+    padded_shapes = {}
+
+    def get_filler(specified_max_length):
+      if not specified_max_length:
+        return max_length
+      return min(specified_max_length, max_length)
+
+    inputs_none_filler = get_filler(hparams.max_input_seq_length)
+    targets_none_filler = get_filler(hparams.max_target_seq_length)
+
+    def pad_one_shape(shape, none_filler):
+      return [
+          (dim if dim is not None else none_filler) for dim in shape.as_list()
+      ]
+
+    for key, shape in six.iteritems(shapes_dict):
+      if key == "inputs":
+        padded_shapes[key] = pad_one_shape(shape, inputs_none_filler)
+      elif key == "targets":
+        padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
+      else:
+        padded_shapes[key] = pad_one_shape(shape, max_length)
+    return padded_shapes
 
 
 class FeatureInfo(object):
@@ -1365,15 +1390,6 @@ def _are_shapes_fully_defined(shapes_dict):
     if not shape.is_fully_defined():
       return False
   return True
-
-
-def _fill_shape_nones(shapes_dict, none_filler=None):
-  padded_shapes = {}
-  for key, shape in six.iteritems(shapes_dict):
-    padded_shapes[key] = [
-        (dim if dim is not None else none_filler) for dim in shape.as_list()
-    ]
-  return padded_shapes
 
 
 def _summarize_features(features, num_shards=1):
