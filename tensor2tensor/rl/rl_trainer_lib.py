@@ -55,8 +55,7 @@ def define_train(hparams, environment_name, event_dir):
   with tf.variable_scope("eval"):
     eval_env_lambda = env_lambda
     if event_dir:
-      eval_env_lambda = lambda: gym.wrappers.Monitor(
-        env_lambda(), event_dir, video_callable=lambda _: True)
+      eval_env_lambda = lambda: utils.EvalVideoWrapper(env_lambda(), event_dir)
     _, eval_summary = collect.define_collect(
       policy_factory,
       utils.define_batch_env(eval_env_lambda, hparams.num_eval_agents, xvfb=True),
