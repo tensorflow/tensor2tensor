@@ -264,8 +264,8 @@ def _pick_optimal_model() -> None:
     stopping before it did.
     """
 
-    if FLAGS.debug_mode:
-        return
+    #if FLAGS.debug_mode:
+        #return
 
     checkpoint_state = tf.train.get_checkpoint_state(FLAGS.output_dir)
     all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
@@ -295,7 +295,8 @@ def _pick_optimal_model() -> None:
     # stopping flags are phrased in terms of step number, not how many
     # times we've run eval.
     best_step_index = [step <= thresh for step in steps].index(False) - 1
-    assert best_step_index >= 0, 'Early stopping stopped before it should have'
+    if not FLAGS.debug_mode:
+        assert best_step_index >= 0, 'Early stopping stopped before it should have'
 
 
     # this is the checkpoint we want
@@ -337,7 +338,8 @@ def main(_):
   execute_schedule(exp)
 
   # Fathom
-  if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None:
+  #if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None:
+  if FLAGS.eval_early_stopping_steps is not None:
     _pick_optimal_model()
   dir_path, model_name = upload_model_to_gcs(FLAGS=FLAGS)
 
