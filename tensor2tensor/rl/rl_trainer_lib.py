@@ -33,9 +33,12 @@ from tensor2tensor.rl.envs import utils
 import tensorflow as tf
 
 
-def define_train(hparams, environment_name):
+def define_train(hparams, environment_spec):
   """Define the training setup."""
-  env_lambda = lambda: gym.make(environment_name)
+  if isinstance(environment_spec, str):
+    env_lambda = lambda: gym.make(environment_spec)
+  else:
+    env_lambda = environment_spec
   policy_lambda = hparams.network
   env = env_lambda()
   action_space = env.action_space
