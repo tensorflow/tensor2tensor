@@ -168,3 +168,20 @@ class Img2imgCeleba(ImageCeleba):
     example["inputs"] = image_8
     example["targets"] = image_32
     return example
+
+
+@registry.register_problem
+class Img2imgCeleba64(Img2imgCeleba):
+  """8px to 64px problem."""
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+    image = example["inputs"]
+    # Remove boundaries in CelebA images. Remove 40 pixels each side
+    # vertically and 20 pixels each side horizontally.
+    image = tf.image.crop_to_bounding_box(image, 40, 20, 218 - 80, 178 - 40)
+    image_8 = image_utils.resize_by_area(image, 8)
+    image_64 = image_utils.resize_by_area(image, 64)
+
+    example["inputs"] = image_8
+    example["targets"] = image_64
+    return example
