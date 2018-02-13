@@ -18,9 +18,9 @@
 import tensorflow as tf
 
 
-def define_collect(policy_factory, batch_env, hparams, eval):
+def define_collect(policy_factory, batch_env, hparams, eval_phase):
   """Collect trajectories."""
-  eval = tf.convert_to_tensor(eval)
+  eval_phase = tf.convert_to_tensor(eval_phase)
   memory_shape = [hparams.epoch_length] + [batch_env.observ.shape.as_list()[0]]
   memories_shapes_and_types = [
       # observation
@@ -39,7 +39,7 @@ def define_collect(policy_factory, batch_env, hparams, eval):
 
   should_reset_var = tf.Variable(True, trainable=False)
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var, eval),
+      tf.logical_or(should_reset_var, eval_phase),
       lambda: tf.group(batch_env.reset(tf.range(len(batch_env))),
                        tf.assign(cumulative_rewards, tf.zeros(len(batch_env)))),
       lambda: tf.no_op())
@@ -57,7 +57,7 @@ def define_collect(policy_factory, batch_env, hparams, eval):
       obs_copy = batch_env.observ + 0
       actor_critic = policy_factory(tf.expand_dims(obs_copy, 0))
       policy = actor_critic.policy
-      action = tf.cond(eval,
+      action = tf.cond(eval_phase,
                        policy.mode,
                        policy.sample)
       postprocessed_action = actor_critic.action_postprocessing(action)
@@ -88,7 +88,7 @@ def define_collect(policy_factory, batch_env, hparams, eval):
                 scores_num + scores_num_delta]
 
     def stop_condition(i, _, resets):
-        return tf.cond(eval,
+        return tf.cond(eval_phase,
                        lambda: resets < hparams.num_eval_agents,
                        lambda: i < hparams.epoch_length)
 
@@ -105,9 +105,10 @@ def define_collect(policy_factory, batch_env, hparams, eval):
   printing = tf.Print(0, [mean_score, scores_sum, scores_num], "mean_score: ")
   with tf.control_dependencies([index, printing]):
     memory = [tf.identity(mem) for mem in memory]
-    mean_score_summary = tf.cond(tf.greater(scores_num, 0),
-                                 lambda: tf.summary.scalar("mean_score_this_iter", mean_score),
-                                 str)
+    mean_score_summary = tf.cond(
+        tf.greater(scores_num, 0),
+        lambda: tf.summary.scalar("mean_score_this_iter", mean_score),
+        str)
     summaries = tf.summary.merge(
         [mean_score_summary,
          tf.summary.scalar("episodes_finished_this_iter", scores_num)])

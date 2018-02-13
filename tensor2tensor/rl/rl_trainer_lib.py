@@ -48,7 +48,7 @@ def define_train(hparams, environment_name, event_dir):
 
   with tf.variable_scope("train"):
     memory, collect_summary = collect.define_collect(
-      policy_factory, batch_env, hparams, eval=False)
+      policy_factory, batch_env, hparams, eval_phase=False)
   ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
   summary = tf.summary.merge([collect_summary, ppo_summary])
 
@@ -59,7 +59,7 @@ def define_train(hparams, environment_name, event_dir):
     _, eval_summary = collect.define_collect(
       policy_factory,
       utils.define_batch_env(eval_env_lambda, hparams.num_eval_agents, xvfb=True),
-      hparams, eval=True)
+      hparams, eval_phase=True)
   return summary, eval_summary
 
 
