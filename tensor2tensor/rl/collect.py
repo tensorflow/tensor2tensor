@@ -24,7 +24,7 @@ def define_collect(policy_factory, batch_env, hparams, eval_phase):
   memory_shape = [hparams.epoch_length] + [batch_env.observ.shape.as_list()[0]]
   memories_shapes_and_types = [
       # observation
-      (memory_shape + [batch_env.observ.shape.as_list()[1]], tf.float32),
+      (memory_shape + batch_env.observ.shape.as_list()[1:], tf.float32),
       (memory_shape, tf.float32),      # reward
       (memory_shape, tf.bool),         # done
       # action
