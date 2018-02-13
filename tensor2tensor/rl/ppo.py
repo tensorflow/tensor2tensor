@@ -20,13 +20,13 @@ Based on: https://arxiv.org/abs/1707.06347
 
 import tensorflow as tf
 
-def get_otimiser(config):
+
+def get_optimiser(config):
 
   if config.optimizer=='Adam':
     return tf.train.AdamOptimizer(config.learning_rate)
 
   return config.optimizer(config.learning_rate)
-
 
 
 def define_ppo_step(observation, action, reward, done, value, old_pdf,
@@ -58,7 +58,7 @@ def define_ppo_step(observation, action, reward, done, value, old_pdf,
   entropy = new_policy_dist.entropy()
   entropy_loss = -config.entropy_loss_coef * tf.reduce_mean(entropy)
 
-  optimizer = get_otimiser(config)
+  optimizer = get_optimiser(config)
   losses = [policy_loss, value_loss, entropy_loss]
 
   gradients = [list(zip(*optimizer.compute_gradients(loss))) for loss in losses]
@@ -86,8 +86,8 @@ def define_ppo_epoch(memory, policy_factory, config):
   old_pdf = tf.stop_gradient(old_pdf)
 
   ppo_step_rets = tf.scan(
-      lambda a, x: define_ppo_step(observation, action, reward, done, value,
-                                       old_pdf, policy_factory, config),
+      lambda _1, _2: define_ppo_step(observation, action, reward, done, value,
+                                     old_pdf, policy_factory, config),
       tf.range(config.optimization_epochs),
       [0., 0., 0., 0., 0., 0.],
       parallel_iterations=1)
