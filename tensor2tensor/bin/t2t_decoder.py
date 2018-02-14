@@ -135,7 +135,8 @@ def main(_):
   # downloaded model. Train does this same xcom echo.
   # Decode, predict, and evaluate code should
   # converge to use the same fathom_t2t_model_setup.
-  echo_yaml_for_xcom_ingest({'output-dir': os.path.dirname(checkpoint_path)})
+  echo_yaml_for_xcom_ingest({'output-dir': os.path.dirname(checkpoint_path),
+                             'decode_output_file': FLAGS.decode_output_file})
 
 
 if __name__ == "__main__":

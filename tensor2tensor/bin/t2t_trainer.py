@@ -85,6 +85,8 @@ except:  # pylint: disable=bare-except
 ##################
 import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
+from fathomairflow.dags.dag_management.task_builders.xcom_keys import (
+    XCOM_GCS_MODEL_SUBPATH)
 from fathomtf.services.model_management import (upload_model_to_gcs,
                                                 fix_paths_for_workspace)
 import os
@@ -94,6 +96,9 @@ flags.DEFINE_string("airflow_pipeline_yaml", None,
     "For saving to assets.extra")
 flags.DEFINE_string("description", "",
     "Description for this run.  Used in model name.  E.g., 'special_softmax'.")
+flags.DEFINE_string("timestamp", "",
+    "Timestamp for this run.  This is generally expected to be the DAG execution date,"
+    " *not* the timestamp that this specific model was trained.")
 ##################
 #
 # END FATHOM ADDS
@@ -259,8 +264,8 @@ def _pick_optimal_model() -> None:
     stopping before it did.
     """
 
-    if FLAGS.debug_mode:
-        return
+    #if FLAGS.debug_mode:
+        #return
 
     checkpoint_state = tf.train.get_checkpoint_state(FLAGS.output_dir)
     all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
@@ -290,16 +295,12 @@ def _pick_optimal_model() -> None:
     # stopping flags are phrased in terms of step number, not how many
     # times we've run eval.
     best_step_index = [step <= thresh for step in steps].index(False) - 1
-    assert best_step_index >= 0, 'Early stopping stopped before it should have'
+    if not FLAGS.debug_mode:
+        assert best_step_index >= 0, 'Early stopping stopped before it should have'
 
 
     # this is the checkpoint we want
     checkpoint_path = all_checkpoint_paths[best_step_index]
-
-    # hack FIXME TODO XXX
-    # We are about to move the best model into an export folder
-    dirname, basename = os.path.split(checkpoint_path)
-    checkpoint_path = basename
 
     print('Early stopping chose checkpoint', checkpoint_path)
 
@@ -337,7 +338,8 @@ def main(_):
   execute_schedule(exp)
 
   # Fathom
-  if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None:
+  #if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None:
+  if FLAGS.eval_early_stopping_steps is not None:
     _pick_optimal_model()
   dir_path, model_name = upload_model_to_gcs(FLAGS=FLAGS)
 
@@ -345,10 +347,11 @@ def main(_):
   # NOTE: this must run LAST in the process, to make sure STDOUT is
   # appropriately populated.
   xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path,
-                                  'gcs_subpath': model_name})
+                                  XCOM_GCS_MODEL_SUBPATH: model_name})
 
 if __name__ == "__main__":
   # Fathom
   tf.flags.mark_flag_as_required('airflow_pipeline_yaml')
+  tf.flags.mark_flag_as_required('timestamp')
 
   tf.app.run()
