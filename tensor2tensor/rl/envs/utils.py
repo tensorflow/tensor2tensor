@@ -52,9 +52,8 @@ class EvalVideoWrapper(gym.Wrapper):
     returns last seen observation.
   Videos are only generated during the active runs.
   """
-  def __init__(self, env, directory):
-    super(EvalVideoWrapper, self).__init__(
-      gym.wrappers.Monitor(env, directory, video_callable=lambda i: i % 2 == 0))
+  def __init__(self, env):
+    super(EvalVideoWrapper, self).__init__(env)
     self._reset_counter = 0
     self._active = False
     self._last_returned = None
