@@ -57,17 +57,21 @@ def define_train(hparams, environment_spec, event_dir):
 
   with tf.variable_scope("eval"):
     eval_env_lambda = env_lambda
-    if event_dir:
-      eval_env_lambda = lambda: utils.EvalVideoWrapper(env_lambda(), event_dir)
+    if event_dir and hparams.video_during_eval:
+      eval_env_lambda = lambda: gym.wrappers.Monitor(
+        env_lambda(), event_dir, video_callable=lambda i: i % 2 == 0)
+    wrapped_eval_env_lambda = lambda: utils.EvalVideoWrapper(eval_env_lambda())
     _, eval_summary = collect.define_collect(
       policy_factory,
-      utils.define_batch_env(eval_env_lambda, hparams.num_eval_agents, xvfb=True),
+      utils.define_batch_env(wrapped_eval_env_lambda, hparams.num_eval_agents,
+                             xvfb=hparams.video_during_eval),
       hparams, eval_phase=True)
   return summary, eval_summary
 
 
 def train(hparams, environment_spec, event_dir=None):
-  train_summary_op, eval_summary_op = define_train(hparams, environment_spec, event_dir)
+  train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
+                                                   event_dir)
 
   if event_dir:
     summary_writer = tf.summary.FileWriter(
