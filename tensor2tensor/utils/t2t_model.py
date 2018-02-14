@@ -135,7 +135,13 @@ class T2TModel(base.Layer):
       self._fill_problem_hparams_features(features)
       sharded_features = self._shard_features(features)
       sharded_logits, losses = self.model_fn_sharded(sharded_features)
-      return tf.concat(sharded_logits, 0), losses
+      if isinstance(sharded_logits, dict):
+        concat_logits = {}
+        for k, v in sharded_logits.iteritems():
+          concat_logits[k] = tf.concat(v, 0)
+        return concat_logits, losses
+      else:
+        return tf.concat(sharded_logits, 0), losses
 
   @property
   def use_body_sharded(self):
@@ -161,14 +167,32 @@ class T2TModel(base.Layer):
                  "returned from body")
         sharded_logits = body_out
       else:
-        sharded_logits = dp(self.top, body_out, datashard_to_features)
-        sharded_losses = dp(self.loss, sharded_logits, datashard_to_features)
-        training_loss_dict = average_sharded_losses([{
-            "training": loss
-        } for loss in sharded_losses])
-        losses.update(training_loss_dict)
+        if isinstance(body_out, dict):
+          sharded_logits = {}
+          sharded_losses = {}
+          for k, v in body_out.iteritems():
+            sharded_logits[k] = dp(self.top, v, datashard_to_features)
+            sharded_losses[k] = dp(self.loss, sharded_logits[k],
+                                   datashard_to_features)
+          training_loss_dict = average_sharded_losses([{
+              "training": l
+          } for l in loss for loss in sharded_losses.values()])
+          losses.update(training_loss_dict)
+        else:
+          sharded_logits = dp(self.top, body_out, datashard_to_features)
+          sharded_losses = dp(self.loss, sharded_logits, datashard_to_features)
+          training_loss_dict = average_sharded_losses([{
+              "training": loss
+          } for loss in sharded_losses])
+          losses.update(training_loss_dict)
     else:
       sharded_logits, sharded_losses = dp(self.model_fn, datashard_to_features)
+      if isinstance(sharded_logits[0], dict):
+        temp_dict = {k: [] for k, _ in sharded_logits[0].iteritems()}
+        for k, _ in sharded_logits[0].iteritems():
+          for l in sharded_logits:
+            temp_dict[k].append(l[k])
+        sharded_logits = temp_dict
       losses = average_sharded_losses(sharded_losses)
 
     # TODO(rsepassi): Reenable scheduled sampling
@@ -256,7 +280,7 @@ class T2TModel(base.Layer):
     """
     raise NotImplementedError("Abstract Method")
 
-  def top(self, body_output, features):
+  def _top_single(self, body_output, features):
     if not self._problem_hparams:
       log_warn("Without a Problem, T2TModel.top is a passthrough.")
       return body_output
@@ -280,7 +304,16 @@ class T2TModel(base.Layer):
                                      last_position_targets)
     return logits
 
-  def loss(self, logits, features):
+  def top(self, body_output, features):
+    if isinstance(body_output, dict):
+      logits = {}
+      for k, v in body_output.iteritems():
+        logits[k] = self._top_single(v, features)
+      return logits
+    else:
+      return self._top_single(body_output, features)
+
+  def _loss_single(self, logits, features):
     if not self._problem_hparams:
       log_warn(_no_problem_err("loss"))
       return (tf.constant(0., dtype=tf.float32),
@@ -290,6 +323,15 @@ class T2TModel(base.Layer):
     loss_num, loss_den = target_modality.loss(logits, features["targets"])
     loss_num *= self._problem_hparams.loss_multiplier
     return loss_num, loss_den
+
+  def loss(self, logits, features):
+    if isinstance(logits, dict):
+      losses = {}
+      for k, v in logits.iteritems():
+        losses[k] = self._loss_single(v, features)
+      return tf.add_n([n / d for n, d in logits.values()])
+    else:
+      return self._loss_single(logits, features)
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
@@ -432,8 +474,8 @@ class T2TModel(base.Layer):
         results = self._greedy_infer(features, decode_length)
       else:
         log_info("Beam Decoding with beam size %d" % beam_size)
-        results = self._beam_decode(
-            features, decode_length, beam_size, top_beams, alpha)
+        results = self._beam_decode(features, decode_length, beam_size,
+                                    top_beams, alpha)
 
       return results
 
@@ -839,12 +881,24 @@ class T2TModel(base.Layer):
 
     # Set known shapes
     if use_tpu:
-      shape = logits.get_shape().as_list()
-      if shape[0] is None:
-        shape[0] = params["batch_size"]
-      if shape[1] is None:
-        shape[1] = hparams.max_length
-      logits.set_shape(shape)
+      if isinstance(logits, dict):
+        for k, v in logits.iteritems():
+          if "scalar/" in k:
+            continue
+
+          shape = v.get_shape().as_list()
+          if shape[0] is None:
+            shape[0] = params["batch_size"]
+          if shape[1] is None:
+            shape[1] = hparams.max_length
+          v.set_shape(shape)
+      else:
+        shape = logits.get_shape().as_list()
+        if shape[0] is None:
+          shape[0] = params["batch_size"]
+        if shape[1] is None:
+          shape[1] = hparams.max_length
+        logits.set_shape(shape)
 
     assert "training" in losses_dict
 
@@ -858,7 +912,8 @@ class T2TModel(base.Layer):
 
     # EVAL mode
     if mode == tf.estimator.ModeKeys.EVAL:
-      return model.estimator_spec_eval(features, logits, labels, loss)
+      return model.estimator_spec_eval(features, logits, labels, loss,
+                                       losses_dict)
 
     # TRAIN mode
     assert mode == tf.estimator.ModeKeys.TRAIN
@@ -879,7 +934,7 @@ class T2TModel(base.Layer):
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
 
-  def estimator_spec_eval(self, features, logits, labels, loss):
+  def estimator_spec_eval(self, features, logits, labels, loss, losses_dict):
     """Construct EstimatorSpec for EVAL mode."""
     hparams = self.hparams
 
@@ -890,10 +945,19 @@ class T2TModel(base.Layer):
     if common_layers.is_on_tpu():
       eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
       _remove_summaries()
-      return tf.contrib.tpu.TPUEstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
-          eval_metrics=(eval_metrics_fn, [logits, labels]),
-          loss=loss)
+      if isinstance(logits, dict):
+        # For TPU, logits dict will be passed as keyword arguments to
+        # eval_metrics_fn. Here we add the labels to those arguments.
+        logits.update({"labels": labels})
+        return tf.contrib.tpu.TPUEstimatorSpec(
+            tf.estimator.ModeKeys.EVAL,
+            eval_metrics=(eval_metrics_fn, logits),
+            loss=loss)
+      else:
+        return tf.contrib.tpu.TPUEstimatorSpec(
+            tf.estimator.ModeKeys.EVAL,
+            eval_metrics=(eval_metrics_fn, [logits, labels]),
+            loss=loss)
     else:
       eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
       eval_metrics = {}
@@ -1027,11 +1091,19 @@ def _create_tpu_eval_metrics_fn(problem, hparams):
     name = "metrics-%s/%s" % (problem.name, metric)
     metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
 
-  def all_metrics_fn(logits, labels):
+  def all_metrics_fn(logits=None, labels=None, **kwargs):
+    """Construct metrics dictionary."""
     metrics_dict = {}
 
+    if logits is None:
+      logits = kwargs
+
     for name, fn in metric_fns:
-      metrics_dict[name] = fn(logits, labels)
+      if isinstance(logits, dict):
+        for k, v in logits.iteritems():
+          metrics_dict["%s/%s" % (name, k)] = fn(v, labels)
+      else:
+        metrics_dict[name] = fn(logits, labels)
 
     return metrics_dict
 
