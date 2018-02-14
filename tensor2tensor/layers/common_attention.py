@@ -1485,7 +1485,8 @@ def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
     return output
 
 
-def masked_local_attention_1d(q, k, v, block_length=128, name=None):
+def masked_local_attention_1d(q, k, v, block_length=128,
+                              make_image_summary=False, name=None):
   """Attention to the source position and a neighborhood to the left of it.
 
   The sequence is divided into blocks of length block_size.
@@ -1501,6 +1502,7 @@ def masked_local_attention_1d(q, k, v, block_length=128, name=None):
     k: a Tensor with shape [batch, heads, length, depth_k]
     v: a Tensor with shape [batch, heads, length, depth_v]
     block_length: an integer
+    make_image_summary: a boolean, whether to make an attention image summary.
     name: an optional string
 
   Returns:
@@ -1543,6 +1545,7 @@ def masked_local_attention_1d(q, k, v, block_length=128, name=None):
         first_k,
         first_v,
         attention_bias_lower_triangle(block_length),
+        make_image_summary=make_image_summary,
         name="fist_block")
 
     # compute attention for all subsequent query blocks.
@@ -2521,7 +2524,8 @@ def multihead_attention(query_antecedent,
       x = masked_within_block_local_attention_1d(q, k, v,
                                                  block_length=block_length)
     elif attention_type == "local_mask_right":
-      x = masked_local_attention_1d(q, k, v, block_length=block_length)
+      x = masked_local_attention_1d(q, k, v, block_length=block_length,
+                                    make_image_summary=make_image_summary)
     elif attention_type == "local_unmasked":
       x = local_attention_1d(
           q, k, v, block_length=block_length, filter_width=block_width)

@@ -94,6 +94,7 @@ def local_attention_1d(x,
         kv_padding=kv_padding,
         q_filter_width=hparams.q_filter_width,
         kv_filter_width=hparams.kv_filter_width,
+        make_image_summary=False,
         name="self_attention")
     if is_4d:
       y = tf.reshape(y, x_shape)
