@@ -112,10 +112,12 @@ class ExternalProcessEnv(object):
 
       xauthority_path = '/tmp/Xauthority_{}'.format(auth_file_id)
 
-      command = 'xvfb-run -s "-screen 0 1400x900x24" -n {} -f {} sleep 1000d'.format(server_id, xauthority_path)
-
-      proc = subprocess.Popen(command, shell=True)
-      atexit.register(lambda: os.killpg(os.getpgid(proc.pid), signal.SIGTERM))
+      command = 'Xvfb :{} -screen 0 1400x900x24 -nolisten tcp -auth {}'.format(
+        server_id, xauthority_path)
+      with open(os.devnull, 'w') as devnull:
+        proc = subprocess.Popen(command.split(), shell=False, stdout=devnull,
+                                stderr=devnull)
+        atexit.register(lambda: os.kill(proc.pid, signal.SIGKILL))
 
       def constructor_using_xvfb():
           os.environ["DISPLAY"] = ":{}".format(server_id)
