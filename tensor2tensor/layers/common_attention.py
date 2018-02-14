@@ -1432,6 +1432,59 @@ def dot_product_attention_relative(q,
     return _relative_attention_inner(weights, v, relations_values, False)
 
 
+def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
+  """Attention to the source and a neighborhood to the left within a block.
+
+  The sequence is divided into blocks of length block_size.
+  Attention for a given query position can only see memory positions
+  less than or equal to the query position in the corresponding block
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth_k]
+    k: a Tensor with shape [batch, heads, length, depth_k]
+    v: a Tensor with shape [batch, heads, length, depth_v]
+    block_length: an integer
+    name: an optional string
+
+  Returns:
+    a Tensor of shape [batch, heads, length, depth_v]
+  """
+  with tf.variable_scope(
+      name, default_name="within_local_attention_1d", values=[q, k, v]):
+    v_shape = v.get_shape()
+    batch, heads, length, _ = common_layers.shape_list(q)
+    if isinstance(block_length, tf.Tensor):
+      const = tf.contrib.util.constant_value(block_length)
+      if const is not None:
+        block_length = int(const)
+
+    depth_k = common_layers.shape_list(k)[3]
+    depth_v = common_layers.shape_list(v)[3]
+    original_length = length
+    padding_size = tf.mod(-length, block_length)
+    length += padding_size
+    padding = [[0, 0], [0, 0], [0, padding_size], [0, 0]]
+    q = tf.pad(q, padding)
+    k = tf.pad(k, padding)
+    v = tf.pad(v, padding)
+    num_blocks = tf.div(length, block_length)
+    # compute attention for all subsequent query blocks.
+    q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
+    k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
+    v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
+    # attention shape: [batch, heads, num_blocks, block_length, block_length]
+    attention = tf.matmul(q, k, transpose_b=True)
+    attention += tf.reshape(attention_bias_lower_triangle(block_length),
+                            [1, 1, 1, block_length, block_length])
+    attention = tf.nn.softmax(attention)
+    # initial output shape: [batch, heads, num_blocks, block_length, depth_v]
+    output = tf.matmul(attention, v)
+    output = tf.reshape(output, [batch, heads, -1, depth_v])
+    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
+    output.set_shape(v_shape)
+    return output
+
+
 def masked_local_attention_1d(q, k, v, block_length=128, name=None):
   """Attention to the source position and a neighborhood to the left of it.
 
@@ -2464,6 +2517,9 @@ def multihead_attention(query_antecedent,
       x = dot_product_attention_relative(q, k, v, bias, max_relative_position,
                                          dropout_rate, image_shapes,
                                          make_image_summary=make_image_summary)
+    elif attention_type == "local_within_block_mask_right":
+      x = masked_within_block_local_attention_1d(q, k, v,
+                                                 block_length=block_length)
     elif attention_type == "local_mask_right":
       x = masked_local_attention_1d(q, k, v, block_length=block_length)
     elif attention_type == "local_unmasked":
