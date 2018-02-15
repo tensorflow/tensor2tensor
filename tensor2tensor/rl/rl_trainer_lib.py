@@ -58,8 +58,11 @@ def define_train(hparams, environment_spec, event_dir):
   with tf.variable_scope("eval"):
     eval_env_lambda = env_lambda
     if event_dir and hparams.video_during_eval:
+      # Some environments reset environments automatically, when reached done
+      # state. For them we shall record only every second episode.
+      d = 2 if env_lambda().metadata.get('semantics.autoreset') else 1
       eval_env_lambda = lambda: gym.wrappers.Monitor(
-        env_lambda(), event_dir, video_callable=lambda i: i % 2 == 0)
+        env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
     wrapped_eval_env_lambda = lambda: utils.EvalVideoWrapper(eval_env_lambda())
     _, eval_summary = collect.define_collect(
       policy_factory,
