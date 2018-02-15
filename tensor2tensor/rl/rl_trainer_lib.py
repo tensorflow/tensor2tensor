@@ -28,6 +28,7 @@ from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import collect
 from tensor2tensor.rl import ppo
+from tensor2tensor.rl.envs import atari_wrappers
 from tensor2tensor.rl.envs import utils
 
 import tensorflow as tf
@@ -73,6 +74,9 @@ def define_train(hparams, environment_spec, event_dir):
 
 
 def train(hparams, environment_spec, event_dir=None):
+  if environment_spec == "stacked_pong":
+    environment_spec = lambda: atari_wrappers.wrap_atari(
+      gym.make("PongNoFrameskip-v4"), warp=False, frame_skip=4, frame_stack=False)
   train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
                                                    event_dir)
 
