@@ -68,7 +68,6 @@ class ImageFSNS(image_utils.ImageProblem):
     vocab_size = self._encoders["targets"].vocab_size
     p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
     p.batch_size_multiplier = 256
-    p.max_expected_batch_size_per_shard = 2
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.EN_TOK
 

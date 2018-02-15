@@ -159,16 +159,16 @@ class TranslateEnzhWmt32k(translate.TranslateProblem):
   """
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**15  # 32k
 
   @property
   def source_vocab_name(self):
-    return "vocab.enzh-en.%d" % self.targeted_vocab_size
+    return "vocab.enzh-en.%d" % self.approx_vocab_size
 
   @property
   def target_vocab_name(self):
-    return "vocab.enzh-zh.%d" % self.targeted_vocab_size
+    return "vocab.enzh-zh.%d" % self.approx_vocab_size
 
   def get_training_dataset(self, tmp_dir):
     """UN Parallel Corpus and CWMT Corpus need to be downloaded manually.
@@ -192,31 +192,32 @@ class TranslateEnzhWmt32k(translate.TranslateProblem):
                         "manually download %s" % filename)
     return full_dataset
 
-  def generator(self, data_dir, tmp_dir, train):
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
     train_dataset = self.get_training_dataset(tmp_dir)
     datasets = train_dataset if train else _NC_TEST_DATASETS
     source_datasets = [[item[0], [item[1][0]]] for item in train_dataset]
     target_datasets = [[item[0], [item[1][1]]] for item in train_dataset]
     source_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.source_vocab_name, self.targeted_vocab_size,
-        source_datasets, file_byte_budget=1e8)
+        data_dir,
+        tmp_dir,
+        self.source_vocab_name,
+        self.approx_vocab_size,
+        source_datasets,
+        file_byte_budget=1e8)
     target_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.target_vocab_name, self.targeted_vocab_size,
-        target_datasets, file_byte_budget=1e8)
+        data_dir,
+        tmp_dir,
+        self.target_vocab_name,
+        self.approx_vocab_size,
+        target_datasets,
+        file_byte_budget=1e8)
     tag = "train" if train else "dev"
-    filename_base = "wmt_enzh_%sk_tok_%s" % (self.targeted_vocab_size, tag)
+    filename_base = "wmt_enzh_%sk_tok_%s" % (self.approx_vocab_size, tag)
     data_path = translate.compile_data(tmp_dir, datasets, filename_base)
     return translate.bi_vocabs_token_generator(data_path + ".lang1",
                                                data_path + ".lang2",
                                                source_vocab, target_vocab, EOS)
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.ZH_TOK
 
   def feature_encoders(self, data_dir):
     source_vocab_filename = os.path.join(data_dir, self.source_vocab_name)
@@ -237,12 +238,21 @@ class TranslateEnzhWmt8k(TranslateEnzhWmt32k):
   """
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**13  # 8192
 
   @property
-  def num_shards(self):
-    return 10  # This is a small dataset.
+  def dataset_splits(self):
+    return [
+        {
+            "split": problem.DatasetSplit.TRAIN,
+            "shards": 10,  # this is a small dataset
+        },
+        {
+            "split": problem.DatasetSplit.EVAL,
+            "shards": 1,
+        }
+    ]
 
   def get_training_dataset(self, tmp_dir):
     """Uses only News Commentary Dataset for training."""
