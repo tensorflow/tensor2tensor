@@ -117,7 +117,7 @@ def image_transformer_base():
   hparams = common_hparams.basic_params1()
   hparams.hidden_size = 512
   hparams.batch_size = 1
-  hparams.max_length = 256
+  hparams.max_length = 3075
   hparams.dropout = 0.0
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
   hparams.optimizer_adam_epsilon = 1e-9
@@ -152,7 +152,6 @@ def image_transformer_base():
 
   # dilated attention based flags
   hparams.add_hparam("gap_sizes", [2, 4, 8, 16, 32, 64, 2, 4, 8, 16, 32, 64])
-  hparams.add_hparam("dilated_attention", False)
 
   # image size related flags
   # assuming that the image has same height and width
@@ -223,6 +222,87 @@ def imagetransformer_sep_output_channels_8l():
   hparams = imagetransformer_sep_channels_8l()
   hparams.sep_rgb_embed = True
   hparams.sampling_method = "random"
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_8l_8h_big_cond_dr03_dan():
+  """big 1d model for conditional image generation.2.99 on cifar10."""
+  hparams = imagetransformer_sep_channels_8l()
+  hparams.block_width = 256
+  hparams.block_length = 256
+  hparams.hidden_size = 512
+  hparams.num_heads = 8
+  hparams.filter_size = 2048
+  hparams.batch_size = 4
+  hparams.max_length = 3075
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.num_decoder_layers = 8
+  hparams.layer_prepostprocess_dropout = 0.3
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_8l_8h_big_cond_dr03_dan_128():
+  hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan()
+  hparams.block_width = 128
+  hparams.block_length = 128
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_10l_8h_big_cond_dr03_dan():
+  """Best conditional Cifar10 gen param."""
+  hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan()
+  hparams.num_decoder_layers = 10
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_10l_8h_big_uncond_dr03_dan():
+  """Best unconditional Cifar10 gen param."""
+  hparams = imagetransformer_base_10l_8h_big_cond_dr03_dan()
+  hparams.num_decoder_layers = 10
+  hparams.unconditional = True
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated():
+  """big 1d model for conditional image generation.2.99 on cifar10."""
+  hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan()
+  hparams.gap_sizes = [0, 16, 64, 0, 16, 64, 128, 0]
+  hparams.dec_attention_type = cia.AttentionType.DILATED
+  hparams.block_length = 128
+  hparams.block_width = 128
+  hparams.add_hparam("num_memory_blocks", 1)
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated_b():
+  """big 1d model for conditional image generation.2.99 on cifar10."""
+  hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated()
+  hparams.block_width = 64
+  hparams.num_memory_blocks = 2
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated_c():
+  """big 1d model for conditional image generation.2.99 on cifar10."""
+  hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated()
+  hparams.block_width = 32
+  hparams.num_memory_blocks = 4
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated_d():
+  """big 1d model for conditional image generation.2.99 on cifar10."""
+  hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated()
+  hparams.gap_sizes = [0, 16, 64, 16, 64, 128, 256, 0]
   return hparams
 
 
@@ -312,21 +392,6 @@ def imagetransformer_base_14l_8h_big_uncond_dr01():
   """big 1d model for conditional image generation."""
   hparams = imagetransformer_base_14l_8h_big_uncond()
   hparams.layer_prepostprocess_dropout = 0.1
-  return hparams
-
-
-@registry.register_hparams
-def imagetransformer_base_12l_8h_big_dilated():
-  """big 1d model for conditional image generation."""
-  hparams = imagetransformer_sep_channels_8l_8h()
-  hparams.dilated_attention = True
-  hparams.filter_size = 1024
-  hparams.num_decoder_layers = 12
-  hparams.batch_size = 1
-  hparams.hidden_size = 512
-  hparams.learning_rate_warmup_steps = 4000
-  hparams.sampling_method = "random"
-  hparams.beam_size = 1
   return hparams
 
 
