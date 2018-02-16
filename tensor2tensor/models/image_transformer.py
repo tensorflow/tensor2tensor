@@ -270,7 +270,7 @@ def imagetransformer_base_10l_8h_big_uncond_dr03_dan():
 
 @registry.register_hparams
 def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated():
-  """big 1d model for conditional image generation.2.99 on cifar10."""
+  """Dilated hparams."""
   hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan()
   hparams.gap_sizes = [0, 16, 64, 0, 16, 64, 128, 0]
   hparams.dec_attention_type = cia.AttentionType.DILATED
@@ -282,7 +282,7 @@ def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated():
 
 @registry.register_hparams
 def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated_b():
-  """big 1d model for conditional image generation.2.99 on cifar10."""
+  """Dilated hparams."""
   hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated()
   hparams.block_width = 64
   hparams.num_memory_blocks = 2
@@ -291,7 +291,7 @@ def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated_b():
 
 @registry.register_hparams
 def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated_c():
-  """big 1d model for conditional image generation.2.99 on cifar10."""
+  """Dilated hparams."""
   hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated()
   hparams.block_width = 32
   hparams.num_memory_blocks = 4
@@ -300,7 +300,7 @@ def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated_c():
 
 @registry.register_hparams
 def imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated_d():
-  """big 1d model for conditional image generation.2.99 on cifar10."""
+  """Dilated hparams."""
   hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan_dilated()
   hparams.gap_sizes = [0, 16, 64, 16, 64, 128, 256, 0]
   return hparams
