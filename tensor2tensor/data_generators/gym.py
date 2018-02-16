@@ -23,12 +23,23 @@ import os
 
 # Dependency imports
 
+import numpy as np
+import gym
+
+from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.rl.envs import atari_wrappers
+from tensor2tensor.models.research import rl
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+
+flags = tf.flags
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string("model_path", "", "File with model for pong")
 
 
 def gym_lib():
@@ -131,6 +142,62 @@ class GymPongRandom5k(GymDiscreteProblem):
   @property
   def env_name(self):
     return "Pong-v0"
+
+  @property
+  def num_actions(self):
+    return 4
+
+  @property
+  def num_rewards(self):
+    return 2
+
+  @property
+  def num_steps(self):
+    return 5000
+
+
+
+
+@registry.register_problem
+class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
+  """Pong game, loaded actions."""
+
+  def __init__(self, event_dir, *args, **kwargs):
+    super(GymPongTrajectoriesFromPolicy, self).__init__(*args, **kwargs)
+    self._env = None
+    self._event_dir = event_dir
+    env_spec = lambda: atari_wrappers.wrap_atari(
+      gym.make("PongNoFrameskip-v4"), warp=False, frame_skip=4, frame_stack=False)
+    _1, _2, policy_factory = rl_trainer_lib.define_train(rl.atari_base(), env_spec, event_dir=None)
+    self._last_action = self.env.action_space.sample()
+    self._skip = 4
+    self._skip_step = 0
+    self._obs_buffer = np.zeros((2,) + self.env.observation_space.shape, dtype=np.uint8)
+    self._sess = tf.Session()
+    model_saver = tf.train.Saver()
+    model_saver.restore(self._sess, FLAGS.model_path)
+
+    self._max_frame_pl = tf.placeholder(tf.float32, self.env.observation_space.shape)
+    actor_critic = policy_factory(tf.expand_dims(tf.expand_dims(self._max_frame_pl, 0), 0))
+    policy = actor_critic.policy
+    self._last_policy_op = policy.mode()
+
+  # TODO(blazej): For training of atari agents wrappers are usually used.
+  # Below we have a hacky solution which is a temporary workaround to be used together
+  # with atari_wrappers.MaxAndSkipEnv.
+  def get_action(self, observation=None):
+    if self._skip_step == self._skip - 2: self._obs_buffer[0] = observation
+    if self._skip_step == self._skip - 1: self._obs_buffer[1] = observation
+    self._skip_step = (self._skip_step + 1) % self._skip
+    if self._skip_step == 0:
+      max_frame = self._obs_buffer.max(axis=0)
+      self._last_action = int(self._sess.run(
+        self._last_policy_op, feed_dict={self._max_frame_pl: max_frame})[0, 0])
+    return self._last_action
+
+  @property
+  def env_name(self):
+    return "PongNoFrameskip-v4"
 
   @property
   def num_actions(self):
