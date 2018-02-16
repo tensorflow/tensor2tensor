@@ -49,6 +49,7 @@ def ppo_base_v1():
   hparams.add_hparam("eval_every_epochs", 10)
   hparams.add_hparam("num_eval_agents", 3)
   hparams.add_hparam("video_during_eval", True)
+  hparams.add_hparam("save_models_every_epochs", 30)
   return hparams
 
 
