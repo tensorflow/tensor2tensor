@@ -328,12 +328,12 @@ def main(argv):
   if argv:
     set_hparams_from_args(argv[1:])
   hparams = create_hparams()
-  if is_chief():
-    save_metadata(hparams)
 
   with maybe_cloud_tpu():
     exp_fn = create_experiment_fn()
     exp = exp_fn(create_run_config(hparams), hparams)
+    if is_chief():
+      save_metadata(hparams)
     execute_schedule(exp)
 
 
