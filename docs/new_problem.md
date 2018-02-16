@@ -59,6 +59,7 @@ class PoetryLines(text_problems.Text2TextProblem):
     # generate_data will shard the data into TRAIN and EVAL for us.
     return False
 
+  @property
   def dataset_splits(self):
     """Splits of data to produce and number of output shards for each."""
     # 10% evaluation data
@@ -141,6 +142,7 @@ training data will be generated into 90 files and the evaluation data into 10.
     # generate_data will shard the data into TRAIN and EVAL for us.
     return False
 
+  @property
   def dataset_splits(self):
     """Splits of data to produce and number of output shards for each."""
     # 10% evaluation data
