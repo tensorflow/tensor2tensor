@@ -43,20 +43,26 @@ _CIFAR10_TRAIN_FILES = [
     "data_batch_5"
 ]
 _CIFAR10_TEST_FILES = ["test_batch"]
-_CIFAR10_IMAGE_SIZE = 32
+_CIFAR10_IMAGE_SIZE = _CIFAR100_IMAGE_SIZE = 32
+
+_CIFAR100_URL = "https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz"
+_CIFAR100_PREFIX = "cifar-100-python/"
+_CIFAR100_TRAIN_FILES = ["train"]
+_CIFAR100_TEST_FILES = ["test"]
 
 
-def _get_cifar10(directory):
+def _get_cifar(directory, url):
   """Download and extract CIFAR to directory unless it is there."""
-  filename = os.path.basename(_CIFAR10_URL)
-  path = generator_utils.maybe_download(directory, filename, _CIFAR10_URL)
+  filename = os.path.basename(url)
+  path = generator_utils.maybe_download(directory, filename, url)
   tarfile.open(path, "r:gz").extractall(directory)
 
 
-def cifar10_generator(tmp_dir, training, how_many, start_from=0):
-  """Image generator for CIFAR-10.
+def cifar_generator(cifar_version, tmp_dir, training, how_many, start_from=0):
+  """Image generator for CIFAR-10 and 100.
 
   Args:
+    cifar_version: string; one of "cifar10" or "cifar100"
     tmp_dir: path to temporary storage directory.
     training: a Boolean; if true, we use the train set, otherwise the test set.
     how_many: how many images and labels to generate.
@@ -65,21 +71,33 @@ def cifar10_generator(tmp_dir, training, how_many, start_from=0):
   Returns:
     An instance of image_generator that produces CIFAR-10 images and labels.
   """
-  _get_cifar10(tmp_dir)
-  data_files = _CIFAR10_TRAIN_FILES if training else _CIFAR10_TEST_FILES
+  if cifar_version == "cifar10":
+    url = _CIFAR10_URL
+    train_files = _CIFAR10_TRAIN_FILES
+    test_files = _CIFAR10_TEST_FILES
+    prefix = _CIFAR10_PREFIX
+    image_size = _CIFAR10_IMAGE_SIZE
+  elif cifar_version == "cifar100":
+    url = _CIFAR100_URL
+    train_files = _CIFAR100_TRAIN_FILES
+    test_files = _CIFAR100_TEST_FILES
+    prefix = _CIFAR100_PREFIX
+    image_size = _CIFAR100_IMAGE_SIZE
+
+  _get_cifar(tmp_dir, url)
+  data_files = train_files if training else test_files
   all_images, all_labels = [], []
   for filename in data_files:
-    path = os.path.join(tmp_dir, _CIFAR10_PREFIX, filename)
+    path = os.path.join(tmp_dir, prefix, filename)
     with tf.gfile.Open(path, "r") as f:
       data = cPickle.load(f)
     images = data["data"]
     num_images = images.shape[0]
-    images = images.reshape((num_images, 3, _CIFAR10_IMAGE_SIZE,
-                             _CIFAR10_IMAGE_SIZE))
+    images = images.reshape((num_images, 3, image_size, image_size))
     all_images.extend([
         np.squeeze(images[j]).transpose((1, 2, 0)) for j in xrange(num_images)
     ])
-    labels = data["labels"]
+    labels = data["labels" if cifar_version == "cifar10" else "fine_labels"]
     all_labels.extend([labels[j] for j in xrange(num_images)])
   return image_utils.image_generator(
       all_images[start_from:start_from + how_many],
@@ -112,9 +130,9 @@ class ImageCifar10Tune(mnist.ImageMnistTune):
 
   def generator(self, data_dir, tmp_dir, is_training):
     if is_training:
-      return cifar10_generator(tmp_dir, True, 48000)
+      return cifar_generator("cifar10", tmp_dir, True, 48000)
     else:
-      return cifar10_generator(tmp_dir, True, 2000, 48000)
+      return cifar_generator("cifar10", tmp_dir, True, 2000, 48000)
 
 
 @registry.register_problem
@@ -122,9 +140,9 @@ class ImageCifar10(ImageCifar10Tune):
 
   def generator(self, data_dir, tmp_dir, is_training):
     if is_training:
-      return cifar10_generator(tmp_dir, True, 50000)
+      return cifar_generator("cifar10", tmp_dir, True, 50000)
     else:
-      return cifar10_generator(tmp_dir, False, 10000)
+      return cifar_generator("cifar10", tmp_dir, False, 10000)
 
 
 @registry.register_problem
@@ -186,5 +204,212 @@ class Img2imgCifar10(ImageCifar10):
     p.input_modality = {"inputs": ("image:identity", 256)}
     p.target_modality = ("image:identity", 256)
     p.batch_size_multiplier = 256
+    p.input_space_id = 1
+    p.target_space_id = 1
+
+
+@registry.register_problem
+class ImageCifar100Tune(mnist.ImageMnistTune):
+  """Cifar-100 Tune."""
+
+  @property
+  def num_classes(self):
+    return 100
+
+  @property
+  def num_channels(self):
+    return 3
+
+  @property
+  def class_labels(self):
+    return [
+        "beaver",
+        "dolphin",
+        "otter",
+        "seal",
+        "whale",
+        "aquarium fish",
+        "flatfish",
+        "ray",
+        "shark",
+        "trout",
+        "orchids",
+        "poppies",
+        "roses",
+        "sunflowers",
+        "tulips",
+        "bottles",
+        "bowls",
+        "cans",
+        "cups",
+        "plates",
+        "apples",
+        "mushrooms",
+        "oranges",
+        "pears",
+        "sweet peppers",
+        "clock",
+        "computer keyboard",
+        "lamp",
+        "telephone",
+        "television",
+        "bed",
+        "chair",
+        "couch",
+        "table",
+        "wardrobe",
+        "bee",
+        "beetle",
+        "butterfly",
+        "caterpillar",
+        "cockroach",
+        "bear",
+        "leopard",
+        "lion",
+        "tiger",
+        "wolf",
+        "bridge",
+        "castle",
+        "house",
+        "road",
+        "skyscraper",
+        "cloud",
+        "forest",
+        "mountain",
+        "plain",
+        "sea",
+        "camel",
+        "cattle",
+        "chimpanzee",
+        "elephant",
+        "kangaroo",
+        "fox",
+        "porcupine",
+        "possum",
+        "raccoon",
+        "skunk",
+        "crab",
+        "lobster",
+        "snail",
+        "spider",
+        "worm",
+        "baby",
+        "boy",
+        "girl",
+        "man",
+        "woman",
+        "crocodile",
+        "dinosaur",
+        "lizard",
+        "snake",
+        "turtle",
+        "hamster",
+        "mouse",
+        "rabbit",
+        "shrew",
+        "squirrel",
+        "maple",
+        "oak",
+        "palm",
+        "pine",
+        "willow",
+        "bicycle",
+        "bus",
+        "motorcycle",
+        "pickup truck",
+        "train",
+        "lawn-mower",
+        "rocket",
+        "streetcar",
+        "tank",
+        "tractor",
+    ]
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    image = example["inputs"]
+    image.set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      image = image_utils.cifar_image_augmentation(image)
+    image = tf.image.per_image_standardization(image)
+    example["inputs"] = image
+    return example
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return cifar_generator("cifar100", tmp_dir, True, 48000)
+    else:
+      return cifar_generator("cifar100", tmp_dir, True, 2000, 48000)
+
+
+@registry.register_problem
+class ImageCifar100(ImageCifar100Tune):
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return cifar_generator("cifar100", tmp_dir, True, 50000)
+    else:
+      return cifar_generator("cifar100", tmp_dir, False, 10000)
+
+
+@registry.register_problem
+class ImageCifar100Plain(ImageCifar100):
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    image = example["inputs"]
+    image.set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
+    image = tf.image.per_image_standardization(image)
+    example["inputs"] = image
+    return example
+
+
+@registry.register_problem
+class ImageCifar100PlainGen(ImageCifar100Plain):
+  """CIFAR-100 32x32 for image generation without standardization preprep."""
+
+  def dataset_filename(self):
+    return "image_cifar100_plain"  # Reuse CIFAR-100 plain data.
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    return example
+
+
+@registry.register_problem
+class ImageCifar100Plain8(ImageCifar100):
+  """CIFAR-100 rescaled to 8x8 for output: Conditional image generation."""
+
+  def dataset_filename(self):
+    return "image_cifar100_plain"  # Reuse CIFAR-100 plain data.
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    image = example["inputs"]
+    image = image_utils.resize_by_area(image, 8)
+    image = tf.image.per_image_standardization(image)
+    example["inputs"] = image
+    return example
+
+
+@registry.register_problem
+class Img2imgCifar100(ImageCifar100):
+  """CIFAR-100 rescaled to 8x8 for input and 32x32 for output."""
+
+  def dataset_filename(self):
+    return "image_cifar100_plain"  # Reuse CIFAR-100 plain data.
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+
+    inputs = example["inputs"]
+    # For Img2Img resize input and output images as desired.
+    example["inputs"] = image_utils.resize_by_area(inputs, 8)
+    example["targets"] = image_utils.resize_by_area(inputs, 32)
+    return example
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    p.input_modality = {"inputs": ("image:identity", 256)}
+    p.target_modality = ("image:identity", 256)
+    p.batch_size_multiplier = 256
+    p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
     p.target_space_id = 1
