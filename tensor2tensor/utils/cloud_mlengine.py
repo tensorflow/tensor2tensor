@@ -179,7 +179,8 @@ def tar_and_copy_usr_dir(usr_dir, train_dir):
   top_setup_fname = os.path.join(top_dir, 'setup.py')
   usr_setup_fname = os.path.join(tmp_usr_dir, 'setup.py')
   if tf.gfile.Exists(usr_setup_fname):
-    tf.gfile.Move(usr_setup_fname, top_setup_fname)
+    tf.gfile.Copy(usr_setup_fname, top_setup_fname)
+    tf.gfile.Remove(usr_setup_fname)
   else:
     with tf.gfile.Open(top_setup_fname, 'w') as f:
       f.write(SETUP_PY)
