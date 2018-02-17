@@ -380,7 +380,8 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
 
   if hparams.prepend_mode == "prepend_inputs_full_attention":
     decoder_self_attention_bias = (
-        common_attention.attention_bias_prepended(targets_pad_mask))
+        common_attention.attention_bias_prepend_inputs_full_attention(
+            targets_pad_mask))
   else:
     decoder_self_attention_bias = (
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))

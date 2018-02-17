@@ -26,26 +26,44 @@ import tarfile
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_problems
 
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
 
 
-class TranslateProblem(problem.Text2TextProblem):
+class TranslateProblem(text_problems.Text2TextProblem):
   """Base class for translation problems."""
 
-  @property
-  def is_character_level(self):
-    return False
-
-  @property
-  def num_shards(self):
-    return 100
-
-  @property
-  def use_subword_tokenizer(self):
+  def is_generate_per_split(self):
     return True
+
+  def approx_vocab_size(self):
+    return 2**15
+
+  def source_data_files(self, dataset_split):
+    """Files to be passed to compile_data."""
+    raise NotImplementedError()
+
+  def vocab_data_files(self):
+    """Files to be passed to get_or_generate_vocab."""
+    return self.source_data_files(problem.DatasetSplit.TRAIN)
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
+    datasets = self.source_data_files(dataset_split)
+    tag = "train" if train else "dev"
+    data_path = compile_data(tmp_dir, datasets, "%s-compiled-%s" % (self.name,
+                                                                    tag))
+
+    if self.vocab_type == text_problems.VocabType.SUBWORD:
+      generator_utils.get_or_generate_vocab(
+          data_dir, tmp_dir, self.vocab_filename, self.approx_vocab_size,
+          self.vocab_data_files())
+
+    return text_problems.text2text_txt_iterator(data_path + ".lang1",
+                                                data_path + ".lang2")
 
 
 # Generic generators used later for multiple problems.

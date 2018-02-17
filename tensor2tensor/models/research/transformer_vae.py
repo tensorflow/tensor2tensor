@@ -670,7 +670,8 @@ def ae_transformer_internal(inputs,
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
       latents_dense, latents_discrete, extra_loss, embed = bottleneck(
-          targets_c, hparams, 2 * 2048, "vc", means, ema_count, ema_means)
+          targets_c, hparams,
+          hparams.compress_filter_size, "vc", means, ema_count, ema_means)
       if _DO_SUMMARIES:
         tf.summary.histogram("b0", tf.reshape(latents_discrete[:, 0, :], [-1]))
       pc = common_layers.inverse_exp_decay(hparams.startup_steps)
@@ -695,7 +696,8 @@ def ae_transformer_internal(inputs,
         losses["latent_pred"] = tf.reduce_mean((inputs_c - targets_c)**2) * 20
         def bn_inputs():
           with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-            bn, _, _, _ = bottleneck(inputs_c, hparams, 2 * 2048, "vc", means,
+            bn, _, _, _ = bottleneck(inputs_c, hparams,
+                                     hparams.compress_filter_size, "vc", means,
                                      ema_count, ema_means)
           return bn
         pbn = 0.8 if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
@@ -708,11 +710,13 @@ def ae_transformer_internal(inputs,
     else:
       if hparams.bottleneck_kind in ["dense", "vae"]:
         inputs_c = decode_transformer(inputs, ed, targets_c, hparams, "dec_c")
-        latents_dense, _, _, _ = bottleneck(inputs_c, hparams, 2 * 2048, "vc",
-                                            means, ema_count, ema_means)
+        latents_dense, _, _, _ = bottleneck(
+            inputs_c, hparams, hparams.compress_filter_size, "vc",
+            means, ema_count, ema_means)
       else:
         latent_len = common_layers.shape_list(targets_c)[1]
-        _, _, _, embed = bottleneck(targets_c, hparams, 2 * 2048, "vc", means,
+        _, _, _, embed = bottleneck(targets_c, hparams,
+                                    hparams.compress_filter_size, "vc", means,
                                     ema_count, ema_means)
         latents_dense = tf.zeros_like(targets_c[:, :latent_len, :, :])
         if cache is None:
@@ -806,7 +810,7 @@ class TransformerAE(t2t_model.T2TModel):
                 self._hparams.num_blocks, self._hparams.hidden_size,
                 self._hparams.block_dim
             ],
-            initializer=tf.random_normal_initializer(),
+            initializer=tf.contrib.layers.xavier_initializer(),
             trainable=self._hparams.trainable_projections)
         self._hparams.reshape_fn = project_hidden
       elif self._hparams.reshape_method == "slice":
@@ -922,6 +926,7 @@ def transformer_ae_small():
   hparams.num_hidden_layers = 3
   hparams.hidden_size = 384
   hparams.filter_size = 2048
+  hparams.add_hparam("compress_filter_size", 2048 * 2)
   hparams.label_smoothing = 0.0
   hparams.optimizer = "Adam"  # Can be unstable, maybe try Adam.
   hparams.optimizer_adam_epsilon = 1e-9
@@ -953,7 +958,6 @@ def transformer_ae_small():
   hparams.add_hparam("kmeans_lr_factor", 0.002)
   hparams.add_hparam("z_dropout", 0.1)
   hparams.add_hparam("is_2d", 0)
-  hparams.add_hparam("use_gumbel_softmax", True)
   hparams.add_hparam("softmax_k", 0)
   hparams.add_hparam("decode_autoregressive", True)
   hparams.add_hparam("do_vae", True)
@@ -1051,4 +1055,34 @@ def transformer_ae_base():
   hparams.hidden_size = 512
   hparams.filter_size = 4096
   hparams.num_hidden_layers = 6
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_a3():
+  """Set of hyperparameters."""
+  hparams = transformer_ae_base()
+  hparams.batch_size = 4096
+  hparams.layer_prepostprocess_dropout = 0.3
+  hparams.optimizer = "Adafactor"
+  hparams.learning_rate = 0.25
+  hparams.learning_rate_warmup_steps = 10000
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_a6():
+  """Best hparams for transformer with semhash."""
+  hparams = transformer_ae_a3()
+  hparams.optimizer = "Adam"
+  hparams.noise_dev = 0.5
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_a8():
+  """Set of hyperparameters."""
+  hparams = transformer_ae_a3()
+  hparams.optimizer = "Adafactor"
+  hparams.noise_dev = 0.5
   return hparams

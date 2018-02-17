@@ -38,11 +38,13 @@ def define_collect(policy_factory, batch_env, hparams, eval_phase):
                                        trainable=False)
 
   should_reset_var = tf.Variable(True, trainable=False)
+
+  def group():
+    return tf.group(batch_env.reset(tf.range(len(batch_env))),
+                    tf.assign(cumulative_rewards, tf.zeros(len(batch_env))))
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var, eval_phase),
-      lambda: tf.group(batch_env.reset(tf.range(len(batch_env))),
-                       tf.assign(cumulative_rewards, tf.zeros(len(batch_env)))),
-      lambda: tf.no_op())
+      tf.logical_or(should_reset_var, eval_phase), group, tf.no_op)
+
   with tf.control_dependencies([reset_op]):
     reset_once_op = tf.assign(should_reset_var, False)
 
@@ -50,7 +52,7 @@ def define_collect(policy_factory, batch_env, hparams, eval_phase):
 
     def step(index, scores_sum, scores_num):
       """Single step."""
-      index = index % hparams.epoch_length  # Only needed in eval runs.
+      index %= hparams.epoch_length  # Only needed in eval runs.
       # Note - the only way to ensure making a copy of tensor is to run simple
       # operation. We are waiting for tf.copy:
       # https://github.com/tensorflow/tensorflow/issues/11186
@@ -88,9 +90,9 @@ def define_collect(policy_factory, batch_env, hparams, eval_phase):
                 scores_num + scores_num_delta]
 
     def stop_condition(i, _, resets):
-        return tf.cond(eval_phase,
-                       lambda: resets < hparams.num_eval_agents,
-                       lambda: i < hparams.epoch_length)
+      return tf.cond(eval_phase,
+                     lambda: resets < hparams.num_eval_agents,
+                     lambda: i < hparams.epoch_length)
 
     init = [tf.constant(0), tf.constant(0.0), tf.constant(0)]
     index, scores_sum, scores_num = tf.while_loop(

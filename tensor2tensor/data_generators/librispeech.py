@@ -185,3 +185,10 @@ def add_librispeech_hparams(hparams):
   hparams.train_steps = 5000000
   hparams.num_hidden_layers = 4
   return hparams
+
+
+def set_librispeech_length_hparams(hparams):
+  hparams.max_length = 1650 * 80  # this limits inputs[1] * inputs[2]
+  hparams.max_input_seq_length = 1650
+  hparams.max_target_seq_length = 350
+  return hparams

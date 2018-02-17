@@ -70,15 +70,15 @@ def create_hparams(hparams_set,
                    problem_name=None):
   """Create HParams with data_dir and problem hparams, if kwargs provided."""
   hparams = registry.hparams(hparams_set)()
+  if data_dir:
+    hparams.add_hparam("data_dir", data_dir)
+  if problem_name:
+    add_problem_hparams(hparams, problem_name)
   if hparams_overrides_str:
     tf.logging.info("Overriding hparams in %s with %s",
                     hparams_set,
                     hparams_overrides_str)
     hparams = hparams.parse(hparams_overrides_str)
-  if data_dir:
-    hparams.add_hparam("data_dir", data_dir)
-  if problem_name:
-    add_problem_hparams(hparams, problem_name)
   return hparams
 
 
