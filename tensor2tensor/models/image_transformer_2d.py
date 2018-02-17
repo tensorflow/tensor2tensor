@@ -300,10 +300,46 @@ def img2img_transformer2d_base():
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
   # This version seems to benefit from a higher learning rate.
-  hparams.learning_rate = 0.1
+  hparams.learning_rate = 0.2
   hparams.layer_prepostprocess_dropout = 0.1
+  hparams.learning_rate_warmup_steps = 12000
+  hparams.filter_size = 2048
+  hparams.num_encoder_layers = 4
+  hparams.num_decoder_layers = 8
   hparams.dec_attention_type = cia.AttentionType.LOCAL_2D
   hparams.block_rastor_scan = True
+  return hparams
+
+
+@registry.register_hparams
+def img2img_transformer2d_q1():
+  hparams = img2img_transformer2d_base()
+  hparams.batch_size = 2
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.query_shape = (16, 16)
+  hparams.memory_flange = (16, 64)
+  return hparams
+
+
+@registry.register_hparams
+def img2img_transformer2d_q2():
+  hparams = img2img_transformer2d_q1()
+  hparams.batch_size = 2
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.query_shape = (16, 16)
+  hparams.memory_flange = (16, 32)
+  return hparams
+
+
+@registry.register_hparams
+def img2img_transformer2d_q3():
+  """Current best hparams for local 2d."""
+  hparams = img2img_transformer2d_q1()
+  hparams.batch_size = 2
+  hparams.query_shape = (8, 16)
+  hparams.memory_flange = (8, 32)
   return hparams
 
 
@@ -315,12 +351,67 @@ def img2img_transformer_base():
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
   # This version seems to benefit from a higher learning rate.
-  hparams.learning_rate = 0.1
+  hparams.learning_rate = 0.2
   hparams.layer_prepostprocess_dropout = 0.1
+  hparams.learning_rate_warmup_steps = 12000
+  hparams.filter_size = 2048
+  hparams.num_encoder_layers = 4
+  hparams.num_decoder_layers = 8
   hparams.block_length = 256
   hparams.block_width = 256
   hparams.dec_attention_type = cia.AttentionType.LOCAL_1D
   hparams.block_rastor_scan = False
+  return hparams
+
+
+@registry.register_hparams
+def img2img_transformer_b1():
+  hparams = img2img_transformer_base()
+  hparams.batch_size = 2
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.block_length = 512
+  return hparams
+
+
+@registry.register_hparams
+def img2img_transformer_b2():
+  hparams = img2img_transformer_base()
+  hparams.batch_size = 2
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.block_length = 256
+  return hparams
+
+
+@registry.register_hparams
+def img2img_transformer_b3():
+  """Current best hparams for local 1d."""
+  hparams = img2img_transformer_base()
+  hparams.batch_size = 2
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.block_length = 128
+  hparams.sampling_temp = 0.9
+  return hparams
+
+
+@registry.register_hparams
+def img2img_transformer_dilated():
+  """Try dilated."""
+  hparams = img2img_transformer_base()
+  hparams.add_hparam("num_memory_blocks", 1)
+  hparams.num_heads = 8
+  hparams.attention_key_channels = hparams.attention_value_channels = 0
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.num_decoder_layers = 8
+  hparams.sampling_method = "random"
+  hparams.gap_sizes = [0, 16, 64, 0, 16, 64, 128, 0]
+  hparams.dec_attention_type = cia.AttentionType.DILATED
+  hparams.img_len = 64
+  hparams.block_length = 128
+  hparams.block_width = 128
   return hparams
 
 
@@ -359,43 +450,6 @@ def img2img_transformer2d_n31():
 
 
 @registry.register_hparams
-def img2img_transformer2d_n32():
-  """Set of hyperparameters."""
-  hparams = img2img_transformer2d_base()
-  hparams.batch_size = 1
-  hparams.num_heads = 16
-  hparams.num_encoder_layers = 4
-  hparams.num_decoder_layers = 12
-  hparams.query_shape = (16, 32)
-  hparams.memory_flange = (16, 48)
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n4():
-  """Set of hyperparameters."""
-  hparams = img2img_transformer2d_base()
-  hparams.batch_size = 1
-  hparams.num_decoder_layers = 8
-  hparams.query_shape = (16, 16)
-  hparams.memory_flange = (16, 16)
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n14():
-  hparams = img2img_transformer2d_base()
-  hparams.batch_size = 1
-  hparams.hidden_size = 1024
-  hparams.filter_size = 2048
-  hparams.layer_prepostprocess_dropout = 0.2
-  hparams.num_decoder_layers = 8
-  hparams.query_shape = (16, 16)
-  hparams.memory_flange = (16, 16)
-  return hparams
-
-
-@registry.register_hparams
 def img2img_transformer2d_n24():
   hparams = img2img_transformer2d_base()
   hparams.batch_size = 1
@@ -405,37 +459,6 @@ def img2img_transformer2d_n24():
   hparams.num_decoder_layers = 8
   hparams.query_shape = (8, 16)
   hparams.memory_flange = (8, 32)
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n41():
-  hparams = img2img_transformer2d_n4()
-  hparams.num_decoder_layers = 10
-  hparams.num_encoder_layers = 6
-  hparams.query_shape = (16, 16)
-  hparams.memory_flange = (32, 32)
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n42():
-  hparams = img2img_transformer2d_n4()
-  hparams.num_decoder_layers = 12
-  hparams.num_encoder_layers = 6
-  hparams.query_shape = (16, 16)
-  hparams.memory_flange = (32, 16)
-  hparams.layer_prepostprocess_dropout = 0.1
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n43():
-  hparams = img2img_transformer2d_n4()
-  hparams.num_decoder_layers = 12
-  hparams.num_encoder_layers = 6
-  hparams.query_shape = (8, 16)
-  hparams.memory_flange = (8, 64)
   return hparams
 
 
@@ -451,100 +474,9 @@ def img2img_transformer2d_n44():
 
 
 @registry.register_hparams
-def img2img_transformer2d_n5():
-  hparams = img2img_transformer2d_base()
-  hparams.batch_size = 1
-  hparams.num_heads = 8
-  hparams.num_decoder_layers = 16
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n6():
-  hparams = img2img_transformer2d_base()
-  hparams.batch_size = 1
-  hparams.learning_rate = 0.05
-  hparams.num_decoder_layers = 12
-  hparams.num_encoder_layers = 6
-  hparams.query_shape = (8, 32)
-  hparams.memory_flange = (8, 32)
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n7():
-  hparams = img2img_transformer2d_base()
-  hparams.batch_size = 1
-  hparams.num_encoder_layers = 4
-  hparams.num_decoder_layers = 8
-  hparams.query_shape = (16, 32)
-  hparams.memory_flange = (16, 16)
-  hparams.layer_prepostprocess_dropout = 0.0
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n8():
-  hparams = img2img_transformer2d_base()
-  hparams.batch_size = 1
-  hparams.num_decoder_layers = 8
-  hparams.query_shape = (16, 16)
-  hparams.memory_flange = (16, 16)
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n9():
-  hparams = img2img_transformer2d_base()
-  hparams.batch_size = 1
-  hparams.num_heads = 8
-  hparams.num_decoder_layers = 12
-  hparams.filter_size = 2048
-  hparams.learning_rate = 0.05
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n10():
-  hparams = img2img_transformer2d_base()
-  hparams.batch_size = 1
-  hparams.learning_rate = 0.05
-  hparams.num_decoder_layers = 12
-  hparams.num_encoder_layers = 6
-  hparams.query_shape = (8, 32)
-  hparams.memory_flange = (8, 32)
-  hparams.layer_prepostprocess_dropout = 0.0
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n101():
-  hparams = img2img_transformer2d_n10()
-  hparams.batch_size = 1
-  hparams.num_decoder_layers = 12
-  hparams.num_encoder_layers = 6
-  hparams.query_shape = (8, 32)
-  hparams.memory_flange = (8, 32)
-  hparams.layer_prepostprocess_dropout = 0.1
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer2d_n102():
-  hparams = img2img_transformer2d_n10()
-  hparams.batch_size = 1
-  hparams.num_decoder_layers = 12
-  hparams.num_encoder_layers = 4
-  hparams.query_shape = (8, 32)
-  hparams.memory_flange = (16, 32)
-  hparams.layer_prepostprocess_dropout = 0.1
-  return hparams
-
-
-@registry.register_hparams
 def img2img_transformer2d_n103():
   """Best config for img2img."""
-  hparams = img2img_transformer2d_n10()
+  hparams = img2img_transformer2d_base()
   hparams.batch_size = 1
   hparams.num_decoder_layers = 12
   hparams.num_encoder_layers = 6
@@ -567,24 +499,6 @@ def img2img_transformer2d_tiny():
   hparams.num_heads = 4
   hparams.pos = "timing"
   hparams.img_len = 32
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer_n3():
-  hparams = img2img_transformer_base()
-  hparams.batch_size = 1
-  hparams.num_decoder_layers = 12
-  return hparams
-
-
-@registry.register_hparams
-def img2img_transformer_n4():
-  hparams = img2img_transformer_base()
-  hparams.batch_size = 1
-  hparams.num_decoder_layers = 8
-  hparams.block_length = 256
-  hparams.block_width = 128
   return hparams
 
 
