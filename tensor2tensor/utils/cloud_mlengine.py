@@ -47,12 +47,24 @@ setup(
 """
 
 
+def job_dir():
+  # The flag --job-dir is parsed differently before and after switching to absl
+  return getattr(FLAGS, 'job-dir', '') or getattr(FLAGS, 'job_dir', '')
+
+
 def flags_as_args():
   """Convert FLAGS to list of args suitable for passing on cmd line."""
-  args_dict = dict(FLAGS.__dict__['__flags'])
+  if hasattr(FLAGS, 'flag_values_dict'):
+    args_dict = FLAGS.flag_values_dict()
+  else:
+    args_dict = dict(FLAGS.__dict__['__flags'])
   del args_dict['cloud_mlengine']
   # Configured later
   del args_dict['t2t_usr_dir']
+  args_dict.pop('h', None)
+  args_dict.pop('helpfull', None)
+  args_dict.pop('helpshort', None)
+  args_dict.pop('help', None)
   args = []
   for name, val in args_dict.items():
     if val is None:
@@ -223,7 +235,7 @@ def configure_usr_dir(job_spec, usr_tar):
 def launch():
   """Launch t2t_trainer on Cloud ML Engine."""
   assert not FLAGS.cloud_tpu
-  assert not FLAGS.job_dir
+  assert not job_dir()
   assert FLAGS.output_dir.startswith('gs://')
   assert FLAGS.data_dir.startswith('gs://')
   assert FLAGS.worker_replicas <= 1

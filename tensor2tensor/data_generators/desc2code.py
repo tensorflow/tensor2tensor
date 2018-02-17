@@ -30,6 +30,7 @@ import zipfile
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -75,28 +76,18 @@ PB_CPP = CodingPbConstants(
 CodingPbInfo = collections.namedtuple("CodingPbInfo", "desc_file, code_files")
 
 
-class Desc2CodeProblem(problem.Text2TextProblem):
+class Desc2CodeProblem(text_problems.Text2TextProblem):
   """Base class for Description2Code problems."""
 
   @property
-  def is_character_level(self):
-    return False
-
-  @property
-  def num_shards(self):
-    return 10
-
-  @property
-  def use_subword_tokenizer(self):
-    return True
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return self.pb_constants.target_space
+  def dataset_splits(self):
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 10,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
 
   @property
   def input_vocab_size(self):
@@ -138,7 +129,11 @@ class Desc2CodeProblem(problem.Text2TextProblem):
         "targets": target_token,
     }
 
-  def generator(self, data_dir, tmp_dir, train):
+  def is_generate_per_split(self):
+    return True
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
     # Called twice: for train and test
 
     # Get the list of the training samples (coding challenge samples)

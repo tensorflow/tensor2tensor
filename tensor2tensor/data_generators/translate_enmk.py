@@ -21,7 +21,6 @@ from __future__ import print_function
 
 # Dependency imports
 
-from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import translate
@@ -55,33 +54,16 @@ class TranslateEnmkSetimes32k(translate.TranslateProblem):
   """Problem spec for SETimes Mk-En translation."""
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**15  # 32768
 
   @property
-  def vocab_name(self):
-    return "vocab.mken"
+  def vocab_filename(self):
+    return "vocab.mken.%d" % self.approx_vocab_size
 
-  def generator(self, data_dir, tmp_dir, train):
+  def source_data_files(self, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
     datasets = _MKEN_TRAIN_DATASETS if train else _MKEN_TEST_DATASETS
     source_datasets = [[item[0], [item[1][0]]] for item in datasets]
     target_datasets = [[item[0], [item[1][1]]] for item in datasets]
-    symbolizer_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size,
-        source_datasets + target_datasets)
-    tag = "train" if train else "dev"
-    data_path = translate.compile_data(tmp_dir, datasets,
-                                       "setimes_mken_tok_%s" % tag)
-    # We generate English->X data by convention, to train reverse translation
-    # just add the "_rev" suffix to the problem name, e.g., like this.
-    #   --problems=translate_enmk_setimes32k_rev
-    return translate.token_generator(data_path + ".lang2", data_path + ".lang1",
-                                     symbolizer_vocab, EOS)
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.MK_TOK
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.EN_TOK
+    return source_datasets + target_datasets

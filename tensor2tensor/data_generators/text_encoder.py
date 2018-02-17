@@ -75,6 +75,11 @@ else:  # No conversion required on Python >= 3.
     return s
 
 
+def to_unicode_ignore_erros(s):
+  return (unicode(s, "utf-8", errors="ignore")
+          if six.PY2 else s.decode("utf-8", "ignore"))
+
+
 class TextEncoder(object):
   """Base class for converting from ints to/from human readable strings."""
 
@@ -421,6 +426,7 @@ class SubwordTextEncoder(TextEncoder):
         vocab
     """
     self._alphabet = set()
+    self.filename = filename
     if filename is not None:
       self._load_from_file(filename)
     super(SubwordTextEncoder, self).__init__(num_reserved_ids=None)
