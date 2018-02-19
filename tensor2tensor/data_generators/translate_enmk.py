@@ -33,25 +33,25 @@ FLAGS = tf.flags.FLAGS
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
 
-# For English-Macedonian the SETimes corpus
+# For Macedonian-English the SETimes corpus
 # from http://nlp.ffzg.hr/resources/corpora/setimes/ is used.
 # The original dataset has 207,777 parallel sentences.
 # For training the first 205,777 sentences are used.
-_ENMK_TRAIN_DATASETS = [[
+_MKEN_TRAIN_DATASETS = [[
     "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.train.tgz",  # pylint: disable=line-too-long
-    ("train.en", "train.mk")
+    ("train.mk", "train.en")
 ]]
 
 # For development 1000 parallel sentences are used.
-_ENMK_TEST_DATASETS = [[
+_MKEN_TEST_DATASETS = [[
     "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.dev.tgz",  # pylint: disable=line-too-long
-    ("dev.en", "dev.mk")
+    ("dev.mk", "dev.en")
 ]]
 
 
 @registry.register_problem
 class TranslateEnmkSetimes32k(translate.TranslateProblem):
-  """Problem spec for SETimes En-Mk translation."""
+  """Problem spec for SETimes Mk-En translation."""
 
   @property
   def approx_vocab_size(self):
@@ -59,8 +59,11 @@ class TranslateEnmkSetimes32k(translate.TranslateProblem):
 
   @property
   def vocab_filename(self):
-    return "vocab.enmk.%d" % self.approx_vocab_size
+    return "vocab.mken.%d" % self.approx_vocab_size
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
-    return _ENMK_TRAIN_DATASETS if train else _ENMK_TEST_DATASETS
+    datasets = _MKEN_TRAIN_DATASETS if train else _MKEN_TEST_DATASETS
+    source_datasets = [[item[0], [item[1][0]]] for item in datasets]
+    target_datasets = [[item[0], [item[1][1]]] for item in datasets]
+    return source_datasets + target_datasets

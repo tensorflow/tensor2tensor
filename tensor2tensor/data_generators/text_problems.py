@@ -127,7 +127,6 @@ class Text2TextProblem(problem.Problem):
     """
     return VocabType.SUBWORD
 
-  @property
   def approx_vocab_size(self):
     """Approximate vocab size to generate. Only for VocabType.SUBWORD."""
     return 2**15  # ~32k
@@ -418,9 +417,9 @@ class Text2ClassProblem(Text2TextProblem):
 def txt_line_iterator(txt_path):
   """Iterate through lines of file."""
   with tf.gfile.Open(txt_path) as f:
-    readline = lambda: f.readline()
+    readline = lambda: f.readline().strip()
     for line in iter(readline, ""):
-      yield line.strip()
+      yield line
 
 
 def text2text_txt_iterator(source_txt_path, target_txt_path):
