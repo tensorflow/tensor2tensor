@@ -39,7 +39,6 @@ class TranslateProblem(text_problems.Text2TextProblem):
   def is_generate_per_split(self):
     return True
 
-  @property
   def approx_vocab_size(self):
     return 2**15
 
