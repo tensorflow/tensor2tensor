@@ -127,6 +127,7 @@ class Text2TextProblem(problem.Problem):
     """
     return VocabType.SUBWORD
 
+  @property
   def approx_vocab_size(self):
     """Approximate vocab size to generate. Only for VocabType.SUBWORD."""
     return 2**15  # ~32k
