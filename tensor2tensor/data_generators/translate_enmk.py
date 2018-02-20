@@ -63,7 +63,4 @@ class TranslateEnmkSetimes32k(translate.TranslateProblem):
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
-    datasets = _MKEN_TRAIN_DATASETS if train else _MKEN_TEST_DATASETS
-    source_datasets = [[item[0], [item[1][0]]] for item in datasets]
-    target_datasets = [[item[0], [item[1][1]]] for item in datasets]
-    return source_datasets + target_datasets
+    return _MKEN_TRAIN_DATASETS if train else _MKEN_TEST_DATASETS

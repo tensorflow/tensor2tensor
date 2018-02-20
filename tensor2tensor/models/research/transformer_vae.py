@@ -1086,3 +1086,12 @@ def transformer_ae_a8():
   hparams.optimizer = "Adafactor"
   hparams.noise_dev = 0.5
   return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_tpu():
+  """Base config adjusted for TPU."""
+  hparams = transformer_ae_base()
+  transformer.update_hparams_for_tpu(hparams)
+  hparams.batch_size = 512
+  return hparams
