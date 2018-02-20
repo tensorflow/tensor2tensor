@@ -721,6 +721,11 @@ class Problem(object):
       dataset = dataset.repeat()
       data_files = tf.contrib.slim.parallel_reader.get_data_files(
           self.filepattern(data_dir, mode))
+      #  In continuous_train_and_eval when switching between train and
+      #  eval, this input_fn method gets called multiple times and it
+      #  would give you the exact same samples from the last call
+      #  (because the Graph seed is set). So this skip gives you some
+      #  shuffling.
       dataset = skip_random_fraction(dataset, data_files[0])
 
     dataset = dataset.map(
