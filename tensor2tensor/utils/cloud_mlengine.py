@@ -46,6 +46,17 @@ setup(
 )
 """
 
+T2T_SETUP_PY = """
+from setuptools import find_packages
+from setuptools import setup
+setup(
+    name='DummyT2TPackage',
+    version='0.1',
+    packages=find_packages(),
+    install_requires=['tensor2tensor==%s'],
+)
+"""
+
 
 def job_dir():
   # The flag --job-dir is parsed differently before and after switching to absl
@@ -173,7 +184,35 @@ def _tar_and_copy(src_dir, target_dir):
 def tar_and_copy_t2t(train_dir):
   """Tar Tensor2Tensor and cp to train_dir."""
   tf.logging.info('Tarring and pushing local Tensor2Tensor package.')
-  t2t_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+
+  output = cloud.shell_output('pip show tensor2tensor').split('\n')
+  assert output[1].startswith('Version')
+  assert output[7].startswith('Location')
+  t2t_version = output[1].split(':')[1].strip()
+  t2t_dir = output[7].split(':')[1].strip()
+
+  # A local installation cloned from GitHub will have a setup.py file and a docs
+  # folder
+  is_local_t2t = all([
+      tf.gfile.Exists(os.path.join(t2t_dir, fname))
+      for fname in ['setup.py', 'docs/cloud_mlengine.md']
+  ])
+
+  if is_local_t2t:
+    tf.logging.info('Found local T2T installation. Tarring directory %s',
+                    t2t_dir)
+  else:
+    # PyPI installation
+    # Create a folder with just a setup.py file pointing to the right version
+    tf.logging.info('Found PyPI T2T installation. Launching tensor2tensor==%s',
+                    t2t_version)
+    t2t_dir = os.path.join(tempfile.gettempdir(), 'tensor2tensor_tmp')
+    shutil.rmtree(t2t_dir, ignore_errors=True)
+    os.mkdir(t2t_dir)
+    setup_fname = os.path.join(t2t_dir, 'setup.py')
+    with tf.gfile.Open(setup_fname, 'w') as f:
+      f.write(T2T_SETUP_PY % t2t_version)
+
   t2t_tar = _tar_and_copy(t2t_dir, train_dir)
   return t2t_tar
 
