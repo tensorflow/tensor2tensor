@@ -373,9 +373,8 @@ def discrete_bottleneck(x,
                         ema_count=None,
                         ema_means=None,
                         summary=True,
-                        py_strength=0.,
-                        py_alpha=1e-6,
-                        py_discount=0.5):
+                        dp_strength=1.0,
+                        dp_alpha=0.5):
   """Discretization bottleneck for latent variables.
 
   Args:
@@ -411,10 +410,8 @@ def discrete_bottleneck(x,
       examples in a batch it was the closest to (Default: None).
     ema_means: Exponentially averaged version of the embeddings (Default: None).
     summary: If True, then write summaries (Default: True).
-    py_strength: Strength of a Pitman-Yor loss prior (Default: 0).
-    py_alpha: Alpha term corresponding to Pitman-Yor (Default: 1e-6).
-    py_discount: Discount term corresponding to Pitman-Yor process (Default:
-      0.5).
+    dp_strength: Strength of Dirichlet Process loss prior (Default: 1.0).
+    dp_alpha: Alpha term (pseudo-count) in Dirichlet Process (Default: 0.5).
 
   Returns:
     Embedding to pass to the decoder, discrete latent, loss, and the embedding
@@ -532,14 +529,15 @@ def discrete_bottleneck(x,
             decay,
             zero_debias=False)
 
-        # Add a loss term encouraging it to be to similar to Pitman-Yor process
-        py_loss = 0.
-        if py_strength > 0.0:
-          py_count = ema_count + py_alpha
-          p = (py_count - py_discount) / tf.reduce_sum(
-              py_count, 1, keepdims=True)
-          py_loss = tf.log(p)
-          py_loss = -1.0 * tf.reduce_sum(py_loss) / (num_blocks * block_v_size)
+        # Adding a term that puts a Dirichlet prior over cluster probabilities
+        # Hopefully it'll encourage rich get richer behaviors
+        dp_prior_loss = 0.
+        if dp_strength > 0.0:
+          dp_count = ema_count + dp_alpha
+          p = dp_count / tf.reduce_sum(dp_count, 1, keepdims=True)
+          dp_prior_loss = tf.log(p)
+          dp_prior_loss = -1.0 * tf.reduce_sum(dp_prior_loss)
+          dp_prior_loss /= (num_blocks * block_v_size)
 
         x_means_hot_flat = tf.reshape(
             x_means_hot, shape=[-1, num_blocks, block_v_size])
@@ -556,7 +554,7 @@ def discrete_bottleneck(x,
         with tf.control_dependencies([e_loss]):
           update_means = tf.assign(means, updated_ema_means)
           with tf.control_dependencies([update_means]):
-            l = beta * e_loss + py_strength * py_loss
+            l = e_loss + dp_strength * dp_prior_loss
       else:
         l = q_loss + beta * e_loss
 
