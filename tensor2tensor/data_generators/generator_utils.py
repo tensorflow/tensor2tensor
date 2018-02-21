@@ -165,6 +165,8 @@ def generate_files(generator, output_filenames, max_cases=None):
   for writer in writers:
     writer.close()
 
+  tf.logging.info("Generated %s Examples", counter)
+
 
 def download_report_hook(count, block_size, total_size):
   """Report hook for download progress.
@@ -189,23 +191,25 @@ def maybe_download(directory, filename, url):
   Returns:
     The path to the downloaded file.
   """
+  filepath = os.path.join(directory, filename)
+  if tf.gfile.Exists(filepath):
+    tf.logging.info("Not downloading, file already found: %s" % filepath)
+    return filepath
+
   if not tf.gfile.Exists(directory):
     tf.logging.info("Creating directory %s" % directory)
-    os.mkdir(directory)
-  filepath = os.path.join(directory, filename)
-  if not tf.gfile.Exists(filepath):
-    tf.logging.info("Downloading %s to %s" % (url, filepath))
-    inprogress_filepath = filepath + ".incomplete"
-    inprogress_filepath, _ = urllib.urlretrieve(
-        url, inprogress_filepath, reporthook=download_report_hook)
-    # Print newline to clear the carriage return from the download progress
-    print()
-    tf.gfile.Rename(inprogress_filepath, filepath)
-    statinfo = os.stat(filepath)
-    tf.logging.info("Successfully downloaded %s, %s bytes." %
-                    (filename, statinfo.st_size))
-  else:
-    tf.logging.info("Not downloading, file already found: %s" % filepath)
+    tf.gfile.MakeDirs(directory)
+
+  tf.logging.info("Downloading %s to %s" % (url, filepath))
+  inprogress_filepath = filepath + ".incomplete"
+  inprogress_filepath, _ = urllib.urlretrieve(
+      url, inprogress_filepath, reporthook=download_report_hook)
+  # Print newline to clear the carriage return from the download progress
+  print()
+  tf.gfile.Rename(inprogress_filepath, filepath)
+  statinfo = os.stat(filepath)
+  tf.logging.info("Successfully downloaded %s, %s bytes." %
+                  (filename, statinfo.st_size))
   return filepath
 
 

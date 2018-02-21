@@ -222,15 +222,8 @@ class Text2TextProblem(problem.Problem):
   def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
     generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
     encoder = self.get_or_create_vocab(data_dir, tmp_dir)
-    for sample in generator:
-      targets = encoder.encode(sample["targets"])
-      targets.append(text_encoder.EOS_ID)
-      encoded_sample = {"targets": targets}
-      if self.has_inputs:
-        inputs = encoder.encode(sample["inputs"])
-        inputs.append(text_encoder.EOS_ID)
-        encoded_sample["inputs"] = inputs
-      yield encoded_sample
+    return text2text_generate_encoded(generator, encoder,
+                                      has_inputs=self.has_inputs)
 
   @property
   def batch_size_means_tokens(self):
@@ -244,15 +237,15 @@ class Text2TextProblem(problem.Problem):
         problem.DatasetSplit.TEST: self.test_filepaths,
     }
 
-    split_paths = dict([(split["split"], filepath_fns[split["split"]](
+    split_paths = [(split["split"], filepath_fns[split["split"]](
         data_dir, split["shards"], shuffled=False))
-                        for split in self.dataset_splits])
+                   for split in self.dataset_splits]
     all_paths = []
-    for paths in split_paths.values():
+    for _, paths in split_paths:
       all_paths.extend(paths)
 
     if self.is_generate_per_split:
-      for split, paths in split_paths.items():
+      for split, paths in split_paths:
         generator_utils.generate_files(
             self._maybe_pack_examples(
                 self.generate_encoded_samples(data_dir, tmp_dir, split)), paths)
@@ -418,9 +411,8 @@ class Text2ClassProblem(Text2TextProblem):
 def txt_line_iterator(txt_path):
   """Iterate through lines of file."""
   with tf.gfile.Open(txt_path) as f:
-    readline = lambda: f.readline().strip()
-    for line in iter(readline, ""):
-      yield line
+    for line in f:
+      yield line.strip()
 
 
 def text2text_txt_iterator(source_txt_path, target_txt_path):
@@ -472,9 +464,24 @@ def text2text_txt_tab_iterator(txt_path):
   """
   for line in txt_line_iterator(txt_path):
     if line and "\t" in line:
-      parts = line.split("\t")
+      parts = line.split("\t", 1)
       inputs, targets = parts[:2]
       yield {"inputs": inputs.strip(), "targets": targets.strip()}
+
+
+def text2text_generate_encoded(sample_generator,
+                               vocab,
+                               targets_vocab=None,
+                               has_inputs=True):
+  """Encode Text2Text samples from the generator with the vocab."""
+  targets_vocab = targets_vocab or vocab
+  for sample in sample_generator:
+    if has_inputs:
+      sample["inputs"] = vocab.encode(sample["inputs"])
+      sample["inputs"].append(text_encoder.EOS_ID)
+    sample["targets"] = targets_vocab.encode(sample["targets"])
+    sample["targets"].append(text_encoder.EOS_ID)
+    yield sample
 
 
 @registry.register_problem
