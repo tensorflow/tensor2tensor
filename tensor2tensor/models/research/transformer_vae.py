@@ -481,7 +481,9 @@ class TransformerAE(t2t_model.T2TModel):
         softmax_k=self._hparams.softmax_k,
         kl_warmup_steps=self._hparams.kl_warmup_steps,
         ema=self._hparams.ema,
-        summary=_DO_SUMMARIES)
+        summary=_DO_SUMMARIES,
+        dp_strength=self._hparams.dp_strength,
+        dp_alpha=self._hparams.dp_alpha)
 
     # Set the discretization bottleneck specific things here
     if self._hparams.bottleneck_kind == "dvq":
@@ -632,10 +634,9 @@ def transformer_ae_small():
   # Reshape method for DVQ: slice, project
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
-  # Hparams for Pitman-Yor process
-  hparams.add_hparam("py_alpha", 1e-6)
-  hparams.add_hparam("py_discount", 0.5)
-  hparams.add_hparam("py_strength", 0.25)
+  # Hparams for Dirichlet process process
+  hparams.add_hparam("dp_alpha", 0.5)
+  hparams.add_hparam("dp_strength", 1.0)
   hparams.add_hparam("unmasked_percentage", 0.1)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
