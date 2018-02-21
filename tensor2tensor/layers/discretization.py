@@ -533,6 +533,12 @@ def discrete_bottleneck(x,
         # Hopefully it'll encourage rich get richer behaviors
         dp_prior_loss = 0.
         if dp_strength > 0.0:
+          # Decay dp_strength over time to make it less important
+          dp_strength = tf.train.exponential_decay(
+              dp_strength,
+              global_step=tf.to_int32(tf.train.get_global_step()),
+              decay_steps=20000,
+              decay_rate=0.96)
           dp_count = ema_count + dp_alpha
           p = dp_count / tf.reduce_sum(dp_count, 1, keepdims=True)
           dp_prior_loss = tf.log(p)
