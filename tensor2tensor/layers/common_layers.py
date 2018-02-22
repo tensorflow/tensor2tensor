@@ -2388,7 +2388,7 @@ def ones_matrix_band_part(rows, cols, num_lower, num_upper, out_shape=None):
       num_lower = rows - 1
     if num_upper < 0:
       num_upper = cols - 1
-    lower_mask = np.tri(rows, cols, num_lower).T
+    lower_mask = np.tri(cols, rows, num_lower).T
     upper_mask = np.tri(rows, cols, num_upper)
     band = np.ones((rows, cols)) * lower_mask * upper_mask
     if out_shape:
