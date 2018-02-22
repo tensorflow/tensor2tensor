@@ -36,31 +36,34 @@ CONSOLE_URL = 'https://console.cloud.google.com/mlengine/jobs/'
 # TODO(rsepassi):
 # * Enable multi-machine sync/async training
 
-SETUP_PY = """
-from setuptools import find_packages
-from setuptools import setup
-setup(
-    name='DummyUsrDirPackage',
-    version='0.1',
-    packages=find_packages(),
-)
-"""
 
-T2T_SETUP_PY = """
+def get_setup_file(name, packages=None):
+  if not packages:
+    packages = []
+  return """
 from setuptools import find_packages
 from setuptools import setup
 setup(
-    name='DummyT2TPackage',
+    name='{name}',
     version='0.1',
     packages=find_packages(),
-    install_requires=['tensor2tensor==%s'],
+    install_requires={pypi_packages}
 )
-"""
+""".format(name=name, pypi_packages=str(list(packages)))
 
 
 def job_dir():
   # The flag --job-dir is parsed differently before and after switching to absl
   return getattr(FLAGS, 'job-dir', '') or getattr(FLAGS, 'job_dir', '')
+
+
+def get_requirements(usr_dir):
+  requirements_file = os.path.join(usr_dir, 'requirements.txt')
+  if not tf.gfile.Exists(requirements_file):
+    return []
+  with tf.gfile.Open(requirements_file) as f:
+    pkg_list = f.readlines()
+    return [pkg.strip() for pkg in pkg_list if 'tensor2tensor' not in pkg]
 
 
 def flags_as_args():
@@ -210,9 +213,12 @@ def tar_and_copy_t2t(train_dir):
     shutil.rmtree(t2t_dir, ignore_errors=True)
     os.mkdir(t2t_dir)
     setup_fname = os.path.join(t2t_dir, 'setup.py')
+    setup_file_str = get_setup_file(
+        name='DummyT2TPackage',
+        packages=['tensor2tensor==%s' % t2t_version]
+    )
     with tf.gfile.Open(setup_fname, 'w') as f:
-      f.write(T2T_SETUP_PY % t2t_version)
-
+      f.write(setup_file_str)
   t2t_tar = _tar_and_copy(t2t_dir, train_dir)
   return t2t_tar
 
@@ -228,13 +234,12 @@ def tar_and_copy_usr_dir(usr_dir, train_dir):
   shutil.copytree(usr_dir, tmp_usr_dir)
   # Insert setup.py if one does not exist
   top_setup_fname = os.path.join(top_dir, 'setup.py')
-  usr_setup_fname = os.path.join(tmp_usr_dir, 'setup.py')
-  if tf.gfile.Exists(usr_setup_fname):
-    tf.gfile.Copy(usr_setup_fname, top_setup_fname)
-    tf.gfile.Remove(usr_setup_fname)
-  else:
-    with tf.gfile.Open(top_setup_fname, 'w') as f:
-      f.write(SETUP_PY)
+  setup_file_str = get_setup_file(
+      name='DummyUsrDirPackage',
+      packages=get_requirements(usr_dir)
+  )
+  with tf.gfile.Open(top_setup_fname, 'w') as f:
+    f.write(setup_file_str)
   usr_tar = _tar_and_copy(top_dir, train_dir)
   return usr_tar
 
