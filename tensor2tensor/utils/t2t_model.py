@@ -239,6 +239,9 @@ class T2TModel(base.Layer):
     # Transform the input features
     for key, input_modality in six.iteritems(
         self._problem_hparams.input_modality):
+      if key not in features:
+        tf.logging.warning("Missing feature %s - ignoring." % key)
+        continue
       do_reuse = input_modality.name in all_previous_modalities
       with tf.variable_scope(input_modality.name, reuse=do_reuse):
         log_info("Transforming feature '%s' with %s.bottom", key,
