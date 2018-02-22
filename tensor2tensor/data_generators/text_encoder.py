@@ -379,7 +379,7 @@ def _unescape_token(escaped_token):
     try:
       return six.unichr(int(m.group(1)))
     except (ValueError, OverflowError) as _:
-      return ""
+      return u"\u3013"
 
   trimmed = escaped_token[:-1] if escaped_token.endswith("_") else escaped_token
   return _UNESCAPE_REGEX.sub(match, trimmed)
