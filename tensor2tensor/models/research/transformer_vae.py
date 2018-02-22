@@ -483,6 +483,7 @@ class TransformerAE(t2t_model.T2TModel):
         ema=self._hparams.ema,
         summary=_DO_SUMMARIES,
         dp_strength=self._hparams.dp_strength,
+        dp_decay=self._hparams.dp_decay,
         dp_alpha=self._hparams.dp_alpha)
 
     # Set the discretization bottleneck specific things here
@@ -636,7 +637,8 @@ def transformer_ae_small():
   hparams.add_hparam("trainable_projections", False)
   # Hparams for Dirichlet process process
   hparams.add_hparam("dp_alpha", 0.5)
-  hparams.add_hparam("dp_strength", 1.0)
+  hparams.add_hparam("dp_strength", 0.25)
+  hparams.add_hparam("dp_decay", 1.0)
   hparams.add_hparam("unmasked_percentage", 0.1)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
