@@ -418,9 +418,9 @@ class Text2ClassProblem(Text2TextProblem):
 def txt_line_iterator(txt_path):
   """Iterate through lines of file."""
   with tf.gfile.Open(txt_path) as f:
-    readline = lambda: f.readline().strip()
+    readline = lambda: f.readline()
     for line in iter(readline, ""):
-      yield line
+      yield line.strip()
 
 
 def text2text_txt_iterator(source_txt_path, target_txt_path):
