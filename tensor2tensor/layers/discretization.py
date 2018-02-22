@@ -374,6 +374,7 @@ def discrete_bottleneck(x,
                         ema_means=None,
                         summary=True,
                         dp_strength=1.0,
+                        dp_decay=1.0,
                         dp_alpha=0.5):
   """Discretization bottleneck for latent variables.
 
@@ -411,6 +412,8 @@ def discrete_bottleneck(x,
     ema_means: Exponentially averaged version of the embeddings (Default: None).
     summary: If True, then write summaries (Default: True).
     dp_strength: Strength of Dirichlet Process loss prior (Default: 1.0).
+    dp_decay: Decay the dp_strength using an exponential decay using this
+      term (Default: 1.0).
     dp_alpha: Alpha term (pseudo-count) in Dirichlet Process (Default: 0.5).
 
   Returns:
@@ -538,7 +541,7 @@ def discrete_bottleneck(x,
               dp_strength,
               global_step=tf.to_int32(tf.train.get_global_step()),
               decay_steps=20000,
-              decay_rate=0.96)
+              decay_rate=dp_decay)
           dp_count = ema_count + dp_alpha
           p = dp_count / tf.reduce_sum(dp_count, 1, keepdims=True)
           dp_prior_loss = tf.log(p)
@@ -560,7 +563,7 @@ def discrete_bottleneck(x,
         with tf.control_dependencies([e_loss]):
           update_means = tf.assign(means, updated_ema_means)
           with tf.control_dependencies([update_means]):
-            l = e_loss + dp_strength * dp_prior_loss
+            l = beta * e_loss + dp_strength * dp_prior_loss
       else:
         l = q_loss + beta * e_loss
 
