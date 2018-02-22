@@ -329,7 +329,7 @@ def ae_transformer_internal(inputs,
     # flatten here
     original_targets_shape = tf.shape(targets)
     if hparams.task == "image":
-      cia.maybe_reshape_4d_to_3d(targets, hparams)
+      cia.maybe_reshape_4d_to_3d(targets)
     if hparams.task == "translate":
       max_targets_len_from_inputs = tf.concat([inputs, inputs], axis=1)
     else:

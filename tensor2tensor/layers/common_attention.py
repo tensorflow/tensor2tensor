@@ -1510,7 +1510,6 @@ def masked_local_attention_1d(q, k, v, block_length=128,
   """
   with tf.variable_scope(
       name, default_name="local_attention_1d", values=[q, k, v]):
-    v_shape = v.get_shape()
     batch = common_layers.shape_list(q)[0]
     heads = common_layers.shape_list(q)[1]
     length = common_layers.shape_list(q)[2]
@@ -1534,7 +1533,11 @@ def masked_local_attention_1d(q, k, v, block_length=128,
     q = tf.pad(q, padding)
     k = tf.pad(k, padding)
     v = tf.pad(v, padding)
-    num_blocks = tf.div(length, block_length)
+
+    if isinstance(length, int) and isinstance(block_length, int):
+      num_blocks = length // block_length
+    else:
+      num_blocks = tf.div(length, block_length)
 
     # compute attention for the first query block.
     first_q = tf.slice(q, [0, 0, 0, 0], [-1, -1, block_length, -1])
@@ -1553,17 +1556,21 @@ def masked_local_attention_1d(q, k, v, block_length=128,
     k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
     v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
 
-    def local(x):
+    def local(x, depth):
       """Create a local version of the keys or values."""
       prev_block = tf.slice(x, [0, 0, 0, 0, 0],
                             [-1, -1, num_blocks - 1, -1, -1])
       cur_block = tf.slice(x, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
-      return tf.concat([prev_block, cur_block], 3)
+      local_block = tf.concat([prev_block, cur_block], 3)
+      return tf.reshape(local_block,
+                        [batch, heads, num_blocks - 1,
+                         block_length * 2, depth])
 
-    local_k = local(k)
-    local_v = local(v)
+    local_k = local(k, depth_k)
+    local_v = local(v, depth_v)
     tail_q = tf.slice(q, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
-
+    tail_q = tf.reshape(tail_q, [batch, heads, num_blocks - 1,
+                                 block_length, depth_k])
     local_length = common_layers.shape_list(local_k)[3]
 
     # [batch, heads, num_blocks - 1, block_length, local_length]
@@ -1579,10 +1586,11 @@ def masked_local_attention_1d(q, k, v, block_length=128,
     # The naive way currently causes errors due to empty tensors.
     # output: [batch, heads, num_blocks-1, block_length, depth_v]
     output = tf.matmul(attention, local_v)
-    output = tf.reshape(output, [batch, heads, -1, depth_v])
+    output = tf.reshape(output, [
+        batch, heads, (num_blocks-1)*block_length, depth_v])
     output = tf.concat([first_output, output], axis=2)
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
-    output.set_shape(v_shape)
+    output = tf.reshape(output, [batch, heads, original_length, depth_v])
     return output
 
 
