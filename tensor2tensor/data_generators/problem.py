@@ -162,7 +162,7 @@ class Problem(object):
           data_dir. Vocab files are newline-separated files with each line
           containing a token. The standard convention for the filename is to
           set it to be
-                  ${Problem.vocab_name}.${Problem.targeted_vocab_size}
+                  ${Problem.vocab_filename}.${Problem.targeted_vocab_size}
         - Downloads and other files can be written to tmp_dir
         - If you have a training and dev generator, you can generate the
           training and dev datasets with

@@ -151,7 +151,7 @@ class LanguagemodelLm1b32k(text_problems.Text2TextProblem):
   """A language model on the 1B words corpus."""
 
   @property
-  def vocab_name(self):
+  def vocab_filename(self):
     return "vocab.lm1b.en.%d" % self.approx_vocab_size
 
   @property
