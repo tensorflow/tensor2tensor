@@ -48,5 +48,6 @@ from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
 from tensor2tensor.models.research import transformer_revnet
 from tensor2tensor.models.research import transformer_sketch
+from tensor2tensor.models.research import transformer_symshard
 from tensor2tensor.models.research import transformer_vae
 # pylint: enable=unused-import
