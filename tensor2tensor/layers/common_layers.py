@@ -216,11 +216,12 @@ def dropout_no_scaling(x, keep_prob):
 
 
 def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0,
-              symbol_dropout_rate=0.0):
+              symbol_dropout_rate=0.0, embedding_var=None):
   """Embed x of type int64 into dense vectors, reducing to max 4 dimensions."""
   with tf.variable_scope(
       name, default_name="embedding", values=[x], reuse=reuse):
-    embedding_var = tf.get_variable("kernel", [vocab_size, dense_size])
+    if embedding_var is None:
+      embedding_var = tf.get_variable("kernel", [vocab_size, dense_size])
     # On the backwards pass, we want to convert the gradient from
     # an indexed-slices to a regular tensor before sending it back to the
     # parameter server. This avoids excess computation on the parameter server.
