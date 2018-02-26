@@ -56,10 +56,10 @@ class PoetryLines(text_problems.Text2TextProblem):
     # 10% evaluation data
     return [{
         "split": problem.DatasetSplit.TRAIN,
-        "shards": 90,
+        "shards": 9,
     }, {
         "split": problem.DatasetSplit.EVAL,
-        "shards": 10,
+        "shards": 1,
     }]
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
