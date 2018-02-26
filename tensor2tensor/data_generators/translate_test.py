@@ -47,7 +47,7 @@ class TranslateTest(tf.test.TestCase):
 
     en_data = [str(i) for i in range(10, 40)]
     de_data = [str(i) for i in range(100, 130)]
-    data = zip(en_data, de_data)
+    data = list(zip(en_data, de_data))
 
     for i, dataset in enumerate(cls.DATASETS):
       tar_file = dataset[0]
