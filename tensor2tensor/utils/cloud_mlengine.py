@@ -91,27 +91,32 @@ def flags_as_args():
 
 def machine_config(num_gpus=1, use_tpu=False, master_type=None):
   """Return dict specifying machine config for trainingInput."""
-  scale_tier = 'BASIC_GPU'
   if use_tpu:
-    scale_tier = 'BASIC_TPU'
+    master_type = 'standard_tpu'
   elif num_gpus <= 0:
-    scale_tier = 'BASIC'
-  elif num_gpus > 1:
-    scale_tier = 'CUSTOM'
-
-  config = {'scaleTier': scale_tier}
-
-  if scale_tier == 'CUSTOM':
-    assert num_gpus > 1
-    if num_gpus not in [4, 8]:
+    master_type = master_type or 'standard'
+    cpu_types = ['standard', 'large_model', 'complex_model_s',
+                 'complex_model_m', 'complex_model_l']
+    if master_type not in cpu_types:
+      raise ValueError('Expected `cloudml_engine_master_type` to be one of %s '
+                       'when `worker_gpu` <= 0, found %s.', str(cpu_types),
+                       master_type)
+  elif num_gpus >= 1:
+    if num_gpus == 1:
+      if master_type != 'standard_gpu':
+        master_type = 'standard_p100'
+    elif num_gpus == 4:
+      if master_type != 'complex_model_m_gpu':
+        master_type = 'complex_model_m_p100'
+    elif num_gpus == 8:
+      master_type = 'complex_model_l_gpu'
+    else:
       raise ValueError('Must use exactly 1, 4, or 8 GPUs.')
-    config['masterType'] = ('complex_model_m_gpu'
-                            if num_gpus == 4 else 'complex_model_l_gpu')
-
-  if master_type:
-    config['masterType'] = master_type
-
-  return config
+  assert master_type
+  return {
+      'scaleTier': 'CUSTOM',
+      'masterType': master_type
+  }
 
 
 def configure_job():
@@ -144,9 +149,6 @@ def configure_job():
         FLAGS.autotune_max_trials,
         FLAGS.autotune_parallel_trials,
     )
-
-  if training_input['scaleTier'] == 'CUSTOM':
-    assert 'masterType' in training_input
 
   timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
   job_name = '%s_%s_t2t_%s' % (FLAGS.model, FLAGS.problems, timestamp)
