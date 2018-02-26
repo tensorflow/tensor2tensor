@@ -65,10 +65,10 @@ class PoetryLines(text_problems.Text2TextProblem):
     # 10% evaluation data
     return [{
         "split": problem.DatasetSplit.TRAIN,
-        "shards": 90,
+        "shards": 9,
     }, {
         "split": problem.DatasetSplit.EVAL,
-        "shards": 10,
+        "shards": 1,
     }]
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
@@ -133,7 +133,7 @@ pre-existing "training" and "evaluation" sets. If we did, we'd set
 split.
 
 The `dataset_splits` method determines the fraction that goes to each split. The
-training data will be generated into 90 files and the evaluation data into 10.
+training data will be generated into 9 files and the evaluation data into 1.
 90% of the data will be for training. 10% of the data will be for evaluation.
 
 ```python
@@ -148,10 +148,10 @@ training data will be generated into 90 files and the evaluation data into 10.
     # 10% evaluation data
     return [{
         "split": problem.DatasetSplit.TRAIN,
-        "shards": 90,
+        "shards": 9,
     }, {
         "split": problem.DatasetSplit.EVAL,
-        "shards": 10,
+        "shards": 1,
     }]
 ```
 

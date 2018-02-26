@@ -223,7 +223,7 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
   """
 
   @property
-  def vocab_name(self):
+  def vocab_filename(self):
     return "vocab.wiki_noref"
 
   def filepath_to_unicode_text(self, filepath):

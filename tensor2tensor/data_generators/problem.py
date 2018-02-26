@@ -162,7 +162,7 @@ class Problem(object):
           data_dir. Vocab files are newline-separated files with each line
           containing a token. The standard convention for the filename is to
           set it to be
-                  ${Problem.vocab_name}.${Problem.targeted_vocab_size}
+                  ${Problem.vocab_filename}.${Problem.targeted_vocab_size}
         - Downloads and other files can be written to tmp_dir
         - If you have a training and dev generator, you can generate the
           training and dev datasets with
@@ -721,6 +721,11 @@ class Problem(object):
       dataset = dataset.repeat()
       data_files = tf.contrib.slim.parallel_reader.get_data_files(
           self.filepattern(data_dir, mode))
+      #  In continuous_train_and_eval when switching between train and
+      #  eval, this input_fn method gets called multiple times and it
+      #  would give you the exact same samples from the last call
+      #  (because the Graph seed is set). So this skip gives you some
+      #  shuffling.
       dataset = skip_random_fraction(dataset, data_files[0])
 
     dataset = dataset.map(

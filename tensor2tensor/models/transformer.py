@@ -882,7 +882,8 @@ def transformer_base_v1():
   hparams.max_length = 256
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
   hparams.optimizer_adam_epsilon = 1e-9
-  hparams.learning_rate_schedule = "linear_warmup_rsqrt_decay"
+  hparams.learning_rate_schedule = "legacy"
+  hparams.learning_rate_decay_scheme = "noam"
   hparams.learning_rate = 0.1
   hparams.learning_rate_warmup_steps = 4000
   hparams.initializer_gain = 1.0
@@ -943,6 +944,11 @@ def transformer_base():
   # transformer_base_v2.
   hparams = transformer_base_v2()
   hparams.optimizer_adam_beta2 = 0.997
+  # New way of specifying learning rate schedule.
+  # Equivalent to previous version.
+  hparams.learning_rate_schedule = (
+      "constant*linear_warmup*rsqrt_decay*rsqrt_hidden_size")
+  hparams.learning_rate_constant = 2.0
   return hparams
 
 
@@ -1279,7 +1285,10 @@ def update_hparams_for_tpu(hparams):
   """Change hparams to be compatible with TPU training."""
 
   # Adafactor uses less memory than Adam.
+  # switch to Adafactor with its recommended learning rate scheme.
   hparams.optimizer = "Adafactor"
+  hparams.learning_rate_schedule = "rsqrt_decay"
+  hparams.learning_rate_warmup_steps = 10000
 
   # Avoid an expensive concat on TPU.
   # >1 shards helps with faster parameter distribution on multi-GPU machines

@@ -282,11 +282,12 @@ class TokenTextEncoder(TextEncoder):
     Args:
       filename: The file to load vocabulary from.
     """
+    with tf.gfile.Open(filename) as f:
+      tokens = [token.strip() for token in f.readlines()]
+
     def token_gen():
-      with tf.gfile.Open(filename) as f:
-        for line in f:
-          token = line.strip()
-          yield token
+      for token in tokens:
+        yield token
 
     self._init_vocab(token_gen(), add_reserved_tokens=False)
 
@@ -379,7 +380,7 @@ def _unescape_token(escaped_token):
     try:
       return six.unichr(int(m.group(1)))
     except (ValueError, OverflowError) as _:
-      return u"\u3013"
+      return u"\u3013"  # Unicode for undefined character.
 
   trimmed = escaped_token[:-1] if escaped_token.endswith("_") else escaped_token
   return _UNESCAPE_REGEX.sub(match, trimmed)
@@ -827,11 +828,9 @@ class SubwordTextEncoder(TextEncoder):
     self._init_alphabet_from_tokens(subtoken_strings)
 
   def _load_from_file(self, filename):
-    """Load from a file.
-
-    Args:
-      filename: Filename to load vocabulary from
-    """
+    """Load from a vocab file."""
+    if not tf.gfile.Exists(filename):
+      raise ValueError("File %s not found" % filename)
     with tf.gfile.Open(filename) as f:
       self._load_from_file_object(f)
 
