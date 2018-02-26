@@ -23,7 +23,6 @@ from __future__ import print_function
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import registry
 
@@ -61,18 +60,6 @@ class TranslateEnmkSetimes32k(translate.TranslateProblem):
   @property
   def vocab_filename(self):
     return "vocab.enmk.%d" % self.approx_vocab_size
-
-  def source_data_files(self, dataset_split):
-    train = dataset_split == problem.DatasetSplit.TRAIN
-    return _ENMK_TRAIN_DATASETS if train else _ENMK_TEST_DATASETS
-
-@registry.register_problem
-class TranslateEnmkSetimesCharacters(translate.TranslateProblem):
-  """Problem spec for SETimes En-Mk translation."""
-
-  @property
-  def vocab_type(self):
-    return text_problems.VocabType.CHARACTER
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
