@@ -639,7 +639,7 @@ def transformer_ae_small():
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
   # Add option to pass the input to the autoencoder
-  hparams.add_hparam("ae_input", False)
+  hparams.add_hparam("ae_input", True)
   # Hparams for Dirichlet process process
   hparams.add_hparam("dp_alpha", 0.5)
   hparams.add_hparam("dp_strength", 0.25)
