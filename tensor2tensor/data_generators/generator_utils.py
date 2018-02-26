@@ -165,6 +165,8 @@ def generate_files(generator, output_filenames, max_cases=None):
   for writer in writers:
     writer.close()
 
+  tf.logging.info("Generated %s Examples", counter)
+
 
 def download_report_hook(count, block_size, total_size):
   """Report hook for download progress.
@@ -198,19 +200,22 @@ def maybe_download(directory, filename, uri):
   """
   if not tf.gfile.Exists(directory):
     tf.logging.info("Creating directory %s" % directory)
-    os.mkdir(directory)
+    tf.gfile.MakeDirs(directory)
   filepath = os.path.join(directory, filename)
   if not tf.gfile.Exists(filepath):
     tf.logging.info("Downloading %s to %s" % (uri, filepath))
     try:
       tf.gfile.Copy(uri, filepath)
     except tf.errors.UnimplementedError:
-      inprogress_filepath = filepath + ".incomplete"
-      inprogress_filepath, _ = urllib.urlretrieve(
-          uri, inprogress_filepath, reporthook=download_report_hook)
-      # Print newline to clear the carriage return from the download progress
-      print()
-      tf.gfile.Rename(inprogress_filepath, filepath)
+      if uri.startswith("http"):
+        inprogress_filepath = filepath + ".incomplete"
+        inprogress_filepath, _ = urllib.urlretrieve(
+            uri, inprogress_filepath, reporthook=download_report_hook)
+        # Print newline to clear the carriage return from the download progress
+        print()
+        tf.gfile.Rename(inprogress_filepath, filepath)
+      else:
+        raise ValueError("Unrecognized URI: " + filepath)
     statinfo = os.stat(filepath)
     tf.logging.info("Successfully downloaded %s, %s bytes." %
                     (filename, statinfo.st_size))
@@ -232,7 +237,7 @@ def maybe_download_from_drive(directory, filename, url):
   """
   if not tf.gfile.Exists(directory):
     tf.logging.info("Creating directory %s" % directory)
-    os.mkdir(directory)
+    tf.gfile.MakeDirs(directory)
   filepath = os.path.join(directory, filename)
   confirm_token = None
   if tf.gfile.Exists(filepath):

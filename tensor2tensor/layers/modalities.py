@@ -542,3 +542,8 @@ class IdentitySymbolModality(SymbolModality):
   def targets_bottom(self, x):
     """SymbolModality overrides targets_bottom, so need to override here too."""
     return self.bottom(x)
+
+  @property
+  def top_is_pointwise(self):
+    # pointwise mode manipulates body output, not logits, so it fails here.
+    return False

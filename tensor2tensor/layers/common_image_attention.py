@@ -45,14 +45,13 @@ class AttentionType(object):
     ]
 
 
-def maybe_reshape_4d_to_3d(x, hparams):
+def maybe_reshape_4d_to_3d(x):
   """Reshape input from 4D to 3D if necessary."""
   x_shape = common_layers.shape_list(x)
   is_4d = False
   if len(x_shape) == 4:
     x = tf.reshape(x, [x_shape[0], x_shape[1]*x_shape[2], x_shape[3]])
     is_4d = True
-  x.set_shape([None, None, hparams.hidden_size])
   return x, x_shape, is_4d
 
 
@@ -82,7 +81,7 @@ def local_attention_1d(x,
                        kv_padding="VALID"):
   """Local 1d self attention."""
   # self-attention
-  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x, hparams)
+  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
   with tf.variable_scope("local_1d_self_att"):
     y = common_attention.multihead_attention(
         x,
@@ -104,7 +103,6 @@ def local_attention_1d(x,
         name="self_attention")
     if is_4d:
       y = tf.reshape(y, x_shape)
-      y.set_shape([None, None, None, hparams.hidden_size])
     return y
 
 
@@ -117,7 +115,7 @@ def dilated_attention_1d(x,
                          gap_size=2):
   """Dilated 1d self attention."""
   # self-attention
-  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x, hparams)
+  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
   with tf.variable_scope("masked_dilated_1d"):
     y = common_attention.multihead_attention(
         x,
@@ -195,7 +193,7 @@ def full_self_attention(x,
                         q_padding="LEFT",
                         kv_padding="LEFT"):
   """Full self-attention layer."""
-  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x, hparams)
+  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
   with tf.variable_scope("self_att"):
     y = common_attention.multihead_attention(
         x,
@@ -221,8 +219,8 @@ def encdec_attention_1d(x,
                         encoder_output,
                         hparams):
   """Local 1d self attention."""
-  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x, hparams)
-  encoder_output, _, _ = maybe_reshape_4d_to_3d(encoder_output, hparams)
+  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
+  encoder_output, _, _ = maybe_reshape_4d_to_3d(encoder_output)
   with tf.variable_scope("encdec_attention"):
     # Encoder Decoder attention
     y = common_attention.multihead_attention(
@@ -518,11 +516,12 @@ def prepare_decoder(targets, hparams):
     x = add_pos_signals(x, hparams, "dec_pos")
   else:
     # Add position signals
-    x = tf.reshape(x, [-1, x_shape[1]*x_shape[2], hparams.hidden_size])
+    x = tf.reshape(x, [targets_shape[0],
+                       x_shape[1]*x_shape[2], hparams.hidden_size])
     x = common_layers.shift_right_3d(x)
-    x = tf.reshape(x, [-1, x_shape[1], x_shape[2], hparams.hidden_size])
+    x = tf.reshape(x, [targets_shape[0],
+                       x_shape[1], x_shape[2], hparams.hidden_size])
     x = add_pos_signals(x, hparams, "dec_pos")
-  x.set_shape([None, None, None, hparams.hidden_size])
   return x, x_shape[1], x_shape[2], bias
 
 

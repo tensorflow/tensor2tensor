@@ -36,20 +36,34 @@ CONSOLE_URL = 'https://console.cloud.google.com/mlengine/jobs/'
 # TODO(rsepassi):
 # * Enable multi-machine sync/async training
 
-SETUP_PY = """
+
+def get_setup_file(name, packages=None):
+  if not packages:
+    packages = []
+  return """
 from setuptools import find_packages
 from setuptools import setup
 setup(
-    name='DummyUsrDirPackage',
+    name='{name}',
     version='0.1',
     packages=find_packages(),
+    install_requires={pypi_packages}
 )
-"""
+""".format(name=name, pypi_packages=str(list(packages)))
 
 
 def job_dir():
   # The flag --job-dir is parsed differently before and after switching to absl
   return getattr(FLAGS, 'job-dir', '') or getattr(FLAGS, 'job_dir', '')
+
+
+def get_requirements(usr_dir):
+  requirements_file = os.path.join(usr_dir, 'requirements.txt')
+  if not tf.gfile.Exists(requirements_file):
+    return []
+  with tf.gfile.Open(requirements_file) as f:
+    pkg_list = f.readlines()
+    return [pkg.strip() for pkg in pkg_list if 'tensor2tensor' not in pkg]
 
 
 def flags_as_args():
@@ -77,27 +91,32 @@ def flags_as_args():
 
 def machine_config(num_gpus=1, use_tpu=False, master_type=None):
   """Return dict specifying machine config for trainingInput."""
-  scale_tier = 'BASIC_GPU'
   if use_tpu:
-    scale_tier = 'BASIC_TPU'
+    master_type = 'standard_tpu'
   elif num_gpus <= 0:
-    scale_tier = 'BASIC'
-  elif num_gpus > 1:
-    scale_tier = 'CUSTOM'
-
-  config = {'scaleTier': scale_tier}
-
-  if scale_tier == 'CUSTOM':
-    assert num_gpus > 1
-    if num_gpus not in [4, 8]:
+    master_type = master_type or 'standard'
+    cpu_types = ['standard', 'large_model', 'complex_model_s',
+                 'complex_model_m', 'complex_model_l']
+    if master_type not in cpu_types:
+      raise ValueError('Expected `cloudml_engine_master_type` to be one of %s '
+                       'when `worker_gpu` <= 0, found %s.', str(cpu_types),
+                       master_type)
+  elif num_gpus >= 1:
+    if num_gpus == 1:
+      if master_type != 'standard_gpu':
+        master_type = 'standard_p100'
+    elif num_gpus == 4:
+      if master_type != 'complex_model_m_gpu':
+        master_type = 'complex_model_m_p100'
+    elif num_gpus == 8:
+      master_type = 'complex_model_l_gpu'
+    else:
       raise ValueError('Must use exactly 1, 4, or 8 GPUs.')
-    config['masterType'] = ('complex_model_m_gpu'
-                            if num_gpus == 4 else 'complex_model_l_gpu')
-
-  if master_type:
-    config['masterType'] = master_type
-
-  return config
+  assert master_type
+  return {
+      'scaleTier': 'CUSTOM',
+      'masterType': master_type
+  }
 
 
 def configure_job():
@@ -130,9 +149,6 @@ def configure_job():
         FLAGS.autotune_max_trials,
         FLAGS.autotune_parallel_trials,
     )
-
-  if training_input['scaleTier'] == 'CUSTOM':
-    assert 'masterType' in training_input
 
   timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
   job_name = '%s_%s_t2t_%s' % (FLAGS.model, FLAGS.problems, timestamp)
@@ -173,7 +189,38 @@ def _tar_and_copy(src_dir, target_dir):
 def tar_and_copy_t2t(train_dir):
   """Tar Tensor2Tensor and cp to train_dir."""
   tf.logging.info('Tarring and pushing local Tensor2Tensor package.')
-  t2t_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+
+  output = cloud.shell_output('pip show tensor2tensor').split('\n')
+  assert output[1].startswith('Version')
+  assert output[7].startswith('Location')
+  t2t_version = output[1].split(':')[1].strip()
+  t2t_dir = output[7].split(':')[1].strip()
+
+  # A local installation cloned from GitHub will have a setup.py file and a docs
+  # folder
+  is_local_t2t = all([
+      tf.gfile.Exists(os.path.join(t2t_dir, fname))
+      for fname in ['setup.py', 'docs/cloud_mlengine.md']
+  ])
+
+  if is_local_t2t:
+    tf.logging.info('Found local T2T installation. Tarring directory %s',
+                    t2t_dir)
+  else:
+    # PyPI installation
+    # Create a folder with just a setup.py file pointing to the right version
+    tf.logging.info('Found PyPI T2T installation. Launching tensor2tensor==%s',
+                    t2t_version)
+    t2t_dir = os.path.join(tempfile.gettempdir(), 'tensor2tensor_tmp')
+    shutil.rmtree(t2t_dir, ignore_errors=True)
+    os.mkdir(t2t_dir)
+    setup_fname = os.path.join(t2t_dir, 'setup.py')
+    setup_file_str = get_setup_file(
+        name='DummyT2TPackage',
+        packages=['tensor2tensor==%s' % t2t_version]
+    )
+    with tf.gfile.Open(setup_fname, 'w') as f:
+      f.write(setup_file_str)
   t2t_tar = _tar_and_copy(t2t_dir, train_dir)
   return t2t_tar
 
@@ -189,13 +236,12 @@ def tar_and_copy_usr_dir(usr_dir, train_dir):
   shutil.copytree(usr_dir, tmp_usr_dir)
   # Insert setup.py if one does not exist
   top_setup_fname = os.path.join(top_dir, 'setup.py')
-  usr_setup_fname = os.path.join(tmp_usr_dir, 'setup.py')
-  if tf.gfile.Exists(usr_setup_fname):
-    tf.gfile.Copy(usr_setup_fname, top_setup_fname)
-    tf.gfile.Remove(usr_setup_fname)
-  else:
-    with tf.gfile.Open(top_setup_fname, 'w') as f:
-      f.write(SETUP_PY)
+  setup_file_str = get_setup_file(
+      name='DummyUsrDirPackage',
+      packages=get_requirements(usr_dir)
+  )
+  with tf.gfile.Open(top_setup_fname, 'w') as f:
+    f.write(setup_file_str)
   usr_tar = _tar_and_copy(top_dir, train_dir)
   return usr_tar
 

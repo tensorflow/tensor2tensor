@@ -34,6 +34,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import expert_utils as eu
+from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import optimize
 from tensor2tensor.utils import registry
@@ -238,6 +239,9 @@ class T2TModel(base.Layer):
     # Transform the input features
     for key, input_modality in six.iteritems(
         self._problem_hparams.input_modality):
+      if key not in features:
+        tf.logging.warning("Missing feature %s - ignoring." % key)
+        continue
       do_reuse = input_modality.name in all_previous_modalities
       with tf.variable_scope(input_modality.name, reuse=do_reuse):
         log_info("Transforming feature '%s' with %s.bottom", key,
@@ -336,13 +340,7 @@ class T2TModel(base.Layer):
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
     log_info("Base learning rate: %f", self.hparams.learning_rate)
-    lr = self.hparams.learning_rate
-    decay_rate = optimize.learning_rate_schedule(self.hparams)
-    lr *= decay_rate
-    if self.hparams.learning_rate_minimum:
-      lr_min = float(self.hparams.learning_rate_minimum)
-      log_info("Applying learning rate minimum: %f", lr_min)
-      lr = tf.max(lr, tf.to_float(lr_min))
+    lr = learning_rate.learning_rate_schedule(self.hparams)
     if num_async_replicas > 1:
       log_info("Dividing learning rate by num_async_replicas: %d",
                num_async_replicas)

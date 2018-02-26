@@ -41,8 +41,8 @@ principle work just fine. Contributions/testers welcome.
 Launching on Cloud ML Engine works with `--t2t_usr_dir` as well as long as the
 directory is fully self-contained (i.e. the imports only refer to other modules
 in the directory). If there are additional PyPI dependencies that you need, you
-can include a `setup.py` file in your directory (ensure that it uses
-`setuptools.find_packages`).
+can include a `requirements.txt` file in the directory specified by
+`t2t_usr_dir`.
 
 # Hyperparameter Tuning
 

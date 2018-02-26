@@ -424,6 +424,35 @@ def imagetransformer2d_tiny():
   return hparams
 
 
+def update_hparams_for_tpu(hparams):
+  hparams.use_pad_remover = False  # where op not supported
+  hparams.optimizer = "TrueAdam"
+  hparams.batch_size = 4
+
+
+@registry.register_hparams
+def img2mg_transformer_base_tpu():
+  """Hparams for training img2img_transformer on tpu."""
+  hparams = img2img_transformer_base()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 8
+  hparams.num_encoder_layers = 4
+  hparams.shared_embedding_and_softmax_weights = False
+  return hparams
+
+
+@registry.register_hparams
+def img2mg_transformer_tiny_tpu():
+  hparams = img2mg_transformer_base_tpu()
+  hparams.num_hidden_layers = 2
+  hparams.hidden_size = 16
+  hparams.batch_size = 2
+  hparams.num_heads = 2
+  return hparams
+
+
 @registry.register_hparams
 def img2img_transformer2d_n3():
   hparams = img2img_transformer2d_base()

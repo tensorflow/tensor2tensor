@@ -61,13 +61,25 @@ def basic_params1():
       optimizer_adam_beta2=0.997,
       optimizer_momentum_momentum=0.9,
       optimizer_momentum_nesterov=False,
+      optimizer_adafactor_beta1=0.0,
+      optimizer_adafactor_beta2=0.999,
+      optimizer_adafactor_factored=True,
+      optimizer_adafactor_decay_type="pow",
+      optimizer_adafactor_memory_exponent=0.8,
+      optimizer_adafactor_clipping_threshold=1.0,
+      optimizer_adafactor_multiply_by_parameter_scale=True,
       weight_decay=1e-6,
       weight_noise=0.0,
-      learning_rate_schedule="warmup_and_decay",
-      # If learning_rate_schedule=="warmup_and_decay", then this specifies
-      # the decay part of the schedule.
-      # The warmup is always exponential.
-      # TODO(noam): add a hyperparameter to control the warmup.
+      # Defines the learning rate as a product of named functions.
+      # Available functions are listed in learning_rate._LEARNING_RATE_FUNCTIONS
+      # e.g. "constant*linear_warmup*rsqrt_decay*rsqrt_hidden_size"
+      learning_rate_schedule="legacy",
+      learning_rate_constant=1.0,
+      # If learning_rate_schedule=="legacy",
+      # then we specify decay scheme here.  Warmup is always exponential,
+      # except with "noam" learning rate decay scheme.
+      # see optimize.legacy_learning_rate_schedule()
+      # TODO(noam): migrate everyone away from this.
       learning_rate_decay_scheme="none",
       # decay_steps and decay_staircase for learning_rate_decay_scheme=="exp"
       learning_rate_decay_steps=5000,
