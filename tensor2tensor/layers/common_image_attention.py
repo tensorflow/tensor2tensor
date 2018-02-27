@@ -14,6 +14,10 @@
 # limitations under the License.
 
 """Utils for attention mechanism for images."""
+# Dependency imports
+
+from six.moves import xrange  # pylint: disable=redefined-builtin
+
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
@@ -26,6 +30,7 @@ class AttentionType(object):
   LOCAL_2D = "local_2d"
   GLOBAL = "global"
   GLOCAL = "global_local"
+  DILATED = "dilated"
   MOE_LOCAL_1D = "moe_local1d"
 
   @staticmethod
@@ -36,17 +41,17 @@ class AttentionType(object):
         AttentionType.MOE_LOCAL_1D,
         AttentionType.LOCAL_1D,
         AttentionType.LOCAL_2D,
+        AttentionType.DILATED,
     ]
 
 
-def maybe_reshape_4d_to_3d(x, hparams):
+def maybe_reshape_4d_to_3d(x):
   """Reshape input from 4D to 3D if necessary."""
   x_shape = common_layers.shape_list(x)
   is_4d = False
   if len(x_shape) == 4:
     x = tf.reshape(x, [x_shape[0], x_shape[1]*x_shape[2], x_shape[3]])
     is_4d = True
-  x.set_shape([None, None, hparams.hidden_size])
   return x, x_shape, is_4d
 
 
@@ -76,7 +81,7 @@ def local_attention_1d(x,
                        kv_padding="VALID"):
   """Local 1d self attention."""
   # self-attention
-  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x, hparams)
+  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
   with tf.variable_scope("local_1d_self_att"):
     y = common_attention.multihead_attention(
         x,
@@ -94,6 +99,42 @@ def local_attention_1d(x,
         kv_padding=kv_padding,
         q_filter_width=hparams.q_filter_width,
         kv_filter_width=hparams.kv_filter_width,
+        make_image_summary=False,
+        name="self_attention")
+    if is_4d:
+      y = tf.reshape(y, x_shape)
+    return y
+
+
+def dilated_attention_1d(x,
+                         self_attention_bias,
+                         hparams,
+                         attention_type="masked_dilated_1d",
+                         q_padding="VALID",
+                         kv_padding="VALID",
+                         gap_size=2):
+  """Dilated 1d self attention."""
+  # self-attention
+  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
+  with tf.variable_scope("masked_dilated_1d"):
+    y = common_attention.multihead_attention(
+        x,
+        None,
+        self_attention_bias,
+        hparams.attention_key_channels or hparams.hidden_size,
+        hparams.attention_value_channels or hparams.hidden_size,
+        hparams.hidden_size,
+        hparams.num_heads,
+        hparams.attention_dropout,
+        attention_type=attention_type,
+        block_width=hparams.block_width,
+        block_length=hparams.block_length,
+        q_padding=q_padding,
+        kv_padding=kv_padding,
+        q_filter_width=hparams.q_filter_width,
+        kv_filter_width=hparams.kv_filter_width,
+        gap_size=gap_size,
+        num_memory_blocks=hparams.num_memory_blocks,
         name="self_attention")
     if is_4d:
       y = tf.reshape(y, x_shape)
@@ -152,7 +193,7 @@ def full_self_attention(x,
                         q_padding="LEFT",
                         kv_padding="LEFT"):
   """Full self-attention layer."""
-  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x, hparams)
+  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
   with tf.variable_scope("self_att"):
     y = common_attention.multihead_attention(
         x,
@@ -178,8 +219,8 @@ def encdec_attention_1d(x,
                         encoder_output,
                         hparams):
   """Local 1d self attention."""
-  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x, hparams)
-  encoder_output, _, _ = maybe_reshape_4d_to_3d(encoder_output, hparams)
+  x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
+  encoder_output, _, _ = maybe_reshape_4d_to_3d(encoder_output)
   with tf.variable_scope("encdec_attention"):
     # Encoder Decoder attention
     y = common_attention.multihead_attention(
@@ -208,6 +249,8 @@ def transformer_decoder_layers(inputs,
   """Multi layer transformer."""
   x = inputs
   x = tf.nn.dropout(x, 1.0 - hparams.layer_prepostprocess_dropout)
+  if attention_type == AttentionType.DILATED:
+    assert len(hparams.gap_sizes) == num_layers
   for layer in xrange(num_layers):
     with tf.variable_scope("%s_layer_%d" % (name, layer)):
       # self-attention + skip connections
@@ -224,11 +267,15 @@ def transformer_decoder_layers(inputs,
         y = local_global_attention(common_layers.layer_preprocess(x, hparams),
                                    bias, hparams,
                                    q_padding="LEFT", kv_padding="LEFT")
+      elif attention_type == AttentionType.DILATED:
+        y = dilated_attention_1d(common_layers.layer_preprocess(x, hparams),
+                                 bias, hparams, q_padding="LEFT",
+                                 kv_padding="LEFT",
+                                 gap_size=hparams.gap_sizes[layer])
       elif attention_type == AttentionType.GLOBAL:
         y = full_self_attention(common_layers.layer_preprocess(x, hparams),
                                 bias, hparams,
                                 q_padding="LEFT", kv_padding="LEFT")
-      # TODO(nikip): Add support for dilated attention.
       x = common_layers.layer_postprocess(x, y, hparams)
       # enc-dec attention + skip connections
       if encoder_output is not None:
@@ -469,11 +516,12 @@ def prepare_decoder(targets, hparams):
     x = add_pos_signals(x, hparams, "dec_pos")
   else:
     # Add position signals
-    x = tf.reshape(x, [-1, x_shape[1]*x_shape[2], hparams.hidden_size])
+    x = tf.reshape(x, [targets_shape[0],
+                       x_shape[1]*x_shape[2], hparams.hidden_size])
     x = common_layers.shift_right_3d(x)
-    x = tf.reshape(x, [-1, x_shape[1], x_shape[2], hparams.hidden_size])
+    x = tf.reshape(x, [targets_shape[0],
+                       x_shape[1], x_shape[2], hparams.hidden_size])
     x = add_pos_signals(x, hparams, "dec_pos")
-  x.set_shape([None, None, None, hparams.hidden_size])
   return x, x_shape[1], x_shape[2], bias
 
 

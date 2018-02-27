@@ -31,6 +31,7 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
+from tensor2tensor.data_generators import librispeech
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
@@ -603,7 +604,7 @@ def transformer_prepare_decoder(targets, hparams, features=None):
   """
   if hparams.prepend_mode == "prepend_inputs_full_attention":
     decoder_self_attention_bias = (
-        common_attention.attention_bias_prepended(
+        common_attention.attention_bias_prepend_inputs_full_attention(
             common_attention.embedding_to_padding(targets)))
   else:
     decoder_self_attention_bias = (
@@ -881,7 +882,8 @@ def transformer_base_v1():
   hparams.max_length = 256
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
   hparams.optimizer_adam_epsilon = 1e-9
-  hparams.learning_rate_schedule = "linear_warmup_rsqrt_decay"
+  hparams.learning_rate_schedule = "legacy"
+  hparams.learning_rate_decay_scheme = "noam"
   hparams.learning_rate = 0.1
   hparams.learning_rate_warmup_steps = 4000
   hparams.initializer_gain = 1.0
@@ -942,6 +944,11 @@ def transformer_base():
   # transformer_base_v2.
   hparams = transformer_base_v2()
   hparams.optimizer_adam_beta2 = 0.997
+  # New way of specifying learning rate schedule.
+  # Equivalent to previous version.
+  hparams.learning_rate_schedule = (
+      "constant*linear_warmup*rsqrt_decay*rsqrt_hidden_size")
+  hparams.learning_rate_constant = 2.0
   return hparams
 
 
@@ -1278,7 +1285,10 @@ def update_hparams_for_tpu(hparams):
   """Change hparams to be compatible with TPU training."""
 
   # Adafactor uses less memory than Adam.
+  # switch to Adafactor with its recommended learning rate scheme.
   hparams.optimizer = "Adafactor"
+  hparams.learning_rate_schedule = "rsqrt_decay"
+  hparams.learning_rate_warmup_steps = 10000
 
   # Avoid an expensive concat on TPU.
   # >1 shards helps with faster parameter distribution on multi-GPU machines
@@ -1423,3 +1433,32 @@ def transformer_lm_tpu_1():
   hparams.hidden_size = 2048
   hparams.filter_size = 8192
   return hparams
+
+
+@registry.register_hparams
+def transformer_librispeech():
+  """Hparams for training ASR model on Librispeech."""
+  hparams = transformer_base()
+
+  hparams.num_heads = 4
+  hparams.filter_size = 1024
+  hparams.hidden_size = 256
+  hparams.num_encoder_layers = 5
+  hparams.num_decoder_layers = 3
+  hparams.learning_rate = 0.15
+  hparams.batch_size = 6000000
+
+  librispeech.set_librispeech_length_hparams(hparams)
+  return hparams
+
+
+@registry.register_hparams
+def transformer_librispeech_tpu():
+  """Hparams for training ASR model on Librispeech on TPU."""
+  hparams = transformer_librispeech()
+  update_hparams_for_tpu(hparams)
+
+  hparams.batch_size = 32
+  librispeech.set_librispeech_length_hparams(hparams)
+  return hparams
+

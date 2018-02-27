@@ -28,13 +28,14 @@ import numpy as np
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
 
 @registry.register_problem
-class LanguagemodelWikiXmlV8kL1k(problem.ChoppedTextProblem):
+class LanguagemodelWikiXmlV8kL1k(text_problems.ChoppedTextProblem):
   """A language model on English Wikipedia.
 
   XML dump is chopped arbitrarily into sequences of length 1024 tokens,
@@ -88,11 +89,11 @@ class LanguagemodelWikiXmlV8kL1k(problem.ChoppedTextProblem):
             "enwiki-20171201-pages-articles.xml.bz2")
 
   @property
-  def vocab_name(self):
-    return "vocab.wiki_xml"
+  def vocab_filename(self):
+    return "vocab.wiki_xml.%d" % self.approx_vocab_size
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**13  # 8192
 
   @property
@@ -222,7 +223,7 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
   """
 
   @property
-  def vocab_name(self):
+  def vocab_filename(self):
     return "vocab.wiki_noref"
 
   def filepath_to_unicode_text(self, filepath):

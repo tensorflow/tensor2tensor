@@ -25,6 +25,8 @@ from __future__ import print_function
 from tensor2tensor.layers import modalities
 from tensor2tensor.models import basic
 from tensor2tensor.models import bytenet
+from tensor2tensor.models import image_transformer
+from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.models import lstm
 from tensor2tensor.models import neural_gpu
 from tensor2tensor.models import resnet
@@ -35,6 +37,7 @@ from tensor2tensor.models import transformer
 from tensor2tensor.models import vanilla_gan
 from tensor2tensor.models import xception
 
+from tensor2tensor.models.research import adafactor_experiments
 from tensor2tensor.models.research import aligned
 from tensor2tensor.models.research import attention_lm
 from tensor2tensor.models.research import attention_lm_moe
@@ -45,5 +48,6 @@ from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
 from tensor2tensor.models.research import transformer_revnet
 from tensor2tensor.models.research import transformer_sketch
+from tensor2tensor.models.research import transformer_symshard
 from tensor2tensor.models.research import transformer_vae
 # pylint: enable=unused-import

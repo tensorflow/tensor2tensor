@@ -239,7 +239,6 @@ class SpeechRecognitionProblem(problem.Problem):
 
   def hparams(self, defaults, model_hparams):
     p = model_hparams
-    # Filterbank extraction
     # Filterbank extraction in bottom instead of preprocess_example is faster.
     p.add_hparam("audio_preproc_in_bottom", False)
     # The trainer seems to reserve memory for all members of the input dict
@@ -312,10 +311,18 @@ class SpeechRecognitionProblem(problem.Problem):
         mel_fbanks = add_delta_deltas(mel_fbanks)
       fbank_size = common_layers.shape_list(mel_fbanks)
       assert fbank_size[0] == 1
+
+      # This replaces CMVN estimation on data
+
+      mean = tf.reduce_mean(mel_fbanks, keepdims=True, axis=1)
+      variance = tf.reduce_mean((mel_fbanks-mean)**2, keepdims=True, axis=1)
+      mel_fbanks = (mel_fbanks - mean) / variance
+
       # Later models like to flatten the two spatial dims. Instead, we add a
       # unit spatial dim and flatten the frequencies and channels.
       example["inputs"] = tf.reshape(
-          mel_fbanks, [fbank_size[1], 1, fbank_size[2] * fbank_size[3]])
+          mel_fbanks, [fbank_size[1], fbank_size[2], fbank_size[3]])
+
     if not p.audio_keep_example_waveforms:
       del example["waveforms"]
     return super(SpeechRecognitionProblem, self
@@ -364,36 +371,31 @@ class SpeechRecognitionModality(modality.Modality):
             mel_fbanks = add_delta_deltas(mel_fbanks)
           x = tf.reshape(mel_fbanks,
                          common_layers.shape_list(mel_fbanks)[:2] +
-                         [1, num_mel_bins * num_channels])
+                         [num_mel_bins, num_channels])
+
+          nonpadding_mask = 1. - common_attention.embedding_to_padding(x)
+          num_of_nonpadding_elements = tf.reduce_sum(
+              nonpadding_mask) * num_mel_bins * num_channels
+
+          # This replaces CMVN estimation on data
+          mean = tf.reduce_sum(
+              x, axis=[1], keepdims=True) / num_of_nonpadding_elements
+          variance = (num_of_nonpadding_elements * mean**2. -
+                      2. * mean * tf.reduce_sum(x, axis=[1], keepdims=True) +
+                      tf.reduce_sum(x**2, axis=[1], keepdims=True)
+                     ) / num_of_nonpadding_elements
+          x = (x - mean) / variance * tf.expand_dims(nonpadding_mask, -1)
       else:
         x = inputs
 
       # The convention is that the models are flattened along the spatial,
       # dimensions, thus the speech preprocessor treats frequencies and
       # channels as image colors (last axis)
-      x.set_shape([None, None, 1, num_mel_bins * num_channels])
-
-      xshape = common_layers.shape_list(x)
-
-      nonpadding_mask = 1. - common_attention.embedding_to_padding(x)
-      num_of_nonpadding_elements = tf.reduce_sum(
-          nonpadding_mask) * num_mel_bins * num_channels
-
-      # This replaces CMVN estimation on data
-      mean = tf.reduce_sum(
-          x, axis=[1, 2], keepdims=True) / num_of_nonpadding_elements
-      variance = (num_of_nonpadding_elements * mean**2. -
-                  2. * mean * tf.reduce_sum(x, axis=[1, 2], keepdims=True) +
-                  tf.reduce_sum(x**2, axis=[1, 2], keepdims=True)
-                 ) / num_of_nonpadding_elements
-      x = (x - mean) / variance * tf.expand_dims(nonpadding_mask, -1)
-
-      # restore batch_size x time x frequency x channel layout
-      x = tf.reshape(x, [xshape[0], xshape[1], num_mel_bins, num_channels])
+      x.set_shape([None, None, num_mel_bins, num_channels])
 
       # TODO(chorowski): how to specify bottom's hparams and avoid hardcoding?
+      x = tf.pad(x, [[0, 0], [0, 8], [0, 0], [0, 0]])
       for _ in range(2):
-        x = tf.pad(x, [[0, 0], [0, 2], [0, 0], [0, 0]])
         x = tf.layers.conv2d(
             x, 128, (3, 3), (2, 2), use_bias=False)
         x = common_layers.layer_norm(x)
