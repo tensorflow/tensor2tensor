@@ -49,6 +49,7 @@ def ppo_base_v1():
   hparams.add_hparam("eval_every_epochs", 10)
   hparams.add_hparam("num_eval_agents", 3)
   hparams.add_hparam("video_during_eval", True)
+  hparams.add_hparam("save_models_every_epochs", 30)
   return hparams
 
 
@@ -66,7 +67,22 @@ def discrete_action_base():
   return hparams
 
 
-# Neural networks for actor-critic algorithms
+@registry.register_hparams
+def atari_base():
+  hparams = discrete_action_base()
+  hparams.learning_rate = 16e-5
+  hparams.num_agents = 5
+  hparams.epoch_length = 200
+  hparams.gae_gamma = 0.985
+  hparams.gae_lambda = 0.985
+  hparams.entropy_loss_coef = 0.002
+  hparams.value_loss_coef = 0.025
+  hparams.optimization_epochs = 10
+  hparams.epochs_num = 10000
+  hparams.num_eval_agents = 1
+  hparams.network = feed_forward_cnn_small_categorical_fun
+  return hparams
+
 
 NetworkOutput = collections.namedtuple(
     "NetworkOutput", "policy, value, action_postprocessing")
