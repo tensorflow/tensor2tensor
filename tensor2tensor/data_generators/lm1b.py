@@ -87,10 +87,10 @@ def _train_data_filenames(tmp_dir):
 
 
 def _dev_data_filenames(tmp_dir):
-  return os.path.join(tmp_dir,
-                      "1-billion-word-language-modeling-benchmark-r13output",
-                      "heldout-monolingual.tokenized.shuffled",
-                      "news.en.heldout-00000-of-00050")
+  return [os.path.join(tmp_dir,
+                       "1-billion-word-language-modeling-benchmark-r13output",
+                       "heldout-monolingual.tokenized.shuffled",
+                       "news.en.heldout-00000-of-00050")]
 
 
 def _maybe_download_corpus(tmp_dir):
@@ -147,7 +147,7 @@ def _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath, target_size):
 
 
 @registry.register_problem
-class LanguagemodelLm1b32k(text_problems.Text2TextProblem):
+class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
   """A language model on the 1B words corpus."""
 
   @property
@@ -187,7 +187,7 @@ class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32k):
   Happy TPU Training.
 
   Ratio of dev tokens (including eos) to dev words (including eos)
-  207351 / 159658 = 1.29872; multiply ppx by this to compare results.
+  207351 / 159658 = 1.29872; multiply log-ppl by this to compare results.
   """
 
   @property
@@ -201,8 +201,25 @@ class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32k):
 
 @registry.register_problem
 class LanguagemodelLm1bCharacters(LanguagemodelLm1b32k):
-  """A language model on the 1B words corpus, character level."""
+  """A language model on the 1B words corpus, character level.
+
+  Ratio of dev chars (including eos) to dev words (including eos)
+  826189 / 159658 = 5.174742; multiply log-ppl by this to compare results.
+  """
 
   @property
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
+
+
+@registry.register_problem
+class LanguagemodelLm1bCharactersPacked(LanguagemodelLm1bCharacters):
+  """Packed version.
+
+  Ratio of dev chars (including eos) to dev words (including eos)
+  826189 / 159658 = 5.174742; multiply log-ppl by this to compare results.
+  """
+
+  @property
+  def packed_length(self):
+    return 1024
