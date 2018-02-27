@@ -2,6 +2,21 @@ language: python
 python:
   - "2.7"
   - "3.6"
+env:
+  global:
+    - T2T_PROBLEM=algorithmic_reverse_binary40_test
+    - T2T_DATA_DIR=/tmp/t2t-data
+    - T2T_TRAIN_DIR=/tmp/t2t-train
+  matrix:
+    - TF_VERSION="1.4.*"
+    - TF_VERSION="1.5.*"
+    - TF_VERSION="1.6.0rc1"
+matrix:
+  exclude:
+    - python: "3.6"
+      env: TF_VERSION="1.4.*"
+    - python: "3.6"
+      env: TF_VERSION="1.6.0rc1"
 before_install:
   - echo "deb [arch=amd64] http://storage.googleapis.com/tensorflow-serving-apt stable tensorflow-model-server tensorflow-model-server-universal" | sudo tee /etc/apt/sources.list.d/tensorflow-serving.list
   - curl https://storage.googleapis.com/tensorflow-serving-apt/tensorflow-serving.release.pub.gpg | sudo apt-key add -
@@ -9,24 +24,27 @@ before_install:
   - sudo apt-get install -qq libhdf5-dev
   - sudo apt-get install -qq tensorflow-model-server
 install:
-  - pip install -q .[tensorflow]
+  - pip install -q "tensorflow==$TF_VERSION"
   - pip install -q .[tests]
   # Make sure we have the latest version of numpy - avoid problems we were
   # seeing with Python 3
   - pip install -q -U numpy
-env:
-  global:
-    - T2T_PROBLEM=algorithmic_reverse_binary40_test
-    - T2T_DATA_DIR=/tmp/t2t-data
-    - T2T_TRAIN_DIR=/tmp/t2t-train
 script:
   # Check import
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
 
   # Run tests
-  - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/problems_test.py --ignore=tensor2tensor/utils/trainer_lib_test.py --ignore=tensor2tensor/data_generators/algorithmic_math_test.py --ignore=tensor2tensor/bin/t2t_trainer_test.py
+  - pytest
+    --ignore=tensor2tensor/utils/registry_test.py
+    --ignore=tensor2tensor/utils/trainer_lib_test.py
+    --ignore=tensor2tensor/visualization/visualization_test.py
+    --ignore=tensor2tensor/problems_test.py
+    --ignore=tensor2tensor/bin/t2t_trainer_test.py
+    --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
+    --ignore=tensor2tensor/rl/rl_trainer_lib_test.py
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
+  - pytest tensor2tensor/visualization/visualization_test.py
 
   # Run installed scripts
   - t2t-datagen 2>&1 | grep translate && echo passed
@@ -41,8 +59,8 @@ script:
   - t2t-decoder --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
 
   # Export and query (on Python 2 only)
-  - t2t-exporter --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "1.5.*"  ]]; then
+        t2t-exporter --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR;
         pip install tensorflow-serving-api;
         tensorflow_model_server --port=9000 --model_name=my_model --model_base_path=$T2T_TRAIN_DIR/export/Servo &
         sleep 10;

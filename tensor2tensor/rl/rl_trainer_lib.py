@@ -53,7 +53,7 @@ def define_train(hparams, environment_spec, event_dir):
 
   with tf.variable_scope("train"):
     memory, collect_summary = collect.define_collect(
-      policy_factory, batch_env, hparams, eval_phase=False)
+        policy_factory, batch_env, hparams, eval_phase=False)
   ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
   summary = tf.summary.merge([collect_summary, ppo_summary])
 
@@ -62,25 +62,25 @@ def define_train(hparams, environment_spec, event_dir):
     if event_dir and hparams.video_during_eval:
       # Some environments reset environments automatically, when reached done
       # state. For them we shall record only every second episode.
-      d = 2 if env_lambda().metadata.get('semantics.autoreset') else 1
-      eval_env_lambda = lambda: gym.wrappers.Monitor(
-        env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
+      d = 2 if env_lambda().metadata.get("semantics.autoreset") else 1
+      eval_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
+          env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
     wrapped_eval_env_lambda = lambda: utils.EvalVideoWrapper(eval_env_lambda())
     _, eval_summary = collect.define_collect(
-      policy_factory,
-      utils.define_batch_env(wrapped_eval_env_lambda, hparams.num_eval_agents,
-                             xvfb=hparams.video_during_eval),
-      hparams, eval_phase=True)
+        policy_factory,
+        utils.define_batch_env(wrapped_eval_env_lambda, hparams.num_eval_agents,
+                               xvfb=hparams.video_during_eval),
+        hparams, eval_phase=True)
   return summary, eval_summary, policy_factory
 
 
 def train(hparams, environment_spec, event_dir=None):
+  """Train."""
   if environment_spec == "stacked_pong":
     environment_spec = lambda: atari_wrappers.wrap_atari(
       gym.make("PongNoFrameskip-v4"), warp=False, frame_skip=4, frame_stack=False)
   train_summary_op, eval_summary_op, _ = define_train(hparams, environment_spec,
                                                       event_dir)
-
   if event_dir:
     summary_writer = tf.summary.FileWriter(
         event_dir, graph=tf.get_default_graph(), flush_secs=60)
@@ -95,7 +95,8 @@ def train(hparams, environment_spec, event_dir=None):
       summary = sess.run(train_summary_op)
       if summary_writer:
         summary_writer.add_summary(summary, epoch_index)
-      if hparams.eval_every_epochs and epoch_index % hparams.eval_every_epochs == 0:
+      if (hparams.eval_every_epochs and
+          epoch_index % hparams.eval_every_epochs == 0):
         summary = sess.run(eval_summary_op)
         if summary_writer:
           summary_writer.add_summary(summary, epoch_index)

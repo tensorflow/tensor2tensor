@@ -165,6 +165,8 @@ def generate_files(generator, output_filenames, max_cases=None):
   for writer in writers:
     writer.close()
 
+  tf.logging.info("Generated %s Examples", counter)
+
 
 def download_report_hook(count, block_size, total_size):
   """Report hook for download progress.
@@ -178,29 +180,42 @@ def download_report_hook(count, block_size, total_size):
   print("\r%d%%" % percent + " completed", end="\r")
 
 
-def maybe_download(directory, filename, url):
-  """Download filename from url unless it's already in directory.
+def maybe_download(directory, filename, uri):
+  """Download filename from uri unless it's already in directory.
+
+  Copies a remote file to local if that local file does not already exist.  If
+  the local file pre-exists this function call, it does not check that the local
+  file is a copy of the remote.
+
+  Remote filenames can be filepaths, any URI readable by tensorflow.gfile, or a
+  URL.
 
   Args:
     directory: path to the directory that will be used.
     filename: name of the file to download to (do nothing if it already exists).
-    url: URL to download from.
+    uri: URI to copy (or download) from.
 
   Returns:
     The path to the downloaded file.
   """
   if not tf.gfile.Exists(directory):
     tf.logging.info("Creating directory %s" % directory)
-    os.mkdir(directory)
+    tf.gfile.MakeDirs(directory)
   filepath = os.path.join(directory, filename)
   if not tf.gfile.Exists(filepath):
-    tf.logging.info("Downloading %s to %s" % (url, filepath))
-    inprogress_filepath = filepath + ".incomplete"
-    inprogress_filepath, _ = urllib.urlretrieve(
-        url, inprogress_filepath, reporthook=download_report_hook)
-    # Print newline to clear the carriage return from the download progress
-    print()
-    tf.gfile.Rename(inprogress_filepath, filepath)
+    tf.logging.info("Downloading %s to %s" % (uri, filepath))
+    try:
+      tf.gfile.Copy(uri, filepath)
+    except tf.errors.UnimplementedError:
+      if uri.startswith("http"):
+        inprogress_filepath = filepath + ".incomplete"
+        inprogress_filepath, _ = urllib.urlretrieve(
+            uri, inprogress_filepath, reporthook=download_report_hook)
+        # Print newline to clear the carriage return from the download progress
+        print()
+        tf.gfile.Rename(inprogress_filepath, filepath)
+      else:
+        raise ValueError("Unrecognized URI: " + filepath)
     statinfo = os.stat(filepath)
     tf.logging.info("Successfully downloaded %s, %s bytes." %
                     (filename, statinfo.st_size))
@@ -222,7 +237,7 @@ def maybe_download_from_drive(directory, filename, url):
   """
   if not tf.gfile.Exists(directory):
     tf.logging.info("Creating directory %s" % directory)
-    os.mkdir(directory)
+    tf.gfile.MakeDirs(directory)
   filepath = os.path.join(directory, filename)
   confirm_token = None
   if tf.gfile.Exists(filepath):

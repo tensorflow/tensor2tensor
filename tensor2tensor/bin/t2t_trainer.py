@@ -65,7 +65,7 @@ try:
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
   flags.DEFINE_string("schedule", "continuous_train_and_eval",
                       "Method of Experiment to run.")
-  flags.DEFINE_integer("eval_steps", 10000,
+  flags.DEFINE_integer("eval_steps", 100,
                        "Number of steps in evaluation. By default, eval will "
                        "stop after eval_steps or when it runs through the eval "
                        "dataset once in full, whichever comes first, so this "
@@ -322,8 +322,8 @@ def main(argv):
   if FLAGS.generate_data:
     generate_data()
 
-  if hasattr(FLAGS, "job_dir") and FLAGS.job_dir:
-    FLAGS.output_dir = FLAGS.job_dir
+  if cloud_mlengine.job_dir():
+    FLAGS.output_dir = cloud_mlengine.job_dir()
 
   if argv:
     set_hparams_from_args(argv[1:])

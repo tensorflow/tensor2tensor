@@ -30,16 +30,15 @@ import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
 
 # Links to data from http://cs.nyu.edu/~kcho/DMQA/
 _CNN_STORIES_DRIVE_URL = "https://drive.google.com/uc?export=download&id=0BwmD_VLjROrfTHk4NFg2SndKcjQ"
 
 _DAILYMAIL_STORIES_DRIVE_URL = "https://drive.google.com/uc?export=download&id=0BwmD_VLjROrfM1BxdkxVaTY2bWs"
-
 
 # Note: using See et al. (2017) as reference for data generation
 # For more info, use the links below
@@ -49,17 +48,17 @@ _TRAIN_URLS = "https://raw.githubusercontent.com/abisee/cnn-dailymail/master/url
 _DEV_URLS = "https://raw.githubusercontent.com/abisee/cnn-dailymail/master/url_lists/all_val.txt"
 _TEST_URLS = "https://raw.githubusercontent.com/abisee/cnn-dailymail/master/url_lists/all_test.txt"
 
-
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
-
 
 # Techniques for data prep from See et al. (2017)
 dm_single_close_quote = u"\u2019"  # unicode
 dm_double_close_quote = u"\u201d"
 # Acceptable ways to end a sentence.
-END_TOKENS = [u".", u"!", u"?", u"...", u"'", u"`", u"\"",
-              dm_single_close_quote, dm_double_close_quote, u")"]
+END_TOKENS = [
+    u".", u"!", u"?", u"...", u"'", u"`", u"\"", dm_single_close_quote,
+    dm_double_close_quote, u")"
+]
 
 
 def _maybe_download_corpora(tmp_dir, is_training):
@@ -93,17 +92,18 @@ def _maybe_download_corpora(tmp_dir, is_training):
   all_files = cnn_files + dailymail_files
 
   if is_training:
-    urls_path = generator_utils.maybe_download(
-        tmp_dir, "all_train.txt", _TRAIN_URLS)
+    urls_path = generator_utils.maybe_download(tmp_dir, "all_train.txt",
+                                               _TRAIN_URLS)
   else:
-    urls_path = generator_utils.maybe_download(
-        tmp_dir, "all_val.txt", _DEV_URLS)
+    urls_path = generator_utils.maybe_download(tmp_dir, "all_val.txt",
+                                               _DEV_URLS)
 
   return all_files, urls_path
 
 
 def example_splits(url_file, all_files):
   """Generate splits of the data."""
+
   def generate_hash(inp):
     """Generate a sha1 hash to match the raw url to the filename extracted."""
     h = hashlib.sha1()
@@ -132,6 +132,7 @@ def example_splits(url_file, all_files):
 
 def example_generator(all_files, urls_path, sum_token):
   """Generate examples."""
+
   def fix_run_on_sents(line):
     if u"@highlight" in line:
       return line
@@ -175,81 +176,54 @@ def _story_summary_split(story):
   split_str = u" <summary> "
   split_str_len = len(split_str)
   split_pos = story.find(split_str)
-  return story[:split_pos], story[split_pos+split_str_len:]  # story, summary
+  return story[:split_pos], story[split_pos + split_str_len:]  # story, summary
 
 
-def write_raw_text_to_files(all_files, urls_path, data_dir, tmp_dir,
-                            is_training):
+def write_raw_text_to_files(all_files, urls_path, tmp_dir, is_training):
   """Write text to files."""
-  def write_to_file(all_files, urls_path, data_dir, filename):
-    with io.open(os.path.join(data_dir, filename+".source"), "w") as fstory:
-      with io.open(os.path.join(data_dir, filename+".target"), "w") as fsummary:
+
+  def write_to_file(all_files, urls_path, tmp_dir, filename):
+    with io.open(os.path.join(tmp_dir, filename + ".source"), "w") as fstory:
+      with io.open(os.path.join(tmp_dir, filename + ".target"),
+                   "w") as fsummary:
         for example in example_generator(all_files, urls_path, sum_token=True):
           story, summary = _story_summary_split(example)
-          fstory.write(story+"\n")
-          fsummary.write(summary+"\n")
+          fstory.write(story + "\n")
+          fsummary.write(summary + "\n")
 
   filename = "cnndm.train" if is_training else "cnndm.dev"
   tf.logging.info("Writing %s" % filename)
-  write_to_file(all_files, urls_path, data_dir, filename)
+  write_to_file(all_files, urls_path, tmp_dir, filename)
 
   if not is_training:
-    test_urls_path = generator_utils.maybe_download(
-        tmp_dir, "all_test.txt", _TEST_URLS)
+    test_urls_path = generator_utils.maybe_download(tmp_dir, "all_test.txt",
+                                                    _TEST_URLS)
     filename = "cnndm.test"
     tf.logging.info("Writing %s" % filename)
-    write_to_file(all_files, test_urls_path, data_dir, filename)
+    write_to_file(all_files, test_urls_path, tmp_dir, filename)
 
 
 @registry.register_problem
-class SummarizeCnnDailymail32k(problem.Text2TextProblem):
+class SummarizeCnnDailymail32k(text_problems.Text2TextProblem):
   """Summarize CNN and Daily Mail articles to their summary highlights."""
 
   @property
-  def is_character_level(self):
-    return False
+  def vocab_filename(self):
+    return "vocab.cnndailymail.%d" % self.approx_vocab_size
 
-  @property
-  def has_inputs(self):
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    del data_dir
+    all_files, urls_path = _maybe_download_corpora(tmp_dir, True)
+    return example_generator(all_files, urls_path, sum_token=False)
+
+  def is_generate_per_split(self):
     return True
 
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def num_shards(self):
-    return 100
-
-  @property
-  def vocab_name(self):
-    return "vocab.cnndailymail"
-
-  @property
-  def use_subword_tokenizer(self):
-    return True
-
-  @property
-  def targeted_vocab_size(self):
-    return 2**15  # 32768
-
-  @property
-  def use_train_shards_for_dev(self):
-    return False
-
-  def generator(self, data_dir, tmp_dir, is_training):
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    del data_dir
+    is_training = dataset_split == problem.DatasetSplit.TRAIN
     all_files, urls_path = _maybe_download_corpora(tmp_dir, is_training)
-    encoder = generator_utils.get_or_generate_vocab_inner(
-        data_dir, self.vocab_file, self.targeted_vocab_size,
-        example_generator(all_files, urls_path, sum_token=False))
-    write_raw_text_to_files(all_files, urls_path, data_dir, tmp_dir,
-                            is_training)
+    write_raw_text_to_files(all_files, urls_path, tmp_dir, is_training)
     for example in example_generator(all_files, urls_path, sum_token=True):
       story, summary = _story_summary_split(example)
-      encoded_summary = encoder.encode(summary) + [EOS]
-      encoded_story = encoder.encode(story) + [EOS]
-      yield {"inputs": encoded_story, "targets": encoded_summary}
+      yield {"inputs": story, "targets": summary}

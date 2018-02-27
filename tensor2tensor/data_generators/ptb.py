@@ -29,6 +29,7 @@ import tarfile
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -76,36 +77,29 @@ def _get_token_encoder(vocab_dir, vocab_name, filename):
   return text_encoder.TokenTextEncoder(vocab_path)
 
 
-class PTBProblem(problem.Text2TextProblem):
-  """A class for generating PTB data."""
+@registry.register_problem
+class LanguagemodelPtb10k(text_problems.Text2SelfProblem):
+  """PTB, 10k vocab."""
 
   @property
-  def has_inputs(self):
-    return False
+  def dataset_splits(self):
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 10,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
 
   @property
-  def target_space_id(self):
-    if self.is_character_level:
-      return problem.SpaceID.EN_CHR
-    return problem.SpaceID.EN_TOK
+  def vocab_filename(self):
+    return "vocab.lmptb.10000"
 
   @property
-  def num_shards(self):
-    return 10
+  def vocab_type(self):
+    return text_problems.VocabType.TOKEN
 
-  @property
-  def vocab_name(self):
-    return "vocab.lmptb_10k"
-
-  @property
-  def use_subword_tokenizer(self):
-    return False
-
-  @property
-  def targeted_vocab_size(self):
-    return 10000
-
-  def generator(self, data_dir, tmp_dir, train):
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
     filename = os.path.basename(PTB_URL)
     compressed_filepath = generator_utils.maybe_download(
         tmp_dir, filename, PTB_URL)
@@ -124,7 +118,7 @@ class PTBProblem(problem.Text2TextProblem):
 
       tgz.extractall(tmp_dir, members=files)
 
-    if self.is_character_level:
+    if self.vocab_type == text_problems.VocabType.CHARACTER:
       files = ptb_char_files
     else:
       files = ptb_files
@@ -139,37 +133,21 @@ class PTBProblem(problem.Text2TextProblem):
     assert train_file, "Training file not found"
     assert valid_file, "Validation file not found"
 
-    if self.is_character_level:
-      encoder = text_encoder.ByteTextEncoder()
-    else:
-      encoder = _get_token_encoder(data_dir, self.vocab_file, train_file)
+    _get_token_encoder(data_dir, self.vocab_filename, train_file)
 
-    if train:
-      return self._generator(train_file, encoder)
-    return self._generator(valid_file, encoder)
+    train = dataset_split == problem.DatasetSplit.TRAIN
+    filepath = train_file if train else valid_file
 
-  def _generator(self, filename, encoder):
-    with tf.gfile.GFile(filename, "r") as f:
+    with tf.gfile.GFile(filepath, "r") as f:
       for line in f:
         line = " ".join(line.replace("\n", " %s " % EOS).split())
-        tok = encoder.encode(line)
-        if tok:
-          yield {"inputs": [0], "targets": tok}
+        yield {"targets": line}
 
 
 @registry.register_problem
-class LanguagemodelPtb10k(PTBProblem):
-  """A class for generating PTB data, 10k vocab."""
+class LanguagemodelPtbCharacters(LanguagemodelPtb10k):
+  """PTB, character-level."""
 
   @property
-  def is_character_level(self):
-    return False
-
-
-@registry.register_problem
-class LanguagemodelPtbCharacters(PTBProblem):
-  """A class for generating PTB data, character-level."""
-
-  @property
-  def is_character_level(self):
-    return True
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER

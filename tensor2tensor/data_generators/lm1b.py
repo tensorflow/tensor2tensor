@@ -31,14 +31,11 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import tokenizer
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
-# End-of-sentence marker (should correspond to the position of EOS in the
-# RESERVED_TOKENS list in text_encoder.py)
-EOS = 1
 
 
 def _original_vocab(tmp_dir):
@@ -89,7 +86,7 @@ def _train_data_filenames(tmp_dir):
   ]
 
 
-def _dev_data_filename(tmp_dir):
+def _dev_data_filenames(tmp_dir):
   return os.path.join(tmp_dir,
                       "1-billion-word-language-modeling-benchmark-r13output",
                       "heldout-monolingual.tokenized.shuffled",
@@ -112,9 +109,7 @@ def _maybe_download_corpus(tmp_dir):
       corpus_tar.extractall(tmp_dir)
 
 
-def _get_or_build_subword_text_encoder(tmp_dir,
-                                       vocab_filepath,
-                                       target_size):
+def _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath, target_size):
   """Builds a SubwordTextEncoder based on the corpus.
 
   Args:
@@ -140,7 +135,7 @@ def _get_or_build_subword_text_encoder(tmp_dir,
     line_count += 1
     if line_count >= max_lines:
       break
-  if target_size == 2 ** 15:
+  if target_size == 2**15:
     # legacy behavior
     ret = text_encoder.SubwordTextEncoder()
     ret.build_from_token_counts(token_counts, min_count=5)
@@ -152,75 +147,34 @@ def _get_or_build_subword_text_encoder(tmp_dir,
 
 
 @registry.register_problem
-class LanguagemodelLm1b32k(problem.Text2TextProblem):
+class LanguagemodelLm1b32k(text_problems.Text2TextProblem):
   """A language model on the 1B words corpus."""
 
   @property
-  def is_character_level(self):
-    return False
+  def vocab_filename(self):
+    return "vocab.lm1b.en.%d" % self.approx_vocab_size
 
   @property
-  def has_inputs(self):
-    return False
-
-  @property
-  def input_space_id(self):
-    # Ratio of dev tokens (including eos) to dev words (including eos)
-    # 176884 / 159658 = 1.107893; multiply ppx by this to compare results.
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def num_shards(self):
-    return 100
-
-  @property
-  def vocab_name(self):
-    return "vocab.lm1b.en"
-
-  @property
-  def use_subword_tokenizer(self):
-    return True
-
-  @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**15  # 32768
 
-  @property
-  def use_train_shards_for_dev(self):
-    return False
+  def is_generate_per_split(self):
+    return True
 
-  def generator(self, data_dir, tmp_dir, is_training):
-    """Generator for lm1b sentences.
-
-    Args:
-      data_dir: data dir.
-      tmp_dir: tmp dir.
-      is_training: a boolean.
-
-    Yields:
-      A dictionary {"inputs": [0], "targets": [<subword ids>]}
-    """
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    del data_dir
+    split_files = {
+        problem.DatasetSplit.TRAIN: _train_data_filenames(tmp_dir),
+        problem.DatasetSplit.EVAL: _dev_data_filenames(tmp_dir),
+    }
     _maybe_download_corpus(tmp_dir)
     original_vocab = _original_vocab(tmp_dir)
-    files = (_train_data_filenames(tmp_dir)
-             if is_training else [_dev_data_filename(tmp_dir)])
-    if self.is_character_level:
-      encoder = text_encoder.ByteTextEncoder()
-    else:
-      vocab_filepath = os.path.join(data_dir, self.vocab_file)
-      encoder = _get_or_build_subword_text_encoder(
-          tmp_dir, vocab_filepath, self.targeted_vocab_size)
+    files = split_files[dataset_split]
     for filepath in files:
       tf.logging.info("filepath = %s", filepath)
       for line in tf.gfile.Open(filepath):
-        tokens = encoder.encode(
-            _replace_oov(original_vocab, text_encoder.native_to_unicode(line)))
-        tokens.append(EOS)
-        yield {"inputs": [0], "targets": tokens}
+        txt = _replace_oov(original_vocab, text_encoder.native_to_unicode(line))
+        yield {"targets": txt}
 
 
 @registry.register_problem
@@ -237,7 +191,7 @@ class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32k):
   """
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**13  # 8192
 
   @property
@@ -250,5 +204,5 @@ class LanguagemodelLm1bCharacters(LanguagemodelLm1b32k):
   """A language model on the 1B words corpus, character level."""
 
   @property
-  def is_character_level(self):
-    return True
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
