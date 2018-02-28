@@ -420,7 +420,10 @@ def set_auc(predictions,
     labels = tf.cast(labels, tf.bool)
     labels = labels[:, 1:]
     predictions = tf.nn.sigmoid(predictions)
-    auc, update_op = tf.metrics.auc(labels, predictions, weights=weights, curve='PR')
+    auc, update_op = tf.metrics.auc(labels=labels,
+                                    predictions=predictions,
+                                    weights=weights,
+                                    curve='PR')
 
     with tf.control_dependencies([update_op]):
       auc = tf.identity(auc)
