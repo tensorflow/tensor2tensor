@@ -286,10 +286,12 @@ def set_auc(predictions,
     labels = tf.squeeze(labels, [2, 3])
     labels = tf.one_hot(labels, predictions.shape[-1] + 1)
     labels = tf.reduce_max(labels, axis=1)
+    # gah this is so hacky, now we suppress empty sets...
+    weights = tf.reduce_max(labels, axis=1, keep_dims=True)
     labels = tf.cast(labels, tf.bool)
     labels = labels[:, 1:]
     predictions = tf.nn.sigmoid(predictions)
-    auc, update_op = tf.metrics.auc(labels, predictions, weights_fn=weights_fn, curve='PR')
+    auc, update_op = tf.metrics.auc(labels, predictions, weights=weights, curve='PR')
 
     with tf.control_dependencies([update_op]):
       auc = tf.identity(auc)
