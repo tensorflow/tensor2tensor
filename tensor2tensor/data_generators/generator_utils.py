@@ -489,14 +489,14 @@ class SequencePacker(object):
     self._spacing = spacing
     self._ids = first_sequence[:]
     self._segmentation = [1] * len(first_sequence)
-    self._position = range(len(first_sequence))
+    self._position = list(range(len(first_sequence)))
 
   def add(self, ids):
     padding = [0] * self._spacing
     self._ids.extend(padding + ids)
     next_segment_num = self._segmentation[-1] + 1 if self._segmentation else 1
     self._segmentation.extend(padding + [next_segment_num] * len(ids))
-    self._position.extend(padding + range(len(ids)))
+    self._position.extend(padding + list(range(len(ids))))
 
   def can_fit(self, ids, packed_length):
     return len(self._ids) + self._spacing + len(ids) <= packed_length
