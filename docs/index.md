@@ -11,8 +11,9 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 
 [Tensor2Tensor](https://github.com/tensorflow/tensor2tensor), or
 [T2T](https://github.com/tensorflow/tensor2tensor) for short, is a library
-of deep learning models and datasets designed to [accelerate deep learning
-research](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html) and make it more accessible.
+of deep learning models and datasets designed to make deep learning more
+accessible and [accelerate ML
+research](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html).
 
 
 ## Basics
