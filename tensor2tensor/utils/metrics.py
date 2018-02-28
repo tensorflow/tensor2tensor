@@ -416,7 +416,7 @@ def set_auc(predictions,
     labels = tf.one_hot(labels, predictions.shape[-1] + 1)
     labels = tf.reduce_max(labels, axis=1)
     # gah this is so hacky, now we suppress empty sets...
-    weights = tf.reduce_max(labels, axis=1, keep_dims=True)
+    weights = tf.reduce_max(labels[:, 1:], axis=1, keep_dims=True)
     labels = tf.cast(labels, tf.bool)
     labels = labels[:, 1:]
     predictions = tf.nn.sigmoid(predictions)
