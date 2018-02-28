@@ -23,12 +23,9 @@ from __future__ import print_function
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import registry
-
-import tensorflow as tf
-
-FLAGS = tf.flags.FLAGS
 
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
@@ -49,6 +46,10 @@ _ENMK_TEST_DATASETS = [[
 ]]
 
 
+# See this PR on github for some results with Transformer on these Problems.
+# https://github.com/tensorflow/tensor2tensor/pull/626
+
+
 @registry.register_problem
 class TranslateEnmkSetimes32k(translate.TranslateProblem):
   """Problem spec for SETimes En-Mk translation."""
@@ -60,6 +61,19 @@ class TranslateEnmkSetimes32k(translate.TranslateProblem):
   @property
   def vocab_filename(self):
     return "vocab.enmk.%d" % self.approx_vocab_size
+
+  def source_data_files(self, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
+    return _ENMK_TRAIN_DATASETS if train else _ENMK_TEST_DATASETS
+
+
+@registry.register_problem
+class TranslateEnmkSetimesCharacters(translate.TranslateProblem):
+  """Problem spec for SETimes En-Mk translation."""
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN

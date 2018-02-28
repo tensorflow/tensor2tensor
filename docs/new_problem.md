@@ -9,6 +9,10 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 [![Gitter](https://img.shields.io/gitter/room/nwjs/nw.js.svg)](https://gitter.im/tensor2tensor/Lobby)
 [![License](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 
+Another good overview of this part together with training is given in
+[The Cloud ML Poetry Blog
+Post](https://cloud.google.com/blog/big-data/2018/02/cloud-poetry-training-and-hyperparameter-tuning-custom-text-models-on-cloud-ml-engine)
+
 Let's add a new dataset together and train the
 [Transformer](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/models/transformer.py)
 model on it. We'll give the model a line of poetry, and it will learn to
