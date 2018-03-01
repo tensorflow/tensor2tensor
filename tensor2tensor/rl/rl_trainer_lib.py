@@ -84,7 +84,7 @@ def train(hparams, environment_spec, event_dir=None):
   if event_dir:
     summary_writer = tf.summary.FileWriter(
         event_dir, graph=tf.get_default_graph(), flush_secs=60)
-    model_saver = tf.train.Saver()
+    model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
   else:
     summary_writer = None
     model_saver = None
