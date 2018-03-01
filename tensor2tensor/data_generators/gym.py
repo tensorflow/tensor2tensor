@@ -24,6 +24,7 @@ import os
 # Dependency imports
 
 import numpy as np
+import functools
 import gym
 
 from tensor2tensor.rl import rl_trainer_lib
@@ -168,21 +169,25 @@ class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
     self._event_dir = event_dir
     env_spec = lambda: atari_wrappers.wrap_atari(
       gym.make("PongNoFrameskip-v4"), warp=False, frame_skip=4, frame_stack=False)
-    _1, _2, policy_factory = rl_trainer_lib.define_train(rl.atari_base(), env_spec, event_dir=None)
+    hparams = rl.atari_base()
+    with tf.variable_scope("train"):
+      policy_lambda = hparams.network
+      policy_factory = tf.make_template(
+        "network",
+        functools.partial(policy_lambda, env_spec().action_space, hparams))
+      self._max_frame_pl = tf.placeholder(tf.float32, self.env.observation_space.shape)
+      actor_critic = policy_factory(tf.expand_dims(tf.expand_dims(self._max_frame_pl, 0), 0))
+      policy = actor_critic.policy
+      self._last_policy_op = policy.mode()
     self._last_action = self.env.action_space.sample()
     self._skip = 4
     self._skip_step = 0
     self._obs_buffer = np.zeros((2,) + self.env.observation_space.shape, dtype=np.uint8)
     self._sess = tf.Session()
-    model_saver = tf.train.Saver()
+    model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
     model_saver.restore(self._sess, FLAGS.model_path)
 
-    self._max_frame_pl = tf.placeholder(tf.float32, self.env.observation_space.shape)
-    actor_critic = policy_factory(tf.expand_dims(tf.expand_dims(self._max_frame_pl, 0), 0))
-    policy = actor_critic.policy
-    self._last_policy_op = policy.mode()
-
-  # TODO(blazej): For training of atari agents wrappers are usually used.
+  # TODO(blazej0): For training of atari agents wrappers are usually used.
   # Below we have a hacky solution which is a temporary workaround to be used together
   # with atari_wrappers.MaxAndSkipEnv.
   def get_action(self, observation=None):
