@@ -101,23 +101,24 @@ def feed_forward_gaussian_fun(action_space, config, observations):
       tf.shape(observations)[0], tf.shape(observations)[1],
       functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
 
-  with tf.variable_scope("policy"):
-    x = flat_observations
-    for size in config.policy_layers:
-      x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-    mean = tf.contrib.layers.fully_connected(
-        x, action_space.shape[0], tf.tanh,
-        weights_initializer=mean_weights_initializer)
-    logstd = tf.get_variable(
-        "logstd", mean.shape[2:], tf.float32, logstd_initializer)
-    logstd = tf.tile(
-        logstd[None, None],
-        [tf.shape(mean)[0], tf.shape(mean)[1]] + [1] * (mean.shape.ndims - 2))
-  with tf.variable_scope("value"):
-    x = flat_observations
-    for size in config.value_layers:
-      x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-    value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
+  with tf.variable_scope("network_parameters"):
+    with tf.variable_scope("policy"):
+      x = flat_observations
+      for size in config.policy_layers:
+        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
+      mean = tf.contrib.layers.fully_connected(
+          x, action_space.shape[0], tf.tanh,
+          weights_initializer=mean_weights_initializer)
+      logstd = tf.get_variable(
+          "logstd", mean.shape[2:], tf.float32, logstd_initializer)
+      logstd = tf.tile(
+          logstd[None, None],
+          [tf.shape(mean)[0], tf.shape(mean)[1]] + [1] * (mean.shape.ndims - 2))
+    with tf.variable_scope("value"):
+      x = flat_observations
+      for size in config.value_layers:
+        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
+      value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
   mean = tf.check_numerics(mean, "mean")
   logstd = tf.check_numerics(logstd, "logstd")
   value = tf.check_numerics(value, "value")
@@ -135,17 +136,18 @@ def feed_forward_categorical_fun(action_space, config, observations):
   flat_observations = tf.reshape(observations, [
       tf.shape(observations)[0], tf.shape(observations)[1],
       functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
-  with tf.variable_scope("policy"):
-    x = flat_observations
-    for size in config.policy_layers:
-      x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-    logits = tf.contrib.layers.fully_connected(x, action_space.n,
-                                               activation_fn=None)
-  with tf.variable_scope("value"):
-    x = flat_observations
-    for size in config.value_layers:
-      x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
-    value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
+  with tf.variable_scope("network_parameters"):
+    with tf.variable_scope("policy"):
+      x = flat_observations
+      for size in config.policy_layers:
+        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
+      logits = tf.contrib.layers.fully_connected(x, action_space.n,
+                                                 activation_fn=None)
+    with tf.variable_scope("value"):
+      x = flat_observations
+      for size in config.value_layers:
+        x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
+      value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
   policy = tf.contrib.distributions.Categorical(logits=logits)
   return NetworkOutput(policy, value, lambda a: a)
 
@@ -157,7 +159,7 @@ def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
   obs_shape = observations.shape.as_list()
   x = tf.reshape(observations, [-1] + obs_shape[2:])
 
-  with tf.variable_scope("policy"):
+  with tf.variable_scope("network_parameters"):
     x = tf.to_float(x) / 255.0
     x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
                                  activation_fn=tf.nn.relu, padding="SAME")
