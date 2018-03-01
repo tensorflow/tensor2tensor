@@ -19,17 +19,82 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 # Dependency imports
 
+from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+# URLs and filenames for IMAGENET 32x32 data from
+# https://arxiv.org/abs/1601.06759.
+_IMAGENET_SMALL_ROOT_URL = "http://image-net.org/small/"
+_IMAGENET_SMALL_URLS = [
+    "train_32x32.tar", "valid_32x32.tar"]
+_IMAGENET_SMALL_TRAIN_PREFIX = "train_32x32"
+_IMAGENET_SMALL_EVAL_PREFIX = "valid_32x32"
+_IMAGENET_SMALL_IMAGE_SIZE = 32
+
+
+# URLs and filenames for IMAGENET 64x64 data.
+_IMAGENET_MEDIUM_ROOT_URL = "http://image-net.org/small/"
+_IMAGENET_MEDIUM_URLS = [
+    "train_64x64.tar", "valid_64x64.tar"]
+_IMAGENET_MEDIUM_TRAIN_PREFIX = "train_64x64"
+_IMAGENET_MEDIUM_EVAL_PREFIX = "valid_64x64"
+_IMAGENET_MEDIUM_IMAGE_SIZE = 64
+
 
 # Derived from ImageNet data
 MEAN_RGB = [0.485, 0.456, 0.406]
 STDDEV_RGB = [0.229, 0.224, 0.225]
+
+
+def imagenet_pixelrnn_generator(tmp_dir,
+                                training,
+                                size=_IMAGENET_SMALL_IMAGE_SIZE):
+  """Image generator for Imagenet 64x64 downsampled images.
+
+  It assumes that the data has been downloaded from
+  http://image-net.org/small/*_32x32.tar or
+  http://image-net.org/small/*_64x64.tar into tmp_dir.
+  Args:
+    tmp_dir: path to temporary storage directory.
+    training: a Boolean; if true, we use the train set, otherwise the test set.
+    size: image size (assumes height and width are same)
+
+  Yields:
+    A dictionary representing the images with the following fields:
+    * image/encoded: the string encoding the image as JPEG,
+    * image/format: the string "jpeg" representing image format,
+    * image/height: an integer representing the height,
+    * image/width: an integer representing the width.
+    Every field is actually a list of the corresponding type.
+  """
+  if size == _IMAGENET_SMALL_IMAGE_SIZE:
+    train_prefix = _IMAGENET_SMALL_TRAIN_PREFIX
+    eval_prefix = _IMAGENET_SMALL_EVAL_PREFIX
+  else:
+    train_prefix = _IMAGENET_MEDIUM_TRAIN_PREFIX
+    eval_prefix = _IMAGENET_MEDIUM_EVAL_PREFIX
+  prefix = train_prefix if training else eval_prefix
+  images_filepath = os.path.join(tmp_dir, prefix)
+  image_files = tf.gfile.Glob(images_filepath + "/*")
+  height = size
+  width = size
+  const_label = 0
+  for filename in image_files:
+    with tf.gfile.Open(filename, "r") as f:
+      encoded_image = f.read()
+      yield {
+          "image/encoded": [encoded_image],
+          "image/format": ["png"],
+          "image/class/label": [const_label],
+          "image/height": [height],
+          "image/width": [width]
+      }
 
 
 def imagenet_preprocess_example(example, mode, resize_size=None):
@@ -120,6 +185,40 @@ class ImageImagenet32(ImageImagenetRescaled):
       example = imagenet_preprocess_example(example, mode)
       example["inputs"] = tf.to_int64(
           tf.image.resize_images(example["inputs"], self.rescale_size))
+    return example
+
+
+@registry.register_problem
+class ImageImagenet64Gen(ImageImagenet):
+  """Cifar-10 Tune."""
+
+  @property
+  def train_shards(self):
+    return 1024
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    generator_utils.generate_dataset_and_shuffle(
+        self.generator(data_dir, tmp_dir, True),
+        self.training_filepaths(data_dir, self.train_shards, shuffled=True),
+        self.generator(data_dir, tmp_dir, False),
+        self.dev_filepaths(data_dir, self.dev_shards, shuffled=True))
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return imagenet_pixelrnn_generator(
+          tmp_dir, int(True), size=_IMAGENET_MEDIUM_IMAGE_SIZE)
+    else:
+      return imagenet_pixelrnn_generator(
+          tmp_dir, int(False), size=_IMAGENET_MEDIUM_IMAGE_SIZE)
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_IMAGENET_MEDIUM_IMAGE_SIZE,
+                                 _IMAGENET_MEDIUM_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
 

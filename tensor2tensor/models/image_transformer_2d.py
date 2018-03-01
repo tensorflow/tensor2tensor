@@ -50,7 +50,7 @@ class Imagetransformer2d(t2t_model.T2TModel):
             hparams.mode == tf.contrib.learn.ModeKeys.INFER):
       tf.summary.image("targets", targets, max_outputs=1)
 
-    decoder_input, rows, cols, bias = cia.prepare_decoder(
+    decoder_input, rows, cols = cia.prepare_decoder(
         targets, hparams)
     # Add class label to decoder input.
     if not hparams.unconditional:
@@ -58,7 +58,7 @@ class Imagetransformer2d(t2t_model.T2TModel):
                                   [targets_shape[0], 1, 1, hparams.hidden_size])
 
     decoder_output = cia.transformer_decoder_layers(
-        decoder_input, None, bias,
+        decoder_input, None,
         hparams.num_decoder_layers,
         hparams,
         attention_type=hparams.dec_attention_type,
@@ -88,11 +88,11 @@ class Img2imgTransformer(t2t_model.T2TModel):
         hparams,
         attention_type=hparams.enc_attention_type,
         name="encoder")
-    decoder_input, rows, cols, bias = cia.prepare_decoder(
+    decoder_input, rows, cols = cia.prepare_decoder(
         targets, hparams)
     decoder_output = cia.transformer_decoder_layers(
         decoder_input,
-        encoder_output, bias,
+        encoder_output,
         hparams.num_decoder_layers,
         hparams,
         attention_type=hparams.dec_attention_type,
@@ -227,6 +227,28 @@ def imagetransformer2d_base_8l_8_32_big():
   hparams.query_shape = (8, 16)
   hparams.memory_flange = (0, 32)
   hparams.unconditional = int(False)
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_10l_8h_big_uncond_dr03_dan_64_2d():
+  """big 1d model for unconditional generation on imagenet."""
+  hparams = image_transformer2d_base()
+  hparams.unconditional = True
+  hparams.hidden_size = 512
+  hparams.batch_size = 1
+  hparams.img_len = 64
+  hparams.num_heads = 8
+  hparams.filter_size = 2048
+  hparams.batch_size = 1
+  hparams.max_length = 3075
+  hparams.max_length = 14000
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.1
+  hparams.dec_attention_type = cia.AttentionType.LOCAL_2D
+  hparams.query_shape = (16, 16)
+  hparams.memory_flange = (8, 8)
   return hparams
 
 

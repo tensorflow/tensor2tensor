@@ -50,7 +50,7 @@ class Imagetransformer(t2t_model.T2TModel):
       tf.summary.image("targets", targets, max_outputs=1)
 
     # Prepare decoder inputs and bias.
-    decoder_input, rows, cols, bias = cia.prepare_decoder(targets, hparams)
+    decoder_input, rows, cols = cia.prepare_decoder(targets, hparams)
     # Add class label to decoder input.
     if not hparams.unconditional:
       decoder_input += tf.reshape(
@@ -59,7 +59,6 @@ class Imagetransformer(t2t_model.T2TModel):
     decoder_output = cia.transformer_decoder_layers(
         decoder_input,
         None,
-        bias,
         hparams.num_decoder_layers or hparams.num_hidden_layers,
         hparams,
         attention_type=hparams.dec_attention_type,
@@ -90,8 +89,8 @@ class ImagetransformerMoe(t2t_model.T2TModel):
       kv_padding = "LEFT"
 
     # Prepare decoder inputs and bias.
-    decoder_input, rows, cols, attention_bias = dp(cia.prepare_decoder_inputs,
-                                                   inputs, targets, hparams)
+    decoder_input, rows, cols = dp(cia.prepare_decoder_inputs,
+                                   inputs, targets, hparams)
 
     # Run decoder.
     decoder_output, extra_loss = cia.transformer_layers_sharded(
@@ -100,7 +99,7 @@ class ImagetransformerMoe(t2t_model.T2TModel):
         decoder_input,
         hparams.num_hidden_layers,
         hparams,
-        self_attention_bias=attention_bias,
+        self_attention_bias=None,
         enc_output=None,
         attention_type=hparams.dec_attention_type,
         q_padding=q_padding,
@@ -244,6 +243,18 @@ def imagetransformer_base_8l_8h_big_cond_dr03_dan():
 
 
 @registry.register_hparams
+def imagetransformer_base_10l_8h_big_uncond_dr03_dan_64():
+  """big 1d model for unconditional generation on imagenet."""
+  hparams = imagetransformer_base_10l_8h_big_cond_dr03_dan()
+  hparams.unconditional = True
+  hparams.max_length = 14000
+  hparams.batch_size = 1
+  hparams.img_len = 64
+  hparams.layer_prepostprocess_dropout = 0.1
+  return hparams
+
+
+@registry.register_hparams
 def imagetransformer_base_8l_8h_big_cond_dr03_dan_128():
   hparams = imagetransformer_base_8l_8h_big_cond_dr03_dan()
   hparams.block_width = 128
@@ -264,7 +275,6 @@ def imagetransformer_base_10l_8h_big_uncond_dr03_dan():
   """Best unconditional Cifar10 gen param."""
   hparams = imagetransformer_base_10l_8h_big_cond_dr03_dan()
   hparams.num_decoder_layers = 10
-  hparams.unconditional = True
   return hparams
 
 
