@@ -74,7 +74,6 @@ def local_attention_2d(x, hparams, attention_type="local_attention_2d"):
 
 
 def local_attention_1d(x,
-                       self_attention_bias,
                        hparams,
                        attention_type="local_unmasked",
                        q_padding="VALID",
@@ -86,7 +85,7 @@ def local_attention_1d(x,
     y = common_attention.multihead_attention(
         x,
         None,
-        self_attention_bias,
+        None,
         hparams.attention_key_channels or hparams.hidden_size,
         hparams.attention_value_channels or hparams.hidden_size,
         hparams.hidden_size,
@@ -107,7 +106,6 @@ def local_attention_1d(x,
 
 
 def dilated_attention_1d(x,
-                         self_attention_bias,
                          hparams,
                          attention_type="masked_dilated_1d",
                          q_padding="VALID",
@@ -120,7 +118,7 @@ def dilated_attention_1d(x,
     y = common_attention.multihead_attention(
         x,
         None,
-        self_attention_bias,
+        None,
         hparams.attention_key_channels or hparams.hidden_size,
         hparams.attention_value_channels or hparams.hidden_size,
         hparams.hidden_size,
@@ -152,6 +150,8 @@ def local_global_attention(x,
     [x_global, x_local] = tf.split(x, 2, axis=-1)
     split_hidden_size = int(hparams.hidden_size / 2)
     split_heads = int(hparams.num_heads / 2)
+    if self_attention_bias is not None:
+      self_attention_bias = get_self_attention_bias(x)
     y_global = common_attention.multihead_attention(
         x_global,
         None,
@@ -169,7 +169,7 @@ def local_global_attention(x,
     y_local = common_attention.multihead_attention(
         x_local,
         None,
-        self_attention_bias,
+        None,
         hparams.attention_key_channels or split_hidden_size,
         hparams.attention_value_channels or split_hidden_size,
         split_hidden_size,
@@ -194,6 +194,8 @@ def full_self_attention(x,
                         kv_padding="LEFT"):
   """Full self-attention layer."""
   x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
+  if self_attention_bias is not None:
+    self_attention_bias = get_self_attention_bias(x)
   with tf.variable_scope("self_att"):
     y = common_attention.multihead_attention(
         x,
@@ -241,9 +243,9 @@ def encdec_attention_1d(x,
 
 def transformer_decoder_layers(inputs,
                                encoder_output,
-                               bias,
                                num_layers,
                                hparams,
+                               self_attention_bias=None,
                                attention_type=AttentionType.LOCAL_2D,
                                name="transformer"):
   """Multi layer transformer."""
@@ -260,21 +262,21 @@ def transformer_decoder_layers(inputs,
                                attention_type="masked_local_attention_2d")
       elif attention_type == AttentionType.LOCAL_1D:
         y = local_attention_1d(common_layers.layer_preprocess(x, hparams),
-                               bias, hparams,
+                               hparams,
                                attention_type="local_mask_right",
                                q_padding="LEFT", kv_padding="LEFT")
       elif attention_type == AttentionType.GLOCAL:
         y = local_global_attention(common_layers.layer_preprocess(x, hparams),
-                                   bias, hparams,
+                                   self_attention_bias, hparams,
                                    q_padding="LEFT", kv_padding="LEFT")
       elif attention_type == AttentionType.DILATED:
         y = dilated_attention_1d(common_layers.layer_preprocess(x, hparams),
-                                 bias, hparams, q_padding="LEFT",
+                                 hparams, q_padding="LEFT",
                                  kv_padding="LEFT",
                                  gap_size=hparams.gap_sizes[layer])
       elif attention_type == AttentionType.GLOBAL:
         y = full_self_attention(common_layers.layer_preprocess(x, hparams),
-                                bias, hparams,
+                                self_attention_bias, hparams,
                                 q_padding="LEFT", kv_padding="LEFT")
       x = common_layers.layer_postprocess(x, y, hparams)
       # enc-dec attention + skip connections
@@ -309,7 +311,7 @@ def transformer_encoder_layers(inputs,
                                attention_type="local_attention_2d")
       elif attention_type == AttentionType.LOCAL_1D:
         y = local_attention_1d(common_layers.layer_preprocess(x, hparams),
-                               self_attention_bias, hparams,
+                               hparams,
                                attention_type="local_unmasked",
                                q_padding=q_padding, kv_padding=kv_padding)
       elif attention_type == AttentionType.GLOBAL:
@@ -356,6 +358,22 @@ def ffn_layer(x, hparams):
     return y
 
 
+def get_self_attention_bias(x):
+  """Creates masked self attention bias.
+
+  Args:
+    x: A tensor of shape [batch, length, depth]
+
+  Returns:
+    self_attention_bias: A tensor of shape [length, length, 1]
+  """
+
+  x_shape = common_layers.shape_list(x)
+  self_attention_bias = common_attention.attention_bias_lower_triangle(
+      x_shape[1])
+  return self_attention_bias
+
+
 def transformer_layers_sharded(dp,
                                ps_devices,
                                inputs,
@@ -381,7 +399,7 @@ def transformer_layers_sharded(dp,
                                   attention_type="masked_local_attention_2d"))
       elif attention_type == AttentionType.LOCAL_1D:
         y = dp(local_attention_1d(common_layers.layer_preprocess(x, hparams),
-                                  self_attention_bias, hparams,
+                                  hparams,
                                   attention_type="local_mask_right",
                                   q_padding="LEFT", kv_padding="LEFT"))
       elif attention_type == AttentionType.GLOCAL:
@@ -389,6 +407,7 @@ def transformer_layers_sharded(dp,
             common_layers.layer_preprocess(x, hparams), self_attention_bias,
             hparams, q_padding="LEFT", kv_padding="LEFT"))
       elif attention_type == AttentionType.GLOBAL:
+        self_attention_bias = dp(get_self_attention_bias(x))
         y = dp(full_self_attention(common_layers.layer_preprocess(x, hparams),
                                    self_attention_bias, hparams,
                                    q_padding="LEFT", kv_padding="LEFT"))
@@ -509,8 +528,6 @@ def prepare_decoder(targets, hparams):
   # Preprocess image
   x = prepare_image(targets, hparams, name="dec_channels")
   x_shape = common_layers.shape_list(x)
-  # mask out upper triangle to avoid looking into the future.
-  bias = common_attention.attention_bias_lower_triangle(x_shape[1]*x_shape[2])
   if hparams.dec_attention_type == AttentionType.LOCAL_2D:
     x = common_attention.right_shift_blockwise(x, hparams.query_shape)
     x = add_pos_signals(x, hparams, "dec_pos")
@@ -522,7 +539,7 @@ def prepare_decoder(targets, hparams):
     x = tf.reshape(x, [targets_shape[0],
                        x_shape[1], x_shape[2], hparams.hidden_size])
     x = add_pos_signals(x, hparams, "dec_pos")
-  return x, x_shape[1], x_shape[2], bias
+  return x, x_shape[1], x_shape[2]
 
 
 def prepare_image(inputs, hparams, name=None):
