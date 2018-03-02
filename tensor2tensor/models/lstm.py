@@ -65,7 +65,7 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
     attention_mechanism_class = tf.contrib.seq2seq.BahdanauAttention
   else:
     raise ValueError("Unknown hparams.attention_mechanism = %s, must be "
-                     "luong or bahdanau." % hparams.attention_mechanism)
+                     "luong or bahdanu." % hparams.attention_mechanism)
   attention_mechanism = attention_mechanism_class(
       hparams.hidden_size, encoder_outputs)
 
@@ -338,7 +338,7 @@ def lstm_attention():
 
 @registry.register_hparams
 def lstm_bahdanau_attention_multi():
-  """Multi-head Bahdanau attention."""
+  """Multi-head Bahdanu attention."""
   hparams = lstm_bahdanau_attention()
   hparams.num_heads = 4
   return hparams

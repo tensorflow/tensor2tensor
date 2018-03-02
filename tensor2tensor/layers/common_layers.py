@@ -76,7 +76,7 @@ def comma_separated_string_to_integer_list(s):
 
 def saturating_sigmoid(x):
   """Saturating sigmoid: 1.2 * sigmoid(x) - 0.1 cut to [0, 1]."""
-  with tf.name_scope("saturating_sigmoid", values=[x]):
+  with tf.name_scope("saturating_sigmoid", [x]):
     y = tf.sigmoid(x)
     return tf.minimum(1.0, tf.maximum(0.0, 1.2 * y - 0.1))
 
@@ -173,7 +173,7 @@ def shakeshake(xs, equal_grad=False):
 
 def convert_rgb_to_real(x):
   """Conversion of pixel values to real numbers."""
-  with tf.name_scope("rgb_to_real", values=[x]):
+  with tf.name_scope("rgb_to_real", [x]):
     x = tf.to_float(x)
     # Use the formula (value/128) - 1 to convert each channel value into a
     # real number in the range -1 to 1.
@@ -795,7 +795,7 @@ def subseparable_conv_block(inputs, filters, dilation_rates_and_kernel_sizes,
 
 def pool(inputs, window_size, pooling_type, padding, strides=(1, 1)):
   """Pooling (supports "LEFT")."""
-  with tf.name_scope("pool", values=[inputs]):
+  with tf.name_scope("pool", [inputs]):
     static_shape = inputs.get_shape()
     if not static_shape or len(static_shape) != 4:
       raise ValueError("Inputs to conv must have statically known rank 4.")
@@ -950,7 +950,7 @@ def simple_attention(target, source, bias=None):
   Returns:
     a `Tensor` with same shape as `target`
   """
-  with tf.name_scope("simple_attention", values=[target, source]):
+  with tf.name_scope("simple_attention", [target, source]):
     target_shape = shape_list(target)
     source_shape = shape_list(source)
     target = tf.reshape(
@@ -1516,7 +1516,7 @@ def pad_to_same_length(x, y, final_length_divisible_by=1, axis=1):
   """Pad tensors x and y on axis 1 so that they have the same length."""
   if axis not in [1, 2]:
     raise ValueError("Only axis=1 and axis=2 supported for now.")
-  with tf.name_scope("pad_to_same_length", values=[x, y]):
+  with tf.name_scope("pad_to_same_length", [x, y]):
     x_length = shape_list(x)[axis]
     y_length = shape_list(y)[axis]
     max_length = tf.maximum(x_length, y_length)
@@ -1551,7 +1551,7 @@ def pad_to_same_length(x, y, final_length_divisible_by=1, axis=1):
 
 def pad_with_zeros(logits, labels):
   """Pad labels on the length dimension to match logits length."""
-  with tf.name_scope("pad_with_zeros", values=[logits, labels]):
+  with tf.name_scope("pad_with_zeros", [logits, labels]):
     logits, labels = pad_to_same_length(logits, labels)
     if len(labels.shape.as_list()) == 3:  # 2-d labels.
       logits, labels = pad_to_same_length(logits, labels, axis=2)
@@ -1645,7 +1645,7 @@ def padded_cross_entropy(logits,
         reduce_sum=reduce_sum)
   confidence = 1.0 - label_smoothing
   vocab_size = shape_list(logits)[-1]
-  with tf.name_scope("padded_cross_entropy", values=[logits, labels]):
+  with tf.name_scope("padded_cross_entropy", [logits, labels]):
     if len(logits.get_shape().as_list()) == 2:
       # Deal with the case where we did not insert extra dimensions due to
       # TPU issues.  No pad-to-same-length happens in this case.
@@ -1679,7 +1679,7 @@ def smoothing_cross_entropy(logits,
   Returns:
 
   """
-  with tf.name_scope("smoothing_cross_entropy", values=[logits, labels]):
+  with tf.name_scope("smoothing_cross_entropy", [logits, labels]):
     # Low confidence is given to all non-true labels, uniformly.
     low_confidence = (1.0 - confidence) / tf.to_float(vocab_size - 1)
     # Normalizing constant is the best cross-entropy value with soft targets.
@@ -1726,7 +1726,7 @@ def global_pool_1d(inputs, pooling_type="MAX", mask=None):
     output: A tensor of dimensions batch_size x input_dims
       dimension containing the sequences of transformed vectors.
   """
-  with tf.name_scope("global_pool", values=[inputs]):
+  with tf.name_scope("global_pool", [inputs]):
     if mask is not None:
       mask = tf.expand_dims(mask, axis=2)
       inputs = tf.multiply(inputs, mask)
@@ -1763,7 +1763,7 @@ def running_global_pool_1d(inputs, pooling_type="MAX"):
       dimension containing the running 'totals'.
   """
   del pooling_type
-  with tf.name_scope("running_global_pool", values=[inputs]):
+  with tf.name_scope("running_global_pool", [inputs]):
     scan_fct = tf.maximum
     # Permute inputs so seq_length is first.
     elems = tf.transpose(inputs, [1, 0, 2])
@@ -2119,7 +2119,7 @@ def padded_cross_entropy_factored(factored_logits,
   a = factored_logits.a
   b = factored_logits.b
   confidence = 1.0 - label_smoothing
-  with tf.name_scope("padded_cross_entropy_factored", values=[a, b, labels]):
+  with tf.name_scope("padded_cross_entropy_factored", [a, b, labels]):
     labels_flat = tf.reshape(labels, [-1])
     a_flat = tf.reshape(a, [-1, shape_list(b)[1]])
     xent = smoothing_cross_entropy_factored(a_flat, b, labels_flat,
