@@ -86,7 +86,8 @@ except:  # pylint: disable=bare-except
 import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
 from fathomairflow.dags.dag_management.task_builders.xcom_keys import (
-    XCOM_GCS_MODEL_SUBPATH)
+    XCOM_GCS_MODEL_SUBPATH,
+    DATA_DIR, TMP_DIR)
 from fathomtf.services.model_management import (upload_model_to_gcs,
                                                 fix_paths_for_workspace)
 import os
@@ -347,7 +348,9 @@ def main(_):
   # NOTE: this must run LAST in the process, to make sure STDOUT is
   # appropriately populated.
   xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path,
-                                  XCOM_GCS_MODEL_SUBPATH: model_name})
+                                  XCOM_GCS_MODEL_SUBPATH: model_name,
+                                  DATA_DIR: FLAGS.data_dir,
+                                  TMP_DIR: FLAGS.tmp_dir})
 
 if __name__ == "__main__":
   # Fathom
