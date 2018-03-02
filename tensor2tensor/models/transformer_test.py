@@ -208,7 +208,8 @@ class TransformerTest(tf.test.TestCase):
         [BATCH_SIZE, TARGET_LENGTH, 1, hparams.hidden_size])
 
   def testTransformerWithEncoderDecoderAttentionLoss(self):
-    model, features = self.getModel(transformer.transformer_small())
+    model, features = self.getModel(
+        transformer.transformer_supervised_attention())
     expected_attention_weights = np.random.random_sample(
         size=(BATCH_SIZE, TARGET_LENGTH, INPUT_LENGTH))
     features["expected_attentions"] = tf.constant(
