@@ -60,6 +60,8 @@ def main(_):
   total_sequences = 0
   total_input_tokens = 0
   total_target_tokens = 0
+  nonpadding_input_tokens = 0
+  nonpadding_target_tokens = 0
   max_input_length = 0
   max_target_length = 0
   for record in reader:
@@ -71,6 +73,8 @@ def main(_):
       print("INPUTS:\n" + encoder.decode(inputs) if encoder else inputs)
     if FLAGS.print_targets:
       print("TARGETS:\n" + encoder.decode(targets) if encoder else targets)
+    nonpadding_input_tokens += len(inputs) - inputs.count(0)
+    nonpadding_target_tokens += len(targets) - targets.count(0)
     total_input_tokens += len(inputs)
     total_target_tokens += len(targets)
     total_sequences += 1
@@ -83,6 +87,8 @@ def main(_):
   print("total_sequences: %d" % total_sequences)
   print("total_input_tokens: %d" % total_input_tokens)
   print("total_target_tokens: %d" % total_target_tokens)
+  print("nonpadding_input_tokens: %d" % nonpadding_input_tokens)
+  print("nonpadding_target_tokens: %d" % nonpadding_target_tokens)
   print("max_input_length: %d" % max_input_length)
   print("max_target_length: %d" % max_target_length)
 

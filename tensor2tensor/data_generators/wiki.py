@@ -224,7 +224,7 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
 
   @property
   def vocab_filename(self):
-    return "vocab.wiki_noref"
+    return "vocab.wiki_noref.%d" % self.approx_vocab_size
 
   def filepath_to_unicode_text(self, filepath):
     """Overriddes the base class to clean up the xml dump before tokenizing."""

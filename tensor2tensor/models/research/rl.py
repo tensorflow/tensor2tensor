@@ -69,6 +69,7 @@ def discrete_action_base():
 
 @registry.register_hparams
 def atari_base():
+  """Atari base parameters."""
   hparams = discrete_action_base()
   hparams.learning_rate = 16e-5
   hparams.num_agents = 5

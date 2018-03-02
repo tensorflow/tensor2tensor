@@ -77,8 +77,9 @@ def define_train(hparams, environment_spec, event_dir):
 def train(hparams, environment_spec, event_dir=None):
   """Train."""
   if environment_spec == "stacked_pong":
-    environment_spec = lambda: atari_wrappers.wrap_atari(
-      gym.make("PongNoFrameskip-v4"), warp=False, frame_skip=4, frame_stack=False)
+    environment_spec = lambda: atari_wrappers.wrap_atari(  # pylint: disable=g-long-lambda
+        gym.make("PongNoFrameskip-v4"),
+        warp=False, frame_skip=4, frame_stack=False)
   train_summary_op, eval_summary_op, _ = define_train(hparams, environment_spec,
                                                       event_dir)
   if event_dir:
@@ -100,5 +101,7 @@ def train(hparams, environment_spec, event_dir=None):
         summary = sess.run(eval_summary_op)
         if summary_writer:
           summary_writer.add_summary(summary, epoch_index)
-      if model_saver and hparams.save_models_every_epochs and epoch_index % hparams.save_models_every_epochs == 0:
-        model_saver.save(sess, os.path.join(event_dir, "model{}.ckpt".format(epoch_index)))
+      if (model_saver and hparams.save_models_every_epochs and
+          epoch_index % hparams.save_models_every_epochs == 0):
+        model_saver.save(sess, os.path.join(event_dir,
+                                            "model{}.ckpt".format(epoch_index)))

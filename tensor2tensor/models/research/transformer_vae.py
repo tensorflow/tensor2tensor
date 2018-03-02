@@ -338,10 +338,7 @@ def ae_transformer_internal(inputs,
     targets, _ = common_layers.pad_to_same_length(
         targets, max_targets_len_from_inputs,
         final_length_divisible_by=2**hparams.num_compress_steps)
-    if hparams.ae_input:
-      targets_c = compress(targets, inputs, False, hparams, "compress")
-    else:
-      targets_c = compress(targets, None, False, hparams, "compress")
+    targets_c = compress(targets, inputs, False, hparams, "compress")
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
       latents_dense, latents_discrete, extra_loss, embed = hparams.bottleneck(
@@ -638,8 +635,6 @@ def transformer_ae_small():
   # Reshape method for DVQ: slice, project
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
-  # Add option to pass the input to the autoencoder
-  hparams.add_hparam("ae_input", False)
   # Hparams for Dirichlet process process
   hparams.add_hparam("dp_alpha", 0.5)
   hparams.add_hparam("dp_strength", 0.25)

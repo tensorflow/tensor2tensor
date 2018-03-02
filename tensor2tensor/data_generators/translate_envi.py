@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data generators for translation data-sets."""
+"""Data generators for En-Vi translation."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -25,10 +25,6 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import registry
-
-import tensorflow as tf
-
-FLAGS = tf.flags.FLAGS
 
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
@@ -46,6 +42,10 @@ _ENVI_TEST_DATASETS = [[
     "https://github.com/stefan-it/nmt-en-vi/raw/master/data/dev-2012-en-vi.tgz",  # pylint: disable=line-too-long
     ("tst2012.en", "tst2012.vi")
 ]]
+
+
+# See this PR on github for some results with Transformer on this Problem.
+# https://github.com/tensorflow/tensor2tensor/pull/611
 
 
 @registry.register_problem
