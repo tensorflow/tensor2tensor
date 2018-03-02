@@ -157,8 +157,7 @@ def set_hparams_from_args(args):
 import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
 from fathomairflow.dags.dag_management.task_builders.xcom_keys import (
-    XCOM_GCS_MODEL_SUBPATH)
-from fathomairflow.dags.dag_management.task_builders.tf.training import (
+    XCOM_GCS_MODEL_SUBPATH,
     DATA_DIR, TMP_DIR)
 from fathomtf.services.model_management import (upload_model_to_gcs,
                                                 fix_paths_for_workspace)
