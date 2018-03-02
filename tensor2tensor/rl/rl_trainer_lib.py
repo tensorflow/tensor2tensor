@@ -18,6 +18,7 @@
 from __future__ import absolute_import
 
 import functools
+import os
 
 # Dependency imports
 
@@ -28,6 +29,7 @@ from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import collect
 from tensor2tensor.rl import ppo
+from tensor2tensor.rl.envs import atari_wrappers
 from tensor2tensor.rl.envs import utils
 
 import tensorflow as tf
@@ -69,19 +71,24 @@ def define_train(hparams, environment_spec, event_dir):
         utils.define_batch_env(wrapped_eval_env_lambda, hparams.num_eval_agents,
                                xvfb=hparams.video_during_eval),
         hparams, eval_phase=True)
-  return summary, eval_summary
+  return summary, eval_summary, policy_factory
 
 
 def train(hparams, environment_spec, event_dir=None):
   """Train."""
-  train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
-                                                   event_dir)
-
+  if environment_spec == "stacked_pong":
+    environment_spec = lambda: atari_wrappers.wrap_atari(  # pylint: disable=g-long-lambda
+        gym.make("PongNoFrameskip-v4"),
+        warp=False, frame_skip=4, frame_stack=False)
+  train_summary_op, eval_summary_op, _ = define_train(hparams, environment_spec,
+                                                      event_dir)
   if event_dir:
     summary_writer = tf.summary.FileWriter(
         event_dir, graph=tf.get_default_graph(), flush_secs=60)
+    model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
   else:
     summary_writer = None
+    model_saver = None
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
@@ -94,3 +101,7 @@ def train(hparams, environment_spec, event_dir=None):
         summary = sess.run(eval_summary_op)
         if summary_writer:
           summary_writer.add_summary(summary, epoch_index)
+      if (model_saver and hparams.save_models_every_epochs and
+          epoch_index % hparams.save_models_every_epochs == 0):
+        model_saver.save(sess, os.path.join(event_dir,
+                                            "model{}.ckpt".format(epoch_index)))
