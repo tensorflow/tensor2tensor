@@ -7,13 +7,13 @@ for now and under heavy development.
 
 Currently the only supported algorithm is Proximy Policy Optimization - PPO.
 
-## Sample usage - training in Pendulum-v0 environment.
+## Sample usage - training in the Pendulum-v0 environment.
 
 ```python rl/t2t_rl_trainer.py --problems=Pendulum-v0 --hparams_set continuous_action_base [--output_dir dir_location]```
 
-## Sample usage - training in Pendulum-v0 environment.
+## Sample usage - training in the PongNoFrameskip-v0 environment.
 
-```python tensor2tensor/rl/t2t_rl_trainer.py --problem PongNoFrameskip-v4 --hparams_set atari_base --hparams num_agents=3 --output_dir /tmp/pong`date +%Y%m%d_%H%M%S```
+```python tensor2tensor/rl/t2t_rl_trainer.py --problem stacked_pong --hparams_set atari_base --hparams num_agents=5 --output_dir /tmp/pong`date +%Y%m%d_%H%M%S````
 
 ## Sample usage - generation of a model
 
