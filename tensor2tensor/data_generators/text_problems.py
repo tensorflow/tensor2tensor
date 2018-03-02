@@ -186,10 +186,11 @@ class Text2TextProblem(problem.Problem):
   @property
   def vocab_filename(self):
     if self.vocab_type == VocabType.SUBWORD:
-      return "vocab.%s.%d.%s" % (self.name, self.approx_vocab_size,
+      return "vocab.%s.%d.%s" % (self.dataset_filename(),
+                                 self.approx_vocab_size,
                                  VocabType.SUBWORD)
     else:
-      return "vocab.%s.%s" % (self.name, VocabType.TOKEN)
+      return "vocab.%s.%s" % (self.dataset_filename(), VocabType.TOKEN)
 
   def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
     if self.vocab_type == VocabType.CHARACTER:

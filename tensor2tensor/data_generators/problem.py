@@ -421,25 +421,31 @@ class Problem(object):
     return self._hparams
 
   def maybe_reverse_features(self, feature_map):
+    """Reverse features between inputs and targets if the problem is '_rev'."""
     if not self._was_reversed:
       return
     inputs, targets = feature_map["inputs"], feature_map["targets"]
     feature_map["inputs"], feature_map["targets"] = targets, inputs
     if "inputs_segmentation" in feature_map:
-      inputs, targets = feature_map["inputs_segmentation"], feature_map["targets_segmentation"]
-      feature_map["inputs_segmentation"], feature_map["targets_segmentation"] = targets, inputs
+      inputs_seg = feature_map["inputs_segmentation"]
+      targets_seg = feature_map["targets_segmentation"]
+      feature_map["inputs_segmentation"] = targets_seg
+      feature_map["targets_segmentation"] = inputs_seg
     if "inputs_position" in feature_map:
-      inputs, targets = feature_map["inputs_position"], feature_map["targets_position"]
-      feature_map["inputs_position"], feature_map["targets_position"] = targets, inputs
-        
+      inputs_pos = feature_map["inputs_position"]
+      targets_pos = feature_map["targets_position"]
+      feature_map["inputs_position"] = targets_pos
+      feature_map["targets_position"] = inputs_pos
 
   def maybe_copy_features(self, feature_map):
     if not self._was_copy:
       return
     feature_map["targets"] = feature_map["inputs"]
-    if "inputs_segmentation" in feature_map:
-      feature_map["targets_segmentation"] = feature_map["inputs_segmentation"]      
-    if "inputs_position" in feature_map:
+    if ("inputs_segmentation" in feature_map and
+        "targets_segmentation" not in feature_map):
+      feature_map["targets_segmentation"] = feature_map["inputs_segmentation"]
+    if ("inputs_position" in feature_map and
+        "targets_position" not in feature_map):
       feature_map["targets_position"] = feature_map["inputs_position"]
 
   def dataset(self,

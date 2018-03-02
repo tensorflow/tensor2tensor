@@ -19,37 +19,28 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
+import functools
 
 # Dependency imports
 
-import numpy as np
-import functools
 import gym
+import numpy as np
 
-from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs import atari_wrappers
-from tensor2tensor.models.research import rl
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
+from tensor2tensor.models.research import rl
+from tensor2tensor.rl.envs import atari_wrappers
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
+
 
 
 flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("model_path", "", "File with model for pong")
-
-
-def gym_lib():
-  """Access to gym to allow for import of this file without a gym install."""
-  try:
-    import gym  # pylint: disable=g-import-not-at-top
-  except ImportError:
-    raise ImportError("pip install gym to use gym-based Problems")
-  return gym
 
 
 class GymDiscreteProblem(problem.Problem):
@@ -67,7 +58,7 @@ class GymDiscreteProblem(problem.Problem):
   @property
   def env(self):
     if self._env is None:
-      self._env = gym_lib().make(self.env_name)
+      self._env = gym.make(self.env_name)
     return self._env
 
   @property
@@ -157,8 +148,6 @@ class GymPongRandom5k(GymDiscreteProblem):
     return 5000
 
 
-
-
 @registry.register_problem
 class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
   """Pong game, loaded actions."""
@@ -167,28 +156,34 @@ class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
     super(GymPongTrajectoriesFromPolicy, self).__init__(*args, **kwargs)
     self._env = None
     self._event_dir = event_dir
-    env_spec = lambda: atari_wrappers.wrap_atari(
-      gym.make("PongNoFrameskip-v4"), warp=False, frame_skip=4, frame_stack=False)
+    env_spec = lambda: atari_wrappers.wrap_atari(  # pylint: disable=g-long-lambda
+        gym.make("PongNoFrameskip-v4"),
+        warp=False,
+        frame_skip=4,
+        frame_stack=False)
     hparams = rl.atari_base()
     with tf.variable_scope("train"):
       policy_lambda = hparams.network
       policy_factory = tf.make_template(
-        "network",
-        functools.partial(policy_lambda, env_spec().action_space, hparams))
-      self._max_frame_pl = tf.placeholder(tf.float32, self.env.observation_space.shape)
-      actor_critic = policy_factory(tf.expand_dims(tf.expand_dims(self._max_frame_pl, 0), 0))
+          "network",
+          functools.partial(policy_lambda, env_spec().action_space, hparams))
+      self._max_frame_pl = tf.placeholder(
+          tf.float32, self.env.observation_space.shape)
+      actor_critic = policy_factory(tf.expand_dims(tf.expand_dims(
+          self._max_frame_pl, 0), 0))
       policy = actor_critic.policy
       self._last_policy_op = policy.mode()
     self._last_action = self.env.action_space.sample()
     self._skip = 4
     self._skip_step = 0
-    self._obs_buffer = np.zeros((2,) + self.env.observation_space.shape, dtype=np.uint8)
+    self._obs_buffer = np.zeros((2,) + self.env.observation_space.shape,
+                                dtype=np.uint8)
     self._sess = tf.Session()
     model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
     model_saver.restore(self._sess, FLAGS.model_path)
 
   # TODO(blazej0): For training of atari agents wrappers are usually used.
-  # Below we have a hacky solution which is a temporary workaround to be used together
+  # Below we have a hacky solution which is a workaround to be used together
   # with atari_wrappers.MaxAndSkipEnv.
   def get_action(self, observation=None):
     if self._skip_step == self._skip - 2: self._obs_buffer[0] = observation
@@ -197,7 +192,8 @@ class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
     if self._skip_step == 0:
       max_frame = self._obs_buffer.max(axis=0)
       self._last_action = int(self._sess.run(
-        self._last_policy_op, feed_dict={self._max_frame_pl: max_frame})[0, 0])
+          self._last_policy_op,
+          feed_dict={self._max_frame_pl: max_frame})[0, 0])
     return self._last_action
 
   @property

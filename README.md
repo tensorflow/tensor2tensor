@@ -12,10 +12,10 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 
 [Tensor2Tensor](https://github.com/tensorflow/tensor2tensor), or
 [T2T](https://github.com/tensorflow/tensor2tensor) for short, is a library
-of deep learning models and datasets designed to [accelerate deep learning
-research](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html) and make it more accessible.
-
-T2T is actively used and maintained by researchers and engineers within the
+of deep learning models and datasets designed to make deep learning more
+accessible and [accelerate ML
+research](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html).
+ is actively used and maintained by researchers and engineers within the
 [Google Brain team](https://research.google.com/teams/brain/) and a community
 of users. We're eager to collaborate with you too, so feel free to
 [open an issue on GitHub](https://github.com/tensorflow/tensor2tensor/issues)
@@ -368,6 +368,7 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
 * [Discrete Autoencoders for Sequence Models](https://arxiv.org/abs/1801.09797)
 * [Generating Wikipedia by Summarizing Long
    Sequences](https://arxiv.org/abs/1801.10198)
-* [Image Transformer](https://openreview.net/forum?id=r16Vyf-0-)
+* [Image Transformer](https://arxiv.org/abs/1802.05751)
+* [Training Tips for the Transformer Model](http://ufallab.ms.mff.cuni.cz/~popel/training-tips-transformer.pdf)
 
 *Note: This is not an official Google product.*

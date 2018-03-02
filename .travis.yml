@@ -10,13 +10,13 @@ env:
   matrix:
     - TF_VERSION="1.4.*"
     - TF_VERSION="1.5.*"
-    - TF_VERSION="1.6.0rc1"
+    - TF_VERSION="1.6.*"
 matrix:
   exclude:
     - python: "3.6"
       env: TF_VERSION="1.4.*"
     - python: "3.6"
-      env: TF_VERSION="1.6.0rc1"
+      env: TF_VERSION="1.6.*"
 before_install:
   - echo "deb [arch=amd64] http://storage.googleapis.com/tensorflow-serving-apt stable tensorflow-model-server tensorflow-model-server-universal" | sudo tee /etc/apt/sources.list.d/tensorflow-serving.list
   - curl https://storage.googleapis.com/tensorflow-serving-apt/tensorflow-serving.release.pub.gpg | sudo apt-key add -

@@ -176,7 +176,8 @@ class Transformer(t2t_model.T2TModel):
     expected_attentions = features.get("expected_attentions")
     if expected_attentions is not None:
       attention_loss = common_attention.encoder_decoder_attention_loss(
-          expected_attentions, self.attention_weights)
+          expected_attentions, self.attention_weights,
+          hparams.expected_attention_loss_multiplier)
       return decoder_output, {"attention_loss": attention_loss}
 
     return decoder_output
@@ -1462,3 +1463,11 @@ def transformer_librispeech_tpu():
   librispeech.set_librispeech_length_hparams(hparams)
   return hparams
 
+
+@registry.register_hparams
+def transformer_supervised_attention():
+  """Hparams for supervised attention problems."""
+  hparams = transformer_base()
+  # Multiplier to the encoder-decoder expected attention loss.
+  hparams.add_hparam("expected_attention_loss_multiplier", 1.0)
+  return hparams
