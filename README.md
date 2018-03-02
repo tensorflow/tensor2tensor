@@ -154,7 +154,7 @@ For all translation problems, we suggest to try the Transformer model:
 this should reach a BLEU score of about 28 on the English-German data-set,
 which is close to state-of-the art. If training on a single GPU, try the
 `--hparams_set=transformer_base_single_gpu` setting. For very good results
-or larger data-sets (e.g., for English-French), try the big model
+or larger data-sets (e.g., for English-French)m, try the big model
 with `--hparams_set=transformer_big`.
 
 ## Basics
