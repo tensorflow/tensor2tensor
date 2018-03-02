@@ -44,6 +44,7 @@ from tensor2tensor.models.research import attention_lm_moe
 from tensor2tensor.models.research import cycle_gan
 from tensor2tensor.models.research import gene_expression
 from tensor2tensor.models.research import multimodel
+from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
 from tensor2tensor.models.research import transformer_revnet
