@@ -15,7 +15,7 @@
 
 r"""Inspect a TFRecord file of tensorflow.Example and show tokenizations.
 
-python data_generators/inspect.py \
+python data_generators/inspect_tfrecord.py \
     --logtostderr \
     --print_targets \
     --subword_text_encoder_filename=$DATA_DIR/vocab.endefr.8192 \
@@ -31,6 +31,7 @@ from __future__ import print_function
 from tensor2tensor.data_generators import text_encoder
 
 import tensorflow as tf
+import six
 
 tf.flags.DEFINE_string("subword_text_encoder_filename", "",
                        "SubwordTextEncoder vocabulary file")
@@ -81,7 +82,7 @@ def main(_):
     max_input_length = max(max_input_length, len(inputs))
     max_target_length = max(max_target_length, len(targets))
     if FLAGS.print_all:
-      for k, v in x.features.feature.iteritems():
+      for k, v in six.iteritems(x.features.feature):
         print("%s: %s" % (k, v.int64_list.value))
 
   print("total_sequences: %d" % total_sequences)
