@@ -69,7 +69,7 @@ For language modeling, we have these data-sets in T2T:
 * LM1B (a billion-word corpus): `--problems=languagemodel_lm1b32k` for
     subword-level modeling and `--problems=languagemodel_lm1b_characters`
     for character-level modeling.
-    
+
 We suggest to start with `--model=transformer` on this task and use
 `--hparams_set=transformer_small` for PTB and
 `--hparams_set=transformer_base` for LM1B.
@@ -95,7 +95,7 @@ For speech-to-text, we have these data-sets in T2T:
 For summarizing longer text into shorter one we have these data-sets:
 * CNN/DailyMail articles summarized into a few sentences:
   `--problems=summarize_cnn_dailymail32k`
-  
+
 We suggest to use `--model=transformer` and
 `--hparams_set=transformer_prepend` for this task.
 This yields good ROUGE scores.
@@ -118,5 +118,5 @@ For all translation problems, we suggest to try the Transformer model:
 this should reach a BLEU score of about 28 on the English-German data-set,
 which is close to state-of-the art. If training on a single GPU, try the
 `--hparams_set=transformer_base_single_gpu` setting. For very good results
-or larger data-sets (e.g., for English-French)m, try the big model
+or larger data-sets (e.g., for English-French), try the big model
 with `--hparams_set=transformer_big`.
