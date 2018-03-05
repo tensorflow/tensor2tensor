@@ -63,7 +63,7 @@ def slice_hidden(x, hidden_size, num_blocks):
   return x_sliced
 
 
-def nearest_neighbor(x, means, block_v_size, random_top_k=1):
+def nearest_neighbor(x, means, block_v_size, random_top_k=1, soft_em=False):
   """Find the nearest element in means to elements in x.
 
   Args:
@@ -72,6 +72,7 @@ def nearest_neighbor(x, means, block_v_size, random_top_k=1):
     means: Embedding table of shpae [num_blocks, block_v_size, block_dim].
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
+    soft_em: If True then use soft EM rather than hard EM (Default: False).
 
   Returns:
     Tensor with nearest element in mean encoded in one-hot notation.
@@ -83,20 +84,28 @@ def nearest_neighbor(x, means, block_v_size, random_top_k=1):
   scalar_prod = tf.transpose(scalar_prod, perm=[1, 0, 2])
   dist = x_norm_sq + tf.transpose(
       means_norm_sq, perm=[2, 0, 1]) - 2 * scalar_prod
-  if random_top_k > 1:
-    _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
-    nearest_idx = tf.gather(
-        top_k_idx,
-        tf.random_uniform(
-            [1], minval=0, maxval=random_top_k - 1, dtype=tf.int32),
-        axis=-1)
+  if soft_em:
+    nearest_hot = tf.nn.softmax(-dist, axis=-1)
   else:
-    nearest_idx = tf.argmax(-dist, axis=-1)
-  nearest_hot = tf.one_hot(nearest_idx, block_v_size)
+    if random_top_k > 1:
+      _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
+      nearest_idx = tf.gather(
+          top_k_idx,
+          tf.random_uniform(
+              [1], minval=0, maxval=random_top_k - 1, dtype=tf.int32),
+          axis=-1)
+    else:
+      nearest_idx = tf.argmax(-dist, axis=-1)
+    nearest_hot = tf.one_hot(nearest_idx, block_v_size)
   return tf.stop_gradient(nearest_hot)
 
 
-def embedding_lookup(x, means, num_blocks, block_v_size, random_top_k=1):
+def embedding_lookup(x,
+                     means,
+                     num_blocks,
+                     block_v_size,
+                     random_top_k=1,
+                     soft_em=False):
   """Compute nearest neighbors and loss for training the embeddings via DVQ.
 
   Args:
@@ -106,12 +115,13 @@ def embedding_lookup(x, means, num_blocks, block_v_size, random_top_k=1):
     num_blocks: Number of blocks in DVQ.
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
+    soft_em: If True then use soft EM rather than hard EM (Default: False).
 
   Returns:
     The nearest neighbor in one hot form, the nearest neighbor itself, the
     commitment loss, embedding training loss.
   """
-  x_means_hot = nearest_neighbor(x, means, block_v_size, random_top_k)
+  x_means_hot = nearest_neighbor(x, means, block_v_size, random_top_k, soft_em)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
   x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
   x_means = tf.transpose(x_means, [1, 0, 2])
@@ -366,6 +376,7 @@ def discrete_bottleneck(x,
                         decay=0.999,
                         discrete_mix=0.5,
                         random_top_k=1,
+                        soft_em=False,
                         epsilon=1e-5,
                         softmax_k=0,
                         kl_warmup_steps=150000,
@@ -402,6 +413,7 @@ def discrete_bottleneck(x,
     discrete_mix: Factor for mixing discrete and non-discrete input for semhash
       (Default: 0.5).
     random_top_k: Noisy top-k for DVQ (Default: 1).
+    soft_em: If True then use soft EM rather than hard EM (Default: False).
     epsilon: Epsilon parameter for DVQ (Default: 1e-5).
     softmax_k: If > 1 then do top-k softmax (Default: 0).
     kl_warmup_steps: Number of steps for kl warmup (Default: 150000).
@@ -502,7 +514,7 @@ def discrete_bottleneck(x,
     elif bottleneck_kind == 'dvq':
       x_reshaped = reshape_fn(x)
       x_means_hot, x_means, q_loss, e_loss = embedding_lookup(
-          x_reshaped, means, num_blocks, block_v_size, random_top_k)
+          x_reshaped, means, num_blocks, block_v_size, random_top_k, soft_em)
 
       # Get the discrete latent represenation
       x_means_idx = tf.argmax(x_means_hot, axis=-1)
