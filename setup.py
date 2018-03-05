@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.4.3',
+    version='1.5.4',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -35,7 +35,9 @@ setup(
         'flask',
         'future',
         'gevent',
+        'google-api-python-client',
         'gunicorn',
+        'gym<=0.9.5',  # gym in version 0.9.6 has some temporary issues.
         'numpy',
         'requests',
         'scipy',
@@ -43,8 +45,8 @@ setup(
         'six',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.5.0'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.5.0'],
+        'tensorflow': ['tensorflow>=1.4.1'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.4.1'],
         'tests': ['pytest', 'h5py', 'mock'],
     },
     classifiers=[

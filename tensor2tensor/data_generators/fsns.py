@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -68,7 +68,6 @@ class ImageFSNS(image_utils.ImageProblem):
     vocab_size = self._encoders["targets"].vocab_size
     p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
     p.batch_size_multiplier = 256
-    p.max_expected_batch_size_per_shard = 2
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.EN_TOK
 

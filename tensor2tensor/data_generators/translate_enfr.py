@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,9 +21,9 @@ from __future__ import print_function
 
 # Dependency imports
 
-from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import registry
 
@@ -85,45 +85,34 @@ class TranslateEnfrWmtSmall8k(translate.TranslateProblem):
   """Problem spec for WMT En-Fr translation."""
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**13  # 8192
 
   @property
-  def vocab_name(self):
-    return "vocab.enfr"
+  def vocab_filename(self):
+    return "vocab.enfr.%d" % self.approx_vocab_size
 
   @property
   def use_small_dataset(self):
     return True
 
-  def generator(self, data_dir, tmp_dir, train):
-    symbolizer_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_file, self.targeted_vocab_size,
-        _ENFR_TRAIN_SMALL_DATA)
+  def source_data_files(self, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
     if self.use_small_dataset:
       datasets = _ENFR_TRAIN_SMALL_DATA if train else _ENFR_TEST_SMALL_DATA
     else:
       datasets = _ENFR_TRAIN_LARGE_DATA if train else _ENFR_TEST_LARGE_DATA
-    tag = "train" if train else "dev"
-    data_path = translate.compile_data(tmp_dir, datasets,
-                                       "wmt_enfr_tok_%s" % tag)
-    return translate.token_generator(data_path + ".lang1", data_path + ".lang2",
-                                     symbolizer_vocab, EOS)
+    return datasets
 
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.FR_TOK
+  def vocab_data_files(self):
+    return _ENFR_TRAIN_SMALL_DATA
 
 
 @registry.register_problem
 class TranslateEnfrWmtSmall32k(TranslateEnfrWmtSmall8k):
 
   @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**15  # 32768
 
 
@@ -156,36 +145,24 @@ class TranslateEnfrWmtSmallCharacters(translate.TranslateProblem):
   """Problem spec for WMT En-Fr translation."""
 
   @property
-  def is_character_level(self):
-    return True
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
 
   @property
   def use_small_dataset(self):
     return True
 
   @property
-  def vocab_name(self):
-    return "vocab.enfr"
+  def vocab_filename(self):
+    return "vocab.enfr.%d" % self.approx_vocab_size
 
-  def generator(self, data_dir, tmp_dir, train):
-    character_vocab = text_encoder.ByteTextEncoder()
+  def source_data_files(self, dataset_split):
+    train = dataset_split == problem.DatasetSplit.TRAIN
     if self.use_small_dataset:
       datasets = _ENFR_TRAIN_SMALL_DATA if train else _ENFR_TEST_SMALL_DATA
     else:
       datasets = _ENFR_TRAIN_LARGE_DATA if train else _ENFR_TEST_LARGE_DATA
-    tag = "train" if train else "dev"
-    data_path = translate.compile_data(tmp_dir, datasets,
-                                       "wmt_enfr_chr_%s" % tag)
-    return translate.character_generator(
-        data_path + ".lang1", data_path + ".lang2", character_vocab, EOS)
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_CHR
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.FR_CHR
+    return datasets
 
 
 @registry.register_problem

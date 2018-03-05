@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -329,7 +329,7 @@ def transformer_moe_8k_lm():
   #  * Memory efficient multihead attention (slow):
   # hparams.layer_types = "#mem/mem/mem-moe/mem/mem"
   #  * Alternate between local/compressed attention layers (faster):
-  # hparams.layer_types = "#locm/red/locm-moe/red/locm"
+  # hparams.layer_types = "#locm/redm/locm-moe/redm/locm"
 
   return hparams
 
@@ -386,6 +386,6 @@ def transformer_moe_prepend_8k():
   hparams.eval_drop_long_sequences = False
   hparams.max_input_seq_length = 7500,
   hparams.default_ff = "sepm"
-  hparams.layer_types = "locm/red/locm-moe/red/locm"
+  hparams.layer_types = "locm/redm/locm-moe/redm/locm"
   hparams.moe_num_experts = 256
   return hparams

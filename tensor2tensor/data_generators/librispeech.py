@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -66,8 +66,7 @@ def _collect_data(directory, input_ext, transcription_ext):
       transcript_path = os.path.join(root, transcript)
       with open(transcript_path, "r") as transcript_file:
         for transcript_line in transcript_file:
-          line_contents = transcript_line.split(" ", 1)
-          assert len(line_contents) == 2
+          line_contents = transcript_line.strip().split(" ", 1)
           media_base, label = line_contents
           key = os.path.join(root, media_base)
           assert key not in data_files
@@ -185,4 +184,11 @@ def add_librispeech_hparams(hparams):
   hparams.learning_rate = 0.05
   hparams.train_steps = 5000000
   hparams.num_hidden_layers = 4
+  return hparams
+
+
+def set_librispeech_length_hparams(hparams):
+  hparams.max_length = 1650 * 80  # this limits inputs[1] * inputs[2]
+  hparams.max_input_seq_length = 1650
+  hparams.max_target_seq_length = 350
   return hparams

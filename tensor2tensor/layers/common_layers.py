@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -216,11 +216,12 @@ def dropout_no_scaling(x, keep_prob):
 
 
 def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0,
-              symbol_dropout_rate=0.0):
+              symbol_dropout_rate=0.0, embedding_var=None):
   """Embed x of type int64 into dense vectors, reducing to max 4 dimensions."""
   with tf.variable_scope(
       name, default_name="embedding", values=[x], reuse=reuse):
-    embedding_var = tf.get_variable("kernel", [vocab_size, dense_size])
+    if embedding_var is None:
+      embedding_var = tf.get_variable("kernel", [vocab_size, dense_size])
     # On the backwards pass, we want to convert the gradient from
     # an indexed-slices to a regular tensor before sending it back to the
     # parameter server. This avoids excess computation on the parameter server.
@@ -509,8 +510,8 @@ def layer_norm_vars(filters):
 
 def layer_norm_compute_python(x, epsilon, scale, bias):
   """Layer norm raw computation."""
-  mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
-  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keepdims=True)
+  mean = tf.reduce_mean(x, axis=[-1], keep_dims=True)
+  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keep_dims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
   return norm_x * scale + bias
 
@@ -1171,7 +1172,7 @@ def mask_from_embedding(emb):
   Returns:
     a 0.0/1.0 Tensor with shape [batch, width, height, 1].
   """
-  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keepdims=True))
+  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keep_dims=True))
 
 
 def mask_leq(target_length, source_length):
@@ -1703,7 +1704,7 @@ def smoothing_cross_entropy(logits,
           depth=vocab_size,
           on_value=confidence,
           off_value=low_confidence)
-    xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
+    xentropy = tf.nn.softmax_cross_entropy_with_logits(
         logits=logits, labels=soft_targets)
     return xentropy - normalizing
 
@@ -1737,7 +1738,7 @@ def global_pool_1d(inputs, pooling_type="MAX", mask=None):
       if mask is not None:
         # Some elems are dummy elems so we can't just reduce the average.
         output = tf.reduce_sum(inputs, axis=1)
-        num_elems = tf.reduce_sum(mask, axis=1, keepdims=True)
+        num_elems = tf.reduce_sum(mask, axis=1, keep_dims=True)
         output = tf.div(output, tf.maximum(num_elems, 1))
       else:
         output = tf.reduce_mean(inputs, axis=1)
@@ -2388,7 +2389,7 @@ def ones_matrix_band_part(rows, cols, num_lower, num_upper, out_shape=None):
       num_lower = rows - 1
     if num_upper < 0:
       num_upper = cols - 1
-    lower_mask = np.tri(rows, cols, num_lower).T
+    lower_mask = np.tri(cols, rows, num_lower).T
     upper_mask = np.tri(rows, cols, num_upper)
     band = np.ones((rows, cols)) * lower_mask * upper_mask
     if out_shape:

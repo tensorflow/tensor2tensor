@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -68,13 +68,17 @@ def create_hparams(hparams_set,
                    hparams_overrides_str="",
                    data_dir=None,
                    problem_name=None):
+  """Create HParams with data_dir and problem hparams, if kwargs provided."""
   hparams = registry.hparams(hparams_set)()
-  if hparams_overrides_str:
-    hparams = hparams.parse(hparams_overrides_str)
   if data_dir:
     hparams.add_hparam("data_dir", data_dir)
   if problem_name:
     add_problem_hparams(hparams, problem_name)
+  if hparams_overrides_str:
+    tf.logging.info("Overriding hparams in %s with %s",
+                    hparams_set,
+                    hparams_overrides_str)
+    hparams = hparams.parse(hparams_overrides_str)
   return hparams
 
 

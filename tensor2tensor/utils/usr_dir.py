@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,13 +27,20 @@ import sys
 import tensorflow as tf
 
 
+INTERNAL_USR_DIR_PACKAGE = "t2t_usr_dir_internal"
+
+
 def import_usr_dir(usr_dir):
   """Import module at usr_dir, if provided."""
   if not usr_dir:
     return
-  dir_path = os.path.expanduser(usr_dir)
-  if dir_path[-1] == "/":
-    dir_path = dir_path[:-1]
+  if usr_dir == INTERNAL_USR_DIR_PACKAGE:
+    # The package has been installed with pip under this name for Cloud ML
+    # Engine so just import it.
+    importlib.import_module(INTERNAL_USR_DIR_PACKAGE)
+    return
+
+  dir_path = os.path.abspath(os.path.expanduser(usr_dir).rstrip("/"))
   containing_dir, module_name = os.path.split(dir_path)
   tf.logging.info("Importing user module %s from path %s", module_name,
                   containing_dir)

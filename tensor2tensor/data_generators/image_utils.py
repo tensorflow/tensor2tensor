@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -116,7 +116,6 @@ class Image2ClassProblem(ImageProblem):
     p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
     p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
     p.batch_size_multiplier = 4 if self.is_small else 256
-    p.max_expected_batch_size_per_shard = 8 if self.is_small else 2
     p.loss_multiplier = 3.0 if self.is_small else 1.0
     if self._was_reversed:
       p.loss_multiplier = 1.0
@@ -229,7 +228,6 @@ class Image2TextProblem(ImageProblem):
     encoder = self._encoders["targets"]
     p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
     p.batch_size_multiplier = 256
-    p.max_expected_batch_size_per_shard = 4
     p.loss_multiplier = 1.0
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = self.target_space_id

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for Xnet."""
+"""Tests for Transformer."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -23,35 +23,38 @@ from __future__ import print_function
 
 import numpy as np
 
-from tensor2tensor.data_generators import cifar  # pylint: disable=unused-import
-from tensor2tensor.models import multimodel
-from tensor2tensor.utils import registry
+from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.models import image_transformer
 
 import tensorflow as tf
 
 
-class MultiModelTest(tf.test.TestCase):
+class ImagetransformerTest(tf.test.TestCase):
 
-  def testMultiModel(self):
-    x = np.random.random_integers(0, high=255, size=(3, 5, 5, 3))
-    y = np.random.random_integers(0, high=9, size=(3, 5, 1, 1))
-    hparams = multimodel.multimodel_tiny()
-    hparams.add_hparam("data_dir", "")
-    problem = registry.problem("image_cifar10")
-    p_hparams = problem.get_hparams(hparams)
-    hparams.problems = [p_hparams]
+  def _testImagetransformer(self, net):
+    batch_size = 3
+    size = 7
+    vocab_size = 256
+    hparams = image_transformer.imagetransformer_base()
+    p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
+    inputs = -1 + np.random.random_integers(
+        vocab_size, size=(batch_size, 1, 1, 1))
+    targets = -1 + np.random.random_integers(
+        vocab_size, size=(batch_size, size, size, 3))
     with self.test_session() as session:
       features = {
-          "inputs": tf.constant(x, dtype=tf.int32),
-          "targets": tf.constant(y, dtype=tf.int32),
+          "inputs": tf.constant(inputs, dtype=tf.int32),
+          "targets": tf.constant(targets, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = multimodel.MultiModel(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+      model = net(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
-    self.assertEqual(res.shape, (3, 1, 1, 1, 10))
+    self.assertEqual(res.shape, (batch_size, size, size, 3, vocab_size))
+
+  def testImagetransformer(self):
+    self._testImagetransformer(image_transformer.Imagetransformer)
 
 
 if __name__ == "__main__":

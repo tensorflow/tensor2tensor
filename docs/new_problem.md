@@ -9,286 +9,236 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 [![Gitter](https://img.shields.io/gitter/room/nwjs/nw.js.svg)](https://gitter.im/tensor2tensor/Lobby)
 [![License](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Let's add a new dataset together and train the transformer model. We'll be learning to define English words by training the transformer to "translate" between English words and their definitions on a character level.
+Another good overview of this part together with training is given in
+[The Cloud ML Poetry Blog
+Post](https://cloud.google.com/blog/big-data/2018/02/cloud-poetry-training-and-hyperparameter-tuning-custom-text-models-on-cloud-ml-engine)
 
-# About the Problem
+Let's add a new dataset together and train the
+[Transformer](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/models/transformer.py)
+model on it. We'll give the model a line of poetry, and it will learn to
+generate the next line.
 
-For each problem we want to tackle we create a new problem class and register it. Let's call our problem `Word2def`.
+# Defining the `Problem`
 
-Since many text2text problems share similar methods, there's already a class
-called `Text2TextProblem` that extends the base problem class, `Problem`
-(both found in
-[`problem.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py)).
+For each problem we want to tackle we create a new subclass of `Problem` and
+register it. Let's call our problem `PoetryLines`.
 
-For our problem, we can go ahead and create the file `word2def.py` in the
-[`data_generators`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/)
-folder and add our new problem, `Word2def`, which extends
-[`Text2TextProblem`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py).
-Let's also register it while we're at it so we can specify the problem through
-flags.
+Since many text-to-text problems share similar methods, there's already a class
+called
+[`Text2TextProblem`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/text_problems.py)
+that extends the base problem class
+[`Problem`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py)
+and makes it easy to add text-to-text problems.
 
-```python
-@registry.register_problem
-class Word2def(problem.Text2TextProblem):
-  """Problem spec for English word to dictionary definition."""
-  @property
-  def is_character_level(self):
-    ...
-```
+In that same file, there are other base classes that make it easy to add text
+classification tasks (`Text2ClassProblem`) and language modeling tasks
+(`Text2SelfProblem`).
 
-We need to implement the following methods from
-[`Text2TextProblem`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py).
-in our new class:
-* is_character_level
-* targeted_vocab_size
-* generator
-* input_space_id
-* target_space_id
-* num_shards
-* vocab_name
-* use_subword_tokenizer
+For our problem, let's create the file `poetry_lines.py` and add our new
+problem, `PoetryLines`, which extends `Text2TextProblem` and register it so that
+it is accessible by command-line flag.
 
-Let's tackle them one by one:
-
-**input_space_id, target_space_id, is_character_level, targeted_vocab_size, use_subword_tokenizer**:
-
-SpaceIDs tell Tensor2Tensor what sort of space the input and target tensors are
-in. These are things like, EN_CHR (English character), EN_TOK (English token),
-AUDIO_WAV (audio waveform), IMAGE, DNA (genetic bases). The complete list can be
-found at
-[`data_generators/problem.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/problem.py).
-in the class `SpaceID`.
-
-Since we're generating definitions and feeding in words at the character level, we set `is_character_level` to true, and use the same SpaceID, EN_CHR, for both input and target. Additionally, since we aren't using tokens, we don't need to give a `targeted_vocab_size` or define `use_subword_tokenizer`.
-
-**vocab_name**:
-
-`vocab_name` will be used to name your vocabulary files. We can call ours `'vocab.word2def.en'`
-
-**num_shards**:
-
-The number of shards to break data files into.
+Here's the Problem in full. We'll go step by step through it.
 
 ```python
-@registry.register_problem()
-class Word2def(problem.Text2TextProblem):
-  """Problem spec for English word to dictionary definition."""
+import re
 
-  @property
-  def is_character_level(self):
-    return True
-
-  @property
-  def vocab_name(self):
-    return "vocab.word2def.en"
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_CHR
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.EN_CHR
-
-  @property
-  def num_shards(self):
-    return 100
-
-  @property
-  def use_subword_tokenizer(self):
-    return False
-```
-
-**generator**:
-
-We're almost done. `generator` generates the training and evaluation data and
-stores them in files like "word2def_train.lang1" in your DATA_DIR. Thankfully
-several commonly used methods like `character_generator`, and `token_generator`
-are already written in the file
-[`translate.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/translate.py).
-We will import `character_generator` and
-[`text_encoder`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/text_encoder.py)
-to write:
-
-```python
-  def generator(self, data_dir, tmp_dir, train):
-    character_vocab = text_encoder.ByteTextEncoder()
-    datasets = _WORD2DEF_TRAIN_DATASETS if train else _WORD2DEF_TEST_DATASETS
-    return character_generator(datasets[0], datasets[1], character_vocab, EOS)
-```
-
-Now our `word2def.py` file looks like the below:
-
-```python
-@registry.register_problem()
-class Word2def(problem.Text2TextProblem):
-  """Problem spec for English word to dictionary definition."""
-  @property
-  def is_character_level(self):
-    return True
-
-  @property
-  def vocab_name(self):
-    return "vocab.word2def.en"
-
-  def generator(self, data_dir, tmp_dir, train):
-    character_vocab = text_encoder.ByteTextEncoder()
-    datasets = _WORD2DEF_TRAIN_DATASETS if train else _WORD2DEF_TEST_DATASETS
-    return character_generator(datasets[0], datasets[1], character_vocab, EOS)
-
-  @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_CHR
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.EN_CHR
-
-  @property
-  def num_shards(self):
-    return 100
-
-  @property
-  def use_subword_tokenizer(self):
-    return False
-```
-
-## Data:
-Now we need to tell Tensor2Tensor where our data is located.
-
-I've gone ahead and split all words into a train and test set and saved them in files called `words.train.txt`, `words.test.txt`,
-`definitions.train.txt`, and `definitions.test.txt` in a directory called `LOCATION_OF_DATA/`. Let's tell T2T where these files are:
-
-```python
-# English Word2def datasets
-_WORD2DEF_TRAIN_DATASETS = [
-    LOCATION_OF_DATA + 'words_train.txt',
-    LOCATION_OF_DATA + 'definitions_train.txt'
-]
-
-_WORD2DEF_TEST_DATASETS = [
-    LOCATION_OF_DATA + 'words_test.txt',
-    LOCATION_OF_DATA + 'definitions_test.txt'
-]
-```
-
-## Putting it all together
-
-Now our `word2def.py` file looks like:
-
-```python
-""" Problem definition for word to dictionary definition.
-"""
-
-import os
+from gutenberg import acquire
+from gutenberg import cleanup
 
 from tensor2tensor.data_generators import problem
-from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators.translate import character_generator
-
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
-# English Word2def datasets
-_WORD2DEF_TRAIN_DATASETS = [
-    LOCATION_OF_DATA+'words_train.txt',
-    LOCATION_OF_DATA+'definitions_train.txt'
-]
-
-_WORD2DEF_TEST_DATASETS = [
-    LOCATION_OF_DATA+'words_test.txt',
-    LOCATION_OF_DATA+'definitions_test.txt'
-]
-
-@registry.register_problem()
-class Word2def(problem.Text2TextProblem):
-  """Problem spec for English word to dictionary definition."""
-  @property
-  def is_character_level(self):
-    return True
+@registry.register_problem
+class PoetryLines(text_problems.Text2TextProblem):
+  """Predict next line of poetry from the last line. From Gutenberg texts."""
 
   @property
-  def vocab_name(self):
-    return "vocab.word2def.en"
-
-  def generator(self, data_dir, tmp_dir, train):
-    character_vocab = text_encoder.ByteTextEncoder()
-    datasets = _WORD2DEF_TRAIN_DATASETS if train else _WORD2DEF_TEST_DATASETS
-    return character_generator(datasets[0], datasets[1], character_vocab, EOS)
+  def approx_vocab_size(self):
+    return 2**13  # ~8k
 
   @property
-  def input_space_id(self):
-    return problem.SpaceID.EN_CHR
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.EN_CHR
-
-  @property
-  def num_shards(self):
-    return 100
-
-  @property
-  def use_subword_tokenizer(self):
+  def is_generate_per_split(self):
+    # generate_data will shard the data into TRAIN and EVAL for us.
     return False
 
+  @property
+  def dataset_splits(self):
+    """Splits of data to produce and number of output shards for each."""
+    # 10% evaluation data
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 9,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    del data_dir
+    del tmp_dir
+    del dataset_split
+
+
+    books = [
+        # bookid, skip N lines
+        (19221, 223),
+        (15553, 522),
+    ]
+
+    for (book_id, toskip) in books:
+      text = cleanup.strip_headers(acquire.load_etext(book_id)).strip()
+      lines = text.split("\n")[toskip:]
+      prev_line = None
+      ex_count = 0
+      for line in lines:
+        # Any line that is all upper case is a title or author name
+        if not line or line.upper() == line:
+          prev_line = None
+          continue
+
+        line = re.sub("[^a-z]+", " ", line.strip().lower())
+        if prev_line and line:
+          yield {
+              "inputs": prev_line,
+              "targets": line,
+          }
+          ex_count += 1
+        prev_line = line
 ```
 
-# Hyperparameters
-All hyperparamters inherit from `_default_hparams()` in `problem.py.` If you would like to customize your hyperparameters, register a new hyperparameter set in `word2def.py` like the example provided in the walkthrough. For example:
+## Vocabulary specification
+
+The text generated is encoded with a vocabulary for training. By default, it is
+a `SubwordTextEncoder` that is built with an approximate vocab size specified by
+the user. It's fully invertible (no out-of-vocab tokens) with a fixed-size vocab
+which makes it ideal for text problems.
+
+You can also choose to use a character-level encoder or a token encoder where
+you provide the vocab file yourself. See `Text2TextProblem.vocab_type`.
+
+Here we specify that we're going to have a vocabulary with approximately 8,000
+subwords.
 
 ```python
-from tensor2tensor.models import transformer
-
-@registry.register_hparams
-def word2def_hparams():
-    hparams = transformer.transformer_base_single_gpu()  # Or whatever you'd like to build off.
-    hparams.batch_size = 1024
-    return hparams
+  @property
+  def approx_vocab_size(self):
+    return 2**13  # ~8k
 ```
 
-# Test the data generation
+## Splitting data between Train and Eval
 
-You can test data generation of your a problem in your own project with:
+By setting `is_generate_per_split=False`, the `generate_samples` method will
+only be called once and the data will automatically be split across training and
+evaluation data for us. This is useful because for our dataset we don't have
+pre-existing "training" and "evaluation" sets. If we did, we'd set
+`is_generate_per_split=True` so that `generate_samples` was called once per data
+split.
+
+The `dataset_splits` method determines the fraction that goes to each split. The
+training data will be generated into 9 files and the evaluation data into 1.
+90% of the data will be for training. 10% of the data will be for evaluation.
+
+```python
+  @property
+  def is_generate_per_split(self):
+    # generate_data will shard the data into TRAIN and EVAL for us.
+    return False
+
+  @property
+  def dataset_splits(self):
+    """Splits of data to produce and number of output shards for each."""
+    # 10% evaluation data
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 9,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
+```
+
+## Generating samples
+
+`generate_samples` is the bulk of the code where we actually produce
+dictionaries of poetry line pairs ("inputs" and "targets").
+
+Some problems might require downloading, which can be done into `tmp_dir`. Some
+problems may use their own token vocabulary file, in which case it can be copied
+into `data_dir` before yielding samples.
+
+Here we iterate through the lines of a couple books of poetry and produce pairs
+of lines for the model to train against.
+
+```python
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    del data_dir
+    del tmp_dir
+    del dataset_split
+
+    books = [
+        # bookid, skip N lines
+        (19221, 223),
+        (15553, 522),
+    ]
+
+    for (book_id, toskip) in books:
+      text = cleanup.strip_headers(acquire.load_etext(book_id)).strip()
+      lines = text.split("\n")[toskip:]
+      prev_line = None
+      ex_count = 0
+      for line in lines:
+        # Any line that is all upper case is a title or author name
+        if not line or line.upper() == line:
+          prev_line = None
+          continue
+
+        line = re.sub("[^a-z]+", " ", line.strip().lower())
+        if prev_line and line:
+          yield {
+              "inputs": prev_line,
+              "targets": line,
+          }
+          ex_count += 1
+        prev_line = line
+```
+
+That's all for the problem specification! We're ready to generate the data.
+
+# Run data generation
+
+You can run data generation of your a problem in your own project with
+`t2t-datagen` and the `--t2t_usr_dir` flag, which should point to the directory
+containing an `__init__.py` file that imports `word2def`, the file we just
+wrote.
 
 ```bash
-PROBLEM=word2def
+USR_DIR=...
+PROBLEM=poetry_lines
 DATA_DIR=$HOME/t2t_data
 TMP_DIR=/tmp/t2t_datagen
 mkdir -p $DATA_DIR $TMP_DIR
 
 t2t-datagen \
-  --t2t_usr_dir=$PATH_TO_YOUR_PROBLEM_DIR \
+  --t2t_usr_dir=$USR_DIR \
   --data_dir=$DATA_DIR \
   --tmp_dir=$TMP_DIR \
   --problem=$PROBLEM
 ```
 
-Where:
-* `PROBLEM` is the name of the class that was registered with
-  `@registry.register_problem()`, but converted from `CamelCase` to
-  `snake_case`.
-* `PATH_TO_YOUR_PROBLEM_DIR` is a path to the directory of your python problem
-  file.
+`PROBLEM` is the name of the class that was registered with
+`@registry.register_problem`, but converted from `CamelCase` to `snake_case`.
 
-If you plan to contribute to the tensor2tensor repository, you can install the
-local cloned version in developer mode with `pip install -e .` from the
-tensor2tensor directory. You can also add your new problem file to
-[`all_problems.py`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/data_generators/all_problems.py).
+`USR_DIR` should be a directory with the `poetry_lines.py` file as well as an
+`__init__.py` file that imports it (`from . import poetry_lines`).
 
-# Run the problem
-Now that we've gotten our problem set up, let's train a model and generate
-definitions.
+If you plan to contribute problems to the tensor2tensor repository, you can
+clone the repository and install it in developer mode with `pip install -e .`.
 
-To train, specify the problem name, the model, and hparams:
-```bash
-PROBLEM=word2def
-MODEL=transformer
-HPARAMS=word2def_hparams
-```
+# Train!
 
-The rest of the steps are as given in the [walkthrough](walkthrough.md).
+You can train exactly as you do in the [walkthrough](walkthrough.md) with flags
+`--problems=poetry_lines` and `--t2t_usr_dir=$USR_DIR`.
 
-What if we wanted to train a model to generate words given definitions? In T2T,
-we can change the problem name to be `PROBLEM=word2def_rev`.
-
-All done. Let us know what definitions your model generated.
+All done. Let us know what amazing poetry your model writes!

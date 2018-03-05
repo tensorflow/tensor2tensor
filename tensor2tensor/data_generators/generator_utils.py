@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -83,8 +83,8 @@ def generate_files_distributed(generator,
     counter += 1
     if max_cases and counter > max_cases:
       break
-    sequence_example = to_example(case)
-    writer.write(sequence_example.SerializeToString())
+    example = to_example(case)
+    writer.write(example.SerializeToString())
 
   writer.close()
   return output_file
@@ -147,21 +147,29 @@ def generate_files(generator, output_filenames, max_cases=None):
   if outputs_exist(output_filenames):
     tf.logging.info("Skipping generator because outputs files exist")
     return
+  tmp_filenames = [fname + ".incomplete" for fname in output_filenames]
   num_shards = len(output_filenames)
-  writers = [tf.python_io.TFRecordWriter(fname) for fname in output_filenames]
+  writers = [tf.python_io.TFRecordWriter(fname) for fname in tmp_filenames]
   counter, shard = 0, 0
   for case in generator:
+    if case is None:
+      continue
     if counter > 0 and counter % 100000 == 0:
       tf.logging.info("Generating case %d." % counter)
     counter += 1
     if max_cases and counter > max_cases:
       break
-    sequence_example = to_example(case)
-    writers[shard].write(sequence_example.SerializeToString())
+    example = to_example(case)
+    writers[shard].write(example.SerializeToString())
     shard = (shard + 1) % num_shards
 
   for writer in writers:
     writer.close()
+
+  for tmp_name, final_name in zip(tmp_filenames, output_filenames):
+    tf.gfile.Rename(tmp_name, final_name)
+
+  tf.logging.info("Generated %s Examples", counter)
 
 
 def download_report_hook(count, block_size, total_size):
@@ -176,29 +184,42 @@ def download_report_hook(count, block_size, total_size):
   print("\r%d%%" % percent + " completed", end="\r")
 
 
-def maybe_download(directory, filename, url):
-  """Download filename from url unless it's already in directory.
+def maybe_download(directory, filename, uri):
+  """Download filename from uri unless it's already in directory.
+
+  Copies a remote file to local if that local file does not already exist.  If
+  the local file pre-exists this function call, it does not check that the local
+  file is a copy of the remote.
+
+  Remote filenames can be filepaths, any URI readable by tensorflow.gfile, or a
+  URL.
 
   Args:
     directory: path to the directory that will be used.
     filename: name of the file to download to (do nothing if it already exists).
-    url: URL to download from.
+    uri: URI to copy (or download) from.
 
   Returns:
     The path to the downloaded file.
   """
   if not tf.gfile.Exists(directory):
     tf.logging.info("Creating directory %s" % directory)
-    os.mkdir(directory)
+    tf.gfile.MakeDirs(directory)
   filepath = os.path.join(directory, filename)
   if not tf.gfile.Exists(filepath):
-    tf.logging.info("Downloading %s to %s" % (url, filepath))
-    inprogress_filepath = filepath + ".incomplete"
-    inprogress_filepath, _ = urllib.urlretrieve(
-        url, inprogress_filepath, reporthook=download_report_hook)
-    # Print newline to clear the carriage return from the download progress
-    print()
-    tf.gfile.Rename(inprogress_filepath, filepath)
+    tf.logging.info("Downloading %s to %s" % (uri, filepath))
+    try:
+      tf.gfile.Copy(uri, filepath)
+    except tf.errors.UnimplementedError:
+      if uri.startswith("http"):
+        inprogress_filepath = filepath + ".incomplete"
+        inprogress_filepath, _ = urllib.urlretrieve(
+            uri, inprogress_filepath, reporthook=download_report_hook)
+        # Print newline to clear the carriage return from the download progress
+        print()
+        tf.gfile.Rename(inprogress_filepath, filepath)
+      else:
+        raise ValueError("Unrecognized URI: " + filepath)
     statinfo = os.stat(filepath)
     tf.logging.info("Successfully downloaded %s, %s bytes." %
                     (filename, statinfo.st_size))
@@ -220,7 +241,7 @@ def maybe_download_from_drive(directory, filename, url):
   """
   if not tf.gfile.Exists(directory):
     tf.logging.info("Creating directory %s" % directory)
-    os.mkdir(directory)
+    tf.gfile.MakeDirs(directory)
   filepath = os.path.join(directory, filename)
   confirm_token = None
   if tf.gfile.Exists(filepath):
@@ -495,14 +516,14 @@ class SequencePacker(object):
     self._spacing = spacing
     self._ids = first_sequence[:]
     self._segmentation = [1] * len(first_sequence)
-    self._position = range(len(first_sequence))
+    self._position = list(range(len(first_sequence)))
 
   def add(self, ids):
     padding = [0] * self._spacing
     self._ids.extend(padding + ids)
     next_segment_num = self._segmentation[-1] + 1 if self._segmentation else 1
     self._segmentation.extend(padding + [next_segment_num] * len(ids))
-    self._position.extend(padding + range(len(ids)))
+    self._position.extend(padding + list(range(len(ids))))
 
   def can_fit(self, ids, packed_length):
     return len(self._ids) + self._spacing + len(ids) <= packed_length

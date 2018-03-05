@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -90,7 +90,7 @@ def get_state_shape_invariants(tensor):
 
 
 def log_prob_from_logits(logits):
-  return logits - tf.reduce_logsumexp(logits, axis=2, keepdims=True)
+  return logits - tf.reduce_logsumexp(logits, axis=2, keep_dims=True)
 
 
 def compute_batch_indices(batch_size, beam_size):

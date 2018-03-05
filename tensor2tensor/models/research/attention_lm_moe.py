@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -380,7 +380,8 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
 
   if hparams.prepend_mode == "prepend_inputs_full_attention":
     decoder_self_attention_bias = (
-        common_attention.attention_bias_prepended(targets_pad_mask))
+        common_attention.attention_bias_prepend_inputs_full_attention(
+            targets_pad_mask))
   else:
     decoder_self_attention_bias = (
         common_attention.attention_bias_lower_triangle(tf.shape(targets)[1]))

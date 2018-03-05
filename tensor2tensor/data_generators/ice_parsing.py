@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,12 +32,8 @@ import os
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import translate
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
-
-
-# End-of-sentence marker.
-EOS = text_encoder.EOS_ID
 
 
 def tabbed_parsing_token_generator(data_dir, tmp_dir, train, prefix,
@@ -51,8 +47,9 @@ def tabbed_parsing_token_generator(data_dir, tmp_dir, train, prefix,
       data_dir, tmp_dir, filename, 1,
       prefix + "_target.tokens.vocab.%d" % target_vocab_size, target_vocab_size)
   pair_filepath = os.path.join(tmp_dir, filename)
-  return translate.tabbed_generator(pair_filepath, source_vocab, target_vocab,
-                                    EOS)
+  return text_problems.text2text_generate_encoded(
+      text_problems.text2text_txt_tab_iterator(pair_filepath), source_vocab,
+      target_vocab)
 
 
 def tabbed_parsing_character_generator(tmp_dir, train):
@@ -60,8 +57,8 @@ def tabbed_parsing_character_generator(tmp_dir, train):
   character_vocab = text_encoder.ByteTextEncoder()
   filename = "parsing_{0}.pairs".format("train" if train else "dev")
   pair_filepath = os.path.join(tmp_dir, filename)
-  return translate.tabbed_generator(pair_filepath, character_vocab,
-                                    character_vocab, EOS)
+  return text_problems.text2text_generate_encoded(
+      text_problems.text2text_txt_tab_iterator(pair_filepath), character_vocab)
 
 
 @registry.register_problem
@@ -114,8 +111,9 @@ class ParsingIcelandic16k(problem.Problem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     source_vocab_size = self._encoders["inputs"].vocab_size
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL,
-                                   source_vocab_size)}
+    p.input_modality = {
+        "inputs": (registry.Modalities.SYMBOL, source_vocab_size)
+    }
     p.target_modality = (registry.Modalities.SYMBOL, self.targeted_vocab_size)
     p.input_space_id = self.input_space_id
     p.target_space_id = self.target_space_id
