@@ -39,7 +39,7 @@ _LIBRISPEECH_TRAIN_DATASETS = [
         "train-other-500"
     ],
 ]
-_LIBRISPEECH_TEST_DATASETS = [
+_LIBRISPEECH_DEV_DATASETS = [
     [
         "http://www.openslr.org/resources/12/dev-clean.tar.gz",
         "dev-clean"
@@ -47,6 +47,16 @@ _LIBRISPEECH_TEST_DATASETS = [
     [
         "http://www.openslr.org/resources/12/dev-other.tar.gz",
         "dev-other"
+    ],
+]
+_LIBRISPEECH_TEST_DATASETS = [
+    [
+        "http://www.openslr.org/resources/12/test-clean.tar.gz",
+        "test-clean"
+    ],
+    [
+        "http://www.openslr.org/resources/12/test-other.tar.gz",
+        "test-other"
     ],
 ]
 
@@ -72,7 +82,7 @@ def _collect_data(directory, input_ext, transcription_ext):
           assert key not in data_files
           media_name = "%s.%s"%(media_base, input_ext)
           media_path = os.path.join(root, media_name)
-          data_files[key] = (media_path, label)
+          data_files[key] = (media_base, media_path, label)
   return data_files
 
 
@@ -82,7 +92,8 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
 
   # Select only the clean data
   TRAIN_DATASETS = _LIBRISPEECH_TRAIN_DATASETS
-  DEV_DATASETS = _LIBRISPEECH_TEST_DATASETS
+  DEV_DATASETS = _LIBRISPEECH_DEV_DATASETS
+  TEST_DATASETS = _LIBRISPEECH_TEST_DATASETS
 
   @property
   def num_shards(self):
@@ -94,6 +105,10 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
 
   @property
   def num_dev_shards(self):
+    return 1
+
+  @property
+  def num_test_shards(self):
     return 1
 
   @property
@@ -127,13 +142,19 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
       audio_encoder = encoders["waveforms"]
       text_encoder = encoders["targets"]
 
-      for media_file, text_data in sorted(data_pairs)[start_from:]:
+      for utt_id, media_file, text_data in sorted(data_pairs)[start_from:]:
         if how_many > 0 and i == how_many:
           return
         i += 1
+        wav_data = audio_encoder.encode(media_file)
+        spk_id, unused_book_id, _ = utt_id.split("-")
         yield {
-            "waveforms": audio_encoder.encode(media_file),
-            "targets": text_encoder.encode(text_data)
+            "waveforms": wav_data,
+            "waveform_lens": [len(wav_data)],
+            "targets": text_encoder.encode(text_data),
+            "raw_transcript": [text_data],
+            "utt_id": [utt_id],
+            "spk_id": [spk_id],
         }
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
@@ -141,6 +162,11 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
         data_dir, self.num_shards, shuffled=False)
     dev_paths = self.dev_filepaths(
         data_dir, self.num_dev_shards, shuffled=False)
+    test_paths = self.test_filepaths(
+        data_dir, self.num_test_shards, shuffled=True)
+
+    generator_utils.generate_files(
+        self.generator(data_dir, tmp_dir, self.TEST_DATASETS), test_paths)
 
     if self.use_train_shards_for_dev:
       all_paths = train_paths + dev_paths
@@ -154,21 +180,50 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
 
 
 @registry.register_problem()
+class LibrispeechTrainFullTestClean(Librispeech):
+  """Problem to train on full 960h, but evaluate on clean data only."""
+
+  def training_filepaths(self, data_dir, num_shards, shuffled):
+    return Librispeech.training_filepaths(data_dir, num_shards, shuffled)
+
+  def dev_filepaths(self, data_dir, num_shards, shuffled):
+    return LibrispeechClean.dev_filepaths(data_dir, num_shards, shuffled)
+
+  def test_filepaths(self, data_dir, num_shards, shuffled):
+    return LibrispeechClean.test_filepaths(data_dir, num_shards, shuffled)
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    raise Exception("Generate librispeech and librispeech_clean data.")
+
+
+@registry.register_problem()
 class LibrispeechCleanSmall(Librispeech):
-  """Problem spec for Librispeech using 100h clean train data."""
+  """Problem spec for Librispeech using 100h clean train and clean eval data."""
 
   # Select only the clean data
   TRAIN_DATASETS = _LIBRISPEECH_TRAIN_DATASETS[:1]
-  DEV_DATASETS = _LIBRISPEECH_TEST_DATASETS[:1]
+  DEV_DATASETS = _LIBRISPEECH_DEV_DATASETS[:1]
+  TEST_DATASETS = _LIBRISPEECH_TEST_DATASETS[:1]
 
 
 @registry.register_problem()
 class LibrispeechClean(Librispeech):
-  """Problem spec for Librispeech using 460h clean train data."""
+  """Problem spec for Librispeech using 460h clean train and clean eval data."""
 
   # Select only the clean data
   TRAIN_DATASETS = _LIBRISPEECH_TRAIN_DATASETS[:2]
-  DEV_DATASETS = _LIBRISPEECH_TEST_DATASETS[:1]
+  DEV_DATASETS = _LIBRISPEECH_DEV_DATASETS[:1]
+  TEST_DATASETS = _LIBRISPEECH_TEST_DATASETS[:1]
+
+
+@registry.register_problem()
+class LibrispeechNoisy(Librispeech):
+  """Problem spec for Librispeech using 400h noisy train and noisy eval data."""
+
+  # Select only the clean data
+  TRAIN_DATASETS = _LIBRISPEECH_TRAIN_DATASETS[2:]
+  DEV_DATASETS = _LIBRISPEECH_DEV_DATASETS[1:]
+  TEST_DATASETS = _LIBRISPEECH_TEST_DATASETS[1:]
 
 
 # TODO(lukaszkaiser): clean up hparams or remove from here.
