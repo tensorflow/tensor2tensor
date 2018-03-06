@@ -37,6 +37,7 @@ import tempfile
 
 # Fathom
 import fathomt2t
+import fathomairflow.dags.dag_management.xcom_manipulation as xcom
 from fathomtf.services.model_management import (fathom_t2t_model_setup,
                                                 fix_paths_for_workspace)
 
@@ -195,6 +196,9 @@ def main(_):
       generate_data_for_problem(problem)
     else:
       generate_data_for_registered_problem(problem)
+
+  # Fathom
+  xcom.echo_yaml_for_xcom_ingest({'t2t_data_dir': FLAGS.data_dir})
 
 
 def generate_data_for_problem(problem):
