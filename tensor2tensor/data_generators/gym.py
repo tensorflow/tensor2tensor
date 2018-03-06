@@ -152,10 +152,9 @@ class GymPongRandom5k(GymDiscreteProblem):
 class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
   """Pong game, loaded actions."""
 
-  def __init__(self, event_dir, *args, **kwargs):
+  def __init__(self, *args, **kwargs):
     super(GymPongTrajectoriesFromPolicy, self).__init__(*args, **kwargs)
     self._env = None
-    self._event_dir = event_dir
     env_spec = lambda: atari_wrappers.wrap_atari(  # pylint: disable=g-long-lambda
         gym.make("PongNoFrameskip-v4"),
         warp=False,
