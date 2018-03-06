@@ -478,6 +478,7 @@ class TransformerAE(t2t_model.T2TModel):
         discrete_mix=self._hparams.d_mix,
         random_top_k=self._hparams.random_top_k,
         soft_em=self.hparams.soft_em,
+        inv_temp=self.hparams.inv_temp,
         epsilon=self._hparams.epsilon,
         softmax_k=self._hparams.softmax_k,
         kl_warmup_steps=self._hparams.kl_warmup_steps,
@@ -666,6 +667,7 @@ def transformer_ae_small():
   hparams.add_hparam("ema", True)
   hparams.add_hparam("random_top_k", 1)
   hparams.add_hparam("soft_em", False)
+  hparams.add_hparam("inv_temp", 1.0)
   hparams.kl_warmup_steps = 150000
   hparams.force_full_predict = True
 

@@ -63,7 +63,12 @@ def slice_hidden(x, hidden_size, num_blocks):
   return x_sliced
 
 
-def nearest_neighbor(x, means, block_v_size, random_top_k=1, soft_em=False):
+def nearest_neighbor(x,
+                     means,
+                     block_v_size,
+                     random_top_k=1,
+                     soft_em=False,
+                     inv_temp=1.0):
   """Find the nearest element in means to elements in x.
 
   Args:
@@ -73,6 +78,7 @@ def nearest_neighbor(x, means, block_v_size, random_top_k=1, soft_em=False):
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
+    inv_temp: Inverse temperature for soft EM (Default: 1.)
 
   Returns:
     Tensor with nearest element in mean encoded in one-hot notation.
@@ -85,7 +91,7 @@ def nearest_neighbor(x, means, block_v_size, random_top_k=1, soft_em=False):
   dist = x_norm_sq + tf.transpose(
       means_norm_sq, perm=[2, 0, 1]) - 2 * scalar_prod
   if soft_em:
-    nearest_hot = tf.nn.softmax(-dist, axis=-1)
+    nearest_hot = tf.nn.softmax(-inv_temp * dist, axis=-1)
   else:
     if random_top_k > 1:
       _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
@@ -105,7 +111,8 @@ def embedding_lookup(x,
                      num_blocks,
                      block_v_size,
                      random_top_k=1,
-                     soft_em=False):
+                     soft_em=False,
+                     inv_temp=1.0):
   """Compute nearest neighbors and loss for training the embeddings via DVQ.
 
   Args:
@@ -116,12 +123,14 @@ def embedding_lookup(x,
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
+    inv_temp: Inverse temperature for soft EM (Default: 1.)
 
   Returns:
     The nearest neighbor in one hot form, the nearest neighbor itself, the
     commitment loss, embedding training loss.
   """
-  x_means_hot = nearest_neighbor(x, means, block_v_size, random_top_k, soft_em)
+  x_means_hot = nearest_neighbor(x, means, block_v_size, random_top_k, soft_em,
+                                 inv_temp)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
   x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
   x_means = tf.transpose(x_means, [1, 0, 2])
@@ -377,6 +386,7 @@ def discrete_bottleneck(x,
                         discrete_mix=0.5,
                         random_top_k=1,
                         soft_em=False,
+                        inv_temp=1.0,
                         epsilon=1e-5,
                         softmax_k=0,
                         kl_warmup_steps=150000,
@@ -414,6 +424,7 @@ def discrete_bottleneck(x,
       (Default: 0.5).
     random_top_k: Noisy top-k for DVQ (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
+    inv_temp: Inverse temperature for soft EM (Default: 1.)
     epsilon: Epsilon parameter for DVQ (Default: 1e-5).
     softmax_k: If > 1 then do top-k softmax (Default: 0).
     kl_warmup_steps: Number of steps for kl warmup (Default: 150000).
@@ -514,7 +525,8 @@ def discrete_bottleneck(x,
     elif bottleneck_kind == 'dvq':
       x_reshaped = reshape_fn(x)
       x_means_hot, x_means, q_loss, e_loss = embedding_lookup(
-          x_reshaped, means, num_blocks, block_v_size, random_top_k, soft_em)
+          x_reshaped, means, num_blocks, block_v_size, random_top_k, soft_em,
+          inv_temp)
 
       # Get the discrete latent represenation
       x_means_idx = tf.argmax(x_means_hot, axis=-1)
