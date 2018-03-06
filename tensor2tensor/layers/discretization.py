@@ -68,7 +68,8 @@ def nearest_neighbor(x,
                      block_v_size,
                      random_top_k=1,
                      soft_em=False,
-                     inv_temp=1.0):
+                     inv_temp=1.0,
+                     ema_count=None):
   """Find the nearest element in means to elements in x.
 
   Args:
@@ -79,6 +80,8 @@ def nearest_neighbor(x,
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
     inv_temp: Inverse temperature for soft EM (Default: 1.)
+    ema_count: Table of counts for each embedding corresponding to how many
+      examples in a batch it was the closest to (Default: None).
 
   Returns:
     Tensor with nearest element in mean encoded in one-hot notation.
@@ -91,7 +94,10 @@ def nearest_neighbor(x,
   dist = x_norm_sq + tf.transpose(
       means_norm_sq, perm=[2, 0, 1]) - 2 * scalar_prod
   if soft_em:
-    nearest_hot = tf.nn.softmax(-inv_temp * dist, axis=-1)
+    ema_count = tf.expand_dims(ema_count + 1e-4, 0)
+    nearest_hot = tf.nn.softmax(-inv_temp * dist, axis=-1) * (
+        ema_count / tf.reduce_sum(ema_count, 2, keepdims=True))
+    nearest_hot /= tf.reduce_sum(nearest_hot, 2, keepdims=True)
   else:
     if random_top_k > 1:
       _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
@@ -112,7 +118,8 @@ def embedding_lookup(x,
                      block_v_size,
                      random_top_k=1,
                      soft_em=False,
-                     inv_temp=1.0):
+                     inv_temp=1.0,
+                     ema_count=None):
   """Compute nearest neighbors and loss for training the embeddings via DVQ.
 
   Args:
@@ -124,13 +131,15 @@ def embedding_lookup(x,
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
     inv_temp: Inverse temperature for soft EM (Default: 1.)
+    ema_count: Table of counts for each embedding corresponding to how many
+      examples in a batch it was the closest to (Default: None).
 
   Returns:
     The nearest neighbor in one hot form, the nearest neighbor itself, the
     commitment loss, embedding training loss.
   """
   x_means_hot = nearest_neighbor(x, means, block_v_size, random_top_k, soft_em,
-                                 inv_temp)
+                                 inv_temp, ema_count)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
   x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
   x_means = tf.transpose(x_means, [1, 0, 2])
@@ -526,7 +535,7 @@ def discrete_bottleneck(x,
       x_reshaped = reshape_fn(x)
       x_means_hot, x_means, q_loss, e_loss = embedding_lookup(
           x_reshaped, means, num_blocks, block_v_size, random_top_k, soft_em,
-          inv_temp)
+          inv_temp, ema_count)
 
       # Get the discrete latent represenation
       x_means_idx = tf.argmax(x_means_hot, axis=-1)
