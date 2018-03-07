@@ -94,7 +94,7 @@ def nearest_neighbor(x,
   dist = x_norm_sq + tf.transpose(
       means_norm_sq, perm=[2, 0, 1]) - 2 * scalar_prod
   if soft_em:
-    ema_count = tf.expand_dims(ema_count + 1e-4, 0)
+    ema_count = tf.expand_dims(ema_count + 1.0, 0)
     nearest_hot = tf.nn.softmax(-inv_temp * dist, axis=-1) * (
         ema_count / tf.reduce_sum(ema_count, 2, keepdims=True))
     nearest_hot /= tf.reduce_sum(nearest_hot, 2, keepdims=True)
