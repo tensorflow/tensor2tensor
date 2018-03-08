@@ -109,7 +109,7 @@ def nearest_neighbor(x,
     else:
       nearest_idx = tf.argmax(-dist, axis=-1)
     nearest_hot = tf.one_hot(nearest_idx, block_v_size)
-  return tf.stop_gradient(nearest_hot)
+  return nearest_hot
 
 
 def embedding_lookup(x,
