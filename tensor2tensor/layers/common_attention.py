@@ -334,28 +334,29 @@ def encoder_decoder_attention_loss(expected_attention,
 
   Args:
     expected_attention: Tensor storing the expected encoder-decoder attention
-      weights with shape [batch_size, target_length, input_length].
-    actual_attentions: Dictionary with actual attention weights for different
+      logits with shape [batch_size, target_length, input_length].
+    actual_attentions: Dictionary with actual attention logits for different
       attention types and hidden layers.
     loss_multiplier: multiplier for the attention loss.
 
   Returns:
-    MSE loss between the actual and expected attention weights.
+    KL_divergence loss between the actual and expected attention logits.
   """
-  # For each hidden layer, we have an attention weight tensor with shape
+  # For each hidden layer, we have an attention logits tensor with shape
   # [batch_size, num_heads, target_length, input_length].
-  actual_encdec_attention_weights = [
+  actual_encdec_attention_logits = [
       t for layer_key, t in actual_attentions.items()
-      if "encdec_attention" in layer_key
+      if "encdec_attention" in layer_key and layer_key.endswith("/logits")
   ]
   # Stack all hidden layer attention weight tensors to get a tensor with shape
   # [num_hidden_layers, batch_size, num_heads, target_length, input_length].
-  actual_attention_weights = tf.stack(actual_encdec_attention_weights)
+  actual_attention_logits = tf.stack(actual_encdec_attention_logits)
   # Reduce mean across all layers (axis=0) and all heads (axis=2) to get a
   # tensor with shape [batch_size, target_length, input_length].
-  actual_attention_weights = tf.reduce_mean(actual_attention_weights, [0, 2])
-  return tf.losses.mean_squared_error(
-      expected_attention, actual_attention_weights) * loss_multiplier
+  actual_attention_logits = tf.reduce_mean(actual_attention_logits, [0, 2])
+  p = tf.contrib.distributions.Categorical(logits=expected_attention)
+  q = tf.contrib.distributions.Categorical(logits=actual_attention_logits)
+  return tf.contrib.distributions.kl_divergence(p, q) * loss_multiplier
 
 
 @expert_utils.add_name_scope()
@@ -1305,6 +1306,7 @@ def dot_product_attention(q,
     weights = tf.nn.softmax(logits, name="attention_weights")
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
+      save_weights_to[scope.name + "/logits"] = logits
     # dropping out the attention links for each of the heads
     weights = common_layers.dropout_with_broadcast_dims(
         weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
