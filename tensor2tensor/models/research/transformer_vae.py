@@ -523,10 +523,12 @@ class TransformerAE(t2t_model.T2TModel):
       if self._hparams.ema:
         ema_count = tf.get_variable(
             "ema_count", [self._hparams.num_blocks, block_v_size],
-            initializer=tf.constant_initializer(0))
+            initializer=tf.constant_initializer(0),
+            trainable=False)
         with tf.colocate_with(means):
           ema_means = tf.get_variable(
-              "ema_means", initializer=means.initialized_value())
+              "ema_means", initializer=means.initialized_value(),
+              trainable=False)
 
         # Update bottleneck
         self._hparams.bottleneck = partial(
