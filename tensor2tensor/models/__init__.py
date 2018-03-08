@@ -41,6 +41,7 @@ from tensor2tensor.models.research import adafactor_experiments
 from tensor2tensor.models.research import aligned
 from tensor2tensor.models.research import attention_lm
 from tensor2tensor.models.research import attention_lm_moe
+from tensor2tensor.models.research import basic_conv_gen
 from tensor2tensor.models.research import cycle_gan
 from tensor2tensor.models.research import gene_expression
 from tensor2tensor.models.research import multimodel
