@@ -76,9 +76,8 @@ class TrainerLibTest(tf.test.TestCase):
 
   def testModel(self):
     # HParams
-    hparams = trainer_lib.create_hparams("transformer_tiny",
-                                         data_dir=self.data_dir,
-                                         problem_name="tiny_algo")
+    hparams = trainer_lib.create_hparams(
+        "transformer_tiny", data_dir=self.data_dir, problem_name="tiny_algo")
 
     # Dataset
     problem = hparams.problem_instances[0]
@@ -101,6 +100,43 @@ class TrainerLibTest(tf.test.TestCase):
       logits_shape[1] = None
       self.assertAllEqual(logits_shape, [10, None, 1, 1, 4])
       self.assertEqual(loss_val.shape, tuple())
+
+  def testMultipleTargetModalities(self):
+    # HParams
+    hparams = trainer_lib.create_hparams(
+        "transformer_tiny", data_dir=self.data_dir, problem_name="tiny_algo")
+    tm = hparams.problem_instances[0].get_hparams().target_modality
+    hparams.problem_instances[0].get_hparams().target_modality = {
+        "targets": tm,
+        "A": tm,
+        "B": tm
+    }
+
+    # Dataset
+    problem = hparams.problem_instances[0]
+    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, self.data_dir)
+    dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
+    features = dataset.make_one_shot_iterator().get_next()
+    features = problem_lib.standardize_shapes(features)
+    features["A"] = features["B"] = features["targets"]
+
+    # Model
+    model = registry.model("transformer")(hparams, tf.estimator.ModeKeys.TRAIN)
+
+    def body(args, mb=model.body):
+      out = mb(args)
+      return {"targets": out, "A": out, "B": out}
+
+    model.body = body
+
+    logits, losses = model(features)
+
+    self.assertTrue("training" in losses)
+    loss = losses["training"]
+
+    with self.test_session() as sess:
+      sess.run(tf.global_variables_initializer())
+      sess.run([logits, loss])
 
 
 if __name__ == "__main__":

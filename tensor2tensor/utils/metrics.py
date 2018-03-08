@@ -23,6 +23,7 @@ import inspect
 # Dependency imports
 
 import numpy as np
+import six
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
@@ -322,19 +323,35 @@ def create_evaluation_metrics(problems, model_hparams):
       return metric_fn(predictions, model_hparams)
 
     tm = problem_instance.get_hparams().target_modality
-    if isinstance(tm, tuple):
-      tm = registry.create_modality(tm, model_hparams)
-    weights_fn = tm.targets_weights_fn
+    if isinstance(tm, dict):
+      for k, v in six.iteritems(tm):
+        if isinstance(v, tuple):
+          v = registry.create_modality(v, model_hparams)
+        weights_fn = v.targets_weights_fn
 
-    for metric in metrics:
-      metric_fn = METRICS_FNS[metric]
-      metric_name = "metrics-%s/%s" % (problem_name, metric)
-      if metric == Metrics.IMAGE_SUMMARY:
-        eval_metrics[metric_name] = image_wrapped_metric_fn
-      else:
-        problem_metric_fn = make_problem_specific_metric_fn(
-            metric_fn, problem_idx, weights_fn)
-        eval_metrics[metric_name] = problem_metric_fn
+        for metric in metrics:
+          metric_fn = METRICS_FNS[metric]
+          metric_name = "metrics-%s/%s/%s" % (problem_name, k, metric)
+          if metric == Metrics.IMAGE_SUMMARY:
+            eval_metrics[metric_name] = image_wrapped_metric_fn
+          else:
+            problem_metric_fn = make_problem_specific_metric_fn(
+                metric_fn, problem_idx, weights_fn)
+            eval_metrics[metric_name] = problem_metric_fn
+    else:
+      if isinstance(tm, tuple):
+        tm = registry.create_modality(tm, model_hparams)
+      weights_fn = tm.targets_weights_fn
+
+      for metric in metrics:
+        metric_fn = METRICS_FNS[metric]
+        metric_name = "metrics-%s/%s" % (problem_name, metric)
+        if metric == Metrics.IMAGE_SUMMARY:
+          eval_metrics[metric_name] = image_wrapped_metric_fn
+        else:
+          problem_metric_fn = make_problem_specific_metric_fn(
+              metric_fn, problem_idx, weights_fn)
+          eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
 

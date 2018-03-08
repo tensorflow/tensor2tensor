@@ -92,6 +92,7 @@ class T2TModel(base.Layer):
 
     if not problem_hparams and hasattr(hparams, "problems"):
       problem_hparams = hparams.problems[0]
+    print(problem_hparams)
     self._problem_hparams = problem_hparams
 
     # Setup hparams
@@ -250,12 +251,22 @@ class T2TModel(base.Layer):
       all_previous_modalities.append(input_modality.name)
 
     # Transform the targets (for autoregressive models)
+    print(self._problem_hparams)
     target_modality = self._problem_hparams.target_modality
-    with tf.variable_scope(target_modality.name):
-      log_info("Transforming 'targets' with %s.targets_bottom",
-               target_modality.name)
-      transformed_features["targets"] = target_modality.targets_bottom(
-          features["targets"])
+    if isinstance(target_modality, dict):
+      for k, v in six.iteritems(target_modality):
+        with tf.variable_scope(
+            "%s/%s" %
+            (v.name,
+             k)):  # TODO(aidangomez): share variables across modalities?
+          log_info("Transforming 'targets' with %s.targets_bottom", v.name)
+          transformed_features[k] = v.targets_bottom(features[k])
+    else:
+      with tf.variable_scope(target_modality.name):
+        log_info("Transforming 'targets' with %s.targets_bottom",
+                 target_modality.name)
+        transformed_features["targets"] = target_modality.targets_bottom(
+            features["targets"])
 
     for key in features:
       if key not in transformed_features:
@@ -284,12 +295,11 @@ class T2TModel(base.Layer):
     """
     raise NotImplementedError("Abstract Method")
 
-  def _top_single(self, body_output, features):
-    if not self._problem_hparams:
+  def _top_single(self, body_output, target_modality, features):
+    if not target_modality:
       log_warn("Without a Problem, T2TModel.top is a passthrough.")
       return body_output
 
-    target_modality = self._problem_hparams.target_modality
     with tf.variable_scope(target_modality.name):
       log_info("Transforming body output with %s.top", target_modality.name)
       last_only = (
@@ -310,32 +320,60 @@ class T2TModel(base.Layer):
 
   def top(self, body_output, features):
     if isinstance(body_output, dict):
+      if self._problem_hparams:
+        target_modality = self._problem_hparams.target_modality
+      else:
+        target_modality = {k: None for k in body_output.keys()}
+      assert set(body_output.keys()) == set(target_modality.keys()), (
+          "The keys of model_body's returned logits dict must match the keys "
+          "of problem_hparams.target_modality's dict.")
       logits = {}
       for k, v in body_output.iteritems():
-        logits[k] = self._top_single(v, features)
+        with tf.variable_scope(k):  # TODO(aidangomez): share variables here?
+          logits[k] = self._top_single(v, target_modality[k], features)
       return logits
     else:
-      return self._top_single(body_output, features)
+      if self._problem_hparams:
+        target_modality = self._problem_hparams.target_modality
+      else:
+        target_modality = None
+      assert not isinstance(target_modality, dict), (
+          "model_body must return a dictionary of logits when "
+          "problem_hparams.target_modality is a dict.")
+      return self._top_single(body_output, target_modality, features)
 
-  def _loss_single(self, logits, features):
-    if not self._problem_hparams:
+  def _loss_single(self, logits, target_modality, features):
+    if not target_modality:
       log_warn(_no_problem_err("loss"))
       return (tf.constant(0., dtype=tf.float32),
               tf.constant(1., dtype=tf.float32))
 
-    target_modality = self._problem_hparams.target_modality
     loss_num, loss_den = target_modality.loss(logits, features["targets"])
     loss_num *= self._problem_hparams.loss_multiplier
     return loss_num, loss_den
 
   def loss(self, logits, features):
     if isinstance(logits, dict):
+      if self._problem_hparams:
+        target_modality = self._problem_hparams.target_modality
+      else:
+        target_modality = {k: None for k in logits.keys()}
+      assert set(logits.keys()) == set(target_modality.keys()), (
+          "The keys of model_body's returned logits dict must match the keys "
+          "of problem_hparams.target_modality's dict.")
       losses = {}
       for k, v in logits.iteritems():
-        losses[k] = self._loss_single(v, features)
-      return tf.add_n([n / d for n, d in logits.values()])
+        losses[k] = self._loss_single(v, target_modality[k], features)
+      return tf.add_n([n / d for n, d in losses.values()])
     else:
-      return self._loss_single(logits, features)
+      if self._problem_hparams:
+        target_modality = self._problem_hparams.target_modality
+      else:
+        target_modality = None
+      assert not isinstance(target_modality, dict), (
+          "model_body must return a dictionary of logits when "
+          "problem_hparams.target_modality is a dict.")
+      return self._loss_single(logits, target_modality, features)
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
@@ -386,12 +424,21 @@ class T2TModel(base.Layer):
       input_modality[f] = registry.create_modality(modality_spec, hparams)
     problem_hparams.input_modality = input_modality
 
-    target_modality_spec = problem_hparams.target_modality
-    if target_modality_name:
-      _warn_changed_modality_type(target_modality_name, target_modality_spec[0],
-                                  "target")
-      target_modality_spec = (target_modality_name, target_modality_spec[1])
-    target_modality = registry.create_modality(target_modality_spec, hparams)
+    if isinstance(problem_hparams.target_modality, dict):
+      target_modality = {}
+      for f, modality_spec in six.iteritems(problem_hparams.target_modality):
+        if target_modality_name:
+          _warn_changed_modality_type(target_modality_name, modality_spec[0],
+                                      "target_modality/%s" % f)
+          modality_spec = (target_modality_name, modality_spec[1])
+        target_modality[f] = registry.create_modality(modality_spec, hparams)
+    else:
+      target_modality_spec = problem_hparams.target_modality
+      if target_modality_name:
+        _warn_changed_modality_type(target_modality_name,
+                                    target_modality_spec[0], "target")
+        target_modality_spec = (target_modality_name, target_modality_spec[1])
+      target_modality = registry.create_modality(target_modality_spec, hparams)
     problem_hparams.target_modality = target_modality
 
   def prepare_features_for_infer(self, features):
@@ -941,9 +988,9 @@ class T2TModel(base.Layer):
 
     problem = hparams.problem_instances[0]
     if common_layers.is_on_tpu():
-      eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
       _remove_summaries()
       if isinstance(logits, dict):
+        eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
         # For TPU, logits dict will be passed as keyword arguments to
         # eval_metrics_fn. Here we add the labels to those arguments.
         logits.update({"labels": labels})
@@ -952,6 +999,7 @@ class T2TModel(base.Layer):
             eval_metrics=(eval_metrics_fn, logits),
             loss=loss)
       else:
+        eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
         return tf.contrib.tpu.TPUEstimatorSpec(
             tf.estimator.ModeKeys.EVAL,
             eval_metrics=(eval_metrics_fn, [logits, labels]),
@@ -960,13 +1008,22 @@ class T2TModel(base.Layer):
       eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
       eval_metrics = {}
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
-        eval_metrics[metric_name] = metric_fn(logits, features)
-
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
-          predictions={"predictions": logits},
-          eval_metric_ops=eval_metrics,
-          loss=loss)
+        if isinstance(logits, dict):
+          # the key is located in the center of metric_name: "metrics-%s/%s/%s"
+          k = metric_name.split("/")[1]
+          eval_metrics[metric_name] = metric_fn(logits[k], features)
+          return tf.estimator.EstimatorSpec(
+              tf.estimator.ModeKeys.EVAL,
+              predictions=logits,
+              eval_metric_ops=eval_metrics,
+              loss=loss)
+        else:
+          eval_metrics[metric_name] = metric_fn(logits, features)
+          return tf.estimator.EstimatorSpec(
+              tf.estimator.ModeKeys.EVAL,
+              predictions={"predictions": logits},
+              eval_metric_ops=eval_metrics,
+              loss=loss)
 
   def estimator_spec_predict(self, features):
     """Construct EstimatorSpec for PREDICT mode."""
@@ -1066,28 +1123,49 @@ TPU_METRIC_BLACKLIST = set([
 def _create_tpu_eval_metrics_fn(problem, hparams):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
-  tm = problem.get_hparams().target_modality
-  if isinstance(tm, tuple):
-    tm = registry.create_modality(tm, hparams)
-  weights_fn = tm.targets_weights_fn
-
-  def make_metric_fn(metric_fn):
-
-    def wrapped_metric_fn(logits, labels):
-      num, den = metric_fn(logits, labels, weights_fn=weights_fn)
-      return tf.metrics.mean(num, den)
-
-    return wrapped_metric_fn
-
   metric_fns = []
   eval_metrics = problem.eval_metrics()
 
-  for metric in eval_metrics:
-    if metric in TPU_METRIC_BLACKLIST:
-      log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
-      continue
-    name = "metrics-%s/%s" % (problem.name, metric)
-    metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
+  tm = problem.get_hparams().target_modality
+  if isinstance(tm, dict):
+    for k, v in six.iteritems(tm):
+      if isinstance(v, tuple):
+        v = registry.create_modality(v, hparams)
+      weights_fn = v.targets_weights_fn
+
+      def make_metric_fn(metric_fn):
+
+        def wrapped_metric_fn(logits, labels, weights_fn=weights_fn):
+          num, den = metric_fn(logits, labels, weights_fn=weights_fn)
+          return tf.metrics.mean(num, den)
+
+        return wrapped_metric_fn
+
+      for metric in eval_metrics:
+        if metric in TPU_METRIC_BLACKLIST:
+          log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
+          continue
+        name = "%s/metrics-%s/%s" % (k, problem.name, metric)
+        metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
+  else:
+    if isinstance(tm, tuple):
+      tm = registry.create_modality(tm, hparams)
+    weights_fn = tm.targets_weights_fn
+
+    def make_metric_fn(metric_fn):
+
+      def wrapped_metric_fn(logits, labels):
+        num, den = metric_fn(logits, labels, weights_fn=weights_fn)
+        return tf.metrics.mean(num, den)
+
+      return wrapped_metric_fn
+
+    for metric in eval_metrics:
+      if metric in TPU_METRIC_BLACKLIST:
+        log_warn("Skipping eval metric %s in TPU_METRIC_BLACKLIST", metric)
+        continue
+      name = "metrics-%s/%s" % (problem.name, metric)
+      metric_fns.append((name, make_metric_fn(metrics.METRICS_FNS[metric])))
 
   def all_metrics_fn(logits=None, labels=None, **kwargs):
     """Construct metrics dictionary."""
@@ -1098,8 +1176,11 @@ def _create_tpu_eval_metrics_fn(problem, hparams):
 
     for name, fn in metric_fns:
       if isinstance(logits, dict):
-        for k, v in logits.iteritems():
-          metrics_dict["%s/%s" % (name, k)] = fn(v, labels)
+        for k, v in six.iteritems(logits):
+          if isinstance(labels, dict):
+            metrics_dict["%s/%s" % (name, k)] = fn(v, labels[k])
+          else:
+            metrics_dict["%s/%s" % (name, k)] = fn(v, labels)
       else:
         metrics_dict[name] = fn(logits, labels)
 
