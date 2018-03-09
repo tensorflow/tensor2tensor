@@ -285,6 +285,8 @@ def create_experiment(run_config,
       tf.estimator.ModeKeys.TRAIN, hparams)
   eval_input_fn = problem.make_estimator_input_fn(
       tf.estimator.ModeKeys.EVAL, hparams)
+  # Fathom
+  problem.sanity_check_tfproto(hparams)
 
   # Export
   if export:

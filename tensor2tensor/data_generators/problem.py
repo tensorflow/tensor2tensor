@@ -413,6 +413,8 @@ class Problem(object):
     self._encoders = None
     self._hparams = None
     self._feature_info = None
+    self.task_choice_handles = None
+    self.task_choice_handle = None
 
   def get_feature_encoders(self, data_dir=None):
     if self._encoders is None:
@@ -691,6 +693,187 @@ class Problem(object):
     assert partition_id < num_partitions
     return partition_id, num_partitions
 
+  """
+  BEGIN ORIGINAL INPUT_FN
+
+  Was split into make_dataset (for re-use) and input_fn.
+
+  This causes severe challenges with incorporating future changes.
+
+  Trying to undo this...
+
+  """
+  """
+<<<<<<< 36584ffeeecc8bca4c524e7d439b72b32be41932
+  def input_fn(self,
+               mode,
+               hparams,
+               data_dir=None,
+               params=None,
+               config=None,
+=======
+  # Fathom: this function's code used to be at the start of input_fn
+  def make_dataset(self, mode, hparams, data_dir=None, params=None, config=None,
+>>>>>>> sanity check
+               dataset_kwargs=None):
+    partition_id, num_partitions = self._dataset_partition(mode, config)
+
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    if config and config.use_tpu:
+      num_threads = 64
+    else:
+      num_threads = 4 if is_training else 1
+
+    max_length = self.max_length(hparams)
+
+    def tpu_valid_size(example):
+      return data_reader.example_valid_size(example, hparams.min_length,
+                                            max_length)
+
+    def gpu_valid_size(example):
+      drop_long_sequences = is_training or hparams.eval_drop_long_sequences
+      return data_reader.example_valid_size(example, hparams.min_length,
+                                            max_length
+                                            if drop_long_sequences else 10**9)
+
+    def define_shapes(example):
+      batch_size = config and config.use_tpu and params["batch_size"]
+      return standardize_shapes(example, batch_size=batch_size)
+
+    # Read and preprocess
+    data_dir = data_dir or hparams.data_dir
+
+    dataset_kwargs = dataset_kwargs or {}
+    dataset_kwargs.update({
+        "mode": mode,
+        "data_dir": data_dir,
+        "num_threads": num_threads,
+        "hparams": hparams,
+        "partition_id": partition_id,
+        "num_partitions": num_partitions,
+    })
+
+    dataset = self.dataset(**dataset_kwargs)
+    if is_training:
+      # Repeat and skip a random number of records
+      dataset = dataset.repeat()
+      data_files = tf.contrib.slim.parallel_reader.get_data_files(
+          self.filepattern(data_dir, mode))
+      #  In continuous_train_and_eval when switching between train and
+      #  eval, this input_fn method gets called multiple times and it
+      #  would give you the exact same samples from the last call
+      #  (because the Graph seed is set). So this skip gives you some
+      #  shuffling.
+      dataset = skip_random_fraction(dataset, data_files[0])
+
+    dataset = dataset.map(
+        data_reader.cast_int64_to_int32, num_parallel_calls=num_threads)
+
+    if self.batch_size_means_tokens:
+      batch_size_means_tokens = True
+    else:
+      if _are_shapes_fully_defined(dataset.output_shapes):
+        batch_size_means_tokens = False
+      else:
+        tf.logging.warning(
+            "Shapes are not fully defined. Assuming batch_size means tokens.")
+        batch_size_means_tokens = True
+
+    # Batching
+    if not batch_size_means_tokens:
+      # Batch size means examples per datashard.
+      if config and config.use_tpu:
+        # on TPU, we use params["batch_size"], which specifies the number of
+        # examples across all datashards
+        batch_size = params["batch_size"]
+        dataset = dataset.apply(
+            tf.contrib.data.batch_and_drop_remainder(batch_size))
+      else:
+        num_shards = (config and config.data_parallelism.n) or 1
+        batch_size = hparams.batch_size * num_shards
+        dataset = dataset.batch(batch_size)
+    else:
+      # batch_size means tokens per datashard
+      if config and config.use_tpu:
+        dataset = dataset.filter(tpu_valid_size)
+        padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
+        # on TPU, we use params["batch_size"], which specifies the number of
+        # examples across all datashards
+        batch_size = params["batch_size"]
+        dataset = dataset.apply(
+            tf.contrib.data.padded_batch_and_drop_remainder(
+                batch_size, padded_shapes))
+      else:
+        # On GPU, bucket by length
+        dataset = dataset.filter(gpu_valid_size)
+        batching_scheme = data_reader.hparams_to_batching_scheme(
+            hparams,
+            shard_multiplier=(config and config.data_parallelism.n) or 1,
+            length_multiplier=self.get_hparams().batch_size_multiplier)
+        if hparams.use_fixed_batch_size:
+          # Here  batch_size really means examples per datashard.
+          batching_scheme["batch_sizes"] = [hparams.batch_size]
+          batching_scheme["boundaries"] = []
+        dataset = data_reader.bucket_by_sequence_length(
+            dataset, data_reader.example_length, batching_scheme["boundaries"],
+            batching_scheme["batch_sizes"])
+
+        if not is_training:
+
+          def _pad_batch(features):
+            if not config or config.data_parallelism.n <= 1:
+              return features
+            tf.logging.warn(
+                "Padding the batch to ensure that remainder eval batches have "
+                "a batch size divisible by the number of data shards. This may "
+                "lead to incorrect metrics for non-zero-padded features, e.g. "
+                "images. Use a single datashard (i.e. 1 GPU) in that case.")
+            return pad_batch(features, config.data_parallelism.n)
+
+          dataset = dataset.map(_pad_batch, num_parallel_calls=num_threads)
+
+    dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
+
+    def prepare_for_output(example):
+      if not config or not config.use_tpu:
+        _summarize_features(example,
+                            (config and config.data_parallelism.n) or 1)
+      if mode == tf.estimator.ModeKeys.PREDICT:
+        example["infer_targets"] = example.pop("targets")
+        return example
+      else:
+        return example, example["targets"]
+
+    dataset = dataset.map(prepare_for_output, num_parallel_calls=num_threads)
+    dataset = dataset.prefetch(2)
+<<<<<<< 36584ffeeecc8bca4c524e7d439b72b32be41932
+=======
+    return dataset
+   
+  def input_fn(self, mode, hparams, data_dir=None, params=None, config=None,
+               dataset_kwargs=None):
+    # Fathom: the stuff in make_dataset was originally in input_fn; we
+    # split it out because we wanted to override the later part and
+    # reuse the earlier part.
+    dataset = self.make_dataset(mode=mode, hparams=hparams,
+                                data_dir=data_dir, params=params,
+                                config=config,
+                                dataset_kwargs=dataset_kwargs)
+    features = dataset.make_one_shot_iterator().get_next()
+    if not config or not config.use_tpu:
+      _summarize_features(features, (config and config.data_parallelism.n) or 1)
+>>>>>>> sanity check
+
+    if mode == tf.estimator.ModeKeys.PREDICT:
+      # This is because of a bug in the Estimator that short-circuits prediction
+      # if it doesn't see a QueueRunner. DummyQueueRunner implements the
+      # minimal expected interface but does nothing.
+      tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS,
+                           data_reader.DummyQueueRunner())
+
+    return dataset
+  """
+
   def input_fn(self,
                mode,
                hparams,
@@ -699,7 +882,6 @@ class Problem(object):
                config=None,
                dataset_kwargs=None):
     """Builds input pipeline for problem.
-
     Args:
       mode: tf.estimator.ModeKeys
       hparams: HParams, model hparams
@@ -709,7 +891,6 @@ class Problem(object):
         TPU
       dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
         method when called
-
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
