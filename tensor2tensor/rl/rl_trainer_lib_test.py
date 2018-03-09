@@ -25,14 +25,19 @@ import tensorflow as tf
 
 class TrainTest(tf.test.TestCase):
 
+  test_config = ("epochs_num=4,eval_every_epochs=3,video_during_eval=False,"
+                 "num_agents=5,optimization_epochs=5,epoch_length=50")
+
   def test_no_crash_pendulum(self):
     hparams = trainer_lib.create_hparams(
-        "continuous_action_base", "epochs_num=11,video_during_eval=False")
+        "continuous_action_base",
+        TrainTest.test_config)
     rl_trainer_lib.train(hparams, "Pendulum-v0")
 
   def test_no_crash_cartpole(self):
     hparams = trainer_lib.create_hparams(
-        "discrete_action_base", "epochs_num=11,video_during_eval=False")
+        "discrete_action_base",
+        TrainTest.test_config)
     rl_trainer_lib.train(hparams, "CartPole-v0")
 
 

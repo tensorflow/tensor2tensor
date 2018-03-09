@@ -5,7 +5,7 @@ training.
 
 T2T uses TensorFlow Estimators and so distributed training is configured with
 the `TF_CONFIG` environment variable that is read by the
-[RunConfig](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/learn/python/learn/estimators/run_config.py)
+[RunConfig](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/estimator/run_config.py)
 along with a set of flags.
 
 ## `TF_CONFIG`
