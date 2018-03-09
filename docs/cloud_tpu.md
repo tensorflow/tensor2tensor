@@ -18,6 +18,17 @@ See the official tutorial for [running Transfomer
 on Cloud TPUs](https://cloud.google.com/tpu/docs/tutorials/transformer)
 for some examples and try out your own problems.
 
+Image Transformer:
+* `imagetransformer` with `imagetransformer_base_tpu` (or
+    `imagetransformer_tiny_tpu`)
+* `img2img_transformer` with `img2img_transformer_base_tpu` (or
+    `img2img_transformer_tiny_tpu`)
+
+You can run the `ImageTransformer` model on problems like unconditional or
+conditional Image generation and `Img2ImgTransformer` model on Super Resolution.
+We run on datasets like CelebA, CIFAR and ImageNet but they should work with any
+other image dataset.
+
 Residual networks:
 * `resnet` with `resnet_50` (or `resnet_18` or `resnet_34`)
 * `revnet` with `revnet_104` (or `revnet_38_cifar`)
