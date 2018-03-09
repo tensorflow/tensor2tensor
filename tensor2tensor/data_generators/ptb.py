@@ -77,6 +77,41 @@ def _get_token_encoder(vocab_dir, vocab_name, filename):
   return text_encoder.TokenTextEncoder(vocab_path)
 
 
+def _maybe_download_corpus(tmp_dir, vocab_type):
+  """Download and unpack the corpus.
+
+  Args:
+    tmp_dir: directory containing dataset.
+    vocab_type: which vocabulary are we using.
+
+  Returns:
+    The list of names of files.
+  """
+  filename = os.path.basename(PTB_URL)
+  compressed_filepath = generator_utils.maybe_download(
+      tmp_dir, filename, PTB_URL)
+  ptb_files = []
+  ptb_char_files = []
+
+  with tarfile.open(compressed_filepath, "r:gz") as tgz:
+    files = []
+    # Selecting only relevant files.
+    for m in tgz.getmembers():
+      if "ptb" in m.name and ".txt" in m.name:
+        if "char" in m.name:
+          ptb_char_files += [m.name]
+        else:
+          ptb_files += [m.name]
+        files += [m]
+
+    tgz.extractall(tmp_dir, members=files)
+
+  if vocab_type == text_problems.VocabType.CHARACTER:
+    return ptb_char_files
+  else:
+    return ptb_files
+
+
 @registry.register_problem
 class LanguagemodelPtb10k(text_problems.Text2SelfProblem):
   """PTB, 10k vocab."""
@@ -92,6 +127,10 @@ class LanguagemodelPtb10k(text_problems.Text2SelfProblem):
     }]
 
   @property
+  def is_generate_per_split(self):
+    return True
+
+  @property
   def vocab_filename(self):
     return "vocab.lmptb.10000"
 
@@ -100,28 +139,7 @@ class LanguagemodelPtb10k(text_problems.Text2SelfProblem):
     return text_problems.VocabType.TOKEN
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
-    filename = os.path.basename(PTB_URL)
-    compressed_filepath = generator_utils.maybe_download(
-        tmp_dir, filename, PTB_URL)
-    ptb_files = []
-    ptb_char_files = []
-    with tarfile.open(compressed_filepath, "r:gz") as tgz:
-      files = []
-      # Selecting only relevant files.
-      for m in tgz.getmembers():
-        if "ptb" in m.name and ".txt" in m.name:
-          if "char" in m.name:
-            ptb_char_files += [m.name]
-          else:
-            ptb_files += [m.name]
-          files += [m]
-
-      tgz.extractall(tmp_dir, members=files)
-
-    if self.vocab_type == text_problems.VocabType.CHARACTER:
-      files = ptb_char_files
-    else:
-      files = ptb_files
+    files = _maybe_download_corpus(tmp_dir, self.vocab_type)
 
     train_file, valid_file = None, None
     for filename in files:
@@ -138,10 +156,13 @@ class LanguagemodelPtb10k(text_problems.Text2SelfProblem):
     train = dataset_split == problem.DatasetSplit.TRAIN
     filepath = train_file if train else valid_file
 
-    with tf.gfile.GFile(filepath, "r") as f:
-      for line in f:
-        line = " ".join(line.replace("\n", " %s " % EOS).split())
-        yield {"targets": line}
+    def _generate_samples():
+      with tf.gfile.GFile(filepath, "r") as f:
+        for line in f:
+          line = " ".join(line.replace("\n", " %s " % EOS).split())
+          yield {"targets": line}
+
+    return _generate_samples()
 
 
 @registry.register_problem
