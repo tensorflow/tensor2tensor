@@ -124,7 +124,8 @@ class ImageCifar10Tune(mnist.ImageMnistTune):
     image.set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     if mode == tf.estimator.ModeKeys.TRAIN:
       image = image_utils.cifar_image_augmentation(image)
-    image = tf.image.per_image_standardization(image)
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
     example["inputs"] = image
     return example
 
@@ -151,7 +152,8 @@ class ImageCifar10Plain(ImageCifar10):
   def preprocess_example(self, example, mode, unused_hparams):
     image = example["inputs"]
     image.set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
-    image = tf.image.per_image_standardization(image)
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
     example["inputs"] = image
     return example
 
@@ -179,7 +181,8 @@ class ImageCifar10Plain8(ImageCifar10):
   def preprocess_example(self, example, mode, unused_hparams):
     image = example["inputs"]
     image = image_utils.resize_by_area(image, 8)
-    image = tf.image.per_image_standardization(image)
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
     example["inputs"] = image
     return example
 
@@ -192,7 +195,6 @@ class Img2imgCifar10(ImageCifar10):
     return "image_cifar10_plain"  # Reuse CIFAR-10 plain data.
 
   def preprocess_example(self, example, unused_mode, unused_hparams):
-
     inputs = example["inputs"]
     # For Img2Img resize input and output images as desired.
     example["inputs"] = image_utils.resize_by_area(inputs, 8)
@@ -330,7 +332,8 @@ class ImageCifar100Tune(mnist.ImageMnistTune):
     image.set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
     if mode == tf.estimator.ModeKeys.TRAIN:
       image = image_utils.cifar_image_augmentation(image)
-    image = tf.image.per_image_standardization(image)
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
     example["inputs"] = image
     return example
 
@@ -357,7 +360,8 @@ class ImageCifar100Plain(ImageCifar100):
   def preprocess_example(self, example, mode, unused_hparams):
     image = example["inputs"]
     image.set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
-    image = tf.image.per_image_standardization(image)
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
     example["inputs"] = image
     return example
 
@@ -385,7 +389,8 @@ class ImageCifar100Plain8(ImageCifar100):
   def preprocess_example(self, example, mode, unused_hparams):
     image = example["inputs"]
     image = image_utils.resize_by_area(image, 8)
-    image = tf.image.per_image_standardization(image)
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
     example["inputs"] = image
     return example
 
@@ -398,7 +403,6 @@ class Img2imgCifar100(ImageCifar100):
     return "image_cifar100_plain"  # Reuse CIFAR-100 plain data.
 
   def preprocess_example(self, example, unused_mode, unused_hparams):
-
     inputs = example["inputs"]
     # For Img2Img resize input and output images as desired.
     example["inputs"] = image_utils.resize_by_area(inputs, 8)

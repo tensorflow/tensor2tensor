@@ -244,22 +244,25 @@ def set_recall(predictions, labels, weights_fn=common_layers.weights_nonzero):
     return tf.to_float(tf.equal(labels, predictions)), weights
 
 
-def image_summary(predictions, hparams):
+def image_summary(predictions, features, hparams):
   """Reshapes predictions and passes it to tensorboard.
 
   Args:
-    predictions : A Tensor of scores of shape [batch, nlabels].
-    hparams: model_hparams
+    predictions : The predicted image (logits).
+    features : The features dictionary with tensors.
+    hparams: model hparams.
 
   Returns:
-    summary_proto: containing the summary image for predictions
-    weights: A Tensor of zeros of shape [batch, nlabels].
+    summary_proto: containing the summary images.
+    weights: A Tensor of zeros of the same shape as preditions.
   """
-  predictions_reshaped = tf.reshape(
-      predictions, [-1, hparams.height, hparams.width, hparams.colors])
-  return tf.summary.image(
-      "image_summary", predictions_reshaped,
-      max_outputs=1), tf.zeros_like(predictions)
+  del hparams
+  results = tf.cast(tf.argmax(predictions, axis=-1), tf.uint8)
+  gold = tf.cast(features["targets"], tf.uint8)
+  summary1 = tf.summary.image("prediction", results, max_outputs=2)
+  summary2 = tf.summary.image("data", gold, max_outputs=2)
+  summary = tf.summary.merge([summary1, summary2])
+  return summary, tf.zeros_like(predictions)
 
 
 def create_evaluation_metrics(problems, model_hparams):
@@ -319,8 +322,8 @@ def create_evaluation_metrics(problems, model_hparams):
     def image_wrapped_metric_fn(predictions,
                                 labels,
                                 weights_fn=common_layers.weights_nonzero):
-      _, _ = labels, weights_fn
-      return metric_fn(predictions, model_hparams)
+      del weights_fn
+      return metric_fn(predictions, labels, model_hparams)
 
     tm = problem_instance.get_hparams().target_modality
     if isinstance(tm, dict):
