@@ -371,8 +371,6 @@ class Problem(object):
     self._encoders = None
     self._hparams = None
     self._feature_info = None
-    self.task_choice_handles = None
-    self.task_choice_handle = None
 
   def get_feature_encoders(self, data_dir=None):
     if self._encoders is None:

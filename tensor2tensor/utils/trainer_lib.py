@@ -36,6 +36,9 @@ import tensorflow as tf
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
+# Fathom imports
+from fathomt2t.problems.fprecord_text_problem import FPRecordTextProblem
+
 
 def create_session_config(log_device_placement=False,
                           enable_graph_rewriter=False,
@@ -264,8 +267,14 @@ def create_experiment(run_config,
       tf.estimator.ModeKeys.TRAIN, hparams)
   eval_input_fn = problem.make_estimator_input_fn(
       tf.estimator.ModeKeys.EVAL, hparams)
+
   # Fathom
-  problem.sanity_check_tfproto(hparams)
+  if isinstance(problem, FPRecordTextProblem):
+    problem.sanity_check_tfproto(hparams)
+  else:
+    tf.logging.warning(
+      'No tfproto sanity checks to be performed. '
+      'Tfproto sanity checks only exist for FPRecordTextProblem.')
 
   # Export
   if export:
