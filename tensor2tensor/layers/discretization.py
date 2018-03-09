@@ -97,12 +97,11 @@ def nearest_neighbor(x,
       means_norm_sq, perm=[2, 0, 1]) - 2 * scalar_prod
   # computing cluster probabilities
   if soft_em or c_probs is not None:
-    ema_count = tf.expand_dims(ema_count + 1.0, 0)
     if c_probs is not None:
-      # softmax of z logits and expand dims to match what we're doing
-      # for the else condition
+      # expand dims to match inv temp
       c_probs = tf.expand_dims(c_probs, 0)
     else:
+      ema_count = tf.expand_dims(ema_count+1., 0)
       c_probs = ema_count / tf.reduce_sum(ema_count, 2, keepdims=True)
   if soft_em:
     nearest_hot = tf.nn.softmax(-inv_temp * dist, axis=-1) * c_probs
