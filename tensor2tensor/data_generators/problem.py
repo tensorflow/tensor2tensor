@@ -371,6 +371,8 @@ class Problem(object):
     self._encoders = None
     self._hparams = None
     self._feature_info = None
+    self.task_choice_handles = None
+    self.task_choice_handle = None
 
   def get_feature_encoders(self, data_dir=None):
     if self._encoders is None:
@@ -598,7 +600,8 @@ class Problem(object):
 
     return estimator_input_fn
 
-  def input_fn(self, mode, hparams, data_dir=None, params=None, config=None,
+  # Fathom: this function's code used to be at the start of input_fn
+  def make_dataset(self, mode, hparams, data_dir=None, params=None, config=None,
                dataset_kwargs=None):
     """Builds input pipeline for problem.
 
@@ -616,7 +619,7 @@ class Problem(object):
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    if config.use_tpu:
+    if config and config.use_tpu:
       num_threads = 32
     else:
       num_threads = 4 if is_training else 1
@@ -722,6 +725,32 @@ class Problem(object):
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
     dataset = dataset.prefetch(2)
+    return dataset
+    
+  def input_fn(self, mode, hparams, data_dir=None, params=None, config=None,
+               dataset_kwargs=None):
+    """Builds input pipeline for problem.
+
+    Args:
+      mode: tf.estimator.ModeKeys
+      hparams: HParams, model hparams
+      data_dir: str, data directory; if None, will use hparams.data_dir
+      params: dict, may include "batch_size"
+      config: RunConfig; should have the data_parallelism attribute if not using
+        TPU
+      dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
+        method when called
+
+    Returns:
+      (features_dict<str name, Tensor feature>, Tensor targets)
+    """
+    # Fathom: the stuff in make_dataset was originally in input_fn; we
+    # split it out because we wanted to override the later part and
+    # reuse the earlier part.
+    dataset = self.make_dataset(mode=mode, hparams=hparams,
+                                data_dir=data_dir, params=params,
+                                config=config,
+                                dataset_kwargs=dataset_kwargs)
     features = dataset.make_one_shot_iterator().get_next()
     if not config or not config.use_tpu:
       _summarize_features(features, (config and config.data_parallelism.n) or 1)
