@@ -619,7 +619,6 @@ class Problem(object):
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    # Fathom
     if config and config.use_tpu:
       num_threads = 32
     else:
