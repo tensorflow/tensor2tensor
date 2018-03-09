@@ -1618,7 +1618,8 @@ def padded_cross_entropy(logits,
                          labels,
                          label_smoothing,
                          weights_fn=weights_nonzero,
-                         reduce_sum=True):
+                         reduce_sum=True,
+                         gaussian=False):
   """Compute cross-entropy assuming 0s are padding.
 
   Computes a loss numerator (the sum of losses), and loss denominator
@@ -1631,12 +1632,19 @@ def padded_cross_entropy(logits,
     label_smoothing: a floating point `Scalar`.
     weights_fn: A function from labels to weights.
     reduce_sum: a Boolean, whether to sum at the end or not.
+    gaussian: If true, use a gaussian distribution for label smoothing
 
   Returns:
     loss_numerator: a `Scalar`.  Sum of losses.
     loss_denominator: a `Scalar.  The number of non-padding target tokens.
+
+  Raises:
+    ValueError: in case of unsupported argument types.
   """
   if isinstance(logits, FactoredTensor):
+    if gaussian:
+      raise ValueError("Factored padded cross entropy with Gaussian smoothing "
+                       "is not implemented yet.")
     return padded_cross_entropy_factored(
         logits,
         labels,
@@ -1653,7 +1661,8 @@ def padded_cross_entropy(logits,
       labels = tf.reshape(labels, [-1])
     else:
       logits, labels = pad_with_zeros(logits, labels)
-    xent = smoothing_cross_entropy(logits, labels, vocab_size, confidence)
+    xent = smoothing_cross_entropy(logits, labels, vocab_size, confidence,
+                                   gaussian=gaussian)
     weights = weights_fn(labels)
     if not reduce_sum:
       return xent * weights, weights
@@ -1688,7 +1697,7 @@ def smoothing_cross_entropy(logits,
         confidence * tf.log(confidence) + tf.to_float(vocab_size - 1) *
         low_confidence * tf.log(low_confidence + 1e-20))
 
-    if gaussian:
+    if gaussian and confidence > 0.0:
       labels = tf.cast(labels, tf.float32)
 
       normal_dist = tf.distributions.Normal(loc=labels, scale=confidence)
@@ -2629,3 +2638,30 @@ def dense(x, units, **kwargs):
     return _recompute_grad(fn, [x])
   else:
     return fn(x)
+
+
+def mix(x1, x2, steps, is_training,
+        min_prob=0.0, max_prob=1.0, mode="lin", simple=False):
+  """Mix starting with x2, mixing mixing, going towards x1."""
+  if not is_training:
+    return x1
+
+  def get_res():
+    """Create the result. Separate function to speed it up later (see below)."""
+    if mode == "lin":
+      alpha_p = inverse_lin_decay(steps)
+    else:
+      alpha_p = inverse_exp_decay(steps)
+    alpha_p = alpha_p * (max_prob - min_prob) + min_prob
+    if simple:
+      return alpha_p * x1 + (1.0 - alpha_p) * x2
+    alpha = tf.random_uniform(shape_list(x1))
+    alpha = tf.to_float(tf.less(alpha, alpha_p))
+    return alpha * x1 + (1.0 - alpha) * x2
+
+  if max_prob < 1.0:
+    return get_res()
+
+  # Prevent sampling after steps is passed to speed it up.
+  return tf.cond(tf.less(tf.train.get_global_step(), steps),
+                 get_res, lambda: x1)

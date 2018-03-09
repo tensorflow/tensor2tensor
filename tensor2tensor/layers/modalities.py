@@ -194,7 +194,7 @@ class CTCSymbolModality(SymbolModality):
 @registry.register_image_modality("default")
 class ImageModality(modality.Modality):
   """Modality for images."""
-  NUM_CHANNELS = 3
+  PIXEL_EMBEDDING_SIZE = 64
 
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
@@ -205,34 +205,49 @@ class ImageModality(modality.Modality):
 
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
-      # Reshape inputs to 2-d tensor and embed the RGB pixel values.
-      ret = common_layers.embedding(
-          tf.to_int32(common_layers.flatten4d3d(inputs)),
-          self.top_dimensionality,
-          self._body_input_depth,
-          name="input_rgb_embedding")
-      if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
-        ret *= self._body_input_depth**0.5
-
-      reshape_shape = common_layers.shape_list(inputs)[:3]
-      reshape_shape.append(self._body_input_depth * 3)
-      ret = tf.reshape(ret, reshape_shape)
-      return tf.layers.dense(ret, self._body_input_depth)
+      if not context.in_eager_mode():
+        tf.summary.image("targets_bottom",
+                         tf.cast(inputs, tf.uint8), max_outputs=1)
+      inputs_shape = common_layers.shape_list(inputs)
+      if len(inputs_shape) != 4:
+        raise ValueError("Assuming images given as int tensors in the format "
+                         "[batch, height, width, channels] (256 values).")
+      # We embed each of 256=self.top_dimensionality possible pixel values.
+      embedding_var = tf.get_variable(
+          "pixel_embedding",
+          [self.top_dimensionality, self.PIXEL_EMBEDDING_SIZE])
+      hot_inputs = tf.one_hot(tf.to_int32(inputs), self.top_dimensionality)
+      hot_inputs = tf.reshape(hot_inputs, [-1, self.top_dimensionality])
+      embedded = tf.matmul(hot_inputs, embedding_var)
+      # Let's now merge all channels that were embedded into a single vector.
+      merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[3]
+      embedded = tf.reshape(embedded, inputs_shape[:3] + [merged_size])
+      merged = tf.layers.dense(embedded, self._body_input_depth,
+                               name="merge_pixel_embedded_channels")
+      return merged
 
   def top(self, body_output, _):
+    # TODO(lukaszkaiser): is this a universal enough way to get channels?
+    num_channels = self._model_hparams.problem_instances[0].num_channels
     with tf.variable_scope("rgb_softmax"):
-
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
-      dim = body_output_shape[-1] // 3
-      reshape_shape.extend([self.NUM_CHANNELS, dim])
-
-      out = tf.reshape(body_output, reshape_shape)
-      res = tf.layers.dense(out, self.top_dimensionality)
+      reshape_shape.extend([num_channels, self.top_dimensionality])
+      res = tf.layers.dense(body_output, self.top_dimensionality * num_channels)
+      res = tf.reshape(res, reshape_shape)
       if not tf.get_variable_scope().reuse:
         res_argmax = tf.cast(tf.argmax(res, axis=-1), tf.uint8)
         tf.summary.image("result", res_argmax, max_outputs=1)
       return res
+
+  def loss(self, logits, targets):
+    """Compute loss numerator and denominator for one shard of output."""
+    return common_layers.padded_cross_entropy(
+        logits,
+        targets,
+        self._model_hparams.label_smoothing,
+        weights_fn=self.targets_weights_fn,
+        gaussian=True)
 
 
 @registry.register_image_modality("image_channel_compress")
