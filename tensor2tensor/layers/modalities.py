@@ -168,7 +168,7 @@ class CTCSymbolModality(SymbolModality):
 
   def loss(self, logits, targets):
     """Compute the CTC loss."""
-    with tf.name_scope("ctc_loss", [logits, targets]):
+    with tf.name_scope("ctc_loss", values=[logits, targets]):
       # For CTC we assume targets are 1d, [batch, length, 1, 1] here.
       targets_shape = targets.get_shape().as_list()
       assert len(targets_shape) == 4
