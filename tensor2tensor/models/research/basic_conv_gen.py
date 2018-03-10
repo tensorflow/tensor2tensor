@@ -1,4 +1,3 @@
-
 # coding=utf-8
 # Copyright 2018 The Tensor2Tensor Authors.
 #
@@ -34,22 +33,30 @@ import tensorflow as tf
 class BasicConvGen(t2t_model.T2TModel):
 
   def body(self, features):
-    print(features)
     filters = self.hparams.hidden_size
     cur_frame = tf.to_float(features["inputs"])
     prev_frame = tf.to_float(features["inputs_prev"])
-    print(features["inputs"].shape, cur_frame.shape, prev_frame.shape)
+    action_embedding_size = 32
+    action_space_size = 10
+    kernel = (3, 3)
+    # Gather all inputs.
     action = common_layers.embedding(tf.to_int64(features["action"]),
-                                     10, filters)
-    action = tf.reshape(action, [-1, 1, 1, filters])
-
-    frames = tf.concat([cur_frame, prev_frame], axis=3)
-    h1 = tf.layers.conv2d(frames, filters, kernel_size=(3, 3), padding="SAME")
-    h2 = tf.layers.conv2d(tf.nn.relu(h1 + action), filters,
-                          kernel_size=(5, 5), padding="SAME")
-    res = tf.layers.conv2d(tf.nn.relu(h2 + action), 3 * 256,
-                           kernel_size=(3, 3), padding="SAME")
-
+                                     action_space_size, action_embedding_size)
+    action = tf.reshape(action, [-1, 1, 1, action_embedding_size])
+    frames = tf.concat([cur_frame, prev_frame, action], axis=3)
+    x = tf.layers.conv2d(frames, filters, kernel, activation=tf.nn.relu,
+                         strides=(2, 2), padding="SAME")
+    # Run a stack of convolutions.
+    for _ in xrange(self.num_hidden_layers):
+      y = tf.layers.conv2d(frames, filters, kernel, activation=tf.nn.relu,
+                           strides=(1, 1), padding="SAME")
+      x = common_layers.layer_norm(x + y)
+    # Up-convolve.
+    x = tf.layers.conv2d_transpose(
+        frames, filters, kernel, activation=tf.nn.relu,
+        strides=(2, 2), padding="SAME")
+    # Output size is 3 * 256 for 3-channel color space.
+    res = tf.layers.conv2d(x, 3 * 256, kernel, padding="SAME")
     height = tf.shape(res)[1]
     width = tf.shape(res)[2]
     res = tf.reshape(res, [-1, height, width, 3, 256])
@@ -58,7 +65,7 @@ class BasicConvGen(t2t_model.T2TModel):
 
 @registry.register_hparams
 def basic_conv_small():
-  # """Small conv model."""
+  """Small conv model."""
   hparams = common_hparams.basic_params1()
   hparams.hidden_size = 32
   hparams.batch_size = 2

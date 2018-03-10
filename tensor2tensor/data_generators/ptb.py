@@ -82,6 +82,10 @@ def _maybe_download_corpus(tmp_dir, vocab_type):
 
   Args:
     tmp_dir: directory containing dataset.
+    vocab_type: which vocabulary are we using.
+
+  Returns:
+    The list of names of files.
   """
   filename = os.path.basename(PTB_URL)
   compressed_filepath = generator_utils.maybe_download(

@@ -25,103 +25,169 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.layers import common_hparams
-from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
 
-def generator(z, hparams, reuse=False):
-  """Initalizes generator layers."""
-
-  g_h1 = tf.layers.dense(
-      z, hparams.hidden_dim, activation=tf.nn.relu, name="l1", reuse=reuse)
-  g_log_prob = tf.layers.dense(
-      g_h1, hparams.height * hparams.width, name="logp", reuse=reuse)
-  g_prob = tf.nn.sigmoid(g_log_prob)
-
-  return g_prob
+def lrelu(input_, leak=0.2, name="lrelu"):
+  return tf.maximum(input_, leak * input_, name=name)
 
 
-def discriminator(x, hparams, reuse=False):
-  """Initalizes discriminator layers."""
-  d_h1 = tf.layers.dense(
-      x, hparams.hidden_dim, activation=tf.nn.relu, name="d_h1", reuse=reuse)
-  d_logit = tf.layers.dense(d_h1, 1, name="d_logit", reuse=reuse)
-  d_prob = tf.nn.sigmoid(d_logit)
+def deconv2d(
+    input_, output_shape, k_h, k_w, d_h, d_w, stddev=0.02, name="deconv2d"):
+  with tf.variable_scope(name):
+    w = tf.get_variable(
+        "w", [k_h, k_w, output_shape[-1], input_.get_shape()[-1]],
+        initializer=tf.random_normal_initializer(stddev=stddev))
+    deconv = tf.nn.conv2d_transpose(
+        input_, w, output_shape=output_shape, strides=[1, d_h, d_w, 1])
+    biases = tf.get_variable(
+        "biases", [output_shape[-1]], initializer=tf.constant_initializer(0.0))
+    return tf.reshape(tf.nn.bias_add(deconv, biases), deconv.get_shape())
 
-  return d_prob, d_logit
 
+class AbstractGAN(t2t_model.T2TModel):
+  """Base class for all GANs."""
 
-def reverse_grad(x):
-  return tf.stop_gradient(2 * x) - x
+  def discriminator(self, x, is_training, reuse=False):
+    """Discriminator architecture based on InfoGAN.
 
+    Args:
+      x: input images, shape [bs, h, w, channels]
+      is_training: boolean, are we in train or eval model.
+      reuse: boolean, should params be re-used.
 
-def vanilla_gan_internal(inputs, hparams, train):
-  with tf.variable_scope("vanilla_gan", reuse=tf.AUTO_REUSE):
-    batch_size, height, width, _ = common_layers.shape_list(inputs)
-    assert height == hparams.height
-    assert width == hparams.width
+    Returns:
+      out_logit: the output logits (before sigmoid).
+    """
+    hparams = self._hparams
+    with tf.variable_scope(
+        "discriminator", reuse=reuse,
+        initializer=tf.random_normal_initializer(stddev=0.02)):
+      batch_size = hparams.batch_size
+      # Mapping x from [bs, h, w, c] to [bs, 1]
+      net = tf.layers.conv2d(x, 64, (4, 4), strides=(2, 2),
+                             padding="SAME", name="d_conv1")
+      # [bs, h/2, w/2, 64]
+      net = lrelu(net)
+      net = tf.layers.conv2d(net, 128, (4, 4), strides=(2, 2),
+                             padding="SAME", name="d_conv2")
+      # [bs, h/4, w/4, 128]
+      if hparams.discriminator_batchnorm:
+        net = tf.layers.batch_normalization(net, training=is_training,
+                                            momentum=0.999, name="d_bn2")
+      net = lrelu(net)
+      size = hparams.height * hparams.width
+      net = tf.reshape(net, [batch_size, size * 8])  # [bs, h * w * 8]
+      net = tf.layers.dense(net, 1024, name="d_fc3")  # [bs, 1024]
+      if hparams.discriminator_batchnorm:
+        net = tf.layers.batch_normalization(net, training=is_training,
+                                            momentum=0.999, name="d_bn3")
+      net = lrelu(net)
+      out_logit = tf.layers.dense(net, 1, name="d_fc4")  # [bs, 1]
+      return out_logit
 
-    # Currently uses only one of RGB
-    x = inputs
-    x = x[:, :, :, 0]
-    x = tf.reshape(x, [batch_size, height * width])
+  def generator(self, z, is_training, reuse=False):
+    """Generator outputting image in [0, 1]."""
+    hparams = self._hparams
+    height = hparams.height
+    width = hparams.width
+    batch_size = hparams.batch_size
+    with tf.variable_scope(
+        "generator", reuse=reuse,
+        initializer=tf.random_normal_initializer(stddev=0.02)):
+      net = tf.layers.dense(z, 1024, name="g_fc1")
+      net = tf.layers.batch_normalization(net, training=is_training,
+                                          momentum=0.999, name="g_bn1")
+      net = lrelu(net)
+      net = tf.layers.dense(net, 128 * (height // 4) * (width // 4),
+                            name="g_fc2")
+      net = tf.layers.batch_normalization(net, training=is_training,
+                                          momentum=0.999, name="g_bn2")
+      net = lrelu(net)
+      net = tf.reshape(net, [batch_size, height // 4, width // 4, 128])
+      net = deconv2d(net, [batch_size, height // 2, width // 2, 64],
+                     4, 4, 2, 2, name="g_dc3")
+      net = tf.layers.batch_normalization(net, training=is_training,
+                                          momentum=0.999, name="g_bn3")
+      net = lrelu(net)
+      net = deconv2d(net, [batch_size, height, width, hparams.c_dim],
+                     4, 4, 2, 2, name="g_dc4")
+      out = tf.nn.sigmoid(net)
+      return out
 
-    # Generate a fake image
+  def body(self, features):
+    """Body of the model.
+
+    Args:
+      features: a dictionary with the tensors.
+
+    Returns:
+      A pair (predictions, losses) where preditions is the generated image
+      and losses is a dictionary of losses (that get added for the final loss).
+    """
+    features["targets"] = features["inputs"]
+    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+
+    # Input images.
+    inputs = features["inputs"]
+
+    # Noise vector.
     z = tf.random_uniform(
-        shape=[batch_size, hparams.random_sample_size],
+        shape=[self._hparams.batch_size, self._hparams.z_size],
         minval=-1,
         maxval=1,
         name="z")
-    g_sample = generator(z, hparams)
 
-    # Discriminate on the real image
-    d_real, _ = discriminator(x, hparams)
+    # Discriminator output for real images.
+    d_real_logits = self.discriminator(
+        inputs, is_training=is_training, reuse=False)
 
-    # Discriminate on the fake image
-    d_fake, _ = discriminator(reverse_grad(g_sample), hparams, reuse=True)
+    # Discriminator output for fake images.
+    g = self.generator(z, is_training=is_training, reuse=False)
+    d_fake_logits_g = self.discriminator(
+        g, is_training=is_training, reuse=True)
+    # Discriminator doesn't backprop to generator.
+    d_fake_logits_d = self.discriminator(
+        tf.stop_gradient(g), is_training=is_training, reuse=True)
 
-    # GAN losses
-    d_loss = -tf.reduce_mean(
-        tf.log(d_real + hparams.epsilon) + tf.log(1. - d_fake))
-    g_loss = -tf.reduce_mean(tf.log(d_fake + hparams.epsilon))
+    # Loss on real and fake data.
+    d_loss_real = tf.reduce_mean(
+        tf.nn.sigmoid_cross_entropy_with_logits(
+            logits=d_real_logits, labels=tf.ones_like(d_real_logits)))
+    d_loss_fake_g = tf.reduce_mean(
+        tf.nn.sigmoid_cross_entropy_with_logits(
+            logits=d_fake_logits_g, labels=tf.zeros_like(d_fake_logits_g)))
+    d_loss_fake_d = tf.reduce_mean(
+        tf.nn.sigmoid_cross_entropy_with_logits(
+            logits=d_fake_logits_d, labels=tf.zeros_like(d_fake_logits_d)))
+    d_loss = d_loss_real + d_loss_fake_d
 
-    losses = {}
+    losses = {}  # All losses get added at the end.
     losses["discriminator"] = d_loss
-    losses["generator"] = g_loss
-    # Include a dummy training loss to skip self.top and self.loss
+    losses["generator"] = - d_loss_fake_g
+    # Include a dummy training loss to skip self.loss.
     losses["training"] = tf.constant(0., dtype=tf.float32)
 
-    summary_g_image = tf.reshape(g_sample[0, :], [1, height, width, 1])
+    hparams = self._hparams
+    summary_g_image = tf.reshape(g[0, :], [1, hparams.height, hparams.width, 1])
     tf.summary.image("generated", summary_g_image, max_outputs=1)
 
-    if train:
+    if is_training:
       # Returns an dummy output and the losses dictionary.
-      return tf.zeros([batch_size, 1]), losses
-    else:
-      return g_sample, losses
+      return tf.zeros_like(inputs), losses
+    return tf.reshape(g, tf.shape(inputs)), losses
+
+  def top(self, body_output, features):
+    """Override the top function to not do anything."""
+    return body_output
 
 
 @registry.register_model
-class VanillaGan(t2t_model.T2TModel):
+class VanillaGan(AbstractGAN):
   """Simple GAN for demonstration."""
-
-  def body(self, features):
-    """Computes the generator and discriminator loss.
-
-    Args:
-      features: A dictionary of key to Tensor. "inputs" should be an image.
-
-    Returns:
-      output: Tensor containing one zero. GANs do not make use of the modality
-        loss.
-      losses: a dictionary of losses containing the generator and discriminator
-        losses.
-    """
-    train = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
-    return vanilla_gan_internal(features["inputs"], self.hparams, train)
 
   def infer(self,
             features=None,
@@ -137,7 +203,7 @@ class VanillaGan(t2t_model.T2TModel):
           maxval=1,
           name="z")
 
-      g_sample = generator(z, self._hparams)
+      g_sample = self.generator(z, self._hparams)
       return g_sample
 
 
@@ -145,12 +211,12 @@ class VanillaGan(t2t_model.T2TModel):
 def vanilla_gan():
   """Basic parameters for a vanilla_gan."""
   hparams = common_hparams.basic_params1()
-
-  hparams.batch_size = 32
   hparams.label_smoothing = 0.0
-  hparams.add_hparam("hidden_dim", 128)
-  hparams.add_hparam("random_sample_size", 100)
+  hparams.hidden_size = 128
+  hparams.batch_size = 64
+  hparams.add_hparam("z_size", 64)
+  hparams.add_hparam("c_dim", 1)
   hparams.add_hparam("height", 28)
   hparams.add_hparam("width", 28)
-  hparams.add_hparam("epsilon", 1e-4)
+  hparams.add_hparam("discriminator_batchnorm", int(True))
   return hparams

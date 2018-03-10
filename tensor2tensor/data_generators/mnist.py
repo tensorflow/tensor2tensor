@@ -162,7 +162,8 @@ class ImageMnistTune(image_utils.Image2ClassProblem):
   def preprocess_example(self, example, mode, unused_hparams):
     image = example["inputs"]
     image.set_shape([_MNIST_IMAGE_SIZE, _MNIST_IMAGE_SIZE, 1])
-    image = tf.image.per_image_standardization(image)
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
     example["inputs"] = image
     return example
 

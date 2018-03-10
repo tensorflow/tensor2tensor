@@ -35,6 +35,8 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
+
+
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -157,7 +159,6 @@ class GymPongRandom5k(GymDiscreteProblem):
     return 5000
 
 
-
 @registry.register_problem
 class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
   """Pong game, loaded actions."""
@@ -197,7 +198,7 @@ class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
         model_saver.restore(sess, FLAGS.model_path)
         for item in super(GymPongTrajectoriesFromPolicy,
                           self).generator(data_dir, tmp_dir):
-            yield item
+          yield item
 
   # TODO(blazej0): For training of atari agents wrappers are usually used.
   # Below we have a hacky solution which is a workaround to be used together

@@ -655,11 +655,24 @@ def update_hparams_for_tpu(hparams):
 
 
 @registry.register_hparams
+def imagetransformer_base_tpu():
+  hparams = imagetransformer_base()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.hidden_size = 256
+  hparams.filter_size = 512
+  hparams.num_hidden_layers = 8
+  hparams.sampling_method = "random"
+  return hparams
+
+
+@registry.register_hparams
 def imagetransformer_sep_channels_8l_tpu():
   """Hparams for training imagetransformer on tpu."""
   hparams = imagetransformer_sep_channels_8l()
   update_hparams_for_tpu(hparams)
-  hparams.batch_size = 1
+  hparams.batch_size = 4
   hparams.num_heads = 4   # heads are expensive on tpu
   hparams.shared_embedding_and_softmax_weights = False
   return hparams
