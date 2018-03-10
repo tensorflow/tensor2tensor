@@ -139,7 +139,7 @@ class T2TModel(base.Layer):
       sharded_logits, losses = self.model_fn_sharded(sharded_features)
       if isinstance(sharded_logits, dict):
         concat_logits = {}
-        for k, v in sharded_logits.iteritems():
+        for k, v in six.iteritems(sharded_logits):
           concat_logits[k] = tf.concat(v, 0)
         return concat_logits, losses
       else:
@@ -172,7 +172,7 @@ class T2TModel(base.Layer):
         if isinstance(body_out, dict):
           sharded_logits = {}
           sharded_losses = {}
-          for k, v in body_out.iteritems():
+          for k, v in six.iteritems(body_out):
             sharded_logits[k] = dp(self.top, v, datashard_to_features)
             sharded_losses[k] = dp(self.loss, sharded_logits[k],
                                    datashard_to_features)
@@ -190,8 +190,8 @@ class T2TModel(base.Layer):
     else:
       sharded_logits, sharded_losses = dp(self.model_fn, datashard_to_features)
       if isinstance(sharded_logits[0], dict):
-        temp_dict = {k: [] for k, _ in sharded_logits[0].iteritems()}
-        for k, _ in sharded_logits[0].iteritems():
+        temp_dict = {k: [] for k, _ in six.iteritems(sharded_logits[0])}
+        for k, _ in six.iteritems(sharded_logits[0]):
           for l in sharded_logits:
             temp_dict[k].append(l[k])
         sharded_logits = temp_dict
@@ -328,7 +328,7 @@ class T2TModel(base.Layer):
           "The keys of model_body's returned logits dict must match the keys "
           "of problem_hparams.target_modality's dict.")
       logits = {}
-      for k, v in body_output.iteritems():
+      for k, v in six.iteritems(body_output):
         with tf.variable_scope(k):  # TODO(aidangomez): share variables here?
           logits[k] = self._top_single(v, target_modality[k], features)
       return logits
@@ -362,7 +362,7 @@ class T2TModel(base.Layer):
           "The keys of model_body's returned logits dict must match the keys "
           "of problem_hparams.target_modality's dict.")
       losses = {}
-      for k, v in logits.iteritems():
+      for k, v in six.iteritems(logits):
         losses[k] = self._loss_single(v, target_modality[k], features)
       return tf.add_n([n / d for n, d in losses.values()])
     else:
@@ -927,7 +927,7 @@ class T2TModel(base.Layer):
     # Set known shapes
     if use_tpu:
       if isinstance(logits, dict):
-        for k, v in logits.iteritems():
+        for k, v in six.iteritems(logits):
           if "scalar/" in k:
             continue
 
