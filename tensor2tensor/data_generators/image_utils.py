@@ -26,6 +26,7 @@ import os
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -64,8 +65,18 @@ class ImageProblem(problem.Problem):
     return data_fields, data_items_to_decoders
 
   def preprocess_example(self, example, mode, hparams):
-    example["inputs"] = tf.image.per_image_standardization(example["inputs"])
+    if not self._was_reversed:
+      example["inputs"] = tf.image.per_image_standardization(example["inputs"])
     return example
+
+  def eval_metrics(self):
+    eval_metrics = [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
+        metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY
+    ]
+    if self._was_reversed:
+      eval_metrics += [metrics.Metrics.IMAGE_SUMMARY]
+    return eval_metrics
 
 
 class Image2ClassProblem(ImageProblem):

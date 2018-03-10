@@ -117,6 +117,7 @@ def create_run_config(master="",
       use_tpu=use_tpu)
   run_config_args = {
       "master": master,
+      "evaluation_master": master,
       "model_dir": model_dir,
       "session_config": session_config,
       "save_summary_steps": 100,

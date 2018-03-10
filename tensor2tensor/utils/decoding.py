@@ -43,7 +43,7 @@ def decode_hparams(overrides=""):
   hp = tf.contrib.training.HParams(
       save_images=False,
       problem_idx=0,
-      extra_length=50,
+      extra_length=100,
       batch_size=0,
       beam_size=4,
       alpha=0.6,
@@ -343,7 +343,8 @@ def decode_interactively(estimator, hparams, decode_hp):
   """Interactive decoding."""
 
   def input_fn():
-    gen_fn = make_input_fn_from_generator(_interactive_input_fn(hparams))
+    gen_fn = make_input_fn_from_generator(
+        _interactive_input_fn(hparams, decode_hp))
     example = gen_fn()
     example = _interactive_input_tensor_to_features_dict(example, hparams)
     return example
@@ -405,7 +406,7 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
     }
 
 
-def _interactive_input_fn(hparams):
+def _interactive_input_fn(hparams, decode_hp):
   """Generator that reads from the terminal and yields "interactive inputs".
 
   Due to temporary limitations in tf.learn, if we don't want to reload the
@@ -417,14 +418,15 @@ def _interactive_input_fn(hparams):
 
   Args:
     hparams: model hparams
+    decode_hp: decode hparams
   Yields:
     numpy arrays
 
   Raises:
     Exception: when `input_type` is invalid.
   """
-  num_samples = 1
-  decode_length = 100
+  num_samples = decode_hp.num_samples
+  decode_length = decode_hp.extra_length
   input_type = "text"
   problem_id = 0
   p_hparams = hparams.problems[problem_id]

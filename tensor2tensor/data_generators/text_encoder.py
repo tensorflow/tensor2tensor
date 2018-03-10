@@ -62,10 +62,10 @@ _ESCAPE_CHARS = set(u"\\_u;0123456789")
 if six.PY2:
 
   def native_to_unicode(s):
-    return s if isinstance(s, unicode) else s.decode("utf8")
+    return s if isinstance(s, unicode) else s.decode("utf-8")
 
   def unicode_to_native(s):
-    return s.encode("utf-8")
+    return s.encode("utf-8") if isinstance(s, unicode) else s
 else:  # No conversion required on Python >= 3.
 
   def native_to_unicode(s):

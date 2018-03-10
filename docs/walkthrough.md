@@ -15,7 +15,7 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 of deep learning models and datasets designed to make deep learning more
 accessible and [accelerate ML
 research](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html).
- is actively used and maintained by researchers and engineers within the
+T2T is actively used and maintained by researchers and engineers within the
 [Google Brain team](https://research.google.com/teams/brain/) and a community
 of users. We're eager to collaborate with you too, so feel free to
 [open an issue on GitHub](https://github.com/tensorflow/tensor2tensor/issues)
@@ -154,7 +154,7 @@ For all translation problems, we suggest to try the Transformer model:
 this should reach a BLEU score of about 28 on the English-German data-set,
 which is close to state-of-the art. If training on a single GPU, try the
 `--hparams_set=transformer_base_single_gpu` setting. For very good results
-or larger data-sets (e.g., for English-French)m, try the big model
+or larger data-sets (e.g., for English-French), try the big model
 with `--hparams_set=transformer_big`.
 
 ## Basics

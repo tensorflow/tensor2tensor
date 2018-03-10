@@ -453,11 +453,11 @@ def update_hparams_for_tpu(hparams):
 
 
 @registry.register_hparams
-def img2mg_transformer_base_tpu():
+def img2img_transformer_base_tpu():
   """Hparams for training img2img_transformer on tpu."""
   hparams = img2img_transformer_base()
   update_hparams_for_tpu(hparams)
-  hparams.batch_size = 4
+  hparams.batch_size = 2
   hparams.num_heads = 4   # heads are expensive on tpu
   hparams.num_decoder_layers = 8
   hparams.num_encoder_layers = 4
@@ -466,8 +466,8 @@ def img2mg_transformer_base_tpu():
 
 
 @registry.register_hparams
-def img2mg_transformer_tiny_tpu():
-  hparams = img2mg_transformer_base_tpu()
+def img2img_transformer_tiny_tpu():
+  hparams = img2img_transformer_base_tpu()
   hparams.num_hidden_layers = 2
   hparams.hidden_size = 16
   hparams.batch_size = 2

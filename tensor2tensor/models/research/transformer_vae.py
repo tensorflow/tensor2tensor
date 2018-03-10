@@ -477,6 +477,8 @@ class TransformerAE(t2t_model.T2TModel):
         decay=self._hparams.decay,
         discrete_mix=self._hparams.d_mix,
         random_top_k=self._hparams.random_top_k,
+        soft_em=self.hparams.soft_em,
+        inv_temp=self.hparams.inv_temp,
         epsilon=self._hparams.epsilon,
         softmax_k=self._hparams.softmax_k,
         kl_warmup_steps=self._hparams.kl_warmup_steps,
@@ -484,8 +486,10 @@ class TransformerAE(t2t_model.T2TModel):
         summary=_DO_SUMMARIES,
         dp_strength=self._hparams.dp_strength,
         dp_decay=self._hparams.dp_decay,
-        dp_alpha=self._hparams.dp_alpha)
-
+        dp_alpha=self._hparams.dp_alpha,
+        slo=self._hparams.slo,
+        slo_alpha=self._hparams.slo_alpha,
+        slo_beta=self._hparams.slo_beta)
     # Set the discretization bottleneck specific things here
     if self._hparams.bottleneck_kind == "dvq":
       block_dim = int(self._hparams.hidden_size // self._hparams.num_blocks)
@@ -511,7 +515,6 @@ class TransformerAE(t2t_model.T2TModel):
         tf.logging.info("Using slices for DVQ")
       else:
         raise ValueError("Unknown reshape method")
-
       means = tf.get_variable(
           name="means",
           shape=[self._hparams.num_blocks, block_v_size, block_dim],
@@ -521,17 +524,27 @@ class TransformerAE(t2t_model.T2TModel):
       if self._hparams.ema:
         ema_count = tf.get_variable(
             "ema_count", [self._hparams.num_blocks, block_v_size],
-            initializer=tf.constant_initializer(0))
+            initializer=tf.constant_initializer(0),
+            trainable=False)
         with tf.colocate_with(means):
           ema_means = tf.get_variable(
-              "ema_means", initializer=means.initialized_value())
+              "ema_means", initializer=means.initialized_value(),
+              trainable=False)
 
+        # Create the shadow variables if we are using smoothed l0
+        c_logits = None
+        if self._hparams.slo:
+          # softmax logits for the cluster probabilities
+          c_logits = tf.get_variable(
+              "c_logits", [self._hparams.num_blocks, block_v_size],
+              initializer=tf.uniform_unit_scaling_initializer())
         # Update bottleneck
         self._hparams.bottleneck = partial(
             self._hparams.bottleneck,
             means=means,
             ema_count=ema_count,
-            ema_means=ema_means)
+            ema_means=ema_means,
+            c_logits=c_logits)
 
   @property
   def has_input(self):
@@ -639,6 +652,9 @@ def transformer_ae_small():
   hparams.add_hparam("dp_alpha", 0.5)
   hparams.add_hparam("dp_strength", 0.25)
   hparams.add_hparam("dp_decay", 1.0)
+  hparams.add_hparam("slo", False)  # for smoothed L0.
+  hparams.add_hparam("slo_alpha", 0.25)
+  hparams.add_hparam("slo_beta", 0.5)
   hparams.add_hparam("unmasked_percentage", 0.1)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
@@ -664,6 +680,8 @@ def transformer_ae_small():
   hparams.add_hparam("decay", 0.999)
   hparams.add_hparam("ema", True)
   hparams.add_hparam("random_top_k", 1)
+  hparams.add_hparam("soft_em", False)
+  hparams.add_hparam("inv_temp", 1.0)
   hparams.kl_warmup_steps = 150000
   hparams.force_full_predict = True
 
