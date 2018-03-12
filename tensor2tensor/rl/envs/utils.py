@@ -311,10 +311,9 @@ def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
   len, observ_shape, observ_dtype, action_shape, action_dtype = 3, (210, 160, 3), tf.float32, [], tf.int32
   batch_env = InGraphBatchSimulatorEnv(len, observ_shape, observ_dtype, action_shape, action_dtype)
 
-  from tf_atari_wrappers import WarpFrame
-  wrapped_env = WarpFrame(batch_env)
+  from tensor2tensor.rl.envs.tf_atari_wrappers import WarpFrame, MaxAndSkipEnv
 
-  from tf_atari_wrappers import MaxAndSkipEnv
+  wrapped_env = WarpFrame(batch_env)
   wrapped_env = MaxAndSkipEnv(wrapped_env)
 
   return wrapped_env

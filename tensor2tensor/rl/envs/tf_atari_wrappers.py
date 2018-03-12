@@ -30,7 +30,7 @@ class WarpFrame():
         #This is the key point, all the rest is the tf bullshit
         observ = tf.image.resize_images(self.wrapped_env.observ, [self.width, self.height])
         observ = tf.image.rgb_to_grayscale(observ)
-        # observ = tf.Print(observ, [observ], "wrap frame = ")
+        observ = tf.Print(observ, [observ], "w frame = ")
         #End of important code. The bullshit restarts
         with tf.control_dependencies([self._observ.assign(observ)]):
           return tf.identity(reward), tf.identity(done)
@@ -74,20 +74,7 @@ class MaxAndSkipEnv():
 
     with tf.name_scope('environment/simulate'): #TODO: Do we need this?
 
-      # def step(a, _):
-      #   def not_done_step(a):
-      #     reward, done = self.wrapped_env.simulate(action)
-      #     with tf.control_dependencies([reward, done]):
-      #       r0 = tf.maximum(a[0], self.wrapped_env.observ)
-      #       r1 = tf.add(a[1], reward)
-      #       r2 = tf.logical_or(a[2], done)
-      #
-      #       return (r0, r1, r2)
-      #   return tf.cond(a[2], lambda: a, lambda: not_done_step(a))
-
-      # initializer = (tf.zeros_like(self._observ), 0.0, False)
       initializer = (tf.zeros_like(self._observ), tf.fill((self.length,), 0.0), tf.fill((self.length,), False))
-
 
       def not_done_step(a, x):
         reward, done = self.wrapped_env.simulate(action)
@@ -101,6 +88,8 @@ class MaxAndSkipEnv():
 
       simulate_ret = tf.scan(not_done_step, tf.range(self.skip), initializer=initializer)
       simulate_ret = [ret[-1, ...] for ret in simulate_ret]
+
+      simulate_ret[0] = tf.Print(simulate_ret[0], [simulate_ret[0]], "w max = ")
 
       with tf.control_dependencies([self._observ.assign(simulate_ret[0])]):
         return tf.identity(simulate_ret[1]), tf.identity(simulate_ret[2])
