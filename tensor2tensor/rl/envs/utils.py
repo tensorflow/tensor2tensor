@@ -309,4 +309,14 @@ from tensor2tensor.rl.envs.in_graph_batch_simulator_env import InGraphBatchSimul
 
 def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
   len, observ_shape, observ_dtype, action_shape, action_dtype = 3, (210, 160, 3), tf.float32, [], tf.int32
-  return InGraphBatchSimulatorEnv(len, observ_shape, observ_dtype, action_shape, action_dtype)
+  batch_env = InGraphBatchSimulatorEnv(len, observ_shape, observ_dtype, action_shape, action_dtype)
+
+  from tf_atari_wrappers import WarpFrame
+  wrapped_env = WarpFrame(batch_env)
+
+  from tf_atari_wrappers import MaxAndSkipEnv
+  wrapped_env = MaxAndSkipEnv(wrapped_env)
+
+  return wrapped_env
+
+  # return batch_env

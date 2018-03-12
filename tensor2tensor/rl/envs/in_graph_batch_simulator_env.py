@@ -27,39 +27,6 @@ import tensorflow as tf
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research.basic_conv_gen import BasicConvGen
 from tensor2tensor.utils import t2t_model, trainer_lib
-#
-#
-# class GenModel(t2t_model.T2TModel):
-#   def body(self, features):
-#     filters = self.hparams.hidden_size
-#     # cur_frame = common_layers.standardize_images(features["inputs"])
-#     cur_frame = tf.to_float(features["inputs"])
-#     # prev_frame =  common_layers.standardize_images(features["inputs_prev"])
-#     prev_frame = tf.to_float(features["inputs_prev"])
-#     action = common_layers.embedding(tf.to_int64(features["action"]),
-#                                      10, filters)
-#     action = tf.reshape(action, [-1, 1, 1, filters])
-#
-#     frames = tf.concat([cur_frame, prev_frame], axis=3)
-#     h1 = tf.layers.conv2d(frames, filters, kernel_size=(3, 3), padding="SAME")
-#     h2 = tf.layers.conv2d(tf.nn.relu(h1 + action), filters,
-#                           kernel_size=(5, 5), padding="SAME")
-#     res = tf.layers.conv2d(tf.nn.relu(h2 + action), 3 * 256,
-#                            kernel_size=(3, 3), padding="SAME")
-#     reward_pred_h1 = tf.reduce_mean(res, axis=[1, 2])
-#     reward_pred = tf.layers.dense(reward_pred_h1, 2, name="reward")
-#     # print(tf.shape(reward_pred))
-#     # print(tf.shape(features["reward"]))
-#     # reward_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
-#     #   labels=tf.one_hot(tf.to_int32(features["reward"]), 2), logits=reward_pred)
-#     # reward_loss = tf.reduce_mean(reward_loss)
-#     # print(res.shape)
-#     # print(features["targets"].shape)
-#     l = tf.shape(res)[1]
-#     w = tf.shape(res)[2]
-#     res = tf.reshape(res, [-1, l, w, 3, 256])
-#     res = tf.argmax(res, axis=-1)
-#     return res #, {"reward": reward_loss}
 
 class InGraphBatchSimulatorEnv(object):
   """Batch of environments inside the TensorFlow graph.
@@ -99,6 +66,11 @@ class InGraphBatchSimulatorEnv(object):
   def simulate(self, action):
 
     with tf.name_scope('environment/simulate'):
+
+      # TODO: fill action
+      # TODO: fill action
+      # TODO: fill action
+
       action = tf.constant(0.0, tf.float32)
       input = {"inputs": self.observ, "inputs_prev":self.observ, "action": action}
       model_output = self._model(input)
@@ -106,10 +78,11 @@ class InGraphBatchSimulatorEnv(object):
       observ = tf.argmax(observ, axis=-1)
       observ = tf.cast(observ, tf.float32)
 
-      # observ = tf.Print(observ, [observ], "observ = ")
+      # observ = tf.Print(observ, [observ], "se frame = ")
 
 
       # observ = tf.check_numerics(observ, 'observ')
+      # TODO: fill here
       reward = tf.constant(0.0, tf.float32, shape=(self.length,))
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
