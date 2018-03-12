@@ -30,15 +30,62 @@ import tensorflow as tf
 
 @registry.register_model
 class BasicDiscreteAutoencoder(basic.BasicAutoencoder):
+  """Discrete autoencoder."""
 
-  def bottleneck(self, x, res_size):
+  def bottleneck(self, x):
     hparams = self._hparams
     x = tf.tanh(tf.layers.dense(x, hparams.bottleneck_size, name="bottleneck"))
-    d = x + tf.stop_gradient(2 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
-    y = tf.nn.dropout(x, keep_prob=1.0 - hparams.dropout)
-    x = common_layers.mix(d, y, hparams.discretize_warmup_steps,
+    d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      noise = tf.random_uniform(common_layers.shape_list(x))
+      noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
+      d *= noise
+    x = common_layers.mix(d, x, hparams.discretize_warmup_steps,
                           hparams.mode == tf.estimator.ModeKeys.TRAIN)
-    x = tf.layers.dense(x, res_size, name="unbottleneck")
+    return x
+
+  def sample(self):
+    hp = self._hparams
+    div_x = 2**hp.num_hidden_layers
+    div_y = 1 if self.is1d else 2**hp.num_hidden_layers
+    size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
+            hp.bottleneck_size]
+    rand = tf.random_uniform(size)
+    return 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
+
+
+@registry.register_model
+class OrderedDiscreteAutoencoder(BasicDiscreteAutoencoder):
+  """Ordered discrete autoencoder."""
+
+  def bottleneck(self, x):
+    hparams = self._hparams
+    x = tf.tanh(tf.layers.dense(x, hparams.bottleneck_size, name="bottleneck"))
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      # In the ordered case, we'll have no noise on top bits, let's make a mask.
+      # Start with randomly uniformly choosing numbers [0, number_of_bits) where
+      # the number of bits in our case is bottleneck size. We pick separately
+      # for every position and batch just to keep it varied.
+      no_noise_mask = tf.random_uniform(common_layers.shape_list(x)[:-1])
+      no_noise_mask *= hparams.bottleneck_size
+      # Now let's make a 1-hot vector that is 1 on the index i from which on
+      # we want to be noisy and 0 everywhere else.
+      no_noise_mask = tf.one_hot(tf.to_int32(no_noise_mask),
+                                 hparams.bottleneck_size)
+      # Use tf.cumsum to make the mask (0 before index i, 1 after index i).
+      no_noise_mask = tf.cumsum(no_noise_mask, axis=-1)
+      # Having the no-noise mask, we can make noise just uniformly at random.
+      ordered_noise = tf.random_uniform(tf.shape(x)) * no_noise_mask
+      # We want our noise to be 1s at the start and random {-1, 1} bits later.
+      ordered_noise = 2.0 * tf.to_float(tf.less(ordered_noise, 0.5))- 1.0
+      # Now we flip the bits of x on the noisy positions (ordered and normal).
+      noise = tf.random_uniform(common_layers.shape_list(x))
+      noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
+      x *= ordered_noise * noise
+    # Discretize as before.
+    d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
+    x = common_layers.mix(d, x, hparams.discretize_warmup_steps,
+                          hparams.mode == tf.estimator.ModeKeys.TRAIN)
     return x
 
 
@@ -46,8 +93,23 @@ class BasicDiscreteAutoencoder(basic.BasicAutoencoder):
 def basic_discrete_autoencoder():
   """Basic autoencoder model."""
   hparams = basic.basic_autoencoder()
-  hparams.hidden_size = 128
-  hparams.bottleneck_size = 512
+  hparams.num_hidden_layers = 5
+  hparams.hidden_size = 64
+  hparams.bottleneck_size = 2048
+  hparams.bottleneck_noise = 0.2
+  hparams.bottleneck_warmup_steps = 3000
+  hparams.add_hparam("discretize_warmup_steps", 5000)
+  return hparams
+
+
+@registry.register_hparams
+def ordered_discrete_autoencoder():
+  """Basic autoencoder model."""
+  hparams = basic.basic_autoencoder()
+  hparams.num_hidden_layers = 5
+  hparams.hidden_size = 64
+  hparams.bottleneck_size = 4096
+  hparams.bottleneck_noise = 0.2
   hparams.bottleneck_warmup_steps = 3000
   hparams.add_hparam("discretize_warmup_steps", 5000)
   return hparams
