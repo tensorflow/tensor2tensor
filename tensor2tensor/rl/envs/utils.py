@@ -33,7 +33,9 @@ import traceback
 import gym
 
 from tensor2tensor.rl.envs import batch_env
-from tensor2tensor.rl.envs import in_graph_batch_env
+from tensor2tensor.rl.envs import py_func_batch_env
+from tensor2tensor.rl.envs import simulated_batch_env
+from tensor2tensor.rl.envs import tf_atari_wrappers
 import tensorflow as tf
 
 
@@ -279,8 +281,25 @@ class ExternalProcessEnv(object):
       conn.send((self._EXCEPTION, stacktrace))
     conn.close()
 
+def batch_env_factory(environment_spec, hparams):
+  # define env
+  wrappers = []
+  if hparams.simulated_environment:
+    batch_env, wrappers = define_simulated_batch_env()
+  else:
+    if environment_spec == "stacked_pong":
+      environment_spec = lambda: gym.make("PongNoFrameskip-v4")
+      wrappers = [(tf_atari_wrappers.MaxAndSkipEnv, {"skip": 4})]
+    if isinstance(environment_spec, str):
+      env_lambda = lambda: gym.make(environment_spec)
+    else:
+      env_lambda = environment_spec
+    batch_env = define_batch_env(env_lambda, hparams.num_agents)  # TODO -video?
+  for w in wrappers:
+    batch_env = w[0](batch_env, **w[1])
+  return batch_env
 
-def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
+def define_batch_env(constructor, num_agents, xvfb=False):
   """Create environments and apply all desired wrappers.
 
   Args:
@@ -293,24 +312,17 @@ def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
     In-graph environments object.
   """
   with tf.variable_scope("environments"):
-    if env_processes:
-      envs = [
-          ExternalProcessEnv(constructor, xvfb)
-          for _ in range(num_agents)]
-    else:
-      envs = [constructor() for _ in range(num_agents)]
-    env = batch_env.BatchEnv(envs, blocking=not env_processes)
-    env = in_graph_batch_env.InGraphBatchEnv(env)
+    envs = [
+        ExternalProcessEnv(constructor, xvfb)
+        for _ in range(num_agents)]
+    env = batch_env.BatchEnv(envs, blocking=False)
+    env = py_func_batch_env.PyFuncBatchEnv(env)
     return env
 
 
-# def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
-#   len, observ_shape, observ_dtype, action_shape, action_dtype = 3, (210, 160, 3), tf.float32, [], tf.int32
-#   batch_env = InGraphBatchSimulatorEnv(len, observ_shape, observ_dtype, action_shape, action_dtype)
-#
-#   from tensor2tensor.rl.envs.tf_atari_wrappers import WarpFrame, MaxAndSkipEnv
-#
-#   wrapped_env = WarpFrame(batch_env)
-#   wrapped_env = MaxAndSkipEnv(wrapped_env)
-#
-#   return wrapped_env
+def define_simulated_batch_env():
+  len, observ_shape, observ_dtype, action_shape, action_dtype = 3, (210, 160, 3), tf.float32, [], tf.int32
+  batch_env = simulated_batch_env.SimulatedBatchEnv(len, observ_shape, observ_dtype, action_shape, action_dtype)
+
+  return batch_env, [(tf_atari_wrappers.WarpFrame, {}),
+                     (tf_atari_wrappers.MaxAndSkipEnv, {})]

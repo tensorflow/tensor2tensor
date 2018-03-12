@@ -26,9 +26,11 @@ import tensorflow as tf
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research.basic_conv_gen import BasicConvGen
+from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 from tensor2tensor.utils import t2t_model, trainer_lib
 
-class InGraphBatchSimulatorEnv(object):
+
+class SimulatedBatchEnv(InGraphBatchEnv):
   """Batch of environments inside the TensorFlow graph.
 
   The batch of environments will be stepped and reset inside of the graph using
@@ -58,6 +60,12 @@ class InGraphBatchSimulatorEnv(object):
       self._observ = tf.Variable(
           tf.zeros((self.length,) + observ_shape, observ_dtype),
           name='observ', trainable=False)
+
+
+  @property
+  def action_space(self):
+    import gym
+    return gym.make("PongNoFrameskip-v4").action_space
 
   def __len__(self):
     """Number of combined environments."""

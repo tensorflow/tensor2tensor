@@ -26,10 +26,12 @@ from __future__ import print_function
 
 import gym
 
+from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
+
 import tensorflow as tf
 
 
-class InGraphBatchEnv(object):
+class PyFuncBatchEnv(InGraphBatchEnv):
   """Batch of environments inside the TensorFlow graph.
 
   The batch of environments will be stepped and reset inside of the graph using
@@ -92,6 +94,8 @@ class InGraphBatchEnv(object):
           [observ_dtype, tf.float32, tf.bool], name='step')
       observ = tf.check_numerics(observ, 'observ')
       reward = tf.check_numerics(reward, 'reward')
+      reward.set_shape((len(self),))
+      done.set_shape((len(self),))
       with tf.control_dependencies([self._observ.assign(observ)]):
         return tf.identity(reward), tf.identity(done)
 

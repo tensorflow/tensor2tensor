@@ -37,19 +37,13 @@ import tensorflow as tf
 
 def define_train(hparams, environment_spec, event_dir):
   """Define the training setup."""
-  if isinstance(environment_spec, str):
-    env_lambda = lambda: gym.make(environment_spec)
-  else:
-    env_lambda = environment_spec
   policy_lambda = hparams.network
-  env = env_lambda()
-  action_space = env.action_space
 
-  batch_env = utils.define_batch_env(env_lambda, hparams.num_agents)
+  batch_env = utils.batch_env_factory(environment_spec, hparams)
 
   policy_factory = tf.make_template(
       "network",
-      functools.partial(policy_lambda, action_space, hparams))
+      functools.partial(policy_lambda, batch_env.action_space, hparams))
 
   with tf.variable_scope("train"):
     memory, collect_summary = collect.define_collect(
@@ -58,6 +52,7 @@ def define_train(hparams, environment_spec, event_dir):
   summary = tf.summary.merge([collect_summary, ppo_summary])
 
   with tf.variable_scope("eval"):
+    env_lambda = lambda: gym.make("PongNoFrameskip-v4")
     eval_env_lambda = env_lambda
     if event_dir and hparams.video_during_eval:
       # Some environments reset environments automatically, when reached done
@@ -76,10 +71,6 @@ def define_train(hparams, environment_spec, event_dir):
 
 def train(hparams, environment_spec, event_dir=None):
   """Train."""
-  if environment_spec == "stacked_pong":
-    environment_spec = lambda: atari_wrappers.wrap_atari(  # pylint: disable=g-long-lambda
-        gym.make("PongNoFrameskip-v4"),
-        warp=False, frame_skip=4, frame_stack=False)
   train_summary_op, eval_summary_op, _ = define_train(hparams, environment_spec,
                                                       event_dir)
   if event_dir:

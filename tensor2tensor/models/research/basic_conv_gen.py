@@ -43,13 +43,13 @@ class BasicConvGen(t2t_model.T2TModel):
     action = common_layers.embedding(tf.to_int64(features["action"]),
                                      action_space_size, action_embedding_size)
     action = tf.reshape(action, [-1, 1, 1, action_embedding_size])
-    frames = tf.concat([cur_frame, prev_frame, action], axis=3)
+    frames = tf.concat([cur_frame, prev_frame], axis=3)
     x = tf.layers.conv2d(frames, filters, kernel, activation=tf.nn.relu,
                          strides=(2, 2), padding="SAME")
     # Run a stack of convolutions.
-    for _ in xrange(self.num_hidden_layers):
+    for _ in range(filters): #self.num_hidden_layers):
       y = tf.layers.conv2d(frames, filters, kernel, activation=tf.nn.relu,
-                           strides=(1, 1), padding="SAME")
+                           strides=(2, 2), padding="SAME")  # TODO (1,1)
       x = common_layers.layer_norm(x + y)
     # Up-convolve.
     x = tf.layers.conv2d_transpose(
