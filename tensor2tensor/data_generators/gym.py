@@ -156,23 +156,21 @@ class GymPongRandom5k(GymDiscreteProblem):
 
   @property
   def num_steps(self):
-    return 5000
+    return 20
 
 
 @registry.register_problem
-class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
+class GymPongTrajectoriesFromPolicyBase(GymDiscreteProblem):
   """Pong game, loaded actions."""
 
   def __init__(self, *args, **kwargs):
-    super(GymPongTrajectoriesFromPolicy, self).__init__(*args, **kwargs)
+    super(GymPongTrajectoriesFromPolicyBase, self).__init__(*args, **kwargs)
     self._env = None
     self._last_policy_op = None
-    self._max_frame_pl = None
+    self._policy_input_pl = None
     self._last_action = self.env.action_space.sample()
     self._skip = 4
     self._skip_step = 0
-    self._obs_buffer = np.zeros((2,) + self.env.observation_space.shape,
-                                dtype=np.uint8)
 
   def generator(self, data_dir, tmp_dir):
     env_spec = lambda: atari_wrappers.wrap_atari(  # pylint: disable=g-long-lambda
@@ -186,32 +184,29 @@ class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
       policy_factory = tf.make_template(
           "network",
           functools.partial(policy_lambda, env_spec().action_space, hparams))
-      self._max_frame_pl = tf.placeholder(
+      self._policy_input_pl = tf.placeholder(
           tf.float32, self.env.observation_space.shape)
+      # Extending observation into tensor [1, 1, observations], which
+      # corresponds to the shape [timestep, batch, observations], expected
+      # by the policy.
       actor_critic = policy_factory(tf.expand_dims(tf.expand_dims(
-          self._max_frame_pl, 0), 0))
+          self._policy_input_pl, 0), 0))
       policy = actor_critic.policy
       self._last_policy_op = policy.mode()
       with tf.Session() as sess:
         model_saver = tf.train.Saver(
             tf.global_variables(".*network_parameters.*"))
         model_saver.restore(sess, FLAGS.model_path)
-        for item in super(GymPongTrajectoriesFromPolicy,
+        for item in super(GymPongTrajectoriesFromPolicyBase,
                           self).generator(data_dir, tmp_dir):
           yield item
 
-  # TODO(blazej0): For training of atari agents wrappers are usually used.
-  # Below we have a hacky solution which is a workaround to be used together
-  # with atari_wrappers.MaxAndSkipEnv.
   def get_action(self, observation=None):
-    if self._skip_step == self._skip - 2: self._obs_buffer[0] = observation
-    if self._skip_step == self._skip - 1: self._obs_buffer[1] = observation
     self._skip_step = (self._skip_step + 1) % self._skip
     if self._skip_step == 0:
-      max_frame = self._obs_buffer.max(axis=0)
       self._last_action = int(tf.get_default_session().run(
           self._last_policy_op,
-          feed_dict={self._max_frame_pl: max_frame})[0, 0])
+          feed_dict={self._policy_input_pl: observation})[0, 0])
     return self._last_action
 
   @property
@@ -228,4 +223,32 @@ class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
 
   @property
   def num_steps(self):
-    return 5000
+    return 200
+
+
+@registry.register_problem
+class GymPongTrajectoriesFromPolicy2Frames(GymPongTrajectoriesFromPolicyBase):
+  """Pong game, loaded actions."""
+
+  def __init__(self, *args, **kwargs):
+    super(GymPongTrajectoriesFromPolicy2Frames, self).__init__(*args, **kwargs)
+    self._obs_buffer = np.zeros((2,) + self.env.observation_space.shape,
+                                dtype=np.uint8)
+
+  # TODO(blazej0): For training of atari agents wrappers are usually used.
+  # Below we have a hacky solution which is a workaround to be used together
+  # with atari_wrappers.MaxAndSkipEnv.
+  def get_action(self, observation=None):
+    if self._skip_step == self._skip - 2: self._obs_buffer[0] = observation
+    if self._skip_step == self._skip - 1: self._obs_buffer[1] = observation
+    self._skip_step = (self._skip_step + 1) % self._skip
+    if self._skip_step == 0:
+      max_frame = self._obs_buffer.max(axis=0)
+      self._last_action = int(tf.get_default_session().run(
+          self._last_policy_op,
+          feed_dict={self._policy_input_pl: max_frame})[0, 0])
+    return self._last_action
+
+  @property
+  def num_steps(self):
+    return 200
