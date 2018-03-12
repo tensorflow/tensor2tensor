@@ -173,7 +173,7 @@ def bleu_tokenize(string):
   except when a punctuation is preceded and followed by a digit
   (e.g. a comma/dot as a thousand/decimal separator).
 
-  Note that a number (e.g. a year) followed by a dot at the end of sentence
+  Note that a numer (e.g. a year) followed by a dot at the end of sentence
   is NOT tokenized,
   i.e. the dot stays with the number because `s/(\p{P})(\P{N})/ $1 $2/g`
   does not match this case (unless we add a space after each sentence).

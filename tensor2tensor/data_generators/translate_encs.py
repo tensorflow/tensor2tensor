@@ -88,7 +88,6 @@ class TranslateEncsWmt32k(translate.TranslateProblem):
       ])
       datasets = datasets[1:]
     vocab_datasets += [[item[0], [item[1][0], item[1][1]]] for item in datasets]
-    return vocab_datasets
 
 
 @registry.register_problem

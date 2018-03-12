@@ -42,6 +42,7 @@ def decode_hparams(overrides=""):
   """Hyperparameters for decoding."""
   hp = tf.contrib.training.HParams(
       save_images=False,
+      log_targets=True,
       problem_idx=0,
       extra_length=100,
       batch_size=0,
@@ -66,7 +67,8 @@ def log_decode_results(inputs,
                        targets=None,
                        save_images=False,
                        model_dir=None,
-                       identity_output=False):
+                       identity_output=False,
+                       log_targets=True):
   """Log inference results."""
   is_image = "image" in problem_name
   decoded_inputs = None
@@ -90,11 +92,11 @@ def log_decode_results(inputs,
       decoded_targets = " ".join(map(str, targets.flatten()))
   else:
     decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
-    if targets is not None:
+    if targets is not None and log_targets:
       decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
 
   tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
-  if targets is not None:
+  if targets is not None and log_targets:
     tf.logging.info("Inference results TARGET: %s" % decoded_targets)
   return decoded_inputs, decoded_outputs, decoded_targets
 
@@ -182,7 +184,8 @@ def decode_from_dataset(estimator,
               save_images=decode_hp.save_images,
               model_dir=estimator.model_dir,
               identity_output=decode_hp.identity_output,
-              targets=targets)
+              targets=targets,
+              log_targets=decode_hp.log_targets)
           decoded_outputs.append(decoded)
           if decode_hp.write_beam_scores:
             decoded_scores.append(score)
@@ -197,7 +200,8 @@ def decode_from_dataset(estimator,
             save_images=decode_hp.save_images,
             model_dir=estimator.model_dir,
             identity_output=decode_hp.identity_output,
-            targets=targets)
+            targets=targets,
+            log_targets=decode_hp.log_targets)
         decoded_outputs.append(decoded)
 
       # Write out predictions if decode_to_file passed

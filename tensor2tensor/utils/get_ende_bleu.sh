@@ -13,7 +13,7 @@ perl $mosesdecoder/scripts/tokenizer/tokenizer.perl -l de < $decodes_file > $dec
 # 'Also, for historical reasons, we split compound words, e.g.,
 #    "rich-text format" --> rich ##AT##-##AT## text format."'
 perl -ple 's{(\S)-(\S)}{$1 ##AT##-##AT## $2}g' < $tok_gold_targets > $tok_gold_targets.atat
-perl -ple 's{(\S)-(\S)}{$1 ##AT##-##AT## $2}g' < $decodes_file.tok > $decodes_file.tok.atat
+perl -ple 's{(\S)-(\S)}{$1 ##AT##-##AT## $2}g' < $decodes_file.tok > $decodes_file.atat
 
 # Get BLEU.
 perl $mosesdecoder/scripts/generic/multi-bleu.perl $tok_gold_targets.atat < $decodes_file.tok.atat
