@@ -1119,6 +1119,7 @@ TPU_METRIC_BLACKLIST = set([
     metrics.Metrics.APPROX_BLEU,
     metrics.Metrics.ROUGE_2_F,
     metrics.Metrics.ROUGE_L_F,
+    metrics.Metrics.IMAGE_SUMMARY,
 ])
 
 
