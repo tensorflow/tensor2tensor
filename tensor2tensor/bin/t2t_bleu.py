@@ -57,7 +57,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-import time
 
 # Dependency imports
 
@@ -111,14 +110,6 @@ def main(_):
     raise ValueError(
         "Either --translation or --translations_dir must be specified.")
   transl_dir = os.path.expanduser(FLAGS.translations_dir)
-  if not os.path.exists(transl_dir):
-    exit_time = time.time() + FLAGS.wait_minutes * 60
-    tf.logging.info("Translation dir %s does not exist, waiting till %s."
-                    % (transl_dir, time.asctime(time.localtime(exit_time))))
-    while not os.path.exists(transl_dir):
-      time.sleep(10)
-      if time.time() > exit_time:
-        raise ValueError("Translation dir %s does not exist" % transl_dir)
 
   last_step_file = os.path.join(FLAGS.event_dir, "last_evaluated_step.txt")
   if FLAGS.min_steps == -1:

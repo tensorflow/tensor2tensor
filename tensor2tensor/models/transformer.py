@@ -225,13 +225,6 @@ class Transformer(t2t_model.T2TModel):
               None if using greedy decoding (beam_size=1)
       }
     """
-    if self._hparams.self_attention_type != "dot_product":
-      # Caching is not guaranteed to work with attention types other than
-      # dot_product.
-      # TODO(petershaw): Support fast decoding when using relative
-      # position representations, i.e. "dot_product_relative" attention.
-      return self._beam_decode_slow(features, decode_length, beam_size,
-                                    top_beams, alpha)
     with tf.variable_scope(self.name):
       return self._fast_decode(
           features, decode_length, beam_size, top_beams, alpha)
@@ -305,10 +298,7 @@ class Transformer(t2t_model.T2TModel):
       # We force the outputs to begin with these sequences.
       encoder_output = None
       encoder_decoder_attention_bias = None
-      if len(features["inputs"].shape) >= 4:
-        partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2, 3])
-      else:
-        partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2])
+      partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2, 3])
       partial_targets_length = common_layers.shape_list(partial_targets)[1]
       decode_length += partial_targets_length
       batch_size = tf.shape(partial_targets)[0]
@@ -396,10 +386,8 @@ class Transformer(t2t_model.T2TModel):
         top_beams=top_beams,
         alpha=alpha,
         batch_size=batch_size)
-    if partial_targets is not None and beam_size == 1:
+    if partial_targets is not None:
       ret["outputs"] = ret["outputs"][:, partial_targets_length:]
-    elif partial_targets is not None and beam_size > 1:
-        ret["outputs"] = ret["outputs"][:, :,partial_targets_length:]
     return ret
 
 
@@ -713,7 +701,7 @@ def transformer_encoder(encoder_input,
               common_layers.layer_preprocess(x, hparams), hparams, pad_remover,
               conv_padding="SAME", nonpadding_mask=nonpadding)
           x = common_layers.layer_postprocess(x, y, hparams)
-    # if normalization is done in layer_preprocess, then it should also be done
+    # if normalization is done in layer_preprocess, then it shuold also be done
     # on the output, since the output can grow very large, being the sum of
     # a whole stack of unnormalized layer outputs.
     return common_layers.layer_preprocess(x, hparams)

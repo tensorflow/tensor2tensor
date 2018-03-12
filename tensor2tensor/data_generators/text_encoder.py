@@ -31,6 +31,7 @@ import tempfile
 
 # Dependency imports
 
+import numpy as np
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
@@ -208,11 +209,11 @@ class ClassLabelEncoder(TextEncoder):
 
   def decode(self, label_id):
     if isinstance(label_id, list):
-      return self._class_labels[label_id[0]]
+      assert len(label_id) == 1
+      label_id, = label_id
+    if isinstance(label_id, np.ndarray):
+      label_id = np.squeeze(label_id)
     return self._class_labels[label_id]
-
-  def decode_list(self, ids):
-    return [self._class_labels[i] for i in ids]
 
   @property
   def vocab_size(self):
@@ -887,7 +888,7 @@ class ImageEncoder(object):
     Raises:
       ValueError: if the ids are not of the appropriate size.
     """
-    _, tmp_file_path = tempfile.mkstemp()
+    _, tmp_file_path = tempfile.mkstemp("_decode.png")
     length = self._height * self._width * self._channels
     if len(ids) != length:
       raise ValueError("Length of ids (%d) must be height (%d) x width (%d) x "

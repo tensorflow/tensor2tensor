@@ -97,7 +97,7 @@ def main(_):
           "--decode_hparams=beam_size={FLAGS.beam_size},alpha={FLAGS.alpha} "
           "--model={FLAGS.model} --hparams_set={FLAGS.hparams_set} "
           "--checkpoint_path={model.filename} --decode_from_file={source} "
-          "--decode_to_file={out_file} --keep_timestamp"
+          "--decode_to_file={out_file}"
       ).format(**locals_and_flags)
       command = FLAGS.decoder_command.format(**locals())
       tf.logging.info("Running:\n" + command)
