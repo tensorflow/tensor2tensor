@@ -280,42 +280,37 @@ class ExternalProcessEnv(object):
     conn.close()
 
 
-# def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
-#   """Create environments and apply all desired wrappers.
-#
-#   Args:
-#     constructor: Constructor of an OpenAI gym environment.
-#     num_agents: Number of environments to combine in the batch.
-#     xvfb: Frame buffer.
-#     env_processes: Whether to step environment in external processes.
-#
-#   Returns:
-#     In-graph environments object.
-#   """
-#   with tf.variable_scope("environments"):
-#     if env_processes:
-#       envs = [
-#           ExternalProcessEnv(constructor, xvfb)
-#           for _ in range(num_agents)]
-#     else:
-#       envs = [constructor() for _ in range(num_agents)]
-#     env = batch_env.BatchEnv(envs, blocking=not env_processes)
-#     env = in_graph_batch_env.InGraphBatchEnv(env)
-#     return env
-
-
-from tensor2tensor.rl.envs.in_graph_batch_simulator_env import InGraphBatchSimulatorEnv
-
-
 def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
-  len, observ_shape, observ_dtype, action_shape, action_dtype = 3, (210, 160, 3), tf.float32, [], tf.int32
-  batch_env = InGraphBatchSimulatorEnv(len, observ_shape, observ_dtype, action_shape, action_dtype)
+  """Create environments and apply all desired wrappers.
 
-  from tensor2tensor.rl.envs.tf_atari_wrappers import WarpFrame, MaxAndSkipEnv
+  Args:
+    constructor: Constructor of an OpenAI gym environment.
+    num_agents: Number of environments to combine in the batch.
+    xvfb: Frame buffer.
+    env_processes: Whether to step environment in external processes.
 
-  wrapped_env = WarpFrame(batch_env)
-  wrapped_env = MaxAndSkipEnv(wrapped_env)
+  Returns:
+    In-graph environments object.
+  """
+  with tf.variable_scope("environments"):
+    if env_processes:
+      envs = [
+          ExternalProcessEnv(constructor, xvfb)
+          for _ in range(num_agents)]
+    else:
+      envs = [constructor() for _ in range(num_agents)]
+    env = batch_env.BatchEnv(envs, blocking=not env_processes)
+    env = in_graph_batch_env.InGraphBatchEnv(env)
+    return env
 
-  return wrapped_env
 
-  # return batch_env
+# def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
+#   len, observ_shape, observ_dtype, action_shape, action_dtype = 3, (210, 160, 3), tf.float32, [], tf.int32
+#   batch_env = InGraphBatchSimulatorEnv(len, observ_shape, observ_dtype, action_shape, action_dtype)
+#
+#   from tensor2tensor.rl.envs.tf_atari_wrappers import WarpFrame, MaxAndSkipEnv
+#
+#   wrapped_env = WarpFrame(batch_env)
+#   wrapped_env = MaxAndSkipEnv(wrapped_env)
+#
+#   return wrapped_env
