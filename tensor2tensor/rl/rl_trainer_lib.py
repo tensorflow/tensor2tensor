@@ -39,7 +39,7 @@ def define_train(hparams, environment_spec, event_dir):
   """Define the training setup."""
   policy_lambda = hparams.network
 
-  batch_env = utils.batch_env_factory(environment_spec, hparams)
+  batch_env = utils.batch_env_factory(environment_spec, hparams, num_agents=hparams.num_agents)
 
   policy_factory = tf.make_template(
       "network",
@@ -61,11 +61,13 @@ def define_train(hparams, environment_spec, event_dir):
       eval_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
           env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
     wrapped_eval_env_lambda = lambda: utils.EvalVideoWrapper(eval_env_lambda())
+    # eval_batch_env = utils.define_batch_env(wrapped_eval_env_lambda, hparams.num_eval_agents,
+    #                        xvfb=hparams.video_during_eval)
+    eval_batch_env = utils.batch_env_factory(wrapped_eval_env_lambda, hparams,
+                                             num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
+
     _, eval_summary = collect.define_collect(
-        policy_factory,
-        utils.define_batch_env(wrapped_eval_env_lambda, hparams.num_eval_agents,
-                               xvfb=hparams.video_during_eval),
-        hparams, eval_phase=True)
+        policy_factory, eval_batch_env, hparams, eval_phase=True)
   return summary, eval_summary, policy_factory
 
 

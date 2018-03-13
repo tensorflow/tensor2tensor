@@ -12,7 +12,7 @@ class WarpFrame(InGraphBatchEnv):
     """Warp frames to 84x84 as done in the Nature paper and later work."""
     self.width = 84
     self.height = 84
-    self.length = batch_env.length
+    self.length = len(batch_env)
     self._batch_env = batch_env
 
     self.action_shape = batch_env.action_shape
@@ -34,7 +34,7 @@ class WarpFrame(InGraphBatchEnv):
         #This is the key point
         observ = tf.image.resize_images(self._batch_env.observ, [self.width, self.height])
         observ = tf.image.rgb_to_grayscale(observ)
-        observ = tf.Print(observ, [observ], "w frame = ")
+        # observ = tf.Print(observ, [observ], "w frame = ")
         #End of the key code
         with tf.control_dependencies([self._observ.assign(observ)]):
           return tf.identity(reward), tf.identity(done)
@@ -91,7 +91,7 @@ class MaxAndSkipEnv(InGraphBatchEnv):
       simulate_ret = tf.scan(not_done_step, tf.range(self.skip), initializer=initializer, parallel_iterations=1, infer_shape=False)
       simulate_ret = [ret[-1, ...] for ret in simulate_ret]
 
-      simulate_ret[0] = tf.Print(simulate_ret[0], [simulate_ret[0]], "w max = ")
+      # simulate_ret[0] = tf.Print(simulate_ret[0], [simulate_ret[0]], "w max = ")
 
       with tf.control_dependencies([self._observ.assign(simulate_ret[0])]):
         return tf.identity(simulate_ret[1]), tf.identity(simulate_ret[2])
