@@ -342,13 +342,13 @@ class T2TModel(base.Layer):
           "problem_hparams.target_modality is a dict.")
       return self._top_single(body_output, target_modality, features)
 
-  def _loss_single(self, logits, target_modality, features):
+  def _loss_single(self, logits, target_modality, feature):
     if not target_modality:
       log_warn(_no_problem_err("loss"))
       return (tf.constant(0., dtype=tf.float32),
               tf.constant(1., dtype=tf.float32))
 
-    loss_num, loss_den = target_modality.loss(logits, features["targets"])
+    loss_num, loss_den = target_modality.loss(logits, feature)
     loss_num *= self._problem_hparams.loss_multiplier
     return loss_num, loss_den
 
@@ -363,7 +363,7 @@ class T2TModel(base.Layer):
           "of problem_hparams.target_modality's dict.")
       losses = {}
       for k, v in six.iteritems(logits):
-        losses[k] = self._loss_single(v, target_modality[k], features)
+        losses[k] = self._loss_single(v, target_modality[k], features[k])
       return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:

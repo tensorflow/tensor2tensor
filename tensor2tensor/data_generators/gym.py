@@ -56,7 +56,9 @@ class GymDiscreteProblem(problem.Problem):
         "inputs": tf.FixedLenFeature([210, 160, 3], tf.int64),
         "inputs_prev": tf.FixedLenFeature([210, 160, 3], tf.int64),
         "targets": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        "action": tf.FixedLenFeature([1], tf.int64)
+        "action": tf.FixedLenFeature([1], tf.int64),
+        "reward": tf.FixedLenFeature([1], tf.int64),
+        # "done": tf.FixedLenFeature([1], tf.int64)
     }
 
     return data_fields, None
@@ -99,9 +101,13 @@ class GymDiscreteProblem(problem.Problem):
     p = defaults
     p.input_modality = {"inputs": ("image:identity", 256),
                         "inputs_prev": ("image:identity", 256),
-                        "reward": ("symbol:identity", self.num_rewards),
                         "action": ("symbol:identity", self.num_actions)}
-    p.target_modality = ("image:identity", 256)
+
+    p.target_modality = {"targets": ("image:identity", 256),
+                         "reward":  ("symbol:identity", self.num_rewards),
+                         # "done": ("symbol:identity", 2)
+                         }
+
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
@@ -123,8 +129,8 @@ class GymDiscreteProblem(problem.Problem):
         yield {"inputs_prev": flatten(prev_prev_observation),
                "inputs": flatten(prev_observation),
                "action": [action],
-               "done": [done],
-               "reward": [reward],
+               # "done": [done],
+               "reward": [int(reward)],
                "targets": flatten(observation)}
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):

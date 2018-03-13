@@ -80,6 +80,8 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       # TODO: fill action
 
       action = tf.constant(0.0, tf.float32)
+      # TODO: fix me
+      # TODO: fix me
       input = {"inputs": self.observ, "inputs_prev":self.observ, "action": action}
       model_output = self._model(input)
       observ = model_output[0]
