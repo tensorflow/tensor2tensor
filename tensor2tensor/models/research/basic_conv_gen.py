@@ -64,9 +64,17 @@ class BasicConvGen(t2t_model.T2TModel):
     x = tf.Print(x, [tf.shape(x)], "x shape1 =")
     x = tf.layers.flatten(x)
     x = tf.Print(x, [tf.shape(x)], "x shape2 =")
-    res_reward = tf.layers.dense(x, 2, activation=tf.nn.relu)
-    res_done = tf.layers.dense(x, 2, activation=tf.nn.relu)
+    x = tf.Print(x, [x], "x x =")
+    x = tf.check_numerics(x, "x numerics failed")
+
+
+    res_reward = tf.layers.dense(x, 2)
+    res_reward = tf.Print(res_reward, [res_reward], "res_reward=")
     res_reward = tf.Print(res_reward, [tf.shape(res_reward)], "res_reward shape2 =")
+    res_reward = tf.check_numerics(res_reward, "res reward=")
+
+    res_done = tf.layers.dense(x, 2)
+
     # res_done = tf.Print(res_done, [tf.shape(res_done)], "res_done shape2 =")
 
     return {"targets":res, "reward": res_reward}
