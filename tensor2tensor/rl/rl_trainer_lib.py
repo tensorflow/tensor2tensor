@@ -68,12 +68,12 @@ def define_train(hparams, environment_spec, event_dir):
 
     _, eval_summary = collect.define_collect(
         policy_factory, eval_batch_env, hparams, eval_phase=True)
-  return summary, eval_summary, policy_factory
+  return summary, eval_summary
 
 
 def train(hparams, environment_spec, event_dir=None):
   """Train."""
-  train_summary_op, eval_summary_op, _ = define_train(hparams, environment_spec,
+  train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
                                                       event_dir)
   if event_dir:
     summary_writer = tf.summary.FileWriter(
