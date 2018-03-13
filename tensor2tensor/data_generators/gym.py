@@ -183,7 +183,8 @@ class GymPongTrajectoriesFromPolicyBase(GymDiscreteProblem):
       policy_lambda = hparams.network
       policy_factory = tf.make_template(
           "network",
-          functools.partial(policy_lambda, env_spec().action_space, hparams))
+          functools.partial(policy_lambda, env_spec().action_space, hparams),
+          unique_name_="network")
       self._policy_input_pl = tf.placeholder(
           tf.float32, self.env.observation_space.shape)
       # Extending observation into tensor [1, 1, observations], which
