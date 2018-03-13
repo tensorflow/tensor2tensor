@@ -98,6 +98,7 @@ def decode(estimator, hparams, decode_hp):
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
+  trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   FLAGS.use_tpu = False  # decoding not supported on TPU
 
