@@ -429,7 +429,7 @@ def _interactive_input_fn(hparams, decode_hp):
   Raises:
     Exception: when `input_type` is invalid.
   """
-  num_samples = decode_hp.num_samples
+  num_samples = decode_hp.num_samples if decode_hp.num_samples > 0 else 1
   decode_length = decode_hp.extra_length
   input_type = "text"
   problem_id = 0
