@@ -54,7 +54,7 @@ class BasicConvGen(t2t_model.T2TModel):
     # Up-convolve.
     x = tf.layers.conv2d_transpose(
         frames, filters, kernel, activation=tf.nn.relu,
-        strides=(2, 2), padding="SAME")
+        strides=(1, 1), padding="SAME")
     # Output size is 3 * 256 for 3-channel color space.
     res = tf.layers.conv2d(x, 3 * 256, kernel, padding="SAME")
     height = tf.shape(res)[1]
