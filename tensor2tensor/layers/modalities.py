@@ -96,7 +96,8 @@ class SymbolModality(modality.Modality):
   def bottom_simple(self, x, name, reuse):
     with tf.variable_scope(name, reuse=reuse):
       # Squeeze out the channels dimension.
-      x = tf.squeeze(x, axis=3)
+      # x = tf.squeeze(x, axis=3)
+      x = tf.squeeze(x)
       var = self._get_weights()
       x = common_layers.dropout_no_scaling(
           x, 1.0 - self._model_hparams.symbol_dropout)

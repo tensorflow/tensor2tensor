@@ -57,10 +57,10 @@ class BasicConvGen(t2t_model.T2TModel):
         strides=(1, 1), padding="SAME")
     # Output size is 3 * 256 for 3-channel color space.
     res = tf.layers.conv2d(x, 3 * 256, kernel, padding="SAME")
-    height = tf.shape(res)[1]
-    width = tf.shape(res)[2]
-    res = tf.reshape(res, [-1, height, width, 3, 256])
-    res = tf.Print(res, [tf.shape(res)], "res shape")
+    # height = tf.shape(res)[1]
+    # width = tf.shape(res)[2]
+    # res = tf.reshape(res, [-1, height, width, 3, 256])
+    # res = tf.Print(res, [tf.shape(res)], "res shape", summarize=20)
     x = tf.Print(x, [tf.shape(x)], "x shape1 =")
     x = tf.layers.flatten(x)
     x = tf.Print(x, [tf.shape(x)], "x shape2 =")
@@ -78,7 +78,7 @@ class BasicConvGen(t2t_model.T2TModel):
 
     # res_done = tf.Print(res_done, [tf.shape(res_done)], "res_done shape2 =")
 
-    return {"targets":res, "reward": res_reward}
+    return {"targets":res, "reward": x}
 
 
 @registry.register_hparams

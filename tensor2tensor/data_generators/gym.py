@@ -105,11 +105,11 @@ class GymDiscreteProblem(problem.Problem):
     # shift them to 0, 1, 2, 3, 4
     p.input_modality = {"inputs": ("image", 256),
                         "inputs_prev": ("image", 256),
-                        "action": ("symbol", self.num_actions+1)}
+                        "action": ("symbol:identity", self.num_actions)}
 
     p.target_modality = {"targets": ("image", 256),
                          "reward":  ("symbol", self.num_rewards+1),
-                         "done": ("symbol", 2+1)
+                         #"done": ("symbol", 2+1)
                          }
 
     p.input_space_id = problem.SpaceID.IMAGE
@@ -123,6 +123,12 @@ class GymDiscreteProblem(problem.Problem):
       prev_prev_observation = prev_observation
       prev_observation = observation
       observation, reward, done, _ = self.env.step(action)
+      reward = 1
+      print("AAAAA")
+      print("AAAAA")
+      print("AAAAA")
+      print("AAAAA")
+      print("AAAAA")
       action = self.get_action(observation)
       if done:
         self.env.reset()
@@ -181,6 +187,7 @@ class GymPongTrajectoriesFromPolicyBase(GymDiscreteProblem):
     self._last_action = self.env.action_space.sample()
     self._skip = 4
     self._skip_step = 0
+    self.num_channels = 3
 
   def generator(self, data_dir, tmp_dir):
     env_spec = lambda: atari_wrappers.wrap_atari(  # pylint: disable=g-long-lambda
