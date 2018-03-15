@@ -38,6 +38,7 @@ from tensor2tensor.data_generators import mnist
 from tensor2tensor.data_generators import mscoco
 from tensor2tensor.data_generators import multinli
 from tensor2tensor.data_generators import ocr
+from tensor2tensor.data_generators import omniglot
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.data_generators import ptb
 from tensor2tensor.data_generators import snli
