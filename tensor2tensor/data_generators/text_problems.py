@@ -389,7 +389,7 @@ class Text2ClassProblem(Text2TextProblem):
 
     return {
         "inputs": encoder,
-        "targets": text_encoder.ClassLabelEncoder(self.class_labels)
+        "targets": text_encoder.ClassLabelEncoder(self.class_labels(data_dir))
     }
 
   def hparams(self, defaults, unused_model_hparams):
