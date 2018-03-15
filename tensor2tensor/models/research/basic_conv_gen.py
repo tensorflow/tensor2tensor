@@ -67,11 +67,12 @@ class BasicConvGen(t2t_model.T2TModel):
     x = tf.Print(x, [x], "x x =")
     x = tf.check_numerics(x, "x numerics failed")
 
-
-    res_reward = tf.layers.dense(x, 2) #2 = self.num_rewards in gym.py
-    res_reward = tf.Print(res_reward, [res_reward], "res_reward=")
-    res_reward = tf.Print(res_reward, [tf.shape(res_reward)], "res_reward shape2 =")
-    res_reward = tf.check_numerics(res_reward, "res reward=")
+    # After removing the "identity" from gym.py we do not need the layer below
+    # because it is automatically included
+    # res_reward = tf.layers.dense(x, 2) #2 = self.num_rewards in gym.py
+    # res_reward = tf.Print(res_reward, [res_reward], "res_reward=")
+    # res_reward = tf.Print(res_reward, [tf.shape(res_reward)], "res_reward shape2 =")
+    # res_reward = tf.check_numerics(res_reward, "res reward=")
 
     res_done = tf.layers.dense(x, 2)
 

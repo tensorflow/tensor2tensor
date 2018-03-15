@@ -99,13 +99,17 @@ class GymDiscreteProblem(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity", 256),
-                        "inputs_prev": ("image:identity", 256),
-                        "action": ("symbol:identity", self.num_actions)}
+    # hard coded +1 after "symbol" refers to the fact
+    # that 0 is a special symbol meaning padding
+    # when symbols are e.g. 0, 1, 2, 3 we
+    # shift them to 0, 1, 2, 3, 4
+    p.input_modality = {"inputs": ("image", 256),
+                        "inputs_prev": ("image", 256),
+                        "action": ("symbol", self.num_actions+1)}
 
-    p.target_modality = {"targets": ("image:identity", 256),
-                         "reward":  ("image:identity", self.num_rewards),
-                         # "done": ("symbol:identity", 2)
+    p.target_modality = {"targets": ("image", 256),
+                         "reward":  ("symbol", self.num_rewards+1),
+                         "done": ("symbol", 2+1)
                          }
 
     p.input_space_id = problem.SpaceID.IMAGE
