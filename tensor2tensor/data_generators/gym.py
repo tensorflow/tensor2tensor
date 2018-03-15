@@ -104,7 +104,7 @@ class GymDiscreteProblem(problem.Problem):
                         "action": ("symbol:identity", self.num_actions)}
 
     p.target_modality = {"targets": ("image:identity", 256),
-                         "reward":  ("symbol:identity", self.num_rewards),
+                         "reward":  ("image:identity", self.num_rewards),
                          # "done": ("symbol:identity", 2)
                          }
 
