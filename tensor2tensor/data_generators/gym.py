@@ -117,6 +117,17 @@ class GymDiscreteProblem(problem.Problem):
 
   def generator(self, data_dir, tmp_dir):
     self.env.reset()
+
+
+    while True:
+      aaa = self.env.do_you_have_original_obsr()
+      if aaa:
+        yield self.env.give_meObser()
+      else:
+        self.env.step(action)
+
+
+
     action = self.get_action()
     prev_observation, observation = None, None
     for _ in range(self.num_steps):
@@ -124,17 +135,13 @@ class GymDiscreteProblem(problem.Problem):
       prev_observation = observation
       observation, reward, done, _ = self.env.step(action)
       reward = 1
-      print("AAAAA")
-      print("AAAAA")
-      print("AAAAA")
-      print("AAAAA")
-      print("AAAAA")
+      print("Reward = 1")
       action = self.get_action(observation)
       if done:
         self.env.reset()
+
       def flatten(nparray):
-        flat1 = [x for sublist in nparray.tolist() for x in sublist]
-        return [x for sublist in flat1 for x in sublist]
+        return nparray.flatten().tolist()
       if prev_prev_observation is not None:
         yield {"inputs_prev": flatten(prev_prev_observation),
                "inputs": flatten(prev_observation),

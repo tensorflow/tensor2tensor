@@ -47,19 +47,31 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
     self.length = len
 
-    # hparams = trainer_lib.create_hparams("basic_1", data_dir=data_dir)
-    hparams = trainer_lib.create_hparams("basic_1")
+
+    hparams = trainer_lib.create_hparams("basic_1", problem_name="gym_pong_trajectories_from_policy_base",
+                                         data_dir="/home/piotr.milos/trash/loop_0309/data/0")
+    hparams.force_full_predict = True
     hparams.hidden_size = 32
-    # trainer_lib.add_problem_hparams(hparams, "env_problem")
-    # self._model = GenModel(hparams, tf.estimator.ModeKeys.PREDICT)
-    self._model = BasicConvGen(hparams, tf.estimator.ModeKeys.PREDICT)
+    from tensor2tensor.utils import registry
+    #This supposedly created the model
+    self._model = registry.model("basic_conv_gen")(hparams, tf.estimator.ModeKeys.PREDICT)
 
     self.action_shape = action_shape
     self.action_dtype = action_dtype
+
+
     with tf.variable_scope('env_temporary'):
       self._observ = tf.Variable(
           tf.zeros((self.length,) + observ_shape, observ_dtype),
           name='observ', trainable=False)
+
+      observ_dtype = tf.int64
+      self._observ_not_sure_why_we_need_this = tf.Variable(
+          tf.zeros((self.length,) + observ_shape, observ_dtype),
+          name='observ_new', trainable=False)
+
+      self._reward_not_sure_why_we_need_this = tf.Variable(tf.zeros((self.length,1), observ_dtype),
+                                                           name='reward_new', trainable=False)
 
 
   @property
@@ -75,30 +87,22 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
     with tf.name_scope('environment/simulate'):
 
-      # TODO: fill action
-      # TODO: fill action
-      # TODO: fill action
-
+      # TODO: fix me
       action = tf.constant(0.0, tf.float32)
-      # TODO: fix me
-      # TODO: fix me
-      input = {"inputs": self.observ, "inputs_prev":self.observ, "action": action}
+
+      # TODO: Łukasz understand self._observ_not_sure_why_we_need_this
+      input = {"inputs": self.observ, "inputs_prev":self.observ, "action": action,
+               "targets": self._observ_not_sure_why_we_need_this, "reward": self._reward_not_sure_why_we_need_this}
       model_output = self._model(input)
-      observ = model_output[0]
-      observ = tf.argmax(observ, axis=-1)
-      observ = tf.cast(observ, tf.float32)
+      observ_expaned = model_output[0]['targets']
+      reward_expanded = model_output[0]['reward']
+      observ = tf.cast(tf.argmax(observ_expaned, axis=-1), tf.float32)
+      reward = tf.squeeze(tf.cast(tf.argmax(reward_expanded, axis=-1), tf.float32))
 
-      # observ = tf.Print(observ, [observ], "se frame = ")
-
-
-      # observ = tf.check_numerics(observ, 'observ')
-      # TODO: fill here
-      reward = tf.constant(0.0, tf.float32, shape=(self.length,))
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
-
       with tf.control_dependencies([self._observ.assign(observ)]):
-        return tf.identity(reward), tf.identity(done)
+        return tf.identity(reward, ), tf.identity(done)
 
   def reset(self, indices=None):
     # return tf.cond(
