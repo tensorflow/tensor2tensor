@@ -370,5 +370,7 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
    Sequences](https://arxiv.org/abs/1801.10198)
 * [Image Transformer](https://arxiv.org/abs/1802.05751)
 * [Training Tips for the Transformer Model](http://ufallab.ms.mff.cuni.cz/~popel/training-tips-transformer.pdf)
+* [Self-Attention with Relative Position Representations](https://arxiv.org/abs/1803.02155)
+* [Fast Decoding in Sequence Models using Discrete Latent Variables](https://arxiv.org/abs/1803.03382)
 
 *Note: This is not an official Google product.*
