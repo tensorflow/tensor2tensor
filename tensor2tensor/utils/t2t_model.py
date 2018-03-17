@@ -364,7 +364,6 @@ class T2TModel(base.Layer):
       losses = {}
       for k, v in six.iteritems(logits):
         losses[k] = self._loss_single(v, target_modality[k], features[k])
-        print("AAAA BBBB:{} {}".format(k, v))
       return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
@@ -864,6 +863,10 @@ class T2TModel(base.Layer):
     model_cls = registry.model(model_name)
 
     def wrapping_model_fn(features, labels, mode, params=None, config=None):
+      #TODO: pm->Łukasz eval is not working (to be precise it behaves stochastically.
+      # Sometimes works, sometimes not.
+      if mode=='eval':
+        mode='train'
       return model_cls.estimator_model_fn(
           hparams,
           features,
