@@ -48,30 +48,29 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.length = len
 
 
-    hparams = trainer_lib.create_hparams("basic_1", problem_name="gym_pong_trajectories_from_policy_base",
+    hparams = trainer_lib.create_hparams("basic_1", problem_name="gym_discrete_problem",
                                          data_dir="/home/piotr.milos/trash/loop_0309/data/0")
-    hparams.force_full_predict = True
+
     hparams.hidden_size = 32
     from tensor2tensor.utils import registry
-    #This supposedly created the model
-    self._model = registry.model("basic_conv_gen")(hparams, tf.estimator.ModeKeys.PREDICT)
 
+    #TODO: pm->Łukasz. The code failed without hparams.force_full_predict.
+    hparams.force_full_predict = True
+    self._model = registry.model("basic_conv_gen")(hparams, tf.estimator.ModeKeys.PREDICT)
     self.action_shape = action_shape
     self.action_dtype = action_dtype
 
+    shape = (self.length,) + observ_shape
+    self._observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
+    self._starting_observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
 
-    with tf.variable_scope('env_temporary'):
-      self._observ = tf.Variable(
-          tf.zeros((self.length,) + observ_shape, observ_dtype),
-          name='observ', trainable=False)
+    observ_dtype = tf.int64
+    self._observ_not_sure_why_we_need_this = tf.Variable(
+        tf.zeros((self.length,) + observ_shape, observ_dtype),
+        name='observ_new', trainable=False)
 
-      observ_dtype = tf.int64
-      self._observ_not_sure_why_we_need_this = tf.Variable(
-          tf.zeros((self.length,) + observ_shape, observ_dtype),
-          name='observ_new', trainable=False)
-
-      self._reward_not_sure_why_we_need_this = tf.Variable(tf.zeros((self.length,1), observ_dtype),
-                                                           name='reward_new', trainable=False)
+    self._reward_not_sure_why_we_need_this = tf.Variable(tf.zeros((self.length,1), observ_dtype),
+                                                         name='reward_new', trainable=False)
 
 
   @property
@@ -90,9 +89,10 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       # TODO: fix me
       action = tf.constant(0.0, tf.float32)
 
-      # TODO: Łukasz understand self._observ_not_sure_why_we_need_this
-      input = {"inputs": self.observ, "inputs_prev":self.observ, "action": action,
-               "targets": self._observ_not_sure_why_we_need_this, "reward": self._reward_not_sure_why_we_need_this}
+      # TODO: pm->Łukasz understand self._observ_not_sure_why_we_need_this
+      input = {"inputs": self.observ, "action": action,
+               "targets": self._observ_not_sure_why_we_need_this,
+               "reward": self._reward_not_sure_why_we_need_this}
       model_output = self._model(input)
       observ_expaned = model_output[0]['targets']
       reward_expanded = model_output[0]['reward']
@@ -102,13 +102,13 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
       with tf.control_dependencies([self._observ.assign(observ)]):
-        return tf.identity(reward, ), tf.identity(done)
+        return tf.identity(reward), tf.identity(done)
 
   def reset(self, indices=None):
-    # return tf.cond(
-    #     tf.cast(tf.shape(indices)[0], tf.bool),
-    #     lambda: self._reset_non_empty(indices), lambda: 0.0)
     return tf.no_op("reset_to_be")
+    # #TODO: pm->Łukasz. What should be the starting conditions
+    # with tf.control_dependencies([self._observ.assign(self._starting_observ)]):
+
 
 
   @property

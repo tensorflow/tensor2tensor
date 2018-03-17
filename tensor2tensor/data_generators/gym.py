@@ -46,7 +46,12 @@ class GymDiscreteProblem(problem.Problem):
 
   def __init__(self, *args, **kwargs):
     super(GymDiscreteProblem, self).__init__(*args, **kwargs)
-    #Todo: think how to pass parameters
+    #TODO: pm->Łukasz. The below line is requied by ImageModality.top. But seems somewhat weird.
+    self.num_channels = 3
+
+
+  def _setup(self):
+    # Todo: pm->Błażej. Think how to pass parameters
     from munch import Munch
     from tensor2tensor.rl.envs.utils import batch_env_factory
     from tensor2tensor.rl.envs.tf_atari_wrappers import MomoryWrapper
@@ -58,7 +63,7 @@ class GymDiscreteProblem(problem.Problem):
 
     from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
     in_graph_wrappers = [(PongT2TGeneratorHackWrapper, {"add_value": 2}),
-                         (MomoryWrapper, {}), (MaxAndSkipWrapper, {"skip":4})
+                         (MomoryWrapper, {}), (MaxAndSkipWrapper, {"skip": 4})
                          ]
     fake_hparams = Munch(in_graph_wrappers=in_graph_wrappers, simulated_environment=None)
 
@@ -69,11 +74,11 @@ class GymDiscreteProblem(problem.Problem):
     with tf.variable_scope("train", reuse=tf.AUTO_REUSE):
       policy_lambda = hparams.network
       policy_factory = tf.make_template(
-          "network",
-          functools.partial(policy_lambda, environment_spec().action_space, hparams),
-          unique_name_="network")
+        "network",
+        functools.partial(policy_lambda, environment_spec().action_space, hparams),
+        unique_name_="network")
 
-    sample_policy = lambda policy:policy.sample()
+    sample_policy = lambda policy: policy.sample()
     hparams = copy.deepcopy(hparams)
     hparams.epoch_length = 10
     _, self.collect_trigger_op = collect.define_collect(
@@ -83,38 +88,24 @@ class GymDiscreteProblem(problem.Problem):
     self.data_get_op = MomoryWrapper.singleton._speculum.dequeue()
 
   def example_reading_spec(self, label_repr=None):
-    raise NotImplemented
-    #PM: The below version might need to be fixed and possibly moved
-    #
-    # data_fields = {
-    #     "inputs": tf.FixedLenFeature([210, 160, 3], tf.int64),
-    #     "inputs_prev": tf.FixedLenFeature([210, 160, 3], tf.int64),
-    #     "targets": tf.FixedLenFeature([210, 160, 3], tf.int64),
-    #     "action": tf.FixedLenFeature([1], tf.int64),
-    #     "reward": tf.FixedLenFeature([1], tf.int64),
-    #     # "done": tf.FixedLenFeature([1], tf.int64)
-    # }
-    #
-    # return data_fields, None
+    data_fields = {
+        "inputs": tf.FixedLenFeature([210, 160, 3], tf.int64),
+        # "inputs_prev": tf.FixedLenFeature([210, 160, 3], tf.int64),
+        "targets": tf.FixedLenFeature([210, 160, 3], tf.int64),
+        "action": tf.FixedLenFeature([1], tf.int64),
+        "reward": tf.FixedLenFeature([1], tf.int64),
+        # "done": tf.FixedLenFeature([1], tf.int64)
+    }
 
-  @property
-  def env_name(self):
-    # This is the name of the Gym environment for this problem.
-    raise NotImplementedError()
-
-  @property
-  def env(self):
-    if self._env is None:
-      self._env = gym.make(self.env_name)
-    return self._env
+    return data_fields, None
 
   @property
   def num_actions(self):
-    raise NotImplementedError()
+    return 4
 
   @property
   def num_rewards(self):
-    raise NotImplementedError()
+    return 2
 
   @property
   def num_steps(self):
@@ -138,7 +129,6 @@ class GymDiscreteProblem(problem.Problem):
     # when symbols are e.g. 0, 1, 2, 3 we
     # shift them to 0, 1, 2, 3, 4
     p.input_modality = {"inputs": ("image", 256),
-                        "inputs_prev": ("image", 256),
                         "action": ("symbol:identity", self.num_actions)}
 
     p.target_modality = {"targets": ("image", 256),
@@ -150,25 +140,31 @@ class GymDiscreteProblem(problem.Problem):
     p.target_space_id = problem.SpaceID.IMAGE
 
   def generator(self, data_dir, tmp_dir):
+    self._setup()
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
-      #TODO:Restore
+      #TODO:pm->Błażej. Restore
       # model_saver = tf.train.Saver(
       #             tf.global_variables(".*network_parameters.*"))
       # model_saver.restore(sess, FLAGS.model_path)
       pieces_generated = 0
+      observ = None
       while pieces_generated<self.num_steps:
         avilable_data_size = sess.run(self.avilable_data_size_op)
         if avilable_data_size>0:
-          pieces_generated += 1
+          prev_observation = observ
           observ, reward, action, done = sess.run(self.data_get_op)
-          print("Reward:{}".format(reward))
-          yield {
-            "targets": observ.flatten().tolist(),
-            "action": [int(action)],
-            # "done": [bool(done)],
-            "reward": [int(reward)],
-               }
+          observ = observ.flatten().tolist()
+          if prev_observation:
+            pieces_generated += 1
+            #TODO:pm->Łukasz. In principle we could remove also inputs. Should we.
+            yield {
+              "inputs": prev_observation,
+              "targets": observ,
+              "action": [int(action)],
+              # "done": [bool(done)],
+              "reward": [int(reward)],
+                 }
         else:
           sess.run(self.collect_trigger_op)
 
