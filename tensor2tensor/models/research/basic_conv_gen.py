@@ -32,6 +32,14 @@ import tensorflow as tf
 @registry.register_model
 class BasicConvGen(t2t_model.T2TModel):
 
+  # TODO: pm->Łukasz. What is the correct way of getting the previous observation?
+  def bottom(self, features):
+    transformed_features = super().bottom(features)
+    prev_input = tf.zeros_like(transformed_features["inputs"])
+    transformed_features["inputs_prev"] = tf.stop_gradient(prev_input)
+
+    return transformed_features
+
   def body(self, features):
     filters = self.hparams.hidden_size
     cur_frame = tf.to_float(features["inputs"])
@@ -42,6 +50,7 @@ class BasicConvGen(t2t_model.T2TModel):
     # Gather all inputs.
     action = common_layers.embedding(tf.to_int64(features["action"]),
                                      action_space_size, action_embedding_size)
+    #TODO: pm->Łukasz. Actions are happily discarded ;)
     action = tf.reshape(action, [-1, 1, 1, action_embedding_size])
     frames = tf.concat([cur_frame, prev_frame], axis=3)
     x = tf.layers.conv2d(frames, filters, kernel, activation=tf.nn.relu,
@@ -57,26 +66,10 @@ class BasicConvGen(t2t_model.T2TModel):
         strides=(1, 1), padding="SAME")
     # Output size is 3 * 256 for 3-channel color space.
     res = tf.layers.conv2d(x, 3 * 256, kernel, padding="SAME")
-    # height = tf.shape(res)[1]
-    # width = tf.shape(res)[2]
-    # res = tf.reshape(res, [-1, height, width, 3, 256])
-    # res = tf.Print(res, [tf.shape(res)], "res shape", summarize=20)
-    x = tf.Print(x, [tf.shape(x)], "x shape1 =")
     x = tf.layers.flatten(x)
-    x = tf.Print(x, [tf.shape(x)], "x shape2 =")
-    x = tf.Print(x, [x], "x x =")
-    x = tf.check_numerics(x, "x numerics failed")
 
-    # After removing the "identity" from gym.py we do not need the layer below
-    # because it is automatically included
-    # res_reward = tf.layers.dense(x, 2) #2 = self.num_rewards in gym.py
-    # res_reward = tf.Print(res_reward, [res_reward], "res_reward=")
-    # res_reward = tf.Print(res_reward, [tf.shape(res_reward)], "res_reward shape2 =")
-    # res_reward = tf.check_numerics(res_reward, "res reward=")
-
+    #TODO: pm->pm: add done
     res_done = tf.layers.dense(x, 2)
-
-    # res_done = tf.Print(res_done, [tf.shape(res_done)], "res_done shape2 =")
 
     return {"targets":res, "reward": x}
 
