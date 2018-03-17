@@ -286,7 +286,7 @@ def batch_env_factory(environment_spec, hparams, num_agents, xvfb=False):
   wrappers = hparams.in_graph_wrappers if hasattr(hparams, "in_graph_wrappers") else []
 
   if hparams.simulated_environment:
-    batch_env = define_simulated_batch_env()
+    batch_env = define_simulated_batch_env(num_agents)
   else:
     if environment_spec == "stacked_pong":
       environment_spec = lambda: gym.make("PongNoFrameskip-v4")
@@ -321,8 +321,9 @@ def define_batch_env(constructor, num_agents, xvfb=False):
     return env
 
 
-def define_simulated_batch_env():
-  len, observ_shape, observ_dtype, action_shape, action_dtype = 3, (210, 160, 3), tf.float32, [], tf.int32
+def define_simulated_batch_env(num_agents):
+  #TODO: pm->Błażej. Should the paramters be infered.
+  len, observ_shape, observ_dtype, action_shape, action_dtype = num_agents, (210, 160, 3), tf.float32, [], tf.int32
   batch_env = simulated_batch_env.SimulatedBatchEnv(len, observ_shape, observ_dtype, action_shape, action_dtype)
 
   return batch_env
