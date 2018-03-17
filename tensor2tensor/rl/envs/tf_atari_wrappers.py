@@ -61,11 +61,11 @@ class WarpFrameWrapper(TransformWrapper):
   def __init__(self, batch_env):
     """Warp frames to 84x84 as done in the Nature paper and later work."""
 
-    width, height = 84, 84
+    dims = [84, 84]
     nature_transform = \
-      lambda o: tf.image.rgb_to_grayscale(tf.image.resize_images(o, [width, height]))
+      lambda o: tf.image.rgb_to_grayscale(tf.image.resize_images(o, dims))
 
-    super().__init__(batch_env, transform_observation=nature_transform)
+    super().__init__(batch_env, transform_observation=(nature_transform, dims, tf.float32))
 
 
 class PongT2TGeneratorHackWrapper(TransformWrapper):
@@ -119,10 +119,8 @@ class MomoryWrapper(WrapperBase):
     MomoryWrapper.singleton = self
     assert self._length==1, "We support only one environment"
 
-    observ_dtype = tf.float32
-
     infinity = 10000000
-    self._speculum = tf.FIFOQueue(infinity, dtypes=[observ_dtype, tf.float32, tf.int32, tf.bool])
+    self._speculum = tf.FIFOQueue(infinity, dtypes=[tf.int64, tf.float32, tf.int32, tf.bool])
 
     self._observ = self._batch_env.observ
 
@@ -132,7 +130,7 @@ class MomoryWrapper(WrapperBase):
       reward, done = self._batch_env.simulate(action)
       with tf.control_dependencies([reward, done]):
 
-        enqueue_op = self._speculum.enqueue([self._batch_env.observ, reward, action, done])
+        enqueue_op = self._speculum.enqueue([tf.cast(self._batch_env.observ, tf.int64), reward, action, done])
 
         with tf.control_dependencies([enqueue_op]):
           return tf.identity(reward), tf.identity(done)
