@@ -154,6 +154,12 @@ class GymDiscreteProblem(problem.Problem):
         if avilable_data_size>0:
           prev_observation = observ
           observ, reward, action, done = sess.run(self.data_get_op)
+          # movies = True
+          # if movies==True:
+          #   from PIL import Image
+          #   im = Image.fromarray(observ[0,...], mode="RGB")
+          #   im.save("/tmp/piece_{}.png".format(pieces_generated))
+
           observ = observ.flatten().tolist()
           if prev_observation:
             pieces_generated += 1
