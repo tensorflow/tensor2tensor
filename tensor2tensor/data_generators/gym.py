@@ -35,33 +35,67 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-
-
 flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("model_path", "", "File with model for pong")
 
-
+@registry.register_problem
 class GymDiscreteProblem(problem.Problem):
   """Gym environment with discrete actions and rewards."""
 
   def __init__(self, *args, **kwargs):
     super(GymDiscreteProblem, self).__init__(*args, **kwargs)
-    self._env = None
+    #Todo: think how to pass parameters
+    from munch import Munch
+    from tensor2tensor.rl.envs.utils import batch_env_factory
+    from tensor2tensor.rl.envs.tf_atari_wrappers import MomoryWrapper
+    from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
+    from tensor2tensor.rl import collect
+    import copy
+
+    environment_spec = lambda: gym.make("PongNoFrameskip-v4")
+
+    from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
+    in_graph_wrappers = [(PongT2TGeneratorHackWrapper, {"add_value": 2}),
+                         (MomoryWrapper, {}), (MaxAndSkipWrapper, {"skip":4})
+                         ]
+    fake_hparams = Munch(in_graph_wrappers=in_graph_wrappers, simulated_environment=None)
+
+    generator_batch_env = \
+      batch_env_factory(environment_spec, fake_hparams, num_agents=1, xvfb=False)
+
+    hparams = rl.atari_base()
+    with tf.variable_scope("train", reuse=tf.AUTO_REUSE):
+      policy_lambda = hparams.network
+      policy_factory = tf.make_template(
+          "network",
+          functools.partial(policy_lambda, environment_spec().action_space, hparams),
+          unique_name_="network")
+
+    sample_policy = lambda policy:policy.sample()
+    hparams = copy.deepcopy(hparams)
+    hparams.epoch_length = 10
+    _, self.collect_trigger_op = collect.define_collect(
+      policy_factory, generator_batch_env, hparams, eval_phase=False, policy_to_actions_lambda=sample_policy)
+
+    self.avilable_data_size_op = MomoryWrapper.singleton._speculum.size()
+    self.data_get_op = MomoryWrapper.singleton._speculum.dequeue()
 
   def example_reading_spec(self, label_repr=None):
-
-    data_fields = {
-        "inputs": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        "inputs_prev": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        "targets": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        "action": tf.FixedLenFeature([1], tf.int64),
-        "reward": tf.FixedLenFeature([1], tf.int64),
-        # "done": tf.FixedLenFeature([1], tf.int64)
-    }
-
-    return data_fields, None
+    raise NotImplemented
+    #PM: The below version might need to be fixed and possibly moved
+    #
+    # data_fields = {
+    #     "inputs": tf.FixedLenFeature([210, 160, 3], tf.int64),
+    #     "inputs_prev": tf.FixedLenFeature([210, 160, 3], tf.int64),
+    #     "targets": tf.FixedLenFeature([210, 160, 3], tf.int64),
+    #     "action": tf.FixedLenFeature([1], tf.int64),
+    #     "reward": tf.FixedLenFeature([1], tf.int64),
+    #     # "done": tf.FixedLenFeature([1], tf.int64)
+    # }
+    #
+    # return data_fields, None
 
   @property
   def env_name(self):
@@ -84,7 +118,7 @@ class GymDiscreteProblem(problem.Problem):
 
   @property
   def num_steps(self):
-    raise NotImplementedError()
+    return 30
 
   @property
   def num_shards(self):
@@ -109,46 +143,35 @@ class GymDiscreteProblem(problem.Problem):
 
     p.target_modality = {"targets": ("image", 256),
                          "reward":  ("symbol", self.num_rewards+1),
-                         #"done": ("symbol", 2+1)
+                         # "done": ("symbol", 2+1)
                          }
 
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
   def generator(self, data_dir, tmp_dir):
-    self.env.reset()
+    with tf.Session() as sess:
+      sess.run(tf.global_variables_initializer())
+      #TODO:Restore
+      # model_saver = tf.train.Saver(
+      #             tf.global_variables(".*network_parameters.*"))
+      # model_saver.restore(sess, FLAGS.model_path)
+      pieces_generated = 0
+      while pieces_generated<self.num_steps:
+        avilable_data_size = sess.run(self.avilable_data_size_op)
+        if avilable_data_size>0:
+          pieces_generated += 1
+          observ, reward, action, done = sess.run(self.data_get_op)
+          print("Reward:{}".format(reward))
+          yield {
+            "targets": observ.flatten().tolist(),
+            "action": [int(action)],
+            # "done": [bool(done)],
+            "reward": [int(reward)],
+               }
+        else:
+          sess.run(self.collect_trigger_op)
 
-
-    while True:
-      aaa = self.env.do_you_have_original_obsr()
-      if aaa:
-        yield self.env.give_meObser()
-      else:
-        self.env.step(action)
-
-
-
-    action = self.get_action()
-    prev_observation, observation = None, None
-    for _ in range(self.num_steps):
-      prev_prev_observation = prev_observation
-      prev_observation = observation
-      observation, reward, done, _ = self.env.step(action)
-      reward = 1
-      print("Reward = 1")
-      action = self.get_action(observation)
-      if done:
-        self.env.reset()
-
-      def flatten(nparray):
-        return nparray.flatten().tolist()
-      if prev_prev_observation is not None:
-        yield {"inputs_prev": flatten(prev_prev_observation),
-               "inputs": flatten(prev_observation),
-               "action": [action],
-               # "done": [done],
-               "reward": [int(reward)],
-               "targets": flatten(observation)}
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     train_paths = self.training_filepaths(
@@ -159,121 +182,3 @@ class GymDiscreteProblem(problem.Problem):
     generator_utils.generate_files(
         self.generator(data_dir, tmp_dir), all_paths)
     generator_utils.shuffle_dataset(all_paths)
-
-
-@registry.register_problem
-class GymPongRandom5k(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  @property
-  def env_name(self):
-    return "PongNoFrameskip-v4"
-
-  @property
-  def num_actions(self):
-    return 4
-
-  @property
-  def num_rewards(self):
-    return 2
-
-  @property
-  def num_steps(self):
-    return 20
-
-
-@registry.register_problem
-class GymPongTrajectoriesFromPolicyBase(GymDiscreteProblem):
-  """Pong game, loaded actions."""
-
-  def __init__(self, *args, **kwargs):
-    super(GymPongTrajectoriesFromPolicyBase, self).__init__(*args, **kwargs)
-    self._env = None
-    self._last_policy_op = None
-    self._policy_input_pl = None
-    self._last_action = self.env.action_space.sample()
-    self._skip = 4
-    self._skip_step = 0
-    self.num_channels = 3
-
-  def generator(self, data_dir, tmp_dir):
-    env_spec = lambda: atari_wrappers.wrap_atari(  # pylint: disable=g-long-lambda
-        gym.make("PongNoFrameskip-v4"),
-        warp=False,
-        frame_skip=4,
-        frame_stack=False)
-    hparams = rl.atari_base()
-    with tf.variable_scope("train", reuse=tf.AUTO_REUSE):
-      policy_lambda = hparams.network
-      policy_factory = tf.make_template(
-          "network",
-          functools.partial(policy_lambda, env_spec().action_space, hparams),
-          unique_name_="network")
-      self._policy_input_pl = tf.placeholder(
-          tf.float32, self.env.observation_space.shape)
-      # Extending observation into tensor [1, 1, observations], which
-      # corresponds to the shape [timestep, batch, observations], expected
-      # by the policy.
-      actor_critic = policy_factory(tf.expand_dims(tf.expand_dims(
-          self._policy_input_pl, 0), 0))
-      policy = actor_critic.policy
-      self._last_policy_op = policy.mode()
-      with tf.Session() as sess:
-        model_saver = tf.train.Saver(
-            tf.global_variables(".*network_parameters.*"))
-        model_saver.restore(sess, FLAGS.model_path)
-        for item in super(GymPongTrajectoriesFromPolicyBase,
-                          self).generator(data_dir, tmp_dir):
-          yield item
-
-  def get_action(self, observation=None):
-    self._skip_step = (self._skip_step + 1) % self._skip
-    if self._skip_step == 0:
-      self._last_action = int(tf.get_default_session().run(
-          self._last_policy_op,
-          feed_dict={self._policy_input_pl: observation})[0, 0])
-    return self._last_action
-
-  @property
-  def env_name(self):
-    return "PongNoFrameskip-v4"
-
-  @property
-  def num_actions(self):
-    return 4
-
-  @property
-  def num_rewards(self):
-    return 2
-
-  @property
-  def num_steps(self):
-    return 200
-
-
-@registry.register_problem
-class GymPongTrajectoriesFromPolicy2Frames(GymPongTrajectoriesFromPolicyBase):
-  """Pong game, loaded actions."""
-
-  def __init__(self, *args, **kwargs):
-    super(GymPongTrajectoriesFromPolicy2Frames, self).__init__(*args, **kwargs)
-    self._obs_buffer = np.zeros((2,) + self.env.observation_space.shape,
-                                dtype=np.uint8)
-
-  # TODO(blazej0): For training of atari agents wrappers are usually used.
-  # Below we have a hacky solution which is a workaround to be used together
-  # with atari_wrappers.MaxAndSkipEnv.
-  def get_action(self, observation=None):
-    if self._skip_step == self._skip - 2: self._obs_buffer[0] = observation
-    if self._skip_step == self._skip - 1: self._obs_buffer[1] = observation
-    self._skip_step = (self._skip_step + 1) % self._skip
-    if self._skip_step == 0:
-      max_frame = self._obs_buffer.max(axis=0)
-      self._last_action = int(tf.get_default_session().run(
-          self._last_policy_op,
-          feed_dict={self._policy_input_pl: max_frame})[0, 0])
-    return self._last_action
-
-  @property
-  def num_steps(self):
-    return 200
