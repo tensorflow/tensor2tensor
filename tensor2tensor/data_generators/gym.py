@@ -54,7 +54,7 @@ class GymDiscreteProblem(problem.Problem):
     # Todo: pm->Błażej. Think how to pass parameters
     from munch import Munch
     from tensor2tensor.rl.envs.utils import batch_env_factory
-    from tensor2tensor.rl.envs.tf_atari_wrappers import MomoryWrapper
+    from tensor2tensor.rl.envs.tf_atari_wrappers import MemoryWrapper
     from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
     from tensor2tensor.rl import collect
     import copy
@@ -63,7 +63,7 @@ class GymDiscreteProblem(problem.Problem):
 
     from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
     in_graph_wrappers = [(PongT2TGeneratorHackWrapper, {"add_value": 2}),
-                         (MomoryWrapper, {}), (MaxAndSkipWrapper, {"skip": 4})
+                         (MemoryWrapper, {}), (MaxAndSkipWrapper, {"skip": 4})
                          ]
     fake_hparams = Munch(in_graph_wrappers=in_graph_wrappers, simulated_environment=None)
 
@@ -84,8 +84,8 @@ class GymDiscreteProblem(problem.Problem):
     _, self.collect_trigger_op = collect.define_collect(
       policy_factory, generator_batch_env, hparams, eval_phase=False, policy_to_actions_lambda=sample_policy)
 
-    self.avilable_data_size_op = MomoryWrapper.singleton._speculum.size()
-    self.data_get_op = MomoryWrapper.singleton._speculum.dequeue()
+    self.avilable_data_size_op = MemoryWrapper.singleton._speculum.size()
+    self.data_get_op = MemoryWrapper.singleton._speculum.dequeue()
 
   def example_reading_spec(self, label_repr=None):
     data_fields = {

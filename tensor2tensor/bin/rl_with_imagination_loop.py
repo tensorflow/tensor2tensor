@@ -58,8 +58,11 @@ def main(_):
 
       from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
       from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
+      from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
       #TODO: pm-> Błażej. Make sure that these are compatibile with the ones in gym.py
-      in_graph_wrappers = [(PongT2TGeneratorHackWrapper, {"add_value": -2}),(MaxAndSkipWrapper, {"skip": 4})]
+      in_graph_wrappers = [(PongT2TGeneratorHackWrapper, {"add_value": -2}), (MaxAndSkipWrapper, {"skip": 4})]
+      #TODO: pm-> Błażej. Check if TimeLimitWrapper does what it is supposed to do
+      # in_graph_wrappers = [(TimeLimitWrapper, {}), (PongT2TGeneratorHackWrapper, {"add_value": -2}), (MaxAndSkipWrapper, {"skip": 4})]
       hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
 
       rl_trainer_lib.train(hparams, "PongNoFrameskip-v4", ppo_dir)

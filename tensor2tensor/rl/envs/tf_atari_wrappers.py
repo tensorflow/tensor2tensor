@@ -35,7 +35,7 @@ class TransformWrapper(WrapperBase):
     if transform_observation:
       _, observ_shape, observ_dtype = transform_observation
       self._observ = tf.Variable(
-          tf.zeros((self.length,) + observ_shape, observ_dtype),trainable=False)
+          tf.zeros(len(self) + observ_shape, observ_dtype),trainable=False)
     else:
       self._observ = self._batch_env.observ
 
@@ -108,15 +108,39 @@ class MaxAndSkipWrapper(WrapperBase):
         return tf.identity(simulate_ret[1]), tf.identity(simulate_ret[2])
 
 
-class MomoryWrapper(WrapperBase):
+class TimeLimitWrapper(WrapperBase):
+
+  def __init__(self, batch_env, timelimit=30):
+    super().__init__(batch_env)
+    self.timelimit = timelimit
+    self._time_elaped = tf.Variable(tf.zeros((len(self),), tf.int32), trainable=False)
+
+  def simulate(self, action):
+    with tf.name_scope('environment/simulate'):
+      reward, done = self._batch_env.simulate(action)
+      with tf.control_dependencies([reward, done]):
+        new_done = tf.logical_or(done, self._time_elaped>self.timelimit)
+        inc = self._time_elaped.assign_add(tf.ones_like(self._time_elaped))
+
+        with tf.control_dependencies([inc]):
+          return tf.identity(reward), tf.identity(new_done)
+
+  def reset(self, indices=None):
+    op_zero = tf.scatter_update(self._time_elaped, indices, tf.zeros(tf.shape(indices), dtype=tf.int32))
+    with tf.control_dependencies([op_zero]):
+      return self._batch_env.reset(indices)
+
+
+
+class MemoryWrapper(WrapperBase):
 
   #This is a singleton class
   singleton = None
 
   def __init__(self, batch_env):
     super().__init__(batch_env)
-    assert MomoryWrapper.singleton==None, "The class cannot be instatiated multiple times"
-    MomoryWrapper.singleton = self
+    assert MemoryWrapper.singleton == None, "The class cannot be instatiated multiple times"
+    MemoryWrapper.singleton = self
     assert self._length==1, "We support only one environment"
 
     infinity = 10000000
