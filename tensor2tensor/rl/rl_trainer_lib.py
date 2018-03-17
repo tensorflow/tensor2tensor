@@ -66,8 +66,10 @@ def define_train(hparams, environment_spec, event_dir):
     eval_batch_env = utils.batch_env_factory(wrapped_eval_env_lambda, hparams,
                                              num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
 
-    _, eval_summary = collect.define_collect(
-        policy_factory, eval_batch_env, hparams, eval_phase=True)
+    # _, eval_summary = collect.define_collect(
+    #     policy_factory, eval_batch_env, hparams, eval_phase=True)
+    #TODO: pm -> Błażej. I'm to tired to fix it now.
+    eval_summary = tf.no_op()
   return summary, eval_summary
 
 
