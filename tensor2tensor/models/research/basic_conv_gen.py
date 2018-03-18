@@ -50,9 +50,10 @@ class BasicConvGen(t2t_model.T2TModel):
     # Gather all inputs.
     action = common_layers.embedding(tf.to_int64(features["action"]),
                                      action_space_size, action_embedding_size)
-    #TODO: pm->Łukasz. Actions are happily discarded ;)
     action = tf.reshape(action, [-1, 1, 1, action_embedding_size])
-    frames = tf.concat([cur_frame, prev_frame], axis=3)
+    #broadcast to the shape compatibile with pictures
+    action += tf.expand_dims(tf.zeros_like(cur_frame[..., 0]), -1)
+    frames = tf.concat([cur_frame, prev_frame, action], axis=3)
     x = tf.layers.conv2d(frames, filters, kernel, activation=tf.nn.relu,
                          strides=(2, 2), padding="SAME")
     # Run a stack of convolutions.
