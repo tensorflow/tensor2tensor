@@ -32,18 +32,10 @@ import tensorflow as tf
 @registry.register_model
 class BasicConvGen(t2t_model.T2TModel):
 
-  # TODO: pm->Łukasz. What is the correct way of getting the previous observation?
-  def bottom(self, features):
-    transformed_features = super().bottom(features)
-    prev_input = tf.zeros_like(transformed_features["inputs"])
-    transformed_features["inputs_prev"] = tf.stop_gradient(prev_input)
-
-    return transformed_features
-
   def body(self, features):
     filters = self.hparams.hidden_size
-    cur_frame = tf.to_float(features["inputs"])
-    prev_frame = tf.to_float(features["inputs_prev"])
+    cur_frame = tf.to_float(features["inputs_0"])
+    prev_frame = tf.to_float(features["inputs_1"])
     action_embedding_size = 32
     action_space_size = 10
     kernel = (3, 3)
@@ -69,10 +61,11 @@ class BasicConvGen(t2t_model.T2TModel):
     res = tf.layers.conv2d(x, 3 * 256, kernel, padding="SAME")
     x = tf.layers.flatten(x)
 
-    #TODO: pm->pm: add done
+
+    # TODO: pm->pm: add done
     res_done = tf.layers.dense(x, 2)
 
-    return {"targets":res, "reward": x}
+    return {"targets":tf.identity(res), "reward": x}
 
 
 @registry.register_hparams

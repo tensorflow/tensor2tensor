@@ -22,6 +22,7 @@ from __future__ import print_function
 import functools
 
 # Dependency imports
+from collections import deque
 
 import gym
 import numpy as np
@@ -32,6 +33,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl.envs import atari_wrappers
 from tensor2tensor.utils import registry
+from moviepy.editor import *
 
 import tensorflow as tf
 
@@ -48,6 +50,8 @@ class GymDiscreteProblem(problem.Problem):
   def __init__(self, *args, **kwargs):
     super(GymDiscreteProblem, self).__init__(*args, **kwargs)
     self.num_channels = 3
+    self.history_size = 2
+    self.movies = False
 
 
   def _setup(self):
@@ -66,6 +70,8 @@ class GymDiscreteProblem(problem.Problem):
                          (MemoryWrapper, {}), (MaxAndSkipWrapper, {"skip": 4})
                          ]
     fake_hparams = Munch(in_graph_wrappers=in_graph_wrappers, simulated_environment=None)
+
+
 
     generator_batch_env = \
       batch_env_factory(environment_spec, fake_hparams, num_agents=1, xvfb=False)
@@ -86,10 +92,11 @@ class GymDiscreteProblem(problem.Problem):
 
     self.avilable_data_size_op = MemoryWrapper.singleton._speculum.size()
     self.data_get_op = MemoryWrapper.singleton._speculum.dequeue()
+    self.history_buffer = deque(maxlen=self.history_size+1)
 
   def example_reading_spec(self, label_repr=None):
     data_fields = {
-      "inputs_encoded": tf.FixedLenFeature((), tf.string),
+
       "targets_encoded": tf.FixedLenFeature((), tf.string),
       "image/format": tf.FixedLenFeature((), tf.string),
       "action": tf.FixedLenFeature([1], tf.int64),
@@ -97,14 +104,11 @@ class GymDiscreteProblem(problem.Problem):
       # "done": tf.FixedLenFeature([1], tf.int64)
     }
 
-    data_items_to_decoders = {
-        "inputs":
-            tf.contrib.slim.tfexample_decoder.Image(
-                image_key="inputs_encoded",
-                format_key="image/format",
-                shape=[210, 160, 3],
-                channels=3),
+    for x in range(self.history_size):
+      data_fields["inputs_encoded_{}".format(x)] =  tf.FixedLenFeature((), tf.string)
 
+
+    data_items_to_decoders = {
       "targets":
         tf.contrib.slim.tfexample_decoder.Image(
           image_key="targets_encoded",
@@ -116,6 +120,13 @@ class GymDiscreteProblem(problem.Problem):
       "action":tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
       "reward":tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="reward"),
     }
+
+    for x in range(self.history_size):
+      data_items_to_decoders["inputs_{}".format(x)] =  tf.contrib.slim.tfexample_decoder.Image(
+                image_key="inputs_encoded_{}".format(x),
+                format_key="image/format",
+                shape=[210, 160, 3],
+                channels=3)
 
 
     return data_fields, data_items_to_decoders
@@ -131,7 +142,7 @@ class GymDiscreteProblem(problem.Problem):
   @property
   def num_steps(self):
     #TODO: pm->Błażej. Make it a paremater
-    return 30
+    return 100
 
   @property
   def num_shards(self):
@@ -150,8 +161,10 @@ class GymDiscreteProblem(problem.Problem):
     # that 0 is a special symbol meaning padding
     # when symbols are e.g. 0, 1, 2, 3 we
     # shift them to 0, 1, 2, 3, 4
-    p.input_modality = {"inputs": ("image", 256),
-                        "action": ("symbol:identity", self.num_actions)}
+    p.input_modality = {"action": ("symbol:identity", self.num_actions)}
+
+    for x in range(self.history_size):
+      p.input_modality["inputs_{}".format(x)] = ("image", 256)
 
     p.target_modality = {"targets": ("image", 256),
                          "reward":  ("symbol", self.num_rewards+1),
@@ -163,6 +176,7 @@ class GymDiscreteProblem(problem.Problem):
 
   def generator(self, data_dir, tmp_dir):
     self._setup()
+    clip_files = []
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
       #TODO:pm->Błażej. Restore
@@ -170,32 +184,35 @@ class GymDiscreteProblem(problem.Problem):
       #             tf.global_variables(".*network_parameters.*"))
       # model_saver.restore(sess, FLAGS.model_path)
       pieces_generated = 0
-      observ = None
       while pieces_generated<self.num_steps:
         avilable_data_size = sess.run(self.avilable_data_size_op)
         if avilable_data_size>0:
-          prev_observation = observ
           observ, reward, action, done = sess.run(self.data_get_op)
-          # movies = True
-          # if movies==True:
-          #   from PIL import Image
-          #   ob = observ[0,...].astype("uint8")
+          self.history_buffer.append(observ)
 
-            # im = Image.fromarray(ob)
-            # im.save("/tmp/piece_{}.png".format(pieces_generated))
+          if self.movies==True:
+            file_name = '/tmp/output_{}.png'.format(pieces_generated)
+            clip_files.append(file_name)
+            with open(file_name, 'wb') as f:
+              f.write(observ)
 
-          if prev_observation:
+          if len(self.history_buffer)==self.history_size+1:
             pieces_generated += 1
-            yield {
-              "inputs_encoded": [prev_observation],
+            ret_dict = {
               "targets_encoded": [observ],
               "image/format": ["png"],
               "action": [int(action)],
               # "done": [bool(done)],
               "reward": [int(reward)],
                 }
+            for i, v in enumerate(list(self.history_buffer)[:-1]):
+              ret_dict["inputs_encoded_{}".format(i)] = [v]
+            yield ret_dict
         else:
           sess.run(self.collect_trigger_op)
+    if self.movies:
+      clip = ImageSequenceClip(clip_files, fps=25)
+      clip.write_videofile("/tmp/output.mp4", fps=25, codec='mpeg4')
 
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):

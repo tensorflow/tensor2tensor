@@ -54,7 +54,6 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     hparams.hidden_size = 32
     from tensor2tensor.utils import registry
 
-    #TODO: pm->Łukasz. The code failed without hparams.force_full_predict.
     hparams.force_full_predict = True
     self._model = registry.model("basic_conv_gen")(hparams, tf.estimator.ModeKeys.PREDICT)
     self.action_shape = action_shape
@@ -62,6 +61,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
     shape = (self.length,) + observ_shape
     self._observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
+    self._prev_observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
     self._starting_observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
 
     observ_dtype = tf.int64
@@ -85,12 +85,8 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   def simulate(self, action):
 
     with tf.name_scope('environment/simulate'):
-
-      # TODO: fix me
-      action = tf.constant(0.0, tf.float32)
-
-      # TODO: pm->Łukasz understand self._observ_not_sure_why_we_need_this
-      input = {"inputs": self.observ, "action": action,
+      input = {"inputs_0": self._prev_observ, "inputs_1": self.observ,
+               "action": action,
                "targets": self._observ_not_sure_why_we_need_this,
                "reward": self._reward_not_sure_why_we_need_this}
       model_output = self._model(input)
@@ -101,12 +97,14 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
-      with tf.control_dependencies([self._observ.assign(observ)]):
-        return tf.identity(reward), tf.identity(done)
+      #TODO: move this ugly code bottom of basic_conv_gen.
+      with tf.control_dependencies([self._prev_observ.assign(self.observ)]):
+        with tf.control_dependencies([self._observ.assign(observ)]):
+          return tf.identity(reward), tf.identity(done)
 
   def reset(self, indices=None):
     return tf.no_op("reset_to_be")
-    # #TODO: pm->Łukasz. What should be the starting conditions
+    # #TODO: pm->Błażej. Starting observations
     # with tf.control_dependencies([self._observ.assign(self._starting_observ)]):
 
 
