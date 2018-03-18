@@ -25,6 +25,7 @@ import functools
 
 import gym
 import numpy as np
+from tensorflow.contrib.slim.python.slim.data.tfexample_decoder import ItemHandler
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -46,7 +47,6 @@ class GymDiscreteProblem(problem.Problem):
 
   def __init__(self, *args, **kwargs):
     super(GymDiscreteProblem, self).__init__(*args, **kwargs)
-    #TODO: pm->Łukasz. The below line is requied by ImageModality.top. But seems somewhat weird.
     self.num_channels = 3
 
 
@@ -89,15 +89,36 @@ class GymDiscreteProblem(problem.Problem):
 
   def example_reading_spec(self, label_repr=None):
     data_fields = {
-        "inputs": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        # "inputs_prev": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        "targets": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        "action": tf.FixedLenFeature([1], tf.int64),
-        "reward": tf.FixedLenFeature([1], tf.int64),
-        # "done": tf.FixedLenFeature([1], tf.int64)
+      "inputs_encoded": tf.FixedLenFeature((), tf.string),
+      "targets_encoded": tf.FixedLenFeature((), tf.string),
+      "image/format": tf.FixedLenFeature((), tf.string),
+      "action": tf.FixedLenFeature([1], tf.int64),
+      "reward": tf.FixedLenFeature([1], tf.int64),
+      # "done": tf.FixedLenFeature([1], tf.int64)
     }
 
-    return data_fields, None
+    data_items_to_decoders = {
+        "inputs":
+            tf.contrib.slim.tfexample_decoder.Image(
+                image_key="inputs_encoded",
+                format_key="image/format",
+                shape=[210, 160, 3],
+                channels=3),
+
+      "targets":
+        tf.contrib.slim.tfexample_decoder.Image(
+          image_key="targets_encoded",
+          format_key="image/format",
+          shape=[210, 160, 3],
+          channels=3),
+
+      #Just do a pass through
+      "action":tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
+      "reward":tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="reward"),
+    }
+
+
+    return data_fields, data_items_to_decoders
 
   @property
   def num_actions(self):
@@ -109,6 +130,7 @@ class GymDiscreteProblem(problem.Problem):
 
   @property
   def num_steps(self):
+    #TODO: pm->Błażej. Make it a paremater
     return 30
 
   @property
@@ -157,20 +179,21 @@ class GymDiscreteProblem(problem.Problem):
           # movies = True
           # if movies==True:
           #   from PIL import Image
-          #   im = Image.fromarray(observ[0,...], mode="RGB")
-          #   im.save("/tmp/piece_{}.png".format(pieces_generated))
+          #   ob = observ[0,...].astype("uint8")
 
-          observ = observ.flatten().tolist()
+            # im = Image.fromarray(ob)
+            # im.save("/tmp/piece_{}.png".format(pieces_generated))
+
           if prev_observation:
             pieces_generated += 1
-            #TODO:pm->Łukasz. In principle we could remove also inputs. Should we.
             yield {
-              "inputs": prev_observation,
-              "targets": observ,
+              "inputs_encoded": [prev_observation],
+              "targets_encoded": [observ],
+              "image/format": ["png"],
               "action": [int(action)],
               # "done": [bool(done)],
               "reward": [int(reward)],
-                 }
+                }
         else:
           sess.run(self.collect_trigger_op)
 
