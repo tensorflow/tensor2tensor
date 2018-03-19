@@ -278,8 +278,8 @@ class Transformer(t2t_model.T2TModel):
       if target_modality.is_class_modality:
         decode_length = 1
       else:
-        #decode_length = common_layers.shape_list(inputs)[1] + decode_length
-        decode_length = common_layers.shape_list(inputs)[1] + features['decode_length']  # variable extra length
+        decode_length = common_layers.shape_list(inputs)[1] + decode_length
+
 
       # TODO(llion): Clean up this reshaping logic.
       inputs = tf.expand_dims(inputs, axis=1)
@@ -503,8 +503,8 @@ def fast_decode(encoder_output,
       return i + 1, finished, next_id, decoded_ids, cache
 
     def is_not_finished(i, finished, *_):
-      #return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
-      return i < decode_length
+      return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
+
 
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
     finished = tf.fill([batch_size], False)
