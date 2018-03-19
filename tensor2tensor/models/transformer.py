@@ -45,10 +45,10 @@ import tensorflow as tf
 from tensorflow.python.util import nest
 
 
-#changed 1)fast decode decode_lengtn line313 line 278  (language model with inputs-> partial target| seq2seq model with input)
-# 2)is not finished
-#3)_fast_decode squeeze
-# 4)line 401 partial target
+#changed
+
+#1)_fast_decode squeeze
+#2)line 401 partial target
 
 
 
