@@ -71,8 +71,6 @@ class GymDiscreteProblem(problem.Problem):
                          ]
     fake_hparams = Munch(in_graph_wrappers=in_graph_wrappers, simulated_environment=None)
 
-
-
     generator_batch_env = \
       batch_env_factory(environment_spec, fake_hparams, num_agents=1, xvfb=False)
 
@@ -142,7 +140,7 @@ class GymDiscreteProblem(problem.Problem):
   @property
   def num_steps(self):
     #TODO: pm->Błażej. Make it a paremater
-    return 100
+    return 10000
 
   @property
   def num_shards(self):
@@ -161,6 +159,7 @@ class GymDiscreteProblem(problem.Problem):
     # that 0 is a special symbol meaning padding
     # when symbols are e.g. 0, 1, 2, 3 we
     # shift them to 0, 1, 2, 3, 4
+    #TODO: check if we do not need to change symbol:identity to symbol
     p.input_modality = {"action": ("symbol:identity", self.num_actions)}
 
     for x in range(self.history_size):
@@ -191,6 +190,7 @@ class GymDiscreteProblem(problem.Problem):
           self.history_buffer.append(observ)
 
           if self.movies==True:
+            #TODO: pm-> Błażej. Where should be movies be generated
             file_name = '/tmp/output_{}.png'.format(pieces_generated)
             clip_files.append(file_name)
             with open(file_name, 'wb') as f:
@@ -211,6 +211,7 @@ class GymDiscreteProblem(problem.Problem):
         else:
           sess.run(self.collect_trigger_op)
     if self.movies:
+      # TODO: pm-> Błażej. Where should be movies be generated
       clip = ImageSequenceClip(clip_files, fps=25)
       clip.write_videofile("/tmp/output.mp4", fps=25, codec='mpeg4')
 

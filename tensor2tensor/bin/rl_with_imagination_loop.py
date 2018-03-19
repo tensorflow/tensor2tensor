@@ -50,8 +50,12 @@ def main(_):
       FLAGS.eval_steps = 1
       t2t_trainer.main([])
 
-      # 3. train PPO in model env
-      print("  >>> Step {}.3. - train PPO in model env".format(iloop))
+      print("  >>> Step {}.3. - evalue env model".format(iloop))
+      # 3. evaluate env model, make video
+      raise NotImplemented()
+
+      # 4. train PPO in model env
+      print("  >>> Step {}.4. - train PPO in model env".format(iloop))
       iteration_num=3
       hparams = trainer_lib.create_hparams("atari_base", "epochs_num={},simulated_environment=True,eval_every_epochs=0,save_models_every_epochs={}".format(iteration_num+1, iteration_num))
       ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")

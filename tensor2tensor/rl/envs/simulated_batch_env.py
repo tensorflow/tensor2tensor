@@ -98,15 +98,15 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
       #TODO: move this ugly code bottom of basic_conv_gen.
-      with tf.control_dependencies([self._prev_observ.assign(self.observ)]):
-        with tf.control_dependencies([self._observ.assign(observ)]):
-          return tf.identity(reward), tf.identity(done)
+      with tf.control_dependencies([observ]):
+        with tf.control_dependencies([self._prev_observ.assign(self._observ)]):
+          with tf.control_dependencies([self._observ.assign(observ)]):
+            return tf.identity(reward), tf.identity(done)
 
   def reset(self, indices=None):
     return tf.no_op("reset_to_be")
     # #TODO: pm->Błażej. Starting observations
     # with tf.control_dependencies([self._observ.assign(self._starting_observ)]):
-
 
 
   @property

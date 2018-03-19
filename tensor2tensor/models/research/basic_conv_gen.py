@@ -61,10 +61,10 @@ class BasicConvGen(t2t_model.T2TModel):
     res = tf.layers.conv2d(x, 3 * 256, kernel, padding="SAME")
     x = tf.layers.flatten(x)
 
-
     # TODO: pm->pm: add done
     res_done = tf.layers.dense(x, 2)
 
+    #TODO: pm remove tf.identity below
     return {"targets":tf.identity(res), "reward": x}
 
 

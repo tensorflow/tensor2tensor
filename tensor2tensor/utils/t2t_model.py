@@ -864,6 +864,7 @@ class T2TModel(base.Layer):
 
     def wrapping_model_fn(features, labels, mode, params=None, config=None):
       #TODO: pm->Łukasz eval is not working (to be precise it behaves stochastically.
+      # change to --schedule=train if possible
       # Sometimes works, sometimes not.
       if mode=='eval':
         mode='train'
