@@ -45,6 +45,13 @@ import tensorflow as tf
 from tensorflow.python.util import nest
 
 
+#changed 1)fast decode decode_lengtn line313 line 278  (language model with inputs-> partial target| seq2seq model with input)
+# 2)is not finished
+#3)_fast_decode squeeze
+# 4)line 401 partial target
+
+
+
 @registry.register_model
 class Transformer(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
@@ -271,7 +278,8 @@ class Transformer(t2t_model.T2TModel):
       if target_modality.is_class_modality:
         decode_length = 1
       else:
-        decode_length = common_layers.shape_list(inputs)[1] + decode_length
+        #decode_length = common_layers.shape_list(inputs)[1] + decode_length
+        decode_length = common_layers.shape_list(inputs)[1] + features['decode_length']  # variable extra length
 
       # TODO(llion): Clean up this reshaping logic.
       inputs = tf.expand_dims(inputs, axis=1)
@@ -298,9 +306,14 @@ class Transformer(t2t_model.T2TModel):
       # We force the outputs to begin with these sequences.
       encoder_output = None
       encoder_decoder_attention_bias = None
-      partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2, 3])
+      if len(features["inputs"].shape) >= 4:
+          partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2, 3])
+      elif len(features["inputs"].shape) < 4:  # (batch,step,1)
+          partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2])# partial target-> [?,?]
+      #partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2, 3])
       partial_targets_length = common_layers.shape_list(partial_targets)[1]
-      decode_length += partial_targets_length
+      #decode_length += partial_targets_length
+      decode_length=partial_targets_length+features['decode_length']# input_len + extra_len
       batch_size = tf.shape(partial_targets)[0]
 
     if hparams.pos == "timing":
@@ -360,7 +373,7 @@ class Transformer(t2t_model.T2TModel):
       with tf.variable_scope(target_modality.name):
         logits = target_modality.top_sharded(body_outputs, None, dp)[0]
 
-      ret = tf.squeeze(logits, axis=[1, 2, 3])
+      ret = tf.squeeze(logits, axis=[1, 2, 3]) #logit [?,?,1,1,245]
       if partial_targets is not None:
         # If the position is within the given partial targets, we alter the
         # logits to always return those values.
@@ -386,8 +399,13 @@ class Transformer(t2t_model.T2TModel):
         top_beams=top_beams,
         alpha=alpha,
         batch_size=batch_size)
-    if partial_targets is not None:
-      ret["outputs"] = ret["outputs"][:, partial_targets_length:]
+    #if partial_targets is not None:
+    if partial_targets is not None and beam_size==1:
+      ret["outputs"] = ret["outputs"][:, partial_targets_length:] # beam_size=10 [batch,beam,steps]
+    elif partial_targets is not None and beam_size>1:
+        ret["outputs"] = ret["outputs"][:, :,partial_targets_length:]
+
+
     return ret
 
 
@@ -485,7 +503,8 @@ def fast_decode(encoder_output,
       return i + 1, finished, next_id, decoded_ids, cache
 
     def is_not_finished(i, finished, *_):
-      return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
+      #return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
+      return i < decode_length
 
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
     finished = tf.fill([batch_size], False)
