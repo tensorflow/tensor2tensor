@@ -471,6 +471,7 @@ class TransformerAE(t2t_model.T2TModel):
         startup_steps=self.hparams.startup_steps,
         bottleneck_kind=self._hparams.bottleneck_kind,
         num_blocks=self._hparams.num_blocks,
+        num_residuals=self.hparams.num_residuals,
         reshape_method=self._hparams.reshape_method,
         beta=self._hparams.beta,
         noise_dev=self._hparams.noise_dev,
@@ -490,10 +491,12 @@ class TransformerAE(t2t_model.T2TModel):
         slo=self._hparams.slo,
         slo_alpha=self._hparams.slo_alpha,
         slo_beta=self._hparams.slo_beta)
+
     # Set the discretization bottleneck specific things here
     if self._hparams.bottleneck_kind == "dvq":
+      z_size_per_residual = self._hparams.z_size / self._hparams.num_residuals
       block_dim = int(self._hparams.hidden_size // self._hparams.num_blocks)
-      block_v_size = 2**(self._hparams.z_size / self._hparams.num_blocks)
+      block_v_size = 2**(z_size_per_residual / self._hparams.num_blocks)
       block_v_size = int(block_v_size)
 
       if self._hparams.reshape_method == "project":
@@ -504,7 +507,8 @@ class TransformerAE(t2t_model.T2TModel):
         projection_tensors = tf.get_variable(
             name="projection",
             shape=[
-                self._hparams.num_blocks, self._hparams.hidden_size, block_dim
+                self._hparams.num_residuals, self._hparams.num_blocks,
+                self._hparams.hidden_size, block_dim
             ],
             initializer=tf.contrib.layers.xavier_initializer(),
             trainable=self._hparams.trainable_projections)
@@ -515,15 +519,22 @@ class TransformerAE(t2t_model.T2TModel):
         tf.logging.info("Using slices for DVQ")
       else:
         raise ValueError("Unknown reshape method")
+
       means = tf.get_variable(
           name="means",
-          shape=[self._hparams.num_blocks, block_v_size, block_dim],
+          shape=[
+              self._hparams.num_residuals, self._hparams.num_blocks,
+              block_v_size, block_dim
+          ],
           initializer=tf.uniform_unit_scaling_initializer())
 
       # Create the shadow variables if we are using EMA
       if self._hparams.ema:
         ema_count = tf.get_variable(
-            "ema_count", [self._hparams.num_blocks, block_v_size],
+            "ema_count", [
+                self._hparams.num_residuals, self._hparams.num_blocks,
+                block_v_size
+            ],
             initializer=tf.constant_initializer(0),
             trainable=False)
         with tf.colocate_with(means):
@@ -536,8 +547,12 @@ class TransformerAE(t2t_model.T2TModel):
         if self._hparams.slo:
           # softmax logits for the cluster probabilities
           c_logits = tf.get_variable(
-              "c_logits", [self._hparams.num_blocks, block_v_size],
+              "c_logits", [
+                  self._hparams.num_residuals, self._hparams.num_blocks,
+                  block_v_size
+              ],
               initializer=tf.uniform_unit_scaling_initializer())
+
         # Update bottleneck
         self._hparams.bottleneck = partial(
             self._hparams.bottleneck,
@@ -645,6 +660,8 @@ def transformer_ae_small():
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)
   hparams.add_hparam("num_decode_blocks", 1)
+  # Add an hparam for number of reiduals
+  hparams.add_hparam("num_residuals", 1)
   # Reshape method for DVQ: slice, project
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
