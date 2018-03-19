@@ -2530,6 +2530,8 @@ def multihead_attention(query_antecedent,
 
     if cache is not None:
       if attention_type != "dot_product":
+        # TODO(petershaw): Support caching when using relative position
+        # representations, i.e. "dot_product_relative" attention.
         raise NotImplementedError(
             "Caching is not guaranteed to work with attention types other than"
             " dot_product.")
