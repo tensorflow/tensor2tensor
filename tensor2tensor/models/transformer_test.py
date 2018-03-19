@@ -145,6 +145,23 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(fast_res.shape, (BATCH_SIZE, decode_length))
     self.assertAllClose(slow_res, fast_res)
 
+  def testBeamDecodeWithRelativeAttention(self):
+    decode_length = 2
+    model, features = self.getModel(transformer.transformer_relative_tiny())
+    model(features)
+    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+
+    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+      beam_result = model._beam_decode(
+          features, decode_length, beam_size=4, top_beams=1,
+          alpha=1.0)["outputs"]
+
+    with self.test_session():
+      tf.global_variables_initializer().run()
+      beam_res = beam_result.eval()
+
+    self.assertEqual(beam_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
+
   def testBeamVsFast(self):
     model, features = self.getModel(transformer.transformer_small())
 

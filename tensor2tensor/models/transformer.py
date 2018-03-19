@@ -226,6 +226,13 @@ class Transformer(t2t_model.T2TModel):
       }
     """
     with tf.variable_scope(self.name):
+      if self._hparams.self_attention_type != "dot_product":
+        # Caching is not guaranteed to work with attention types other than
+        # dot_product.
+        # TODO(petershaw): Support fast decoding when using relative
+        # position representations, i.e. "dot_product_relative" attention.
+        return self._beam_decode_slow(features, decode_length, beam_size,
+                                      top_beams, alpha)
       return self._fast_decode(
           features, decode_length, beam_size, top_beams, alpha)
 
