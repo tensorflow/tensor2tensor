@@ -95,6 +95,7 @@ def nearest_neighbor(x,
   scalar_prod = tf.transpose(scalar_prod, perm=[1, 0, 2])
   dist = x_norm_sq + tf.transpose(
       means_norm_sq, perm=[2, 0, 1]) - 2 * scalar_prod
+
   # computing cluster probabilities
   if soft_em or c_probs is not None:
     if c_probs is not None:
@@ -123,6 +124,7 @@ def nearest_neighbor(x,
 def embedding_lookup(x,
                      means,
                      num_blocks,
+                     num_residuals,
                      block_v_size,
                      random_top_k=1,
                      soft_em=False,
@@ -136,6 +138,7 @@ def embedding_lookup(x,
       [-1, num_blocks, block_dim].
     means: Embedding table of shape [num_blocks, block_v_size, block_dim].
     num_blocks: Number of blocks in DVQ.
+    num_residuals: Number of residual units in computing nearest neighbors.
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
@@ -149,13 +152,40 @@ def embedding_lookup(x,
     The nearest neighbor in one hot form, the nearest neighbor itself, the
     commitment loss, embedding training loss.
   """
-  x_means_hot = nearest_neighbor(x, means, block_v_size, random_top_k, soft_em,
-                                 inv_temp, ema_count, c_probs)
-  x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
-  x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
-  x_means = tf.transpose(x_means, [1, 0, 2])
-  q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
-  e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  q_loss = 0
+  e_loss = 0
+  shape = common_layers.shape_list(x)
+  x_means = tf.zeros(dtype=tf.float32, shape=shape)
+  x_means_hot = []
+  x_residual = x
+  for i in range(num_residuals):
+    means_residual = means[i]
+    ema_count_residual = ema_count[i]
+    if c_probs is not None:
+      c_probs_residual = c_probs[i]
+    else:
+      c_probs_residual = c_probs
+
+    x_means_hot_residual = nearest_neighbor(
+        x_residual, means_residual, block_v_size, random_top_k, soft_em,
+        inv_temp, ema_count_residual, c_probs_residual)
+    x_means_hot_flat_residual = tf.reshape(x_means_hot_residual,
+                                           [-1, num_blocks, block_v_size])
+    x_means_residual = tf.matmul(
+        tf.transpose(x_means_hot_flat_residual, perm=[1, 0, 2]), means_residual)
+    x_means_residual = tf.transpose(x_means_residual, [1, 0, 2])
+    x_residual -= x_means_residual
+    x_means += x_means_residual
+    x_means_hot.append(x_means_hot_residual)
+
+    # Collect the residual losses
+    q_loss += tf.reduce_mean(
+        tf.square((tf.stop_gradient(x_residual) - x_means_residual)))
+    e_loss += tf.reduce_mean(
+        tf.square(x_residual - tf.stop_gradient(x_means_residual)))
+
+  # Stack x_means_hot
+  x_means_hot = tf.stack(x_means_hot, axis=1)
   return x_means_hot, x_means, q_loss, e_loss
 
 
@@ -208,6 +238,7 @@ def embed(x,
           name,
           bottleneck_kind='dvq',
           num_blocks=2,
+          num_residuals=1,
           block_v_size=None,
           means=None):
   """Embedding function that takes discrete latent and returns embedding.
@@ -220,9 +251,10 @@ def embed(x,
     filter_size: Filter size to be used for the embedding function.
     name: Name for the bottleneck scope.
     bottleneck_kind: Kind of discretization bottleneck to use; one of dvq,
-      semhash, gumbel-softmax.
-    num_blocks: Number of blocks in DVQ.
-    block_v_size: Number of embedding entries per block.
+      semhash, gumbel-softmax (Default: dvq).
+    num_blocks: Number of blocks in DVQ (Default: 2).
+    num_residuals: Number of residuals (Default: 1).
+    block_v_size: Number of embedding entries per block (Default: None).
     means: The embedding table for dvq (Default: None).
 
   Returns:
@@ -249,17 +281,25 @@ def embed(x,
       c = int_to_bit(x_flat, num_bits=z_size, base=2)
       shape = common_layers.shape_list(c)
       new_shape = shape
-      new_shape[-1] = num_blocks
-      new_shape.append(int(z_size / num_blocks))
+      new_shape[-1] = num_residuals
+      new_shape.append(num_blocks)
+      new_shape.append(int(z_size / (num_residuals * num_blocks)))
       c = tf.to_int32(tf.reshape(c, shape=new_shape))
-      c = bit_to_int(c, num_bits=int(z_size / num_blocks), base=2)
-      c_hot = tf.one_hot(c, depth=block_v_size, axis=-1)
-      c_hot_flat = tf.reshape(c_hot, shape=[-1, num_blocks, block_v_size])
-      h1 = tf.matmul(tf.transpose(c_hot_flat, perm=[1, 0, 2]), means)
-      h1 = tf.transpose(h1, perm=[1, 0, 2])
-      new_shape = shape_x
-      new_shape.append(hidden_size)
-      h1 = tf.reshape(h1, new_shape)
+      h1_shape = shape_x
+      h1_shape.append(hidden_size)
+      h1 = tf.zeros(dtype=tf.float32, shape=h1_shape)
+      for i in range(num_residuals):
+        c_residual = bit_to_int(
+            c[:, :, i, :, :],
+            num_bits=int(z_size / (num_residuals * num_blocks)),
+            base=2)
+        c_hot = tf.one_hot(c_residual, depth=block_v_size, axis=-1)
+        c_hot_flat = tf.reshape(c_hot, shape=[-1, num_blocks, block_v_size])
+        h1_residual = tf.matmul(
+            tf.transpose(c_hot_flat, perm=[1, 0, 2]), means[i])
+        h1_residual = tf.transpose(h1_residual, perm=[1, 0, 2])
+        h1_residual = tf.reshape(h1_residual, shape=h1_shape)
+        h1 += h1_residual
     elif bottleneck_kind == 'rounding':
       h1 = x
     else:
@@ -397,6 +437,7 @@ def discrete_bottleneck(x,
                         startup_steps=50000,
                         bottleneck_kind='dvq',
                         num_blocks=2,
+                        num_residuals=1,
                         reshape_method='slice',
                         projection_tensors=None,
                         means=None,
@@ -436,7 +477,10 @@ def discrete_bottleneck(x,
       (Default: 50000).
     bottleneck_kind: Kind of discretization bottleneck to use; one of dvq,
       semhash, gumbel-softmax (Default: dvq).
-    num_blocks: Number of blocks to use for decomposed vector quantization.
+    num_blocks: Number of blocks to use for decomposed vector
+      quantization (Default: 2).
+    num_residuals: Number of residual units used to compute nearest
+      neighbors (Default: 1).
     reshape_method: Method to reshape for DVQ (Default: slice).
     projection_tensors: If the reshape method is project, then these are the
       tensors used to project (Default: None).
@@ -485,10 +529,15 @@ def discrete_bottleneck(x,
     if hidden_size % num_blocks != 0:
       raise ValueError('num_blocks does not divide hidden size')
 
-    if 2**z_size % num_blocks != 0:
+    if z_size % num_residuals != 0:
+      raise ValueError('num_residuals does not divide embedding table size')
+
+    z_size_per_residual = int(z_size / num_residuals)
+
+    if z_size_per_residual % num_blocks != 0:
       raise ValueError('num_blocks does not divide embedding table size')
 
-    block_v_size = 2**(z_size / num_blocks)
+    block_v_size = 2**(z_size_per_residual / num_blocks)
     block_v_size = int(block_v_size)
 
     # Set the reshape method corresponding to projections or slices
@@ -557,17 +606,19 @@ def discrete_bottleneck(x,
         c_probs = tf.nn.softmax(c_logits, axis=-1)
       x_reshaped = reshape_fn(x)
       x_means_hot, x_means, q_loss, e_loss = embedding_lookup(
-          x_reshaped, means, num_blocks, block_v_size, random_top_k, soft_em,
-          inv_temp, ema_count, c_probs)
+          x_reshaped, means, num_blocks, num_residuals, block_v_size,
+          random_top_k, soft_em, inv_temp, ema_count, c_probs)
 
       # Get the discrete latent represenation
       x_means_idx = tf.argmax(x_means_hot, axis=-1)
 
       # Get the binary representation
       x_means_bits = int_to_bit(
-          x_means_idx, num_bits=int(z_size / num_blocks), base=2)
+          x_means_idx,
+          num_bits=int(z_size / (num_residuals * num_blocks)),
+          base=2)
       shape = common_layers.shape_list(x_means_bits)
-      new_shape = shape[:-1]
+      new_shape = shape[:-2]
       new_shape[-1] = z_size
       x_means_bits = tf.reshape(x_means_bits, shape=new_shape)
       c = bit_to_int(tf.to_int32(x_means_bits), num_bits=z_size, base=2)
@@ -583,7 +634,9 @@ def discrete_bottleneck(x,
         updated_ema_count = moving_averages.assign_moving_average(
             ema_count,
             tf.reduce_sum(
-                tf.reshape(x_means_hot, shape=[-1, num_blocks, block_v_size]),
+                tf.reshape(
+                    x_means_hot,
+                    shape=[-1, num_residuals, num_blocks, block_v_size]),
                 axis=0),
             decay,
             zero_debias=False)
@@ -612,11 +665,17 @@ def discrete_bottleneck(x,
           # the prior component in the loss for MAP EM.
           slo_prior = slo_alpha * tf.reduce_sum(tf.exp(-1.*c_probs/slo_beta))
           slo_loss = -1. * (ell + slo_prior)/(num_blocks * block_v_size)
-        x_means_hot_flat = tf.reshape(
-            x_means_hot, shape=[-1, num_blocks, block_v_size])
-        dw = tf.matmul(
-            tf.transpose(x_means_hot_flat, perm=[1, 2, 0]),
-            tf.transpose(x_reshaped, perm=[1, 0, 2]))
+
+        x_residual = x_reshaped
+        dw_stacked = []
+        for i in range(num_residuals):
+          x_means_hot_residual = x_means_hot[:, i, :, :,]
+          dw = tf.matmul(
+              tf.transpose(x_means_hot_residual, perm=[1, 2, 0]),
+              tf.transpose(x_residual, perm=[1, 0, 2]))
+          dw_stacked.append(dw)
+
+        dw_stacked = tf.stack(dw_stacked, axis=0)
         updated_ema_means = moving_averages.assign_moving_average(
             ema_means, dw, decay, zero_debias=False)
         n = tf.reduce_sum(updated_ema_count, axis=-1, keep_dims=True)
@@ -627,7 +686,7 @@ def discrete_bottleneck(x,
         with tf.control_dependencies([e_loss]):
           update_means = tf.assign(means, updated_ema_means)
           with tf.control_dependencies([update_means]):
-            l = beta * e_loss + dp_strength * dp_prior_loss + slo_loss
+            l += beta * e_loss + dp_strength * dp_prior_loss + slo_loss
       else:
         l = q_loss + beta * e_loss
 
@@ -648,6 +707,7 @@ def discrete_bottleneck(x,
         name=name,
         bottleneck_kind=bottleneck_kind,
         num_blocks=num_blocks,
+        num_residuals=num_residuals,
         block_v_size=block_v_size,
         means=means)
     return res, c, l, embed_fn
