@@ -74,7 +74,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
       for i in xrange(hparams.num_hidden_layers):
         x = tf.layers.conv2d(
             x, hparams.hidden_size * 2**(i + 1), kernel, strides=strides,
-            padding="SAME", activation=tf.nn.relu, name="conv_%d" % i)
+            padding="SAME", activation=common_layers.belu, name="conv_%d" % i)
         x = common_layers.layer_norm(x)
       return x
 
@@ -87,7 +87,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
         j = hparams.num_hidden_layers - i - 1
         x = tf.layers.conv2d_transpose(
             x, hparams.hidden_size * 2**j, kernel, strides=strides,
-            padding="SAME", activation=tf.nn.relu, name="deconv_%d" % j)
+            padding="SAME", activation=common_layers.belu, name="deconv_%d" % j)
         x = common_layers.layer_norm(x)
       return x
 
