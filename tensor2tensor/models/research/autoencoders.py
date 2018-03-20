@@ -29,6 +29,76 @@ import tensorflow as tf
 
 
 @registry.register_model
+class ResidualAutoencoder(basic.BasicAutoencoder):
+  """Residual autoencoder."""
+
+  def encoder(self, x):
+    with tf.variable_scope("encoder"):
+      hparams = self._hparams
+      kernel, strides = self._get_kernel_and_strides()
+      residual_kernel = (3, 1) if self.is1d else (3, 3)
+      residual_conv = tf.layers.conv2d
+      if hparams.residual_use_separable_conv:
+        residual_conv = tf.layers.separable_conv2d
+      # Down-convolutions.
+      for i in xrange(hparams.num_hidden_layers):
+        with tf.variable_scope("layer_%d" % i):
+          x = tf.nn.dropout(x, 1.0 - hparams.dropout)
+          filters = hparams.hidden_size * 2**(i + 1)
+          filters = min(filters, hparams.max_hidden_size)
+          x = tf.layers.conv2d(
+              x, filters, kernel, strides=strides,
+              padding="SAME", activation=common_layers.belu, name="strided")
+          y = x
+          for r in xrange(hparams.num_residual_layers):
+            residual_filters = filters
+            if r < hparams.num_residual_layers - 1:
+              residual_filters = int(
+                  filters * hparams.residual_filter_multiplier)
+            y = residual_conv(
+                y, residual_filters, residual_kernel,
+                padding="SAME", activation=common_layers.belu,
+                name="residual_%d" % r)
+          x += tf.nn.dropout(y, 1.0 - hparams.residual_dropout)
+          x = common_layers.layer_norm(x)
+      return x
+
+  def decoder(self, x):
+    with tf.variable_scope("decoder"):
+      hparams = self._hparams
+      kernel, strides = self._get_kernel_and_strides()
+      residual_kernel = (3, 1) if self.is1d else (3, 3)
+      residual_conv = tf.layers.conv2d
+      if hparams.residual_use_separable_conv:
+        residual_conv = tf.layers.separable_conv2d
+      # Up-convolutions.
+      for i in xrange(hparams.num_hidden_layers):
+        x = tf.nn.dropout(x, 1.0 - hparams.dropout)
+        j = hparams.num_hidden_layers - i - 1
+        filters = hparams.hidden_size * 2**j
+        filters = min(filters, hparams.max_hidden_size)
+        with tf.variable_scope("layer_%d" % i):
+          j = hparams.num_hidden_layers - i - 1
+          filters = hparams.hidden_size * 2**j
+          x = tf.layers.conv2d_transpose(
+              x, filters, kernel, strides=strides,
+              padding="SAME", activation=common_layers.belu, name="strided")
+          y = x
+          for r in xrange(hparams.num_residual_layers):
+            residual_filters = filters
+            if r < hparams.num_residual_layers - 1:
+              residual_filters = int(
+                  filters * hparams.residual_filter_multiplier)
+            y = residual_conv(
+                y, residual_filters, residual_kernel,
+                padding="SAME", activation=common_layers.belu,
+                name="residual_%d" % r)
+          x += tf.nn.dropout(y, 1.0 - hparams.residual_dropout)
+          x = common_layers.layer_norm(x)
+      return x
+
+
+@registry.register_model
 class BasicDiscreteAutoencoder(basic.BasicAutoencoder):
   """Discrete autoencoder."""
 
@@ -87,6 +157,23 @@ class OrderedDiscreteAutoencoder(BasicDiscreteAutoencoder):
     x = common_layers.mix(d, x, hparams.discretize_warmup_steps,
                           hparams.mode == tf.estimator.ModeKeys.TRAIN)
     return x
+
+
+@registry.register_hparams
+def residual_autoencoder():
+  """Residual autoencoder model."""
+  hparams = basic.basic_autoencoder()
+  hparams.optimizer = "Adafactor"
+  hparams.learning_rate_constant = 0.001
+  hparams.learning_rate_warmup_steps = 500
+  hparams.learning_rate_schedule = "constant * linear_warmup"
+  hparams.dropout = 0.1
+  hparams.add_hparam("max_hidden_size", 2048)
+  hparams.add_hparam("num_residual_layers", 2)
+  hparams.add_hparam("residual_filter_multiplier", 2.0)
+  hparams.add_hparam("residual_dropout", 0.3)
+  hparams.add_hparam("residual_use_separable_conv", int(True))
+  return hparams
 
 
 @registry.register_hparams

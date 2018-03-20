@@ -92,7 +92,6 @@ class T2TModel(base.Layer):
 
     if not problem_hparams and hasattr(hparams, "problems"):
       problem_hparams = hparams.problems[0]
-    print(problem_hparams)
     self._problem_hparams = problem_hparams
 
     # Setup hparams
@@ -251,7 +250,6 @@ class T2TModel(base.Layer):
       all_previous_modalities.append(input_modality.name)
 
     # Transform the targets (for autoregressive models)
-    print(self._problem_hparams)
     target_modality = self._problem_hparams.target_modality
     if isinstance(target_modality, dict):
       for k, v in six.iteritems(target_modality):
@@ -265,6 +263,7 @@ class T2TModel(base.Layer):
       with tf.variable_scope(target_modality.name):
         log_info("Transforming 'targets' with %s.targets_bottom",
                  target_modality.name)
+        print(features["targets"].get_shape())
         transformed_features["targets"] = target_modality.targets_bottom(
             features["targets"])
 
