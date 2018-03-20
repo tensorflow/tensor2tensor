@@ -677,7 +677,7 @@ def discrete_bottleneck(x,
 
         dw_stacked = tf.stack(dw_stacked, axis=0)
         updated_ema_means = moving_averages.assign_moving_average(
-            ema_means, dw, decay, zero_debias=False)
+            ema_means, dw_stacked, decay, zero_debias=False)
         n = tf.reduce_sum(updated_ema_count, axis=-1, keep_dims=True)
         updated_ema_count = ((updated_ema_count + epsilon) /
                              (n + 2**z_size * epsilon) * n)
