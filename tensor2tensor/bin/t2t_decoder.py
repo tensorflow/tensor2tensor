@@ -62,7 +62,6 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 
 
 # Fathom
-flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 flags.DEFINE_bool("use_original_input", False,
                   "Use the input that was used for validation during training?")
