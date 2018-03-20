@@ -1007,23 +1007,26 @@ class T2TModel(base.Layer):
     else:
       eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
       eval_metrics = {}
+
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
         if isinstance(logits, dict):
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           k = metric_name.split("/")[1]
           eval_metrics[metric_name] = metric_fn(logits[k], features)
-          return tf.estimator.EstimatorSpec(
-              tf.estimator.ModeKeys.EVAL,
-              predictions=logits,
-              eval_metric_ops=eval_metrics,
-              loss=loss)
         else:
           eval_metrics[metric_name] = metric_fn(logits, features)
-          return tf.estimator.EstimatorSpec(
-              tf.estimator.ModeKeys.EVAL,
-              predictions={"predictions": logits},
-              eval_metric_ops=eval_metrics,
-              loss=loss)
+
+      if isinstance(logits, dict):
+        predictions = logits
+      else:
+        predictions = {"predictions": logits}
+
+      return tf.estimator.EstimatorSpec(
+          tf.estimator.ModeKeys.EVAL,
+          predictions=predictions,
+          eval_metric_ops=eval_metrics,
+          loss=loss)
+
 
   def estimator_spec_predict(self, features):
     """Construct EstimatorSpec for PREDICT mode."""
