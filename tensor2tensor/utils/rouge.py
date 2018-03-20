@@ -77,8 +77,8 @@ def _lcs(x, y):
 def _f_lcs(llcs, m, n):
   """Computes the LCS-based F-measure score.
 
-  Source:
-  https://www.microsoft.com/en-us/research/publication/rouge-a-package-for-automatic-evaluation-of-summaries/
+  Source: https://www.microsoft.com/en-us/research/publication/
+  rouge-a-package-for-automatic-evaluation-of-summaries/
 
   Args:
     llcs: Length of LCS
@@ -100,8 +100,8 @@ def _f_lcs(llcs, m, n):
 def rouge_l_sentence_level(eval_sentences, ref_sentences):
   """Computes ROUGE-L (sentence level) of two collections of sentences.
 
-  Source: http://research.microsoft.com/en-us/um/people/cyl/download/papers/
-  rouge-working-note-v1.3.1.pdf
+  Source: https://www.microsoft.com/en-us/research/publication/
+  rouge-a-package-for-automatic-evaluation-of-summaries/
 
   Calculated according to:
   R_lcs = LCS(X,Y)/m
@@ -174,8 +174,8 @@ def _get_ngrams(n, text):
 def rouge_n(eval_sentences, ref_sentences, n=2):
   """Computes ROUGE-N f1 score of two text collections of sentences.
 
-  Source:
-  https://www.microsoft.com/en-us/research/publication/rouge-a-package-for-automatic-evaluation-of-summaries/
+  Source: https://www.microsoft.com/en-us/research/publication/
+  rouge-a-package-for-automatic-evaluation-of-summaries/
 
   Args:
     eval_sentences: The sentences that have been picked by the summarizer
