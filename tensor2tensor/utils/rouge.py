@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # coding=utf-8
-"""ROUGe metric implementation.
+"""ROUGE metric implementation.
 
 This is a modified and slightly extended verison of
 https://github.com/miso-belica/sumy/blob/dev/sumy/evaluation/rouge.py.
@@ -77,8 +77,8 @@ def _lcs(x, y):
 def _f_lcs(llcs, m, n):
   """Computes the LCS-based F-measure score.
 
-  Source: http://research.microsoft.com/en-us/um/people/cyl/download/papers/
-  rouge-working-note-v1.3.1.pdf
+  Source: https://www.microsoft.com/en-us/research/publication/
+  rouge-a-package-for-automatic-evaluation-of-summaries/
 
   Args:
     llcs: Length of LCS
@@ -100,8 +100,8 @@ def _f_lcs(llcs, m, n):
 def rouge_l_sentence_level(eval_sentences, ref_sentences):
   """Computes ROUGE-L (sentence level) of two collections of sentences.
 
-  Source: http://research.microsoft.com/en-us/um/people/cyl/download/papers/
-  rouge-working-note-v1.3.1.pdf
+  Source: https://www.microsoft.com/en-us/research/publication/
+  rouge-a-package-for-automatic-evaluation-of-summaries/
 
   Calculated according to:
   R_lcs = LCS(X,Y)/m
@@ -154,7 +154,7 @@ def rouge_l_fscore(predictions, labels, **unused_kwargs):
 
 
 def _get_ngrams(n, text):
-  """Calcualtes n-grams.
+  """Calculates n-grams.
 
   Args:
     n: which n-grams to calculate
@@ -174,8 +174,8 @@ def _get_ngrams(n, text):
 def rouge_n(eval_sentences, ref_sentences, n=2):
   """Computes ROUGE-N f1 score of two text collections of sentences.
 
-  Sourece: http://research.microsoft.com/en-us/um/people/cyl/download/
-  papers/rouge-working-note-v1.3.1.pdf
+  Source: https://www.microsoft.com/en-us/research/publication/
+  rouge-a-package-for-automatic-evaluation-of-summaries/
 
   Args:
     eval_sentences: The sentences that have been picked by the summarizer
@@ -232,5 +232,5 @@ def rouge_2_fscore(predictions, labels, **unused_kwargs):
   # Convert the outputs and labels to a [batch_size, input_length] tensor.
   outputs = tf.squeeze(outputs, axis=[-1, -2])
   labels = tf.squeeze(labels, axis=[-1, -2])
-  rouge_2_f_score = tf.py_func(rouge_n, (labels, outputs), tf.float32)
+  rouge_2_f_score = tf.py_func(rouge_n, (outputs, labels), tf.float32)
   return rouge_2_f_score, tf.constant(1.0)
