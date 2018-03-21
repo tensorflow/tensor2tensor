@@ -562,3 +562,21 @@ class IdentitySymbolModality(SymbolModality):
   def top_is_pointwise(self):
     # pointwise mode manipulates body output, not logits, so it fails here.
     return False
+
+
+@registry.register_class_label_modality("sigmoid")
+class SigmoidClassLabelModality(ClassLabelModality):
+  """Sigmoid cross-entropy for independent class labels."""
+
+  @property
+  def name(self):
+    return "sigmoid_class_symbol_modality_%d_%d" % (self._vocab_size,
+                                                    self.body_input_depth)
+
+  def loss(self, top_out, targets):
+    loss_scale = tf.nn.sigmoid_cross_entropy_with_logits(
+        labels=targets, logits=top_out, name="SigmoidCrossEntropy")
+    # Weigh all classes equally
+    weights = self.targets_weights_fn(targets)
+    loss_denom = tf.reduce_sum(weights)
+    return loss_scale, loss_denom
