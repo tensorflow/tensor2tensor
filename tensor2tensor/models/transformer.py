@@ -298,7 +298,10 @@ class Transformer(t2t_model.T2TModel):
       # We force the outputs to begin with these sequences.
       encoder_output = None
       encoder_decoder_attention_bias = None
-      partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2, 3])
+      if len(features["inputs"].shape) >= 4:
+        partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2, 3])
+      else:
+        partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2])
       partial_targets_length = common_layers.shape_list(partial_targets)[1]
       decode_length += partial_targets_length
       batch_size = tf.shape(partial_targets)[0]
