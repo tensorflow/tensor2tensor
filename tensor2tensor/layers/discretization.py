@@ -160,7 +160,10 @@ def embedding_lookup(x,
   x_residual = x
   for i in range(num_residuals):
     means_residual = means[i]
-    ema_count_residual = ema_count[i]
+    if ema_count is not None:
+      ema_count_residual = ema_count[i]
+    else:
+      ema_count_residual = None
     if c_probs is not None:
       c_probs_residual = c_probs[i]
     else:

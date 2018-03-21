@@ -529,6 +529,9 @@ class TransformerAE(t2t_model.T2TModel):
           initializer=tf.uniform_unit_scaling_initializer())
 
       # Create the shadow variables if we are using EMA
+      ema_count = None
+      ema_means = None
+      c_logits = None
       if self._hparams.ema:
         ema_count = tf.get_variable(
             "ema_count", [
@@ -553,13 +556,13 @@ class TransformerAE(t2t_model.T2TModel):
               ],
               initializer=tf.uniform_unit_scaling_initializer())
 
-        # Update bottleneck
-        self._hparams.bottleneck = partial(
-            self._hparams.bottleneck,
-            means=means,
-            ema_count=ema_count,
-            ema_means=ema_means,
-            c_logits=c_logits)
+      # Update bottleneck
+      self._hparams.bottleneck = partial(
+          self._hparams.bottleneck,
+          means=means,
+          ema_count=ema_count,
+          ema_means=ema_means,
+          c_logits=c_logits)
 
   @property
   def has_input(self):
