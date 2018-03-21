@@ -51,7 +51,7 @@ class TransformWrapper(WrapperBase):
           observ = self.transform_observation[0](self._batch_env.observ)
           assign_op = self._observ.assign(observ)
         else:
-          assign_op =tf.no_op()
+          assign_op =tf.no_op()  #TODO: looks as if it is broken
         with tf.control_dependencies([assign_op]):
           return self.transform_reward(reward), self.transform_done(done)
 

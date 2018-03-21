@@ -82,11 +82,12 @@ class GymDiscreteProblem(problem.Problem):
         functools.partial(policy_lambda, environment_spec().action_space, hparams),
         unique_name_="network")
 
-    sample_policy = lambda policy: policy.sample()
-    hparams = copy.deepcopy(hparams)
-    hparams.epoch_length = 10
-    _, self.collect_trigger_op = collect.define_collect(
-      policy_factory, generator_batch_env, hparams, eval_phase=False, policy_to_actions_lambda=sample_policy)
+    with tf.variable_scope("collect_datagen", reuse=tf.AUTO_REUSE):
+      sample_policy = lambda policy: policy.sample()
+      hparams = copy.deepcopy(hparams)
+      hparams.epoch_length = 10
+      _, self.collect_trigger_op = collect.define_collect(
+        policy_factory, generator_batch_env, hparams, eval_phase=False, policy_to_actions_lambda=sample_policy)
 
     self.avilable_data_size_op = MemoryWrapper.singleton._speculum.size()
     self.data_get_op = MemoryWrapper.singleton._speculum.dequeue()
@@ -160,6 +161,7 @@ class GymDiscreteProblem(problem.Problem):
     # when symbols are e.g. 0, 1, 2, 3 we
     # shift them to 0, 1, 2, 3, 4
     #TODO: check if we do not need to change symbol:identity to symbol
+    #TODO: verify if we handle actions correctly. Curretly not adding +1?
     p.input_modality = {"action": ("symbol:identity", self.num_actions)}
 
     for x in range(self.history_size):
@@ -180,7 +182,7 @@ class GymDiscreteProblem(problem.Problem):
       sess.run(tf.global_variables_initializer())
       #TODO:pm->Błażej. Restore
       # model_saver = tf.train.Saver(
-      #             tf.global_variables(".*network_parameters.*"))
+      #   tf.global_variables(".*network_parameters.*"))
       # model_saver.restore(sess, FLAGS.model_path)
       pieces_generated = 0
       while pieces_generated<self.num_steps:

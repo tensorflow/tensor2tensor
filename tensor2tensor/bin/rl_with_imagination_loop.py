@@ -16,7 +16,7 @@ FLAGS = flags.FLAGS
 def train(_):
   # Setup data directories
   import random
-  prefix = "~/trash/loop_0309"
+  prefix = "~/trash/loop_0321"
   # prefix = "~/trash/loop_{}".format(random.randint(10000, 99999))
   data_dir = os.path.expanduser(prefix + "/data")
   tmp_dir = os.path.expanduser(prefix + "/tmp")
@@ -32,7 +32,6 @@ def train(_):
       # else:
 
       print("  >>>   Step {}.1. - generate data from policy".format(iloop))
-      FLAGS.problems = "gym_pong_trajectories_from_policy_base"
       FLAGS.problems = "gym_discrete_problem"
       FLAGS.model_path = last_model
       gym_problem = problems.problem(FLAGS.problems)
@@ -71,7 +70,7 @@ def train(_):
 
       rl_trainer_lib.train(hparams, "PongNoFrameskip-v4", ppo_dir)
 
-      last_model =  ppo_dir + "/model{}.ckpt".format(iteration_num)
+      last_model = ppo_dir + "/model{}.ckpt".format(iteration_num)
 
 
 def main(_):
