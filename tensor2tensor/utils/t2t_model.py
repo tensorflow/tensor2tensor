@@ -1049,6 +1049,7 @@ class T2TModel(base.Layer):
         "inputs": features.get("inputs"),
         "targets": features.get("infer_targets"),
         "problem_choice": batched_problem_choice,
+        "batch_prediction_key": features.get("batch_prediction_key"),
     }
     _del_dict_nones(predictions)
 
@@ -1056,13 +1057,20 @@ class T2TModel(base.Layer):
     if "scores" in predictions:
       export_out["scores"] = predictions["scores"]
 
+    # Necessary to rejoin examples in the correct order with the Cloud ML Engine
+    # batch prediction API.
+    if "batch_prediction_key" in predictions:
+      export_out["batch_prediction_key"] = predictions["batch_prediction_key"]
+
     _remove_summaries()
 
     return tf.estimator.EstimatorSpec(
         tf.estimator.ModeKeys.PREDICT,
         predictions=predictions,
         export_outputs={
-            "output": tf.estimator.export.PredictOutput(export_out)
+            tf.saved_model.signature_constants.
+            DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                tf.estimator.export.PredictOutput(export_out)
         })
 
   def _normalize_body_output(self, body_out):

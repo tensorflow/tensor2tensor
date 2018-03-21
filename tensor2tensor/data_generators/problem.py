@@ -564,6 +564,9 @@ class Problem(object):
   def decode_example(self, serialized_example):
     """Return a dict of Tensors from a serialized tensorflow.Example."""
     data_fields, data_items_to_decoders = self.example_reading_spec()
+    # Necessary to rejoin examples in the correct order with the Cloud ML Engine
+    # batch prediction API.
+    data_fields["batch_prediction_key"] = tf.FixedLenFeature([1], tf.int64, 0)
     if data_items_to_decoders is None:
       data_items_to_decoders = {
           field: tf.contrib.slim.tfexample_decoder.Tensor(field)
