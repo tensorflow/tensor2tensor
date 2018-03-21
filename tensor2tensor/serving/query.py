@@ -62,6 +62,7 @@ def create_stub():
   return prediction_service_pb2.beta_create_PredictionService_stub(channel)
 
 
+# TODO(bgb): Refactor to support requests to CMLE and update docs accordingly.
 def query(stub, input_ids, feature_name="inputs"):
   request = predict_pb2.PredictRequest()
   request.model_spec.name = FLAGS.servable_name
