@@ -135,11 +135,11 @@ class TimeLimitWrapper(WrapperBase):
 class MemoryWrapper(WrapperBase):
 
   #This is a singleton class
-  singleton = None
+  # singleton = None
 
   def __init__(self, batch_env):
     super().__init__(batch_env)
-    assert MemoryWrapper.singleton == None, "The class cannot be instatiated multiple times"
+    # assert MemoryWrapper.singleton == None, "The class cannot be instantiated multiple times"
     MemoryWrapper.singleton = self
     assert self._length==1, "We support only one environment"
 

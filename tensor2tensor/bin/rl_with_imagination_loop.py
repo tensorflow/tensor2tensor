@@ -13,7 +13,7 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 
-def main(_):
+def train(_):
   # Setup data directories
   import random
   prefix = "~/trash/loop_0309"
@@ -25,7 +25,7 @@ def main(_):
   tf.gfile.MakeDirs(tmp_dir)
   tf.gfile.MakeDirs(output_dir)
   last_model = "/home/blazej.osinski/t2t_rl_data_0309/data/ppo_Xth32m/model30.ckpt"
-  for iloop in range(1):
+  for iloop in range(1000):
       # 1. generate data from policy
       # if iloop == 0:
       #     gym_problem = problems.problem("gym_pong_random5k")
@@ -50,9 +50,9 @@ def main(_):
       FLAGS.eval_steps = 1
       t2t_trainer.main([])
 
-      print("  >>> Step {}.3. - evalue env model".format(iloop))
+      print("  >>> Step {}.3. - evalue env model - NOT IMPLEMENTED".format(iloop))
       # 3. evaluate env model, make video
-      raise NotImplemented()
+      #raise NotImplemented()
 
       # 4. train PPO in model env
       print("  >>> Step {}.4. - train PPO in model env".format(iloop))
@@ -72,6 +72,11 @@ def main(_):
       rl_trainer_lib.train(hparams, "PongNoFrameskip-v4", ppo_dir)
 
       last_model =  ppo_dir + "/model{}.ckpt".format(iteration_num)
+
+
+def main(_):
+    train(1)
+
 
 if __name__ == "__main__":
   tf.app.run()
