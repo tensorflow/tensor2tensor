@@ -355,6 +355,23 @@ README](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/da
 
 ## Papers
 
+When referencing Tensor2Tensor, please cite [this
+paper](https://arxiv.org/abs/1803.07416).
+
+```
+@article{tensor2tensor,
+  author    = {Ashish Vaswani and Samy Bengio and Eugene Brevdo and
+    Francois Chollet and Aidan N. Gomez and Stephan Gouws and Llion Jones and
+    \L{}ukasz Kaiser and Nal Kalchbrenner and Niki Parmar and Ryan Sepassi and
+    Noam Shazeer and Jakob Uszkoreit},
+  title     = {Tensor2Tensor for Neural Machine Translation},
+  journal   = {CoRR},
+  volume    = {abs/1803.07416},
+  year      = {2018},
+  url       = {http://arxiv.org/abs/1803.07416},
+}
+```
+
 Tensor2Tensor was used to develop a number of state-of-the-art models
 and deep learning methods. Here we list some papers that were based on T2T
 from the start and benefited from its features and architecture in ways
