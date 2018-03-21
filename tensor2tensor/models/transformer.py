@@ -312,8 +312,8 @@ class Transformer(t2t_model.T2TModel):
           partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2])# partial target-> [?,?]
       #partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2, 3])
       partial_targets_length = common_layers.shape_list(partial_targets)[1]
-      #decode_length += partial_targets_length
-      decode_length=partial_targets_length+features['decode_length']# input_len + extra_len
+      decode_length += partial_targets_length
+      #decode_length=partial_targets_length+features['decode_length']# input_len + extra_len
       batch_size = tf.shape(partial_targets)[0]
 
     if hparams.pos == "timing":
