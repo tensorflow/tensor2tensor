@@ -223,8 +223,11 @@ class ImageImagenet64Gen(ImageImagenet):
 
 
 @registry.register_problem
-class ImageImagenet6432168Gen(ImageImagenet64Gen):
-  """ImageNet at resolutions of 64, 32, 16, and 8."""
+class ImageImagenetMultiResolutionGen(ImageImagenet64Gen):
+  """ImageNet at multiple resolutions.
+
+  The resolutions are specified as a hyperparameter during preprocessing.
+  """
 
   def dataset_filename(self):
     return "image_imagenet64_gen"
@@ -237,36 +240,41 @@ class ImageImagenet6432168Gen(ImageImagenet64Gen):
   def dev_shards(self):
     return 10
 
-  def preprocess_example(self, example, mode, unused_hparams):
+  def preprocess_example(self, example, mode, hparams):
     def make_multiscale(image, resolutions):
       """Return list of scaled images, one for each resolution."""
-      # TODO(avaswani, traundustin): allow for different resizings.
-      resize_fn = image_utils.resize_bicubic
+      if hasattr(hparams, "resize_method"):
+        method = getattr(tf.image.ResizeMethod, hparams.resize_method)
+      else:  # default
+        method = tf.image.ResizeMethod.BICUBIC
+
       scaled_images = []
-      for height in resolutions[:-1]:  # assuming that height = width
-        scaled_image = resize_fn(image, height)
-        scaled_image.set_shape([height, height, num_channels])
+      for height in resolutions[:-1]:
+        scaled_image = tf.image.resize_images(
+            image,
+            size=[height, height],  # assuming that height = width
+            method=method)
         scaled_image = tf.to_int64(scaled_image)
+        scaled_image.set_shape([height, height, num_channels])
         scaled_images.append(scaled_image)
 
-      full_image = image
-      full_image.set_shape([highest_res, highest_res, num_channels])
-      full_image = tf.to_int64(full_image)
-      scaled_images.append(full_image)
+      image = tf.to_int64(image)
+      image.set_shape([highest_res, highest_res, num_channels])
+      scaled_images.append(image)
       return scaled_images
 
-    resolutions = [8, 16, 32, 64]
-    highest_res = resolutions[-1]
+    highest_res = hparams.resolutions[-1]
     num_channels = 3
-    scaled_images = make_multiscale(example["inputs"], resolutions)
-    # We reshape because we want each resolution to have the same width as the
-    # higher resolution.
-    # TODO(avaswani, transdustin): We should create tuples because this will not
+    scaled_images = make_multiscale(example["inputs"], hparams.resolutions)
+    # Pack tuple of scaled images into one tensor. We do this by enforcing the
+    # columns to match for every resolution.
+    # TODO(avaswani, trandustin): We should create tuples because this will not
     # work if height*width of low res < width of high res
     example["inputs"] = tf.concat([
         tf.reshape(scaled_image,
                    [res**2 // highest_res, highest_res, num_channels])
-        for scaled_image, res in zip(scaled_images, resolutions)], axis=0)
+        for scaled_image, res in zip(scaled_images, hparams.resolutions)],
+                                  axis=0)
     return example
 
 

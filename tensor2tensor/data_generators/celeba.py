@@ -162,9 +162,19 @@ class ImageCelebaMultiResolution(ImageCeleba):
   def preprocess_example(self, example, mode, hparams):
     def make_multiscale(image, resolutions):
       """Returns list of scaled images, one for each resolution."""
+      if hasattr(hparams, "resize_method"):
+        method = getattr(tf.image.ResizeMethod, hparams.resize_method)
+      else:  # default
+        method = tf.image.ResizeMethod.BICUBIC
+
       scaled_images = []
-      for height in resolutions:  # assuming that height = width
-        scaled_image = image_utils.resize_by_area(image, height)
+      for height in resolutions:
+        scaled_image = tf.image.resize_images(
+            image,
+            size=[height, height],  # assuming that height = width
+            method=method)
+        scaled_image = tf.to_int64(scaled_image)
+        scaled_image.set_shape([height, height, 3])
         scaled_images.append(scaled_image)
 
       return scaled_images
@@ -179,11 +189,12 @@ class ImageCelebaMultiResolution(ImageCeleba):
     # columns to match for every resolution.
     highest_res = hparams.resolutions[-1]
     num_channels = 3
-    example["inputs"] = tf.concat([
+    example["inputs"] = image
+    example["targets"] = tf.concat([
         tf.reshape(scaled_image,
                    [res**2 // highest_res, highest_res, num_channels])
         for scaled_image, res in zip(scaled_images, hparams.resolutions)],
-                                  axis=0)
+                                   axis=0)
     return example
 
 
