@@ -272,7 +272,6 @@ class T2TModel(base.Layer):
       with tf.variable_scope(target_modality.name):
         log_info("Transforming 'targets' with %s.targets_bottom",
                  target_modality.name)
-        print(features["targets"].get_shape())
         transformed_features["targets"] = target_modality.targets_bottom(
             features["targets"])
 
