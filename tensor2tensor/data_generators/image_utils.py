@@ -40,6 +40,12 @@ def resize_by_area(img, size):
       tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
 
 
+def resize_bicubic(img, size):
+  """image resize function used by quite a few image problems."""
+  return tf.to_int64(
+      tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.BICUBIC))
+
+
 class ImageProblem(problem.Problem):
   """Base class for problems with images."""
 
