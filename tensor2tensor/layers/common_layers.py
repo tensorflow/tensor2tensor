@@ -630,7 +630,7 @@ def layer_preprocess(layer_input, hparams):
 
   See layer_prepostprocess() for details.
 
-  A hyperparemeters object is passed for convenience.  The hyperparameters
+  A hyperparameters object is passed for convenience.  The hyperparameters
   that may be used are:
 
     layer_preprocess_sequence
