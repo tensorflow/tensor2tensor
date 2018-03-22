@@ -150,6 +150,44 @@ class ImageCeleba(image_utils.ImageProblem):
 
 
 @registry.register_problem
+class ImageCelebaMultiResolution(ImageCeleba):
+  """CelebA at multiple resolutions.
+
+  The resolutions are specified as a hyperparameter during preprocessing.
+  """
+
+  def dataset_filename(self):
+    return "image_celeba"
+
+  def preprocess_example(self, example, mode, hparams):
+    def make_multiscale(image, resolutions):
+      """Returns list of scaled images, one for each resolution."""
+      scaled_images = []
+      for height in resolutions:  # assuming that height = width
+        scaled_image = image_utils.resize_by_area(image, height)
+        scaled_images.append(scaled_image)
+
+      return scaled_images
+
+    image = example["inputs"]
+    # Remove boundaries in CelebA images. Remove 40 pixels each side
+    # vertically and 20 pixels each side horizontally.
+    image = tf.image.crop_to_bounding_box(image, 40, 20, 218 - 80, 178 - 40)
+
+    scaled_images = make_multiscale(image, hparams.resolutions)
+    # Pack tuple of scaled images into one tensor. We do this by enforcing the
+    # columns to match for every resolution.
+    highest_res = hparams.resolutions[-1]
+    num_channels = 3
+    example["inputs"] = tf.concat([
+        tf.reshape(scaled_image,
+                   [res**2 // highest_res, highest_res, num_channels])
+        for scaled_image, res in zip(scaled_images, hparams.resolutions)],
+                                  axis=0)
+    return example
+
+
+@registry.register_problem
 class Img2imgCeleba(ImageCeleba):
   """8px to 32px problem."""
 
