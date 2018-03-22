@@ -66,6 +66,9 @@ class BasicAutoencoder(t2t_model.T2TModel):
       x = tf.layers.dense(x, res_size, name="dense")
       return x
 
+  def bottleneck_loss(self, b):
+    return 0.0
+
   def encoder(self, x):
     with tf.variable_scope("encoder"):
       hparams = self._hparams
@@ -109,11 +112,19 @@ class BasicAutoencoder(t2t_model.T2TModel):
       x = self.encoder(x)
       # Bottleneck (mix during early training, not too important but stable).
       b = self.bottleneck(x)
+      b_loss = self.bottleneck_loss(b)
       b = self.unbottleneck(b, common_layers.shape_list(x)[-1])
-      x = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
+      b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
+      # With probability bottleneck_max_prob use the bottleneck, otherwise x.
+      if hparams.bottleneck_max_prob < 1.0:
+        x = tf.where(tf.less(tf.random_uniform([]),
+                             hparams.bottleneck_max_prob), b, x)
+      else:
+        x = b
     else:
       b = self.sample()
       res_size = self._hparams.hidden_size * 2**self._hparams.num_hidden_layers
+      res_size = min(res_size, hparams.max_hidden_size)
       x = self.unbottleneck(b, res_size)
     # Run decoder.
     x = self.decoder(x)
@@ -121,8 +132,9 @@ class BasicAutoencoder(t2t_model.T2TModel):
       return x
     # Cut to the right size and mix before returning.
     res = x[:, :shape[1], :shape[2], :]
-    return common_layers.mix(res, features["targets"],
-                             hparams.bottleneck_warmup_steps // 2, is_training)
+    res = common_layers.mix(res, features["targets"],
+                            hparams.bottleneck_warmup_steps // 2, is_training)
+    return res, {"bottleneck_loss": b_loss}
 
   def sample(self):
     hp = self._hparams
@@ -146,9 +158,13 @@ class BasicAutoencoder(t2t_model.T2TModel):
 
     # Sample and decode.
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
-    num_channels = self._hparams.problem_instances[0].num_channels
+    try:
+      num_channels = self._hparams.problem_instances[0].num_channels
+    except AttributeError:
+      num_channels = 1
     features["targets"] = tf.zeros(
-        [self._hparams.batch_size, 1, 1, num_channels])
+        [self._hparams.batch_size, 1, 1, num_channels],
+        dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     samples = tf.argmax(logits, axis=-1)
 
@@ -200,9 +216,11 @@ def basic_autoencoder():
   hparams.kernel_height = 4
   hparams.kernel_width = 4
   hparams.dropout = 0.1
+  hparams.add_hparam("max_hidden_size", 1024)
   hparams.add_hparam("bottleneck_size", 128)
   hparams.add_hparam("bottleneck_noise", 0.1)
   hparams.add_hparam("bottleneck_warmup_steps", 3000)
+  hparams.add_hparam("bottleneck_max_prob", 1.0)
   hparams.add_hparam("sample_height", 32)
   hparams.add_hparam("sample_width", 32)
   return hparams

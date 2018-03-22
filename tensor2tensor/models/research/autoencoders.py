@@ -22,6 +22,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import discretization
 from tensor2tensor.models import basic
 from tensor2tensor.utils import registry
 
@@ -36,7 +37,10 @@ class ResidualAutoencoder(basic.BasicAutoencoder):
     with tf.variable_scope("encoder"):
       hparams = self._hparams
       kernel, strides = self._get_kernel_and_strides()
-      residual_kernel = (3, 1) if self.is1d else (3, 3)
+      residual_kernel = (hparams.residual_kernel_height,
+                         hparams.residual_kernel_width)
+      residual_kernel1d = (hparams.residual_kernel_height, 1)
+      residual_kernel = residual_kernel1d if self.is1d else residual_kernel
       residual_conv = tf.layers.conv2d
       if hparams.residual_use_separable_conv:
         residual_conv = tf.layers.separable_conv2d
@@ -67,7 +71,10 @@ class ResidualAutoencoder(basic.BasicAutoencoder):
     with tf.variable_scope("decoder"):
       hparams = self._hparams
       kernel, strides = self._get_kernel_and_strides()
-      residual_kernel = (3, 1) if self.is1d else (3, 3)
+      residual_kernel = (hparams.residual_kernel_height,
+                         hparams.residual_kernel_width)
+      residual_kernel1d = (hparams.residual_kernel_height, 1)
+      residual_kernel = residual_kernel1d if self.is1d else residual_kernel
       residual_conv = tf.layers.conv2d
       if hparams.residual_use_separable_conv:
         residual_conv = tf.layers.separable_conv2d
@@ -125,12 +132,40 @@ class BasicDiscreteAutoencoder(basic.BasicAutoencoder):
 
 
 @registry.register_model
-class OrderedDiscreteAutoencoder(BasicDiscreteAutoencoder):
+class ResidualDiscreteAutoencoder(ResidualAutoencoder):
+  """Discrete residual autoencoder."""
+
+  def bottleneck(self, x):
+    return discretization.parametrized_bottleneck(x, self._hparams)
+
+  def unbottleneck(self, x, res_size):
+    return discretization.parametrized_unbottleneck(x, res_size, self._hparams)
+
+  def bottleneck_loss(self, b):
+    part = tf.random_uniform(common_layers.shape_list(b))
+    selection = tf.to_float(tf.less(part, tf.random_uniform([])))
+    part_avg = tf.abs(tf.reduce_sum(b * selection)) / tf.reduce_sum(selection)
+    return part_avg
+
+  def sample(self):
+    hp = self._hparams
+    div_x = 2**hp.num_hidden_layers
+    div_y = 1 if self.is1d else 2**hp.num_hidden_layers
+    size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
+            hp.bottleneck_size]
+    rand = tf.random_uniform(size)
+    res1 = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
+    res2 = tf.zeros_like(rand) - 1.0
+    return tf.concat([res2[:, :, :, :2], res1[:, :, :, 2:]], axis=-1)
+
+
+@registry.register_model
+class OrderedDiscreteAutoencoder(ResidualDiscreteAutoencoder):
   """Ordered discrete autoencoder."""
 
   def bottleneck(self, x):
     hparams = self._hparams
-    x = tf.tanh(tf.layers.dense(x, hparams.bottleneck_size, name="bottleneck"))
+    x = discretization.parametrized_bottleneck(x, hparams)
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
       # In the ordered case, we'll have no noise on top bits, let's make a mask.
       # Start with randomly uniformly choosing numbers [0, number_of_bits) where
@@ -147,15 +182,9 @@ class OrderedDiscreteAutoencoder(BasicDiscreteAutoencoder):
       # Having the no-noise mask, we can make noise just uniformly at random.
       ordered_noise = tf.random_uniform(tf.shape(x)) * no_noise_mask
       # We want our noise to be 1s at the start and random {-1, 1} bits later.
-      ordered_noise = 2.0 * tf.to_float(tf.less(ordered_noise, 0.5))- 1.0
+      ordered_noise = 2.0 * tf.to_float(tf.less(ordered_noise, 0.5)) - 1.0
       # Now we flip the bits of x on the noisy positions (ordered and normal).
-      noise = tf.random_uniform(common_layers.shape_list(x))
-      noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
-      x *= ordered_noise * noise
-    # Discretize as before.
-    d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
-    x = common_layers.mix(d, x, hparams.discretize_warmup_steps,
-                          hparams.mode == tf.estimator.ModeKeys.TRAIN)
+      x *= ordered_noise
     return x
 
 
@@ -163,15 +192,19 @@ class OrderedDiscreteAutoencoder(BasicDiscreteAutoencoder):
 def residual_autoencoder():
   """Residual autoencoder model."""
   hparams = basic.basic_autoencoder()
-  hparams.optimizer = "Adafactor"
-  hparams.learning_rate_constant = 0.001
+  hparams.optimizer = "Adam"
+  hparams.learning_rate_constant = 0.0001
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"
-  hparams.dropout = 0.1
-  hparams.add_hparam("max_hidden_size", 2048)
+  hparams.dropout = 0.05
+  hparams.num_hidden_layers = 5
+  hparams.hidden_size = 64
+  hparams.max_hidden_size = 1024
   hparams.add_hparam("num_residual_layers", 2)
+  hparams.add_hparam("residual_kernel_height", 3)
+  hparams.add_hparam("residual_kernel_width", 3)
   hparams.add_hparam("residual_filter_multiplier", 2.0)
-  hparams.add_hparam("residual_dropout", 0.3)
+  hparams.add_hparam("residual_dropout", 0.2)
   hparams.add_hparam("residual_use_separable_conv", int(True))
   return hparams
 
@@ -190,13 +223,22 @@ def basic_discrete_autoencoder():
 
 
 @registry.register_hparams
-def ordered_discrete_autoencoder():
-  """Basic autoencoder model."""
-  hparams = basic.basic_autoencoder()
-  hparams.num_hidden_layers = 5
-  hparams.hidden_size = 64
-  hparams.bottleneck_size = 4096
+def residual_discrete_autoencoder():
+  """Residual discrete autoencoder model."""
+  hparams = residual_autoencoder()
+  hparams.bottleneck_size = 2048
   hparams.bottleneck_noise = 0.2
   hparams.bottleneck_warmup_steps = 3000
   hparams.add_hparam("discretize_warmup_steps", 5000)
+  hparams.add_hparam("bottleneck_kind", "tanh_discrete")
+  hparams.add_hparam("isemhash_noise_dev", 0.5)
+  hparams.add_hparam("isemhash_mix_prob", 0.5)
+  hparams.add_hparam("isemhash_filter_size_multiplier", 2.0)
+  return hparams
+
+
+@registry.register_hparams
+def ordered_discrete_autoencoder():
+  """Basic autoencoder model."""
+  hparams = residual_discrete_autoencoder()
   return hparams
