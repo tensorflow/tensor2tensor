@@ -18,9 +18,13 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-from functools import partial
+
+import copy
+import functools
 import math
+
 # Dependency imports
+
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
@@ -30,7 +34,9 @@ from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
+
 import tensorflow as tf
+
 
 _DO_SUMMARIES = True
 
@@ -141,6 +147,11 @@ def decode_transformer(encoder_output,
                        name,
                        task=None):
   """Original Transformer decoder."""
+  orig_hparams = hparams
+  if name == "extra":
+    hparams = hparams.ex
+    targets = tf.layers.dense(
+        targets, hparams.hidden_size, name="extra_tgt_embed")
   with tf.variable_scope(name):
     if task is None:
       task = hparams.task
@@ -188,6 +199,7 @@ def decode_transformer(encoder_output,
     decoder_output = tf.reshape(decoder_output, [decoder_output_shape[0], -1, 1,
                                                  hparams.hidden_size])
     # Expand since t2t expects 4d tensors.
+    hparams = orig_hparams
     return decoder_output
 
 
@@ -309,6 +321,17 @@ def ae_transformer_internal(inputs,
   if hparams.do_refine:
     _DO_SUMMARIES = False
 
+  # Change hyperparameters for the latent prediction model.
+  hparams_ex = copy.copy(hparams)
+  hparams_ex.filter_size *= 2
+  hparams_ex.hidden_size *= 2
+  hparams_ex.dropout = 0.0
+  hparams_ex.relu_dropout = 0.0
+  hparams_ex.z_dropout = 0.0
+  hparams_ex.layer_prepostprocess_dropout = 0.0
+  hparams_ex.symbol_dropout = 0.0
+  hparams.ex = hparams_ex
+
   # Prepare.
   if inputs is not None:
     batch_size = common_layers.shape_list(inputs)[0]
@@ -319,9 +342,12 @@ def ae_transformer_internal(inputs,
   # Encoder.
   if inputs is not None:
     inputs = common_layers.flatten4d3d(inputs)
+    inputs_ex = tf.layers.dense(
+        tf.stop_gradient(inputs), hparams_ex.hidden_size, name="extra_embed")
     inputs, ed = encode(inputs, target_space, hparams, "input_enc")
+    inputs_ex, ed_ex = encode(inputs_ex, target_space, hparams_ex, "extra_ienc")
   else:
-    ed = None
+    ed, inputs_ex, ed_ex = None, None, None
 
   # Autoencoding.
   losses = {"extra": tf.constant(0.0), "latent_pred": tf.constant(0.0)}
@@ -357,14 +383,13 @@ def ae_transformer_internal(inputs,
       # Extra loss predicting latent code from input. Discrete only.
       if hparams.bottleneck_kind not in ["dense", "vae"]:
         latents_pred = decode_transformer(
-            inputs if inputs is not None else None,
-            ed if inputs is not None else None,
-            embed(latents_discrete), hparams, "extra",
+            inputs_ex, ed_ex,
+            tf.stop_gradient(embed(latents_discrete)), hparams, "extra",
             task="translate")
         _, latent_pred_loss = ae_latent_softmax(
-            latents_pred, latents_discrete, hparams)
+            latents_pred, tf.stop_gradient(latents_discrete), hparams)
         losses["latent_pred"] = tf.reduce_mean(
-            latent_pred_loss * 0.5 * tf.to_float(cond))
+            latent_pred_loss * tf.to_float(cond))
       else:
         inputs_c = decode_transformer(inputs, ed, targets_c, hparams, "dec_c")
         losses["latent_pred"] = tf.reduce_mean((inputs_c - targets_c)**2) * 20
@@ -398,7 +423,7 @@ def ae_transformer_internal(inputs,
         latents_dense = tf.zeros_like(targets_c[:, :latent_len, :, :])
         if cache is None:
           cache = ae_latent_sample(
-              latents_dense, inputs, ed, embed, 16, hparams)
+              latents_dense, inputs_ex, ed_ex, embed, 16, hparams)
         latents_dense = embed(cache)
     # Postprocess.
     d = latents_dense
@@ -448,9 +473,13 @@ def ae_transformer_internal(inputs,
       all_masked = tf.less(masked_batches, 0.1)
       res = tf.where(all_masked, refine_res(), res)
     # We'll start training the extra model of latents after mask_startup_steps.
-    latent_time = tf.less(hparams.mask_startup_steps,
+    nonlatent_steps = hparams.mask_startup_steps
+    latent_time = tf.less(nonlatent_steps,
                           tf.to_int32(tf.train.get_global_step()))
-    losses["latent_pred"] *= tf.to_float(latent_time)
+    # Learning rate warmup for the latent model for 20K steps.
+    latent_warmup = tf.to_float(tf.train.get_global_step()) - nonlatent_steps
+    latent_warmup = tf.maximum(0.0, tf.minimum(1.0, latent_warmup / 20000.0))
+    losses["latent_pred"] *= tf.to_float(latent_time) * latent_warmup
   return res, losses, cache
 
 
@@ -463,7 +492,7 @@ class TransformerAE(t2t_model.T2TModel):
     self.predict_mask = 1.0
 
     # Define bottleneck function
-    self._hparams.bottleneck = partial(
+    self._hparams.bottleneck = functools.partial(
         discretization.discrete_bottleneck,
         hidden_size=self._hparams.hidden_size,
         z_size=self._hparams.z_size,
@@ -491,7 +520,6 @@ class TransformerAE(t2t_model.T2TModel):
         slo=self._hparams.slo,
         slo_alpha=self._hparams.slo_alpha,
         slo_beta=self._hparams.slo_beta)
-
     # Set the discretization bottleneck specific things here
     if self._hparams.bottleneck_kind == "dvq":
       z_size_per_residual = self._hparams.z_size / self._hparams.num_residuals
@@ -513,7 +541,7 @@ class TransformerAE(t2t_model.T2TModel):
             initializer=tf.contrib.layers.xavier_initializer(),
             trainable=self._hparams.trainable_projections)
 
-        self._hparams.bottleneck = partial(
+        self._hparams.bottleneck = functools.partial(
             self._hparams.bottleneck, projection_tensors=projection_tensors)
       elif self._hparams.reshape_method == "slice":
         tf.logging.info("Using slices for DVQ")
@@ -557,7 +585,7 @@ class TransformerAE(t2t_model.T2TModel):
               initializer=tf.uniform_unit_scaling_initializer())
 
       # Update bottleneck
-      self._hparams.bottleneck = partial(
+      self._hparams.bottleneck = functools.partial(
           self._hparams.bottleneck,
           means=means,
           ema_count=ema_count,
