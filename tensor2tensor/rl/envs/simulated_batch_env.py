@@ -47,9 +47,8 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
     self.length = len
 
-
     hparams = trainer_lib.create_hparams("basic_1", problem_name="gym_discrete_problem",
-                                         data_dir="/home/piotr.milos/trash/loop_0309/data/0")
+                                         data_dir="/xyz")  #TODO:inputs should change
 
     hparams.hidden_size = 32
     from tensor2tensor.utils import registry

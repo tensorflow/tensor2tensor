@@ -41,7 +41,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("model_path", "", "File with model for pong")
+flags.DEFINE_string("agent_policy_path", "", "File with model for pong")
 
 @registry.register_problem
 class GymDiscreteProblem(problem.Problem):
@@ -80,6 +80,7 @@ class GymDiscreteProblem(problem.Problem):
       policy_factory = tf.make_template(
         "network",
         functools.partial(policy_lambda, environment_spec().action_space, hparams),
+        create_scope_now_=True,
         unique_name_="network")
 
     with tf.variable_scope("collect_datagen", reuse=tf.AUTO_REUSE):
@@ -180,10 +181,10 @@ class GymDiscreteProblem(problem.Problem):
     clip_files = []
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
-      #TODO:pm->Błażej. Restore
-      # model_saver = tf.train.Saver(
-      #   tf.global_variables(".*network_parameters.*"))
-      # model_saver.restore(sess, FLAGS.model_path)
+      model_saver = tf.train.Saver(
+        tf.global_variables(".*network_parameters.*"))
+      if FLAGS.agent_policy_path:
+        model_saver.restore(sess, FLAGS.agent_policy_path)
       pieces_generated = 0
       while pieces_generated<self.num_steps:
         avilable_data_size = sess.run(self.avilable_data_size_op)

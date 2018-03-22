@@ -24,16 +24,11 @@ def train(_):
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
   tf.gfile.MakeDirs(output_dir)
-  last_model = "/home/blazej.osinski/t2t_rl_data_0309/data/ppo_Xth32m/model30.ckpt"
+  last_model = ""
   for iloop in range(1000):
-      # 1. generate data from policy
-      # if iloop == 0:
-      #     gym_problem = problems.problem("gym_pong_random5k")
-      # else:
-
       print("  >>>   Step {}.1. - generate data from policy".format(iloop))
       FLAGS.problems = "gym_discrete_problem"
-      FLAGS.model_path = last_model
+      FLAGS.agent_policy_path = last_model
       gym_problem = problems.problem(FLAGS.problems)
       iter_data_dir = os.path.join(data_dir, str(iloop))
       tf.gfile.MakeDirs(iter_data_dir)
