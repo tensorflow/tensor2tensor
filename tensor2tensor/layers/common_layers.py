@@ -35,13 +35,16 @@ import tensorflow as tf
 from tensorflow.python.eager import context as tfe_context
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops
+from tensorflow.python.ops import control_flow_util
+
 
 # This is a global setting. When turned off, no @function.Defun is used.
 allow_defun = False
 
 
 def is_on_tpu():
-  return tf.contrib.framework.get_name_scope().startswith("TPUReplicate")
+  ctxt = tf.get_default_graph()._get_control_flow_context()  # pylint: disable=protected-access
+  return control_flow_util.GetContainingXLAContext(ctxt) is not None
 
 
 def bfloat16_var_getter(getter, *args, **kwargs):
