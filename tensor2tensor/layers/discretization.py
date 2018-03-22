@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Discretization bottlenecks used to train discrete latent variables.
-"""
+"""Discretization bottlenecks used to train discrete latent variables."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -247,7 +246,7 @@ def embed(x,
           z_size,
           filter_size,
           name,
-          bottleneck_kind='dvq',
+          bottleneck_kind="dvq",
           num_blocks=2,
           num_residuals=1,
           block_v_size=None,
@@ -275,17 +274,17 @@ def embed(x,
     ValueError: For unknown or missing arguments.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
-    if bottleneck_kind == 'semhash':
+    if bottleneck_kind == "semhash":
       c = int_to_bit(x, z_size)
-      h1a = tf.layers.dense(c, filter_size, name='vch1a')
-      h1b = tf.layers.dense(1.0 - c, filter_size, name='vch1b')
+      h1a = tf.layers.dense(c, filter_size, name="vch1a")
+      h1b = tf.layers.dense(1.0 - c, filter_size, name="vch1b")
       h1 = h1a + h1b
-    elif bottleneck_kind == 'gumbel-softmax':
+    elif bottleneck_kind == "gumbel-softmax":
       hot = tf.one_hot(x, 2**z_size)
-      h1 = tf.layers.dense(hot, hidden_size, name='dae_dense')
-    elif bottleneck_kind == 'dvq':
+      h1 = tf.layers.dense(hot, hidden_size, name="dae_dense")
+    elif bottleneck_kind == "dvq":
       if block_v_size is None:
-        raise ValueError('Bottleneck kind is dvq but block_v_size is None.')
+        raise ValueError("Bottleneck kind is dvq but block_v_size is None.")
 
       shape_x = common_layers.shape_list(x)
       x_flat = tf.reshape(x, [-1, 1])
@@ -311,13 +310,13 @@ def embed(x,
         h1_residual = tf.transpose(h1_residual, perm=[1, 0, 2])
         h1_residual = tf.reshape(h1_residual, shape=h1_shape)
         h1 += h1_residual
-    elif bottleneck_kind == 'rounding':
+    elif bottleneck_kind == "rounding":
       h1 = x
     else:
-      raise ValueError('Unknown bottleneck kind.')
+      raise ValueError("Unknown bottleneck kind.")
 
-    h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name='vch2')
-    return tf.layers.dense(tf.nn.relu(h2), hidden_size, name='vcfin')
+    h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
+    return tf.layers.dense(tf.nn.relu(h2), hidden_size, name="vcfin")
 
 
 def vae(x, name, z_size):
@@ -333,8 +332,8 @@ def vae(x, name, z_size):
     Embedding function, latent, loss, mu and log_simga.
   """
   with tf.variable_scope(name):
-    mu = tf.layers.dense(x, z_size, name='mu')
-    log_sigma = tf.layers.dense(x, z_size, name='log_sigma')
+    mu = tf.layers.dense(x, z_size, name="mu")
+    log_sigma = tf.layers.dense(x, z_size, name="log_sigma")
     shape = common_layers.shape_list(x)
     epsilon = tf.random_normal([shape[0], shape[1], 1, z_size])
     z = mu + tf.exp(log_sigma / 2) * epsilon
@@ -400,7 +399,7 @@ def gumbel_softmax(x,
     Embedding function, discrete code and loss.
   """
   with tf.variable_scope(name):
-    m = tf.layers.dense(x, 2**z_size, name='mask')
+    m = tf.layers.dense(x, 2**z_size, name="mask")
     if softmax_k > 0:
       m, kl = top_k_softmax(m, softmax_k)
       return m, m, 1.0 - tf.reduce_mean(kl)
@@ -421,7 +420,7 @@ def gumbel_softmax(x,
     kl = -tf.reduce_max(logsm, axis=-1)
 
     if summary:
-      tf.summary.histogram('max-log', tf.reshape(kl, [-1]))
+      tf.summary.histogram("max-log", tf.reshape(kl, [-1]))
 
     # Calculate the argmax and construct hot vectors.
     maxvec = tf.reshape(tf.argmax(m, axis=-1), [-1])
@@ -446,10 +445,10 @@ def discrete_bottleneck(x,
                         name,
                         mode=None,
                         startup_steps=50000,
-                        bottleneck_kind='dvq',
+                        bottleneck_kind="dvq",
                         num_blocks=2,
                         num_residuals=1,
-                        reshape_method='slice',
+                        reshape_method="slice",
                         projection_tensors=None,
                         means=None,
                         beta=0.25,
@@ -525,61 +524,61 @@ def discrete_bottleneck(x,
     ema_count or ema_means is None if we are using ema, or unknown args.
   """
   block_v_size = None
-  if bottleneck_kind == 'dvq':
+  if bottleneck_kind == "dvq":
     # Define the dvq parameters
     assert means is not None
 
     # Check block dimensions add up
     if hidden_size % num_blocks != 0:
-      raise ValueError('num_blocks does not divide hidden size')
+      raise ValueError("num_blocks does not divide hidden size")
 
     if z_size % num_residuals != 0:
-      raise ValueError('num_residuals does not divide embedding table size')
+      raise ValueError("num_residuals does not divide embedding table size")
 
     z_size_per_residual = int(z_size / num_residuals)
 
     if z_size_per_residual % num_blocks != 0:
-      raise ValueError('num_blocks does not divide embedding table size')
+      raise ValueError("num_blocks does not divide embedding table size")
 
     block_v_size = 2**(z_size_per_residual / num_blocks)
     block_v_size = int(block_v_size)
 
     # Set the reshape method corresponding to projections or slices
-    if reshape_method == 'slice':
+    if reshape_method == "slice":
       reshape_fn = partial(
           slice_hidden, hidden_size=hidden_size, num_blocks=num_blocks)
-    elif reshape_method == 'project':
+    elif reshape_method == "project":
       if projection_tensors is None:
         raise ValueError(
-            'Projection tensors is None for reshape_method project')
+            "Projection tensors is None for reshape_method project")
       reshape_fn = partial(
           project_hidden,
           projection_tensors=projection_tensors,
           hidden_size=hidden_size,
           num_blocks=num_blocks)
     else:
-      raise ValueError('Unknown reshape_method')
+      raise ValueError("Unknown reshape_method")
 
     # Check if the ema settings make sense
     if ema:
       if ema_count is None:
-        raise ValueError('ema_count is None but ema is True')
+        raise ValueError("ema_count is None but ema is True")
       if ema_means is None:
-        raise ValueError('ema_means is None but ema is True')
+        raise ValueError("ema_means is None but ema is True")
 
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     l = tf.constant(0.0)
-    if bottleneck_kind == 'dense':
-      c = tf.layers.dense(x, z_size, name='vcc')
-      h1 = tf.layers.dense(c, filter_size, name='vch1')
-    elif bottleneck_kind == 'vae':
-      c, l, _, _ = vae(x, z_size, 'vae')
-      h1 = tf.layers.dense(c, filter_size, name='vch1')
-    elif bottleneck_kind == 'semhash':
-      c = tf.layers.dense(x, z_size, name='vcc')
+    if bottleneck_kind == "dense":
+      c = tf.layers.dense(x, z_size, name="vcc")
+      h1 = tf.layers.dense(c, filter_size, name="vch1")
+    elif bottleneck_kind == "vae":
+      c, l, _, _ = vae(x, z_size, "vae")
+      h1 = tf.layers.dense(c, filter_size, name="vch1")
+    elif bottleneck_kind == "semhash":
+      c = tf.layers.dense(x, z_size, name="vcc")
       y_clean = common_layers.saturating_sigmoid(c)
       if summary:
-        tf.summary.histogram('y_clean', tf.reshape(y_clean, [-1]))
+        tf.summary.histogram("y_clean", tf.reshape(y_clean, [-1]))
       if noise_dev > 0 and mode == tf.estimator.ModeKeys.TRAIN:
         noise = tf.truncated_normal(
             common_layers.shape_list(c), mean=0.0, stddev=noise_dev)
@@ -594,17 +593,17 @@ def discrete_bottleneck(x,
       c = tf.where(
           tf.less(tf.random_uniform([common_layers.shape_list(y)[0]]), pd),
           y_discrete, y)
-      h1a = tf.layers.dense(c, filter_size, name='vch1a')
-      h1b = tf.layers.dense(1.0 - c, filter_size, name='vch1b')
+      h1a = tf.layers.dense(c, filter_size, name="vch1a")
+      h1b = tf.layers.dense(1.0 - c, filter_size, name="vch1b")
       h1 = h1a + h1b
       dx = tf.to_int32(tf.stop_gradient(d))
       c = bit_to_int(dx, z_size)
-    elif bottleneck_kind == 'gumbel-softmax':
+    elif bottleneck_kind == "gumbel-softmax":
       _, hot, l = gumbel_softmax(x, name, z_size, mode, softmax_k,
                                  kl_warmup_steps, summary)
       c = tf.argmax(hot, axis=-1)
-      h1 = tf.layers.dense(hot, hidden_size, name='dae_dense')
-    elif bottleneck_kind == 'dvq':
+      h1 = tf.layers.dense(hot, hidden_size, name="dae_dense")
+    elif bottleneck_kind == "dvq":
       c_probs = None
       if c_logits is not None:
         c_probs = tf.nn.softmax(c_logits, axis=-1)
@@ -634,7 +633,7 @@ def discrete_bottleneck(x,
 
       # Update the ema variables
       if ema:
-        tf.logging.info('Using EMA with beta = {}'.format(beta))
+        tf.logging.info("Using EMA with beta = {}".format(beta))
         updated_ema_count = moving_averages.assign_moving_average(
             ema_count,
             tf.reduce_sum(
@@ -682,10 +681,10 @@ def discrete_bottleneck(x,
       x_reshaped = tf.reshape(x_reshaped, shape_x)
       h1 = x_reshaped + tf.stop_gradient(x_means - x_reshaped)
     else:
-      raise ValueError('Unknown discretization method.')
+      raise ValueError("Unknown discretization method.")
 
-    h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name='vch2')
-    res = tf.layers.dense(tf.nn.relu(h2), hidden_size, name='vcfin')
+    h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
+    res = tf.layers.dense(tf.nn.relu(h2), hidden_size, name="vcfin")
 
     embed_fn = partial(
         embed,
@@ -699,3 +698,90 @@ def discrete_bottleneck(x,
         block_v_size=block_v_size,
         means=means)
     return res, c, l, embed_fn
+
+
+# New API for discretization bottlenecks:
+# * Each method is separate and provides 2 functions:
+# * The [method]_bottleneck function returns discretized state.
+# * The [method]_unbottleneck function moves from discretized state to dense.
+
+
+def tanh_discrete_bottleneck(x, bottleneck_size, bottleneck_noise,
+                             discretize_warmup_steps, mode):
+  """Simple discretization through tanh, flip bottleneck_noise many bits."""
+  x = tf.tanh(tf.layers.dense(x, bottleneck_size,
+                              name="tanh_discrete_bottleneck"))
+  d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
+  if mode == tf.estimator.ModeKeys.TRAIN:
+    noise = tf.random_uniform(common_layers.shape_list(x))
+    noise = 2.0 * tf.to_float(tf.less(bottleneck_noise, noise)) - 1.0
+    d *= noise
+  d = common_layers.mix(d, x, discretize_warmup_steps,
+                        mode == tf.estimator.ModeKeys.TRAIN)
+  return d
+
+
+def tanh_discrete_unbottleneck(x, hidden_size):
+  """Simple un-discretization from tanh."""
+  x = tf.layers.dense(x, hidden_size, name="tanh_discrete_unbottleneck")
+  return x
+
+
+def isemhash_bottleneck(x, bottleneck_size, bottleneck_noise,
+                        discretize_warmup_steps, mode,
+                        isemhash_noise_dev=0.5, isemhash_mix_prob=0.5):
+  """Improved semantic hashing bottleneck."""
+  with tf.variable_scope("isemhash_bottleneck"):
+    x = tf.layers.dense(x, bottleneck_size, name="dense")
+    y = common_layers.saturating_sigmoid(x)
+    if isemhash_noise_dev > 0 and mode == tf.estimator.ModeKeys.TRAIN:
+      noise = tf.truncated_normal(
+          common_layers.shape_list(x), mean=0.0, stddev=isemhash_noise_dev)
+      y = common_layers.saturating_sigmoid(x + noise)
+    d = tf.to_float(tf.less(0.5, y)) + y - tf.stop_gradient(y)
+    d = 2.0 * d - 1.0  # Move from [0, 1] to [-1, 1].
+    if mode == tf.estimator.ModeKeys.TRAIN:  # Flip some bits.
+      noise = tf.random_uniform(common_layers.shape_list(x))
+      noise = 2.0 * tf.to_float(tf.less(bottleneck_noise, noise)) - 1.0
+      d *= noise
+    d = common_layers.mix(d, 2.0 * y - 1.0, discretize_warmup_steps,
+                          mode == tf.estimator.ModeKeys.TRAIN,
+                          max_prob=isemhash_mix_prob)
+    return d
+
+
+def isemhash_unbottleneck(x, hidden_size, isemhash_filter_size_multiplier=1.0):
+  """Improved semantic hashing un-bottleneck."""
+  filter_size = int(hidden_size * isemhash_filter_size_multiplier)
+  x = 0.5 * (x - 1.0)  # Move from [-1, 1] to [0, 1].
+  with tf.variable_scope("isemhash_unbottleneck"):
+    h1a = tf.layers.dense(x, filter_size, name="hidden1a")
+    h1b = tf.layers.dense(1.0 - x, filter_size, name="hidden1b")
+    h2 = tf.layers.dense(tf.nn.relu(h1a + h1b), filter_size, name="hidden2")
+    return tf.layers.dense(tf.nn.relu(h2), hidden_size, name="final")
+
+
+def parametrized_bottleneck(x, hparams):
+  """Meta-function calling all the above bottlenecks with hparams."""
+  if hparams.bottleneck_kind == "tanh_discrete":
+    return tanh_discrete_bottleneck(
+        x, hparams.bottleneck_size, hparams.bottleneck_noise * 0.5,
+        hparams.discretize_warmup_steps, hparams.mode)
+  if hparams.bottleneck_kind == "isemhash":
+    return isemhash_bottleneck(
+        x, hparams.bottleneck_size, hparams.bottleneck_noise * 0.5,
+        hparams.discretize_warmup_steps, hparams.mode,
+        hparams.isemhash_noise_dev, hparams.isemhash_mix_prob)
+  raise ValueError("Unsupported hparams.bottleneck_kind %s"
+                   % hparams.bottleneck_kind)
+
+
+def parametrized_unbottleneck(x, hidden_size, hparams):
+  """Meta-function calling all the above un-bottlenecks with hparams."""
+  if hparams.bottleneck_kind == "tanh_discrete":
+    return tanh_discrete_unbottleneck(x, hidden_size)
+  if hparams.bottleneck_kind == "isemhash":
+    return isemhash_unbottleneck(
+        x, hidden_size, hparams.isemhash_filter_size_multiplier)
+  raise ValueError("Unsupported hparams.bottleneck_kind %s"
+                   % hparams.bottleneck_kind)

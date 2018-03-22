@@ -108,7 +108,11 @@ class ConditionalOptimizer(tf.train.Optimizer):
 
   def compute_gradients(self, loss, var_list=None, **kwargs):
     gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
-    gradients = [(tf.cast(g, v.dtype), v) for g, v in gradients]
+    def cast_grad(g, v):
+      if v is None or g is None:
+        return (g, v)
+      return (tf.cast(g, v.dtype), v)
+    gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):

@@ -105,7 +105,7 @@ class Image2ClassProblem(ImageProblem):
   def feature_encoders(self, data_dir):
     del data_dir
     return {
-        "inputs": text_encoder.ImageEncoder(),
+        "inputs": text_encoder.ImageEncoder(channels=self.num_channels),
         "targets": text_encoder.ClassLabelEncoder(self.class_labels)
     }
 
@@ -230,7 +230,7 @@ class Image2TextProblem(ImageProblem):
       vocab_filename = os.path.join(
           data_dir, "vocab.ende.%d" % self.targeted_vocab_size)
       encoder = text_encoder.SubwordTextEncoder(vocab_filename)
-    input_encoder = text_encoder.ImageEncoder()
+    input_encoder = text_encoder.ImageEncoder(channels=self.num_channels)
     return {"inputs": input_encoder, "targets": encoder}
 
   def hparams(self, defaults, unused_model_hparams):
