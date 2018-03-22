@@ -514,9 +514,6 @@ class TransformerAE(t2t_model.T2TModel):
         kl_warmup_steps=self._hparams.kl_warmup_steps,
         ema=self._hparams.ema,
         summary=_DO_SUMMARIES,
-        dp_strength=self._hparams.dp_strength,
-        dp_decay=self._hparams.dp_decay,
-        dp_alpha=self._hparams.dp_alpha,
         slo=self._hparams.slo,
         slo_alpha=self._hparams.slo_alpha,
         slo_beta=self._hparams.slo_beta)
@@ -697,9 +694,6 @@ def transformer_ae_small():
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
   # Hparams for Dirichlet process process
-  hparams.add_hparam("dp_alpha", 0.5)
-  hparams.add_hparam("dp_strength", 0.25)
-  hparams.add_hparam("dp_decay", 1.0)
   hparams.add_hparam("slo", False)  # for smoothed L0.
   hparams.add_hparam("slo_alpha", 0.25)
   hparams.add_hparam("slo_beta", 0.5)

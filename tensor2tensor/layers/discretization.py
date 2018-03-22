@@ -466,9 +466,6 @@ def discrete_bottleneck(x,
                         ema_count=None,
                         ema_means=None,
                         summary=True,
-                        dp_strength=1.0,
-                        dp_decay=1.0,
-                        dp_alpha=0.5,
                         slo=False,
                         slo_alpha=10,
                         slo_beta=0.5,
@@ -513,10 +510,6 @@ def discrete_bottleneck(x,
       examples in a batch it was the closest to (Default: None).
     ema_means: Exponentially averaged version of the embeddings (Default: None).
     summary: If True, then write summaries (Default: True).
-    dp_strength: Strength of Dirichlet Process loss prior (Default: 1.0).
-    dp_decay: Decay the dp_strength using an exponential decay using this
-      term (Default: 1.0).
-    dp_alpha: Alpha term (pseudo-count) in Dirichlet Process (Default: 0.5).
     slo: Smoothed L0
     slo_alpha: alpha for smoothed L0
     slo_beta: beta for smoothed L0
@@ -652,23 +645,7 @@ def discrete_bottleneck(x,
             decay,
             zero_debias=False)
 
-        # Adding a term that puts a Dirichlet prior over cluster probabilities
-        # Hopefully it'll encourage rich get richer behaviors
-        dp_prior_loss = 0.
         slo_loss = 0.
-        if dp_strength > 0.0:
-          # Decay dp_strength over time to make it less important
-          dp_strength = tf.train.exponential_decay(
-              dp_strength,
-              global_step=tf.to_int32(tf.train.get_global_step()),
-              decay_steps=20000,
-              decay_rate=dp_decay)
-          dp_count = ema_count + dp_alpha
-          p = dp_count / tf.reduce_sum(dp_count, 1, keepdims=True)
-          dp_prior_loss = tf.log(p)
-          dp_prior_loss = -1.0 * tf.reduce_sum(dp_prior_loss)
-          dp_prior_loss /= (num_blocks * block_v_size)
-
         # if using smoothed L0
         if slo:
           # expected log likelihood
@@ -697,7 +674,7 @@ def discrete_bottleneck(x,
         with tf.control_dependencies([e_loss]):
           update_means = tf.assign(means, updated_ema_means)
           with tf.control_dependencies([update_means]):
-            l += beta * e_loss + dp_strength * dp_prior_loss + slo_loss
+            l += beta * e_loss + slo_loss
       else:
         l = q_loss + beta * e_loss
 
