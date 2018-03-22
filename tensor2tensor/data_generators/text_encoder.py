@@ -26,6 +26,7 @@ from __future__ import print_function
 
 import collections
 from itertools import chain
+import math
 import re
 import tempfile
 
@@ -849,7 +850,7 @@ class SubwordTextEncoder(TextEncoder):
 class ImageEncoder(object):
   """Encoder class for saving and loading images."""
 
-  def __init__(self, num_reserved_ids=0, height=32, width=32, channels=3):
+  def __init__(self, num_reserved_ids=0, height=None, width=None, channels=3):
     assert num_reserved_ids == 0
     self._height = height
     self._width = width
@@ -889,7 +890,12 @@ class ImageEncoder(object):
       ValueError: if the ids are not of the appropriate size.
     """
     _, tmp_file_path = tempfile.mkstemp("_decode.png")
-    length = self._height * self._width * self._channels
+    if self._height is None or self._width is None:
+      size = int(math.sqrt(len(ids) / self._channels))
+      length = size * size * self._channels
+    else:
+      size = None
+      length = self._height * self._width * self._channels
     if len(ids) != length:
       raise ValueError("Length of ids (%d) must be height (%d) x width (%d) x "
                        "channels (%d); %d != %d.\n Ids: %s"
@@ -897,7 +903,10 @@ class ImageEncoder(object):
                           len(ids), length, " ".join([str(i) for i in ids])))
     with tf.Graph().as_default():
       raw = tf.constant(ids, dtype=tf.uint8)
-      img = tf.reshape(raw, [self._height, self._width, self._channels])
+      if size is None:
+        img = tf.reshape(raw, [self._height, self._width, self._channels])
+      else:
+        img = tf.reshape(raw, [size, size, self._channels])
       png = tf.image.encode_png(img)
       op = tf.write_file(tmp_file_path, png)
       with tf.Session() as sess:
