@@ -170,22 +170,30 @@ def embedding_lookup(x,
       c_probs_residual = c_probs
 
     x_means_hot_residual = nearest_neighbor(
-        x_residual, means_residual, block_v_size, random_top_k, soft_em,
-        inv_temp, ema_count_residual, c_probs_residual)
+        x_residual,
+        means_residual,
+        block_v_size,
+        random_top_k=random_top_k,
+        soft_em=soft_em,
+        inv_temp=inv_temp,
+        ema_count=ema_count_residual,
+        c_probs=c_probs_residual)
     x_means_hot_flat_residual = tf.reshape(x_means_hot_residual,
                                            [-1, num_blocks, block_v_size])
     x_means_residual = tf.matmul(
         tf.transpose(x_means_hot_flat_residual, perm=[1, 0, 2]), means_residual)
-    x_means_residual = tf.transpose(x_means_residual, [1, 0, 2])
-    x_residual -= x_means_residual
-    x_means += x_means_residual
-    x_means_hot.append(x_means_hot_residual)
+    x_means_residual = tf.transpose(x_means_residual, perm=[1, 0, 2])
 
     # Collect the residual losses
     q_loss += tf.reduce_mean(
         tf.square((tf.stop_gradient(x_residual) - x_means_residual)))
     e_loss += tf.reduce_mean(
         tf.square(x_residual - tf.stop_gradient(x_means_residual)))
+
+    # Update the residuals
+    x_residual -= x_means_residual
+    x_means += x_means_residual
+    x_means_hot.append(x_means_hot_residual)
 
   # Stack x_means_hot
   x_means_hot = tf.stack(x_means_hot, axis=1)
