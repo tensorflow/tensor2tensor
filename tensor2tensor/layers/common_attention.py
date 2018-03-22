@@ -496,6 +496,7 @@ def add_timing_signal_1d_given_position(x,
           tf.expand_dims(inv_timescales, 0), 0))
   signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=2)
   signal = tf.pad(signal, [[0, 0], [0, 0], [0, tf.mod(channels, 2)]])
+  signal = tf.cast(signal, x.dtype)
   return x + signal
 
 
@@ -1005,6 +1006,7 @@ def attention_image_summary(attn, image_shapes=None):
         (query_rows, query_cols, query_channels,
          memory_rows, memory_cols, memory_channels).
   """
+  attn = tf.cast(attn, tf.float32)
   num_heads = common_layers.shape_list(attn)[1]
   # [batch, query_length, memory_length, num_heads]
   image = tf.transpose(attn, [0, 2, 3, 1])

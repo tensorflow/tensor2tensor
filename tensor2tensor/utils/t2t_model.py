@@ -130,6 +130,9 @@ class T2TModel(base.Layer):
       return True
 
   def call(self, features):
+    tf.get_variable_scope().set_custom_getter(common_layers.bfloat16_var_getter
+                                              if self.hparams.activation_dtype
+                                              == "bfloat16" else None)
     tf.get_variable_scope().set_initializer(
         optimize.get_variable_initializer(self.hparams))
     with self._eager_var_store.as_default():
@@ -213,6 +216,11 @@ class T2TModel(base.Layer):
   def model_fn(self, features):
     transformed_features = self.bottom(features)
 
+    if self.hparams.activation_dtype == "bfloat16":
+      for k, v in six.iteritems(transformed_features):
+        if v.dtype == tf.float32:
+          transformed_features[k] = tf.cast(v, tf.bfloat16)
+
     with tf.variable_scope("body"):
       log_info("Building model body")
       body_out = self.body(transformed_features)
@@ -225,6 +233,7 @@ class T2TModel(base.Layer):
     else:
       logits = self.top(output, features)
       losses["training"] = self.loss(logits, features)
+
     return logits, losses
 
   def bottom(self, features):
@@ -342,6 +351,10 @@ class T2TModel(base.Layer):
       return self._top_single(body_output, target_modality, features)
 
   def _loss_single(self, logits, target_modality, features):
+    # The current bfloat16 version still uses float32 for most parts of backward
+    # propagation to keep model quality, so cast back before computing the loss
+    # value.
+    logits = tf.cast(logits, tf.float32)
     if not target_modality:
       log_warn(_no_problem_err("loss"))
       return (tf.constant(0., dtype=tf.float32),

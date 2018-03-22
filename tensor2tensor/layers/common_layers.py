@@ -44,6 +44,34 @@ def is_on_tpu():
   return tf.contrib.framework.get_name_scope().startswith("TPUReplicate")
 
 
+def bfloat16_var_getter(getter, *args, **kwargs):
+  """A custom getter function for bfloat16 variables.
+
+  Variables maintain storage in float32.
+
+  Args:
+    getter: custom getter
+    *args: arguments
+    **kwargs: keyword arguments
+  Returns:
+    variables with the correct dtype.
+  Raises:
+    KeyError: if "dtype" is not provided as a kwarg.
+  """
+  requested_dtype = kwargs["dtype"]
+  if requested_dtype == tf.bfloat16:
+    kwargs["dtype"] = tf.float32
+  var = getter(*args, **kwargs)
+  # This if statement is needed to guard the cast, because batch norm
+  # assigns directly to the return value of this custom getter. The cast
+  # makes the return value not a variable so it cannot be assigned. Batch
+  # norm variables are always in fp32 so this if statement is never
+  # triggered for them.
+  if var.dtype.base_dtype != requested_dtype:
+    var = tf.cast(var, requested_dtype)
+  return var
+
+
 def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
   """Like tf.nn.dropout but takes broadcast_dims instead of noise_shape.
 
@@ -189,13 +217,13 @@ def flatten4d3d(x):
 
 
 # TODO(noam): remove this function after TPUs do gather faster.
-def gather(params, indices):
+def gather(params, indices, dtype=tf.float32):
   """Version of tf.gather that works faster on tpu."""
   if not is_on_tpu():
     return tf.gather(params, indices)
   vocab_size = params.get_shape().as_list()[0]
   indices_flat = tf.reshape(indices, [-1])
-  out = tf.matmul(tf.one_hot(indices_flat, vocab_size), params)
+  out = tf.matmul(tf.one_hot(indices_flat, vocab_size, dtype=dtype), params)
   out = eu.reshape_like(out, tf.expand_dims(indices, -1))
   return out
 
@@ -215,11 +243,18 @@ def dropout_no_scaling(x, keep_prob):
       tf.less(tf.random_uniform(tf.shape(x)), keep_prob), x.dtype)
 
 
-def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0,
-              symbol_dropout_rate=0.0, embedding_var=None):
+def embedding(x,
+              vocab_size,
+              dense_size,
+              name=None,
+              reuse=None,
+              multiplier=1.0,
+              symbol_dropout_rate=0.0,
+              embedding_var=None,
+              dtype=tf.float32):
   """Embed x of type int64 into dense vectors, reducing to max 4 dimensions."""
   with tf.variable_scope(
-      name, default_name="embedding", values=[x], reuse=reuse):
+      name, default_name="embedding", values=[x], reuse=reuse, dtype=dtype):
     if embedding_var is None:
       embedding_var = tf.get_variable("kernel", [vocab_size, dense_size])
     # On the backwards pass, we want to convert the gradient from
@@ -228,7 +263,7 @@ def embedding(x, vocab_size, dense_size, name=None, reuse=None, multiplier=1.0,
     if not tfe_context.in_eager_mode():
       embedding_var = eu.convert_gradient_to_tensor(embedding_var)
     x = dropout_no_scaling(x, 1.0 - symbol_dropout_rate)
-    emb_x = gather(embedding_var, x)
+    emb_x = gather(embedding_var, x, dtype)
     if multiplier != 1.0:
       emb_x *= multiplier
     static_shape = emb_x.shape.as_list()
@@ -510,6 +545,7 @@ def layer_norm_vars(filters):
 
 def layer_norm_compute_python(x, epsilon, scale, bias):
   """Layer norm raw computation."""
+  epsilon, scale, bias = [tf.cast(t, x.dtype) for t in [epsilon, scale, bias]]
   mean = tf.reduce_mean(x, axis=[-1], keep_dims=True)
   variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keep_dims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
@@ -2588,6 +2624,11 @@ def _recompute_grad(fn, args):
     grads = tf.gradients(outputs, inputs + variables, output_grads)
     grad_inputs = grads[:len(inputs)]
     grad_vars = grads[len(inputs):]
+    # TODO(rsepassi): Make fn_with_custom_grad work with bfloat16.
+    # If the input gradients are bfloat16, it's assumed the variables are
+    # bfloat16. This is a hack to ensure that grad_vars are the right type.
+    if grad_inputs[0].dtype == tf.bfloat16:
+      grad_vars = [tf.cast(grad_var, tf.bfloat16) for grad_var in grad_vars]
     if is_on_tpu():
       # TODO(noam): remove this hack once XLA does the right thing.
       # Force the gradinets on the inputs to be computed before the variables

@@ -107,7 +107,9 @@ class ConditionalOptimizer(tf.train.Optimizer):
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
   def compute_gradients(self, loss, var_list=None, **kwargs):
-    return self._opt.compute_gradients(loss, var_list, **kwargs)
+    gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
+    gradients = [(tf.cast(g, v.dtype), v) for g, v in gradients]
+    return gradients
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     return self._opt.apply_gradients(
@@ -223,4 +225,3 @@ def get_variable_initializer(hparams):
         hparams.initializer_gain, mode="fan_avg", distribution="uniform")
   else:
     raise ValueError("Unrecognized initializer: %s" % hparams.initializer)
-
