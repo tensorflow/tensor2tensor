@@ -45,7 +45,6 @@ def train(_):
       t2t_trainer.main([])
 
       print("  >>> Step {}.3. - evalue env model".format(iloop))
-      FLAGS.problems = "gym_discrete_problem"
       gym_simulated_problem = problems.problem("gym_simulated_discrete_problem")
       gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
 
@@ -55,7 +54,7 @@ def train(_):
       hparams = trainer_lib.create_hparams("atari_base", "epochs_num={},simulated_environment=True,eval_every_epochs=0,save_models_every_epochs={}".format(iteration_num+1, iteration_num),
                                            data_dir=output_dir)
       ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
-      in_graph_wrappers = [(TimeLimitWrapper, {"timelimit": 1000}),
+      in_graph_wrappers = [(TimeLimitWrapper, {"timelimit": 10}),
                            (PongT2TGeneratorHackWrapper, {"add_value": -2})] + gym_problem.in_graph_wrappers
       hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
       rl_trainer_lib.train(hparams, "PongNoFrameskip-v4", ppo_dir)

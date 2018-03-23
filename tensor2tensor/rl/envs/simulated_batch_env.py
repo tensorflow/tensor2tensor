@@ -24,10 +24,12 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-from tensor2tensor.layers import common_layers
-from tensor2tensor.models.research.basic_conv_gen import BasicConvGen
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 from tensor2tensor.utils import t2t_model, trainer_lib
+from tensor2tensor.utils import registry
+
+flags = tf.flags
+FLAGS = flags.FLAGS
 
 
 class SimulatedBatchEnv(InGraphBatchEnv):
@@ -47,13 +49,10 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
     self.length = len
 
-    hparams = trainer_lib.create_hparams("basic_conv_small", problem_name="gym_discrete_problem",
-                                         data_dir="UNUSED")  #TODO:inputs should change
-
-    from tensor2tensor.utils import registry
-
+    hparams = trainer_lib.create_hparams(FLAGS.hparams_set, problem_name=FLAGS.problems,
+                                         data_dir="UNUSED")
     hparams.force_full_predict = True
-    self._model = registry.model("basic_conv_gen")(hparams, tf.estimator.ModeKeys.PREDICT)
+    self._model = registry.model(FLAGS.model)(hparams, tf.estimator.ModeKeys.PREDICT)
 
     self.action_shape = action_shape
     self.action_dtype = action_dtype
@@ -84,7 +83,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   def simulate(self, action):
 
     with tf.name_scope('environment/simulate'):
-      input = {"inputs_0": self._prev_observ, "inputs_1": self.observ,
+      input = {"inputs_0": self._prev_observ, "inputs_1": self._observ,
                "action": action,
                "targets": self._observ_not_sure_why_we_need_this,
                "reward": self._reward_not_sure_why_we_need_this}
@@ -96,17 +95,38 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
-      #TODO: move this ugly code bottom of basic_conv_gen.
       with tf.control_dependencies([observ]):
         with tf.control_dependencies([self._prev_observ.assign(self._observ)]):
           with tf.control_dependencies([self._observ.assign(observ)]):
             return tf.identity(reward), tf.identity(done)
 
   def reset(self, indices=None):
-    return tf.no_op("reset_to_be")
-    # #TODO: pm->Błażej. Starting observations
-    # with tf.control_dependencies([self._observ.assign(self._starting_observ)]):
+    """Reset the batch of environments.
 
+    Args:
+      indices: The batch indices of the environments to reset.
+
+    Returns:
+      Batch tensor of the new observations.
+    """
+    return tf.cond(
+        tf.cast(tf.shape(indices)[0], tf.bool),
+        lambda: self._reset_non_empty(indices), lambda: 0.0)
+
+  def _reset_non_empty(self, indices):
+    """Reset the batch of environments.
+
+    Args:
+      indices: The batch indices of the environments to reset; defaults to all.
+
+    Returns:
+      Batch tensor of the new observations.
+    """
+    observ = tf.gather(self._observ, indices)
+    observ = tf.check_numerics(observ, 'observ')
+    with tf.control_dependencies([
+        tf.scatter_update(self._observ, indices, observ)]):
+      return tf.identity(observ)
 
   @property
   def observ(self):
