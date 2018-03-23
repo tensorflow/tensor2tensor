@@ -47,14 +47,14 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
     self.length = len
 
-    hparams = trainer_lib.create_hparams("basic_1", problem_name="gym_discrete_problem",
-                                         data_dir="/xyz")  #TODO:inputs should change
+    hparams = trainer_lib.create_hparams("basic_conv_small", problem_name="gym_discrete_problem",
+                                         data_dir="UNUSED")  #TODO:inputs should change
 
-    hparams.hidden_size = 32
     from tensor2tensor.utils import registry
 
     hparams.force_full_predict = True
     self._model = registry.model("basic_conv_gen")(hparams, tf.estimator.ModeKeys.PREDICT)
+
     self.action_shape = action_shape
     self.action_dtype = action_dtype
 

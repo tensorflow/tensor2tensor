@@ -51,7 +51,8 @@ def train(_):
       # 4. train PPO in model env
       print("  >>> Step {}.4. - train PPO in model env".format(iloop))
       iteration_num=3
-      hparams = trainer_lib.create_hparams("atari_base", "epochs_num={},simulated_environment=True,eval_every_epochs=0,save_models_every_epochs={}".format(iteration_num+1, iteration_num))
+      hparams = trainer_lib.create_hparams("atari_base", "epochs_num={},simulated_environment=True,eval_every_epochs=0,save_models_every_epochs={}".format(iteration_num+1, iteration_num),
+                                           data_dir=output_dir)
       ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
 
       from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper

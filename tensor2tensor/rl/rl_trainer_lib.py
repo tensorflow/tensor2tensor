@@ -45,7 +45,7 @@ def define_train(hparams, environment_spec, event_dir):
       "network",
       functools.partial(policy_lambda, batch_env.action_space, hparams))
 
-  with tf.variable_scope("train", reuse=tf.AUTO_REUSE):
+  with tf.variable_scope("", reuse=tf.AUTO_REUSE):
     memory, collect_summary = collect.define_collect(
         policy_factory, batch_env, hparams, eval_phase=False)
     ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
@@ -85,8 +85,17 @@ def train(hparams, environment_spec, event_dir=None):
     summary_writer = None
     model_saver = None
 
+  if hparams.simulated_environment:
+    env_model_loader = tf.train.Saver(tf.global_variables(".*basic_conv_gen.*"))
+  else:
+    env_model_loader = None
+
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
+    if env_model_loader:
+      ckpts = tf.train.get_checkpoint_state(hparams.data_dir)
+      ckpt = ckpts.model_checkpoint_path
+      env_model_loader.restore(sess, ckpt)
     for epoch_index in range(hparams.epochs_num):
       summary = sess.run(train_summary_op)
       if summary_writer:

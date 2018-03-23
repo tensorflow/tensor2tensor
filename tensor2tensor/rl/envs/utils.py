@@ -323,7 +323,7 @@ def define_batch_env(constructor, num_agents, xvfb=False):
 
 def define_simulated_batch_env(num_agents):
   #TODO: pm->Błażej. Should the paramters be infered.
-  len, observ_shape, observ_dtype, action_shape, action_dtype = num_agents, (210, 160, 3), tf.float32, [], tf.int32
-  batch_env = simulated_batch_env.SimulatedBatchEnv(len, observ_shape, observ_dtype, action_shape, action_dtype)
+  observ_shape, observ_dtype, action_shape, action_dtype = (210, 160, 3), tf.float32, [], tf.int32
+  batch_env = simulated_batch_env.SimulatedBatchEnv(num_agents, observ_shape, observ_dtype, action_shape, action_dtype)
 
   return batch_env

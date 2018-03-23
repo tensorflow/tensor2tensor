@@ -75,7 +75,7 @@ class GymDiscreteProblem(problem.Problem):
       batch_env_factory(environment_spec, fake_hparams, num_agents=1, xvfb=False)
 
     hparams = rl.atari_base()
-    with tf.variable_scope("train", reuse=tf.AUTO_REUSE):
+    with tf.variable_scope("", reuse=tf.AUTO_REUSE):
       policy_lambda = hparams.network
       policy_factory = tf.make_template(
         "network",
@@ -142,7 +142,7 @@ class GymDiscreteProblem(problem.Problem):
   @property
   def num_steps(self):
     #TODO: pm->Błażej. Make it a paremater
-    return 10000
+    return 500
 
   @property
   def num_shards(self):
