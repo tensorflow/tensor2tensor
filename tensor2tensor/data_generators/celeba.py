@@ -160,39 +160,27 @@ class ImageCelebaMultiResolution(ImageCeleba):
     return "image_celeba"
 
   def preprocess_example(self, example, mode, hparams):
-    def make_multiscale(image, resolutions):
-      """Returns list of scaled images, one for each resolution."""
-      if hasattr(hparams, "resize_method"):
-        method = getattr(tf.image.ResizeMethod, hparams.resize_method)
-      else:  # default
-        method = tf.image.ResizeMethod.BICUBIC
-
-      scaled_images = []
-      for height in resolutions:
-        scaled_image = tf.image.resize_images(
-            image,
-            size=[height, height],  # assuming that height = width
-            method=method)
-        scaled_image = tf.to_int64(scaled_image)
-        scaled_image.set_shape([height, height, 3])
-        scaled_images.append(scaled_image)
-
-      return scaled_images
-
     image = example["inputs"]
+    if hasattr(hparams, "resize_method"):
+      method = getattr(tf.image.ResizeMethod, hparams.resize_method)
+    else:  # default
+      method = tf.image.ResizeMethod.BICUBIC
+
     # Remove boundaries in CelebA images. Remove 40 pixels each side
     # vertically and 20 pixels each side horizontally.
     image = tf.image.crop_to_bounding_box(image, 40, 20, 218 - 80, 178 - 40)
 
-    scaled_images = make_multiscale(image, hparams.resolutions)
+    scaled_images = image_utils.make_multiscale(
+        image, hparams.resolutions,
+        resize_method=method, num_channels=self.num_channels)
+
     # Pack tuple of scaled images into one tensor. We do this by enforcing the
     # columns to match for every resolution.
     highest_res = hparams.resolutions[-1]
-    num_channels = 3
     example["inputs"] = image
     example["targets"] = tf.concat([
         tf.reshape(scaled_image,
-                   [res**2 // highest_res, highest_res, num_channels])
+                   [res**2 // highest_res, highest_res, self.num_channels])
         for scaled_image, res in zip(scaled_images, hparams.resolutions)],
                                    axis=0)
     return example
