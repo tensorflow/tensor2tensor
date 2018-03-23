@@ -103,8 +103,8 @@ def top_k_experts(x, k, hparams):
   x_flat = tf.reshape(x, [-1, common_layers.shape_list(x)[-1]])
   is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
   gates, load = expert_utils.noisy_top_k_gating(
-      x_flat, hparams.v_size, is_training, k)
-  gates_shape = [x_shape[0], x_shape[1], x_shape[2], hparams.v_size]
+      x_flat, 2 ** hparams.z_size, is_training, k)
+  gates_shape = [x_shape[0], x_shape[1], x_shape[2], 2 ** hparams.z_size]
   gates = tf.reshape(gates, gates_shape)
   load_loss = expert_utils.cv_squared(load)
   return gates, load_loss
@@ -215,9 +215,7 @@ def multinomial_sample(x, vocab_size, temperature):
 
 def ae_latent_softmax(latents_pred, latents_discrete, hparams):
   """Latent prediction and loss."""
-  vocab_size = hparams.v_size
-  if hparams.bottleneck_kind == "semhash":
-    vocab_size = 2**hparams.z_size
+  vocab_size = 2 ** hparams.z_size
   if hparams.num_decode_blocks < 2:
     latents_logits = tf.layers.dense(latents_pred, vocab_size,
                                      name="extra_logits")
@@ -738,7 +736,6 @@ def imagetransformer_ae_cifar():
   hparams = transformer_ae_small()
   hparams.filter_size = 512
   hparams.num_compress_steps = 3
-  hparams.v_size = 1024 * 64
   hparams.startup_steps = 10000
   hparams.kmeans_lr_factor = 0.0
   hparams.is_2d = 0
