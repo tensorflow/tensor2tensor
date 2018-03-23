@@ -1289,7 +1289,7 @@ def relu_density_logit(x, reduce_dims):
   Useful for histograms.
 
   Args:
-    x: a Tensor, typilcally the output of tf.relu
+    x: a Tensor, typically the output of tf.relu
     reduce_dims: a list of dimensions
 
   Returns:
