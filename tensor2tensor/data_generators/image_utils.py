@@ -40,6 +40,23 @@ def resize_by_area(img, size):
       tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
 
 
+def make_multiscale(image, resolutions,
+                    resize_method=tf.image.ResizeMethod.BICUBIC,
+                    num_channels=3):
+  """Returns list of scaled images, one for each resolution."""
+  scaled_images = []
+  for height in resolutions:
+    scaled_image = tf.image.resize_images(
+        image,
+        size=[height, height],  # assuming that height = width
+        method=resize_method)
+    scaled_image = tf.to_int64(scaled_image)
+    scaled_image.set_shape([height, height, num_channels])
+    scaled_images.append(scaled_image)
+
+  return scaled_images
+
+
 class ImageProblem(problem.Problem):
   """Base class for problems with images."""
 
