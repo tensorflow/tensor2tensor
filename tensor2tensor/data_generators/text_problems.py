@@ -203,7 +203,8 @@ class Text2TextProblem(problem.Problem):
       else:
         encoder = generator_utils.get_or_generate_vocab_inner(
             data_dir, self.vocab_filename, self.approx_vocab_size,
-            self.generate_text_for_vocab(data_dir, tmp_dir))
+            self.generate_text_for_vocab(data_dir, tmp_dir),
+            max_subtoken_length=self.max_subtoken_length)
     elif self.vocab_type == VocabType.TOKEN:
       vocab_filename = os.path.join(data_dir, self.vocab_filename)
       encoder = text_encoder.TokenTextEncoder(vocab_filename)
@@ -226,6 +227,18 @@ class Text2TextProblem(problem.Problem):
     encoder = self.get_or_create_vocab(data_dir, tmp_dir)
     return text2text_generate_encoded(generator, encoder,
                                       has_inputs=self.has_inputs)
+
+  @property
+  def max_subtoken_length(self):
+    """Maximum subtoken length when generating vocab.
+
+    Override with a finite integer (e.g. 100) to avoid quadratic-time vocab
+    building.
+
+    Returns:
+      an integer or None
+    """
+    return None
 
   @property
   def batch_size_means_tokens(self):
@@ -634,7 +647,7 @@ class ChoppedTextProblem(Text2SelfProblem):
     """
     f = tf.gfile.Open(filepath)
     b = f.read()
-    yield text_encoder.to_unicode_ignore_erros(b)
+    yield text_encoder.to_unicode_ignore_errors(b)
 
   def file_generator(self,
                      filepaths,
