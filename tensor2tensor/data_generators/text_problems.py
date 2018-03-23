@@ -18,6 +18,7 @@
 * Text2TextProblem: input=text, target=text.
 * Text2ClassProblem: input=text, target=class.
 * Text2SelfProblem (for language modeling): target=text
+* QuestionAndContext2TextProblem: input=text, context=text, target=text.
 
 The Text2TextTmpDir problem allows you to train without defining a problem. It
 expects you to format your data in a particular way and put it in tmp_dir. See
@@ -302,6 +303,47 @@ class Text2TextProblem(problem.Problem):
         metrics.Metrics.APPROX_BLEU, metrics.Metrics.ROUGE_2_F,
         metrics.Metrics.ROUGE_L_F
     ]
+
+
+class QuestionAndContext2TextProblem(Text2TextProblem):
+  """Problems consisting of inputs, context, and a target.
+
+  Variant of Text2TextProblem that includes a "context" feature in addition to
+  "inputs" and "targets."
+  """
+
+  def feature_encoders(self, data_dir):
+    encoders = (super(QuestionAndContext2TextProblem, self)
+                .feature_encoders(data_dir))
+    encoders["context"] = encoders["inputs"]
+    return encoders
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    for i, sample in enumerate(
+        self.generate_samples(data_dir, tmp_dir, problem.DatasetSplit.TRAIN)):
+      yield sample["inputs"]
+      yield sample["context"]
+      yield sample["targets"]
+      if self.max_samples_for_vocab and (i + 1) >= self.max_samples_for_vocab:
+        break
+
+  def hparams(self, defaults, unused_model_hparams):
+    (super(QuestionAndContext2TextProblem, self)
+     .hparams(defaults, unused_model_hparams))
+    p = defaults
+    source_vocab_size = self._encoders["context"].vocab_size
+    p.input_modality["context"] = (registry.Modalities.SYMBOL,
+                                   source_vocab_size)
+    if self.packed_length:
+      raise NotImplementedError("QuestionAndContext2Text does not "
+                                "support packed_length")
+
+  def example_reading_spec(self):
+    data_fields, data_items_to_decoders = (super(QuestionAndContext2TextProblem,
+                                                 self)
+                                           .example_reading_spec())
+    data_fields["context"] = tf.VarLenFeature(tf.int64)
+    return (data_fields, data_items_to_decoders)
 
 
 class Text2SelfProblem(Text2TextProblem):
