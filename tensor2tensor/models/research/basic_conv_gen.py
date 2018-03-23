@@ -34,8 +34,9 @@ class BasicConvGen(t2t_model.T2TModel):
 
   def body(self, features):
     filters = self.hparams.hidden_size
-    cur_frame = tf.to_float(features["inputs_0"])
-    prev_frame = tf.to_float(features["inputs_1"])
+    #TODO: possibly make embeding of inputs_0 and inputs_1
+    cur_frame = features["inputs_0"]
+    prev_frame = features["inputs_1"]
     action_embedding_size = 32
     action_space_size = 10
     kernel = (3, 3)
@@ -48,11 +49,13 @@ class BasicConvGen(t2t_model.T2TModel):
     frames = tf.concat([cur_frame, prev_frame, action], axis=3)
     x = tf.layers.conv2d(frames, filters, kernel, activation=tf.nn.relu,
                          strides=(2, 2), padding="SAME")
+    #TODO: possibly make the net deeper
+    #https://pbs.twimg.com/media/DHOqd6gUAAAfNjf.jpg
     # Run a stack of convolutions.
-    for _ in range(filters): #self.num_hidden_layers):
-      y = tf.layers.conv2d(frames, filters, kernel, activation=tf.nn.relu,
-                           strides=(2, 2), padding="SAME")  # TODO (1,1)
-      x = common_layers.layer_norm(x + y)
+    # for _ in range(filters): #self.num_hidden_layers):
+    #   y = tf.layers.conv2d(frames, filters, kernel, activation=tf.nn.relu,
+    #                        strides=(2, 2), padding="SAME")
+    #   x = common_layers.layer_norm(x + y)
     # Up-convolve.
     x = tf.layers.conv2d_transpose(
         frames, filters, kernel, activation=tf.nn.relu,
@@ -64,8 +67,7 @@ class BasicConvGen(t2t_model.T2TModel):
     # TODO: pm->pm: add done
     res_done = tf.layers.dense(x, 2)
 
-    #TODO: pm remove tf.identity below
-    return {"targets":tf.identity(res), "reward": x}
+    return {"targets":res, "reward": x}
 
 
 @registry.register_hparams

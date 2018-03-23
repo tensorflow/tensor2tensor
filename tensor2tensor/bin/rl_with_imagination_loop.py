@@ -1,11 +1,11 @@
 import os
 import tempfile
-
 from tensor2tensor import problems
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.rl import rl_trainer_lib
-
+from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 import tensorflow as tf
 
 
@@ -44,9 +44,10 @@ def train(_):
       FLAGS.eval_steps = 1
       t2t_trainer.main([])
 
-      print("  >>> Step {}.3. - evalue env model - NOT IMPLEMENTED".format(iloop))
-      # 3. evaluate env model, make video
-      #raise NotImplemented()
+      print("  >>> Step {}.3. - evalue env model".format(iloop))
+      FLAGS.problems = "gym_discrete_problem"
+      gym_simulated_problem = problems.problem("gym_simulated_discrete_problem")
+      gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
 
       # 4. train PPO in model env
       print("  >>> Step {}.4. - train PPO in model env".format(iloop))
@@ -54,16 +55,9 @@ def train(_):
       hparams = trainer_lib.create_hparams("atari_base", "epochs_num={},simulated_environment=True,eval_every_epochs=0,save_models_every_epochs={}".format(iteration_num+1, iteration_num),
                                            data_dir=output_dir)
       ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
-
-      from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
-      from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
-      from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
-      #TODO: pm-> Błażej. Make sure that these are compatibile with the ones in gym.py
-      in_graph_wrappers = [(PongT2TGeneratorHackWrapper, {"add_value": -2}), (MaxAndSkipWrapper, {"skip": 4})]
-      #TODO: pm-> Błażej. Check if TimeLimitWrapper does what it is supposed to do
-      # in_graph_wrappers = [(TimeLimitWrapper, {}), (PongT2TGeneratorHackWrapper, {"add_value": -2}), (MaxAndSkipWrapper, {"skip": 4})]
+      in_graph_wrappers = [(TimeLimitWrapper, {"timelimit": 1000}),
+                           (PongT2TGeneratorHackWrapper, {"add_value": -2})] + gym_problem.in_graph_wrappers
       hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
-
       rl_trainer_lib.train(hparams, "PongNoFrameskip-v4", ppo_dir)
 
       last_model = ppo_dir + "/model{}.ckpt".format(iteration_num)

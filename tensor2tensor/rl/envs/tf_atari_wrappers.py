@@ -110,23 +110,24 @@ class MaxAndSkipWrapper(WrapperBase):
 
 class TimeLimitWrapper(WrapperBase):
 
-  def __init__(self, batch_env, timelimit=30):
+  # TODO: Check if TimeLimitWrapper does what it is supposed to do
+  def __init__(self, batch_env, timelimit=100):
     super().__init__(batch_env)
     self.timelimit = timelimit
-    self._time_elaped = tf.Variable(tf.zeros((len(self),), tf.int32), trainable=False)
+    self._time_elapsed = tf.Variable(tf.zeros((len(self),), tf.int32), trainable=False)
 
   def simulate(self, action):
     with tf.name_scope('environment/simulate'):
       reward, done = self._batch_env.simulate(action)
       with tf.control_dependencies([reward, done]):
-        new_done = tf.logical_or(done, self._time_elaped>self.timelimit)
-        inc = self._time_elaped.assign_add(tf.ones_like(self._time_elaped))
+        new_done = tf.logical_or(done, self._time_elapsed > self.timelimit)
+        inc = self._time_elapsed.assign_add(tf.ones_like(self._time_elapsed))
 
         with tf.control_dependencies([inc]):
           return tf.identity(reward), tf.identity(new_done)
 
   def reset(self, indices=None):
-    op_zero = tf.scatter_update(self._time_elaped, indices, tf.zeros(tf.shape(indices), dtype=tf.int32))
+    op_zero = tf.scatter_update(self._time_elapsed, indices, tf.zeros(tf.shape(indices), dtype=tf.int32))
     with tf.control_dependencies([op_zero]):
       return self._batch_env.reset(indices)
 

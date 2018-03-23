@@ -62,13 +62,15 @@ class GymDiscreteProblem(problem.Problem):
     self.collect_hparams = rl.atari_base()
     self._num_steps = 1000
     self.movies = True
+    self.simulated_environment = None
 
   def _setup(self):
     # TODO: remove PongT2TGeneratorHackWrapper by writing a modality
 
     in_graph_wrappers = [(PongT2TGeneratorHackWrapper, {"add_value": 2}),
                          (MemoryWrapper, {})] + self.in_graph_wrappers
-    env_hparams = HParams(in_graph_wrappers=in_graph_wrappers, simulated_environment=None)
+    env_hparams = HParams(in_graph_wrappers=in_graph_wrappers,
+                          simulated_environment=self.simulated_environment)
 
     generator_batch_env = \
       batch_env_factory(self.environment_spec, env_hparams, num_agents=1, xvfb=False)
@@ -213,7 +215,7 @@ class GymDiscreteProblem(problem.Problem):
           sess.run(self.collect_trigger_op)
     if self.movies:
       clip = ImageSequenceClip(clip_files, fps=25)
-      clip.write_videofile(os.path.join(data_dir, 'output.mp4'),
+      clip.write_videofile(os.path.join(data_dir, 'output_{}.mp4'.format(self.name)),
                            fps=25, codec='mpeg4')
 
 
@@ -226,3 +228,13 @@ class GymDiscreteProblem(problem.Problem):
     generator_utils.generate_files(
         self.generator(data_dir, tmp_dir), all_paths)
     generator_utils.shuffle_dataset(all_paths)
+
+
+@registry.register_problem
+class GymSimulatedDiscreteProblem(GymDiscreteProblem):
+  """Gym environment with discrete actions and rewards."""
+
+  def __init__(self, *args, **kwargs):
+    super(GymSimulatedDiscreteProblem, self).__init__(*args, **kwargs)
+    self.simulated_environment = True
+
