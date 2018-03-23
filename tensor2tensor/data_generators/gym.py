@@ -25,15 +25,19 @@ import functools
 from collections import deque
 
 import gym
-import numpy as np
-from tensorflow.contrib.slim.python.slim.data.tfexample_decoder import ItemHandler
+import os
+from tensorflow.contrib.training import HParams
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.models.research import rl
-from tensor2tensor.rl.envs import atari_wrappers
 from tensor2tensor.utils import registry
 from moviepy.editor import *
+from tensor2tensor.rl.envs.utils import batch_env_factory
+from tensor2tensor.rl.envs.tf_atari_wrappers import MemoryWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
+from tensor2tensor.rl import collect
 
 import tensorflow as tf
 
@@ -51,44 +55,40 @@ class GymDiscreteProblem(problem.Problem):
     super(GymDiscreteProblem, self).__init__(*args, **kwargs)
     self.num_channels = 3
     self.history_size = 2
-    self.movies = False
 
+    # defaults
+    self.environment_spec = lambda: gym.make("PongNoFrameskip-v4")
+    self.in_graph_wrappers = [(MaxAndSkipWrapper, {"skip": 4})]
+    self.collect_hparams = rl.atari_base()
+    self._num_steps = 1000
+    self.movies = True
 
   def _setup(self):
-    # Todo: pm->Błażej. Think how to pass parameters
-    from munch import Munch
-    from tensor2tensor.rl.envs.utils import batch_env_factory
-    from tensor2tensor.rl.envs.tf_atari_wrappers import MemoryWrapper
-    from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
-    from tensor2tensor.rl import collect
-    import copy
+    # TODO: remove PongT2TGeneratorHackWrapper by writing a modality
 
-    environment_spec = lambda: gym.make("PongNoFrameskip-v4")
-
-    from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
     in_graph_wrappers = [(PongT2TGeneratorHackWrapper, {"add_value": 2}),
-                         (MemoryWrapper, {}), (MaxAndSkipWrapper, {"skip": 4})
-                         ]
-    fake_hparams = Munch(in_graph_wrappers=in_graph_wrappers, simulated_environment=None)
+                         (MemoryWrapper, {})] + self.in_graph_wrappers
+    env_hparams = HParams(in_graph_wrappers=in_graph_wrappers, simulated_environment=None)
 
     generator_batch_env = \
-      batch_env_factory(environment_spec, fake_hparams, num_agents=1, xvfb=False)
+      batch_env_factory(self.environment_spec, env_hparams, num_agents=1, xvfb=False)
 
-    hparams = rl.atari_base()
+
     with tf.variable_scope("", reuse=tf.AUTO_REUSE):
-      policy_lambda = hparams.network
+      policy_lambda = self.collect_hparams.network
       policy_factory = tf.make_template(
         "network",
-        functools.partial(policy_lambda, environment_spec().action_space, hparams),
+        functools.partial(policy_lambda, self.environment_spec().action_space, self.collect_hparams),
         create_scope_now_=True,
         unique_name_="network")
 
     with tf.variable_scope("collect_datagen", reuse=tf.AUTO_REUSE):
       sample_policy = lambda policy: policy.sample()
-      hparams = copy.deepcopy(hparams)
-      hparams.epoch_length = 10
+
+      self.collect_hparams.epoch_length = 10
       _, self.collect_trigger_op = collect.define_collect(
-        policy_factory, generator_batch_env, hparams, eval_phase=False, policy_to_actions_lambda=sample_policy)
+        policy_factory, generator_batch_env, self.collect_hparams,
+        eval_phase=False, policy_to_actions_lambda=sample_policy)
 
     self.avilable_data_size_op = MemoryWrapper.singleton._speculum.size()
     self.data_get_op = MemoryWrapper.singleton._speculum.dequeue()
@@ -141,8 +141,7 @@ class GymDiscreteProblem(problem.Problem):
 
   @property
   def num_steps(self):
-    #TODO: pm->Błażej. Make it a paremater
-    return 500
+    return self._num_steps
 
   @property
   def num_shards(self):
@@ -193,8 +192,7 @@ class GymDiscreteProblem(problem.Problem):
           self.history_buffer.append(observ)
 
           if self.movies==True:
-            #TODO: pm-> Błażej. Where should be movies be generated
-            file_name = '/tmp/output_{}.png'.format(pieces_generated)
+            file_name = os.path.join(tmp_dir,'output_{}.png'.format(pieces_generated))
             clip_files.append(file_name)
             with open(file_name, 'wb') as f:
               f.write(observ)
@@ -214,9 +212,9 @@ class GymDiscreteProblem(problem.Problem):
         else:
           sess.run(self.collect_trigger_op)
     if self.movies:
-      # TODO: pm-> Błażej. Where should be movies be generated
       clip = ImageSequenceClip(clip_files, fps=25)
-      clip.write_videofile("/tmp/output.mp4", fps=25, codec='mpeg4')
+      clip.write_videofile(os.path.join(data_dir, 'output.mp4'),
+                           fps=25, codec='mpeg4')
 
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
