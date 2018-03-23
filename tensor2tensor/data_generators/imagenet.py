@@ -241,38 +241,25 @@ class ImageImagenetMultiResolutionGen(ImageImagenet64Gen):
     return 10
 
   def preprocess_example(self, example, mode, hparams):
-    def make_multiscale(image, resolutions):
-      """Return list of scaled images, one for each resolution."""
-      if hasattr(hparams, "resize_method"):
-        method = getattr(tf.image.ResizeMethod, hparams.resize_method)
-      else:  # default
-        method = tf.image.ResizeMethod.BICUBIC
+    image = example["inputs"]
 
-      scaled_images = []
-      for height in resolutions[:-1]:
-        scaled_image = tf.image.resize_images(
-            image,
-            size=[height, height],  # assuming that height = width
-            method=method)
-        scaled_image = tf.to_int64(scaled_image)
-        scaled_image.set_shape([height, height, num_channels])
-        scaled_images.append(scaled_image)
+    if hasattr(hparams, "resize_method"):
+      method = getattr(tf.image.ResizeMethod, hparams.resize_method)
+    else:  # default
+      method = tf.image.ResizeMethod.BICUBIC
 
-      image = tf.to_int64(image)
-      image.set_shape([highest_res, highest_res, num_channels])
-      scaled_images.append(image)
-      return scaled_images
+    scaled_images = image_utils.make_multiscale(
+        image, hparams.resolutions,
+        resize_method=method, num_channels=self.num_channels)
 
     highest_res = hparams.resolutions[-1]
-    num_channels = 3
-    scaled_images = make_multiscale(example["inputs"], hparams.resolutions)
     # Pack tuple of scaled images into one tensor. We do this by enforcing the
     # columns to match for every resolution.
     # TODO(avaswani, trandustin): We should create tuples because this will not
     # work if height*width of low res < width of high res
     example["inputs"] = tf.concat([
         tf.reshape(scaled_image,
-                   [res**2 // highest_res, highest_res, num_channels])
+                   [res**2 // highest_res, highest_res, self.num_channels])
         for scaled_image, res in zip(scaled_images, hparams.resolutions)],
                                   axis=0)
     return example
