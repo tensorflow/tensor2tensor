@@ -77,7 +77,7 @@ else:  # No conversion required on Python >= 3.
     return s
 
 
-def to_unicode_ignore_erros(s):
+def to_unicode_ignore_errors(s):
   return (unicode(s, "utf-8", errors="ignore")
           if six.PY2 else s.decode("utf-8", "ignore"))
 
