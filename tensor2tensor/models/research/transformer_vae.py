@@ -25,6 +25,8 @@ import math
 
 # Dependency imports
 
+from six.moves import xrange  # pylint: disable=redefined-builtin
+
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
