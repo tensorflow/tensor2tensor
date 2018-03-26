@@ -229,6 +229,9 @@ def basic_params1():
       force_full_predict=False,
       # Set this for pure model parallelism.  There is only one data shard.
       no_data_parallelism=False,
+      # Set this to the dtype used for activation. Variables will still be
+      # stored in float32.
+      activation_dtype="float32",
   )
 
 

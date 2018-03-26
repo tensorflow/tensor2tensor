@@ -378,6 +378,20 @@ class CommonLayersTest(tf.test.TestCase):
       actual = session.run(layer)
     self.assertEqual(actual.shape, (5, 4, 32))
 
+  def testBReLU(self):
+    with self.test_session() as session:
+      x = np.random.rand(5, 2, 1, 12)
+      y = common_layers.brelu(tf.constant(x, dtype=tf.float32))
+      actual = session.run(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 12))
+
+  def testBELU(self):
+    with self.test_session() as session:
+      x = np.random.rand(5, 2, 1, 12)
+      y = common_layers.belu(tf.constant(x, dtype=tf.float32))
+      actual = session.run(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 12))
+
   def testPaddingCrossEntropyFactored(self):
     vocab_size = 19
     rows = 5

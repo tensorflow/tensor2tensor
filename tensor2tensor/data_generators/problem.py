@@ -448,6 +448,11 @@ class Problem(object):
         "targets_position" not in feature_map):
       feature_map["targets_position"] = feature_map["inputs_position"]
 
+  def maybe_reverse_and_copy(self, example):
+    self.maybe_reverse_features(example)
+    self.maybe_copy_features(example)
+    return example
+
   def dataset(self,
               mode,
               data_dir=None,
@@ -519,11 +524,6 @@ class Problem(object):
         examples = tf.data.Dataset.from_tensors(examples)
       return examples
 
-    def _maybe_reverse_and_copy(example):
-      self.maybe_reverse_features(example)
-      self.maybe_copy_features(example)
-      return example
-
     if len(data_files) < num_partitions:
       raise ValueError(
           "number of data files (%d) must be at least the number of hosts (%d)"
@@ -554,7 +554,7 @@ class Problem(object):
         dataset = dataset.interleave(_preprocess, cycle_length=8,
                                      block_length=16)
     dataset = dataset.map(
-        _maybe_reverse_and_copy, num_parallel_calls=num_threads)
+        self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
 
     if output_buffer_size:
       dataset = dataset.prefetch(output_buffer_size)
@@ -564,6 +564,9 @@ class Problem(object):
   def decode_example(self, serialized_example):
     """Return a dict of Tensors from a serialized tensorflow.Example."""
     data_fields, data_items_to_decoders = self.example_reading_spec()
+    # Necessary to rejoin examples in the correct order with the Cloud ML Engine
+    # batch prediction API.
+    data_fields["batch_prediction_key"] = tf.FixedLenFeature([1], tf.int64, 0)
     if data_items_to_decoders is None:
       data_items_to_decoders = {
           field: tf.contrib.slim.tfexample_decoder.Tensor(field)
@@ -838,6 +841,7 @@ class Problem(object):
     dataset = tf.data.Dataset.from_tensor_slices(serialized_example)
     dataset = dataset.map(self.decode_example)
     dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
+    dataset = dataset.map(self.maybe_reverse_and_copy)
     dataset = dataset.map(data_reader.cast_int64_to_int32)
     dataset = dataset.padded_batch(1000, dataset.output_shapes)
     dataset = dataset.map(standardize_shapes)

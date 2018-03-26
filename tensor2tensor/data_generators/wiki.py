@@ -28,6 +28,7 @@ import numpy as np
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
@@ -226,9 +227,9 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
   def vocab_filename(self):
     return "vocab.wiki_noref.%d" % self.approx_vocab_size
 
-  def filepath_to_unicode_text(self, filepath):
+  def filepath_to_unicode_strings(self, filepath):
     """Overriddes the base class to clean up the xml dump before tokenizing."""
-    dump = problem.to_unicode_ignore_erros(tf.gfile.Open(filepath).read())
+    dump = text_encoder.to_unicode_ignore_errors(tf.gfile.Open(filepath).read())
     pages = _dump_to_pages(dump)
     ret = u""
     for p in pages:
@@ -243,7 +244,7 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
         # Probably a redirect or something like that.  Skip it.
         continue
       ret += u"title: \"%s\" length: %d\n%s\n" % (title, len(text), text)
-    return ret
+    yield ret
 
   @property
   def max_chars_for_vocab(self):
@@ -390,3 +391,29 @@ class LanguagemodelWikiNorefV8kL16k(LanguagemodelWikiNorefV8kL1k):
   def sequence_length(self):
     """Length of each example (in tokens)."""
     return 2**14
+
+
+@registry.register_problem
+class LanguagemodelWikiNorefV32kL1k(LanguagemodelWikiNorefV8kL1k):
+  """32k vocab."""
+
+  @property
+  def approx_vocab_size(self):
+    return 2**15  # 32768
+
+  @property
+  def max_chars_for_vocab(self):
+    return 100 * (10 ** 6)
+
+
+@registry.register_problem
+class LanguagemodelWikiNorefV128kL1k(LanguagemodelWikiNorefV8kL1k):
+  """128k vocab."""
+
+  @property
+  def approx_vocab_size(self):
+    return 2**17  # 131072
+
+  @property
+  def max_chars_for_vocab(self):
+    return 100 * (10 ** 6)
