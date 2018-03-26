@@ -662,6 +662,12 @@ def discrete_bottleneck(x,
               tf.transpose(x_residual, perm=[1, 0, 2]))
           dw_stacked.append(dw)
 
+          # Update the residual
+          means_residual = tf.matmul(
+              tf.transpose(x_means_hot_residual, perm=[1, 0, 2]), means[i])
+          means_residual = tf.transpose(means_residual, perm=[1, 0, 2])
+          x_residual -= means_residual
+
         dw_stacked = tf.stack(dw_stacked, axis=0)
         updated_ema_means = moving_averages.assign_moving_average(
             ema_means, dw_stacked, decay, zero_debias=False)
