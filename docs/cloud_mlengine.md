@@ -28,8 +28,12 @@ machines with 4 or 8 GPUs.
 You can additionally pass the `--cloud_mlengine_master_type` to select another
 kind of machine (see the [docs for
 `masterType`](https://cloud.google.com/ml-engine/reference/rest/v1/projects.jobs#traininginput)
-for your options). If you provide this flag yourself, make sure you pass the
-correct value for `--worker_gpu`.
+for options, including 
+[ML Engine machine types](https://cloud.google.com/ml-engine/docs/training-overview)
+and their
+[specs](https://cloud.google.com/compute/docs/machine-types)).
+If you provide this flag yourself, make sure you pass the
+correct value for `--worker_gpu` (for non-GPU machines, you must explicitly pass `--worker_gpu=0`).
 
 **Note**: `t2t-trainer` only currently supports launching with single machines,
 possibly with multiple GPUs. Multi-machine setups are not yet supported out of
