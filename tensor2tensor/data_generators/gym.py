@@ -60,7 +60,7 @@ class GymDiscreteProblem(problem.Problem):
     self.environment_spec = lambda: gym.make("PongNoFrameskip-v4")
     self.in_graph_wrappers = [(MaxAndSkipWrapper, {"skip": 4})]
     self.collect_hparams = rl.atari_base()
-    self._num_steps = 1000
+    self.num_steps = 1000
     self.movies = True
     self.simulated_environment = None
 
@@ -140,10 +140,6 @@ class GymDiscreteProblem(problem.Problem):
   @property
   def num_rewards(self):
     return 2
-
-  @property
-  def num_steps(self):
-    return self._num_steps
 
   @property
   def num_shards(self):
@@ -250,7 +246,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     env_model_loader = tf.train.Saver(tf.global_variables(".*basic_conv_gen.*"))
     sess = tf.get_default_session()
 
-    ckpts = tf.train.get_checkpoint_state("/home/piotr.milos/trash/loop_0321/output")
+    ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
     ckpt = ckpts.model_checkpoint_path
     env_model_loader.restore(sess, ckpt)
 
