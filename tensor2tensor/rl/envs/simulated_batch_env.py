@@ -57,6 +57,16 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.action_shape = action_shape
     self.action_dtype = action_dtype
 
+    with open("starting_frames/output_61.png",'rb') as f:
+      png_str_51 = f.read()
+
+    with open("starting_frames/output_62.png",'rb') as f:
+      png_str_52 = f.read()
+
+    self.start_51 = tf.expand_dims(tf.cast(tf.image.decode_png(png_str_51), tf.float32), 0)
+    self.start_52 = tf.expand_dims(tf.cast(tf.image.decode_png(png_str_52), tf.float32), 0)
+
+
     shape = (self.length,) + observ_shape
     self._observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
     self._prev_observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
@@ -83,7 +93,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   def simulate(self, action):
 
     with tf.name_scope('environment/simulate'):
-      input = {"inputs_0": self._prev_observ, "inputs_1": self._observ,
+      input = {"inputs_0": self._prev_observ.read_value(), "inputs_1": self._observ.read_value(),
                "action": action,
                "targets": self._observ_not_sure_why_we_need_this,
                "reward": self._reward_not_sure_why_we_need_this}
@@ -91,6 +101,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       observ_expaned = model_output[0]['targets']
       reward_expanded = model_output[0]['reward']
       observ = tf.cast(tf.argmax(observ_expaned, axis=-1), tf.float32)
+      # observ = tf.Print(observ, [tf.norm(observ)], "our l2 =")
       reward = tf.squeeze(tf.cast(tf.argmax(reward_expanded, axis=-1), tf.float32))
 
       done = tf.constant(False, tf.bool, shape=(self.length,))
@@ -123,10 +134,11 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       Batch tensor of the new observations.
     """
     observ = tf.gather(self._observ, indices)
-    observ = tf.check_numerics(observ, 'observ')
+    observ = 0.0 * tf.check_numerics(observ, 'observ')
     with tf.control_dependencies([
-        tf.scatter_update(self._observ, indices, observ)]):
-      return tf.identity(observ)
+      tf.scatter_update(self._observ, indices, observ + self.start_52),
+      tf.scatter_update(self._prev_observ, indices, observ + self.start_51)]):
+      return tf.identity(self._observ.read_value())
 
   @property
   def observ(self):
