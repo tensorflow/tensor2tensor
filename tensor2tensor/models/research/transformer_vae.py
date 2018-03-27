@@ -513,10 +513,7 @@ class TransformerAE(t2t_model.T2TModel):
         softmax_k=self._hparams.softmax_k,
         kl_warmup_steps=self._hparams.kl_warmup_steps,
         ema=self._hparams.ema,
-        summary=_DO_SUMMARIES,
-        slo=self._hparams.slo,
-        slo_alpha=self._hparams.slo_alpha,
-        slo_beta=self._hparams.slo_beta)
+        summary=_DO_SUMMARIES)
     # Set the discretization bottleneck specific things here
     if self._hparams.bottleneck_kind == "dvq":
       z_size_per_residual = self._hparams.z_size / self._hparams.num_residuals
@@ -556,7 +553,6 @@ class TransformerAE(t2t_model.T2TModel):
       # Create the shadow variables if we are using EMA
       ema_count = None
       ema_means = None
-      c_logits = None
       if self._hparams.ema:
         ema_count = tf.get_variable(
             "ema_count", [
@@ -570,24 +566,12 @@ class TransformerAE(t2t_model.T2TModel):
               "ema_means", initializer=means.initialized_value(),
               trainable=False)
 
-        # Create the shadow variables if we are using smoothed l0
-        c_logits = None
-        if self._hparams.slo:
-          # softmax logits for the cluster probabilities
-          c_logits = tf.get_variable(
-              "c_logits", [
-                  self._hparams.num_residuals, self._hparams.num_blocks,
-                  block_v_size
-              ],
-              initializer=tf.uniform_unit_scaling_initializer())
-
       # Update bottleneck
       self._hparams.bottleneck = functools.partial(
           self._hparams.bottleneck,
           means=means,
           ema_count=ema_count,
-          ema_means=ema_means,
-          c_logits=c_logits)
+          ema_means=ema_means)
 
   @property
   def has_input(self):
@@ -693,10 +677,6 @@ def transformer_ae_small():
   # Reshape method for DVQ: slice, project
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
-  # Hparams for Dirichlet process process
-  hparams.add_hparam("slo", False)  # for smoothed L0.
-  hparams.add_hparam("slo_alpha", 0.25)
-  hparams.add_hparam("slo_beta", 0.5)
   hparams.add_hparam("unmasked_percentage", 0.1)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)

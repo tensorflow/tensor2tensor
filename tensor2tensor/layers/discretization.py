@@ -68,8 +68,7 @@ def nearest_neighbor(x,
                      random_top_k=1,
                      soft_em=False,
                      inv_temp=1.0,
-                     ema_count=None,
-                     c_probs=None):
+                     ema_count=None):
   """Find the nearest element in means to elements in x.
 
   Args:
@@ -82,8 +81,7 @@ def nearest_neighbor(x,
     inv_temp: Inverse temperature for soft EM (Default: 1.)
     ema_count: Table of counts for each embedding corresponding to how many
       examples in a batch it was the closest to (Default: None).
-    c_probs: Precomputed probablities of clusters may be given, for example in
-      the case of smoothed l0 priors.
+
   Returns:
     Tensor with nearest element in mean encoded in one-hot notation.
   """
@@ -96,13 +94,9 @@ def nearest_neighbor(x,
       means_norm_sq, perm=[2, 0, 1]) - 2 * scalar_prod
 
   # computing cluster probabilities
-  if soft_em or c_probs is not None:
-    if c_probs is not None:
-      # expand dims to match inv temp
-      c_probs = tf.expand_dims(c_probs, 0)
-    else:
-      ema_count = tf.expand_dims(ema_count+1., 0)
-      c_probs = ema_count / tf.reduce_sum(ema_count, 2, keepdims=True)
+  if soft_em:
+    ema_count = tf.expand_dims(ema_count + 1., 0)
+    c_probs = ema_count / tf.reduce_sum(ema_count, 2, keepdims=True)
   if soft_em:
     nearest_hot = tf.nn.softmax(-inv_temp * dist, axis=-1) * c_probs
     nearest_hot /= tf.reduce_sum(nearest_hot, 2, keepdims=True)
@@ -128,8 +122,7 @@ def embedding_lookup(x,
                      random_top_k=1,
                      soft_em=False,
                      inv_temp=1.0,
-                     ema_count=None,
-                     c_probs=None):
+                     ema_count=None):
   """Compute nearest neighbors and loss for training the embeddings via DVQ.
 
   Args:
@@ -144,8 +137,6 @@ def embedding_lookup(x,
     inv_temp: Inverse temperature for soft EM (Default: 1.)
     ema_count: Table of counts for each embedding corresponding to how many
       examples in a batch it was the closest to (Default: None).
-    c_probs: precomputed cluster probabilities might be passed, for example in
-      the case of smoothed L0.
 
   Returns:
     The nearest neighbor in one hot form, the nearest neighbor itself, the
@@ -163,10 +154,6 @@ def embedding_lookup(x,
       ema_count_residual = ema_count[i]
     else:
       ema_count_residual = None
-    if c_probs is not None:
-      c_probs_residual = c_probs[i]
-    else:
-      c_probs_residual = c_probs
 
     x_means_hot_residual = nearest_neighbor(
         x_residual,
@@ -175,8 +162,7 @@ def embedding_lookup(x,
         random_top_k=random_top_k,
         soft_em=soft_em,
         inv_temp=inv_temp,
-        ema_count=ema_count_residual,
-        c_probs=c_probs_residual)
+        ema_count=ema_count_residual)
     x_means_hot_flat_residual = tf.reshape(x_means_hot_residual,
                                            [-1, num_blocks, block_v_size])
     x_means_residual = tf.matmul(
@@ -464,11 +450,7 @@ def discrete_bottleneck(x,
                         ema=True,
                         ema_count=None,
                         ema_means=None,
-                        summary=True,
-                        slo=False,
-                        slo_alpha=10,
-                        slo_beta=0.5,
-                        c_logits=None):
+                        summary=True):
   """Discretization bottleneck for latent variables.
 
   Args:
@@ -509,11 +491,6 @@ def discrete_bottleneck(x,
       examples in a batch it was the closest to (Default: None).
     ema_means: Exponentially averaged version of the embeddings (Default: None).
     summary: If True, then write summaries (Default: True).
-    slo: Smoothed L0
-    slo_alpha: alpha for smoothed L0
-    slo_beta: beta for smoothed L0
-    c_logits: a [num_blocks, block_size] tensor of logits for
-      computing cluster probabilities.
 
   Returns:
     Embedding to pass to the decoder, discrete latent, loss, and the embedding
@@ -604,13 +581,10 @@ def discrete_bottleneck(x,
       c = tf.argmax(hot, axis=-1)
       h1 = tf.layers.dense(hot, hidden_size, name="dae_dense")
     elif bottleneck_kind == "dvq":
-      c_probs = None
-      if c_logits is not None:
-        c_probs = tf.nn.softmax(c_logits, axis=-1)
       x_reshaped = reshape_fn(x)
       x_means_hot, x_means, q_loss, e_loss = embedding_lookup(
           x_reshaped, means, num_blocks, num_residuals, block_v_size,
-          random_top_k, soft_em, inv_temp, ema_count, c_probs)
+          random_top_k, soft_em, inv_temp, ema_count)
 
       # Get the discrete latent represenation
       x_means_idx = tf.argmax(x_means_hot, axis=-1)
@@ -644,15 +618,6 @@ def discrete_bottleneck(x,
             decay,
             zero_debias=False)
 
-        slo_loss = 0.
-        # if using smoothed L0
-        if slo:
-          # expected log likelihood
-          ell = tf.reduce_sum(ema_count * tf.log(c_probs))
-          # the prior component in the loss for MAP EM.
-          slo_prior = slo_alpha * tf.reduce_sum(tf.exp(-1.*c_probs/slo_beta))
-          slo_loss = -1. * (ell + slo_prior)/(num_blocks * block_v_size)
-
         x_residual = x_reshaped
         dw_stacked = []
         for i in range(num_residuals):
@@ -679,7 +644,7 @@ def discrete_bottleneck(x,
         with tf.control_dependencies([e_loss]):
           update_means = tf.assign(means, updated_ema_means)
           with tf.control_dependencies([update_means]):
-            l += beta * e_loss + slo_loss
+            l += beta * e_loss
       else:
         l = q_loss + beta * e_loss
 
