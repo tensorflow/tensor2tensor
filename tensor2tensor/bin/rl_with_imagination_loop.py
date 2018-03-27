@@ -65,6 +65,7 @@ def train(hparams, output_dir):
       ppo_epochs_num=hparams.ppo_epochs_num
       ppo_hparams = trainer_lib.create_hparams("atari_base", "epochs_num={},simulated_environment=True,eval_every_epochs=0,save_models_every_epochs={}".format(ppo_epochs_num+1, ppo_epochs_num),
                                            data_dir=output_dir)
+      ppo_hparams.epoch_length = hparams.ppo_epoch_length
       ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
       in_graph_wrappers = [(TimeLimitWrapper, {"timelimit": 150}),
                            (PongT2TGeneratorHackWrapper, {"add_value": -2})] + gym_problem.in_graph_wrappers
