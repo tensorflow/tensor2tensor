@@ -34,7 +34,7 @@ from tensor2tensor.models.research import rl
 from tensor2tensor.utils import registry
 from moviepy.editor import *
 from tensor2tensor.rl.envs.utils import batch_env_factory
-from tensor2tensor.rl.envs.tf_atari_wrappers import MemoryWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import MemoryWrapper, TimeLimitWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
 from tensor2tensor.rl import collect
@@ -84,13 +84,13 @@ class GymDiscreteProblem(problem.Problem):
         create_scope_now_=True,
         unique_name_="network")
 
-    with tf.variable_scope("collect_datagen", reuse=tf.AUTO_REUSE):
+    with tf.variable_scope("", reuse=tf.AUTO_REUSE):
       sample_policy = lambda policy: policy.sample()
 
       self.collect_hparams.epoch_length = 10
       _, self.collect_trigger_op = collect.define_collect(
         policy_factory, generator_batch_env, self.collect_hparams,
-        eval_phase=False, policy_to_actions_lambda=sample_policy)
+        eval_phase=False, policy_to_actions_lambda=sample_policy, scope="define_collect")
 
     self.avilable_data_size_op = MemoryWrapper.singleton._speculum.size()
     self.data_get_op = MemoryWrapper.singleton._speculum.dequeue()
@@ -177,15 +177,19 @@ class GymDiscreteProblem(problem.Problem):
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
+  def restore_networks(self, sess):
+    model_saver = tf.train.Saver(
+      tf.global_variables(".*network_parameters.*"))
+    if FLAGS.agent_policy_path:
+      model_saver.restore(sess, FLAGS.agent_policy_path)
+
   def generator(self, data_dir, tmp_dir):
     self._setup()
     clip_files = []
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
-      model_saver = tf.train.Saver(
-        tf.global_variables(".*network_parameters.*"))
-      if FLAGS.agent_policy_path:
-        model_saver.restore(sess, FLAGS.agent_policy_path)
+      self.restore_networks(sess)
+
       pieces_generated = 0
       while pieces_generated<self.num_steps:
         avilable_data_size = sess.run(self.avilable_data_size_op)
@@ -232,9 +236,21 @@ class GymDiscreteProblem(problem.Problem):
 
 @registry.register_problem
 class GymSimulatedDiscreteProblem(GymDiscreteProblem):
-  """Gym environment with discrete actions and rewards."""
+  """Simulated gym environment with discrete actions and rewards."""
 
   def __init__(self, *args, **kwargs):
     super(GymSimulatedDiscreteProblem, self).__init__(*args, **kwargs)
+    #TODO: pull it outside
+    self.in_graph_wrappers = [(TimeLimitWrapper, {"timelimit": 150}), (MaxAndSkipWrapper, {"skip": 4})]
     self.simulated_environment = True
+
+  def restore_networks(self, sess):
+    super(GymSimulatedDiscreteProblem, self).restore_networks(sess)
+
+    env_model_loader = tf.train.Saver(tf.global_variables(".*basic_conv_gen.*"))
+    sess = tf.get_default_session()
+
+    ckpts = tf.train.get_checkpoint_state("/home/piotr.milos/trash/loop_0321/output")
+    ckpt = ckpts.model_checkpoint_path
+    env_model_loader.restore(sess, ckpt)
 

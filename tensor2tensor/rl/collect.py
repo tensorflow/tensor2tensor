@@ -19,7 +19,7 @@ import tensorflow as tf
 
 
 def define_collect(policy_factory, batch_env, hparams,
-                   eval_phase, policy_to_actions_lambda=None):
+                   eval_phase, policy_to_actions_lambda=None, scope=""):
   """Collect trajectories."""
   eval_phase = tf.convert_to_tensor(eval_phase)
   memory_shape = [hparams.epoch_length] + [batch_env.observ.shape.as_list()[0]]
@@ -35,8 +35,9 @@ def define_collect(policy_factory, batch_env, hparams,
   ]
   memory = [tf.Variable(tf.zeros(shape, dtype), trainable=False)
             for (shape, dtype) in memories_shapes_and_types]
-  cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
-                                       trainable=False)
+  with tf.variable_scope(scope):
+    cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
+                                         trainable=False)
 
   should_reset_var = tf.Variable(True, trainable=False)
 
