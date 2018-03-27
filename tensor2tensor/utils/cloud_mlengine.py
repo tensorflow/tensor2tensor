@@ -276,10 +276,10 @@ def validate_flags():
     elif FLAGS.worker_gpu:
       if FLAGS.worker_gpu == 1:
         assert FLAGS.cloud_mlengine_master_type in ['standard_gpu',
-                                                     'standard_p100']
+                                                    'standard_p100']
       elif FLAGS.worker_gpu == 4:
         assert FLAGS.cloud_mlengine_master_type in ['complex_model_m_gpu',
-                                                     'complex_model_m_p100']
+                                                    'complex_model_m_p100']
       else:
         assert FLAGS.cloud_mlengine_master_type == 'complex_model_l_gpu'
     else:
