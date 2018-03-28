@@ -134,6 +134,11 @@ class Text2TextProblem(problem.Problem):
     return 2**15  # ~32k
 
   @property
+  def oov_token(self):
+    """Out of vocabulary token. Only for VocabType.TOKEN."""
+    return None
+
+  @property
   def max_samples_for_vocab(self):
     """How many samples from `generate_samples` to look at for vocab generation.
 
@@ -207,7 +212,8 @@ class Text2TextProblem(problem.Problem):
             max_subtoken_length=self.max_subtoken_length)
     elif self.vocab_type == VocabType.TOKEN:
       vocab_filename = os.path.join(data_dir, self.vocab_filename)
-      encoder = text_encoder.TokenTextEncoder(vocab_filename)
+      encoder = text_encoder.TokenTextEncoder(vocab_filename,
+                                              replace_oov=self.oov_token)
     else:
       raise ValueError("Unrecognized VocabType")
     return encoder
