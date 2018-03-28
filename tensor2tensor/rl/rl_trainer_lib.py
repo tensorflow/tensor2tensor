@@ -81,7 +81,8 @@ def train(hparams, environment_spec, event_dir=None):
     summary_writer = tf.summary.FileWriter(
         event_dir, graph=tf.get_default_graph(), flush_secs=60)
     model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
-    print("READ POLICY\n"*30)
+    #TODO:READ POLICY
+    print("READ POLICY\n"*300)
   else:
     summary_writer = None
     model_saver = None

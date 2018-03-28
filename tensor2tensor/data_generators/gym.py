@@ -243,6 +243,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
   def restore_networks(self, sess):
     super(GymSimulatedDiscreteProblem, self).restore_networks(sess)
 
+    #TODO: adjust regexp for different models
     env_model_loader = tf.train.Saver(tf.global_variables(".*basic_conv_gen.*"))
     sess = tf.get_default_session()
 

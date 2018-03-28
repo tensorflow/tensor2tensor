@@ -102,8 +102,10 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       reward_expanded = model_output[0]['reward']
       observ = tf.cast(tf.argmax(observ_expaned, axis=-1), tf.float32)
       # observ = tf.Print(observ, [tf.norm(observ)], "our l2 =")
-      reward = tf.squeeze(tf.cast(tf.argmax(reward_expanded, axis=-1), tf.float32))
+      # reward = tf.squeeze(tf.cast(tf.argmax(reward_expanded, axis=-1), tf.float32))
 
+      #TODO: it might be better to have something here
+      reward = tf.constant(0, tf.float32, shape=(self.length,))
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
       with tf.control_dependencies([observ]):
