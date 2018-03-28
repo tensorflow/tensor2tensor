@@ -52,9 +52,7 @@ def to_example(dictionary):
     elif isinstance(v[0], float):
       features[k] = tf.train.Feature(float_list=tf.train.FloatList(value=v))
     elif isinstance(v[0], six.string_types):
-      if six.PY2:
-        v = [x.encode("utf-8") for x in v]
-      else:
+      if not six.PY2:  # Convert in python 3.
         v = [bytes(x, "utf-8") for x in v]
       features[k] = tf.train.Feature(bytes_list=tf.train.BytesList(value=v))
     elif isinstance(v[0], bytes):
