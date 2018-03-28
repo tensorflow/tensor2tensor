@@ -185,6 +185,9 @@ class T2TModel(base.Layer):
         else:
           sharded_logits = dp(self.top, body_out, datashard_to_features)
           sharded_losses = dp(self.loss, sharded_logits, datashard_to_features)
+          if isinstance(sharded_losses, tuple):
+            nums, dens = sharded_losses
+            sharded_losses = zip(nums, dens)
           training_loss_dict = average_sharded_losses([{
               "training": loss
           } for loss in sharded_losses])
@@ -844,10 +847,8 @@ class T2TModel(base.Layer):
         v_shape = [1]
       if v_shape == [1]:
         v = tf.tile(v, [self._num_datashards])
-      sharded_features[k] = self._data_parallelism(tf.identity,
-                                                   tf.split(
-                                                       v, self._num_datashards,
-                                                       0))
+      sharded_features[k] = self._data_parallelism(
+          tf.identity, tf.split(v, self._num_datashards, 0))
     return sharded_features
 
   def _to_features_per_datashard(self, features):
@@ -1101,9 +1102,10 @@ def _warn_changed_modality_type(new_name, old_name, feature_name):
   new_type, new_name = registry.parse_modality_name(new_name)
   old_type, old_name = registry.parse_modality_name(old_name)
   if new_type != old_type:
-    log_warn("%s has a designated modality type %s (%s) but has been "
-             "overridden with a modality of type %s (%s).", feature_name,
-             old_type, old_name, new_type, new_name)
+    log_warn(
+        "%s has a designated modality type %s (%s) but has been "
+        "overridden with a modality of type %s (%s).", feature_name, old_type,
+        old_name, new_type, new_name)
 
 
 def _with_timing(fn, msg, silent=False):
