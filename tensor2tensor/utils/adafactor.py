@@ -106,6 +106,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
                beta1=0.0,
                clipping_threshold=1.0,
                factored=True,
+               simulated_quantize_bits=None,
                use_locking=False,
                name="Adafactor"):
     """Construct a new Adafactor optimizer.
@@ -120,6 +121,8 @@ class AdafactorOptimizer(tf.train.Optimizer):
       clipping_threshold: an optional float >= 1
       factored: a boolean - whether to use factored second-moment estimator
         for 2d variables
+      simulated_quantize_bits: train with simulated quantized parameters
+        (experimental)
       use_locking: If True use locks for update operations.
       name: Optional name for the operations created when applying gradients.
         Defaults to "AdafactorOptimizer".
@@ -139,6 +142,9 @@ class AdafactorOptimizer(tf.train.Optimizer):
     self._beta1 = beta1
     self._clipping_threshold = clipping_threshold
     self._factored = factored
+    self._simulated_quantize_bits = simulated_quantize_bits
+    if self._simulated_quantize_bits:
+      self._quantization_noise = _quantization_noise_from_step_num()
 
   def _should_use_factored_second_moment_estimate(self, shape):
     """Should we use a factored second moment estimator.
@@ -233,7 +239,13 @@ class AdafactorOptimizer(tf.train.Optimizer):
       new_m = self._beta1 * m + (1.0 - self._beta1) * subtrahend
       updates.append(tf.assign(m, new_m, use_locking=self._use_locking))
       subtrahend = new_m
-    var_update = tf.assign_sub(var, subtrahend, use_locking=self._use_locking)
+    if self._simulated_quantize_bits:
+      new_val = _simulated_quantize(
+          var - subtrahend, self._simulated_quantize_bits,
+          self._quantization_noise)
+      var_update = tf.assign(var, new_val, use_locking=self._use_locking)
+    else:
+      var_update = tf.assign_sub(var, subtrahend, use_locking=self._use_locking)
     updates = [var_update] + updates
     return tf.group(*updates)
 
@@ -303,9 +315,80 @@ def adafactor_optimizer_from_hparams(hparams, lr):
       beta1=hparams.optimizer_adafactor_beta1,
       clipping_threshold=hparams.optimizer_adafactor_clipping_threshold,
       factored=hparams.optimizer_adafactor_factored,
+      simulated_quantize_bits=getattr(
+          hparams, "simulated_parameter_quantize_bits", 0),
       use_locking=False,
       name="Adafactor")
 
 
 def reduce_rms(x):
   return tf.sqrt(tf.reduce_mean(tf.square(x)))
+
+
+def _simulated_quantize(x, num_bits, quantization_noise):
+  """Simulate quantization to num_bits bits, with externally-stored scale.
+
+  num_bits is the number of bits used to store each value.
+  quantization_noise is a float32 Tensor containing values in [0, 1).
+  Each value in quantization_noise should take different values across
+  different steps, approximating a uniform distribution over [0, 1).
+  In the case of relicated TPU training, quantization_noise should be identical
+  across replicas in order to keep the parameters identical across replicas.
+
+  The natural choice for quantization_noise would be tf.random_uniform(),
+  but this is not possible for TPU, since there is currently no way to seed
+  the different cores to produce identical values across replicas.  Instead we
+  use _quantization_noise_from_step_num() (see below).
+
+  The quantization scheme is as follows:
+
+  Compute the maximum absolute value by row (call this max_abs).
+  Store this either in an auxiliary variable or in an extra column.
+
+  Divide the parameters by (max_abs / (2^(num_bits-1)-1)).  This gives a
+  float32 value in the range [-2^(num_bits-1)-1, 2^(num_bits-1)-1]
+
+  Unbiased randomized roundoff by adding quantization_noise and rounding down.
+
+  This produces a signed integer with num_bits bits which can then be stored.
+
+  Args:
+    x: a float32 Tensor
+    num_bits: an integer between 1 and 22
+    quantization_noise: a float Tensor broadcastable to the shape of x.
+
+  Returns:
+    a float32 Tensor
+  """
+  shape = x.get_shape().as_list()
+  if not (len(shape) >= 2 and shape[-1] > 1):
+    return x
+  max_abs = tf.reduce_max(tf.abs(x), -1, keep_dims=True) + 1e-9
+  max_int = 2 ** (num_bits - 1) - 1
+  scale = max_abs / max_int
+  x /= scale
+  x = tf.floor(x + quantization_noise)
+  # dequantize before storing (since this is a simulation)
+  x *= scale
+  return x
+
+
+def _quantization_noise_from_step_num():
+  """A quantization noise equal to (phi * (step_num + 1)) mod 1.0.
+
+  See _simulated_quantize.
+
+  Returns:
+    a float32 scalar
+  """
+  step = tf.to_int32(tf.train.get_or_create_global_step()) + 1
+  phi = ((5 ** 0.5) - 1) / 2
+  # Naive computation tf.mod(phi * step, 1.0) in float32 would be disasterous
+  # due to loss of precision when the step number gets large.
+  # Computation in doubles does not work on TPU, so we use this complicated
+  # alternative computation which does not suffer from these roundoff errors.
+  ret = 0.0
+  for i in xrange(30):
+    ret += (((phi * (2 ** i)) % 1.0)  # double-precision computation in python
+            * tf.to_float(tf.mod(step // (2 ** i), 2)))
+  return tf.mod(ret, 1.0)
