@@ -401,9 +401,7 @@ def ae_transformer_internal(inputs,
                 name="vc",
                 mode=hparams.mode)
           return bn
-        pbn = 0.8 if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
-        inputs_c = tf.cond(tf.less(tf.random_uniform([]), pbn),
-                           bn_inputs, lambda: inputs_c)
+        inputs_c = bn_inputs
         ptc = 1.0 - common_layers.inverse_lin_decay(200000) * 0.5
         ptc = ptc if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
         latents_dense = tf.where(tf.less(tf.random_uniform([batch_size]), ptc),
