@@ -247,6 +247,7 @@ def create_experiment(run_config,
                       use_tpu=False):
   """Create Experiment."""
   # HParams
+  hparams.add_hparam("model_dir", run_config.model_dir)
   hparams.add_hparam("data_dir", data_dir)
   hparams.add_hparam("train_steps", train_steps)
   hparams.add_hparam("eval_steps", eval_steps)
