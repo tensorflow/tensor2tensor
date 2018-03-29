@@ -484,6 +484,15 @@ def text2text_txt_iterator(source_txt_path, target_txt_path):
     yield {"inputs": inputs, "targets": targets}
 
 
+def text2text_distill_iterator(source_txt_path, target_txt_path,
+                               distill_txt_path):
+  """Yield dicts for Text2TextProblem.generate_samples from lines of files."""
+  for inputs, targets, dist_targets in zip(
+      txt_line_iterator(source_txt_path), txt_line_iterator(target_txt_path),
+      txt_line_iterator(distill_txt_path)):
+    yield {"inputs": inputs, "targets": targets, "dist_targets": dist_targets}
+
+
 def text2self_txt_iterator(txt_path):
   for line in txt_line_iterator(txt_path):
     yield {"targets": line}
