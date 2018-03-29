@@ -117,7 +117,6 @@ def nearest_neighbor(x,
 def embedding_lookup(x,
                      means,
                      num_blocks,
-                     num_residuals,
                      block_v_size,
                      random_top_k=1,
                      soft_em=False,
@@ -130,7 +129,6 @@ def embedding_lookup(x,
       [-1, num_blocks, block_dim].
     means: Embedding table of shape [num_blocks, block_v_size, block_dim].
     num_blocks: Number of blocks in DVQ.
-    num_residuals: Number of residual units in computing nearest neighbors.
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
@@ -142,46 +140,13 @@ def embedding_lookup(x,
     The nearest neighbor in one hot form, the nearest neighbor itself, the
     commitment loss, embedding training loss.
   """
-  q_loss = 0
-  e_loss = 0
-  shape = common_layers.shape_list(x)
-  x_means = tf.zeros(dtype=tf.float32, shape=shape)
-  x_means_hot = []
-  x_residual = x
-  for i in range(num_residuals):
-    means_residual = means[i]
-    if ema_count is not None:
-      ema_count_residual = ema_count[i]
-    else:
-      ema_count_residual = None
-
-    x_means_hot_residual = nearest_neighbor(
-        x_residual,
-        means_residual,
-        block_v_size,
-        random_top_k=random_top_k,
-        soft_em=soft_em,
-        inv_temp=inv_temp,
-        ema_count=ema_count_residual)
-    x_means_hot_flat_residual = tf.reshape(x_means_hot_residual,
-                                           [-1, num_blocks, block_v_size])
-    x_means_residual = tf.matmul(
-        tf.transpose(x_means_hot_flat_residual, perm=[1, 0, 2]), means_residual)
-    x_means_residual = tf.transpose(x_means_residual, perm=[1, 0, 2])
-
-    # Collect the residual losses
-    q_loss += tf.reduce_mean(
-        tf.square((tf.stop_gradient(x_residual) - x_means_residual)))
-    e_loss += tf.reduce_mean(
-        tf.square(x_residual - tf.stop_gradient(x_means_residual)))
-
-    # Update the residuals
-    x_residual -= x_means_residual
-    x_means += x_means_residual
-    x_means_hot.append(x_means_hot_residual)
-
-  # Stack x_means_hot
-  x_means_hot = tf.stack(x_means_hot, axis=1)
+  x_means_hot = nearest_neighbor(x, means, block_v_size, random_top_k, soft_em,
+                                 inv_temp, ema_count)
+  x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
+  x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
+  x_means = tf.transpose(x_means, [1, 0, 2])
+  q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
+  e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
   return x_means_hot, x_means, q_loss, e_loss
 
 
@@ -582,11 +547,53 @@ def discrete_bottleneck(x,
       h1 = tf.layers.dense(hot, hidden_size, name="dae_dense")
     elif bottleneck_kind == "dvq":
       x_reshaped = reshape_fn(x)
-      x_means_hot, x_means, q_loss, e_loss = embedding_lookup(
-          x_reshaped, means, num_blocks, num_residuals, block_v_size,
-          random_top_k, soft_em, inv_temp, ema_count)
+      x_res = x_reshaped
+      x_means_hot = []
+      x_means = 0
+      l = 0
+      for i in range(num_residuals):
+        x_means_hot_res, x_means_res, q_loss_res, e_loss_res = embedding_lookup(
+            x_res, means[i], num_blocks, block_v_size, random_top_k, soft_em,
+            inv_temp, ema_count[i])
+
+        # Update the ema variables
+        if ema:
+          tf.logging.info("Using EMA with beta = {}".format(beta))
+          updated_ema_count_res = moving_averages.assign_moving_average(
+              ema_count[i],
+              tf.reduce_sum(
+                  tf.reshape(
+                      x_means_hot_res, shape=[-1, num_blocks, block_v_size]),
+                  axis=0),
+              decay,
+              zero_debias=False)
+
+          dw = tf.matmul(
+              tf.transpose(x_means_hot_res, perm=[1, 2, 0]),
+              tf.transpose(x_res, perm=[1, 0, 2]))
+
+          updated_ema_means_res = moving_averages.assign_moving_average(
+              ema_means[i], dw, decay, zero_debias=False)
+          n = tf.reduce_sum(updated_ema_count_res, axis=-1, keep_dims=True)
+          updated_ema_count_res = ((updated_ema_count_res + epsilon) /
+                                   (n + 2**z_size * epsilon) * n)
+          updated_ema_means_res /= tf.expand_dims(
+              updated_ema_count_res, axis=-1)
+
+          with tf.control_dependencies([e_loss_res]):
+            update_means_res = tf.assign(means[i], updated_ema_means_res)
+            with tf.control_dependencies([update_means_res]):
+              l += beta * e_loss_res
+        else:
+          l += q_loss_res + beta * e_loss_res
+
+        # Update the residuals
+        x_res -= x_means_res
+        x_means += x_means_res
+        x_means_hot.append(x_means_hot_res)
 
       # Get the discrete latent represenation
+      x_means_hot = tf.stack(x_means_hot, axis=1)
       x_means_idx = tf.argmax(x_means_hot, axis=-1)
 
       # Get the binary representation
@@ -604,49 +611,6 @@ def discrete_bottleneck(x,
       shape_x = common_layers.shape_list(x)
       new_shape = shape_x[:-1]
       c = tf.reshape(c, new_shape)
-
-      # Update the ema variables
-      if ema:
-        tf.logging.info("Using EMA with beta = {}".format(beta))
-        updated_ema_count = moving_averages.assign_moving_average(
-            ema_count,
-            tf.reduce_sum(
-                tf.reshape(
-                    x_means_hot,
-                    shape=[-1, num_residuals, num_blocks, block_v_size]),
-                axis=0),
-            decay,
-            zero_debias=False)
-
-        x_residual = x_reshaped
-        dw_stacked = []
-        for i in range(num_residuals):
-          x_means_hot_residual = x_means_hot[:, i, :, :,]
-          dw = tf.matmul(
-              tf.transpose(x_means_hot_residual, perm=[1, 2, 0]),
-              tf.transpose(x_residual, perm=[1, 0, 2]))
-          dw_stacked.append(dw)
-
-          # Update the residual
-          means_residual = tf.matmul(
-              tf.transpose(x_means_hot_residual, perm=[1, 0, 2]), means[i])
-          means_residual = tf.transpose(means_residual, perm=[1, 0, 2])
-          x_residual -= means_residual
-
-        dw_stacked = tf.stack(dw_stacked, axis=0)
-        updated_ema_means = moving_averages.assign_moving_average(
-            ema_means, dw_stacked, decay, zero_debias=False)
-        n = tf.reduce_sum(updated_ema_count, axis=-1, keep_dims=True)
-        updated_ema_count = ((updated_ema_count + epsilon) /
-                             (n + 2**z_size * epsilon) * n)
-        updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
-
-        with tf.control_dependencies([e_loss]):
-          update_means = tf.assign(means, updated_ema_means)
-          with tf.control_dependencies([update_means]):
-            l += beta * e_loss
-      else:
-        l = q_loss + beta * e_loss
 
       x_means = tf.reshape(x_means, shape_x)
       x_reshaped = tf.reshape(x_reshaped, shape_x)

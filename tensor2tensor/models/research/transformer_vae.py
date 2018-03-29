@@ -554,17 +554,22 @@ class TransformerAE(t2t_model.T2TModel):
       ema_count = None
       ema_means = None
       if self._hparams.ema:
-        ema_count = tf.get_variable(
-            "ema_count", [
-                self._hparams.num_residuals, self._hparams.num_blocks,
-                block_v_size
-            ],
-            initializer=tf.constant_initializer(0),
-            trainable=False)
-        with tf.colocate_with(means):
-          ema_means = tf.get_variable(
-              "ema_means", initializer=means.initialized_value(),
+        ema_count = []
+        for i in xrange(self._hparams.num_residuals):
+          ema_count_i = tf.get_variable(
+              "ema_count_{}".format(i),
+              [self._hparams.num_blocks, block_v_size],
+              initializer=tf.constant_initializer(0),
               trainable=False)
+          ema_count.append(ema_count_i)
+        with tf.colocate_with(means):
+          ema_means = []
+          for i in xrange(self._hparams.num_residuals):
+            ema_means_i = tf.get_variable(
+                "ema_means_{}".format(i),
+                initializer=means.initialized_value()[i],
+                trainable=False)
+            ema_means.append(ema_means_i)
 
       # Update bottleneck
       self._hparams.bottleneck = functools.partial(
