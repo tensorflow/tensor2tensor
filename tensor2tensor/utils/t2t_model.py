@@ -984,9 +984,13 @@ class T2TModel(base.Layer):
     train_op = self.optimize(loss, num_async_replicas=num_async_replicas)
 
     if common_layers.is_on_tpu():
-      _remove_summaries()  # summaries not currently working on TPU
+      host_call = _create_host_call(self.hparams.model_dir)
+      _remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(
-          tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
+          tf.estimator.ModeKeys.TRAIN,
+          loss=loss,
+          train_op=train_op,
+          host_call=host_call)
     else:
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
@@ -1217,6 +1221,53 @@ def _remove_summaries():
   key = tf.GraphKeys.SUMMARIES
   del g.get_collection_ref(key)[:]
   assert not g.get_collection(key)
+
+
+def _create_host_call(model_dir):
+  """Construct a host_call writing scalar summaries.
+
+  Args:
+    model_dir: String containing path to train
+
+  Returns:
+    (fn, args) Pair to be called by TPUEstimator as the host_call.
+  """
+  graph = tf.get_default_graph()
+  summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
+
+  gs_t = tf.reshape(tf.train.get_global_step(), [1])
+  summary_kwargs = dict()
+  for t in summaries:
+    if t.op.type != "ScalarSummary":
+      continue
+
+    name = t.op.name
+    tensor = t.op.inputs[1]
+    assert tensor.shape.is_compatible_with(
+        []), ("ScalarSummary %s must have shape [], but is: %s." %
+              (name, tensor.shape))
+    summary_kwargs[name] = tf.reshape(tensor, [1])
+  summary_kwargs["global_step"] = gs_t
+
+  def host_call_fn(**kwargs):
+    """Training host call. Creates scalar summaries for training metrics.
+
+    Args:
+      **kwargs: Dict of {str: Tensor} , with `Tensor` of shape `[batch]`. Must
+        contain key "global_step" with value of current global_step Tensor.
+
+    Returns:
+      List of summary ops to run on the CPU host.
+    """
+    gs = kwargs.pop("global_step")[0]
+    with tf.contrib.summary.create_file_writer(model_dir).as_default():
+      with tf.contrib.summary.always_record_summaries():
+        for name, value in six.iteritems(kwargs):
+          tf.contrib.summary.scalar(name, tf.reduce_mean(value), step=gs)
+
+        return tf.contrib.summary.all_summary_ops()
+
+  return (host_call_fn, summary_kwargs)
 
 
 def _del_dict_nones(d):
