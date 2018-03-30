@@ -52,7 +52,9 @@ def to_example(dictionary):
     elif isinstance(v[0], float):
       features[k] = tf.train.Feature(float_list=tf.train.FloatList(value=v))
     elif isinstance(v[0], six.string_types):
-      if not six.PY2:  # Convert in python 3.
+      if six.PY2:
+        v = [x.encode("utf-8") for x in v]
+      else:
         v = [bytes(x, "utf-8") for x in v]
       features[k] = tf.train.Feature(bytes_list=tf.train.BytesList(value=v))
     elif isinstance(v[0], bytes):
@@ -299,7 +301,7 @@ def gunzip_file(gz_path, new_path):
 
 
 def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
-                                generator):
+                                generator, max_subtoken_length=None):
   """Inner implementation for vocab generators.
 
   Args:
@@ -308,6 +310,8 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
     vocab_filename: relative filename where vocab file is stored
     vocab_size: target size of the vocabulary constructed by SubwordTextEncoder
     generator: a generator that produces tokens from the vocabulary
+    max_subtoken_length: an optional integer.  Set this to a finite value to
+        avoid quadratic costs during vocab building.
 
   Returns:
     A SubwordTextEncoder vocabulary object.
@@ -329,7 +333,7 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
       token_counts[tok] += 1
 
   vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
-      vocab_size, token_counts, 1, 1e3)
+      vocab_size, token_counts, 1, 1e3, max_subtoken_length=max_subtoken_length)
 
   if vocab_filepath is not None:
     vocab.store_to_file(vocab_filepath)

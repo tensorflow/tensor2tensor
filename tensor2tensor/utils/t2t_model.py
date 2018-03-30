@@ -92,7 +92,6 @@ class T2TModel(base.Layer):
 
     if not problem_hparams and hasattr(hparams, "problems"):
       problem_hparams = hparams.problems[0]
-    print(problem_hparams)
     self._problem_hparams = problem_hparams
 
     # Setup hparams
@@ -131,6 +130,9 @@ class T2TModel(base.Layer):
       return True
 
   def call(self, features):
+    tf.get_variable_scope().set_custom_getter(common_layers.bfloat16_var_getter
+                                              if self.hparams.activation_dtype
+                                              == "bfloat16" else None)
     tf.get_variable_scope().set_initializer(
         optimize.get_variable_initializer(self.hparams))
     with self._eager_var_store.as_default():
@@ -214,6 +216,11 @@ class T2TModel(base.Layer):
   def model_fn(self, features):
     transformed_features = self.bottom(features)
 
+    if self.hparams.activation_dtype == "bfloat16":
+      for k, v in six.iteritems(transformed_features):
+        if v.dtype == tf.float32:
+          transformed_features[k] = tf.cast(v, tf.bfloat16)
+
     with tf.variable_scope("body"):
       log_info("Building model body")
       body_out = self.body(transformed_features)
@@ -226,6 +233,7 @@ class T2TModel(base.Layer):
     else:
       logits = self.top(output, features)
       losses["training"] = self.loss(logits, features)
+
     return logits, losses
 
   def bottom(self, features):
@@ -251,7 +259,6 @@ class T2TModel(base.Layer):
       all_previous_modalities.append(input_modality.name)
 
     # Transform the targets (for autoregressive models)
-    print(self._problem_hparams)
     target_modality = self._problem_hparams.target_modality
     if isinstance(target_modality, dict):
       for k, v in six.iteritems(target_modality):
@@ -343,6 +350,10 @@ class T2TModel(base.Layer):
       return self._top_single(body_output, target_modality, features)
 
   def _loss_single(self, logits, target_modality, features):
+    # The current bfloat16 version still uses float32 for most parts of backward
+    # propagation to keep model quality, so cast back before computing the loss
+    # value.
+    logits = tf.cast(logits, tf.float32)
     if not target_modality:
       log_warn(_no_problem_err("loss"))
       return (tf.constant(0., dtype=tf.float32),
@@ -1007,7 +1018,6 @@ class T2TModel(base.Layer):
     else:
       eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
       eval_metrics = {}
-
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
         if isinstance(logits, dict):
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
@@ -1015,18 +1025,15 @@ class T2TModel(base.Layer):
           eval_metrics[metric_name] = metric_fn(logits[k], features)
         else:
           eval_metrics[metric_name] = metric_fn(logits, features)
-
       if isinstance(logits, dict):
         predictions = logits
       else:
         predictions = {"predictions": logits}
-
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           predictions=predictions,
           eval_metric_ops=eval_metrics,
           loss=loss)
-
 
   def estimator_spec_predict(self, features):
     """Construct EstimatorSpec for PREDICT mode."""
@@ -1054,6 +1061,7 @@ class T2TModel(base.Layer):
         "inputs": features.get("inputs"),
         "targets": features.get("infer_targets"),
         "problem_choice": batched_problem_choice,
+        "batch_prediction_key": features.get("batch_prediction_key"),
     }
     _del_dict_nones(predictions)
 
@@ -1061,13 +1069,20 @@ class T2TModel(base.Layer):
     if "scores" in predictions:
       export_out["scores"] = predictions["scores"]
 
+    # Necessary to rejoin examples in the correct order with the Cloud ML Engine
+    # batch prediction API.
+    if "batch_prediction_key" in predictions:
+      export_out["batch_prediction_key"] = predictions["batch_prediction_key"]
+
     _remove_summaries()
 
     return tf.estimator.EstimatorSpec(
         tf.estimator.ModeKeys.PREDICT,
         predictions=predictions,
         export_outputs={
-            "output": tf.estimator.export.PredictOutput(export_out)
+            tf.saved_model.signature_constants.
+            DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                tf.estimator.export.PredictOutput(export_out)
         })
 
   def _normalize_body_output(self, body_out):
@@ -1122,6 +1137,7 @@ TPU_METRIC_BLACKLIST = set([
     metrics.Metrics.APPROX_BLEU,
     metrics.Metrics.ROUGE_2_F,
     metrics.Metrics.ROUGE_L_F,
+    metrics.Metrics.IMAGE_SUMMARY,
 ])
 
 

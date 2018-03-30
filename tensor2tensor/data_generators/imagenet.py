@@ -223,6 +223,49 @@ class ImageImagenet64Gen(ImageImagenet):
 
 
 @registry.register_problem
+class ImageImagenetMultiResolutionGen(ImageImagenet64Gen):
+  """ImageNet at multiple resolutions.
+
+  The resolutions are specified as a hyperparameter during preprocessing.
+  """
+
+  def dataset_filename(self):
+    return "image_imagenet64_gen"
+
+  @property
+  def train_shards(self):
+    return 1024
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def preprocess_example(self, example, mode, hparams):
+    image = example["inputs"]
+
+    if hasattr(hparams, "resize_method"):
+      method = getattr(tf.image.ResizeMethod, hparams.resize_method)
+    else:  # default
+      method = tf.image.ResizeMethod.BICUBIC
+
+    scaled_images = image_utils.make_multiscale(
+        image, hparams.resolutions,
+        resize_method=method, num_channels=self.num_channels)
+
+    highest_res = hparams.resolutions[-1]
+    # Pack tuple of scaled images into one tensor. We do this by enforcing the
+    # columns to match for every resolution.
+    # TODO(avaswani, trandustin): We should create tuples because this will not
+    # work if height*width of low res < width of high res
+    example["inputs"] = tf.concat([
+        tf.reshape(scaled_image,
+                   [res**2 // highest_res, highest_res, self.num_channels])
+        for scaled_image, res in zip(scaled_images, hparams.resolutions)],
+                                  axis=0)
+    return example
+
+
+@registry.register_problem
 class ImageImagenet64(ImageImagenet32):
   """Imagenet rescaled to 64x64."""
 
