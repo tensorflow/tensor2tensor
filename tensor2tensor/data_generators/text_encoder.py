@@ -216,6 +216,9 @@ class ClassLabelEncoder(TextEncoder):
       label_id = np.squeeze(label_id)
     return self._class_labels[label_id]
 
+  def decode_list(self, ids):
+    return [self._class_labels[i] for i in ids]
+
   @property
   def vocab_size(self):
     return len(self._class_labels)
