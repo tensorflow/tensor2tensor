@@ -457,8 +457,6 @@ def fast_decode(encoder_output,
     cache["encoder_output"] = encoder_output
     cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
 
-  logits = None
-
   if beam_size > 1:  # Beam Search
     initial_ids = tf.zeros([batch_size], dtype=tf.int32)
     decoded_ids, scores = beam_search.beam_search(
@@ -495,7 +493,7 @@ def fast_decode(encoder_output,
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
     finished = tf.fill([batch_size], False)
     next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
-    _, _, _, decoded_ids, _,logits = tf.while_loop(
+    _, _, _, decoded_ids, _ = tf.while_loop(
         is_not_finished,
         inner_loop,
         [tf.constant(0), finished, next_id, decoded_ids, cache],
@@ -508,7 +506,7 @@ def fast_decode(encoder_output,
         ])
     scores = None
 
-  return {"outputs": decoded_ids, "scores": scores,"logits":logits}
+  return {"outputs": decoded_ids, "scores": scores}
 
 
 @registry.register_model
