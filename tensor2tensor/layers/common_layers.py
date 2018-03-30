@@ -673,7 +673,7 @@ def layer_preprocess(layer_input, hparams):
 
   See layer_prepostprocess() for details.
 
-  A hyperparemeters object is passed for convenience.  The hyperparameters
+  A hyperparameters object is passed for convenience.  The hyperparameters
   that may be used are:
 
     layer_preprocess_sequence
@@ -709,7 +709,7 @@ def layer_postprocess(layer_input, layer_output, hparams):
 
   See layer_prepostprocess() for details.
 
-  A hyperparemeters object is passed for convenience.  The hyperparameters
+  A hyperparameters object is passed for convenience.  The hyperparameters
   that may be used are:
 
     layer_postprocess_sequence
@@ -1332,7 +1332,7 @@ def relu_density_logit(x, reduce_dims):
   Useful for histograms.
 
   Args:
-    x: a Tensor, typilcally the output of tf.relu
+    x: a Tensor, typically the output of tf.relu
     reduce_dims: a list of dimensions
 
   Returns:

@@ -397,7 +397,10 @@ class Transformer(t2t_model.T2TModel):
         alpha=alpha,
         batch_size=batch_size)
     if partial_targets is not None:
-      ret["outputs"] = ret["outputs"][:, partial_targets_length:]
+      if beam_size <= 1:
+        ret["outputs"] = ret["outputs"][:, partial_targets_length:]
+      else:
+        ret["outputs"] = ret["outputs"][:, :, partial_targets_length:]
     return ret
 
 
@@ -724,7 +727,7 @@ def transformer_encoder(encoder_input,
               common_layers.layer_preprocess(x, hparams), hparams, pad_remover,
               conv_padding="SAME", nonpadding_mask=nonpadding)
           x = common_layers.layer_postprocess(x, y, hparams)
-    # if normalization is done in layer_preprocess, then it shuold also be done
+    # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
     # a whole stack of unnormalized layer outputs.
     return common_layers.layer_preprocess(x, hparams)
@@ -814,7 +817,7 @@ def transformer_decoder(decoder_input,
               common_layers.layer_preprocess(x, hparams), hparams,
               conv_padding="LEFT", nonpadding_mask=nonpadding)
           x = common_layers.layer_postprocess(x, y, hparams)
-    # if normalization is done in layer_preprocess, then it shuold also be done
+    # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
     # a whole stack of unnormalized layer outputs.
     return common_layers.layer_preprocess(x, hparams)

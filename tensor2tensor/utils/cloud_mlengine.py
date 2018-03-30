@@ -140,7 +140,8 @@ def launch_job(job_spec):
   """Launch job on ML Engine."""
   project_id = 'projects/{}'.format(cloud.default_project())
   credentials = GoogleCredentials.get_application_default()
-  cloudml = discovery.build('ml', 'v1', credentials=credentials)
+  cloudml = discovery.build('ml', 'v1', credentials=credentials,
+                            cache_discovery=False)
   request = cloudml.projects().jobs().create(body=job_spec, parent=project_id)
   request.execute()
 
@@ -275,13 +276,13 @@ def validate_flags():
       assert FLAGS.cloud_mlengine_master_type == 'standard_tpu'
     elif FLAGS.worker_gpu:
       if FLAGS.worker_gpu == 1:
-        assert FLAGS.cloud_ml_engine_master_type in ['standard_gpu',
-                                                     'standard_p100']
+        assert FLAGS.cloud_mlengine_master_type in ['standard_gpu',
+                                                    'standard_p100']
       elif FLAGS.worker_gpu == 4:
-        assert FLAGS.cloud_ml_engine_master_type in ['complex_model_m_gpu',
-                                                     'complex_model_m_p100']
+        assert FLAGS.cloud_mlengine_master_type in ['complex_model_m_gpu',
+                                                    'complex_model_m_p100']
       else:
-        assert FLAGS.cloud_ml_engine_master_type == 'complex_model_l_gpu'
+        assert FLAGS.cloud_mlengine_master_type == 'complex_model_l_gpu'
     else:
       assert FLAGS.cloud_mlengine_master_type in ['standard', 'large_model',
                                                   'complex_model_s',
