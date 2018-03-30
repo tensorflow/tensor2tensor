@@ -389,8 +389,10 @@ class Transformer(t2t_model.T2TModel):
         top_beams=top_beams,
         alpha=alpha,
         batch_size=batch_size)
-    if partial_targets is not None:
+    if partial_targets is not None and beam_size == 1:
       ret["outputs"] = ret["outputs"][:, partial_targets_length:]
+    elif partial_targets is not None and beam_size > 1:
+        ret["outputs"] = ret["outputs"][:, :,partial_targets_length:]
     return ret
 
 

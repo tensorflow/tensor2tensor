@@ -208,9 +208,11 @@ class ClassLabelEncoder(TextEncoder):
 
   def decode(self, label_id):
     if isinstance(label_id, list):
-      assert len(label_id) == 1
-      label_id, = label_id
+      return self._class_labels[label_id[0]]
     return self._class_labels[label_id]
+
+  def decode_list(self, ids):
+    return [self._class_labels[i] for i in ids]
 
   @property
   def vocab_size(self):
