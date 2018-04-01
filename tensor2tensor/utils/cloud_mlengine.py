@@ -112,7 +112,7 @@ def configure_job():
       'pythonModule': 'tensor2tensor.bin.t2t_trainer',
       'args': flags_as_args(),
       'region': cloud.default_region(),
-      'runtimeVersion': '1.4',
+      'runtimeVersion': '1.5',
       'pythonVersion': '3.5' if sys.version_info.major == 3 else '2.7',
       'jobDir': FLAGS.output_dir,
       'scaleTier': 'CUSTOM',
