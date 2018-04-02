@@ -97,8 +97,7 @@ def nearest_neighbor(x,
   if soft_em:
     ema_count = tf.expand_dims(ema_count + 1., 0)
     c_probs = ema_count / tf.reduce_sum(ema_count, 2, keepdims=True)
-  if soft_em:
-    nearest_hot = tf.nn.softmax(-inv_temp * dist, axis=-1) * c_probs
+    nearest_hot = tf.exp(-inv_temp * dist) * c_probs
     nearest_hot /= tf.reduce_sum(nearest_hot, 2, keepdims=True)
   else:
     if random_top_k > 1:
