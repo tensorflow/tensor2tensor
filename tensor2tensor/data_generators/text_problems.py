@@ -346,6 +346,17 @@ class QuestionAndContext2TextProblem(Text2TextProblem):
       if self.max_samples_for_vocab and (i + 1) >= self.max_samples_for_vocab:
         break
 
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    generator = super(
+        QuestionAndContext2TextProblem, self).generate_encoded_samples(
+            data_dir, tmp_dir, dataset_split)
+    vocab = self.feature_encoders(data_dir)["context"]
+    for sample in generator:
+      context = vocab.encode(sample["context"])
+      context.append(text_encoder.EOS_ID)
+      sample["context"] = context
+      yield sample
+
   def hparams(self, defaults, unused_model_hparams):
     (super(QuestionAndContext2TextProblem, self)
      .hparams(defaults, unused_model_hparams))

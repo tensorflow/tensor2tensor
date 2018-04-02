@@ -99,3 +99,29 @@ class Squad(text_problems.QuestionAndContext2TextProblem):
               'targets': example['answers'][0],
               'context': example['context']
           }
+
+
+@registry.register_problem
+class SquadConcat(Squad):
+  """Squad with question and context concatenated together in inputs."""
+  SEPARATOR = ' | '
+
+  def dataset_filename(self):
+    return 'squad'
+
+  def preprocess_example(self, example, unused_mode, model_hparams):
+    vocab = self.feature_encoders(model_hparams.data_dir)['inputs']
+    sep = tf.convert_to_tensor(vocab.encode(self.SEPARATOR),
+                               dtype=example['inputs'].dtype)
+    example['inputs'] = tf.concat(
+        [example['inputs'], sep, example['context']], 0)
+    return example
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    tf.logging.warn('Use Squad to generate data for SquadConcat.')
+
+  def hparams(self, defaults, unused_model_hparams):
+    (super(SquadConcat, self)
+     .hparams(defaults, unused_model_hparams))
+    p = defaults
+    del p.input_modality['context']
