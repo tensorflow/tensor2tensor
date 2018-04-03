@@ -340,6 +340,34 @@ class SubwordTextEncoderTest(tf.test.TestCase):
                      new_encoder._subtoken_string_to_id)
     self.assertEqual(encoder._max_subtoken_len, new_encoder._max_subtoken_len)
 
+  def test_build_from_generator(self):
+
+    corpus = "The quick brown fox jumps over the lazy dog"
+
+    def gen():
+      for _ in range(3):
+        yield corpus
+
+    start_symbol = "<S>"
+    end_symbol = "<E>"
+    reserved_tokens = text_encoder.RESERVED_TOKENS + [start_symbol,
+                                                      end_symbol]
+    encoder = text_encoder.SubwordTextEncoder.build_from_generator(
+        gen(), 10, reserved_tokens=reserved_tokens)
+
+    # Make sure that reserved tokens appear in the right places.
+    start_id = encoder._subtoken_string_to_id[start_symbol]
+    end_id = encoder._subtoken_string_to_id[end_symbol]
+    self.assertEqual(start_id, 2)
+    self.assertEqual(end_id, 3)
+
+    self.assertEqual("hi%s" % start_symbol,
+                     encoder.decode(encoder.encode("hi") + [2]))
+
+    # Make sure that we haven't messed up the ability to reconstruct.
+    reconstructed_corpus = encoder.decode(encoder.encode(corpus))
+    self.assertEqual(corpus, reconstructed_corpus)
+
 
 if __name__ == "__main__":
   tf.test.main()

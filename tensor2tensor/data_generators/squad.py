@@ -104,14 +104,12 @@ class Squad(text_problems.QuestionAndContext2TextProblem):
 @registry.register_problem
 class SquadConcat(Squad):
   """Squad with question and context concatenated together in inputs."""
-  SEPARATOR = ' | '
 
   def dataset_filename(self):
     return 'squad'
 
-  def preprocess_example(self, example, unused_mode, model_hparams):
-    vocab = self.feature_encoders(model_hparams.data_dir)['inputs']
-    sep = tf.convert_to_tensor(vocab.encode(self.SEPARATOR),
+  def preprocess_example(self, example, unused_mode, unused_model_hparams):
+    sep = tf.convert_to_tensor([self.QUESTION_SEPARATOR_ID],
                                dtype=example['inputs'].dtype)
     example['inputs'] = tf.concat(
         [example['inputs'], sep, example['context']], 0)
