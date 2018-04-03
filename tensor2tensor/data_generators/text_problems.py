@@ -134,6 +134,16 @@ class Text2TextProblem(problem.Problem):
     return 2**15  # ~32k
 
   @property
+  def additional_reserved_tokens(self):
+    """Additional reserved tokens. Only for VocabType.SUBWORD.
+
+    Returns:
+      List of str tokens that will get vocab ids 2+ (0 and 1 are reserved for
+      padding and end-of-string).
+    """
+    return []
+
+  @property
   def oov_token(self):
     """Out of vocabulary token. Only for VocabType.TOKEN."""
     return None
@@ -209,7 +219,9 @@ class Text2TextProblem(problem.Problem):
         encoder = generator_utils.get_or_generate_vocab_inner(
             data_dir, self.vocab_filename, self.approx_vocab_size,
             self.generate_text_for_vocab(data_dir, tmp_dir),
-            max_subtoken_length=self.max_subtoken_length)
+            max_subtoken_length=self.max_subtoken_length,
+            reserved_tokens=(
+                text_encoder.RESERVED_TOKENS + self.additional_reserved_tokens))
     elif self.vocab_type == VocabType.TOKEN:
       vocab_filename = os.path.join(data_dir, self.vocab_filename)
       encoder = text_encoder.TokenTextEncoder(vocab_filename,
@@ -330,6 +342,12 @@ class QuestionAndContext2TextProblem(Text2TextProblem):
   Variant of Text2TextProblem that includes a "context" feature in addition to
   "inputs" and "targets."
   """
+  QUESTION_SEPARATOR = "<EOQ>"
+  QUESTION_SEPARATOR_ID = 2
+
+  @property
+  def additional_reserved_tokens(self):
+    return [self.QUESTION_SEPARATOR]
 
   def feature_encoders(self, data_dir):
     encoders = (super(QuestionAndContext2TextProblem, self)
