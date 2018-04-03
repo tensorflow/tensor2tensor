@@ -29,12 +29,11 @@ import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.models.research import rl
+from tensor2tensor.rl import rl_trainer_lib  # pylint: disable=unused-import
 from tensor2tensor.rl.envs import atari_wrappers
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
-
 
 
 flags = tf.flags
