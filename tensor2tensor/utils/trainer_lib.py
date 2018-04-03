@@ -188,6 +188,11 @@ def create_estimator(model_name,
     return tf.estimator.Estimator(
         model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
 
+class MemoryReportingHook(SessionRunHook):
+    def before_run(self, run_context):
+        session_args = run_context.original_args
+        session_args['options'].report_tensor_allocations_upon_oom = True
+        return args
 
 def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
                  use_validation_monitor=False, validation_monitor_kwargs=None,
@@ -195,6 +200,8 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
   """Create train and eval hooks for Experiment."""
   train_monitors = []
   eval_hooks = []
+
+  train_monitors.append(MemoryReportingHook())
 
   if use_tfdbg:
     hook = debug.LocalCLIDebugHook()
@@ -207,6 +214,8 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     defaults = dict(save_steps=10, show_dataflow=True, show_memory=True)
     defaults.update(dbgprofile_kwargs)
     train_monitors.append(tf.contrib.hooks.ProfilerHook(**defaults))
+
+  # OOM
 
   if use_validation_monitor:
     # Fathom
