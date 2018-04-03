@@ -192,7 +192,9 @@ def create_estimator(model_name,
 class MemoryReportingHook(SessionRunHook):
     def before_run(self, run_context):
         session_args = run_context.original_args
-        session_args['options'].report_tensor_allocations_upon_oom = True
+        # '2' == 'options'
+        print ('SESSION ARGS ARE', session_args)
+        session_args[2].report_tensor_allocations_upon_oom = True
         return args
 
 def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
