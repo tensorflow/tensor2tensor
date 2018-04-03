@@ -135,8 +135,14 @@ class BasicDiscreteAutoencoder(basic.BasicAutoencoder):
 class ResidualDiscreteAutoencoder(ResidualAutoencoder):
   """Discrete residual autoencoder."""
 
-  def bottleneck(self, x):
-    return discretization.parametrized_bottleneck(x, self._hparams)
+  def bottleneck(self, x, bottleneck_size=None):
+    if bottleneck_size is not None:
+      old_bottleneck_size = self._hparams.bottleneck_size
+      self._hparams.bottleneck_size = bottleneck_size
+    res = discretization.parametrized_bottleneck(x, self._hparams)
+    if bottleneck_size is not None:
+      self._hparams.bottleneck_size = old_bottleneck_size
+    return res
 
   def unbottleneck(self, x, res_size):
     return discretization.parametrized_unbottleneck(x, res_size, self._hparams)
@@ -186,6 +192,101 @@ class OrderedDiscreteAutoencoder(ResidualDiscreteAutoencoder):
       # Now we flip the bits of x on the noisy positions (ordered and normal).
       x *= ordered_noise
     return x
+
+
+@registry.register_model
+class StackedAutoencoder(ResidualDiscreteAutoencoder):
+  """A stacked autoencoder."""
+
+  def stack(self, b, size, bottleneck_size, name):
+    with tf.variable_scope(name + "_stack"):
+      unb = self.unbottleneck(b, size)
+      enc = self.encoder(unb)
+      return self.bottleneck(enc, bottleneck_size=bottleneck_size)
+
+  def unstack(self, b, size, bottleneck_size, name):
+    with tf.variable_scope(name + "_unstack"):
+      unb = self.unbottleneck(b, size)
+      dec = self.decoder(unb)
+      pred = tf.layers.dense(dec, bottleneck_size, name="pred")
+      pred_shape = common_layers.shape_list(pred)
+      pred1 = tf.reshape(pred, pred_shape[:-1] + [-1, 2])
+      x, y = tf.split(pred1, 2, axis=-1)
+      x = tf.squeeze(x, axis=[-1])
+      y = tf.squeeze(y, axis=[-1])
+      gt = 2.0 * tf.to_float(tf.less(x, y)) - 1.0
+      gtc = tf.tanh(y - x)
+      gt += gtc - tf.stop_gradient(gtc)
+      return gt, pred1
+
+  def stack_loss(self, b, b_pred, name):
+    with tf.variable_scope(name):
+      labels_discrete = tf.to_int32((b + 1.0) * 0.5)
+      loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+          labels=labels_discrete, logits=b_pred)
+      return tf.reduce_mean(loss)
+
+  def full_stack(self, b, x_size, bottleneck_size, losses, is_training, i):
+    stack1_b = self.stack(b, x_size, bottleneck_size, "step%d" % i)
+    if i > 1:
+      stack1_b = self.full_stack(stack1_b, 2 * x_size, 2 * bottleneck_size,
+                                 losses, is_training, i - 1)
+    b1, b_pred = self.unstack(stack1_b, x_size, bottleneck_size, "step%d" % i)
+    losses["bottleneck%d_loss" % i] = self.bottleneck_loss(stack1_b)
+    losses["stack%d_loss" % i] = self.stack_loss(b, b_pred, "step%d" % i)
+    b_shape = common_layers.shape_list(b)
+    if is_training:
+      b1 = tf.cond(tf.less(tf.random_uniform([]), 0.5),
+                   lambda: b, lambda: b1)
+    return tf.reshape(b1, b_shape)
+
+  def body(self, features):
+    hparams = self._hparams
+    num_stacks = hparams.num_hidden_layers
+    hparams.num_hidden_layers = 1
+    is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
+    if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+      x = features["targets"]
+      shape = common_layers.shape_list(x)
+      is1d = shape[2] == 1
+      self.is1d = is1d
+      x, _ = common_layers.pad_to_same_length(
+          x, x, final_length_divisible_by=2**num_stacks, axis=1)
+      if not is1d:
+        x, _ = common_layers.pad_to_same_length(
+            x, x, final_length_divisible_by=2**num_stacks, axis=2)
+      # Run encoder.
+      x = self.encoder(x)
+      x_size = common_layers.shape_list(x)[-1]
+      # Bottleneck (mix during early training, not too important but stable).
+      b = self.bottleneck(x)
+      b_loss = self.bottleneck_loss(b)
+      losses = {"bottleneck0_loss": b_loss}
+      b = self.full_stack(b, 2 * x_size, 2 * hparams.bottleneck_size,
+                          losses, is_training, num_stacks - 1)
+      b = self.unbottleneck(b, x_size)
+      b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
+      # With probability bottleneck_max_prob use the bottleneck, otherwise x.
+      if hparams.bottleneck_max_prob < 1.0:
+        x = tf.where(tf.less(tf.random_uniform([]),
+                             hparams.bottleneck_max_prob), b, x)
+      else:
+        x = b
+    else:
+      b = self.sample()
+      res_size = self._hparams.hidden_size * 2**self._hparams.num_hidden_layers
+      res_size = min(res_size, hparams.max_hidden_size)
+      x = self.unbottleneck(b, res_size)
+    # Run decoder.
+    x = self.decoder(x)
+    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+      return x
+    # Cut to the right size and mix before returning.
+    res = x[:, :shape[1], :shape[2], :]
+    res = common_layers.mix(res, features["targets"],
+                            hparams.bottleneck_warmup_steps // 2, is_training)
+    hparams.num_hidden_layers = num_stacks
+    return res, losses
 
 
 @registry.register_hparams
@@ -238,7 +339,28 @@ def residual_discrete_autoencoder():
 
 
 @registry.register_hparams
+def residual_discrete_autoencoder_big():
+  """Residual discrete autoencoder model, big version."""
+  hparams = residual_discrete_autoencoder()
+  hparams.hidden_size = 128
+  hparams.max_hidden_size = 4096
+  hparams.bottleneck_size = 8192
+  hparams.bottleneck_noise = 0.1
+  hparams.dropout = 0.1
+  hparams.residual_dropout = 0.4
+  return hparams
+
+
+@registry.register_hparams
 def ordered_discrete_autoencoder():
   """Basic autoencoder model."""
   hparams = residual_discrete_autoencoder()
+  return hparams
+
+
+@registry.register_hparams
+def stacked_autoencoder():
+  """Stacked autoencoder model."""
+  hparams = residual_discrete_autoencoder()
+  hparams.bottleneck_size = 128
   return hparams
