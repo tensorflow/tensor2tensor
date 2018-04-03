@@ -216,7 +216,7 @@ class MemoryReportingHook(SessionRunHook):
 
         # does this work?
         if options:
-            session_args[2].report_tensor_allocations_upon_oom = True
+            options.report_tensor_allocations_upon_oom = True
         else:
             options = tf.RunOptions(
                 report_tensor_allocations_upon_oom=True)
@@ -234,8 +234,6 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
   """Create train and eval hooks for Experiment."""
   train_monitors = []
   eval_hooks = []
-
-  train_monitors.append(MemoryReportingHook())
 
   if use_tfdbg:
     hook = debug.LocalCLIDebugHook()
@@ -270,6 +268,10 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     # Adding to both training and eval so that eval aborts as well
     train_monitors.append(hook)
     eval_hooks.append(hook)
+  
+  train_monitors.append(MemoryReportingHook())
+  eval_hooks.append(MemoryReportingHook())
+
 
   return train_monitors, eval_hooks
 
