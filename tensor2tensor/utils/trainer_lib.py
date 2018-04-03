@@ -194,8 +194,15 @@ class MemoryReportingHook(SessionRunHook):
         session_args = run_context.original_args
         # '2' == 'options'
         print ('SESSION ARGS ARE', session_args)
-        session_args[2].report_tensor_allocations_upon_oom = True
-        return args
+
+        if session_args[2]:
+            session_args[2].report_tensor_allocations_upon_oom = True
+        else:
+            session_args[2] = tf.RunOptions(
+                report_tensor_allocations_upon_oom=True)
+        print ('SESSION ARGS NOW ARE', session_args)
+
+        return session_args
 
 def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
                  use_validation_monitor=False, validation_monitor_kwargs=None,
