@@ -57,10 +57,10 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.action_shape = action_shape
     self.action_dtype = action_dtype
 
-    with open("deepsense_experiments/starting_frames/output_61.png",'rb') as f:
+    with open("deepsense_experiments/starting_frames/output_71.png",'rb') as f:
       png_str_51 = f.read()
 
-    with open("deepsense_experiments/starting_frames/output_62.png",'rb') as f:
+    with open("deepsense_experiments/starting_frames/output_72.png",'rb') as f:
       png_str_52 = f.read()
 
     self.start_51 = tf.expand_dims(tf.cast(tf.image.decode_png(png_str_51), tf.float32), 0)

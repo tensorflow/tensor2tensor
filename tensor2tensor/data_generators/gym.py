@@ -62,7 +62,9 @@ class GymDiscreteProblem(problem.Problem):
     self.collect_hparams = rl.atari_base()
     self.num_steps = 1000
     self.movies = True
+    self.movies_fps = 24
     self.simulated_environment = None
+    self.warm_up = 70
 
   def _setup(self):
     # TODO: remove PongT2TGeneratorHackWrapper by writing a modality
@@ -85,7 +87,8 @@ class GymDiscreteProblem(problem.Problem):
         unique_name_="network")
 
     with tf.variable_scope("", reuse=tf.AUTO_REUSE):
-      sample_policy = lambda policy: policy.sample()
+      sample_policy = lambda policy: 0*policy.sample()
+      # sample_policy = lambda policy: 0
 
       self.collect_hparams.epoch_length = 10
       _, self.collect_trigger_op = collect.define_collect(
@@ -98,7 +101,6 @@ class GymDiscreteProblem(problem.Problem):
 
   def example_reading_spec(self, label_repr=None):
     data_fields = {
-
       "targets_encoded": tf.FixedLenFeature((), tf.string),
       "image/format": tf.FixedLenFeature((), tf.string),
       "action": tf.FixedLenFeature([1], tf.int64),
@@ -130,8 +132,14 @@ class GymDiscreteProblem(problem.Problem):
                 shape=[210, 160, 3],
                 channels=3)
 
-
     return data_fields, data_items_to_decoders
+
+  # def preprocess_example(self, example, mode, hparams):
+  #   if not self._was_reversed:
+  #     for x in range(self.history_size):
+  #       input_name = "inputs_{}".format(x)
+  #       example[input_name] = tf.image.per_image_standardization(example[input_name])
+  #   return example
 
   @property
   def num_actions(self):
@@ -187,13 +195,13 @@ class GymDiscreteProblem(problem.Problem):
       self.restore_networks(sess)
 
       pieces_generated = 0
-      while pieces_generated<self.num_steps:
+      while pieces_generated<self.num_steps + self.warm_up:
         avilable_data_size = sess.run(self.avilable_data_size_op)
         if avilable_data_size>0:
           observ, reward, action, done = sess.run(self.data_get_op)
           self.history_buffer.append(observ)
 
-          if self.movies==True:
+          if self.movies==True and pieces_generated>self.warm_up:
             file_name = os.path.join(tmp_dir,'output_{}.png'.format(pieces_generated))
             clip_files.append(file_name)
             with open(file_name, 'wb') as f:
@@ -210,13 +218,15 @@ class GymDiscreteProblem(problem.Problem):
                 }
             for i, v in enumerate(list(self.history_buffer)[:-1]):
               ret_dict["inputs_encoded_{}".format(i)] = [v]
-            yield ret_dict
+            if pieces_generated>self.warm_up:
+              yield ret_dict
         else:
           sess.run(self.collect_trigger_op)
     if self.movies:
-      clip = ImageSequenceClip(clip_files, fps=25)
+      # print(clip_files)
+      clip = ImageSequenceClip(clip_files, fps=self.movies_fps)
       clip.write_videofile(os.path.join(data_dir, 'output_{}.mp4'.format(self.name)),
-                           fps=25, codec='mpeg4')
+                           fps=self.movies_fps, codec='mpeg4')
 
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
@@ -239,6 +249,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     #TODO: pull it outside
     self.in_graph_wrappers = [(TimeLimitWrapper, {"timelimit": 150}), (MaxAndSkipWrapper, {"skip": 4})]
     self.simulated_environment = True
+    self.movies_fps = 2
 
   def restore_networks(self, sess):
     super(GymSimulatedDiscreteProblem, self).restore_networks(sess)
@@ -250,4 +261,3 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
     ckpt = ckpts.model_checkpoint_path
     env_model_loader.restore(sess, ckpt)
-
