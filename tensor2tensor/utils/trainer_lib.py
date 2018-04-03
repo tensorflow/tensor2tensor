@@ -31,7 +31,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
-from tensorflow.python.training.session_run_hook import SessionRunHook
+from tensorflow.python.training.session_run_hook import SessionRunHook, SessionRunArgs
 
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
@@ -208,14 +208,22 @@ def create_estimator(model_name,
 class MemoryReportingHook(SessionRunHook):
     def before_run(self, run_context):
         session_args = run_context.original_args
+        fetches = session_args.fetches
+        feed_dict = session_args.feed_dict
+        options = session_args.options
         # '2' == 'options'
         print ('SESSION ARGS ARE', session_args)
 
-        if session_args[2]:
+        # does this work?
+        if options:
             session_args[2].report_tensor_allocations_upon_oom = True
         else:
-            session_args[2] = tf.RunOptions(
+            options = tf.RunOptions(
                 report_tensor_allocations_upon_oom=True)
+        session_args = SessionRunArgs(
+            fetches=fetches,
+            feed_dict=feed_dict,
+            options=options)
         print ('SESSION ARGS NOW ARE', session_args)
 
         return session_args
