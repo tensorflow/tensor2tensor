@@ -206,13 +206,15 @@ def create_estimator(model_name,
         model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
 
 class MemoryReportingHook(SessionRunHook):
+    """
+    In theory this should work...doesn't seem to, however...
+    """
+
     def before_run(self, run_context):
         session_args = run_context.original_args
         fetches = session_args.fetches
         feed_dict = session_args.feed_dict
         options = session_args.options
-        # '2' == 'options'
-        print ('SESSION ARGS ARE', session_args)
 
         # does this work?
         if options:
@@ -224,7 +226,6 @@ class MemoryReportingHook(SessionRunHook):
             fetches=fetches,
             feed_dict=feed_dict,
             options=options)
-        print ('SESSION ARGS NOW ARE', session_args)
 
         return session_args
 
