@@ -369,6 +369,6 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
 * [Generating Wikipedia by Summarizing Long
    Sequences](https://arxiv.org/abs/1801.10198)
 * [Image Transformer](https://arxiv.org/abs/1802.05751)
-* [Training Tips for the Transformer Model](http://ufallab.ms.mff.cuni.cz/~popel/training-tips-transformer.pdf)
+* [Training Tips for the Transformer Model](https://arxiv.org/abs/1804.00247)
 
 *Note: This is not an official Google product.*
