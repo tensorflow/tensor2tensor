@@ -28,9 +28,12 @@ import numpy as np
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
+
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import rl_trainer_lib  # pylint: disable=unused-import
 from tensor2tensor.rl.envs import atari_wrappers
+
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -55,10 +58,15 @@ class GymDiscreteProblem(problem.Problem):
         "inputs": tf.FixedLenFeature([210, 160, 3], tf.int64),
         "inputs_prev": tf.FixedLenFeature([210, 160, 3], tf.int64),
         "targets": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        "action": tf.FixedLenFeature([1], tf.int64)
+        "action": tf.FixedLenFeature([1], tf.int64),
+        "reward": tf.FixedLenFeature([1], tf.int64)
     }
 
     return data_fields, None
+
+  def eval_metrics(self):
+    return [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
+            metrics.Metrics.NEG_LOG_PERPLEXITY, metrics.Metrics.IMAGE_SUMMARY]
 
   @property
   def env_name(self):
@@ -70,6 +78,10 @@ class GymDiscreteProblem(problem.Problem):
     if self._env is None:
       self._env = gym.make(self.env_name)
     return self._env
+
+  @property
+  def num_channels(self):
+    return 3
 
   @property
   def num_actions(self):
@@ -96,11 +108,11 @@ class GymDiscreteProblem(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity", 256),
-                        "inputs_prev": ("image:identity", 256),
-                        "reward": ("symbol:identity", self.num_rewards),
-                        "action": ("symbol:identity", self.num_actions)}
-    p.target_modality = ("image:identity", 256)
+    p.input_modality = {"inputs": ("image", 256),
+                        "inputs_prev": ("image", 256),
+                        "reward": ("symbol", self.num_rewards),
+                        "action": ("symbol", self.num_actions)}
+    p.target_modality = ("image", 256)
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
@@ -123,7 +135,7 @@ class GymDiscreteProblem(problem.Problem):
                "inputs": flatten(prev_observation),
                "action": [action],
                "done": [done],
-               "reward": [reward],
+               "reward": [int(reward)],
                "targets": flatten(observation)}
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
@@ -143,7 +155,7 @@ class GymPongRandom5k(GymDiscreteProblem):
 
   @property
   def env_name(self):
-    return "PongNoFrameskip-v4"
+    return "PongDeterministic-v4"
 
   @property
   def num_actions(self):
@@ -175,7 +187,7 @@ class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
 
   def generator(self, data_dir, tmp_dir):
     env_spec = lambda: atari_wrappers.wrap_atari(  # pylint: disable=g-long-lambda
-        gym.make("PongNoFrameskip-v4"),
+        gym.make(self.env_name),
         warp=False,
         frame_skip=4,
         frame_stack=False)
@@ -215,7 +227,7 @@ class GymPongTrajectoriesFromPolicy(GymDiscreteProblem):
 
   @property
   def env_name(self):
-    return "PongNoFrameskip-v4"
+    return "PongDeterministic-v4"
 
   @property
   def num_actions(self):
