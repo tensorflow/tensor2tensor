@@ -32,6 +32,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
+from tensorflow.python.training.session_run_hook import SessionRunHook, SessionRunArgs
 
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
@@ -188,6 +189,40 @@ def create_estimator(model_name,
     return tf.estimator.Estimator(
         model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
 
+class MemoryReportingHook(SessionRunHook):
+    """
+    In theory this should work...doesn't seem to, however...
+
+    Based on https://stackoverflow.com/questions/45719176/how-to-display-runtime-statistics-in-tensorboard-using-estimator-api-in-a-distri.
+
+    TF, when OOM occurs, talks about setting 
+    report_tensor_allocations_upon_oom=True to get more diagnostics.
+
+    When running things through Estimator/Experiment, however,
+    is very unclear how to do so, unfortunately.
+
+    The below was an attempt.  Leaving it in, for now, because it seems like
+    it *should* work.
+    """
+
+    def before_run(self, run_context):
+        session_args = run_context.original_args
+        fetches = session_args.fetches
+        feed_dict = session_args.feed_dict
+        options = session_args.options
+
+        # does this work?
+        if options:
+            options.report_tensor_allocations_upon_oom = True
+        else:
+            options = tf.RunOptions(
+                report_tensor_allocations_upon_oom=True)
+        session_args = SessionRunArgs(
+            fetches=fetches,
+            feed_dict=feed_dict,
+            options=options)
+
+        return session_args
 
 def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
                  use_validation_monitor=False, validation_monitor_kwargs=None,
@@ -224,6 +259,14 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     # Adding to both training and eval so that eval aborts as well
     train_monitors.append(hook)
     eval_hooks.append(hook)
+  
+  # NOTE:
+  # Attempt at adding better OOM feedback--although doesn't seem to work.
+  # (See MemoryReportingHook)
+  # Commenting this out for now because it doens't seem to actually work...
+  #train_monitors.append(MemoryReportingHook())
+  #eval_hooks.append(MemoryReportingHook())
+
 
   return train_monitors, eval_hooks
 
