@@ -208,6 +208,17 @@ def create_estimator(model_name,
 class MemoryReportingHook(SessionRunHook):
     """
     In theory this should work...doesn't seem to, however...
+
+    Based on https://stackoverflow.com/questions/45719176/how-to-display-runtime-statistics-in-tensorboard-using-estimator-api-in-a-distri.
+
+    TF, when OOM occurs, talks about setting 
+    report_tensor_allocations_upon_oom=True to get more diagnostics.
+
+    When running things through Estimator/Experiment, however,
+    is very unclear how to do so, unfortunately.
+
+    The below was an attempt.  Leaving it in, for now, because it seems like
+    it *should* work.
     """
 
     def before_run(self, run_context):
@@ -249,8 +260,6 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     defaults.update(dbgprofile_kwargs)
     train_monitors.append(tf.train.ProfilerHook(**defaults))
 
-  # OOM
-
   if use_validation_monitor:
     tf.logging.info("Using ValidationMonitor")
     # Fathom
@@ -270,8 +279,12 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     train_monitors.append(hook)
     eval_hooks.append(hook)
   
-  train_monitors.append(MemoryReportingHook())
-  eval_hooks.append(MemoryReportingHook())
+  # NOTE:
+  # Attempt at adding better OOM feedback--although doesn't seem to work.
+  # (See MemoryReportingHook)
+  # Commenting this out for now because it doens't seem to actually work...
+  #train_monitors.append(MemoryReportingHook())
+  #eval_hooks.append(MemoryReportingHook())
 
 
   return train_monitors, eval_hooks
