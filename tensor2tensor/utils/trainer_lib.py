@@ -266,7 +266,7 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     # continuous_train_and_eval breaks early stopping
     flags = tf.flags
     FLAGS = flags.FLAGS
-    #assert FLAGS.schedule != 'continuous_train_and_eval'
+    assert FLAGS.schedule != 'continuous_train_and_eval'
     
     train_monitors.append(
         tf.contrib.learn.monitors.ValidationMonitor(
