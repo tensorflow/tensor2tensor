@@ -41,30 +41,6 @@ from tensorflow.python.framework import ops
 # This is a global setting. When turned off, no @function.Defun is used.
 allow_defun = False
 
-def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
-  """Like tf.nn.dropout but takes broadcast_dims instead of noise_shape.
-  Instead of specifying noise_shape, this function takes broadcast_dims -
-  a list of dimension numbers in which noise_shape should be 1.  The random
-  keep/drop tensor has dimensionality 1 along these dimensions.
-  Args:
-    x: a floating point tensor.
-    keep_prob: A scalar Tensor with the same type as x.
-      The probability that each element is kept.
-    broadcast_dims: an optional list of integers
-      the dimensions along which to broadcast the keep/drop flags.
-    **kwargs: keyword arguments to tf.nn.dropout other than "noise_shape".
-  Returns:
-    A Tensor with the same size and shape as x.
-  """
-  assert "noise_shape" not in kwargs
-  if broadcast_dims:
-    shape = tf.shape(x)
-    ndims = len(x.get_shape())
-    kwargs["noise_shape"] = [
-        1 if i in broadcast_dims else shape[i] for i in xrange(ndims)]
-  return tf.nn.dropout(x, keep_prob, **kwargs)
-
-
 
 def is_on_tpu():
   # Support TF versions 1.5+
