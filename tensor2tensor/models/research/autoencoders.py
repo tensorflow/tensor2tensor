@@ -316,8 +316,8 @@ def basic_discrete_autoencoder():
   hparams = basic.basic_autoencoder()
   hparams.num_hidden_layers = 5
   hparams.hidden_size = 64
-  hparams.bottleneck_size = 2048
-  hparams.bottleneck_noise = 0.2
+  hparams.bottleneck_size = 4096
+  hparams.bottleneck_noise = 0.1
   hparams.bottleneck_warmup_steps = 3000
   hparams.add_hparam("discretize_warmup_steps", 5000)
   return hparams
@@ -327,8 +327,8 @@ def basic_discrete_autoencoder():
 def residual_discrete_autoencoder():
   """Residual discrete autoencoder model."""
   hparams = residual_autoencoder()
-  hparams.bottleneck_size = 2048
-  hparams.bottleneck_noise = 0.2
+  hparams.bottleneck_size = 4096
+  hparams.bottleneck_noise = 0.1
   hparams.bottleneck_warmup_steps = 3000
   hparams.add_hparam("discretize_warmup_steps", 5000)
   hparams.add_hparam("bottleneck_kind", "tanh_discrete")
@@ -344,7 +344,6 @@ def residual_discrete_autoencoder_big():
   hparams = residual_discrete_autoencoder()
   hparams.hidden_size = 128
   hparams.max_hidden_size = 4096
-  hparams.bottleneck_size = 8192
   hparams.bottleneck_noise = 0.1
   hparams.dropout = 0.1
   hparams.residual_dropout = 0.4
