@@ -95,11 +95,12 @@ class SymbolModality(modality.Modality):
 
   def bottom_simple(self, x, name, reuse):
     with tf.variable_scope(name, reuse=reuse):
-      # Squeeze out the channels dimension.
+      # Ensure the inputs are 3-D
       if len(x.get_shape()) == 4:
         x = tf.squeeze(x, axis=3)
       while len(x.get_shape()) < 3:
         x = tf.expand_dims(x, axis=-1)
+
       var = self._get_weights()
       x = common_layers.dropout_no_scaling(
           x, 1.0 - self._model_hparams.symbol_dropout)
