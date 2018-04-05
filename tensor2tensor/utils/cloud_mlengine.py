@@ -112,7 +112,7 @@ def configure_job():
       'pythonModule': 'tensor2tensor.bin.t2t_trainer',
       'args': flags_as_args(),
       'region': cloud.default_region(),
-      'runtimeVersion': '1.4',
+      'runtimeVersion': '1.5',
       'pythonVersion': '3.5' if sys.version_info.major == 3 else '2.7',
       'jobDir': FLAGS.output_dir,
       'scaleTier': 'CUSTOM',
@@ -140,8 +140,8 @@ def launch_job(job_spec):
   """Launch job on ML Engine."""
   project_id = 'projects/{}'.format(cloud.default_project())
   credentials = GoogleCredentials.get_application_default()
-  cloudml = discovery.build(
-    'ml', 'v1', credentials=credentials, cache_discovery=False)
+  cloudml = discovery.build('ml', 'v1', credentials=credentials,
+                            cache_discovery=False)
   request = cloudml.projects().jobs().create(body=job_spec, parent=project_id)
   request.execute()
 

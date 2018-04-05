@@ -236,6 +236,14 @@ class CommonLayersTest(tf.test.TestCase):
       res = session.run(y)
     self.assertEqual(res.shape, (5, 7, 11))
 
+  def testGroupNorm(self):
+    x = np.random.rand(5, 7, 3, 16)
+    with self.test_session() as session:
+      y = common_layers.group_norm(tf.constant(x, dtype=tf.float32))
+      session.run(tf.global_variables_initializer())
+      res = session.run(y)
+    self.assertEqual(res.shape, (5, 7, 3, 16))
+
   def testConvLSTM(self):
     x = np.random.rand(5, 7, 11, 13)
     with self.test_session() as session:
@@ -377,6 +385,20 @@ class CommonLayersTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       actual = session.run(layer)
     self.assertEqual(actual.shape, (5, 4, 32))
+
+  def testBReLU(self):
+    with self.test_session() as session:
+      x = np.random.rand(5, 2, 1, 12)
+      y = common_layers.brelu(tf.constant(x, dtype=tf.float32))
+      actual = session.run(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 12))
+
+  def testBELU(self):
+    with self.test_session() as session:
+      x = np.random.rand(5, 2, 1, 12)
+      y = common_layers.belu(tf.constant(x, dtype=tf.float32))
+      actual = session.run(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 12))
 
   def testPaddingCrossEntropyFactored(self):
     vocab_size = 19

@@ -32,6 +32,7 @@ class AttentionType(object):
   GLOCAL = "global_local"
   DILATED = "dilated"
   MOE_LOCAL_1D = "moe_local1d"
+  LOCAL_BLOCK = "local_block"
 
   @staticmethod
   def get_choices():
@@ -41,6 +42,7 @@ class AttentionType(object):
         AttentionType.MOE_LOCAL_1D,
         AttentionType.LOCAL_1D,
         AttentionType.LOCAL_2D,
+        AttentionType.LOCAL_BLOCK,
         AttentionType.DILATED,
     ]
 
@@ -71,6 +73,37 @@ def local_attention_2d(x, hparams, attention_type="local_attention_2d"):
         memory_flange=hparams.memory_flange,
         name="self_attention")
   return y
+
+
+def local_within_block_attention(x,
+                                 self_attention_bias,
+                                 hparams,
+                                 attention_type="local_within_block_mask_right",
+                                 q_padding="VALID",
+                                 kv_padding="VALID"):
+  """Local within block self attention."""
+  x_new, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
+  with tf.variable_scope("local_within_block"):
+    y = common_attention.multihead_attention(
+        common_layers.layer_preprocess(x_new, hparams),
+        None,
+        self_attention_bias,
+        hparams.attention_key_channels or hparams.hidden_size,
+        hparams.attention_value_channels or hparams.hidden_size,
+        hparams.hidden_size,
+        hparams.num_heads,
+        hparams.attention_dropout,
+        attention_type=attention_type,
+        block_width=hparams.block_width,
+        block_length=hparams.block_length,
+        q_padding=q_padding,
+        kv_padding=kv_padding,
+        q_filter_width=hparams.q_filter_width,
+        kv_filter_width=hparams.kv_filter_width,
+        name="local_within_block")
+    if is_4d:
+      y = tf.reshape(y, x_shape)
+    return y
 
 
 def local_attention_1d(x,
@@ -219,6 +252,7 @@ def full_self_attention(x,
 
 def encdec_attention_1d(x,
                         encoder_output,
+                        encoder_decoder_attention_bias,
                         hparams):
   """Local 1d self attention."""
   x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
@@ -228,7 +262,7 @@ def encdec_attention_1d(x,
     y = common_attention.multihead_attention(
         x,
         encoder_output,
-        None,
+        encoder_decoder_attention_bias,
         hparams.attention_key_channels or hparams.hidden_size,
         hparams.attention_value_channels or hparams.hidden_size,
         hparams.hidden_size,
@@ -246,6 +280,7 @@ def transformer_decoder_layers(inputs,
                                num_layers,
                                hparams,
                                self_attention_bias=None,
+                               encoder_decoder_attention_bias=None,
                                attention_type=AttentionType.LOCAL_2D,
                                name="transformer"):
   """Multi layer transformer."""
@@ -265,6 +300,12 @@ def transformer_decoder_layers(inputs,
                                hparams,
                                attention_type="local_mask_right",
                                q_padding="LEFT", kv_padding="LEFT")
+      elif attention_type == AttentionType.LOCAL_BLOCK:
+        y = local_within_block_attention(
+            common_layers.layer_preprocess(x, hparams),
+            self_attention_bias, hparams,
+            attention_type="local_within_block_mask_right",
+            q_padding="LEFT", kv_padding="LEFT")
       elif attention_type == AttentionType.GLOCAL:
         y = local_global_attention(common_layers.layer_preprocess(x, hparams),
                                    self_attention_bias, hparams,
@@ -282,7 +323,9 @@ def transformer_decoder_layers(inputs,
       # enc-dec attention + skip connections
       if encoder_output is not None:
         y = encdec_attention_1d(common_layers.layer_preprocess(x, hparams),
-                                encoder_output, hparams)
+                                encoder_output,
+                                encoder_decoder_attention_bias,
+                                hparams)
         x = common_layers.layer_postprocess(x, y, hparams)
       # feed-fwd layers + skip connections
       y = ffn_layer(common_layers.layer_preprocess(x, hparams), hparams)
@@ -414,7 +457,7 @@ def transformer_layers_sharded(dp,
       x = common_layers.layer_postprocess(x, y, hparams)
       if enc_output is not None:
         y = dp(encdec_attention_1d(common_layers.layer_preprocess(x, hparams),
-                                   enc_output, hparams))
+                                   enc_output, None, hparams))
         x = dp(common_layers.layer_postprocess, x, y, hparams)
       with tf.variable_scope("ffn"):
         if str(layer) in hparams.moe_layers_decoder.split(","):
@@ -528,7 +571,8 @@ def prepare_decoder(targets, hparams):
   # Preprocess image
   x = prepare_image(targets, hparams, name="dec_channels")
   x_shape = common_layers.shape_list(x)
-  if hparams.dec_attention_type == AttentionType.LOCAL_2D:
+  if (hparams.dec_attention_type == AttentionType.LOCAL_2D or
+      hparams.dec_attention_type == AttentionType.LOCAL_BLOCK):
     x = common_attention.right_shift_blockwise(x, hparams.query_shape)
     x = add_pos_signals(x, hparams, "dec_pos")
   else:

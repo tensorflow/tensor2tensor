@@ -19,7 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import defaultdict
 import gzip
 import os
 import random
@@ -34,7 +33,6 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import six.moves.urllib_request as urllib  # Imports urllib on Python2, urllib.request on Python3
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
 
@@ -299,40 +297,41 @@ def gunzip_file(gz_path, new_path):
 
 
 def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
-                                generator):
+                                generator, max_subtoken_length=None,
+                                reserved_tokens=None):
   """Inner implementation for vocab generators.
 
   Args:
     data_dir: The base directory where data and vocab files are stored. If None,
-        then do not save the vocab even if it doesn't exist.
+      then do not save the vocab even if it doesn't exist.
     vocab_filename: relative filename where vocab file is stored
     vocab_size: target size of the vocabulary constructed by SubwordTextEncoder
     generator: a generator that produces tokens from the vocabulary
+    max_subtoken_length: an optional integer.  Set this to a finite value to
+      avoid quadratic costs during vocab building.
+    reserved_tokens: List of reserved tokens. `text_encoder.RESERVED_TOKENS`
+      should be a prefix of `reserved_tokens`. If `None`, defaults to
+      `RESERVED_TOKENS`.
 
   Returns:
     A SubwordTextEncoder vocabulary object.
   """
-  if data_dir is None:
-    vocab_filepath = None
-  else:
+  if data_dir and vocab_filename:
     vocab_filepath = os.path.join(data_dir, vocab_filename)
-
-  if vocab_filepath is not None and tf.gfile.Exists(vocab_filepath):
-    tf.logging.info("Found vocab file: %s", vocab_filepath)
-    vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
-    return vocab
+    if tf.gfile.Exists(vocab_filepath):
+      tf.logging.info("Found vocab file: %s", vocab_filepath)
+      return text_encoder.SubwordTextEncoder(vocab_filepath)
+  else:
+    vocab_filepath = None
 
   tf.logging.info("Generating vocab file: %s", vocab_filepath)
-  token_counts = defaultdict(int)
-  for item in generator:
-    for tok in tokenizer.encode(text_encoder.native_to_unicode(item)):
-      token_counts[tok] += 1
+  vocab = text_encoder.SubwordTextEncoder.build_from_generator(
+      generator, vocab_size, max_subtoken_length=max_subtoken_length,
+      reserved_tokens=reserved_tokens)
 
-  vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
-      vocab_size, token_counts, 1, 1e3)
-
-  if vocab_filepath is not None:
+  if vocab_filepath:
     vocab.store_to_file(vocab_filepath)
+
   return vocab
 
 
@@ -368,7 +367,6 @@ def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
             gunzip_file(filepath, new_filepath)
           filepath = new_filepath
 
-        # Use Tokenizer to count the word occurrences.
         with tf.gfile.GFile(filepath, mode="r") as source_file:
           file_byte_budget_ = file_byte_budget
           counter = 0

@@ -221,6 +221,29 @@ class ImageMsCocoTokens32k(ImageMsCocoCharacters):
 
 
 @registry.register_problem
+class ImageTextMsCocoMultiResolution(ImageMsCocoTokens32k):
+  """MSCoCo at multiple resolutions."""
+
+  def dataset_filename(self):
+    return "image_ms_coco_tokens32k"
+
+  def preprocess_example(self, example, mode, hparams):
+    image = example["inputs"]
+    scaled_images = image_utils.make_multiscale(
+        image, hparams.resolutions, num_channels=self.num_channels)
+
+    # Pack tuple of scaled images into one tensor. We do this by enforcing the
+    # columns to match for every resolution.
+    highest_res = hparams.resolutions[-1]
+    example["inputs"] = tf.concat([
+        tf.reshape(scaled_image,
+                   [res**2 // highest_res, highest_res, self.num_channels])
+        for scaled_image, res in zip(scaled_images, hparams.resolutions)],
+                                  axis=0)
+    return example
+
+
+@registry.register_problem
 class ImageTextMsCoco(ImageMsCocoTokens32k):
   """Problem for using MsCoco for generating images from text."""
   _MSCOCO_IMAGE_SIZE = 32
