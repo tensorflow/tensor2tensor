@@ -18,6 +18,7 @@
 * Text2TextProblem: input=text, target=text.
 * Text2ClassProblem: input=text, target=class.
 * Text2SelfProblem (for language modeling): target=text
+* QuestionAndContext2TextProblem: input=text, context=text, target=text.
 
 The Text2TextTmpDir problem allows you to train without defining a problem. It
 expects you to format your data in a particular way and put it in tmp_dir. See
@@ -133,6 +134,21 @@ class Text2TextProblem(problem.Problem):
     return 2**15  # ~32k
 
   @property
+  def additional_reserved_tokens(self):
+    """Additional reserved tokens. Only for VocabType.SUBWORD.
+
+    Returns:
+      List of str tokens that will get vocab ids 2+ (0 and 1 are reserved for
+      padding and end-of-string).
+    """
+    return []
+
+  @property
+  def oov_token(self):
+    """Out of vocabulary token. Only for VocabType.TOKEN."""
+    return None
+
+  @property
   def max_samples_for_vocab(self):
     """How many samples from `generate_samples` to look at for vocab generation.
 
@@ -202,10 +218,14 @@ class Text2TextProblem(problem.Problem):
       else:
         encoder = generator_utils.get_or_generate_vocab_inner(
             data_dir, self.vocab_filename, self.approx_vocab_size,
-            self.generate_text_for_vocab(data_dir, tmp_dir))
+            self.generate_text_for_vocab(data_dir, tmp_dir),
+            max_subtoken_length=self.max_subtoken_length,
+            reserved_tokens=(
+                text_encoder.RESERVED_TOKENS + self.additional_reserved_tokens))
     elif self.vocab_type == VocabType.TOKEN:
       vocab_filename = os.path.join(data_dir, self.vocab_filename)
-      encoder = text_encoder.TokenTextEncoder(vocab_filename)
+      encoder = text_encoder.TokenTextEncoder(vocab_filename,
+                                              replace_oov=self.oov_token)
     else:
       raise ValueError("Unrecognized VocabType")
     return encoder
@@ -225,6 +245,18 @@ class Text2TextProblem(problem.Problem):
     encoder = self.get_or_create_vocab(data_dir, tmp_dir)
     return text2text_generate_encoded(generator, encoder,
                                       has_inputs=self.has_inputs)
+
+  @property
+  def max_subtoken_length(self):
+    """Maximum subtoken length when generating vocab.
+
+    Override with a finite integer (e.g. 100) to avoid quadratic-time vocab
+    building.
+
+    Returns:
+      an integer or None
+    """
+    return None
 
   @property
   def batch_size_means_tokens(self):
@@ -302,6 +334,64 @@ class Text2TextProblem(problem.Problem):
         metrics.Metrics.APPROX_BLEU, metrics.Metrics.ROUGE_2_F,
         metrics.Metrics.ROUGE_L_F
     ]
+
+
+class QuestionAndContext2TextProblem(Text2TextProblem):
+  """Problems consisting of inputs, context, and a target.
+
+  Variant of Text2TextProblem that includes a "context" feature in addition to
+  "inputs" and "targets."
+  """
+  QUESTION_SEPARATOR = "<EOQ>"
+  QUESTION_SEPARATOR_ID = 2
+
+  @property
+  def additional_reserved_tokens(self):
+    return [self.QUESTION_SEPARATOR]
+
+  def feature_encoders(self, data_dir):
+    encoders = (super(QuestionAndContext2TextProblem, self)
+                .feature_encoders(data_dir))
+    encoders["context"] = encoders["inputs"]
+    return encoders
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    for i, sample in enumerate(
+        self.generate_samples(data_dir, tmp_dir, problem.DatasetSplit.TRAIN)):
+      yield sample["inputs"]
+      yield sample["context"]
+      yield sample["targets"]
+      if self.max_samples_for_vocab and (i + 1) >= self.max_samples_for_vocab:
+        break
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    generator = super(
+        QuestionAndContext2TextProblem, self).generate_encoded_samples(
+            data_dir, tmp_dir, dataset_split)
+    vocab = self.feature_encoders(data_dir)["context"]
+    for sample in generator:
+      context = vocab.encode(sample["context"])
+      context.append(text_encoder.EOS_ID)
+      sample["context"] = context
+      yield sample
+
+  def hparams(self, defaults, unused_model_hparams):
+    (super(QuestionAndContext2TextProblem, self)
+     .hparams(defaults, unused_model_hparams))
+    p = defaults
+    source_vocab_size = self._encoders["context"].vocab_size
+    p.input_modality["context"] = (registry.Modalities.SYMBOL,
+                                   source_vocab_size)
+    if self.packed_length:
+      raise NotImplementedError("QuestionAndContext2Text does not "
+                                "support packed_length")
+
+  def example_reading_spec(self):
+    data_fields, data_items_to_decoders = (super(QuestionAndContext2TextProblem,
+                                                 self)
+                                           .example_reading_spec())
+    data_fields["context"] = tf.VarLenFeature(tf.int64)
+    return (data_fields, data_items_to_decoders)
 
 
 class Text2SelfProblem(Text2TextProblem):
@@ -389,7 +479,7 @@ class Text2ClassProblem(Text2TextProblem):
 
     return {
         "inputs": encoder,
-        "targets": text_encoder.ClassLabelEncoder(self.class_labels)
+        "targets": text_encoder.ClassLabelEncoder(self.class_labels(data_dir))
     }
 
   def hparams(self, defaults, unused_model_hparams):
@@ -421,6 +511,15 @@ def text2text_txt_iterator(source_txt_path, target_txt_path):
   for inputs, targets in zip(
       txt_line_iterator(source_txt_path), txt_line_iterator(target_txt_path)):
     yield {"inputs": inputs, "targets": targets}
+
+
+def text2text_distill_iterator(source_txt_path, target_txt_path,
+                               distill_txt_path):
+  """Yield dicts for Text2TextProblem.generate_samples from lines of files."""
+  for inputs, targets, dist_targets in zip(
+      txt_line_iterator(source_txt_path), txt_line_iterator(target_txt_path),
+      txt_line_iterator(distill_txt_path)):
+    yield {"inputs": inputs, "targets": targets, "dist_targets": dist_targets}
 
 
 def text2self_txt_iterator(txt_path):
@@ -592,7 +691,7 @@ class ChoppedTextProblem(Text2SelfProblem):
     """
     f = tf.gfile.Open(filepath)
     b = f.read()
-    yield text_encoder.to_unicode_ignore_erros(b)
+    yield text_encoder.to_unicode_ignore_errors(b)
 
   def file_generator(self,
                      filepaths,

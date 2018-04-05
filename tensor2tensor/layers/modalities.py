@@ -95,8 +95,12 @@ class SymbolModality(modality.Modality):
 
   def bottom_simple(self, x, name, reuse):
     with tf.variable_scope(name, reuse=reuse):
-      # Squeeze out the channels dimension.
-      x = tf.squeeze(x, axis=3)
+      # Ensure the inputs are 3-D
+      if len(x.get_shape()) == 4:
+        x = tf.squeeze(x, axis=3)
+      while len(x.get_shape()) < 3:
+        x = tf.expand_dims(x, axis=-1)
+
       var = self._get_weights()
       x = common_layers.dropout_no_scaling(
           x, 1.0 - self._model_hparams.symbol_dropout)
@@ -337,9 +341,12 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
 
   def targets_bottom(self, inputs):
     io_depth = self._model_hparams.num_channels
+    tshape = common_layers.shape_list(inputs)
     hidden_size = self._model_hparams.hidden_size
-    return self.get_channel_embeddings(io_depth, inputs, hidden_size,
-                                       "input_bottom")
+    target_embeddings = self.get_channel_embeddings(
+        io_depth, inputs, hidden_size, "input_bottom")
+    return tf.reshape(target_embeddings,
+                      [tshape[0], tshape[1], tshape[2]*io_depth, hidden_size])
 
   def top(self, body_output, _):
     with tf.variable_scope(self.name):
@@ -562,3 +569,21 @@ class IdentitySymbolModality(SymbolModality):
   def top_is_pointwise(self):
     # pointwise mode manipulates body output, not logits, so it fails here.
     return False
+
+
+@registry.register_class_label_modality("sigmoid")
+class SigmoidClassLabelModality(ClassLabelModality):
+  """Sigmoid cross-entropy for independent class labels."""
+
+  @property
+  def name(self):
+    return "sigmoid_class_symbol_modality_%d_%d" % (self._vocab_size,
+                                                    self.body_input_depth)
+
+  def loss(self, top_out, targets):
+    loss_scale = tf.nn.sigmoid_cross_entropy_with_logits(
+        labels=targets, logits=top_out, name="SigmoidCrossEntropy")
+    # Weigh all classes equally
+    weights = self.targets_weights_fn(targets)
+    loss_denom = tf.reduce_sum(weights)
+    return loss_scale, loss_denom

@@ -113,8 +113,8 @@ def main(_):
   transl_dir = os.path.expanduser(FLAGS.translations_dir)
   if not os.path.exists(transl_dir):
     exit_time = time.time() + FLAGS.wait_minutes * 60
-    tf.logging.info("Translation dir %s does not exist, waiting till %s."
-                    % (transl_dir, time.asctime(time.localtime(exit_time))))
+    tf.logging.info("Translation dir %s does not exist, waiting till %s.",
+                    transl_dir, time.asctime(time.localtime(exit_time)))
     while not os.path.exists(transl_dir):
       time.sleep(10)
       if time.time() > exit_time:

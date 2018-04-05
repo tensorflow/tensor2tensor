@@ -28,10 +28,12 @@ from __future__ import print_function
 
 # Dependency imports
 
+import six
+
 from tensor2tensor.data_generators import text_encoder
 
 import tensorflow as tf
-import six
+
 
 tf.flags.DEFINE_string("subword_text_encoder_filename", "",
                        "SubwordTextEncoder vocabulary file")
