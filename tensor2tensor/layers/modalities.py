@@ -340,9 +340,12 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
 
   def targets_bottom(self, inputs):
     io_depth = self._model_hparams.num_channels
+    tshape = common_layers.shape_list(inputs)
     hidden_size = self._model_hparams.hidden_size
-    return self.get_channel_embeddings(io_depth, inputs, hidden_size,
-                                       "input_bottom")
+    target_embeddings = self.get_channel_embeddings(
+        io_depth, inputs, hidden_size, "input_bottom")
+    return tf.reshape(target_embeddings,
+                      [tshape[0], tshape[1], tshape[2]*io_depth, hidden_size])
 
   def top(self, body_output, _):
     with tf.variable_scope(self.name):

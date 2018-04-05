@@ -252,6 +252,7 @@ def full_self_attention(x,
 
 def encdec_attention_1d(x,
                         encoder_output,
+                        encoder_decoder_attention_bias,
                         hparams):
   """Local 1d self attention."""
   x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
@@ -261,7 +262,7 @@ def encdec_attention_1d(x,
     y = common_attention.multihead_attention(
         x,
         encoder_output,
-        None,
+        encoder_decoder_attention_bias,
         hparams.attention_key_channels or hparams.hidden_size,
         hparams.attention_value_channels or hparams.hidden_size,
         hparams.hidden_size,
@@ -279,6 +280,7 @@ def transformer_decoder_layers(inputs,
                                num_layers,
                                hparams,
                                self_attention_bias=None,
+                               encoder_decoder_attention_bias=None,
                                attention_type=AttentionType.LOCAL_2D,
                                name="transformer"):
   """Multi layer transformer."""
@@ -321,7 +323,9 @@ def transformer_decoder_layers(inputs,
       # enc-dec attention + skip connections
       if encoder_output is not None:
         y = encdec_attention_1d(common_layers.layer_preprocess(x, hparams),
-                                encoder_output, hparams)
+                                encoder_output,
+                                encoder_decoder_attention_bias,
+                                hparams)
         x = common_layers.layer_postprocess(x, y, hparams)
       # feed-fwd layers + skip connections
       y = ffn_layer(common_layers.layer_preprocess(x, hparams), hparams)
@@ -453,7 +457,7 @@ def transformer_layers_sharded(dp,
       x = common_layers.layer_postprocess(x, y, hparams)
       if enc_output is not None:
         y = dp(encdec_attention_1d(common_layers.layer_preprocess(x, hparams),
-                                   enc_output, hparams))
+                                   enc_output, None, hparams))
         x = dp(common_layers.layer_postprocess, x, y, hparams)
       with tf.variable_scope("ffn"):
         if str(layer) in hparams.moe_layers_decoder.split(","):
