@@ -577,7 +577,7 @@ def layer_norm_compute(x, epsilon, scale, bias):
 def layer_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
   """Layer normalize the tensor x, averaging over the last dimension."""
   if filters is None:
-    filters = x.get_shape()[-1]
+    filters = shape_list(x)[-1]
   with tf.variable_scope(
       name, default_name="layer_norm", values=[x], reuse=reuse):
     scale = tf.get_variable(
@@ -590,6 +590,27 @@ def layer_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
     else:
       result = layer_norm_compute_python(x, epsilon, scale, bias)
     return result
+
+
+def group_norm(x, filters=None, num_groups=8, epsilon=1e-5):
+  """Group normalization as in https://arxiv.org/abs/1803.08494."""
+  x_shape = shape_list(x)
+  if filters is None:
+    filters = x_shape[-1]
+  assert len(x_shape) == 4
+  assert filters % num_groups == 0
+  # Prepare variables.
+  scale = tf.get_variable(
+      "group_norm_scale", [filters], initializer=tf.ones_initializer())
+  bias = tf.get_variable(
+      "group_norm_bias", [filters], initializer=tf.zeros_initializer())
+  epsilon, scale, bias = [tf.cast(t, x.dtype) for t in [epsilon, scale, bias]]
+  # Reshape and compute group norm.
+  x = tf.reshape(x, x_shape[:-1] + [num_groups, filters // num_groups])
+  # Calculate mean and variance on heights, width, channels (not groups).
+  mean, variance = tf.nn.moments(x, [1, 2, 4], keep_dims=True)
+  norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
+  return tf.reshape(norm_x, x_shape) * scale + bias
 
 
 def noam_norm(x, epsilon=1.0, name=None):
@@ -605,6 +626,8 @@ def apply_norm(x, norm_type, depth, epsilon):
   """Apply Normalization."""
   if norm_type == "layer":
     return layer_norm(x, filters=depth, epsilon=epsilon)
+  if norm_type == "group":
+    return group_norm(x, filters=depth, epsilon=epsilon)
   if norm_type == "batch":
     return tf.layers.batch_normalization(x, epsilon=epsilon)
   if norm_type == "noam":
