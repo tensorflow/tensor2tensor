@@ -181,7 +181,7 @@ def algebra_inverse_solve(left, right, var, solve_ops):
           right- Expression on the right side of the op.
           to_tree- The tree on the other side of the equal sign. The canceled
               out expression will be moved here.
-          new_from_tree- The resulting from_tree after the algebraic
+          new_from_tree- The resuling from_tree after the algebraic
               manipulation.
           new_to_tree- The resulting to_tree after the algebraic manipulation.
 
@@ -355,7 +355,7 @@ def generate_calculus_integrate_sample(vlist, ops, min_depth, max_depth,
 # functions: Dict of special function names. Maps human readable string names to
 #     single char names used in flist.
 # ops: Dict mapping op symbols (chars) to ExprOp instances.
-# solve_ops: Encodes rules for how to algebraically cancel out each operation. See
+# solve_ops: Encodes rules for how to algebraicly cancel out each operation. See
 #     doc-string for `algebra_inverse_solve`.
 # int_encoder: Function that maps a string to a list of tokens. Use this to
 #     encode an expression to feed into a model.
@@ -377,7 +377,7 @@ def math_dataset_init(alphabet_size=26, digits=None, functions=None):
 
   Args:
     alphabet_size: How many possible variables there are. Max 52.
-    digits: How many numerical digits to encode as tokens, "0" through
+    digits: How many numerical digits to encode as tokens, "0" throuh
         str(digits-1), or None to encode no digits.
     functions: Defines special functions. A dict mapping human readable string
         names, like "log", "exp", "sin", "cos", etc., to single chars. Each

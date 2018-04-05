@@ -27,7 +27,7 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 # To maintain compatibility with some internal libs, we guard against these flag
-# definitions possibly erring. Apologies for the ugliness.
+# definitions possibly erroring. Apologies for the ugliness.
 try:
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
 except:  # pylint: disable=bare-except

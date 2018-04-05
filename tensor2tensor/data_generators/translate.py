@@ -170,7 +170,7 @@ class TranslateDistillProblem(TranslateProblem):
 
   def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
     """Get vocab for distill problems."""
-    # We assume that vocab file is present in data_dir directory where the
+    # We assume that voab file is present in data_dir, directory where the
     # data generated will be stored.
     vocab_filepath = os.path.join(data_dir, self.vocab_filename)
     encoder = text_encoder.SubwordTextEncoder(vocab_filepath)

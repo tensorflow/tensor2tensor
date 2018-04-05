@@ -31,7 +31,7 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-# TODO(rsepassi): Merge these problems with their data generators. Currently
+# TODO(rsepassi): Merge these problems with their data generators. Currenlty
 # they only implement the hparams.
 
 

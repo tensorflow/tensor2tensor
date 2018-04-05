@@ -63,11 +63,11 @@ def token_generator(tree_path, source_token_vocab, target_token_vocab,
 
   This generator assumes the files at source_path and target_path have
   the same number of lines and yields dictionaries of "inputs" and "targets"
-  where inputs and targets are token ids from source and target lines
+  where inputs and targets are token ids from source and taret lines
   converted to integers using the token_map.
 
   Args:
-    tree_path: path to the file with WSJ format trees, one per line.
+    tree_path: path to the file with wsj format trees, one per line.
     source_token_vocab: GenericVocabulary object for source vocabulary.
     target_token_vocab: GenericVocabulary object for target vocabulary.
     eos: integer to append at the end of each sequence (default: None).
@@ -92,7 +92,7 @@ def parsing_token_generator(data_dir, tmp_dir, train, source_vocab_size,
   """Generator for parsing as a sequence-to-sequence task that uses tokens.
 
   This generator assumes the files parsing_{train,dev}.trees, which contain
-  trees in WSJ format.
+  trees in wsj format.
 
   Args:
     data_dir: path to the data directory.

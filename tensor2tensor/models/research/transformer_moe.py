@@ -46,7 +46,7 @@ import tensorflow as tf
 # "a/a/a#": Encoder only model (3 layers)
 # "#a/a/a": Decoder only model (3 layers)
 # "a/a-moe#a/a/a": Encoder (2 layers with 1 moe), decoder (3 layers)
-# Note that all combinations are not necessarily possibles (some attention
+# Note that all combinaisons are not necessarily possibles (some attention
 # types are not necessarily compatible with the encoder, or can't accept certain
 # types of masking)
 

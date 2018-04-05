@@ -59,7 +59,7 @@ flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
 flags.DEFINE_bool("profile", False, "Profile performance?")
 
 # To maintain compatibility with some internal libs, we guard against these flag
-# definitions possibly erring. Apologies for the ugliness.
+# definitions possibly erroring. Apologies for the ugliness.
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
@@ -178,7 +178,7 @@ def create_run_config(hp):
   save_ckpt_secs = FLAGS.save_checkpoints_secs or None
   if save_ckpt_secs:
     save_ckpt_steps = None
-  assert FLAGS.output_dir or FLAGS.checkpoint_path
+  assert FLAGS.output_dir
   return trainer_lib.create_run_config(
       model_dir=os.path.expanduser(FLAGS.output_dir),
       master=FLAGS.master,

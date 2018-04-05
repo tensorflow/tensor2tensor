@@ -125,7 +125,7 @@ class AbstractGAN(t2t_model.T2TModel):
       features: a dictionary with the tensors.
 
     Returns:
-      A pair (predictions, losses) where predictions is the generated image
+      A pair (predictions, losses) where preditions is the generated image
       and losses is a dictionary of losses (that get added for the final loss).
     """
     features["targets"] = features["inputs"]

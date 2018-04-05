@@ -254,7 +254,7 @@ def image_summary(predictions, features, hparams):
 
   Returns:
     summary_proto: containing the summary images.
-    weights: A Tensor of zeros of the same shape as predictions.
+    weights: A Tensor of zeros of the same shape as preditions.
   """
   del hparams
   results = tf.cast(tf.argmax(predictions, axis=-1), tf.uint8)
@@ -285,9 +285,9 @@ def create_evaluation_metrics(problems, model_hparams):
   def make_problem_specific_metric_fn(metric_fn, problem_idx, weights_fn):
     """Create a metric fn conditioned on problem_idx."""
 
-    def problem_metric_fn(predictions, features, labels):
+    def problem_metric_fn(predictions, features):
       """Metric fn."""
-      #labels = features.get("targets", None)
+      labels = features.get("targets", None)
       problem_choice = features.get("problem_choice", 0)
 
       # Send along the entire features dict if the metric fn has the kwarg

@@ -352,7 +352,7 @@ class T2TModel(base.Layer):
           "problem_hparams.target_modality is a dict.")
       return self._top_single(body_output, target_modality, features)
 
-  def _loss_single(self, logits, target_modality, feature):
+  def _loss_single(self, logits, target_modality, features):
     # The current bfloat16 version still uses float32 for most parts of backward
     # propagation to keep model quality, so cast back before computing the loss
     # value.
@@ -362,7 +362,7 @@ class T2TModel(base.Layer):
       return (tf.constant(0., dtype=tf.float32),
               tf.constant(1., dtype=tf.float32))
 
-    loss_num, loss_den = target_modality.loss(logits, feature)
+    loss_num, loss_den = target_modality.loss(logits, features["targets"])
     loss_num *= self._problem_hparams.loss_multiplier
     return loss_num, loss_den
 
@@ -377,7 +377,7 @@ class T2TModel(base.Layer):
           "of problem_hparams.target_modality's dict.")
       losses = {}
       for k, v in six.iteritems(logits):
-        losses[k] = self._loss_single(v, target_modality[k], features[k])
+        losses[k] = self._loss_single(v, target_modality[k], features)
       return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
@@ -387,7 +387,7 @@ class T2TModel(base.Layer):
       assert not isinstance(target_modality, dict), (
           "model_body must return a dictionary of logits when "
           "problem_hparams.target_modality is a dict.")
-      return self._loss_single(logits, target_modality, features["targets"])
+      return self._loss_single(logits, target_modality, features)
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
@@ -499,7 +499,7 @@ class T2TModel(base.Layer):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for longer translations.
+        the preference for slonger translations.
 
     Returns:
       A dict of decoding results {
@@ -549,7 +549,7 @@ class T2TModel(base.Layer):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for longer translations.
+        the preference for slonger translations.
 
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
@@ -569,7 +569,7 @@ class T2TModel(base.Layer):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for longer translations.
+        the preference for slonger translations.
 
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
@@ -765,7 +765,7 @@ class T2TModel(base.Layer):
               tf.squeeze(result[:, -1, :, :]), text_encoder.EOS_ID)
 
         not_eos = tf.cond(
-            # We only check for early stopping if there is at least 1 element (
+            # We only check for early stoping if there is at least 1 element (
             # otherwise not_eos will crash)
             tf.not_equal(length, 0),
             fn_not_eos,
@@ -774,7 +774,7 @@ class T2TModel(base.Layer):
 
         return tf.cond(
             tf.equal(batch_size, 1),
-            # If batch_size == 1, we check EOS for early stopping
+            # If batch_size == 1, we check EOS for early stoping
             lambda: tf.logical_and(not_overflow, not_eos),
             # Else, just wait for max length
             lambda: not_overflow)
@@ -1027,9 +1027,9 @@ class T2TModel(base.Layer):
         if isinstance(logits, dict):
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           k = metric_name.split("/")[1]
-          eval_metrics[metric_name] = metric_fn(logits[k], features, features[k])
+          eval_metrics[metric_name] = metric_fn(logits[k], features)
         else:
-          eval_metrics[metric_name] = metric_fn(logits, features, features["targets"])
+          eval_metrics[metric_name] = metric_fn(logits, features)
       if isinstance(logits, dict):
         predictions = logits
       else:

@@ -70,7 +70,7 @@ def attention_lm_prepare_decoder(targets, hparams):
   Returns:
     decoder_input: a Tensor, bottom of decoder stack
     decoder_self_attention_bias: a Tensor, containing large negative values
-    to implement masked attention and possibly biases for diagonal alignments
+    to implement masked attention and possibly baises for diagonal alignments
   """
   if hparams.prepend_mode == "prepend_inputs_full_attention":
     decoder_self_attention_bias = (

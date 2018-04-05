@@ -343,7 +343,7 @@ def make_input_fn_from_generator(gen):
   return input_fn
 
 
-def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
+def decode_interactively(estimator, hparams, decode_hp):
   """Interactive decoding."""
 
   def input_fn():
@@ -353,7 +353,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
     example = _interactive_input_tensor_to_features_dict(example, hparams)
     return example
 
-  result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
+  result_iter = estimator.predict(input_fn)
   for result in result_iter:
     problem_idx = result["problem_choice"]
     is_image = False  # TODO(lukaszkaiser): find out from problem id / class.

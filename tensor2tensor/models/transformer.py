@@ -51,7 +51,7 @@ class Transformer(t2t_model.T2TModel):
 
   def __init__(self, *args, **kwargs):
     super(Transformer, self).__init__(*args, **kwargs)
-    self.attention_weights = dict()  # For visualizing attention heads.
+    self.attention_weights = dict()  # For vizualizing attention heads.
 
   def encode(self, inputs, target_space, hparams, features=None):
     """Encode transformer inputs.
@@ -60,7 +60,7 @@ class Transformer(t2t_model.T2TModel):
       inputs: Transformer inputs [batch_size, input_length, input_height,
         hidden_dim] which will be flattened along the two spatial dimensions.
       target_space: scalar, target space ID.
-      hparams: hyperparameters for model.
+      hparams: hyperparmeters for model.
       features: optionally pass the entire features dictionary as well.
         This is needed now for "packed" datasets.
 
@@ -69,7 +69,7 @@ class Transformer(t2t_model.T2TModel):
           encoder_output: Encoder representation.
               [batch_size, input_length, hidden_dim]
           encoder_decoder_attention_bias: Bias and mask weights for
-              encoder-decoder attention. [batch_size, input_length]
+              encodre-decoder attention. [batch_size, input_length]
     """
     inputs = common_layers.flatten4d3d(inputs)
 
@@ -106,7 +106,7 @@ class Transformer(t2t_model.T2TModel):
           encoder-decoder attention. [batch_size, input_length]
       decoder_self_attention_bias: Bias and mask weights for decoder
           self-attention. [batch_size, decoder_length]
-      hparams: hyperparameters for model.
+      hparams: hyperparmeters for model.
       cache: dict, containing tensors which are the results of previous
           attentions, used for fast decoding.
       nonpadding: optional Tensor with shape [batch_size, decoder_length]
@@ -142,7 +142,7 @@ class Transformer(t2t_model.T2TModel):
     Args:
       features: Map of features to the model. Should contain the following:
           "inputs": Transformer inputs [batch_size, input_length, hidden_dim]
-          "targets": Target decoder outputs.
+          "tragets": Target decoder outputs.
               [batch_size, decoder_length, hidden_dim]
           "target_space_id"
 
@@ -214,7 +214,7 @@ class Transformer(t2t_model.T2TModel):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for longer translations.
+        the preference for slonger translations.
 
     Returns:
       A dict of decoding results {
@@ -253,7 +253,7 @@ class Transformer(t2t_model.T2TModel):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for longer translations.
+        the preference for slonger translations.
 
     Returns:
       A dict of decoding results {
@@ -432,7 +432,7 @@ def fast_decode(encoder_output,
     beam_size: number of beams.
     top_beams: an integer. How many of the beams to return.
     alpha: Float that controls the length penalty. larger the alpha, stronger
-      the preference for longer translations.
+      the preference for slonger translations.
     eos_id: End-of-sequence symbol in beam search.
     batch_size: an integer scalar - must be passed if there is no input
 
@@ -625,7 +625,7 @@ def transformer_prepare_decoder(targets, hparams, features=None):
 
   Returns:
     decoder_input: a Tensor, bottom of decoder stack
-    decoder_self_attention_bias: a bias tensor for use in decoder self-attention
+    decoder_self_attention_bias: a bias tensor for use in encoder self-attention
   """
   if hparams.prepend_mode == "prepend_inputs_full_attention":
     decoder_self_attention_bias = (
@@ -679,10 +679,10 @@ def transformer_encoder(encoder_input,
       indicating what positions are not padding.  This must either be
       passed in, which we do for "packed" datasets, or inferred from
       encoder_self_attention_bias.  The knowledge about padding is used
-      for pad_remover(efficiency) and to mask out padding in convolutional
+      for pad_remover(efficiency) and to mask out padding in convoltutional
       layers.
     save_weights_to: an optional dictionary to capture attention weights
-      for visualization; the weights tensor will be appended there under
+      for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
     make_image_summary: Whether to make an attention image summary.
 
@@ -758,11 +758,11 @@ def transformer_decoder(decoder_input,
     name: a string
     nonpadding: optional Tensor with shape [batch_size, encoder_length]
       indicating what positions are not padding.  This is used
-      to mask out padding in convolutional layers.  We generally only
+      to mask out padding in convoltutional layers.  We generally only
       need this mask for "packed" datasets, because for ordinary datasets,
       no padding is ever followed by nonpadding.
     save_weights_to: an optional dictionary to capture attention weights
-      for visualization; the weights tensor will be appended there under
+      for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
     make_image_summary: Whether to make an attention image summary.
 
@@ -832,14 +832,14 @@ def transformer_ffn_layer(x,
 
   Args:
     x: a Tensor of shape [batch_size, length, hparams.hidden_size]
-    hparams: hyperparameters for model
+    hparams: hyperparmeters for model
     pad_remover: an expert_utils.PadRemover object tracking the padding
       positions. If provided, when using convolutional settings, the padding
       is removed before applying the convolution, and restored afterward. This
       can give a significant speedup.
     conv_padding: a string - either "LEFT" or "SAME".
     nonpadding_mask: an optional Tensor with shape [batch_size, length].
-      needed for convolutional layers with "SAME" padding.
+      needed for convolutoinal layers with "SAME" padding.
       Contains 1.0 in positions corresponding to nonpadding.
 
   Returns:
@@ -982,7 +982,7 @@ def transformer_base():
 
 @registry.register_hparams
 def transformer_big():
-  """HParams for transformer big model on WMT."""
+  """HParams for transfomer big model on WMT."""
   hparams = transformer_base()
   hparams.hidden_size = 1024
   hparams.filter_size = 4096
@@ -993,7 +993,7 @@ def transformer_big():
 
 @registry.register_hparams
 def transformer_big_single_gpu():
-  """HParams for transformer big model for single GPU."""
+  """HParams for transformer big model for single gpu."""
   hparams = transformer_big()
   hparams.layer_prepostprocess_dropout = 0.1
   hparams.learning_rate_warmup_steps = 16000
@@ -1002,7 +1002,7 @@ def transformer_big_single_gpu():
 
 @registry.register_hparams
 def transformer_base_single_gpu():
-  """HParams for transformer base model for single GPU."""
+  """HParams for transformer base model for single gpu."""
   hparams = transformer_base()
   hparams.batch_size = 2048
   hparams.learning_rate_warmup_steps = 16000
@@ -1011,7 +1011,7 @@ def transformer_base_single_gpu():
 
 @registry.register_hparams
 def transformer_parsing_base():
-  """HParams for parsing on WSJ only."""
+  """Hparams for parsing on wsj only."""
   hparams = transformer_base()
   hparams.attention_dropout = 0.2
   hparams.layer_prepostprocess_dropout = 0.2
@@ -1025,7 +1025,7 @@ def transformer_parsing_base():
 
 @registry.register_hparams
 def transformer_parsing_big():
-  """HParams for parsing on WSJ semi-supervised."""
+  """HParams for parsing on wsj semi-supervised."""
   hparams = transformer_big()
   hparams.max_length = 512
   hparams.shared_source_target_embedding = False
@@ -1038,7 +1038,7 @@ def transformer_parsing_big():
 
 @registry.register_hparams
 def transformer_parsing_ice():
-  """HParams for parsing and tagging Icelandic text."""
+  """Hparams for parsing and tagging Icelandic text."""
   hparams = transformer_base_single_gpu()
   hparams.batch_size = 4096
   hparams.shared_embedding_and_softmax_weights = False
@@ -1437,17 +1437,17 @@ def transformer_clean_big_tpu():
 def transformer_tpu_with_conv():
   """Cut down on the number of heads, and use convs instead."""
   hparams = transformer_tpu()
-  hparams.num_heads = 4   # heads are expensive on TPU
+  hparams.num_heads = 4   # heads are expensive on tpu
   hparams.ffn_layer = "conv_relu_conv"
   return hparams
 
 
 @registry.register_hparams
 def transformer_lm_tpu_0():
-  """HParams for training languagemodel_lm1b8k on tpu.  92M Params."""
+  """Hparams for training languagemodel_lm1b8k on tpu.  92M Params."""
   hparams = transformer_clean_big()
   update_hparams_for_tpu(hparams)
-  hparams.num_heads = 4   # heads are expensive on TPU
+  hparams.num_heads = 4   # heads are expensive on tpu
   hparams.batch_size = 4096
   hparams.shared_embedding_and_softmax_weights = False
   hparams.layer_prepostprocess_dropout = 0.1
@@ -1456,7 +1456,7 @@ def transformer_lm_tpu_0():
 
 @registry.register_hparams
 def transformer_lm_tpu_1():
-  """HParams for training languagemodel_lm1b8k on TPU.  335M Params."""
+  """Hparams for training languagemodel_lm1b8k on tpu.  335M Params."""
   hparams = transformer_lm_tpu_0()
   hparams.hidden_size = 2048
   hparams.filter_size = 8192
@@ -1465,7 +1465,7 @@ def transformer_lm_tpu_1():
 
 @registry.register_hparams
 def transformer_librispeech():
-  """HParams for training ASR model on Librispeech."""
+  """Hparams for training ASR model on Librispeech."""
   hparams = transformer_base()
 
   hparams.num_heads = 4
@@ -1482,7 +1482,7 @@ def transformer_librispeech():
 
 @registry.register_hparams
 def transformer_librispeech_tpu():
-  """HParams for training ASR model on Librispeech on TPU."""
+  """Hparams for training ASR model on Librispeech on TPU."""
   hparams = transformer_librispeech()
   update_hparams_for_tpu(hparams)
 
@@ -1493,7 +1493,7 @@ def transformer_librispeech_tpu():
 
 @registry.register_hparams
 def transformer_supervised_attention():
-  """HParams for supervised attention problems."""
+  """Hparams for supervised attention problems."""
   hparams = transformer_base()
   # Attention loss type (KL-divergence or MSE).
   hparams.add_hparam("expected_attention_loss_type", "kl_divergence")

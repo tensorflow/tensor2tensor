@@ -1,7 +1,7 @@
 # Running on Cloud TPUs
 
 Tensor2Tensor supports running on Google Cloud Platforms TPUs, chips
-specialized for ML training. See the official tutorial for [running Transformer
+specialized for ML training. See the official tutorial for [running Transfomer
 on Cloud TPUs](https://cloud.google.com/tpu/docs/tutorials/transformer) or
 read on for more T2T models on TPUs.
 
@@ -14,7 +14,7 @@ Transformer:
 
 You can run the Transformer model on a number of problems,
 from translation through language modeling to sentiment analysis.
-See the official tutorial for [running Transformer
+See the official tutorial for [running Transfomer
 on Cloud TPUs](https://cloud.google.com/tpu/docs/tutorials/transformer)
 for some examples and try out your own problems.
 

@@ -143,7 +143,6 @@ There are a number of translation data-sets in T2T:
 * English-French: `--problems=translate_enfr_wmt32k`
 * English-Czech: `--problems=translate_encs_wmt32k`
 * English-Chinese: `--problems=translate_enzh_wmt32k`
-* English-Vietnamese: `--problems=translate_envi_iwslt32k`
 
 You can get translations in the other direction by appending `_rev` to
 the problem name, e.g., for German-English use
@@ -328,7 +327,7 @@ inference. Users can easily switch between problems, models, and hyperparameter
 sets by using the `--model`, `--problems`, and `--hparams_set` flags. Specific
 hyperparameters can be overridden with the `--hparams` flag. `--schedule` and
 related flags control local and distributed training/evaluation
-([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/docs/distributed_training.md)).
+([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/g3doc/distributed_training.md)).
 
 ## Adding your own components
 

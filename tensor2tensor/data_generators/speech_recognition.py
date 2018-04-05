@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Common classes for automatic speech recognition (ASR) datasets.
+"""Common classes for automatic speech recogntion (ASR) datasets.
 
 The audio import uses sox to generate normalized waveforms, please install
 it as appropriate (e.g. using apt-get or yum).
@@ -85,7 +85,7 @@ def compute_mel_filterbank_features(
     sample_rate: sampling rate of the waveform
     dither: stddev of Gaussian noise added to waveform to prevent quantization
       artefacts
-    preemphasis: waveform high-pass filtering constant
+    preemphasis: waveform high-pass filtering costant
     frame_length: frame length in ms
     frame_step: frame_Step in ms
     fft_length: number of fft bins
@@ -182,7 +182,7 @@ class AudioEncoder(object):
     """
     # Make sure that the data is a single channel, 16bit, 16kHz wave.
     # TODO(chorowski): the directory may not be writable, this should fallback
-    # to a temp path, and provide instructions for installing sox.
+    # to a temp path, and provide instructions for instaling sox.
     if not s.endswith(".wav"):
       out_filepath = s + ".wav"
       if not os.path.exists(out_filepath):

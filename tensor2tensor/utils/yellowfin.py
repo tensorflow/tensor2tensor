@@ -57,7 +57,7 @@ class YellowFinOptimizer(object):
         Set to 1.0 in the paper.
       momentum: A Tensor or a floating point value.  The momentum.
          Set to 0.0 in the paper.
-      clip_thresh: A Tensor or a floating point value. The clipping threshold for
+      clip_thresh: A Tensor or a floating point value. The cliping threshold for
         `tf.clip_by_global_norm`.  If None, no clipping will be carried out.
       beta: A float value or a constant float tensor.  The smoothing parameter
         for estimations.
@@ -358,7 +358,7 @@ class YellowFinOptimizer(object):
     # We substitute x, which is sqrt(mu), with x = y + 1.
     # It gives y^3 + py = q
     # where p = (D^2 h_min^2)/(2*C) and q = -p.
-    # We use the Vieta's substitution to compute the root.
+    # We use the Vieta's substution to compute the root.
     # There is only one real solution y (which is in [0, 1] ).
     # http://mathworld.wolfram.com/VietasSubstitution.html
     assert_array = [
@@ -390,7 +390,7 @@ class YellowFinOptimizer(object):
     return x
 
   def _get_lr_tensor(self):
-    """Get lr minimizing the surrogate.
+    """Get lr minimzing the surrogate.
 
     Returns:
       The lr_t.
@@ -461,7 +461,7 @@ class YellowFinOptimizer(object):
     return self._momentum_optimizer.get_name()
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
-    """Applying gradients and tune hyperparams with YellowFin.
+    """Applying gradients aand tune hyperparams with YellowFin.
 
     Args:
       grads_and_vars: List of (gradient, variable) pairs as returned by
@@ -501,7 +501,7 @@ class YellowFinOptimizer(object):
     # Begin lr and mu tuning.
     with tf.variable_scope("prepare_yellowFin_variables"):
       # the dependencies ideally only need to be after clip is done,
-      # i.e. depends on self._grads. However, the control_dependencies
+      # i.e. dependes on self._grads. However, the control_dependencies
       # does not support indexed slice for sparse gradients.
       # The alternative dependencies here might be slightly slower due
       # to less parallelization.
@@ -543,7 +543,7 @@ class YellowFinOptimizer(object):
         Can be GATE_NONE, GATE_OP, or GATE_GRAPH.
       aggregation_method: Specifies the method used to combine
         gradient terms. Valid values are defined in the class AggregationMethod.
-      colocate_gradients_with_ops: If True, try collocating gradients with
+      colocate_gradients_with_ops: If True, try colocating gradients with
         the corresponding op.
       name: Optional name for the returned operation. Default to the name
         passed to the Optimizer constructor.
@@ -571,7 +571,7 @@ class YellowFinOptimizer(object):
                colocate_gradients_with_ops=False,
                name=None,
                grad_loss=None):
-    """Adapted from TensorFlow Optimizer base class member function.
+    """Adapted from Tensorflow Optimizer base class member function.
 
     Add operations to minimize `loss` by updating `var_list`.
     This method simply combines calls `compute_gradients()` and
@@ -590,7 +590,7 @@ class YellowFinOptimizer(object):
         Can be GATE_NONE, GATE_OP, or GATE_GRAPH.
       aggregation_method: Specifies the method used to combine gradient terms.
         Valid values are defined in the class AggregationMethod.
-      colocate_gradients_with_ops: If True, try collocating gradients with
+      colocate_gradients_with_ops: If True, try colocating gradients with
         the corresponding op.
       name: Optional name for the returned operation.
       grad_loss: Optional. A Tensor holding the gradient computed for loss.

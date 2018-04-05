@@ -74,7 +74,7 @@ flags.DEFINE_string("reference", None, "Path to the reference translation file")
 flags.DEFINE_string("translation", None,
                     "Path to the MT system translation file")
 flags.DEFINE_string("translations_dir", None,
-                    "Directory with translated files to be evaluated.")
+                    "Directory with translated files to be evaulated.")
 flags.DEFINE_string("event_dir", None, "Where to store the event file.")
 
 flags.DEFINE_string("bleu_variant", "both",

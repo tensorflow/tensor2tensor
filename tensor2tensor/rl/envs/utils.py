@@ -33,12 +33,8 @@ import traceback
 import gym
 
 from tensor2tensor.rl.envs import batch_env
-from tensor2tensor.rl.envs import py_func_batch_env
-from tensor2tensor.rl.envs import simulated_batch_env
-from tensor2tensor.rl.envs import tf_atari_wrappers
+from tensor2tensor.rl.envs import in_graph_batch_env
 import tensorflow as tf
-
-
 
 
 class EvalVideoWrapper(gym.Wrapper):
@@ -85,7 +81,7 @@ class EvalVideoWrapper(gym.Wrapper):
 
 
 class ExternalProcessEnv(object):
-  """Step environment in a separate process for lock free parallelism."""
+  """Step environment in a separate process for lock free paralellism."""
 
   # Message types for communication via the pipe.
   _ACCESS = 1
@@ -95,7 +91,7 @@ class ExternalProcessEnv(object):
   _CLOSE = 5
 
   def __init__(self, constructor, xvfb):
-    """Step environment in a separate process for lock free parallelism.
+    """Step environment in a separate process for lock free paralellism.
 
     The environment will be created in the external process by calling the
     specified callable. This can be an environment class, or a function
@@ -230,7 +226,7 @@ class ExternalProcessEnv(object):
 
     Raises:
       Exception: An exception was raised inside the worker process.
-      KeyError: The received message is of an unknown type.
+      KeyError: The reveived message is of an unknown type.
 
     Returns:
       Payload object of the message.
@@ -281,19 +277,8 @@ class ExternalProcessEnv(object):
       conn.send((self._EXCEPTION, stacktrace))
     conn.close()
 
-def batch_env_factory(environment_lambda, hparams, num_agents, xvfb=False):
-  # define env
-  wrappers = hparams.in_graph_wrappers if hasattr(hparams, "in_graph_wrappers") else []
 
-  if hparams.simulated_environment:
-    batch_env = define_simulated_batch_env(num_agents)
-  else:
-    batch_env = define_batch_env(environment_lambda, num_agents, xvfb=xvfb)  # TODO -video?
-  for w in wrappers:
-    batch_env = w[0](batch_env, **w[1])
-  return batch_env
-
-def define_batch_env(constructor, num_agents, xvfb=False):
+def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
   """Create environments and apply all desired wrappers.
 
   Args:
@@ -306,17 +291,12 @@ def define_batch_env(constructor, num_agents, xvfb=False):
     In-graph environments object.
   """
   with tf.variable_scope("environments"):
-    envs = [
-        ExternalProcessEnv(constructor, xvfb)
-        for _ in range(num_agents)]
-    env = batch_env.BatchEnv(envs, blocking=False)
-    env = py_func_batch_env.PyFuncBatchEnv(env)
+    if env_processes:
+      envs = [
+          ExternalProcessEnv(constructor, xvfb)
+          for _ in range(num_agents)]
+    else:
+      envs = [constructor() for _ in range(num_agents)]
+    env = batch_env.BatchEnv(envs, blocking=not env_processes)
+    env = in_graph_batch_env.InGraphBatchEnv(env)
     return env
-
-
-def define_simulated_batch_env(num_agents):
-  #TODO: pm->Błażej. Should the paramters be infered.
-  observ_shape, observ_dtype, action_shape, action_dtype = (210, 160, 3), tf.float32, [], tf.int32
-  batch_env = simulated_batch_env.SimulatedBatchEnv(num_agents, observ_shape, observ_dtype, action_shape, action_dtype)
-
-  return batch_env

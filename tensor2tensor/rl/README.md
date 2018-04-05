@@ -1,11 +1,11 @@
 # Tensor2Tensor experimental Model-Based Reinforcement Learning.
 
-The rl package intention is to provide the ability to run reinforcement
-algorithms within TensorFlow's computation graph, in order to do model-based
-RL using environment models from Tensor2Tensor. It's very experimental
+The rl package intention is to provide possiblity to run reinforcement
+algorithms within Tensorflow's computation graph, in order to do model-based
+RL using envoronment models from Tensor2Tensor. It's very experimental
 for now and under heavy development.
 
-Currently the only supported algorithm is Proximal Policy Optimization - PPO.
+Currently the only supported algorithm is Proximy Policy Optimization - PPO.
 
 # Sample usages
 
@@ -35,7 +35,7 @@ python tensor2tensor/bin/t2t-datagen \
   --data_dir=~/t2t_data \
   --tmp_dir=~/t2t_data/tmp \
   --problem=gym_pong_trajectories_from_policy \
-  --agent_policy_path [model]
+  --model_path [model]
 ```
 
 ## Training model for frames generation based on randomly played games

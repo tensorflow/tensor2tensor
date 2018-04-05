@@ -18,8 +18,7 @@
 import tensorflow as tf
 
 
-def define_collect(policy_factory, batch_env, hparams,
-                   eval_phase, policy_to_actions_lambda=None, scope=""):
+def define_collect(policy_factory, batch_env, hparams, eval_phase):
   """Collect trajectories."""
   eval_phase = tf.convert_to_tensor(eval_phase)
   memory_shape = [hparams.epoch_length] + [batch_env.observ.shape.as_list()[0]]
@@ -35,9 +34,8 @@ def define_collect(policy_factory, batch_env, hparams,
   ]
   memory = [tf.Variable(tf.zeros(shape, dtype), trainable=False)
             for (shape, dtype) in memories_shapes_and_types]
-  with tf.variable_scope(scope):
-    cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
-                                         trainable=False)
+  cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
+                                       trainable=False)
 
   should_reset_var = tf.Variable(True, trainable=False)
 
@@ -61,12 +59,9 @@ def define_collect(policy_factory, batch_env, hparams,
       obs_copy = batch_env.observ + 0
       actor_critic = policy_factory(tf.expand_dims(obs_copy, 0))
       policy = actor_critic.policy
-      if policy_to_actions_lambda:
-        action = policy_to_actions_lambda(policy)
-      else:
-        action = tf.cond(eval_phase,
-                         policy.mode,
-                         policy.sample)
+      action = tf.cond(eval_phase,
+                       policy.mode,
+                       policy.sample)
       postprocessed_action = actor_critic.action_postprocessing(action)
       simulate_output = batch_env.simulate(postprocessed_action[0, ...])
       pdf = policy.prob(action)[0]

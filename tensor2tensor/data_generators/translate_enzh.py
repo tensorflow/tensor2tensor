@@ -172,7 +172,7 @@ class TranslateEnzhWmt32k(translate.TranslateProblem):
 
   CWMT:
     - http://nlp.nju.edu.cn/cwmt-wmt/
-    - Website contains instructions for FTP server access.
+    - Website contrains instructions for FTP server access.
     - You'll need to download CASIA, CASICT, DATUM2015, DATUM2017,
         NEU datasets
 

@@ -136,7 +136,7 @@ def _batching_scheme(batch_size,
                      min_length=0):
   """A batching scheme based on model hyperparameters.
 
-  Every batch contains a number of sequences divisible by `shard_multiplier`.
+  Every batch containins a number of sequences divisible by `shard_multiplier`.
 
   Args:
     batch_size: int, total number of tokens in a batch.
@@ -177,7 +177,7 @@ def _batching_scheme(batch_size,
   ]
   max_batch_size = max(batch_sizes)
   # Since the Datasets API only allows a single constant for window_size,
-  # and it needs divide all bucket_batch_sizes, we pick a highly-composite
+  # and it needs divide all bucket_batch_sizes, we pick a highly-compoisite
   # window size and then round down all batch sizes to divisors of that window
   # size, so that a window can always be divided evenly into batches.
   # TODO(noam): remove this when Dataset API improves.

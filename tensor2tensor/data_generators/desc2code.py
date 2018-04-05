@@ -140,8 +140,8 @@ class Desc2CodeProblem(text_problems.Text2TextProblem):
     samples = list(generator_samples(tmp_dir, self.pb_constants))
 
     # Split between train and dev
-    # Shuffle to get problems from diverse sources (CodeChef and CodeForces) and
-    # difficulties in each set.
+    # Suffle to get problems from diverse sources (CodeChef and CodeForces) and
+    # dificulties in each set.
     # Need to sort the samples first before shuffling (as walk() isn't
     # deterministic)
     samples.sort(key=lambda x: x.desc_file)  # in-place
@@ -289,7 +289,7 @@ def generator_samples(tmp_dir, pb_cst):
     for f in tf.gfile.Glob(code_pattern):
       with tf.gfile.GFile(f, mode="r") as target_file:
         # Hack to filter C++/Java files. In theory some python comments could
-        # make the file be considered as C++ but in practice the chance of
+        # make the file be concidered as C++ but in practice the chance of
         # getting a false negative is low.
         content = target_file.read()
         if not any(p in content for p in pb_cst.filter_patterns):

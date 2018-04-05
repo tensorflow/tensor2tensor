@@ -163,7 +163,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
     def print_shape(x, suffix, debug=False):
       # To help debugging, print the input/output shapes at inference and eval
       # Inference for long sequences can take a long time, so that's help to
-      # see the progression of the generation
+      # see the progession of the generation
       if not debug and hparams.mode == ModeKeys.TRAIN:
         return x
       return tf.Print(x, [tf.shape(x)], "shape_x_{}".format(suffix))
@@ -368,7 +368,7 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
   Returns:
     decoder_input: a Tensor, bottom of decoder stack
     decoder_self_attention_bias: a Tensor, containing large negative values
-    to implement masked attention and possibly biases for diagonal alignments
+    to implement masked attention and possibly baises for diagonal alignments
     pad_remover (expert_utils.PadRemover): an util object to remove padding
   """
   targets_pad_mask = common_attention.embedding_to_padding(targets)
