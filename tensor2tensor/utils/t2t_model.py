@@ -1209,3 +1209,20 @@ def summarize_features(features, num_shards=1):
         tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
         tf.summary.scalar("%s_nonpadding_fraction" % k,
                           tf.reduce_mean(nonpadding))
+
+_already_logged = set()
+
+
+def _eager_log(level, *args):
+  if context.in_eager_mode() and args in _already_logged:
+    return
+  _already_logged.add(args)
+  getattr(tf.logging, level)(*args)
+
+
+def log_info(*args):
+  _eager_log("info", *args)
+
+
+def log_warn(*args):
+  _eager_log("warn", *args)
