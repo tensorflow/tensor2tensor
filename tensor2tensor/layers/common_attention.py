@@ -327,32 +327,62 @@ def add_standard_attention_hparams(hparams):
   return hparams
 
 
-def encoder_decoder_attention_loss(expected_attention, actual_attentions):
+def encoder_decoder_attention_loss(expected_attention_logits,
+                                   actual_attentions,
+                                   loss_type="kl_divergence",
+                                   loss_multiplier=1.0):
   """Computes encdec attention loss between expected and actual attentions.
 
   Args:
-    expected_attention: Tensor storing the expected encoder-decoder attention
-      weights with shape [batch_size, target_length, input_length].
-    actual_attentions: Dictionary with actual attention weights for different
+    expected_attention_logits: Tensor storing the expected encoder-decoder
+      attention logits with shape [batch_size, target_length, input_length].
+    actual_attentions: Dictionary with actual attention logits for different
       attention types and hidden layers.
+    loss_type: type of the loss function.
+    loss_multiplier: multiplier for the attention loss.
 
   Returns:
-    MSE loss between the actual and expected attention weights.
+    KL_divergence loss between the actual and expected attention logits.
   """
-  # For each hidden layer, we have an attention weight tensor with shape
-  # [batch_size, num_heads, target_length, input_length].
-  actual_encdec_attention_weights = [
-      t for layer_key, t in actual_attentions.items()
-      if "encdec_attention" in layer_key
-  ]
-  # Stack all hidden layer attention weight tensors to get a tensor with shape
-  # [num_hidden_layers, batch_size, num_heads, target_length, input_length].
-  actual_attention_weights = tf.stack(actual_encdec_attention_weights)
-  # Reduce mean across all layers (axis=0) and all heads (axis=2) to get a
-  # tensor with shape [batch_size, target_length, input_length].
-  actual_attention_weights = tf.reduce_mean(actual_attention_weights, [0, 2])
-  return tf.losses.mean_squared_error(expected_attention,
-                                      actual_attention_weights)
+
+  def combine_attentions(attention_list):
+    """Combine different layer attentions and then average over layers/heads."""
+    # Stack all hidden layer attention tensors to get a tensor with shape
+    # [num_hidden_layers, batch_size, num_heads, target_length, input_length].
+    attentions = tf.stack(attention_list)
+    # Reduce mean across all layers (axis=0) and all heads (axis=2) to get a
+    # tensor with shape [batch_size, target_length, input_length].
+    return tf.reduce_mean(attentions, [0, 2])
+
+  def kl_divergence_loss(expected_logits, actual_logits):
+    p = tf.contrib.distributions.Categorical(logits=expected_logits)
+    q = tf.contrib.distributions.Categorical(logits=actual_logits)
+    return tf.contrib.distributions.kl_divergence(p, q)
+
+  def mse_loss(expected_logits, actual_weights):
+    expected_weights = tf.nn.softmax(expected_logits)
+    return tf.losses.mean_squared_error(expected_weights, actual_weights)
+
+  # For each hidden layer, we have attention-logit and attention-weight tensors
+  # with shape [batch_size, num_heads, target_length, input_length].
+  loss = 0.0
+  if loss_type == "mse":
+    actual_encdec_attention_weights = [
+        t for layer_key, t in actual_attentions.items()
+        if "encdec_attention" in layer_key and not layer_key.endswith("/logits")
+    ]
+    actual_attention_weights = combine_attentions(
+        actual_encdec_attention_weights)
+    loss = mse_loss(expected_attention_logits, actual_attention_weights)
+  else:
+    actual_encdec_attention_logits = [
+        t for layer_key, t in actual_attentions.items()
+        if "encdec_attention" in layer_key and layer_key.endswith("/logits")
+    ]
+    actual_attention_logits = combine_attentions(actual_encdec_attention_logits)
+    loss = kl_divergence_loss(expected_attention_logits,
+                              actual_attention_logits)
+  return loss * loss_multiplier
 
 
 @expert_utils.add_name_scope()
@@ -466,6 +496,7 @@ def add_timing_signal_1d_given_position(x,
           tf.expand_dims(inv_timescales, 0), 0))
   signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=2)
   signal = tf.pad(signal, [[0, 0], [0, 0], [0, tf.mod(channels, 2)]])
+  signal = tf.cast(signal, x.dtype)
   return x + signal
 
 
@@ -975,6 +1006,7 @@ def attention_image_summary(attn, image_shapes=None):
         (query_rows, query_cols, query_channels,
          memory_rows, memory_cols, memory_channels).
   """
+  attn = tf.cast(attn, tf.float32)
   num_heads = common_layers.shape_list(attn)[1]
   # [batch, query_length, memory_length, num_heads]
   image = tf.transpose(attn, [0, 2, 3, 1])
@@ -1302,6 +1334,7 @@ def dot_product_attention(q,
     weights = tf.nn.softmax(logits, name="attention_weights")
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
+      save_weights_to[scope.name + "/logits"] = logits
     # dropping out the attention links for each of the heads
     weights = common_layers.dropout_with_broadcast_dims(
         weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
@@ -1432,7 +1465,61 @@ def dot_product_attention_relative(q,
     return _relative_attention_inner(weights, v, relations_values, False)
 
 
-def masked_local_attention_1d(q, k, v, block_length=128, name=None):
+def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
+  """Attention to the source and a neighborhood to the left within a block.
+
+  The sequence is divided into blocks of length block_size.
+  Attention for a given query position can only see memory positions
+  less than or equal to the query position in the corresponding block
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth_k]
+    k: a Tensor with shape [batch, heads, length, depth_k]
+    v: a Tensor with shape [batch, heads, length, depth_v]
+    block_length: an integer
+    name: an optional string
+
+  Returns:
+    a Tensor of shape [batch, heads, length, depth_v]
+  """
+  with tf.variable_scope(
+      name, default_name="within_local_attention_1d", values=[q, k, v]):
+    v_shape = v.get_shape()
+    batch, heads, length, _ = common_layers.shape_list(q)
+    if isinstance(block_length, tf.Tensor):
+      const = tf.contrib.util.constant_value(block_length)
+      if const is not None:
+        block_length = int(const)
+
+    depth_k = common_layers.shape_list(k)[3]
+    depth_v = common_layers.shape_list(v)[3]
+    original_length = length
+    padding_size = tf.mod(-length, block_length)
+    length += padding_size
+    padding = [[0, 0], [0, 0], [0, padding_size], [0, 0]]
+    q = tf.pad(q, padding)
+    k = tf.pad(k, padding)
+    v = tf.pad(v, padding)
+    num_blocks = tf.div(length, block_length)
+    # compute attention for all subsequent query blocks.
+    q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
+    k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
+    v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
+    # attention shape: [batch, heads, num_blocks, block_length, block_length]
+    attention = tf.matmul(q, k, transpose_b=True)
+    attention += tf.reshape(attention_bias_lower_triangle(block_length),
+                            [1, 1, 1, block_length, block_length])
+    attention = tf.nn.softmax(attention)
+    # initial output shape: [batch, heads, num_blocks, block_length, depth_v]
+    output = tf.matmul(attention, v)
+    output = tf.reshape(output, [batch, heads, -1, depth_v])
+    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
+    output.set_shape(v_shape)
+    return output
+
+
+def masked_local_attention_1d(q, k, v, block_length=128,
+                              make_image_summary=False, name=None):
   """Attention to the source position and a neighborhood to the left of it.
 
   The sequence is divided into blocks of length block_size.
@@ -1448,6 +1535,7 @@ def masked_local_attention_1d(q, k, v, block_length=128, name=None):
     k: a Tensor with shape [batch, heads, length, depth_k]
     v: a Tensor with shape [batch, heads, length, depth_v]
     block_length: an integer
+    make_image_summary: a boolean, whether to make an attention image summary.
     name: an optional string
 
   Returns:
@@ -1455,7 +1543,6 @@ def masked_local_attention_1d(q, k, v, block_length=128, name=None):
   """
   with tf.variable_scope(
       name, default_name="local_attention_1d", values=[q, k, v]):
-    v_shape = v.get_shape()
     batch = common_layers.shape_list(q)[0]
     heads = common_layers.shape_list(q)[1]
     length = common_layers.shape_list(q)[2]
@@ -1479,7 +1566,11 @@ def masked_local_attention_1d(q, k, v, block_length=128, name=None):
     q = tf.pad(q, padding)
     k = tf.pad(k, padding)
     v = tf.pad(v, padding)
-    num_blocks = tf.div(length, block_length)
+
+    if isinstance(length, int) and isinstance(block_length, int):
+      num_blocks = length // block_length
+    else:
+      num_blocks = tf.div(length, block_length)
 
     # compute attention for the first query block.
     first_q = tf.slice(q, [0, 0, 0, 0], [-1, -1, block_length, -1])
@@ -1490,6 +1581,7 @@ def masked_local_attention_1d(q, k, v, block_length=128, name=None):
         first_k,
         first_v,
         attention_bias_lower_triangle(block_length),
+        make_image_summary=make_image_summary,
         name="fist_block")
 
     # compute attention for all subsequent query blocks.
@@ -1497,17 +1589,21 @@ def masked_local_attention_1d(q, k, v, block_length=128, name=None):
     k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
     v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
 
-    def local(x):
+    def local(x, depth):
       """Create a local version of the keys or values."""
       prev_block = tf.slice(x, [0, 0, 0, 0, 0],
                             [-1, -1, num_blocks - 1, -1, -1])
       cur_block = tf.slice(x, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
-      return tf.concat([prev_block, cur_block], 3)
+      local_block = tf.concat([prev_block, cur_block], 3)
+      return tf.reshape(local_block,
+                        [batch, heads, num_blocks - 1,
+                         block_length * 2, depth])
 
-    local_k = local(k)
-    local_v = local(v)
+    local_k = local(k, depth_k)
+    local_v = local(v, depth_v)
     tail_q = tf.slice(q, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
-
+    tail_q = tf.reshape(tail_q, [batch, heads, num_blocks - 1,
+                                 block_length, depth_k])
     local_length = common_layers.shape_list(local_k)[3]
 
     # [batch, heads, num_blocks - 1, block_length, local_length]
@@ -1523,10 +1619,11 @@ def masked_local_attention_1d(q, k, v, block_length=128, name=None):
     # The naive way currently causes errors due to empty tensors.
     # output: [batch, heads, num_blocks-1, block_length, depth_v]
     output = tf.matmul(attention, local_v)
-    output = tf.reshape(output, [batch, heads, -1, depth_v])
+    output = tf.reshape(output, [
+        batch, heads, (num_blocks-1)*block_length, depth_v])
     output = tf.concat([first_output, output], axis=2)
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
-    output.set_shape(v_shape)
+    output = tf.reshape(output, [batch, heads, original_length, depth_v])
     return output
 
 
@@ -1802,7 +1899,7 @@ def masked_dilated_self_attention_1d(q,
                                      gap_size=2,
                                      num_memory_blocks=2,
                                      name=None):
-  """dilated self-attention.
+  """dilated self-attention. TODO(avaswani): Try it and write a paper on it.
 
   Args:
     q: a Tensor with shape [batch, heads, length, depth_k]
@@ -2435,6 +2532,8 @@ def multihead_attention(query_antecedent,
 
     if cache is not None:
       if attention_type != "dot_product":
+        # TODO(petershaw): Support caching when using relative position
+        # representations, i.e. "dot_product_relative" attention.
         raise NotImplementedError(
             "Caching is not guaranteed to work with attention types other than"
             " dot_product.")
@@ -2464,8 +2563,12 @@ def multihead_attention(query_antecedent,
       x = dot_product_attention_relative(q, k, v, bias, max_relative_position,
                                          dropout_rate, image_shapes,
                                          make_image_summary=make_image_summary)
+    elif attention_type == "local_within_block_mask_right":
+      x = masked_within_block_local_attention_1d(q, k, v,
+                                                 block_length=block_length)
     elif attention_type == "local_mask_right":
-      x = masked_local_attention_1d(q, k, v, block_length=block_length)
+      x = masked_local_attention_1d(q, k, v, block_length=block_length,
+                                    make_image_summary=make_image_summary)
     elif attention_type == "local_unmasked":
       x = local_attention_1d(
           q, k, v, block_length=block_length, filter_width=block_width)
