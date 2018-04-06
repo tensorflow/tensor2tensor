@@ -44,7 +44,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
 
   tf.summary.scalar("learning_rate", learning_rate)
-  opt_summaries = ["loss"]
+  opt_summaries = ["loss", "global_gradient_norm"]
   if hparams.summarize_grads:
     tf.logging.info("Summarizing gradients")
     opt_summaries.extend(["gradients", "gradient_norm", "global_gradient_norm"])
@@ -229,3 +229,4 @@ def get_variable_initializer(hparams):
         hparams.initializer_gain, mode="fan_avg", distribution="uniform")
   else:
     raise ValueError("Unrecognized initializer: %s" % hparams.initializer)
+
