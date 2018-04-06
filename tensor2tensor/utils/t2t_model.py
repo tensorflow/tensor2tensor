@@ -1468,7 +1468,6 @@ def summarize_features(features, num_shards=1):
         tf.summary.scalar("%s_nonpadding_fraction" % k,
                           tf.reduce_mean(nonpadding))
 
-
 _already_logged = set()
 
 
