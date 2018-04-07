@@ -541,8 +541,8 @@ def prepare_decoder(targets, hparams):
       assert hparams.img_len*channels % hparams.query_shape[1] == 0
       assert hparams.img_len % hparams.query_shape[0] == 0
       total_block_width = hparams.img_len*channels
-      # Decoding is in block rastor scan order. We divide the image into
-      # hparams.query_shape blocks and then decode each block in rastor scan.
+      # Decoding is in block raster scan order. We divide the image into
+      # hparams.query_shape blocks and then decode each block in raster scan.
       # To make that compatible with our inference pipeline, pad the target so
       # that rows is a multiple of query_shape and columns is a multiple of
       # hparams.img_len*channels

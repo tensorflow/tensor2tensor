@@ -499,7 +499,7 @@ class T2TModel(base.Layer):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for slonger translations.
+        the preference for longer translations.
 
     Returns:
       A dict of decoding results {
@@ -549,7 +549,7 @@ class T2TModel(base.Layer):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for slonger translations.
+        the preference for longer translations.
 
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
@@ -569,7 +569,7 @@ class T2TModel(base.Layer):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for slonger translations.
+        the preference for longer translations.
 
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
@@ -765,7 +765,7 @@ class T2TModel(base.Layer):
               tf.squeeze(result[:, -1, :, :]), text_encoder.EOS_ID)
 
         not_eos = tf.cond(
-            # We only check for early stoping if there is at least 1 element (
+            # We only check for early stopping if there is at least 1 element (
             # otherwise not_eos will crash)
             tf.not_equal(length, 0),
             fn_not_eos,
@@ -774,7 +774,7 @@ class T2TModel(base.Layer):
 
         return tf.cond(
             tf.equal(batch_size, 1),
-            # If batch_size == 1, we check EOS for early stoping
+            # If batch_size == 1, we check EOS for early stopping
             lambda: tf.logical_and(not_overflow, not_eos),
             # Else, just wait for max length
             lambda: not_overflow)

@@ -403,7 +403,7 @@ class CommonAttentionTest(tf.test.TestCase):
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
   def testBiasBatchCoordinates(self):
-    """Testing the batch cooridnates mask."""
+    """Testing the batch coordinates mask."""
     q = tf.constant([0, 0, 1, 1, 1, 1, 2, 2, 2], dtype=tf.int32)
     q = tf.expand_dims(q, axis=-1)
 

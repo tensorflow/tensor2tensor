@@ -177,7 +177,7 @@ def _batching_scheme(batch_size,
   ]
   max_batch_size = max(batch_sizes)
   # Since the Datasets API only allows a single constant for window_size,
-  # and it needs divide all bucket_batch_sizes, we pick a highly-compoisite
+  # and it needs divide all bucket_batch_sizes, we pick a highly-composite
   # window size and then round down all batch sizes to divisors of that window
   # size, so that a window can always be divided evenly into batches.
   # TODO(noam): remove this when Dataset API improves.

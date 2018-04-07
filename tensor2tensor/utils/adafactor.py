@@ -32,7 +32,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
 
   1. For a two-dimensional AxB weight matrix, Adafactor uses only A+B auxiliary
      parameters to maintain the second-moment estimator, instead of AB.
-     This is advantagous on memory-limited systems.  In addition, beta1
+     This is advantageous on memory-limited systems.  In addition, beta1
      (momentum) is set to zero by default, saving an additional auxiliary
      parameter per weight.
 
@@ -332,7 +332,7 @@ def _simulated_quantize(x, num_bits, quantization_noise):
   quantization_noise is a float32 Tensor containing values in [0, 1).
   Each value in quantization_noise should take different values across
   different steps, approximating a uniform distribution over [0, 1).
-  In the case of relicated TPU training, quantization_noise should be identical
+  In the case of replicated TPU training, quantization_noise should be identical
   across replicas in order to keep the parameters identical across replicas.
 
   The natural choice for quantization_noise would be tf.random_uniform(),
@@ -383,7 +383,7 @@ def _quantization_noise_from_step_num():
   """
   step = tf.to_int32(tf.train.get_or_create_global_step()) + 1
   phi = ((5 ** 0.5) - 1) / 2
-  # Naive computation tf.mod(phi * step, 1.0) in float32 would be disasterous
+  # Naive computation tf.mod(phi * step, 1.0) in float32 would be disastrous
   # due to loss of precision when the step number gets large.
   # Computation in doubles does not work on TPU, so we use this complicated
   # alternative computation which does not suffer from these roundoff errors.

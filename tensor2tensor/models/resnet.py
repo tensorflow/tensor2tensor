@@ -223,7 +223,7 @@ def bottleneck_block(inputs,
     The output `Tensor` of the block.
   """
   # TODO(chrisying): this block is technically the post-activation resnet-v1
-  # bottlneck unit. Test with v2 (pre-activation) and replace if there is no
+  # bottleneck unit. Test with v2 (pre-activation) and replace if there is no
   # difference for consistency.
   shortcut = inputs
   if projection_shortcut is not None:

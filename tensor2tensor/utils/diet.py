@@ -54,7 +54,7 @@ def diet_expert(x, hidden_size, params):
   """A two-layer feed-forward network with relu activation on hidden layer.
 
   Uses diet variables.
-  Recompuets hidden layer on backprop to save activation memory.
+  Recomputes hidden layer on backprop to save activation memory.
 
   Args:
     x: a Tensor with shape [batch, io_size]
@@ -120,7 +120,7 @@ class DietAdamOptimizer(DietVariableOptimizer):
 
   Diet variables should be created with the
   DietAdamOptimizer.get_variable() method.  The resulting variables
-  have extra fields pointing to the otpimizer and to the accumulator
+  have extra fields pointing to the optimizer and to the accumulator
   slots.
 
   The variable is kept in quantized form, so you need to call
@@ -135,7 +135,7 @@ class DietAdamOptimizer(DietVariableOptimizer):
   diet_expert() for an example of how all of this is done.
 
   To facilitate fixed-point quantization and to make it easier to
-  choose a learning rate, all varaibles are initialized with unit
+  choose a learning rate, all variables are initialized with unit
   normal initialization.  If you want smaller values, downscale on the
   outside.
   """

@@ -59,7 +59,7 @@ flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
 flags.DEFINE_bool("profile", False, "Profile performance?")
 
 # To maintain compatibility with some internal libs, we guard against these flag
-# definitions possibly erroring. Apologies for the ugliness.
+# definitions possibly erring. Apologies for the ugliness.
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")

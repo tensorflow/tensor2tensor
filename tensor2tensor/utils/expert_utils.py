@@ -412,7 +412,7 @@ def _my_top_k(x, k):
   tf.nn.top_k is implemented for GPU, but the gradient, sparse_to_dense,
   seems not to be, so if we use tf.nn.top_k, then both the top_k and its
   gradient go on cpu.  Once this is not an issue, this function becomes
-  obselete and should be replaced by tf.nn.top_k.
+  obsolete and should be replaced by tf.nn.top_k.
 
   Args:
     x: a 2d Tensor.
