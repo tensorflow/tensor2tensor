@@ -66,7 +66,7 @@ def add_scope(scope=None, scope_fn=None):
   """Return a decorator which add a TF name/variable scope to a function.
 
   Note that the function returned by the decorator accept an additional 'name'
-  parameter, which can overwritte the name scope given when the function is
+  parameter, which can overwrite the name scope given when the function is
   created.
 
   Args:
@@ -587,12 +587,12 @@ class PadRemover(object):
 
 @add_name_scope("map_ids")
 def map_ids(x, indices, map_fn):
-  """Apply a function to each coordinate ids of a multidimentional tensor.
+  """Apply a function to each coordinate ids of a multidimensional tensor.
 
   This allows to process each sequence of a batch independently. This is
   similar to tf.map_fn but with tensor where the batch dim has been flatten.
 
-  Warning: The indices ids have to be contigous and orderd in memory as the
+  Warning: The indices ids have to be contiguous and ordered in memory as the
   output vector for each of the ids are simply concatenated after being
   processed.
   Ex: if your indices are [0,2,2,1,2,0], the output will contains the processed

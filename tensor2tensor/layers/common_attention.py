@@ -83,7 +83,7 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
       default_args (list): The default parameters to add to the function.
       default_kwargs (dict): The default parameters to add to the function.
         Those arguments can be overwritten when calling the function.
-      use_dp (bool): Wrap the function call within a dataparalellism object if
+      use_dp (bool): Wrap the function call within a dataparallelism object if
         dp is available. Some layers (like MOE) must be called without dp.
       recompute_grad (bool): If True, recompute the function during the
         backward pass to save memory
@@ -1378,7 +1378,7 @@ def _relative_attention_inner(x, y, z, transpose):
     x: Tensor with shape [batch_size, heads, length, length or depth].
     y: Tensor with shape [batch_size, heads, length, depth].
     z: Tensor with shape [length, length, depth].
-    transpose: Whether to tranpose inner matrices of y and z. Should be true if
+    transpose: Whether to transpose inner matrices of y and z. Should be true if
         last dimension of x is depth, not length.
 
   Returns:
@@ -1422,7 +1422,7 @@ def dot_product_attention_relative(q,
     k: a Tensor with shape [batch, heads, length, depth].
     v: a Tensor with shape [batch, heads, length, depth].
     bias: bias Tensor.
-    max_relative_position: an integer specifying the maxmimum distance between
+    max_relative_position: an integer specifying the maximum distance between
         inputs that unique position embeddings should be learned for.
     dropout_rate: a floating point number.
     image_shapes: optional tuple of integer scalars.
@@ -2141,7 +2141,7 @@ def gather_indices_2d(x, block_shape, block_stride):
 
 
 def make_2d_block_raster_mask(query_shape, memory_flange):
-  """creates a mask for 2d block raster scany.
+  """creates a mask for 2d block raster scan.
 
   The query mask can look to the left, top left, top, and top right, but
   not to the right. Inside the query, we have the standard raster scan
@@ -2661,7 +2661,7 @@ def ffn_self_attention_layer(x,
   We use self-attention to do feedforward computations. We apply this function
   positionwise where for each position, we linearly transform the output to have
   depth filter_depth, and break up the result depth-wise into num_parts
-  contiguous parts.  The parts self-attentd, we concatenate the results
+  contiguous parts.  The parts self-attend, we concatenate the results
   depth-wise, and we linearly transform to a depth of output_depth. The
   goal is to get multiplicative interactions between components of a
   representation.
@@ -2764,7 +2764,7 @@ def parameter_attention(x,
         x, total_key_depth, use_bias=False, name="q_transform")
     if dropout_rate:
       # This is a cheaper form of attention dropout where we use to use
-      # the same dropout decisions across batch elemets and query positions,
+      # the same dropout decisions across batch elements and query positions,
       # but different decisions across heads and memory positions.
       v = tf.nn.dropout(
           v, 1.0 - dropout_rate, noise_shape=[num_heads, memory_rows, 1])
