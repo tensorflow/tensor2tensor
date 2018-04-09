@@ -34,6 +34,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import expert_utils as eu
+from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import optimize
 from tensor2tensor.utils import registry
@@ -325,12 +326,24 @@ class T2TModel(base.Layer):
     loss_num *= self._problem_hparams.loss_multiplier
     return loss_num, loss_den
 
+  #def optimize(self, loss, num_async_replicas=1):
+  #  """Return a training op minimizing loss."""
+  #  use_tpu = self.hparams.use_tpu
+  #  lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
+  #  lr /= math.sqrt(float(num_async_replicas))
+  #  train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
+  #  return train_op
+
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
-    use_tpu = self.hparams.use_tpu
-    lr = self.hparams.learning_rate * optimize.learning_rate_decay(self.hparams)
+    log_info("Base learning rate: %f", self.hparams.learning_rate)
+    lr = learning_rate.learning_rate_schedule(self.hparams)
+    if num_async_replicas > 1:
+      log_info("Dividing learning rate by num_async_replicas: %d",
+               num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
+    train_op = optimize.optimize(
+        loss, lr, self.hparams, use_tpu=common_layers.is_on_tpu())
     return train_op
 
   def set_mode(self, mode):
@@ -1196,3 +1209,20 @@ def summarize_features(features, num_shards=1):
         tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
         tf.summary.scalar("%s_nonpadding_fraction" % k,
                           tf.reduce_mean(nonpadding))
+
+_already_logged = set()
+
+
+def _eager_log(level, *args):
+  if context.in_eager_mode() and args in _already_logged:
+    return
+  _already_logged.add(args)
+  getattr(tf.logging, level)(*args)
+
+
+def log_info(*args):
+  _eager_log("info", *args)
+
+
+def log_warn(*args):
+  _eager_log("warn", *args)

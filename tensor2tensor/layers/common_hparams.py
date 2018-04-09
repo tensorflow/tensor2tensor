@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ from __future__ import print_function
 
 # Dependency imports
 
-import six
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import registry
 
@@ -32,9 +31,10 @@ import tensorflow as tf
 def basic_params1():
   """A set of basic hyperparameters."""
   return tf.contrib.training.HParams(
-      # If the features are variable length, this is in tokens per batch per
-      # GPU. If the features are of known shape (e.g. image problems), this is
-      # the actual batch size.
+      # If the problem consists of variable-length sequences
+      # (see problem.batch_size_means_tokens()), then this is the number
+      # of tokens per batch per GPU or per TPU core.  Otherwise, this is
+      # the number of examples per GPU or per TPU core.
       batch_size=4096,
       # If True, then if the features are of variable length, the batch_size is
       # used as the actual batch size (and not tokens per batch).
@@ -50,6 +50,8 @@ def basic_params1():
       clip_grad_norm=2.0,
       grad_noise_scale=0.0,
       summarize_grads=False,
+      # Whether to log the name and size of every variable
+      summarize_vars=False,
       initializer="orthogonal",
       initializer_gain=1.5,
       label_smoothing=0.1,
@@ -58,9 +60,30 @@ def basic_params1():
       optimizer_adam_beta1=0.85,
       optimizer_adam_beta2=0.997,
       optimizer_momentum_momentum=0.9,
-      weight_decay=0.1,
+      optimizer_momentum_nesterov=False,
+      optimizer_adafactor_beta1=0.0,
+      optimizer_adafactor_beta2=0.999,
+      optimizer_adafactor_factored=True,
+      optimizer_adafactor_decay_type="pow",
+      optimizer_adafactor_memory_exponent=0.8,
+      optimizer_adafactor_clipping_threshold=1.0,
+      optimizer_adafactor_multiply_by_parameter_scale=True,
+      weight_decay=1e-6,
       weight_noise=0.0,
+      # Defines the learning rate as a product of named functions.
+      # Available functions are listed in learning_rate._LEARNING_RATE_FUNCTIONS
+      # e.g. "constant*linear_warmup*rsqrt_decay*rsqrt_hidden_size"
+      learning_rate_schedule="legacy",
+      learning_rate_constant=1.0,
+      # If learning_rate_schedule=="legacy",
+      # then we specify decay scheme here.  Warmup is always exponential,
+      # except with "noam" learning rate decay scheme.
+      # see optimize.legacy_learning_rate_schedule()
+      # TODO(noam): migrate everyone away from this.
       learning_rate_decay_scheme="none",
+      # decay_steps and decay_staircase for learning_rate_decay_scheme=="exp"
+      learning_rate_decay_steps=5000,
+      learning_rate_decay_staircase=False,
       learning_rate_minimum=None,
       learning_rate_decay_rate=1.0,
       learning_rate_warmup_steps=100,
@@ -94,6 +117,13 @@ def basic_params1():
       layer_postprocess_sequence="dan",
       # dropout rate to use during layer_preprocess and layer_postprocess
       layer_prepostprocess_dropout=0.1,
+      # broadcast dimensions for layer_prepostprocess_dropout
+      # a comma-separated list of integers.
+      # see common_layers.dropout_with_broadcast_dims()
+      # Change this to "1" to save memory.
+      layer_prepostprocess_dropout_broadcast_dims="",
+      # dropout some symbols (set them to 0) before embedding.
+      symbol_dropout=0.0,
       # What type of normalization to use
       norm_type="layer",  # "batch", layer", "noam", "none".
       # epsilon parameter to normalization function
@@ -194,17 +224,14 @@ def basic_params1():
       # device training and mostly should be turned on for performance. One
       # exception are recurrent models: with dynamic loops it must be off.
       daisy_chain_variables=True,
-      # This is the actual batch size, *not* tokens per batch (i.e. for
-      # language models this is the number of sentences in the batch)
-      tpu_batch_size_per_shard=24,
-      # Set by t2t_trainer if --use_tpu to let the model know whether we are on
-      # TPU. Switching on/off tpu should not invalidate checkpoints.
-      use_tpu=False,
       # If True in PREDICT mode, then last-position-only optimizations are not
       # used.
       force_full_predict=False,
       # Set this for pure model parallelism.  There is only one data shard.
       no_data_parallelism=False,
+      # Set this to the dtype used for activation. Variables will still be
+      # stored in float32.
+      activation_dtype="float32",
   )
 
 
@@ -216,10 +243,15 @@ class RangedHParams(object):
   LOG_SCALE = 2
   REVERSE_LOG_SCALE = 3
 
+  SCALES_STR = {
+      LINEAR_SCALE: "UNIT_LINEAR_SCALE",
+      LOG_SCALE: "UNIT_LOG_SCALE",
+      REVERSE_LOG_SCALE: "UNIT_REVERSE_LOG_SCALE",
+  }
+
   def __init__(self):
     self._categorical_params = {}
     self._discrete_params = {}
-    self._discrete_float_params = {}
     self._float_params = {}
     self._int_params = {}
 
@@ -229,10 +261,12 @@ class RangedHParams(object):
     if name in orig_ctr:
       tf.logging.warning("Overwriting hparam %s", name)
 
-    ctr_names = [(self._categorical_params,
-                  "categorical"), (self._discrete_params, "discrete"),
-                 (self._float_params, "float"), (self._int_params, "int"),
-                 (self._discrete_float_params, "discrete_float")]
+    ctr_names = [
+        (self._categorical_params, "categorical"),
+        (self._discrete_params, "discrete"),
+        (self._float_params, "float"),
+        (self._int_params, "int"),
+    ]
     ctrs, names = list(zip(*ctr_names))
     orig_name = names[ctrs.index(orig_ctr)]
 
@@ -255,14 +289,8 @@ class RangedHParams(object):
     self._discrete_params[name] = (name, feasible_points, scale, length)
 
   def set_float(self, name, min_val, max_val, scale=None, length=None):
-    if name in self._discrete_float_params:
-      del self._discrete_float_params[name]
     self._check_reset_and_type_change(name, self._float_params)
     self._float_params[name] = (name, min_val, max_val, scale, length)
-
-  def set_discrete_float(self, name, val):
-    self._check_reset_and_type_change(name, self._discrete_float_params)
-    self._discrete_float_params[name] = (name, [val])
 
   def set_int(self, name, min_val, max_val, scale=None, length=None):
     self._check_reset_and_type_change(name, self._int_params)
@@ -270,8 +298,8 @@ class RangedHParams(object):
 
   def fix_select_params(self, hp):
     ctrs = [
-        self._categorical_params, self._discrete_params,
-        self._discrete_float_params, self._float_params, self._int_params
+        self._categorical_params, self._discrete_params, self._float_params,
+        self._int_params
     ]
     for key, val in hp.values().iteritems():
       for ctr in ctrs:
@@ -279,52 +307,56 @@ class RangedHParams(object):
           del ctr[key]
       self.set_discrete(key, [val])
 
+  def to_parameter_specs(self, name_prefix=""):
+    """To list of dicts suitable for Cloud ML Engine hyperparameter tuning."""
+    specs = []
+    for name, categories, _ in self._categorical_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "CATEGORICAL",
+          "categoricalValues": categories,
+      }
+      specs.append(spec)
 
-def fill_ranged_hparams_from_hparams(hparams, ranged_hparams):
-  """Fill ranged_hparams with singleton values from hparams.
+    for name, feasible_points, scale, _ in self._discrete_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "DISCRETE",
+          "discreteValues": feasible_points,
+      }
+      if scale:
+        spec["scaleType"] = self.SCALES_STR[scale]
+      specs.append(spec)
 
-  HParams are placed in RangedHParams with the following functions, according to
-  type:
-    * int: set_discrete
-    * bool: set_discrete
-    * float: set_discrete_float
-    * str: set_categorical
+    for name, min_val, max_val, scale, _ in self._float_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "DOUBLE",
+          "minValue": min_val,
+          "maxValue": max_val,
+      }
+      if scale:
+        spec["scaleType"] = self.SCALES_STR[scale]
+      specs.append(spec)
 
-  Args:
-    hparams: tf.contrib.training.HParams; contains the hyperparameters to copy
-      over to ranged_hparams.
-    ranged_hparams: RangedHParams; will have hparams values copied to it.
+    for name, min_val, max_val, scale, _ in self._int_params.values():
+      spec = {
+          "parameterName": name_prefix + name,
+          "type": "INTEGER",
+          "minValue": min_val,
+          "maxValue": max_val,
+      }
+      if scale:
+        spec["scaleType"] = self.SCALES_STR[scale]
+      specs.append(spec)
 
-  Raises:
-    ValueError: if hparams contains a hyperparameter not of type
-      {int, float, str, bool}.
-  """
-  for name, (hp_type, is_multivalent) in six.iteritems(hparams._hparam_types):  # pylint: disable=protected-access
-
-    if is_multivalent:
-      raise ValueError("Multivalent hparams not supported in RangedHParams. "
-                       "Hyperparameter %s is multivalent." % name)
-    val = getattr(hparams, name)
-    if hp_type == int:
-      ranged_hparams.set_discrete(name, [val])
-    elif hp_type == bool:
-      ranged_hparams.set_discrete(name, [int(val)])
-    elif hp_type == float:
-      ranged_hparams.set_discrete_float(name, val)
-    elif hp_type == str:
-      ranged_hparams.set_categorical(name, [val])
-    else:
-      raise ValueError("Unsupported type %s for param %s" % (hp_type, name))
+    return specs
 
 
 @registry.register_ranged_hparams("basic1")
 def basic_range1(ranged_hparams):
   """A basic range of hyperparameters."""
   rhp = ranged_hparams
-
-  hparams = basic_params1()
-  fill_ranged_hparams_from_hparams(hparams, rhp)
-
   rhp.set_discrete("batch_size", [1024, 2048, 4096])
   rhp.set_discrete("num_hidden_layers", [1, 2, 3, 4, 5, 6])
   rhp.set_discrete("hidden_size", [32, 64, 128, 256, 512], scale=rhp.LOG_SCALE)
@@ -340,7 +372,7 @@ def basic_range1(ranged_hparams):
                       ["uniform", "orthogonal", "uniform_unit_scaling"])
   rhp.set_float("initializer_gain", 0.5, 3.5)
   rhp.set_categorical("learning_rate_decay_scheme",
-                      ["none", "sqrt", "noam", "exp10k"])
+                      ["none", "sqrt", "noam", "exp"])
   rhp.set_float("optimizer_adam_epsilon", 1e-7, 1e-2, scale=rhp.LOG_SCALE)
   rhp.set_float("optimizer_adam_beta1", 0.8, 0.9)
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)
