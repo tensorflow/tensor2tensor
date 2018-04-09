@@ -551,7 +551,7 @@ class Problem(object):
       # Decode.
       dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
       # Preprocess if requested.
-      #   Note that preprocessing should happen per-file as order may matter.
+      # Note that preprocessing should happen per-file as order may matter.
       if preprocess:
         dataset = self.preprocess(dataset, mode, hparams)
       return dataset

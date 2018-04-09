@@ -1872,6 +1872,64 @@ def gated_linear_unit_layer(x, name=None):
     return x * tf.nn.sigmoid(gating_x)
 
 
+def sru(x, num_layers=2,
+        activation=None, initial_state=None, name=None, reuse=None):
+  """SRU cell as in https://arxiv.org/abs/1709.02755.
+
+  As defined in the paper:
+  (1) x'_t = W x_t
+  (2) f_t = sigmoid(Wf x_t + bf)
+  (3) r_t = sigmoid(Wr x_t + br)
+  (4) c_t = f_t * c_{t-1} + (1 - f_t) * x'_t
+  (5) h_t = r_t * activation(c_t) + (1 - r_t) * x_t
+
+  Args:
+    x: A tensor of shape [batch, ..., channels] ; ... is treated as time.
+    num_layers: How many SRU layers; default is 2 as results for 1 disappoint.
+    activation: Optional activation function, try tf.nn.tanh or tf.nn.relu.
+    initial_state: Optional initial c-state, set to zeros if None.
+    name: Optional name, "sru" by default.
+    reuse: Optional reuse.
+
+  Returns:
+    A tensor of the same shape as x.
+
+  Raises:
+    ValueError: if num_layers is not positive.
+  """
+  if num_layers < 1:
+    raise ValueError("Number of layers must be positive: %d" % num_layers)
+  with tf.variable_scope(name, default_name="sru", values=[x], reuse=reuse):
+    # We assume x is [batch, ..., channels] and treat all ... as time.
+    x_shape = shape_list(x)
+    x = tf.reshape(x, [x_shape[0], -1, x_shape[-1]])
+    x = tf.transpose(x, [1, 0, 2])  # Scan assumes time on axis 0.
+    initial_state = initial_state or tf.zeros([x_shape[0], x_shape[-1]])
+    # SRU state manipulation function.
+    def next_state(cur_state, (cur_x_times_one_minus_f, cur_f)):
+      return cur_f * cur_state + cur_x_times_one_minus_f
+    # Calculate SRU on each layer.
+    for i in xrange(num_layers):
+      # The parallel part of the SRU.
+      x_orig = x
+      x, f, r = tf.split(tf.layers.dense(x, 3 * x_shape[-1],
+                                         name="kernel_%d" % i), 3, axis=-1)
+      f, r = tf.sigmoid(f), tf.sigmoid(r)
+      x_times_one_minus_f = x * (1.0 - f)  # Compute in parallel for speed.
+      # Calculate states.
+      c_states = tf.scan(next_state, (x_times_one_minus_f, f),
+                         initializer=initial_state,
+                         parallel_iterations=2, name="scan_%d" % i)
+      # Final output.
+      if activation is not None:
+        c_states = activation(c_states)
+      h = c_states * r + (1.0 - r) * x_orig
+      x = h  # Next layer.
+    # Transpose back to batch-major.
+    x = tf.transpose(x, [1, 0, 2])
+    return tf.reshape(x, x_shape)
+
+
 def linear_set_layer(layer_size,
                      inputs,
                      context=None,
