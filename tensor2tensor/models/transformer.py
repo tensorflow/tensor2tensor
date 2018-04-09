@@ -625,7 +625,7 @@ def transformer_prepare_decoder(targets, hparams, features=None):
 
   Returns:
     decoder_input: a Tensor, bottom of decoder stack
-    decoder_self_attention_bias: a bias tensor for use in encoder self-attention
+    decoder_self_attention_bias: a bias tensor for use in decoder self-attention
   """
   if hparams.prepend_mode == "prepend_inputs_full_attention":
     decoder_self_attention_bias = (
