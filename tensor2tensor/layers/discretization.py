@@ -142,7 +142,10 @@ def embedding_lookup(x,
   x_means_hot = nearest_neighbor(x, means, block_v_size, random_top_k, soft_em,
                                  inv_temp, ema_count)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
-  x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
+  x_means_idx = tf.argmax(x_means_hot_flat, axis=-1)
+  x_means = tf.matmul(
+      tf.transpose(tf.one_hot(x_means_idx, block_v_size), perm=[1, 0, 2]),
+      means)
   x_means = tf.transpose(x_means, [1, 0, 2])
   q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
   e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
