@@ -55,9 +55,7 @@ class GymDiscreteProblem(problem.Problem):
   def example_reading_spec(self, label_repr=None):
 
     data_fields = {
-        "inputs": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        "inputs_prev": tf.FixedLenFeature([210, 160, 3], tf.int64),
-        "targets": tf.FixedLenFeature([210, 160, 3], tf.int64),
+        "frame": tf.FixedLenFeature([210, 160, 3], tf.int64),
         "action": tf.FixedLenFeature([1], tf.int64),
         "reward": tf.FixedLenFeature([1], tf.int64)
     }
@@ -103,6 +101,29 @@ class GymDiscreteProblem(problem.Problem):
   def num_dev_shards(self):
     return 1
 
+  def preprocess(self, dataset, mode, hparams):
+    def unbatch(batched_features, n):
+      """Split each feature in batched_features into a list of n tensors."""
+      result = {}
+      for k, v in batched_features.iteritems():
+        result[k] = [tf.squeeze(t, axis=0) for t in tf.split(v, n)]
+      return result
+
+    def features_from_batch(batched_prefeatures):
+      """Construct final features from the batched inputs."""
+      unbatched = unbatch(batched_prefeatures, 3)
+      frames = unbatched["frame"]
+      return {"inputs_prev": frames[0],
+              "inputs": frames[1],
+              "targets": frames[2],
+              "action": unbatched["action"][1],
+              "reward": unbatched["reward"][1]}
+
+    # Batch and construct features.
+    batch_dataset = dataset.apply(
+        tf.contrib.data.batch_and_drop_remainder(3))
+    return batch_dataset.map(features_from_batch)
+
   def get_action(self, observation=None):
     return self.env.action_space.sample()
 
@@ -119,10 +140,7 @@ class GymDiscreteProblem(problem.Problem):
   def generator(self, data_dir, tmp_dir):
     self.env.reset()
     action = self.get_action()
-    prev_observation, observation = None, None
     for _ in range(self.num_steps):
-      prev_prev_observation = prev_observation
-      prev_observation = observation
       observation, reward, done, _ = self.env.step(action)
       action = self.get_action(observation)
       if done:
@@ -130,13 +148,10 @@ class GymDiscreteProblem(problem.Problem):
       def flatten(nparray):
         flat1 = [x for sublist in nparray.tolist() for x in sublist]
         return [x for sublist in flat1 for x in sublist]
-      if prev_prev_observation is not None:
-        yield {"inputs_prev": flatten(prev_prev_observation),
-               "inputs": flatten(prev_observation),
-               "action": [action],
-               "done": [done],
-               "reward": [int(reward)],
-               "targets": flatten(observation)}
+      yield {"frame": flatten(observation),
+             "action": [action],
+             "done": [done],
+             "reward": [int(reward)]}
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     train_paths = self.training_filepaths(
@@ -163,7 +178,7 @@ class GymPongRandom5k(GymDiscreteProblem):
 
   @property
   def num_rewards(self):
-    return 2
+    return 3
 
   @property
   def num_steps(self):
