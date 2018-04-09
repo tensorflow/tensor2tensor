@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,15 +30,6 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 from tensorflow.python.eager import context
-
-
-# TODO(noam): remove this function after TPUs do gather faster.
-def tpu_gather(params, indices):
-  vocab_size = params.get_shape().as_list()[0]
-  indices_flat = tf.reshape(indices, [-1])
-  out = tf.matmul(tf.one_hot(indices_flat, vocab_size), params)
-  out = eu.reshape_like(out, tf.expand_dims(indices, -1))
-  return out
 
 
 @registry.register_symbol_modality("default")
@@ -104,11 +95,16 @@ class SymbolModality(modality.Modality):
 
   def bottom_simple(self, x, name, reuse):
     with tf.variable_scope(name, reuse=reuse):
-      # Squeeze out the channels dimension.
-      x = tf.squeeze(x, axis=3)
+      # Ensure the inputs are 3-D
+      if len(x.get_shape()) == 4:
+        x = tf.squeeze(x, axis=3)
+      while len(x.get_shape()) < 3:
+        x = tf.expand_dims(x, axis=-1)
+
       var = self._get_weights()
-      ret = (tpu_gather(var, x) if self._model_hparams.use_tpu
-             else tf.gather(var, x))
+      x = common_layers.dropout_no_scaling(
+          x, 1.0 - self._model_hparams.symbol_dropout)
+      ret = common_layers.gather(var, x)
       if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
         ret *= self._body_input_depth**0.5
       ret *= tf.expand_dims(tf.to_float(tf.not_equal(x, 0)), -1)
@@ -160,7 +156,7 @@ class SymbolModality(modality.Modality):
       else:
         body_output = tf.reshape(body_output, [-1, body_output_shape[-1]])
         logits = tf.matmul(body_output, var, transpose_b=True)
-        if (self._model_hparams.use_tpu and
+        if (common_layers.is_on_tpu() and
             self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN):
           # TPU does not react kindly to extra dimensions.
           # TODO(noam): remove this once TPU is more forgiving of extra dims.
@@ -176,7 +172,7 @@ class CTCSymbolModality(SymbolModality):
 
   def loss(self, logits, targets):
     """Compute the CTC loss."""
-    with tf.name_scope("ctc_loss", [logits, targets]):
+    with tf.name_scope("ctc_loss", values=[logits, targets]):
       # For CTC we assume targets are 1d, [batch, length, 1, 1] here.
       targets_shape = targets.get_shape().as_list()
       assert len(targets_shape) == 4
@@ -202,77 +198,94 @@ class CTCSymbolModality(SymbolModality):
 @registry.register_image_modality("default")
 class ImageModality(modality.Modality):
   """Modality for images."""
-  NUM_CHANNELS = 3
+  PIXEL_EMBEDDING_SIZE = 64
 
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
-      inputs = common_layers.standardize_images(inputs)
+      inputs = tf.to_float(inputs)
       if not context.in_eager_mode():
         tf.summary.image("inputs", inputs, max_outputs=2)
-      return tf.to_float(inputs)
+      return inputs
 
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
-      # Reshape inputs to 2-d tensor and embed the RGB pixel values.
-      ret = common_layers.embedding(
-          tf.to_int32(common_layers.flatten4d3d(inputs)),
-          self.top_dimensionality,
-          self._body_input_depth,
-          name="input_rgb_embedding")
-      if self._model_hparams.multiply_embedding_mode == "sqrt_depth":
-        ret *= self._body_input_depth**0.5
-
-      reshape_shape = common_layers.shape_list(inputs)[:3]
-      reshape_shape.append(self._body_input_depth * 3)
-      ret = tf.reshape(ret, reshape_shape)
-      return tf.layers.dense(ret, self._body_input_depth)
+      if not context.in_eager_mode():
+        tf.summary.image("targets_bottom",
+                         tf.cast(inputs, tf.uint8), max_outputs=1)
+      inputs_shape = common_layers.shape_list(inputs)
+      if len(inputs_shape) != 4:
+        raise ValueError("Assuming images given as int tensors in the format "
+                         "[batch, height, width, channels] (256 values).")
+      # We embed each of 256=self.top_dimensionality possible pixel values.
+      embedding_var = tf.get_variable(
+          "pixel_embedding",
+          [self.top_dimensionality, self.PIXEL_EMBEDDING_SIZE])
+      hot_inputs = tf.one_hot(tf.to_int32(inputs), self.top_dimensionality)
+      hot_inputs = tf.reshape(hot_inputs, [-1, self.top_dimensionality])
+      embedded = tf.matmul(hot_inputs, embedding_var)
+      # Let's now merge all channels that were embedded into a single vector.
+      merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[3]
+      embedded = tf.reshape(embedded, inputs_shape[:3] + [merged_size])
+      merged = tf.layers.dense(embedded, self._body_input_depth,
+                               name="merge_pixel_embedded_channels")
+      return merged
 
   def top(self, body_output, _):
+    # TODO(lukaszkaiser): is this a universal enough way to get channels?
+    num_channels = self._model_hparams.problem_instances[0].num_channels
     with tf.variable_scope("rgb_softmax"):
-
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
-      dim = body_output_shape[-1] // 3
-      reshape_shape.extend([self.NUM_CHANNELS, dim])
-
-      out = tf.reshape(body_output, reshape_shape)
-      res = tf.layers.dense(out, self.top_dimensionality)
+      reshape_shape.extend([num_channels, self.top_dimensionality])
+      res = tf.layers.dense(body_output, self.top_dimensionality * num_channels)
+      res = tf.reshape(res, reshape_shape)
       if not tf.get_variable_scope().reuse:
         res_argmax = tf.cast(tf.argmax(res, axis=-1), tf.uint8)
         tf.summary.image("result", res_argmax, max_outputs=1)
       return res
 
+  def loss(self, logits, targets):
+    """Compute loss numerator and denominator for one shard of output."""
+    return common_layers.padded_cross_entropy(
+        logits,
+        targets,
+        self._model_hparams.label_smoothing,
+        weights_fn=self.targets_weights_fn,
+        gaussian=True)
 
-@registry.register_image_modality("image_identity_compress")
-class ImageIdentityCompressModality(modality.Modality):
-  """Modality for images used in generation."""
+
+@registry.register_image_modality("image_channel_compress")
+class ImageChannelCompressModality(modality.Modality):
+  """Modality for images using channel compression for generation."""
 
   def bottom_compress(self, inputs, name="bottom"):
     """Transform input from data space to model space.
 
-    Perform conversion of RGB pixel values to a real number and combine values
-    for each pixel to form representation of image_length x image_length dims.
+    Perform conversion of RGB pixel values to a real number in the range -1 to 1
+    and combine channel values for each pixel to form a representation of
+    size image_length x image_length dims.
 
     Args:
-      inputs: A Tensor with shape [batch, ...]
+      inputs: A Tensor representing pixel intensities as integers. [batch, ...]
       name: string, scope.
     Returns:
       body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
     """
     with tf.variable_scope(name):
+      inputs = tf.to_float(inputs)
+      tf.summary.image("inputs", inputs, max_outputs=2)
       inputs = common_layers.convert_rgb_to_real(inputs)
       ishape = common_layers.shape_list(inputs)
       inputs = tf.reshape(inputs, [-1, ishape[1], ishape[2] * ishape[3], 1])
       inputs.set_shape([None, None, None, 1])
       # We compress RGB intensities for each pixel using a conv.
-      x = common_layers.conv_block(
-          inputs,
-          self._body_input_depth, [((1, 1), (1, 3))],
-          first_relu=False,
-          padding="VALID",
-          strides=(1, 3),
-          force2d=True,
-          name="conv_input")
+      x = tf.layers.conv2d(inputs,
+                           self._body_input_depth, (1, 3),
+                           padding="VALID",
+                           strides=(1, 3),
+                           activation=tf.nn.relu,
+                           name="conv_input")
+      x.set_shape([None, None, None, self._body_input_depth])
       return x
 
   def bottom(self, inputs):
@@ -287,16 +300,61 @@ class ImageIdentityCompressModality(modality.Modality):
       img_len = self._model_hparams.img_len
       channels = self._model_hparams.num_channels
       batch = common_layers.shape_list(body_output)[0]
-      x = common_layers.conv(
+      x = tf.layers.conv2d(
           body_output,
-          hidden_dim * channels, (1, 1),
+          hidden_dim*channels, (1, 1),
+          strides=(1, 1),
           padding="VALID",
           activation=tf.nn.relu,
           name="decompress_conv")
       x = tf.reshape(x, [batch, img_len, img_len * channels, hidden_dim])
-      x.set_shape([None, None, None, hidden_dim])
-      x = common_layers.conv(
-          x, self.top_dimensionality, (1, 1), name="output_conv")
+      x = common_layers.layer_preprocess(x, self._model_hparams)
+      x = tf.layers.dense(x, 256,
+                          use_bias=True, activation=None,
+                          name="output_conv")
+      x = tf.reshape(x,
+                     [-1, img_len, img_len, channels, self.top_dimensionality])
+      return x
+
+
+@registry.register_image_modality("channel_embeddings_bottom")
+class ImageChannelEmbeddingsBottom(modality.Modality):
+  """Modality for images using channel compression for generation."""
+
+  def get_channel_embeddings(self, io_depth, targets, hidden_size,
+                             name="channel"):
+    """Get separate embedding for each of the channels."""
+    targets_split = tf.split(targets, io_depth, axis=3)
+    rgb_embedding_var = tf.get_variable("rgb_target_emb_%s" % name,
+                                        [256 * io_depth, hidden_size])
+    rgb_embedding_var = tf.identity(rgb_embedding_var)
+    rgb_embedding_var *= float(hidden_size)**0.5
+    channel_target_embs = []
+    for i in xrange(io_depth):
+      # Adding the channel offsets to get the right embedding since the
+      # embedding tensor has shape 256 * io_depth, hidden_size
+      target_ids = tf.squeeze(targets_split[i], axis=3) + i * 256
+      target_embs = common_layers.gather(rgb_embedding_var, target_ids)
+      channel_target_embs.append(target_embs)
+
+    return tf.concat(channel_target_embs, axis=-1)
+
+  def targets_bottom(self, inputs):
+    io_depth = self._model_hparams.num_channels
+    tshape = common_layers.shape_list(inputs)
+    hidden_size = self._model_hparams.hidden_size
+    target_embeddings = self.get_channel_embeddings(
+        io_depth, inputs, hidden_size, "input_bottom")
+    return tf.reshape(target_embeddings,
+                      [tshape[0], tshape[1], tshape[2]*io_depth, hidden_size])
+
+  def top(self, body_output, _):
+    with tf.variable_scope(self.name):
+      img_len = self._model_hparams.img_len
+      channels = self._model_hparams.num_channels
+      x = tf.layers.dense(body_output, 256,
+                          use_bias=True, activation=None,
+                          name="output_conv")
       x = tf.reshape(x,
                      [-1, img_len, img_len, channels, self.top_dimensionality])
       return x
@@ -490,19 +548,6 @@ class RealLogPoissonLossModality(RealModality):
       return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
 
 
-@registry.register_generic_modality("zero_loss")
-@registry.register_audio_modality("zero_loss")
-@registry.register_image_modality("zero_loss")
-@registry.register_symbol_modality("zero_loss")
-@registry.register_class_label_modality("zero_loss")
-@registry.register_real_modality("zero_loss")
-class IdentityZeroLossModality(IdentityModality):
-  """Identity with 0 loss."""
-
-  def loss(self, top_out, targets):
-    return tf.constant(0., tf.float32), tf.constant(0., tf.float32)
-
-
 @registry.register_symbol_modality("identity")
 class IdentitySymbolModality(SymbolModality):
   """Symbol modality with identity top and bottom transformations.
@@ -515,3 +560,30 @@ class IdentitySymbolModality(SymbolModality):
 
   def top(self, body_output, _):
     return body_output
+
+  def targets_bottom(self, x):
+    """SymbolModality overrides targets_bottom, so need to override here too."""
+    return self.bottom(x)
+
+  @property
+  def top_is_pointwise(self):
+    # pointwise mode manipulates body output, not logits, so it fails here.
+    return False
+
+
+@registry.register_class_label_modality("sigmoid")
+class SigmoidClassLabelModality(ClassLabelModality):
+  """Sigmoid cross-entropy for independent class labels."""
+
+  @property
+  def name(self):
+    return "sigmoid_class_symbol_modality_%d_%d" % (self._vocab_size,
+                                                    self.body_input_depth)
+
+  def loss(self, top_out, targets):
+    loss_scale = tf.nn.sigmoid_cross_entropy_with_logits(
+        labels=targets, logits=top_out, name="SigmoidCrossEntropy")
+    # Weigh all classes equally
+    weights = self.targets_weights_fn(targets)
+    loss_denom = tf.reduce_sum(weights)
+    return loss_scale, loss_denom
