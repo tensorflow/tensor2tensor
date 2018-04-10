@@ -1221,6 +1221,15 @@ def transformer_big_enfr():
 
 
 @registry.register_hparams
+def transformer_big_enfr_tpu():
+  hparams = transformer_big_enfr()
+  # For performance, use fewer heads so that matrix dimensions are at least 128
+  hparams.num_heads = 8
+  update_hparams_for_tpu(hparams)
+  return hparams
+
+
+@registry.register_hparams
 def transformer_big_dr2():
   hparams = transformer_big_dr1()
   hparams.layer_prepostprocess_dropout = 0.2
