@@ -71,11 +71,7 @@ flags.DEFINE_integer("intra_op_parallelism_threads", 0,
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
-
-  # Fathom: we changed the default here from continuous_train_and_eval
-  # to train_and_evaluate. We did this because
-  # continuous_train_and_eval does not work with ValidationMonitor.
-  flags.DEFINE_string("schedule", "train_and_evaluate",
+  flags.DEFINE_string("schedule", "continuous_train_and_eval",
                       "Method of Experiment to run.")
   flags.DEFINE_integer("eval_steps", 10000,
                        "Number of steps in evaluation. By default, eval will "
@@ -123,7 +119,6 @@ flags.DEFINE_integer("autotune_parallel_trials", 1,
 flags.DEFINE_string("job-dir", None,
                     "DO NOT USE. Exists only for Cloud ML Engine to pass in "
                     "during hyperparameter tuning. Overrides --output_dir.")
-
 
 def set_hparams_from_args(args):
   """Set hparams overrides from unparsed args list."""
