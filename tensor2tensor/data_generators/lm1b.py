@@ -19,8 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import defaultdict
-
 import os
 import tarfile
 
@@ -32,7 +30,6 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
-from tensor2tensor.data_generators import tokenizer
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -109,46 +106,13 @@ def _maybe_download_corpus(tmp_dir):
       corpus_tar.extractall(tmp_dir)
 
 
-def _get_or_build_subword_text_encoder(tmp_dir, vocab_filepath, target_size):
-  """Builds a SubwordTextEncoder based on the corpus.
-
-  Args:
-    tmp_dir: directory containing dataset.
-    vocab_filepath: path to store (or load) vocab.
-    target_size: an optional integer.
-
-  Returns:
-    a SubwordTextEncoder.
-  """
-  if tf.gfile.Exists(vocab_filepath):
-    return text_encoder.SubwordTextEncoder(vocab_filepath)
-  _maybe_download_corpus(tmp_dir)
-  original_vocab = _original_vocab(tmp_dir)
-  token_counts = defaultdict(int)
-  line_count = 0
-  max_lines = 63000
-  for line in tf.gfile.Open(_train_data_filenames(tmp_dir)[0]):
-    tokens = tokenizer.encode(
-        _replace_oov(original_vocab, text_encoder.native_to_unicode(line)))
-    for tok in tokens:
-      token_counts[tok] += 1
-    line_count += 1
-    if line_count >= max_lines:
-      break
-  if target_size == 2**15:
-    # legacy behavior
-    ret = text_encoder.SubwordTextEncoder()
-    ret.build_from_token_counts(token_counts, min_count=5)
-  else:
-    ret = text_encoder.SubwordTextEncoder.build_to_target_size(
-        target_size, token_counts, 1, 1000)
-  ret.store_to_file(vocab_filepath)
-  return ret
-
-
 @registry.register_problem
 class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
-  """A language model on the 1B words corpus."""
+  """A language model on the 1B words corpus.
+
+  Ratio of dev tokens (including eos) to dev words (including eos)
+  176884 / 159658 = 1.107893; multiply log_ppl by this to compare results.
+  """
 
   @property
   def vocab_filename(self):
@@ -157,6 +121,10 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
   @property
   def approx_vocab_size(self):
     return 2**15  # 32768
+
+  @property
+  def max_samples_for_vocab(self):
+    return 63000
 
   def is_generate_per_split(self):
     return True
@@ -178,13 +146,17 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
 
 
 @registry.register_problem
-class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32k):
-  """A language model on the 1B words corpus.
+class LanguagemodelLm1b32kPacked(LanguagemodelLm1b32k):
+  """Packed version for TPU training."""
 
-  8k vocabualry.
-  Training/eval examples are concatenated to a maximum length of 256.
+  @property
+  def packed_length(self):
+    return 256
 
-  Happy TPU Training.
+
+@registry.register_problem
+class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32kPacked):
+  """Packed version, 8k vocabulary.
 
   Ratio of dev tokens (including eos) to dev words (including eos)
   207351 / 159658 = 1.29872; multiply log-ppl by this to compare results.
@@ -193,10 +165,6 @@ class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32k):
   @property
   def approx_vocab_size(self):
     return 2**13  # 8192
-
-  @property
-  def packed_length(self):
-    return 256
 
 
 @registry.register_problem

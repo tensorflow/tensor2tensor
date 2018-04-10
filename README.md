@@ -355,6 +355,23 @@ README](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/da
 
 ## Papers
 
+When referencing Tensor2Tensor, please cite [this
+paper](https://arxiv.org/abs/1803.07416).
+
+```
+@article{tensor2tensor,
+  author    = {Ashish Vaswani and Samy Bengio and Eugene Brevdo and
+    Francois Chollet and Aidan N. Gomez and Stephan Gouws and Llion Jones and
+    \L{}ukasz Kaiser and Nal Kalchbrenner and Niki Parmar and Ryan Sepassi and
+    Noam Shazeer and Jakob Uszkoreit},
+  title     = {Tensor2Tensor for Neural Machine Translation},
+  journal   = {CoRR},
+  volume    = {abs/1803.07416},
+  year      = {2018},
+  url       = {http://arxiv.org/abs/1803.07416},
+}
+```
+
 Tensor2Tensor was used to develop a number of state-of-the-art models
 and deep learning methods. Here we list some papers that were based on T2T
 from the start and benefited from its features and architecture in ways
@@ -369,6 +386,8 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
 * [Generating Wikipedia by Summarizing Long
    Sequences](https://arxiv.org/abs/1801.10198)
 * [Image Transformer](https://arxiv.org/abs/1802.05751)
-* [Training Tips for the Transformer Model](http://ufallab.ms.mff.cuni.cz/~popel/training-tips-transformer.pdf)
+* [Training Tips for the Transformer Model](https://arxiv.org/abs/1804.00247)
+* [Self-Attention with Relative Position Representations](https://arxiv.org/abs/1803.02155)
+* [Fast Decoding in Sequence Models using Discrete Latent Variables](https://arxiv.org/abs/1803.03382)
 
 *Note: This is not an official Google product.*

@@ -11,12 +11,15 @@ env:
     - TF_VERSION="1.4.*"
     - TF_VERSION="1.5.*"
     - TF_VERSION="1.6.*"
+    - TF_VERSION="1.7.*"
 matrix:
   exclude:
     - python: "3.6"
       env: TF_VERSION="1.4.*"
     - python: "3.6"
       env: TF_VERSION="1.5.*"
+    - python: "3.6"
+      env: TF_VERSION="1.6.*"
 before_install:
   - echo "deb [arch=amd64] http://storage.googleapis.com/tensorflow-serving-apt stable tensorflow-model-server tensorflow-model-server-universal" | sudo tee /etc/apt/sources.list.d/tensorflow-serving.list
   - curl https://storage.googleapis.com/tensorflow-serving-apt/tensorflow-serving.release.pub.gpg | sudo apt-key add -
@@ -58,12 +61,13 @@ script:
   - t2t-decoder --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
 
   # Export and query (on Python 2 only)
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "1.5.*"  ]]; then
-        t2t-exporter --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR;
-        pip install tensorflow-serving-api;
-        tensorflow_model_server --port=9000 --model_name=my_model --model_base_path=$T2T_TRAIN_DIR/export/Servo &
-        sleep 10;
-        t2t-query-server --problem=$T2T_PROBLEM --server=localhost:9000 --servable_name=my_model --data_dir=$T2T_DATA_DIR --inputs_once='1 0 1 0 1 0';
-    fi
+  # Bug: https://github.com/tensorflow/serving/issues/819
+  #- if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "1.6.*"  ]]; then
+  #      t2t-exporter --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR;
+  #      pip install tensorflow-serving-api;
+  #      tensorflow_model_server --port=9000 --model_name=my_model --model_base_path=$T2T_TRAIN_DIR/export/Servo &
+  #      sleep 10;
+  #      t2t-query-server --problem=$T2T_PROBLEM --server=localhost:9000 --servable_name=my_model --data_dir=$T2T_DATA_DIR --inputs_once='1 0 1 0 1 0';
+  #  fi
 git:
   depth: 3

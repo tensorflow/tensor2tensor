@@ -22,7 +22,6 @@ from __future__ import print_function
 import functools
 
 # Dependency imports
-from collections import deque
 
 import gym
 import os
@@ -166,9 +165,7 @@ class GymDiscreteProblem(problem.Problem):
     # that 0 is a special symbol meaning padding
     # when symbols are e.g. 0, 1, 2, 3 we
     # shift them to 0, 1, 2, 3, 4
-    #TODO: check if we do not need to change symbol:identity to symbol
-    #TODO: verify if we handle actions correctly. Curretly not adding +1?
-    p.input_modality = {"action": ("symbol:identity", self.num_actions)}
+    p.input_modality = {"action": ("symbol", self.num_actions)}
 
     for x in range(self.history_size):
       p.input_modality["inputs_{}".format(x)] = ("image", 256)

@@ -171,3 +171,50 @@ def afx_adafactor():
   hparams.learning_rate_schedule = "rsqrt_decay"
   hparams.learning_rate_warmup_steps = 10000
   return hparams
+
+
+@registry.register_hparams
+def afx_small():
+  """Small transformer model with small batch size for fast step times."""
+  hparams = transformer.transformer_tpu()
+  hparams.filter_size = 1024
+  hparams.num_heads = 4
+  hparams.num_hidden_layers = 3
+  hparams.batch_size = 512
+  return hparams
+
+
+@registry.register_hparams
+def afx_small_p16():
+  """Small transformer model with small batch size for fast step times."""
+  hparams = afx_small()
+  hparams.add_hparam("simulated_quantize_bits", 16)
+  return hparams
+
+
+@registry.register_hparams
+def afx_small_p12():
+  hparams = afx_small()
+  hparams.add_hparam("simulated_parameter_quantize_bits", 12)
+  return hparams
+
+
+@registry.register_hparams
+def afx_small_p11():
+  hparams = afx_small()
+  hparams.add_hparam("simulated_parameter_quantize_bits", 11)
+  return hparams
+
+
+@registry.register_hparams
+def afx_small_p10():
+  hparams = afx_small()
+  hparams.add_hparam("simulated_parameter_quantize_bits", 10)
+  return hparams
+
+
+@registry.register_hparams
+def afx_small_p8():
+  hparams = afx_small()
+  hparams.add_hparam("simulated_parameter_quantize_bits", 8)
+  return hparams

@@ -41,10 +41,12 @@ from tensor2tensor.data_generators import ocr
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.data_generators import ptb
 from tensor2tensor.data_generators import snli
+from tensor2tensor.data_generators import squad
 from tensor2tensor.data_generators import translate_encs
 from tensor2tensor.data_generators import translate_ende
 from tensor2tensor.data_generators import translate_enfr
 from tensor2tensor.data_generators import translate_enmk
+from tensor2tensor.data_generators import translate_envi
 from tensor2tensor.data_generators import translate_enzh
 from tensor2tensor.data_generators import twentybn
 from tensor2tensor.data_generators import wiki
