@@ -82,7 +82,7 @@ def create_decode_hparams():
 
 def decode(estimator, hparams, decode_hp):
   if FLAGS.decode_interactive:
-    decoding.decode_interactively(estimator, hparams, decode_hp)
+    decoding.decode_interactively(estimator, hparams, decode_hp, checkpoint_path=FLAGS.checkpoint_path)
   elif FLAGS.decode_from_file:
     decoding.decode_from_file(estimator, FLAGS.decode_from_file, hparams,
                               decode_hp, FLAGS.decode_to_file,
