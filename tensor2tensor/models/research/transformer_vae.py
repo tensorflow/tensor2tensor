@@ -703,7 +703,6 @@ def transformer_ae_small():
   hparams.add_hparam("num_compress_steps", 3)
   hparams.add_hparam("startup_steps", 10000)
   hparams.add_hparam("mask_startup_steps", 50000)
-  hparams.add_hparam("kmeans_lr_factor", 0.002)
   hparams.add_hparam("z_dropout", 0.1)
   hparams.add_hparam("is_2d", 0)
   hparams.add_hparam("softmax_k", 0)
@@ -732,7 +731,6 @@ def imagetransformer_ae_cifar():
   hparams.filter_size = 512
   hparams.num_compress_steps = 3
   hparams.startup_steps = 10000
-  hparams.kmeans_lr_factor = 0.0
   hparams.is_2d = 0
   hparams.learning_rate_warmup_steps = 8000
   hparams.learning_rate = 0.2
