@@ -1355,6 +1355,14 @@ def transformer_tpu():
 
 
 @registry.register_hparams
+def transformer_tpu_bf16_activation():
+  """HParams for Transformer model with BF16 activation on TPU."""
+  hparams = transformer_tpu()
+  hparams.activation_dtype = "bfloat16"
+  return hparams
+
+
+@registry.register_hparams
 def transformer_packed_tpu():
   """Deprecated alias for transformer_tpu()."""
   return transformer_tpu()
