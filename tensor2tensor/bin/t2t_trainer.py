@@ -36,6 +36,8 @@ from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
 
+import fathomt2t.t2t_utils.t2t_trainer_utils as fathom
+
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -148,29 +150,6 @@ def set_hparams_from_args(args):
   if FLAGS.hparams:
     as_hparams = "," + as_hparams
   FLAGS.hparams += as_hparams
-
-##################
-#
-# FATHOM ADDITIONS
-#
-##################
-import fathomt2t
-import fathomairflow.dags.dag_management.xcom_manipulation as xcom
-from fathomairflow.dags.dag_management.task_builders.xcom_keys import (
-    XCOM_GCS_MODEL_SUBPATH,
-    DATA_DIR, TMP_DIR)
-from fathomtf.services.model_management import (upload_model_to_gcs,
-                                                fix_paths_for_workspace)
-import os
-flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
-# NOTE: this is set as REQUIRED, in main()
-flags.DEFINE_string("airflow_pipeline_yaml", None,
-    "For saving to assets.extra")
-flags.DEFINE_string("description", "",
-    "Description for this run.  Used in model name.  E.g., 'special_softmax'.")
-flags.DEFINE_string("timestamp", "",
-    "Timestamp for this run.  This is generally expected to be the DAG execution date,"
-    " *not* the timestamp that this specific model was trained.")
 
 def get_problem_name():
   problems = FLAGS.problems.split("-")
@@ -341,7 +320,6 @@ def execute_schedule(exp):
   with profile_context():
     getattr(exp, FLAGS.schedule)()
 
-
 @contextlib.contextmanager
 def maybe_cloud_tpu():
   """If FLAGS.cloud_tpu is set, setup Cloud instances."""
@@ -360,72 +338,14 @@ def maybe_cloud_tpu():
   with cloud_tpu.cloud_tpu(
       FLAGS.cloud_vm_name,
       FLAGS.cloud_tpu_name,
-      delete_on_done=FLAGS.cloud_delete_on_done,
-      skip_confirmation=FLAGS.cloud_skip_confirmation) as tpu_master:
+      delete_on_done=FLAGS.cloud_delete_on_done) as tpu_master:
     FLAGS.master = tpu_master
     yield
-
-# Fathom
-def _pick_optimal_model() -> None:
-    """Update the checkpoint so that it points to the best model that was
-    encountered during training. Here "best" is defined as the lowest or
-    highest value of the chosen early stopping metric. (By default,
-    lowest loss.)
-
-    We do this automatically based on knowledge of how early stopping
-    works; i.e., we take the model that prevented early stopping from
-    stopping before it did.
-    """
-
-    #if FLAGS.debug_mode:
-        #return
-
-    checkpoint_state = tf.train.get_checkpoint_state(FLAGS.output_dir)
-    all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
-
-    def extract_step(path):
-        """Extract the step number from a checkpoint path
-
-        Args:
-            path: a path, e.g., model.ckpt-17
-
-        Returns:
-            step: the step number as an int, e.g., 17
-        """
-        return int(path[path.rindex('-') + 1:])
-
-    # get available step numbers
-    steps = [(extract_step(path), path) for path in all_checkpoint_paths]
-    steps = sorted(steps)
-    steps, all_checkpoint_paths = zip(*steps)
-    all_checkpoint_paths = list(all_checkpoint_paths)
-
-    # the step we want is the last one that would have allowed us to
-    # stop when we did (at steps[-1])
-    thresh = steps[-1] - FLAGS.eval_early_stopping_steps
-
-    # get the last step that is <= thresh. Note that the early
-    # stopping flags are phrased in terms of step number, not how many
-    # times we've run eval.
-    best_step_index = [step <= thresh for step in steps].index(False) - 1
-    if not FLAGS.debug_mode:
-        assert best_step_index >= 0, 'Early stopping stopped before it should have'
-
-
-    # this is the checkpoint we want
-    checkpoint_path = all_checkpoint_paths[best_step_index]
-
-    print('Early stopping chose checkpoint', checkpoint_path)
-
-    tf.train.update_checkpoint_state(
-      FLAGS.output_dir,
-      checkpoint_path,
-      [checkpoint_path])
 
 
 def main(argv):
   # Fathom
-  fix_paths_for_workspace(FLAGS, get_problem_name())
+  fathom.t2t_trainer_setup(FLAGS, get_problem_name())
 
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
@@ -434,31 +354,17 @@ def main(argv):
 
   if FLAGS.cloud_mlengine:
     return cloud_mlengine.launch()
-  FLAGS.output_dir = fhfile.get_workspace_path(FLAGS.output_dir)
 
   if FLAGS.generate_data:
     generate_data()
 
   if cloud_mlengine.job_dir():
     FLAGS.output_dir = cloud_mlengine.job_dir()
-  # Fathom
-  if FLAGS.debug_mode:
-    FLAGS.train_steps = 1
-    FLAGS.eval_steps = 1
-
-  # Fathom
-  assert FLAGS.schedule == 'train_and_evaluate'
     
   if argv:
     set_hparams_from_args(argv[1:])
-  problem_name = get_problem_name()
-  problem = registry.problem(problem_name)
-  for flag, _ in problem.file_flags_for_export_with_model().items():
-    curr_val = FLAGS.__getattr__(flag)
-    new_val = fhfile.get_workspace_path(curr_val)
-    FLAGS.__setattr__(flag, new_val)
-
   hparams = create_hparams()
+  hparams = fathom.adjust_params_for_scaling(hparams)
 
   with maybe_cloud_tpu():
     exp_fn = create_experiment_fn()
@@ -466,20 +372,10 @@ def main(argv):
     if is_chief():
       save_metadata(hparams)
     execute_schedule(exp)
-  
-  # Fathom
-  #if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None:
-  if FLAGS.eval_early_stopping_steps is not None:
-    _pick_optimal_model()
-  dir_path, model_name = upload_model_to_gcs(FLAGS=FLAGS)
 
-  # Fathom
   # NOTE: this must run LAST in the process, to make sure STDOUT is
   # appropriately populated.
-  xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path,
-                                  XCOM_GCS_MODEL_SUBPATH: model_name,
-                                  DATA_DIR: FLAGS.data_dir,
-                                  TMP_DIR: FLAGS.tmp_dir})
+  fathom.t2t_trainer_cleanup()
 
 if __name__ == "__main__":
   # Fathom
