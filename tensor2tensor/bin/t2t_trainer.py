@@ -35,6 +35,8 @@ from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
 
+import fathomt2t.t2t_utils.t2t_trainer_utils as fathom
+
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -47,7 +49,7 @@ flags.DEFINE_string("t2t_usr_dir", None,
                     "available to the t2t-trainer.")
 flags.DEFINE_integer("random_seed", 1234, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
-flags.DEFINE_integer("iterations_per_loop", 1000,
+flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
 flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
@@ -62,14 +64,11 @@ flags.DEFINE_bool("profile", False, "Profile performance?")
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
-
-  # Fathom: we changed the default here from continuous_train_and_eval
-  # to train_and_evaluate. We did this because
-  # continuous_train_and_eval does not work with ValidationMonitor.
+  # NOTE: Fathom change continuous => train_and_eval b/c
+  # continuous_train_and_eval is broken w/ early stopping
   flags.DEFINE_string("schedule", "train_and_evaluate",
                       "Method of Experiment to run.")
-
-  flags.DEFINE_integer("eval_steps", 10000,
+  flags.DEFINE_integer("eval_steps", 100,
                        "Number of steps in evaluation. By default, eval will "
                        "stop after eval_steps or when it runs through the eval "
                        "dataset once in full, whichever comes first, so this "
@@ -77,34 +76,42 @@ try:
 except:  # pylint: disable=bare-except
   pass
 
+# Google Cloud TPUs
+flags.DEFINE_bool("cloud_tpu", False, "Whether to launch on Cloud TPUs.")
+flags.DEFINE_string("cloud_vm_name", "%s-vm" % os.getenv("USER"),
+                    "Name of Cloud VM to use or create.")
+flags.DEFINE_string("cloud_tpu_name", "%s-tpu" % os.getenv("USER"),
+                    "Name of Cloud TPU instance to use or create.")
+flags.DEFINE_bool("cloud_delete_on_done", False,
+                  "Whether to delete the VM and TPU instance when done.")
 
-##################
-#
-# FATHOM ADDITIONS
-#
-##################
-import fathomt2t
-import fathomairflow.dags.dag_management.xcom_manipulation as xcom
-from fathomairflow.dags.dag_management.task_builders.xcom_keys import (
-    XCOM_GCS_MODEL_SUBPATH,
-    DATA_DIR, TMP_DIR)
-from fathomtf.services.model_management import (upload_model_to_gcs,
-                                                fix_paths_for_workspace)
-import os
-flags.DEFINE_bool("debug_mode", False, "Truncate training for debug purposes")
-# NOTE: this is set as REQUIRED, in main()
-flags.DEFINE_string("airflow_pipeline_yaml", None,
-    "For saving to assets.extra")
-flags.DEFINE_string("description", "",
-    "Description for this run.  Used in model name.  E.g., 'special_softmax'.")
-flags.DEFINE_string("timestamp", "",
-    "Timestamp for this run.  This is generally expected to be the DAG execution date,"
-    " *not* the timestamp that this specific model was trained.")
-##################
-#
-# END FATHOM ADDS
-#
-##################
+# Google Cloud ML Engine
+flags.DEFINE_bool("cloud_mlengine", False,
+                  "Whether to launch on Cloud ML Engine.")
+flags.DEFINE_string("cloud_mlengine_master_type", None,
+                    "Machine type for master on Cloud ML Engine. "
+                    "If provided, overrides default selections based on "
+                    "--worker_gpu. User is responsible for ensuring "
+                    "type is valid and that --worker_gpu matches number of "
+                    "GPUs on machine type. See documentation: "
+                    "https://cloud.google.com/ml-engine/reference/rest/v1/"
+                    "projects.jobs#traininginput")
+# Hyperparameter tuning on Cloud ML Engine
+# Pass an --hparams_range to enable
+flags.DEFINE_string("autotune_objective", None,
+                    "TensorBoard metric name to optimize.")
+flags.DEFINE_bool("autotune_maximize", True,
+                  "Whether to maximize (vs. minimize) autotune_objective.")
+flags.DEFINE_integer("autotune_max_trials", 10,
+                     "Maximum number of tuning experiments to run.")
+flags.DEFINE_integer("autotune_parallel_trials", 1,
+                     "How many trials to run in parallel (will spin up this "
+                     "many jobs.")
+# Note than in open-source TensorFlow, the dash gets converted to an underscore,
+# so access is FLAGS.job_dir.
+flags.DEFINE_string("job-dir", None,
+                    "DO NOT USE. Exists only for Cloud ML Engine to pass in "
+                    "during hyperparameter tuning. Overrides --output_dir.")
 
 
 def get_problem_name():
@@ -252,68 +259,31 @@ def execute_schedule(exp):
   with profile_context():
     getattr(exp, FLAGS.schedule)()
 
+@contextlib.contextmanager
+def maybe_cloud_tpu():
+  """If FLAGS.cloud_tpu is set, setup Cloud instances."""
+  if not FLAGS.cloud_tpu:
+    yield
+    return
 
-# Fathom
-def _pick_optimal_model() -> None:
-    """Update the checkpoint so that it points to the best model that was
-    encountered during training. Here "best" is defined as the lowest or
-    highest value of the chosen early stopping metric. (By default,
-    lowest loss.)
+  tf.logging.info("Running on Cloud TPU")
 
-    We do this automatically based on knowledge of how early stopping
-    works; i.e., we take the model that prevented early stopping from
-    stopping before it did.
-    """
+  if (not FLAGS.data_dir.startswith("gs://") or
+      not FLAGS.output_dir.startswith("gs://")):
+    raise ValueError("To run on Cloud TPUs, data_dir and output_dir need to "
+                     "be gs:// paths, i.e. on Google Cloud Storage.")
 
-    #if FLAGS.debug_mode:
-        #return
-
-    checkpoint_state = tf.train.get_checkpoint_state(FLAGS.output_dir)
-    all_checkpoint_paths = list(checkpoint_state.all_model_checkpoint_paths)
-
-    def extract_step(path):
-        """Extract the step number from a checkpoint path
-
-        Args:
-            path: a path, e.g., model.ckpt-17
-
-        Returns:
-            step: the step number as an int, e.g., 17
-        """
-        return int(path[path.rindex('-') + 1:])
-
-    # get available step numbers
-    steps = [(extract_step(path), path) for path in all_checkpoint_paths]
-    steps = sorted(steps)
-    steps, all_checkpoint_paths = zip(*steps)
-    all_checkpoint_paths = list(all_checkpoint_paths)
-
-    # the step we want is the last one that would have allowed us to
-    # stop when we did (at steps[-1])
-    thresh = steps[-1] - FLAGS.eval_early_stopping_steps
-
-    # get the last step that is <= thresh. Note that the early
-    # stopping flags are phrased in terms of step number, not how many
-    # times we've run eval.
-    best_step_index = [step <= thresh for step in steps].index(False) - 1
-    if not FLAGS.debug_mode:
-        assert best_step_index >= 0, 'Early stopping stopped before it should have'
-
-
-    # this is the checkpoint we want
-    checkpoint_path = all_checkpoint_paths[best_step_index]
-
-    print('Early stopping chose checkpoint', checkpoint_path)
-
-    tf.train.update_checkpoint_state(
-      FLAGS.output_dir,
-      checkpoint_path,
-      [checkpoint_path])
+  FLAGS.use_tpu = True
+  with cloud_tpu.cloud_tpu(
+      FLAGS.cloud_vm_name,
+      FLAGS.cloud_tpu_name,
+      delete_on_done=FLAGS.cloud_delete_on_done) as tpu_master:
+    FLAGS.master = tpu_master
+    yield
 
 
 def main(_):
-  # Fathom
-  fix_paths_for_workspace(FLAGS, get_problem_name())
+  fathom.t2t_trainer_setup(get_problem_name())
 
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
@@ -323,34 +293,20 @@ def main(_):
   if FLAGS.generate_data:
     generate_data()
 
-  # Fathom
-  if FLAGS.debug_mode:
-    FLAGS.train_steps = 1
-    FLAGS.eval_steps = 1
-
   hparams = create_hparams()
-  run_config = create_run_config(hparams)
 
-  if is_chief():
-    save_metadata(hparams)
+  hparams = fathom.adjust_params_for_scaling(hparams)
 
-  exp_fn = create_experiment_fn()
-  exp = exp_fn(run_config, hparams)
-  execute_schedule(exp)
+  with maybe_cloud_tpu():
+    exp_fn = create_experiment_fn()
+    exp = exp_fn(create_run_config(hparams), hparams)
+    if is_chief():
+      save_metadata(hparams)
+    execute_schedule(exp)
 
-  # Fathom
-  #if not FLAGS.debug_mode and FLAGS.eval_early_stopping_steps is not None:
-  if FLAGS.eval_early_stopping_steps is not None:
-    _pick_optimal_model()
-  dir_path, model_name = upload_model_to_gcs(FLAGS=FLAGS)
-
-  # Fathom
   # NOTE: this must run LAST in the process, to make sure STDOUT is
   # appropriately populated.
-  xcom.echo_yaml_for_xcom_ingest({'output_dir': dir_path,
-                                  XCOM_GCS_MODEL_SUBPATH: model_name,
-                                  DATA_DIR: FLAGS.data_dir,
-                                  TMP_DIR: FLAGS.tmp_dir})
+  fathom.t2t_trainer_cleanup()
 
 if __name__ == "__main__":
   # Fathom
