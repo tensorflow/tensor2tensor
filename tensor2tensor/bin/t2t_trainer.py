@@ -148,6 +148,18 @@ def set_hparams_from_args(args):
     as_hparams = "," + as_hparams
   FLAGS.hparams += as_hparams
 
+# 
+# NOTE: FATHOM-ADDED
+#
+flags.DEFINE_bool("fathom", True,
+                  "Whether to use Fathom-specific handling, such as "
+                  "uploading a compiled model.  This should generally "
+                  "only be disabled on tests.")
+# NOTE: we actually want a bunch of this behavior to actually run during
+# tests...but there is a bunch of work to figure out good behavior to do so,
+# given the auto download/upload behavior.
+
+
 def get_problem_name():
   problems = FLAGS.problems.split("-")
   assert len(problems) == 1
@@ -342,7 +354,8 @@ def maybe_cloud_tpu():
 
 def main(argv):
   # Fathom
-  fathom.t2t_trainer_setup(FLAGS, get_problem_name())
+  if FLAGS.fathom:
+      fathom.t2t_trainer_setup(FLAGS, get_problem_name())
 
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
@@ -361,7 +374,9 @@ def main(argv):
   if argv:
     set_hparams_from_args(argv[1:])
   hparams = create_hparams()
-  hparams = fathom.adjust_params_for_scaling(hparams)
+
+  if FLAGS.fathom:
+      hparams = fathom.adjust_params_for_scaling(hparams)
 
   with maybe_cloud_tpu():
     exp_fn = create_experiment_fn()
@@ -372,7 +387,8 @@ def main(argv):
 
   # NOTE: this must run LAST in the process, to make sure STDOUT is
   # appropriately populated.
-  fathom.t2t_trainer_cleanup()
+  if FLAGS.fathom:
+      fathom.t2t_trainer_cleanup()
 
 if __name__ == "__main__":
   # Fathom
