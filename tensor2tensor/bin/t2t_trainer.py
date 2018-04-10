@@ -64,7 +64,9 @@ flags.DEFINE_bool("profile", False, "Profile performance?")
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
-  flags.DEFINE_string("schedule", "continuous_train_and_eval",
+  # NOTE: Fathom change continuous => train_and_eval b/c
+  # continuous_train_and_eval is broken w/ early stopping
+  flags.DEFINE_string("schedule", "train_and_evaluate",
                       "Method of Experiment to run.")
   flags.DEFINE_integer("eval_steps", 100,
                        "Number of steps in evaluation. By default, eval will "
