@@ -49,7 +49,7 @@ flags.DEFINE_string("t2t_usr_dir", None,
                     "available to the t2t-trainer.")
 flags.DEFINE_integer("random_seed", 1234, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
-flags.DEFINE_integer("iterations_per_loop", 1000,
+flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
 flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
@@ -64,20 +64,52 @@ flags.DEFINE_bool("profile", False, "Profile performance?")
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
-
-  # Fathom: we changed the default here from continuous_train_and_eval
-  # to train_and_evaluate. We did this because
-  # continuous_train_and_eval does not work with ValidationMonitor.
-  flags.DEFINE_string("schedule", "train_and_evaluate",
+  flags.DEFINE_string("schedule", "continuous_train_and_eval",
                       "Method of Experiment to run.")
-
-  flags.DEFINE_integer("eval_steps", 10000,
+  flags.DEFINE_integer("eval_steps", 100,
                        "Number of steps in evaluation. By default, eval will "
                        "stop after eval_steps or when it runs through the eval "
                        "dataset once in full, whichever comes first, so this "
                        "can be a very large number.")
 except:  # pylint: disable=bare-except
   pass
+
+# Google Cloud TPUs
+flags.DEFINE_bool("cloud_tpu", False, "Whether to launch on Cloud TPUs.")
+flags.DEFINE_string("cloud_vm_name", "%s-vm" % os.getenv("USER"),
+                    "Name of Cloud VM to use or create.")
+flags.DEFINE_string("cloud_tpu_name", "%s-tpu" % os.getenv("USER"),
+                    "Name of Cloud TPU instance to use or create.")
+flags.DEFINE_bool("cloud_delete_on_done", False,
+                  "Whether to delete the VM and TPU instance when done.")
+
+# Google Cloud ML Engine
+flags.DEFINE_bool("cloud_mlengine", False,
+                  "Whether to launch on Cloud ML Engine.")
+flags.DEFINE_string("cloud_mlengine_master_type", None,
+                    "Machine type for master on Cloud ML Engine. "
+                    "If provided, overrides default selections based on "
+                    "--worker_gpu. User is responsible for ensuring "
+                    "type is valid and that --worker_gpu matches number of "
+                    "GPUs on machine type. See documentation: "
+                    "https://cloud.google.com/ml-engine/reference/rest/v1/"
+                    "projects.jobs#traininginput")
+# Hyperparameter tuning on Cloud ML Engine
+# Pass an --hparams_range to enable
+flags.DEFINE_string("autotune_objective", None,
+                    "TensorBoard metric name to optimize.")
+flags.DEFINE_bool("autotune_maximize", True,
+                  "Whether to maximize (vs. minimize) autotune_objective.")
+flags.DEFINE_integer("autotune_max_trials", 10,
+                     "Maximum number of tuning experiments to run.")
+flags.DEFINE_integer("autotune_parallel_trials", 1,
+                     "How many trials to run in parallel (will spin up this "
+                     "many jobs.")
+# Note than in open-source TensorFlow, the dash gets converted to an underscore,
+# so access is FLAGS.job_dir.
+flags.DEFINE_string("job-dir", None,
+                    "DO NOT USE. Exists only for Cloud ML Engine to pass in "
+                    "during hyperparameter tuning. Overrides --output_dir.")
 
 
 def get_problem_name():
