@@ -113,17 +113,6 @@ flags.DEFINE_string("job-dir", None,
                     "DO NOT USE. Exists only for Cloud ML Engine to pass in "
                     "during hyperparameter tuning. Overrides --output_dir.")
 
-# 
-# NOTE: FATHOM-ADDED
-#
-flags.DEFINE_bool("fathom", True,
-                  "Whether to use Fathom-specific handling, such as "
-                  "uploading a compiled model.  This should generally "
-                  "only be disabled on tests.")
-# NOTE: we actually want a bunch of this behavior to actually run during
-# tests...but there is a bunch of work to figure out good behavior to do so,
-# given the auto download/upload behavior.
-
 
 def get_problem_name():
   problems = FLAGS.problems.split("-")
@@ -294,9 +283,7 @@ def maybe_cloud_tpu():
 
 
 def main(_):
-  # Fathom
-  if FLAGS.fathom:
-      fathom.t2t_trainer_setup(FLAGS, get_problem_name())
+  fathom.t2t_trainer_setup(get_problem_name())
 
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
@@ -306,15 +293,9 @@ def main(_):
   if FLAGS.generate_data:
     generate_data()
 
-  # Fathom
-  if FLAGS.debug_mode:
-    FLAGS.train_steps = 1
-    FLAGS.eval_steps = 1
-
   hparams = create_hparams()
 
-  if FLAGS.fathom:
-      hparams = fathom.adjust_params_for_scaling(hparams)
+  hparams = fathom.adjust_params_for_scaling(hparams)
 
   with maybe_cloud_tpu():
     exp_fn = create_experiment_fn()
@@ -325,8 +306,7 @@ def main(_):
 
   # NOTE: this must run LAST in the process, to make sure STDOUT is
   # appropriately populated.
-  if FLAGS.fathom:
-      fathom.t2t_trainer_cleanup()
+  fathom.t2t_trainer_cleanup()
 
 if __name__ == "__main__":
   # Fathom
