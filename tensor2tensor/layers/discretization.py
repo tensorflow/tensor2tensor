@@ -96,9 +96,9 @@ def nearest_neighbor(x,
   # computing cluster probabilities
   if soft_em:
     ema_count = tf.expand_dims(ema_count + 1., 0)
-    c_probs = ema_count / tf.reduce_sum(ema_count, 2, keepdims=True)
+    c_probs = ema_count / tf.reduce_sum(ema_count, axis=2, keepdims=True)
     nearest_hot = tf.exp(-inv_temp * dist) * c_probs
-    nearest_hot /= tf.reduce_sum(nearest_hot, 2, keepdims=True)
+    nearest_hot /= tf.reduce_sum(nearest_hot, axis=2, keepdims=True)
   else:
     if random_top_k > 1:
       _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
