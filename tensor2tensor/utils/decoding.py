@@ -229,6 +229,7 @@ def decode_from_dataset(estimator,
 
 def decode_from_file(estimator,
                      filename,
+                     filename_sfeats,
                      hparams,
                      decode_hp,
                      decode_to_file=None,
@@ -246,19 +247,37 @@ def decode_from_file(estimator,
   inputs_vocab_key = "inputs" if has_input else "targets"
   inputs_vocab = hparams.problems[problem_id].vocabulary[inputs_vocab_key]
   targets_vocab = hparams.problems[problem_id].vocabulary["targets"]
+  sfeats_vocabs = []
+  if filename_sfeats:
+    for key in sorted(hparams.problems[problem_id].vocabulary.keys()):
+      if key.startswith("sfeats"):
+        sfeats_vocabs.append(hparams.problems[problem_id].vocabulary[key])
   problem_name = FLAGS.problems.split("-")[problem_id]
   tf.logging.info("Performing decoding from a file.")
   sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.shards,
                                                   decode_hp.delimiter)
+  sorted_sfeats = []
+  if filename_sfeats:
+    sorted_sfeats = _get_sorted_sfeats(filename_sfeats, sorted_keys,
+                                       decode_hp.shards, decode_hp.delimiter)
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   def input_fn():
-    input_gen = _decode_batch_input_fn(
-        problem_id, num_decode_batches, sorted_inputs, inputs_vocab,
+    if filename_sfeats:
+      input_gen = _decode_batch_sfeat_fn(
+        hparams, problem_id, num_decode_batches, sorted_inputs,
+        sorted_sfeats, inputs_vocab, sfeats_vocabs,
         decode_hp.batch_size, decode_hp.max_input_size)
-    gen_fn = make_input_fn_from_generator(input_gen)
-    example = gen_fn()
-    return _decode_input_tensor_to_features_dict(example, hparams)
+      gen_fn = make_input_fn_from_generator(input_gen)
+      example = gen_fn()
+      return _decode_sfeat_tensor_to_features_dict(example, hparams)
+    else:
+      input_gen = _decode_batch_input_fn(
+          problem_id, num_decode_batches, sorted_inputs, inputs_vocab,
+          decode_hp.batch_size, decode_hp.max_input_size)
+      gen_fn = make_input_fn_from_generator(input_gen)
+      example = gen_fn()
+      return _decode_input_tensor_to_features_dict(example, hparams)
 
   decodes = []
   result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
@@ -294,6 +313,7 @@ def decode_from_file(estimator,
   # Reversing the decoded inputs and outputs because they were reversed in
   # _decode_batch_input_fn
   sorted_inputs.reverse()
+  sorted_sfeats.reverse()
   decodes.reverse()
   # If decode_to_file was provided use it as the output filename without change
   # (except for adding shard_id if using more shards for decoding).
@@ -408,6 +428,101 @@ def _decode_batch_input_fn(problem_id, num_decode_batches, sorted_inputs,
         "inputs": np.array(final_batch_inputs).astype(np.int32),
         "problem_choice": np.array(problem_id).astype(np.int32),
     }
+
+
+def _decode_batch_sfeat_fn(hparams, problem_id, num_decode_batches, sorted_inputs,
+                           sorted_sfeats, vocabulary, sfeats_vocabs, batch_size, max_input_size):
+  tf.logging.info(" batch %d" % num_decode_batches)
+  # First reverse all the input sentences so that if you're going to get OOMs,
+  # you'll see it in the first batch
+  sorted_inputs.reverse()
+  sorted_sfeats.reverse()
+
+  def _get_subword_tags(subword_nb):
+    if subword_nb == 1:
+      feat = ['O']
+    else:
+      feat = ['B', 'E']
+      while len(feat) < subword_nb:
+        feat.insert(1, 'I')
+    return " ".join(feat)
+
+  for b in range(num_decode_batches):
+    tf.logging.info("Decoding batch %d" % b)
+    batch_length = 0
+    batch_inputs = []
+    batch_sfeats = []
+    for inputs, sfeats in zip(sorted_inputs[b * batch_size:(b + 1) * batch_size],
+                              sorted_sfeats[b * batch_size:(b + 1) * batch_size]):
+
+      # decompose source features
+      sfeat_delimiter = hparams.problems[problem_id].sfeat_delimiter
+      sfeats_split = [sf.split(sfeat_delimiter) for sf in sfeats.split()]
+      sfeats_ids = []
+      sfeats_vocabs_iter = enumerate(sfeats_vocabs)
+      if hparams.problems[problem_id].use_subword_tags:
+        sfeats_vocabs_iter = enumerate(sfeats_vocabs[:-1])
+      for sfeat_id, vocab in sfeats_vocabs_iter:
+        feat = [sf[sfeat_id] for sf in sfeats_split]
+        assert len(feat) == len(inputs.split()), "Source word and feature sequences must have the same length"
+        feat = " ".join(feat)
+        sfeats_ids.append(vocab.encode(feat))
+
+      # synchonize source features and words
+      input_ids = []
+      new_sfeats_ids = [[] for _ in sfeats_ids]
+      if hparams.problems[problem_id].use_subword_tags:
+        new_sfeats_ids.append([])
+      for idx, word in enumerate(inputs.split()):
+        if hparams.problems[problem_id].vocab_type == "subwords":
+          ste_word = vocabulary.encode_without_tokenizing(word)
+        elif hparams.problems[problem_id].vocab_type == "tokens":
+          ste_word = vocabulary.encode(word)
+        else:
+          raise ValueError("VocabType not supported")
+        for sfeat_idx, _ in enumerate(sfeats_ids):
+          new_sfeats_ids[sfeat_idx] += [sfeats_ids[sfeat_idx][idx]] * len(ste_word)
+        if hparams.problems[problem_id].use_subword_tags:
+          subword_tags = _get_subword_tags(len(ste_word))
+          new_sfeats_ids[sfeat_idx+1] += sfeats_vocabs[-1].encode(subword_tags)
+        input_ids += ste_word
+      sfeats_ids = new_sfeats_ids
+
+      if max_input_size > 0:
+        # Subtract 1 for the EOS_ID.
+        input_ids = input_ids[:max_input_size - 1]
+        for sf_idx, _ in enumerate(sfeats_ids):
+          sfeats_ids[sf_idx] = sfeats_ids[sf_idx][:max_input_size - 1]
+          
+      input_ids.append(text_encoder.EOS_ID)
+      batch_inputs.append(input_ids)
+      for idx, _ in enumerate(sfeats_ids):
+        sfeats_ids[idx].append(text_encoder.EOS_ID)
+      batch_sfeats.append(sfeats_ids)
+      
+      if len(input_ids) > batch_length:
+        batch_length = len(input_ids)
+    final_batch_inputs = []
+    final_batch_sfeats = []
+    for input_ids, sfeat_ids in zip(batch_inputs, batch_sfeats):
+      assert len(input_ids) <= batch_length
+      x = input_ids + [0] * (batch_length - len(input_ids))
+      final_batch_inputs.append(x)
+      b_sfeats = []
+      for sfeat_idx, _ in enumerate(sfeat_ids):
+        assert len(sfeat_ids[sfeat_idx]) <= batch_length
+        x = sfeat_ids[sfeat_idx] + [0] * (batch_length - len(sfeat_ids[sfeat_idx]))
+        b_sfeats.append(x)
+      final_batch_sfeats.append(b_sfeats)
+
+    out_dict = {
+        "inputs": np.array(final_batch_inputs).astype(np.int32),
+        "problem_choice": np.array(problem_id).astype(np.int32),
+    }
+    for idx, _ in enumerate(sfeats_vocabs):
+      current_feat = [f[idx] for f in final_batch_sfeats]
+      out_dict["sfeats."+str(idx)] = np.array(current_feat).astype(np.int32)
+    yield out_dict
 
 
 def _interactive_input_fn(hparams, decode_hp):
@@ -557,6 +672,40 @@ def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
   return sorted_inputs, sorted_keys
 
 
+def _get_sorted_sfeats(filename, sorted_keys, num_shards=1, delimiter="\n"):
+  """Returning sfeats sorted like inputs.
+
+  Args:
+    filename: path to file with sfeats, 1 per line.
+    num_shards: number of input shards. If > 1, will read from file filename.XX,
+      where XX is FLAGS.worker_id.
+    delimiter: str, delimits records in the file.
+
+  Returns:
+    a sorted list of sfeats
+
+  """
+  tf.logging.info("Getting sorted sfeats")
+  # read file and sort inputs according them according to input length.
+  if num_shards > 1:
+    decode_filename = filename + ("%.2d" % FLAGS.worker_id)
+  else:
+    decode_filename = filename
+
+  with tf.gfile.Open(decode_filename) as f:
+    text = f.read()
+    records = text.split(delimiter)
+    sfeats = [record.strip() for record in records]
+    # Strip the last empty line.
+    if not sfeats[-1]:
+      sfeats.pop()
+  sorted_keys = sorted(sorted_keys.items(), key=operator.itemgetter(1))
+  sorted_sfeats = []
+  for index, _ in sorted_keys:
+    sorted_sfeats.append(sfeats[index])
+  return sorted_sfeats
+
+
 def _save_until_eos(hyp, is_image):
   """Strips everything after the first <EOS> token, which is normally 1."""
   hyp = hyp.flatten()
@@ -649,6 +798,53 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
   features["decode_length"] = (
       IMAGE_DECODE_LENGTH if input_is_image else tf.shape(x)[1] + 50)
   features["inputs"] = x
+  return features
+
+
+def _decode_sfeat_tensor_to_features_dict(feature_map, hparams):
+  """Convert the interactive input format (see above) to a dictionary.
+
+  Args:
+    feature_map: a dictionary with keys `problem_choice` and `input` containing
+      Tensors.
+    hparams: model hyperparameters
+
+  Returns:
+    a features dictionary, as expected by the decoder.
+  """
+  inputs = tf.convert_to_tensor(feature_map["inputs"])
+  src_features = [k for k in feature_map.keys() if k.startswith("sfeats")]
+  sfeats = {}
+  for sfeat in src_features:
+    sfeats[sfeat] = tf.convert_to_tensor(feature_map[sfeat])
+
+  input_is_image = False
+
+  def input_fn(problem_choice, x=inputs, xf=sfeats):  # pylint: disable=missing-docstring
+    p_hparams = hparams.problems[problem_choice]
+    # Add a third empty dimension
+    x = tf.expand_dims(x, axis=[2])
+    x = tf.to_int32(x)
+    for idx, _ in enumerate(sfeats):
+      idx = str(idx)
+      sfeats["sfeats."+idx] = tf.expand_dims(sfeats["sfeats."+idx], axis=[2])
+      sfeats["sfeats."+idx] = tf.to_int32(sfeats["sfeats."+idx])
+    return (tf.constant(p_hparams.input_space_id), tf.constant(
+        p_hparams.target_space_id), x, sfeats)
+
+  input_space_id, target_space_id, x, xf = cond_on_index(
+    input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)
+
+  features = {}
+  features["problem_choice"] = feature_map["problem_choice"]
+  features["input_space_id"] = input_space_id
+  features["target_space_id"] = target_space_id
+  features["decode_length"] = (
+      IMAGE_DECODE_LENGTH if input_is_image else tf.shape(x)[1] + 50)
+  features["inputs"] = x
+  for idx, f in enumerate(xf):
+    features["sfeats."+str(idx)] = xf["sfeats."+str(idx)]
+
   return features
 
 
