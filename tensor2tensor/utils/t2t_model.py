@@ -387,7 +387,7 @@ class T2TModel(base.Layer):
       assert not isinstance(target_modality, dict), (
           "model_body must return a dictionary of logits when "
           "problem_hparams.target_modality is a dict.")
-      return self._loss_single(logits, target_modality, features)
+      return self._loss_single(logits, target_modality, features["targets"])
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
