@@ -100,11 +100,15 @@ def nearest_neighbor(x,
   if soft_em:
     ema_count = tf.expand_dims(ema_count, 0)
     c_probs = ema_count / tf.reduce_sum(ema_count, 2, keepdims=True)
-    mask = common_layers.inverse_lin_decay(soft_em_startup_steps)
+    c_probs = tf.where(
+        tf.less(tf.to_int32(tf.train.get_global_step()), soft_em_startup_steps),
+        tf.ones_like(c_probs, dtype=tf.float32), c_probs)
+    mask = common_layers.inverse_lin_decay(2 * soft_em_startup_steps)
     c_probs = mask * c_probs + (1 - mask) * tf.ones_like(c_probs)
     nearest_hot = tf.exp(-inv_temp * dist) * c_probs
     nearest_hot /= tf.reduce_sum(nearest_hot, 2, keepdims=True)
   else:
+    dist = tf.Print(dist, [dist], message="dist=")
     if random_top_k > 1:
       _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
       nearest_idx = tf.gather(
