@@ -67,6 +67,7 @@ def nearest_neighbor(x,
                      block_v_size,
                      random_top_k=1,
                      soft_em=False,
+                     soft_em_startup_steps=10000,
                      inv_temp=1.0,
                      ema_count=None):
   """Find the nearest element in means to elements in x.
@@ -78,6 +79,8 @@ def nearest_neighbor(x,
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
+    soft_em_startup_steps: Number of steps before soft_em activates
+      (Default: 10000).
     inv_temp: Inverse temperature for soft EM (Default: 1.)
     ema_count: Table of counts for each embedding corresponding to how many
       examples in a batch it was the closest to (Default: None).
@@ -95,10 +98,12 @@ def nearest_neighbor(x,
 
   # computing cluster probabilities
   if soft_em:
-    ema_count = tf.expand_dims(ema_count + 1., 0)
-    c_probs = ema_count / tf.reduce_sum(ema_count, axis=2, keepdims=True)
+    ema_count = tf.expand_dims(ema_count, 0)
+    c_probs = ema_count / tf.reduce_sum(ema_count, 2, keepdims=True)
+    mask = common_layers.inverse_lin_decay(soft_em_startup_steps)
+    c_probs = mask * c_probs + (1 - mask) * tf.ones_like(c_probs)
     nearest_hot = tf.exp(-inv_temp * dist) * c_probs
-    nearest_hot /= tf.reduce_sum(nearest_hot, axis=2, keepdims=True)
+    nearest_hot /= tf.reduce_sum(nearest_hot, 2, keepdims=True)
   else:
     if random_top_k > 1:
       _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
@@ -119,6 +124,7 @@ def embedding_lookup(x,
                      block_v_size,
                      random_top_k=1,
                      soft_em=False,
+                     soft_em_startup_steps=10000,
                      inv_temp=1.0,
                      ema_count=None):
   """Compute nearest neighbors and loss for training the embeddings via DVQ.
@@ -131,6 +137,8 @@ def embedding_lookup(x,
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
+    soft_em_startup_steps: Number of steps before soft_em activates
+      (Default: 10000).
     inv_temp: Inverse temperature for soft EM (Default: 1.)
     ema_count: Table of counts for each embedding corresponding to how many
       examples in a batch it was the closest to (Default: None).
@@ -139,8 +147,15 @@ def embedding_lookup(x,
     The nearest neighbor in one hot form, the nearest neighbor itself, the
     commitment loss, embedding training loss.
   """
-  x_means_hot = nearest_neighbor(x, means, block_v_size, random_top_k, soft_em,
-                                 inv_temp, ema_count)
+  x_means_hot = nearest_neighbor(
+      x,
+      means,
+      block_v_size,
+      random_top_k,
+      soft_em=soft_em,
+      soft_em_startup_steps=soft_em_startup_steps,
+      inv_temp=inv_temp,
+      ema_count=ema_count)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
   x_means_idx = tf.argmax(x_means_hot_flat, axis=-1)
   x_means = tf.matmul(
@@ -410,6 +425,7 @@ def discrete_bottleneck(x,
                         discrete_mix=0.5,
                         random_top_k=1,
                         soft_em=False,
+                        soft_em_startup_steps=10000,
                         inv_temp=1.0,
                         epsilon=1e-5,
                         softmax_k=0,
@@ -448,6 +464,8 @@ def discrete_bottleneck(x,
       (Default: 0.5).
     random_top_k: Noisy top-k for DVQ (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
+    soft_em_startup_steps: Number of steps before soft_em activates
+      (Default: 10000).
     inv_temp: Inverse temperature for soft EM (Default: 1.)
     epsilon: Epsilon parameter for DVQ (Default: 1e-5).
     softmax_k: If > 1 then do top-k softmax (Default: 0).
@@ -556,7 +574,7 @@ def discrete_bottleneck(x,
       for i in range(num_residuals):
         x_means_hot_res, x_means_res, q_loss_res, e_loss_res = embedding_lookup(
             x_res, means[i], num_blocks, block_v_size, random_top_k, soft_em,
-            inv_temp, ema_count[i])
+            soft_em_startup_steps, inv_temp, ema_count[i])
 
         # Update the ema variables
         if ema:
