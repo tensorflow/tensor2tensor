@@ -285,9 +285,9 @@ def create_evaluation_metrics(problems, model_hparams):
   def make_problem_specific_metric_fn(metric_fn, problem_idx, weights_fn):
     """Create a metric fn conditioned on problem_idx."""
 
-    def problem_metric_fn(predictions, features):
+    def problem_metric_fn(predictions, features, labels):
       """Metric fn."""
-      labels = features.get("targets", None)
+      #labels = features.get("targets", None)
       problem_choice = features.get("problem_choice", 0)
 
       # Send along the entire features dict if the metric fn has the kwarg
