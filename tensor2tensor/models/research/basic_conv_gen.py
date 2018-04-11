@@ -52,7 +52,7 @@ class BasicConvGen(t2t_model.T2TModel):
     x = tf.concat([x, action + zeros], axis=-1)
 
     # Run a stack of convolutions.
-    for i in xrange(hparams.num_hidden_layers):
+    for i in range(hparams.num_hidden_layers):
       with tf.variable_scope("layer%d" % i):
         y = tf.layers.conv2d(x, filters, kernel1, activation=common_layers.belu,
                              strides=(1, 1), padding="SAME")
@@ -61,7 +61,7 @@ class BasicConvGen(t2t_model.T2TModel):
         else:
           x = common_layers.layer_norm(x + y)
     # Up-convolve.
-    for _ in xrange(hparams.num_compress_steps):
+    for _ in range(hparams.num_compress_steps):
       filters //= 2
       x = tf.layers.conv2d_transpose(
           x, filters, kernel2, activation=common_layers.belu,
@@ -132,7 +132,7 @@ def basic_conv_small_small_lr():
 
 
 @registry.register_model
-class KanapaBasicConvGen(t2t_model.T2TModel):
+class StaticBasicConvGen(t2t_model.T2TModel):
 
   def body(self, features):
     filters = self.hparams.hidden_size
@@ -163,7 +163,7 @@ class KanapaBasicConvGen(t2t_model.T2TModel):
     l = 210
     w = 160
     res = tf.reshape(res, [-1, l, w, 768])
-    return {"targets":res, "reward": x}
+    return {"targets": res, "reward": x}
 
 @registry.register_model
 class ResidualBasicConvGen(t2t_model.T2TModel):

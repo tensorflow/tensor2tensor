@@ -23,6 +23,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import pkg_resources
 
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 from tensor2tensor.utils import t2t_model, trainer_lib
@@ -57,15 +58,16 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.action_shape = action_shape
     self.action_dtype = action_dtype
 
-    with open("deepsense_experiments/starting_frames/output_71.png",'rb') as f:
-      png_str_51 = f.read()
+    with open(pkg_resources.resource_filename(
+            "tensor2tensor.rl.envs", "frame1.png"), "rb") as f:
+      png_frame_1_raw = f.read()
 
-    with open("deepsense_experiments/starting_frames/output_72.png",'rb') as f:
-      png_str_52 = f.read()
+    with open(pkg_resources.resource_filename(
+            "tensor2tensor.rl.envs", "frame2.png"), "rb") as f:
+      png_frame_2_raw = f.read()
 
-    self.start_51 = tf.expand_dims(tf.cast(tf.image.decode_png(png_str_51), tf.float32), 0)
-    self.start_52 = tf.expand_dims(tf.cast(tf.image.decode_png(png_str_52), tf.float32), 0)
-
+    self.frame_1 = tf.expand_dims(tf.cast(tf.image.decode_png(png_frame_1_raw), tf.float32), 0)
+    self.frame_2 = tf.expand_dims(tf.cast(tf.image.decode_png(png_frame_2_raw), tf.float32), 0)
 
     shape = (self.length,) + observ_shape
     self._observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
@@ -138,8 +140,8 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     observ = tf.gather(self._observ, indices)
     observ = 0.0 * tf.check_numerics(observ, 'observ')
     with tf.control_dependencies([
-      tf.scatter_update(self._observ, indices, observ + self.start_52),
-      tf.scatter_update(self._prev_observ, indices, observ + self.start_51)]):
+      tf.scatter_update(self._observ, indices, observ + self.frame_2),
+      tf.scatter_update(self._prev_observ, indices, observ + self.frame_1)]):
       return tf.identity(self._observ.read_value())
 
   @property

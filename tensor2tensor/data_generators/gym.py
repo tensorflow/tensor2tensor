@@ -26,12 +26,12 @@ import functools
 import gym
 import os
 from tensorflow.contrib.training import HParams
+from collections import deque
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.models.research import rl
 from tensor2tensor.utils import registry
-from moviepy.editor import *
 from tensor2tensor.rl.envs.utils import batch_env_factory
 from tensor2tensor.rl.envs.tf_atari_wrappers import MemoryWrapper, TimeLimitWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
@@ -40,6 +40,14 @@ from tensor2tensor.rl import collect
 
 import tensorflow as tf
 
+
+def moviepy_editor():
+  """Access to moviepy to allow for import of this file without a moviepy install."""
+  try:
+    from moviepy import editor # pylint: disable=g-import-not-at-top
+  except ImportError:
+    raise ImportError("pip install moviepy to record videos")
+  return editor
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -75,7 +83,6 @@ class GymDiscreteProblem(problem.Problem):
 
     generator_batch_env = \
       batch_env_factory(self.environment_spec, env_hparams, num_agents=1, xvfb=False)
-
 
     with tf.variable_scope("", reuse=tf.AUTO_REUSE):
       policy_lambda = self.collect_hparams.network
@@ -165,7 +172,7 @@ class GymDiscreteProblem(problem.Problem):
     # that 0 is a special symbol meaning padding
     # when symbols are e.g. 0, 1, 2, 3 we
     # shift them to 0, 1, 2, 3, 4
-    p.input_modality = {"action": ("symbol", self.num_actions)}
+    p.input_modality = {"action": ("symbol:identity", self.num_actions)}
 
     for x in range(self.history_size):
       p.input_modality["inputs_{}".format(x)] = ("image", 256)
@@ -221,7 +228,7 @@ class GymDiscreteProblem(problem.Problem):
           sess.run(self.collect_trigger_op)
     if self.movies:
       # print(clip_files)
-      clip = ImageSequenceClip(clip_files, fps=self.movies_fps)
+      clip = moviepy_editor().ImageSequenceClip(clip_files, fps=self.movies_fps)
       clip.write_videofile(os.path.join(data_dir, 'output_{}.mp4'.format(self.name)),
                            fps=self.movies_fps, codec='mpeg4')
 

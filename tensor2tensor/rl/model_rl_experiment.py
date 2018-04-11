@@ -10,7 +10,6 @@ import tensorflow as tf
 import time
 import datetime
 
-
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -60,23 +59,33 @@ def train(hparams, output_dir):
       gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
 
       # time_delta = time.time() - start_time
-      # print(line+"Step {}.4. - train PPO in model env."
-      #       " Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
-      # ppo_epochs_num=hparams.ppo_epochs_num
-      # ppo_hparams = trainer_lib.create_hparams("atari_base", "epochs_num={},simulated_environment=True,eval_every_epochs=0,save_models_every_epochs={}".format(ppo_epochs_num+1, ppo_epochs_num),
-      #                                      data_dir=output_dir)
-      # ppo_hparams.epoch_length = hparams.ppo_epoch_length
-      # ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
-      # in_graph_wrappers = [(TimeLimitWrapper, {"timelimit": 150}),
-      #                      (PongT2TGeneratorHackWrapper, {"add_value": -2})] + gym_problem.in_graph_wrappers
-      # ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
-      # rl_trainer_lib.train(ppo_hparams, "PongNoFrameskip-v4", ppo_dir)
-      #
-      # last_model = ppo_dir + "/model{}.ckpt".format(ppo_epochs_num)
+      print(line+"Step {}.4. - train PPO in model env."
+            " Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
+      ppo_epochs_num=hparams.ppo_epochs_num
+      ppo_hparams = trainer_lib.create_hparams("atari_base", "epochs_num={},simulated_environment=True,eval_every_epochs=0,save_models_every_epochs={}".format(ppo_epochs_num+1, ppo_epochs_num),
+                                           data_dir=output_dir)
+      ppo_hparams.epoch_length = hparams.ppo_epoch_length
+      ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
+      in_graph_wrappers = [(TimeLimitWrapper, {"timelimit": 150}),
+                           (PongT2TGeneratorHackWrapper, {"add_value": -2})] + gym_problem.in_graph_wrappers
+      ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
+      rl_trainer_lib.train(ppo_hparams, "PongNoFrameskip-v4", ppo_dir)
+
+      last_model = ppo_dir + "/model{}.ckpt".format(ppo_epochs_num)
 
 
 def main(_):
-    train(1)
+    hparams = tf.contrib.training.HParams(
+        epochs=100,
+        true_env_generator_num_steps=100,
+        generative_model="static_basic_conv_gen",
+        generative_model_params="basic_conv_small",
+        model_train_steps=80,
+        simulated_env_generator_num_steps=300,
+        ppo_epochs_num=2,
+        ppo_epoch_length=300,
+    )
+    train(hparams, tempfile.mkdtemp())
 
 
 if __name__ == "__main__":
