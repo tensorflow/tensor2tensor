@@ -156,7 +156,7 @@ class TranslateEnfrSrcFeat(translate_source_features.SourceFeatureProblem):
     """
     return VocabType.SUBWORD
 
-  def vocab_sfeat_filenames(self, f_id: int):
+  def vocab_sfeat_filenames(self, f_id):
     r"""One vocab per feature type"""
     return "vocab.enfr.sfeat.%d" % f_id
 
