@@ -29,8 +29,9 @@ from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import collect
 from tensor2tensor.rl import ppo
-from tensor2tensor.rl.envs import atari_wrappers
 from tensor2tensor.rl.envs import utils
+from tensor2tensor.rl.envs import tf_atari_wrappers
+
 
 import tensorflow as tf
 
@@ -41,7 +42,17 @@ def define_train(hparams, environment_spec, event_dir):
   """Define the training setup."""
   policy_lambda = hparams.network
 
-  batch_env = utils.batch_env_factory(environment_spec, hparams, num_agents=hparams.num_agents)
+  if environment_spec == "stacked_pong":
+    environment_spec = lambda: gym.make("PongNoFrameskip-v4")
+    wrappers = hparams.in_graph_wrappers if hasattr(hparams, "in_graph_wrappers") else []
+    wrappers.append((tf_atari_wrappers.MaxAndSkipEnv, {"skip": 4}))
+    hparams.in_graph_wrappers = wrappers
+  if isinstance(environment_spec, str):
+    env_lambda = lambda: gym.make(environment_spec)
+  else:
+    env_lambda = environment_spec
+
+  batch_env = utils.batch_env_factory(env_lambda, hparams, num_agents=hparams.num_agents)
 
   policy_factory = tf.make_template(
       "network",
@@ -54,7 +65,6 @@ def define_train(hparams, environment_spec, event_dir):
     summary = tf.summary.merge([collect_summary, ppo_summary])
 
   with tf.variable_scope("eval", reuse=tf.AUTO_REUSE):
-    env_lambda = lambda: gym.make("PongNoFrameskip-v4")
     eval_env_lambda = env_lambda
     if event_dir and hparams.video_during_eval:
       # Some environments reset environments automatically, when reached done

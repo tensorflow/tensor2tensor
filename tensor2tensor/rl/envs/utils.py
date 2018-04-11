@@ -281,21 +281,14 @@ class ExternalProcessEnv(object):
       conn.send((self._EXCEPTION, stacktrace))
     conn.close()
 
-def batch_env_factory(environment_spec, hparams, num_agents, xvfb=False):
+def batch_env_factory(environment_lambda, hparams, num_agents, xvfb=False):
   # define env
   wrappers = hparams.in_graph_wrappers if hasattr(hparams, "in_graph_wrappers") else []
 
   if hparams.simulated_environment:
     batch_env = define_simulated_batch_env(num_agents)
   else:
-    if environment_spec == "stacked_pong":
-      environment_spec = lambda: gym.make("PongNoFrameskip-v4")
-      wrappers = [(tf_atari_wrappers.MaxAndSkipEnv, {"skip": 4})]
-    if isinstance(environment_spec, str):
-      env_lambda = lambda: gym.make(environment_spec)
-    else:
-      env_lambda = environment_spec
-    batch_env = define_batch_env(env_lambda, num_agents, xvfb=xvfb)  # TODO -video?
+    batch_env = define_batch_env(environment_lambda, num_agents, xvfb=xvfb)  # TODO -video?
   for w in wrappers:
     batch_env = w[0](batch_env, **w[1])
   return batch_env
