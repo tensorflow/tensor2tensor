@@ -591,7 +591,7 @@ def discrete_bottleneck(x,
         x_means += x_means_res
         x_means_hot.append(x_means_hot_res)
 
-      # Get the discrete latent represenation
+      # Get the discrete latent representation
       x_means_hot = tf.stack(x_means_hot, axis=1)
       x_means_idx = tf.argmax(x_means_hot, axis=-1)
 

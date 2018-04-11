@@ -220,7 +220,7 @@ def basic_params1():
       scheduled_sampling_warmup_steps=50000,
       scheduled_sampling_gold_mixin_prob=0.5,
       # This setting controls whether to copy variables around in a daisy chain
-      # (if true) or leave their placement to Tensorflow. It only affects multi
+      # (if true) or leave their placement to TensorFlow. It only affects multi
       # device training and mostly should be turned on for performance. One
       # exception are recurrent models: with dynamic loops it must be off.
       daisy_chain_variables=True,

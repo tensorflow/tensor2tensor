@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Implemetation of beam seach with penalties."""
+"""Implementation of beam search with penalties."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -94,7 +94,7 @@ def log_prob_from_logits(logits):
 
 
 def compute_batch_indices(batch_size, beam_size):
-  """Computes the i'th coodinate that contains the batch index for gathers.
+  """Computes the i'th coordinate that contains the batch index for gathers.
 
   Batch pos is a tensor like [[0,0,0,0,],[1,1,1,1],..]. It says which
   batch the beam item is in. This will create the i of the i,j coordinate
@@ -188,7 +188,7 @@ def beam_search(symbols_to_logits_fn,
                 stop_early=True):
   """Beam search with length penalties.
 
-  Requires a function that can take the currently decoded sybmols and return
+  Requires a function that can take the currently decoded symbols and return
   the logits for the next symbol. The implementation is inspired by
   https://arxiv.org/abs/1609.08144.
 
@@ -320,7 +320,7 @@ def beam_search(symbols_to_logits_fn,
                                        "grow_alive", states)
 
   def grow_topk(i, alive_seq, alive_log_probs, states):
-    r"""Inner beam seach loop.
+    r"""Inner beam search loop.
 
     This function takes the current alive sequences, and grows them to topk
     sequences where k = 2*beam. We use 2*beam because, we could have beam_size
@@ -361,14 +361,14 @@ def beam_search(symbols_to_logits_fn,
     # Convert logits to normalized log probs
     candidate_log_probs = log_prob_from_logits(logits)
 
-    # Multiply the probabilites by the current probabilites of the beam.
+    # Multiply the probabilities by the current probabilities of the beam.
     # (batch_size, beam_size, vocab_size) + (batch_size, beam_size, 1)
     log_probs = candidate_log_probs + tf.expand_dims(alive_log_probs, axis=2)
 
     length_penalty = tf.pow(((5. + tf.to_float(i + 1)) / 6.), alpha)
 
     curr_scores = log_probs / length_penalty
-    # Flatten out (beam_size, vocab_size) probs in to a list of possibilites
+    # Flatten out (beam_size, vocab_size) probs in to a list of possibilities
     flat_curr_scores = tf.reshape(curr_scores, [-1, beam_size * vocab_size])
 
     topk_scores, topk_ids = tf.nn.top_k(flat_curr_scores, k=beam_size * 2)
@@ -381,7 +381,7 @@ def beam_search(symbols_to_logits_fn,
     topk_ids %= vocab_size  # Unflatten the ids
 
     # The next three steps are to create coordinates for tf.gather_nd to pull
-    # out the correct seqences from id's that we need to grow.
+    # out the correct sequences from id's that we need to grow.
     # We will also use the coordinates to gather the booleans of the beam items
     # that survived.
     batch_pos = compute_batch_indices(batch_size, beam_size * 2)
@@ -447,7 +447,7 @@ def beam_search(symbols_to_logits_fn,
          Log probs of the alive sequences,
          New finished sequences,
          Scores of the new finished sequences,
-         Flags inidicating which sequence in finished as reached EOS,
+         Flags indicating which sequence in finished as reached EOS,
          dict of final decoding states)
     """
 
@@ -471,7 +471,7 @@ def beam_search(symbols_to_logits_fn,
     """Checking termination condition.
 
     We terminate when we decoded up to decode_length or the lowest scoring item
-    in finished has a greater score that the higest prob item in alive divided
+    in finished has a greater score that the highest prob item in alive divided
     by the max length penalty
 
     Args:
@@ -488,7 +488,7 @@ def beam_search(symbols_to_logits_fn,
     if not stop_early:
       return tf.less(i, decode_length)
     max_length_penalty = tf.pow(((5. + tf.to_float(decode_length)) / 6.), alpha)
-    # The best possible score of the most likley alive sequence
+    # The best possible score of the most likely alive sequence
     lower_bound_alive_scores = alive_log_probs[:, 0] / max_length_penalty
 
     # Now to compute the lowest score of a finished sequence in finished

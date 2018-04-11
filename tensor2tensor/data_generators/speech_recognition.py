@@ -85,7 +85,7 @@ def compute_mel_filterbank_features(
     sample_rate: sampling rate of the waveform
     dither: stddev of Gaussian noise added to waveform to prevent quantization
       artefacts
-    preemphasis: waveform high-pass filtering costant
+    preemphasis: waveform high-pass filtering constant
     frame_length: frame length in ms
     frame_step: frame_Step in ms
     fft_length: number of fft bins
@@ -182,7 +182,7 @@ class AudioEncoder(object):
     """
     # Make sure that the data is a single channel, 16bit, 16kHz wave.
     # TODO(chorowski): the directory may not be writable, this should fallback
-    # to a temp path, and provide instructions for instaling sox.
+    # to a temp path, and provide instructions for installing sox.
     if not s.endswith(".wav"):
       out_filepath = s + ".wav"
       if not os.path.exists(out_filepath):

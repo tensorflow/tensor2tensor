@@ -16,7 +16,7 @@
 # coding=utf-8
 """ROUGE metric implementation.
 
-This is a modified and slightly extended verison of
+This is a modified and slightly extended version of
 https://github.com/miso-belica/sumy/blob/dev/sumy/evaluation/rouge.py.
 """
 
@@ -116,7 +116,7 @@ def rouge_l_sentence_level(eval_sentences, ref_sentences):
 
   Args:
     eval_sentences: The sentences that have been picked by the summarizer
-    ref_sentences: The sentences from the referene set
+    ref_sentences: The sentences from the reference set
 
   Returns:
     A float: F_lcs
@@ -138,7 +138,7 @@ def rouge_l_fscore(predictions, labels, **unused_kwargs):
   or decode the ids and tokenize the output.
 
   Args:
-    predictions: tensor, model predicitons
+    predictions: tensor, model predictions
     labels: tensor, gold output.
 
   Returns:
@@ -221,7 +221,7 @@ def rouge_2_fscore(predictions, labels, **unused_kwargs):
   or decode the ids and tokenize the output.
 
   Args:
-    predictions: tensor, model predicitons
+    predictions: tensor, model predictions
     labels: tensor, gold output.
 
   Returns:
