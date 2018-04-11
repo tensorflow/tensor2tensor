@@ -65,7 +65,7 @@ class SourceFeatureProblem(translate.TranslateProblem):
     r"""Source feature delimiter in feature file"""
     raise NotImplementedError()
 
-  def vocab_sfeat_filenames(self, f_id: int):
+  def vocab_sfeat_filenames(self, f_id):
     r"""One vocab per feature type"""
     raise NotImplementedError()
 
