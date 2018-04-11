@@ -178,7 +178,7 @@ def create_run_config(hp):
   save_ckpt_secs = FLAGS.save_checkpoints_secs or None
   if save_ckpt_secs:
     save_ckpt_steps = None
-  assert FLAGS.output_dir
+  assert FLAGS.output_dir or FLAGS.checkpoint_path
   return trainer_lib.create_run_config(
       model_dir=os.path.expanduser(FLAGS.output_dir),
       master=FLAGS.master,
