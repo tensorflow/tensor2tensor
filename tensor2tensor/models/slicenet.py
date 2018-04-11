@@ -282,7 +282,7 @@ class SliceNet(t2t_model.T2TModel):
   def body(self, features):
     target_modality_name = (
         self._problem_hparams.target_modality.name)
-    # If we're just predicing a class, there is no use for a decoder.
+    # If we're just predicting a class, there is no use for a decoder.
     run_decoder = "class_label_modality" not in target_modality_name
     return slicenet_internal(
         features["inputs"],

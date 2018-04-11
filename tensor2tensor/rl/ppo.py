@@ -112,7 +112,7 @@ def calculate_generalized_advantage_estimator(
   """Generalized advantage estimator."""
 
   # Below is slight weirdness, we set the last reward to 0.
-  # This makes the adventantage to be 0 in the last timestep
+  # This makes the advantage to be 0 in the last timestep
   reward = tf.concat([reward[:-1, :], value[-1:, :]], axis=0)
   next_value = tf.concat([value[1:, :], tf.zeros_like(value[-1:, :])], axis=0)
   next_not_done = 1 - tf.cast(tf.concat([done[1:, :],

@@ -58,7 +58,7 @@ def _build_vocab(filename, vocab_path, vocab_size):
   Args:
     filename: file to read list of words from.
     vocab_path: path where to save the vocabulary.
-    vocab_size: size of the vocablulary to generate.
+    vocab_size: size of the vocabulary to generate.
   """
   data = _read_words(filename)
   counter = collections.Counter(data)

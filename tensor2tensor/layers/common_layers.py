@@ -1698,7 +1698,7 @@ def padded_cross_entropy(logits,
     label_smoothing: a floating point `Scalar`.
     weights_fn: A function from labels to weights.
     reduce_sum: a Boolean, whether to sum at the end or not.
-    gaussian: If true, use a gaussian distribution for label smoothing
+    gaussian: If true, use a Gaussian distribution for label smoothing
 
   Returns:
     loss_numerator: a `Scalar`.  Sum of losses.
@@ -1747,9 +1747,9 @@ def smoothing_cross_entropy(logits,
     labels: Tensor of size [batch_size, ?, ?, ?]
     vocab_size: Tensor representing the size of the vocabulary.
     confidence: Used to determine on and off values for label smoothing.
-      If `gaussian` is true, `confidence` is the variance to the gaussian
+      If `gaussian` is true, `confidence` is the variance to the Gaussian
       distribution.
-    gaussian: Uses a gaussian distribution for label smoothing
+    gaussian: Uses a Gaussian distribution for label smoothing
 
   Returns:
 
@@ -1993,7 +1993,7 @@ def ravanbakhsh_set_layer(layer_size,
                           name=None):
   """Layer from Deep Sets paper: https://arxiv.org/abs/1611.04500 .
 
-  More parameter-efficient verstion of a linear-set-layer with context.
+  More parameter-efficient version of a linear-set-layer with context.
 
   Args:
     layer_size: Dimension to transform the input vectors to.
@@ -2719,7 +2719,7 @@ def _recompute_grad(fn, args):
       grad_vars = [tf.cast(grad_var, tf.bfloat16) for grad_var in grad_vars]
     if is_on_tpu():
       # TODO(noam): remove this hack once XLA does the right thing.
-      # Force the gradinets on the inputs to be computed before the variables
+      # Force the gradients on the inputs to be computed before the variables
       # are updated.  This saves memory by preventing XLA from making an extra
       # copy of the variables.
       grad_vars = force_dependency(grad_vars, grad_inputs)
@@ -2761,7 +2761,7 @@ def dense(x, units, **kwargs):
   fn = lambda x: tf.layers.dense(x, units, **kwargs)
   if is_on_tpu():
     # TODO(noam): remove this hack once XLA does the right thing.
-    # Forces the gradinets on the inputs to be computed before the variables
+    # Forces the gradients on the inputs to be computed before the variables
     # are updated.  This saves memory by preventing XLA from making an extra
     # copy of the variables.
     return _recompute_grad(fn, [x])

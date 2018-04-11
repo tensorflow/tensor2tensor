@@ -177,7 +177,7 @@ class LanguagemodelWikiScramble(LanguagemodelWikiXmlV8kL1k):
 
 @registry.register_problem
 class LanguagemodelWikiScrambleL128(LanguagemodelWikiScramble):
-  """Sequence length 128, 50% scrambed."""
+  """Sequence length 128, 50% scrambled."""
 
   @property
   def sequence_length(self):
@@ -209,7 +209,7 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
 
   Special pages (non-articles) are dropped.
 
-  This more closely resemples plain text, though there are still some xml
+  This more closely resembles plain text, though there are still some xml
   elements, like tables.
 
   Each article is prefixed by a line containing the title and length in
@@ -228,7 +228,7 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
     return "vocab.wiki_noref.%d" % self.approx_vocab_size
 
   def filepath_to_unicode_strings(self, filepath):
-    """Overriddes the base class to clean up the xml dump before tokenizing."""
+    """Overrides the base class to clean up the xml dump before tokenizing."""
     dump = text_encoder.to_unicode_ignore_errors(tf.gfile.Open(filepath).read())
     pages = _dump_to_pages(dump)
     ret = u""

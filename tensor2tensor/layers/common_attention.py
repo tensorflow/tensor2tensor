@@ -37,7 +37,7 @@ import tensorflow as tf
 
 from tensorflow.python.framework import function
 
-# Struct conatining the sequences ids and order on a batch (are send to the
+# Struct containing the sequences ids and order on a batch (are send to the
 # expert to allow them to compute the bias mask)
 BatchInfo = collections.namedtuple("BatchInfo", "coordinates, order")
 
@@ -57,9 +57,9 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
 
   Args:
     hparams (tf.HParams): the model hparameters
-    dp (expert_utils.Parallelism): A data paralelism object. If not given,
+    dp (expert_utils.Parallelism): A data parallelism object. If not given,
       the dp calls are simply ignored.
-    ps_devices: a reference to model._ps_devices (only used by the moe layer)
+    ps_devices: a reference to model._ps_devices (only used by the MOE layer)
 
   Returns:
     dict[str:fct]: A dictionary containing the standardized functions
@@ -82,9 +82,9 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
       fct_in (fct): The function to register
       default_args (list): The default parameters to add to the function.
       default_kwargs (dict): The default parameters to add to the function.
-        Those arguments can be overwriten when calling the function.
+        Those arguments can be overwritten when calling the function.
       use_dp (bool): Wrap the function call within a dataparalellism object if
-        dp is available. Some layers (like moe) must be called without dp.
+        dp is available. Some layers (like MOE) must be called without dp.
       recompute_grad (bool): If True, recompute the function during the
         backward pass to save memory
 
@@ -319,8 +319,8 @@ def add_standard_attention_hparams(hparams):
   hparams.add_hparam("attention_red_nonlinearity", "none")
 
   # Fully connected layers flags
-  # To be more concistent, should use filter_size to also controle the moe
-  # size if moe_hidden_sizes not set
+  # To be more consistent, should use filter_size to also control the MOE
+  # size if moe_hidden_sizes not set.
   hparams.add_hparam("filter_size", 2048)
   hparams.add_hparam("relu_dropout", 0.0)
 
@@ -400,7 +400,7 @@ def get_timing_signal_1d(length,
   memory inputs to attention.
 
   The use of relative position is possible because sin(x+y) and cos(x+y) can be
-  experessed in terms of y, sin(x) and cos(x).
+  expressed in terms of y, sin(x) and cos(x).
 
   In particular, we use a geometric sequence of timescales starting with
   min_timescale and ending with max_timescale.  The number of different
@@ -861,8 +861,8 @@ def attention_bias_batch(
 
   bc_v = tf.expand_dims(to_float(batch_coordinates_q), 1)
   bc_h = tf.expand_dims(to_float(batch_coordinates_k), 0)
-  bias_batch = bc_h - bc_v  # Broadcast to create [length_q, length_k] mask
-  # Theshold non zeros to 1.0
+  bias_batch = bc_h - bc_v  # Broadcast to create [length_q, length_k] mask.
+  # Threshold non zeros to 1.0.
   bias_batch = condition_fn(bias_batch)
   bias_batch *= -1e9  # Set non zeros to -infinity
   return bias_batch
@@ -877,9 +877,9 @@ attention_bias_coordinates = functools.partial(
 # Mask similar to upper triangular mask, but allow dispatching
 attention_bias_future = functools.partial(
     attention_bias_batch,
-    # Elems can attend to themself (otherwise would use bias_batch + 1.0)
-    # No tf.abs to consider the order
-    # tf.maximum and tf.minimum to threshold the values
+    # Elems can attend to themselves (otherwise would use bias_batch + 1.0).
+    # No tf.abs to consider the order,
+    # tf.maximum and tf.minimum to threshold the values.
     condition_fn=lambda bias: tf.maximum(0.0, tf.minimum(1.0, bias)),
 )
 
@@ -1060,7 +1060,7 @@ def grouped_attention_multihead(query_antecedent,
   memory_target_density indicates the average how many groups in which
   a key-value pair should participate.
 
-  We use auxialiary losses to ensure that each group contains roughly
+  We use auxiliary losses to ensure that each group contains roughly
   the same number of queries and the same number of key-value pairs.
   If for a given sequence, the actual number of queries/pairs sent to
   an expert exceeds this target by a factor of more than
@@ -1316,7 +1316,7 @@ def dot_product_attention(q,
     name: an optional string
     make_image_summary: True if you want an image summary.
     save_weights_to: an optional dictionary to capture attention weights
-      for vizualization; the weights tensor will be appended there under
+      for visualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
     dropout_broadcast_dims:  an optional list of integers less than 4
       specifying in which dimensions to broadcast the dropout decisions.
@@ -2509,7 +2509,7 @@ def multihead_attention(query_antecedent,
         [batch_size, length_q, hidden_dim]
     unless the cache dict is provided in which case only the last memory
     position is calculated and the output shape is [batch_size, 1, hidden_dim]
-    Optionaly returns an additional loss parameters (ex: load balance loss for
+    Optionally returns an additional loss parameters (ex: load balance loss for
     the experts) returned by the attention_type function.
 
   Raises:
@@ -2787,7 +2787,7 @@ def parameter_attention(x,
 
 @expert_utils.add_name_scope()
 def coordinate_tensor(shape, axis):
-  """Return a tensor with given shape containing coordinte along given axis.
+  """Return a tensor with given shape containing coordinate along given axis.
 
   Args:
     shape: a Tensor representing the shape of the output Tensor
@@ -2879,7 +2879,7 @@ def self_attention_expert(
     def mask_and_call_attention(x):
       """Function applied once for each sequence of the batch."""
 
-      # Mask to prevent sequences of attenting to the future
+      # Mask to prevent sequences of attending to the future
       length = common_layers.shape_list(x)[1]  # x has shape [1, length,...]
       bias_past = tf.reshape(
           attention_bias_lower_triangle(length), [length, length])
@@ -2972,7 +2972,7 @@ def expert_dot_product(q, k, v, info_q, info_k):
   """Perform dot product on a subset of the sequence.
 
   Can add a mask to the attention to prevent sequences to attend to each other
-  and to prevent attention to the futur.
+  and to prevent attention to the future.
 
   Args:
     q (tf.Tensor): Queries of shape [length_expert_q, depth_k]
@@ -3201,16 +3201,12 @@ def sparse_dot_product_attention(q, k, v, bi, use_map_fn, experts_params):
   gates_q = tf.stack(list_gates_q)
   gates_k = tf.stack(list_gates_k)
 
-  # Process each head separatly
+  # Process each head separately.
   v_out = map_fn_switch(
       lambda args: dot_product_single_head(bi=bi, *args),
       elems=(q, k, v, gates_q, gates_k),
       dtype=(tf.float32),
       parallel_iterations=2,
-      # back_prop=True,
-      # swap_memory=False,
-      # infer_shape=True,
-      # name=None
       use_map_fn=use_map_fn,
   )
 
@@ -3436,9 +3432,8 @@ def conv_elems_1d(x, factor, out_depth=None):
 
   Merge/restore/compress factors positions of dim depth of the input into
   a single position of dim out_depth.
-  This is basically just a strided convolution without overlapp
-  between each strides.
-  The original length has to be divided by factor.
+  This is basically just a strided convolution without overlap
+  between each strides. The original length has to be divided by factor.
 
   Args:
     x (tf.Tensor): shape [batch_size, length, depth]
@@ -3481,7 +3476,7 @@ def local_reduction_attention(x, block_length, multihead_params):
   def dot_product_self_local_attention_flattened(q, k, v):
     """Strided block local self-attention.
 
-    No overlapp between the blocks.
+    No overlap between the blocks.
 
     Args:
       q (tf.Tensor): shape [batch, heads, length, depth_k]
@@ -3562,7 +3557,7 @@ def multihead_self_attention_reduced(
 
   Args:
     x (tf.Tensor): float32 of shape [batch, length, depth]
-    memory_antecedent (tf.Tensor): Unsuported for now
+    memory_antecedent (tf.Tensor): Unsupported for now
     bias (tf.Tensor): Ignored
     factor (int): compression factor for the memory sequence
     multihead_params (dict): parameters for multihead attention
@@ -3584,7 +3579,7 @@ def multihead_self_attention_reduced(
 
   depth = x.get_shape().as_list()[-1]
 
-  # Could try to have some overlapp between the blocks but that would
+  # Could try to have some overlap between the blocks but that would
   # create conv artifacts, would make it difficult to not attend to the future
   # within one group and the padding should be handled specially.
 
