@@ -1027,9 +1027,9 @@ class T2TModel(base.Layer):
         if isinstance(logits, dict):
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           k = metric_name.split("/")[1]
-          eval_metrics[metric_name] = metric_fn(logits[k], features)
+          eval_metrics[metric_name] = metric_fn(logits[k], features, features[k])
         else:
-          eval_metrics[metric_name] = metric_fn(logits, features)
+          eval_metrics[metric_name] = metric_fn(logits, features, features["targets"])
       if isinstance(logits, dict):
         predictions = logits
       else:
