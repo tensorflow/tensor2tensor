@@ -25,6 +25,7 @@ from __future__ import print_function
 from tensor2tensor.layers import modalities
 from tensor2tensor.models import basic
 from tensor2tensor.models import bytenet
+from tensor2tensor.models import distillation
 from tensor2tensor.models import image_transformer
 from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.models import lstm
