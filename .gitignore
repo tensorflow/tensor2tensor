@@ -1,5 +1,7 @@
 # Compiled python modules.
 *.pyc
+*DS_Store
+
 
 # Byte-compiled
 _pycache__/
