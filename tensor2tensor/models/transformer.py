@@ -290,7 +290,7 @@ class Transformer(t2t_model.T2TModel):
       # _shard_features called to ensure that the variable names match
       inputs = self._shard_features({"inputs": inputs})["inputs"]
 
-      if self.hparams.get('source_feature_sizes'):
+      if getattr(self.hparams, "source_feature_sizes", None):
         # The problem has source features
         inputs = self.shard_sfeatures(inputs, features, dp)
       else:
