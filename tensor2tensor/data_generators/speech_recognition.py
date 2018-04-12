@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Common classes for automatic speech recogntion (ASR) datasets.
+"""Common classes for automatic speech recognition (ASR) datasets.
 
 The audio import uses sox to generate normalized waveforms, please install
 it as appropriate (e.g. using apt-get or yum).

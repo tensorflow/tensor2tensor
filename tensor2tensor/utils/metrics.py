@@ -254,7 +254,7 @@ def image_summary(predictions, features, hparams):
 
   Returns:
     summary_proto: containing the summary images.
-    weights: A Tensor of zeros of the same shape as preditions.
+    weights: A Tensor of zeros of the same shape as predictions.
   """
   del hparams
   results = tf.cast(tf.argmax(predictions, axis=-1), tf.uint8)

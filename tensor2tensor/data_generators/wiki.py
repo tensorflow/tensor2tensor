@@ -190,7 +190,7 @@ class LanguagemodelWikiScrambleL128(LanguagemodelWikiScramble):
 
 @registry.register_problem
 class LanguagemodelWikiScrambleL1k(LanguagemodelWikiScramble):
-  """Sequence length 1024, 50% scrambed."""
+  """Sequence length 1024, 50% scrambled."""
 
   @property
   def sequence_length(self):

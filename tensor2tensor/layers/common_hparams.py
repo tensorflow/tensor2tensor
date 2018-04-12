@@ -102,13 +102,13 @@ def basic_params1():
       moe_loss_coef=1e-2,
       # Sequences of operations to perform on layer input and layer output.
       # Used by common_layers.layer_preprocess, common_layers.layer_postprocess
-      # Each character repsesnts an operation:
+      # Each character represents an operation:
       # none: no preprocessing
       #    d: apply dropout
       #    n: apply normalization (see norm_type and norm_epsilon)
       #    a: add layer input (residual connection - only during postprocess)
       # The special string "none" is used instead of the empty string
-      # to indicate no pre/postprocesisng, since the empty string causes
+      # to indicate no pre/postprocessing, since the empty string causes
       # trouble for hyperparameter tuning.
       # TODO(noam): The current settings ("", "dan") are the published version
       # of the transformer.  ("n", "da") seems better for harder-to-learn
@@ -174,13 +174,13 @@ def basic_params1():
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
-      # You can change this behavior by overridding preprocess_example() method
+      # You can change this behavior by overriding preprocess_example() method
       # in your problem class.
       max_input_seq_length=0,
       # The maximum length of "target" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
-      # You can change this behavior by overridding preprocess_example() method
+      # You can change this behavior by overriding preprocess_example() method
       # in your problem class.
       max_target_seq_length=0,
       # if nonzero, we split the target sequences on example read.

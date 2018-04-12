@@ -136,7 +136,7 @@ def _batching_scheme(batch_size,
                      min_length=0):
   """A batching scheme based on model hyperparameters.
 
-  Every batch containins a number of sequences divisible by `shard_multiplier`.
+  Every batch contains a number of sequences divisible by `shard_multiplier`.
 
   Args:
     batch_size: int, total number of tokens in a batch.
