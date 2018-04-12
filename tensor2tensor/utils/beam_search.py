@@ -135,7 +135,7 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
       [batch_size, beam_size]. We will return the gathered scores from here.
       Scores to gather is different from scores because for grow_alive, we will
       need to return log_probs, while for grow_finished, we will need to return
-      the length penalized scors.
+      the length penalized scores.
     flags: Tensor of bools for sequences that say whether a sequence has reached
       EOS or not
     beam_size: int
@@ -229,7 +229,7 @@ def beam_search(symbols_to_logits_fn,
   Returns:
     Tuple of
     (decoded beams [batch_size, beam_size, decode_length]
-     decoding probablities [batch_size, beam_size])
+     decoding probabilities [batch_size, beam_size])
   """
   batch_size = common_layers.shape_list(initial_ids)[0]
 
@@ -495,17 +495,17 @@ def beam_search(symbols_to_logits_fn,
     # If the sequence isn't finished, we multiply it's score by 0. since
     # scores are all -ve, taking the min will give us the score of the lowest
     # finished item.
-    lowest_score_of_fininshed_in_finished = tf.reduce_min(
+    lowest_score_of_finished_in_finished = tf.reduce_min(
         finished_scores * tf.to_float(finished_in_finished), axis=1)
     # If none of the sequences have finished, then the min will be 0 and
     # we have to replace it by -ve INF if it is. The score of any seq in alive
     # will be much higher than -ve INF and the termination condition will not
     # be met.
-    lowest_score_of_fininshed_in_finished += (
+    lowest_score_of_finished_in_finished += (
         (1. - tf.to_float(tf.reduce_any(finished_in_finished, 1))) * -INF)
 
     bound_is_met = tf.reduce_all(
-        tf.greater(lowest_score_of_fininshed_in_finished,
+        tf.greater(lowest_score_of_finished_in_finished,
                    lower_bound_alive_scores))
 
     return tf.logical_and(

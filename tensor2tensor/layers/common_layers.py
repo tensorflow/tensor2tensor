@@ -1201,7 +1201,7 @@ def add_timing_signal(x, min_timescale=1, max_timescale=1e4, num_timescales=16):
   and the target of the attention.
 
   The use of relative position is possible because sin(x+y) and cos(x+y) can be
-  experessed in terms of y, sin(x) and cos(x).
+  expressed in terms of y, sin(x) and cos(x).
 
   In particular, we use a geometric sequence of timescales starting with
   min_timescale and ending with max_timescale.  For each timescale, we

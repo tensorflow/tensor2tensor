@@ -51,7 +51,7 @@ class Transformer(t2t_model.T2TModel):
 
   def __init__(self, *args, **kwargs):
     super(Transformer, self).__init__(*args, **kwargs)
-    self.attention_weights = dict()  # For vizualizing attention heads.
+    self.attention_weights = dict()  # For visualizing attention heads.
 
   def encode(self, inputs, target_space, hparams, features=None):
     """Encode transformer inputs.
@@ -60,7 +60,7 @@ class Transformer(t2t_model.T2TModel):
       inputs: Transformer inputs [batch_size, input_length, input_height,
         hidden_dim] which will be flattened along the two spatial dimensions.
       target_space: scalar, target space ID.
-      hparams: hyperparmeters for model.
+      hparams: hyperparameters for model.
       features: optionally pass the entire features dictionary as well.
         This is needed now for "packed" datasets.
 
@@ -106,7 +106,7 @@ class Transformer(t2t_model.T2TModel):
           encoder-decoder attention. [batch_size, input_length]
       decoder_self_attention_bias: Bias and mask weights for decoder
           self-attention. [batch_size, decoder_length]
-      hparams: hyperparmeters for model.
+      hparams: hyperparameters for model.
       cache: dict, containing tensors which are the results of previous
           attentions, used for fast decoding.
       nonpadding: optional Tensor with shape [batch_size, decoder_length]
@@ -142,7 +142,7 @@ class Transformer(t2t_model.T2TModel):
     Args:
       features: Map of features to the model. Should contain the following:
           "inputs": Transformer inputs [batch_size, input_length, hidden_dim]
-          "tragets": Target decoder outputs.
+          "targets": Target decoder outputs.
               [batch_size, decoder_length, hidden_dim]
           "target_space_id"
 
@@ -832,7 +832,7 @@ def transformer_ffn_layer(x,
 
   Args:
     x: a Tensor of shape [batch_size, length, hparams.hidden_size]
-    hparams: hyperparmeters for model
+    hparams: hyperparameters for model
     pad_remover: an expert_utils.PadRemover object tracking the padding
       positions. If provided, when using convolutional settings, the padding
       is removed before applying the convolution, and restored afterward. This

@@ -328,7 +328,7 @@ inference. Users can easily switch between problems, models, and hyperparameter
 sets by using the `--model`, `--problems`, and `--hparams_set` flags. Specific
 hyperparameters can be overridden with the `--hparams` flag. `--schedule` and
 related flags control local and distributed training/evaluation
-([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/g3doc/distributed_training.md)).
+([distributed training documentation](https://github.com/tensorflow/tensor2tensor/tree/master/docs/distributed_training.md)).
 
 ## Adding your own components
 
