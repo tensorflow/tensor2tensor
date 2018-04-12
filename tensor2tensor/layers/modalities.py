@@ -59,7 +59,15 @@ class SymbolModality(modality.Modality):
     if hp and hp.prepend_mode != "none":
       assert (hp.prepend_mode == "prepend_inputs_masked_attention" or
               hp.prepend_mode == "prepend_inputs_full_attention")
-      weights_fn = common_layers.weights_prepend_inputs_to_targets
+
+      if (
+          # In masked attention mode, during training, the network try to
+          # autoregressively predicting the inputs portion, while the
+          # evaluation is only done on the output
+          hp.prepend_mode != "prepend_inputs_masked_attention" or
+          hp.mode != tf.estimator.ModeKeys.TRAIN
+      ):
+        weights_fn = common_layers.weights_prepend_inputs_to_targets
 
     return weights_fn
 
