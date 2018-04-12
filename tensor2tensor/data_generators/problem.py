@@ -100,6 +100,12 @@ class SpaceID(object):
   STROKES = 29
   # Pickled Python
   PICKLED_PYTHON = 30
+  # Inner Mongolian Unicode Token
+  MN_TOK=31
+  # Inner Mongolian Unicode BPE Token
+  MN_BPE_TOK=32
+  # Chinese BPE tokens
+  ZH_BPE_TOK = 33
 
 
 def default_model_hparams():
