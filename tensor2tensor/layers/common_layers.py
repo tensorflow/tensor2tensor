@@ -79,6 +79,26 @@ def bfloat16_var_getter(getter, *args, **kwargs):
   return var
 
 
+def bfloat16_weights_var_getter(getter, *args, **kwargs):
+  """A custom getter function for bfloat16 variables.
+
+  Variables maintain storage in bfloat16.
+
+  Args:
+    getter: A custom getter.
+    *args: Arguments.
+    **kwargs: Keyword arguments.
+  Returns:
+    Variables with the correct dtype.
+  Raises:
+    KeyError: if "dtype" is not provided as a kwarg.
+  """
+  requested_dtype = kwargs["dtype"]
+  if requested_dtype in (tf.bfloat16, tf.float32):
+    kwargs["dtype"] = tf.bfloat16
+  return getter(*args, **kwargs)
+
+
 def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
   """Like tf.nn.dropout but takes broadcast_dims instead of noise_shape.
 
@@ -1727,6 +1747,7 @@ def padded_cross_entropy(logits,
       labels = tf.reshape(labels, [-1])
     else:
       logits, labels = pad_with_zeros(logits, labels)
+    logits = tf.cast(logits, tf.float32)
     xent = smoothing_cross_entropy(logits, labels, vocab_size, confidence,
                                    gaussian=gaussian)
     weights = weights_fn(labels)

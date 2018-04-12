@@ -130,9 +130,12 @@ class T2TModel(base.Layer):
       return True
 
   def call(self, features):
-    tf.get_variable_scope().set_custom_getter(common_layers.bfloat16_var_getter
-                                              if self.hparams.activation_dtype
-                                              == "bfloat16" else None)
+    custom_getter = None
+    if self.hparams.activation_dtype == "bfloat16":
+      custom_getter = common_layers.bfloat16_var_getter
+    if self.hparams.weight_dtype == "bfloat16":
+      custom_getter = common_layers.bfloat16_weights_var_getter
+    tf.get_variable_scope().set_custom_getter(custom_getter)
     tf.get_variable_scope().set_initializer(
         optimize.get_variable_initializer(self.hparams))
     with self._eager_var_store.as_default():
@@ -219,7 +222,8 @@ class T2TModel(base.Layer):
   def model_fn(self, features):
     transformed_features = self.bottom(features)
 
-    if self.hparams.activation_dtype == "bfloat16":
+    if (self.hparams.activation_dtype == "bfloat16" or
+        self.hparams.weight_dtype == "bfloat16"):
       for k, v in six.iteritems(transformed_features):
         if v.dtype == tf.float32:
           transformed_features[k] = tf.cast(v, tf.bfloat16)
@@ -356,7 +360,6 @@ class T2TModel(base.Layer):
     # The current bfloat16 version still uses float32 for most parts of backward
     # propagation to keep model quality, so cast back before computing the loss
     # value.
-    logits = tf.cast(logits, tf.float32)
     if not target_modality:
       log_warn(_no_problem_err("loss"))
       return (tf.constant(0., dtype=tf.float32),
@@ -1263,7 +1266,8 @@ def _create_host_call(model_dir):
     with tf.contrib.summary.create_file_writer(model_dir).as_default():
       with tf.contrib.summary.always_record_summaries():
         for name, value in six.iteritems(kwargs):
-          tf.contrib.summary.scalar(name, tf.reduce_mean(value), step=gs)
+          tf.contrib.summary.scalar(
+              name, tf.reduce_mean(tf.to_float(value)), step=gs)
 
         return tf.contrib.summary.all_summary_ops()
 
@@ -1359,7 +1363,8 @@ def average_sharded_losses(sharded_losses):
     if isinstance(all_shards[0], tuple):
       sharded_num, sharded_den = zip(*all_shards)
       mean_loss = (
-          tf.add_n(sharded_num) / tf.maximum(1.0, tf.add_n(sharded_den)))
+          tf.add_n(sharded_num) / tf.maximum(
+              tf.cast(1.0, sharded_den[0].dtype), tf.add_n(sharded_den)))
     else:
       mean_loss = tf.reduce_mean(all_shards)
 
