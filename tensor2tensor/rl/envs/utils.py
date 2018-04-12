@@ -33,7 +33,10 @@ import traceback
 import gym
 
 from tensor2tensor.rl.envs import batch_env
-from tensor2tensor.rl.envs import in_graph_batch_env
+
+from tensor2tensor.rl.envs import py_func_batch_env
+from tensor2tensor.rl.envs import simulated_batch_env
+
 import tensorflow as tf
 
 
@@ -278,25 +281,37 @@ class ExternalProcessEnv(object):
     conn.close()
 
 
-def define_batch_env(constructor, num_agents, xvfb=False, env_processes=True):
-  """Create environments and apply all desired wrappers.
+def batch_env_factory(environment_lambda, hparams, num_agents, xvfb=False):
+  """Factory of batch envs."""
+  wrappers = hparams.in_graph_wrappers if hasattr(
+      hparams, "in_graph_wrappers") else []
 
-  Args:
-    constructor: Constructor of an OpenAI gym environment.
-    num_agents: Number of environments to combine in the batch.
-    xvfb: Frame buffer.
-    env_processes: Whether to step environment in external processes.
+  if hparams.simulated_environment:
+    cur_batch_env = define_simulated_batch_env(num_agents)
+  else:
+    cur_batch_env = define_batch_env(environment_lambda, num_agents, xvfb=xvfb)
+  for w in wrappers:
+    cur_batch_env = w[0](batch_env, **w[1])
+  return cur_batch_env
 
-  Returns:
-    In-graph environments object.
-  """
+
+def define_batch_env(constructor, num_agents, xvfb=False):
+  """Create environments and apply all desired wrappers."""
   with tf.variable_scope("environments"):
-    if env_processes:
-      envs = [
-          ExternalProcessEnv(constructor, xvfb)
-          for _ in range(num_agents)]
-    else:
-      envs = [constructor() for _ in range(num_agents)]
-    env = batch_env.BatchEnv(envs, blocking=not env_processes)
-    env = in_graph_batch_env.InGraphBatchEnv(env)
+    envs = [
+        ExternalProcessEnv(constructor, xvfb)
+        for _ in range(num_agents)]
+    env = batch_env.BatchEnv(envs, blocking=False)
+    env = py_func_batch_env.PyFuncBatchEnv(env)
     return env
+
+
+def define_simulated_batch_env(num_agents):
+  # TODO(blazej0): the parameters should be infered.
+  observ_shape = (210, 160, 3)
+  observ_dtype = tf.float32
+  action_shape = []
+  action_dtype = tf.int32
+  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
+      num_agents, observ_shape, observ_dtype, action_shape, action_dtype)
+  return cur_batch_env

@@ -35,7 +35,7 @@ python tensor2tensor/bin/t2t-datagen \
   --data_dir=~/t2t_data \
   --tmp_dir=~/t2t_data/tmp \
   --problem=gym_pong_trajectories_from_policy \
-  --model_path [model]
+  --agent_policy_path [model]
 ```
 
 ## Training model for frames generation based on randomly played games

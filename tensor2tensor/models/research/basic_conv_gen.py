@@ -41,7 +41,7 @@ class BasicConvGen(t2t_model.T2TModel):
     cur_frame = tf.to_float(features["inputs"])
     prev_frame = tf.to_float(features["inputs_prev"])
     x = tf.concat([cur_frame, prev_frame], axis=-1)
-    for _ in xrange(hparams.num_compress_steps):
+    for _ in range(hparams.num_compress_steps):
       x = tf.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
                            strides=(2, 2), padding="SAME")
       x = common_layers.layer_norm(x)
@@ -52,7 +52,7 @@ class BasicConvGen(t2t_model.T2TModel):
     x = tf.concat([x, action + zeros], axis=-1)
 
     # Run a stack of convolutions.
-    for i in xrange(hparams.num_hidden_layers):
+    for i in range(hparams.num_hidden_layers):
       with tf.variable_scope("layer%d" % i):
         y = tf.layers.conv2d(x, filters, kernel1, activation=common_layers.belu,
                              strides=(1, 1), padding="SAME")
@@ -61,7 +61,7 @@ class BasicConvGen(t2t_model.T2TModel):
         else:
           x = common_layers.layer_norm(x + y)
     # Up-convolve.
-    for _ in xrange(hparams.num_compress_steps):
+    for _ in range(hparams.num_compress_steps):
       filters //= 2
       x = tf.layers.conv2d_transpose(
           x, filters, kernel2, activation=common_layers.belu,
@@ -101,6 +101,76 @@ def basic_conv():
 @registry.register_hparams
 def basic_conv_small():
   """Small conv model."""
-  hparams = common_hparams.basic_params1()
+  hparams = basic_conv()
   hparams.hidden_size = 32
   return hparams
+
+
+@registry.register_hparams
+def basic_conv_small_per_image_standardization():
+  """Small conv model."""
+  hparams = common_hparams.basic_params1()
+  hparams.kernel_sizes = [(3, 3), (5, 5)]
+  hparams.filter_numbers = [32, 3*256]
+  hparams.batch_size = 2
+  hparams.add_hparam("per_image_standardization", True)
+  return hparams
+
+
+@registry.register_model
+class MichiganBasicConvGen(t2t_model.T2TModel):
+
+  def body(self, features):
+    def standardize_images(x):
+      """Image standardization on batches."""
+      with tf.name_scope("standardize_images", [x]):
+        x = tf.to_float(x)
+        x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keep_dims=True)
+        x_variance = tf.reduce_mean(
+            tf.square(x - x_mean), axis=[1, 2, 3], keep_dims=True)
+        x_shape = common_layers.shape_list(x)
+        num_pixels = tf.to_float(x_shape[1] * x_shape[2] * 3)
+        x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
+        return x
+
+    def deconv2d(cur, i, kernel_size, output_filters, activation=tf.nn.relu):
+      thicker = common_layers.conv(
+          cur,
+          output_filters * 4,
+          kernel_size,
+          padding="SAME",
+          activation=activation,
+          name="deconv2d" + str(i))
+      return tf.depth_to_space(thicker, 2)
+
+    cur_frame = standardize_images(features["inputs_0"])
+    prev_frame = standardize_images(features["inputs_1"])
+
+    frames = tf.concat([cur_frame, prev_frame], axis=3)
+    frames = tf.reshape(frames, [-1, 210, 160, 6])
+
+    h1 = tf.layers.conv2d(frames, filters=64, strides=2, kernel_size=(8, 8),
+                          padding="SAME", activation=tf.nn.relu)
+    h2 = tf.layers.conv2d(h1, filters=128, strides=2, kernel_size=(6, 6),
+                          padding="SAME", activation=tf.nn.relu)
+    h3 = tf.layers.conv2d(h2, filters=128, strides=2, kernel_size=(6, 6),
+                          padding="SAME", activation=tf.nn.relu)
+    h4 = tf.layers.conv2d(h3, filters=128, strides=2, kernel_size=(4, 4),
+                          padding="SAME", activation=tf.nn.relu)
+    h45 = tf.reshape(h4, [-1, 14 * 10 * 128])
+    h5 = tf.layers.dense(h45, 2048, activation=tf.nn.relu)
+    h6 = tf.layers.dense(h5, 2048, activation=tf.nn.relu)
+    h7 = tf.layers.dense(h6, 14 * 10 * 128, activation=tf.nn.relu)
+    h8 = tf.reshape(h7, [-1, 14, 10, 128])
+
+    h9 = deconv2d(h8, 1, (4, 4), 128, activation=tf.nn.relu)
+    h9 = h9[:, :27, :, :]
+    h10 = deconv2d(h9, 2, (6, 6), 128, activation=tf.nn.relu)
+    h10 = h10[:, :53, :, :]
+    h11 = deconv2d(h10, 3, (6, 6), 128, activation=tf.nn.relu)
+    h11 = h11[:, :105, :, :]
+    h12 = deconv2d(h11, 4, (8, 8), 3 * 256, activation=tf.identity)
+
+    reward = tf.layers.flatten(h12)
+
+    return {"targets": h12, "reward": reward}

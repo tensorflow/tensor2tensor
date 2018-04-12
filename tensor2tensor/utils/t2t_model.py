@@ -356,7 +356,7 @@ class T2TModel(base.Layer):
           "problem_hparams.target_modality is a dict.")
       return self._top_single(body_output, target_modality, features)
 
-  def _loss_single(self, logits, target_modality, features):
+  def _loss_single(self, logits, target_modality, feature):
     # The current bfloat16 version still uses float32 for most parts of backward
     # propagation to keep model quality, so cast back before computing the loss
     # value.
@@ -365,7 +365,7 @@ class T2TModel(base.Layer):
       return (tf.constant(0., dtype=tf.float32),
               tf.constant(1., dtype=tf.float32))
 
-    loss_num, loss_den = target_modality.loss(logits, features["targets"])
+    loss_num, loss_den = target_modality.loss(logits, feature)
     loss_num *= self._problem_hparams.loss_multiplier
     return loss_num, loss_den
 
@@ -380,7 +380,7 @@ class T2TModel(base.Layer):
           "of problem_hparams.target_modality's dict.")
       losses = {}
       for k, v in six.iteritems(logits):
-        losses[k] = self._loss_single(v, target_modality[k], features)
+        losses[k] = self._loss_single(v, target_modality[k], features[k])
       return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
@@ -390,7 +390,7 @@ class T2TModel(base.Layer):
       assert not isinstance(target_modality, dict), (
           "model_body must return a dictionary of logits when "
           "problem_hparams.target_modality is a dict.")
-      return self._loss_single(logits, target_modality, features)
+      return self._loss_single(logits, target_modality, features["targets"])
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
@@ -1030,9 +1030,11 @@ class T2TModel(base.Layer):
         if isinstance(logits, dict):
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           k = metric_name.split("/")[1]
-          eval_metrics[metric_name] = metric_fn(logits[k], features)
+          eval_metrics[metric_name] = metric_fn(
+              logits[k], features, features[k])
         else:
-          eval_metrics[metric_name] = metric_fn(logits, features)
+          eval_metrics[metric_name] = metric_fn(
+              logits, features, features["targets"])
       if isinstance(logits, dict):
         predictions = logits
       else:
