@@ -46,6 +46,7 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import basic_conv_gen
 from tensor2tensor.models.research import cycle_gan
 from tensor2tensor.models.research import gene_expression
+from tensor2tensor.models.research import lm_experiments
 from tensor2tensor.models.research import multimodel
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import super_lm
