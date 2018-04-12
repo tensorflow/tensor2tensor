@@ -356,8 +356,11 @@ def beam_search(symbols_to_logits_fn,
           lambda t: _unmerge_beam_dim(t, batch_size, beam_size), flat_states)
     else:
       flat_logits = symbols_to_logits_fn(flat_ids)
-    logits = tf.reshape(flat_logits, [beam_size, batch_size, -1])
-    logits = tf.transpose(logits, perm=[1, 0, 2])
+    if len(flat_logits.shape)>=3:
+        logits = tf.reshape(flat_logits, [batch_size, beam_size, -1])
+    elif len(flat_logits.shape)<3:
+        logits = tf.reshape(flat_logits, [beam_size, batch_size, -1])
+        logits = tf.transpose(logits, perm=[1, 0, 2])
 
     # Convert logits to normalized log probs
     candidate_log_probs = log_prob_from_logits(logits)
