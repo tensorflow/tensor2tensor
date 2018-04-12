@@ -107,6 +107,98 @@ class CommonLayersTest(tf.test.TestCase):
       actual = session.run(a)
     self.assertEqual(actual.shape, ())
 
+  def testSigmoidAccuracyOneHot(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [-1., 1.],
+        [1., -1.]
+    ])
+    labels = np.array([
+        [0, 1],
+        [1, 0],
+        [1, 0],
+        [0, 1]
+    ])
+    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
+    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_accuracy_one_hot(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertEqual(s, 0.5)
+
+  def testSigmoidPrecisionOneHot(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [1., -1.],
+        [1., -1.]
+    ])
+    labels = np.array([
+        [0, 1],
+        [0, 1],
+        [0, 1],
+        [0, 1]
+    ])
+    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
+    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_precision_one_hot(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertEqual(s, 0.25)
+
+  def testSigmoidRecallOneHot(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [1., -1.],
+        [1., -1.]
+    ])
+    labels = np.array([
+        [0, 1],
+        [0, 1],
+        [0, 1],
+        [0, 1]
+    ])
+    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
+    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_recall_one_hot(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertEqual(s, 0.25)
+
+  def testSigmoidCrossEntropyOneHot(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [1., -1.],
+        [1., -1.]
+    ])
+    labels = np.array([
+        [0, 1],
+        [1, 0],
+        [0, 0],
+        [0, 1]
+    ])
+    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
+    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_cross_entropy_one_hot(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertAlmostEqual(s, 0.688, places=3)
+
 
 if __name__ == '__main__':
   tf.test.main()

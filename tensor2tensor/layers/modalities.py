@@ -586,11 +586,49 @@ class SigmoidClassLabelModality(ClassLabelModality):
   @property
   def name(self):
     return "sigmoid_class_symbol_modality_%d_%d" % (self._vocab_size,
-                                                    self.body_input_depth)
+                                                    self._body_input_depth)
 
   def loss(self, top_out, targets):
-    loss_scale = tf.nn.sigmoid_cross_entropy_with_logits(
-        labels=targets, logits=top_out, name="SigmoidCrossEntropy")
+    # Expect inputs of size [batch-size, timesteps, 1, num-classes], where the
+    # last dimension of num-classes represents logits for binary labels
+    loss_scale = tf.losses.sigmoid_cross_entropy(
+        multi_class_labels=targets, logits=top_out)
+    # Weigh all classes equally
+    weights = self.targets_weights_fn(targets)
+    loss_denom = tf.reduce_sum(weights)
+    return loss_scale, loss_denom
+
+
+@registry.register_class_label_modality("sigmoid_pooling")
+class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
+  """Sigmoid cross-entropy applied on max-pooling over timesteps."""
+
+  @property
+  def name(self):
+    return "sigmoid_max_pooling_class_symbol_modality_%d_%d" % (
+        self._vocab_size, self._body_input_depth)
+
+  def top(self, body_output, _):
+    """Transform inputs from model space to target space.
+
+    Average over inner dims and a linear layer to logits.
+
+    Args:
+      body_output: A Tensor with shape [batch, timesteps, 1, body_output_size].
+
+    Returns:
+      a Tensors, each with shape [batch_size, 1, 1, vocab_size]
+    """
+    with tf.variable_scope(self.name):
+      x = body_output
+      x = tf.reduce_max(x, axis=1, keepdims=True)
+      return tf.layers.dense(x, self._vocab_size)
+
+  def loss(self, top_out, targets):
+    # Expect inputs of size [batch-size, 1, 1, num-classes], where the
+    # last dimension of num-classes represents binary labels for each class
+    loss_scale = tf.losses.sigmoid_cross_entropy(
+        multi_class_labels=targets, logits=top_out)
     # Weigh all classes equally
     weights = self.targets_weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)
