@@ -1062,13 +1062,17 @@ class T2TModel(base.Layer):
       outputs = infer_out
       scores = None
 
+    inputs = features.get("inputs")
+    if inputs is None:
+      inputs = features["targets"]
+
     batched_problem_choice = (
         features["problem_choice"] * tf.ones(
-            (common_layers.shape_list(features["inputs"])[0],), dtype=tf.int32))
+            (common_layers.shape_list(inputs)[0],), dtype=tf.int32))
     predictions = {
         "outputs": outputs,
         "scores": scores,
-        "inputs": features.get("inputs"),
+        "inputs": inputs,
         "targets": features.get("infer_targets"),
         "problem_choice": batched_problem_choice,
         "batch_prediction_key": features.get("batch_prediction_key"),

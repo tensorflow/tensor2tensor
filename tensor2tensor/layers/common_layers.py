@@ -236,6 +236,17 @@ def convert_rgb_to_real(x):
     return x
 
 
+def expand_squeeze_to_nd(x, n, squeeze_dim=2, expand_dim=-1):
+  """Make x n-d with squeeze and expand_dims."""
+  if len(x.shape) > n:
+    while len(x.shape) != n:
+      x = tf.squeeze(x, [squeeze_dim])
+  else:
+    while len(x.shape) != n:
+      x = tf.expand_dims(x, expand_dim)
+  return x
+
+
 def flatten4d3d(x):
   """Flatten a 4d-tensor into a 3d-tensor by joining width and height."""
   xshape = shape_list(x)

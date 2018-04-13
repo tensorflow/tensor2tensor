@@ -301,17 +301,21 @@ class Transformer(t2t_model.T2TModel):
       partial_targets = None
     else:
       # The problem has no inputs.
-      # In this case, features["inputs"] contains partial targets.
-      # We force the outputs to begin with these sequences.
       encoder_output = None
       encoder_decoder_attention_bias = None
-      if len(features["inputs"].shape) >= 4:
-        partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2, 3])
-      else:
-        partial_targets = tf.squeeze(tf.to_int64(features["inputs"]), [2])
-      partial_targets_length = common_layers.shape_list(partial_targets)[1]
+
+      # Prepare partial targets.
+      # In either features["inputs"] or features["targets"].
+      # We force the outputs to begin with these sequences.
+      partial_targets = features.get("inputs")
+      if partial_targets is None:
+        partial_targets = features["targets"]
+      partial_targets = common_layers.expand_squeeze_to_nd(partial_targets, 2)
+      partial_targets = tf.to_int64(partial_targets)
+      partial_targets_shape = common_layers.shape_list(partial_targets)
+      partial_targets_length = partial_targets_shape[1]
       decode_length += partial_targets_length
-      batch_size = tf.shape(partial_targets)[0]
+      batch_size = partial_targets_shape[0]
 
     if hparams.pos == "timing":
       timing_signal = common_attention.get_timing_signal_1d(
@@ -397,7 +401,7 @@ class Transformer(t2t_model.T2TModel):
         alpha=alpha,
         batch_size=batch_size)
     if partial_targets is not None:
-      if beam_size <= 1:
+      if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
       else:
         ret["outputs"] = ret["outputs"][:, :, partial_targets_length:]
@@ -482,20 +486,28 @@ def fast_decode(encoder_output,
 
     if top_beams == 1:
       decoded_ids = decoded_ids[:, 0, 1:]
+      scores = scores[:, 0]
     else:
       decoded_ids = decoded_ids[:, :top_beams, 1:]
+      scores = scores[:, :top_beams]
   else:  # Greedy
 
-    def inner_loop(i, finished, next_id, decoded_ids, cache):
+    def inner_loop(i, finished, next_id, decoded_ids, cache, log_prob):
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
+      log_probs = beam_search.log_prob_from_logits(logits)
       temperature = (0.0 if hparams.sampling_method == "argmax" else
                      hparams.sampling_temp)
       next_id = common_layers.sample_with_temperature(logits, temperature)
       finished |= tf.equal(next_id, eos_id)
+
+      log_prob_indices = tf.stack(
+          [tf.range(tf.to_int64(batch_size)), next_id], axis=1)
+      log_prob += tf.gather_nd(log_probs, log_prob_indices)
+
       next_id = tf.expand_dims(next_id, axis=1)
       decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
-      return i + 1, finished, next_id, decoded_ids, cache
+      return i + 1, finished, next_id, decoded_ids, cache, log_prob
 
     def is_not_finished(i, finished, *_):
       return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
@@ -503,18 +515,22 @@ def fast_decode(encoder_output,
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
     finished = tf.fill([batch_size], False)
     next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
-    _, _, _, decoded_ids, _ = tf.while_loop(
+    initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
+    _, _, _, decoded_ids, _, log_prob = tf.while_loop(
         is_not_finished,
-        inner_loop,
-        [tf.constant(0), finished, next_id, decoded_ids, cache],
+        inner_loop, [
+            tf.constant(0), finished, next_id, decoded_ids, cache,
+            initial_log_prob
+        ],
         shape_invariants=[
             tf.TensorShape([]),
             tf.TensorShape([None]),
             tf.TensorShape([None, None]),
             tf.TensorShape([None, None]),
             nest.map_structure(beam_search.get_state_shape_invariants, cache),
+            tf.TensorShape([None]),
         ])
-    scores = None
+    scores = log_prob
 
   return {"outputs": decoded_ids, "scores": scores}
 
