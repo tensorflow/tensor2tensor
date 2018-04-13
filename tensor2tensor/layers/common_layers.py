@@ -1951,7 +1951,8 @@ def sru(x, num_layers=2,
     x = tf.transpose(x, [1, 0, 2])  # Scan assumes time on axis 0.
     initial_state = initial_state or tf.zeros([x_shape[0], x_shape[-1]])
     # SRU state manipulation function.
-    def next_state(cur_state, (cur_x_times_one_minus_f, cur_f)):
+    def next_state(cur_state, args_tup):
+      cur_x_times_one_minus_f, cur_f = args_tup
       return cur_f * cur_state + cur_x_times_one_minus_f
     # Calculate SRU on each layer.
     for i in xrange(num_layers):
