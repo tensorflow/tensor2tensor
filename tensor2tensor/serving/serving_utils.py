@@ -33,6 +33,7 @@ from tensorflow_serving.apis import predict_pb2
 from tensorflow_serving.apis import prediction_service_pb2
 
 
+
 def _make_example(input_ids, feature_name="inputs"):
   features = {
       feature_name:
@@ -48,9 +49,10 @@ def _create_stub(server):
   return prediction_service_pb2.beta_create_PredictionService_stub(channel)
 
 
-def _encode(inputs, encoder):
+def _encode(inputs, encoder, add_eos=True):
   input_ids = encoder.encode(inputs)
-  input_ids.append(text_encoder.EOS_ID)
+  if add_eos:
+    input_ids.append(text_encoder.EOS_ID)
   return input_ids
 
 
@@ -58,12 +60,14 @@ def _decode(output_ids, output_decoder):
   return output_decoder.decode(output_ids)
 
 
+
+
 def make_grpc_request_fn(servable_name, server, timeout_secs):
   """Wraps function to make grpc requests with runtime args."""
+  stub = _create_stub(server)
 
   def _make_grpc_request(examples):
     """Builds and sends request to TensorFlow model server."""
-    stub = _create_stub(server)
     request = predict_pb2.PredictRequest()
     request.model_spec.name = servable_name
     request.inputs["input"].CopyFrom(
@@ -107,7 +111,10 @@ def predict(inputs_list, problem, request_fn):
   assert isinstance(inputs_list, list)
   fname = "inputs" if problem.has_inputs else "targets"
   input_encoder = problem.feature_info[fname].encoder
-  input_ids_list = [_encode(inputs, input_encoder) for inputs in inputs_list]
+  input_ids_list = [
+      _encode(inputs, input_encoder, add_eos=problem.has_inputs)
+      for inputs in inputs_list
+  ]
   examples = [_make_example(input_ids, fname) for input_ids in input_ids_list]
   predictions = request_fn(examples)
   output_decoder = problem.feature_info["targets"].encoder

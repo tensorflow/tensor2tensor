@@ -89,8 +89,8 @@ def get_state_shape_invariants(tensor):
   return tf.TensorShape(shape)
 
 
-def log_prob_from_logits(logits):
-  return logits - tf.reduce_logsumexp(logits, axis=2, keep_dims=True)
+def log_prob_from_logits(logits, reduce_axis=-1):
+  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keep_dims=True)
 
 
 def compute_batch_indices(batch_size, beam_size):
@@ -407,7 +407,7 @@ def beam_search(symbols_to_logits_fn,
 
   def inner_loop(i, alive_seq, alive_log_probs, finished_seq, finished_scores,
                  finished_flags, states):
-    """Inner beam seach loop.
+    """Inner beam search loop.
 
     There are three groups of tensors, alive, finished, and topk.
     The alive group contains information about the current alive sequences
@@ -488,7 +488,7 @@ def beam_search(symbols_to_logits_fn,
     if not stop_early:
       return tf.less(i, decode_length)
     max_length_penalty = tf.pow(((5. + tf.to_float(decode_length)) / 6.), alpha)
-    # The best possible score of the most likely alive sequence
+    # The best possible score of the most likely alive sequence.
     lower_bound_alive_scores = alive_log_probs[:, 0] / max_length_penalty
 
     # Now to compute the lowest score of a finished sequence in finished

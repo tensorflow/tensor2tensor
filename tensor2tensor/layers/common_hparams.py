@@ -232,6 +232,10 @@ def basic_params1():
       # Set this to the dtype used for activation. Variables will still be
       # stored in float32.
       activation_dtype="float32",
+      # Experimental: set weight_dtype="bfloat16" to use bfloat16 for both
+      # weights and activations. Model quality may be worse. Model quality
+      # appears to be close to baseline with large batch sizes (>4k).
+      weight_dtype="float32",
   )
 
 

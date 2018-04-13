@@ -228,6 +228,14 @@ class CommonLayersTest(tf.test.TestCase):
     self.assertEqual(res1.shape, (5, 7, 3, 11))
     self.assertEqual(res2.shape, (5, 7, 3, 11))
 
+  def testSRU(self):
+    x = np.random.rand(5, 7, 3, 11)
+    with self.test_session() as session:
+      y = common_layers.sru(tf.constant(x, dtype=tf.float32))
+      session.run(tf.global_variables_initializer())
+      res = session.run(y)
+    self.assertEqual(res.shape, (5, 7, 3, 11))
+
   def testLayerNorm(self):
     x = np.random.rand(5, 7, 11)
     with self.test_session() as session:

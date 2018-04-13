@@ -147,7 +147,8 @@ def decode_transformer(encoder_output,
                        targets,
                        hparams,
                        name,
-                       task=None):
+                       task=None,
+                       causal=True):
   """Original Transformer decoder."""
   orig_hparams = hparams
   if name == "extra":
@@ -165,6 +166,9 @@ def decode_transformer(encoder_output,
 
       decoder_input = tf.nn.dropout(decoder_input,
                                     1.0 - hparams.layer_prepostprocess_dropout)
+
+      if not causal:
+        decoder_self_bias *= 0.
 
       decoder_output = transformer.transformer_decoder(
           decoder_input,
@@ -184,6 +188,7 @@ def decode_transformer(encoder_output,
 
       # Prepare decoder inputs and bias.
       decoder_input, _, _, bias = cia.prepare_decoder(targets, hparams)
+
       # Add class label to decoder input.
       if not hparams.drop_inputs:
         decoder_input += tf.reshape(
@@ -438,6 +443,8 @@ def ae_transformer_internal(inputs,
       if not hparams.do_refine:
         masking -= tf.random_uniform([]) * hparams.unmasked_percentage
       masking = tf.minimum(tf.maximum(masking, 0.0), 1.0)
+      if hparams.use_predict_mask:
+        masking = predict_mask
       if hparams.mode == tf.estimator.ModeKeys.PREDICT:
         masking = predict_mask
       mask = tf.less(masking, tf.random_uniform(
@@ -457,7 +464,8 @@ def ae_transformer_internal(inputs,
     if hparams.task == "translate":
       targets = tf.concat([tf.reverse(latents_dense, [1]), targets], axis=1)
 
-  res = decode_transformer(inputs, ed, targets, hparams, "decoder")
+  res = decode_transformer(inputs, ed, targets, hparams, "decoder",
+                           causal=hparams.causal)
   if hparams.do_ae:
     if hparams.task == "translate":
       res = res[:, common_layers.shape_list(latents_dense)[1]:, :, :]
@@ -506,6 +514,7 @@ class TransformerAE(t2t_model.T2TModel):
         discrete_mix=self._hparams.d_mix,
         random_top_k=self._hparams.random_top_k,
         soft_em=self.hparams.soft_em,
+        soft_em_startup_steps=self.hparams.soft_em_startup_steps,
         inv_temp=self.hparams.inv_temp,
         epsilon=self._hparams.epsilon,
         softmax_k=self._hparams.softmax_k,
@@ -678,11 +687,13 @@ def transformer_ae_small():
   # Add an hparam for number of reiduals
   hparams.add_hparam("num_residuals", 1)
   # Reshape method for DVQ: slice, project
+  hparams.add_hparam("causal", True)
   hparams.add_hparam("reshape_method", "slice")
   hparams.add_hparam("trainable_projections", False)
   hparams.add_hparam("unmasked_percentage", 0.1)
   hparams.add_hparam("do_ae", True)
   hparams.add_hparam("do_mask", True)
+  hparams.add_hparam("use_predict_mask", True)
   hparams.add_hparam("do_refine", False)
   hparams.add_hparam("do_attend_compress", False)
   hparams.add_hparam("do_attend_decompress", True)
@@ -693,7 +704,6 @@ def transformer_ae_small():
   hparams.add_hparam("num_compress_steps", 3)
   hparams.add_hparam("startup_steps", 10000)
   hparams.add_hparam("mask_startup_steps", 50000)
-  hparams.add_hparam("kmeans_lr_factor", 0.002)
   hparams.add_hparam("z_dropout", 0.1)
   hparams.add_hparam("is_2d", 0)
   hparams.add_hparam("softmax_k", 0)
@@ -706,6 +716,7 @@ def transformer_ae_small():
   hparams.add_hparam("ema", True)
   hparams.add_hparam("random_top_k", 1)
   hparams.add_hparam("soft_em", False)
+  hparams.add_hparam("soft_em_startup_steps", 10000)
   hparams.add_hparam("inv_temp", 1.0)
   hparams.kl_warmup_steps = 150000
   hparams.force_full_predict = True
@@ -722,7 +733,6 @@ def imagetransformer_ae_cifar():
   hparams.filter_size = 512
   hparams.num_compress_steps = 3
   hparams.startup_steps = 10000
-  hparams.kmeans_lr_factor = 0.0
   hparams.is_2d = 0
   hparams.learning_rate_warmup_steps = 8000
   hparams.learning_rate = 0.2
@@ -771,7 +781,7 @@ def imagetransformer_ae_cifar():
   hparams.num_decoder_layers = 12
   hparams.sep_rgb_embed = False
   hparams.add_hparam("dec_attention_type", cia.AttentionType.LOCAL_1D)
-  hparams.add_hparam("block_rastor_scan", False)
+  hparams.add_hparam("block_raster_scan", False)
 
   # multipos attention params
   hparams.add_hparam("q_filter_width", 1)

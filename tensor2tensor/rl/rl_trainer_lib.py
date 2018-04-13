@@ -29,13 +29,10 @@ from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import collect
 from tensor2tensor.rl import ppo
-from tensor2tensor.rl.envs import utils
 from tensor2tensor.rl.envs import tf_atari_wrappers
-
+from tensor2tensor.rl.envs import utils
 
 import tensorflow as tf
-
-
 
 
 def define_train(hparams, environment_spec, event_dir):
@@ -44,7 +41,8 @@ def define_train(hparams, environment_spec, event_dir):
 
   if environment_spec == "stacked_pong":
     environment_spec = lambda: gym.make("PongNoFrameskip-v4")
-    wrappers = hparams.in_graph_wrappers if hasattr(hparams, "in_graph_wrappers") else []
+    wrappers = hparams.in_graph_wrappers if hasattr(
+        hparams, "in_graph_wrappers") else []
     wrappers.append((tf_atari_wrappers.MaxAndSkipEnv, {"skip": 4}))
     hparams.in_graph_wrappers = wrappers
   if isinstance(environment_spec, str):
@@ -52,7 +50,8 @@ def define_train(hparams, environment_spec, event_dir):
   else:
     env_lambda = environment_spec
 
-  batch_env = utils.batch_env_factory(env_lambda, hparams, num_agents=hparams.num_agents)
+  batch_env = utils.batch_env_factory(
+      env_lambda, hparams, num_agents=hparams.num_agents)
 
   policy_factory = tf.make_template(
       "network",
@@ -73,22 +72,26 @@ def define_train(hparams, environment_spec, event_dir):
       eval_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
           env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
     wrapped_eval_env_lambda = lambda: utils.EvalVideoWrapper(eval_env_lambda())
-    # eval_batch_env = utils.define_batch_env(wrapped_eval_env_lambda, hparams.num_eval_agents,
-    #                        xvfb=hparams.video_during_eval)
-    eval_batch_env = utils.batch_env_factory(wrapped_eval_env_lambda, hparams,
-                                             num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
+    # eval_batch_env = utils.define_batch_env(
+    #     wrapped_eval_env_lambda, hparams.num_eval_agents,
+    #     xvfb=hparams.video_during_eval)
+    eval_batch_env = utils.batch_env_factory(
+        wrapped_eval_env_lambda, hparams,
+        num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
 
-    # _, eval_summary = collect.define_collect(
-    #     policy_factory, eval_batch_env, hparams, eval_phase=True)
-    #TODO: pm -> Błażej. I'm to tired to fix it now.
+    # TODO(blazej0): correct to the version below.
+    corrected = False
     eval_summary = tf.no_op()
+    if corrected:
+      _, eval_summary = collect.define_collect(
+          policy_factory, eval_batch_env, hparams, eval_phase=True)
   return summary, eval_summary
 
 
 def train(hparams, environment_spec, event_dir=None):
   """Train."""
   train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
-                                                      event_dir)
+                                                   event_dir)
   if event_dir:
     summary_writer = tf.summary.FileWriter(
         event_dir, graph=tf.get_default_graph(), flush_secs=60)

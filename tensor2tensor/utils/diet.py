@@ -185,7 +185,7 @@ class DietAdamOptimizer(DietVariableOptimizer):
                           global_step**-0.5)
     else:
       assert params.learning_rate_decay_scheme == "none"
-      lrate *= tf.minumum(global_step / params.learning_rate_warmup_steps, 1.0)
+      lrate *= tf.minimum(global_step / params.learning_rate_warmup_steps, 1.0)
 
     # compute adjustment due to second moment
     slots = params.slots[var.op.name]

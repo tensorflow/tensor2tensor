@@ -79,6 +79,26 @@ def bfloat16_var_getter(getter, *args, **kwargs):
   return var
 
 
+def bfloat16_weights_var_getter(getter, *args, **kwargs):
+  """A custom getter function for bfloat16 variables.
+
+  Variables maintain storage in bfloat16.
+
+  Args:
+    getter: A custom getter.
+    *args: Arguments.
+    **kwargs: Keyword arguments.
+  Returns:
+    Variables with the correct dtype.
+  Raises:
+    KeyError: if "dtype" is not provided as a kwarg.
+  """
+  requested_dtype = kwargs["dtype"]
+  if requested_dtype in (tf.bfloat16, tf.float32):
+    kwargs["dtype"] = tf.bfloat16
+  return getter(*args, **kwargs)
+
+
 def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
   """Like tf.nn.dropout but takes broadcast_dims instead of noise_shape.
 
@@ -213,6 +233,30 @@ def convert_rgb_to_real(x):
     # Use the formula (value/128) - 1 to convert each channel value into a
     # real number in the range -1 to 1.
     x = (x / 128) - 1
+    return x
+
+
+def expand_squeeze_to_nd(x, n, squeeze_dim=2, expand_dim=-1):
+  """Make x n-d with squeeze and expand_dims."""
+  if len(x.shape) > n:
+    while len(x.shape) != n:
+      x = tf.squeeze(x, [squeeze_dim])
+  else:
+    while len(x.shape) != n:
+      x = tf.expand_dims(x, expand_dim)
+  return x
+
+
+def standardize_images(x):
+  """Image standardization on batches."""
+  with tf.name_scope("standardize_images", [x]):
+    x = tf.to_float(x)
+    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keep_dims=True)
+    x_variance = tf.reduce_mean(
+        tf.square(x - x_mean), axis=[1, 2, 3], keep_dims=True)
+    x_shape = shape_list(x)
+    num_pixels = tf.to_float(x_shape[1] * x_shape[2] * x_shape[3])
+    x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
     return x
 
 
@@ -1727,6 +1771,7 @@ def padded_cross_entropy(logits,
       labels = tf.reshape(labels, [-1])
     else:
       logits, labels = pad_with_zeros(logits, labels)
+    logits = tf.cast(logits, tf.float32)
     xent = smoothing_cross_entropy(logits, labels, vocab_size, confidence,
                                    gaussian=gaussian)
     weights = weights_fn(labels)
@@ -1870,6 +1915,65 @@ def gated_linear_unit_layer(x, name=None):
     x = tf.layers.dense(x, depth * 2, activation=None)
     x, gating_x = tf.split(x, 2, axis=-1)
     return x * tf.nn.sigmoid(gating_x)
+
+
+def sru(x, num_layers=2,
+        activation=None, initial_state=None, name=None, reuse=None):
+  """SRU cell as in https://arxiv.org/abs/1709.02755.
+
+  As defined in the paper:
+  (1) x'_t = W x_t
+  (2) f_t = sigmoid(Wf x_t + bf)
+  (3) r_t = sigmoid(Wr x_t + br)
+  (4) c_t = f_t * c_{t-1} + (1 - f_t) * x'_t
+  (5) h_t = r_t * activation(c_t) + (1 - r_t) * x_t
+
+  Args:
+    x: A tensor of shape [batch, ..., channels] ; ... is treated as time.
+    num_layers: How many SRU layers; default is 2 as results for 1 disappoint.
+    activation: Optional activation function, try tf.nn.tanh or tf.nn.relu.
+    initial_state: Optional initial c-state, set to zeros if None.
+    name: Optional name, "sru" by default.
+    reuse: Optional reuse.
+
+  Returns:
+    A tensor of the same shape as x.
+
+  Raises:
+    ValueError: if num_layers is not positive.
+  """
+  if num_layers < 1:
+    raise ValueError("Number of layers must be positive: %d" % num_layers)
+  with tf.variable_scope(name, default_name="sru", values=[x], reuse=reuse):
+    # We assume x is [batch, ..., channels] and treat all ... as time.
+    x_shape = shape_list(x)
+    x = tf.reshape(x, [x_shape[0], -1, x_shape[-1]])
+    x = tf.transpose(x, [1, 0, 2])  # Scan assumes time on axis 0.
+    initial_state = initial_state or tf.zeros([x_shape[0], x_shape[-1]])
+    # SRU state manipulation function.
+    def next_state(cur_state, args_tup):
+      cur_x_times_one_minus_f, cur_f = args_tup
+      return cur_f * cur_state + cur_x_times_one_minus_f
+    # Calculate SRU on each layer.
+    for i in xrange(num_layers):
+      # The parallel part of the SRU.
+      x_orig = x
+      x, f, r = tf.split(tf.layers.dense(x, 3 * x_shape[-1],
+                                         name="kernel_%d" % i), 3, axis=-1)
+      f, r = tf.sigmoid(f), tf.sigmoid(r)
+      x_times_one_minus_f = x * (1.0 - f)  # Compute in parallel for speed.
+      # Calculate states.
+      c_states = tf.scan(next_state, (x_times_one_minus_f, f),
+                         initializer=initial_state,
+                         parallel_iterations=2, name="scan_%d" % i)
+      # Final output.
+      if activation is not None:
+        c_states = activation(c_states)
+      h = c_states * r + (1.0 - r) * x_orig
+      x = h  # Next layer.
+    # Transpose back to batch-major.
+    x = tf.transpose(x, [1, 0, 2])
+    return tf.reshape(x, x_shape)
 
 
 def linear_set_layer(layer_size,

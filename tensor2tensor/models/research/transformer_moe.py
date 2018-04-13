@@ -68,29 +68,27 @@ class TransformerMoe(t2t_model.T2TModel):
 
     hparams = self._hparams
     dp = self._data_parallelism
-    targets = sharded_features["targets"]
+
+    # Process input
     inputs = sharded_features["inputs"]
     target_space = sharded_features["target_space_id"]
+    (
+        encoder_input,
+        encoder_self_attention_bias,
+        encoder_decoder_attention_bias,
+    ) = dp(self._prepare_encoder, inputs, target_space)
 
-    inputs = dp(common_layers.flatten4d3d, inputs)
-    targets = dp(common_layers.flatten4d3d, targets)
+    # Process output
+    targets = sharded_features["targets"]
+    decoder_input, decoder_self_attention_bias = dp(
+        self._prepare_decoder, targets
+    )
 
     def dp_preprocess(x):
       return dp(common_layers.layer_preprocess, x, hparams)
 
     def dp_postprocess(x, y):
       return dp(common_layers.layer_postprocess, x, y, hparams)
-
-    (encoder_input, encoder_self_attention_bias,
-     encoder_decoder_attention_bias) = dp(
-         transformer.transformer_prepare_encoder,
-         inputs, target_space, hparams)
-    (decoder_input, decoder_self_attention_bias) = dp(
-        transformer.transformer_prepare_decoder, targets, hparams)
-    encoder_input = dp(tf.nn.dropout, encoder_input,
-                       1.0 - hparams.layer_prepostprocess_dropout)
-    decoder_input = dp(tf.nn.dropout, decoder_input,
-                       1.0 - hparams.layer_prepostprocess_dropout)
 
     cache = dict(extra_loss=0.0)
 
@@ -106,62 +104,7 @@ class TransformerMoe(t2t_model.T2TModel):
 
     # ========= Compute the transformer architecture =========
 
-    def extract_layer_types(layer_types):
-      """Parse the layer string.
-
-      Args:
-        layer_types (str): String containing the network architecture. See
-          top file comment for examples of format.
-
-      Returns:
-        list[tuple[str, str]]: Encoder layers: list of (attention, feed-forward)
-        list[tuple[str, str, str]]: Decoder layers: list of (self-attention,
-          enc-dec attention, feed-forward)
-      """
-      # If the architecture has not explicitly been set, we just construct a
-      # standard transformer with the fallback values
-      if not layer_types:
-        layer_types = SEP_LAYER.join(
-            [hparams.default_att] * hparams.num_hidden_layers)
-
-      # If encoder not explicitly defined, the encoder will have the same
-      # structure as the decoder
-      layer_types = layer_types.split(SEP_ENCODEC)
-      if len(layer_types) == 1:
-        layer_types *= 2
-
-      # Some models don't need the encoder (ex: language modeling)
-      # TODO(epot): What are the other conditions (has_input ?)
-      if hparams.prepend_mode != "none":
-        layer_types[0] = ""
-
-      # Extend the blocks and fill them with the default values if not specified
-      final_layers = ([], [])
-      for i, blocks_str in enumerate(layer_types):
-        for blocks_str in blocks_str.split(SEP_LAYER):
-          if not blocks_str:
-            continue
-          blocks_list = blocks_str.split(SEP_FF)
-          # Eventually use the fallback values for the layer_types. If the
-          # encoder is empty, do not use the enco-deco attention.
-          self_att = blocks_list[0] or hparams.default_att
-          ende_att = hparams.default_att if layer_types[0] else "_"
-          ff = hparams.default_ff
-          if len(blocks_list) > 1:
-            ff = blocks_list[-1]
-          if len(blocks_list) == 3:
-            ende_att = blocks_list[1]
-          if i == 0:  # Encoder
-            blocks_tuple = (self_att, ff)
-          elif i == 1:  # Decoder
-            blocks_tuple = (self_att, ende_att, ff)
-          final_layers[i].append(blocks_tuple)
-
-      return final_layers
-
-    # ========= Construct the transformer encoder and decoder =========
-
-    encoder_layers, decoder_layers = extract_layer_types(hparams.layer_types)
+    encoder_layers, decoder_layers = self._extract_layer_types()
 
     layers = common_attention.get_standardized_layers(
         hparams=hparams,
@@ -178,6 +121,8 @@ class TransformerMoe(t2t_model.T2TModel):
           tf.logging.info(" * Layer {}: {}".format(i, " - ".join(l)))
       print_layer("Encoder", encoder_layers)
       print_layer("Decoder", decoder_layers)
+
+    # ========= Construct the transformer encoder and decoder =========
 
     encoder_outputs = []
 
@@ -236,6 +181,91 @@ class TransformerMoe(t2t_model.T2TModel):
     decoder_output = dp(tf.expand_dims, x, 2)
     return decoder_output, cache["extra_loss"]
 
+  @expert_utils.add_name_scope()
+  def _prepare_encoder(self, inputs, target_space):
+    """Process the transformer encoder inputs."""
+    inputs = common_layers.flatten4d3d(inputs)
+
+    output = transformer.transformer_prepare_encoder(
+        inputs,
+        target_space,
+        self._hparams,
+        features=None,
+    )
+    enco_input, enco_self_att_bias, enco_deco_att_bias = output
+
+    enco_input = tf.nn.dropout(
+        enco_input, 1.0 - self._hparams.layer_prepostprocess_dropout)
+
+    return enco_input, enco_self_att_bias, enco_deco_att_bias
+
+  @expert_utils.add_name_scope()
+  def _prepare_decoder(self, targets):
+    """Process the transformer decoder input."""
+    targets = common_layers.flatten4d3d(targets)
+
+    output = transformer.transformer_prepare_decoder(
+        targets, self._hparams, features=None,
+    )
+    deco_input, deco_self_attention_bias = output
+
+    deco_input = tf.nn.dropout(
+        deco_input, 1.0 - self._hparams.layer_prepostprocess_dropout
+    )
+    return deco_input, deco_self_attention_bias
+
+  def _extract_layer_types(self):
+    """Parse the layer string.
+
+    Returns:
+      list[tuple[str, str]]: Encoder layers: list of (attention, feed-forward)
+      list[tuple[str, str, str]]: Decoder layers: list of (self-attention,
+        enc-dec attention, feed-forward)
+    """
+    hparams = self._hparams
+    layer_types = hparams.layer_types
+
+    # If the architecture has not explicitly been set, we just construct a
+    # standard transformer with the fallback values
+    if not layer_types:
+      layer_types = SEP_LAYER.join(
+          [hparams.default_att] * hparams.num_hidden_layers)
+
+    # If encoder not explicitly defined, the encoder will have the same
+    # structure as the decoder
+    layer_types = layer_types.split(SEP_ENCODEC)
+    if len(layer_types) == 1:
+      layer_types *= 2
+
+    # Some models don't need the encoder (ex: language modeling)
+    # TODO(epot): What are the other conditions (has_input ?)
+    if hparams.prepend_mode != "none":
+      layer_types[0] = ""
+
+    # Extend the blocks and fill them with the default values if not specified
+    final_layers = ([], [])
+    for i, blocks_str in enumerate(layer_types):
+      for blocks_str in blocks_str.split(SEP_LAYER):
+        if not blocks_str:
+          continue
+        blocks_list = blocks_str.split(SEP_FF)
+        # Eventually use the fallback values for the layer_types. If the
+        # encoder is empty, do not use the enco-deco attention.
+        self_att = blocks_list[0] or hparams.default_att
+        ende_att = hparams.default_att if layer_types[0] else "_"
+        ff = hparams.default_ff
+        if len(blocks_list) > 1:
+          ff = blocks_list[-1]
+        if len(blocks_list) == 3:
+          ende_att = blocks_list[1]
+        if i == 0:  # Encoder
+          blocks_tuple = (self_att, ff)
+        elif i == 1:  # Decoder
+          blocks_tuple = (self_att, ende_att, ff)
+        final_layers[i].append(blocks_tuple)
+
+    return final_layers
+
 
 @registry.register_hparams
 def transformer_moe_base():
@@ -252,7 +282,7 @@ def transformer_moe_base():
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.learning_rate_decay_scheme = "noam"
   hparams.learning_rate = 0.1
-  hparams.learning_rate_warmup_steps = 4000
+  hparams.learning_rate_warmup_steps = 2000
   hparams.initializer_gain = 1.0
   hparams.num_hidden_layers = 5
   hparams.initializer = "uniform_unit_scaling"
@@ -266,8 +296,8 @@ def transformer_moe_base():
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
 
+  # Hparams used by transformer_prepare_decoder() function
   hparams.add_hparam("pos", "timing")  # timing, none
-  hparams.add_hparam("nbr_decoder_problems", 1)
   hparams.add_hparam("proximity_bias", False)
 
   hparams = common_attention.add_standard_attention_hparams(hparams)
@@ -384,7 +414,7 @@ def transformer_moe_prepend_8k():
   hparams = transformer_moe_8k()
   hparams.prepend_mode = "prepend_inputs_masked_attention"
   hparams.eval_drop_long_sequences = False
-  hparams.max_input_seq_length = 7500,
+  hparams.max_input_seq_length = 7500
   hparams.default_ff = "sepm"
   hparams.layer_types = "locm/redm/locm-moe/redm/locm"
   hparams.moe_num_experts = 256

@@ -47,7 +47,7 @@ def _get_ngrams(segment, max_order):
         methods.
 
   Returns:
-    The Counter containing all n-grams upto max_order in segment
+    The Counter containing all n-grams up to max_order in segment
     with a count of how many times each n-gram occurred.
   """
   ngram_counts = collections.Counter()

@@ -313,6 +313,7 @@ def block_layer(inputs,
 def resnet_v2(inputs,
               block_fn,
               layers,
+              filters,
               data_format="channels_first",
               is_training=False):
   """Resnet model.
@@ -321,9 +322,11 @@ def resnet_v2(inputs,
     inputs: `Tensor` images.
     block_fn: `function` for the block to use within the model. Either
         `residual_block` or `bottleneck_block`.
-    layers: list of 4 `int`s denoting the number of blocks to include in each
-      of the 4 block groups. Each group consists of blocks that take inputs of
-      the same resolution.
+    layers: list of 3 or 4 `int`s denoting the number of blocks to include in
+      each of the 3 or 4 block groups. Each group consists of blocks that take
+      inputs of the same resolution.
+    filters: list of 4 or 5 `int`s denoting the number of filter to include in
+      block.
     data_format: `str`, "channels_first" `[batch, channels, height,
         width]` or "channels_last" `[batch, height, width, channels]`.
     is_training: bool, build in training mode or not.
@@ -333,7 +336,7 @@ def resnet_v2(inputs,
   """
   inputs = conv2d_fixed_padding(
       inputs=inputs,
-      filters=64,
+      filters=filters[0],
       kernel_size=7,
       strides=2,
       data_format=data_format)
@@ -350,7 +353,7 @@ def resnet_v2(inputs,
 
   inputs = block_layer(
       inputs=inputs,
-      filters=64,
+      filters=filters[1],
       block_fn=block_fn,
       blocks=layers[0],
       strides=1,
@@ -359,7 +362,7 @@ def resnet_v2(inputs,
       data_format=data_format)
   inputs = block_layer(
       inputs=inputs,
-      filters=128,
+      filters=filters[2],
       block_fn=block_fn,
       blocks=layers[1],
       strides=2,
@@ -368,32 +371,24 @@ def resnet_v2(inputs,
       data_format=data_format)
   inputs = block_layer(
       inputs=inputs,
-      filters=256,
+      filters=filters[3],
       block_fn=block_fn,
       blocks=layers[2],
       strides=2,
       is_training=is_training,
       name="block_layer3",
       data_format=data_format)
-  inputs = block_layer(
-      inputs=inputs,
-      filters=512,
-      block_fn=block_fn,
-      blocks=layers[3],
-      strides=2,
-      is_training=is_training,
-      name="block_layer4",
-      data_format=data_format)
+  if filters[4]:
+    inputs = block_layer(
+        inputs=inputs,
+        filters=filters[4],
+        block_fn=block_fn,
+        blocks=layers[3],
+        strides=2,
+        is_training=is_training,
+        name="block_layer4",
+        data_format=data_format)
 
-  inputs = tf.layers.average_pooling2d(
-      inputs=inputs,
-      pool_size=7,
-      strides=1,
-      padding="VALID",
-      data_format=data_format)
-  inputs = tf.identity(inputs, "final_avg_pool")
-  inputs = tf.reshape(inputs,
-                      [-1, 2048 if block_fn is bottleneck_block else 512])
   return inputs
 
 
@@ -421,11 +416,10 @@ class Resnet(t2t_model.T2TModel):
         inputs,
         block_fns[hp.block_fn],
         hp.layer_sizes,
+        hp.filter_sizes,
         data_format,
         is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
 
-    out = tf.expand_dims(out, 1)
-    out = tf.expand_dims(out, 1)
     return out
 
 
@@ -440,6 +434,7 @@ def resnet_base():
 
   # Model-specific parameters
   hparams.add_hparam("layer_sizes", [3, 4, 6, 3])
+  hparams.add_hparam("filter_sizes", [64, 64, 128, 256, 512])
   hparams.add_hparam("block_fn", "bottleneck")
   hparams.add_hparam("use_nchw", True)
 
@@ -475,6 +470,29 @@ def resnet_18():
   hp = resnet_base()
   hp.block_fn = "residual"
   hp.layer_sizes = [2, 2, 2, 2]
+  return hp
+
+
+@registry.register_hparams
+def resnet_cifar_15():
+  """Set of hyperparameters."""
+  hp = resnet_base()
+  hp.block_fn = "residual"
+  hp.layer_sizes = [2, 2, 2]
+  hp.filter_sizes = [16, 16, 32, 64, None]
+
+  hp.learning_rate = 0.1 * 128. * 8. / 256.
+  hp.learning_rate_decay_scheme = "piecewise"
+  hp.add_hparam("learning_rate_boundaries", [40000, 60000, 80000])
+  hp.add_hparam("learning_rate_multiples", [0.1, 0.01, 0.001])
+
+  return hp
+
+
+@registry.register_hparams
+def resnet_cifar_32():
+  hp = resnet_cifar_15()
+  hp.layer_sizes = [5, 5, 5]
   return hp
 
 

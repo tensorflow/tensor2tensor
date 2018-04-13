@@ -537,7 +537,7 @@ def prepare_decoder(targets, hparams):
   # At inference, they are [batch, curr_infer_length, 1, 1]
   if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
     curr_infer_length = targets_shape[1]
-    if hparams.block_rastor_scan:
+    if hparams.block_raster_scan:
       assert hparams.img_len*channels % hparams.query_shape[1] == 0
       assert hparams.img_len % hparams.query_shape[0] == 0
       total_block_width = hparams.img_len*channels

@@ -355,8 +355,8 @@ def generate_calculus_integrate_sample(vlist, ops, min_depth, max_depth,
 # functions: Dict of special function names. Maps human readable string names to
 #     single char names used in flist.
 # ops: Dict mapping op symbols (chars) to ExprOp instances.
-# solve_ops: Encodes rules for how to algebraically cancel out each operation. See
-#     doc-string for `algebra_inverse_solve`.
+# solve_ops: Encodes rules for how to algebraically cancel out each operation.
+#     See doc-string for `algebra_inverse_solve`.
 # int_encoder: Function that maps a string to a list of tokens. Use this to
 #     encode an expression to feed into a model.
 # int_decoder: Function that maps a list of tokens to a string. Use this to

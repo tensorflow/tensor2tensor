@@ -320,7 +320,7 @@ def add_standard_attention_hparams(hparams):
 
   # Fully connected layers flags
   # To be more consistent, should use filter_size to also control the MOE
-  # size if moe_hidden_sizes not set
+  # size if moe_hidden_sizes not set.
   hparams.add_hparam("filter_size", 2048)
   hparams.add_hparam("relu_dropout", 0.0)
 
@@ -445,7 +445,7 @@ def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
   memory inputs to attention.
 
   The use of relative position is possible because sin(x+y) and cos(x+y) can be
-  expressed in terms of y, sin(x) and cos(x).
+  experessed in terms of y, sin(x) and cos(x).
 
   In particular, we use a geometric sequence of timescales starting with
   min_timescale and ending with max_timescale.  The number of different
@@ -512,7 +512,7 @@ def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
   memory inputs to attention.
 
   The use of relative position is possible because sin(a+b) and cos(a+b) can be
-  expressed in terms of b, sin(a) and cos(a).
+  experessed in terms of b, sin(a) and cos(a).
 
   x is a Tensor with n "positional" dimensions, e.g. one dimension for a
   sequence or two dimensions for an image
@@ -861,8 +861,8 @@ def attention_bias_batch(
 
   bc_v = tf.expand_dims(to_float(batch_coordinates_q), 1)
   bc_h = tf.expand_dims(to_float(batch_coordinates_k), 0)
-  bias_batch = bc_h - bc_v  # Broadcast to create [length_q, length_k] mask
-  # Threshold non zeros to 1.0
+  bias_batch = bc_h - bc_v  # Broadcast to create [length_q, length_k] mask.
+  # Threshold non zeros to 1.0.
   bias_batch = condition_fn(bias_batch)
   bias_batch *= -1e9  # Set non zeros to -infinity
   return bias_batch
@@ -877,9 +877,9 @@ attention_bias_coordinates = functools.partial(
 # Mask similar to upper triangular mask, but allow dispatching
 attention_bias_future = functools.partial(
     attention_bias_batch,
-    # Elems can attend to themselves (otherwise would use bias_batch + 1.0)
-    # No tf.abs to consider the order
-    # tf.maximum and tf.minimum to threshold the values
+    # Elems can attend to themselves (otherwise would use bias_batch + 1.0).
+    # No tf.abs to consider the order,
+    # tf.maximum and tf.minimum to threshold the values.
     condition_fn=lambda bias: tf.maximum(0.0, tf.minimum(1.0, bias)),
 )
 
@@ -2141,7 +2141,7 @@ def gather_indices_2d(x, block_shape, block_stride):
 
 
 def make_2d_block_raster_mask(query_shape, memory_flange):
-  """creates a mask for 2d block raster scan.
+  """Creates a mask for 2d block raster scan.
 
   The query mask can look to the left, top left, top, and top right, but
   not to the right. Inside the query, we have the standard raster scan
@@ -2476,7 +2476,7 @@ def multihead_attention(query_antecedent,
                kv_padding: One of "VALID", "SAME" or "LEFT". Default is "VALID":
                no padding.
     cache: dict containing Tensors which are the results of previous
-           attentions, used for fast decoding. Expects the dict to contain two
+           attentions, used for fast decoding. Expects the dict to contrain two
            keys ('k' and 'v'), for the initial call the values for these keys
            should be empty Tensors of the appropriate shape.
                'k' [batch_size, 0, key_channels]
@@ -2487,7 +2487,7 @@ def multihead_attention(query_antecedent,
                        at.
     name: an optional string.
     save_weights_to: an optional dictionary to capture attention weights
-      for visualization; the weights tensor will be appended there under
+      for vizualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
     make_image_summary: Whether to make an attention image summary.
     dropout_broadcast_dims:  an optional list of integers less than 4
@@ -3201,16 +3201,12 @@ def sparse_dot_product_attention(q, k, v, bi, use_map_fn, experts_params):
   gates_q = tf.stack(list_gates_q)
   gates_k = tf.stack(list_gates_k)
 
-  # Process each head separately
+  # Process each head separately.
   v_out = map_fn_switch(
       lambda args: dot_product_single_head(bi=bi, *args),
       elems=(q, k, v, gates_q, gates_k),
       dtype=(tf.float32),
       parallel_iterations=2,
-      # back_prop=True,
-      # swap_memory=False,
-      # infer_shape=True,
-      # name=None
       use_map_fn=use_map_fn,
   )
 
@@ -3437,8 +3433,7 @@ def conv_elems_1d(x, factor, out_depth=None):
   Merge/restore/compress factors positions of dim depth of the input into
   a single position of dim out_depth.
   This is basically just a strided convolution without overlap
-  between each strides.
-  The original length has to be divided by factor.
+  between each strides. The original length has to be divided by factor.
 
   Args:
     x (tf.Tensor): shape [batch_size, length, depth]

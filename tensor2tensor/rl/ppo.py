@@ -22,12 +22,13 @@ import tensorflow as tf
 
 
 def get_optimiser(config):
-  if config.optimizer == 'Adam':
+  if config.optimizer == "Adam":
     return tf.train.AdamOptimizer(learning_rate=config.learning_rate)
   return config.optimizer(learning_rate=config.learning_rate)
 
 
 def define_ppo_step(data_points, policy_factory, optimizer, config):
+  """Define ppo step."""
   observation, action, discounted_reward, norm_advantage, old_pdf = data_points
   new_policy_dist, new_value, _ = policy_factory(observation)
   new_pdf = new_policy_dist.prob(action)
@@ -68,6 +69,7 @@ def define_ppo_step(data_points, policy_factory, optimizer, config):
 
 
 def define_ppo_epoch(memory, policy_factory, config):
+  """PPO epoch."""
   observation, reward, done, action, old_pdf, value = memory
 
   # This is to avoid propagating gradients through simulated environment.

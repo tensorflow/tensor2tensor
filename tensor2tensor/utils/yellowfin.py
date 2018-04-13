@@ -57,8 +57,8 @@ class YellowFinOptimizer(object):
         Set to 1.0 in the paper.
       momentum: A Tensor or a floating point value.  The momentum.
          Set to 0.0 in the paper.
-      clip_thresh: A Tensor or a floating point value. The clipping threshold for
-        `tf.clip_by_global_norm`.  If None, no clipping will be carried out.
+      clip_thresh: A Tensor or a floating point value. The clipping threshold
+        for `tf.clip_by_global_norm`.  If None, no clipping will be carried out.
       beta: A float value or a constant float tensor.  The smoothing parameter
         for estimations.
       curvature_window_width: A int value or a constant int tensor.
