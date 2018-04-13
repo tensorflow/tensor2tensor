@@ -248,12 +248,12 @@ def set_recall(predictions, labels, weights_fn=common_layers.weights_nonzero):
     return tf.to_float(tf.equal(labels, predictions)), weights
 
 
-def image_summary(predictions, features, hparams):
+def image_summary(predictions, targets, hparams):
   """Reshapes predictions and passes it to tensorboard.
 
   Args:
     predictions : The predicted image (logits).
-    features : The features dictionary with tensors.
+    targets : The ground truth.
     hparams: model hparams.
 
   Returns:
@@ -262,7 +262,7 @@ def image_summary(predictions, features, hparams):
   """
   del hparams
   results = tf.cast(tf.argmax(predictions, axis=-1), tf.uint8)
-  gold = tf.cast(features["targets"], tf.uint8)
+  gold = tf.cast(targets, tf.uint8)
   summary1 = tf.summary.image("prediction", results, max_outputs=2)
   summary2 = tf.summary.image("data", gold, max_outputs=2)
   summary = tf.summary.merge([summary1, summary2])
@@ -368,13 +368,22 @@ def create_evaluation_metrics(problems, model_hparams):
     ValueError: if the metrics specified by a problem are not recognized (i.e.
       are not defined in the Metrics enum.
   """
+  def reduce_dimensions(predictions, labels):
+    """Reduce dimensions for high-dimensional predictions and labels."""
+    # We will treat first dimensions as batch. One example are video frames.
+    if len(predictions.get_shape()) > 5:
+      predictions = tf.reshape(
+          predictions, [-1] + common_layers.shape_list(predictions)[-4:])
+    if len(labels.get_shape()) > 4:
+      labels = tf.reshape(
+          labels, [-1] + common_layers.shape_list(labels)[-3:])
+    return predictions, labels
 
   def make_problem_specific_metric_fn(metric_fn, problem_idx, weights_fn):
     """Create a metric fn conditioned on problem_idx."""
 
     def problem_metric_fn(predictions, features, labels):
       """Metric fn."""
-      # labels = features.get("targets", None)
       problem_choice = features.get("problem_choice", 0)
 
       # Send along the entire features dict if the metric fn has the kwarg
@@ -383,6 +392,8 @@ def create_evaluation_metrics(problems, model_hparams):
       args, _, keywords, _ = inspect.getargspec(metric_fn)
       if ("features" in args) or keywords:
         kwargs["features"] = features
+
+      predictions, labels = reduce_dimensions(predictions, labels)
 
       def wrapped_metric_fn():
         return metric_fn(predictions, labels, weights_fn=weights_fn, **kwargs)
@@ -407,9 +418,12 @@ def create_evaluation_metrics(problems, model_hparams):
                                     list(METRICS_FNS.keys())))
 
     def image_wrapped_metric_fn(predictions,
+                                features,
                                 labels,
-                                weights_fn=common_layers.weights_nonzero):
+                                weights_fn=common_layers.weights_all):
       del weights_fn
+      del features
+      predictions, labels = reduce_dimensions(predictions, labels)
       return metric_fn(predictions, labels, model_hparams)
 
     tm = problem_instance.get_hparams().target_modality

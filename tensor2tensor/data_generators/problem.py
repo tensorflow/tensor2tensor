@@ -781,9 +781,7 @@ class Problem(object):
         batch_size_means_tokens = False
       else:
         tf.logging.warning(
-            "Shapes are not fully defined. Assuming batch_size means tokens. "
-            "Override batch_size_means_tokens() "
-            "in your problem subclass if this is undesired behavior.")
+            "Shapes are not fully defined. Assuming batch_size means tokens.")
         batch_size_means_tokens = True
 
     # Batching

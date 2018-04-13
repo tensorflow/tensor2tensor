@@ -20,45 +20,46 @@ from __future__ import print_function
 
 import importlib
 
+
 modules = [
-    'tensor2tensor.data_generators.algorithmic',
-    'tensor2tensor.data_generators.algorithmic_math',
-    'tensor2tensor.data_generators.audio',
-    'tensor2tensor.data_generators.celeba',
-    'tensor2tensor.data_generators.cifar',
-    'tensor2tensor.data_generators.cipher',
-    'tensor2tensor.data_generators.cnn_dailymail',
-    'tensor2tensor.data_generators.desc2code',
-    'tensor2tensor.data_generators.fsns',
-    'tensor2tensor.data_generators.gene_expression',
-    'tensor2tensor.data_generators.gym',
-    'tensor2tensor.data_generators.ice_parsing',
-    'tensor2tensor.data_generators.imagenet',
-    'tensor2tensor.data_generators.imdb',
-    'tensor2tensor.data_generators.librispeech',
-    'tensor2tensor.data_generators.lm1b',
-    'tensor2tensor.data_generators.mnist',
-    'tensor2tensor.data_generators.mscoco',
-    'tensor2tensor.data_generators.multinli',
-    'tensor2tensor.data_generators.ocr',
-    'tensor2tensor.data_generators.problem_hparams',
-    'tensor2tensor.data_generators.ptb',
-    'tensor2tensor.data_generators.snli',
-    'tensor2tensor.data_generators.squad',
-    'tensor2tensor.data_generators.translate_encs',
-    'tensor2tensor.data_generators.translate_ende',
-    'tensor2tensor.data_generators.translate_enfr',
-    'tensor2tensor.data_generators.translate_enmk',
-    'tensor2tensor.data_generators.translate_envi',
-    'tensor2tensor.data_generators.translate_enzh',
-    'tensor2tensor.data_generators.twentybn',
-    'tensor2tensor.data_generators.wiki',
-    'tensor2tensor.data_generators.wsj_parsing',
+    "tensor2tensor.data_generators.algorithmic",
+    "tensor2tensor.data_generators.algorithmic_math",
+    "tensor2tensor.data_generators.audio",
+    "tensor2tensor.data_generators.celeba",
+    "tensor2tensor.data_generators.cifar",
+    "tensor2tensor.data_generators.cipher",
+    "tensor2tensor.data_generators.cnn_dailymail",
+    "tensor2tensor.data_generators.desc2code",
+    "tensor2tensor.data_generators.fsns",
+    "tensor2tensor.data_generators.gene_expression",
+    "tensor2tensor.data_generators.gym",
+    "tensor2tensor.data_generators.ice_parsing",
+    "tensor2tensor.data_generators.imagenet",
+    "tensor2tensor.data_generators.imdb",
+    "tensor2tensor.data_generators.librispeech",
+    "tensor2tensor.data_generators.lm1b",
+    "tensor2tensor.data_generators.mnist",
+    "tensor2tensor.data_generators.mscoco",
+    "tensor2tensor.data_generators.multinli",
+    "tensor2tensor.data_generators.ocr",
+    "tensor2tensor.data_generators.problem_hparams",
+    "tensor2tensor.data_generators.ptb",
+    "tensor2tensor.data_generators.snli",
+    "tensor2tensor.data_generators.squad",
+    "tensor2tensor.data_generators.translate_encs",
+    "tensor2tensor.data_generators.translate_ende",
+    "tensor2tensor.data_generators.translate_enfr",
+    "tensor2tensor.data_generators.translate_enmk",
+    "tensor2tensor.data_generators.translate_envi",
+    "tensor2tensor.data_generators.translate_enzh",
+    "tensor2tensor.data_generators.twentybn",
+    "tensor2tensor.data_generators.wiki",
+    "tensor2tensor.data_generators.wsj_parsing",
 ]
 
 
 for module in modules:
   try:
     importlib.import_module(module)
-  except ImportError:
-    pass
+  except ImportError as error:
+    print("Did not import module: %s; Cause: %s" % (module, str(error)))

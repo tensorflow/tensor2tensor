@@ -455,6 +455,90 @@ class AudioSpectralModality(modality.Modality):
                            "compress_block_final")
 
 
+@registry.register_video_modality("default")
+class VideoModality(modality.Modality):
+  """Modality for videos, i.e., time-sequences of frames."""
+  PIXEL_EMBEDDING_SIZE = 64
+
+  def bottom(self, inputs):
+    with tf.variable_scope(self.name):
+      inputs_shape = common_layers.shape_list(inputs)
+      if len(inputs_shape) != 5:
+        raise ValueError("Assuming videos given as tensors in the format "
+                         "[batch, time, height, width, channels].")
+      if not context.in_eager_mode():
+        tf.summary.image("inputs", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
+                         max_outputs=1)
+      # Standardize frames.
+      inputs = tf.reshape(inputs, [-1] + inputs_shape[2:])
+      inputs = common_layers.standardize_images(inputs)
+      inputs = tf.reshape(inputs, inputs_shape)
+      # Concatenate the time dimension on channels for image models to work.
+      transposed = tf.transpose(inputs, [0, 2, 3, 1, 4])
+      return tf.reshape(
+          transposed,
+          [inputs_shape[0], inputs_shape[2], inputs_shape[3],
+           inputs_shape[1] * inputs_shape[4]])
+
+  def targets_bottom(self, inputs):
+    with tf.variable_scope(self.name):
+      inputs_shape = common_layers.shape_list(inputs)
+      if len(inputs_shape) != 5:
+        raise ValueError("Assuming videos given as tensors in the format "
+                         "[batch, time, height, width, channels].")
+      if not context.in_eager_mode():
+        tf.summary.image(
+            "targets_bottom", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
+            max_outputs=1)
+      # We embed each of 256=self.top_dimensionality possible pixel values.
+      embedding_var = tf.get_variable(
+          "pixel_embedding",
+          [self.top_dimensionality, self.PIXEL_EMBEDDING_SIZE])
+      hot_inputs = tf.one_hot(tf.to_int32(inputs), self.top_dimensionality)
+      hot_inputs = tf.reshape(hot_inputs, [-1, self.top_dimensionality])
+      embedded = tf.matmul(hot_inputs, embedding_var)
+      # Let's now merge all channels that were embedded into a single vector.
+      merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[4]
+      embedded = tf.reshape(embedded, inputs_shape[:4] + [merged_size])
+      # Put time dimension on channels and add a dense layer.
+      embedded = tf.transpose(embedded, [0, 2, 3, 1, 4])
+      embedded = tf.reshape(
+          embedded,
+          [inputs_shape[0], inputs_shape[2], inputs_shape[3],
+           inputs_shape[1] * merged_size])
+      merged = tf.layers.dense(embedded, self._body_input_depth,
+                               name="merge_pixel_embedded_frames")
+      return merged
+
+  def top(self, body_output, _):
+    num_channels = self._model_hparams.problem_instances[0].num_channels
+    num_frames = self._model_hparams.problem_instances[0].num_target_frames
+    with tf.variable_scope("rgb_softmax"):
+      body_output_shape = common_layers.shape_list(body_output)
+      reshape_shape = body_output_shape[:3]
+      reshape_shape.extend([num_channels, num_frames, self.top_dimensionality])
+      res = tf.layers.dense(
+          body_output, self.top_dimensionality * num_channels * num_frames)
+      res = tf.reshape(res, reshape_shape)
+      res = tf.transpose(res, [0, 4, 1, 2, 3, 5])
+      if not tf.get_variable_scope().reuse:
+        res_argmax = tf.cast(tf.argmax(res[:, -1, :, :, :, :], axis=-1),
+                             tf.uint8)
+        tf.summary.image("result", res_argmax, max_outputs=1)
+      return res
+
+  def loss(self, logits, targets):
+    """Compute loss numerator and denominator for one shard of output."""
+    logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
+    targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
+    return common_layers.padded_cross_entropy(
+        logits,
+        targets,
+        self._model_hparams.label_smoothing,
+        weights_fn=self.targets_weights_fn,
+        gaussian=True)
+
+
 @registry.register_class_label_modality("default")
 class ClassLabelModality(modality.Modality):
   """Used for label data."""
@@ -499,6 +583,7 @@ class ClassLabelModality(modality.Modality):
 @registry.register_generic_modality("default")
 @registry.register_audio_modality("identity")
 @registry.register_image_modality("identity")
+@registry.register_video_modality("identity")
 @registry.register_class_label_modality("identity")
 @registry.register_real_modality("identity")
 class IdentityModality(modality.Modality):

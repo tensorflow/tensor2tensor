@@ -158,7 +158,7 @@ class Image2ClassProblem(ImageProblem):
         self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
 
 
-def _encoded_images(images):
+def encode_images_as_png(images):
   if context.in_eager_mode():
     for image in images:
       yield tf.image.encode_png(image).numpy()
@@ -195,7 +195,7 @@ def image_generator(images, labels):
   if not images:
     raise ValueError("Must provide some images for the generator.")
   width, height, _ = images[0].shape
-  for (enc_image, label) in zip(_encoded_images(images), labels):
+  for (enc_image, label) in zip(encode_images_as_png(images), labels):
     yield {
         "image/encoded": [enc_image],
         "image/format": ["png"],
