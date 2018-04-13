@@ -536,6 +536,59 @@ def fast_decode(encoder_output,
 
 
 @registry.register_model
+class TransformerScorer(Transformer):
+  """Transformer model, but only scores in PREDICT mode.
+
+  Checkpoints between Transformer and TransformerScorer are interchangeable.
+  """
+
+  def __init__(self, *args, **kwargs):
+    super(TransformerScorer, self).__init__(*args, **kwargs)
+    self._name = "transformer"
+    self._base_name = "transformer"
+
+  def infer(self,
+            features=None,
+            decode_length=50,
+            beam_size=1,
+            top_beams=1,
+            alpha=0.0):
+    """Returns the targets and their log probabilities."""
+    del decode_length, beam_size, top_beams, alpha
+    assert features is not None
+
+    # Run the model
+    self.hparams.force_full_predict = True
+    with tf.variable_scope(self.name):
+      logits, _ = self.model_fn(features)
+    assert len(logits.shape) == 5  # [batch, time, 1, 1, vocab]
+    logits = tf.squeeze(logits, [2, 3])
+
+    # Compute the log probabilities
+    log_probs = beam_search.log_prob_from_logits(logits)
+
+    # Slice out the log_probs of the targets
+    targets = features["targets"]
+    assert len(targets.shape) == 4  # [batch, time, 1, 1]
+    targets = tf.squeeze(targets, [2, 3])
+    batch_size, timesteps = common_layers.shape_list(targets)
+    vocab_size = common_layers.shape_list(log_probs)[-1]
+    flat_targets = tf.reshape(targets, [batch_size * timesteps])
+    flat_log_probs = tf.reshape(log_probs, [batch_size * timesteps, vocab_size])
+    flat_indices = tf.stack(
+        [tf.range(tf.to_int64(batch_size) * tf.to_int64(timesteps)),
+         tf.to_int64(flat_targets)], axis=1)
+    log_probs = tf.reshape(
+        tf.gather_nd(flat_log_probs, flat_indices),
+        [batch_size, timesteps])
+
+    # Sum over time to get the log_prob of the sequence
+    scores = tf.reduce_sum(log_probs, axis=1)
+
+    return {"outputs": targets, "scores": scores}
+
+
+@registry.register_model
 class TransformerEncoder(t2t_model.T2TModel):
   """Transformer, encoder only."""
 
