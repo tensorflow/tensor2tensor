@@ -157,7 +157,7 @@ class VideoProblem(problem.Problem):
         Features dictionary with joint features per-frame.
       """
       features = {}
-      for k, v in batched_prefeatures.items():
+      for k, v in batched_prefeatures.iteritems():
         if k == "frame":  # We rename past frames to inputs and targets.
           s1, s2 = split_on_batch(v)
           # Reshape just to make sure shapes are right and set.
@@ -242,7 +242,7 @@ class VideoProblem(problem.Problem):
       if width != self.frame_width:
         raise ValueError("Generated frame has width %d while the class "
                          "assumes width %d." % (width, self.frame_width))
-      encoded_frame = image_utils.encode_images_as_png([unencoded_frame]).__next__()
+      encoded_frame = image_utils.encode_images_as_png([unencoded_frame]).next()
       features["image/encoded"] = [encoded_frame]
       features["image/format"] = ["png"]
       features["image/height"] = [height]

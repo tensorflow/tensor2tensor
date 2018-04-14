@@ -111,7 +111,7 @@ def configure_job():
   training_input = {
       'pythonModule': 'tensor2tensor.bin.t2t_trainer',
       'args': flags_as_args(),
-      'region': cloud.default_region().decode('utf-8'),
+      'region': cloud.default_region(),
       'runtimeVersion': '1.5',
       'pythonVersion': '3.5' if sys.version_info.major == 3 else '2.7',
       'jobDir': FLAGS.output_dir,
@@ -138,7 +138,7 @@ def configure_job():
 
 def launch_job(job_spec):
   """Launch job on ML Engine."""
-  project_id = 'projects/{}'.format(cloud.default_project().decode('utf-8'))
+  project_id = 'projects/{}'.format(cloud.default_project())
   credentials = GoogleCredentials.get_application_default()
   cloudml = discovery.build('ml', 'v1', credentials=credentials,
                             cache_discovery=False)
@@ -171,7 +171,7 @@ def tar_and_copy_t2t(train_dir):
   """Tar Tensor2Tensor and cp to train_dir."""
   tf.logging.info('Tarring and pushing local Tensor2Tensor package.')
 
-  output = cloud.shell_output('pip show tensor2tensor').decode('utf-8').split('\n')
+  output = cloud.shell_output('pip show tensor2tensor').split('\n')
   assert output[1].startswith('Version')
   assert output[7].startswith('Location')
   t2t_version = output[1].split(':')[1].strip()

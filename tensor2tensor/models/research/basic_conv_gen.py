@@ -91,9 +91,7 @@ class BasicConvGen(t2t_model.T2TModel):
     reward_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
         labels=reward_gold, logits=reward_pred, name="reward_loss")
     reward_loss = tf.reduce_mean(reward_loss)
-    return {"targets": x, "target_reward": reward_pred_h1}
-    # return x, {"reward": reward_loss}
-    # return x
+    return x, {"reward": reward_loss}
 
 
 @registry.register_hparams
@@ -149,11 +147,11 @@ class MichiganBasicConvGen(t2t_model.T2TModel):
           name="deconv2d" + str(i))
       return tf.depth_to_space(thicker, 2)
 
-    # cur_frame = common_layers.standardize_images(features["inputs_0"])
-    # prev_frame = common_layers.standardize_images(features["inputs_1"])
-    # frames = tf.concat([cur_frame, prev_frame], axis=3)
-    # frames = tf.reshape(frames, [-1, 210, 160, 6])
-    frames = common_layers.standardize_images(features["inputs"])
+    cur_frame = common_layers.standardize_images(features["inputs_0"])
+    prev_frame = common_layers.standardize_images(features["inputs_1"])
+
+    frames = tf.concat([cur_frame, prev_frame], axis=3)
+    frames = tf.reshape(frames, [-1, 210, 160, 6])
 
     h1 = tf.layers.conv2d(frames, filters=64, strides=2, kernel_size=(8, 8),
                           padding="SAME", activation=tf.nn.relu)

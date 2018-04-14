@@ -26,8 +26,7 @@ import tensorflow as tf
 class AdafactorOptimizer(tf.train.Optimizer):
   """Optimizer that implements the Adafactor algorithm.
 
-  Adafactor is described in https://arxiv.org/abs/1804.04235.
-
+  Adafactor is described in TODO(noam): post paper to arxiv.
 
   Adafactor is most similar to Adam (Kingma and Ba), the major differences are:
 

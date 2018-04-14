@@ -291,7 +291,7 @@ def batch_env_factory(environment_lambda, hparams, num_agents, xvfb=False):
   else:
     cur_batch_env = define_batch_env(environment_lambda, num_agents, xvfb=xvfb)
   for w in wrappers:
-    cur_batch_env = w[0](cur_batch_env, **w[1])
+    cur_batch_env = w[0](batch_env, **w[1])
   return cur_batch_env
 
 

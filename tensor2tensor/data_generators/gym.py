@@ -182,91 +182,6 @@ def moviepy_editor():
     raise ImportError("pip install moviepy to record videos")
   return editor
 
-@registry.register_problem
-class GymDiscreteProblemWithAgent2(GymDiscreteProblem):
-  """Gym environment with discrete actions and rewards."""
-
-  def __init__(self, *args, **kwargs):
-    super(GymDiscreteProblemWithAgent2, self).__init__(*args, **kwargs)
-    self._env = None
-
-  @property
-  def extra_reading_spec(self):
-    """Additional data fields to store on disk and their decoders."""
-    data_fields = {
-        "action": tf.FixedLenFeature([1], tf.int64),
-        "reward": tf.FixedLenFeature([1], tf.int64)
-    }
-    decoders = {
-        "action": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
-        "reward": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="reward"),
-    }
-    return data_fields, decoders
-
-  @property
-  def num_input_frames(self):
-    """Number of frames to batch on one input."""
-    return 4
-
-  @property
-  def env_name(self):
-    """This is the name of the Gym environment for this problem."""
-    return "PongDeterministic-v4"
-
-  @property
-  def num_actions(self):
-    return self.env.action_space.n
-
-  @property
-  def num_rewards(self):
-    return 3
-
-  @property
-  def num_steps(self):
-    return 200
-
-  @property
-  def frame_height(self):
-    return 210
-
-  @property
-  def frame_width(self):
-    return 160
-
-  @property
-  def min_reward(self):
-    return -1
-
-  def get_action(self, observation=None):
-    return self.env.action_space.sample()
-
-  def hparams(self, defaults, unused_model_hparams):
-    p = defaults
-    p.input_modality = {"inputs": ("video", 256),
-                        "input_reward": ("symbol", self.num_rewards),
-                        "input_action": ("symbol", self.num_actions)}
-    # p.input_modality = {"inputs": ("video", 256),
-    #                     "reward": ("symbol", self.num_rewards),
-    #                     "input_action": ("symbol", self.num_actions)}
-    # p.target_modality = ("video", 256)
-    p.target_modality = {"targets": ("video", 256),
-                         "target_reward": ("symbol", self.num_rewards)}
-    #p.target_modality = {"targets": ("image", 256),
-    #                     "reward": ("symbol", self.num_rewards + 1)} # ("video", 256)
-    p.input_space_id = problem.SpaceID.IMAGE
-    p.target_space_id = problem.SpaceID.IMAGE
-
-  def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
-    self.env.reset()
-    action = self.get_action()
-    for _ in range(self.num_steps):
-      observation, reward, done, _ = self.env.step(action)
-      action = self.get_action(observation)
-      yield {"frame": observation,
-             "action": [action],
-             "done": [done],
-             "reward": [int(reward - self.min_reward)]}
-
 
 @registry.register_problem
 class GymDiscreteProblemWithAgent(problem.Problem):
@@ -282,7 +197,7 @@ class GymDiscreteProblemWithAgent(problem.Problem):
     self.in_graph_wrappers = [(atari.MaxAndSkipWrapper, {"skip": 4})]
     self.collect_hparams = rl.atari_base()
     self.num_steps = 1000
-    self.movies = True
+    self.movies = False
     self.movies_fps = 24
     self.simulated_environment = None
     self.warm_up = 70

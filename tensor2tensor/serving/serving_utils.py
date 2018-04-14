@@ -119,7 +119,8 @@ def predict(inputs_list, problem, request_fn):
   predictions = request_fn(examples)
   output_decoder = problem.feature_info["targets"].encoder
   outputs = [
-      _decode(prediction["outputs"], output_decoder)
+      (_decode(prediction["outputs"], output_decoder),
+       prediction["scores"])
       for prediction in predictions
   ]
   return outputs

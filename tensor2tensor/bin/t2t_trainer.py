@@ -57,10 +57,6 @@ flags.DEFINE_bool("generate_data", False, "Generate data before training?")
 flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
                     "Temporary storage directory, used if --generate_data.")
 flags.DEFINE_bool("profile", False, "Profile performance?")
-flags.DEFINE_integer("inter_op_parallelism_threads", 0, "Number of inter_op_parallelism_threads "
-                     "to use for CPU. See TensorFlow config.proto for details.")
-flags.DEFINE_integer("intra_op_parallelism_threads", 0, "Number of intra_op_parallelism_threads "
-                     "to use for CPU. See TensorFlow config.proto for details.")
 
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erring. Apologies for the ugliness.
@@ -210,9 +206,7 @@ def create_run_config(hp):
       worker_id=FLAGS.worker_id,
       worker_job=FLAGS.worker_job,
       random_seed=FLAGS.random_seed,
-      tpu_infeed_sleep_secs=FLAGS.tpu_infeed_sleep_secs,
-      inter_op_parallelism_threads=FLAGS.inter_op_parallelism_threads,
-      intra_op_parallelism_threads=FLAGS.intra_op_parallelism_threads)
+      tpu_infeed_sleep_secs=FLAGS.tpu_infeed_sleep_secs)
 
 
 def generate_data():
