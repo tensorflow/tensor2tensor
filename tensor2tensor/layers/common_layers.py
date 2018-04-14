@@ -42,7 +42,7 @@ allow_defun = False
 
 
 def is_on_tpu():
-  # Support TF versions 1.4+
+  # Support TF versions 1.5+
   try:
     from tensorflow.python.ops import control_flow_util  # pylint: disable=g-import-not-at-top
     ctxt = tf.get_default_graph()._get_control_flow_context()  # pylint: disable=protected-access
@@ -2774,11 +2774,7 @@ def _recompute_grad(fn, args):
   @fn_with_custom_grad(grad_fn)
   def fn_with_recompute(*args):
     cached_vs.append(tf.get_variable_scope())
-    # TODO(rsepassi): Rm conditional in TF 1.5
-    if hasattr(tf.contrib.framework, "current_arg_scope"):
-      cached_arg_scope.append(tf.contrib.framework.current_arg_scope())
-    else:
-      cached_arg_scope.append({})
+    cached_arg_scope.append(tf.contrib.framework.current_arg_scope())
     return fn(*args)
 
   return fn_with_recompute(*args)

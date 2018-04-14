@@ -39,8 +39,6 @@ work on any image classification data-set.
 
 ## Tutorial: Transformer En-De translation on TPU
 
-**Note**: You'll need TensorFlow 1.5+.
-
 Configure the `gcloud` CLI:
 ```
 gcloud components update

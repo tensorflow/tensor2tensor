@@ -8,14 +8,11 @@ env:
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
   matrix:
-    - TF_VERSION="1.4.*"
     - TF_VERSION="1.5.*"
     - TF_VERSION="1.6.*"
     - TF_VERSION="1.7.*"
 matrix:
   exclude:
-    - python: "3.6"
-      env: TF_VERSION="1.4.*"
     - python: "3.6"
       env: TF_VERSION="1.5.*"
     - python: "3.6"

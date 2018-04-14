@@ -3,8 +3,6 @@
 Tensor2Tensor and the TensorFlow ecosystem make it easy to serve a model once
 trained.
 
-**Note**: Requires TF 1.5+.
-
 ## 1. Export for Serving
 
 First, export it for serving:
