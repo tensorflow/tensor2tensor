@@ -45,7 +45,7 @@ EOS = text_encoder.EOS_ID
 
 
 class SourceFeatureProblem(translate.TranslateProblem):
-  """Problem spec for En-Fr translation with source features."""
+  """Problem spec for translation with source features."""
     
   @property
   def approx_vocab_size(self):
@@ -358,7 +358,6 @@ class TransformerSrcFeatures(transformer.Transformer):
     with tf.variable_scope(input_modality.name):
       inputs = input_modality.bottom(features["inputs"])
 
-    sfeats = []
     for idx in range(self.sfeat_number):
       sfeat = features["sfeats."+str(idx)]
       input_modality = self._problem_hparams.input_modality["sfeats."+str(idx)]
