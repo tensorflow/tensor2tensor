@@ -147,11 +147,11 @@ class MichiganBasicConvGen(t2t_model.T2TModel):
           name="deconv2d" + str(i))
       return tf.depth_to_space(thicker, 2)
 
-    cur_frame = common_layers.standardize_images(features["inputs_0"])
-    prev_frame = common_layers.standardize_images(features["inputs_1"])
-
-    frames = tf.concat([cur_frame, prev_frame], axis=3)
+    # cur_frame = common_layers.standardize_images(features["inputs_0"])
+    # prev_frame = common_layers.standardize_images(features["inputs_1"])
+    # frames = tf.concat([cur_frame, prev_frame], axis=3)
     # frames = tf.reshape(frames, [-1, 210, 160, 6])
+    frames = common_layers.standardize_images(features["inputs"])
 
     h1 = tf.layers.conv2d(frames, filters=64, strides=2, kernel_size=(8, 8),
                           padding="SAME", activation=tf.nn.relu)
