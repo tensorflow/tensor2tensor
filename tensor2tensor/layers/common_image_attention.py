@@ -26,6 +26,7 @@ import tensorflow as tf
 
 
 class AttentionType(object):
+  """Types of attention type used in cia."""
   LOCAL_1D = "local_1d"
   LOCAL_2D = "local_2d"
   GLOBAL = "global"
@@ -33,6 +34,7 @@ class AttentionType(object):
   DILATED = "dilated"
   MOE_LOCAL_1D = "moe_local1d"
   LOCAL_BLOCK = "local_block"
+  NON_CAUSAL_1D = "local_1d_noncausal"
 
   @staticmethod
   def get_choices():
@@ -44,6 +46,7 @@ class AttentionType(object):
         AttentionType.LOCAL_2D,
         AttentionType.LOCAL_BLOCK,
         AttentionType.DILATED,
+        AttentionType.NON_CAUSAL_1D,
     ]
 
 
@@ -300,6 +303,11 @@ def transformer_decoder_layers(inputs,
                                hparams,
                                attention_type="local_mask_right",
                                q_padding="LEFT", kv_padding="LEFT")
+      elif attention_type == AttentionType.NON_CAUSAL_1D:
+        y = local_attention_1d(common_layers.layer_preprocess(x, hparams),
+                               hparams,
+                               attention_type="local_unmasked",
+                               q_padding="VALID", kv_padding="VALID")
       elif attention_type == AttentionType.LOCAL_BLOCK:
         y = local_within_block_attention(
             common_layers.layer_preprocess(x, hparams),
