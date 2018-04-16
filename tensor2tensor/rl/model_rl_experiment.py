@@ -25,7 +25,7 @@ import time
 from tensor2tensor import problems
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs.tf_atari_wrappers import PongT2TGeneratorHackWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import ShiftRewardWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import trainer_lib
 
@@ -52,7 +52,7 @@ def train(hparams, output_dir):
     time_delta = time.time() - start_time
     print(line+"Step {}.1. - generate data from policy. "
           "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
-    FLAGS.problems = "gym_discrete_problem"
+    FLAGS.problems = "gym_discrete_problem_with_agent"
     FLAGS.agent_policy_path = last_model
     gym_problem = problems.problem(FLAGS.problems)
     gym_problem.num_steps = hparams.true_env_generator_num_steps
@@ -66,16 +66,19 @@ def train(hparams, output_dir):
     # 2. generate env model
     FLAGS.data_dir = iter_data_dir
     FLAGS.output_dir = output_dir
-    FLAGS.model = hparams.generative_model
+    # FLAGS.model = hparams.generative_model
+    # FLAGS.model = "basic_conv_gen"
+    FLAGS.model = "michigan_basic_conv_gen"
     FLAGS.hparams_set = hparams.generative_model_params
-    FLAGS.train_steps = hparams.model_train_steps
+    # FLAGS.train_steps = hparams.model_train_steps
+    FLAGS.train_steps = 1
     FLAGS.eval_steps = 1
     t2t_trainer.main([])
 
     time_delta = time.time() - start_time
-    print(line+"Step {}.3. - evalue env model. "
+    print(line+"Step {}.3. - evaluate env model. "
           "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
-    gym_simulated_problem = problems.problem("gym_simulated_discrete_problem")
+    gym_simulated_problem = problems.problem("gym_simulated_discrete_problem_with_agent")
     gym_simulated_problem.num_steps = hparams.simulated_env_generator_num_steps
     gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
 
@@ -93,7 +96,7 @@ def train(hparams, output_dir):
     ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
     in_graph_wrappers = [
         (TimeLimitWrapper, {"timelimit": 150}),
-        (PongT2TGeneratorHackWrapper, {"add_value": -2})]
+        (ShiftRewardWrapper, {"add_value": -2})]
     in_graph_wrappers += gym_problem.in_graph_wrappers
     ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
     rl_trainer_lib.train(ppo_hparams, "PongNoFrameskip-v4", ppo_dir)

@@ -197,7 +197,7 @@ class GymDiscreteProblemWithAgent(problem.Problem):
     self.in_graph_wrappers = [(atari.MaxAndSkipWrapper, {"skip": 4})]
     self.collect_hparams = rl.atari_base()
     self.num_steps = 1000
-    self.movies = False
+    self.movies = True
     self.movies_fps = 24
     self.simulated_environment = None
     self.warm_up = 70
