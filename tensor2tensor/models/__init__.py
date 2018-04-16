@@ -25,6 +25,7 @@ from __future__ import print_function
 from tensor2tensor.layers import modalities
 from tensor2tensor.models import basic
 from tensor2tensor.models import bytenet
+from tensor2tensor.models import distillation
 from tensor2tensor.models import image_transformer
 from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.models import lstm
@@ -45,6 +46,7 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import basic_conv_gen
 from tensor2tensor.models.research import cycle_gan
 from tensor2tensor.models.research import gene_expression
+from tensor2tensor.models.research import lm_experiments
 from tensor2tensor.models.research import multimodel
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import super_lm

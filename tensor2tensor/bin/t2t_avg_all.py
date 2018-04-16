@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Script to continously average last N checkpoints in a given directory."""
+"""Script to continuously average last N checkpoints in a given directory."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function

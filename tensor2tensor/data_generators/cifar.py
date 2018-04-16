@@ -77,12 +77,17 @@ def cifar_generator(cifar_version, tmp_dir, training, how_many, start_from=0):
     test_files = _CIFAR10_TEST_FILES
     prefix = _CIFAR10_PREFIX
     image_size = _CIFAR10_IMAGE_SIZE
-  elif cifar_version == "cifar100":
+    label_key = "labels"
+  elif cifar_version == "cifar100" or cifar_version == "cifar20":
     url = _CIFAR100_URL
     train_files = _CIFAR100_TRAIN_FILES
     test_files = _CIFAR100_TEST_FILES
     prefix = _CIFAR100_PREFIX
     image_size = _CIFAR100_IMAGE_SIZE
+    if cifar_version == "cifar100":
+      label_key = "fine_labels"
+    else:
+      label_key = "coarse_labels"
 
   _get_cifar(tmp_dir, url)
   data_files = train_files if training else test_files
@@ -97,7 +102,7 @@ def cifar_generator(cifar_version, tmp_dir, training, how_many, start_from=0):
     all_images.extend([
         np.squeeze(images[j]).transpose((1, 2, 0)) for j in xrange(num_images)
     ])
-    labels = data["labels" if cifar_version == "cifar10" else "fine_labels"]
+    labels = data[label_key]
     all_labels.extend([labels[j] for j in xrange(num_images)])
   return image_utils.image_generator(
       all_images[start_from:start_from + how_many],
@@ -417,3 +422,108 @@ class Img2imgCifar100(ImageCifar100):
     p.max_expected_batch_size_per_shard = 4
     p.input_space_id = 1
     p.target_space_id = 1
+
+
+@registry.register_problem
+class ImageCifar20Tune(mnist.ImageMnistTune):
+  """Cifar-20 Tune."""
+
+  @property
+  def num_classes(self):
+    return 20
+
+  @property
+  def num_channels(self):
+    return 3
+
+  @property
+  def class_labels(self):
+    return [
+        "aquatic mammals",
+        "fish",
+        "flowers",
+        "food containers",
+        "fruit and vegetables",
+        "household electrical devices",
+        "household furniture",
+        "insects",
+        "large carnivores",
+        "large man-made outdoor things",
+        "large natural outdoor scenes",
+        "large omnivores and herbivores",
+        "medium-sized mammals",
+        "non-insect invertebrates",
+        "people",
+        "reptiles",
+        "small mammals",
+        "trees",
+        "vehicles 1",
+        "vehicles 2",
+    ]
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    image = example["inputs"]
+    image.set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      image = image_utils.cifar_image_augmentation(image)
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
+    example["inputs"] = image
+    return example
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return cifar_generator("cifar20", tmp_dir, True, 48000)
+    else:
+      return cifar_generator("cifar20", tmp_dir, True, 2000, 48000)
+
+
+@registry.register_problem
+class ImageCifar20(ImageCifar20Tune):
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return cifar_generator("cifar20", tmp_dir, True, 50000)
+    else:
+      return cifar_generator("cifar20", tmp_dir, False, 10000)
+
+
+@registry.register_problem
+class ImageCifar20Plain(ImageCifar20):
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    image = example["inputs"]
+    image.set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
+    example["inputs"] = image
+    return example
+
+
+@registry.register_problem
+class ImageCifar20PlainGen(ImageCifar20Plain):
+  """CIFAR-20 32x32 for image generation without standardization preprep."""
+
+  def dataset_filename(self):
+    return "image_cifar20_plain"  # Reuse CIFAR-20 plain data.
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    return example
+
+
+@registry.register_problem
+class ImageCifar20Plain8(ImageCifar20):
+  """CIFAR-20 rescaled to 8x8 for output: Conditional image generation."""
+
+  def dataset_filename(self):
+    return "image_cifar20_plain"  # Reuse CIFAR-20 plain data.
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    image = example["inputs"]
+    image = image_utils.resize_by_area(image, 8)
+    if not self._was_reversed:
+      image = tf.image.per_image_standardization(image)
+    example["inputs"] = image
+    return example

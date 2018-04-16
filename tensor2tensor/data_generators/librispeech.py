@@ -21,9 +21,11 @@ import tarfile
 # Dependency imports
 
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 
+import tensorflow as tf
 
 _LIBRISPEECH_TRAIN_DATASETS = [
     [
@@ -194,6 +196,37 @@ class LibrispeechTrainFullTestClean(Librispeech):
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     raise Exception("Generate librispeech and librispeech_clean data.")
+
+  def filepattern(self, data_dir, mode, shard=None):
+    """Get filepattern for data files for mode.
+
+    Matches mode to a suffix.
+    * DatasetSplit.TRAIN: train
+    * DatasetSplit.EVAL: dev
+    * DatasetSplit.TEST: test
+    * tf.estimator.ModeKeys.PREDICT: dev
+
+    Args:
+      data_dir: str, data directory.
+      mode: DatasetSplit
+      shard: int, if provided, will only read data from the specified shard.
+
+    Returns:
+      filepattern str
+    """
+    shard_str = "-%05d" % shard if shard is not None else ""
+    if mode == problem.DatasetSplit.TRAIN:
+      path = os.path.join(data_dir, "librispeech")
+      suffix = "train"
+    elif mode in [problem.DatasetSplit.EVAL, tf.estimator.ModeKeys.PREDICT]:
+      path = os.path.join(data_dir, "librispeech_clean")
+      suffix = "dev"
+    else:
+      assert mode == problem.DatasetSplit.TEST
+      path = os.path.join(data_dir, "librispeech_clean")
+      suffix = "test"
+
+    return "%s-%s%s*" % (path, suffix, shard_str)
 
 
 @registry.register_problem()

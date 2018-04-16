@@ -323,6 +323,37 @@ class Problem(object):
   # END SUBCLASS INTERFACE
   # ============================================================================
 
+  def preprocess(self, dataset, mode, hparams):
+    """Runtime preprocessing on the whole dataset.
+
+    Return a tf.data.Datset -- the preprocessed version of the given one.
+    By default this function calls preprocess_example.
+
+    Args:
+      dataset: the Dataset of already decoded but not yet preprocessed features.
+      mode: tf.estimator.ModeKeys
+      hparams: HParams, model hyperparameters
+
+    Returns:
+      a Dataset
+    """
+    def _preprocess(example):
+      examples = self.preprocess_example(example, mode, hparams)
+      if not isinstance(examples, tf.data.Dataset):
+        examples = tf.data.Dataset.from_tensors(examples)
+      return examples
+
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    if hasattr(tf.contrib.data, "parallel_interleave"):
+      dataset = dataset.apply(
+          tf.contrib.data.parallel_interleave(
+              _preprocess, sloppy=is_training, cycle_length=8))
+    else:
+      dataset = dataset.interleave(_preprocess, cycle_length=8,
+                                   block_length=16)
+
+    return dataset
+
   def training_filepaths(self, data_dir, num_shards, shuffled):
     file_basename = self.dataset_filename()
     if not shuffled:
@@ -514,15 +545,16 @@ class Problem(object):
         data_filepattern)
 
     # Functions used in dataset transforms below
-    def _load_records(filename):
+    def _load_records_and_preprocess(filename):
       # Load records from file with an 8MiB read buffer.
-      return tf.data.TFRecordDataset(filename, buffer_size=8 * 1024 * 1024)
-
-    def _preprocess(example):
-      examples = self.preprocess_example(example, mode, hparams)
-      if not isinstance(examples, tf.data.Dataset):
-        examples = tf.data.Dataset.from_tensors(examples)
-      return examples
+      dataset = tf.data.TFRecordDataset(filename, buffer_size=8 * 1024 * 1024)
+      # Decode.
+      dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
+      # Preprocess if requested.
+      # Note that preprocessing should happen per-file as order may matter.
+      if preprocess:
+        dataset = self.preprocess(dataset, mode, hparams)
+      return dataset
 
     if len(data_files) < num_partitions:
       raise ValueError(
@@ -539,20 +571,11 @@ class Problem(object):
     if hasattr(tf.contrib.data, "parallel_interleave"):
       dataset = dataset.apply(
           tf.contrib.data.parallel_interleave(
-              _load_records, sloppy=is_training, cycle_length=8))
+              _load_records_and_preprocess, sloppy=is_training, cycle_length=8))
     else:
-      dataset = dataset.interleave(_load_records, cycle_length=8,
+      dataset = dataset.interleave(_load_records_and_preprocess, cycle_length=8,
                                    block_length=16)
 
-    dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
-    if preprocess:
-      if hasattr(tf.contrib.data, "parallel_interleave"):
-        dataset = dataset.apply(
-            tf.contrib.data.parallel_interleave(
-                _preprocess, sloppy=is_training, cycle_length=8))
-      else:
-        dataset = dataset.interleave(_preprocess, cycle_length=8,
-                                     block_length=16)
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
 
@@ -758,9 +781,7 @@ class Problem(object):
         batch_size_means_tokens = False
       else:
         tf.logging.warning(
-            "Shapes are not fully defined. Assuming batch_size means tokens. "
-            "Override batch_size_means_tokens() "
-            "in your problem subclass if this is undesired behavior.")
+            "Shapes are not fully defined. Assuming batch_size means tokens.")
         batch_size_means_tokens = True
 
     # Batching

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Implemetation of beam seach with penalties."""
+"""Implementation of beam search with penalties."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -89,12 +89,12 @@ def get_state_shape_invariants(tensor):
   return tf.TensorShape(shape)
 
 
-def log_prob_from_logits(logits):
-  return logits - tf.reduce_logsumexp(logits, axis=2, keep_dims=True)
+def log_prob_from_logits(logits, reduce_axis=-1):
+  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keep_dims=True)
 
 
 def compute_batch_indices(batch_size, beam_size):
-  """Computes the i'th coodinate that contains the batch index for gathers.
+  """Computes the i'th coordinate that contains the batch index for gathers.
 
   Batch pos is a tensor like [[0,0,0,0,],[1,1,1,1],..]. It says which
   batch the beam item is in. This will create the i of the i,j coordinate
@@ -135,7 +135,7 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
       [batch_size, beam_size]. We will return the gathered scores from here.
       Scores to gather is different from scores because for grow_alive, we will
       need to return log_probs, while for grow_finished, we will need to return
-      the length penalized scors.
+      the length penalized scores.
     flags: Tensor of bools for sequences that say whether a sequence has reached
       EOS or not
     beam_size: int
@@ -188,7 +188,7 @@ def beam_search(symbols_to_logits_fn,
                 stop_early=True):
   """Beam search with length penalties.
 
-  Requires a function that can take the currently decoded sybmols and return
+  Requires a function that can take the currently decoded symbols and return
   the logits for the next symbol. The implementation is inspired by
   https://arxiv.org/abs/1609.08144.
 
@@ -229,7 +229,7 @@ def beam_search(symbols_to_logits_fn,
   Returns:
     Tuple of
     (decoded beams [batch_size, beam_size, decode_length]
-     decoding probablities [batch_size, beam_size])
+     decoding probabilities [batch_size, beam_size])
   """
   batch_size = common_layers.shape_list(initial_ids)[0]
 
@@ -320,7 +320,7 @@ def beam_search(symbols_to_logits_fn,
                                        "grow_alive", states)
 
   def grow_topk(i, alive_seq, alive_log_probs, states):
-    r"""Inner beam seach loop.
+    r"""Inner beam search loop.
 
     This function takes the current alive sequences, and grows them to topk
     sequences where k = 2*beam. We use 2*beam because, we could have beam_size
@@ -361,14 +361,14 @@ def beam_search(symbols_to_logits_fn,
     # Convert logits to normalized log probs
     candidate_log_probs = log_prob_from_logits(logits)
 
-    # Multiply the probabilites by the current probabilites of the beam.
+    # Multiply the probabilities by the current probabilities of the beam.
     # (batch_size, beam_size, vocab_size) + (batch_size, beam_size, 1)
     log_probs = candidate_log_probs + tf.expand_dims(alive_log_probs, axis=2)
 
     length_penalty = tf.pow(((5. + tf.to_float(i + 1)) / 6.), alpha)
 
     curr_scores = log_probs / length_penalty
-    # Flatten out (beam_size, vocab_size) probs in to a list of possibilites
+    # Flatten out (beam_size, vocab_size) probs in to a list of possibilities
     flat_curr_scores = tf.reshape(curr_scores, [-1, beam_size * vocab_size])
 
     topk_scores, topk_ids = tf.nn.top_k(flat_curr_scores, k=beam_size * 2)
@@ -381,7 +381,7 @@ def beam_search(symbols_to_logits_fn,
     topk_ids %= vocab_size  # Unflatten the ids
 
     # The next three steps are to create coordinates for tf.gather_nd to pull
-    # out the correct seqences from id's that we need to grow.
+    # out the correct sequences from id's that we need to grow.
     # We will also use the coordinates to gather the booleans of the beam items
     # that survived.
     batch_pos = compute_batch_indices(batch_size, beam_size * 2)
@@ -407,7 +407,7 @@ def beam_search(symbols_to_logits_fn,
 
   def inner_loop(i, alive_seq, alive_log_probs, finished_seq, finished_scores,
                  finished_flags, states):
-    """Inner beam seach loop.
+    """Inner beam search loop.
 
     There are three groups of tensors, alive, finished, and topk.
     The alive group contains information about the current alive sequences
@@ -447,7 +447,7 @@ def beam_search(symbols_to_logits_fn,
          Log probs of the alive sequences,
          New finished sequences,
          Scores of the new finished sequences,
-         Flags inidicating which sequence in finished as reached EOS,
+         Flags indicating which sequence in finished as reached EOS,
          dict of final decoding states)
     """
 
@@ -471,7 +471,7 @@ def beam_search(symbols_to_logits_fn,
     """Checking termination condition.
 
     We terminate when we decoded up to decode_length or the lowest scoring item
-    in finished has a greater score that the higest prob item in alive divided
+    in finished has a greater score that the highest prob item in alive divided
     by the max length penalty
 
     Args:
@@ -488,24 +488,24 @@ def beam_search(symbols_to_logits_fn,
     if not stop_early:
       return tf.less(i, decode_length)
     max_length_penalty = tf.pow(((5. + tf.to_float(decode_length)) / 6.), alpha)
-    # The best possible score of the most likley alive sequence
+    # The best possible score of the most likely alive sequence.
     lower_bound_alive_scores = alive_log_probs[:, 0] / max_length_penalty
 
     # Now to compute the lowest score of a finished sequence in finished
     # If the sequence isn't finished, we multiply it's score by 0. since
     # scores are all -ve, taking the min will give us the score of the lowest
     # finished item.
-    lowest_score_of_fininshed_in_finished = tf.reduce_min(
+    lowest_score_of_finished_in_finished = tf.reduce_min(
         finished_scores * tf.to_float(finished_in_finished), axis=1)
     # If none of the sequences have finished, then the min will be 0 and
     # we have to replace it by -ve INF if it is. The score of any seq in alive
     # will be much higher than -ve INF and the termination condition will not
     # be met.
-    lowest_score_of_fininshed_in_finished += (
+    lowest_score_of_finished_in_finished += (
         (1. - tf.to_float(tf.reduce_any(finished_in_finished, 1))) * -INF)
 
     bound_is_met = tf.reduce_all(
-        tf.greater(lowest_score_of_fininshed_in_finished,
+        tf.greater(lowest_score_of_finished_in_finished,
                    lower_bound_alive_scores))
 
     return tf.logical_and(

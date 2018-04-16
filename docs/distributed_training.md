@@ -68,7 +68,7 @@ For example:
 TF_CONFIG=$JOB_TF_CONFIG t2t-trainer $JOB_FLAGS --model=transformer ...
 ```
 
-Modify the `--worker_gpu` and `--ps_gpu` flags, which specify how many gpus are
+Modify the `--worker_gpu` and `--ps_gpu` flags, which specify how many GPUs are
 on each master and ps, respectively, as needed for your machine/cluster setup.
 
 ## Command-line flags for eval jobs

@@ -305,7 +305,7 @@ def tpu_tunnel(vm_name, tpu_ip):
     time.sleep(1)
     if tunnel_process.poll() is not None:
       raise ValueError("SSH failed")
-    tf.logging.info("Set up port fowarding. Local ports: %s", local_ports)
+    tf.logging.info("Set up port forwarding. Local ports: %s", local_ports)
     yield local_ports, tunnel_process.pid
 
 
