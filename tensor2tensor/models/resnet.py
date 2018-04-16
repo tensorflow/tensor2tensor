@@ -474,6 +474,23 @@ def resnet_18():
 
 
 @registry.register_hparams
+def resnet_imagenet_34():
+  """Set of hyperparameters."""
+  hp = resnet_base()
+  hp.block_fn = "residual"
+  hp.layer_sizes = [2, 4, 8, 2]
+
+  return hp
+
+
+@registry.register_hparams
+def resnet_imagenet_102():
+  hp = resnet_imagenet_34()
+  hp.layer_sizes = [3, 8, 36, 3]
+  return hp
+
+
+@registry.register_hparams
 def resnet_cifar_15():
   """Set of hyperparameters."""
   hp = resnet_base()
