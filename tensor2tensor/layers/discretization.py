@@ -468,6 +468,7 @@ def discrete_bottleneck(x,
     ValueError: If projection_tensors is None for reshape_method project, or
     ema_count or ema_means is None if we are using ema, or unknown args.
   """
+  tf.logging.info("Shape of x = {}".format(common_layers.shape_list(x)))
   block_v_size = None
   if bottleneck_kind == "dvq":
     # Define the dvq parameters
