@@ -52,10 +52,11 @@ def train(hparams, output_dir):
     time_delta = time.time() - start_time
     print(line+"Step {}.1. - generate data from policy. "
           "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
-    FLAGS.problems = "gym_discrete_problem_with_agent"
+    # FLAGS.problems = "gym_discrete_problem_with_agent"
+    FLAGS.problems = "gym_discrete_problem_with_agent2"
     FLAGS.agent_policy_path = last_model
     gym_problem = problems.problem(FLAGS.problems)
-    gym_problem.num_steps = hparams.true_env_generator_num_steps
+    # gym_problem.num_steps = hparams.true_env_generator_num_steps
     iter_data_dir = os.path.join(data_dir, str(iloop))
     tf.gfile.MakeDirs(iter_data_dir)
     gym_problem.generate_data(iter_data_dir, tmp_dir)
