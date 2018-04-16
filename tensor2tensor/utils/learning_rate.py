@@ -87,6 +87,7 @@ def _piecewise_learning_rate(step, boundaries, values):
     Scaled value for the learning rate.
   """
   values = [1.0] + values
+  boundaries = [float(x) for x in boundaries]
   return tf.train.piecewise_constant(
       step, boundaries, values, name="piecewise_lr")
 

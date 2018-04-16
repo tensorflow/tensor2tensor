@@ -32,12 +32,6 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("cloud_mlengine_model_name", None,
-                    "Name of model deployed on Cloud ML Engine.")
-flags.DEFINE_string(
-    "cloud_mlengine_model_version", None,
-    "Version of the model to use. If None, requests will be "
-    "sent to the default version.")
 flags.DEFINE_string("server", None, "Address to Tensorflow Serving server.")
 flags.DEFINE_string("servable_name", None, "Name of served model.")
 flags.DEFINE_string("problem", None, "Problem name.")
@@ -45,6 +39,14 @@ flags.DEFINE_string("data_dir", None, "Data directory, for vocab files.")
 flags.DEFINE_string("t2t_usr_dir", None, "Usr dir for registrations.")
 flags.DEFINE_string("inputs_once", None, "Query once with this input.")
 flags.DEFINE_integer("timeout_secs", 10, "Timeout for query.")
+
+# For Cloud ML Engine predictions.
+flags.DEFINE_string("cloud_mlengine_model_name", None,
+                    "Name of model deployed on Cloud ML Engine.")
+flags.DEFINE_string(
+    "cloud_mlengine_model_version", None,
+    "Version of the model to use. If None, requests will be "
+    "sent to the default version.")
 
 
 def validate_flags():
@@ -57,6 +59,22 @@ def validate_flags():
     assert FLAGS.servable_name
 
 
+def make_request_fn():
+  """Returns a request function."""
+  if FLAGS.cloud_mlengine_model_name:
+    request_fn = serving_utils.make_cloud_mlengine_request_fn(
+        credentials=GoogleCredentials.get_application_default(),
+        model_name=FLAGS.cloud_mlengine_model_name,
+        version=FLAGS.cloud_mlengine_model_version)
+  else:
+
+    request_fn = serving_utils.make_grpc_request_fn(
+        servable_name=FLAGS.servable_name,
+        server=FLAGS.server,
+        timeout_secs=FLAGS.timeout_secs)
+  return request_fn
+
+
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   validate_flags()
@@ -65,16 +83,7 @@ def main(_):
   hparams = tf.contrib.training.HParams(
       data_dir=os.path.expanduser(FLAGS.data_dir))
   problem.get_hparams(hparams)
-  if FLAGS.cloud_mlengine_model_name:
-    request_fn = serving_utils.make_cloud_mlengine_request_fn(
-        credentials=GoogleCredentials.get_application_default(),
-        model_name=FLAGS.cloud_mlengine_model_name,
-        version=FLAGS.cloud_mlengine_model_version)
-  else:
-    request_fn = serving_utils.make_grpc_request_fn(
-        servable_name=FLAGS.servable_name,
-        server=FLAGS.server,
-        timeout_secs=FLAGS.timeout_secs)
+  request_fn = make_request_fn()
   while True:
     inputs = FLAGS.inputs_once if FLAGS.inputs_once else input(">> ")
     outputs = serving_utils.predict([inputs], problem, request_fn)

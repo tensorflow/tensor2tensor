@@ -224,6 +224,39 @@ class ClassLabelEncoder(TextEncoder):
     return len(self._class_labels)
 
 
+class OneHotClassLabelEncoder(TextEncoder):
+  """One-hot encoder for class labels."""
+
+  def __init__(self, class_labels=None, class_labels_fname=None):
+    super(OneHotClassLabelEncoder, self).__init__()
+    assert class_labels or class_labels_fname
+    assert not (class_labels and class_labels_fname)
+
+    if class_labels_fname:
+      with tf.gfile.Open(class_labels_fname) as f:
+        class_labels = [label.strip() for label in f.readlines()]
+
+    self._class_labels = class_labels
+
+  def encode(self, label_str, on_value=1, off_value=0):
+    e = np.zeros(self.vocab_size, dtype=np.int32)
+    if off_value != 0:
+      e.fill(off_value)
+    e[self._class_labels.index(label_str)] = on_value
+    return e.tolist()
+
+  def decode(self, label_id):
+    if isinstance(label_id, np.ndarray):
+      label_id = np.squeeze(label_id).astype(np.int8).tolist()
+    assert isinstance(label_id, list)
+    assert len(label_id) == self.vocab_size
+    return self._class_labels[label_id.index(1)]
+
+  @property
+  def vocab_size(self):
+    return len(self._class_labels)
+
+
 class TokenTextEncoder(TextEncoder):
   """Encoder based on a user-supplied vocabulary (file or list)."""
 
@@ -348,7 +381,7 @@ class TokenTextEncoder(TextEncoder):
 def _escape_token(token, alphabet):
   """Escape away underscores and OOV characters and append '_'.
 
-  This allows the token to be experessed as the concatenation of a list
+  This allows the token to be expressed as the concatenation of a list
   of subtokens from the vocabulary. The underscore acts as a sentinel
   which allows us to invertibly concatenate multiple such lists.
 

@@ -227,7 +227,7 @@ def maybe_download(directory, filename, uri):
 
 
 def maybe_download_from_drive(directory, filename, url):
-  """Download filename from google drive unless it's already in directory.
+  """Download filename from Google drive unless it's already in directory.
 
   Args:
     directory: path to the directory that will be used.

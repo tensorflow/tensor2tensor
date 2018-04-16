@@ -130,9 +130,12 @@ class T2TModel(base.Layer):
       return True
 
   def call(self, features):
-    tf.get_variable_scope().set_custom_getter(common_layers.bfloat16_var_getter
-                                              if self.hparams.activation_dtype
-                                              == "bfloat16" else None)
+    custom_getter = None
+    if self.hparams.activation_dtype == "bfloat16":
+      custom_getter = common_layers.bfloat16_var_getter
+    if self.hparams.weight_dtype == "bfloat16":
+      custom_getter = common_layers.bfloat16_weights_var_getter
+    tf.get_variable_scope().set_custom_getter(custom_getter)
     tf.get_variable_scope().set_initializer(
         optimize.get_variable_initializer(self.hparams))
     with self._eager_var_store.as_default():
@@ -219,7 +222,8 @@ class T2TModel(base.Layer):
   def model_fn(self, features):
     transformed_features = self.bottom(features)
 
-    if self.hparams.activation_dtype == "bfloat16":
+    if (self.hparams.activation_dtype == "bfloat16" or
+        self.hparams.weight_dtype == "bfloat16"):
       for k, v in six.iteritems(transformed_features):
         if v.dtype == tf.float32:
           transformed_features[k] = tf.cast(v, tf.bfloat16)
@@ -352,17 +356,16 @@ class T2TModel(base.Layer):
           "problem_hparams.target_modality is a dict.")
       return self._top_single(body_output, target_modality, features)
 
-  def _loss_single(self, logits, target_modality, features):
+  def _loss_single(self, logits, target_modality, feature):
     # The current bfloat16 version still uses float32 for most parts of backward
     # propagation to keep model quality, so cast back before computing the loss
     # value.
-    logits = tf.cast(logits, tf.float32)
     if not target_modality:
       log_warn(_no_problem_err("loss"))
       return (tf.constant(0., dtype=tf.float32),
               tf.constant(1., dtype=tf.float32))
 
-    loss_num, loss_den = target_modality.loss(logits, features["targets"])
+    loss_num, loss_den = target_modality.loss(logits, feature)
     loss_num *= self._problem_hparams.loss_multiplier
     return loss_num, loss_den
 
@@ -377,7 +380,7 @@ class T2TModel(base.Layer):
           "of problem_hparams.target_modality's dict.")
       losses = {}
       for k, v in six.iteritems(logits):
-        losses[k] = self._loss_single(v, target_modality[k], features)
+        losses[k] = self._loss_single(v, target_modality[k], features[k])
       return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
@@ -387,7 +390,7 @@ class T2TModel(base.Layer):
       assert not isinstance(target_modality, dict), (
           "model_body must return a dictionary of logits when "
           "problem_hparams.target_modality is a dict.")
-      return self._loss_single(logits, target_modality, features)
+      return self._loss_single(logits, target_modality, features["targets"])
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
@@ -499,7 +502,7 @@ class T2TModel(base.Layer):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for slonger translations.
+        the preference for longer translations.
 
     Returns:
       A dict of decoding results {
@@ -549,7 +552,7 @@ class T2TModel(base.Layer):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for slonger translations.
+        the preference for longer translations.
 
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
@@ -569,7 +572,7 @@ class T2TModel(base.Layer):
       beam_size: number of beams.
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
-        the preference for slonger translations.
+        the preference for longer translations.
 
     Returns:
        samples: an integer `Tensor`. Top samples from the beam search
@@ -765,8 +768,8 @@ class T2TModel(base.Layer):
               tf.squeeze(result[:, -1, :, :]), text_encoder.EOS_ID)
 
         not_eos = tf.cond(
-            # We only check for early stoping if there is at least 1 element (
-            # otherwise not_eos will crash)
+            # We only check for early stopping if there is at least 1 element (
+            # otherwise not_eos will crash).
             tf.not_equal(length, 0),
             fn_not_eos,
             lambda: True,
@@ -774,7 +777,7 @@ class T2TModel(base.Layer):
 
         return tf.cond(
             tf.equal(batch_size, 1),
-            # If batch_size == 1, we check EOS for early stoping
+            # If batch_size == 1, we check EOS for early stopping.
             lambda: tf.logical_and(not_overflow, not_eos),
             # Else, just wait for max length
             lambda: not_overflow)
@@ -1027,9 +1030,11 @@ class T2TModel(base.Layer):
         if isinstance(logits, dict):
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           k = metric_name.split("/")[1]
-          eval_metrics[metric_name] = metric_fn(logits[k], features)
+          eval_metrics[metric_name] = metric_fn(
+              logits[k], features, features[k])
         else:
-          eval_metrics[metric_name] = metric_fn(logits, features)
+          eval_metrics[metric_name] = metric_fn(
+              logits, features, features["targets"])
       if isinstance(logits, dict):
         predictions = logits
       else:
@@ -1057,13 +1062,17 @@ class T2TModel(base.Layer):
       outputs = infer_out
       scores = None
 
+    inputs = features.get("inputs")
+    if inputs is None:
+      inputs = features["targets"]
+
     batched_problem_choice = (
         features["problem_choice"] * tf.ones(
-            (common_layers.shape_list(features["inputs"])[0],), dtype=tf.int32))
+            (common_layers.shape_list(inputs)[0],), dtype=tf.int32))
     predictions = {
         "outputs": outputs,
         "scores": scores,
-        "inputs": features.get("inputs"),
+        "inputs": inputs,
         "targets": features.get("infer_targets"),
         "problem_choice": batched_problem_choice,
         "batch_prediction_key": features.get("batch_prediction_key"),
@@ -1263,7 +1272,8 @@ def _create_host_call(model_dir):
     with tf.contrib.summary.create_file_writer(model_dir).as_default():
       with tf.contrib.summary.always_record_summaries():
         for name, value in six.iteritems(kwargs):
-          tf.contrib.summary.scalar(name, tf.reduce_mean(value), step=gs)
+          tf.contrib.summary.scalar(
+              name, tf.reduce_mean(tf.to_float(value)), step=gs)
 
         return tf.contrib.summary.all_summary_ops()
 
@@ -1359,7 +1369,8 @@ def average_sharded_losses(sharded_losses):
     if isinstance(all_shards[0], tuple):
       sharded_num, sharded_den = zip(*all_shards)
       mean_loss = (
-          tf.add_n(sharded_num) / tf.maximum(1.0, tf.add_n(sharded_den)))
+          tf.add_n(sharded_num) / tf.maximum(
+              tf.cast(1.0, sharded_den[0].dtype), tf.add_n(sharded_den)))
     else:
       mean_loss = tf.reduce_mean(all_shards)
 

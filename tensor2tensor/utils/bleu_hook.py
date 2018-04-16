@@ -39,7 +39,7 @@ import tensorflow as tf
 
 
 def _get_ngrams(segment, max_order):
-  """Extracts all n-grams upto a given maximum order from an input segment.
+  """Extracts all n-grams up to a given maximum order from an input segment.
 
   Args:
     segment: text segment from which n-grams will be extracted.
@@ -47,7 +47,7 @@ def _get_ngrams(segment, max_order):
         methods.
 
   Returns:
-    The Counter containing all n-grams upto max_order in segment
+    The Counter containing all n-grams up to max_order in segment
     with a count of how many times each n-gram occurred.
   """
   ngram_counts = collections.Counter()
@@ -130,7 +130,7 @@ def bleu_score(predictions, labels, **unused_kwargs):
   and use brevity penalty. Also, this does not have beam search.
 
   Args:
-    predictions: tensor, model predicitons
+    predictions: tensor, model predictions
     labels: tensor, gold output.
 
   Returns:

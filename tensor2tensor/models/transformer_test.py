@@ -37,7 +37,10 @@ VOCAB_SIZE = 10
 
 class TransformerTest(tf.test.TestCase):
 
-  def getModel(self, hparams, mode=tf.estimator.ModeKeys.TRAIN, has_input=True):
+  def getModel(self, hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
+               has_input=True, model_cls=transformer.Transformer):
+    if hparams is None:
+      hparams = transformer.transformer_tiny()
     hparams.hidden_size = 8
     hparams.filter_size = 32
     hparams.num_heads = 1
@@ -58,7 +61,7 @@ class TransformerTest(tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32)
     }
 
-    return transformer.Transformer(hparams, mode, p_hparams), features
+    return model_cls(hparams, mode, p_hparams), features
 
   def testTransformer(self):
     model, features = self.getModel(transformer.transformer_small())
@@ -238,6 +241,48 @@ class TransformerTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       res = session.run(extra_loss["attention_loss"])
     self.assertEqual(res.shape, ())
+
+
+class TransformerScorerTest(TransformerTest):
+
+  def testReturnsScores(self):
+    model, features = self.getModel(
+        mode=tf.estimator.ModeKeys.PREDICT,
+        model_cls=transformer.TransformerScorer)
+    infer_out = model.infer(features)
+    self.assertTrue("outputs" in infer_out)
+    self.assertTrue("scores" in infer_out)
+
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      infer_out = session.run(infer_out)
+      self.assertEqual((BATCH_SIZE,), infer_out["scores"].shape)
+      self.assertEqual((BATCH_SIZE, TARGET_LENGTH), infer_out["outputs"].shape)
+
+  def testVarNames(self):
+    with tf.Graph().as_default():
+      model, features = self.getModel(
+          mode=tf.estimator.ModeKeys.PREDICT,
+          model_cls=transformer.TransformerScorer)
+      _ = model.infer(features)
+      scorer_vars = [v.name for v in tf.global_variables()]
+
+    with tf.Graph().as_default():
+      model, features = self.getModel(
+          mode=tf.estimator.ModeKeys.EVAL,
+          model_cls=transformer.TransformerScorer)
+      _ = model(features)
+      scorer_eval_vars = [v.name for v in tf.global_variables()]
+
+    with tf.Graph().as_default():
+      model, features = self.getModel(
+          mode=tf.estimator.ModeKeys.EVAL,
+          model_cls=transformer.Transformer)
+      _ = model(features)
+      transformer_vars = [v.name for v in tf.global_variables()]
+
+    self.assertEqual(sorted(scorer_vars), sorted(transformer_vars))
+    self.assertEqual(sorted(scorer_eval_vars), sorted(transformer_vars))
 
 
 if __name__ == "__main__":

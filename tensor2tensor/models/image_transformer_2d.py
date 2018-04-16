@@ -155,7 +155,7 @@ def image_transformer2d_base():
   # attention type related params
   hparams.add_hparam("enc_attention_type", cia.AttentionType.GLOBAL)
   hparams.add_hparam("dec_attention_type", cia.AttentionType.LOCAL_2D)
-  hparams.add_hparam("block_rastor_scan", False)
+  hparams.add_hparam("block_raster_scan", False)
 
   # multipos attention params
   hparams.add_hparam("q_filter_width", 1)
@@ -169,7 +169,7 @@ def image_transformer2d_base():
 def imagetransformer2d_base():
   hparams = image_transformer2d_base()
   hparams.dec_attention_type = cia.AttentionType.LOCAL_2D
-  hparams.block_rastor_scan = True
+  hparams.block_raster_scan = True
   return hparams
 
 
@@ -329,7 +329,7 @@ def img2img_transformer2d_base():
   hparams.num_encoder_layers = 4
   hparams.num_decoder_layers = 8
   hparams.dec_attention_type = cia.AttentionType.LOCAL_2D
-  hparams.block_rastor_scan = True
+  hparams.block_raster_scan = True
   return hparams
 
 
@@ -382,7 +382,7 @@ def img2img_transformer_base():
   hparams.block_length = 256
   hparams.block_width = 256
   hparams.dec_attention_type = cia.AttentionType.LOCAL_1D
-  hparams.block_rastor_scan = False
+  hparams.block_raster_scan = False
   return hparams
 
 

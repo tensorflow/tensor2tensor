@@ -101,7 +101,7 @@ flags.DEFINE_integer("worker_id", 0, "Which worker task are we.")
 flags.DEFINE_float("worker_gpu_memory_fraction", 0.95,
                    "Fraction of GPU memory to allocate.")
 flags.DEFINE_integer("ps_gpu", 0, "How many GPUs to use per ps.")
-flags.DEFINE_string("gpu_order", "", "Optional order for daisy-chaining gpus."
+flags.DEFINE_string("gpu_order", "", "Optional order for daisy-chaining GPUs."
                     " e.g. \"1 3 2 4\"")
 flags.DEFINE_string("ps_job", "/job:ps", "name of ps job")
 flags.DEFINE_integer("ps_replicas", 0, "How many ps replicas.")

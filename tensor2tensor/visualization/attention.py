@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Module for postprocessing and displaying tranformer attentions.
+"""Module for postprocessing and displaying transformer attentions.
 
 This module is designed to be called from an ipython notebook.
 """
