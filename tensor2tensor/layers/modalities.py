@@ -684,7 +684,7 @@ class SigmoidClassLabelModality(ClassLabelModality):
     return loss_scale, loss_denom
 
 
-@registry.register_class_label_modality("sigmoid_pooling")
+@registry.register_class_label_modality("sigmoid_max_pooling")
 class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
   """Sigmoid cross-entropy applied on max-pooling over timesteps."""
 
