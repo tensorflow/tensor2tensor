@@ -174,11 +174,24 @@ def create_experiment_fn():
 
 
 def create_run_config(hp):
+  """Create a run config.
+
+  Args:
+    hp: model hyperparameters
+  Returns:
+    a run config
+  """
   save_ckpt_steps = max(FLAGS.iterations_per_loop, FLAGS.local_eval_frequency)
   save_ckpt_secs = FLAGS.save_checkpoints_secs or None
   if save_ckpt_secs:
     save_ckpt_steps = None
   assert FLAGS.output_dir or FLAGS.checkpoint_path
+  # the various custom getters we have written do not play well together yet.
+  # TODO(noam): ask rsepassi for help here.
+  daisy_chain_variables = (
+      hp.daisy_chain_variables and
+      hp.activation_dtype == "float32" and
+      hp.weight_dtype == "float32")
   return trainer_lib.create_run_config(
       model_dir=os.path.expanduser(FLAGS.output_dir),
       master=FLAGS.master,
@@ -198,7 +211,7 @@ def create_run_config(hp):
       use_tpu=FLAGS.use_tpu,
       schedule=FLAGS.schedule,
       no_data_parallelism=hp.no_data_parallelism,
-      daisy_chain_variables=hp.daisy_chain_variables,
+      daisy_chain_variables=daisy_chain_variables,
       ps_replicas=FLAGS.ps_replicas,
       ps_job=FLAGS.ps_job,
       ps_gpu=FLAGS.ps_gpu,

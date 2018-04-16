@@ -37,6 +37,7 @@ from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import optimize
+from tensor2tensor.utils import quantization
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -131,10 +132,15 @@ class T2TModel(base.Layer):
 
   def call(self, features):
     custom_getter = None
-    if self.hparams.activation_dtype == "bfloat16":
-      custom_getter = common_layers.bfloat16_var_getter
     if self.hparams.weight_dtype == "bfloat16":
-      custom_getter = common_layers.bfloat16_weights_var_getter
+      if self.hparams.optimizer != "Adafactor":
+        raise NotImplementedError(
+            "weight_dtype=bfloat16 only implemented with Adafactor optimizer")
+      custom_getter = quantization.EighthPowerEncoding().custom_getter(
+          activation_dtype=tf.bfloat16
+          if self.hparams.activation_dtype == "bfloat16" else tf.float32)
+    elif self.hparams.activation_dtype == "bfloat16":
+      custom_getter = quantization.bfloat16_activations_var_getter
     tf.get_variable_scope().set_custom_getter(custom_getter)
     tf.get_variable_scope().set_initializer(
         optimize.get_variable_initializer(self.hparams))
@@ -222,8 +228,7 @@ class T2TModel(base.Layer):
   def model_fn(self, features):
     transformed_features = self.bottom(features)
 
-    if (self.hparams.activation_dtype == "bfloat16" or
-        self.hparams.weight_dtype == "bfloat16"):
+    if self.hparams.activation_dtype == "bfloat16":
       for k, v in six.iteritems(transformed_features):
         if v.dtype == tf.float32:
           transformed_features[k] = tf.cast(v, tf.bfloat16)

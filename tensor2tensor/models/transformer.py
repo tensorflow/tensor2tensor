@@ -664,8 +664,8 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
       32,
       ishape_static[-1],
       name="target_space_embedding",
-      dtype=tf.bfloat16 if hparams.activation_dtype == "bfloat16" or
-      hparams.weight_dtype == "bfloat16" else tf.float32)
+      dtype=tf.bfloat16 if hparams.activation_dtype == "bfloat16"
+      else tf.float32)
   emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
   encoder_input += emb_target_space
   if hparams.pos == "timing":
@@ -674,8 +674,7 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
           encoder_input, inputs_position)
     else:
       encoder_input = common_attention.add_timing_signal_1d(encoder_input)
-  if (hparams.activation_dtype == "bfloat16" or
-      hparams.weight_dtype == "bfloat16"):
+  if hparams.activation_dtype == "bfloat16":
     encoder_self_attention_bias = tf.cast(encoder_self_attention_bias,
                                           tf.bfloat16)
     encoder_decoder_attention_bias = tf.cast(encoder_decoder_attention_bias,
@@ -724,8 +723,7 @@ def transformer_prepare_decoder(targets, hparams, features=None):
           decoder_input, targets_position)
     else:
       decoder_input = common_attention.add_timing_signal_1d(decoder_input)
-  if (hparams.activation_dtype == "bfloat16" or
-      hparams.weight_dtype == "bfloat16"):
+  if hparams.activation_dtype == "bfloat16":
     decoder_self_attention_bias = tf.cast(decoder_self_attention_bias,
                                           tf.bfloat16)
   return (decoder_input, decoder_self_attention_bias)
@@ -1598,4 +1596,6 @@ def transformer_tpu_1b():
   hparams.filter_size = 8192
   hparams.num_hidden_layers = 8
   hparams.batch_size = 1024
+  hparams.activation_dtype = "bfloat16"
+  hparams.weight_dtype = "bfloat16"
   return hparams

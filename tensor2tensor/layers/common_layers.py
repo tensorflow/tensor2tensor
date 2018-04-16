@@ -51,54 +51,6 @@ def is_on_tpu():
     return tf.contrib.framework.get_name_scope().startswith("TPUReplicate")
 
 
-def bfloat16_var_getter(getter, *args, **kwargs):
-  """A custom getter function for bfloat16 variables.
-
-  Variables maintain storage in float32.
-
-  Args:
-    getter: custom getter
-    *args: arguments
-    **kwargs: keyword arguments
-  Returns:
-    variables with the correct dtype.
-  Raises:
-    KeyError: if "dtype" is not provided as a kwarg.
-  """
-  requested_dtype = kwargs["dtype"]
-  if requested_dtype == tf.bfloat16:
-    kwargs["dtype"] = tf.float32
-  var = getter(*args, **kwargs)
-  # This if statement is needed to guard the cast, because batch norm
-  # assigns directly to the return value of this custom getter. The cast
-  # makes the return value not a variable so it cannot be assigned. Batch
-  # norm variables are always in fp32 so this if statement is never
-  # triggered for them.
-  if var.dtype.base_dtype != requested_dtype:
-    var = tf.cast(var, requested_dtype)
-  return var
-
-
-def bfloat16_weights_var_getter(getter, *args, **kwargs):
-  """A custom getter function for bfloat16 variables.
-
-  Variables maintain storage in bfloat16.
-
-  Args:
-    getter: A custom getter.
-    *args: Arguments.
-    **kwargs: Keyword arguments.
-  Returns:
-    Variables with the correct dtype.
-  Raises:
-    KeyError: if "dtype" is not provided as a kwarg.
-  """
-  requested_dtype = kwargs["dtype"]
-  if requested_dtype in (tf.bfloat16, tf.float32):
-    kwargs["dtype"] = tf.bfloat16
-  return getter(*args, **kwargs)
-
-
 def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
   """Like tf.nn.dropout but takes broadcast_dims instead of noise_shape.
 

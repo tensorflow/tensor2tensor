@@ -218,3 +218,12 @@ def afx_small_p8():
   hparams = afx_small()
   hparams.add_hparam("simulated_parameter_quantize_bits", 8)
   return hparams
+
+
+@registry.register_hparams
+def afx_small_bfloat16():
+  """Small transformer model with small batch size for fast step times."""
+  hparams = afx_small()
+  hparams.weight_dtype = "bfloat16"
+  hparams.activation_dtype = "bfloat16"
+  return hparams
