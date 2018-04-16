@@ -65,6 +65,14 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+# Below is the small data for translate_enfr problem initially in:
+# https://s3.amazonaws.com/opennmt-trainingdata/baseline-1M-enfr.tgz
+# The data has been cleaned and tokenized using Moses scripts:
+# https://github.com/moses-smt/mosesdecoder/tree/master/scripts/training/clean-corpus-n.perl
+# https://github.com/moses-smt/mosesdecoder/tree/master/scripts/tokenizer/normalize-punctuation.perl
+# https://github.com/moses-smt/mosesdecoder/tree/master/scripts/tokenizer/tokenizer.perl
+# English parts-of-speech and lemmas were obtained with tree-tagger:
+# http://www.cis.uni-muenchen.de/~schmid/tools/TreeTagger/
 
 _ENFR_TRAIN_DATA = [
     [
