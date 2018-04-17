@@ -243,11 +243,12 @@ class GymDiscreteProblemWithAgent2(GymDiscreteProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.input_modality = {"inputs": ("video", 256),
-                         "input_reward": ("symbol", self.num_rewards),
-                          "input_action": ("symbol", self.num_actions)}
+                        "input_reward": ("symbol", self.num_rewards),
+                        "input_action": ("symbol", self.num_actions)}
     # p.input_modality = {"inputs": ("video", 256),
     #                     "reward": ("symbol", self.num_rewards),
     #                     "input_action": ("symbol", self.num_actions)}
+    # p.target_modality = ("video", 256)
     p.target_modality = {"targets": ("video", 256),
                          "target_reward": ("symbol", self.num_rewards)}
     #p.target_modality = {"targets": ("image", 256),
