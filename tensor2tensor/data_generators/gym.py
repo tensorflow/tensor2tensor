@@ -244,12 +244,12 @@ class GymDiscreteProblemWithAgent2(GymDiscreteProblem):
     p = defaults
     p.input_modality = {"inputs": ("video", 256),
                          "input_reward": ("symbol", self.num_rewards),
-                         "input_action": ("symbol", self.num_actions)}
+                          "input_action": ("symbol", self.num_actions)}
     # p.input_modality = {"inputs": ("video", 256),
-    #                    "reward": ("symbol", self.num_rewards),
-    #                    "input_action": ("symbol", self.num_actions)}
+    #                     "reward": ("symbol", self.num_rewards),
+    #                     "input_action": ("symbol", self.num_actions)}
     p.target_modality = {"targets": ("video", 256),
-                         "reward": ("symbol", self.num_rewards)}
+                         "target_reward": ("symbol", self.num_rewards)}
     #p.target_modality = {"targets": ("image", 256),
     #                     "reward": ("symbol", self.num_rewards + 1)} # ("video", 256)
     p.input_space_id = problem.SpaceID.IMAGE
