@@ -68,8 +68,8 @@ def train(hparams, output_dir):
     FLAGS.data_dir = iter_data_dir
     FLAGS.output_dir = output_dir
     # FLAGS.model = hparams.generative_model
-    # FLAGS.model = "basic_conv_gen"
-    FLAGS.model = "michigan_basic_conv_gen"
+    FLAGS.model = "basic_conv_gen"
+    # FLAGS.model = "michigan_basic_conv_gen"
     FLAGS.hparams_set = hparams.generative_model_params
     # FLAGS.train_steps = hparams.model_train_steps
     FLAGS.train_steps = 1

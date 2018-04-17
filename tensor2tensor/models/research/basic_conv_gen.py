@@ -91,7 +91,9 @@ class BasicConvGen(t2t_model.T2TModel):
     reward_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
         labels=reward_gold, logits=reward_pred, name="reward_loss")
     reward_loss = tf.reduce_mean(reward_loss)
-    return x, {"reward": reward_loss}
+    #return {"targets": x, "reward": reward_pred_h1}
+    #return x, {"reward": reward_loss}
+    return x
 
 
 @registry.register_hparams

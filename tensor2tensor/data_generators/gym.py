@@ -191,6 +191,19 @@ class GymDiscreteProblemWithAgent2(GymDiscreteProblem):
     self._env = None
 
   @property
+  def extra_reading_spec(self):
+    """Additional data fields to store on disk and their decoders."""
+    data_fields = {
+        "action": tf.FixedLenFeature([1], tf.int64),
+        "reward": tf.FixedLenFeature([1], tf.int64)
+    }
+    decoders = {
+        "action": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
+        "reward": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="reward"),
+    }
+    return data_fields, decoders
+
+  @property
   def num_input_frames(self):
     """Number of frames to batch on one input."""
     return 4
@@ -230,9 +243,15 @@ class GymDiscreteProblemWithAgent2(GymDiscreteProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.input_modality = {"inputs": ("video", 256),
-                        "input_reward": ("symbol", self.num_rewards),
-                        "input_action": ("symbol", self.num_actions)}
-    p.target_modality = ("video", 256)
+                         "input_reward": ("symbol", self.num_rewards),
+                         "input_action": ("symbol", self.num_actions)}
+    # p.input_modality = {"inputs": ("video", 256),
+    #                    "reward": ("symbol", self.num_rewards),
+    #                    "input_action": ("symbol", self.num_actions)}
+    p.target_modality = {"targets": ("video", 256),
+                         "reward": ("symbol", self.num_rewards)}
+    #p.target_modality = {"targets": ("image", 256),
+    #                     "reward": ("symbol", self.num_rewards + 1)} # ("video", 256)
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
