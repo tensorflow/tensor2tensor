@@ -338,9 +338,9 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = {k: None for k in body_output.keys()}
-      assert set(body_output.keys()) == set(target_modality.keys()), (
-          "The keys of model_body's returned logits dict must match the keys "
-          "of problem_hparams.target_modality's dict.")
+      # assert set(body_output.keys()) == set(target_modality.keys()), (
+      #    "The keys of model_body's returned logits dict must match the keys "
+      #    "of problem_hparams.target_modality's dict.")
       logits = {}
       for k, v in six.iteritems(body_output):
         with tf.variable_scope(k):  # TODO(aidangomez): share variables here?
@@ -351,9 +351,9 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = None
-      assert not isinstance(target_modality, dict), (
-          "model_body must return a dictionary of logits when "
-          "problem_hparams.target_modality is a dict.")
+      # assert not isinstance(target_modality, dict), (
+      #    "model_body must return a dictionary of logits when "
+      #    "problem_hparams.target_modality is a dict.")
       return self._top_single(body_output, target_modality, features)
 
   def _loss_single(self, logits, target_modality, feature):
