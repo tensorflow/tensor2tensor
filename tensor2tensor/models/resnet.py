@@ -420,6 +420,9 @@ class Resnet(t2t_model.T2TModel):
         data_format,
         is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
 
+    if hp.use_nchw:
+      inputs = tf.transpose(out, [0, 2, 3, 1])
+
     return out
 
 
