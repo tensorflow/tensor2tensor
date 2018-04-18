@@ -30,7 +30,53 @@ import tensorflow as tf
 
 
 @registry.register_model
-class ResidualAutoencoder(basic.BasicAutoencoder):
+class AutoencoderAutoregressive(basic.BasicAutoencoder):
+  """Autoencoder with an autoregressive part."""
+
+  def body(self, features):
+    hparams = self._hparams
+    shape = common_layers.shape_list(features["targets"])
+    # Run the basic autoencoder part first.
+    basic_result, losses = super(AutoencoderAutoregressive, self).body(features)
+    # Prepare inputs for autoregressive modes.
+    targets_keep_prob = 1.0 - hparams.autoregressive_dropout
+    targets_dropout = common_layers.dropout_with_broadcast_dims(
+        features["targets"], targets_keep_prob, broadcast_dims=[-1])
+    targets1d = tf.reshape(targets_dropout, [shape[0], -1, shape[3]])
+    targets_shifted = common_layers.shift_right_3d(targets1d)
+    basic1d = tf.reshape(basic_result, [shape[0], -1, shape[3]])
+    concat1d = tf.concat([basic1d, targets_shifted], axis=-1)
+    # The forget_base hparam sets purely-autoregressive mode, no autoencoder.
+    if hparams.autoregressive_forget_base:
+      concat1d = tf.reshape(features["targets"], [shape[0], -1, shape[3]])
+      concat1d = common_layers.shift_right_3d(concat1d)
+    # The autoregressive part depends on the mode.
+    if hparams.autoregressive_mode == "none":
+      assert not hparams.autoregressive_forget_base
+      return basic_result, losses
+    if hparams.autoregressive_mode == "conv3":
+      res = common_layers.conv1d(concat1d, shape[3], 3, padding="LEFT",
+                                 activation=common_layers.belu,
+                                 name="autoregressive_conv3")
+      return tf.reshape(res, shape), losses
+    if hparams.autoregressive_mode == "conv5":
+      res = common_layers.conv1d(concat1d, shape[3], 5, padding="LEFT",
+                                 activation=common_layers.belu,
+                                 name="autoregressive_conv5")
+      return tf.reshape(res, shape), losses
+    if hparams.autoregressive_mode == "sru":
+      res = common_layers.conv1d(concat1d, shape[3], 3, padding="LEFT",
+                                 activation=common_layers.belu,
+                                 name="autoregressive_sru_conv3")
+      res = common_layers.sru(res)
+      return tf.reshape(res, shape), losses
+
+    raise ValueError("Unsupported autoregressive mode: %s"
+                     % hparams.autoregressive_mode)
+
+
+@registry.register_model
+class AutoencoderResidual(AutoencoderAutoregressive):
   """Residual autoencoder."""
 
   def encoder(self, x):
@@ -106,7 +152,7 @@ class ResidualAutoencoder(basic.BasicAutoencoder):
 
 
 @registry.register_model
-class BasicDiscreteAutoencoder(basic.BasicAutoencoder):
+class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
   """Discrete autoencoder."""
 
   def bottleneck(self, x):
@@ -132,7 +178,7 @@ class BasicDiscreteAutoencoder(basic.BasicAutoencoder):
 
 
 @registry.register_model
-class ResidualDiscreteAutoencoder(ResidualAutoencoder):
+class AutoencoderResidualDiscrete(AutoencoderResidual):
   """Discrete residual autoencoder."""
 
   def bottleneck(self, x, bottleneck_size=None):
@@ -160,13 +206,15 @@ class ResidualDiscreteAutoencoder(ResidualAutoencoder):
     size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
             hp.bottleneck_size]
     rand = tf.random_uniform(size)
-    res1 = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
-    res2 = tf.zeros_like(rand) - 1.0
-    return tf.concat([res2[:, :, :, :2], res1[:, :, :, 2:]], axis=-1)
+    res = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
+    # If you want to set some first bits to a fixed value, do this:
+    # fixed = tf.zeros_like(rand) - 1.0
+    # res = tf.concat([fixed[:, :, :, :2], res[:, :, :, 2:]], axis=-1)
+    return res
 
 
 @registry.register_model
-class OrderedDiscreteAutoencoder(ResidualDiscreteAutoencoder):
+class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
   """Ordered discrete autoencoder."""
 
   def bottleneck(self, x):
@@ -195,7 +243,7 @@ class OrderedDiscreteAutoencoder(ResidualDiscreteAutoencoder):
 
 
 @registry.register_model
-class StackedAutoencoder(ResidualDiscreteAutoencoder):
+class AutoencoderStacked(AutoencoderResidualDiscrete):
   """A stacked autoencoder."""
 
   def stack(self, b, size, bottleneck_size, name):
@@ -290,9 +338,19 @@ class StackedAutoencoder(ResidualDiscreteAutoencoder):
 
 
 @registry.register_hparams
-def residual_autoencoder():
-  """Residual autoencoder model."""
+def autoencoder_autoregressive():
+  """Autoregressive autoencoder model."""
   hparams = basic.basic_autoencoder()
+  hparams.add_hparam("autoregressive_forget_base", False)
+  hparams.add_hparam("autoregressive_mode", "conv3")
+  hparams.add_hparam("autoregressive_dropout", 0.4)
+  return hparams
+
+
+@registry.register_hparams
+def autoencoder_residual():
+  """Residual autoencoder model."""
+  hparams = autoencoder_autoregressive()
   hparams.optimizer = "Adam"
   hparams.learning_rate_constant = 0.0001
   hparams.learning_rate_warmup_steps = 500
@@ -311,9 +369,9 @@ def residual_autoencoder():
 
 
 @registry.register_hparams
-def basic_discrete_autoencoder():
+def autoencoder_basic_discrete():
   """Basic autoencoder model."""
-  hparams = basic.basic_autoencoder()
+  hparams = autoencoder_autoregressive()
   hparams.num_hidden_layers = 5
   hparams.hidden_size = 64
   hparams.bottleneck_size = 4096
@@ -324,9 +382,9 @@ def basic_discrete_autoencoder():
 
 
 @registry.register_hparams
-def residual_discrete_autoencoder():
+def autoencoder_residual_discrete():
   """Residual discrete autoencoder model."""
-  hparams = residual_autoencoder()
+  hparams = autoencoder_residual()
   hparams.bottleneck_size = 4096
   hparams.bottleneck_noise = 0.1
   hparams.bottleneck_warmup_steps = 3000
@@ -339,9 +397,9 @@ def residual_discrete_autoencoder():
 
 
 @registry.register_hparams
-def residual_discrete_autoencoder_big():
+def autoencoder_residual_discrete_big():
   """Residual discrete autoencoder model, big version."""
-  hparams = residual_discrete_autoencoder()
+  hparams = autoencoder_residual_discrete()
   hparams.hidden_size = 128
   hparams.max_hidden_size = 4096
   hparams.bottleneck_noise = 0.1
@@ -351,15 +409,15 @@ def residual_discrete_autoencoder_big():
 
 
 @registry.register_hparams
-def ordered_discrete_autoencoder():
+def autoencoder_ordered_discrete():
   """Basic autoencoder model."""
-  hparams = residual_discrete_autoencoder()
+  hparams = autoencoder_residual_discrete()
   return hparams
 
 
 @registry.register_hparams
-def stacked_autoencoder():
+def autoencoder_stacked():
   """Stacked autoencoder model."""
-  hparams = residual_discrete_autoencoder()
+  hparams = autoencoder_residual_discrete()
   hparams.bottleneck_size = 128
   return hparams

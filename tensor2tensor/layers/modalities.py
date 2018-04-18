@@ -258,8 +258,7 @@ class ImageModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        weights_fn=self.targets_weights_fn,
-        gaussian=True)
+        weights_fn=self.targets_weights_fn)
 
 
 @registry.register_image_modality("image_channel_compress")
@@ -535,8 +534,7 @@ class VideoModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        weights_fn=self.targets_weights_fn,
-        gaussian=True)
+        weights_fn=self.targets_weights_fn)
 
 
 @registry.register_class_label_modality("default")

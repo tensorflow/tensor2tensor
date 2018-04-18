@@ -206,7 +206,7 @@ def basic_autoencoder():
   hparams.learning_rate_constant = 0.0002
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"
-  hparams.label_smoothing = 0.05
+  hparams.label_smoothing = 0.0
   hparams.batch_size = 128
   hparams.hidden_size = 64
   hparams.num_hidden_layers = 5

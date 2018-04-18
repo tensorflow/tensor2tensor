@@ -72,6 +72,8 @@ def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
   if broadcast_dims:
     shape = tf.shape(x)
     ndims = len(x.get_shape())
+    # Allow dimensions like "-1" as well.
+    broadcast_dims = [dim + ndims if dim < 0 else dim for dim in broadcast_dims]
     kwargs["noise_shape"] = [
         1 if i in broadcast_dims else shape[i] for i in xrange(ndims)]
   return tf.nn.dropout(x, keep_prob, **kwargs)
@@ -441,7 +443,7 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   return conv2d_kernel(kernel_size, "single")
 
 
-def conv(inputs, filters, kernel_size, dilation_rate=1, **kwargs):
+def conv(inputs, filters, kernel_size, dilation_rate=(1, 1), **kwargs):
   return conv_internal(
       tf.layers.conv2d,
       inputs,
