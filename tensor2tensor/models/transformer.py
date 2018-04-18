@@ -1590,12 +1590,15 @@ def transformer_supervised_attention():
 
 @registry.register_hparams
 def transformer_tpu_1b():
-  """Hparams for training with 1B parameters."""
+  """Hparams for machine translation with ~1.1B parameters."""
   hparams = transformer_tpu()
   hparams.hidden_size = 2048
   hparams.filter_size = 8192
   hparams.num_hidden_layers = 8
+  # smaller batch size to avoid OOM
   hparams.batch_size = 1024
   hparams.activation_dtype = "bfloat16"
   hparams.weight_dtype = "bfloat16"
+  # maximize number of parameters relative to computation by not sharing.
+  hparams.shared_embedding_and_softmax_weights = False
   return hparams
