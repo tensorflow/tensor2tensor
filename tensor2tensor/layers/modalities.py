@@ -578,7 +578,7 @@ class SigmoidClassLabelModality(ClassLabelModality):
   @property
   def name(self):
     return "sigmoid_class_symbol_modality_%d_%d" % (self._vocab_size,
-                                                    self.body_input_depth)
+                                                    self._body_input_depth)
 
   def loss(self, top_out, targets):
     loss_scale = tf.nn.sigmoid_cross_entropy_with_logits(
