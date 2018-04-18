@@ -25,6 +25,8 @@ import re
 import sys
 import time
 import unicodedata
+#To fix issue:#706
+import io
 
 # Dependency imports
 
@@ -194,8 +196,9 @@ def bleu_tokenize(string):
 
 def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
   """Compute BLEU for two files (reference and hypothesis translation)."""
-  ref_lines = open(ref_filename).read().splitlines()
-  hyp_lines = open(hyp_filename).read().splitlines()
+  #To fix the issue #706
+  ref_lines = io.open(ref_filename, 'rt', encoding='utf-8').read().splitlines()
+  hyp_lines = io.open(hyp_filename, 'rt', encoding='utf-8').read().splitlines()
   assert len(ref_lines) == len(hyp_lines)
   if not case_sensitive:
     ref_lines = [x.lower() for x in ref_lines]
