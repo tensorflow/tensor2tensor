@@ -240,12 +240,18 @@ class _EncodingInitializer(object):
   """
 
   def __init__(self, base_initializer, parameter_encoding):
-    assert base_initializer is not None
     self._base_initializer = base_initializer
     self._parameter_encoding = parameter_encoding
 
   def __call__(self, shape, dtype, partition_info=None):
-    ret = self._base_initializer(shape, dtype, partition_info=partition_info)
+    if self._base_initializer is None:
+      # mimic default initialization in tf.get_variable()
+      if dtype.is_floating:
+        ret = tf.glorot_uniform_initializer()(shape, dtype)
+      else:
+        ret = tf.zeros(shape, dtype)
+    else:
+      ret = self._base_initializer(shape, dtype, partition_info=partition_info)
     noise = 0.0  # no random noise in the initializer.
     return tf.cast(self._parameter_encoding.encode(ret, noise), dtype)
 

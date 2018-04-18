@@ -21,6 +21,7 @@ from __future__ import print_function
 import collections
 import contextlib
 import copy
+import functools
 import math
 import time
 
@@ -130,18 +131,22 @@ class T2TModel(base.Layer):
     else:
       return True
 
-  def call(self, features):
-    custom_getter = None
+  @property
+  def _custom_getter(self):
     if self.hparams.weight_dtype == "bfloat16":
       if self.hparams.optimizer != "Adafactor":
         raise NotImplementedError(
             "weight_dtype=bfloat16 only implemented with Adafactor optimizer")
-      custom_getter = quantization.EighthPowerEncoding().custom_getter(
+      return quantization.EighthPowerEncoding().custom_getter(
           activation_dtype=tf.bfloat16
           if self.hparams.activation_dtype == "bfloat16" else tf.float32)
     elif self.hparams.activation_dtype == "bfloat16":
-      custom_getter = quantization.bfloat16_activations_var_getter
-    tf.get_variable_scope().set_custom_getter(custom_getter)
+      return quantization.bfloat16_activations_var_getter
+    else:
+      return None
+
+  def call(self, features):
+    set_custom_getter_compose(self._custom_getter)
     tf.get_variable_scope().set_initializer(
         optimize.get_variable_initializer(self.hparams))
     with self._eager_var_store.as_default():
@@ -522,6 +527,7 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`
       }
     """
+    set_custom_getter_compose(self._custom_getter)
     with self._eager_var_store.as_default():
       # TODO(rsepassi): Make decoding work with real-valued model outputs
       # (i.e. if the target modality is RealModality).
@@ -1412,3 +1418,42 @@ def log_info(*args):
 
 def log_warn(*args):
   _eager_log("warn", *args)
+
+
+def _compose_custom_getters(getter_a, getter_b):
+  """Compose two custom getters.
+
+  Example use:
+  tf.get_variable_scope().set_custom_getter(
+    compose_custom_getters(tf.get_variable_scope().custom_getter, new_getter))
+
+  This composes getters in the same way as creating a new variable scope with
+  the new_getter, but it does not actually create a new variable scope.
+
+  Args:
+    getter_a: a custom getter - generally from the existing variable scope.
+    getter_b: a custom getter
+
+  Returns:
+    a custom getter
+  """
+  if not getter_a:
+    return getter_b
+  if not getter_b:
+    return getter_a
+  def getter_fn(getter, *args, **kwargs):
+    return getter_b(functools.partial(getter_a, getter), *args, **kwargs)
+  return getter_fn
+
+
+def set_custom_getter_compose(custom_getter):
+  """Set a custom getter in the current variable scope.
+
+  Do not overwrite the existing custom getter - rather compose with it.
+
+  Args:
+    custom_getter: a custom getter.
+  """
+  tf.get_variable_scope().set_custom_getter(
+      _compose_custom_getters(
+          tf.get_variable_scope().custom_getter, custom_getter))
