@@ -238,11 +238,7 @@ class ImageModality(modality.Modality):
 
   def top(self, body_output, _):
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
-<<<<<<< d1060bdaf3e1bda7468325a7d517fda13a728c55
-    num_channels = self._model_hparams.problem.num_channels
-=======
-    num_channels = self._model_hparams.problem_instances[0].num_channels
->>>>>>> more t2t updates
+    num_channels = self._model_hparams.problem_instances[0].num_channels or self._model_hparams.problem.num_channels
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
@@ -260,12 +256,8 @@ class ImageModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
-<<<<<<< d1060bdaf3e1bda7468325a7d517fda13a728c55
-        weights_fn=self.targets_weights_fn)
-=======
         weights_fn=self.targets_weights_fn,
         gaussian=True)
->>>>>>> more t2t updates
 
 
 @registry.register_image_modality("image_channel_compress")
@@ -344,11 +336,7 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
     rgb_embedding_var = tf.identity(rgb_embedding_var)
     rgb_embedding_var *= float(hidden_size)**0.5
     channel_target_embs = []
-<<<<<<< d1060bdaf3e1bda7468325a7d517fda13a728c55
     for i in range(io_depth):
-=======
-    for i in xrange(io_depth):
->>>>>>> more t2t updates
       # Adding the channel offsets to get the right embedding since the
       # embedding tensor has shape 256 * io_depth, hidden_size
       target_ids = tf.squeeze(targets_split[i], axis=3) + i * 256
@@ -682,7 +670,6 @@ class SigmoidClassLabelModality(ClassLabelModality):
   @property
   def name(self):
     return "sigmoid_class_symbol_modality_%d_%d" % (self._vocab_size,
-<<<<<<< d1060bdaf3e1bda7468325a7d517fda13a728c55
                                                     self._body_input_depth)
 
   def loss(self, top_out, targets):
@@ -707,12 +694,9 @@ class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
 
   def top(self, body_output, _):
     """Transform inputs from model space to target space.
-
     Average over inner dims and a linear layer to logits.
-
     Args:
       body_output: A Tensor with shape [batch, timesteps, 1, body_output_size].
-
     Returns:
       a Tensors, each with shape [batch_size, 1, 1, vocab_size]
     """
@@ -726,14 +710,8 @@ class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
     # last dimension of num-classes represents binary labels for each class
     loss_scale = tf.losses.sigmoid_cross_entropy(
         multi_class_labels=targets, logits=top_out)
-=======
-                                                    self.body_input_depth)
-
-  def loss(self, top_out, targets):
-    loss_scale = tf.nn.sigmoid_cross_entropy_with_logits(
-        labels=targets, logits=top_out, name="SigmoidCrossEntropy")
->>>>>>> more t2t updates
     # Weigh all classes equally
     weights = self.targets_weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)
     return loss_scale, loss_denom
+
