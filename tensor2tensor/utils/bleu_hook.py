@@ -35,6 +35,8 @@ from six.moves import xrange
 from six.moves import zip
 # pylint: enable=redefined-builtin
 
+from tensor2tensor.data_generators import text_encoder
+
 import tensorflow as tf
 
 
@@ -194,8 +196,10 @@ def bleu_tokenize(string):
 
 def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
   """Compute BLEU for two files (reference and hypothesis translation)."""
-  ref_lines = open(ref_filename).read().splitlines()
-  hyp_lines = open(hyp_filename).read().splitlines()
+  ref_lines = text_encoder.native_to_unicode(
+      tf.gfile.Open(ref_filename, "r").read()).splitlines()
+  hyp_lines = text_encoder.native_to_unicode(
+      tf.gfile.Open(hyp_filename, "r").read()).splitlines()
   assert len(ref_lines) == len(hyp_lines)
   if not case_sensitive:
     ref_lines = [x.lower() for x in ref_lines]

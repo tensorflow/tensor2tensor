@@ -356,6 +356,7 @@ def beam_search(symbols_to_logits_fn,
           lambda t: _unmerge_beam_dim(t, batch_size, beam_size), flat_states)
     else:
       flat_logits = symbols_to_logits_fn(flat_ids)
+
     logits = tf.reshape(flat_logits, [batch_size, beam_size, -1])
 
     # Convert logits to normalized log probs

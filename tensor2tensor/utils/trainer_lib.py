@@ -40,7 +40,9 @@ from tensorflow.python import debug
 def create_session_config(log_device_placement=False,
                           enable_graph_rewriter=False,
                           gpu_mem_fraction=0.95,
-                          use_tpu=False):
+                          use_tpu=False,
+                          inter_op_parallelism_threads=0,
+                          intra_op_parallelism_threads=0):
   """The TensorFlow Session config to use."""
   if use_tpu:
     graph_options = tf.GraphOptions()
@@ -60,7 +62,9 @@ def create_session_config(log_device_placement=False,
       allow_soft_placement=True,
       graph_options=graph_options,
       gpu_options=gpu_options,
-      log_device_placement=log_device_placement)
+      log_device_placement=log_device_placement,
+      inter_op_parallelism_threads=inter_op_parallelism_threads,
+      intra_op_parallelism_threads=intra_op_parallelism_threads)
   return config
 
 
@@ -108,13 +112,17 @@ def create_run_config(master="",
                       random_seed=None,
                       sync=False,
                       tpu_infeed_sleep_secs=None,
-                      use_tpu=False):
+                      use_tpu=False,
+                      inter_op_parallelism_threads=0,
+                      intra_op_parallelism_threads=0):
   """Create RunConfig, TPUConfig, and Parallelism object."""
   session_config = create_session_config(
       log_device_placement=log_device_placement,
       enable_graph_rewriter=enable_graph_rewriter,
       gpu_mem_fraction=gpu_mem_fraction,
-      use_tpu=use_tpu)
+      use_tpu=use_tpu,
+      inter_op_parallelism_threads=inter_op_parallelism_threads,
+      intra_op_parallelism_threads=intra_op_parallelism_threads)
   run_config_args = {
       "master": master,
       "evaluation_master": master,
