@@ -228,12 +228,19 @@ def basic_params1():
       force_full_predict=False,
       # Set this for pure model parallelism.  There is only one data shard.
       no_data_parallelism=False,
-      # Set this to the dtype used for activation. Variables will still be
-      # stored in float32.
+      # dtype used for activations. - "float32" or "bfloat16"
+      # activation_dtype="bfloat16" currently only works on TPU.
+      #    It lowers activation-memory usage
+      #    and does not appear to affect quality.
+      #    You can train on TPU with activation_dtype="bfloat16" and evaluate
+      #    on CPU/GPU with activation_dtype="float32"
       activation_dtype="float32",
-      # Experimental: set weight_dtype="bfloat16" to use bfloat16 for both
-      # weights and activations. Model quality may be worse. Model quality
-      # appears to be close to baseline with large batch sizes (>4k).
+      # dtype used for parameters: "float32" or "bfloat16"
+      # bfloat16 currently only works with optimizer="adafactor".
+      #   The savings in memory allow for training larger models.
+      #   Weights are encoded as (w*128)^8, using pseudostochastic
+      #   roundoff.  Initial experiments show that model quality is similar
+      #   to baseline for about 3M training steps, but worse thereafter.
       weight_dtype="float32",
   )
 
