@@ -498,6 +498,11 @@ class Text2ClassProblem(Text2TextProblem):
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
 
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_TOP5,
+        metrics.Metrics.ROC_AUC
+    ]
 
 def txt_line_iterator(txt_path):
   """Iterate through lines of file."""
