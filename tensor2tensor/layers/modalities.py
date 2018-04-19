@@ -240,7 +240,7 @@ class ImageModality(modality.Modality):
 
   def top(self, body_output, _):
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
-    num_channels = self._model_hparams.problem_instances[0].num_channels
+    num_channels = self._model_hparams.problem.num_channels
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
@@ -510,8 +510,8 @@ class VideoModality(modality.Modality):
       return merged
 
   def top(self, body_output, _):
-    num_channels = self._model_hparams.problem_instances[0].num_channels
-    num_frames = self._model_hparams.problem_instances[0].num_target_frames
+    num_channels = self._model_hparams.problem.num_channels
+    num_frames = self._model_hparams.problem.num_target_frames
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]

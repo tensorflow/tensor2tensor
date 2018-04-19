@@ -36,7 +36,7 @@ class TrainerTest(tf.test.TestCase):
     trainer_lib_test.TrainerLibTest.setUpClass()
 
   def testTrain(self):
-    FLAGS.problems = "tiny_algo"
+    FLAGS.problem = "tiny_algo"
     FLAGS.model = "transformer"
     FLAGS.hparams_set = "transformer_tiny"
     FLAGS.train_steps = 1

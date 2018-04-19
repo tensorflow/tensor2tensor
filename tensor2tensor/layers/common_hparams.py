@@ -91,7 +91,6 @@ def basic_params1():
       learning_rate=0.1,
       sampling_method="argmax",  # "argmax" or "random"
       sampling_temp=1.0,  # temperature for sampling
-      problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
       # expand the logits a piece at a time - saves memory.
       factored_logits=False,
       multiply_embedding_mode="sqrt_depth",

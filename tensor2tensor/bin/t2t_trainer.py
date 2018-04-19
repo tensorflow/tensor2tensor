@@ -117,12 +117,6 @@ flags.DEFINE_string("job-dir", None,
                     "during hyperparameter tuning. Overrides --output_dir.")
 
 
-def get_problem_name():
-  problems = FLAGS.problems.split("-")
-  assert len(problems) == 1
-  return problems[0]
-
-
 def set_hparams_from_args(args):
   """Set hparams overrides from unparsed args list."""
   if not args:
@@ -161,7 +155,7 @@ def create_hparams():
 def create_experiment_fn():
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
-      problem_name=get_problem_name(),
+      problem_name=FLAGS.problem,
       data_dir=os.path.expanduser(FLAGS.data_dir),
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
@@ -237,7 +231,7 @@ def generate_data():
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
 
-  problem_name = get_problem_name()
+  problem_name = FLAGS.problem
   tf.logging.info("Generating data for %s" % problem_name)
   registry.problem(problem_name).generate_data(data_dir, tmp_dir)
 

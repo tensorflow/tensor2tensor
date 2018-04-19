@@ -187,19 +187,6 @@ def slicenet_middle(inputs_encoded, targets, target_space_emb, mask, hparams):
   target_space_emb = tf.tile(target_space_emb,
                              [tf.shape(targets_flat)[0], 1, 1, 1])
 
-  # Calculate similarity loss (but don't run if not needed).
-  if len(hparams.problems) > 1 and hparams.sim_loss_mult > 0.00001:
-    targets_timed = common_layers.add_timing_signal(targets_flat)
-    extra_layers = int(hparams.num_hidden_layers * 1.5)
-    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-      targets_encoded = multi_conv_res(targets_timed, "SAME", "encoder",
-                                       extra_layers, hparams)
-    with tf.variable_scope("similarity_loss"):
-      similarity_loss = similarity_cost(inputs_encoded, targets_encoded)
-      similarity_loss *= hparams.sim_loss_mult
-  else:
-    similarity_loss = 0.0
-
   # Use attention from each target to look at input and retrieve.
   targets_shifted = common_layers.shift_right(
       targets_flat, pad_value=target_space_emb)
@@ -224,7 +211,7 @@ def slicenet_middle(inputs_encoded, targets, target_space_emb, mask, hparams):
       separability=4,
       name="targets_merge")
 
-  return targets_merged, similarity_loss
+  return targets_merged, 0.0
 
 
 def embed_target_space(target_space_id, hidden_size):

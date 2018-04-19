@@ -52,7 +52,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
     hparams = trainer_lib.create_hparams(
-        FLAGS.hparams_set, problem_name=FLAGS.problems, data_dir="UNUSED")
+        FLAGS.hparams_set, problem_name=FLAGS.problem, data_dir="UNUSED")
     hparams.force_full_predict = True
     self._model = registry.model(FLAGS.model)(
         hparams, tf.estimator.ModeKeys.PREDICT)

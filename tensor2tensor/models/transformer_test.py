@@ -49,7 +49,7 @@ class TransformerTest(tf.test.TestCase):
     p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE, VOCAB_SIZE)
     if not has_input:
       p_hparams.input_modality = {}
-    hparams.problems = [p_hparams]
+    hparams.problem_hparams = p_hparams
 
     inputs = -1 + np.random.random_integers(
         VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))

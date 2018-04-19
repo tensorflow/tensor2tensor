@@ -43,8 +43,7 @@ flags.DEFINE_string(
     hyperparameters or when using Vizier. If a hyperparameter setting is
     specified by this flag then it must be a valid hyperparameter name for the
     model.""")
-flags.DEFINE_string("problems", None, "Dash separated list of problems to "
-                    "solve.")
+flags.DEFINE_string("problem", None, "Problem name.")
 
 # data_dir is a common flag name - catch conflicts and define it once.
 try:

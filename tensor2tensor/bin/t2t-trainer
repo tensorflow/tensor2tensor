@@ -7,7 +7,7 @@ For example, to train a shake-shake model on MNIST run this:
 
 t2t-trainer \
   --generate_data \
-  --problems=image_mnist \
+  --problem=image_mnist \
   --data_dir=~/t2t_data \
   --tmp_dir=~/t2t_data/tmp
   --model=shake_shake \

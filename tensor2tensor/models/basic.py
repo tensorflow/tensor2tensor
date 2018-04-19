@@ -159,7 +159,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
     # Sample and decode.
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
     try:
-      num_channels = self._hparams.problem_instances[0].num_channels
+      num_channels = self._hparams.problem.num_channels
     except AttributeError:
       num_channels = 1
     features["targets"] = tf.zeros(

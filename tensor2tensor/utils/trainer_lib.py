@@ -185,7 +185,7 @@ def create_estimator(model_name,
       model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
 
   if use_tpu:
-    problem = hparams.problem_instances[0]
+    problem = hparams.problem
     batch_size = (problem.tpu_batch_size_per_shard(hparams) *
                   run_config.tpu_config.num_shards)
     return tf.contrib.tpu.TPUEstimator(
@@ -271,7 +271,7 @@ def create_experiment(run_config,
       use_tpu=use_tpu)
 
   # Input fns from Problem
-  problem = hparams.problem_instances[0]
+  problem = hparams.problem
   train_input_fn = problem.make_estimator_input_fn(
       tf.estimator.ModeKeys.TRAIN, hparams)
   eval_input_fn = problem.make_estimator_input_fn(
@@ -353,8 +353,8 @@ def add_problem_hparams(hparams, problem_name):
   problem = registry.problem(problem_name)
   p_hparams = problem.get_hparams(hparams)
 
-  hparams.problem_instances = [problem]
-  hparams.problems = [p_hparams]
+  hparams.problem = problem
+  hparams.problem_hparams = p_hparams
 
 
 def set_random_seed(seed):

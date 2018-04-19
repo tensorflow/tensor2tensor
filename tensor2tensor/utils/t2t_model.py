@@ -75,7 +75,7 @@ class T2TModel(base.Layer):
       hparams: tf.contrib.training.HParams, model hyperparameters.
       mode: tf.estimator.ModeKeys, the execution mode.
       problem_hparams: tf.contrib.training.HParams, hyperparameters for the
-        Problem. If provided here or in hparams.problems, the model will
+        Problem. If provided here or in hparams.problem_hparams, the model will
         automatically determine bottom, top, and loss methods. If not provided,
         calling the model will only invoke body.
       data_parallelism: a expert_utils.Parallelism object,
@@ -92,8 +92,8 @@ class T2TModel(base.Layer):
     super(T2TModel, self).__init__(
         trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name)
 
-    if not problem_hparams and hasattr(hparams, "problems"):
-      problem_hparams = hparams.problems[0]
+    if not problem_hparams and hasattr(hparams, "problem_hparams"):
+      problem_hparams = hparams.problem_hparams
     self._problem_hparams = problem_hparams
 
     # Setup hparams
@@ -1013,10 +1013,10 @@ class T2TModel(base.Layer):
     """Construct EstimatorSpec for EVAL mode."""
     hparams = self.hparams
 
-    if not hasattr(hparams, "problem_instances"):
+    if not hasattr(hparams, "problem"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
 
-    problem = hparams.problem_instances[0]
+    problem = hparams.problem
     if common_layers.is_on_tpu():
       _remove_summaries()
       if isinstance(logits, dict):
@@ -1077,15 +1077,11 @@ class T2TModel(base.Layer):
     if inputs is None:
       inputs = features["targets"]
 
-    batched_problem_choice = (
-        features["problem_choice"] * tf.ones(
-            (common_layers.shape_list(inputs)[0],), dtype=tf.int32))
     predictions = {
         "outputs": outputs,
         "scores": scores,
         "inputs": inputs,
         "targets": features.get("infer_targets"),
-        "problem_choice": batched_problem_choice,
         "batch_prediction_key": features.get("batch_prediction_key"),
     }
     _del_dict_nones(predictions)

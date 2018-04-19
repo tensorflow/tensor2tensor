@@ -21,7 +21,7 @@ Example usage to decode from dataset:
 
   t2t-decoder \
       --data_dir ~/data \
-      --problems=algorithmic_identity_binary40 \
+      --problem=algorithmic_identity_binary40 \
       --model=transformer
       --hparams_set=transformer_base
 
@@ -70,7 +70,7 @@ def create_hparams():
       FLAGS.hparams_set,
       FLAGS.hparams,
       data_dir=os.path.expanduser(FLAGS.data_dir),
-      problem_name=FLAGS.problems)
+      problem_name=FLAGS.problem)
 
 
 def create_decode_hparams():
@@ -94,7 +94,7 @@ def decode(estimator, hparams, decode_hp):
   else:
     decoding.decode_from_dataset(
         estimator,
-        FLAGS.problems.split("-"),
+        FLAGS.problem,
         hparams,
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
@@ -105,7 +105,7 @@ def score_file(filename):
   """Score each line in a file and return the scores."""
   # Prepare model.
   hparams = create_hparams()
-  encoders = registry.problem(FLAGS.problems).feature_encoders(FLAGS.data_dir)
+  encoders = registry.problem(FLAGS.problem).feature_encoders(FLAGS.data_dir)
   has_inputs = "inputs" in encoders
 
   # Prepare features for feeding into the model.

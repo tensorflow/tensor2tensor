@@ -310,6 +310,7 @@ class Transformer(t2t_model.T2TModel):
       partial_targets = features.get("inputs")
       if partial_targets is None:
         partial_targets = features["targets"]
+      assert partial_targets is not None
       partial_targets = common_layers.expand_squeeze_to_nd(partial_targets, 2)
       partial_targets = tf.to_int64(partial_targets)
       partial_targets_shape = common_layers.shape_list(partial_targets)
