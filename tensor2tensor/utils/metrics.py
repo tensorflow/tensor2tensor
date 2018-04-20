@@ -149,7 +149,6 @@ def roc_auc(predictions,
     return auc_op, tf.constant(1.0)
 
 
-
 def sequence_edit_distance(predictions,
                            labels,
                            weights_fn=common_layers.weights_nonzero):
