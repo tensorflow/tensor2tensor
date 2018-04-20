@@ -36,7 +36,7 @@ except:  # pylint: disable=bare-except
 
 def main(_):
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
-  rl_trainer_lib.train(hparams, FLAGS.problems, FLAGS.output_dir)
+  rl_trainer_lib.train(hparams, FLAGS.problem, FLAGS.output_dir)
 
 
 if __name__ == "__main__":

@@ -344,13 +344,9 @@ class Problem(object):
       return examples
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    if hasattr(tf.contrib.data, "parallel_interleave"):
-      dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
-              _preprocess, sloppy=is_training, cycle_length=8))
-    else:
-      dataset = dataset.interleave(_preprocess, cycle_length=8,
-                                   block_length=16)
+    dataset = dataset.apply(
+        tf.contrib.data.parallel_interleave(
+            _preprocess, sloppy=is_training, cycle_length=8))
 
     return dataset
 
@@ -568,14 +564,9 @@ class Problem(object):
       random.shuffle(data_files)
     dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
 
-    if hasattr(tf.contrib.data, "parallel_interleave"):
-      dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
-              _load_records_and_preprocess, sloppy=is_training, cycle_length=8))
-    else:
-      dataset = dataset.interleave(_load_records_and_preprocess, cycle_length=8,
-                                   block_length=16)
-
+    dataset = dataset.apply(
+        tf.contrib.data.parallel_interleave(
+            _load_records_and_preprocess, sloppy=is_training, cycle_length=8))
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
 
@@ -1067,7 +1058,6 @@ def problem_hparams_to_features(problem_hparams):
     input_space_id = problem_hparams.input_space_id
     target_space_id = problem_hparams.target_space_id
   return {
-      "problem_choice": 0,
       "input_space_id": input_space_id,
       "target_space_id": target_space_id,
   }

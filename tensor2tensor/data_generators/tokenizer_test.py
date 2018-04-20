@@ -26,7 +26,7 @@ import random
 # Dependency imports
 
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 import tensorflow as tf
 
@@ -57,8 +57,8 @@ class TokenizerTest(tf.test.TestCase):
             [u"Dude", u" - ", u"that", u"'", u"s", u"so", u"cool", u"."]))
 
   def test_invertibility_on_random_strings(self):
-    for _ in xrange(1000):
-      s = u"".join(six.unichr(random.randint(0, 65535)) for _ in xrange(10))
+    for _ in range(1000):
+      s = u"".join(six.unichr(random.randint(0, 65535)) for _ in range(10))
       self.assertEqual(s, tokenizer.decode(tokenizer.encode(s)))
 
 

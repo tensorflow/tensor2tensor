@@ -91,5 +91,71 @@ def main(argv):
     # ==========================
 
 
+def create_teacher_experiment(run_config, hparams, argv):
+  """Creates experiment function."""
+  tf.logging.info("training teacher")
+  tf.logging.set_verbosity(tf.logging.INFO)
+  trainer_lib.set_random_seed(FLAGS.random_seed)
+  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
+  t2t_trainer.log_registry()
+
+  if FLAGS.cloud_mlengine:
+    return cloud_mlengine.launch()
+
+  if FLAGS.generate_data:
+    t2t_trainer.generate_data()
+
+  if cloud_mlengine.job_dir():
+    FLAGS.output_dir = cloud_mlengine.job_dir()
+
+  if argv:
+    t2t_trainer.set_hparams_from_args(argv[1:])
+
+  with t2t_trainer.maybe_cloud_tpu():
+    hparams.distill_phase = "train"
+    exp_fn = t2t_trainer.create_experiment_fn()
+    exp = exp_fn(run_config, hparams)
+    return exp
+
+
+def create_student_experiment(run_config, hparams, argv):
+  """Creates experiment function."""
+  tf.logging.info("training student")
+  tf.logging.set_verbosity(tf.logging.INFO)
+  trainer_lib.set_random_seed(FLAGS.random_seed)
+  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
+  t2t_trainer.log_registry()
+
+  if FLAGS.cloud_mlengine:
+    return cloud_mlengine.launch()
+
+  if FLAGS.generate_data:
+    t2t_trainer.generate_data()
+
+  if cloud_mlengine.job_dir():
+    FLAGS.output_dir = cloud_mlengine.job_dir()
+
+  if argv:
+    t2t_trainer.set_hparams_from_args(argv[1:])
+
+  with t2t_trainer.maybe_cloud_tpu():
+    hparams.add_hparam("teacher_dir", FLAGS.teacher_dir)
+    hparams.distill_phase = "distill"
+    exp_fn = t2t_trainer.create_experiment_fn()
+    exp = exp_fn(run_config, hparams)
+    return exp
+
+
+def create_experiment_fn(argv, train_teacher):
+
+  def teacher_experiment_fn(run_config, hparams):
+    return create_teacher_experiment(run_config, hparams, argv)
+
+  def student_experiment_fn(run_config, hparams):
+    return create_student_experiment(run_config, hparams, argv)
+
+  return teacher_experiment_fn if train_teacher else student_experiment_fn
+
+
 if __name__ == "__main__":
   tf.app.run()

@@ -45,7 +45,7 @@ def create_hparams():
       FLAGS.hparams_set,
       FLAGS.hparams,
       data_dir=os.path.expanduser(FLAGS.data_dir),
-      problem_name=FLAGS.problems)
+      problem_name=FLAGS.problem)
 
 
 def main(_):
@@ -61,7 +61,7 @@ def main(_):
 
   estimator = create_estimator(run_config, hparams)
 
-  problem = hparams.problem_instances[0]
+  problem = hparams.problem
   strategy = trainer_lib.create_export_strategy(problem, hparams)
 
   export_dir = os.path.join(ckpt_dir, "export", strategy.name)

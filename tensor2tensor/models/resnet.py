@@ -420,6 +420,9 @@ class Resnet(t2t_model.T2TModel):
         data_format,
         is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
 
+    if hp.use_nchw:
+      out = tf.transpose(out, [0, 2, 3, 1])
+
     return out
 
 
@@ -470,6 +473,23 @@ def resnet_18():
   hp = resnet_base()
   hp.block_fn = "residual"
   hp.layer_sizes = [2, 2, 2, 2]
+  return hp
+
+
+@registry.register_hparams
+def resnet_imagenet_34():
+  """Set of hyperparameters."""
+  hp = resnet_base()
+  hp.block_fn = "residual"
+  hp.layer_sizes = [2, 4, 8, 2]
+
+  return hp
+
+
+@registry.register_hparams
+def resnet_imagenet_102():
+  hp = resnet_imagenet_34()
+  hp.layer_sizes = [3, 8, 36, 3]
   return hp
 
 

@@ -53,7 +53,7 @@ class TransformWrapper(WrapperBase):
 
   def __init__(self, batch_env, transform_observation=None,
                transform_reward=tf.identity, transform_done=tf.identity):
-    super().__init__(batch_env)
+    super(TransformWrapper, self).__init__(batch_env)
     if transform_observation is not None:
       _, observ_shape, observ_dtype = transform_observation  # pylint: disable=unpacking-non-sequence
       self._observ = tf.Variable(
@@ -88,7 +88,7 @@ class WarpFrameWrapper(TransformWrapper):
     nature_transform = lambda o: tf.image.rgb_to_grayscale(  # pylint: disable=g-long-lambda
         tf.image.resize_images(o, dims))
 
-    super().__init__(batch_env, transform_observation=(
+    super(WarpFrameWrapper, self).__init__(batch_env, transform_observation=(
         nature_transform, dims, tf.float32))
 
 
@@ -97,14 +97,15 @@ class ShiftRewardWrapper(TransformWrapper):
 
   def __init__(self, batch_env, add_value):
     shift_reward = lambda r: tf.add(r, add_value)
-    super().__init__(batch_env, transform_reward=shift_reward)
+    super(ShiftRewardWrapper, self).__init__(
+        batch_env, transform_reward=shift_reward)
 
 
 class MaxAndSkipWrapper(WrapperBase):
   """Max and skip wrapper."""
 
   def __init__(self, batch_env, skip=4):
-    super().__init__(batch_env)
+    super(MaxAndSkipWrapper, self).__init__(batch_env)
     self.skip = skip
     self._observ = None
     observs_shape = batch_env.observ.shape
@@ -141,7 +142,7 @@ class TimeLimitWrapper(WrapperBase):
 
   # TODO(lukaszkaiser): Check if TimeLimitWrapper does what it's supposed to do.
   def __init__(self, batch_env, timelimit=100):
-    super().__init__(batch_env)
+    super(TimeLimitWrapper, self).__init__(batch_env)
     self.timelimit = timelimit
     self._time_elapsed = tf.Variable(tf.zeros((len(self),), tf.int32),
                                      trainable=False)
@@ -167,7 +168,7 @@ class MemoryWrapper(WrapperBase):
   """Memory wrapper."""
 
   def __init__(self, batch_env):
-    super().__init__(batch_env)
+    super(MemoryWrapper, self).__init__(batch_env)
     MemoryWrapper.singleton = self
     assert self._length == 1, "We support only one environment"
     infinity = 10000000

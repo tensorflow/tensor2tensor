@@ -3,8 +3,6 @@
 Tensor2Tensor and the TensorFlow ecosystem make it easy to serve a model once
 trained.
 
-**Note**: Requires TF 1.5+.
-
 ## 1. Export for Serving
 
 First, export it for serving:
@@ -13,7 +11,7 @@ First, export it for serving:
 t2t-exporter \
   --model=transformer \
   --hparams_set=transformer_tiny \
-  --problems=translate_ende_wmt8k \
+  --problem=translate_ende_wmt8k \
   --data_dir=~/t2t/data \
   --output_dir=/tmp/t2t_train
 ```

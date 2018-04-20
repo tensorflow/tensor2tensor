@@ -362,7 +362,7 @@ def create_evaluation_metrics(problems, model_hparams):
   Returns:
     dict<metric name, metric function>. The metric functions have signature
     (Tensor predictions, features) -> (metric Tensor, update op), where features
-    is a dict with keys {targets, problem_choice}.
+    is a dict with keys {targets}.
 
   Raises:
     ValueError: if the metrics specified by a problem are not recognized (i.e.
@@ -379,13 +379,11 @@ def create_evaluation_metrics(problems, model_hparams):
           labels, [-1] + common_layers.shape_list(labels)[-3:])
     return predictions, labels
 
-  def make_problem_specific_metric_fn(metric_fn, problem_idx, weights_fn):
-    """Create a metric fn conditioned on problem_idx."""
+  def make_problem_specific_metric_fn(metric_fn, weights_fn):
+    """Create a metric fn."""
 
     def problem_metric_fn(predictions, features, labels):
       """Metric fn."""
-      problem_choice = features.get("problem_choice", 0)
-
       # Send along the entire features dict if the metric fn has the kwarg
       # "features".
       kwargs = {}
@@ -395,19 +393,14 @@ def create_evaluation_metrics(problems, model_hparams):
 
       predictions, labels = reduce_dimensions(predictions, labels)
 
-      def wrapped_metric_fn():
-        return metric_fn(predictions, labels, weights_fn=weights_fn, **kwargs)
-
-      (scores, weights) = tf.cond(
-          tf.equal(problem_idx, problem_choice), wrapped_metric_fn,
-          lambda: (tf.constant(0.0), tf.constant(0.0)))
-      # The tf.metrics.mean function assures correct aggregation.
+      scores, weights = metric_fn(predictions, labels,
+                                  weights_fn=weights_fn, **kwargs)
       return tf.metrics.mean(scores, weights)
 
     return problem_metric_fn
 
   eval_metrics = dict()
-  for problem_idx, problem_instance in enumerate(problems):
+  for problem_instance in problems:
     problem_name = problem_instance.name
     metrics = problem_instance.eval_metrics()
     if not all([m in METRICS_FNS for m in metrics]):
@@ -440,7 +433,7 @@ def create_evaluation_metrics(problems, model_hparams):
             eval_metrics[metric_name] = image_wrapped_metric_fn
           else:
             problem_metric_fn = make_problem_specific_metric_fn(
-                metric_fn, problem_idx, weights_fn)
+                metric_fn, weights_fn)
             eval_metrics[metric_name] = problem_metric_fn
     else:
       if isinstance(tm, tuple):
@@ -454,7 +447,7 @@ def create_evaluation_metrics(problems, model_hparams):
           eval_metrics[metric_name] = image_wrapped_metric_fn
         else:
           problem_metric_fn = make_problem_specific_metric_fn(
-              metric_fn, problem_idx, weights_fn)
+              metric_fn, weights_fn)
           eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics

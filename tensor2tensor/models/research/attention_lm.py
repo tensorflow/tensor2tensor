@@ -27,7 +27,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
@@ -104,7 +104,7 @@ def attention_lm_decoder(decoder_input,
   """
   x = decoder_input
   with tf.variable_scope(name):
-    for layer in xrange(hparams.num_hidden_layers):
+    for layer in range(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(

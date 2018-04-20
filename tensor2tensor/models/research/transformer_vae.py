@@ -25,7 +25,7 @@ import math
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
@@ -46,8 +46,8 @@ _DO_SUMMARIES = True
 def residual_conv(x, repeat, k, hparams, name, reuse=None):
   """A stack of convolution blocks with residual connections."""
   with tf.variable_scope(name, reuse=reuse):
-    dilations_and_kernels = [((1, 1), k) for _ in xrange(3)]
-    for i in xrange(repeat):
+    dilations_and_kernels = [((1, 1), k) for _ in range(3)]
+    for i in range(repeat):
       with tf.variable_scope("repeat_%d" % i):
         y = common_layers.conv_block(
             common_layers.layer_norm(x, hparams.hidden_size, name="lnorm"),
@@ -122,7 +122,7 @@ def compress(x, c, is_2d, hparams, name):
     cur = residual_conv(cur, hparams.num_compress_steps, k1, hparams, "rc")
     if c is not None and hparams.do_attend_compress:
       cur = attend(cur, c, hparams, "compress_attend")
-    for i in xrange(hparams.num_compress_steps):
+    for i in range(hparams.num_compress_steps):
       if hparams.do_residual_compress:
         cur = residual_conv(cur, hparams.num_compress_steps, k1, hparams,
                             "rc_%d" % i)
@@ -242,12 +242,12 @@ def ae_latent_softmax(latents_pred, latents_discrete, hparams):
   latents_logits = [
       tf.layers.dense(
           latents_pred, block_vocab_size, name="extra_logits_%d" % i)
-      for i in xrange(hparams.num_decode_blocks)
+      for i in range(hparams.num_decode_blocks)
   ]
   loss = None
   if latents_discrete is not None:
     losses = []
-    for i in xrange(hparams.num_decode_blocks):
+    for i in range(hparams.num_decode_blocks):
       d = tf.floormod(tf.floordiv(latents_discrete,
                                   block_vocab_size**i), block_vocab_size)
       losses.append(tf.nn.sparse_softmax_cross_entropy_with_logits(
@@ -309,7 +309,7 @@ def ae_latent_sample(latents_dense, inputs, ed, embed, iters, hparams):
       return tf.concat([latents_discrete_prev[:, :(i+1), :],
                         latents_discrete[:, (i+1):, :]], axis=1)
 
-  for i in xrange(iters):
+  for i in range(iters):
     latents_discrete = next_bit(latents_discrete, i)
   return latents_discrete
 
@@ -450,7 +450,7 @@ def ae_transformer_internal(inputs,
       mask = tf.less(masking, tf.random_uniform(
           common_layers.shape_list(targets)[:-1]))
       mask = tf.expand_dims(tf.to_float(mask), 3)
-      for i in xrange(hparams.num_compress_steps):
+      for i in range(hparams.num_compress_steps):
         j = hparams.num_compress_steps - i - 1
         d = residual_conv(d, 1, (3, 1), hparams, "decompress_rc_%d" % j)
         if hparams.do_attend_decompress:
@@ -514,8 +514,7 @@ class TransformerAE(t2t_model.T2TModel):
         discrete_mix=self._hparams.d_mix,
         random_top_k=self._hparams.random_top_k,
         soft_em=self.hparams.soft_em,
-        soft_em_startup_steps=self.hparams.soft_em_startup_steps,
-        inv_temp=self.hparams.inv_temp,
+        num_samples=self.hparams.num_samples,
         epsilon=self._hparams.epsilon,
         softmax_k=self._hparams.softmax_k,
         kl_warmup_steps=self._hparams.kl_warmup_steps,
@@ -562,7 +561,7 @@ class TransformerAE(t2t_model.T2TModel):
       ema_means = None
       if self._hparams.ema:
         ema_count = []
-        for i in xrange(self._hparams.num_residuals):
+        for i in range(self._hparams.num_residuals):
           ema_count_i = tf.get_variable(
               "ema_count_{}".format(i),
               [self._hparams.num_blocks, block_v_size],
@@ -571,7 +570,7 @@ class TransformerAE(t2t_model.T2TModel):
           ema_count.append(ema_count_i)
         with tf.colocate_with(means):
           ema_means = []
-          for i in xrange(self._hparams.num_residuals):
+          for i in range(self._hparams.num_residuals):
             ema_means_i = tf.get_variable(
                 "ema_means_{}".format(i),
                 initializer=means.initialized_value()[i],
@@ -649,7 +648,7 @@ class TransformerAE(t2t_model.T2TModel):
     # More steps.
     self.predict_mask = 0.0  # Use the provided targets this time.
     how_many_more_steps = 0  # Set to 1 or more for Gibbs-like sampling.
-    for _ in xrange(how_many_more_steps):
+    for _ in range(how_many_more_steps):
       with tf.variable_scope(tf.get_variable_scope(), reuse=True):
         features["targets"] = samples
         logits, _ = self(features)  # pylint: disable=not-callable
@@ -716,7 +715,7 @@ def transformer_ae_small():
   hparams.add_hparam("ema", True)
   hparams.add_hparam("random_top_k", 1)
   hparams.add_hparam("soft_em", False)
-  hparams.add_hparam("soft_em_startup_steps", 10000)
+  hparams.add_hparam("num_samples", 10)
   hparams.add_hparam("inv_temp", 1.0)
   hparams.kl_warmup_steps = 150000
   hparams.force_full_predict = True

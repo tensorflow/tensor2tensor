@@ -19,7 +19,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 # Dependency imports
+
+import six
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
@@ -42,6 +46,12 @@ def resize_video_frames(images, size):
 
 class VideoProblem(problem.Problem):
   """Base class for problems with videos."""
+
+  def __init__(self, *args, **kwargs):
+    super(VideoProblem, self).__init__(*args, **kwargs)
+    # Path to a directory to dump generated frames as png for debugging.
+    # If empty, no debug frames will be generated.
+    self.debug_dump_frames_path = ""
 
   @property
   def num_channels(self):
@@ -157,7 +167,7 @@ class VideoProblem(problem.Problem):
         Features dictionary with joint features per-frame.
       """
       features = {}
-      for k, v in batched_prefeatures.items():
+      for k, v in six.iteritems(batched_prefeatures):
         if k == "frame":  # We rename past frames to inputs and targets.
           s1, s2 = split_on_batch(v)
           # Reshape just to make sure shapes are right and set.
@@ -242,12 +252,26 @@ class VideoProblem(problem.Problem):
       if width != self.frame_width:
         raise ValueError("Generated frame has width %d while the class "
                          "assumes width %d." % (width, self.frame_width))
-      encoded_frame = image_utils.encode_images_as_png([unencoded_frame]).__next__()
+      encoded_frame = six.next(
+          image_utils.encode_images_as_png([unencoded_frame]))
       features["image/encoded"] = [encoded_frame]
       features["image/format"] = ["png"]
       features["image/height"] = [height]
       features["image/width"] = [width]
       yield features
+
+  def generate_encoded_samples_debug(self, data_dir, tmp_dir, dataset_split):
+    """Generate samples of the encoded frames and dump for debug if needed."""
+    counter = 0
+    for sample in self.generate_encoded_samples(
+        data_dir, tmp_dir, dataset_split):
+      if self.debug_dump_frames_path:
+        path = os.path.join(self.debug_dump_frames_path,
+                            "frame_%d.png" % counter)
+        with tf.gfile.Open(path, "wb") as f:
+          f.write(sample["image/encoded"][0])
+        counter += 1
+      yield sample
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     """The function generating the data."""
@@ -268,10 +292,11 @@ class VideoProblem(problem.Problem):
     if self.is_generate_per_split:
       for split, paths in split_paths:
         generator_utils.generate_files(
-            self.generate_encoded_samples(data_dir, tmp_dir, split), paths)
+            self.generate_encoded_samples_debug(
+                data_dir, tmp_dir, split), paths)
     else:
       generator_utils.generate_files(
-          self.generate_encoded_samples(
+          self.generate_encoded_samples_debug(
               data_dir, tmp_dir, problem.DatasetSplit.TRAIN), all_paths)
 
 

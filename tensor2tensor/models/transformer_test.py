@@ -35,36 +35,38 @@ TARGET_LENGTH = 7
 VOCAB_SIZE = 10
 
 
+def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
+              has_input=True, model_cls=transformer.Transformer):
+  if hparams is None:
+    hparams = transformer.transformer_tiny()
+  hparams.hidden_size = 8
+  hparams.filter_size = 32
+  hparams.num_heads = 1
+  hparams.layer_prepostprocess_dropout = 0.0
+
+  p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE, VOCAB_SIZE)
+  if not has_input:
+    p_hparams.input_modality = {}
+  hparams.problem_hparams = p_hparams
+
+  inputs = -1 + np.random.random_integers(
+      VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
+  targets = -1 + np.random.random_integers(
+      VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
+  features = {
+      "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
+      "target_space_id": tf.constant(1, dtype=tf.int32)
+  }
+  if has_input:
+    features["inputs"] = tf.constant(inputs, dtype=tf.int32, name="inputs")
+
+  return model_cls(hparams, mode, p_hparams), features
+
+
 class TransformerTest(tf.test.TestCase):
 
-  def getModel(self, hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
-               has_input=True, model_cls=transformer.Transformer):
-    if hparams is None:
-      hparams = transformer.transformer_tiny()
-    hparams.hidden_size = 8
-    hparams.filter_size = 32
-    hparams.num_heads = 1
-    hparams.layer_prepostprocess_dropout = 0.0
-
-    p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE, VOCAB_SIZE)
-    if not has_input:
-      p_hparams.input_modality = {}
-    hparams.problems = [p_hparams]
-
-    inputs = -1 + np.random.random_integers(
-        VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
-    targets = -1 + np.random.random_integers(
-        VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
-    features = {
-        "inputs": tf.constant(inputs, dtype=tf.int32, name="inputs"),
-        "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
-        "target_space_id": tf.constant(1, dtype=tf.int32)
-    }
-
-    return model_cls(hparams, mode, p_hparams), features
-
   def testTransformer(self):
-    model, features = self.getModel(transformer.transformer_small())
+    model, features = get_model(transformer.transformer_small())
     logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
@@ -72,17 +74,17 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
 
   def testTransformerRelative(self):
-    model, features = self.getModel(transformer.transformer_relative_tiny())
+    model, features = get_model(transformer.transformer_relative_tiny())
     logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
 
-  def testGreedyVsFast(self):
-    model, features = self.getModel(transformer.transformer_small())
+  def testSlowVsFast(self):
+    model, features = get_model(transformer.transformer_small())
 
-    decode_length = 2
+    decode_length = 3
 
     out_logits, _ = model(features)
     out_logits = tf.squeeze(out_logits, axis=[2, 3])
@@ -114,10 +116,10 @@ class TransformerTest(tf.test.TestCase):
     self.assertAllClose(greedy_res, fast_res)
 
   def testSlowVsFastNoInput(self):
-    model, features = self.getModel(
+    model, features = get_model(
         transformer.transformer_small(), has_input=False)
 
-    decode_length = 2
+    decode_length = 3
 
     out_logits, _ = model(features)
     out_logits = tf.squeeze(out_logits, axis=[2, 3])
@@ -145,12 +147,12 @@ class TransformerTest(tf.test.TestCase):
       slow_res = slow_result.eval()
       fast_res = fast_result.eval()
 
-    self.assertEqual(fast_res.shape, (BATCH_SIZE, decode_length))
+    self.assertEqual(slow_res.shape, (BATCH_SIZE, decode_length))
     self.assertAllClose(slow_res, fast_res)
 
   def testBeamDecodeWithRelativeAttention(self):
     decode_length = 2
-    model, features = self.getModel(transformer.transformer_relative_tiny())
+    model, features = get_model(transformer.transformer_relative_tiny())
     model(features)
     model.set_mode(tf.estimator.ModeKeys.PREDICT)
 
@@ -166,7 +168,7 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(beam_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
 
   def testBeamVsFast(self):
-    model, features = self.getModel(transformer.transformer_small())
+    model, features = get_model(transformer.transformer_small())
 
     decode_length = 2
 
@@ -204,9 +206,8 @@ class TransformerTest(tf.test.TestCase):
       beam_res = beam_result.eval()
       fast_res = fast_result.eval()
 
-    # TODO(rsepassi): Fix decode length. Broken by cl/190537320.
-    # self.assertEqual(fast_res.shape,
-    #                 (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertEqual(fast_res.shape,
+                     (BATCH_SIZE, INPUT_LENGTH + decode_length))
     self.assertAllClose(beam_res, fast_res)
 
   def testTransformerWithoutProblem(self):
@@ -230,7 +231,7 @@ class TransformerTest(tf.test.TestCase):
         [BATCH_SIZE, TARGET_LENGTH, 1, hparams.hidden_size])
 
   def testTransformerWithEncoderDecoderAttentionLoss(self):
-    model, features = self.getModel(
+    model, features = get_model(
         transformer.transformer_supervised_attention())
     expected_attention_weights = np.random.random_sample(
         size=(BATCH_SIZE, TARGET_LENGTH, INPUT_LENGTH))
@@ -243,10 +244,10 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(res.shape, ())
 
 
-class TransformerScorerTest(TransformerTest):
+class TransformerScorerTest(tf.test.TestCase):
 
   def testReturnsScores(self):
-    model, features = self.getModel(
+    model, features = get_model(
         mode=tf.estimator.ModeKeys.PREDICT,
         model_cls=transformer.TransformerScorer)
     infer_out = model.infer(features)
@@ -261,21 +262,21 @@ class TransformerScorerTest(TransformerTest):
 
   def testVarNames(self):
     with tf.Graph().as_default():
-      model, features = self.getModel(
+      model, features = get_model(
           mode=tf.estimator.ModeKeys.PREDICT,
           model_cls=transformer.TransformerScorer)
       _ = model.infer(features)
       scorer_vars = [v.name for v in tf.global_variables()]
 
     with tf.Graph().as_default():
-      model, features = self.getModel(
+      model, features = get_model(
           mode=tf.estimator.ModeKeys.EVAL,
           model_cls=transformer.TransformerScorer)
       _ = model(features)
       scorer_eval_vars = [v.name for v in tf.global_variables()]
 
     with tf.Graph().as_default():
-      model, features = self.getModel(
+      model, features = get_model(
           mode=tf.estimator.ModeKeys.EVAL,
           model_cls=transformer.Transformer)
       _ = model(features)

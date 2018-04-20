@@ -57,10 +57,12 @@ flags.DEFINE_bool("generate_data", False, "Generate data before training?")
 flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
                     "Temporary storage directory, used if --generate_data.")
 flags.DEFINE_bool("profile", False, "Profile performance?")
-flags.DEFINE_integer("inter_op_parallelism_threads", 0, "Number of inter_op_parallelism_threads "
-                     "to use for CPU. See TensorFlow config.proto for details.")
-flags.DEFINE_integer("intra_op_parallelism_threads", 0, "Number of intra_op_parallelism_threads "
-                     "to use for CPU. See TensorFlow config.proto for details.")
+flags.DEFINE_integer("inter_op_parallelism_threads", 0,
+                     "Number of inter_op_parallelism_threads to use for CPU. "
+                     "See TensorFlow config.proto for details.")
+flags.DEFINE_integer("intra_op_parallelism_threads", 0,
+                     "Number of intra_op_parallelism_threads to use for CPU. "
+                     "See TensorFlow config.proto for details.")
 
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erring. Apologies for the ugliness.
@@ -115,12 +117,6 @@ flags.DEFINE_string("job-dir", None,
                     "during hyperparameter tuning. Overrides --output_dir.")
 
 
-def get_problem_name():
-  problems = FLAGS.problems.split("-")
-  assert len(problems) == 1
-  return problems[0]
-
-
 def set_hparams_from_args(args):
   """Set hparams overrides from unparsed args list."""
   if not args:
@@ -159,7 +155,7 @@ def create_hparams():
 def create_experiment_fn():
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
-      problem_name=get_problem_name(),
+      problem_name=FLAGS.problem,
       data_dir=os.path.expanduser(FLAGS.data_dir),
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
@@ -178,11 +174,24 @@ def create_experiment_fn():
 
 
 def create_run_config(hp):
+  """Create a run config.
+
+  Args:
+    hp: model hyperparameters
+  Returns:
+    a run config
+  """
   save_ckpt_steps = max(FLAGS.iterations_per_loop, FLAGS.local_eval_frequency)
   save_ckpt_secs = FLAGS.save_checkpoints_secs or None
   if save_ckpt_secs:
     save_ckpt_steps = None
   assert FLAGS.output_dir or FLAGS.checkpoint_path
+  # the various custom getters we have written do not play well together yet.
+  # TODO(noam): ask rsepassi for help here.
+  daisy_chain_variables = (
+      hp.daisy_chain_variables and
+      hp.activation_dtype == "float32" and
+      hp.weight_dtype == "float32")
   return trainer_lib.create_run_config(
       model_dir=os.path.expanduser(FLAGS.output_dir),
       master=FLAGS.master,
@@ -202,7 +211,7 @@ def create_run_config(hp):
       use_tpu=FLAGS.use_tpu,
       schedule=FLAGS.schedule,
       no_data_parallelism=hp.no_data_parallelism,
-      daisy_chain_variables=hp.daisy_chain_variables,
+      daisy_chain_variables=daisy_chain_variables,
       ps_replicas=FLAGS.ps_replicas,
       ps_job=FLAGS.ps_job,
       ps_gpu=FLAGS.ps_gpu,
@@ -222,7 +231,7 @@ def generate_data():
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
 
-  problem_name = get_problem_name()
+  problem_name = FLAGS.problem
   tf.logging.info("Generating data for %s" % problem_name)
   registry.problem(problem_name).generate_data(data_dir, tmp_dir)
 
@@ -281,9 +290,7 @@ def save_metadata(hparams):
   # Save hparams as hparams.json
   hparams_fname = os.path.join(output_dir, "hparams.json")
   with tf.gfile.Open(hparams_fname, "w") as f:
-    # TODO(lukaszkaiser): use the first line once we require TF 1.5+.
-    # f.write(hparams.to_json(indent=0, sort_keys=True))
-    f.write(hparams.to_json())
+    f.write(hparams.to_json(indent=0, sort_keys=True))
 
 
 def execute_schedule(exp):

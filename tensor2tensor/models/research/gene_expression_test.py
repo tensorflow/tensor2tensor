@@ -54,7 +54,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
         "inputs": tf.constant(inputs, dtype=tf.int32),
         "targets": tf.constant(targets, dtype=tf.float32),
     }
-    p_hparams, = hparams.problems
+    p_hparams = hparams.problem_hparams
     logits, _ = model_cls(
         hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)(features)
 
@@ -70,7 +70,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
     for model_cls, hparams in models_hparams:
       hparams.add_hparam("data_dir", None)
       p_hparams = gene_data.GenomicsExpressionCage10().get_hparams(hparams)
-      hparams.problems = [p_hparams]
+      hparams.problem_hparams = p_hparams
       self._testModel(hparams, model_cls)
 
 

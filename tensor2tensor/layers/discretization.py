@@ -67,9 +67,7 @@ def nearest_neighbor(x,
                      block_v_size,
                      random_top_k=1,
                      soft_em=False,
-                     soft_em_startup_steps=10000,
-                     inv_temp=1.0,
-                     ema_count=None):
+                     num_samples=1):
   """Find the nearest element in means to elements in x.
 
   Args:
@@ -79,11 +77,7 @@ def nearest_neighbor(x,
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
-    soft_em_startup_steps: Number of steps before soft_em activates
-      (Default: 10000).
-    inv_temp: Inverse temperature for soft EM (Default: 1.)
-    ema_count: Table of counts for each embedding corresponding to how many
-      examples in a batch it was the closest to (Default: None).
+    num_samples: Number of samples to take in soft EM (Default: 1).
 
   Returns:
     Tensor with nearest element in mean encoded in one-hot notation.
@@ -98,15 +92,15 @@ def nearest_neighbor(x,
 
   # computing cluster probabilities
   if soft_em:
-    ema_count = tf.expand_dims(ema_count, 0)
-    c_probs = ema_count / tf.reduce_sum(ema_count, 2, keepdims=True)
-    c_probs = tf.where(
-        tf.less(tf.to_int32(tf.train.get_global_step()), soft_em_startup_steps),
-        tf.ones_like(c_probs, dtype=tf.float32), c_probs)
-    mask = common_layers.inverse_lin_decay(2 * soft_em_startup_steps)
-    c_probs = mask * c_probs + (1 - mask) * tf.ones_like(c_probs)
-    nearest_hot = tf.exp(-inv_temp * dist) * c_probs
-    nearest_hot /= tf.reduce_sum(nearest_hot, 2, keepdims=True)
+    num_blocks = common_layers.shape_list(dist)[1]
+    nearest_idx = tf.stack(
+        [
+            tf.multinomial(-dist[:, i, :], num_samples=num_samples)
+            for i in range(num_blocks)
+        ],
+        axis=1)
+    nearest_hot = tf.one_hot(nearest_idx, depth=block_v_size)
+    nearest_hot = tf.reduce_mean(nearest_hot, axis=-2)
   else:
     if random_top_k > 1:
       _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
@@ -127,9 +121,7 @@ def embedding_lookup(x,
                      block_v_size,
                      random_top_k=1,
                      soft_em=False,
-                     soft_em_startup_steps=10000,
-                     inv_temp=1.0,
-                     ema_count=None):
+                     num_samples=1):
   """Compute nearest neighbors and loss for training the embeddings via DVQ.
 
   Args:
@@ -140,11 +132,7 @@ def embedding_lookup(x,
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
-    soft_em_startup_steps: Number of steps before soft_em activates
-      (Default: 10000).
-    inv_temp: Inverse temperature for soft EM (Default: 1.)
-    ema_count: Table of counts for each embedding corresponding to how many
-      examples in a batch it was the closest to (Default: None).
+    num_samples: Number of samples to use for soft EM (Default: 1).
 
   Returns:
     The nearest neighbor in one hot form, the nearest neighbor itself, the
@@ -156,14 +144,9 @@ def embedding_lookup(x,
       block_v_size,
       random_top_k,
       soft_em=soft_em,
-      soft_em_startup_steps=soft_em_startup_steps,
-      inv_temp=inv_temp,
-      ema_count=ema_count)
+      num_samples=num_samples)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
-  x_means_idx = tf.argmax(x_means_hot_flat, axis=-1)
-  x_means = tf.matmul(
-      tf.transpose(tf.one_hot(x_means_idx, block_v_size), perm=[1, 0, 2]),
-      means)
+  x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
   x_means = tf.transpose(x_means, [1, 0, 2])
   q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
   e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
@@ -428,8 +411,7 @@ def discrete_bottleneck(x,
                         discrete_mix=0.5,
                         random_top_k=1,
                         soft_em=False,
-                        soft_em_startup_steps=10000,
-                        inv_temp=1.0,
+                        num_samples=1,
                         epsilon=1e-5,
                         softmax_k=0,
                         kl_warmup_steps=150000,
@@ -467,9 +449,7 @@ def discrete_bottleneck(x,
       (Default: 0.5).
     random_top_k: Noisy top-k for DVQ (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
-    soft_em_startup_steps: Number of steps before soft_em activates
-      (Default: 10000).
-    inv_temp: Inverse temperature for soft EM (Default: 1.)
+    num_samples: Number of samples for soft EM (Default: 1).
     epsilon: Epsilon parameter for DVQ (Default: 1e-5).
     softmax_k: If > 1 then do top-k softmax (Default: 0).
     kl_warmup_steps: Number of steps for kl warmup (Default: 150000).
@@ -488,6 +468,7 @@ def discrete_bottleneck(x,
     ValueError: If projection_tensors is None for reshape_method project, or
     ema_count or ema_means is None if we are using ema, or unknown args.
   """
+  tf.logging.info("Shape of x = {}".format(common_layers.shape_list(x)))
   block_v_size = None
   if bottleneck_kind == "dvq":
     # Define the dvq parameters
@@ -577,7 +558,7 @@ def discrete_bottleneck(x,
       for i in range(num_residuals):
         x_means_hot_res, x_means_res, q_loss_res, e_loss_res = embedding_lookup(
             x_res, means[i], num_blocks, block_v_size, random_top_k, soft_em,
-            soft_em_startup_steps, inv_temp, ema_count[i])
+            num_samples)
 
         # Update the ema variables
         if ema:

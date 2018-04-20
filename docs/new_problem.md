@@ -239,6 +239,6 @@ clone the repository and install it in developer mode with `pip install -e .`.
 # Train!
 
 You can train exactly as you do in the [walkthrough](walkthrough.md) with flags
-`--problems=poetry_lines` and `--t2t_usr_dir=$USR_DIR`.
+`--problem=poetry_lines` and `--t2t_usr_dir=$USR_DIR`.
 
 All done. Let us know what amazing poetry your model writes!

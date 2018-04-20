@@ -29,7 +29,7 @@ To train a model on GPU set up`OUT_DIR` and run the trainer:
 t2t-trainer \
   --model=transformer \
   --hparams_set=transformer_librispeech \
-  --problems=librispeech \
+  --problem=librispeech \
   --train_steps=120000 \
   --eval_steps=3 \
   --local_eval_frequency=100 \
@@ -48,7 +48,7 @@ To train a model on TPU set up `OUT_DIR` and run the trainer:
 t2t-trainer \
   --model=transformer \
   --hparams_set=transformer_librispeech_tpu \
-  --problems=librispeech \
+  --problem=librispeech \
   --train_steps=120000 \
   --eval_steps=3 \
   --local_eval_frequency=100 \

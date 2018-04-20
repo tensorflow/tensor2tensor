@@ -25,17 +25,17 @@ import re
 import sys
 import time
 import unicodedata
-#To fix issue:#706
-import io
 
 # Dependency imports
 
 import numpy as np
 import six
 # pylint: disable=redefined-builtin
-from six.moves import xrange
+from six.moves import range
 from six.moves import zip
 # pylint: enable=redefined-builtin
+
+from tensor2tensor.data_generators import text_encoder
 
 import tensorflow as tf
 
@@ -53,8 +53,8 @@ def _get_ngrams(segment, max_order):
     with a count of how many times each n-gram occurred.
   """
   ngram_counts = collections.Counter()
-  for order in xrange(1, max_order + 1):
-    for i in xrange(0, len(segment) - order + 1):
+  for order in range(1, max_order + 1):
+    for i in range(0, len(segment) - order + 1):
       ngram = tuple(segment[i:i + order])
       ngram_counts[ngram] += 1
   return ngram_counts
@@ -102,7 +102,7 @@ def compute_bleu(reference_corpus,
       possible_matches_by_order[len(ngram)-1] += translation_ngram_counts[ngram]
   precisions = [0] * max_order
   smooth = 1.0
-  for i in xrange(0, max_order):
+  for i in range(0, max_order):
     if possible_matches_by_order[i] > 0:
       precisions[i] = matches_by_order[i] / possible_matches_by_order[i]
       if matches_by_order[i] > 0:
@@ -196,9 +196,10 @@ def bleu_tokenize(string):
 
 def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
   """Compute BLEU for two files (reference and hypothesis translation)."""
-  #To fix the issue #706
-  ref_lines = io.open(ref_filename, 'rt', encoding='utf-8').read().splitlines()
-  hyp_lines = io.open(hyp_filename, 'rt', encoding='utf-8').read().splitlines()
+  ref_lines = text_encoder.native_to_unicode(
+      tf.gfile.Open(ref_filename, "r").read()).splitlines()
+  hyp_lines = text_encoder.native_to_unicode(
+      tf.gfile.Open(hyp_filename, "r").read()).splitlines()
   assert len(ref_lines) == len(hyp_lines)
   if not case_sensitive:
     ref_lines = [x.lower() for x in ref_lines]

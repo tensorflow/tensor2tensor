@@ -37,7 +37,7 @@ class BasicFcRelu(t2t_model.T2TModel):
     x = features["inputs"]
     shape = common_layers.shape_list(x)
     x = tf.reshape(x, [-1, shape[1] * shape[2] * shape[3]])
-    for i in xrange(hparams.num_hidden_layers):
+    for i in range(hparams.num_hidden_layers):
       x = tf.layers.dense(x, hparams.hidden_size, name="layer_%d" % i)
       x = tf.nn.dropout(x, keep_prob=1.0 - hparams.dropout)
       x = tf.nn.relu(x)
@@ -74,7 +74,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
       hparams = self._hparams
       kernel, strides = self._get_kernel_and_strides()
       # Down-convolutions.
-      for i in xrange(hparams.num_hidden_layers):
+      for i in range(hparams.num_hidden_layers):
         x = tf.layers.conv2d(
             x, hparams.hidden_size * 2**(i + 1), kernel, strides=strides,
             padding="SAME", activation=common_layers.belu, name="conv_%d" % i)
@@ -86,7 +86,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
       hparams = self._hparams
       kernel, strides = self._get_kernel_and_strides()
       # Up-convolutions.
-      for i in xrange(hparams.num_hidden_layers):
+      for i in range(hparams.num_hidden_layers):
         j = hparams.num_hidden_layers - i - 1
         x = tf.layers.conv2d_transpose(
             x, hparams.hidden_size * 2**j, kernel, strides=strides,
@@ -159,7 +159,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
     # Sample and decode.
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
     try:
-      num_channels = self._hparams.problem_instances[0].num_channels
+      num_channels = self._hparams.problem.num_channels
     except AttributeError:
       num_channels = 1
     features["targets"] = tf.zeros(
@@ -206,7 +206,7 @@ def basic_autoencoder():
   hparams.learning_rate_constant = 0.0002
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"
-  hparams.label_smoothing = 0.05
+  hparams.label_smoothing = 0.0
   hparams.batch_size = 128
   hparams.hidden_size = 64
   hparams.num_hidden_layers = 5

@@ -22,11 +22,11 @@ import time
 
 # Dependency imports
 
-from tensor2tensor import problems
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl.envs.tf_atari_wrappers import ShiftRewardWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -52,11 +52,10 @@ def train(hparams, output_dir):
     time_delta = time.time() - start_time
     print(line+"Step {}.1. - generate data from policy. "
           "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
-    # FLAGS.problems = "gym_discrete_problem_with_agent"
-    FLAGS.problems = "gym_discrete_problem_with_agent2"
+    FLAGS.problem = "gym_discrete_problem_with_agent"
     FLAGS.agent_policy_path = last_model
-    gym_problem = problems.problem(FLAGS.problems)
-    # gym_problem.num_steps = hparams.true_env_generator_num_steps
+    gym_problem = registry.problem(FLAGS.problem)
+    gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
     iter_data_dir = os.path.join(data_dir, str(iloop))
     tf.gfile.MakeDirs(iter_data_dir)
     gym_problem.generate_data(iter_data_dir, tmp_dir)
@@ -67,23 +66,25 @@ def train(hparams, output_dir):
     # 2. generate env model
     FLAGS.data_dir = iter_data_dir
     FLAGS.output_dir = output_dir
-    # FLAGS.model = hparams.generative_model
-    FLAGS.model = "basic_conv_gen"
-    # FLAGS.model = "michigan_basic_conv_gen"
+    FLAGS.model = hparams.generative_model
     FLAGS.hparams_set = hparams.generative_model_params
-    # FLAGS.train_steps = hparams.model_train_steps
+    FLAGS.train_steps = hparams.model_train_steps
     FLAGS.train_steps = 1
     FLAGS.eval_steps = 1
     t2t_trainer.main([])
 
+    # Dump frames from env model.
     time_delta = time.time() - start_time
-    print(line+"Step {}.3. - evaluate env model. "
+    print(line+"Step {}.3. - evalue env model. "
           "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
-    gym_simulated_problem = problems.problem("gym_simulated_discrete_problem_with_agent")
-    gym_simulated_problem.num_steps = hparams.simulated_env_generator_num_steps
+    gym_simulated_problem = registry.problem(
+        "gym_simulated_discrete_problem_with_agent")
+    sim_steps = hparams.simulated_env_generator_num_steps
+    gym_simulated_problem.settable_num_steps = sim_steps
     gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
 
-    # time_delta = time.time() - start_time
+    # PPO.
+    time_delta = time.time() - start_time
     print(line + "Step {}.4. - train PPO in model env."
           " Time: {}".format(iloop,
                              str(datetime.timedelta(seconds=time_delta))))
@@ -100,7 +101,8 @@ def train(hparams, output_dir):
         (ShiftRewardWrapper, {"add_value": -2})]
     in_graph_wrappers += gym_problem.in_graph_wrappers
     ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
-    rl_trainer_lib.train(ppo_hparams, "PongNoFrameskip-v4", ppo_dir)
+    ppo_hparams.num_agents = 1
+    rl_trainer_lib.train(ppo_hparams, "PongDeterministic-v4", ppo_dir)
 
     last_model = ppo_dir + "/model{}.ckpt".format(ppo_epochs_num)
 
@@ -109,14 +111,14 @@ def main(_):
   hparams = tf.contrib.training.HParams(
       epochs=100,
       true_env_generator_num_steps=100,
-      generative_model="static_basic_conv_gen",
-      generative_model_params="basic_conv_small",
-      model_train_steps=80,
+      generative_model="basic_conv_gen",
+      generative_model_params="basic_conv",
+      model_train_steps=5000,
       simulated_env_generator_num_steps=300,
       ppo_epochs_num=2,
       ppo_epoch_length=300,
   )
-  train(hparams, tempfile.mkdtemp())
+  train(hparams, FLAGS.output_dir)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@
 """Utils for attention mechanism for images."""
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
@@ -26,6 +26,7 @@ import tensorflow as tf
 
 
 class AttentionType(object):
+  """Types of attention type used in cia."""
   LOCAL_1D = "local_1d"
   LOCAL_2D = "local_2d"
   GLOBAL = "global"
@@ -33,6 +34,7 @@ class AttentionType(object):
   DILATED = "dilated"
   MOE_LOCAL_1D = "moe_local1d"
   LOCAL_BLOCK = "local_block"
+  NON_CAUSAL_1D = "local_1d_noncausal"
 
   @staticmethod
   def get_choices():
@@ -44,6 +46,7 @@ class AttentionType(object):
         AttentionType.LOCAL_2D,
         AttentionType.LOCAL_BLOCK,
         AttentionType.DILATED,
+        AttentionType.NON_CAUSAL_1D,
     ]
 
 
@@ -288,7 +291,7 @@ def transformer_decoder_layers(inputs,
   x = tf.nn.dropout(x, 1.0 - hparams.layer_prepostprocess_dropout)
   if attention_type == AttentionType.DILATED:
     assert len(hparams.gap_sizes) == num_layers
-  for layer in xrange(num_layers):
+  for layer in range(num_layers):
     with tf.variable_scope("%s_layer_%d" % (name, layer)):
       # self-attention + skip connections
       if attention_type == AttentionType.LOCAL_2D:
@@ -300,6 +303,11 @@ def transformer_decoder_layers(inputs,
                                hparams,
                                attention_type="local_mask_right",
                                q_padding="LEFT", kv_padding="LEFT")
+      elif attention_type == AttentionType.NON_CAUSAL_1D:
+        y = local_attention_1d(common_layers.layer_preprocess(x, hparams),
+                               hparams,
+                               attention_type="local_unmasked",
+                               q_padding="VALID", kv_padding="VALID")
       elif attention_type == AttentionType.LOCAL_BLOCK:
         y = local_within_block_attention(
             common_layers.layer_preprocess(x, hparams),
@@ -345,7 +353,7 @@ def transformer_encoder_layers(inputs,
   x = inputs
   x = tf.nn.dropout(x, 1.0 - hparams.layer_prepostprocess_dropout)
 
-  for layer in xrange(num_layers):
+  for layer in range(num_layers):
     # attention layers + skip connections
     with tf.variable_scope("%s_layer_%d" % (name, layer)):
       if attention_type == AttentionType.LOCAL_2D:
@@ -433,7 +441,7 @@ def transformer_layers_sharded(dp,
   expert_fn = expert_utils.ffn_expert_fn(
       hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
   x = dp(tf.nn.dropout, x, 1.0 - hparams.layer_prepostprocess_dropout)
-  for layer in xrange(num_layers):
+  for layer in range(num_layers):
     with tf.variable_scope("%s_layer_%d" % (name, layer)):
       # self-attention
       if attention_type == AttentionType.LOCAL_2D:
@@ -632,7 +640,7 @@ def get_channel_embeddings(io_depth, targets, hidden_size, name="channel"):
   rgb_embedding_var = tf.identity(rgb_embedding_var)
   rgb_embedding_var *= float(hidden_size)**0.5
   channel_target_embs = []
-  for i in xrange(io_depth):
+  for i in range(io_depth):
     # Adding the channel offsets to get the right embedding since the
     # embedding tensor has shape 256 * io_depth, hidden_size
     target_ids = tf.squeeze(targets_split[i], axis=3) + i * 256

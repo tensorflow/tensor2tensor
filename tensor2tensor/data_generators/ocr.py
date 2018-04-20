@@ -69,7 +69,7 @@ class OcrTest(image_utils.Image2TextProblem):
     num_examples = 2
     ocr_dir = os.path.join(tmp_dir, "ocr/")
     tf.logging.info("Looking for OCR data in %s." % ocr_dir)
-    for i in xrange(num_examples):
+    for i in range(num_examples):
       image_filepath = os.path.join(ocr_dir, "%d.png" % i)
       text_filepath = os.path.join(ocr_dir, "%d.txt" % i)
       with tf.gfile.Open(text_filepath, "rb") as f:

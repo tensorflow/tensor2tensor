@@ -30,7 +30,7 @@ import string
 # Dependency imports
 import mock
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
@@ -193,7 +193,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     long_tokens = []
     for _ in range(num_tokens):
       long_token = "".join([random.choice(string.ascii_uppercase)
-                            for _ in xrange(token_length)])
+                            for _ in range(token_length)])
       long_tokens.append(long_token)
 
     corpus = " ".join(long_tokens)
