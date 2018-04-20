@@ -48,6 +48,7 @@ class Metrics(object):
   R2 = "r_squared"
   ROUGE_2_F = "rouge_2_fscore"
   ROUGE_L_F = "rouge_L_fscore"
+  ROC_AUC = "roc_auc"
   EDIT_DISTANCE = "edit_distance"
   SET_PRECISION = "set_precision"
   SET_RECALL = "set_recall"
@@ -135,6 +136,17 @@ def padded_sequence_accuracy(predictions,
     axis = list(range(1, len(outputs.get_shape())))
     correct_seq = 1.0 - tf.minimum(1.0, tf.reduce_sum(not_correct, axis=axis))
     return correct_seq, tf.constant(1.0)
+
+
+def roc_auc(predictions,
+            labels,
+            weights_fn=common_layers.weights_nonzero):
+  with tf.variable_scope("roc_auc", values=[predictions, labels]):
+    weights = weights_fn(labels)
+    outputs = tf.to_int32(tf.argmax(predictions, axis=-1))
+    labels = tf.to_int32(labels)
+    _, auc_op = tf.metrics.auc(labels, outputs, weights=weights)
+    return auc_op, tf.constant(1.0)
 
 
 def sequence_edit_distance(predictions,
@@ -521,6 +533,7 @@ METRICS_FNS = {
     Metrics.R2: padded_variance_explained,
     Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
+    Metrics.ROC_AUC: roc_auc,
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
     Metrics.SIGMOID_ACCURACY_ONE_HOT: sigmoid_accuracy_one_hot,
     Metrics.SIGMOID_RECALL_ONE_HOT: sigmoid_recall_one_hot,
