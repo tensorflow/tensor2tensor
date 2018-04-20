@@ -23,7 +23,7 @@ from __future__ import print_function
 
 import numpy as np
 
-from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
+from tensor2tensor.data_generators import mnist  # pylint: disable=unused-import
 from tensor2tensor.models import basic
 from tensor2tensor.utils import trainer_lib
 
