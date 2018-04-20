@@ -283,7 +283,6 @@ class Transformer(t2t_model.T2TModel):
         else:
           decode_length = common_layers.shape_list(inputs)[1] + decode_length
 
-
       # TODO(llion): Clean up this reshaping logic.
       inputs = tf.expand_dims(inputs, axis=1)
       if len(inputs.shape) < 5:
@@ -322,7 +321,6 @@ class Transformer(t2t_model.T2TModel):
         decode_length = partial_targets_length + features['decode_length']
       else:
         decode_length += partial_targets_length
-
       batch_size = partial_targets_shape[0]
 
     if hparams.pos == "timing":
@@ -509,7 +507,7 @@ def fast_decode(encoder_output,
       temperature = (0.0 if hparams.sampling_method == "argmax" else
                      hparams.sampling_temp)
       next_id = common_layers.sample_with_temperature(logits, temperature)
-      finished |= tf.equal(next_id, eos_id) #[false,true] =true
+      finished |= tf.equal(next_id, eos_id)
 
       log_prob_indices = tf.stack(
           [tf.range(tf.to_int64(batch_size)), next_id], axis=1)
@@ -522,8 +520,6 @@ def fast_decode(encoder_output,
     def is_not_finished(i, finished, *_):
       if decode_length_decide_end==True:return i < decode_length
       else:return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
-
-
 
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
     finished = tf.fill([batch_size], False)
@@ -578,9 +574,7 @@ class TransformerScorer(Transformer):
     logits = tf.squeeze(logits, [2, 3])
 
     # Compute the log probabilities
-
     log_probs = beam_search.log_prob_from_logits(logits)
-
 
     # Slice out the log_probs of the targets
     targets = features["targets"]
@@ -593,17 +587,15 @@ class TransformerScorer(Transformer):
     flat_indices = tf.stack(
         [tf.range(tf.to_int64(batch_size) * tf.to_int64(timesteps)),
          tf.to_int64(flat_targets)], axis=1)
-
     log_probs = tf.reshape(
         tf.gather_nd(flat_log_probs, flat_indices),
         [batch_size, timesteps])
 
     # Sum over time to get the log_prob of the sequence
+    scores = tf.reduce_sum(log_probs, axis=1)
 
-    scores = tf.reduce_sum(log_probs, axis=1)  #[batch,step]
+    return {"outputs": targets, "scores": scores}
 
-    return {"outputs": targets, "scores": scores} #origin
-    #return {"outputs": targets, "scores": log_prob}
 
 @registry.register_model
 class TransformerEncoder(t2t_model.T2TModel):
