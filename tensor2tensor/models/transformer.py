@@ -1608,3 +1608,5 @@ def transformer_tpu_1b():
   hparams.num_hidden_layers = 8
   hparams.batch_size = 1024
   return hparams
+
+
