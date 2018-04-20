@@ -464,7 +464,8 @@ class VideoModality(modality.Modality):
       inputs_shape = common_layers.shape_list(inputs)
       if len(inputs_shape) != 5:
         raise ValueError("Assuming videos given as tensors in the format "
-                         "[batch, time, height, width, channels].")
+                         "[batch, time, height, width, channels] but got one "
+                         "of shape: %s" % str(inputs_shape))
       if not context.in_eager_mode():
         tf.summary.image("inputs", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
                          max_outputs=1)
@@ -484,7 +485,8 @@ class VideoModality(modality.Modality):
       inputs_shape = common_layers.shape_list(inputs)
       if len(inputs_shape) != 5:
         raise ValueError("Assuming videos given as tensors in the format "
-                         "[batch, time, height, width, channels].")
+                         "[batch, time, height, width, channels] but got one "
+                         "of shape: %s" % str(inputs_shape))
       if not context.in_eager_mode():
         tf.summary.image(
             "targets_bottom", tf.cast(inputs[:, -1, :, :, :], tf.uint8),

@@ -22,11 +22,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 # Dependency imports
 
 import gym
-
-import pkg_resources
 
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 from tensor2tensor.utils import registry
@@ -37,6 +37,9 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
+
+
+flags.DEFINE_string("frames_path", "", "Path to the first frames.")
 
 
 class SimulatedBatchEnv(InGraphBatchEnv):
@@ -60,12 +63,10 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.action_shape = action_shape
     self.action_dtype = action_dtype
 
-    with open(pkg_resources.resource_filename(
-        "tensor2tensor.rl.envs", "frame1.png"), "rb") as f:
+    with open(os.path.join(FLAGS.frames_path, "frame1.png"), "rb") as f:
       png_frame_1_raw = f.read()
 
-    with open(pkg_resources.resource_filename(
-        "tensor2tensor.rl.envs", "frame2.png"), "rb") as f:
+    with open(os.path.join(FLAGS.frames_path, "frame2.png"), "rb") as f:
       png_frame_2_raw = f.read()
 
     self.frame_1 = tf.expand_dims(tf.cast(tf.image.decode_png(png_frame_1_raw),
@@ -81,13 +82,6 @@ class SimulatedBatchEnv(InGraphBatchEnv):
                                         trainable=False)
 
     observ_dtype = tf.int64
-    self._observ_not_sure_why_we_need_this = tf.Variable(
-        tf.zeros((self.length,) + observ_shape, observ_dtype),
-        name="observ_new", trainable=False)
-
-    self._reward_not_sure_why_we_need_this = tf.Variable(
-        tf.zeros((self.length, 1), observ_dtype),
-        name="reward_new", trainable=False)
 
   @property
   def action_space(self):
@@ -99,15 +93,19 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):
-      inputs = {"inputs_0": self._prev_observ.read_value(),
-                "inputs_1": self._observ.read_value(),
-                "action": action,
-                "targets": self._observ_not_sure_why_we_need_this,
-                "reward": self._reward_not_sure_why_we_need_this}
-      model_output = self._model(inputs)
-      observ_expaned = model_output[0]["targets"]
-      observ = tf.cast(tf.argmax(observ_expaned, axis=-1), tf.float32)
-      reward = tf.constant(0, tf.float32, shape=(self.length,))
+      input0 = self._prev_observ.read_value()
+      input1 = self._observ.read_value()
+      # Note: the merging below must be consistent with video_utils format.
+      inputs_merged = tf.concat([input0, input1], axis=0)
+      action = tf.expand_dims(action, axis=0)  # Action needs time too.
+      action = tf.concat([action, action], axis=0)
+      inputs = {"inputs": tf.expand_dims(inputs_merged, axis=0),  # Add batch.
+                "input_action": tf.expand_dims(action, axis=0)}
+      model_output = self._model.infer(inputs)
+      observ = model_output["targets"]
+      observ = tf.cast(observ[:, 0, :, :, :], tf.float32)
+      reward = model_output["target_reward"][:, 0, 0, 0] - 1
+      reward = tf.cast(reward, tf.float32)
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
       with tf.control_dependencies([observ]):

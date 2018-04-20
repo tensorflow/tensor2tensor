@@ -250,7 +250,9 @@ class T2TModel(base.Layer):
       logits = output
     else:
       logits = self.top(output, features)
-      losses["training"] = self.loss(logits, features)
+      losses["training"] = 0.0
+      if self._hparams.mode != tf.estimator.ModeKeys.PREDICT:
+        losses["training"] = self.loss(logits, features)
 
     return logits, losses
 
