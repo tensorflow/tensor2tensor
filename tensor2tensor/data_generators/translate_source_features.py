@@ -76,21 +76,54 @@ class SourceFeatureProblem(translate.TranslateProblem):
     raise NotImplementedError()
   
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
-    sample_iterator = super().generate_samples(data_dir, tmp_dir, dataset_split)
-    
     datasets = self.source_data_files(dataset_split)
     tag = "train" if dataset_split == problem.DatasetSplit.TRAIN else "dev"
-    data_path = self.compile_sfeat_data(tmp_dir, datasets, "%s-compiled-%s" % (self.name, tag))
-        
+
+    # create shared vocabulary
+    if self.vocab_type == "subwords":
+      data_path = translate.compile_data(tmp_dir, datasets, "%s-compiled-%s" % (self.name, tag))
+      self.get_or_create_vocab(data_dir, tmp_dir)
+      sample_iterator = text_problems.text2text_txt_iterator(data_path + ".lang1",
+                                                             data_path + ".lang2")
+    elif self.vocab_type == "tokens":
+      sample_iterator = super().generate_samples(data_dir, tmp_dir, dataset_split)
+    else:
+      raise ValueError("VocabType not supported")
+
     # create source feature vocabularies
-    self.get_or_create_src_feature_vocabs(data_dir, tmp_dir)
-    
+    data_path = self.compile_sfeat_data(tmp_dir, datasets, "%s-compiled-%s" % (self.name, tag))
+    self.create_src_feature_vocabs(data_dir, tmp_dir)
     sfeat_iterator = text_problems.txt_line_iterator(data_path + ".sfeat")
+
     for sample in sample_iterator:
       sample["sfeats"] = next(sfeat_iterator)
       yield sample
+  
+  def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
+    r"""Generate shared inputs and targets vocabulary"""
+    sources = self.vocab_data_files()[0][1]
+    vocab_filepath = os.path.join(data_dir, self.vocab_filename)
+    if os.path.isfile(vocab_filepath):
+      tf.logging.info("Found vocab file: %s", self.vocab_filename)
+      return SubwordTextEncoder(vocab_filepath)
 
-  def get_or_create_src_feature_vocabs(self, data_dir, tmp_dir):
+    tf.logging.info("Generating vocab from: %s", str(sources))
+
+    def _generate(tmp_dir, sources):
+      for source in sources:
+        filepath = os.path.join(tmp_dir, source)
+        with tf.gfile.GFile(filepath, mode="r") as source_file:
+          for line in source_file: 
+            yield line.strip()
+
+    generator = _generate(tmp_dir, sources)
+    vocab = SubwordTextEncoder.build_from_generator(
+      generator, self.approx_vocab_size)
+    vocab.store_to_file(vocab_filepath)
+    return vocab
+
+
+  def create_src_feature_vocabs(self, data_dir, tmp_dir):
     r"""
     Generate as many vocabularies as there are source feature types.
     """
@@ -229,7 +262,7 @@ class SourceFeatureProblem(translate.TranslateProblem):
     current_path = data_dir+'/'+self.vocab_sfeat_filenames(i)
 
     if not os.path.isfile(current_path):
-      self.get_or_create_src_feature_vocabs(data_dir, tmp_dir)
+      self.create_src_feature_vocabs(data_dir, tmp_dir)
 
     # Search for feature vocab files on disc
     while os.path.isfile(current_path):
@@ -270,6 +303,44 @@ class SourceFeatureProblem(translate.TranslateProblem):
         p.input_modality["targets_segmentation"] = identity
         p.input_modality["targets_position"] = identity
     
+
+class SubwordTextEncoder(text_encoder.SubwordTextEncoder):
+  r"""Allow subword encoding with an arbitrary non-native tokenization.
+  The delimiter between tokens is a space. Tokenization is thus handled
+  with python str.split() method.
+  """
+  @classmethod
+  def build_from_generator(cls,
+                           generator,
+                           target_vocab_size,
+                           max_subtoken_length=None,
+                           reserved_tokens=None):
+    """Builds a SubwordTextEncoder from the generated text.
+
+    Args:
+      generator: yields text.
+      target_vocab_size: int, approximate vocabulary size to create.
+      max_subtoken_length: Maximum length of a subtoken. If this is not set,
+        then the runtime and memory use of creating the vocab is quadratic in
+        the length of the longest token. If this is set, then it is instead
+        O(max_subtoken_length * length of longest token).
+      reserved_tokens: List of reserved tokens. The global variable
+        `RESERVED_TOKENS` must be a prefix of `reserved_tokens`. If this
+        argument is `None`, it will use `RESERVED_TOKENS`.
+
+    Returns:
+      SubwordTextEncoder with `vocab_size` approximately `target_vocab_size`.
+    """
+    token_counts = defaultdict(int)
+    for item in generator:
+      for tok in item.split():
+        token_counts[tok] += 1
+    encoder = cls.build_to_target_size(
+        target_vocab_size, token_counts, 1, 1e3,
+        max_subtoken_length=max_subtoken_length,
+        reserved_tokens=reserved_tokens)
+    return encoder
+
 
 @registry.register_symbol_modality("sfeature")
 class SFeatureSymbolModality(modalities.SymbolModality):
