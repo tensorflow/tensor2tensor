@@ -95,9 +95,12 @@ class SourceFeatureProblem(translate.TranslateProblem):
     self.create_src_feature_vocabs(data_dir, tmp_dir)
     sfeat_iterator = text_problems.txt_line_iterator(data_path + ".sfeat")
 
-    for sample in sample_iterator:
-      sample["sfeats"] = next(sfeat_iterator)
-      yield sample
+    def _make_generator(sample_iterator, sfeat_iterator):
+      for sample in sample_iterator:
+        sample["sfeats"] = next(sfeat_iterator)
+        yield sample
+
+    return _make_generator(sample_iterator, sfeat_iterator)
   
   def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
     r"""Generate shared inputs and targets vocabulary"""
