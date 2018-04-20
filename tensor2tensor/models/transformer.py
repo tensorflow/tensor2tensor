@@ -278,7 +278,11 @@ class Transformer(t2t_model.T2TModel):
       if target_modality.is_class_modality:
         decode_length = 1
       else:
-        decode_length = common_layers.shape_list(inputs)[1] + decode_length
+        if 'decode_length' in features:
+          decode_length = common_layers.shape_list(inputs)[1] + features['decode_length']
+        else:
+          decode_length = common_layers.shape_list(inputs)[1] + decode_length
+
 
       # TODO(llion): Clean up this reshaping logic.
       inputs = tf.expand_dims(inputs, axis=1)
@@ -314,7 +318,11 @@ class Transformer(t2t_model.T2TModel):
       partial_targets = tf.to_int64(partial_targets)
       partial_targets_shape = common_layers.shape_list(partial_targets)
       partial_targets_length = partial_targets_shape[1]
-      decode_length += partial_targets_length
+      if 'decode_length' in features:
+        decode_length = partial_targets_length + features['decode_length']
+      else:
+        decode_length += partial_targets_length
+
       batch_size = partial_targets_shape[0]
 
     if hparams.pos == "timing":
@@ -388,7 +396,7 @@ class Transformer(t2t_model.T2TModel):
         ret = tf.cond(
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
-
+    decode_length_decide_end=features['decode_length_decide_end'] if 'decode_length_decide_end' in features else False
     ret = fast_decode(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
@@ -399,7 +407,8 @@ class Transformer(t2t_model.T2TModel):
         beam_size=beam_size,
         top_beams=top_beams,
         alpha=alpha,
-        batch_size=batch_size)
+        batch_size=batch_size,
+        decode_length_decide_end=decode_length_decide_end)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -418,7 +427,8 @@ def fast_decode(encoder_output,
                 top_beams=1,
                 alpha=1.0,
                 eos_id=beam_search.EOS_ID,
-                batch_size=None):
+                batch_size=None,
+                decode_length_decide_end=False):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding, uses beam search iff
@@ -499,7 +509,7 @@ def fast_decode(encoder_output,
       temperature = (0.0 if hparams.sampling_method == "argmax" else
                      hparams.sampling_temp)
       next_id = common_layers.sample_with_temperature(logits, temperature)
-      finished |= tf.equal(next_id, eos_id)
+      finished |= tf.equal(next_id, eos_id) #[false,true] =true
 
       log_prob_indices = tf.stack(
           [tf.range(tf.to_int64(batch_size)), next_id], axis=1)
@@ -510,7 +520,10 @@ def fast_decode(encoder_output,
       return i + 1, finished, next_id, decoded_ids, cache, log_prob
 
     def is_not_finished(i, finished, *_):
-      return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
+      if decode_length_decide_end==True:return i < decode_length
+      else:return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
+
+
 
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
     finished = tf.fill([batch_size], False)
@@ -565,7 +578,9 @@ class TransformerScorer(Transformer):
     logits = tf.squeeze(logits, [2, 3])
 
     # Compute the log probabilities
+
     log_probs = beam_search.log_prob_from_logits(logits)
+
 
     # Slice out the log_probs of the targets
     targets = features["targets"]
@@ -578,15 +593,17 @@ class TransformerScorer(Transformer):
     flat_indices = tf.stack(
         [tf.range(tf.to_int64(batch_size) * tf.to_int64(timesteps)),
          tf.to_int64(flat_targets)], axis=1)
+
     log_probs = tf.reshape(
         tf.gather_nd(flat_log_probs, flat_indices),
         [batch_size, timesteps])
 
     # Sum over time to get the log_prob of the sequence
-    scores = tf.reduce_sum(log_probs, axis=1)
 
-    return {"outputs": targets, "scores": scores}
+    scores = tf.reduce_sum(log_probs, axis=1)  #[batch,step]
 
+    return {"outputs": targets, "scores": scores} #origin
+    #return {"outputs": targets, "scores": log_prob}
 
 @registry.register_model
 class TransformerEncoder(t2t_model.T2TModel):
