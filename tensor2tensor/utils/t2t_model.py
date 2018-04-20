@@ -44,7 +44,6 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-from tensorflow.python.eager import context
 from tensorflow.python.layers import base
 from tensorflow.python.ops import variable_scope
 
@@ -717,7 +716,7 @@ class T2TModel(base.Layer):
 
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         recent_output.set_shape([None, None, None, 1])
       padded = tf.pad(recent_output, [[0, 0], [0, 1], [0, 0], [0, 0]])
       features["targets"] = padded
@@ -733,7 +732,7 @@ class T2TModel(base.Layer):
                              common_layers.shape_list(recent_output)[1], :, :]
       cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
       samples = tf.concat([recent_output, cur_sample], axis=1)
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         samples.set_shape([None, None, None, 1])
 
       # Assuming we have one shard for logits.
@@ -765,7 +764,7 @@ class T2TModel(base.Layer):
     result = initial_output
     # tensor of shape [batch_size, time, 1, 1, vocab_size]
     logits = tf.zeros((batch_size, 0, 1, 1, target_modality.top_dimensionality))
-    if not context.in_eager_mode():
+    if not tf.contrib.eager.in_eager_mode():
       logits.set_shape([None, None, None, None, None])
     loss = 0.0
 
@@ -1304,7 +1303,7 @@ class DummyVariableStore(object):
 
 
 def create_eager_var_store():
-  if context.in_eager_mode():
+  if tf.contrib.eager.in_eager_mode():
     return variable_scope.EagerVariableStore()
   else:
     return DummyVariableStore()
@@ -1405,7 +1404,7 @@ _already_logged = set()
 
 
 def _eager_log(level, *args):
-  if context.in_eager_mode() and args in _already_logged:
+  if tf.contrib.eager.in_eager_mode() and args in _already_logged:
     return
   _already_logged.add(args)
   getattr(tf.logging, level)(*args)

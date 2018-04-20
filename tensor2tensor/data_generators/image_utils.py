@@ -31,8 +31,6 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-from tensorflow.python.eager import context
-
 
 def resize_by_area(img, size):
   """image resize function used by quite a few image problems."""
@@ -159,7 +157,7 @@ class Image2ClassProblem(ImageProblem):
 
 
 def encode_images_as_png(images):
-  if context.in_eager_mode():
+  if tf.contrib.eager.in_eager_mode():
     for image in images:
       yield tf.image.encode_png(image).numpy()
   else:

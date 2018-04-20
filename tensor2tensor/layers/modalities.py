@@ -29,8 +29,6 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-from tensorflow.python.eager import context
-
 
 @registry.register_symbol_modality("default")
 class SymbolModality(modality.Modality):
@@ -97,7 +95,7 @@ class SymbolModality(modality.Modality):
     else:
       ret = tf.concat(shards, 0)
     # Convert ret to tensor.
-    if not context.in_eager_mode():
+    if not tf.contrib.eager.in_eager_mode():
       ret = eu.convert_gradient_to_tensor(ret)
     return ret
 
@@ -211,13 +209,13 @@ class ImageModality(modality.Modality):
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
       inputs = tf.to_float(inputs)
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("inputs", inputs, max_outputs=2)
       return inputs
 
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("targets_bottom",
                          tf.cast(inputs, tf.uint8), max_outputs=1)
       inputs_shape = common_layers.shape_list(inputs)
@@ -466,7 +464,7 @@ class VideoModality(modality.Modality):
         raise ValueError("Assuming videos given as tensors in the format "
                          "[batch, time, height, width, channels] but got one "
                          "of shape: %s" % str(inputs_shape))
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("inputs", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
                          max_outputs=1)
       # Standardize frames.
@@ -487,7 +485,7 @@ class VideoModality(modality.Modality):
         raise ValueError("Assuming videos given as tensors in the format "
                          "[batch, time, height, width, channels] but got one "
                          "of shape: %s" % str(inputs_shape))
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image(
             "targets_bottom", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
             max_outputs=1)

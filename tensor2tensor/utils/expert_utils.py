@@ -33,7 +33,6 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
-from tensorflow.python.eager import context
 from tensorflow.python.framework import function
 
 DEFAULT_DEV_STRING = "existing_device"
@@ -560,7 +559,7 @@ class PadRemover(object):
           x,
           indices=self.nonpad_ids,
       )
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         # This is a hack but for some reason, gather_nd return a tensor of
         # undefined shape, so the shape is set up manually
         x.set_shape([None] + x_shape[1:])
@@ -909,7 +908,7 @@ def ffn_expert_fn(input_size,
 def reshape_like(a, b):
   """Reshapes a to match the shape of b in all but the last dimension."""
   ret = tf.reshape(a, tf.concat([tf.shape(b)[:-1], tf.shape(a)[-1:]], 0))
-  if not context.in_eager_mode():
+  if not tf.contrib.eager.in_eager_mode():
     ret.set_shape(b.get_shape().as_list()[:-1] + a.get_shape().as_list()[-1:])
   return ret
 
@@ -917,7 +916,7 @@ def reshape_like(a, b):
 def flatten_all_but_last(a):
   """Flatten all dimensions of a except the last."""
   ret = tf.reshape(a, [-1, tf.shape(a)[-1]])
-  if not context.in_eager_mode():
+  if not tf.contrib.eager.in_eager_mode():
     ret.set_shape([None] + a.get_shape().as_list()[-1:])
   return ret
 
