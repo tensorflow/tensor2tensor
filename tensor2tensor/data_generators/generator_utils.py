@@ -29,7 +29,7 @@ import tarfile
 
 import requests
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 import six.moves.urllib_request as urllib  # Imports urllib on Python2, urllib.request on Python3
 
 from tensor2tensor.data_generators import text_encoder
@@ -119,7 +119,7 @@ def sharded_name(base_name, shard, total_shards):
 
 def shard_filepath(fname, num_shards):
   return [
-      sharded_name(fname, shard, num_shards) for shard in xrange(num_shards)
+      sharded_name(fname, shard, num_shards) for shard in range(num_shards)
   ]
 
 
@@ -592,7 +592,7 @@ def pack_examples(examples,
     if chop_long_sequences and len(x) > packed_length:
       assert not has_inputs
       num_fragments = len(x) // packed_length
-      for i in xrange(num_fragments):
+      for i in range(num_fragments):
         yield packer(
             x[packed_length * i:packed_length * (i + 1)], spacing).to_dict()
       x = x[packed_length * num_fragments:]

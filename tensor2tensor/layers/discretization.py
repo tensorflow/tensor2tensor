@@ -96,7 +96,7 @@ def nearest_neighbor(x,
     nearest_idx = tf.stack(
         [
             tf.multinomial(-dist[:, i, :], num_samples=num_samples)
-            for i in xrange(num_blocks)
+            for i in range(num_blocks)
         ],
         axis=1)
     nearest_hot = tf.one_hot(nearest_idx, depth=block_v_size)

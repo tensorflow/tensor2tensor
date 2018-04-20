@@ -29,7 +29,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import librispeech
 from tensor2tensor.layers import common_attention
@@ -773,8 +773,8 @@ def transformer_encoder(encoder_input,
     pad_remover = None
     if hparams.use_pad_remover and not common_layers.is_on_tpu():
       pad_remover = expert_utils.PadRemover(padding)
-    for layer in xrange(hparams.num_encoder_layers or
-                        hparams.num_hidden_layers):
+    for layer in range(hparams.num_encoder_layers or
+                       hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -844,8 +844,8 @@ def transformer_decoder(decoder_input,
       common_layers.comma_separated_string_to_integer_list(
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
   with tf.variable_scope(name):
-    for layer in xrange(hparams.num_decoder_layers or
-                        hparams.num_hidden_layers):
+    for layer in range(hparams.num_decoder_layers or
+                       hparams.num_hidden_layers):
       layer_name = "layer_%d" % layer
       layer_cache = cache[layer_name] if cache is not None else None
       with tf.variable_scope(layer_name):

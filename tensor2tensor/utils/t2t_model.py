@@ -706,7 +706,13 @@ class T2TModel(base.Layer):
       inputs_old = features["inputs"]
       features["inputs"] = tf.expand_dims(features["inputs"], 2)
     if not self.has_input:
-      features["partial_targets"] = tf.to_int64(features["inputs"])
+      # Prepare partial targets.
+      # In either features["inputs"] or features["targets"].
+      # We force the outputs to begin with these sequences.
+      partial_targets = features.get("inputs")
+      if partial_targets is None:
+        partial_targets = features["targets"]
+      features["partial_targets"] = tf.to_int64(partial_targets)
     # Save the targets in a var and reassign it after the tf.while loop to avoid
     # having targets being in a 'while' frame. This ensures targets when used
     # in metric functions stays in the same frame as other vars.
@@ -758,8 +764,14 @@ class T2TModel(base.Layer):
     if target_modality.is_class_modality:
       decode_length = 1
     else:
-      decode_length = common_layers.shape_list(
-          features["inputs"])[1] + decode_length
+      if "partial_targets" in features:
+        prefix_length = common_layers.shape_list(
+            features["partial_targets"])[1]
+      else:
+        prefix_length = common_layers.shape_list(
+            features["inputs"])[1]
+      decode_length = prefix_length + decode_length
+
     # Initial values of result, logits and loss.
     result = initial_output
     # tensor of shape [batch_size, time, 1, 1, vocab_size]

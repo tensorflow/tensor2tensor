@@ -22,7 +22,7 @@ from __future__ import print_function
 
 import numpy as np
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils as utils
 from tensor2tensor.data_generators import problem
@@ -113,9 +113,9 @@ class AlgorithmicIdentityBinary40(AlgorithmicProblem):
       A dictionary {"inputs": input-list, "targets": target-list} where
       input-list and target-list are the same.
     """
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l = np.random.randint(max_length) + 1
-      inputs = [np.random.randint(nbr_symbols) for _ in xrange(l)]
+      inputs = [np.random.randint(nbr_symbols) for _ in range(l)]
       yield {"inputs": inputs, "targets": inputs}
 
 
@@ -153,9 +153,9 @@ class AlgorithmicShiftDecimal40(AlgorithmicProblem):
       target-list[i] = input-list[i] + shift.
     """
     shift = 10
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l = np.random.randint(max_length) + 1
-      inputs = [np.random.randint(nbr_symbols - shift) for _ in xrange(l)]
+      inputs = [np.random.randint(nbr_symbols - shift) for _ in range(l)]
       yield {"inputs": inputs, "targets": [i + shift for i in inputs]}
 
   @property
@@ -187,9 +187,9 @@ class AlgorithmicReverseBinary40(AlgorithmicProblem):
       A dictionary {"inputs": input-list, "targets": target-list} where
       target-list is input-list reversed.
     """
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l = np.random.randint(max_length) + 1
-      inputs = [np.random.randint(nbr_symbols) for _ in xrange(l)]
+      inputs = [np.random.randint(nbr_symbols) for _ in range(l)]
       yield {"inputs": inputs, "targets": list(reversed(inputs))}
 
 
@@ -265,7 +265,7 @@ def reverse_generator_nlplike(nbr_symbols,
   """
   std_dev = max_length / scale_std_dev
   distr_map = zipf_distribution(nbr_symbols, alpha)
-  for _ in xrange(nbr_cases):
+  for _ in range(nbr_cases):
     l = int(abs(np.random.normal(loc=max_length / 2, scale=std_dev)) + 1)
     inputs = zipf_random_sample(distr_map, l)
     yield {"inputs": inputs, "targets": list(reversed(inputs))}
@@ -321,7 +321,7 @@ def random_number_lower_endian(length, base):
   """Helper function: generate a random number as a lower-endian digits list."""
   if length == 1:  # Last digit can be 0 only if length is 1.
     return [np.random.randint(base)]
-  prefix = [np.random.randint(base) for _ in xrange(length - 1)]
+  prefix = [np.random.randint(base) for _ in range(length - 1)]
   return prefix + [np.random.randint(base - 1) + 1]  # Last digit is not 0.
 
 
@@ -354,7 +354,7 @@ class AlgorithmicAdditionBinary40(AlgorithmicProblem):
     """
     if max_length < 3:
       raise ValueError("Maximum length must be at least 3.")
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l1 = np.random.randint(max_length // 2) + 1
       l2 = np.random.randint(max_length - l1 - 1) + 1
       n1 = random_number_lower_endian(l1, base)
@@ -405,7 +405,7 @@ class AlgorithmicMultiplicationBinary40(AlgorithmicProblem):
     """
     if max_length < 3:
       raise ValueError("Maximum length must be at least 3.")
-    for _ in xrange(nbr_cases):
+    for _ in range(nbr_cases):
       l1 = np.random.randint(max_length // 2) + 1
       l2 = np.random.randint(max_length - l1 - 1) + 1
       n1 = random_number_lower_endian(l1, base)

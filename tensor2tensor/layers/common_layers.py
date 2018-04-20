@@ -27,7 +27,7 @@ import random
 # Dependency imports
 
 import numpy as np
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import expert_utils as eu
 
 import tensorflow as tf
@@ -74,7 +74,7 @@ def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
     # Allow dimensions like "-1" as well.
     broadcast_dims = [dim + ndims if dim < 0 else dim for dim in broadcast_dims]
     kwargs["noise_shape"] = [
-        1 if i in broadcast_dims else shape[i] for i in xrange(ndims)]
+        1 if i in broadcast_dims else shape[i] for i in range(ndims)]
   return tf.nn.dropout(x, keep_prob, **kwargs)
 
 
@@ -330,7 +330,7 @@ def conv_stride2_multistep(x, nbr_steps, output_filters, name=None, reuse=None):
       out = conv(x, output_filters, (1, 1))
       return out, [out]
     hidden_layers = [x]
-    for i in xrange(nbr_steps):
+    for i in range(nbr_steps):
       hidden_layers.append(
           conv(
               hidden_layers[-1],
@@ -386,7 +386,7 @@ def deconv_stride2_multistep(x,
       return tf.depth_to_space(thicker, 2)
 
     cur = x
-    for i in xrange(nbr_steps):
+    for i in range(nbr_steps):
       if cur.get_shape()[2] == 1:
         cur = deconv1d(cur, i)
       else:
@@ -528,7 +528,7 @@ def tpu_conv1d(inputs, filters, kernel_size, padding="SAME", name="tpu_conv1d"):
   last_offset = first_offset + kernel_size - 1
   results = []
   padded = tf.pad(inputs, [[0, 0], [-first_offset, last_offset], [0, 0]])
-  for i in xrange(kernel_size):
+  for i in range(kernel_size):
     shifted = tf.slice(padded, [0, i, 0], tf.shape(inputs)) if i else inputs
     shifted.set_shape(inputs.get_shape())
     results.append(dense(
@@ -1093,7 +1093,7 @@ def multiscale_conv_and_attention(x, padding, hparams, source=None):
       x,
       hparams.hidden_size,
       [((hparams.kernel_height**i, hparams.kernel_width**i),
-        (hparams.kernel_height, hparams.kernel_width)) for i in xrange(3)],
+        (hparams.kernel_height, hparams.kernel_width)) for i in range(3)],
       "AVG",
       padding=padding)
   # For residuals a rescale if necessary if channels differ.
@@ -1908,7 +1908,7 @@ def sru(x, num_layers=2,
       cur_x_times_one_minus_f, cur_f = args_tup
       return cur_f * cur_state + cur_x_times_one_minus_f
     # Calculate SRU on each layer.
-    for i in xrange(num_layers):
+    for i in range(num_layers):
       # The parallel part of the SRU.
       x_orig = x
       x, f, r = tf.split(tf.layers.dense(x, 3 * x_shape[-1],
@@ -2111,7 +2111,7 @@ def approximate_split(x, num_splits, axis=0):
     a list of num_splits Tensors.
   """
   size = shape_list(x)[axis]
-  size_splits = [tf.div(size + i, num_splits) for i in xrange(num_splits)]
+  size_splits = [tf.div(size + i, num_splits) for i in range(num_splits)]
   return tf.split(x, size_splits, axis=axis)
 
 
@@ -2178,7 +2178,7 @@ def smoothing_cross_entropy_factored_grad(op, dy):
   b_grad = None
   a_grad_parts = []
   deps = []
-  for part in xrange(num_splits):
+  for part in range(num_splits):
     with tf.control_dependencies(deps):
       logits = tf.matmul(a[part], b, transpose_b=True)
       output_part = smoothing_cross_entropy(logits, labels[part], vocab_size,
@@ -2219,7 +2219,7 @@ def smoothing_cross_entropy_factored(a, b, labels, confidence):
   labels = approximate_split(labels, num_splits)
   a = approximate_split(a, num_splits)
   parts = []
-  for part in xrange(num_splits):
+  for part in range(num_splits):
     with tf.control_dependencies(parts[-1:]):
       logits = tf.matmul(a[part], b, transpose_b=True)
       parts.append(
@@ -2395,7 +2395,7 @@ def conv_hidden_relu_memory_efficient(x,
     x_flat = tf.reshape(x, [-1, 1, shape_list(x)[2]])
     xs = approximate_split(x_flat, num_splits)
     ys = []
-    for i in xrange(num_splits):
+    for i in range(num_splits):
       with tf.control_dependencies(ys[-1:]):
         n = layer_norm_compute_python(xs[i], epsilon, scale, bias)
         y = tf.nn.conv1d(n, f1, 1, "SAME")
@@ -2429,7 +2429,7 @@ def conv_hidden_relu_memory_efficient(x,
         dscale = 0
         dbias = 0
         deps = []
-        for i in xrange(num_splits):
+        for i in range(num_splits):
           with tf.control_dependencies(deps):
             n = layer_norm_compute_python(xs[i], epsilon, scale, bias)
             y = tf.nn.conv1d(n, f1, 1, "SAME")
@@ -2483,7 +2483,7 @@ def shape_list(x):
   shape = tf.shape(x)
 
   ret = []
-  for i in xrange(len(static)):
+  for i in range(len(static)):
     dim = static[i]
     if dim is None:
       dim = shape[i]
@@ -2590,7 +2590,7 @@ def expand_by_device(original_parallelism, device_parallelism, data):
   """
   device_to_datum = {
       device_parallelism.devices[i]: data[i]
-      for i in xrange(device_parallelism.n)}
+      for i in range(device_parallelism.n)}
   return [device_to_datum[d] for d in original_parallelism.devices]
 
 
@@ -2637,7 +2637,7 @@ def all_reduce_ring(x, parallelism, maybe_reduce=True, use_bfloat16=True):
         x_split: a list of lists of tensors
         op: a string
       """
-      for shard in xrange(parallelism.n):
+      for shard in range(parallelism.n):
         source_device = (shard + source_replica) % parallelism.n
         target_device = (shard + target_replica) % parallelism.n
         source = x_split[source_device][shard]
@@ -2655,10 +2655,10 @@ def all_reduce_ring(x, parallelism, maybe_reduce=True, use_bfloat16=True):
     # accumulate everything towards the center.
     for i in range(center, parallelism.n - 1)[::-1]:
       _step(i + 1, i, x_split, op="plus_eq")
-    for i in xrange(center):
+    for i in range(center):
       _step(i, i + 1, x_split, op="plus_eq")
     # copy everything away from the center.
-    for i in xrange(center, parallelism.n - 1):
+    for i in range(center, parallelism.n - 1):
       _step(i, i + 1, x_split, op="copy")
     for i in range(center)[::-1]:
       _step(i + 1, i, x_split, op="copy")

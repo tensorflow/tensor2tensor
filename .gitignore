@@ -1,6 +1,5 @@
 # Compiled python modules.
 *.pyc
-*.DS_Store
 
 # Byte-compiled
 _pycache__/
@@ -17,3 +16,9 @@ dist/
 # Sublime project files
 *.sublime-project
 *.sublime-workspace
+
+# Tests
+.pytest_cache/
+
+# Other
+*.DS_Store

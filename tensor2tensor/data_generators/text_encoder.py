@@ -34,7 +34,7 @@ import tempfile
 
 import numpy as np
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
@@ -385,7 +385,7 @@ class TokenTextEncoder(TextEncoder):
       filename: Full path of the file to store the vocab to.
     """
     with tf.gfile.Open(filename, "w") as f:
-      for i in xrange(len(self._id_to_token)):
+      for i in range(len(self._id_to_token)):
         f.write(self._id_to_token[i] + "\n")
 
 
@@ -599,7 +599,7 @@ class SubwordTextEncoder(TextEncoder):
     start = 0
     token_len = len(escaped_token)
     while start < token_len:
-      for end in xrange(
+      for end in range(
           min(token_len, start + self._max_subtoken_len), start, -1):
         subtoken = escaped_token[start:end]
         if subtoken in self._subtoken_string_to_id:
@@ -785,7 +785,7 @@ class SubwordTextEncoder(TextEncoder):
     # with high enough counts for our new vocabulary.
     if min_count < 1:
       min_count = 1
-    for i in xrange(num_iterations):
+    for i in range(num_iterations):
       tf.logging.info("Iteration {0}".format(i))
 
       # Collect all substrings of the encoded token that break along current
@@ -800,7 +800,7 @@ class SubwordTextEncoder(TextEncoder):
           if max_subtoken_length is not None:
             last_position = min(last_position, start + max_subtoken_length)
 
-          for end in xrange(start + 1, last_position):
+          for end in range(start + 1, last_position):
             new_subtoken = escaped_token[start:end]
             subtoken_counts[new_subtoken] += count
           start += len(subtoken)
@@ -817,7 +817,7 @@ class SubwordTextEncoder(TextEncoder):
       # Consider the candidates longest to shortest, so that if we accept
       # a longer subtoken string, we can decrement the counts of its prefixes.
       new_subtoken_strings = []
-      for lsub in xrange(len(len_to_subtoken_strings) - 1, 0, -1):
+      for lsub in range(len(len_to_subtoken_strings) - 1, 0, -1):
         subtoken_strings = len_to_subtoken_strings[lsub]
         for subtoken_string in subtoken_strings:
           count = subtoken_counts[subtoken_string]
@@ -826,7 +826,7 @@ class SubwordTextEncoder(TextEncoder):
             # explicitly, regardless of count.
             if subtoken_string not in self._alphabet:
               new_subtoken_strings.append((count, subtoken_string))
-            for l in xrange(1, lsub):
+            for l in range(1, lsub):
               subtoken_counts[subtoken_string[:l]] -= count
 
       # Include the alphabet explicitly to guarantee all strings are encodable.

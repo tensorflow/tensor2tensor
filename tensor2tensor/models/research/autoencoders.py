@@ -91,7 +91,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
       if hparams.residual_use_separable_conv:
         residual_conv = tf.layers.separable_conv2d
       # Down-convolutions.
-      for i in xrange(hparams.num_hidden_layers):
+      for i in range(hparams.num_hidden_layers):
         with tf.variable_scope("layer_%d" % i):
           x = tf.nn.dropout(x, 1.0 - hparams.dropout)
           filters = hparams.hidden_size * 2**(i + 1)
@@ -100,7 +100,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
               x, filters, kernel, strides=strides,
               padding="SAME", activation=common_layers.belu, name="strided")
           y = x
-          for r in xrange(hparams.num_residual_layers):
+          for r in range(hparams.num_residual_layers):
             residual_filters = filters
             if r < hparams.num_residual_layers - 1:
               residual_filters = int(
@@ -125,7 +125,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
       if hparams.residual_use_separable_conv:
         residual_conv = tf.layers.separable_conv2d
       # Up-convolutions.
-      for i in xrange(hparams.num_hidden_layers):
+      for i in range(hparams.num_hidden_layers):
         x = tf.nn.dropout(x, 1.0 - hparams.dropout)
         j = hparams.num_hidden_layers - i - 1
         filters = hparams.hidden_size * 2**j
@@ -137,7 +137,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
               x, filters, kernel, strides=strides,
               padding="SAME", activation=common_layers.belu, name="strided")
           y = x
-          for r in xrange(hparams.num_residual_layers):
+          for r in range(hparams.num_residual_layers):
             residual_filters = filters
             if r < hparams.num_residual_layers - 1:
               residual_filters = int(

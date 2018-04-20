@@ -20,7 +20,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
@@ -117,7 +117,7 @@ def multi_conv_res(x, padding, name, layers, hparams, mask=None, source=None):
         return common_layers.apply_norm(
             x, hparams.norm_type, hparams.hidden_size, hparams.norm_epsilon)
 
-    for layer in xrange(layers):
+    for layer in range(layers):
       with tf.variable_scope("layer_%d" % layer):
         y = common_layers.subseparable_conv_block(
             x,

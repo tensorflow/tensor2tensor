@@ -116,7 +116,7 @@ def noise_from_step_num():
   # Computation in doubles does not work on TPU, so we use this complicated
   # alternative computation which does not suffer from these roundoff errors.
   ret = 0.0
-  for i in xrange(30):
+  for i in range(30):
     ret += (((phi * (2 ** i)) % 1.0)  # double-precision computation in python
             * tf.to_float(tf.mod(step // (2 ** i), 2)))
   return tf.mod(ret, 1.0)

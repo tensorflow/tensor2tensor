@@ -20,7 +20,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils as eu
@@ -82,7 +82,7 @@ class SymbolModality(modality.Modality):
       hidden_dim = self._body_input_depth
     num_shards = self._model_hparams.symbol_modality_num_shards
     shards = []
-    for i in xrange(num_shards):
+    for i in range(num_shards):
       shard_size = (self._vocab_size // num_shards) + (
           1 if i < self._vocab_size % num_shards else 0)
       var_name = "weights_%d" % i
@@ -335,7 +335,7 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
     rgb_embedding_var = tf.identity(rgb_embedding_var)
     rgb_embedding_var *= float(hidden_size)**0.5
     channel_target_embs = []
-    for i in xrange(io_depth):
+    for i in range(io_depth):
       # Adding the channel offsets to get the right embedding since the
       # embedding tensor has shape 256 * io_depth, hidden_size
       target_ids = tf.squeeze(targets_split[i], axis=3) + i * 256
@@ -402,7 +402,7 @@ class AudioModality(modality.Modality):
 
       x = tf.to_float(inputs) / 255.
       x.set_shape([None, None, None, 1])
-      for i in xrange(self._model_hparams.audio_compression):
+      for i in range(self._model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
       return xnet_resblock(x, self._body_input_depth, False,
                            "compress_block_final")
@@ -446,7 +446,7 @@ class AudioSpectralModality(modality.Modality):
       # Bitcast back from int32
       x = tf.bitcast(inputs, tf.float32)
       x.set_shape([None, None, None, 1])
-      for i in xrange(self._model_hparams.audio_compression):
+      for i in range(self._model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
       return xnet_resblock(x, self._body_input_depth, False,
                            "compress_block_final")

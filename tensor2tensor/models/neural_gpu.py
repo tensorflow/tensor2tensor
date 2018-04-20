@@ -21,7 +21,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
@@ -37,7 +37,7 @@ def neural_gpu_body(inputs, hparams, name=None):
 
     def step(state, inp):  # pylint: disable=missing-docstring
       x = tf.nn.dropout(state, 1.0 - hparams.dropout)
-      for layer in xrange(hparams.num_hidden_layers):
+      for layer in range(hparams.num_hidden_layers):
         x = common_layers.conv_gru(
             x, (hparams.kernel_height, hparams.kernel_width),
             hparams.hidden_size,
@@ -70,7 +70,7 @@ def diagonal_neural_gpu(inputs, hparams, name=None):
       """Single step of the improved Neural GPU."""
       state, _ = state_tup
       x = state
-      for layer in xrange(hparams.num_hidden_layers):
+      for layer in range(hparams.num_hidden_layers):
         x, new_loss = common_layers.diagonal_conv_gru(
             x, (hparams.kernel_height, hparams.kernel_width),
             hparams.hidden_size,

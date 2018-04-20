@@ -23,7 +23,7 @@ import math
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
@@ -36,7 +36,7 @@ import tensorflow as tf
 def residual_block(x, hparams):
   """A stack of convolution blocks with residual connection."""
   k = (hparams.kernel_height, hparams.kernel_width)
-  dilations_and_kernels = [((1, 1), k) for _ in xrange(3)]
+  dilations_and_kernels = [((1, 1), k) for _ in range(3)]
   y = common_layers.subseparable_conv_block(
       x,
       hparams.hidden_size,
@@ -66,7 +66,7 @@ def xception_internal(inputs, hparams):
           force2d=True,
           name="small_image_conv")
 
-    for i in xrange(hparams.num_hidden_layers):
+    for i in range(hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % i):
         cur = residual_block(cur, hparams)
 
