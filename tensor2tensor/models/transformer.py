@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Transformer model from "Attention Is All You Need".
 
 The Transformer model consists of an encoder and a decoder. Both are stacks
@@ -160,6 +159,7 @@ class Transformer(t2t_model.T2TModel):
       encoder_output, encoder_decoder_attention_bias = (None, None)
 
     targets = features["targets"]
+    targets_shape = common_layers.shape_list(targets)
     targets = common_layers.flatten4d3d(targets)
 
     decoder_input, decoder_self_attention_bias = transformer_prepare_decoder(
@@ -181,7 +181,7 @@ class Transformer(t2t_model.T2TModel):
           hparams.expected_attention_loss_multiplier)
       return decoder_output, {"attention_loss": attention_loss}
 
-    return decoder_output
+    return tf.reshape(decoder_output, targets_shape)
 
   def _greedy_infer(self, features, decode_length):
     """Fast version of greedy decoding.

@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data generators for translation data-sets."""
 
 from __future__ import absolute_import
@@ -32,22 +31,22 @@ EOS = text_encoder.EOS_ID
 
 # For English-Macedonian the SETimes corpus
 # from http://nlp.ffzg.hr/resources/corpora/setimes/ is used.
+# The original dataset has 207,777 parallel sentences.
+# For training the first 205,777 sentences are used.
 _ENMK_TRAIN_DATASETS = [[
-    "http://nlp.ffzg.hr/data/corpora/setimes/setimes.en-mk.txt.tgz",  # pylint: disable=line-too-long
-    ("setimes.en-mk.en.txt", "setimes.en-mk.mk.txt")
+    "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.train.tgz",  # pylint: disable=line-too-long
+    ("train.en", "train.mk")
 ]]
 
-# For development the MULTEXT-East "1984" corpus from
-# https://www.clarin.si/repository/xmlui/handle/11356/1043 is used.
-# 4,986 parallel sentences are used for evaluation.
-_ENMK_DEV_DATASETS = [[
-    "https://github.com/stefan-it/nmt-en-mk/raw/master/data/MTE-1984-dev.enmk.tgz",  # pylint: disable=line-too-long
-    ("MTE1984-dev.en", "MTE1984-dev.mk")
+# For development 1000 parallel sentences are used.
+_ENMK_TEST_DATASETS = [[
+    "https://github.com/stefan-it/nmt-mk-en/raw/master/data/setimes.mk-en.dev.tgz",  # pylint: disable=line-too-long
+    ("dev.en", "dev.mk")
 ]]
 
 
 # See this PR on github for some results with Transformer on these Problems.
-# https://github.com/tensorflow/tensor2tensor/pull/738
+# https://github.com/tensorflow/tensor2tensor/pull/626
 
 
 @registry.register_problem
@@ -64,7 +63,7 @@ class TranslateEnmkSetimes32k(translate.TranslateProblem):
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
-    return _ENMK_TRAIN_DATASETS if train else _ENMK_DEV_DATASETS
+    return _ENMK_TRAIN_DATASETS if train else _ENMK_TEST_DATASETS
 
 
 @registry.register_problem
@@ -77,4 +76,4 @@ class TranslateEnmkSetimesCharacters(translate.TranslateProblem):
 
   def source_data_files(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
-    return _ENMK_TRAIN_DATASETS if train else _ENMK_DEV_DATASETS
+    return _ENMK_TRAIN_DATASETS if train else _ENMK_TEST_DATASETS

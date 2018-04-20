@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for tensor2tensor.utils.metrics."""
 from __future__ import absolute_import
 from __future__ import division
@@ -198,29 +197,6 @@ class CommonLayersTest(tf.test.TestCase):
       session.run(tf.local_variables_initializer())
       s = session.run(score)
     self.assertAlmostEqual(s, 0.688, places=3)
-
-  def testRocAuc(self):
-    logits = np.array([
-        [-1., 1.],
-        [1., -1.],
-        [1., -1.],
-        [1., -1.]
-    ])
-    labels = np.array([
-        [1],
-        [0],
-        [1],
-        [0]
-    ])
-    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
-    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
-
-    with self.test_session() as session:
-      score, _ = metrics.roc_auc(logits, labels)
-      session.run(tf.global_variables_initializer())
-      session.run(tf.local_variables_initializer())
-      s = session.run(score)
-    self.assertAlmostEqual(s, 0.750, places=3)
 
 
 if __name__ == '__main__':

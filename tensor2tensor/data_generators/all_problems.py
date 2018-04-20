@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Imports for problem modules."""
 from __future__ import absolute_import
 from __future__ import division
@@ -48,7 +47,6 @@ modules = [
     "tensor2tensor.data_generators.squad",
     "tensor2tensor.data_generators.translate_encs",
     "tensor2tensor.data_generators.translate_ende",
-    "tensor2tensor.data_generators.translate_enet",
     "tensor2tensor.data_generators.translate_enfr",
     "tensor2tensor.data_generators.translate_enmk",
     "tensor2tensor.data_generators.translate_envi",

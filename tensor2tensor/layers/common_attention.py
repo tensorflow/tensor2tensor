@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utilities for attention."""
 from __future__ import absolute_import
 from __future__ import division
@@ -26,6 +25,7 @@ import operator
 # Dependency imports
 import numpy as np
 
+from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 

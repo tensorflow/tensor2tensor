@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utils for metrics used in eval."""
 from __future__ import absolute_import
 from __future__ import division
@@ -55,7 +54,6 @@ class Metrics(object):
   SIGMOID_RECALL_ONE_HOT = "sigmoid_recall_one_hot"
   SIGMOID_PRECISION_ONE_HOT = "sigmoid_precision_one_hot"
   SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
-  ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
 
 
@@ -353,27 +351,6 @@ def sigmoid_cross_entropy_one_hot(logits, labels, weights_fn=None):
     return cross_entropy, tf.constant(1.0)
 
 
-def roc_auc(logits,
-            labels,
-            weights_fn=None):
-  """Calculate ROC AUC.
-
-  Requires binary classes.
-
-  Args:
-    logits: Tensor of size [batch-size, o=1, p=1, num-classes]
-    labels: Tensor of size [batch-size, o=1, p=1, num-classes]
-    weights_fn: Function that takes in labels and weighs examples (unused)
-  Returns:
-    ROC AUC (scalar), weights
-  """
-  del weights_fn
-  with tf.variable_scope("roc_auc", values=[logits, labels]):
-    predictions = tf.argmax(logits, axis=-1)
-    _, auc = tf.metrics.auc(labels, predictions, curve='ROC')
-    return auc, tf.constant(1.0)
-
-
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
 
@@ -541,7 +518,6 @@ METRICS_FNS = {
     Metrics.SIGMOID_RECALL_ONE_HOT: sigmoid_recall_one_hot,
     Metrics.SIGMOID_PRECISION_ONE_HOT: sigmoid_precision_one_hot,
     Metrics.SIGMOID_CROSS_ENTROPY_ONE_HOT: sigmoid_cross_entropy_one_hot,
-    Metrics.ROC_AUC: roc_auc,
     Metrics.SET_PRECISION: set_precision,
     Metrics.SET_RECALL: set_recall,
     Metrics.IMAGE_SUMMARY: image_summary,
