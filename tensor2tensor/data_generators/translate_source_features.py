@@ -95,14 +95,14 @@ class SourceFeatureProblem(translate.TranslateProblem):
     self.create_src_feature_vocabs(data_dir, tmp_dir)
     sfeat_iterator = text_problems.txt_line_iterator(data_path + ".sfeat")
 
-    def _make_generator(sample_iterator, sfeat_iterator):
+    def _generate(sample_iterator, sfeat_iterator):
       for sample in sample_iterator:
         sample["sfeats"] = next(sfeat_iterator)
         yield sample
 
-    return _make_generator(sample_iterator, sfeat_iterator)
+    return _generate(sample_iterator, sfeat_iterator)
   
-  def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
+  def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False, file_byte_budget=1e6):
     r"""Generate shared inputs and targets vocabulary"""
     sources = self.vocab_data_files()[0][1]
     vocab_filepath = os.path.join(data_dir, self.vocab_filename)
@@ -116,8 +116,19 @@ class SourceFeatureProblem(translate.TranslateProblem):
       for source in sources:
         filepath = os.path.join(tmp_dir, source)
         with tf.gfile.GFile(filepath, mode="r") as source_file:
-          for line in source_file: 
-            yield line.strip()
+          file_byte_budget_ = file_byte_budget
+          counter = 0
+          countermax = int(source_file.size() / file_byte_budget_ / 2)
+          for line in source_file:
+            if counter < countermax:
+              counter += 1
+            else:
+              if file_byte_budget_ <= 0:
+                break
+              line = line.strip()
+              file_byte_budget_ -= len(line)
+              counter = 0
+              yield line
 
     generator = _generate(tmp_dir, sources)
     vocab = SubwordTextEncoder.build_from_generator(
