@@ -13,7 +13,7 @@ Currently the only supported algorithm is Proximal Policy Optimization - PPO.
 
 ```
 python rl/t2t_rl_trainer.py \
-  --problems=Pendulum-v0 \
+  --problem=Pendulum-v0 \
   --hparams_set continuous_action_base \
   [--output_dir dir_location]
 ```
@@ -45,7 +45,7 @@ python tensor2tensor/bin/t2t-trainer \
   --generate_data \
   --data_dir=~/t2t_data \
   --output_dir=~/t2t_data/output \
-  --problems=gym_pong_random5k \
+  --problem=gym_pong_random5k \
   --model=basic_conv_gen \
   --hparams_set=basic_conv_small \
   --train_steps=1000 \

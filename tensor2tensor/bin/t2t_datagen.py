@@ -70,7 +70,7 @@ flags.DEFINE_integer("task_id", -1, "For distributed data generation.")
 flags.DEFINE_integer("task_id_start", -1, "For distributed data generation.")
 flags.DEFINE_integer("task_id_end", -1, "For distributed data generation.")
 flags.DEFINE_integer(
-    "num_concurrent_processes", 10,
+    "num_concurrent_processes", None,
     "Applies only to problems for which multiprocess_generate=True.")
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "

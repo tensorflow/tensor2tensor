@@ -46,7 +46,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
@@ -69,7 +69,7 @@ class TransformerSymshard(t2t_model.T2TModel):
     assert hparams.num_model_shards % len(ps_devices) == 0
     shards_per_device = hparams.num_model_shards // len(ps_devices)
     model_devices = [ps_devices[i // shards_per_device]
-                     for i in xrange(hparams.num_model_shards)]
+                     for i in range(hparams.num_model_shards)]
     print("model_devices = %s" % model_devices)
     mp = expert_utils.Parallelism(model_devices, reuse=False)
     targets_vocab_size = self._problem_hparams.vocabulary["targets"].vocab_size

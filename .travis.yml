@@ -8,14 +8,11 @@ env:
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
   matrix:
-    - TF_VERSION="1.4.*"
     - TF_VERSION="1.5.*"
     - TF_VERSION="1.6.*"
     - TF_VERSION="1.7.*"
 matrix:
   exclude:
-    - python: "3.6"
-      env: TF_VERSION="1.4.*"
     - python: "3.6"
       env: TF_VERSION="1.5.*"
     - python: "3.6"
@@ -57,13 +54,13 @@ script:
 
   # Run data generation, training, and decoding on a dummy problem
   - t2t-datagen --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR
-  - t2t-trainer --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
-  - t2t-decoder --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
+  - t2t-trainer --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
+  - t2t-decoder --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
 
   # Export and query (on Python 2 only)
   # Bug: https://github.com/tensorflow/serving/issues/819
   #- if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "1.6.*"  ]]; then
-  #      t2t-exporter --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR;
+  #      t2t-exporter --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR;
   #      pip install tensorflow-serving-api;
   #      tensorflow_model_server --port=9000 --model_name=my_model --model_base_path=$T2T_TRAIN_DIR/export/Servo &
   #      sleep 10;

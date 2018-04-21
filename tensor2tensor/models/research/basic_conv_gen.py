@@ -21,6 +21,8 @@ from __future__ import print_function
 
 # Dependency imports
 
+import six
+
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -31,6 +33,7 @@ import tensorflow as tf
 
 @registry.register_model
 class BasicConvGen(t2t_model.T2TModel):
+  """Basic convolutional next-frame model."""
 
   def body(self, features):
     hparams = self.hparams
@@ -46,11 +49,12 @@ class BasicConvGen(t2t_model.T2TModel):
         x, x, final_length_divisible_by=2**hparams.num_compress_steps, axis=2)
 
     # Down-stride.
-    for _ in range(hparams.num_compress_steps):
-      x = tf.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
-                           strides=(2, 2), padding="SAME")
-      x = common_layers.layer_norm(x)
-      filters *= 2
+    for i in range(hparams.num_compress_steps):
+      with tf.variable_scope("downstride%d" % i):
+        x = tf.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
+                             strides=(2, 2), padding="SAME")
+        x = common_layers.layer_norm(x)
+        filters *= 2
 
     # Add embedded action.
     action = tf.reshape(features["input_action"][:, 1, :],
@@ -71,27 +75,62 @@ class BasicConvGen(t2t_model.T2TModel):
           x = common_layers.layer_norm(x + y)
 
     # Up-convolve.
-    for _ in range(hparams.num_compress_steps):
-      filters //= 2
-      x = tf.layers.conv2d_transpose(
-          x, filters, kernel2, activation=common_layers.belu,
-          strides=(2, 2), padding="SAME")
-      x = common_layers.layer_norm(x)
-      x = tf.nn.dropout(x, 1.0 - hparams.dropout)
+    for i in range(hparams.num_compress_steps):
+      with tf.variable_scope("upstride%d" % i):
+        filters //= 2
+        x = tf.layers.conv2d_transpose(
+            x, filters, kernel2, activation=common_layers.belu,
+            strides=(2, 2), padding="SAME")
+        x = common_layers.layer_norm(x)
+        x = tf.nn.dropout(x, 1.0 - hparams.dropout)
 
     # Cut down to original size.
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
 
     # Reward prediction.
-    reward_pred_h1 = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
-    # Rewards are {-1, 0, 1} so we predict 3.
-    reward_pred = tf.layers.dense(reward_pred_h1, 3, name="reward")
-    reward_gold = tf.expand_dims(tf.to_int32(
-        features["input_reward_raw"][:, 1, :]), axis=1)
-    reward_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        labels=reward_gold, logits=reward_pred, name="reward_loss")
-    reward_loss = tf.reduce_mean(reward_loss)
-    return x, {"reward": reward_loss}
+    reward_pred = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
+    return {"targets": x, "target_reward": reward_pred}
+
+  def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
+            alpha=0.0):
+    """Produce predictions from the model by running it."""
+    # Inputs and features preparation needed to handle edge cases.
+    if not features:
+      features = {}
+    inputs_old = None
+    if "inputs" in features and len(features["inputs"].shape) < 4:
+      inputs_old = features["inputs"]
+      features["inputs"] = tf.expand_dims(features["inputs"], 2)
+
+    # Get predictions.
+    try:
+      num_channels = self._hparams.problem.num_channels
+    except AttributeError:
+      num_channels = 1
+    features["targets"] = tf.zeros(
+        [self._hparams.batch_size, 1, 1, 1, num_channels], dtype=tf.int32)
+    features["target_reward"] = tf.zeros(
+        [self._hparams.batch_size, 1, 1], dtype=tf.int32)
+    logits, _ = self(features)  # pylint: disable=not-callable
+    if isinstance(logits, dict):
+      results = {}
+      for k, v in six.iteritems(logits):
+        # Argmax in TF doesn't handle more than 5 dimensions yet.
+        v_shape = common_layers.shape_list(v)
+        argmax = tf.argmax(tf.reshape(v, [-1, v_shape[-1]]), axis=-1)
+        results[k] = tf.reshape(argmax, v_shape[:-1])
+    else:
+      # Argmax in TF doesn't handle more than 5 dimensions yet.
+      logits_shape = common_layers.shape_list(logits)
+      argmax = tf.argmax(tf.reshape(logits, [-1, logits_shape[-1]]), axis=-1)
+      results = tf.reshape(argmax, logits_shape[:-1])
+
+    # Restore inputs to not confuse Estimator in edge cases.
+    if inputs_old is not None:
+      features["inputs"] = inputs_old
+
+    # Return results.
+    return results
 
 
 @registry.register_hparams

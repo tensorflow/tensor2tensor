@@ -25,7 +25,7 @@ import tempfile
 # Dependency imports
 
 import numpy as np
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem as problem_mod
@@ -39,7 +39,7 @@ import tensorflow as tf
 class TestProblem(problem_mod.Problem):
 
   def generator(self, data_dir, tmp_dir, is_training):
-    for i in xrange(30):
+    for i in range(30):
       yield {"inputs": [i] * (i + 1), "targets": [i], "floats": [i + 0.5]}
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
@@ -98,7 +98,7 @@ class DataReaderTest(tf.test.TestCase):
     with tf.train.MonitoredSession() as sess:
       # Check that there are multiple examples that have the right fields of the
       # right type (lists of int/float).
-      for _ in xrange(10):
+      for _ in range(10):
         ex_val = sess.run(examples)
         inputs, targets, floats = (ex_val["inputs"], ex_val["targets"],
                                    ex_val["floats"])
@@ -130,7 +130,7 @@ class DataReaderTest(tf.test.TestCase):
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       ex_lens = []
-      for _ in xrange(max_len):
+      for _ in range(max_len):
         ex_lens.append(len(sess.run(examples)["inputs"]))
 
     self.assertAllEqual(list(range(1, max_len + 1)), sorted(ex_lens))

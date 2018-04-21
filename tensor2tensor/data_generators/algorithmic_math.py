@@ -28,7 +28,7 @@ import random
 # Dependency imports
 
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 import sympy
 
 
@@ -421,7 +421,7 @@ def math_dataset_init(alphabet_size=26, digits=None, functions=None):
     raise ValueError("digits cannot must be between 1 and 10. Got %s." % digits)
   vlist = alphabet[:alphabet_size]
   if digits is not None:
-    dlist = [str(d) for d in xrange(digits)]
+    dlist = [str(d) for d in range(digits)]
   else:
     dlist = []
   if functions is None:
@@ -481,7 +481,7 @@ def algebra_inverse(alphabet_size=26, min_depth=0, max_depth=2,
                      "Got max_depth=%s, min_depth=%s" % (max_depth, min_depth))
 
   alg_cfg = math_dataset_init(alphabet_size)
-  for _ in xrange(nbr_cases):
+  for _ in range(nbr_cases):
     sample, target = generate_algebra_inverse_sample(
         alg_cfg.vlist,
         list(alg_cfg.ops.values()), alg_cfg.solve_ops, min_depth, max_depth)
@@ -522,7 +522,7 @@ def algebra_simplify(alphabet_size=26,
                      "Got max_depth=%s, min_depth=%s" % (max_depth, min_depth))
 
   alg_cfg = math_dataset_init(alphabet_size, digits=5)
-  for _ in xrange(nbr_cases):
+  for _ in range(nbr_cases):
     sample, target = generate_algebra_simplify_sample(
         alg_cfg.vlist, list(alg_cfg.ops.values()), min_depth, max_depth)
     yield {

@@ -20,7 +20,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils as eu
@@ -28,8 +28,6 @@ from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
-from tensorflow.python.eager import context
 
 
 @registry.register_symbol_modality("default")
@@ -84,7 +82,7 @@ class SymbolModality(modality.Modality):
       hidden_dim = self._body_input_depth
     num_shards = self._model_hparams.symbol_modality_num_shards
     shards = []
-    for i in xrange(num_shards):
+    for i in range(num_shards):
       shard_size = (self._vocab_size // num_shards) + (
           1 if i < self._vocab_size % num_shards else 0)
       var_name = "weights_%d" % i
@@ -97,7 +95,7 @@ class SymbolModality(modality.Modality):
     else:
       ret = tf.concat(shards, 0)
     # Convert ret to tensor.
-    if not context.in_eager_mode():
+    if not tf.contrib.eager.in_eager_mode():
       ret = eu.convert_gradient_to_tensor(ret)
     return ret
 
@@ -211,13 +209,13 @@ class ImageModality(modality.Modality):
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
       inputs = tf.to_float(inputs)
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("inputs", inputs, max_outputs=2)
       return inputs
 
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("targets_bottom",
                          tf.cast(inputs, tf.uint8), max_outputs=1)
       inputs_shape = common_layers.shape_list(inputs)
@@ -240,7 +238,7 @@ class ImageModality(modality.Modality):
 
   def top(self, body_output, _):
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
-    num_channels = self._model_hparams.problem_instances[0].num_channels
+    num_channels = self._model_hparams.problem.num_channels
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
@@ -258,8 +256,7 @@ class ImageModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        weights_fn=self.targets_weights_fn,
-        gaussian=True)
+        weights_fn=self.targets_weights_fn)
 
 
 @registry.register_image_modality("image_channel_compress")
@@ -338,7 +335,7 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
     rgb_embedding_var = tf.identity(rgb_embedding_var)
     rgb_embedding_var *= float(hidden_size)**0.5
     channel_target_embs = []
-    for i in xrange(io_depth):
+    for i in range(io_depth):
       # Adding the channel offsets to get the right embedding since the
       # embedding tensor has shape 256 * io_depth, hidden_size
       target_ids = tf.squeeze(targets_split[i], axis=3) + i * 256
@@ -405,7 +402,7 @@ class AudioModality(modality.Modality):
 
       x = tf.to_float(inputs) / 255.
       x.set_shape([None, None, None, 1])
-      for i in xrange(self._model_hparams.audio_compression):
+      for i in range(self._model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
       return xnet_resblock(x, self._body_input_depth, False,
                            "compress_block_final")
@@ -449,7 +446,7 @@ class AudioSpectralModality(modality.Modality):
       # Bitcast back from int32
       x = tf.bitcast(inputs, tf.float32)
       x.set_shape([None, None, None, 1])
-      for i in xrange(self._model_hparams.audio_compression):
+      for i in range(self._model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
       return xnet_resblock(x, self._body_input_depth, False,
                            "compress_block_final")
@@ -465,8 +462,9 @@ class VideoModality(modality.Modality):
       inputs_shape = common_layers.shape_list(inputs)
       if len(inputs_shape) != 5:
         raise ValueError("Assuming videos given as tensors in the format "
-                         "[batch, time, height, width, channels].")
-      if not context.in_eager_mode():
+                         "[batch, time, height, width, channels] but got one "
+                         "of shape: %s" % str(inputs_shape))
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("inputs", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
                          max_outputs=1)
       # Standardize frames.
@@ -485,8 +483,9 @@ class VideoModality(modality.Modality):
       inputs_shape = common_layers.shape_list(inputs)
       if len(inputs_shape) != 5:
         raise ValueError("Assuming videos given as tensors in the format "
-                         "[batch, time, height, width, channels].")
-      if not context.in_eager_mode():
+                         "[batch, time, height, width, channels] but got one "
+                         "of shape: %s" % str(inputs_shape))
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image(
             "targets_bottom", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
             max_outputs=1)
@@ -511,8 +510,8 @@ class VideoModality(modality.Modality):
       return merged
 
   def top(self, body_output, _):
-    num_channels = self._model_hparams.problem_instances[0].num_channels
-    num_frames = self._model_hparams.problem_instances[0].num_target_frames
+    num_channels = self._model_hparams.problem.num_channels
+    num_frames = self._model_hparams.problem.num_target_frames
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
@@ -535,8 +534,7 @@ class VideoModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        weights_fn=self.targets_weights_fn,
-        gaussian=True)
+        weights_fn=self.targets_weights_fn)
 
 
 @registry.register_class_label_modality("default")
@@ -684,7 +682,7 @@ class SigmoidClassLabelModality(ClassLabelModality):
     return loss_scale, loss_denom
 
 
-@registry.register_class_label_modality("sigmoid_pooling")
+@registry.register_class_label_modality("sigmoid_max_pooling")
 class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
   """Sigmoid cross-entropy applied on max-pooling over timesteps."""
 

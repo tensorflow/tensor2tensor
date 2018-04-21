@@ -100,10 +100,10 @@ def cifar_generator(cifar_version, tmp_dir, training, how_many, start_from=0):
     num_images = images.shape[0]
     images = images.reshape((num_images, 3, image_size, image_size))
     all_images.extend([
-        np.squeeze(images[j]).transpose((1, 2, 0)) for j in xrange(num_images)
+        np.squeeze(images[j]).transpose((1, 2, 0)) for j in range(num_images)
     ])
     labels = data[label_key]
-    all_labels.extend([labels[j] for j in xrange(num_images)])
+    all_labels.extend([labels[j] for j in range(num_images)])
   return image_utils.image_generator(
       all_images[start_from:start_from + how_many],
       all_labels[start_from:start_from + how_many])

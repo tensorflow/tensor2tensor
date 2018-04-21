@@ -20,7 +20,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
@@ -138,7 +138,7 @@ class MultiModel(t2t_model.T2TModel):
     inputs_mask = dp(lambda x: 1.0 - x, inputs_pad)
     inputs_encoded = dp(common_layers.add_timing_signal, inputs)
     expert_loss = 0.0
-    for i in xrange(hparams.num_hidden_layers):
+    for i in range(hparams.num_hidden_layers):
       with tf.variable_scope("enc_layer_%d" % i):
         inputs_encoded, moe_loss = conv_experts(inputs_encoded, hparams, dp,
                                                 self._ps_devices, "SAME",
@@ -168,7 +168,7 @@ class MultiModel(t2t_model.T2TModel):
     expert_fn = expert_utils.ffn_expert_fn(
         hparams.hidden_size, moe_hidden_sizes, hparams.hidden_size)
     x = dp(tf.nn.dropout, decoder_input, 1.0 - hparams.dropout)
-    for layer in xrange(hparams.num_hidden_layers):
+    for layer in range(hparams.num_hidden_layers):
       with tf.variable_scope("dec_layer_%d" % layer):
         with tf.variable_scope("attention"):
           y = dp(

@@ -47,7 +47,7 @@ with an integer denoting the length of the input list.
 
 ```
 def length_generator(nbr_cases):
-  for _ in xrange(nbr_cases):
+  for _ in range(nbr_cases):
     length = np.random.randint(100) + 1
     yield {"inputs": [2] * length, "targets": [length]}
 ```

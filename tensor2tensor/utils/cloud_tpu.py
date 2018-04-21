@@ -29,6 +29,7 @@ import subprocess as sp
 import time
 
 from six.moves import input  # pylint: disable=redefined-builtin
+from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
 
 TPU_IP = "10.240.%d.2"
@@ -216,7 +217,7 @@ def shell_background(cmd_, **kwargs):
 
 
 def shell_output(cmd_, **kwargs):
-  return sp.check_output(format_cmd(cmd_, **kwargs))
+  return text_encoder.to_unicode(sp.check_output(format_cmd(cmd_, **kwargs)))
 
 
 def shell_run(cmd_, **kwargs):

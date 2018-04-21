@@ -245,8 +245,7 @@ def problem(name):
     """Determines if problem_name specifies a copy and/or reversal.
 
     Args:
-      problem_name: A string containing a single problem name from
-        FLAGS.problems.
+      problem_name: str, problem name, possibly with suffixes.
 
     Returns:
       base_name: A string with the base problem name.

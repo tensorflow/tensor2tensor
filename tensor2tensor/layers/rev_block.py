@@ -27,7 +27,7 @@ import re
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
 import tensorflow as tf
@@ -117,7 +117,7 @@ def _rev_block_forward(x1,
                        gate_outputs=False):
   """Forward for a series of reversible layers."""
   out = (x1, x2)
-  for i in xrange(num_layers):
+  for i in range(num_layers):
     out = _rev_layer_forward(
         out, f[i], g[i], f_side_input, g_side_input, gate_outputs=gate_outputs)
 
@@ -216,7 +216,7 @@ class RevBlock(object):
     f.reverse()
     g.reverse()
 
-    for i in xrange(self.num_layers):
+    for i in range(self.num_layers):
       ys, grad_ys, f_ret, g_ret = _rev_layer_backward(
           ys, grad_ys, f[i], g[i], f_vars[i], self.f_side_input, g_vars[i],
           self.g_side_input)
@@ -286,7 +286,7 @@ class RevBlock(object):
     f.reverse()
     g.reverse()
 
-    for i in xrange(self.num_layers):
+    for i in range(self.num_layers):
       gy1 = g[i](y1, self.g_side_input) if self.g_side_input else g[i](y1)
       x2 = y2 - gy1
       fx2 = f[i](x2, self.f_side_input) if self.f_side_input else f[i](x2)

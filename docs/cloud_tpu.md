@@ -39,8 +39,6 @@ work on any image classification data-set.
 
 ## Tutorial: Transformer En-De translation on TPU
 
-**Note**: You'll need TensorFlow 1.5+.
-
 Configure the `gcloud` CLI:
 ```
 gcloud components update
@@ -71,7 +69,7 @@ Launch! It's as simple as adding the `--cloud_tpu` flag.
 t2t-trainer \
   --model=transformer \
   --hparams_set=transformer_tpu \
-  --problems=translate_ende_wmt8k \
+  --problem=translate_ende_wmt8k \
   --train_steps=10 \
   --eval_steps=10 \
   --local_eval_frequency=10 \
@@ -109,7 +107,7 @@ For example, to train a shake-shake model on CIFAR you can run this command.
 t2t-trainer \
   --model=shake_shake \
   --hparams_set=shakeshake_tpu \
-  --problems=image_cifar10 \
+  --problem=image_cifar10 \
   --train_steps=180000 \
   --eval_steps=9 \
   --local_eval_frequency=100 \
