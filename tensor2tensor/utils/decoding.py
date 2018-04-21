@@ -249,7 +249,7 @@ def decode_from_file(estimator,
   if filename_sfeats:
     for key in sorted(p_hp.vocabulary.keys()):
       if key.startswith("sfeats"):
-        sfeats_vocabs.append(hparams.problems[problem_id].vocabulary[key])
+        sfeats_vocabs.append(p_hp.vocabulary[key])
   problem_name = FLAGS.problem
 
   tf.logging.info("Performing decoding from a file.")
@@ -513,8 +513,7 @@ def _decode_batch_sfeat_fn(p_hp, num_decode_batches, sorted_inputs,
       final_batch_sfeats.append(b_sfeats)
 
     out_dict = {
-        "inputs": np.array(final_batch_inputs).astype(np.int32),
-        "problem_choice": np.array(problem_id).astype(np.int32),
+        "inputs": np.array(final_batch_inputs).astype(np.int32)
     }
     for idx, _ in enumerate(sfeats_vocabs):
       current_feat = [f[idx] for f in final_batch_sfeats]
@@ -775,8 +774,7 @@ def _decode_sfeat_tensor_to_features_dict(feature_map, hparams):
   """Convert the interactive input format (see above) to a dictionary.
 
   Args:
-    feature_map: a dictionary with keys `problem_choice` and `input` containing
-      Tensors.
+    feature_map: dict with inputs and source features.
     hparams: model hyperparameters
 
   Returns:
@@ -787,45 +785,26 @@ def _decode_sfeat_tensor_to_features_dict(feature_map, hparams):
   sfeats = {}
   for sfeat in src_features:
     sfeats[sfeat] = tf.convert_to_tensor(feature_map[sfeat])
-
   input_is_image = False
 
-  def input_fn(problem_choice, x=inputs, xf=sfeats):  # pylint: disable=missing-docstring
-    p_hparams = hparams.problems[problem_choice]
-    # Add a third empty dimension
-    x = tf.expand_dims(x, axis=[2])
-    x = tf.to_int32(x)
-    for idx, _ in enumerate(sfeats):
-      idx = str(idx)
-      sfeats["sfeats."+idx] = tf.expand_dims(sfeats["sfeats."+idx], axis=[2])
-      sfeats["sfeats."+idx] = tf.to_int32(sfeats["sfeats."+idx])
-    return (tf.constant(p_hparams.input_space_id), tf.constant(
-        p_hparams.target_space_id), x, sfeats)
-
-  input_space_id, target_space_id, x, xf = cond_on_index(
-    input_fn, feature_map["problem_choice"], len(hparams.problems) - 1)
+  x = inputs
+  p_hparams = hparams.problem_hparams
+  # Add a third empty dimension
+  x = tf.expand_dims(x, axis=[2])
+  x = tf.to_int32(x)
+  for idx, _ in enumerate(sfeats):
+    idx = str(idx)
+    sfeats["sfeats."+idx] = tf.expand_dims(sfeats["sfeats."+idx], axis=[2])
+    sfeats["sfeats."+idx] = tf.to_int32(sfeats["sfeats."+idx])
+  input_space_id = tf.constant(p_hparams.input_space_id)
+  target_space_id = tf.constant(p_hparams.target_space_id)
 
   features = {}
-  features["problem_choice"] = feature_map["problem_choice"]
   features["input_space_id"] = input_space_id
   features["target_space_id"] = target_space_id
   features["decode_length"] = (
       IMAGE_DECODE_LENGTH if input_is_image else tf.shape(x)[1] + 50)
   features["inputs"] = x
-  for idx, f in enumerate(xf):
-    features["sfeats."+str(idx)] = xf["sfeats."+str(idx)]
-
-  return features
-
-
-def cond_on_index(fn, index_tensor, max_idx, cur_idx=0):
-  """Call fn(index_tensor) using tf.cond in [cur_id, max_idx]."""
-  if cur_idx == max_idx:
-    return fn(cur_idx)
-
-  return tf.cond(
-      tf.equal(index_tensor, cur_idx),
-      lambda: fn(cur_idx),
-      lambda: cond_on_index(fn, index_tensor, max_idx, cur_idx + 1)
-  )
-
+  for idx, f in enumerate(sfeats):
+    features["sfeats."+str(idx)] = sfeats["sfeats."+str(idx)]
+  return features    
