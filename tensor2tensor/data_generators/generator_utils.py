@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import gzip
+import multiprocessing as mp
 import os
 import random
 import stat
@@ -467,17 +468,21 @@ def generate_dataset_and_shuffle(train_gen,
     shuffle_dataset(train_paths + dev_paths)
 
 
+def _shuffle_single(fname):
+  records = read_records(fname)
+  random.shuffle(records)
+  out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
+  write_records(records, out_fname)
+  tf.gfile.Remove(fname)
+
+
 def shuffle_dataset(filenames):
   if outputs_exist(filenames):
     tf.logging.info("Skipping shuffle because output files exist")
     return
   tf.logging.info("Shuffling data...")
-  for fname in filenames:
-    records = read_records(fname)
-    random.shuffle(records)
-    out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
-    write_records(records, out_fname)
-    tf.gfile.Remove(fname)
+  pool = mp.Pool(min(len(filenames), 20))
+  pool.map(_shuffle_single, filenames)
 
 
 class SequencePacker(object):
