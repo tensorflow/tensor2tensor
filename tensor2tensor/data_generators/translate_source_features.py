@@ -243,12 +243,17 @@ class SourceFeatureProblem(translate.TranslateProblem):
         assert len(fs) == len(sample["inputs"]), "Source word and feature sequences must have the same length"
         sample["sfeats.%d" %f_id] = fs
 
-      if self.vocab_type == "subwords":
-        sample["targets"] = txt_encoder.encode_without_tokenizing(sample["targets"])
-      elif self.vocab_type == "tokens":
-        sample["targets"] = txt_encoder.encode(sample["targets"])
-      else:
-        raise ValueError("VocabType not supported")
+      new_sample = []
+      for token in sample["targets"].split():
+        if self.vocab_type == "subwords":
+          new_toks = txt_encoder.encode_without_tokenizing(token)
+        elif self.vocab_type == "tokens":
+          new_toks = txt_encoder.encode(token)
+        else:
+          raise ValueError("VocabType not supported")
+        new_sample += new_toks
+
+      sample["targets"] = new_sample
       sample["targets"].append(EOS)
 
       yield sample
