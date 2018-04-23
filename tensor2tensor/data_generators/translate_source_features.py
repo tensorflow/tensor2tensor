@@ -360,6 +360,9 @@ class SubwordTextEncoder(text_encoder.SubwordTextEncoder):
         reserved_tokens=reserved_tokens)
     return encoder
 
+  def decode(self, subtokens):
+    return " ".join(self._subtoken_ids_to_tokens(subtokens))
+
 
 @registry.register_symbol_modality("sfeature")
 class SFeatureSymbolModality(modalities.SymbolModality):
