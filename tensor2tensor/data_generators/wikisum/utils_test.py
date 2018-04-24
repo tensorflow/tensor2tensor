@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for tensor2tensor.data_generators.wikisum_commoncrawl.utils."""
+"""Tests for tensor2tensor.data_generators.wikisum.utils."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -22,7 +22,7 @@ import os
 
 # Dependency imports
 
-from tensor2tensor.data_generators.wikisum_commoncrawl import utils
+from tensor2tensor.data_generators.wikisum import utils
 
 import tensorflow as tf
 

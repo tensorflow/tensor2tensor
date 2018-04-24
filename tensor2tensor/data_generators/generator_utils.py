@@ -330,6 +330,7 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
       reserved_tokens=reserved_tokens)
 
   if vocab_filepath:
+    tf.gfile.MakeDirs(data_dir)
     vocab.store_to_file(vocab_filepath)
 
   return vocab

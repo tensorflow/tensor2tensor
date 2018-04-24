@@ -14,7 +14,7 @@
 # limitations under the License.
 """Fetch reference URLs for a single group_id within a single shard_id.
 
-See fetch_ref_urls_all_groups.py to fetch URLs for all groups in within a single
+See get_references_web.py to fetch URLs for all groups in within a single
 shard_id.
 
 Requires Python 3.5
@@ -62,7 +62,7 @@ REF_SHARD_FILE = "references.tfrecords.gz-%05d-of-01000"
 
 # Note that this program leaks memory, likely due to a bug in Python's SSL
 # implementation that leaks sockets. This constant is used here and in
-# fetch_ref_urls_all_groups.py to limit the number of requests made by a single
+# get_references_web.py to limit the number of requests made by a single
 # Python process. The more requests made, the more memory required due to the
 # leak.
 # TODO(rsepassi): Document memory impact of changing this.
@@ -271,8 +271,7 @@ async def fetch_urls(urls,
       # Process each URL as it comes in.
       # Using a multiprocessing Pool because the text extraction is expensive
       # and so we distribute across cores.
-      # TODO: remove 8
-      pool = multiprocessing.Pool(8)
+      pool = multiprocessing.Pool()
       results = []
       for task in asyncio.as_completed(tasks):
         html, side_data = await task

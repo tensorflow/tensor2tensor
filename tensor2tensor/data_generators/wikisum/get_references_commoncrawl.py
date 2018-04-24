@@ -20,8 +20,8 @@ from __future__ import print_function
 import os
 import tempfile
 
-from tensor2tensor.data_generators.wikisum_commoncrawl import utils as cc_utils
-from tensor2tensor.data_generators.wikisum_commoncrawl import wikisum_commoncrawl
+from tensor2tensor.data_generators.wikisum import utils as cc_utils
+from tensor2tensor.data_generators.wikisum import wikisum
 
 import tensorflow as tf
 
@@ -60,8 +60,7 @@ def main(_):
   wet_files = cc_utils.shard(wet_files, FLAGS.num_tasks)[FLAGS.task_id]
   tf.logging.info("Sharded out WET files. Processing %d files", len(wet_files))
 
-  wikisum_commoncrawl.extract_references_from_wets(wet_files,
-                                                   FLAGS.metadata_dir, out_dir)
+  wikisum.extract_references_from_wets(wet_files, FLAGS.metadata_dir, out_dir)
 
 
 if __name__ == "__main__":

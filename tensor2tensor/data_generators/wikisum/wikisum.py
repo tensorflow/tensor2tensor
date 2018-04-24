@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Generate Wikipedia Summarization Dataset from CommonCrawl."""
+"""Wikipedia Summarization Problems."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -21,24 +21,24 @@ from __future__ import print_function
 import collections
 import json
 import math
-import multiprocessing as mp
-from multiprocessing import pool as mp_pool
 import os
 import re
 import string
 import tempfile
 
+import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import tokenizer
-from tensor2tensor.data_generators.wikisum_commoncrawl import utils as cc_utils
+from tensor2tensor.data_generators.wikisum import utils as cc_utils
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
 PROCESS_FOLDER_PREFIX = "process"
-REF_SHARD_FILE = "references.tfrecords.gz-%05d-of-01000"
+REF_SHARD_FILE_PREFIX = "references.tfrecords.gz"
+REF_SHARD_FILE = REF_SHARD_FILE_PREFIX + "-%05d-of-01000"
 
 # Support files
 BASE_SUPPORT_DIR = "gs://tensor2tensor-data/wikisum"
@@ -53,9 +53,8 @@ _MIN_REFS = 1
 _MIN_LEADSECTION_TOKENS = 1
 
 
-@registry.register_problem
-class WikisumCommoncrawl(problem.Problem):
-  """Wikipedia references->article summarization task based on CommonCrawl."""
+class WikisumBase(problem.Problem):
+  """Base class for Wikisum problems."""
 
   def example_reading_spec(self):
     data_fields = {
@@ -92,12 +91,13 @@ class WikisumCommoncrawl(problem.Problem):
     p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
 
   def eval_metrics(self):
-    return super(WikisumCommoncrawl, self).eval_metrics() + [
+    return super(WikisumBase, self).eval_metrics() + [
         metrics.Metrics.ROUGE_2_F, metrics.Metrics.ROUGE_L_F
     ]
 
   def generate_lines_for_vocab(self, wikis_dir, refs_dir, max_chars=10**7):
     total_chars = 0
+    ref_files_by_shard = _references_files_by_shard(refs_dir)
     for shard_id in range(cc_utils.NUM_SHARDS):
       # Wikipedia articles
       for wiki in _wiki_articles(shard_id, wikis_dir):
@@ -110,7 +110,7 @@ class WikisumCommoncrawl(problem.Problem):
 
       # References
       for i, content in enumerate(
-          _references_content_for_shard(shard_id, refs_dir).itervalues()):
+          six.itervalues(_references_content(ref_files_by_shard[shard_id]))):
         for line in content.split("\n"):
           if line:
             yield _normalize_text(line)
@@ -132,83 +132,7 @@ class WikisumCommoncrawl(problem.Problem):
         self.generate_lines_for_vocab(wikis_dir, refs_dir))
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    """Generate data for Wikipedia summarization based on CommonCrawl.
-
-    To process such a large dataset, this data generator uses multiple processes
-    using the `multiprocessing` library and generates data in shards.
-
-    To efficiently produce the dataset from CommonCrawl, there are support files
-    that have been pre-generated and are stored on Google Cloud Storage. These
-    files will be read during data generation.
-
-    `generate_data` follows this basic outline:
-    * Stream through CommonCrawl WET files on AWS S3 (once a WET file has been
-      processed it is deleted from local disk, so all files are not required to
-      be local all at once).
-    * For each file, iterate through its webpages.
-    * If the webpage is in the WikisumCommoncrawl dataset (i.e. if it is a
-      reference in one of the Wikipedia articles), write it out. Membership in
-      the dataset is determined by the support files on GCS.
-    * Produce a vocabulary (a `SubwordTextEncoder`, which is a word-piece
-      encoder) from a subset of the references and Wikipedia articles.
-    * At this point, all references are stored on local disk, all Wikipedia
-      articles are on GCS (part of the pre-generated support files), and a vocab
-      file is in `data_dir`.
-    * Iterate through the Wikipedia articles and read in its references.
-    * Rank the reference paragraphs by a tf-idf against the tokens in the
-      Wikipedia article title.
-    * Encode the reference paragraphs and the Wikipedia article with the vocab.
-    * Write out tensorflow.Example protos to TFRecord files, ready for training
-      and evaluation.
-
-    Args:
-      data_dir: directory to write to.
-      tmp_dir: directory to download to, scratch dir.
-      task_id: unused.
-
-    Returns:
-      None. Training and dev files will have been written to data_dir.
-    """
-    del task_id
-
-    # Get the download urls for CommonCrawl WET files
-    download_urls = list(
-        cc_utils.wet_download_urls(cc_utils.WET_PATHS_BY_DATE["0917"], tmp_dir))
-
-    # Extract references from CommonCrawl WET files.
-    # Parallel by WET file.
-    # Each process writes into its own process_X folder. A reference belongs to
-    # one or more shards, determined by a hash of the Wikipedia article titles
-    # for which it is a reference. These shard ids have been pre-generated and
-    # are part of the support files on GCS.
-    num_processes = mp.cpu_count() * 2
-    sharded_download_urls = cc_utils.shard(download_urls, num_processes)
-    pool = mp_pool.Pool(num_processes)
-    pool.map(_extract_references_splat,
-             [(sharded_download_urls[i], WET_METADATA_DIR,
-               os.path.join(tmp_dir, "%s_%d" %
-                            (PROCESS_FOLDER_PREFIX, i)), tmp_dir)
-              for i in range(num_processes)])
-
-    # The reference text is now in the process_X folders in the correct shard
-    # i.e. a wiki that is part of shard 3 is guaranteed to have all of its
-    # references in process_X/shard_00003.tfrecords.gz
-
-    # Produce a SubwordTextEncoder from a subset of the data
-    self.generate_vocab(data_dir, WIKI_CONTENT_DIR, tmp_dir)
-
-    # Produce Examples
-    # Parallel by output shard
-    out_filepaths = self.out_filepaths(data_dir)
-    pool.map(_produce_examples_splat, [
-        ([shard_id], WIKI_CONTENT_DIR, tmp_dir, WIKI_URLS_DIR,
-         os.path.join(data_dir, self.vocab_filename), [out_filepaths[shard_id]])
-        for shard_id in range(cc_utils.NUM_SHARDS)
-    ])
-
-    # Cleanup intermediate results
-    for folder in _process_folders(tmp_dir):
-      tf.gfile.DeleteRecursively(folder)
+    tf.logging.warn("See wikisum/README.md for instructions to generate data.")
 
   def out_filepaths(self, data_dir):
     train_shards = 800
@@ -225,15 +149,23 @@ class WikisumCommoncrawl(problem.Problem):
 
 
 @registry.register_problem
+class WikisumCommoncrawl(WikisumBase):
+  """Wikipedia references->article summarization task based on CommonCrawl."""
+  pass
+
+
+@registry.register_problem
+class WikisumWeb(WikisumBase):
+  """Wikipedia references->article summarization task based on web data."""
+  pass
+
+
+@registry.register_problem
 class WikisumCommoncrawlLeadSection(WikisumCommoncrawl):
   """Wikipedia references->lead section summarization task."""
 
   def preprocess_example(self, example, mode, hparams):
-    wiki = example["targets"]
-    lead_boundary = example["section_boundaries"][0]
-    # Concat a new EOS to the lead since the original one gets truncated.
-    lead = tf.concat((wiki[:lead_boundary], [text_encoder.EOS_ID]), 0)
-    example["targets"] = lead
+    example["targets"] = _truncate_to_lead_section(example)
     return super(WikisumCommoncrawlLeadSection, self).preprocess_example(
         example, mode, hparams)
 
@@ -243,6 +175,23 @@ class WikisumCommoncrawlLeadSection(WikisumCommoncrawl):
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     tf.logging.warn("Problem %s reuses data from problem %s", self.name,
                     WikisumCommoncrawl.name)
+
+
+@registry.register_problem
+class WikisumWebLeadSection(WikisumWeb):
+  """Wikipedia references->lead section summarization task."""
+
+  def preprocess_example(self, example, mode, hparams):
+    example["targets"] = _truncate_to_lead_section(example)
+    return super(WikisumWebLeadSection, self).preprocess_example(
+        example, mode, hparams)
+
+  def dataset_filename(self):
+    return WikisumWeb.name
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    tf.logging.warn("Problem %s reuses data from problem %s", self.name,
+                    WikisumWeb.name)
 
 
 def make_ref_shard_files(out_dir):
@@ -256,6 +205,14 @@ def make_ref_shard_files(out_dir):
   return files
 
 
+def _truncate_to_lead_section(example):
+  wiki = example["targets"]
+  lead_boundary = example["section_boundaries"][0]
+  # Concat a new EOS to the lead since the original one gets truncated.
+  lead = tf.concat((wiki[:lead_boundary], [text_encoder.EOS_ID]), 0)
+  return lead
+
+
 def _make_example_from_record(record):
   features = {
       "url":
@@ -267,14 +224,27 @@ def _make_example_from_record(record):
   return tf.train.Example(features=tf.train.Features(feature=features))
 
 
-def _references_content_for_shard(shard_id, refs_dir, rm_after=False):
-  """dict<str ref_url, str ref_content>."""
+def _shard_id_for_file(sharded_filename):
+  suffix = "00000-of-00000"
+  parts = sharded_filename[-len(suffix):].split("-")
+  assert len(parts) == 3
+  return int(parts[0])
+
+
+def _references_files_by_shard(refs_dir):
+  process_dirs = _process_folders(refs_dir)
+  shards = collections.defaultdict(list)
+  for d in process_dirs:
+    ref_files = tf.gfile.Glob(os.path.join(d, REF_SHARD_FILE_PREFIX) + "*")
+    for f in ref_files:
+      shards[_shard_id_for_file(f)].append(f)
+  return shards
+
+
+def _references_content(ref_files):
+  """Returns dict<str ref_url, str ref_content>."""
   with tf.Graph().as_default():
-    shard_file_paths = [
-        cc_utils.readahead(os.path.join(folder, REF_SHARD_FILE % shard_id))
-        for folder in _process_folders(refs_dir)
-    ]
-    dataset = tf.data.Dataset.from_tensor_slices(shard_file_paths)
+    dataset = tf.data.Dataset.from_tensor_slices(ref_files)
 
     def _load_records(filename):
       return tf.data.TFRecordDataset(
@@ -310,13 +280,6 @@ def _references_content_for_shard(shard_id, refs_dir, rm_after=False):
 
         data[ex["url"]] = ex["content"]
         i += 1
-
-  if not shard_id % 100:
-    tf.logging.info("Read %d refs in shard %d" % (i + 1, shard_id))
-
-  if rm_after:
-    for f in shard_file_paths:
-      tf.gfile.Remove(f)
 
   return data
 
@@ -437,10 +400,6 @@ def _rank_reference_paragraphs(wiki_title, references_content):
   return [info["content"] for info in ref_paragraph_info]
 
 
-def _produce_examples_splat(args):
-  return produce_examples(*args)
-
-
 def produce_examples(shard_ids, wikis_dir, refs_dir, urls_dir, vocab_path,
                      out_filepaths):
   """Produce examples from shard_ids to out_filepaths."""
@@ -460,11 +419,12 @@ def produce_examples(shard_ids, wikis_dir, refs_dir, urls_dir, vocab_path,
                  total_found_refs=0, ref_lengths=[], wiki_original_refs=[],
                  wiki_found_refs=[], wikis_skipped_no_refs=0,
                  wikis_skipped_short_lead=0, num_wikis_written=0)
+    ref_files_by_shard = _references_files_by_shard(refs_dir)
     for shard_id in shard_ids:
       tf.logging.info("Processing shard %d", shard_id)
       wiki_urls = _wiki_urls_for_shard(shard_id, urls_dir)
       tf.logging.info("Loaded wiki URLs for shard")
-      refs_content = _references_content_for_shard(shard_id, refs_dir)
+      refs_content = _references_content(ref_files_by_shard[shard_id])
       tf.logging.info("Loaded reference content for shard")
       for i, wiki in enumerate(_wiki_articles(shard_id, wikis_dir)):
         if not i % 1000:
@@ -562,10 +522,6 @@ def _encode_wiki_sections(sections, vocab):
 
 def _process_folders(tmp_dir):
   return tf.gfile.Glob(os.path.join(tmp_dir, PROCESS_FOLDER_PREFIX) + "*")
-
-
-def _extract_references_splat(args):
-  return extract_references_from_wets(*args)
 
 
 def extract_references_from_wets(wet_files, metadata_dir, out_dir,

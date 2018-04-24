@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.data_generators.wikisum_commoncrawl import wikisum_commoncrawl
+from tensor2tensor.data_generators.wikisum import wikisum
 
 import tensorflow as tf
 
@@ -30,10 +30,15 @@ flags.DEFINE_string("wikis_dir",
                     "Directory with wiki_content.tfrecords shards.")
 flags.DEFINE_string("refs_dir", None,
                     "Directory with process_X folders with reference shards.")
+flags.DEFINE_bool("for_commoncrawl", False,
+                  "Whether to use WikisumCommoncrawl or WikisumWeb.")
 
 
 def main(_):
-  problem = wikisum_commoncrawl.WikisumCommoncrawl()
+  if FLAGS.for_commoncrawl:
+    problem = wikisum.WikisumCommoncrawl()
+  else:
+    problem = wikisum.WikisumWeb()
   problem.generate_vocab(FLAGS.out_dir, FLAGS.wikis_dir, FLAGS.refs_dir)
 
 

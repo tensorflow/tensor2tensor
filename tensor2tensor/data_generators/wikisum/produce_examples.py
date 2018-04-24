@@ -19,8 +19,8 @@ from __future__ import print_function
 
 import os
 
-from tensor2tensor.data_generators.wikisum_commoncrawl import utils as cc_utils
-from tensor2tensor.data_generators.wikisum_commoncrawl import wikisum_commoncrawl
+from tensor2tensor.data_generators.wikisum import utils as cc_utils
+from tensor2tensor.data_generators.wikisum import wikisum
 
 import tensorflow as tf
 
@@ -37,18 +37,26 @@ flags.DEFINE_string("refs_dir", None, "Directory with process_X dirs")
 flags.DEFINE_string("urls_dir", "gs://tensor2tensor-data/wikisum/wiki_urls/",
                     "Directory with wiki_urls.json")
 flags.DEFINE_string("vocab_dir", None, "Directory with vocab file")
+flags.DEFINE_bool("for_commoncrawl", False,
+                  "Whether to use WikisumCommoncrawl or WikisumWeb.")
 
 
 def main(_):
-  problem = wikisum_commoncrawl.WikisumCommoncrawl()
+  if FLAGS.for_commoncrawl:
+    problem = wikisum.WikisumCommoncrawl()
+  else:
+    problem = wikisum.WikisumWeb()
 
   out_filepaths = problem.out_filepaths(FLAGS.out_dir)
   out_filepaths = cc_utils.shard(out_filepaths, FLAGS.num_tasks)[FLAGS.task_id]
 
+  if not FLAGS.vocab_dir:
+    FLAGS.vocab_dir = FLAGS.out_dir
+
   shard_ids = cc_utils.shard(list(range(cc_utils.NUM_SHARDS)),
                              FLAGS.num_tasks)[FLAGS.task_id]
 
-  wikisum_commoncrawl.produce_examples(
+  wikisum.produce_examples(
       shard_ids=shard_ids,
       wikis_dir=FLAGS.wikis_dir,
       refs_dir=FLAGS.refs_dir,

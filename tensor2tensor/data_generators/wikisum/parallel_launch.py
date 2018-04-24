@@ -27,16 +27,15 @@ delete many at once.
 Example usage:
 
 ```
-GCS_BUCKET=gs://my-bucket
+BUCKET=gs://my-bucket
 python parallel_launch.py \
-    --num_instances=1000 \
-    --cpu=4 \
-    --mem=4 \
-    --name=fetch-ref-urls \
-    --code_dir=./ \
-    --log_dir=$GCS_BUCKET/logs \
-    --setup_command="pip3 install aiohttp cchardet aiodns bs4 -q --user" \
-    --command_prefix="python3 wikisum_commoncrawl/fetch_ref_urls_all_groups.py --out_dir=$GCS_BUCKET/wiki_references --shard_id"
+  --num_instances=1000 \
+  --cpu=4 --mem=4 \
+  --name=wikisum-refs-web \
+  --code_dir=./ \
+  --log_dir=$BUCKET/refs_logs \
+  --setup_command="pip3 install aiohttp cchardet aiodns bs4 -q --user" \
+  --command_prefix="python3 wikisum/get_references_web.py --out_dir=$BUCKET/wiki_references --shard_id"
 ```
 """
 # pylint: enable=line-too-long
