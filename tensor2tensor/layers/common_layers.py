@@ -18,12 +18,15 @@ from __future__ import division
 from __future__ import print_function
 
 from collections import defaultdict
+
 import contextlib
 import functools
+from functools import partial
 import math
 import random
 
 # Dependency imports
+
 
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -1383,16 +1386,47 @@ def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
     return inputs
 
 
-def dense_relu_dense(inputs, filter_size, output_size, dropout=0.0,
-                     dropout_broadcast_dims=None):
+def dense_relu_dense(inputs,
+                     filter_size,
+                     output_size,
+                     output_activation=None,
+                     dropout=0.0,
+                     dropout_broadcast_dims=None,
+                     name=None):
   """Hidden layer with RELU activation followed by linear projection."""
+  layer_name = "%s_{}" % name if name else "{}"
   h = dense(
-      inputs, filter_size, use_bias=True, activation=tf.nn.relu, name="conv1")
+      inputs,
+      filter_size,
+      use_bias=True,
+      activation=tf.nn.relu,
+      name=layer_name.format("conv1"))
+
   if dropout != 0.0:
     h = dropout_with_broadcast_dims(
         h, 1.0 - dropout, broadcast_dims=dropout_broadcast_dims)
-  o = dense(h, output_size, use_bias=True, name="conv2")
+  o = dense(
+      h,
+      output_size,
+      activation=output_activation,
+      use_bias=True,
+      name=layer_name.format("conv2"))
   return o
+
+
+def dense_dropconnect(inputs,
+                      output_size,
+                      dropconnect_dropout=0.0,
+                      name="dense_dropconnect",
+                      **kwargs):
+  """Dense layer with dropconnect."""
+
+  if dropconnect_dropout != 0.0:
+    tf.logging.info("Applying dropconnect as the kernel regularization.")
+    kwargs["kernel_regularizer"] = partial(
+        tf.nn.dropout, keep_prob=1.0 - dropconnect_dropout)
+
+  return dense(inputs, output_size, use_bias=True, name=name, **kwargs)
 
 
 def conv_relu_conv(inputs,
