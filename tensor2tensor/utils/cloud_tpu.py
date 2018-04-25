@@ -48,7 +48,8 @@ class CloudState(object):
     self._tmp_dir = os.path.expanduser("~/.t2t/cloud_state")
     tf.gfile.MakeDirs(self._tmp_dir)
 
-  def cleanup(self, current_vm_name=None, current_tpu_name=None):
+  def cleanup(self, current_vm_name=None, current_tpu_name=None,
+              skip_confirmation=False):
     process_pids = os.listdir(self._tmp_dir)
     for pid in process_pids:
       try:
@@ -73,13 +74,19 @@ class CloudState(object):
           if (info["vm_name"] != current_vm_name and
               info["vm_name"] in zip(*list_vm_names_and_ips())[0]):
             print("Old VM %s found. Delete?" % info["vm_name"])
-            if confirm():
+            if skip_confirmation:
               del_vm = True
+            else:
+              if confirm():
+                del_vm = True
           if (info["tpu_name"] != current_tpu_name and
               info["tpu_name"] in zip(*list_tpu_names_and_ips())[0]):
             print("Old TPU %s found. Delete?" % info["tpu_name"])
-            if confirm():
+            if skip_confirmation:
               del_tpu = True
+            else:
+              if confirm():
+                del_tpu = True
 
         results = []
         pool = mp.Pool(2)
@@ -110,25 +117,29 @@ class CloudState(object):
 
 
 @contextlib.contextmanager
-def cloud_tpu(vm_name, tpu_name, delete_on_done=False):
+def cloud_tpu(vm_name, tpu_name, delete_on_done=False, skip_confirmation=False):
   """Gets or creates a VM and TPU instance, and forwards ports.
 
   Args:
     vm_name: str, name of VM.
     tpu_name: str, name of TPU instance.
     delete_on_done: bool, whether to delete the instances when done.
+    skip_confirmation: bool, whether to skip launch confirmations.
 
   Yields:
     master: str, grpc master pointing to the TPU instance.
   """
   state = CloudState()
   # Read state from previous processes and possibly cleanup
-  state.cleanup(current_vm_name=vm_name, current_tpu_name=tpu_name)
+  state.cleanup(current_vm_name=vm_name, current_tpu_name=tpu_name,
+                skip_confirmation=skip_confirmation)
 
   done_str = "" if delete_on_done else "NOT "
   print("Will %sdelete VM and TPU instance on done." % done_str)
-  assert confirm()
-  _, tpu_ip = create_vm_tpu_pair(vm_name, tpu_name)
+  if not skip_confirmation:
+    assert confirm()
+  _, tpu_ip = create_vm_tpu_pair(vm_name, tpu_name,
+                                 skip_confirmation=skip_confirmation)
   with tpu_tunnel(vm_name, tpu_ip) as (local_ports, tunnel_pid):
     master = "grpc://localhost:%d" % local_ports["tpu"]
 
@@ -150,8 +161,8 @@ def cloud_tpu(vm_name, tpu_name, delete_on_done=False):
 class Gcloud(object):
   """gcloud command strings."""
   # Note these can be modified by set_versions
-  VM_VERSION = "tf-1-5"
-  TPU_VERSION = "1.5"
+  VM_VERSION = "tf-1-7"
+  TPU_VERSION = "1.7"
 
   @classmethod
   def set_versions(cls, vm, tpu):
@@ -174,16 +185,16 @@ class Gcloud(object):
   @classmethod
   def create_tpu(cls):
     create_tpu_str = """
-    gcloud alpha compute tpus create \
+    gcloud beta compute tpus create \
       {name} \
       --range={tpu_ip}/29 \
       --version=%s
     """ % cls.TPU_VERSION
     return create_tpu_str
 
-  DELETE_TPU = "gcloud alpha compute tpus delete {name} --quiet"
+  DELETE_TPU = "gcloud beta compute tpus delete {name} --quiet"
 
-  LIST_TPU = "gcloud alpha compute tpus list"
+  LIST_TPU = "gcloud beta compute tpus list"
   LIST_VM = "gcloud compute instances list"
 
   SSH_LOCAL_PORT_FORWARD = "-L {local_port}:{host}:{remote_port}"
@@ -309,7 +320,8 @@ def tpu_tunnel(vm_name, tpu_ip):
     yield local_ports, tunnel_process.pid
 
 
-def create_vm_tpu_pair(vm_name, tpu_name, reuse_if_exists=True):
+def create_vm_tpu_pair(vm_name, tpu_name, reuse_if_exists=True,
+                       skip_confirmation=False):
   """Create a VM and paired TPU instance.
 
   Args:
@@ -317,6 +329,7 @@ def create_vm_tpu_pair(vm_name, tpu_name, reuse_if_exists=True):
     tpu_name: str, name for TPU instance.
     reuse_if_exists: bool, if True, this will act as a get or create. If False
       and vm_name or tpu_name already exists, will error.
+    skip_confirmation: bool, whether to skip launch confirmations.
 
   Returns:
     tuple: (vm_ip, tpu_ip)
@@ -327,8 +340,8 @@ def create_vm_tpu_pair(vm_name, tpu_name, reuse_if_exists=True):
   vm_info = list_vm_names_and_ips()
   tpu_info = list_tpu_names_and_ips()
 
-  vm_names = zip(*vm_info)[0]
-  tpu_names = zip(*tpu_info)[0]
+  vm_names = zip(*vm_info)[0] if vm_info else []
+  tpu_names = zip(*tpu_info)[0] if tpu_info else []
 
   make_vm = False
   vm_ip = None
@@ -340,7 +353,8 @@ def create_vm_tpu_pair(vm_name, tpu_name, reuse_if_exists=True):
     vm_ip = vm_info[vm_names.index(vm_name)][1]
   else:
     print("Creating VM %s" % vm_name)
-    assert confirm()
+    if not skip_confirmation:
+      assert confirm()
     make_vm = True
 
   make_tpu = False
@@ -353,7 +367,8 @@ def create_vm_tpu_pair(vm_name, tpu_name, reuse_if_exists=True):
     tpu_ip = tpu_info[tpu_names.index(tpu_name)][1]
   else:
     print("Creating TPU instance %s" % tpu_name)
-    assert confirm()
+    if not skip_confirmation:
+      assert confirm()
     make_tpu = True
 
   # Create VM and TPU in parallel

@@ -86,6 +86,8 @@ flags.DEFINE_string("cloud_tpu_name", "%s-tpu" % os.getenv("USER"),
                     "Name of Cloud TPU instance to use or create.")
 flags.DEFINE_bool("cloud_delete_on_done", False,
                   "Whether to delete the VM and TPU instance when done.")
+flags.DEFINE_bool("cloud_skip_confirmation", False,
+                  "Whether to skip launch confirmations.")
 
 # Google Cloud ML Engine
 flags.DEFINE_bool("cloud_mlengine", False,
@@ -318,7 +320,8 @@ def maybe_cloud_tpu():
   with cloud_tpu.cloud_tpu(
       FLAGS.cloud_vm_name,
       FLAGS.cloud_tpu_name,
-      delete_on_done=FLAGS.cloud_delete_on_done) as tpu_master:
+      delete_on_done=FLAGS.cloud_delete_on_done,
+      skip_confirmation=FLAGS.cloud_skip_confirmation) as tpu_master:
     FLAGS.master = tpu_master
     yield
 
