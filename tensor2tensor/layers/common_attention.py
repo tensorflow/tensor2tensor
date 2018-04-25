@@ -27,7 +27,6 @@ import operator
 import numpy as np
 
 from six.moves import range  # pylint: disable=redefined-builtin
-from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
