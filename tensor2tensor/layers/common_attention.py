@@ -1464,6 +1464,140 @@ def dot_product_attention_relative(q,
     return _relative_attention_inner(weights, v, relations_values, False)
 
 
+def _relative_position_to_absolute_position_masked(x):
+  """Helper to dot_product_self_attention_relative_v2.
+
+  Rearrange an attention logits or weights Tensor.
+
+  The dimensions of the input represent:
+  [batch, heads, query_position, memory_position - query_position + length - 1]
+
+  The dimensions of the output represent:
+  [batch, heads, query_position, memory_position]
+
+  Only works with masked_attention.  Undefined behavior for regions of the
+  input where memory_position > query_position.
+
+  Args:
+    x: a Tensor with shape [batch, heads, length, length]
+
+  Returns:
+    a Tensor with shape [batch, heads, length, length]
+  """
+  batch, heads, length, _ = common_layers.shape_list(x)
+  x = tf.pad(x, [[0, 0], [0, 0], [0, 0], [1, 0]])
+  x = tf.reshape(x, [batch, heads, 1 + length, length])
+  x = tf.slice(x, [0, 0, 1, 0], [-1, -1, -1, -1])
+  return x
+
+
+def _absolute_position_to_relative_position_masked(x):
+  """Helper to dot_product_self_attention_relative_v2.
+
+  Rearrange an attention logits or weights Tensor.
+
+  The dimensions of the input represent:
+  [batch, heads, query_position, memory_position]
+
+  The dimensions of the output represent:
+  [batch, heads, query_position, memory_position - query_position + length - 1]
+
+  Only works with masked_attention.  Undefined behavior for regions of the
+  input where memory_position > query_position.
+
+  Args:
+    x: a Tensor with shape [batch, heads, length, length]
+
+  Returns:
+    a Tensor with shape [batch, heads, length, length]
+  """
+  batch, heads, length, _ = common_layers.shape_list(x)
+  x = tf.pad(x, [[0, 0], [0, 0], [1, 0], [0, 0]])
+  x = tf.reshape(x, [batch, heads, length, length + 1])
+  x = tf.slice(x, [0, 0, 0, 1], [batch, heads, length, length])
+  return x
+
+
+def dot_product_self_attention_relative_v2(q,
+                                           k,
+                                           v,
+                                           bias,
+                                           max_length=None,
+                                           dropout_rate=0.0,
+                                           image_shapes=None,
+                                           name=None,
+                                           make_image_summary=True,
+                                           dropout_broadcast_dims=None):
+  """Calculate relative position-aware dot-product self-attention.
+
+  Only works for masked self-attention (no looking forward).
+  TODO(noam): extend to unmasked self-attention
+
+  The attention calculation is augmented with learned representations for the
+  relative position between each element in q and each element in k and v.
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth].
+    k: a Tensor with shape [batch, heads, length, depth].
+    v: a Tensor with shape [batch, heads, length, depth].
+    bias: bias Tensor.
+    max_length: an integer - changing this invalidates checkpoints
+    dropout_rate: a floating point number.
+    image_shapes: optional tuple of integer scalars.
+    name: an optional string.
+    make_image_summary: Whether to make an attention image summary.
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
+
+  Returns:
+    A Tensor.
+  """
+  with tf.variable_scope(
+      name, default_name="dot_product_self_attention_relative_v2",
+      values=[q, k, v]):
+
+    # This calculation only works for self attention.
+    # q, k and v must therefore have the same shape.
+    q.get_shape().assert_is_compatible_with(k.get_shape())
+    q.get_shape().assert_is_compatible_with(v.get_shape())
+
+    # Use separate embeddings suitable for keys and values.
+    length = common_layers.shape_list(q)[2]
+    assert max_length is not None
+
+    # [batch, num_heads, query_length, memory_length]
+    logits = tf.matmul(q, k, transpose_b=True)
+
+    # now add relative logits
+    # [batch, num_heads, query_length, max_length]
+    rel_logits = common_layers.dense(q, max_length, name="rel0")
+    # [batch, num_heads, query_length, max_length]
+    rel_logits = tf.slice(
+        rel_logits, [0, 0, 0, max_length - length], [-1, -1, -1, -1])
+    rel_logits = _relative_position_to_absolute_position_masked(rel_logits)
+    logits += rel_logits
+
+    if bias is not None:
+      logits += bias
+    weights = tf.nn.softmax(logits, name="attention_weights")
+    # dropping out the attention links for each of the heads
+    weights = common_layers.dropout_with_broadcast_dims(
+        weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
+    if expert_utils.should_generate_summaries() and make_image_summary:
+      attention_image_summary(weights, image_shapes)
+    ret = tf.matmul(weights, v)
+    # [batch, num_heads, query_length, memory_length]
+    relative_weights = _absolute_position_to_relative_position_masked(weights)
+    # [batch, num_heads, query_length, memory_length]
+    relative_weights = tf.pad(
+        relative_weights, [[0, 0], [0, 0], [0, 0], [max_length - length, 0]])
+    relative_weights.set_shape([None, None, None, max_length])
+    depth_v = common_layers.shape_list(v)[3]
+    ret += common_layers.dense(relative_weights, depth_v, name="rel1")
+    return ret
+
+
 def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
   """Attention to the source and a neighborhood to the left within a block.
 
@@ -2445,6 +2579,7 @@ def multihead_attention(query_antecedent,
                         save_weights_to=None,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
+                        max_length=None,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -2492,6 +2627,7 @@ def multihead_attention(query_antecedent,
     dropout_broadcast_dims:  an optional list of integers less than 4
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
+    max_length: an integer - needed by relative attention
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -2562,6 +2698,11 @@ def multihead_attention(query_antecedent,
       x = dot_product_attention_relative(q, k, v, bias, max_relative_position,
                                          dropout_rate, image_shapes,
                                          make_image_summary=make_image_summary)
+    elif attention_type == "dot_product_relative_v2":
+      x = dot_product_self_attention_relative_v2(
+          q, k, v, bias, max_length, dropout_rate, image_shapes,
+          make_image_summary=make_image_summary,
+          dropout_broadcast_dims=dropout_broadcast_dims)
     elif attention_type == "local_within_block_mask_right":
       x = masked_within_block_local_attention_1d(q, k, v,
                                                  block_length=block_length)

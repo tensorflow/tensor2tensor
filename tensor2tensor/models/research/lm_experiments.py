@@ -98,3 +98,20 @@ def lmx_h4k_f16k():
   hparams.weight_dtype = "bfloat16"
   return hparams
 
+
+@registry.register_hparams
+def lmx_relative():
+  """Language model using relative attention."""
+  hparams = lmx_base()
+  hparams.self_attention_type = "dot_product_relative_v2"
+  hparams.activation_dtype = "float32"
+  hparams.weight_dtype = "float32"
+  return hparams
+
+
+@registry.register_hparams
+def lmx_relative_nopos():
+  """Language model using relative attention and no positional encoding."""
+  hparams = lmx_relative()
+  hparams.pos = "none"
+  return hparams
