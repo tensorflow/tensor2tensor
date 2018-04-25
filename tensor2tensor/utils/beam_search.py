@@ -88,10 +88,6 @@ def get_state_shape_invariants(tensor):
   return tf.TensorShape(shape)
 
 
-def log_prob_from_logits(logits, reduce_axis=-1):
-  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keep_dims=True)
-
-
 def compute_batch_indices(batch_size, beam_size):
   """Computes the i'th coordinate that contains the batch index for gathers.
 
@@ -359,7 +355,7 @@ def beam_search(symbols_to_logits_fn,
     logits = tf.reshape(flat_logits, [batch_size, beam_size, -1])
 
     # Convert logits to normalized log probs
-    candidate_log_probs = log_prob_from_logits(logits)
+    candidate_log_probs = common_layers.log_prob_from_logits(logits)
 
     # Multiply the probabilities by the current probabilities of the beam.
     # (batch_size, beam_size, vocab_size) + (batch_size, beam_size, 1)

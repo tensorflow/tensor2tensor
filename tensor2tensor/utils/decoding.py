@@ -119,6 +119,7 @@ def decode_from_dataset(estimator,
   dataset_kwargs = {
       "shard": shard,
       "dataset_split": dataset_split,
+      "max_records": decode_hp.num_samples
   }
 
   # Build the inference input function

@@ -490,7 +490,8 @@ class Problem(object):
               dataset_split=None,
               shard=None,
               partition_id=0,
-              num_partitions=1):
+              num_partitions=1,
+              max_records=-1):
     """Build a Dataset for this problem.
 
     Args:
@@ -511,6 +512,7 @@ class Problem(object):
       shard: int, if provided, will only read data from the specified shard.
       partition_id: integer - which partition of the dataset to read from
       num_partitions: how many partitions in the dataset
+      max_records: int, number of records to truncate to.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
@@ -568,7 +570,7 @@ class Problem(object):
             _load_records_and_preprocess, sloppy=is_training, cycle_length=8))
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
-
+    dataset = dataset.take(max_records)
     if output_buffer_size:
       dataset = dataset.prefetch(output_buffer_size)
 
@@ -828,21 +830,28 @@ class Problem(object):
           dataset = dataset.map(_pad_batch, num_parallel_calls=num_threads)
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
+
+    def prepare_for_output(example):
+      if not config or not config.use_tpu:
+        _summarize_features(example,
+                            (config and config.data_parallelism.n) or 1)
+      if mode == tf.estimator.ModeKeys.PREDICT:
+        example["infer_targets"] = example.pop("targets")
+        return example
+      else:
+        return example, example["targets"]
+
+    dataset = dataset.map(prepare_for_output, num_parallel_calls=num_threads)
     dataset = dataset.prefetch(2)
-    features = dataset.make_one_shot_iterator().get_next()
-    if not config or not config.use_tpu:
-      _summarize_features(features, (config and config.data_parallelism.n) or 1)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
-      features["infer_targets"] = features["targets"]
-      features["targets"] = None
       # This is because of a bug in the Estimator that short-circuits prediction
       # if it doesn't see a QueueRunner. DummyQueueRunner implements the
       # minimal expected interface but does nothing.
       tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS,
                            data_reader.DummyQueueRunner())
 
-    return features, features["targets"]
+    return dataset
 
   def serving_input_fn(self, hparams):
     """Input fn for serving export, starting from serialized example."""

@@ -2840,3 +2840,32 @@ def belu(x):
   y1 = tf.nn.elu(x1)
   y2 = -tf.nn.elu(-x2)
   return tf.reshape(tf.concat([y1, y2], axis=-1), x_shape)
+
+
+def argmax_with_score(logits, axis=None):
+  """Argmax along with the value."""
+  axis = axis or len(logits.get_shape()) - 1
+  predictions = tf.argmax(logits, axis=axis)
+
+  logits_shape = shape_list(logits)
+  prefix_shape, vocab_size = logits_shape[:-1], logits_shape[-1]
+  prefix_size = 1
+  for d in prefix_shape:
+    prefix_size *= d
+
+  # Flatten to extract scores
+  flat_logits = tf.reshape(logits, [prefix_size, vocab_size])
+  flat_predictions = tf.reshape(predictions, [prefix_size])
+  flat_indices = tf.stack(
+      [tf.range(tf.to_int64(prefix_size)),
+       tf.to_int64(flat_predictions)], axis=1)
+  flat_scores = tf.gather_nd(flat_logits, flat_indices)
+
+  # Unflatten
+  scores = tf.reshape(flat_scores, prefix_shape)
+
+  return predictions, scores
+
+
+def log_prob_from_logits(logits, reduce_axis=-1):
+  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keep_dims=True)

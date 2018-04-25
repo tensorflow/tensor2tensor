@@ -22,6 +22,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -393,6 +394,7 @@ def resnet_v2(inputs,
 
 @registry.register_model
 class Resnet(t2t_model.T2TModel):
+  """Residual Network."""
 
   def body(self, features):
     hp = self.hparams
@@ -423,6 +425,26 @@ class Resnet(t2t_model.T2TModel):
       out = tf.transpose(out, [0, 2, 3, 1])
 
     return out
+
+  def infer(self,
+            features=None,
+            decode_length=50,
+            beam_size=1,
+            top_beams=1,
+            alpha=0.0,
+            use_tpu=False):
+    """Predict."""
+    del decode_length, beam_size, top_beams, alpha, use_tpu
+    assert features is not None
+    logits, _ = self(features)  # pylint: disable=not-callable
+    assert len(logits.get_shape()) == 5
+    logits = tf.squeeze(logits, [1, 2, 3])
+    log_probs = common_layers.log_prob_from_logits(logits)
+    predictions, scores = common_layers.argmax_with_score(log_probs)
+    return {
+        "outputs": predictions,
+        "scores": scores,
+    }
 
 
 def resnet_base():

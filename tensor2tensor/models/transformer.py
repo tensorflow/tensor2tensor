@@ -496,7 +496,7 @@ def fast_decode(encoder_output,
     def inner_loop(i, finished, next_id, decoded_ids, cache, log_prob):
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
-      log_probs = beam_search.log_prob_from_logits(logits)
+      log_probs = common_layers.log_prob_from_logits(logits)
       temperature = (0.0 if hparams.sampling_method == "argmax" else
                      hparams.sampling_temp)
       next_id = common_layers.sample_with_temperature(logits, temperature)
@@ -566,7 +566,7 @@ class TransformerScorer(Transformer):
     logits = tf.squeeze(logits, [2, 3])
 
     # Compute the log probabilities
-    log_probs = beam_search.log_prob_from_logits(logits)
+    log_probs = common_layers.log_prob_from_logits(logits)
 
     # Slice out the log_probs of the targets
     targets = features["targets"]
@@ -577,11 +577,10 @@ class TransformerScorer(Transformer):
     flat_targets = tf.reshape(targets, [batch_size * timesteps])
     flat_log_probs = tf.reshape(log_probs, [batch_size * timesteps, vocab_size])
     flat_indices = tf.stack(
-        [tf.range(tf.to_int64(batch_size) * tf.to_int64(timesteps)),
+        [tf.range(tf.to_int64(common_layers.shape_list(flat_targets)[0])),
          tf.to_int64(flat_targets)], axis=1)
-    log_probs = tf.reshape(
-        tf.gather_nd(flat_log_probs, flat_indices),
-        [batch_size, timesteps])
+    flat_log_probs = tf.gather_nd(flat_log_probs, flat_indices)
+    log_probs = tf.reshape(flat_log_probs, [batch_size, timesteps])
 
     # Sum over time to get the log_prob of the sequence
     scores = tf.reduce_sum(log_probs, axis=1)
