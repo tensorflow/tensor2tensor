@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import importlib
+import six
 
 
 modules = [
@@ -57,8 +58,34 @@ modules = [
 ]
 
 
-for module in modules:
+
+def _py_err_msg(module):
+  if six.PY2:
+    msg = "No module named %s" % module.split(".")[-1]
+  else:
+    msg = "No module named '%s'" % module
+  return msg
+
+
+def _handle_errors(errors):
+  """Log out and possibly reraise errors during import."""
+  if not errors:
+    return
+  log_all = True  # pylint: disable=unused-variable
+  err_msg = "Skipped importing {num_missing} data_generators modules."
+  print(err_msg.format(num_missing=len(errors)))
+  for module, err in errors:
+    err_str = str(err)
+    if err_str != _py_err_msg(module):
+      raise err
+    if log_all:
+      print("Did not import module: %s; Cause: %s" % (module, err_str))
+
+
+_errors = []
+for _module in modules:
   try:
-    importlib.import_module(module)
+    importlib.import_module(_module)
   except ImportError as error:
-    print("Did not import module: %s; Cause: %s" % (module, str(error)))
+    _errors.append((_module, error))
+_handle_errors(_errors)

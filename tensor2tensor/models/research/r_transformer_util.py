@@ -982,8 +982,7 @@ def r_transformer_lstm(layer_inputs,
 def r_transformer_act(x, hparams, ffn_unit, attention_unit):
   """ACT based models.
 
-  Implementations of all act models are based on
-  https://critique.corp.google.com/#review/160711592
+  Implementations of all act models are based on craffel@'s cl/160711592.
 
   Args:
     x: input
