@@ -98,4 +98,3 @@ def lmx_h4k_f16k():
   hparams.batch_size = 1024
   hparams.weight_dtype = "bfloat16"
   return hparams
-
