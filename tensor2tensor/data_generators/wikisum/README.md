@@ -115,31 +115,27 @@ Pricing is taken from
 [here](https://cloud.google.com/compute/pricing#custommachinetypepricing).
 
 * `WikisumCommoncrawl`
-  * `get_references_commoncrawl`: $250 (1k machines, 1 CPU, 4G memory, 5 hours)
-  * `produce_examples`: $250 (1k machines, 1 CPU, 4G memory, 5 hours)
+  * `get_references_commoncrawl`: $50 (1k machines, 1 CPU, 2G memory, 1 hour)
+  * `produce_examples`: $350 (1k machines, 1 CPU, 2G memory, 8 hours)
 * `WikisumWeb`
   * `get_references_web`: $750 (1k machines, 4 CPU, 4G memory, 5 hours)
-  * `produce_examples`: $250 (1k machines, 1 CPU, 4G memory, 5 hours)
-
-**TODO(rsepassi)**: Update these estimates when you have better data.
+  * `produce_examples`: $350 (1k machines, 1 CPU, 2G memory, 8 hours)
 
 ## Commands to generate `WikisumCommoncrawl`
 
 ```
-git clone https://github.com/tensorflow/tensor2tensor.git
-cd tensor2tensor/data_generators/wikisum
+pip install tensor2tensor -U --user
 
 # Set to your own GCS bucket
 BUCKET=gs://my-gcs-bucket/wikisum_commoncrawl
 
 # Extract references from CommonCrawl
-python parallel_launch.py \
+python -m tensor2tensor.data_generators.wikisum.parallel_launch.py \
   --num_instances=1000 \
-  --cpu=1 --mem=4 \
+  --cpu=1 --mem=2 \
   --name=wikisum-refs-cc \
-  --code_dir=./ \
   --log_dir=$BUCKET/refs_logs \
-  --setup_command="pip install tensor2tensor tensorflow -q --user" \
+  --setup_command="pip install tensor2tensor tensorflow -U -q --user" \
   --command_prefix="python -m tensor2tensor.data_generators.wikisum.get_references_commoncrawl --num_tasks=1000 --out_dir=$BUCKET/wiki_references --task_id"
 
 # Generate vocabulary file
@@ -149,33 +145,30 @@ python -m tensor2tensor.data_generators.wikisum.generate_vocab \
   --for_commoncrawl
 
 # Produce examples
-python parallel_launch.py \
+python -m tensor2tensor.data_generators.wikisum.parallel_launch.py \
   --num_instances=1000 \
-  --cpu=1 --mem=4 \
+  --cpu=1 --mem=2 \
   --name=wikisum-cc-produce \
-  --code_dir=./ \
   --log_dir=$BUCKET/produce_logs \
-  --setup_command="pip install tensor2tensor tensorflow -q --user" \
-  --command_prefix="python wikisum/produce_examples.py --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --task_id"
+  --setup_command="pip install tensor2tensor tensorflow -U -q --user" \
+  --command_prefix="python -m tensor2tensor.data_generators.wikisum.produce_examples.py --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --for_commoncrawl --task_id"
 ```
 
 ## Commands to generate `WikisumWeb`
 
 ```
-git clone https://github.com/tensorflow/tensor2tensor.git
-cd tensor2tensor/data_generators/wikisum
+pip install tensor2tensor -U --user
 
 # Set to your own GCS bucket
 BUCKET=gs://my-gcs-bucket/wikisum_web
 
 # Fetch references from web
-python parallel_launch.py \
+python -m tensor2tensor.data_generators.wikisum.parallel_launch.py \
   --num_instances=1000 \
   --cpu=4 --mem=4 \
   --name=wikisum-refs-web \
-  --code_dir=./ \
   --log_dir=$BUCKET/refs_logs \
-  --setup_command="pip3 install aiohttp cchardet aiodns bs4 -q --user" \
+  --setup_command="pip3 install tensorflow tensor2tensor aiohttp cchardet aiodns bs4 -U -q --user" \
   --command_prefix="python3 wikisum/get_references_web.py --out_dir=$BUCKET/wiki_references --shard_id"
 
 # Generate vocabulary file
@@ -184,14 +177,13 @@ python -m tensor2tensor.data_generators.wikisum.generate_vocab \
   --refs_dir=$BUCKET/wiki_references
 
 # Produce examples
-python parallel_launch.py \
+python -m tensor2tensor.data_generators.wikisum.parallel_launch.py \
   --num_instances=1000 \
-  --cpu=1 --mem=4 \
+  --cpu=1 --mem=2 \
   --name=wikisum-web-produce \
-  --code_dir=./ \
   --log_dir=$BUCKET/produce_logs \
-  --setup_command="pip install tensor2tensor tensorflow -q --user" \
-  --command_prefix="python wikisum/produce_examples.py --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --task_id"
+  --setup_command="pip install tensor2tensor tensorflow -U -q --user" \
+  --command_prefix="python -m tensor2tensor.data_generators.wikisum.produce_examples.py --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --task_id"
 ```
 
 ## Training

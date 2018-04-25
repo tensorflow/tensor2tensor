@@ -12,13 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Utilities for working with CommonCrawl data and WET files."""
+"""Wikisum data generation utilities."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import collections
+import contextlib
 import cStringIO
+import datetime
 import gzip
 import os
 import re
@@ -242,3 +244,17 @@ def filter_paragraph(p):
 
   return False
 
+
+@contextlib.contextmanager
+def timing(name=''):
+  """Log start, end, and duration."""
+  start = datetime.datetime.now()
+  timestamp = start.strftime('%H:%M')
+  tf.logging.info('Starting job [%s] at %s', name, timestamp)
+  yield
+  end = datetime.datetime.now()
+  timestamp = end.strftime('%H:%M')
+  tf.logging.info('Finished job [%s] at %s', name, timestamp)
+  duration = end - start
+  duration_mins = duration.total_seconds() / 60
+  tf.logging.info('Total time [%s] (m): %d', name, int(duration_mins))

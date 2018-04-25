@@ -21,7 +21,6 @@ Requires Python 3.5
 pip3 install aiohttp cchardet aiodns bs4 tensorflow
 """
 
-import contextlib
 import datetime
 import json
 import math
@@ -33,6 +32,8 @@ import asyncio
 import aiohttp
 import bs4
 import tensorflow as tf
+
+from tensor2tensor.data_generators.wikisum import utils
 
 
 flags = tf.flags
@@ -330,16 +331,6 @@ def get_urls_for_shard_group(urls_dir, shard_id, group_id):
   return group_urls
 
 
-@contextlib.contextmanager
-def timing(name=""):
-  start = datetime.datetime.now()
-  yield
-  end = datetime.datetime.now()
-  duration = end - start
-  duration_mins = duration / datetime.timedelta(minutes=1)
-  tf.logging.info("Total time [%s] (m): %d", name, int(duration_mins))
-
-
 def main(_):
   urls = get_urls_for_shard_group(
       FLAGS.urls_dir, FLAGS.shard_id, FLAGS.group_id)
@@ -349,7 +340,7 @@ def main(_):
   tf.gfile.MakeDirs(FLAGS.out_dir)
   out_fname = tfrecord_fname(FLAGS.out_dir, FLAGS.shard_id)
 
-  with timing("group_fetch"):
+  with utils.timing("group_fetch"):
     logging_fnames = {}
     if FLAGS.log_samples:
       logging_fnames["samples"] = os.path.join(

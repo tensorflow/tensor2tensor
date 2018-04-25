@@ -20,7 +20,7 @@ from __future__ import print_function
 import os
 import tempfile
 
-from tensor2tensor.data_generators.wikisum import utils as cc_utils
+from tensor2tensor.data_generators.wikisum import utils
 from tensor2tensor.data_generators.wikisum import wikisum
 
 import tensorflow as tf
@@ -29,7 +29,7 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_integer("num_tasks", 1000, "Number of parallel tasks.")
-flags.DEFINE_integer("task_id", 0, "Task id when running with borg multirun.")
+flags.DEFINE_integer("task_id", 0, "Task id in a parallel run.")
 flags.DEFINE_string("metadata_dir",
                     "gs://tensor2tensor-data/wikisum/commoncrawl_metadata/",
                     "Path to metadata files specifying what references are in "
@@ -46,22 +46,25 @@ def main(_):
   out_dir = os.path.join(FLAGS.out_dir, "process_%d" % FLAGS.task_id)
   tf.gfile.MakeDirs(out_dir)
 
-  # Get all WET files
-  if FLAGS.commoncrawl_wet_dir:
-    wet_files = tf.gfile.Glob(
-        os.path.join(FLAGS.commoncrawl_wet_dir, "*.wet.gz"))
-  else:
-    tmp_dir = tempfile.gettempdir()
-    wet_files = list(
-        cc_utils.wet_download_urls(cc_utils.WET_PATHS_BY_DATE["0917"], tmp_dir))
+  with utils.timing("get_refs_commoncrawl"):
+    # Get all WET files
+    if FLAGS.commoncrawl_wet_dir:
+      wet_files = tf.gfile.Glob(
+          os.path.join(FLAGS.commoncrawl_wet_dir, "*.wet.gz"))
+    else:
+      tmp_dir = tempfile.gettempdir()
+      wet_files = list(
+          utils.wet_download_urls(utils.WET_PATHS_BY_DATE["0917"], tmp_dir))
 
-  # Shard and select this task's work
-  wet_files.sort()
-  wet_files = cc_utils.shard(wet_files, FLAGS.num_tasks)[FLAGS.task_id]
-  tf.logging.info("Sharded out WET files. Processing %d files", len(wet_files))
+    # Shard and select this task's work
+    wet_files.sort()
+    wet_files = utils.shard(wet_files, FLAGS.num_tasks)[FLAGS.task_id]
+    tf.logging.info("Sharded out WET files. Processing %d files",
+                    len(wet_files))
 
-  wikisum.extract_references_from_wets(wet_files, FLAGS.metadata_dir, out_dir)
+    wikisum.extract_references_from_wets(wet_files, FLAGS.metadata_dir, out_dir)
 
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

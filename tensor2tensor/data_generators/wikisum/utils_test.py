@@ -27,7 +27,7 @@ from tensor2tensor.data_generators.wikisum import utils
 import tensorflow as tf
 
 pkg_dir, _ = os.path.split(__file__)
-_TESTDATA = os.path.join(pkg_dir, "testdata")
+_TESTDATA = os.path.join(pkg_dir, "test_data")
 
 
 def _get_testdata(filename):

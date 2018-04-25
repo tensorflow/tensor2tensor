@@ -14,6 +14,7 @@ setup(
     packages=find_packages(),
     package_data={
         'tensor2tensor.data_generators': ['test_data/*'],
+        'tensor2tensor.data_generators.wikisum': ['test_data/*'],
         'tensor2tensor.visualization': [
             'attention.js', 'TransformerVisualization.ipynb'
         ],

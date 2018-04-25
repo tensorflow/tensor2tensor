@@ -19,7 +19,7 @@ from __future__ import print_function
 
 import os
 
-from tensor2tensor.data_generators.wikisum import utils as cc_utils
+from tensor2tensor.data_generators.wikisum import utils
 from tensor2tensor.data_generators.wikisum import wikisum
 
 import tensorflow as tf
@@ -28,7 +28,7 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_integer("num_tasks", 1000, "Number of parallel tasks.")
-flags.DEFINE_integer("task_id", 0, "Task id when running with borg multirun.")
+flags.DEFINE_integer("task_id", 0, "Task id in a parallel run.")
 flags.DEFINE_string("out_dir", None, "Directory to write to.")
 flags.DEFINE_string("wikis_dir",
                     "gs://tensor2tensor-data/wikisum/wiki_content/",
@@ -48,22 +48,24 @@ def main(_):
     problem = wikisum.WikisumWeb()
 
   out_filepaths = problem.out_filepaths(FLAGS.out_dir)
-  out_filepaths = cc_utils.shard(out_filepaths, FLAGS.num_tasks)[FLAGS.task_id]
+  out_filepaths = utils.shard(out_filepaths, FLAGS.num_tasks)[FLAGS.task_id]
 
   if not FLAGS.vocab_dir:
     FLAGS.vocab_dir = FLAGS.out_dir
 
-  shard_ids = cc_utils.shard(list(range(cc_utils.NUM_SHARDS)),
-                             FLAGS.num_tasks)[FLAGS.task_id]
+  shard_ids = utils.shard(list(range(utils.NUM_SHARDS)),
+                          FLAGS.num_tasks)[FLAGS.task_id]
 
-  wikisum.produce_examples(
-      shard_ids=shard_ids,
-      wikis_dir=FLAGS.wikis_dir,
-      refs_dir=FLAGS.refs_dir,
-      urls_dir=FLAGS.urls_dir,
-      vocab_path=os.path.join(FLAGS.vocab_dir, problem.vocab_filename),
-      out_filepaths=out_filepaths)
+  with utils.timing("produce_examples"):
+    wikisum.produce_examples(
+        shard_ids=shard_ids,
+        wikis_dir=FLAGS.wikis_dir,
+        refs_dir=FLAGS.refs_dir,
+        urls_dir=FLAGS.urls_dir,
+        vocab_path=os.path.join(FLAGS.vocab_dir, problem.vocab_filename),
+        out_filepaths=out_filepaths)
 
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

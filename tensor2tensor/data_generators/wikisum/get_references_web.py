@@ -40,7 +40,8 @@ import math
 import os
 import subprocess as sp
 
-import get_references_web_single_group as fetch
+from tensor2tensor.data_generators.wikisum import get_references_web_single_group as fetch
+from tensor2tensor.data_generators.wikisum import utils
 
 import tensorflow as tf
 
@@ -65,7 +66,7 @@ def main(_):
       "--shard_id=%d" % FLAGS.shard_id,
       "--debug_num_urls=%d" % FLAGS.debug_num_urls,
   ]
-  with fetch.timing("all_groups_fetch"):
+  with utils.timing("all_groups_fetch"):
     for i in range(num_groups):
       command = list(command_prefix)
       out_dir = os.path.join(FLAGS.out_dir, "process_%d" % i)
