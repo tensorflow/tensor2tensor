@@ -791,7 +791,7 @@ def transformer_encoder(encoder_input,
               max_relative_position=hparams.max_relative_position,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
-              max_length=hparams.max_length)
+              max_length=getattr(hparams, "max_length"))
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -866,7 +866,7 @@ def transformer_decoder(decoder_input,
               cache=layer_cache,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
-              max_length=hparams.max_length)
+              max_length=getattr(hparams, "max_length"))
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
@@ -883,7 +883,7 @@ def transformer_decoder(decoder_input,
                 save_weights_to=save_weights_to,
                 make_image_summary=make_image_summary,
                 dropout_broadcast_dims=attention_dropout_broadcast_dims,
-                max_length=hparams.max_length)
+                max_length=getattr(hparams, "max_length"))
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
