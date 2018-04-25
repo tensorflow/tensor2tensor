@@ -48,6 +48,7 @@ modules = [
     "tensor2tensor.data_generators.squad",
     "tensor2tensor.data_generators.translate_encs",
     "tensor2tensor.data_generators.translate_ende",
+    "tensor2tensor.data_generators.translate_enet",
     "tensor2tensor.data_generators.translate_enfr",
     "tensor2tensor.data_generators.translate_enmk",
     "tensor2tensor.data_generators.translate_envi",
