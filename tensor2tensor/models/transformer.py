@@ -394,7 +394,7 @@ class Transformer(t2t_model.T2TModel):
         ret = tf.cond(
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
-    decode_length_decide_end=features['decode_length_decide_end'] if 'decode_length_decide_end' in features else False
+    force_decode_length=self._decode_hparams.force_decode_length if 'force_decode_length' in self._decode_hparams else False
     ret = fast_decode(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
@@ -406,7 +406,7 @@ class Transformer(t2t_model.T2TModel):
         top_beams=top_beams,
         alpha=alpha,
         batch_size=batch_size,
-        decode_length_decide_end=decode_length_decide_end)
+        force_decode_length=force_decode_length)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -426,7 +426,7 @@ def fast_decode(encoder_output,
                 alpha=1.0,
                 eos_id=beam_search.EOS_ID,
                 batch_size=None,
-                decode_length_decide_end=False):
+                force_decode_length=False):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding, uses beam search iff
@@ -447,6 +447,8 @@ def fast_decode(encoder_output,
       the preference for longer translations.
     eos_id: End-of-sequence symbol in beam search.
     batch_size: an integer scalar - must be passed if there is no input
+    force_decode_length:affect funtion is_not_finish(),if True,decode will last as long as decode length
+
 
   Returns:
       A dict of decoding results {
@@ -518,8 +520,10 @@ def fast_decode(encoder_output,
       return i + 1, finished, next_id, decoded_ids, cache, log_prob
 
     def is_not_finished(i, finished, *_):
-      if decode_length_decide_end==True:return i < decode_length
-      else:return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
+      if force_decode_length==True:
+          return i < decode_length
+      else:
+          return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
 
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
     finished = tf.fill([batch_size], False)
