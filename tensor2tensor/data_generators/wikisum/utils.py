@@ -19,7 +19,6 @@ from __future__ import print_function
 
 import collections
 import contextlib
-import cStringIO
 import datetime
 import gzip
 import os
@@ -27,6 +26,15 @@ import re
 import urllib
 
 import tensorflow as tf
+
+# pylint: disable=g-import-not-at-top
+# To maintain compatibility with Python 2 and 3
+try:
+  import cStringIO as StringIO
+except ImportError:
+  import io as StringIO
+# pylint: enable=g-import-not-at-top
+
 
 # Each entry is a URL to the wet.paths.gz file for that CommonCrawl dump.
 WET_PATHS_BY_DATE = {
@@ -194,7 +202,7 @@ def shard(items, num_shards):
 
 def gzip_memfile(fname):
   with tf.gfile.Open(readahead(fname)) as f:
-    memfile = cStringIO.StringIO(f.read())
+    memfile = StringIO.StringIO(f.read())
   return gzip.GzipFile(fileobj=memfile)
 
 

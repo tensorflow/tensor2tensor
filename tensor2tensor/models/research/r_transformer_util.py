@@ -38,7 +38,7 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
-from functools import partial
+import functools
 
 # Dependency imports
 
@@ -99,13 +99,13 @@ def r_transformer_encoder(encoder_input,
     if hparams.use_pad_remover and not common_layers.is_on_tpu():
       pad_remover = expert_utils.PadRemover(padding)
 
-    ffn_unit = partial(
+    ffn_unit = functools.partial(
         transformer_encoder_ffn_unit,
         hparams=hparams,
         pad_remover=pad_remover,
         nonpadding_mask=nonpadding)
 
-    attention_unit = partial(
+    attention_unit = functools.partial(
         transformer_encoder_attention_unit,
         hparams=hparams,
         encoder_self_attention_bias=encoder_self_attention_bias,
@@ -163,12 +163,12 @@ def r_transformer_decoder(decoder_input,
       common_layers.comma_separated_string_to_integer_list(
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
   with tf.variable_scope(name):
-    ffn_unit = partial(
+    ffn_unit = functools.partial(
         transformer_decoder_ffn_unit,
         hparams=hparams,
         nonpadding_mask=nonpadding)
 
-    attention_unit = partial(
+    attention_unit = functools.partial(
         transformer_decoder_attention_unit,
         hparams=hparams,
         encoder_output=encoder_output,
@@ -237,12 +237,12 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
 
   if hparams.recurrence_type == "basic":
     rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = partial(
+    rt_function = functools.partial(
         r_transformer_basic, ffn_unit=ffn_unit, attention_unit=attention_unit)
 
   elif hparams.recurrence_type == "highway":
     rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = partial(
+    rt_function = functools.partial(
         r_transformer_highway,
         hparams=hparams,
         ffn_unit=ffn_unit,
@@ -251,7 +251,7 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
 
   elif hparams.recurrence_type == "skip":
     rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = partial(
+    rt_function = functools.partial(
         r_transformer_skip,
         hparams=hparams,
         ffn_unit=ffn_unit,
@@ -269,7 +269,7 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
     memory = fill_memory_slot(memory_empty, x, 0)
 
     rt_initializer = (x, x, memory)  # (state, input, memory)
-    rt_function = partial(
+    rt_function = functools.partial(
         r_transformer_depthwise_attention,
         hparams=hparams,
         ffn_unit=ffn_unit,
@@ -277,7 +277,7 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
 
   elif hparams.recurrence_type == "rnn":
     rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = partial(
+    rt_function = functools.partial(
         r_transformer_rnn,
         hparams=hparams,
         ffn_unit=ffn_unit,
@@ -286,7 +286,7 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
 
   elif hparams.recurrence_type == "gru":
     rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = partial(
+    rt_function = functools.partial(
         r_transformer_gru,
         hparams=hparams,
         attention_unit=attention_unit,
@@ -295,7 +295,7 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
   elif hparams.recurrence_type == "lstm":
     memory = tf.zeros(common_layers.shape_list(x))
     rt_initializer = (x, x, memory)  # (state, input, memory)
-    rt_function = partial(
+    rt_function = functools.partial(
         r_transformer_lstm,
         hparams=hparams,
         attention_unit=attention_unit,
