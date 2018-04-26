@@ -90,8 +90,7 @@ class BasicConvGen(t2t_model.T2TModel):
     reward_pred = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
     return {"targets": x, "target_reward": reward_pred}
 
-  def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
-            alpha=0.0):
+  def infer(self, features=None, *args, **kwargs):
     """Produce predictions from the model by running it."""
     # Inputs and features preparation needed to handle edge cases.
     if not features:

@@ -2798,10 +2798,18 @@ def dense(x, units, **kwargs):
 
 
 def mix(x1, x2, steps, is_training,
-        min_prob=0.0, max_prob=1.0, mode="lin", simple=False):
+        min_prob=0.0, max_prob=1.0,
+        mode="lin", simple=False, broadcast_last=False):
   """Mix starting with x2, mixing mixing, going towards x1."""
   if not is_training:
-    return x1
+    if max_prob >= 1.0:
+      return x1
+    alpha_shape = shape_list(x1)
+    if broadcast_last:
+      alpha_shape = alpha_shape[:-1] + [1]
+    alpha = tf.random_uniform(alpha_shape)
+    alpha = tf.to_float(tf.less(alpha, max_prob))
+    return alpha * x1 + (1.0 - alpha) * x2
 
   def get_res():
     """Create the result. Separate function to speed it up later (see below)."""
@@ -2812,7 +2820,10 @@ def mix(x1, x2, steps, is_training,
     alpha_p = alpha_p * (max_prob - min_prob) + min_prob
     if simple:
       return alpha_p * x1 + (1.0 - alpha_p) * x2
-    alpha = tf.random_uniform(shape_list(x1))
+    alpha_shape = shape_list(x1)
+    if broadcast_last:
+      alpha_shape = alpha_shape[:-1] + [1]
+    alpha = tf.random_uniform(alpha_shape)
     alpha = tf.to_float(tf.less(alpha, alpha_p))
     return alpha * x1 + (1.0 - alpha) * x2
 

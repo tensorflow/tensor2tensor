@@ -33,17 +33,29 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
   """Autoencoder with an autoregressive part."""
 
   def body(self, features):
-    hparams = self._hparams
-    shape = common_layers.shape_list(features["targets"])
+    hparams = self.hparams
+    is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
     # Run the basic autoencoder part first.
     basic_result, losses = super(AutoencoderAutoregressive, self).body(features)
+    shape = common_layers.shape_list(basic_result)
+    basic1d = tf.reshape(basic_result, [shape[0], -1, shape[3]])
+    # During autoregressive inference, don't resample.
+    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+      if hasattr(hparams, "sampled_basic1d_tensor"):
+        basic1d = hparams.sampled_basic1d_tensor
+      else:
+        hparams.sampled_basic1d_tensor = basic1d
     # Prepare inputs for autoregressive modes.
-    targets_keep_prob = 1.0 - hparams.autoregressive_dropout
-    targets_dropout = common_layers.dropout_with_broadcast_dims(
-        features["targets"], targets_keep_prob, broadcast_dims=[-1])
+    if common_layers.shape_list(features["targets"])[1] == 1:
+      # This happens on the first step of predicitions.
+      assert hparams.mode == tf.estimator.ModeKeys.PREDICT
+      features["targets"] = tf.zeros_like(basic_result)
+    targets_dropout = common_layers.mix(
+        features["targets"], tf.zeros_like(basic_result),
+        hparams.bottleneck_warmup_steps, is_training,
+        max_prob=1.0 - hparams.autoregressive_dropout, broadcast_last=True)
     targets1d = tf.reshape(targets_dropout, [shape[0], -1, shape[3]])
     targets_shifted = common_layers.shift_right_3d(targets1d)
-    basic1d = tf.reshape(basic_result, [shape[0], -1, shape[3]])
     concat1d = tf.concat([basic1d, targets_shifted], axis=-1)
     # The forget_base hparam sets purely-autoregressive mode, no autoencoder.
     if hparams.autoregressive_forget_base:
@@ -73,6 +85,57 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
     raise ValueError("Unsupported autoregressive mode: %s"
                      % hparams.autoregressive_mode)
 
+  def infer(self, features=None, *args, **kwargs):
+    """Produce predictions from the model by sampling."""
+    # Inputs and features preparation needed to handle edge cases.
+    if not features:
+      features = {}
+    inputs_old = None
+    if "inputs" in features and len(features["inputs"].shape) < 4:
+      inputs_old = features["inputs"]
+      features["inputs"] = tf.expand_dims(features["inputs"], 2)
+
+    # Sample first.
+    try:
+      num_channels = self.hparams.problem.num_channels
+    except AttributeError:
+      num_channels = 1
+    features["targets"] = tf.zeros(
+        [self.hparams.batch_size, 1, 1, num_channels],
+        dtype=tf.int32)
+    logits, _ = self(features)  # pylint: disable=not-callable
+    samples = common_layers.sample_with_temperature(
+        logits, 0.0)
+    shape = common_layers.shape_list(samples)
+
+    # Sample again if requested for the autoregressive part.
+    extra_samples = 0
+    self.hparams.autoregressive_dropout = 0.2
+    for i in range(extra_samples):
+      if i == extra_samples - 2:
+        self.hparams.autoregressive_dropout -= 0.1
+        self.hparams.sampling_temp /= 2
+      if i == extra_samples - 1:
+        self.hparams.autoregressive_dropout -= 0.1
+        self.hparams.sampling_temp = 0.0
+      features["targets"] = samples
+      old_samples1d = tf.reshape(samples, [shape[0], -1, shape[3]])
+      with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+        logits, _ = self(features)  # pylint: disable=not-callable
+        samples = common_layers.sample_with_temperature(
+            logits, self.hparams.sampling_temp)
+        samples1d = tf.reshape(samples, [shape[0], -1, shape[3]])
+        samples1d = tf.concat([old_samples1d[:, :i, :], samples1d[:, i:, :]],
+                              axis=1)
+        samples = tf.reshape(samples1d, shape)
+
+    # Restore inputs to not confuse Estimator in edge cases.
+    if inputs_old is not None:
+      features["inputs"] = inputs_old
+
+    # Return samples.
+    return samples
+
 
 @registry.register_model
 class AutoencoderResidual(AutoencoderAutoregressive):
@@ -80,7 +143,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
 
   def encoder(self, x):
     with tf.variable_scope("encoder"):
-      hparams = self._hparams
+      hparams = self.hparams
       kernel, strides = self._get_kernel_and_strides()
       residual_kernel = (hparams.residual_kernel_height,
                          hparams.residual_kernel_width)
@@ -92,6 +155,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
       # Down-convolutions.
       for i in range(hparams.num_hidden_layers):
         with tf.variable_scope("layer_%d" % i):
+          x = self.make_even_size(x)
           x = tf.nn.dropout(x, 1.0 - hparams.dropout)
           filters = hparams.hidden_size * 2**(i + 1)
           filters = min(filters, hparams.max_hidden_size)
@@ -114,7 +178,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
 
   def decoder(self, x):
     with tf.variable_scope("decoder"):
-      hparams = self._hparams
+      hparams = self.hparams
       kernel, strides = self._get_kernel_and_strides()
       residual_kernel = (hparams.residual_kernel_height,
                          hparams.residual_kernel_width)
@@ -155,7 +219,7 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
   """Discrete autoencoder."""
 
   def bottleneck(self, x):
-    hparams = self._hparams
+    hparams = self.hparams
     x = tf.tanh(tf.layers.dense(x, hparams.bottleneck_size, name="bottleneck"))
     d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
@@ -167,7 +231,7 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
     return x
 
   def sample(self):
-    hp = self._hparams
+    hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
     size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
@@ -182,24 +246,25 @@ class AutoencoderResidualDiscrete(AutoencoderResidual):
 
   def bottleneck(self, x, bottleneck_size=None):
     if bottleneck_size is not None:
-      old_bottleneck_size = self._hparams.bottleneck_size
-      self._hparams.bottleneck_size = bottleneck_size
-    res = discretization.parametrized_bottleneck(x, self._hparams)
+      old_bottleneck_size = self.hparams.bottleneck_size
+      self.hparams.bottleneck_size = bottleneck_size
+    res = discretization.parametrized_bottleneck(x, self.hparams)
     if bottleneck_size is not None:
-      self._hparams.bottleneck_size = old_bottleneck_size
+      self.hparams.bottleneck_size = old_bottleneck_size
     return res
 
   def unbottleneck(self, x, res_size):
-    return discretization.parametrized_unbottleneck(x, res_size, self._hparams)
+    return discretization.parametrized_unbottleneck(x, res_size, self.hparams)
 
   def bottleneck_loss(self, b):
     part = tf.random_uniform(common_layers.shape_list(b))
     selection = tf.to_float(tf.less(part, tf.random_uniform([])))
-    part_avg = tf.abs(tf.reduce_sum(b * selection)) / tf.reduce_sum(selection)
+    selection_size = tf.reduce_sum(selection)
+    part_avg = tf.abs(tf.reduce_sum(b * selection)) / (selection_size + 1)
     return part_avg
 
   def sample(self):
-    hp = self._hparams
+    hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
     size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
@@ -208,7 +273,8 @@ class AutoencoderResidualDiscrete(AutoencoderResidual):
     res = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
     # If you want to set some first bits to a fixed value, do this:
     # fixed = tf.zeros_like(rand) - 1.0
-    # res = tf.concat([fixed[:, :, :, :2], res[:, :, :, 2:]], axis=-1)
+    # nbits = 3
+    # res = tf.concat([fixed[:, :, :, :nbits], res[:, :, :, nbits:]], axis=-1)
     return res
 
 
@@ -217,27 +283,23 @@ class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
   """Ordered discrete autoencoder."""
 
   def bottleneck(self, x):
-    hparams = self._hparams
+    hparams = self.hparams
+    noise = hparams.bottleneck_noise
+    hparams.bottleneck_noise = 0.0  # We'll add noise below.
     x = discretization.parametrized_bottleneck(x, hparams)
+    hparams.bottleneck_noise = noise
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
-      # In the ordered case, we'll have no noise on top bits, let's make a mask.
-      # Start with randomly uniformly choosing numbers [0, number_of_bits) where
-      # the number of bits in our case is bottleneck size. We pick separately
-      # for every position and batch just to keep it varied.
-      no_noise_mask = tf.random_uniform(common_layers.shape_list(x)[:-1])
-      no_noise_mask *= hparams.bottleneck_size
-      # Now let's make a 1-hot vector that is 1 on the index i from which on
-      # we want to be noisy and 0 everywhere else.
-      no_noise_mask = tf.one_hot(tf.to_int32(no_noise_mask),
-                                 hparams.bottleneck_size)
-      # Use tf.cumsum to make the mask (0 before index i, 1 after index i).
-      no_noise_mask = tf.cumsum(no_noise_mask, axis=-1)
+      # We want a number p such that p^bottleneck_size = 1 - noise.
+      # So log(p) * bottleneck_size = log(noise)
+      log_p = tf.log(1 - float(noise) / 2) / float(hparams.bottleneck_size)
+      # Probabilities of flipping are p, p^2, p^3, ..., p^bottleneck_size.
+      noise_mask = 1.0 - tf.exp(tf.cumsum(tf.zeros_like(x) + log_p, axis=-1))
       # Having the no-noise mask, we can make noise just uniformly at random.
-      ordered_noise = tf.random_uniform(tf.shape(x)) * no_noise_mask
+      ordered_noise = tf.random_uniform(tf.shape(x))
       # We want our noise to be 1s at the start and random {-1, 1} bits later.
-      ordered_noise = 2.0 * tf.to_float(tf.less(ordered_noise, 0.5)) - 1.0
+      ordered_noise = tf.to_float(tf.less(noise_mask, ordered_noise))
       # Now we flip the bits of x on the noisy positions (ordered and normal).
-      x *= ordered_noise
+      x *= 2.0 * ordered_noise - 1
     return x
 
 
@@ -288,7 +350,7 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
     return tf.reshape(b1, b_shape)
 
   def body(self, features):
-    hparams = self._hparams
+    hparams = self.hparams
     num_stacks = hparams.num_hidden_layers
     hparams.num_hidden_layers = 1
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
@@ -321,7 +383,7 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
         x = b
     else:
       b = self.sample()
-      res_size = self._hparams.hidden_size * 2**self._hparams.num_hidden_layers
+      res_size = self.hparams.hidden_size * 2**self.hparams.num_hidden_layers
       res_size = min(res_size, hparams.max_hidden_size)
       x = self.unbottleneck(b, res_size)
     # Run decoder.
