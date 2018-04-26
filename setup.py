@@ -38,7 +38,8 @@ setup(
         'gevent',
         'google-api-python-client',
         'gunicorn',
-        'gym<=0.9.5',  # gym in version 0.9.6 has some temporary issues.
+        'gym',
+        'h5py',
         'numpy',
         'requests',
         'scipy',
@@ -48,7 +49,7 @@ setup(
     extras_require={
         'tensorflow': ['tensorflow>=1.5.0'],
         'tensorflow_gpu': ['tensorflow-gpu>=1.5.0'],
-        'tests': ['pytest', 'h5py', 'mock'],
+        'tests': ['pytest', 'mock'],
     },
     classifiers=[
         'Development Status :: 4 - Beta',
