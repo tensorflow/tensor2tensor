@@ -143,11 +143,11 @@ def basic_conv():
   hparams.learning_rate_constant = 0.0002
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"
-  hparams.label_smoothing = 0.05
+  hparams.label_smoothing = 0.0
   hparams.initializer = "uniform_unit_scaling"
   hparams.initializer_gain = 1.0
   hparams.weight_decay = 0.0
-  hparams.dropout = 0.1
+  hparams.dropout = 0.2
   hparams.add_hparam("num_compress_steps", 5)
   return hparams
 

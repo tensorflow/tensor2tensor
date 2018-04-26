@@ -98,7 +98,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   @property
   def num_actions(self):
-    raise NotImplementedError()
+    return self.env.action_space.n
 
   @property
   def num_rewards(self):
@@ -152,10 +152,6 @@ class GymPongRandom5k(GymDiscreteProblem):
   @property
   def frame_width(self):
     return 160
-
-  @property
-  def num_actions(self):
-    return 4
 
   @property
   def min_reward(self):
