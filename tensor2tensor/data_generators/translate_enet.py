@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data generators for En-Et translation."""
 
 from __future__ import absolute_import
@@ -38,7 +37,7 @@ _ENET_TRAIN_DATASETS = [
         ("training/europarl-v8.et-en.en", "training/europarl-v8.et-en.et")
     ],
     [
-        "https://s3.amazonaws.com/web-language-models/paracrawl/release1/paracrawl-release1.en-et.zipporah0-dedup-clean.tgz", # pylint: disable=line-too-long
+        "https://s3.amazonaws.com/web-language-models/paracrawl/release1/paracrawl-release1.en-et.zipporah0-dedup-clean.tgz",  # pylint: disable=line-too-long
         ("paracrawl-release1.en-et.zipporah0-dedup-clean.en",
          "paracrawl-release1.en-et.zipporah0-dedup-clean.et")
     ],

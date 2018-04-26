@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Basic models for testing simple tasks."""
 
 from __future__ import absolute_import
@@ -91,8 +90,7 @@ class BasicConvGen(t2t_model.T2TModel):
     reward_pred = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
     return {"targets": x, "target_reward": reward_pred}
 
-  def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
-            alpha=0.0):
+  def infer(self, features=None, *args, **kwargs):
     """Produce predictions from the model by running it."""
     # Inputs and features preparation needed to handle edge cases.
     if not features:
@@ -144,11 +142,11 @@ def basic_conv():
   hparams.learning_rate_constant = 0.0002
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"
-  hparams.label_smoothing = 0.05
+  hparams.label_smoothing = 0.0
   hparams.initializer = "uniform_unit_scaling"
   hparams.initializer_gain = 1.0
   hparams.weight_decay = 0.0
-  hparams.dropout = 0.1
+  hparams.dropout = 0.2
   hparams.add_hparam("num_compress_steps", 5)
   return hparams
 

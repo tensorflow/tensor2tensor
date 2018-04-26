@@ -12,19 +12,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Layers common to multiple models."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 from collections import defaultdict
+
 import contextlib
 import functools
+from functools import partial
 import math
 import random
 
 # Dependency imports
+
 
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -1384,16 +1386,47 @@ def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
     return inputs
 
 
-def dense_relu_dense(inputs, filter_size, output_size, dropout=0.0,
-                     dropout_broadcast_dims=None):
+def dense_relu_dense(inputs,
+                     filter_size,
+                     output_size,
+                     output_activation=None,
+                     dropout=0.0,
+                     dropout_broadcast_dims=None,
+                     name=None):
   """Hidden layer with RELU activation followed by linear projection."""
+  layer_name = "%s_{}" % name if name else "{}"
   h = dense(
-      inputs, filter_size, use_bias=True, activation=tf.nn.relu, name="conv1")
+      inputs,
+      filter_size,
+      use_bias=True,
+      activation=tf.nn.relu,
+      name=layer_name.format("conv1"))
+
   if dropout != 0.0:
     h = dropout_with_broadcast_dims(
         h, 1.0 - dropout, broadcast_dims=dropout_broadcast_dims)
-  o = dense(h, output_size, use_bias=True, name="conv2")
+  o = dense(
+      h,
+      output_size,
+      activation=output_activation,
+      use_bias=True,
+      name=layer_name.format("conv2"))
   return o
+
+
+def dense_dropconnect(inputs,
+                      output_size,
+                      dropconnect_dropout=0.0,
+                      name="dense_dropconnect",
+                      **kwargs):
+  """Dense layer with dropconnect."""
+
+  if dropconnect_dropout != 0.0:
+    tf.logging.info("Applying dropconnect as the kernel regularization.")
+    kwargs["kernel_regularizer"] = partial(
+        tf.nn.dropout, keep_prob=1.0 - dropconnect_dropout)
+
+  return dense(inputs, output_size, use_bias=True, name=name, **kwargs)
 
 
 def conv_relu_conv(inputs,
@@ -2765,10 +2798,18 @@ def dense(x, units, **kwargs):
 
 
 def mix(x1, x2, steps, is_training,
-        min_prob=0.0, max_prob=1.0, mode="lin", simple=False):
+        min_prob=0.0, max_prob=1.0,
+        mode="lin", simple=False, broadcast_last=False):
   """Mix starting with x2, mixing mixing, going towards x1."""
   if not is_training:
-    return x1
+    if max_prob >= 1.0:
+      return x1
+    alpha_shape = shape_list(x1)
+    if broadcast_last:
+      alpha_shape = alpha_shape[:-1] + [1]
+    alpha = tf.random_uniform(alpha_shape)
+    alpha = tf.to_float(tf.less(alpha, max_prob))
+    return alpha * x1 + (1.0 - alpha) * x2
 
   def get_res():
     """Create the result. Separate function to speed it up later (see below)."""
@@ -2779,7 +2820,10 @@ def mix(x1, x2, steps, is_training,
     alpha_p = alpha_p * (max_prob - min_prob) + min_prob
     if simple:
       return alpha_p * x1 + (1.0 - alpha_p) * x2
-    alpha = tf.random_uniform(shape_list(x1))
+    alpha_shape = shape_list(x1)
+    if broadcast_last:
+      alpha_shape = alpha_shape[:-1] + [1]
+    alpha = tf.random_uniform(alpha_shape)
     alpha = tf.to_float(tf.less(alpha, alpha_p))
     return alpha * x1 + (1.0 - alpha) * x2
 
@@ -2807,3 +2851,32 @@ def belu(x):
   y1 = tf.nn.elu(x1)
   y2 = -tf.nn.elu(-x2)
   return tf.reshape(tf.concat([y1, y2], axis=-1), x_shape)
+
+
+def argmax_with_score(logits, axis=None):
+  """Argmax along with the value."""
+  axis = axis or len(logits.get_shape()) - 1
+  predictions = tf.argmax(logits, axis=axis)
+
+  logits_shape = shape_list(logits)
+  prefix_shape, vocab_size = logits_shape[:-1], logits_shape[-1]
+  prefix_size = 1
+  for d in prefix_shape:
+    prefix_size *= d
+
+  # Flatten to extract scores
+  flat_logits = tf.reshape(logits, [prefix_size, vocab_size])
+  flat_predictions = tf.reshape(predictions, [prefix_size])
+  flat_indices = tf.stack(
+      [tf.range(tf.to_int64(prefix_size)),
+       tf.to_int64(flat_predictions)], axis=1)
+  flat_scores = tf.gather_nd(flat_logits, flat_indices)
+
+  # Unflatten
+  scores = tf.reshape(flat_scores, prefix_shape)
+
+  return predictions, scores
+
+
+def log_prob_from_logits(logits, reduce_axis=-1):
+  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keep_dims=True)

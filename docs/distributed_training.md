@@ -51,8 +51,10 @@ distributed training:
 Parameter servers only need `--master=grpc://$ADDRESS` and
 `--schedule=run_std_server`.
 
->> Note about `output_dir`: All the workers (masters and parameter servers) should use the same `output_dir`. If training
->> on separate nodes, output_dir can be a shared filesystem like NFS or an object store like GCS.
+>> Note about `--output_dir`: All the nodes should use the same `--output_dir`.
+>> When using multiple machines, `output_dir` should point to a shared
+>> filesystem like NFS or an object store like Google Cloud Storage
+>> (`gs://...`).
 
 ## Utility to produce `TF_CONFIG` and flags
 

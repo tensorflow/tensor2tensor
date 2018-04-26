@@ -41,6 +41,7 @@ script:
     --ignore=tensor2tensor/problems_test.py
     --ignore=tensor2tensor/bin/t2t_trainer_test.py
     --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
+    --ignore=tensor2tensor/models/research/r_transformer_test.py  # Requires new feature in tf.foldl (rm with TF 1.9)
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
   - pytest tensor2tensor/visualization/visualization_test.py

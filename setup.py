@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.6.0',
+    version='1.6.1',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -14,6 +14,7 @@ setup(
     packages=find_packages(),
     package_data={
         'tensor2tensor.data_generators': ['test_data/*'],
+        'tensor2tensor.data_generators.wikisum': ['test_data/*'],
         'tensor2tensor.visualization': [
             'attention.js', 'TransformerVisualization.ipynb'
         ],
@@ -37,7 +38,8 @@ setup(
         'gevent',
         'google-api-python-client',
         'gunicorn',
-        'gym<=0.9.5',  # gym in version 0.9.6 has some temporary issues.
+        'gym',
+        'h5py',
         'numpy',
         'requests',
         'scipy',
@@ -47,7 +49,7 @@ setup(
     extras_require={
         'tensorflow': ['tensorflow>=1.5.0'],
         'tensorflow_gpu': ['tensorflow-gpu>=1.5.0'],
-        'tests': ['pytest', 'h5py', 'mock'],
+        'tests': ['pytest', 'mock'],
     },
     classifiers=[
         'Development Status :: 4 - Beta',

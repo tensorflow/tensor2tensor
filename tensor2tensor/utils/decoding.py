@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Decoding utilities."""
 from __future__ import absolute_import
 from __future__ import division
@@ -120,6 +119,7 @@ def decode_from_dataset(estimator,
   dataset_kwargs = {
       "shard": shard,
       "dataset_split": dataset_split,
+      "max_records": decode_hp.num_samples
   }
 
   # Build the inference input function

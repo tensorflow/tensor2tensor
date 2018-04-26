@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data generators for translation data-sets."""
 
 from __future__ import absolute_import
@@ -33,7 +32,7 @@ EOS = text_encoder.EOS_ID
 # For English-Macedonian the SETimes corpus
 # from http://nlp.ffzg.hr/resources/corpora/setimes/ is used.
 _ENMK_TRAIN_DATASETS = [[
-    "http://nlp.ffzg.hr/data/corpora/setimes/setimes.en-mk.txt.tgz",  # pylint: disable=line-too-long
+    "http://nlp.ffzg.hr/data/corpora/setimes/setimes.en-mk.txt.tgz",
     ("setimes.en-mk.en.txt", "setimes.en-mk.mk.txt")
 ]]
 

@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Discretization bottlenecks used to train discrete latent variables."""
 
 from __future__ import absolute_import
@@ -683,9 +682,9 @@ def isemhash_bottleneck(x, bottleneck_size, bottleneck_noise,
       noise = tf.random_uniform(common_layers.shape_list(x))
       noise = 2.0 * tf.to_float(tf.less(bottleneck_noise, noise)) - 1.0
       d *= noise
-    d = common_layers.mix(d, 2.0 * y - 1.0, discretize_warmup_steps,
-                          mode == tf.estimator.ModeKeys.TRAIN,
-                          max_prob=isemhash_mix_prob)
+      d = common_layers.mix(d, 2.0 * y - 1.0, discretize_warmup_steps,
+                            mode == tf.estimator.ModeKeys.TRAIN,
+                            max_prob=isemhash_mix_prob)
     return d
 
 
