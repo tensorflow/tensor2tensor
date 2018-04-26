@@ -994,7 +994,7 @@ class T2TModel(base.Layer):
         tf.summary.scalar(loss_name, loss_val)
 
     # Accumulate losses
-    loss = sum(losses_dict.values())
+    loss = sum(losses_dict[key] for key in sorted(losses_dict.keys()))
 
     # EVAL mode
     if mode == tf.estimator.ModeKeys.EVAL:
