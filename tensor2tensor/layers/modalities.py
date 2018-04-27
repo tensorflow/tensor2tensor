@@ -22,7 +22,6 @@ from __future__ import print_function
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
@@ -95,7 +94,7 @@ class SymbolModality(modality.Modality):
       ret = tf.concat(shards, 0)
     # Convert ret to tensor.
     if not tf.contrib.eager.in_eager_mode():
-      ret = eu.convert_gradient_to_tensor(ret)
+      ret = common_layers.convert_gradient_to_tensor(ret)
     return ret
 
   def bottom_simple(self, x, name, reuse):

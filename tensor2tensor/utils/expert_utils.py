@@ -30,34 +30,12 @@ import math
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
+
+from tensor2tensor.layers import common_layers
+
 import tensorflow as tf
 
-from tensorflow.python.framework import function
-
 DEFAULT_DEV_STRING = "existing_device"
-
-
-@function.Defun(
-    python_grad_func=lambda x, dy: tf.convert_to_tensor(dy),
-    shape_func=lambda op: [op.inputs[0].get_shape()])
-def convert_gradient_to_tensor(x):
-  """Identity operation whose gradient is converted to a `Tensor`.
-
-  Currently, the gradient to `tf.concat` is particularly expensive to
-  compute if dy is an `IndexedSlices` (a lack of GPU implementation
-  forces the gradient operation onto CPU).  This situation occurs when
-  the output of the `tf.concat` is eventually passed to `tf.gather`.
-  It is sometimes faster to convert the gradient to a `Tensor`, so as
-  to get the cheaper gradient for `tf.concat`.  To do this, replace
-  `tf.concat(x)` with `convert_gradient_to_tensor(tf.concat(x))`.
-
-  Args:
-    x: A `Tensor`.
-
-  Returns:
-    The input `Tensor`.
-  """
-  return x
 
 
 def add_scope(scope=None, scope_fn=None):
@@ -476,7 +454,7 @@ def noisy_top_k_gating(x,
       noisy_logits = clean_logits + (
           tf.random_normal(tf.shape(clean_logits)) * noise_stddev)
       logits = noisy_logits
-      if should_generate_summaries():
+      if common_layers.should_generate_summaries():
         tf.summary.histogram("noisy_logits", noisy_logits)
         tf.summary.histogram("noise_stddev", noise_stddev)
     else:
@@ -495,7 +473,7 @@ def noisy_top_k_gating(x,
                          k), 0)
     else:
       load = _gates_to_load(gates)
-    if should_generate_summaries():
+    if common_layers.should_generate_summaries():
       tf.summary.histogram("importance", tf.reduce_sum(gates, 0))
       tf.summary.histogram("load", load)
     return gates, load
@@ -672,7 +650,7 @@ class SparseDispatcher(object):
   The inputs and outputs are all two-dimensional [batch, depth].
   Caller is responsible for collapsing additional dimensions prior to
   calling this class and reshaping the output to the original shape.
-  See reshape_like().
+  See common_layers.reshape_like().
 
   Example use:
 
@@ -746,7 +724,8 @@ class SparseDispatcher(object):
       a `Tensor` with shape `[batch_size, <extra_output_dims>]`.
     """
     # see comments on convert_gradient_to_tensor
-    stitched = convert_gradient_to_tensor(tf.concat(expert_out, 0))
+    stitched = common_layers.convert_gradient_to_tensor(
+        tf.concat(expert_out, 0))
     if multiply_by_gates:
       stitched *= tf.expand_dims(self._nonzero_gates, 1)
     combined = tf.unsorted_segment_sum(stitched, self._batch_index,
@@ -821,8 +800,8 @@ class DistributedSparseDispatcher(object):
     dispatched = self._dp(lambda a, b: a.dispatch(b), self._dispatchers, inp)
     ret = self._ep(tf.concat, transpose_list_of_lists(dispatched), 0)
     if ret[0].dtype == tf.float32:
-      # see comments on convert_gradient_to_tensor
-      ret = self._ep(convert_gradient_to_tensor, ret)
+      # see comments on common_layers.convert_gradient_to_tensor
+      ret = self._ep(common_layers.convert_gradient_to_tensor, ret)
     return ret
 
   def combine(self, expert_out, multiply_by_gates=True):
@@ -846,7 +825,7 @@ class DistributedSparseDispatcher(object):
     expert_output_parts_t = transpose_list_of_lists(expert_output_parts)
     def my_combine(dispatcher, parts):
       return dispatcher.combine(
-          convert_gradient_to_tensor(tf.concat(parts, 0)),
+          common_layers.convert_gradient_to_tensor(tf.concat(parts, 0)),
           multiply_by_gates=multiply_by_gates)
     return self._dp(my_combine, self._dispatchers, expert_output_parts_t)
 
@@ -902,14 +881,6 @@ def ffn_expert_fn(input_size,
         x *= (layer_sizes[i] / float(input_size))**-0.5
     return x
   return my_fn
-
-
-def reshape_like(a, b):
-  """Reshapes a to match the shape of b in all but the last dimension."""
-  ret = tf.reshape(a, tf.concat([tf.shape(b)[:-1], tf.shape(a)[-1:]], 0))
-  if not tf.contrib.eager.in_eager_mode():
-    ret.set_shape(b.get_shape().as_list()[:-1] + a.get_shape().as_list()[-1:])
-  return ret
 
 
 def flatten_all_but_last(a):
@@ -981,7 +952,7 @@ def distributed_moe(data_parallelism,
     expert_in = dispatcher.dispatch(xs_flat)
     expert_out = ep(expert_fn, expert_in)
     ys_flat = dispatcher.combine(expert_out)
-    ys = dp(reshape_like, ys_flat, xs)
+    ys = dp(common_layers.reshape_like, ys_flat, xs)
     # compute some load-balancing losses.
     load = tf.add_n(load)
     importance = tf.add_n(dp(tf.reduce_sum, gates, 0))
@@ -1054,7 +1025,7 @@ def local_moe(x,
     expert_outputs = ep(expert_fn, **expert_kwargs)
 
     y_flat = dispatcher.combine(expert_outputs)
-    y = reshape_like(y_flat, x)
+    y = common_layers.reshape_like(y_flat, x)
 
     importance = tf.reduce_sum(gates, 0)
     loss = loss_coef * (cv_squared(importance) + cv_squared(load))
@@ -1201,16 +1172,315 @@ class TruncatingDispatcher(object):
     return self._indices
 
 
-def should_generate_summaries():
-  """Is this an appropriate context to generate summaries.
+def local_moe_tpu(inputs,
+                  hidden_size,
+                  output_size,
+                  num_experts,
+                  loss_coef=1e-3,
+                  overhead=1.0):
+  """Local mixture of experts that works well on TPU.
+
+  See https://arxiv.org/abs/1701.06538
+
+  There are num_experts expert networks, each containing a relu-activated
+  hidden layer of size hidden_size, followed by an output projection.
+
+  The number of parameters is thus:
+    num_experts * (input_size * hidden_size + hidden_size * output_size)
+
+  The input is 3d: [batch, length, depth], consisting of the representations
+  of all positions in a batch of sequences.
+
+  Each position of each sequence is sent to 0-2 experts.  The expert
+  choices and the combination weights are determined by a learned gating
+  function.
+
+  This function returns a small auxiliary loss that should be added to the
+  training loss of the model.  This loss helps to balance expert usage.
+  Without the loss, it is very likely that a few experts will be trained and
+  the rest will starve.
+
+  Several hacks are necessary to get around current TPU limitations:
+
+  - To ensure static shapes, we enforce (by truncation/padding)
+    that each sequence send the same number of elements to each expert.
+
+    It would make more sense to enforce this equality over the entire batch,
+    as opposed to on individual sequences.  This would allow more freedom
+    for individual sequences to be unbalanced.  Unfortunately, that would
+    slow down our hacked-up gather-by-matmul implementation.
+
+    TODO(noam): There is no real reason for a single sequence to be the unit
+      of equal allocation.  Reshaping the inputs would allow us to pick a
+      different unit of equal allocation.
+
+  TODO(noam): Factor this code better.  We want to be able to substitute
+  different code for the experts themselves.  We also want to integrate this
+  gating/dispatching logic into multi-device mixtures-of-experts.
+
+  Args:
+    inputs: a Tensor with shape [batch, length, depth]
+    hidden_size: an integer
+    output_size: an integer
+    num_experts: an integer
+    loss_coef: a float scalar
+    overhead: multiplicative factor of how much spare capacity to assign
 
   Returns:
-    a boolean
+    outputs: a Tensor with shape [batch, length, output_size]
+    loss: a scalar
   """
-  if "while/" in tf.contrib.framework.get_name_scope():
-    # Summaries don't work well within tf.while_loop()
-    return False
-  if tf.get_variable_scope().reuse:
-    # Avoid generating separate summaries for different data shards
-    return False
-  return True
+  batch, length, input_size = common_layers.shape_list(inputs)[:]
+  # Each sequence sends expert_capacity positions to each expert.
+  if isinstance(length, int):
+    expert_capacity = min(
+        length, int((length * 2 * overhead) / num_experts))
+  else:
+    expert_capacity = tf.minimum(
+        length, tf.to_int32(
+            tf.to_float(length) * 2 * overhead / num_experts))
+  expert_capacity_f = tf.to_float(expert_capacity)
+
+  # This is the learned gating function.
+  gates = tf.nn.softmax(
+      tf.to_float(common_layers.dense(inputs, num_experts, name="logits")))
+
+  # Find the top expert for each position.
+  gate_1, index_1 = common_layers.top_1_tpu(gates)
+  # [batch, length, num_experts]
+  mask_1 = tf.one_hot(index_1, num_experts)
+  # Get ready to find the second-best expert by masking out the best one.
+  without_top_1 = gates - mask_1
+  # [batch, length, num_experts]
+  # This is the position within the expert's mini-batch for this sequence
+  position_in_expert_1 = common_layers.cumsum(
+      mask_1, axis=1, exclusive=True) * mask_1
+  # Remove the elements that don't fit.
+  mask_1 *= tf.to_float(tf.less(position_in_expert_1, expert_capacity_f))
+  # [batch, 1, num_experts]
+  # How many examples in this sequence go to this expert
+  mask_1_count = tf.reduce_sum(mask_1, axis=1, keep_dims=True)
+  # [batch, length] - mostly ones, but zeros where something didn't fit
+  mask_1_flat = tf.reduce_sum(mask_1, axis=2)
+  position_in_expert_1 = tf.reduce_sum(position_in_expert_1, axis=2)
+  # Weight assigned to first expert.
+  gate_1 *= mask_1_flat
+
+  # find second-place expert - this section is similar to the section above.
+  gate_2, index_2 = common_layers.top_1_tpu(without_top_1)
+  # [batch, length, num_experts]
+  mask_2 = tf.one_hot(index_2, num_experts)
+  position_in_expert_2 = (
+      common_layers.cumsum(mask_2, axis=1, exclusive=True) + mask_1_count)
+  position_in_expert_2 *= mask_2
+  mask_2 *= tf.to_float(tf.less(position_in_expert_2, expert_capacity_f))
+  mask_2_count = tf.reduce_sum(mask_2, axis=1, keep_dims=True)
+  mask_2_flat = tf.reduce_sum(mask_2, axis=2)
+  position_in_expert_2 = tf.reduce_sum(position_in_expert_2, axis=2)
+  gate_2 *= mask_2_flat
+
+  # What fraction didn't fit - show summaries
+  miss_rate_1 = (
+      1.0 - tf.reduce_sum(mask_1_count) / tf.to_float(batch * length))
+  miss_rate_2 = (
+      1.0 - tf.reduce_sum(mask_2_count) / tf.to_float(batch * length))
+  tf.summary.scalar("miss_rate_1", miss_rate_1)
+  tf.summary.scalar("miss_rate_2", miss_rate_2)
+
+  # renormalize the two gate values to add up to 1
+  denom = gate_1 + gate_2 + 1e-9
+  gate_1 /= denom
+  gate_2 /= denom
+
+  # inputs: [batch, length, input_size]
+  # forward_assignment: [batch, length, num_experts * expert_capacity]
+  # expert_inputs: [batch, num_experts * expert_capacity, input_size]
+
+  segment_ids_forward_1 = (
+      (index_1 * expert_capacity) +
+      tf.to_int32(position_in_expert_1) +
+      tf.to_int32(1.0 - mask_1_flat) * (num_experts * expert_capacity))
+
+  segment_ids_forward_2 = (
+      (index_2 * expert_capacity) +
+      tf.to_int32(position_in_expert_2) +
+      tf.to_int32(1.0 - mask_2_flat) * (num_experts * expert_capacity))
+
+  # Gather and scatter are painfully slow on TPU.
+  # We will use one_hot and matmul instead.
+
+  # [batch, length, num_experts * expert_capacity]
+  one_hot_1 = tf.one_hot(
+      segment_ids_forward_1, num_experts * expert_capacity, dtype=inputs.dtype)
+  one_hot_2 = tf.one_hot(
+      segment_ids_forward_2, num_experts * expert_capacity, dtype=inputs.dtype)
+
+  forward_assignment = (one_hot_1 + one_hot_2)
+
+  # [batch, num_experts * expert_capacity, input_size]
+  expert_inputs = tf.matmul(forward_assignment, inputs, transpose_a=True)
+
+  # [batch, num_experts, expert_capacity, input_size]
+  expert_inputs = tf.reshape(
+      expert_inputs, [batch, num_experts, expert_capacity, input_size])
+  # [num_experts, batch, expert_capacity, input_size]
+  expert_inputs = tf.transpose(expert_inputs, [1, 0, 2, 3])
+
+  # [num_experts, batch * expert_capacity, input_size]
+  expert_inputs = tf.reshape(
+      expert_inputs, [num_experts, batch * expert_capacity, input_size])
+
+  # Now feed the expert inputs through the experts.
+  h = common_layers.batch_dense(
+      expert_inputs, hidden_size, activation=tf.nn.relu, name="x0")
+  expert_output = common_layers.batch_dense(h, output_size, name="x1")
+  expert_output = tf.reshape(
+      expert_output, [num_experts, batch, expert_capacity, output_size])
+
+  # [batch, num_experts, expert_capacity, output_size]
+  expert_output = tf.transpose(expert_output, [1, 0, 2, 3])
+  expert_output = tf.reshape(
+      expert_output, [batch, num_experts * expert_capacity, output_size])
+
+  # Again, use matmul instead of unsorted_segment_sum.  This time, we need
+  # to multiply by the combination weights gate_1 and gate_2.
+
+  # expert_output: [batch, num_experts * expert_capacity, output_size]
+  # backward_assigmnent: [batch, length, num_experts * expert_capacity]
+  # output: [batch, length, output_size]
+  backward_assigmnent = (
+      one_hot_1 * tf.cast(tf.expand_dims(gate_1, 2), inputs.dtype) +
+      one_hot_2 * tf.cast(tf.expand_dims(gate_2, 2), inputs.dtype))
+  output = tf.matmul(backward_assigmnent, expert_output)
+
+  # Compute a loss equal to the coefficient ov variation of the
+  # total gate value per expert per sequence.
+  # This loss causes the experts to be used about equally used per sequence.
+  importance = tf.reduce_sum(gates * (mask_1 + mask_2), 1)
+  loss = loss_coef * cv_squared(importance)
+  return output, loss
+
+
+def reduce_by_device(parallelism, data, reduce_fn):
+  """Reduces data per device.
+
+  This can be useful, for example, if we want to all-reduce n tensors on k<n
+  devices (like during eval when we have only one device).  We call
+  reduce_by_device() to first sum the tensors per device, then call our usual
+  all-reduce operation to create one sum per device, followed by
+  expand_by_device, to create the appropriate number of pointers to these
+  results.  See all_reduce_ring() below for an example of how this is used.
+
+  Args:
+    parallelism: a expert_utils.Parallelism object
+    data: a list of Tensors with length parallelism.n
+    reduce_fn: a function taking a list of Tensors.  e.g. tf.add_n
+
+  Returns:
+    device_parallelism: a Parallelism object with each device listed only once.
+    reduced_data: A list of Tensors, one per device.
+  """
+  unique_devices = []
+  device_to_data = {}
+  for dev, datum in zip(parallelism.devices, data):
+    if dev not in device_to_data:
+      unique_devices.append(dev)
+      device_to_data[dev] = [datum]
+    else:
+      device_to_data[dev].append(datum)
+  device_parallelism = Parallelism(unique_devices)
+  grouped_data = [device_to_data[dev] for dev in unique_devices]
+  return device_parallelism, device_parallelism(reduce_fn, grouped_data)
+
+
+def expand_by_device(original_parallelism, device_parallelism, data):
+  """Opposite of reduce_by_device().
+
+  Args:
+    original_parallelism: a expert_utils.Parallelism object.
+    device_parallelism: a expert_utils.Parallelism object.
+    data: a list of tensors with length device_parallelism.n
+
+  Returns:
+    a list of Tensors with length original_parallelism.n
+  """
+  device_to_datum = {
+      device_parallelism.devices[i]: data[i]
+      for i in range(device_parallelism.n)}
+  return [device_to_datum[d] for d in original_parallelism.devices]
+
+
+def all_reduce_ring(x, parallelism, maybe_reduce=True, use_bfloat16=True):
+  """Compute the sum of all Tensors and put the result everywhere.
+
+  Assumes that the devices are connected in a ring.
+
+  Args:
+    x: a list of Tensors with length parallelism.n
+    parallelism: a expert_utils.Parallelism object.
+    maybe_reduce: a boolean - first reduce per device.
+    use_bfloat16: a boolean - saves bandwidth but loses precision
+
+  Returns:
+    a list of Tensors with length parallelism.n
+  """
+  if parallelism.n == 1:
+    return x
+
+  if maybe_reduce:
+    original_parallelism = parallelism
+    parallelism, x = reduce_by_device(parallelism, x, tf.add_n)
+
+  if parallelism.n == 1:
+    y = x
+  else:
+    # first shard the input:
+    x_flat = parallelism(tf.reshape, x, [[-1]] * parallelism.n)
+    # [device, shard]
+    x_split = parallelism(
+        common_layers.approximate_split, x_flat, parallelism.n, 0)
+    def _step(source_replica, target_replica, x_split, op="plus_eq"):
+      """Helper function - one step of summing or copying.
+
+      If op == "plus_eq", then adds source_replica into target_replica
+      If op == "copy", then copies source_replica onto target_replica
+
+      These operations happen for all shards.  The replica numbers are offset
+      by the shard numbers to keep all physical links busy.
+
+      Args:
+        source_replica: an integer
+        target_replica: an integer
+        x_split: a list of lists of tensors
+        op: a string
+      """
+      for shard in range(parallelism.n):
+        source_device = (shard + source_replica) % parallelism.n
+        target_device = (shard + target_replica) % parallelism.n
+        source = x_split[source_device][shard]
+        if use_bfloat16:
+          with tf.device(parallelism.devices[source_device]):
+            source = tf.to_bfloat16(source)
+        with tf.device(parallelism.devices[target_device]):
+          source = tf.to_float(source)
+          if op == "plus_eq":
+            x_split[target_device][shard] += source
+          else:
+            assert op == "copy"
+            x_split[target_device][shard] = tf.identity(source)
+    center = parallelism.n // 2
+    # accumulate everything towards the center.
+    for i in range(center, parallelism.n - 1)[::-1]:
+      _step(i + 1, i, x_split, op="plus_eq")
+    for i in range(center):
+      _step(i, i + 1, x_split, op="plus_eq")
+    # copy everything away from the center.
+    for i in range(center, parallelism.n - 1):
+      _step(i, i + 1, x_split, op="copy")
+    for i in range(center)[::-1]:
+      _step(i + 1, i, x_split, op="copy")
+    x_concat = parallelism(tf.concat, x_split, 0)
+    y = parallelism(common_layers.reshape_like_all_dims, x_concat, x)
+  if maybe_reduce:
+    y = expand_by_device(original_parallelism, parallelism, y)
+  return y

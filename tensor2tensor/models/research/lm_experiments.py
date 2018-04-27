@@ -115,3 +115,22 @@ def lmx_relative_nopos():
   hparams = lmx_relative()
   hparams.pos = "none"
   return hparams
+
+
+@registry.register_hparams
+def lmx_moe():
+  """Transformer with mixture of experts.  140M Params."""
+  hparams = lmx_base()
+  hparams.ffn_layer = "local_moe_tpu"
+  return hparams
+
+
+@registry.register_hparams
+def lmx_moe_h1k_f4k_x32():
+  """Transformer with mixture of experts.  890M Params."""
+  hparams = lmx_h1k_f4k()
+  hparams.ffn_layer = "local_moe_tpu"
+  hparams.moe_num_experts = 32
+  hparams.weight_dtype = "bfloat16"
+  hparams.batch_size = 8192
+  return hparams
