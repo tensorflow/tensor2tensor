@@ -56,7 +56,7 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
         max_prob=1.0 - hparams.autoregressive_dropout, broadcast_last=True)
     # Sometimes it's useful to look at non-autoregressive evals.
     if (hparams.mode == tf.estimator.ModeKeys.EVAL and
-        hparams.autogregressive_eval_pure_autoencoder):
+        hparams.autoregressive_eval_pure_autoencoder):
       targets_dropout = tf.zeros_like(basic_result)
     # Now combine the basic reconstruction with shifted targets.
     targets1d = tf.reshape(targets_dropout, [shape[0], -1, shape[3]])
@@ -411,7 +411,7 @@ def autoencoder_autoregressive():
   hparams.add_hparam("autoregressive_mode", "conv3")
   hparams.add_hparam("autoregressive_dropout", 0.4)
   hparams.add_hparam("autoregressive_decode_steps", 0)
-  hparams.add_hparam("autogregressive_eval_pure_autoencoder", False)
+  hparams.add_hparam("autoregressive_eval_pure_autoencoder", False)
   return hparams
 
 
