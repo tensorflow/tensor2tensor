@@ -54,6 +54,11 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
         features["targets"], tf.zeros_like(basic_result),
         hparams.bottleneck_warmup_steps, is_training,
         max_prob=1.0 - hparams.autoregressive_dropout, broadcast_last=True)
+    # Sometimes it's useful to look at non-autoregressive evals.
+    if (hparams.mode == tf.estimator.ModeKeys.EVAL and
+        hparams.autogregressive_eval_pure_autoencoder):
+      targets_dropout = tf.zeros_like(basic_result)
+    # Now combine the basic reconstruction with shifted targets.
     targets1d = tf.reshape(targets_dropout, [shape[0], -1, shape[3]])
     targets_shifted = common_layers.shift_right_3d(targets1d)
     concat1d = tf.concat([basic1d, targets_shifted], axis=-1)
@@ -109,7 +114,7 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
     shape = common_layers.shape_list(samples)
 
     # Sample again if requested for the autoregressive part.
-    extra_samples = 0
+    extra_samples = self.hparams.autoregressive_decode_steps
     self.hparams.autoregressive_dropout = 0.2
     for i in range(extra_samples):
       if i == extra_samples - 2:
@@ -405,6 +410,8 @@ def autoencoder_autoregressive():
   hparams.add_hparam("autoregressive_forget_base", False)
   hparams.add_hparam("autoregressive_mode", "conv3")
   hparams.add_hparam("autoregressive_dropout", 0.4)
+  hparams.add_hparam("autoregressive_decode_steps", 0)
+  hparams.add_hparam("autogregressive_eval_pure_autoencoder", False)
   return hparams
 
 
@@ -473,6 +480,7 @@ def autoencoder_residual_discrete_big():
 def autoencoder_ordered_discrete():
   """Basic autoencoder model."""
   hparams = autoencoder_residual_discrete()
+  hparams.bottleneck_noise = 1.0
   return hparams
 
 

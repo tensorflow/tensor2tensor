@@ -278,10 +278,7 @@ class Transformer(t2t_model.T2TModel):
       if target_modality.is_class_modality:
         decode_length = 1
       else:
-        if 'decode_length' in features:
-          decode_length = common_layers.shape_list(inputs)[1] + features['decode_length']
-        else:
-          decode_length = common_layers.shape_list(inputs)[1] + decode_length
+        decode_length = common_layers.shape_list(inputs)[1] + decode_length
 
       # TODO(llion): Clean up this reshaping logic.
       inputs = tf.expand_dims(inputs, axis=1)
@@ -318,10 +315,7 @@ class Transformer(t2t_model.T2TModel):
       partial_targets = tf.to_int64(partial_targets)
       partial_targets_shape = common_layers.shape_list(partial_targets)
       partial_targets_length = partial_targets_shape[1]
-      if 'decode_length' in features:
-        decode_length = partial_targets_length + features['decode_length']
-      else:
-        decode_length += partial_targets_length
+      decode_length += partial_targets_length
       batch_size = partial_targets_shape[0]
 
     if hparams.pos == "timing":
@@ -395,7 +389,7 @@ class Transformer(t2t_model.T2TModel):
         ret = tf.cond(
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
-    force_decode_length=self._decode_hparams.force_decode_length
+
     ret = fast_decode(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
@@ -406,8 +400,7 @@ class Transformer(t2t_model.T2TModel):
         beam_size=beam_size,
         top_beams=top_beams,
         alpha=alpha,
-        batch_size=batch_size,
-        force_decode_length=force_decode_length)
+        batch_size=batch_size)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -426,8 +419,7 @@ def fast_decode(encoder_output,
                 top_beams=1,
                 alpha=1.0,
                 eos_id=beam_search.EOS_ID,
-                batch_size=None,
-                force_decode_length=False):
+                batch_size=None):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding, uses beam search iff
@@ -448,7 +440,6 @@ def fast_decode(encoder_output,
       the preference for longer translations.
     eos_id: End-of-sequence symbol in beam search.
     batch_size: an integer scalar - must be passed if there is no input
-    force_decode_length:force_decode_length: if True, decode will be of length decode_length and will not stop at eos_id.
 
   Returns:
       A dict of decoding results {
@@ -520,10 +511,7 @@ def fast_decode(encoder_output,
       return i + 1, finished, next_id, decoded_ids, cache, log_prob
 
     def is_not_finished(i, finished, *_):
-      if force_decode_length:
-          return i < decode_length
-      else:
-          return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
+      return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
 
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
     finished = tf.fill([batch_size], False)
@@ -979,6 +967,8 @@ def transformer_ffn_layer(x,
         second_kernel_size=(31, 1),
         padding="LEFT",
         dropout=hparams.relu_dropout)
+  elif ffn_layer == "sru":
+    return common_layers.sru(x)
   else:
     assert ffn_layer == "none"
     return x

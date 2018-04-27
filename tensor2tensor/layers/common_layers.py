@@ -37,7 +37,6 @@ import tensorflow as tf
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops
 
-
 # This is a global setting. When turned off, no @function.Defun is used.
 allow_defun = False
 
@@ -1894,7 +1893,6 @@ def gated_linear_unit_layer(x, name=None):
   Returns:
     x: A tensor
   """
-
   with tf.variable_scope(
       name, default_name="glu_layer", values=[x]):
     depth = shape_list(x)[-1]
@@ -1903,16 +1901,12 @@ def gated_linear_unit_layer(x, name=None):
     return x * tf.nn.sigmoid(gating_x)
 
 
-def sru(x, num_layers=2,
-        activation=None, initial_state=None, name=None, reuse=None):
+def sru_with_scan(x, num_layers=2,
+                  activation=None, initial_state=None, name=None, reuse=None):
   """SRU cell as in https://arxiv.org/abs/1709.02755.
 
-  As defined in the paper:
-  (1) x'_t = W x_t
-  (2) f_t = sigmoid(Wf x_t + bf)
-  (3) r_t = sigmoid(Wr x_t + br)
-  (4) c_t = f_t * c_{t-1} + (1 - f_t) * x'_t
-  (5) h_t = r_t * activation(c_t) + (1 - r_t) * x_t
+  This implementation uses tf.scan and can incur overhead, see the full SRU
+  function doc for details and an implementation that is sometimes faster.
 
   Args:
     x: A tensor of shape [batch, ..., channels] ; ... is treated as time.
@@ -1959,6 +1953,90 @@ def sru(x, num_layers=2,
       x = h  # Next layer.
     # Transpose back to batch-major.
     x = tf.transpose(x, [1, 0, 2])
+    return tf.reshape(x, x_shape)
+
+
+class CumsumprodCell(object):
+  """Cumulative sum and product object for use with functional_rnn API."""
+
+  def __init__(self, initializer):
+    self._initializer = initializer
+
+  @property
+  def output_size(self):
+    return int(shape_list(self._initializer)[-1])
+
+  def zero_state(self, batch_size, dtype):
+    dtype = dtype or tf.float32
+    return tf.zeros([batch_size, self.output_size], dtype=dtype)
+
+  def __call__(self, inputs_t, state_t):
+    cur_x_times_one_minus_f, cur_f = tf.split(inputs_t, 2, axis=-1)
+    state_next = cur_f * state_t + cur_x_times_one_minus_f
+    outputs_t = state_next
+    return outputs_t, state_next
+
+
+def sru(x, num_layers=2,
+        activation=None, initial_state=None, name=None, reuse=None):
+  """SRU cell as in https://arxiv.org/abs/1709.02755.
+
+  As defined in the paper:
+  (1) x'_t = W x_t
+  (2) f_t = sigmoid(Wf x_t + bf)
+  (3) r_t = sigmoid(Wr x_t + br)
+  (4) c_t = f_t * c_{t-1} + (1 - f_t) * x'_t
+  (5) h_t = r_t * activation(c_t) + (1 - r_t) * x_t
+
+  This version uses functional ops to be faster on GPUs with TF-1.9+.
+
+  Args:
+    x: A tensor of shape [batch, ..., channels] ; ... is treated as time.
+    num_layers: How many SRU layers; default is 2 as results for 1 disappoint.
+    activation: Optional activation function, try tf.nn.tanh or tf.nn.relu.
+    initial_state: Optional initial c-state, set to zeros if None.
+    name: Optional name, "sru" by default.
+    reuse: Optional reuse.
+
+  Returns:
+    A tensor of the same shape as x.
+
+  Raises:
+    ValueError: if num_layers is not positive.
+  """
+  if num_layers < 1:
+    raise ValueError("Number of layers must be positive: %d" % num_layers)
+  if is_on_tpu():  # On TPU the XLA does a good job with while.
+    return sru_with_scan(x, num_layers, activation, initial_state, name, reuse)
+  try:
+    from tensorflow.contrib.recurrent.python.ops import functional_rnn  # pylint: disable=g-import-not-at-top
+  except ImportError:
+    tf.logging.info("functional_rnn not found, using sru_with_scan instead")
+    return sru_with_scan(x, num_layers, activation, initial_state, name, reuse)
+
+  with tf.variable_scope(name, default_name="sru", values=[x], reuse=reuse):
+    # We assume x is [batch, ..., channels] and treat all ... as time.
+    x_shape = shape_list(x)
+    x = tf.reshape(x, [x_shape[0], -1, x_shape[-1]])
+    initial_state = initial_state or tf.zeros([x_shape[0], x_shape[-1]])
+    cell = CumsumprodCell(initial_state)
+    # Calculate SRU on each layer.
+    for i in range(num_layers):
+      # The parallel part of the SRU.
+      x_orig = x
+      x, f, r = tf.split(tf.layers.dense(x, 3 * x_shape[-1],
+                                         name="kernel_%d" % i), 3, axis=-1)
+      f, r = tf.sigmoid(f), tf.sigmoid(r)
+      x_times_one_minus_f = x * (1.0 - f)  # Compute in parallel for speed.
+      # Calculate states.
+      concat = tf.concat([x_times_one_minus_f, f], axis=-1)
+      c_states, _ = functional_rnn.functional_rnn(
+          cell, concat, time_major=False)
+      # Final output.
+      if activation is not None:
+        c_states = activation(c_states)
+      h = c_states * r + (1.0 - r) * x_orig
+      x = h  # Next layer.
     return tf.reshape(x, x_shape)
 
 

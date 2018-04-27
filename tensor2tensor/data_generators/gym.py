@@ -126,13 +126,11 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     p.target_space_id = problem.SpaceID.IMAGE
 
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
-    next_obs = self.env.reset()
+    self.env.reset()
+    action = self.get_action()
     for _ in range(self.num_steps):
-      observation = next_obs
+      observation, reward, done, _ = self.env.step(action)
       action = self.get_action(observation)
-      next_obs, reward, done, _ = self.env.step(action)
-      if done:
-        next_obs = self.env.reset()
       yield {"frame": observation,
              "action": [action],
              "done": [done],
@@ -209,11 +207,7 @@ class GymDiscreteProblemWithAgent(GymPongRandom5k):
         self.environment_spec, env_hparams, num_agents=1, xvfb=False)
 
     with tf.variable_scope("", reuse=tf.AUTO_REUSE):
-      if FLAGS.agent_policy_path:
-        policy_lambda = self.collect_hparams.network
-      else:
-        # When no agent_policy_path is set, just generate random samples.
-        policy_lambda = rl.random_policy_fun
+      policy_lambda = self.collect_hparams.network
       policy_factory = tf.make_template(
           "network",
           functools.partial(policy_lambda, self.environment_spec().action_space,
@@ -222,23 +216,34 @@ class GymDiscreteProblemWithAgent(GymPongRandom5k):
           unique_name_="network")
 
     with tf.variable_scope("", reuse=tf.AUTO_REUSE):
+      sample_policy = lambda policy: 0 * policy.sample()
+
       self.collect_hparams.epoch_length = 10
       _, self.collect_trigger_op = collect.define_collect(
           policy_factory, generator_batch_env, self.collect_hparams,
-          eval_phase=False, scope="define_collect")
+          eval_phase=False, policy_to_actions_lambda=sample_policy,
+          scope="define_collect")
 
     self.avilable_data_size_op = atari.MemoryWrapper.singleton.speculum.size()
     self.data_get_op = atari.MemoryWrapper.singleton.speculum.dequeue()
     self.history_buffer = deque(maxlen=self.history_size+1)
 
   def restore_networks(self, sess):
-    if FLAGS.agent_policy_path:
-      model_saver = tf.train.Saver(
+    model_saver = tf.train.Saver(
         tf.global_variables(".*network_parameters.*"))
+    if FLAGS.agent_policy_path:
       model_saver.restore(sess, FLAGS.agent_policy_path)
 
   def generate_encoded_samples(self, data_dir, tmp_dir, unused_dataset_split):
     self._setup()
+
+    # When no agent_policy_path is set, just generate random samples.
+    if not FLAGS.agent_policy_path:
+      for sample in super(GymDiscreteProblemWithAgent,
+                          self).generate_encoded_samples(
+                              data_dir, tmp_dir, unused_dataset_split):
+        yield sample
+      return
 
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
