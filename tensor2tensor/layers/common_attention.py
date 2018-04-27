@@ -387,7 +387,8 @@ def encoder_decoder_attention_loss(expected_attention_logits,
 def get_timing_signal_1d(length,
                          channels,
                          min_timescale=1.0,
-                         max_timescale=1.0e4):
+                         max_timescale=1.0e4,
+                         start_index=0):
   """Gets a bunch of sinusoids of different frequencies.
 
   Each channel of the input Tensor is incremented by a sinusoid of a different
@@ -413,11 +414,12 @@ def get_timing_signal_1d(length,
         different timescales is equal to channels / 2.
     min_timescale: a float
     max_timescale: a float
+    start_index: index of first position
 
   Returns:
     a Tensor of timing signals [1, length, channels]
   """
-  position = tf.to_float(tf.range(length))
+  position = tf.to_float(tf.range(length) + start_index)
   num_timescales = channels // 2
   log_timescale_increment = (
       math.log(float(max_timescale) / float(min_timescale)) /
@@ -432,7 +434,10 @@ def get_timing_signal_1d(length,
 
 
 @expert_utils.add_name_scope()
-def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
+def add_timing_signal_1d(x,
+                         min_timescale=1.0,
+                         max_timescale=1.0e4,
+                         start_index=0):
   """Adds a bunch of sinusoids of different frequencies to a Tensor.
 
   Each channel of the input Tensor is incremented by a sinusoid of a different
@@ -456,14 +461,64 @@ def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
     x: a Tensor with shape [batch, length, channels]
     min_timescale: a float
     max_timescale: a float
+    start_index: index of first position
 
   Returns:
     a Tensor the same shape as x.
   """
   length = common_layers.shape_list(x)[1]
   channels = common_layers.shape_list(x)[2]
-  signal = get_timing_signal_1d(length, channels, min_timescale, max_timescale)
+  signal = get_timing_signal_1d(length, channels, min_timescale, max_timescale,
+                                start_index)
   return x + signal
+
+
+@expert_utils.add_name_scope()
+def add_layer_timing_signal_learned_1d(x, layer, num_layers):
+  """Add n-dimensional embedding as the layer (vertical) timing signal.
+
+  Adds embeddings to represent the position of the layer in the tower.
+
+  Args:
+    x: a tensor with shape [batch, length, depth]
+    layer: layer num
+    num_layers: total number of layers
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+  x_shape = common_layers.shape_list(x)
+  depth = x_shape[-1]
+
+  shape = [num_layers, 1, 1, depth]
+  layer_embedding = (
+      tf.get_variable(
+          "layer_embedding",
+          shape,
+          initializer=tf.random_normal_initializer(0, depth**-0.5)) * (depth**
+                                                                       0.5))
+  x += layer_embedding[layer, :, :, :]
+  return x
+
+
+@expert_utils.add_name_scope()
+def add_layer_timing_signal_sinusoid_1d(x, layer, num_layers):
+  """Add sinusoids of different frequencies as layer (vertical) timing signal.
+
+  Args:
+    x: a Tensor with shape [batch, length, channels]
+    layer: layer num
+    num_layers: total number of layers
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+
+  channels = common_layers.shape_list(x)[-1]
+  signal = get_timing_signal_1d(num_layers, channels)
+  layer_signal = tf.expand_dims(signal[:, layer, :], axis=1)
+
+  return x + layer_signal
 
 
 @expert_utils.add_name_scope()
