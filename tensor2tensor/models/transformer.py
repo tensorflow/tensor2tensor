@@ -394,7 +394,7 @@ class Transformer(t2t_model.T2TModel):
         ret = tf.cond(
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
       return ret, cache
-    force_decode_length=self._decode_hparams.force_decode_length if 'force_decode_length' in self._decode_hparams else False
+    force_decode_length=self._decode_hparams.force_decode_length
     ret = fast_decode(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
@@ -447,8 +447,7 @@ def fast_decode(encoder_output,
       the preference for longer translations.
     eos_id: End-of-sequence symbol in beam search.
     batch_size: an integer scalar - must be passed if there is no input
-    force_decode_length:affect funtion is_not_finish(),if True,decode will last as long as decode length
-
+    force_decode_length:force_decode_length: if True, decode will be of length decode_length and will not stop at eos_id.
 
   Returns:
       A dict of decoding results {
@@ -520,7 +519,7 @@ def fast_decode(encoder_output,
       return i + 1, finished, next_id, decoded_ids, cache, log_prob
 
     def is_not_finished(i, finished, *_):
-      if force_decode_length==True:
+      if force_decode_length:
           return i < decode_length
       else:
           return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
@@ -1612,5 +1611,3 @@ def transformer_tpu_1b():
   hparams.num_hidden_layers = 8
   hparams.batch_size = 1024
   return hparams
-
-
