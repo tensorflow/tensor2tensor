@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """T2TModel Base Class."""
 from __future__ import absolute_import
 from __future__ import division
@@ -289,10 +288,11 @@ class T2TModel(base.Layer):
           transformed_features[k] = v.targets_bottom(features[k])
     else:
       with tf.variable_scope(target_modality.name):
-        log_info("Transforming 'targets' with %s.targets_bottom",
-                 target_modality.name)
-        transformed_features["targets"] = target_modality.targets_bottom(
-            features["targets"])
+        if "targets" in features:
+          log_info("Transforming 'targets' with %s.targets_bottom",
+                   target_modality.name)
+          transformed_features["targets"] = target_modality.targets_bottom(
+              features["targets"])
 
     for key in features:
       if key not in transformed_features:
@@ -333,7 +333,7 @@ class T2TModel(base.Layer):
           self.hparams.mode == tf.estimator.ModeKeys.PREDICT and
           not self.hparams.force_full_predict)
       if not last_only:
-        logits = target_modality.top(body_output, features["targets"])
+        logits = target_modality.top(body_output, features.get("targets"))
       else:
         # Take body outputs for the last position only, and targets too.
         last_position_body_output = tf.expand_dims(
@@ -503,7 +503,8 @@ class T2TModel(base.Layer):
             decode_length=50,
             beam_size=1,
             top_beams=1,
-            alpha=0.0):
+            alpha=0.0,
+            use_tpu=False):
     """A inference method.
 
     Quadratic time in decode_length.
@@ -515,6 +516,7 @@ class T2TModel(base.Layer):
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
         the preference for longer translations.
+      use_tpu: bool, whether to build the inference graph for TPU.
 
     Returns:
       A dict of decoding results {
@@ -955,8 +957,7 @@ class T2TModel(base.Layer):
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
-      assert not use_tpu
-      return model.estimator_spec_predict(features)
+      return model.estimator_spec_predict(features, use_tpu=use_tpu)
 
     # TRAIN and EVAL modes
     if hparams.eval_run_autoregressive and mode == tf.estimator.ModeKeys.EVAL:
@@ -993,7 +994,7 @@ class T2TModel(base.Layer):
         tf.summary.scalar(loss_name, loss_val)
 
     # Accumulate losses
-    loss = sum(losses_dict.values())
+    loss = sum(losses_dict[key] for key in sorted(losses_dict.keys()))
 
     # EVAL mode
     if mode == tf.estimator.ModeKeys.EVAL:
@@ -1070,7 +1071,7 @@ class T2TModel(base.Layer):
           eval_metric_ops=eval_metrics,
           loss=loss)
 
-  def estimator_spec_predict(self, features):
+  def estimator_spec_predict(self, features, use_tpu=False):
     """Construct EstimatorSpec for PREDICT mode."""
     decode_hparams = self._decode_hparams
     infer_out = self.infer(
@@ -1079,7 +1080,8 @@ class T2TModel(base.Layer):
         top_beams=(decode_hparams.beam_size
                    if decode_hparams.return_beams else 1),
         alpha=decode_hparams.alpha,
-        decode_length=decode_hparams.extra_length)
+        decode_length=decode_hparams.extra_length,
+        use_tpu=use_tpu)
     if isinstance(infer_out, dict):
       outputs = infer_out["outputs"]
       scores = infer_out["scores"]
@@ -1111,14 +1113,19 @@ class T2TModel(base.Layer):
 
     _remove_summaries()
 
-    return tf.estimator.EstimatorSpec(
-        tf.estimator.ModeKeys.PREDICT,
-        predictions=predictions,
-        export_outputs={
-            tf.saved_model.signature_constants.
-            DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-                tf.estimator.export.PredictOutput(export_out)
-        })
+    if use_tpu:
+      return tf.contrib.tpu.TPUEstimatorSpec(
+          tf.estimator.ModeKeys.PREDICT,
+          predictions=predictions)
+    else:
+      return tf.estimator.EstimatorSpec(
+          tf.estimator.ModeKeys.PREDICT,
+          predictions=predictions,
+          export_outputs={
+              tf.saved_model.signature_constants.
+              DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                  tf.estimator.export.PredictOutput(export_out)
+          })
 
   def _normalize_body_output(self, body_out):
     if isinstance(body_out, tuple):

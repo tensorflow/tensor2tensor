@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Implementation of beam search with penalties."""
 
 from __future__ import absolute_import
@@ -87,10 +86,6 @@ def get_state_shape_invariants(tensor):
   for i in range(1, len(shape) - 1):
     shape[i] = None
   return tf.TensorShape(shape)
-
-
-def log_prob_from_logits(logits, reduce_axis=-1):
-  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keep_dims=True)
 
 
 def compute_batch_indices(batch_size, beam_size):
@@ -360,7 +355,7 @@ def beam_search(symbols_to_logits_fn,
     logits = tf.reshape(flat_logits, [batch_size, beam_size, -1])
 
     # Convert logits to normalized log probs
-    candidate_log_probs = log_prob_from_logits(logits)
+    candidate_log_probs = common_layers.log_prob_from_logits(logits)
 
     # Multiply the probabilities by the current probabilities of the beam.
     # (batch_size, beam_size, vocab_size) + (batch_size, beam_size, 1)

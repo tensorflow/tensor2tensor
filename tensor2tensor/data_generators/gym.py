@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data generators for Gym environments."""
 
 from __future__ import absolute_import
@@ -99,7 +98,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   @property
   def num_actions(self):
-    raise NotImplementedError()
+    return self.env.action_space.n
 
   @property
   def num_rewards(self):
@@ -153,10 +152,6 @@ class GymPongRandom5k(GymDiscreteProblem):
   @property
   def frame_width(self):
     return 160
-
-  @property
-  def num_actions(self):
-    return 4
 
   @property
   def min_reward(self):

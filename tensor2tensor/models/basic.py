@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Basic models for testing simple tasks."""
 
 from __future__ import absolute_import
@@ -33,7 +32,7 @@ import tensorflow as tf
 class BasicFcRelu(t2t_model.T2TModel):
 
   def body(self, features):
-    hparams = self._hparams
+    hparams = self.hparams
     x = features["inputs"]
     shape = common_layers.shape_list(x)
     x = tf.reshape(x, [-1, shape[1] * shape[2] * shape[3]])
@@ -54,7 +53,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
 
   def bottleneck(self, x):
     with tf.variable_scope("bottleneck"):
-      hparams = self._hparams
+      hparams = self.hparams
       x = tf.layers.dense(x, hparams.bottleneck_size, name="bottleneck")
       if hparams.mode == tf.estimator.ModeKeys.TRAIN:
         noise = 2.0 * tf.random_uniform(common_layers.shape_list(x)) - 1.0
@@ -69,12 +68,27 @@ class BasicAutoencoder(t2t_model.T2TModel):
   def bottleneck_loss(self, b):
     return 0.0
 
+  def make_even_size(self, x):
+    shape = [dim if dim is not None else -1 for dim in x.get_shape().as_list()]
+    if shape[1] % 2 == 0 and shape[2] % 2 == 0:
+      return x
+    if shape[1] % 2 == 0 and self.is1d:
+      return x
+    x, _ = common_layers.pad_to_same_length(
+        x, x, final_length_divisible_by=2, axis=1)
+    if self.is1d:
+      return x
+    x, _ = common_layers.pad_to_same_length(
+        x, x, final_length_divisible_by=2, axis=2)
+    return x
+
   def encoder(self, x):
     with tf.variable_scope("encoder"):
-      hparams = self._hparams
+      hparams = self.hparams
       kernel, strides = self._get_kernel_and_strides()
       # Down-convolutions.
       for i in range(hparams.num_hidden_layers):
+        x = self.make_even_size(x)
         x = tf.layers.conv2d(
             x, hparams.hidden_size * 2**(i + 1), kernel, strides=strides,
             padding="SAME", activation=common_layers.belu, name="conv_%d" % i)
@@ -83,7 +97,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
 
   def decoder(self, x):
     with tf.variable_scope("decoder"):
-      hparams = self._hparams
+      hparams = self.hparams
       kernel, strides = self._get_kernel_and_strides()
       # Up-convolutions.
       for i in range(hparams.num_hidden_layers):
@@ -95,19 +109,13 @@ class BasicAutoencoder(t2t_model.T2TModel):
       return x
 
   def body(self, features):
-    hparams = self._hparams
+    hparams = self.hparams
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       x = features["targets"]
       shape = common_layers.shape_list(x)
       is1d = shape[2] == 1
       self.is1d = is1d
-      x, _ = common_layers.pad_to_same_length(
-          x, x, final_length_divisible_by=2**hparams.num_hidden_layers, axis=1)
-      if not is1d:
-        x, _ = common_layers.pad_to_same_length(
-            x, x, final_length_divisible_by=2**hparams.num_hidden_layers,
-            axis=2)
       # Run encoder.
       x = self.encoder(x)
       # Bottleneck (mix during early training, not too important but stable).
@@ -123,13 +131,13 @@ class BasicAutoencoder(t2t_model.T2TModel):
         x = b
     else:
       b = self.sample()
-      res_size = self._hparams.hidden_size * 2**self._hparams.num_hidden_layers
+      res_size = self.hparams.hidden_size * 2**self.hparams.num_hidden_layers
       res_size = min(res_size, hparams.max_hidden_size)
       x = self.unbottleneck(b, res_size)
     # Run decoder.
     x = self.decoder(x)
     if hparams.mode == tf.estimator.ModeKeys.PREDICT:
-      return x
+      return x, {"bottleneck_loss": 0.0}
     # Cut to the right size and mix before returning.
     res = x[:, :shape[1], :shape[2], :]
     res = common_layers.mix(res, features["targets"],
@@ -137,7 +145,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
     return res, {"bottleneck_loss": b_loss}
 
   def sample(self):
-    hp = self._hparams
+    hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
     size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
@@ -159,11 +167,11 @@ class BasicAutoencoder(t2t_model.T2TModel):
     # Sample and decode.
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
     try:
-      num_channels = self._hparams.problem.num_channels
+      num_channels = self.hparams.problem.num_channels
     except AttributeError:
       num_channels = 1
     features["targets"] = tf.zeros(
-        [self._hparams.batch_size, 1, 1, num_channels],
+        [self.hparams.batch_size, 1, 1, num_channels],
         dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     samples = tf.argmax(logits, axis=-1)
@@ -176,7 +184,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
     return samples
 
   def _get_kernel_and_strides(self):
-    hparams = self._hparams
+    hparams = self.hparams
     kernel = (hparams.kernel_height, hparams.kernel_width)
     kernel = (hparams.kernel_height, 1) if self.is1d else kernel
     strides = (2, 1) if self.is1d else (2, 2)

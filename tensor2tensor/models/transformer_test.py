@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for Transformer."""
 
 from __future__ import absolute_import
@@ -153,13 +152,11 @@ class TransformerTest(tf.test.TestCase):
   def testBeamDecodeWithRelativeAttention(self):
     decode_length = 2
     model, features = get_model(transformer.transformer_relative_tiny())
-    model(features)
     model.set_mode(tf.estimator.ModeKeys.PREDICT)
 
-    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-      beam_result = model._beam_decode(
-          features, decode_length, beam_size=4, top_beams=1,
-          alpha=1.0)["outputs"]
+    beam_result = model._beam_decode(
+        features, decode_length, beam_size=4, top_beams=1,
+        alpha=1.0)["outputs"]
 
     with self.test_session():
       tf.global_variables_initializer().run()

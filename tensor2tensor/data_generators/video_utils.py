@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Base classes and utilities for video datasets."""
 
 from __future__ import absolute_import
@@ -267,7 +266,7 @@ class VideoProblem(problem.Problem):
         data_dir, tmp_dir, dataset_split):
       if self.debug_dump_frames_path:
         path = os.path.join(self.debug_dump_frames_path,
-                            "frame_%d.png" % counter)
+                            "frame_%05d.png" % counter)
         with tf.gfile.Open(path, "wb") as f:
           f.write(sample["image/encoded"][0])
         counter += 1

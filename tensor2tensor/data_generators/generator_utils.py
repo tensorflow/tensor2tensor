@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utilities for data generators."""
 
 from __future__ import absolute_import
@@ -20,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import gzip
+import multiprocessing as mp
 import os
 import random
 import stat
@@ -330,6 +330,7 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
       reserved_tokens=reserved_tokens)
 
   if vocab_filepath:
+    tf.gfile.MakeDirs(data_dir)
     vocab.store_to_file(vocab_filepath)
 
   return vocab
@@ -468,17 +469,24 @@ def generate_dataset_and_shuffle(train_gen,
     shuffle_dataset(train_paths + dev_paths)
 
 
+def _shuffle_single(fname):
+  records = read_records(fname)
+  random.shuffle(records)
+  out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
+  write_records(records, out_fname)
+  tf.gfile.Remove(fname)
+
+
 def shuffle_dataset(filenames):
   if outputs_exist(filenames):
     tf.logging.info("Skipping shuffle because output files exist")
     return
   tf.logging.info("Shuffling data...")
-  for fname in filenames:
-    records = read_records(fname)
-    random.shuffle(records)
-    out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
-    write_records(records, out_fname)
-    tf.gfile.Remove(fname)
+  if len(filenames) > 1:
+    pool = mp.Pool(min(len(filenames), 20))
+    pool.map(_shuffle_single, filenames)
+  else:
+    _shuffle_single(filenames[0])
 
 
 class SequencePacker(object):

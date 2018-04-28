@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utils for attention mechanism for images."""
 # Dependency imports
 
@@ -543,7 +542,8 @@ def prepare_decoder(targets, hparams):
 
   # during training, images are [batch, IMG_LEN, IMG_LEN, 3].
   # At inference, they are [batch, curr_infer_length, 1, 1]
-  if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
+  if (hparams.mode == tf.contrib.learn.ModeKeys.INFER and
+      hparams.block_raster_scan):
     curr_infer_length = targets_shape[1]
     if hparams.block_raster_scan:
       assert hparams.img_len*channels % hparams.query_shape[1] == 0
