@@ -41,7 +41,7 @@ def learning_rate_factor(name, step_num, hparams):
 
 def learning_rate_schedule(hparams):
   """Learning rate schedule based on hparams."""
-  step_num = tf.to_float(tf.train.get_or_create_global_step())
+  step_num = _global_step(hparams)
   schedule_string = hparams.learning_rate_schedule
   names = schedule_string.split("*")
   names = [name.strip() for name in names if name.strip()]
@@ -53,7 +53,7 @@ def learning_rate_schedule(hparams):
 
 def legacy_learning_rate_schedule(hparams):
   """Backwards-compatible learning-rate schedule."""
-  step_num = tf.to_float(tf.train.get_or_create_global_step())
+  step_num = _global_step(hparams)
   warmup_steps = tf.to_float(hparams.learning_rate_warmup_steps)
   if hparams.learning_rate_decay_scheme == "noam":
     ret = 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
@@ -65,6 +65,21 @@ def legacy_learning_rate_schedule(hparams):
     ret = tf.where(step_num < warmup_steps, warmup, decay)
   optimizer_correction = 0.002 if "Adam" in hparams.optimizer else 1.0
   return ret * optimizer_correction * hparams.learning_rate
+
+
+def _global_step(hparams):
+  """Adjust global step if fake_gpu_multiplier is used."""
+  step = tf.to_float(tf.train.get_or_create_global_step())
+  try:
+    if hparams.fake_gpu_multiplier > 1:
+      fake_gpu_multiplier = tf.constant(hparams.fake_gpu_multiplier,
+                                        dtype=tf.float32)
+      step = step / fake_gpu_multiplier
+      tf.logging.info("Scaling down learning rate decay by "
+                      "fake_gpu_multiplier=%d" % hparams.fake_gpu_multiplier)
+  except AttributeError:
+    pass
+  return step
 
 
 def _legacy_sqrt_decay(step):
@@ -95,7 +110,7 @@ def _learning_rate_decay(hparams, warmup_steps=0):
   """Learning rate decay multiplier."""
   scheme = hparams.learning_rate_decay_scheme
   warmup_steps = tf.to_float(warmup_steps)
-  global_step = tf.to_float(tf.train.get_or_create_global_step())
+  global_step = _global_step(hparams)
 
   if not scheme or scheme == "none":
     return tf.constant(1.)

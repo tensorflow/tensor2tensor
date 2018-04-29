@@ -1082,6 +1082,17 @@ def transformer_base_single_gpu():
 
 
 @registry.register_hparams
+def transformer_base_fake_gpu8():
+  """HParams for simulating 8 GPU transformer base model training
+  on a single GPU.
+  """
+  hparams = transformer_base()
+  hparams.optimizer = "LargebatchAdam"
+  hparams.add_hparam("fake_gpu_multiplier", 8)
+  return hparams
+
+
+@registry.register_hparams
 def transformer_parsing_base():
   """HParams for parsing on WSJ only."""
   hparams = transformer_base()
