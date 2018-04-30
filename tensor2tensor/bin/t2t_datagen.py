@@ -86,6 +86,8 @@ flags.DEFINE_string("t2t_usr_dir", "",
                     "e.g. @registry.register_problem calls, that will then be "
                     "available to t2t-datagen.")
 
+flags.DEFINE_string("hparams_set", None, "Which parameters to use.")
+
 
 # Mapping from problems that we can generate data for to their generators.
 # pylint: disable=g-long-lambda

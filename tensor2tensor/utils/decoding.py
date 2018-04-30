@@ -100,6 +100,7 @@ def decode_from_dataset(estimator,
                         problem_names,
                         hparams,
                         decode_hp,
+                        hparams_set=None,
                         decode_to_file=None,
                         dataset_split=None,
                         return_generator=False):
