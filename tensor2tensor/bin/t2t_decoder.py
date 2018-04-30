@@ -83,7 +83,6 @@ def create_decode_hparams():
 
 
 def decode(estimator, hparams, decode_hp):
-  # TODO: probably pass the hparams_set in the two first cases too
   if FLAGS.decode_interactive:
     decoding.decode_interactively(estimator, hparams, decode_hp)
   elif FLAGS.decode_from_file:
@@ -91,14 +90,12 @@ def decode(estimator, hparams, decode_hp):
                               decode_hp, FLAGS.decode_to_file)
   else:
 
-    print('==> t2t_decoder, about to decode_from_dataset: ', FLAGS.hparams_set)
     # Fathom
     predictions = decoding.decode_from_dataset(
       estimator,
       FLAGS.problems.split("-"),
       hparams,
       decode_hp,
-      hparams_set=FLAGS.hparams_set,
       decode_to_file=FLAGS.decode_to_file,
       dataset_split="test" if FLAGS.eval_use_test_set else None,
       return_generator=FLAGS.fathom_output_predictions)
