@@ -92,13 +92,13 @@ def decode(estimator, hparams, decode_hp):
 
     # Fathom
     predictions = decoding.decode_from_dataset(
-      estimator,
-      FLAGS.problems.split("-"),
-      hparams,
-      decode_hp,
-      decode_to_file=FLAGS.decode_to_file,
-      dataset_split="test" if FLAGS.eval_use_test_set else None,
-      return_generator=FLAGS.fathom_output_predictions)
+        estimator,
+        FLAGS.problems.split("-"),
+        hparams,
+        decode_hp,
+        decode_to_file=FLAGS.decode_to_file,
+        dataset_split="test" if FLAGS.eval_use_test_set else None,
+        return_generator=FLAGS.fathom_output_predictions)
 
     # Fathom
     if FLAGS.fathom_output_predictions:
