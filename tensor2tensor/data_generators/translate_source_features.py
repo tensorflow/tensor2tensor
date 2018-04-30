@@ -371,7 +371,7 @@ class SFeatureSymbolModality(modalities.SymbolModality):
     self._vocab_size = feat_hp['vocab_size']    
     self.f_number = feat_hp['f_number']
     try:
-      self.sfeat_size = int(model_hparams.get('source_feature_sizes').split(':')[self.f_number])
+      self.sfeat_size = int(model_hparams.get('source_feature_embedding_sizes').split(':')[self.f_number])
     except IndexError:
       raise IndexError("Source feature size not provided as hyper-parameter")
   
@@ -405,12 +405,12 @@ class TransformerSrcFeatures(transformer.Transformer):
     
   def sfeat_size(self, f_id):
     """source feature vector dimension"""
-    return int(self.hparams.source_feature_sizes.split(":")[f_id])
+    return int(self.hparams.source_feature_embedding_sizes.split(":")[f_id])
 
   @property
   def sfeat_number(self):
     """number of source features"""
-    return len(self.hparams.source_feature_sizes.split(":"))
+    return len(self.hparams.source_feature_embedding_sizes.split(":"))
 
   def bottom(self, features):
     """Transform features to feed into body."""
@@ -418,7 +418,7 @@ class TransformerSrcFeatures(transformer.Transformer):
     transformed_features = super(TransformerSrcFeatures, self).bottom(features)
     _sfeat_number = len([f for f in transformed_features if f.startswith("sfeats") and not f.endswith("_raw")])
     assert _sfeat_number == self.sfeat_number, \
-        "More source features set in hparams than observed in input: %s" %self.hparams.source_feature_sizes
+        "More source features set in hparams than observed in input: %s" %self.hparams.source_feature_embedding_sizes
 
     inputs_with_sfeats = transformed_features["inputs"]
     for f_id in range(self.sfeat_number):

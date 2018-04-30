@@ -44,7 +44,7 @@ are then split into subword units and source features are multiplied
 in order to keep the same unique sentence length. To add subword tags
 marking the beginning, inside and end of a word, set
 TranslateEnfrSrcFeat.use_subword_tags() below to True (and give a
-size to this last feature embedding in "source_feature_sizes").
+size to this last feature embedding in "source_feature_embedding_sizes").
 
 For inference, the file containing the features must be given in
 a separate argument for t2t-decoder:
@@ -105,9 +105,9 @@ def transformer_sfeats_hparams():
   # the order of the features is the same
   # as in the source feature file. All
   # sizes are separated by ':'
-  hp.add_hparam("source_feature_sizes", "16:56:8")
+  hp.add_hparam("source_feature_embedding_sizes", "16:56:8")
   # set encoder hidden size
-  ehs = sum([int(size) for size in hp.source_feature_sizes.split(':')])
+  ehs = sum([int(size) for size in hp.source_feature_embedding_sizes.split(':')])
   ehs += hp.hidden_size
   hp.add_hparam("enc_hidden_size", ehs)
   return hp
@@ -141,7 +141,7 @@ class TranslateEnfrSrcFeat(translate_source_features.SourceFeatureProblem):
     when the source words are subword encoded.
     This source feature is the last one among
     all other features and its vector size must
-    be set in hparams (source_feature_sizes).
+    be set in hparams (source_feature_embedding_sizes).
     """
     return True
 
