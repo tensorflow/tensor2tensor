@@ -1488,13 +1488,23 @@ def conv_relu_conv(inputs,
                    padding="SAME",
                    nonpadding_mask=None,
                    dropout=0.0,
-                   name=None):
+                   name=None,
+                   cache=None):
   """Hidden layer with RELU activation followed by linear projection."""
   with tf.variable_scope(name, "conv_relu_conv", [inputs]):
     inputs = maybe_zero_out_padding(
         inputs, first_kernel_size, nonpadding_mask)
+
+    if cache:
+      inputs = cache["f"] = tf.concat([cache["f"], inputs], axis=1)
+      inputs = cache["f"] = inputs[:, -first_kernel_size:, :]
+
     h = tpu_conv1d(inputs, filter_size, first_kernel_size, padding=padding,
                    name="conv1")
+
+    if cache:
+      h = h[:, -1:, :]
+
     h = tf.nn.relu(h)
     if dropout != 0.0:
       h = tf.nn.dropout(h, 1.0 - dropout)

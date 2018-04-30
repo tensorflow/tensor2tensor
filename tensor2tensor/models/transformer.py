@@ -476,8 +476,8 @@ def fast_decode(encoder_output,
       "layer_%d" % layer: {
           "k": tf.zeros([batch_size, 0, key_channels]),
           "v": tf.zeros([batch_size, 0, value_channels]),
-      }
-      for layer in range(num_layers)
+          "f": tf.zeros([batch_size, 0, hparams.hidden_size]),
+      } for layer in range(num_layers)
   }
 
   if encoder_output is not None:
@@ -903,9 +903,12 @@ def transformer_decoder(decoder_input,
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
-              common_layers.layer_preprocess(x, hparams), hparams,
-              conv_padding="LEFT", nonpadding_mask=nonpadding,
-              losses=losses)
+              common_layers.layer_preprocess(x, hparams),
+              hparams,
+              conv_padding="LEFT",
+              nonpadding_mask=nonpadding,
+              losses=losses,
+              cache=layer_cache)
           x = common_layers.layer_postprocess(x, y, hparams)
     # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
@@ -918,7 +921,8 @@ def transformer_ffn_layer(x,
                           pad_remover=None,
                           conv_padding="LEFT",
                           nonpadding_mask=None,
-                          losses=None):
+                          losses=None,
+                          cache=None):
   """Feed-forward layer in the transformer.
 
   Args:
@@ -933,6 +937,9 @@ def transformer_ffn_layer(x,
       needed for convolutional layers with "SAME" padding.
       Contains 1.0 in positions corresponding to nonpadding.
     losses: optional list onto which to append extra training losses
+    cache: dict, containing tensors which are the results of previous
+        attentions, used for fast decoding.
+
 
   Returns:
     a Tensor of shape [batch_size, length, hparams.hidden_size]
@@ -970,11 +977,12 @@ def transformer_ffn_layer(x,
         x,
         hparams.filter_size,
         hparams.hidden_size,
-        first_kernel_size=3,
+        first_kernel_size=hparams.conv_first_kernel,
         second_kernel_size=1,
         padding=conv_padding,
         nonpadding_mask=nonpadding_mask,
-        dropout=hparams.relu_dropout)
+        dropout=hparams.relu_dropout,
+        cache=cache)
   elif ffn_layer == "parameter_attention":
     return common_attention.parameter_attention(
         x, hparams.parameter_attention_key_channels or hparams.hidden_size,
@@ -1061,6 +1069,7 @@ def transformer_base_v1():
   hparams.add_hparam("use_pad_remover", True)
   hparams.add_hparam("self_attention_type", "dot_product")
   hparams.add_hparam("max_relative_position", 0)
+  hparams.add_hparam("conv_first_kernel", 3)
   # These parameters are only used when ffn_layer=="local_moe_tpu"
   hparams.add_hparam("moe_overhead_train", 1.0)
   hparams.add_hparam("moe_overhead_eval", 2.0)
