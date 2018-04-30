@@ -1249,8 +1249,6 @@ def local_moe_tpu(inputs,
   gate_1, index_1 = common_layers.top_1_tpu(gates)
   # [batch, length, num_experts]
   mask_1 = tf.one_hot(index_1, num_experts)
-  # Get ready to find the second-best expert by masking out the best one.
-  without_top_1 = gates - mask_1
   # [batch, length, num_experts]
   # This is the position within the expert's mini-batch for this sequence
   position_in_expert_1 = common_layers.cumsum(
@@ -1266,8 +1264,20 @@ def local_moe_tpu(inputs,
   # Weight assigned to first expert.
   gate_1 *= mask_1_flat
 
-  # find second-place expert - this section is similar to the section above.
-  gate_2, index_2 = common_layers.top_1_tpu(without_top_1)
+  # Pick a second-place expert for each position.
+  # We first mask out the experts that we expect to be over-capacity
+  space_remaining = expert_capacity_f - mask_1_count
+  use_rate = (mask_1_count + 1.0) / tf.to_float(length)
+  # At what point in the sequence do we expect the expert to be full.
+  expected_exhaustion_pos = space_remaining / use_rate
+  # A Tensor with shape [batch, length, num_experts] representing a boolean
+  #   - whether we expect that the expert will already be full.
+  expected_exhausted = tf.to_float(tf.greater(
+      tf.reshape(tf.to_float(tf.range(length)), [1, length, 1]),
+      expected_exhaustion_pos))
+  masked_gates = gates - mask_1 - expected_exhausted
+  # This section is similar to the section above.
+  gate_2, index_2 = common_layers.top_1_tpu(masked_gates)
   # [batch, length, num_experts]
   mask_2 = tf.one_hot(index_2, num_experts)
   position_in_expert_2 = (
@@ -1280,10 +1290,8 @@ def local_moe_tpu(inputs,
   gate_2 *= mask_2_flat
 
   # What fraction didn't fit - show summaries
-  miss_rate_1 = (
-      1.0 - tf.reduce_sum(mask_1_count) / tf.to_float(batch * length))
-  miss_rate_2 = (
-      1.0 - tf.reduce_sum(mask_2_count) / tf.to_float(batch * length))
+  miss_rate_1 = 1.0 - tf.reduce_sum(mask_1_count) / tf.to_float(batch * length)
+  miss_rate_2 = 1.0 - tf.reduce_sum(mask_2_count) / tf.to_float(batch * length)
   tf.summary.scalar("miss_rate_1", miss_rate_1)
   tf.summary.scalar("miss_rate_2", miss_rate_2)
 
