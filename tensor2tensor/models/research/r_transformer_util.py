@@ -1173,7 +1173,7 @@ def r_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
   ponder_times = n_updates
   remainders = remainder
 
-  tf.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
+  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
 
   return new_state, (ponder_times, remainders)
 
@@ -1324,7 +1324,7 @@ def r_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
   ponder_times = n_updates
   remainders = remainder
 
-  tf.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
+  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
 
   return accumulated_state, (ponder_times, remainders)
 
@@ -1466,7 +1466,7 @@ def r_transformer_act_global(x, hparams, ffn_unit, attention_unit):
   ponder_times = n_updates
   remainders = remainder
 
-  tf.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
+  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
 
   return new_state, (ponder_times, remainders)
 
@@ -1613,7 +1613,7 @@ def r_transformer_act_random(x, hparams, ffn_unit, attention_unit):
   ponder_times = n_updates
   remainders = remainder
 
-  tf.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
+  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
 
   return new_state, (ponder_times, remainders)
 

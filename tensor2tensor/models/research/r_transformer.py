@@ -207,7 +207,7 @@ class RTransformer(transformer.Transformer):
           hparams.act_loss_weight *
           tf.reduce_mean(dec_ponder_times + dec_remainders))
       act_loss = enc_act_loss + dec_act_loss
-      tf.summary.scalar("act_loss", act_loss)
+      tf.contrib.summary.scalar("act_loss", act_loss)
       return decoder_output, {"act_loss": act_loss}
 
     return decoder_output
@@ -282,7 +282,7 @@ class RTransformerEncoder(transformer.Transformer):
       ponder_times, remainders = enc_extra_output
       act_loss = hparams.act_loss_weight * tf.reduce_mean(ponder_times +
                                                           remainders)
-      tf.summary.scalar("act_loss", act_loss)
+      tf.contrib.summary.scalar("act_loss", act_loss)
 
       return encoder_output, {"act_loss": act_loss}
     return encoder_output
