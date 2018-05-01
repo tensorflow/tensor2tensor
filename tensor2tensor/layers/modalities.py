@@ -261,6 +261,10 @@ class ImageModality(modality.Modality):
 class ImageChannelCompressModality(modality.Modality):
   """Modality for images using channel compression for generation."""
 
+  @property
+  def num_channels(self):
+    return 3
+
   def bottom_compress(self, inputs, name="bottom"):
     """Transform input from data space to model space.
 
@@ -269,7 +273,8 @@ class ImageChannelCompressModality(modality.Modality):
     size image_length x image_length dims.
 
     Args:
-      inputs: A Tensor representing pixel intensities as integers. [batch, ...]
+      inputs: A Tensor representing RGB pixel intensities as integers.
+        [batch, ...]
       name: string, scope.
     Returns:
       body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
@@ -283,9 +288,9 @@ class ImageChannelCompressModality(modality.Modality):
       inputs.set_shape([None, None, None, 1])
       # We compress RGB intensities for each pixel using a conv.
       x = tf.layers.conv2d(inputs,
-                           self._body_input_depth, (1, 3),
+                           self._body_input_depth, (1, self.num_channels),
                            padding="VALID",
-                           strides=(1, 3),
+                           strides=(1, self.num_channels),
                            activation=tf.nn.relu,
                            name="conv_input")
       x.set_shape([None, None, None, self._body_input_depth])
@@ -301,7 +306,7 @@ class ImageChannelCompressModality(modality.Modality):
     with tf.variable_scope(self.name):
       hidden_dim = self._model_hparams.hidden_size
       img_len = self._model_hparams.img_len
-      channels = self._model_hparams.num_channels
+      channels = self.num_channels  # RGB
       batch = common_layers.shape_list(body_output)[0]
       x = tf.layers.conv2d(
           body_output,

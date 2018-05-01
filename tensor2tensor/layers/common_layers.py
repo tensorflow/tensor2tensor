@@ -206,9 +206,10 @@ def convert_rgb_to_real(x):
   """Conversion of pixel values to real numbers."""
   with tf.name_scope("rgb_to_real", values=[x]):
     x = tf.to_float(x)
-    # Use the formula (value/128) - 1 to convert each channel value into a
-    # real number in the range -1 to 1.
-    x = (x / 128) - 1
+    # Use the formula (value/127.5) - 1 to convert each channel value into a
+    # real number in the range -1 to 1. We use 127.5 instead of 128 because
+    # the intensities are in the range 0 to 255
+    x = (x / 127.5) - 1
     return x
 
 

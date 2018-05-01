@@ -79,7 +79,8 @@ def nearest_neighbor(x,
     num_samples: Number of samples to take in soft EM (Default: 1).
 
   Returns:
-    Tensor with nearest element in mean encoded in one-hot notation.
+    Tensor with nearest element in mean encoded in one-hot notation
+    and distances.
   """
   x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keep_dims=True)
   means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keep_dims=True)
@@ -111,7 +112,7 @@ def nearest_neighbor(x,
     else:
       nearest_idx = tf.argmax(-dist, axis=-1)
     nearest_hot = tf.one_hot(nearest_idx, block_v_size)
-  return nearest_hot
+  return nearest_hot, dist
 
 
 def embedding_lookup(x,
@@ -135,9 +136,9 @@ def embedding_lookup(x,
 
   Returns:
     The nearest neighbor in one hot form, the nearest neighbor itself, the
-    commitment loss, embedding training loss.
+    commitment loss, embedding training loss and distances.
   """
-  x_means_hot = nearest_neighbor(
+  x_means_hot, dist = nearest_neighbor(
       x,
       means,
       block_v_size,
@@ -149,7 +150,7 @@ def embedding_lookup(x,
   x_means = tf.transpose(x_means, [1, 0, 2])
   q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
   e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
-  return x_means_hot, x_means, q_loss, e_loss
+  return x_means_hot, x_means, q_loss, e_loss, dist
 
 
 def bit_to_int(x_bit, num_bits, base=2):
@@ -467,7 +468,6 @@ def discrete_bottleneck(x,
     ValueError: If projection_tensors is None for reshape_method project, or
     ema_count or ema_means is None if we are using ema, or unknown args.
   """
-  tf.logging.info("Shape of x = {}".format(common_layers.shape_list(x)))
   block_v_size = None
   if bottleneck_kind == "dvq":
     # Define the dvq parameters
@@ -554,8 +554,9 @@ def discrete_bottleneck(x,
       x_means_hot = []
       x_means = 0
       l = 0
+      em = embedding_lookup
       for i in range(num_residuals):
-        x_means_hot_res, x_means_res, q_loss_res, e_loss_res = embedding_lookup(
+        x_means_hot_res, x_means_res, q_loss_res, e_loss_res, dist_res = em(
             x_res, means[i], num_blocks, block_v_size, random_top_k, soft_em,
             num_samples)
 
@@ -593,7 +594,8 @@ def discrete_bottleneck(x,
         # Update the residuals
         x_res -= x_means_res
         x_means += x_means_res
-        x_means_hot.append(x_means_hot_res)
+        x_m_h = tf.one_hot(tf.argmax(-dist_res, axis=-1), depth=block_v_size)
+        x_means_hot.append(x_m_h)
 
       # Get the discrete latent representation
       x_means_hot = tf.stack(x_means_hot, axis=1)
