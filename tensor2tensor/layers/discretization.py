@@ -581,8 +581,10 @@ def discrete_bottleneck(x,
           n = tf.reduce_sum(updated_ema_count_res, axis=-1, keep_dims=True)
           updated_ema_count_res = ((updated_ema_count_res + epsilon) /
                                    (n + 2**z_size * epsilon) * n)
-          updated_ema_means_res /= tf.expand_dims(
+          # pylint: disable=g-no-augmented-assignment
+          updated_ema_means_res = updated_ema_means_res / tf.expand_dims(
               updated_ema_count_res, axis=-1)
+          # pylint: enable=g-no-augmented-assignment
 
           with tf.control_dependencies([e_loss_res]):
             update_means_res = tf.assign(means[i], updated_ema_means_res)
