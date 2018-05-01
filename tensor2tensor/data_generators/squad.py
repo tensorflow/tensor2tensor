@@ -143,5 +143,5 @@ class SquadConcatPositioned(SquadConcat):
     for sample in samples:
       sample['targets'] = self.generate_targets(sample['targets'],
                                                 sample['context'])
-      if not sample['targets']:
+      if sample['targets']:
         yield sample
