@@ -12,11 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Optimizer variants which make it possible to use very large batch sizes with
 limited GPU memory. Optimizers in this module accumulate the gradients for n 
 batches, and call the optimizer's update rule every n batches with the 
 accumulated gradients.
+
+See [Saunders et al., 2018](https://arxiv.org/abs/1805.00456) for details.
 """
 
 from __future__ import absolute_import
@@ -35,7 +36,7 @@ from tensorflow.python.ops import variable_scope
 
 
 class LargebatchAdamOptimizer(tf.contrib.opt.LazyAdamOptimizer):
-  """Large batch variant for Adam."""
+  """Adam with delayed SGD updates."""
 
   def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8,
                use_locking=False, name="Adam", n=2):
@@ -135,7 +136,8 @@ class LargebatchAdamOptimizer(tf.contrib.opt.LazyAdamOptimizer):
   def _finish(self, update_ops, name_scope):
     """Like super class method, but updates beta_power variables only every
     n batches. The iter variable is updated with
-      iter <- iter + 1 mod n
+
+       iter <- iter + 1 mod n
     """
     iter_ = self._get_iter_variable()
     beta1_power, beta2_power = self._get_beta_accumulators()
