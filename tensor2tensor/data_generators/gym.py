@@ -126,11 +126,13 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     p.target_space_id = problem.SpaceID.IMAGE
 
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
-    self.env.reset()
-    action = self.get_action()
+    next_obs = self.env.reset()
     for _ in range(self.num_steps):
-      observation, reward, done, _ = self.env.step(action)
+      observation = next_obs
       action = self.get_action(observation)
+      next_obs, reward, done, _ = self.env.step(action)
+      if done:
+        next_obs = self.env.reset()
       yield {"frame": observation,
              "action": [action],
              "done": [done],
