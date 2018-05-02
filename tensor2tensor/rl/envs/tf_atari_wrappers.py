@@ -177,11 +177,13 @@ class MemoryWrapper(WrapperBase):
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):  # Do we need this?
-      reward, done = self._batch_env.simulate(action)
-      encoded_image = tf.image.encode_png(
-          tf.cast(self._batch_env.observ[0, ...], tf.uint8))
-      with tf.control_dependencies([reward, done]):
-        enqueue_op = self.speculum.enqueue(
-            [encoded_image, reward, action, done])
-        with tf.control_dependencies([enqueue_op]):
-          return tf.identity(reward), tf.identity(done)
+      observ_copy = self._batch_env.observ.read_value()
+      with tf.control_dependencies([observ_copy]):
+        reward, done = self._batch_env.simulate(action)
+        encoded_image = tf.image.encode_png(
+            tf.cast(observ_copy[0, ...], tf.uint8))
+        with tf.control_dependencies([reward, done]):
+          enqueue_op = self.speculum.enqueue(
+              [encoded_image, reward, action, done])
+          with tf.control_dependencies([enqueue_op]):
+            return tf.identity(reward), tf.identity(done)
