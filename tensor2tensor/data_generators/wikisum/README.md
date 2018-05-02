@@ -130,7 +130,7 @@ pip install tensor2tensor -U --user
 BUCKET=gs://my-gcs-bucket/wikisum_commoncrawl
 
 # Extract references from CommonCrawl
-python -m tensor2tensor.data_generators.wikisum.parallel_launch.py \
+python -m tensor2tensor.data_generators.wikisum.parallel_launch \
   --num_instances=1000 \
   --cpu=1 --mem=2 \
   --name=wikisum-refs-cc \
@@ -145,13 +145,13 @@ python -m tensor2tensor.data_generators.wikisum.generate_vocab \
   --for_commoncrawl
 
 # Produce examples
-python -m tensor2tensor.data_generators.wikisum.parallel_launch.py \
+python -m tensor2tensor.data_generators.wikisum.parallel_launch \
   --num_instances=1000 \
   --cpu=1 --mem=2 \
   --name=wikisum-cc-produce \
   --log_dir=$BUCKET/produce_logs \
   --setup_command="pip install tensor2tensor tensorflow -U -q --user" \
-  --command_prefix="python -m tensor2tensor.data_generators.wikisum.produce_examples.py --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --for_commoncrawl --task_id"
+  --command_prefix="python -m tensor2tensor.data_generators.wikisum.produce_examples --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --for_commoncrawl --task_id"
 ```
 
 ## Commands to generate `WikisumWeb`
@@ -163,7 +163,7 @@ pip install tensor2tensor -U --user
 BUCKET=gs://my-gcs-bucket/wikisum_web
 
 # Fetch references from web
-python -m tensor2tensor.data_generators.wikisum.parallel_launch.py \
+python -m tensor2tensor.data_generators.wikisum.parallel_launch \
   --num_instances=1000 \
   --cpu=4 --mem=4 \
   --name=wikisum-refs-web \
@@ -177,13 +177,13 @@ python -m tensor2tensor.data_generators.wikisum.generate_vocab \
   --refs_dir=$BUCKET/wiki_references
 
 # Produce examples
-python -m tensor2tensor.data_generators.wikisum.parallel_launch.py \
+python -m tensor2tensor.data_generators.wikisum.parallel_launch \
   --num_instances=1000 \
   --cpu=1 --mem=2 \
   --name=wikisum-web-produce \
   --log_dir=$BUCKET/produce_logs \
   --setup_command="pip install tensor2tensor tensorflow -U -q --user" \
-  --command_prefix="python -m tensor2tensor.data_generators.wikisum.produce_examples.py --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --task_id"
+  --command_prefix="python -m tensor2tensor.data_generators.wikisum.produce_examples --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --task_id"
 ```
 
 ## Training

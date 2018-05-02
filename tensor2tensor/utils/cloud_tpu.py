@@ -50,6 +50,7 @@ class CloudState(object):
 
   def cleanup(self, current_vm_name=None, current_tpu_name=None,
               skip_confirmation=False):
+    """Delete old instances and cleanup old trainer and tunnel processes."""
     process_pids = os.listdir(self._tmp_dir)
     for pid in process_pids:
       try:
@@ -72,7 +73,7 @@ class CloudState(object):
         del_tpu = False
         if info["delete_on_done"]:
           if (info["vm_name"] != current_vm_name and
-              info["vm_name"] in zip(*list_vm_names_and_ips())[0]):
+              info["vm_name"] in list(zip(*list_vm_names_and_ips()))[0]):
             print("Old VM %s found. Delete?" % info["vm_name"])
             if skip_confirmation:
               del_vm = True
@@ -80,7 +81,7 @@ class CloudState(object):
               if confirm():
                 del_vm = True
           if (info["tpu_name"] != current_tpu_name and
-              info["tpu_name"] in zip(*list_tpu_names_and_ips())[0]):
+              info["tpu_name"] in list(zip(*list_tpu_names_and_ips()))[0]):
             print("Old TPU %s found. Delete?" % info["tpu_name"])
             if skip_confirmation:
               del_tpu = True
@@ -340,8 +341,8 @@ def create_vm_tpu_pair(vm_name, tpu_name, reuse_if_exists=True,
   vm_info = list_vm_names_and_ips()
   tpu_info = list_tpu_names_and_ips()
 
-  vm_names = zip(*vm_info)[0] if vm_info else []
-  tpu_names = zip(*tpu_info)[0] if tpu_info else []
+  vm_names = list(zip(*vm_info))[0] if vm_info else []
+  tpu_names = list(zip(*tpu_info))[0] if tpu_info else []
 
   make_vm = False
   vm_ip = None
