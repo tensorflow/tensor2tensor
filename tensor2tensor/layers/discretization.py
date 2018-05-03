@@ -112,7 +112,7 @@ def nearest_neighbor(x,
     else:
       nearest_idx = tf.argmax(-dist, axis=-1)
     nearest_hot = tf.one_hot(nearest_idx, block_v_size)
-  return nearest_hot, dist
+  return nearest_hot
 
 
 def embedding_lookup(x,
@@ -138,7 +138,7 @@ def embedding_lookup(x,
     The nearest neighbor in one hot form, the nearest neighbor itself, the
     commitment loss, embedding training loss and distances.
   """
-  x_means_hot, dist = nearest_neighbor(
+  x_means_hot = nearest_neighbor(
       x,
       means,
       block_v_size,
@@ -150,7 +150,7 @@ def embedding_lookup(x,
   x_means = tf.transpose(x_means, [1, 0, 2])
   q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
   e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
-  return x_means_hot, x_means, q_loss, e_loss, dist
+  return x_means_hot, x_means, q_loss, e_loss
 
 
 def bit_to_int(x_bit, num_bits, base=2):
@@ -201,6 +201,7 @@ def embed(x,
           filter_size,
           name,
           bottleneck_kind="dvq",
+          soft_em=False,
           num_blocks=2,
           num_residuals=1,
           block_v_size=None,
@@ -216,6 +217,7 @@ def embed(x,
     name: Name for the bottleneck scope.
     bottleneck_kind: Kind of discretization bottleneck to use; one of dvq,
       semhash, gumbel-softmax (Default: dvq).
+    soft_em: If True then it uses a multi-sample version of EM (Default: False).
     num_blocks: Number of blocks in DVQ (Default: 2).
     num_residuals: Number of residuals (Default: 1).
     block_v_size: Number of embedding entries per block (Default: None).
@@ -240,30 +242,39 @@ def embed(x,
       if block_v_size is None:
         raise ValueError("Bottleneck kind is dvq but block_v_size is None.")
 
-      shape_x = common_layers.shape_list(x)
-      x_flat = tf.reshape(x, [-1, 1])
-      c = int_to_bit(x_flat, num_bits=z_size, base=2)
-      shape = common_layers.shape_list(c)
-      new_shape = shape
-      new_shape[-1] = num_residuals
-      new_shape.append(num_blocks)
-      new_shape.append(int(z_size / (num_residuals * num_blocks)))
-      c = tf.to_int32(tf.reshape(c, shape=new_shape))
-      h1_shape = shape_x
-      h1_shape.append(hidden_size)
-      h1 = tf.zeros(dtype=tf.float32, shape=h1_shape)
-      for i in range(num_residuals):
-        c_residual = bit_to_int(
-            c[:, :, i, :, :],
-            num_bits=int(z_size / (num_residuals * num_blocks)),
-            base=2)
-        c_hot = tf.one_hot(c_residual, depth=block_v_size, axis=-1)
-        c_hot_flat = tf.reshape(c_hot, shape=[-1, num_blocks, block_v_size])
-        h1_residual = tf.matmul(
-            tf.transpose(c_hot_flat, perm=[1, 0, 2]), means[i])
-        h1_residual = tf.transpose(h1_residual, perm=[1, 0, 2])
-        h1_residual = tf.reshape(h1_residual, shape=h1_shape)
-        h1 += h1_residual
+      if soft_em:
+        assert num_residuals == 1
+        x_hot_flat = tf.reshape(x, shape=[-1, num_blocks, block_v_size])
+        h1 = tf.matmul(tf.transpose(x_hot_flat, perm=[1, 0, 2]), means[0])
+        h1 = tf.transpose(h1, perm=[1, 0, 2])
+        new_shape = common_layers.shape_list(x)
+        new_shape[-1] = hidden_size
+        h1 = tf.reshape(h1, shape=new_shape)
+      else:
+        shape_x = common_layers.shape_list(x)
+        x_flat = tf.reshape(x, [-1, 1])
+        c = int_to_bit(x_flat, num_bits=z_size, base=2)
+        shape = common_layers.shape_list(c)
+        new_shape = shape
+        new_shape[-1] = num_residuals
+        new_shape.append(num_blocks)
+        new_shape.append(int(z_size / (num_residuals * num_blocks)))
+        c = tf.to_int32(tf.reshape(c, shape=new_shape))
+        h1_shape = shape_x
+        h1_shape.append(hidden_size)
+        h1 = tf.zeros(dtype=tf.float32, shape=h1_shape)
+        for i in range(num_residuals):
+          c_residual = bit_to_int(
+              c[:, :, i, :, :],
+              num_bits=int(z_size / (num_residuals * num_blocks)),
+              base=2)
+          c_hot = tf.one_hot(c_residual, depth=block_v_size, axis=-1)
+          c_hot_flat = tf.reshape(c_hot, shape=[-1, num_blocks, block_v_size])
+          h1_residual = tf.matmul(
+              tf.transpose(c_hot_flat, perm=[1, 0, 2]), means[i])
+          h1_residual = tf.transpose(h1_residual, perm=[1, 0, 2])
+          h1_residual = tf.reshape(h1_residual, shape=h1_shape)
+          h1 += h1_residual
     elif bottleneck_kind == "rounding":
       h1 = x
     else:
@@ -554,12 +565,10 @@ def discrete_bottleneck(x,
       x_means_hot = []
       x_means = 0
       l = 0
-      em = embedding_lookup
       for i in range(num_residuals):
-        x_means_hot_res, x_means_res, q_loss_res, e_loss_res, dist_res = em(
+        x_means_hot_res, x_means_res, q_loss_res, e_loss_res = embedding_lookup(
             x_res, means[i], num_blocks, block_v_size, random_top_k, soft_em,
             num_samples)
-
         # Update the ema variables
         if ema:
           tf.logging.info("Using EMA with beta = {}".format(beta))
@@ -596,8 +605,7 @@ def discrete_bottleneck(x,
         # Update the residuals
         x_res -= x_means_res
         x_means += x_means_res
-        x_m_h = tf.one_hot(tf.argmax(-dist_res, axis=-1), depth=block_v_size)
-        x_means_hot.append(x_m_h)
+        x_means_hot.append(x_means_hot_res)
 
       # Get the discrete latent representation
       x_means_hot = tf.stack(x_means_hot, axis=1)
@@ -619,6 +627,12 @@ def discrete_bottleneck(x,
       new_shape = shape_x[:-1]
       c = tf.reshape(c, new_shape)
 
+      # If we are doing soft EM then c is x_means_hot
+      if soft_em:
+        c = x_means_hot
+        new_shape.append(block_v_size)
+        c = tf.reshape(c, new_shape)
+
       x_means = tf.reshape(x_means, shape_x)
       x_reshaped = tf.reshape(x_reshaped, shape_x)
       h1 = x_reshaped + tf.stop_gradient(x_means - x_reshaped)
@@ -635,6 +649,7 @@ def discrete_bottleneck(x,
         filter_size=filter_size,
         name=name,
         bottleneck_kind=bottleneck_kind,
+        soft_em=soft_em,
         num_blocks=num_blocks,
         num_residuals=num_residuals,
         block_v_size=block_v_size,

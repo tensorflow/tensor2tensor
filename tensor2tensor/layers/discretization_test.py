@@ -110,7 +110,7 @@ class DiscretizationTest(tf.test.TestCase):
     means = tf.constant(
         [[1, 0, 0], [0, 1, 0], [0, 0, 1], [9, 9, 9]], dtype=tf.float32)
     means = tf.stack([means, means], axis=0)
-    x_means_hot, _ = discretization.nearest_neighbor(x, means, block_v_size=4)
+    x_means_hot = discretization.nearest_neighbor(x, means, block_v_size=4)
     x_means_hot_test = np.array([[0, 1, 0, 0], [1, 0, 0, 0]])
     x_means_hot_test = np.expand_dims(x_means_hot_test, axis=0)
     with self.test_session() as sess:
