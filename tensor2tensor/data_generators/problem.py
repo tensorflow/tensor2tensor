@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Base class for problem/dataset definitions."""
 from __future__ import absolute_import
 from __future__ import division
@@ -344,13 +343,9 @@ class Problem(object):
       return examples
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
-    if hasattr(tf.contrib.data, "parallel_interleave"):
-      dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
-              _preprocess, sloppy=is_training, cycle_length=8))
-    else:
-      dataset = dataset.interleave(_preprocess, cycle_length=8,
-                                   block_length=16)
+    dataset = dataset.apply(
+        tf.contrib.data.parallel_interleave(
+            _preprocess, sloppy=is_training, cycle_length=8))
 
     return dataset
 
@@ -495,7 +490,8 @@ class Problem(object):
               dataset_split=None,
               shard=None,
               partition_id=0,
-              num_partitions=1):
+              num_partitions=1,
+              max_records=-1):
     """Build a Dataset for this problem.
 
     Args:
@@ -516,6 +512,7 @@ class Problem(object):
       shard: int, if provided, will only read data from the specified shard.
       partition_id: integer - which partition of the dataset to read from
       num_partitions: how many partitions in the dataset
+      max_records: int, number of records to truncate to.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
@@ -568,17 +565,12 @@ class Problem(object):
       random.shuffle(data_files)
     dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
 
-    if hasattr(tf.contrib.data, "parallel_interleave"):
-      dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
-              _load_records_and_preprocess, sloppy=is_training, cycle_length=8))
-    else:
-      dataset = dataset.interleave(_load_records_and_preprocess, cycle_length=8,
-                                   block_length=16)
-
+    dataset = dataset.apply(
+        tf.contrib.data.parallel_interleave(
+            _load_records_and_preprocess, sloppy=is_training, cycle_length=8))
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
-
+    dataset = dataset.take(max_records)
     if output_buffer_size:
       dataset = dataset.prefetch(output_buffer_size)
 
@@ -838,21 +830,28 @@ class Problem(object):
           dataset = dataset.map(_pad_batch, num_parallel_calls=num_threads)
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
+
+    def prepare_for_output(example):
+      if not config or not config.use_tpu:
+        _summarize_features(example,
+                            (config and config.data_parallelism.n) or 1)
+      if mode == tf.estimator.ModeKeys.PREDICT:
+        example["infer_targets"] = example.pop("targets")
+        return example
+      else:
+        return example, example["targets"]
+
+    dataset = dataset.map(prepare_for_output, num_parallel_calls=num_threads)
     dataset = dataset.prefetch(2)
-    features = dataset.make_one_shot_iterator().get_next()
-    if not config or not config.use_tpu:
-      _summarize_features(features, (config and config.data_parallelism.n) or 1)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
-      features["infer_targets"] = features["targets"]
-      features["targets"] = None
       # This is because of a bug in the Estimator that short-circuits prediction
       # if it doesn't see a QueueRunner. DummyQueueRunner implements the
       # minimal expected interface but does nothing.
       tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS,
                            data_reader.DummyQueueRunner())
 
-    return features, features["targets"]
+    return dataset
 
   def serving_input_fn(self, hparams):
     """Input fn for serving export, starting from serialized example."""
@@ -1067,7 +1066,6 @@ def problem_hparams_to_features(problem_hparams):
     input_space_id = problem_hparams.input_space_id
     target_space_id = problem_hparams.target_space_id
   return {
-      "problem_choice": 0,
       "input_space_id": input_space_id,
       "target_space_id": target_space_id,
   }

@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Base classes and utilities for image datasets."""
 
 from __future__ import absolute_import
@@ -30,8 +29,6 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
-from tensorflow.python.eager import context
 
 
 def resize_by_area(img, size):
@@ -159,7 +156,7 @@ class Image2ClassProblem(ImageProblem):
 
 
 def encode_images_as_png(images):
-  if context.in_eager_mode():
+  if tf.contrib.eager.in_eager_mode():
     for image in images:
       yield tf.image.encode_png(image).numpy()
   else:

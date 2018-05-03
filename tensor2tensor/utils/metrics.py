@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utils for metrics used in eval."""
 from __future__ import absolute_import
 from __future__ import division
@@ -55,6 +54,7 @@ class Metrics(object):
   SIGMOID_RECALL_ONE_HOT = "sigmoid_recall_one_hot"
   SIGMOID_PRECISION_ONE_HOT = "sigmoid_precision_one_hot"
   SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
+  ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
 
 
@@ -352,6 +352,25 @@ def sigmoid_cross_entropy_one_hot(logits, labels, weights_fn=None):
     return cross_entropy, tf.constant(1.0)
 
 
+def roc_auc(logits, labels, weights_fn=None):
+  """Calculate ROC AUC.
+
+  Requires binary classes.
+
+  Args:
+    logits: Tensor of size [batch_size, 1, 1, num_classes]
+    labels: Tensor of size [batch_size, 1, 1, num_classes]
+    weights_fn: Function that takes in labels and weighs examples (unused)
+  Returns:
+    ROC AUC (scalar), weights
+  """
+  del weights_fn
+  with tf.variable_scope("roc_auc", values=[logits, labels]):
+    predictions = tf.argmax(logits, axis=-1)
+    _, auc = tf.metrics.auc(labels, predictions, curve="ROC")
+    return auc, tf.constant(1.0)
+
+
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
 
@@ -362,7 +381,7 @@ def create_evaluation_metrics(problems, model_hparams):
   Returns:
     dict<metric name, metric function>. The metric functions have signature
     (Tensor predictions, features) -> (metric Tensor, update op), where features
-    is a dict with keys {targets, problem_choice}.
+    is a dict with keys {targets}.
 
   Raises:
     ValueError: if the metrics specified by a problem are not recognized (i.e.
@@ -379,13 +398,11 @@ def create_evaluation_metrics(problems, model_hparams):
           labels, [-1] + common_layers.shape_list(labels)[-3:])
     return predictions, labels
 
-  def make_problem_specific_metric_fn(metric_fn, problem_idx, weights_fn):
-    """Create a metric fn conditioned on problem_idx."""
+  def make_problem_specific_metric_fn(metric_fn, weights_fn):
+    """Create a metric fn."""
 
     def problem_metric_fn(predictions, features, labels):
       """Metric fn."""
-      problem_choice = features.get("problem_choice", 0)
-
       # Send along the entire features dict if the metric fn has the kwarg
       # "features".
       kwargs = {}
@@ -395,19 +412,14 @@ def create_evaluation_metrics(problems, model_hparams):
 
       predictions, labels = reduce_dimensions(predictions, labels)
 
-      def wrapped_metric_fn():
-        return metric_fn(predictions, labels, weights_fn=weights_fn, **kwargs)
-
-      (scores, weights) = tf.cond(
-          tf.equal(problem_idx, problem_choice), wrapped_metric_fn,
-          lambda: (tf.constant(0.0), tf.constant(0.0)))
-      # The tf.metrics.mean function assures correct aggregation.
+      scores, weights = metric_fn(predictions, labels,
+                                  weights_fn=weights_fn, **kwargs)
       return tf.metrics.mean(scores, weights)
 
     return problem_metric_fn
 
   eval_metrics = dict()
-  for problem_idx, problem_instance in enumerate(problems):
+  for problem_instance in problems:
     problem_name = problem_instance.name
     metrics = problem_instance.eval_metrics()
     if not all([m in METRICS_FNS for m in metrics]):
@@ -440,7 +452,7 @@ def create_evaluation_metrics(problems, model_hparams):
             eval_metrics[metric_name] = image_wrapped_metric_fn
           else:
             problem_metric_fn = make_problem_specific_metric_fn(
-                metric_fn, problem_idx, weights_fn)
+                metric_fn, weights_fn)
             eval_metrics[metric_name] = problem_metric_fn
     else:
       if isinstance(tm, tuple):
@@ -454,7 +466,7 @@ def create_evaluation_metrics(problems, model_hparams):
           eval_metrics[metric_name] = image_wrapped_metric_fn
         else:
           problem_metric_fn = make_problem_specific_metric_fn(
-              metric_fn, problem_idx, weights_fn)
+              metric_fn, weights_fn)
           eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
@@ -528,5 +540,6 @@ METRICS_FNS = {
     Metrics.SIGMOID_CROSS_ENTROPY_ONE_HOT: sigmoid_cross_entropy_one_hot,
     Metrics.SET_PRECISION: set_precision,
     Metrics.SET_RECALL: set_recall,
+    Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
 }

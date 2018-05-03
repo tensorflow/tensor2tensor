@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for SliceNet."""
 
 from __future__ import absolute_import
@@ -40,7 +39,7 @@ class SliceNetTest(tf.test.TestCase):
     hparams.add_hparam("data_dir", "")
     problem = registry.problem("image_cifar10")
     p_hparams = problem.get_hparams(hparams)
-    hparams.problems = [p_hparams]
+    hparams.problem_hparams = p_hparams
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.int32),

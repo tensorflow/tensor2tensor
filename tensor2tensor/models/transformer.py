@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Transformer model from "Attention Is All You Need".
 
 The Transformer model consists of an encoder and a decoder. Both are stacks
@@ -29,7 +28,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import librispeech
 from tensor2tensor.layers import common_attention
@@ -160,6 +159,7 @@ class Transformer(t2t_model.T2TModel):
       encoder_output, encoder_decoder_attention_bias = (None, None)
 
     targets = features["targets"]
+    targets_shape = common_layers.shape_list(targets)
     targets = common_layers.flatten4d3d(targets)
 
     decoder_input, decoder_self_attention_bias = transformer_prepare_decoder(
@@ -181,7 +181,7 @@ class Transformer(t2t_model.T2TModel):
           hparams.expected_attention_loss_multiplier)
       return decoder_output, {"attention_loss": attention_loss}
 
-    return decoder_output
+    return tf.reshape(decoder_output, targets_shape)
 
   def _greedy_infer(self, features, decode_length):
     """Fast version of greedy decoding.
@@ -313,6 +313,7 @@ class Transformer(t2t_model.T2TModel):
       partial_targets = features.get("inputs")
       if partial_targets is None:
         partial_targets = features["targets"]
+      assert partial_targets is not None
       partial_targets = common_layers.expand_squeeze_to_nd(partial_targets, 2)
       partial_targets = tf.to_int64(partial_targets)
       partial_targets_shape = common_layers.shape_list(partial_targets)
@@ -504,7 +505,7 @@ def fast_decode(encoder_output,
     def inner_loop(i, finished, next_id, decoded_ids, cache, log_prob):
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
-      log_probs = beam_search.log_prob_from_logits(logits)
+      log_probs = common_layers.log_prob_from_logits(logits)
       temperature = (0.0 if hparams.sampling_method == "argmax" else
                      hparams.sampling_temp)
       next_id = common_layers.sample_with_temperature(logits, temperature)
@@ -577,7 +578,7 @@ class TransformerScorer(Transformer):
     logits = tf.squeeze(logits, [2, 3])
 
     # Compute the log probabilities
-    log_probs = beam_search.log_prob_from_logits(logits)
+    log_probs = common_layers.log_prob_from_logits(logits)
 
     # Slice out the log_probs of the targets
     targets = features["targets"]
@@ -588,11 +589,10 @@ class TransformerScorer(Transformer):
     flat_targets = tf.reshape(targets, [batch_size * timesteps])
     flat_log_probs = tf.reshape(log_probs, [batch_size * timesteps, vocab_size])
     flat_indices = tf.stack(
-        [tf.range(tf.to_int64(batch_size) * tf.to_int64(timesteps)),
+        [tf.range(tf.to_int64(common_layers.shape_list(flat_targets)[0])),
          tf.to_int64(flat_targets)], axis=1)
-    log_probs = tf.reshape(
-        tf.gather_nd(flat_log_probs, flat_indices),
-        [batch_size, timesteps])
+    flat_log_probs = tf.gather_nd(flat_log_probs, flat_indices)
+    log_probs = tf.reshape(flat_log_probs, [batch_size, timesteps])
 
     # Sum over time to get the log_prob of the sequence
     scores = tf.reduce_sum(log_probs, axis=1)
@@ -676,8 +676,8 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
       32,
       ishape_static[-1],
       name="target_space_embedding",
-      dtype=tf.bfloat16 if hparams.activation_dtype == "bfloat16" or
-      hparams.weight_dtype == "bfloat16" else tf.float32)
+      dtype=tf.bfloat16 if hparams.activation_dtype == "bfloat16"
+      else tf.float32)
   emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
   encoder_input += emb_target_space
   if hparams.pos == "timing":
@@ -686,8 +686,7 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
           encoder_input, inputs_position)
     else:
       encoder_input = common_attention.add_timing_signal_1d(encoder_input)
-  if (hparams.activation_dtype == "bfloat16" or
-      hparams.weight_dtype == "bfloat16"):
+  if hparams.activation_dtype == "bfloat16":
     encoder_self_attention_bias = tf.cast(encoder_self_attention_bias,
                                           tf.bfloat16)
     encoder_decoder_attention_bias = tf.cast(encoder_decoder_attention_bias,
@@ -736,8 +735,7 @@ def transformer_prepare_decoder(targets, hparams, features=None):
           decoder_input, targets_position)
     else:
       decoder_input = common_attention.add_timing_signal_1d(decoder_input)
-  if (hparams.activation_dtype == "bfloat16" or
-      hparams.weight_dtype == "bfloat16"):
+  if hparams.activation_dtype == "bfloat16":
     decoder_self_attention_bias = tf.cast(decoder_self_attention_bias,
                                           tf.bfloat16)
   return (decoder_input, decoder_self_attention_bias)
@@ -786,8 +784,8 @@ def transformer_encoder(encoder_input,
     pad_remover = None
     if hparams.use_pad_remover and not common_layers.is_on_tpu():
       pad_remover = expert_utils.PadRemover(padding)
-    for layer in xrange(hparams.num_encoder_layers or
-                        hparams.num_hidden_layers):
+    for layer in range(hparams.num_encoder_layers or
+                       hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
@@ -803,7 +801,8 @@ def transformer_encoder(encoder_input,
               save_weights_to=save_weights_to,
               max_relative_position=hparams.max_relative_position,
               make_image_summary=make_image_summary,
-              dropout_broadcast_dims=attention_dropout_broadcast_dims)
+              dropout_broadcast_dims=attention_dropout_broadcast_dims,
+              max_length=hparams.get("max_length"))
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -857,8 +856,8 @@ def transformer_decoder(decoder_input,
       common_layers.comma_separated_string_to_integer_list(
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
   with tf.variable_scope(name):
-    for layer in xrange(hparams.num_decoder_layers or
-                        hparams.num_hidden_layers):
+    for layer in range(hparams.num_decoder_layers or
+                       hparams.num_hidden_layers):
       layer_name = "layer_%d" % layer
       layer_cache = cache[layer_name] if cache is not None else None
       with tf.variable_scope(layer_name):
@@ -877,7 +876,8 @@ def transformer_decoder(decoder_input,
               max_relative_position=hparams.max_relative_position,
               cache=layer_cache,
               make_image_summary=make_image_summary,
-              dropout_broadcast_dims=attention_dropout_broadcast_dims)
+              dropout_broadcast_dims=attention_dropout_broadcast_dims,
+              max_length=hparams.get("max_length"))
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
@@ -893,7 +893,8 @@ def transformer_decoder(decoder_input,
                 hparams.attention_dropout,
                 save_weights_to=save_weights_to,
                 make_image_summary=make_image_summary,
-                dropout_broadcast_dims=attention_dropout_broadcast_dims)
+                dropout_broadcast_dims=attention_dropout_broadcast_dims,
+                max_length=hparams.get("max_length"))
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -1604,10 +1605,15 @@ def transformer_supervised_attention():
 
 @registry.register_hparams
 def transformer_tpu_1b():
-  """Hparams for training with 1B parameters."""
+  """Hparams for machine translation with ~1.1B parameters."""
   hparams = transformer_tpu()
   hparams.hidden_size = 2048
   hparams.filter_size = 8192
   hparams.num_hidden_layers = 8
+  # smaller batch size to avoid OOM
   hparams.batch_size = 1024
+  hparams.activation_dtype = "bfloat16"
+  hparams.weight_dtype = "bfloat16"
+  # maximize number of parameters relative to computation by not sharing.
+  hparams.shared_embedding_and_softmax_weights = False
   return hparams

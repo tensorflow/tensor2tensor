@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """A QueryProcessor using the Transformer framework."""
 
 from collections import deque
@@ -115,7 +114,7 @@ class TransformerModel(query_processor.QueryProcessor):
         transformer_config["hparams_set"],
         transformer_config["hparams"],
         data_dir=data_dir,
-        problem_name=transformer_config["problems"])
+        problem_name=transformer_config["problem"])
 
     decode_hp = decoding.decode_hparams()
     decode_hp.add_hparam("shards", 1)
@@ -129,8 +128,8 @@ class TransformerModel(query_processor.QueryProcessor):
         decode_hparams=decode_hp, use_tpu=False)
 
     # Fetch the vocabulary and other helpful variables for decoding.
-    self.source_vocab = self.hparams.problems[0].vocabulary["inputs"]
-    self.targets_vocab = self.hparams.problems[0].vocabulary["targets"]
+    self.source_vocab = self.hparams.problem_hparams.vocabulary["inputs"]
+    self.targets_vocab = self.hparams.problem_hparams.vocabulary["targets"]
     self.const_array_size = 10000
 
     # Prepare the Transformer's debug data directory.
@@ -166,7 +165,6 @@ class TransformerModel(query_processor.QueryProcessor):
         x += [0] * (self.const_array_size - len(x))
         d = {
             "inputs": np.array(x).astype(np.int32),
-            "problem_choice": np.array(0).astype(np.int32)
         }
         yield d
 

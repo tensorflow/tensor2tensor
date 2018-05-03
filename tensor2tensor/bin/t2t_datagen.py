@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Produces the training and dev data for --problem into --data_dir.
 
 Produces sharded and shuffled TFRecord files of tensorflow.Example protocol
@@ -70,7 +69,7 @@ flags.DEFINE_integer("task_id", -1, "For distributed data generation.")
 flags.DEFINE_integer("task_id_start", -1, "For distributed data generation.")
 flags.DEFINE_integer("task_id_end", -1, "For distributed data generation.")
 flags.DEFINE_integer(
-    "num_concurrent_processes", 10,
+    "num_concurrent_processes", None,
     "Applies only to problems for which multiprocess_generate=True.")
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "

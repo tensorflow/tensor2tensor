@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """T2TModel Base Class."""
 from __future__ import absolute_import
 from __future__ import division
@@ -21,6 +20,7 @@ from __future__ import print_function
 import collections
 import contextlib
 import copy
+import functools
 import math
 import time
 
@@ -31,17 +31,18 @@ import six
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators.problem import problem_hparams_to_features
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import optimize
+from tensor2tensor.utils import quantization
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-from tensorflow.python.eager import context
 from tensorflow.python.layers import base
 from tensorflow.python.ops import variable_scope
 
@@ -73,7 +74,7 @@ class T2TModel(base.Layer):
       hparams: tf.contrib.training.HParams, model hyperparameters.
       mode: tf.estimator.ModeKeys, the execution mode.
       problem_hparams: tf.contrib.training.HParams, hyperparameters for the
-        Problem. If provided here or in hparams.problems, the model will
+        Problem. If provided here or in hparams.problem_hparams, the model will
         automatically determine bottom, top, and loss methods. If not provided,
         calling the model will only invoke body.
       data_parallelism: a expert_utils.Parallelism object,
@@ -90,8 +91,8 @@ class T2TModel(base.Layer):
     super(T2TModel, self).__init__(
         trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name)
 
-    if not problem_hparams and hasattr(hparams, "problems"):
-      problem_hparams = hparams.problems[0]
+    if not problem_hparams and hasattr(hparams, "problem_hparams"):
+      problem_hparams = hparams.problem_hparams
     self._problem_hparams = problem_hparams
 
     # Setup hparams
@@ -129,13 +130,22 @@ class T2TModel(base.Layer):
     else:
       return True
 
-  def call(self, features):
-    custom_getter = None
-    if self.hparams.activation_dtype == "bfloat16":
-      custom_getter = common_layers.bfloat16_var_getter
+  @property
+  def _custom_getter(self):
     if self.hparams.weight_dtype == "bfloat16":
-      custom_getter = common_layers.bfloat16_weights_var_getter
-    tf.get_variable_scope().set_custom_getter(custom_getter)
+      if self.hparams.optimizer != "Adafactor":
+        raise NotImplementedError(
+            "weight_dtype=bfloat16 only implemented with Adafactor optimizer")
+      return quantization.EighthPowerEncoding().custom_getter(
+          activation_dtype=tf.bfloat16
+          if self.hparams.activation_dtype == "bfloat16" else tf.float32)
+    elif self.hparams.activation_dtype == "bfloat16":
+      return quantization.bfloat16_activations_var_getter
+    else:
+      return None
+
+  def call(self, features):
+    set_custom_getter_compose(self._custom_getter)
     tf.get_variable_scope().set_initializer(
         optimize.get_variable_initializer(self.hparams))
     with self._eager_var_store.as_default():
@@ -222,8 +232,7 @@ class T2TModel(base.Layer):
   def model_fn(self, features):
     transformed_features = self.bottom(features)
 
-    if (self.hparams.activation_dtype == "bfloat16" or
-        self.hparams.weight_dtype == "bfloat16"):
+    if self.hparams.activation_dtype == "bfloat16":
       for k, v in six.iteritems(transformed_features):
         if v.dtype == tf.float32:
           transformed_features[k] = tf.cast(v, tf.bfloat16)
@@ -239,7 +248,9 @@ class T2TModel(base.Layer):
       logits = output
     else:
       logits = self.top(output, features)
-      losses["training"] = self.loss(logits, features)
+      losses["training"] = 0.0
+      if self._hparams.mode != tf.estimator.ModeKeys.PREDICT:
+        losses["training"] = self.loss(logits, features)
 
     return logits, losses
 
@@ -277,10 +288,11 @@ class T2TModel(base.Layer):
           transformed_features[k] = v.targets_bottom(features[k])
     else:
       with tf.variable_scope(target_modality.name):
-        log_info("Transforming 'targets' with %s.targets_bottom",
-                 target_modality.name)
-        transformed_features["targets"] = target_modality.targets_bottom(
-            features["targets"])
+        if "targets" in features:
+          log_info("Transforming 'targets' with %s.targets_bottom",
+                   target_modality.name)
+          transformed_features["targets"] = target_modality.targets_bottom(
+              features["targets"])
 
     for key in features:
       if key not in transformed_features:
@@ -321,7 +333,7 @@ class T2TModel(base.Layer):
           self.hparams.mode == tf.estimator.ModeKeys.PREDICT and
           not self.hparams.force_full_predict)
       if not last_only:
-        logits = target_modality.top(body_output, features["targets"])
+        logits = target_modality.top(body_output, features.get("targets"))
       else:
         # Take body outputs for the last position only, and targets too.
         last_position_body_output = tf.expand_dims(
@@ -338,9 +350,9 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = {k: None for k in body_output.keys()}
-      # assert set(body_output.keys()) == set(target_modality.keys()), (
-      #    "The keys of model_body's returned logits dict must match the keys "
-      #    "of problem_hparams.target_modality's dict.")
+      assert set(body_output.keys()) == set(target_modality.keys()), (
+          "The keys of model_body's returned logits dict must match the keys "
+          "of problem_hparams.target_modality's dict.")
       logits = {}
       for k, v in six.iteritems(body_output):
         with tf.variable_scope(k):  # TODO(aidangomez): share variables here?
@@ -351,9 +363,9 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = None
-      # assert not isinstance(target_modality, dict), (
-      #    "model_body must return a dictionary of logits when "
-      #    "problem_hparams.target_modality is a dict.")
+      assert not isinstance(target_modality, dict), (
+          "model_body must return a dictionary of logits when "
+          "problem_hparams.target_modality is a dict.")
       return self._top_single(body_output, target_modality, features)
 
   def _loss_single(self, logits, target_modality, feature):
@@ -491,7 +503,8 @@ class T2TModel(base.Layer):
             decode_length=50,
             beam_size=1,
             top_beams=1,
-            alpha=0.0):
+            alpha=0.0,
+            use_tpu=False):
     """A inference method.
 
     Quadratic time in decode_length.
@@ -503,6 +516,7 @@ class T2TModel(base.Layer):
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
         the preference for longer translations.
+      use_tpu: bool, whether to build the inference graph for TPU.
 
     Returns:
       A dict of decoding results {
@@ -517,6 +531,7 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`
       }
     """
+    set_custom_getter_compose(self._custom_getter)
     with self._eager_var_store.as_default():
       # TODO(rsepassi): Make decoding work with real-valued model outputs
       # (i.e. if the target modality is RealModality).
@@ -693,7 +708,13 @@ class T2TModel(base.Layer):
       inputs_old = features["inputs"]
       features["inputs"] = tf.expand_dims(features["inputs"], 2)
     if not self.has_input:
-      features["partial_targets"] = tf.to_int64(features["inputs"])
+      # Prepare partial targets.
+      # In either features["inputs"] or features["targets"].
+      # We force the outputs to begin with these sequences.
+      partial_targets = features.get("inputs")
+      if partial_targets is None:
+        partial_targets = features["targets"]
+      features["partial_targets"] = tf.to_int64(partial_targets)
     # Save the targets in a var and reassign it after the tf.while loop to avoid
     # having targets being in a 'while' frame. This ensures targets when used
     # in metric functions stays in the same frame as other vars.
@@ -703,7 +724,7 @@ class T2TModel(base.Layer):
 
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         recent_output.set_shape([None, None, None, 1])
       padded = tf.pad(recent_output, [[0, 0], [0, 1], [0, 0], [0, 0]])
       features["targets"] = padded
@@ -719,7 +740,7 @@ class T2TModel(base.Layer):
                              common_layers.shape_list(recent_output)[1], :, :]
       cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
       samples = tf.concat([recent_output, cur_sample], axis=1)
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         samples.set_shape([None, None, None, 1])
 
       # Assuming we have one shard for logits.
@@ -745,13 +766,19 @@ class T2TModel(base.Layer):
     if target_modality.is_class_modality:
       decode_length = 1
     else:
-      decode_length = common_layers.shape_list(
-          features["inputs"])[1] + decode_length
+      if "partial_targets" in features:
+        prefix_length = common_layers.shape_list(
+            features["partial_targets"])[1]
+      else:
+        prefix_length = common_layers.shape_list(
+            features["inputs"])[1]
+      decode_length = prefix_length + decode_length
+
     # Initial values of result, logits and loss.
     result = initial_output
     # tensor of shape [batch_size, time, 1, 1, vocab_size]
     logits = tf.zeros((batch_size, 0, 1, 1, target_modality.top_dimensionality))
-    if not context.in_eager_mode():
+    if not tf.contrib.eager.in_eager_mode():
       logits.set_shape([None, None, None, None, None])
     loss = 0.0
 
@@ -930,8 +957,7 @@ class T2TModel(base.Layer):
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
-      assert not use_tpu
-      return model.estimator_spec_predict(features)
+      return model.estimator_spec_predict(features, use_tpu=use_tpu)
 
     # TRAIN and EVAL modes
     if hparams.eval_run_autoregressive and mode == tf.estimator.ModeKeys.EVAL:
@@ -968,7 +994,7 @@ class T2TModel(base.Layer):
         tf.summary.scalar(loss_name, loss_val)
 
     # Accumulate losses
-    loss = sum(losses_dict.values())
+    loss = sum(losses_dict[key] for key in sorted(losses_dict.keys()))
 
     # EVAL mode
     if mode == tf.estimator.ModeKeys.EVAL:
@@ -1002,10 +1028,10 @@ class T2TModel(base.Layer):
     """Construct EstimatorSpec for EVAL mode."""
     hparams = self.hparams
 
-    if not hasattr(hparams, "problem_instances"):
+    if not hasattr(hparams, "problem"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
 
-    problem = hparams.problem_instances[0]
+    problem = hparams.problem
     if common_layers.is_on_tpu():
       _remove_summaries()
       if isinstance(logits, dict):
@@ -1045,7 +1071,7 @@ class T2TModel(base.Layer):
           eval_metric_ops=eval_metrics,
           loss=loss)
 
-  def estimator_spec_predict(self, features):
+  def estimator_spec_predict(self, features, use_tpu=False):
     """Construct EstimatorSpec for PREDICT mode."""
     decode_hparams = self._decode_hparams
     infer_out = self.infer(
@@ -1054,7 +1080,8 @@ class T2TModel(base.Layer):
         top_beams=(decode_hparams.beam_size
                    if decode_hparams.return_beams else 1),
         alpha=decode_hparams.alpha,
-        decode_length=decode_hparams.extra_length)
+        decode_length=decode_hparams.extra_length,
+        use_tpu=use_tpu)
     if isinstance(infer_out, dict):
       outputs = infer_out["outputs"]
       scores = infer_out["scores"]
@@ -1066,15 +1093,11 @@ class T2TModel(base.Layer):
     if inputs is None:
       inputs = features["targets"]
 
-    batched_problem_choice = (
-        features["problem_choice"] * tf.ones(
-            (common_layers.shape_list(inputs)[0],), dtype=tf.int32))
     predictions = {
         "outputs": outputs,
         "scores": scores,
         "inputs": inputs,
         "targets": features.get("infer_targets"),
-        "problem_choice": batched_problem_choice,
         "batch_prediction_key": features.get("batch_prediction_key"),
     }
     _del_dict_nones(predictions)
@@ -1090,14 +1113,19 @@ class T2TModel(base.Layer):
 
     _remove_summaries()
 
-    return tf.estimator.EstimatorSpec(
-        tf.estimator.ModeKeys.PREDICT,
-        predictions=predictions,
-        export_outputs={
-            tf.saved_model.signature_constants.
-            DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-                tf.estimator.export.PredictOutput(export_out)
-        })
+    if use_tpu:
+      return tf.contrib.tpu.TPUEstimatorSpec(
+          tf.estimator.ModeKeys.PREDICT,
+          predictions=predictions)
+    else:
+      return tf.estimator.EstimatorSpec(
+          tf.estimator.ModeKeys.PREDICT,
+          predictions=predictions,
+          export_outputs={
+              tf.saved_model.signature_constants.
+              DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                  tf.estimator.export.PredictOutput(export_out)
+          })
 
   def _normalize_body_output(self, body_out):
     if isinstance(body_out, tuple):
@@ -1294,7 +1322,7 @@ class DummyVariableStore(object):
 
 
 def create_eager_var_store():
-  if context.in_eager_mode():
+  if tf.contrib.eager.in_eager_mode():
     return variable_scope.EagerVariableStore()
   else:
     return DummyVariableStore()
@@ -1395,7 +1423,7 @@ _already_logged = set()
 
 
 def _eager_log(level, *args):
-  if context.in_eager_mode() and args in _already_logged:
+  if tf.contrib.eager.in_eager_mode() and args in _already_logged:
     return
   _already_logged.add(args)
   getattr(tf.logging, level)(*args)
@@ -1407,3 +1435,42 @@ def log_info(*args):
 
 def log_warn(*args):
   _eager_log("warn", *args)
+
+
+def _compose_custom_getters(getter_a, getter_b):
+  """Compose two custom getters.
+
+  Example use:
+  tf.get_variable_scope().set_custom_getter(
+    compose_custom_getters(tf.get_variable_scope().custom_getter, new_getter))
+
+  This composes getters in the same way as creating a new variable scope with
+  the new_getter, but it does not actually create a new variable scope.
+
+  Args:
+    getter_a: a custom getter - generally from the existing variable scope.
+    getter_b: a custom getter
+
+  Returns:
+    a custom getter
+  """
+  if not getter_a:
+    return getter_b
+  if not getter_b:
+    return getter_a
+  def getter_fn(getter, *args, **kwargs):
+    return getter_b(functools.partial(getter_a, getter), *args, **kwargs)
+  return getter_fn
+
+
+def set_custom_getter_compose(custom_getter):
+  """Set a custom getter in the current variable scope.
+
+  Do not overwrite the existing custom getter - rather compose with it.
+
+  Args:
+    custom_getter: a custom getter.
+  """
+  tf.get_variable_scope().set_custom_getter(
+      _compose_custom_getters(
+          tf.get_variable_scope().custom_getter, custom_getter))

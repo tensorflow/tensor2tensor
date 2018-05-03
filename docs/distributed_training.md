@@ -51,6 +51,11 @@ distributed training:
 Parameter servers only need `--master=grpc://$ADDRESS` and
 `--schedule=run_std_server`.
 
+>> Note about `--output_dir`: All the nodes should use the same `--output_dir`.
+>> When using multiple machines, `output_dir` should point to a shared
+>> filesystem like NFS or an object store like Google Cloud Storage
+>> (`gs://...`).
+
 ## Utility to produce `TF_CONFIG` and flags
 
 [`t2t-make-tf-configs`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/t2t-make-tf-configs))

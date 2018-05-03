@@ -42,13 +42,13 @@ to modify the hyperparameters if you run on a different setup.
 ### Image Classification
 
 For image classification, we have a number of standard data-sets:
-* ImageNet (a large data-set): `--problems=image_imagenet`, or one
+* ImageNet (a large data-set): `--problem=image_imagenet`, or one
    of the re-scaled versions (`image_imagenet224`, `image_imagenet64`,
    `image_imagenet32`)
-* CIFAR-10: `--problems=image_cifar10` (or
-    `--problems=image_cifar10_plain` to turn off data augmentation)
-* CIFAR-100: `--problems=image_cifar100`
-* MNIST: `--problems=image_mnist`
+* CIFAR-10: `--problem=image_cifar10` (or
+    `--problem=image_cifar10_plain` to turn off data augmentation)
+* CIFAR-100: `--problem=image_cifar100`
+* MNIST: `--problem=image_mnist`
 
 For ImageNet, we suggest to use the ResNet or Xception, i.e.,
 use `--model=resnet --hparams_set=resnet_50` or
@@ -63,11 +63,11 @@ close to 97% accuracy on CIFAR-10.
 ### Language Modeling
 
 For language modeling, we have these data-sets in T2T:
-* PTB (a small data-set): `--problems=languagemodel_ptb10k` for
-    word-level modeling and `--problems=languagemodel_ptb_characters`
+* PTB (a small data-set): `--problem=languagemodel_ptb10k` for
+    word-level modeling and `--problem=languagemodel_ptb_characters`
     for character-level modeling.
-* LM1B (a billion-word corpus): `--problems=languagemodel_lm1b32k` for
-    subword-level modeling and `--problems=languagemodel_lm1b_characters`
+* LM1B (a billion-word corpus): `--problem=languagemodel_lm1b32k` for
+    subword-level modeling and `--problem=languagemodel_lm1b_characters`
     for character-level modeling.
 
 We suggest to start with `--model=transformer` on this task and use
@@ -77,7 +77,7 @@ We suggest to start with `--model=transformer` on this task and use
 ### Sentiment Analysis
 
 For the task of recognizing the sentiment of a sentence, use
-* the IMDB data-set: `--problems=sentiment_imdb`
+* the IMDB data-set: `--problem=sentiment_imdb`
 
 We suggest to use `--model=transformer_encoder` here and since it is
 a small data-set, try `--hparams_set=transformer_tiny` and train for
@@ -86,15 +86,15 @@ few steps (e.g., `--train_steps=2000`).
 ### Speech Recognition
 
 For speech-to-text, we have these data-sets in T2T:
-* Librispeech (English speech to text): `--problems=librispeech` for
-    the whole set and `--problems=librispeech_clean` for a smaller
+* Librispeech (English speech to text): `--problem=librispeech` for
+    the whole set and `--problem=librispeech_clean` for a smaller
     but nicely filtered part.
 
 ### Summarization
 
 For summarizing longer text into shorter one we have these data-sets:
 * CNN/DailyMail articles summarized into a few sentences:
-  `--problems=summarize_cnn_dailymail32k`
+  `--problem=summarize_cnn_dailymail32k`
 
 We suggest to use `--model=transformer` and
 `--hparams_set=transformer_prepend` for this task.
@@ -103,15 +103,15 @@ This yields good ROUGE scores.
 ### Translation
 
 There are a number of translation data-sets in T2T:
-* English-German: `--problems=translate_ende_wmt32k`
-* English-French: `--problems=translate_enfr_wmt32k`
-* English-Czech: `--problems=translate_encs_wmt32k`
-* English-Chinese: `--problems=translate_enzh_wmt32k`
-* English-Vietnamese: `--problems=translate_envi_iwslt32k`
+* English-German: `--problem=translate_ende_wmt32k`
+* English-French: `--problem=translate_enfr_wmt32k`
+* English-Czech: `--problem=translate_encs_wmt32k`
+* English-Chinese: `--problem=translate_enzh_wmt32k`
+* English-Vietnamese: `--problem=translate_envi_iwslt32k`
 
 You can get translations in the other direction by appending `_rev` to
 the problem name, e.g., for German-English use
-`--problems=translate_ende_wmt32k_rev`.
+`--problem=translate_ende_wmt32k_rev`.
 
 For all translation problems, we suggest to try the Transformer model:
 `--model=transformer`. At first it is best to try the base setting,

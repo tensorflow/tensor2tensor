@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for trainer_lib."""
 
 from __future__ import absolute_import
@@ -80,7 +79,7 @@ class TrainerLibTest(tf.test.TestCase):
         "transformer_tiny", data_dir=self.data_dir, problem_name="tiny_algo")
 
     # Dataset
-    problem = hparams.problem_instances[0]
+    problem = hparams.problem
     dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, self.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()
@@ -105,15 +104,15 @@ class TrainerLibTest(tf.test.TestCase):
     # HParams
     hparams = trainer_lib.create_hparams(
         "transformer_tiny", data_dir=self.data_dir, problem_name="tiny_algo")
-    tm = hparams.problem_instances[0].get_hparams().target_modality
-    hparams.problem_instances[0].get_hparams().target_modality = {
+    tm = hparams.problem.get_hparams().target_modality
+    hparams.problem.get_hparams().target_modality = {
         "targets": tm,
         "A": tm,
         "B": tm
     }
 
     # Dataset
-    problem = hparams.problem_instances[0]
+    problem = hparams.problem
     dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, self.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()

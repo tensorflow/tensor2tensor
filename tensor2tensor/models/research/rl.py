@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Reinforcement learning models and parameters."""
 
 import collections
@@ -180,5 +179,15 @@ def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
 
     value = tf.contrib.layers.fully_connected(x, 1, activation_fn=None)[..., 0]
     policy = tf.contrib.distributions.Categorical(logits=logits)
+
+  return NetworkOutput(policy, value, lambda a: a)
+
+def random_policy_fun(action_space, config, observations):
+  """random policy with categorical output"""
+  obs_shape = observations.shape.as_list()
+
+  with tf.variable_scope("network_parameters"):
+    value = tf.zeros(obs_shape[:2])
+    policy = tf.distributions.Categorical(probs=[[[1. / float(action_space.n)]*action_space.n]*(obs_shape[0]*obs_shape[1])])
 
   return NetworkOutput(policy, value, lambda a: a)

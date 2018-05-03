@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data generators for LM1B data-set."""
 
 from __future__ import absolute_import
@@ -24,7 +23,7 @@ import tarfile
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -79,7 +78,7 @@ def _train_data_filenames(tmp_dir):
       os.path.join(tmp_dir,
                    "1-billion-word-language-modeling-benchmark-r13output",
                    "training-monolingual.tokenized.shuffled",
-                   "news.en-%05d-of-00100" % i) for i in xrange(1, 100)
+                   "news.en-%05d-of-00100" % i) for i in range(1, 100)
   ]
 
 

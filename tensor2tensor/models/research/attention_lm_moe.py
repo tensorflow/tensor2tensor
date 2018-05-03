@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Self-attention based language model.
 
 Like transformer.py, but no encoder
@@ -29,7 +28,7 @@ import functools
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
@@ -182,7 +181,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
 
     num_hidden_layers = (
         len(hparams.attention_layers) or hparams.num_hidden_layers)
-    for layer in xrange(num_hidden_layers):
+    for layer in range(num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
 
         # Use the layer type defined in attention_layers

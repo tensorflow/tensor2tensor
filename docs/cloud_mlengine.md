@@ -14,7 +14,7 @@ It's the same `t2t-trainer` you know and love with the addition of the
 DATA_DIR=gs://my-bucket/data
 OUTPUT_DIR=gs://my-bucket/train
 t2t-trainer \
-  --problems=translate_ende_wmt32k \
+  --problem=translate_ende_wmt32k \
   --model=transformer \
   --hparams_set=transformer_base \
   --data_dir=$DATA_DIR \
@@ -57,7 +57,7 @@ with `--hparams_range` and the `--autotune_*` flags:
 
 ```
 t2t-trainer \
-  --problems=translate_ende_wmt32k \
+  --problem=translate_ende_wmt32k \
   --model=transformer \
   --hparams_set=transformer_base \
   --data_dir=$DATA_DIR \

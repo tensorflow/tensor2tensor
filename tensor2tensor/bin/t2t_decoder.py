@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 r"""Decode from trained T2T models.
 
 This binary performs inference using the Estimator API.
@@ -21,7 +20,7 @@ Example usage to decode from dataset:
 
   t2t-decoder \
       --data_dir ~/data \
-      --problems=algorithmic_identity_binary40 \
+      --problem=algorithmic_identity_binary40 \
       --model=transformer
       --hparams_set=transformer_base
 
@@ -70,7 +69,7 @@ def create_hparams():
       FLAGS.hparams_set,
       FLAGS.hparams,
       data_dir=os.path.expanduser(FLAGS.data_dir),
-      problem_name=FLAGS.problems)
+      problem_name=FLAGS.problem)
 
 
 def create_decode_hparams():
@@ -82,9 +81,13 @@ def create_decode_hparams():
 
 def decode(estimator, hparams, decode_hp):
   if FLAGS.decode_interactive:
+    if estimator.config.use_tpu:
+      raise ValueError("TPU can only decode from dataset.")
     decoding.decode_interactively(estimator, hparams, decode_hp,
                                   checkpoint_path=FLAGS.checkpoint_path)
   elif FLAGS.decode_from_file:
+    if estimator.config.use_tpu:
+      raise ValueError("TPU can only decode from dataset.")
     decoding.decode_from_file(estimator, FLAGS.decode_from_file, hparams,
                               decode_hp, FLAGS.decode_to_file,
                               checkpoint_path=FLAGS.checkpoint_path)
@@ -94,7 +97,7 @@ def decode(estimator, hparams, decode_hp):
   else:
     decoding.decode_from_dataset(
         estimator,
-        FLAGS.problems.split("-"),
+        FLAGS.problem,
         hparams,
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
@@ -105,7 +108,7 @@ def score_file(filename):
   """Score each line in a file and return the scores."""
   # Prepare model.
   hparams = create_hparams()
-  encoders = registry.problem(FLAGS.problems).feature_encoders(FLAGS.data_dir)
+  encoders = registry.problem(FLAGS.problem).feature_encoders(FLAGS.data_dir)
   has_inputs = "inputs" in encoders
 
   # Prepare features for feeding into the model.
@@ -160,7 +163,6 @@ def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  FLAGS.use_tpu = False  # decoding not supported on TPU
 
   if FLAGS.score_file:
     filename = os.path.expanduser(FLAGS.score_file)
@@ -183,7 +185,7 @@ def main(_):
       hp,
       t2t_trainer.create_run_config(hp),
       decode_hparams=decode_hp,
-      use_tpu=False)
+      use_tpu=FLAGS.use_tpu)
 
   decode(estimator, hp, decode_hp)
 

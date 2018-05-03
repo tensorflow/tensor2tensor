@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Training of RL agent with PPO algorithm."""
 
 # Dependency imports
@@ -36,7 +35,7 @@ except:  # pylint: disable=bare-except
 
 def main(_):
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
-  rl_trainer_lib.train(hparams, FLAGS.problems, FLAGS.output_dir)
+  rl_trainer_lib.train(hparams, FLAGS.problem, FLAGS.output_dir)
 
 
 if __name__ == "__main__":

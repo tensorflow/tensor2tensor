@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Query an exported model. Py2 only. Install tensorflow-serving-api."""
 from __future__ import absolute_import
 from __future__ import division
@@ -87,14 +86,16 @@ def main(_):
   while True:
     inputs = FLAGS.inputs_once if FLAGS.inputs_once else input(">> ")
     outputs = serving_utils.predict([inputs], problem, request_fn)
+    outputs, = outputs
+    output, score = outputs
     print_str = """
 Input:
 {inputs}
 
-Output:
-{outputs}
+Output (Score {score:.3f}):
+{output}
     """
-    print(print_str.format(inputs=inputs, outputs=outputs[0]))
+    print(print_str.format(inputs=inputs, output=output, score=score))
     if FLAGS.inputs_once:
       break
 

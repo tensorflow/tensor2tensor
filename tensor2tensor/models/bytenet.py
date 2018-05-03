@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """ByteNet."""
 
 from __future__ import absolute_import
@@ -21,7 +20,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
@@ -36,8 +35,8 @@ def residual_dilated_conv(x, repeat, padding, name, hparams):
   with tf.variable_scope(name):
     k = (hparams.kernel_height, hparams.kernel_width)
     dilations_and_kernels = [((2**i, 1), k)
-                             for i in xrange(hparams.num_hidden_layers)]
-    for i in xrange(repeat):
+                             for i in range(hparams.num_hidden_layers)]
+    for i in range(repeat):
       with tf.variable_scope("repeat_%d" % i):
         y = common_layers.conv_block(
             common_layers.layer_norm(x, hparams.hidden_size, name="lnorm"),

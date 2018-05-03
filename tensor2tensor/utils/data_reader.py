@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data reader module."""
 from __future__ import absolute_import
 from __future__ import division
@@ -23,7 +22,7 @@ from __future__ import print_function
 import numpy as np
 
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 import tensorflow as tf
 
@@ -191,7 +190,7 @@ def _batching_scheme(batch_size,
   ]
   window_size = max(
       [i for i in highly_composite_numbers if i <= 3 * max_batch_size])
-  divisors = [i for i in xrange(1, window_size + 1) if window_size % i == 0]
+  divisors = [i for i in range(1, window_size + 1) if window_size % i == 0]
   batch_sizes = [max([d for d in divisors if d <= bs]) for bs in batch_sizes]
   window_size *= shard_multiplier
   batch_sizes = [bs * shard_multiplier for bs in batch_sizes]
