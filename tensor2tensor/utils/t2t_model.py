@@ -185,9 +185,9 @@ class T2TModel(base.Layer):
         sharded_logits = body_out
       else:
         if isinstance(body_out, dict):
-          sharded_logits = {}
-          sharded_losses = {}
-          for k, v in six.iteritems(body_out):
+          sharded_logits = collections.OrderedDict()
+          sharded_losses = collections.OrderedDict()
+          for k, v in sorted(six.iteritems(body_out)):
             sharded_logits[k] = dp(self.top, v, datashard_to_features)
             sharded_losses[k] = dp(self.loss, sharded_logits[k],
                                    datashard_to_features)
@@ -233,7 +233,7 @@ class T2TModel(base.Layer):
     transformed_features = self.bottom(features)
 
     if self.hparams.activation_dtype == "bfloat16":
-      for k, v in six.iteritems(transformed_features):
+      for k, v in sorted(six.iteritems(transformed_features)):
         if v.dtype == tf.float32:
           transformed_features[k] = tf.cast(v, tf.bfloat16)
 
@@ -972,7 +972,7 @@ class T2TModel(base.Layer):
     # Set known shapes
     if use_tpu:
       if isinstance(logits, dict):
-        for k, v in six.iteritems(logits):
+        for k, v in sorted(six.iteritems(logits)):
           if "scalar/" in k:
             continue
 
@@ -994,7 +994,7 @@ class T2TModel(base.Layer):
 
     # Summarize losses
     with tf.name_scope("losses"):
-      for loss_name, loss_val in losses_dict.items():
+      for loss_name, loss_val in sorted(losses_dict.items()):
         tf.summary.scalar(loss_name, loss_val)
 
     # Accumulate losses
@@ -1285,7 +1285,7 @@ def _create_host_call(model_dir):
   summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
 
   gs_t = tf.reshape(tf.train.get_global_step(), [1])
-  summary_kwargs = dict()
+  summary_kwargs = collections.OrderedDict()
   for t in summaries:
     if t.op.type != "ScalarSummary":
       continue
@@ -1311,7 +1311,7 @@ def _create_host_call(model_dir):
     gs = kwargs.pop("global_step")[0]
     with tf.contrib.summary.create_file_writer(model_dir).as_default():
       with tf.contrib.summary.always_record_summaries():
-        for name, value in six.iteritems(kwargs):
+        for name, value in sorted(six.iteritems(kwargs)):
           tf.contrib.summary.scalar(
               name, tf.reduce_mean(tf.to_float(value)), step=gs)
 
