@@ -195,7 +195,7 @@ class CTCSymbolModality(SymbolModality):
           time_major=False,
           preprocess_collapse_repeated=False,
           ctc_merge_repeated=False)
-      weights = self.targets_weights_fn(targets)
+      weights = self.targets_weights_fn(targets)  # pylint: disable=not-callable
       return tf.reduce_sum(xent), tf.reduce_sum(weights)
 
 
@@ -383,6 +383,7 @@ class AudioModality(modality.Modality):
     with tf.variable_scope(self.name):
       # TODO(aidangomez): Will need to sort out a better audio pipeline
       def xnet_resblock(x, filters, res_relu, name):
+        """Xception block."""
         with tf.variable_scope(name):
           # Typically audio samples are >100k samples in length and have a width
           # of 2 or 4. Mono audio has a single channel while stereo has 2.
@@ -426,6 +427,7 @@ class AudioSpectralModality(modality.Modality):
     with tf.variable_scope(self.name):
       # TODO(aidangomez): Will need to sort out a better audio pipeline
       def xnet_resblock(x, filters, res_relu, name):
+        """Xception-like block."""
         with tf.variable_scope(name):
           # We only stride along the length dimension to preserve the spectral
           # bins (which are tiny in dimensionality relative to length)
@@ -468,8 +470,15 @@ class VideoModality(modality.Modality):
                          "[batch, time, height, width, channels] but got one "
                          "of shape: %s" % str(inputs_shape))
       if not tf.contrib.eager.in_eager_mode():
-        tf.summary.image("inputs", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
-                         max_outputs=1)
+        if inputs.get_shape().as_list()[1] is None:
+          tf.summary.image(
+              "inputs_last_frame", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
+              max_outputs=1)
+        else:
+          for k in range(inputs_shape[1]):
+            tf.summary.image(
+                "inputs_frame_%d" % k, tf.cast(inputs[:, k, :, :, :], tf.uint8),
+                max_outputs=1)
       # Standardize frames.
       inputs = tf.reshape(inputs, [-1] + inputs_shape[2:])
       inputs = common_layers.standardize_images(inputs)

@@ -281,10 +281,8 @@ class T2TModel(base.Layer):
     if isinstance(target_modality, dict):
       for k, v in six.iteritems(target_modality):
         with tf.variable_scope(
-            "%s/%s" %
-            (v.name,
-             k)):  # TODO(aidangomez): share variables across modalities?
-          log_info("Transforming 'targets' with %s.targets_bottom", v.name)
+            "%s/%s" % (v.name, k)):  # TODO(aidangomez): share variables?
+          log_info("Transforming '%s' with %s.targets_bottom", k, v.name)
           transformed_features[k] = v.targets_bottom(features[k])
     else:
       with tf.variable_scope(target_modality.name):
@@ -350,9 +348,10 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = {k: None for k in body_output.keys()}
-      assert set(body_output.keys()) == set(target_modality.keys()), (
-          "The keys of model_body's returned logits dict must match the keys "
-          "of problem_hparams.target_modality's dict.")
+      for k in body_output.keys():
+        assert k in target_modality.keys(), (
+            "The key %s of model_body's returned logits dict must be in "
+            "problem_hparams.target_modality's dict." % k)
       logits = {}
       for k, v in six.iteritems(body_output):
         with tf.variable_scope(k):  # TODO(aidangomez): share variables here?
@@ -363,9 +362,11 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = None
-      assert not isinstance(target_modality, dict), (
-          "model_body must return a dictionary of logits when "
-          "problem_hparams.target_modality is a dict.")
+      if isinstance(target_modality, dict):
+        assert "targets" in target_modality, (
+            "model_body returned single logits so 'targets' must be a key "
+            "since problem_hparams.target_modality is a dict.")
+        target_modality = target_modality["targets"]
       return self._top_single(body_output, target_modality, features)
 
   def _loss_single(self, logits, target_modality, feature):
@@ -387,9 +388,10 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = {k: None for k in logits.keys()}
-      assert set(logits.keys()) == set(target_modality.keys()), (
-          "The keys of model_body's returned logits dict must match the keys "
-          "of problem_hparams.target_modality's dict.")
+      for k in logits.keys():
+        assert k in target_modality.keys(), (
+            "The key %s of model_body's returned logits dict must be in "
+            "problem_hparams.target_modality's dict." % k)
       losses = {}
       for k, v in six.iteritems(logits):
         losses[k] = self._loss_single(v, target_modality[k], features[k])
@@ -399,9 +401,11 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = None
-      assert not isinstance(target_modality, dict), (
-          "model_body must return a dictionary of logits when "
-          "problem_hparams.target_modality is a dict.")
+      if isinstance(target_modality, dict):
+        assert "targets" in target_modality, (
+            "model_body returned single logits so 'targets' must be a key "
+            "since problem_hparams.target_modality is a dict.")
+        target_modality = target_modality["targets"]
       return self._loss_single(logits, target_modality, features["targets"])
 
   def optimize(self, loss, num_async_replicas=1):
@@ -1056,8 +1060,16 @@ class T2TModel(base.Layer):
         if isinstance(logits, dict):
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           k = metric_name.split("/")[1]
-          eval_metrics[metric_name] = metric_fn(
-              logits[k], features, features[k])
+          if k in logits:
+            eval_metrics[metric_name] = metric_fn(
+                logits[k], features, features[k])
+          else:
+            # We do not make it an error because we sometimes run models that
+            # predict only parts of the targets defined by the Problem class.
+            # For example, an autoencoder or pure-video model can run on a gym
+            # problem even if another model is also predicting other things,
+            # like actions or rewards.
+            tf.logging.warning("No key %s in logits for evaluation." % k)
         else:
           eval_metrics[metric_name] = metric_fn(
               logits, features, features["targets"])

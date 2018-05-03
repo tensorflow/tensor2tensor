@@ -90,7 +90,7 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
     raise ValueError("Unsupported autoregressive mode: %s"
                      % hparams.autoregressive_mode)
 
-  def infer(self, features=None, *args, **kwargs):
+  def infer(self, features, *args, **kwargs):
     """Produce predictions from the model by sampling."""
     # Inputs and features preparation needed to handle edge cases.
     if not features:
@@ -146,6 +146,17 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
 class AutoencoderResidual(AutoencoderAutoregressive):
   """Residual autoencoder."""
 
+  def dropout(self, x):
+    if self.hparams.dropout <= 0.0:
+      return x
+    # For simple dropout just do this:
+    # return tf.nn.dropout(x, 1.0 - self.hparams.dropout)
+    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    return common_layers.mix(
+        tf.zeros_like(x), x,
+        self.hparams.bottleneck_warmup_steps, is_training,
+        max_prob=self.hparams.dropout, broadcast_last=True)
+
   def encoder(self, x):
     with tf.variable_scope("encoder"):
       hparams = self.hparams
@@ -161,7 +172,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
       for i in range(hparams.num_hidden_layers):
         with tf.variable_scope("layer_%d" % i):
           x = self.make_even_size(x)
-          x = tf.nn.dropout(x, 1.0 - hparams.dropout)
+          x = self.dropout(x)
           filters = hparams.hidden_size * 2**(i + 1)
           filters = min(filters, hparams.max_hidden_size)
           x = tf.layers.conv2d(
@@ -194,7 +205,6 @@ class AutoencoderResidual(AutoencoderAutoregressive):
         residual_conv = tf.layers.separable_conv2d
       # Up-convolutions.
       for i in range(hparams.num_hidden_layers):
-        x = tf.nn.dropout(x, 1.0 - hparams.dropout)
         j = hparams.num_hidden_layers - i - 1
         filters = hparams.hidden_size * 2**j
         filters = min(filters, hparams.max_hidden_size)

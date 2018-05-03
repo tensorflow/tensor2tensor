@@ -34,33 +34,53 @@ import tensorflow as tf
 class BasicConvGen(t2t_model.T2TModel):
   """Basic convolutional next-frame model."""
 
+  def make_even_size(self, x):
+    """Pad x to be even-sized on axis 1 and 2, but only if necessary."""
+    shape = [dim if dim is not None else -1 for dim in x.get_shape().as_list()]
+    if shape[1] % 2 == 0 and shape[2] % 2 == 0:
+      return x
+    if shape[1] % 2 == 0:
+      x, _ = common_layers.pad_to_same_length(
+          x, x, final_length_divisible_by=2, axis=2)
+      return x
+    if shape[2] % 2 == 0:
+      x, _ = common_layers.pad_to_same_length(
+          x, x, final_length_divisible_by=2, axis=1)
+      return x
+    x, _ = common_layers.pad_to_same_length(
+        x, x, final_length_divisible_by=2, axis=1)
+    x, _ = common_layers.pad_to_same_length(
+        x, x, final_length_divisible_by=2, axis=2)
+    return x
+
   def body(self, features):
     hparams = self.hparams
     filters = hparams.hidden_size
     kernel1, kernel2 = (3, 3), (4, 4)
 
-    # Pad to make size powers of 2 as needed.
-    x = features["inputs"]
-    inputs_shape = common_layers.shape_list(x)
-    x, _ = common_layers.pad_to_same_length(
-        x, x, final_length_divisible_by=2**hparams.num_compress_steps, axis=1)
-    x, _ = common_layers.pad_to_same_length(
-        x, x, final_length_divisible_by=2**hparams.num_compress_steps, axis=2)
+    # Embed the inputs.
+    inputs_shape = common_layers.shape_list(features["inputs"])
+    x = tf.layers.dense(features["inputs"], filters, name="inputs_embed")
 
     # Down-stride.
+    layer_inputs = [x]
     for i in range(hparams.num_compress_steps):
       with tf.variable_scope("downstride%d" % i):
+        layer_inputs.append(x)
+        x = self.make_even_size(x)
+        if i < hparams.filter_double_steps:
+          filters *= 2
         x = tf.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)
-        filters *= 2
 
     # Add embedded action.
     action = tf.reshape(features["input_action"][:, 1, :],
                         [-1, 1, 1, hparams.hidden_size])
-    zeros = tf.zeros(common_layers.shape_list(x)[:-1] + [hparams.hidden_size],
-                     dtype=tf.float32)
-    x = tf.concat([x, action + zeros], axis=-1)
+    action_mask = tf.layers.dense(action, filters, name="action_mask")
+    zeros_mask = tf.zeros(common_layers.shape_list(x)[:-1] + [filters],
+                          dtype=tf.float32)
+    x *= action_mask + zeros_mask
 
     # Run a stack of convolutions.
     for i in range(hparams.num_hidden_layers):
@@ -74,14 +94,18 @@ class BasicConvGen(t2t_model.T2TModel):
           x = common_layers.layer_norm(x + y)
 
     # Up-convolve.
+    layer_inputs = list(reversed(layer_inputs))
     for i in range(hparams.num_compress_steps):
       with tf.variable_scope("upstride%d" % i):
-        filters //= 2
+        if i >= hparams.num_compress_steps - hparams.filter_double_steps:
+          filters //= 2
         x = tf.layers.conv2d_transpose(
             x, filters, kernel2, activation=common_layers.belu,
             strides=(2, 2), padding="SAME")
-        x = common_layers.layer_norm(x)
-        x = tf.nn.dropout(x, 1.0 - hparams.dropout)
+        y = layer_inputs[i]
+        shape = common_layers.shape_list(y)
+        x = x[:, :shape[1], :shape[2], :]
+        x = common_layers.layer_norm(x + y)
 
     # Cut down to original size.
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
@@ -90,7 +114,7 @@ class BasicConvGen(t2t_model.T2TModel):
     reward_pred = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
     return {"targets": x, "target_reward": reward_pred}
 
-  def infer(self, features=None, *args, **kwargs):
+  def infer(self, features, *args, **kwargs):
     """Produce predictions from the model by running it."""
     # Inputs and features preparation needed to handle edge cases.
     if not features:
@@ -135,19 +159,20 @@ class BasicConvGen(t2t_model.T2TModel):
 def basic_conv():
   """Basic 2-frame conv model."""
   hparams = common_hparams.basic_params1()
-  hparams.hidden_size = 64
+  hparams.hidden_size = 32
   hparams.batch_size = 8
-  hparams.num_hidden_layers = 3
-  hparams.optimizer = "Adam"
-  hparams.learning_rate_constant = 0.0002
-  hparams.learning_rate_warmup_steps = 500
-  hparams.learning_rate_schedule = "constant * linear_warmup"
+  hparams.num_hidden_layers = 2
+  hparams.optimizer = "Adafactor"
+  hparams.learning_rate_constant = 0.5
+  hparams.learning_rate_warmup_steps = 1500
+  hparams.learning_rate_schedule = "linear_warmup * constant * rsqrt_decay"
   hparams.label_smoothing = 0.0
   hparams.initializer = "uniform_unit_scaling"
   hparams.initializer_gain = 1.0
   hparams.weight_decay = 0.0
   hparams.dropout = 0.2
-  hparams.add_hparam("num_compress_steps", 5)
+  hparams.add_hparam("num_compress_steps", 6)
+  hparams.add_hparam("filter_double_steps", 5)
   return hparams
 
 
@@ -168,50 +193,3 @@ def basic_conv_small_per_image_standardization():
   hparams.batch_size = 2
   hparams.add_hparam("per_image_standardization", True)
   return hparams
-
-
-@registry.register_model
-class MichiganBasicConvGen(t2t_model.T2TModel):
-
-  def body(self, features):
-    def deconv2d(cur, i, kernel_size, output_filters, activation=tf.nn.relu):
-      thicker = common_layers.conv(
-          cur,
-          output_filters * 4,
-          kernel_size,
-          padding="SAME",
-          activation=activation,
-          name="deconv2d" + str(i))
-      return tf.depth_to_space(thicker, 2)
-
-    cur_frame = common_layers.standardize_images(features["inputs_0"])
-    prev_frame = common_layers.standardize_images(features["inputs_1"])
-
-    frames = tf.concat([cur_frame, prev_frame], axis=3)
-    frames = tf.reshape(frames, [-1, 210, 160, 6])
-
-    h1 = tf.layers.conv2d(frames, filters=64, strides=2, kernel_size=(8, 8),
-                          padding="SAME", activation=tf.nn.relu)
-    h2 = tf.layers.conv2d(h1, filters=128, strides=2, kernel_size=(6, 6),
-                          padding="SAME", activation=tf.nn.relu)
-    h3 = tf.layers.conv2d(h2, filters=128, strides=2, kernel_size=(6, 6),
-                          padding="SAME", activation=tf.nn.relu)
-    h4 = tf.layers.conv2d(h3, filters=128, strides=2, kernel_size=(4, 4),
-                          padding="SAME", activation=tf.nn.relu)
-    h45 = tf.reshape(h4, [-1, 14 * 10 * 128])
-    h5 = tf.layers.dense(h45, 2048, activation=tf.nn.relu)
-    h6 = tf.layers.dense(h5, 2048, activation=tf.nn.relu)
-    h7 = tf.layers.dense(h6, 14 * 10 * 128, activation=tf.nn.relu)
-    h8 = tf.reshape(h7, [-1, 14, 10, 128])
-
-    h9 = deconv2d(h8, 1, (4, 4), 128, activation=tf.nn.relu)
-    h9 = h9[:, :27, :, :]
-    h10 = deconv2d(h9, 2, (6, 6), 128, activation=tf.nn.relu)
-    h10 = h10[:, :53, :, :]
-    h11 = deconv2d(h10, 3, (6, 6), 128, activation=tf.nn.relu)
-    h11 = h11[:, :105, :, :]
-    h12 = deconv2d(h11, 4, (8, 8), 3 * 256, activation=tf.identity)
-
-    reward = tf.layers.flatten(h12)
-
-    return {"targets": h12, "reward": reward}

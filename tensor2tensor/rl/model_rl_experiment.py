@@ -108,10 +108,10 @@ def train(hparams, output_dir):
 def main(_):
   hparams = tf.contrib.training.HParams(
       epochs=10,
-      true_env_generator_num_steps=5000,
+      true_env_generator_num_steps=20000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
-      model_train_steps=15000,
+      model_train_steps=50000,
       simulated_env_generator_num_steps=300,
       ppo_epochs_num=200,
       ppo_epoch_length=300,

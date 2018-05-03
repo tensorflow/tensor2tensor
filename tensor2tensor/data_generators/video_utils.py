@@ -265,6 +265,8 @@ class VideoProblem(problem.Problem):
     for sample in self.generate_encoded_samples(
         data_dir, tmp_dir, dataset_split):
       if self.debug_dump_frames_path:
+        if not tf.gfile.Exists(self.debug_dump_frames_path):
+          tf.gfile.MkDir(self.debug_dump_frames_path)
         path = os.path.join(self.debug_dump_frames_path,
                             "frame_%05d.png" % counter)
         with tf.gfile.Open(path, "wb") as f:
