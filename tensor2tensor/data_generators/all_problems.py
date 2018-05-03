@@ -46,6 +46,7 @@ modules = [
     "tensor2tensor.data_generators.ptb",
     "tensor2tensor.data_generators.snli",
     "tensor2tensor.data_generators.squad",
+    "tensor2tensor.data_generators.subject_verb_agreement",
     "tensor2tensor.data_generators.translate_encs",
     "tensor2tensor.data_generators.translate_ende",
     "tensor2tensor.data_generators.translate_enet",
