@@ -254,7 +254,7 @@ def decode_from_dataset(estimator,
 
   tf.logging.info("Completed inference on %d samples." % num_predictions)  # pylint: disable=undefined-loop-variable
 
-    return predictions_out
+  return predictions_out
 
 def decode_from_file(estimator,
                      filename,
