@@ -51,7 +51,8 @@ def decode_hparams(overrides=""):
       max_input_size=-1,
       identity_output=False,
       num_samples=-1,
-      delimiter="\n")
+      delimiter="\n",
+      force_decode_length=False)
   hp = hp.parse(overrides)
   return hp
 
