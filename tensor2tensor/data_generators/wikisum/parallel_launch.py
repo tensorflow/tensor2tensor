@@ -256,24 +256,25 @@ def main(_):
             FLAGS.cpu, FLAGS.mem, code_dir,
             FLAGS.setup_command)
     res = pool.apply_async(launch_instance, args)
-    async_results.append(res)
+    async_results.append((res, instance_name, i))
 
   failed = []
-  for i, res in enumerate(async_results):
+  for res, instance_name, i in async_results:
     try:
       res.get()
     except Exception as e:  # pylint: disable=broad-except
-      failed.append(i)
-      tf.logging.error("Failed to launch task %d due to exception %s",
-                       i, str(e))
+      failed.append((instance_name, i))
+      tf.logging.error("Failed to launch task %s due to exception %s",
+                       instance_name, str(e))
 
   results = []
   if failed:
-    tf.logging.error("Failed to launch %d jobs. Task ids: %s. "
-                     "Attempting delete in case they are still up.",
-                     len(failed), str(failed))
-    for i in failed:
-      instance_name = "%s-%d" % (FLAGS.name, i)
+    ids_for_flag = ",".join([str(i) for i in list(zip(*failed))[1]])
+    tf.logging.error("Failed to launch %d jobs. Tasks: %s. "
+                     "Attempting delete in case they are still up. Rerun with "
+                     "--instance_ids='%s' to attempt relaunch.",
+                     len(failed), str(failed), ids_for_flag)
+    for instance_name, _ in failed:
       res = pool.apply_async(delete_instance, (instance_name,))
       results.append(res)
 
