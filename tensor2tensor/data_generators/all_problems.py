@@ -57,6 +57,7 @@ modules = [
     "tensor2tensor.data_generators.twentybn",
     "tensor2tensor.data_generators.wiki",
     "tensor2tensor.data_generators.wikisum.wikisum",
+    "tensor2tensor.data_generators.wikitext103",
     "tensor2tensor.data_generators.wsj_parsing",
 ]
 
