@@ -36,6 +36,7 @@ modules = [
     "tensor2tensor.data_generators.ice_parsing",
     "tensor2tensor.data_generators.imagenet",
     "tensor2tensor.data_generators.imdb",
+    "tensor2tensor.data_generators.lambada",
     "tensor2tensor.data_generators.librispeech",
     "tensor2tensor.data_generators.lm1b",
     "tensor2tensor.data_generators.mnist",

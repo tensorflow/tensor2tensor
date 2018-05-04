@@ -42,7 +42,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("agent_policy_path", "", "File with model for agent")
+flags.DEFINE_string("agent_policy_path", "", "File with model for pong")
 
 
 class GymDiscreteProblem(video_utils.VideoProblem):
@@ -100,14 +100,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return self.env.action_space.n
 
   @property
-  def frame_height(self):
-    return self.env.observation_space.shape[0]
-
-  @property
-  def frame_width(self):
-    return self.env.observation_space.shape[1]
-
-  @property
   def num_rewards(self):
     raise NotImplementedError()
 
@@ -159,6 +151,14 @@ class GymPongRandom5k(GymDiscreteProblem):
     return "PongDeterministic-v4"
 
   @property
+  def frame_height(self):
+    return 210
+
+  @property
+  def frame_width(self):
+    return 160
+
+  @property
   def min_reward(self):
     return -1
 
@@ -179,38 +179,9 @@ class GymPongRandom50k(GymPongRandom5k):
   def num_steps(self):
     return 50000
 
-@registry.register_problem
-class GymFreewayRandom5k(GymDiscreteProblem):
-  """Freeway game, random actions."""
-
-  @property
-  def env_name(self):
-    return "FreewayDeterministic-v4"
-
-  @property
-  def min_reward(self):
-    return 0
-
-  @property
-  def num_rewards(self):
-    return 2
-
-  @property
-  def num_steps(self):
-    return 5000
-
 
 @registry.register_problem
-class GymFreewayRandom50k(GymFreewayRandom5k):
-  """Freeway game, random actions."""
-
-  @property
-  def num_steps(self):
-    return 50000
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgent(GymDiscreteProblem):
+class GymDiscreteProblemWithAgent(GymPongRandom5k):
   """Gym environment with discrete actions and rewards and an agent."""
 
   def __init__(self, *args, **kwargs):
@@ -219,7 +190,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self.debug_dump_frames_path = "debug_frames_env"
 
     # defaults
-    self.environment_spec = lambda: gym.make(self.env_name)
+    self.environment_spec = lambda: gym.make("PongDeterministic-v4")
     self.in_graph_wrappers = []
     self.collect_hparams = rl.atari_base()
     self.settable_num_steps = 20000
@@ -315,23 +286,3 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
     ckpt = ckpts.model_checkpoint_path
     env_model_loader.restore(sess, ckpt)
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnPong(GymSimulatedDiscreteProblemWithAgent, GymPongRandom5k):
-  pass
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnPong(GymDiscreteProblemWithAgent, GymPongRandom5k):
-  pass
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnFreeway(GymSimulatedDiscreteProblemWithAgent, GymFreewayRandom5k):
-  pass
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnFreeway(GymDiscreteProblemWithAgent, GymFreewayRandom5k):
-  pass
