@@ -1383,6 +1383,7 @@ def dot_product_attention(q,
     # [batch, num_heads, query_length, memory_length]
     logits = tf.matmul(q, k, transpose_b=True)
     if bias is not None:
+      bias = tf.cast(bias, logits.dtype)
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
     if save_weights_to is not None:
@@ -1800,6 +1801,7 @@ def masked_local_attention_1d(q, k, v, block_length=128,
     good_part = common_layers.ones_matrix_band_part(block_length, local_length,
                                                     -1, block_length)
     mask = (1.0 - good_part) * -1e9
+    mask = tf.cast(mask, attention.dtype)
     attention += tf.reshape(mask, [1, 1, 1, block_length, local_length])
     attention = tf.nn.softmax(attention)
     # TODO(noam): figure out how to show a summary for the remaining blocks.

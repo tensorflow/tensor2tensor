@@ -46,7 +46,7 @@ class Imagetransformer(t2t_model.T2TModel):
     targets = features["targets"]
     if not (tf.get_variable_scope().reuse or
             hparams.mode == tf.contrib.learn.ModeKeys.INFER):
-      tf.summary.image("targets", targets, max_outputs=1)
+      tf.summary.image("targets", tf.to_float(targets), max_outputs=1)
 
     # Extra losses list if we want to use moe.
     losses = []
