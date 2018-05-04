@@ -63,9 +63,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return 1
 
   def eval_metrics(self):
-    eval_metrics = [
-        metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
-        metrics.Metrics.NEG_LOG_PERPLEXITY]
+    eval_metrics = [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ]
     return eval_metrics
 
   @property
@@ -108,6 +106,10 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   @property
   def num_steps(self):
     raise NotImplementedError()
+
+  @property
+  def total_number_of_frames(self):
+    return self.num_steps
 
   @property
   def min_reward(self):

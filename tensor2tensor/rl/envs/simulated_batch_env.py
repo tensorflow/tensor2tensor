@@ -100,7 +100,8 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       action = tf.concat([action, action], axis=0)
       inputs = {"inputs": tf.expand_dims(inputs_merged, axis=0),  # Add batch.
                 "input_action": tf.expand_dims(action, axis=0)}
-      model_output = self._model.infer(inputs)
+      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+        model_output = self._model.infer(inputs)
       observ = model_output["targets"]
       observ = tf.cast(observ[:, 0, :, :, :], tf.float32)
       reward = model_output["target_reward"][:, 0, 0, 0] - 1

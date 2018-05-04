@@ -1777,6 +1777,7 @@ def padded_cross_entropy(logits,
                          label_smoothing,
                          weights_fn=weights_nonzero,
                          reduce_sum=True,
+                         cutoff=0.0,
                          gaussian=False):
   """Compute cross-entropy assuming 0s are padding.
 
@@ -1790,6 +1791,7 @@ def padded_cross_entropy(logits,
     label_smoothing: a floating point `Scalar`.
     weights_fn: A function from labels to weights.
     reduce_sum: a Boolean, whether to sum at the end or not.
+    cutoff: a float, at which point to have no loss.
     gaussian: If true, use a Gaussian distribution for label smoothing
 
   Returns:
@@ -1823,6 +1825,8 @@ def padded_cross_entropy(logits,
     xent = smoothing_cross_entropy(logits, labels, vocab_size, confidence,
                                    gaussian=gaussian)
     weights = weights_fn(labels)
+    if cutoff > 0.0:
+      xent = tf.nn.relu(xent - cutoff)
     if not reduce_sum:
       return xent * weights, weights
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
@@ -2589,6 +2593,7 @@ def conv_hidden_relu_memory_efficient(x,
 
     @function.Defun(compiled=True)
     def grad_fn(x, f1, f2, scale, bias, dy):
+      """Gradient for efficiency."""
       with tf.control_dependencies([dy]):
         num_splits = 4
         x_shape = shape_list(x)

@@ -546,7 +546,54 @@ class VideoModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
+        cutoff=0.001,
         weights_fn=self.targets_weights_fn)
+
+
+@registry.register_video_modality("l1")
+class VideoModalityL1(VideoModality):
+  """Video modality that predicts a scalar per channel with an L1 loss."""
+
+  def top(self, body_output, _):
+    num_channels = self._model_hparams.problem.num_channels
+    num_frames = self._model_hparams.problem.num_target_frames
+    with tf.variable_scope("rgb"):
+      body_output_shape = common_layers.shape_list(body_output)
+      res = tf.layers.dense(body_output, num_channels * num_frames, name="cast")
+      res = tf.reshape(res, body_output_shape[:3] + [num_channels, num_frames])
+      res = tf.transpose(res, [0, 4, 1, 2, 3])  # Move frames next to batch.
+      if not tf.get_variable_scope().reuse:
+        res_argmax = tf.cast(res[:, -1, :, :, :], tf.uint8)
+        tf.summary.image("result", res_argmax, max_outputs=1)
+      return tf.expand_dims(res, axis=-1)  # Add an axis like in perplexity.
+
+  @property
+  def cutoff(self):
+    return 0.2
+
+  def internal_loss(self, logits, targets):
+    return tf.nn.relu(tf.abs(logits - targets) - self.cutoff)
+
+  def loss(self, logits, targets):
+    """Compute loss numerator and denominator for one shard of output."""
+    logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:-1])
+    targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
+    weights = self.targets_weights_fn(targets)
+    # Shift targets by 0.5 so later just casting to int gives the prediction.
+    # So for int targets, say 0 and 7, we actually train to predict 0.5 and 7.5.
+    # Later (in merics or infer) this is cast to int anyway. Also, we have no
+    # loss beyond self.cutoff = 0.2 as these are already correct predictions.
+    targets = tf.to_float(targets) + 0.5
+    loss = self.internal_loss(logits, targets)
+    return tf.reduce_sum(loss * weights), tf.reduce_sum(weights)
+
+
+@registry.register_video_modality("l2")
+class VideoModalityL2(VideoModalityL1):
+  """Modality for videos with L2 loss."""
+
+  def internal_loss(self, logits, targets):
+    return tf.nn.relu((logits - targets)**2 - self.cutoff * self.cutoff)
 
 
 @registry.register_class_label_modality("default")

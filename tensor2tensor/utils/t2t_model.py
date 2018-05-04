@@ -460,7 +460,8 @@ class T2TModel(base.Layer):
     if isinstance(problem_hparams.target_modality, dict):
       target_modality = {}
       for f, modality_spec in six.iteritems(problem_hparams.target_modality):
-        if target_modality_name:
+        # TODO(lukaszkaiser): allow overriding other target modalities.
+        if target_modality_name and f == "targets":
           _warn_changed_modality_type(target_modality_name, modality_spec[0],
                                       "target_modality/%s" % f)
           modality_spec = (target_modality_name, modality_spec[1])

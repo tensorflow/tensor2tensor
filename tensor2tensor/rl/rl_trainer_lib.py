@@ -56,11 +56,10 @@ def define_train(hparams, environment_spec, event_dir):
       "network",
       functools.partial(policy_lambda, batch_env.action_space, hparams))
 
-  with tf.variable_scope("", reuse=tf.AUTO_REUSE):
-    memory, collect_summary = collect.define_collect(
-        policy_factory, batch_env, hparams, eval_phase=False)
-    ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
-    summary = tf.summary.merge([collect_summary, ppo_summary])
+  memory, collect_summary = collect.define_collect(
+      policy_factory, batch_env, hparams, eval_phase=False)
+  ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
+  summary = tf.summary.merge([collect_summary, ppo_summary])
 
   with tf.variable_scope("eval", reuse=tf.AUTO_REUSE):
     eval_env_lambda = env_lambda

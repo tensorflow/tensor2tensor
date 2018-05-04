@@ -124,6 +124,16 @@ class BasicConvGen(t2t_model.T2TModel):
       inputs_old = features["inputs"]
       features["inputs"] = tf.expand_dims(features["inputs"], 2)
 
+    def logits_to_samples(logits):
+      """Get samples from logits."""
+      # If the last dimension is 1 then we're using L1/L2 loss.
+      if common_layers.shape_list(logits)[-1] == 1:
+        return tf.to_int32(tf.squeeze(logits, axis=-1))
+      # Argmax in TF doesn't handle more than 5 dimensions yet.
+      logits_shape = common_layers.shape_list(logits)
+      argmax = tf.argmax(tf.reshape(logits, [-1, logits_shape[-1]]), axis=-1)
+      return tf.reshape(argmax, logits_shape[:-1])
+
     # Get predictions.
     try:
       num_channels = self._hparams.problem.num_channels
@@ -137,15 +147,9 @@ class BasicConvGen(t2t_model.T2TModel):
     if isinstance(logits, dict):
       results = {}
       for k, v in six.iteritems(logits):
-        # Argmax in TF doesn't handle more than 5 dimensions yet.
-        v_shape = common_layers.shape_list(v)
-        argmax = tf.argmax(tf.reshape(v, [-1, v_shape[-1]]), axis=-1)
-        results[k] = tf.reshape(argmax, v_shape[:-1])
+        results[k] = logits_to_samples(v)
     else:
-      # Argmax in TF doesn't handle more than 5 dimensions yet.
-      logits_shape = common_layers.shape_list(logits)
-      argmax = tf.argmax(tf.reshape(logits, [-1, logits_shape[-1]]), axis=-1)
-      results = tf.reshape(argmax, logits_shape[:-1])
+      results = logits_to_samples(logits)
 
     # Restore inputs to not confuse Estimator in edge cases.
     if inputs_old is not None:
@@ -185,11 +189,16 @@ def basic_conv_small():
 
 
 @registry.register_hparams
-def basic_conv_small_per_image_standardization():
-  """Small conv model."""
-  hparams = common_hparams.basic_params1()
-  hparams.kernel_sizes = [(3, 3), (5, 5)]
-  hparams.filter_numbers = [32, 3*256]
-  hparams.batch_size = 2
-  hparams.add_hparam("per_image_standardization", True)
+def basic_conv_l1():
+  """Basic conv model with L1 modality."""
+  hparams = basic_conv()
+  hparams.target_modality = "video:l1"
+  return hparams
+
+
+@registry.register_hparams
+def basic_conv_l2():
+  """Basic conv model with L2 modality."""
+  hparams = basic_conv()
+  hparams.target_modality = "video:l2"
   return hparams
