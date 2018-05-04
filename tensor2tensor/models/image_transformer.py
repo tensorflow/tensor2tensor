@@ -48,6 +48,8 @@ class Imagetransformer(t2t_model.T2TModel):
             hparams.mode == tf.contrib.learn.ModeKeys.INFER):
       tf.summary.image("targets", targets, max_outputs=1)
 
+    # Extra losses list if we want to use moe.
+    losses = []
     # Prepare decoder inputs and bias.
     decoder_input, rows, cols = cia.prepare_decoder(targets, hparams)
     # Add class label to decoder input.
@@ -61,9 +63,14 @@ class Imagetransformer(t2t_model.T2TModel):
         hparams.num_decoder_layers or hparams.num_hidden_layers,
         hparams,
         attention_type=hparams.dec_attention_type,
+        losses=losses,
         name="decoder")
     output = cia.create_output(decoder_output, rows, cols, targets, hparams)
-    return output
+
+    if losses:
+      return output, {"extra_loss": tf.add_n(losses)}
+    else:
+      return output
 
 
 @registry.register_model
@@ -171,6 +178,11 @@ def image_transformer_base():
 
   hparams.add_hparam("unconditional", False)  # unconditional generation
 
+  # These parameters are only used when ffn_layer=="local_moe_tpu"
+  hparams.add_hparam("moe_overhead_train", 1.0)
+  hparams.add_hparam("moe_overhead_eval", 2.0)
+  hparams.moe_num_experts = 8
+  hparams.moe_loss_coef = 1e-3
   return hparams
 
 
@@ -678,9 +690,209 @@ def imagetransformer_sep_channels_8l_tpu():
 
 
 @registry.register_hparams
-def imagetransformer_bas8l_8h_big_uncond_dr03_imgnet_tpu():
+def imagetransformer_b10l_4h_big_uncond_dr03_tpu():
   hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
   update_hparams_for_tpu(hparams)
-  hparams.batch_size = 1
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 10
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b10l_dr03_moe_tpu():
+  """Moe tpu params."""
+  hparams = imagetransformer_b10l_4h_big_uncond_dr03_tpu()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 10
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.ffn_layer = "local_moe_tpu"
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b10l_4h_big_uncond_dr03_lr025_tpu():
+  """TPU related small model."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 10
+  hparams.learning_rate = 0.25
+  hparams.learning_rate_warmup_steps = 8000
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  # hparams.unconditional = True
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b12l_4h_big_uncond_dr03_tpu():
+  """TPU 12 layer model."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 12
+  hparams.block_length = 128
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.3
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b12l_4h_big_uncond_dr03_lr025_tpu():
+  hparams = imagetransformer_b12l_4h_big_uncond_dr03_tpu()
+  update_hparams_for_tpu(hparams)
+  hparams.learning_rate = 0.25
+  hparams.learning_rate_warmup_steps = 5000
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b12l_4h_b256_uncond_dr03_tpu():
+  """works very well on 4x4."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 12
+  hparams.block_length = 256
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.learning_rate = 0.5
+  hparams.learning_rate_warmup_steps = 4000
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.3
+  hparams.unconditional = True
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b12l_4h_b128_h512_uncond_dr03_tpu():
+  """TPU related big model."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 12
+  hparams.block_length = 128
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.learning_rate = 0.2
+  hparams.learning_rate_warmup_steps = 6000
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.3
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b12l_4h_b128_h512_uncond_dr03_im():
+  """TPU related imagenet model."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 12
+  hparams.block_length = 128
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.learning_rate = 0.2
+  hparams.learning_rate_warmup_steps = 6000
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.1
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b12l_4h_small_uncond_dr03_tpu():
+  """TPU related small model."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 4
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 8
+  hparams.block_length = 256
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.learning_rate = 0.2
+  hparams.learning_rate_warmup_steps = 4000
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.3
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b12l_4h_b128_uncond_dr03_tpu():
+  """TPU config for cifar 10."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 2
+  hparams.num_heads = 4   # heads are expensive on tpu
+  hparams.num_decoder_layers = 12
+  hparams.block_length = 128
+  hparams.hidden_size = 256
+  hparams.filter_size = 2048
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.3
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b12l_8h_b256_uncond_dr03_tpu():
+  """TPU related 12 layer 8 heads model."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 2
   hparams.num_heads = 8   # heads are expensive on tpu
+  hparams.num_decoder_layers = 12
+  hparams.block_length = 256
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.3
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b12l_4h_b256_uncond_dr03_lr025_tpu():
+  hparams = imagetransformer_b12l_4h_b256_uncond_dr03_tpu()
+  update_hparams_for_tpu(hparams)
+  hparams.learning_rate = 0.25
+  hparams.learning_rate_warmup_steps = 10000
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b10l_4h_big_uncond_dr03_lr05_tpu():
+  hparams = imagetransformer_b10l_4h_big_uncond_dr03_lr025_tpu()
+  update_hparams_for_tpu(hparams)
+  hparams.learning_rate = 0.5
+  hparams.learning_rate_warmup_steps = 16000
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_b10l_4h_big_uncond_dr01_tpu():
+  """big 1d model for conditional image generation."""
+  hparams = imagetransformer_b12l_4h_big_uncond_dr03_tpu()
+  # num_hidden_layers
+  hparams.num_decoder_layers = 10
+  hparams.num_heads = 4
+  hparams.hidden_size = 1024
+  hparams.filter_size = 4096
+  hparams.batch_size = 1
+  hparams.layer_prepostprocess_dropout = 0.1
   return hparams

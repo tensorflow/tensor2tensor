@@ -19,7 +19,7 @@ research](https://research.googleblog.com/2017/06/accelerating-deep-learning-res
 ## Basics
 
 * [Walkthrough](walkthrough.md): Install and run.
-* [IPython notebook](https://goo.gl/wkHexj): Get a hands-on experience.
+* [IPython notebook](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/hello_t2t.ipynb): Get a hands-on experience.
 * [Overview](overview.md): How all parts of T2T code are connected.
 * [New Problem](new_problem.md): Train T2T models on your data.
 * [New Model](new_model.md): Create your own T2T model.

@@ -22,7 +22,6 @@ from __future__ import print_function
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
@@ -95,7 +94,7 @@ class SymbolModality(modality.Modality):
       ret = tf.concat(shards, 0)
     # Convert ret to tensor.
     if not tf.contrib.eager.in_eager_mode():
-      ret = eu.convert_gradient_to_tensor(ret)
+      ret = common_layers.convert_gradient_to_tensor(ret)
     return ret
 
   def bottom_simple(self, x, name, reuse):
@@ -196,7 +195,7 @@ class CTCSymbolModality(SymbolModality):
           time_major=False,
           preprocess_collapse_repeated=False,
           ctc_merge_repeated=False)
-      weights = self.targets_weights_fn(targets)
+      weights = self.targets_weights_fn(targets)  # pylint: disable=not-callable
       return tf.reduce_sum(xent), tf.reduce_sum(weights)
 
 
@@ -262,6 +261,10 @@ class ImageModality(modality.Modality):
 class ImageChannelCompressModality(modality.Modality):
   """Modality for images using channel compression for generation."""
 
+  @property
+  def num_channels(self):
+    return 3
+
   def bottom_compress(self, inputs, name="bottom"):
     """Transform input from data space to model space.
 
@@ -270,7 +273,8 @@ class ImageChannelCompressModality(modality.Modality):
     size image_length x image_length dims.
 
     Args:
-      inputs: A Tensor representing pixel intensities as integers. [batch, ...]
+      inputs: A Tensor representing RGB pixel intensities as integers.
+        [batch, ...]
       name: string, scope.
     Returns:
       body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
@@ -284,9 +288,9 @@ class ImageChannelCompressModality(modality.Modality):
       inputs.set_shape([None, None, None, 1])
       # We compress RGB intensities for each pixel using a conv.
       x = tf.layers.conv2d(inputs,
-                           self._body_input_depth, (1, 3),
+                           self._body_input_depth, (1, self.num_channels),
                            padding="VALID",
-                           strides=(1, 3),
+                           strides=(1, self.num_channels),
                            activation=tf.nn.relu,
                            name="conv_input")
       x.set_shape([None, None, None, self._body_input_depth])
@@ -302,7 +306,7 @@ class ImageChannelCompressModality(modality.Modality):
     with tf.variable_scope(self.name):
       hidden_dim = self._model_hparams.hidden_size
       img_len = self._model_hparams.img_len
-      channels = self._model_hparams.num_channels
+      channels = self.num_channels  # RGB
       batch = common_layers.shape_list(body_output)[0]
       x = tf.layers.conv2d(
           body_output,
@@ -379,6 +383,7 @@ class AudioModality(modality.Modality):
     with tf.variable_scope(self.name):
       # TODO(aidangomez): Will need to sort out a better audio pipeline
       def xnet_resblock(x, filters, res_relu, name):
+        """Xception block."""
         with tf.variable_scope(name):
           # Typically audio samples are >100k samples in length and have a width
           # of 2 or 4. Mono audio has a single channel while stereo has 2.
@@ -422,6 +427,7 @@ class AudioSpectralModality(modality.Modality):
     with tf.variable_scope(self.name):
       # TODO(aidangomez): Will need to sort out a better audio pipeline
       def xnet_resblock(x, filters, res_relu, name):
+        """Xception-like block."""
         with tf.variable_scope(name):
           # We only stride along the length dimension to preserve the spectral
           # bins (which are tiny in dimensionality relative to length)
@@ -464,8 +470,15 @@ class VideoModality(modality.Modality):
                          "[batch, time, height, width, channels] but got one "
                          "of shape: %s" % str(inputs_shape))
       if not tf.contrib.eager.in_eager_mode():
-        tf.summary.image("inputs", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
-                         max_outputs=1)
+        if inputs.get_shape().as_list()[1] is None:
+          tf.summary.image(
+              "inputs_last_frame", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
+              max_outputs=1)
+        else:
+          for k in range(inputs_shape[1]):
+            tf.summary.image(
+                "inputs_frame_%d" % k, tf.cast(inputs[:, k, :, :, :], tf.uint8),
+                max_outputs=1)
       # Standardize frames.
       inputs = tf.reshape(inputs, [-1] + inputs_shape[2:])
       inputs = common_layers.standardize_images(inputs)
@@ -533,7 +546,54 @@ class VideoModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
+        cutoff=0.001,
         weights_fn=self.targets_weights_fn)
+
+
+@registry.register_video_modality("l1")
+class VideoModalityL1(VideoModality):
+  """Video modality that predicts a scalar per channel with an L1 loss."""
+
+  def top(self, body_output, _):
+    num_channels = self._model_hparams.problem.num_channels
+    num_frames = self._model_hparams.problem.num_target_frames
+    with tf.variable_scope("rgb"):
+      body_output_shape = common_layers.shape_list(body_output)
+      res = tf.layers.dense(body_output, num_channels * num_frames, name="cast")
+      res = tf.reshape(res, body_output_shape[:3] + [num_channels, num_frames])
+      res = tf.transpose(res, [0, 4, 1, 2, 3])  # Move frames next to batch.
+      if not tf.get_variable_scope().reuse:
+        res_argmax = tf.cast(res[:, -1, :, :, :], tf.uint8)
+        tf.summary.image("result", res_argmax, max_outputs=1)
+      return tf.expand_dims(res, axis=-1)  # Add an axis like in perplexity.
+
+  @property
+  def cutoff(self):
+    return 0.2
+
+  def internal_loss(self, logits, targets):
+    return tf.nn.relu(tf.abs(logits - targets) - self.cutoff)
+
+  def loss(self, logits, targets):
+    """Compute loss numerator and denominator for one shard of output."""
+    logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:-1])
+    targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
+    weights = self.targets_weights_fn(targets)
+    # Shift targets by 0.5 so later just casting to int gives the prediction.
+    # So for int targets, say 0 and 7, we actually train to predict 0.5 and 7.5.
+    # Later (in merics or infer) this is cast to int anyway. Also, we have no
+    # loss beyond self.cutoff = 0.2 as these are already correct predictions.
+    targets = tf.to_float(targets) + 0.5
+    loss = self.internal_loss(logits, targets)
+    return tf.reduce_sum(loss * weights), tf.reduce_sum(weights)
+
+
+@registry.register_video_modality("l2")
+class VideoModalityL2(VideoModalityL1):
+  """Modality for videos with L2 loss."""
+
+  def internal_loss(self, logits, targets):
+    return tf.nn.relu((logits - targets)**2 - self.cutoff * self.cutoff)
 
 
 @registry.register_class_label_modality("default")

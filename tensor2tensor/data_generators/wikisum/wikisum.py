@@ -278,7 +278,7 @@ def _references_content(ref_files):
         except tf.errors.OutOfRangeError:
           break
 
-        data[ex["url"]] = ex["content"]
+        data[ex["url"]] = text_encoder.to_unicode(ex["content"])
         i += 1
 
   return data
@@ -339,11 +339,14 @@ def _wiki_articles(shard_id, wikis_dir=None):
           break
 
         sections = [
-            WikipediaSection(title=title, text=text)
+            WikipediaSection(title=text_encoder.to_unicode(title),
+                             text=text_encoder.to_unicode(text))
             for title, text in zip(ex["section_titles"], ex["section_texts"])
         ]
         yield WikipediaArticle(
-            url=ex["url"], title=ex["title"], sections=sections)
+            url=text_encoder.to_unicode(ex["url"]),
+            title=text_encoder.to_unicode(ex["title"]),
+            sections=sections)
 
 
 def _token_counts(text, token_set=None):

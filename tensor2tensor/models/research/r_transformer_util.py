@@ -238,7 +238,10 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
   if hparams.recurrence_type == "basic":
     rt_initializer = (x, x, x)  # (state, input, memory)
     rt_function = functools.partial(
-        r_transformer_basic, ffn_unit=ffn_unit, attention_unit=attention_unit)
+        r_transformer_basic,
+        hparams=hparams,
+        ffn_unit=ffn_unit,
+        attention_unit=attention_unit)
 
   elif hparams.recurrence_type == "highway":
     rt_initializer = (x, x, x)  # (state, input, memory)
@@ -499,7 +502,7 @@ def transformer_decoder_attention_unit(x,
   return x
 
 
-def r_transformer_basic(layer_inputs, unused_step, ffn_unit, attention_unit):
+def r_transformer_basic(layer_inputs, step, hparams, ffn_unit, attention_unit):
   """Basic r_transformer.
 
   This is in fact vanilla transformer in which weights are shared between
@@ -510,7 +513,8 @@ def r_transformer_basic(layer_inputs, unused_step, ffn_unit, attention_unit):
   Args:
     layer_inputs:
         - state: state
-    unused_step: indicating number of steps take so far
+    step: indicating number of steps take so far
+    hparams: model hyper-parameters
     ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
 
@@ -519,6 +523,7 @@ def r_transformer_basic(layer_inputs, unused_step, ffn_unit, attention_unit):
          new_state: new state
   """
   state, inputs, memory = layer_inputs
+  state = step_preprocess(state, step, hparams)
 
   new_state = ffn_unit(attention_unit(state))
 
@@ -526,7 +531,7 @@ def r_transformer_basic(layer_inputs, unused_step, ffn_unit, attention_unit):
 
 
 def r_transformer_highway(layer_inputs,
-                          unused_step,
+                          step,
                           hparams,
                           ffn_unit,
                           attention_unit,
@@ -546,7 +551,7 @@ def r_transformer_highway(layer_inputs,
     layer_inputs:
       - state: state
       - inputs: the original embedded inputs (= inputs to the first step)
-    unused_step: indicating number of steps take so far
+    step: indicating number of steps take so far
     hparams: model hyper-parameters.
     ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
@@ -560,6 +565,7 @@ def r_transformer_highway(layer_inputs,
   """
 
   state, inputs, memory = layer_inputs
+  state = step_preprocess(state, step, hparams)
 
   transformed_state = ffn_unit(attention_unit(state))
   state.get_shape().assert_is_compatible_with(state.get_shape())
@@ -614,7 +620,7 @@ def r_transformer_highway(layer_inputs,
 
 
 def r_transformer_skip(layer_inputs,
-                       unused_step,
+                       step,
                        hparams,
                        ffn_unit,
                        attention_unit,
@@ -634,7 +640,7 @@ def r_transformer_skip(layer_inputs,
     layer_inputs:
       - state: state
       - inputs: the original embedded inputs (= inputs to the first step)
-    unused_step: indicating number of steps take so far
+    step: indicating number of steps take so far
     hparams: model hyper-parameters.
     ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
@@ -648,6 +654,7 @@ def r_transformer_skip(layer_inputs,
   """
 
   state, inputs, memory = layer_inputs
+  state = step_preprocess(state, step, hparams)
 
   transformed_state = ffn_unit(attention_unit(state))
 
@@ -744,6 +751,9 @@ def r_transformer_depthwise_attention(layer_inputs, step, hparams, ffn_unit,
   state_to_be_transformed = tf.reduce_sum(
       (states_so_far * states_so_far_weights), axis=0)
 
+  state_to_be_transformed = step_preprocess(state_to_be_transformed, step,
+                                            hparams)
+
   new_state = ffn_unit(attention_unit(state_to_be_transformed))
 
   # add the new state to the memory
@@ -753,12 +763,12 @@ def r_transformer_depthwise_attention(layer_inputs, step, hparams, ffn_unit,
 
 
 def r_transformer_rnn(layer_inputs,
-                      unused_step,
+                      step,
                       hparams,
                       ffn_unit,
                       attention_unit,
                       pad_remover=None):
-  """The RT cell which models recurencey similar to basic RNN cell.
+  """The RT layer which models recurencey similar to basic RNN cell.
 
     It's an R-transformer with an RNN applied over the stats on depth.
 
@@ -766,7 +776,7 @@ def r_transformer_rnn(layer_inputs,
     layer_inputs:
       - state: state
       - inputs: the original embedded inputs (= inputs to the first step)
-    unused_step: indicating number of steps take so far
+    step: indicating number of steps take so far
     hparams: model hyper-parameters.
     ffn_unit: feed-forward unit
     attention_unit: multi-head attention unit
@@ -783,6 +793,7 @@ def r_transformer_rnn(layer_inputs,
   """
 
   state, inputs, memory = layer_inputs
+  state = step_preprocess(state, step, hparams)
 
   # TODO(dehghani) keep only the meaningful cases:
   if hparams.inputs_states_combination == "mh_attention_ffn_add":
@@ -824,11 +835,11 @@ def r_transformer_rnn(layer_inputs,
 
 
 def r_transformer_gru(layer_inputs,
-                      unused_step,
+                      step,
                       hparams,
                       attention_unit,
                       pad_remover=None):
-  """The RT cell which models recurencey similar to GRU cell.
+  """The RT layer which models recurencey similar to GRU cell.
 
     It's an R-transformer with a gru applied over the stats on depth.
     Based on GRU paper: http://arxiv.org/abs/1406.1078
@@ -837,7 +848,7 @@ def r_transformer_gru(layer_inputs,
     layer_inputs:
       - state: state
       - inputs: the original embedded inputs (= inputs to the first step)
-    unused_step: indicating number of steps take so far
+    step: indicating number of steps take so far
     hparams: model hyper-parameters.
     attention_unit: multi-head attention unit
     pad_remover: to mask out padding in convolutional layers (efficiency).
@@ -850,6 +861,7 @@ def r_transformer_gru(layer_inputs,
   """
 
   state, inputs, memory = layer_inputs
+  state = step_preprocess(state, step, hparams)
 
   # TODO(dehghani): do we need preprocess here?
   state = common_layers.layer_preprocess(state, hparams)
@@ -898,11 +910,11 @@ def r_transformer_gru(layer_inputs,
 
 
 def r_transformer_lstm(layer_inputs,
-                       unused_step,
+                       step,
                        hparams,
                        attention_unit,
                        pad_remover=None):
-  """The RT cell which models recurencey similar to GRU cell.
+  """The RT layer which models recurencey similar to GRU cell.
 
   It's an R-transformer with a gru applied over the stats on depth.
   based on LSTM paper: https://arxiv.org/pdf/1409.2329.pdf
@@ -912,7 +924,7 @@ def r_transformer_lstm(layer_inputs,
       - state: state
       - inputs: the original embedded inputs (= inputs to the first step)
       - memory: memory used in lstm.
-    unused_step: indicating number of steps take so far
+    step: indicating number of steps take so far
     hparams: model hyper-parameters.
     attention_unit: multi-head attention unit
     pad_remover: to mask out padding in convolutional layers (efficiency).
@@ -924,6 +936,7 @@ def r_transformer_lstm(layer_inputs,
         memory: contains states from all the previous steps.
   """
   state, inputs, memory = layer_inputs
+  state = step_preprocess(state, step, hparams)
 
   state = common_layers.layer_preprocess(state, hparams)
   inputs = common_layers.layer_preprocess(inputs, hparams)
@@ -1079,6 +1092,7 @@ def r_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
       new_state: new state
     """
     state_shape = state.get_shape()
+    state = step_preprocess(state, step, hparams)
 
     with tf.variable_scope("sigmoid_activation_for_pondering"):
       p = common_layers.dense(
@@ -1159,13 +1173,13 @@ def r_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
   ponder_times = n_updates
   remainders = remainder
 
-  tf.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
+  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
 
   return new_state, (ponder_times, remainders)
 
 
 def r_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
-  """The RTAct cell where the final state is accumulation of all states.
+  """The RTAct layer where the final state is accumulation of all states.
 
     (similar to the main ACT paper: --> check the issue of differentiability)
 
@@ -1230,6 +1244,7 @@ def r_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
       accumulated_state: accumulated state
     """
     state_shape = state.get_shape()
+    state = step_preprocess(state, step, hparams)
 
     with tf.variable_scope("sigmoid_activation_for_pondering"):
       p = common_layers.dense(
@@ -1309,7 +1324,7 @@ def r_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
   ponder_times = n_updates
   remainders = remainder
 
-  tf.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
+  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
 
   return accumulated_state, (ponder_times, remainders)
 
@@ -1365,6 +1380,8 @@ def r_transformer_act_global(x, hparams, ffn_unit, attention_unit):
       new_state: new state
 
     """
+
+    state = step_preprocess(state, step, hparams)
 
     with tf.variable_scope("sigmoid_activation_for_pondering"):
       p = common_layers.dense(
@@ -1449,7 +1466,7 @@ def r_transformer_act_global(x, hparams, ffn_unit, attention_unit):
   ponder_times = n_updates
   remainders = remainder
 
-  tf.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
+  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
 
   return new_state, (ponder_times, remainders)
 
@@ -1520,6 +1537,7 @@ def r_transformer_act_random(x, hparams, ffn_unit, attention_unit):
 
     """
     state_shape = state.get_shape()
+    state = step_preprocess(state, step, hparams)
 
     # random as halting probability
     p = tf.random_uniform(shape=common_layers.shape_list(halting_probability))
@@ -1595,7 +1613,7 @@ def r_transformer_act_random(x, hparams, ffn_unit, attention_unit):
   ponder_times = n_updates
   remainders = remainder
 
-  tf.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
+  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
 
   return new_state, (ponder_times, remainders)
 
@@ -1749,12 +1767,78 @@ def add_depth_embedding(x):
   x_shape = common_layers.shape_list(x)
   depth = x_shape[-1]
   num_steps = x_shape[0]
-  shape = [num_steps, 1, 1, x_shape[-1]]
+  shape = [num_steps, 1, 1, depth]
   depth_embedding = (
       tf.get_variable(
           "depth_embedding",
           shape,
           initializer=tf.random_normal_initializer(0, depth**-0.5)) * (depth**
                                                                        0.5))
+
   x += depth_embedding
   return x
+
+
+def step_preprocess(x, step, hparams):
+  """Preprocess the input at the beginning of each step.
+
+  Args:
+    x: input tensor
+    step: step
+    hparams: model hyper-parameters
+
+  Returns:
+    preprocessed input.
+
+  """
+  if hparams.add_position_timing_signal:
+    x = add_position_timing_signal(x, step, hparams)
+
+  if hparams.add_step_timing_signal:
+    num_steps = (
+        hparams.act_max_steps
+        if hparams.recurrence_type == "act" else hparams.num_rec_steps)
+    if hparams.step_timing_signal_type == "leaned":
+      x = common_attention.add_layer_timing_signal_learned_1d(
+          x, step, num_steps)
+    elif hparams.step_timing_signal_type == "sinusoid":
+      x = common_attention.add_layer_timing_signal_sinusoid_1d(
+          x, step, num_steps)
+  return x
+
+
+def add_position_timing_signal(x, step, hparams):
+  """Add n-dimensional embedding as the position (horizontal) timing signal.
+
+  Args:
+    x: a tensor with shape [batch, length, depth]
+    step: step
+    hparams: model hyper parameters
+
+  Returns:
+    a Tensor the same shape as x.
+
+  """
+
+  if not hparams.position_start_index:
+    index = 0
+
+  elif hparams.position_start_index == "random":
+    # Shift all positions randomly
+    # TODO(dehghani): What would be reasonable for max number of shift?
+    index = tf.random_uniform(
+        [], maxval=common_layers.shape_list(x)[1], dtype=tf.int32)
+
+  elif hparams.position_start_index == "step":
+    # Shift positions based on the step
+    num_steps = (
+        hparams.act_max_steps
+        if hparams.recurrence_type == "act" else hparams.num_rec_steps)
+    index = tf.cast(
+        common_layers.shape_list(x)[1] * step / num_steps, dtype=tf.int32)
+
+  # No need for the timing signal in the encoder/decoder input preparation
+  assert hparams.pos is None
+
+  x_with_timing = common_attention.add_timing_signal_1d(x, start_index=index)
+  return x_with_timing

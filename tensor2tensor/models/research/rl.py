@@ -182,12 +182,13 @@ def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
 
   return NetworkOutput(policy, value, lambda a: a)
 
-def random_policy_fun(action_space, config, observations):
-  """random policy with categorical output"""
-  obs_shape = observations.shape.as_list()
 
+def random_policy_fun(action_space, unused_config, observations):
+  """Random policy with categorical output."""
+  obs_shape = observations.shape.as_list()
   with tf.variable_scope("network_parameters"):
     value = tf.zeros(obs_shape[:2])
-    policy = tf.distributions.Categorical(probs=[[[1. / float(action_space.n)]*action_space.n]*(obs_shape[0]*obs_shape[1])])
-
+    policy = tf.distributions.Categorical(
+        probs=[[[1. / float(action_space.n)] * action_space.n
+               ] * (obs_shape[0] * obs_shape[1])])
   return NetworkOutput(policy, value, lambda a: a)

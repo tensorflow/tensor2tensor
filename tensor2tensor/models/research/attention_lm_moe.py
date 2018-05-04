@@ -453,7 +453,7 @@ def restore_pad(x, ref_x, pad_remover, mode):
   x = tf.squeeze(x, axis=0)
   if mode != ModeKeys.PREDICT:
     x = pad_remover.restore(x)
-  x = expert_utils.reshape_like(x, ref_x)
+  x = common_layers.reshape_like(x, ref_x)
   return x
 
 

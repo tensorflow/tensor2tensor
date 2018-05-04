@@ -26,10 +26,10 @@ You can chat with us on
 
 ### Quick Start
 
-[This iPython notebook](https://goo.gl/wkHexj) explains T2T and runs in your
-browser using a free VM from Google, no installation needed.
-Alternatively, here is a one-command version that installs T2T, downloads MNIST,
-trains a model and evaluates it:
+[This iPython notebook](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/hello_t2t.ipynb)
+explains T2T and runs in your browser using a free VM from Google,
+no installation needed. Alternatively, here is a one-command version that
+installs T2T, downloads MNIST, trains a model and evaluates it:
 
 ```
 pip install tensor2tensor && t2t-trainer \

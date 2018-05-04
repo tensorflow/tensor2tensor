@@ -44,7 +44,7 @@ def to_example(dictionary):
   features = {}
   for (k, v) in six.iteritems(dictionary):
     if not v:
-      raise ValueError("Empty generated field: %s", str((k, v)))
+      raise ValueError("Empty generated field: %s" % str((k, v)))
     if isinstance(v[0], six.integer_types):
       features[k] = tf.train.Feature(int64_list=tf.train.Int64List(value=v))
     elif isinstance(v[0], float):
@@ -130,7 +130,8 @@ def outputs_exist(filenames):
       return out_fname
 
 
-def generate_files(generator, output_filenames, max_cases=None):
+def generate_files(generator, output_filenames,
+                   max_cases=None, cycle_every_n=1):
   """Generate cases from a generator and save as TFRecord files.
 
   Generated cases are transformed to tf.Example protos and saved as TFRecords
@@ -141,6 +142,8 @@ def generate_files(generator, output_filenames, max_cases=None):
     output_filenames: List of output file paths.
     max_cases: maximum number of cases to get from the generator;
       if None (default), we use the generator until StopIteration is raised.
+    cycle_every_n: how many cases from the generator to take before
+      switching to the next shard; by default set to 1, switch every case.
   """
   if outputs_exist(output_filenames):
     tf.logging.info("Skipping generator because outputs files exist")
@@ -159,7 +162,8 @@ def generate_files(generator, output_filenames, max_cases=None):
       break
     example = to_example(case)
     writers[shard].write(example.SerializeToString())
-    shard = (shard + 1) % num_shards
+    if counter % cycle_every_n == 0:
+      shard = (shard + 1) % num_shards
 
   for writer in writers:
     writer.close()
@@ -341,6 +345,7 @@ def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
   """Generate a vocabulary from the datasets in sources."""
 
   def generate():
+    """Generate lines for vocabulary generation."""
     tf.logging.info("Generating vocab from: %s", str(sources))
     for source in sources:
       url = source[0]

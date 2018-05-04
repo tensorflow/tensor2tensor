@@ -207,10 +207,10 @@ class TransformerSymshard(t2t_model.T2TModel):
     else:
       logits = mp(
           tf.tensordot, decoder_output, output_var, [[[2], [1]]] * mp.n)
-      logits = common_layers.all_reduce_ring(logits, mp)
+      logits = expert_utils.all_reduce_ring(logits, mp)
       # On each device, we compute the loss for a part of the batch.
       # This is faster than computing the whole loss on one shard.
-      mp, logits = common_layers.reduce_by_device(mp, logits, lambda l: l[0])
+      mp, logits = expert_utils.reduce_by_device(mp, logits, lambda l: l[0])
       def _loss_for_shard(logits, targets, shard):
         logits = common_layers.approximate_split(logits, mp.n, 0)[shard]
         targets = common_layers.approximate_split(targets, mp.n, 0)[shard]
@@ -282,7 +282,7 @@ def _layer_stack(mp,
             return tuple(tf.split(
                 t, [mix_size, hparams.hidden_size - mix_size], 2))
           to_mix, to_keep = mp(_split, x)
-          mixed = common_layers.all_reduce_ring(to_mix, mp)
+          mixed = expert_utils.all_reduce_ring(to_mix, mp)
           mixed = mp(tf.multiply, mixed, mp.n ** -0.5)
           x = mp(lambda a, b: tf.concat([a, b], 2), mixed, to_keep)
       elif layer_type == "att":
