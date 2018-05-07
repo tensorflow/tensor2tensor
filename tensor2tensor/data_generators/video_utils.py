@@ -68,6 +68,11 @@ class VideoProblem(problem.Problem):
     raise NotImplementedError
 
   @property
+  def total_number_of_frames(self):
+    """The total number of frames, needed for sharding."""
+    raise NotImplementedError
+
+  @property
   def num_input_frames(self):
     """Number of frames to batch on one input."""
     return 1
@@ -188,7 +193,9 @@ class VideoProblem(problem.Problem):
     preprocessed_dataset = dataset.map(_preprocess)
 
     num_frames = self.num_input_frames + self.num_target_frames
-    # TODO(lukaszkaiser): should jump by a random position at the beginning.
+    # We jump by a random position at the beginning to add variety.
+    random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
+    preprocessed_dataset = preprocessed_dataset.skip(random_skip)
     batch_dataset = preprocessed_dataset.apply(
         tf.contrib.data.batch_and_drop_remainder(num_frames))
     dataset = batch_dataset.map(features_from_batch).shuffle(8)
@@ -265,6 +272,8 @@ class VideoProblem(problem.Problem):
     for sample in self.generate_encoded_samples(
         data_dir, tmp_dir, dataset_split):
       if self.debug_dump_frames_path:
+        if not tf.gfile.Exists(self.debug_dump_frames_path):
+          tf.gfile.MkDir(self.debug_dump_frames_path)
         path = os.path.join(self.debug_dump_frames_path,
                             "frame_%05d.png" % counter)
         with tf.gfile.Open(path, "wb") as f:
@@ -296,7 +305,9 @@ class VideoProblem(problem.Problem):
     else:
       generator_utils.generate_files(
           self.generate_encoded_samples_debug(
-              data_dir, tmp_dir, problem.DatasetSplit.TRAIN), all_paths)
+              data_dir, tmp_dir, problem.DatasetSplit.TRAIN),
+          all_paths,
+          cycle_every_n=self.total_number_of_frames // len(all_paths))
 
 
 # TODO(lukaszkaiser): remove this version after everything is ported.

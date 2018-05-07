@@ -44,8 +44,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import contextlib
 import multiprocessing as mp
 import os
+import socket
 import subprocess as sp
 import time
 
@@ -88,12 +90,12 @@ CREATE_INSTANCE = ("gcloud compute instances create {instance_name} "
 COPY_CODE = "gcloud compute scp --recurse {local_dir} {instance_name}:~/"
 SSH = "gcloud compute ssh {instance_name} --command"
 SCREEN = "screen -dmS test bash -c \"{command}\""
-SSH_CHECK = "nc -w 1 -z {ip} 22"
 DEFAULT_ZONE = "gcloud config get-value compute/zone"
 LOGS = "> ~/logs-{task_id}.txt 2>&1; gsutil cp ~/logs-{task_id}.txt {bucket}"
 
 
 def remote_run(cmd, instance_name, detach=False, retries=1):
+  """Run command on GCS instance, optionally detached."""
   if detach:
     cmd = SCREEN.format(command=cmd)
   args = SSH.format(instance_name=instance_name).split()
@@ -112,19 +114,27 @@ def default_zone():
   return cloud.shell_output(DEFAULT_ZONE).strip()
 
 
+@contextlib.contextmanager
+def safe_socket(timeout=2):
+  s = socket.socket()
+  s.settimeout(timeout)
+  try:
+    yield s
+  finally:
+    s.close()
+
+
 def wait_for_ssh(ip):
   """Wait for SSH to be available at given IP address."""
-  i = 0
-  while True:
-    try:
-      cloud.shell_run(SSH_CHECK, ip=ip)
-      break
-    except sp.CalledProcessError:
-      if i > 12:  # ~2m
-        return False
-      time.sleep(10)
-      i += 1
-  return True
+  for _ in range(12):
+    with safe_socket() as s:
+      try:
+        s.connect((ip, 22))
+        return True
+      except socket.timeout:
+        pass
+    time.sleep(10)
+  return False
 
 
 def create_instance(instance_name, cpu=1, mem=4):
@@ -206,18 +216,22 @@ def main(_):
   assert len(suffixes) == FLAGS.num_instances
 
   vm_info = list_vm_names_and_ips()
-  vm_names = zip(*vm_info)[0] if vm_info else []
+  vm_names = list(zip(*vm_info))[0] if vm_info else []
 
   pool = mp.Pool(FLAGS.num_threads)
   async_results = []
 
-  log_dir = None
-  if FLAGS.log_dir:
-    log_dir = os.path.join(FLAGS.log_dir, FLAGS.name)
-    tf.gfile.MakeDirs(log_dir)
-    assert log_dir.startswith("gs://")
-    if not log_dir.endswith("/"):
-      log_dir += "/"
+  assert FLAGS.log_dir
+  log_dir = os.path.join(FLAGS.log_dir, FLAGS.name)
+  tf.gfile.MakeDirs(log_dir)
+  assert log_dir.startswith("gs://")
+  if not log_dir.endswith("/"):
+    log_dir += "/"
+  # Write a test file to make sure gcloud GCS APIs are enabled
+  test_filename = os.path.join(log_dir, "check_write")
+  with tf.gfile.Open(test_filename, "w") as f:
+    f.write("testing GCS write")
+  tf.gfile.Remove(test_filename)
 
   instance_ids = list(range(FLAGS.num_instances))
   if FLAGS.instance_ids:
@@ -242,23 +256,25 @@ def main(_):
             FLAGS.cpu, FLAGS.mem, code_dir,
             FLAGS.setup_command)
     res = pool.apply_async(launch_instance, args)
-    async_results.append(res)
+    async_results.append((res, instance_name, i))
 
   failed = []
-  for i, res in enumerate(async_results):
+  for res, instance_name, i in async_results:
     try:
       res.get()
-    except:  # pylint: disable=bare-except
-      failed.append(i)
-      tf.logging.error("Failed to launch task %d", i)
+    except Exception as e:  # pylint: disable=broad-except
+      failed.append((instance_name, i))
+      tf.logging.error("Failed to launch task %s due to exception %s",
+                       instance_name, str(e))
 
   results = []
   if failed:
-    tf.logging.error("Failed to launch %d jobs. Task ids: %s. "
-                     "Attempting delete in case they are still up.",
-                     len(failed), str(failed))
-    for i in failed:
-      instance_name = "%s-%d" % (FLAGS.name, i)
+    ids_for_flag = ",".join([str(i) for i in list(zip(*failed))[1]])
+    tf.logging.error("Failed to launch %d jobs. Tasks: %s. "
+                     "Attempting delete in case they are still up. Rerun with "
+                     "--instance_ids='%s' to attempt relaunch.",
+                     len(failed), str(failed), ids_for_flag)
+    for instance_name, _ in failed:
       res = pool.apply_async(delete_instance, (instance_name,))
       results.append(res)
 

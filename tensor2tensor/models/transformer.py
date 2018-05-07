@@ -52,7 +52,7 @@ class Transformer(t2t_model.T2TModel):
     super(Transformer, self).__init__(*args, **kwargs)
     self.attention_weights = dict()  # For visualizing attention heads.
 
-  def encode(self, inputs, target_space, hparams, features=None):
+  def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode transformer inputs.
 
     Args:
@@ -62,6 +62,7 @@ class Transformer(t2t_model.T2TModel):
       hparams: hyperparameters for model.
       features: optionally pass the entire features dictionary as well.
         This is needed now for "packed" datasets.
+      losses: optional list onto which to append extra training losses
 
     Returns:
       Tuple of:
@@ -82,7 +83,8 @@ class Transformer(t2t_model.T2TModel):
     encoder_output = transformer_encoder(
         encoder_input, self_attention_bias,
         hparams, nonpadding=features_to_nonpadding(features, "inputs"),
-        save_weights_to=self.attention_weights)
+        save_weights_to=self.attention_weights,
+        losses=losses)
 
     return encoder_output, encoder_decoder_attention_bias
 
@@ -93,7 +95,8 @@ class Transformer(t2t_model.T2TModel):
              decoder_self_attention_bias,
              hparams,
              cache=None,
-             nonpadding=None):
+             nonpadding=None,
+             losses=None):
     """Decode Transformer outputs from encoder representation.
 
     Args:
@@ -109,6 +112,7 @@ class Transformer(t2t_model.T2TModel):
       cache: dict, containing tensors which are the results of previous
           attentions, used for fast decoding.
       nonpadding: optional Tensor with shape [batch_size, decoder_length]
+      losses: optional list onto which to append extra training losses
 
     Returns:
       Final decoder representation. [batch_size, decoder_length, hidden_dim]
@@ -124,7 +128,8 @@ class Transformer(t2t_model.T2TModel):
         hparams,
         cache=cache,
         nonpadding=nonpadding,
-        save_weights_to=self.attention_weights)
+        save_weights_to=self.attention_weights,
+        losses=losses)
 
     if (common_layers.is_on_tpu() and
         hparams.mode == tf.estimator.ModeKeys.TRAIN):
@@ -150,11 +155,13 @@ class Transformer(t2t_model.T2TModel):
     """
     hparams = self._hparams
 
+    losses = []
+
     if self.has_input:
       inputs = features["inputs"]
       target_space = features["target_space_id"]
       encoder_output, encoder_decoder_attention_bias = self.encode(
-          inputs, target_space, hparams, features=features)
+          inputs, target_space, hparams, features=features, losses=losses)
     else:
       encoder_output, encoder_decoder_attention_bias = (None, None)
 
@@ -171,7 +178,8 @@ class Transformer(t2t_model.T2TModel):
         encoder_decoder_attention_bias,
         decoder_self_attention_bias,
         hparams,
-        nonpadding=features_to_nonpadding(features, "targets"))
+        nonpadding=features_to_nonpadding(features, "targets"),
+        losses=losses)
 
     expected_attentions = features.get("expected_attentions")
     if expected_attentions is not None:
@@ -181,7 +189,11 @@ class Transformer(t2t_model.T2TModel):
           hparams.expected_attention_loss_multiplier)
       return decoder_output, {"attention_loss": attention_loss}
 
-    return tf.reshape(decoder_output, targets_shape)
+    ret = tf.reshape(decoder_output, targets_shape)
+    if losses:
+      return ret, {"extra_loss": tf.add_n(losses)}
+    else:
+      return ret
 
   def _greedy_infer(self, features, decode_length):
     """Fast version of greedy decoding.
@@ -470,8 +482,8 @@ def fast_decode(encoder_output,
       "layer_%d" % layer: {
           "k": tf.zeros([batch_size, 0, key_channels]),
           "v": tf.zeros([batch_size, 0, value_channels]),
-      }
-      for layer in range(num_layers)
+          "f": tf.zeros([batch_size, 0, hparams.hidden_size]),
+      } for layer in range(num_layers)
   }
 
   if encoder_output is not None:
@@ -741,7 +753,8 @@ def transformer_encoder(encoder_input,
                         name="encoder",
                         nonpadding=None,
                         save_weights_to=None,
-                        make_image_summary=True):
+                        make_image_summary=True,
+                        losses=None):
   """A stack of transformer layers.
 
   Args:
@@ -760,6 +773,7 @@ def transformer_encoder(encoder_input,
       for visualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
     make_image_summary: Whether to make an attention image summary.
+    losses: optional list onto which to append extra training losses
 
   Returns:
     y: a Tensors
@@ -808,7 +822,8 @@ def transformer_encoder(encoder_input,
           y = transformer_ffn_layer(
               common_layers.layer_preprocess(x, hparams), hparams, pad_remover,
               conv_padding="SAME", nonpadding_mask=nonpadding,
-              hidden_size=hparams.enc_hidden_size)
+              hidden_size=hparams.enc_hidden_size,
+              losses=losses)
           x = common_layers.layer_postprocess(x, y, hparams)
     # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
@@ -825,7 +840,8 @@ def transformer_decoder(decoder_input,
                         name="decoder",
                         nonpadding=None,
                         save_weights_to=None,
-                        make_image_summary=True):
+                        make_image_summary=True,
+                        losses=None):
   """A stack of transformer layers.
 
   Args:
@@ -848,6 +864,7 @@ def transformer_decoder(decoder_input,
       for visualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
     make_image_summary: Whether to make an attention image summary.
+    losses: optional list onto which to append extra training losses
 
   Returns:
     y: a Tensors
@@ -899,8 +916,12 @@ def transformer_decoder(decoder_input,
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
-              common_layers.layer_preprocess(x, hparams), hparams,
-              conv_padding="LEFT", nonpadding_mask=nonpadding)
+              common_layers.layer_preprocess(x, hparams),
+              hparams,
+              conv_padding="LEFT",
+              nonpadding_mask=nonpadding,
+              losses=losses,
+              cache=layer_cache)
           x = common_layers.layer_postprocess(x, y, hparams)
     # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
@@ -913,7 +934,9 @@ def transformer_ffn_layer(x,
                           pad_remover=None,
                           conv_padding="LEFT",
                           nonpadding_mask=None,
-                          hidden_size=None):
+                          hidden_size=None,
+                          losses=None,
+                          cache=None):
   """Feed-forward layer in the transformer.
 
   Args:
@@ -927,9 +950,16 @@ def transformer_ffn_layer(x,
     nonpadding_mask: an optional Tensor with shape [batch_size, length].
       needed for convolutional layers with "SAME" padding.
       Contains 1.0 in positions corresponding to nonpadding.
+    losses: optional list onto which to append extra training losses
+    cache: dict, containing tensors which are the results of previous
+        attentions, used for fast decoding.
+
 
   Returns:
     a Tensor of shape [batch_size, length, hparams.hidden_size]
+
+  Raises:
+    ValueError: If losses arg is None, but layer generates extra losses.
   """
   if not hidden_size:
     hidden_size = hparams.hidden_size
@@ -963,11 +993,12 @@ def transformer_ffn_layer(x,
         x,
         hparams.filter_size,
         hidden_size,
-        first_kernel_size=3,
+        first_kernel_size=hparams.conv_first_kernel,
         second_kernel_size=1,
         padding=conv_padding,
         nonpadding_mask=nonpadding_mask,
-        dropout=hparams.relu_dropout)
+        dropout=hparams.relu_dropout,
+        cache=cache)
   elif ffn_layer == "parameter_attention":
     return common_attention.parameter_attention(
         x, hparams.parameter_attention_key_channels or hidden_size,
@@ -983,6 +1014,23 @@ def transformer_ffn_layer(x,
         second_kernel_size=(31, 1),
         padding="LEFT",
         dropout=hparams.relu_dropout)
+  elif ffn_layer == "sru":
+    return common_layers.sru(x)
+  elif ffn_layer == "local_moe_tpu":
+    overhead = (hparams.moe_overhead_train
+                if hparams.mode == tf.estimator.ModeKeys.TRAIN
+                else hparams.moe_overhead_eval)
+    ret, loss = expert_utils.local_moe_tpu(
+        x, hparams.filter_size // 2,
+        hparams.hidden_size,
+        hparams.moe_num_experts, overhead=overhead,
+        loss_coef=hparams.moe_loss_coef)
+    if losses is None:
+      raise ValueError(
+          "transformer_ffn_layer with type local_moe_tpu must pass in "
+          "a losses list")
+    losses.append(loss)
+    return ret
   else:
     assert ffn_layer == "none"
     return x
@@ -1038,6 +1086,12 @@ def transformer_base_v1():
   hparams.add_hparam("use_pad_remover", True)
   hparams.add_hparam("self_attention_type", "dot_product")
   hparams.add_hparam("max_relative_position", 0)
+  hparams.add_hparam("conv_first_kernel", 3)
+  # These parameters are only used when ffn_layer=="local_moe_tpu"
+  hparams.add_hparam("moe_overhead_train", 1.0)
+  hparams.add_hparam("moe_overhead_eval", 2.0)
+  hparams.moe_num_experts = 16
+  hparams.moe_loss_coef = 1e-3
   return hparams
 
 
