@@ -180,6 +180,7 @@ def create_estimator(model_name,
                      schedule="train_and_evaluate",
                      decode_hparams=None,
                      use_tpu=False):
+  """Create a T2T Estimator."""
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
       model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
 

@@ -51,8 +51,9 @@ def decode_hparams(overrides=""):
       max_input_size=-1,
       identity_output=False,
       num_samples=-1,
-      delimiter="\n")
-  hp = hp.parse(overrides)
+      delimiter="\n",
+      force_decode_length=False)
+  hp.parse(overrides)
   return hp
 
 
@@ -378,6 +379,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
 
 def _decode_batch_input_fn(num_decode_batches, sorted_inputs,
                            vocabulary, batch_size, max_input_size):
+  """Generator to produce batches of inputs."""
   tf.logging.info(" batch %d" % num_decode_batches)
   # First reverse all the input sentences so that if you're going to get OOMs,
   # you'll see it in the first batch
