@@ -1607,8 +1607,8 @@ def transformer_lm_tpu_1():
 
 
 @registry.register_hparams
-def transformer_librispeech():
-  """HParams for training ASR model on Librispeech."""
+def transformer_librispeech_v1():
+  """HParams for training ASR model on LibriSpeech V1."""
   hparams = transformer_base()
 
   hparams.num_heads = 4
@@ -1624,14 +1624,62 @@ def transformer_librispeech():
 
 
 @registry.register_hparams
-def transformer_librispeech_tpu():
-  """HParams for training ASR model on Librispeech on TPU."""
-  hparams = transformer_librispeech()
+def transformer_librispeech_v2():
+  """HParams for training ASR model on LibriSpeech V2."""
+  hparams = transformer_base()
+
+  hparams.max_length = 1240000
+  hparams.max_input_seq_length = 1550
+  hparams.max_target_seq_length = 350
+  hparams.batch_size = 16
+  hparams.num_decoder_layers = 4
+  hparams.num_encoder_layers = 6
+  hparams.hidden_size = 384
+  hparams.learning_rate = 0.15
+  hparams.daisy_chain_variables = False
+  hparams.filter_size = 1536
+  hparams.num_heads = 2
+  hparams.ffn_layer = "conv_relu_conv"
+  hparams.conv_first_kernel = 9
+  hparams.weight_decay = 0
+  hparams.layer_prepostprocess_dropout = 0.2
+  hparams.relu_dropout = 0.2
+
+  return hparams
+
+
+@registry.register_hparams
+def transformer_librispeech_tpu_v1():
+  """HParams for training ASR model on Librispeech on TPU v1."""
+  hparams = transformer_librispeech_v1()
   update_hparams_for_tpu(hparams)
 
-  hparams.batch_size = 32
+  hparams.batch_size = 16
   librispeech.set_librispeech_length_hparams(hparams)
   return hparams
+
+
+@registry.register_hparams
+def transformer_librispeech_tpu_v2():
+  """HParams for training ASR model on Librispeech on TPU v2."""
+  hparams = transformer_librispeech_v2()
+  update_hparams_for_tpu(hparams)
+
+  hparams.batch_size = 16
+  librispeech.set_librispeech_length_hparams(hparams)
+  return hparams
+
+
+@registry.register_hparams
+def transformer_librispeech():
+  """HParams for training ASR model on Librispeech."""
+  return transformer_librispeech_v2()
+
+
+@registry.register_hparams
+def transformer_librispeech_tpu():
+  """HParams for training ASR model on Librispeech on TPU."""
+  return transformer_librispeech_tpu_v2()
 
 
 @registry.register_hparams
