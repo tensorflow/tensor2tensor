@@ -1082,13 +1082,11 @@ def transformer_base_single_gpu():
 
 
 @registry.register_hparams
-def transformer_base_fake_gpu8():
-  """HParams for simulating 8 GPU transformer base model training
-  on a single GPU.
-  """
+def transformer_base_multistep8():
+  """HParams for simulating 8 GPUs with MultistepAdam optimizer."""
   hparams = transformer_base()
-  hparams.optimizer = "LargebatchAdam"
-  hparams.add_hparam("fake_gpu_multiplier", 8)
+  hparams.optimizer = "MultistepAdam"
+  hparams.optimizer_multistep_accumulate_steps = 8
   return hparams
 
 

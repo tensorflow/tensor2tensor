@@ -68,17 +68,14 @@ def legacy_learning_rate_schedule(hparams):
 
 
 def _global_step(hparams):
-  """Adjust global step if fake_gpu_multiplier is used."""
+  """Adjust global step if a multi-step optimizer is used."""
   step = tf.to_float(tf.train.get_or_create_global_step())
-  try:
-    if hparams.fake_gpu_multiplier > 1:
-      fake_gpu_multiplier = tf.constant(hparams.fake_gpu_multiplier,
-                                        dtype=tf.float32)
-      step = step / fake_gpu_multiplier
-      tf.logging.info("Scaling down learning rate decay by "
-                      "fake_gpu_multiplier=%d" % hparams.fake_gpu_multiplier)
-  except AttributeError:
-    pass
+  if hparams.optimizer_multistep_accumulate_steps > 1:
+    multiplier = tf.constant(hparams.optimizer_multistep_accumulate_steps,
+                             dtype=tf.float32)
+    step = step / multiplier
+    tf.logging.info("Divided global step by %d for multi-step optimizer."
+                    % hparams.optimizer_multistep_accumulate_steps)
   return step
 
 

@@ -22,7 +22,7 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.utils import adafactor
-from tensor2tensor.utils import largebatch_optimizer
+from tensor2tensor.utils import multistep_optimizer
 from tensor2tensor.utils import yellowfin
 
 import tensorflow as tf
@@ -87,13 +87,13 @@ class ConditionalOptimizer(tf.train.Optimizer):
           beta1=hparams.optimizer_adam_beta1,
           beta2=hparams.optimizer_adam_beta2,
           epsilon=hparams.optimizer_adam_epsilon)
-    elif optimizer_name == "LargebatchAdam":
-      self._opt = largebatch_optimizer.LargebatchAdamOptimizer(
+    elif optimizer_name == "MultistepAdam":
+      self._opt = multistep_optimizer.MultistepAdamOptimizer(
           lr,
           beta1=hparams.optimizer_adam_beta1,
           beta2=hparams.optimizer_adam_beta2,
           epsilon=hparams.optimizer_adam_epsilon,
-          n=hparams.fake_gpu_multiplier)
+          n=hparams.optimizer_multistep_accumulate_steps)
     elif optimizer_name == "Momentum":
       self._opt = tf.train.MomentumOptimizer(
           lr,
