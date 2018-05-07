@@ -150,9 +150,12 @@ def set_hparams_from_args(args):
   FLAGS.hparams += as_hparams
 
 def get_problem_name():
-  problems = FLAGS.problems.split("-")
-  assert len(problems) == 1
-  return problems[0]
+  try: 
+    problems = FLAGS.problems.split("-")
+    assert len(problems) == 1
+    return problems[0]
+  except AttributeError:
+    return FLAGS.problem
 
 ##################
 #
@@ -344,7 +347,7 @@ def maybe_cloud_tpu():
 def main(argv):
   # Fathom
   if FLAGS.fathom:
-      fathom.t2t_trainer_setup(FLAGS, get_problem_name())
+      fathom.t2t_trainer_setup(get_problem_name())
 
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)

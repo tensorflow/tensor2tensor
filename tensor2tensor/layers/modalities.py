@@ -236,9 +236,17 @@ class ImageModality(modality.Modality):
                                name="merge_pixel_embedded_channels")
       return merged
 
+  # FATHOM
+  # TODO: consider if we can revert to just .problem
+  def _get_num_channels(self):
+    try:
+      return self._model_hparams.problem_instances[0].num_channels
+    except AttributeError:
+      return self._model_hparams.problem.num_channels
+
   def top(self, body_output, _):
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
-    num_channels = self._model_hparams.problem_instances[0].num_channels or self._model_hparams.problem.num_channels
+    num_channels = self._get_num_channels()
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
