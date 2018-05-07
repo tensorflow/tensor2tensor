@@ -32,13 +32,11 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
+import numpy as np
 
 
 flags = tf.flags
 FLAGS = flags.FLAGS
-
-
-flags.DEFINE_string("frames_path", "", "Path to the first frames.")
 
 
 class SimulatedBatchEnv(InGraphBatchEnv):
@@ -49,42 +47,31 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, length, observ_shape, observ_dtype, action_shape,
-               action_dtype):
+  def __init__(self, environment_lambda, length):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
+    initalization_env = environment_lambda()
     hparams = trainer_lib.create_hparams(
         FLAGS.hparams_set, problem_name=FLAGS.problem, data_dir="UNUSED")
     hparams.force_full_predict = True
     self._model = registry.model(FLAGS.model)(
         hparams, tf.estimator.ModeKeys.PREDICT)
 
-    self.action_shape = action_shape
-    self.action_dtype = action_dtype
+    self.action_space = initalization_env.action_space
+    self.action_shape = list(initalization_env.action_space.shape)
+    self.action_dtype = tf.int32
 
-    with open(os.path.join(FLAGS.frames_path, "frame1.png"), "rb") as f:
-      png_frame_1_raw = f.read()
+    obs_1 = initalization_env.reset()
+    obs_2 = initalization_env.step(0)[0]
 
-    with open(os.path.join(FLAGS.frames_path, "frame2.png"), "rb") as f:
-      png_frame_2_raw = f.read()
+    self.frame_1 = tf.expand_dims(tf.cast(obs_1, tf.float32), 0)
+    self.frame_2 = tf.expand_dims(tf.cast(obs_2, tf.float32), 0)
 
-    self.frame_1 = tf.expand_dims(tf.cast(tf.image.decode_png(png_frame_1_raw),
-                                          tf.float32), 0)
-    self.frame_2 = tf.expand_dims(tf.cast(tf.image.decode_png(png_frame_2_raw),
-                                          tf.float32), 0)
-
-    shape = (self.length,) + observ_shape
-    self._observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
-    self._prev_observ = tf.Variable(tf.zeros(shape, observ_dtype),
+    shape = (self.length,) + initalization_env.observation_space.shape
+    # TODO(blazej0) - make more generic - make higher number of previous observations possible.
+    self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
+    self._prev_observ = tf.Variable(tf.zeros(shape, tf.float32),
                                     trainable=False)
-    self._starting_observ = tf.Variable(tf.zeros(shape, observ_dtype),
-                                        trainable=False)
-
-    observ_dtype = tf.int64
-
-  @property
-  def action_space(self):
-    return gym.make("PongNoFrameskip-v4").action_space
 
   def __len__(self):
     """Number of combined environments."""
