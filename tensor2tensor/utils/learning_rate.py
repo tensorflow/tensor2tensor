@@ -70,12 +70,11 @@ def legacy_learning_rate_schedule(hparams):
 def _global_step(hparams):
   """Adjust global step if a multi-step optimizer is used."""
   step = tf.to_float(tf.train.get_or_create_global_step())
-  if hparams.optimizer_multistep_accumulate_steps > 1:
-    multiplier = tf.constant(hparams.optimizer_multistep_accumulate_steps,
-                             dtype=tf.float32)
-    step = step / multiplier
+  multiplier = hparams.optimizer_multistep_accumulate_steps
+  if multiplier is not None and multiplier > 1:
+    step = step / tf.constant(multiplier, dtype=tf.float32)
     tf.logging.info("Divided global step by %d for multi-step optimizer."
-                    % hparams.optimizer_multistep_accumulate_steps)
+                    % multiplier)
   return step
 
 
