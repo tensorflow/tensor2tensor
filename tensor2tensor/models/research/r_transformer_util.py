@@ -201,6 +201,18 @@ def r_transformer_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
   """
   with tf.variable_scope("r_transformer_%s" % hparams.recurrence_type):
 
+    if hparams.mix_with_transformer:
+
+      if hparams.add_position_timing_signal:
+        # In case of add_position_timing_signal=true, we set  hparams.pos=None
+        # and add position timing signal at the beginning of each step, so for
+        # the vanilla transformer part,  we need to add timing signal here.
+        x = common_attention.add_timing_signal_1d(x)
+
+      for layer in xrange(hparams.num_hidden_layers):
+        with tf.variable_scope("layer_%d" % layer):
+          x = ffn_unit(attention_unit(x))
+
     if hparams.recurrence_type == "act":
       return r_transformer_act(x, hparams, ffn_unit, attention_unit)
 
