@@ -3,56 +3,7 @@ jobs:
   build-test-tensor2tensor:
     machine: true
     workDir: ~/tensor2tensor
-    parallelism: 2
     steps:
-
-      # - type: shell
-      #   name: Install Docker Client
-      #   command: |
-      #     apt-get update
-      #     apt-get -y install apt-transport-https ca-certificates curl software-properties-common git
-      #     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-      #     add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu  $(lsb_release -cs) stable"
-      #     apt-get update
-      #     apt-get -y install docker-ce
-      #     curl -L https://github.com/docker/compose/releases/download/1.11.2/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose
-      #     chmod +x /usr/local/bin/docker-compose
-      #
-      - type: shell
-        name: Install Google Cloud SDK
-        command: |
-          export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)" && echo "deb https://packages.cloud.google.com/apt $CLOUD_SDK_REPO main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
-          curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-          sudo apt-get update && sudo apt-get install google-cloud-sdk
-
-      - type: shell
-        name: Setup Google Cloud SDK
-        workDir: ~/
-        command: |
-          echo $GOOGLE_CLOUD_KEY | cat > key.json
-          gcloud auth activate-service-account --key-file key.json
-          gcloud config set project sinuous-concept-154023
-
-      - type: shell
-        name: Setup Azure SAS Key
-        workDir: ~/
-        command: |
-          echo $AZURE_SAS | cat > secretdata.key
-
-      - type: shell
-        name: Switch to python3.5.2
-        command: |
-          # technically don't need 3.6.3,
-          # since everything is through docker
-          # installing 3.6.3 also takes several minutes or more.
-          # pyenv install 3.6.3
-          pyenv global 3.5.2
-          python -V
-          python3 -V
-          # needed for python3 tests/fathomairflow/test_dags_script.py call
-          pip install git+git://github.com/google/python-fire.git@v0.1.1
-          pip install pyyaml
-
       - type: checkout
 
       - type: shell
@@ -62,52 +13,32 @@ jobs:
       - type: shell
         name: Checkout diseaseTools repo
         command: |
-          DT_BRANCH='master';
+          DT_BRANCH='develop';
           if [[ $(git ls-remote --heads git@github.com:medicode/diseaseTools.git -b ${CIRCLE_BRANCH}) ]]; then
             DT_BRANCH=${CIRCLE_BRANCH};
           fi;
           git clone -b ${DT_BRANCH} git@github.com:medicode/diseaseTools.git ~/diseaseTools;
-
-      # NOTE: removing this for now because we now have actual code inside of 
-      #       /data.  Possibly we undo this, but, more appropriately, we probably
-      #       just change this to read-only (like everything else outside tests/),
-      #       once migration is complete.
-      #- type: shell
-      #  name: Remove everything (except db) inside data folder
-      #  workDir: ~/diseaseTools/data
-      #  command: |
-      #    ls -d */ | grep -v db | xargs rm -rf
 
       - type: shell
         name: Docker pull images
         command: |
           docker pull gcr.io/fathom-containers/processing
           docker pull gcr.io/fathom-containers/processing:test
-          docker pull gcr.io/fathom-containers/fasttext:test
-          docker pull gcr.io/fathom-containers/docker-airflow
-          docker pull gcr.io/fathom-containers/docker-airflow:test
-          docker pull gcr.io/fathom-containers/text_conversion
-          docker pull gcr.io/fathom-containers/text_conversion:test
           docker pull gcr.io/fathom-containers/t2tgpu
           docker pull gcr.io/fathom-containers/t2tgpu:test
-      
-      - type: shell
-        name: Re-compile protobuf python module.
-        command: |
-            ./build_proto.sh
 
-  # test:
-    # workDir: ~/app
-    # steps:
       - type: shell
         name: Running tests
         command: |
-          set -e
-          TESTSCRIPTS=$(circleci tests glob "tests/scripts/*.sh" | circleci tests split --split-by=timings)
-          for SCRIPT in $TESTSCRIPTS
-          do
-            ./scripts/run_if_changes_outside_dir.py "$CIRCLE_COMPARE_URL" ./api-flask -- /bin/bash $SCRIPT
-          done
+          python3.6 -m pytest \
+          --ignore=../tensor2tensor/tensor2tensor/utils/registry_test.py \
+          --ignore=../tensor2tensor/tensor2tensor/utils/trainer_lib_test.py \
+          --ignore=../tensor2tensor/tensor2tensor/visualization/visualization_test.py \
+          --ignore=../tensor2tensor/tensor2tensor/problems_test.py \
+          --ignore=../tensor2tensor/tensor2tensor/bin/t2t_trainer_test.py \
+          --ignore=../tensor2tensor/tensor2tensor/data_generators/algorithmic_math_test.py \
+          --ignore=../tensor2tensor/tensor2tensor/models/research/r_transformer_test.py \
+          /usr/src/tensor2tensor
 
       - store_test_results:
           path: ~/tensor2tensor/test_results
@@ -115,30 +46,15 @@ jobs:
       - store_artifacts:
           path: ~/tensor2tensor/test_results
 
-      # these next three jobs seem nice but we can wait to hook them
-      # up correctly until normal CI works
-          
-      # - type: shell
-      #   name: Generate sphinx docs
-      #   command: |
-      #     docker run -it -v /home/circleci/tensor2tensor:/usr/src/tensor2tensor -w /usr/src/tensor2tensor/docs gcr.io/fathom-containers/processing ./makedocs.sh
+      # TODO: build sphinx docs? or will we always use the upstream sphinx docs???
 
-      # - type: shell
-      #   name: Switch to python2.7.12
-      #   command: |
-      #     # gcloud in the next task requires python 2 and is only called in develop
-      #     pyenv global 2.7.12
-
-      # - type: shell
-      #   name: Deploy HTML docs
-      #   workDir: ~/diseaseTools/docs
-      #   command: |
-      #     if [ "$CIRCLE_BRANCH" = "develop" ]; then bash ../delete-older-gcloud-app-versions.sh default 3; gcloud app deploy app.yaml --verbosity=info; fi
-  smoke-testinfra:
+smoke-testinfra:
     machine: true
     workDir: ~/diseaseTools
     steps:
-      - checkout
+      - type: shell
+        name: Checkout diseaseTools develop
+        command: git clone -b develop git@github.com:medicode/diseaseTools.git ~/diseaseTools;
       - run: *DOCKER_LOGIN
       - type: shell
         name: Use Python 2
