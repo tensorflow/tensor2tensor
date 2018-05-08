@@ -27,7 +27,6 @@ import gym
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
-from tensor2tensor.data_generators.gym_utils import decode_image_from_png, encode_image_to_png
 
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
@@ -328,6 +327,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       return sess.run(encoded)
 
   def generate_encoded_samples(self, data_dir, tmp_dir, unused_dataset_split):
+    from tensor2tensor.data_generators.gym_utils import decode_image_from_png, encode_image_to_png
     self._setup()
     self.debug_dump_frames_path = os.path.join(
         data_dir, self.debug_dump_frames_path)
