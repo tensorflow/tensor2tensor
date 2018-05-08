@@ -172,16 +172,16 @@ class MemoryWrapper(WrapperBase):
     assert self._length == 1, "We support only one environment"
     infinity = 10000000
     self.speculum = tf.FIFOQueue(infinity, dtypes=[
-        tf.string, tf.float32, tf.int32, tf.bool])
+        tf.string, tf.float32, tf.int32, tf.bool, tf.uint8])
     self._observ = self._batch_env.observ
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):  # Do we need this?
       reward, done = self._batch_env.simulate(action)
-      encoded_image = tf.image.encode_png(
-          tf.cast(self._batch_env.observ[0, ...], tf.uint8))
+      image = tf.cast(self._batch_env.observ[0, ...], tf.uint8)
+      encoded_image = tf.image.encode_png(image)
       with tf.control_dependencies([reward, done]):
         enqueue_op = self.speculum.enqueue(
-            [encoded_image, reward, action, done])
+            [encoded_image, reward, action, done, image])
         with tf.control_dependencies([enqueue_op]):
           return tf.identity(reward), tf.identity(done)

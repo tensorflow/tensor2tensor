@@ -51,7 +51,7 @@ def train(hparams, output_dir):
     time_delta = time.time() - start_time
     print(line+"Step {}.1. - generate data from policy. "
           "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
-    FLAGS.problem = "gym_discrete_problem_with_agent"
+    FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
     FLAGS.agent_policy_path = last_model
     gym_problem = registry.problem(FLAGS.problem)
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
@@ -76,7 +76,7 @@ def train(hparams, output_dir):
     print(line+"Step {}.3. - evalue env model. "
           "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
     gym_simulated_problem = registry.problem(
-        "gym_simulated_discrete_problem_with_agent")
+        "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
     sim_steps = hparams.simulated_env_generator_num_steps
     gym_simulated_problem.settable_num_steps = sim_steps
     gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
@@ -108,13 +108,14 @@ def train(hparams, output_dir):
 def main(_):
   hparams = tf.contrib.training.HParams(
       epochs=10,
-      true_env_generator_num_steps=10000,
+      true_env_generator_num_steps=50000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
-      model_train_steps=25000,
+      model_train_steps=50000,
       simulated_env_generator_num_steps=300,
-      ppo_epochs_num=200,
+      ppo_epochs_num=2000,
       ppo_epoch_length=300,
+      game="pong",
   )
   train(hparams, FLAGS.output_dir)
 

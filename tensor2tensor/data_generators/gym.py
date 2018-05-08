@@ -28,6 +28,7 @@ import gym
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 
+from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
@@ -42,7 +43,9 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("agent_policy_path", "", "File with model for pong")
+
+flags.DEFINE_string("agent_policy_path", "", "File with model for agent.")
+flags.DEFINE_string("autoencoder_path", "", "File with model for autoencoder.")
 
 
 class GymDiscreteProblem(video_utils.VideoProblem):
@@ -100,6 +103,14 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return self.env.action_space.n
 
   @property
+  def frame_height(self):
+    return self.env.observation_space.shape[0]
+
+  @property
+  def frame_width(self):
+    return self.env.observation_space.shape[1]
+
+  @property
   def num_rewards(self):
     raise NotImplementedError()
 
@@ -151,14 +162,6 @@ class GymPongRandom5k(GymDiscreteProblem):
     return "PongDeterministic-v4"
 
   @property
-  def frame_height(self):
-    return 210
-
-  @property
-  def frame_width(self):
-    return 160
-
-  @property
   def min_reward(self):
     return -1
 
@@ -181,7 +184,36 @@ class GymPongRandom50k(GymPongRandom5k):
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgent(GymPongRandom5k):
+class GymFreewayRandom5k(GymDiscreteProblem):
+  """Freeway game, random actions."""
+
+  @property
+  def env_name(self):
+    return "FreewayDeterministic-v4"
+
+  @property
+  def min_reward(self):
+    return 0
+
+  @property
+  def num_rewards(self):
+    return 2
+
+  @property
+  def num_steps(self):
+    return 5000
+
+
+@registry.register_problem
+class GymFreewayRandom50k(GymFreewayRandom5k):
+  """Freeway game, random actions."""
+
+  @property
+  def num_steps(self):
+    return 50000
+
+
+class GymDiscreteProblemWithAgent(GymDiscreteProblem):
   """Gym environment with discrete actions and rewards and an agent."""
 
   def __init__(self, *args, **kwargs):
@@ -190,7 +222,7 @@ class GymDiscreteProblemWithAgent(GymPongRandom5k):
     self.debug_dump_frames_path = "debug_frames_env"
 
     # defaults
-    self.environment_spec = lambda: gym.make("PongDeterministic-v4")
+    self.environment_spec = lambda: gym.make(self.env_name)
     self.in_graph_wrappers = []
     self.collect_hparams = rl.atari_base()
     self.settable_num_steps = 20000
@@ -210,7 +242,7 @@ class GymDiscreteProblemWithAgent(GymPongRandom5k):
     generator_batch_env = batch_env_factory(
         self.environment_spec, env_hparams, num_agents=1, xvfb=False)
 
-    with tf.variable_scope("", reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       if FLAGS.agent_policy_path:
         policy_lambda = self.collect_hparams.network
       else:
@@ -223,7 +255,7 @@ class GymDiscreteProblemWithAgent(GymPongRandom5k):
           create_scope_now_=True,
           unique_name_="network")
 
-    with tf.variable_scope("", reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       self.collect_hparams.epoch_length = 10
       _, self.collect_trigger_op = collect.define_collect(
           policy_factory, generator_batch_env, self.collect_hparams,
@@ -238,6 +270,22 @@ class GymDiscreteProblemWithAgent(GymPongRandom5k):
           tf.global_variables(".*network_parameters.*"))
       model_saver.restore(sess, FLAGS.agent_policy_path)
 
+  def autoencode(self, image, sess):
+    with tf.Graph().as_default():
+      hparams = autoencoders.autoencoder_discrete_pong()
+      hparams.data_dir = "unused"
+      hparams.problem_hparams = self.get_hparams(hparams)
+      hparams.problem = self
+      model = autoencoders.AutoencoderOrderedDiscrete(
+          hparams, tf.estimator.ModeKeys.EVAL)
+      img = tf.constant(image)
+      img = tf.to_int32(tf.reshape(
+          img, [1, 1, self.frame_height, self.frame_width, self.num_channels]))
+      encoded = model.encode(img)
+      model_saver = tf.train.Saver(tf.global_variables())
+      model_saver.restore(sess, FLAGS.autoencoder_path)
+      return sess.run(encoded)
+
   def generate_encoded_samples(self, data_dir, tmp_dir, unused_dataset_split):
     self._setup()
     self.debug_dump_frames_path = os.path.join(
@@ -246,17 +294,14 @@ class GymDiscreteProblemWithAgent(GymPongRandom5k):
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
       self.restore_networks(sess)
-      # Actions are shifted by 1 by MemoryWrapper, compensate here.
-      avilable_data_size = sess.run(self.avilable_data_size_op)
-      if avilable_data_size < 1:
-        sess.run(self.collect_trigger_op)
       pieces_generated = 0
-      observ, reward, _, _ = sess.run(self.data_get_op)
       while pieces_generated < self.num_steps + self.warm_up:
         avilable_data_size = sess.run(self.avilable_data_size_op)
         if avilable_data_size < 1:
           sess.run(self.collect_trigger_op)
-        next_observ, next_reward, action, _ = sess.run(self.data_get_op)
+        observ, reward, action, _, img = sess.run(self.data_get_op)
+        if FLAGS.autoencoder_path:
+          observ = self.autoencode(img, sess)
         yield {"image/encoded": [observ],
                "image/format": ["png"],
                "image/height": [self.frame_height],
@@ -265,7 +310,6 @@ class GymDiscreteProblemWithAgent(GymPongRandom5k):
                "done": [int(False)],
                "reward": [int(reward) - self.min_reward]}
         pieces_generated += 1
-        observ, reward = next_observ, next_reward
 
 
 @registry.register_problem
@@ -286,3 +330,27 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
     ckpt = ckpts.model_checkpoint_path
     env_model_loader.restore(sess, ckpt)
+
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnPong(
+    GymSimulatedDiscreteProblemWithAgent, GymPongRandom5k):
+  pass
+
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnPong(
+    GymDiscreteProblemWithAgent, GymPongRandom5k):
+  pass
+
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnFreeway(
+    GymSimulatedDiscreteProblemWithAgent, GymFreewayRandom5k):
+  pass
+
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnFreeway(
+    GymDiscreteProblemWithAgent, GymFreewayRandom5k):
+  pass

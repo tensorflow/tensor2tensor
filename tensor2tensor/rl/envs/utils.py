@@ -275,7 +275,7 @@ class ExternalProcessEnv(object):
           break
         raise KeyError("Received message of unknown type {}".format(message))
     except Exception:  # pylint: disable=broad-except
-      stacktrace = "".join(traceback.format_exception(*sys.exc_info()))
+      stacktrace = "".join(traceback.format_exception(*sys.exc_info()))  # pylint: disable=no-value-for-parameter
       tf.logging.error("Error in environment process: {}".format(stacktrace))
       conn.send((self._EXCEPTION, stacktrace))
     conn.close()
@@ -287,7 +287,7 @@ def batch_env_factory(environment_lambda, hparams, num_agents, xvfb=False):
       hparams, "in_graph_wrappers") else []
 
   if hparams.simulated_environment:
-    cur_batch_env = define_simulated_batch_env(num_agents)
+    cur_batch_env = define_simulated_batch_env(environment_lambda, num_agents)
   else:
     cur_batch_env = define_batch_env(environment_lambda, num_agents, xvfb=xvfb)
   for w in wrappers:
@@ -306,12 +306,7 @@ def define_batch_env(constructor, num_agents, xvfb=False):
     return env
 
 
-def define_simulated_batch_env(num_agents):
-  # TODO(blazej0): the parameters should be infered.
-  observ_shape = (210, 160, 3)
-  observ_dtype = tf.float32
-  action_shape = []
-  action_dtype = tf.int32
+def define_simulated_batch_env(environment_lambda, num_agents):
   cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
-      num_agents, observ_shape, observ_dtype, action_shape, action_dtype)
+      environment_lambda, num_agents)
   return cur_batch_env

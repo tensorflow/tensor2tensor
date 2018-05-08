@@ -20,6 +20,7 @@ from __future__ import print_function
 
 # Dependency imports
 
+from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
 from tensor2tensor.models import basic
@@ -226,6 +227,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
                 name="residual_%d" % r)
           x += tf.nn.dropout(y, 1.0 - hparams.residual_dropout)
           x = common_layers.layer_norm(x)
+          x = common_attention.add_timing_signal_nd(x)
       return x
 
 
@@ -296,6 +298,9 @@ class AutoencoderResidualDiscrete(AutoencoderResidual):
 @registry.register_model
 class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
   """Ordered discrete autoencoder."""
+
+  def bottleneck_loss(self, unused_b):
+    return 0.0
 
   def bottleneck(self, x):
     hparams = self.hparams
@@ -418,7 +423,7 @@ def autoencoder_autoregressive():
   """Autoregressive autoencoder model."""
   hparams = basic.basic_autoencoder()
   hparams.add_hparam("autoregressive_forget_base", False)
-  hparams.add_hparam("autoregressive_mode", "conv3")
+  hparams.add_hparam("autoregressive_mode", "none")
   hparams.add_hparam("autoregressive_dropout", 0.4)
   hparams.add_hparam("autoregressive_decode_steps", 0)
   hparams.add_hparam("autoregressive_eval_pure_autoencoder", False)
@@ -429,10 +434,10 @@ def autoencoder_autoregressive():
 def autoencoder_residual():
   """Residual autoencoder model."""
   hparams = autoencoder_autoregressive()
-  hparams.optimizer = "Adam"
-  hparams.learning_rate_constant = 0.0001
+  hparams.optimizer = "Adafactor"
+  hparams.learning_rate_constant = 0.2
   hparams.learning_rate_warmup_steps = 500
-  hparams.learning_rate_schedule = "constant * linear_warmup"
+  hparams.learning_rate_schedule = "constant * linear_warmup * rsqrt_decay"
   hparams.dropout = 0.05
   hparams.num_hidden_layers = 5
   hparams.hidden_size = 64
@@ -491,6 +496,17 @@ def autoencoder_ordered_discrete():
   """Basic autoencoder model."""
   hparams = autoencoder_residual_discrete()
   hparams.bottleneck_noise = 1.0
+  return hparams
+
+
+@registry.register_hparams
+def autoencoder_discrete_pong():
+  """Discrete autoencoder model for compressing pong frames."""
+  hparams = autoencoder_ordered_discrete()
+  hparams.bottleneck_size = 24
+  hparams.dropout = 0.2
+  hparams.batch_size = 2
+  hparams.bottleneck_noise = 0.4
   return hparams
 
 
