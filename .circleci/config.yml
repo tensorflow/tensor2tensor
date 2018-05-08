@@ -8,7 +8,7 @@ jobs:
 
       - type: shell
         name: DockerHub login
-        command: &DOCKER_LOGIN docker login -u _json_key -p "$(cat ~/diseaseTools/gcloud/keys/google-auth.json)" https://gcr.io
+        command: &DOCKER_LOGIN docker login -u _json_key -p "$GOOGLE_CLOUD_KEY" https://gcr.io
 
       - type: shell
         name: Checkout diseaseTools repo
