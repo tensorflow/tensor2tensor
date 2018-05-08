@@ -41,6 +41,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   a tf.py_func(). The current batch of observations, actions, rewards, and done
   flags are held in according variables.
   """
+  NUMBER_OF_HISTORY_FRAMES = 2
 
   def __init__(self, environment_lambda, length):
     """Batch of environments inside the TensorFlow graph."""
@@ -74,6 +75,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
     shape = (self.length,) + initalization_env.observation_space.shape
     # TODO(blazej0) - make more generic - make higher number of
+    # and make it compatibile with NUMBER_OF_HISTORY_FRAMES
     #   previous observations possible.
     self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
     self._prev_observ = tf.Variable(tf.zeros(shape, tf.float32),
