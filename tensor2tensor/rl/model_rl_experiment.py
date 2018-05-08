@@ -119,10 +119,10 @@ def main(_):
   )
   hparams_small = tf.contrib.training.HParams(
       epochs=10,
-      true_env_generator_num_steps=50,
+      true_env_generator_num_steps=2000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
-      model_train_steps=100,
+      model_train_steps=1000,
       simulated_env_generator_num_steps=50,
       ppo_epochs_num=2000,
       ppo_epoch_length=300,

@@ -28,7 +28,6 @@ import gym
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.data_generators.gym_utils import decode_image_from_png, encode_image_to_png
-from tensor2tensor.data_generators.image_utils import decode_images_from_png, encode_images_as_png
 
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
@@ -263,6 +262,9 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self.settable_num_steps = 20000
     self.simulated_environment = None
     self.warm_up = 10 # PM:This should be probably removed
+    self.report_reward_statistics_every = 10
+    self.dones = 0
+
 
   @property
   def num_steps(self):
@@ -270,6 +272,9 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
 
   def _setup(self):
     self.real_ob, self.real_reward = self.real_env.reset(), 0
+    self.total_sim_reward, self.total_real_reward = 0.0, 0.0
+    self.successful_dones = 0
+
     in_graph_wrappers = [(atari.MemoryWrapper, {})] + self.in_graph_wrappers
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
@@ -336,15 +341,25 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         if avilable_data_size < 1:
           sess.run(self.collect_trigger_op)
         observ, reward, action, done, img = sess.run(self.data_get_op)
+        self.total_sim_reward += reward
         observ_numpy_img = decode_image_from_png(observ)
         err = np.ndarray.astype(np.maximum(np.abs(self.real_ob - observ_numpy_img, dtype=np.int) - 10, 0),
                                 np.uint8)
         debug_im_np = np.concatenate([observ_numpy_img, self.real_ob, err], axis=1)
         debug_im = encode_image_to_png(debug_im_np)
         if done:
+          self.dones += 1
+          self.successful_dones += 1 if self.total_real_reward==self.total_sim_reward else 0
+          if self.dones%self.report_reward_statistics_every==0:
+            print("Got correct total rewards {} out of {}:".format(self.successful_dones, self.report_reward_statistics_every))
+            self.successful_dones = 0
+
+          self.total_real_reward = 0.0
+          self.total_sim_reward = 0.0
           self.real_ob, self.real_reward = self.real_env.reset(), 0
         else:
           self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
+          self.total_real_reward += self.real_reward
         if FLAGS.autoencoder_path:
           observ = self.autoencode(img, sess)
         yield {"image/encoded": [observ],
