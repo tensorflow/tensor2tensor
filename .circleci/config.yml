@@ -25,7 +25,6 @@ jobs:
           docker pull gcr.io/fathom-containers/processing
           docker pull gcr.io/fathom-containers/processing:test
           docker pull gcr.io/fathom-containers/t2tgpu
-          docker pull gcr.io/fathom-containers/t2tgpu:test
 
       - type: shell
         name: Running tests
