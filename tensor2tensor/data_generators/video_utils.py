@@ -277,7 +277,11 @@ class VideoProblem(problem.Problem):
         path = os.path.join(self.debug_dump_frames_path,
                             "frame_%05d.png" % counter)
         with tf.gfile.Open(path, "wb") as f:
-          f.write(sample["image/encoded"][0])
+          if "image/encoded_debug" in sample:
+            img_to_save = sample["image/encoded_debug"][0]
+          else:
+            img_to_save = sample["image/encoded"][0]
+          f.write(img_to_save)
         counter += 1
       yield sample
 

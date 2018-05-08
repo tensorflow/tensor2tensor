@@ -56,12 +56,18 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.action_shape = list(initalization_env.action_space.shape)
     self.action_dtype = tf.int32
 
-    initalization_env.reset()
-    skip_frames = 20
-    for _ in range(skip_frames):
-      initalization_env.step(0)
-    obs_1 = initalization_env.step(0)[0]
-    obs_2 = initalization_env.step(0)[0]
+    if hasattr(initalization_env.env, "get_starting_data"):
+      starting_observations, _, _ = initalization_env.env.get_starting_data()
+      obs_1 = starting_observations[0]
+      obs_2 = starting_observations[1]
+    else:
+      # Ancient method for environments not supporting get_starting_data
+      initalization_env.reset()
+      skip_frames = 20
+      for _ in range(skip_frames):
+        initalization_env.step(0)
+      obs_1 = initalization_env.step(0)[0]
+      obs_2 = initalization_env.step(0)[0]
 
     self.frame_1 = tf.expand_dims(tf.cast(obs_1, tf.float32), 0)
     self.frame_2 = tf.expand_dims(tf.cast(obs_2, tf.float32), 0)
