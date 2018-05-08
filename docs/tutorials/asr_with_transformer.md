@@ -45,14 +45,34 @@ approximately 80,000 steps.
 
 ## Training on Cloud TPUs
 
-To train a model on TPU set up `OUT_DIR` and run the trainer:
+To train a model on TPU set up `OUT_DIR` and run the trainer with big batches
+and truncated sequences:
 
 ```
 t2t-trainer \
   --model=transformer \
   --hparams_set=transformer_librispeech_tpu \
+  --hparams=max_length=125550,max_input_seq_length=1550,max_target_seq_length=350,batch_size=16 \
   --problem=librispeech \
-  --train_steps=120000 \
+  --train_steps=210000 \
+  --eval_steps=3 \
+  --local_eval_frequency=100 \
+  --data_dir=$DATA_DIR \
+  --output_dir=$OUT_DIR \
+  --cloud_tpu \
+  --cloud_delete_on_done
+```
+
+After this step is compleated run the training again for more steps with smaller
+batch size and full sequences:
+
+```
+t2t-trainer \
+  --model=transformer \
+  --hparams_set=transformer_librispeech_tpu \
+  --hparams=max_length=295650,max_input_seq_length=3650,max_target_seq_length=650,batch_size=6 \
+  --problem=librispeech \
+  --train_steps=230000 \
   --eval_steps=3 \
   --local_eval_frequency=100 \
   --data_dir=$DATA_DIR \
