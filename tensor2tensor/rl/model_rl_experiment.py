@@ -95,11 +95,10 @@ def train(hparams, output_dir):
     ppo_hparams.epoch_length = hparams.ppo_epoch_length
     ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
     in_graph_wrappers = [
-        (TimeLimitWrapper, {"timelimit": 150}),
-        (ShiftRewardWrapper, {"add_value": -2})]
+        (TimeLimitWrapper, {"timelimit": hparams.ppo_time_limit})]
     in_graph_wrappers += gym_problem.in_graph_wrappers
     ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
-    ppo_hparams.num_agents = 1
+    ppo_hparams.num_agents = hparams.ppo_num_agents
     rl_trainer_lib.train(ppo_hparams, gym_simulated_problem.env_name, ppo_dir)
 
     last_model = ppo_dir + "/model{}.ckpt".format(ppo_epochs_num)
@@ -119,13 +118,16 @@ def main(_):
   )
   hparams_small = tf.contrib.training.HParams(
       epochs=10,
-      true_env_generator_num_steps=2000,
+      true_env_generator_num_steps=300,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
-      model_train_steps=1000,
-      simulated_env_generator_num_steps=50,
+      model_train_steps=100,
+      simulated_env_generator_num_steps=210,
       ppo_epochs_num=2000,
       ppo_epoch_length=300,
+      ppo_time_limit=200, #Our simulated envs do not know how to reset. You should set ppo_time_limit,
+                          #  to the value, you believe that the simulated env produces a reasonable output
+      ppo_num_agents=1,
       game="wrapped_pong",
   )
 
