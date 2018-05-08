@@ -21,6 +21,8 @@ from gym.envs import register
 from gym.spaces import *
 import numpy as np
 
+from tensor2tensor.rl.envs import simulated_batch_env
+
 
 class WarmupWrapper(Wrapper):
 
@@ -30,10 +32,10 @@ class WarmupWrapper(Wrapper):
     self.warm_up_action = 0
     self.observation_space = Box(low=0, high=255, shape=(210, 160, 3), dtype=np.uint8)
 
-  def get_starting_data(self, number_of_frames=2):
+  def get_starting_data(self):
     self.reset()
     starting_observations, starting_actions, starting_rewards = [], [], []
-    for _ in range(number_of_frames):
+    for _ in range(simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES):
       observation, rew, _, _ = self.env.step(self.warm_up_action)
       starting_observations.append(observation)
       starting_rewards.append(rew)

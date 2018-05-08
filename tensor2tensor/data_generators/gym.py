@@ -32,6 +32,8 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
+from tensor2tensor.rl.envs import simulated_batch_env
+from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.rl.envs.utils import batch_env_factory
 
 from tensor2tensor.utils import metrics
@@ -252,17 +254,15 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     super(GymDiscreteProblemWithAgent, self).__init__(*args, **kwargs)
     self._env = None
     self.debug_dump_frames_path = "debug_frames_env"
+    self.make_extra_debug_info = False
 
     # defaults
     self.environment_spec = lambda: gym.make(self.env_name)
-    self.real_env = self.environment_spec()
     self.in_graph_wrappers = []
     self.collect_hparams = rl.atari_base()
     self.settable_num_steps = 20000
     self.simulated_environment = None
     self.warm_up = 10 # PM:This should be probably removed
-    self.report_reward_statistics_every = 10
-    self.dones = 0
 
 
   @property
@@ -270,11 +270,18 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     return self.settable_num_steps
 
   def _setup(self):
-    self.real_ob, self.real_reward = self.real_env.reset(), 0
-    self.total_sim_reward, self.total_real_reward = 0.0, 0.0
-    self.successful_dones = 0
+    if self.make_extra_debug_info:
+      self.report_reward_statistics_every = 10
+      self.dones = 0
+      self.real_reward = 0
+      self.real_env.reset()
+      # Slight weirdness to make sim env and real env aligned
+      for _ in range(simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES):
+        self.real_ob, _, _, _ = self.real_env.step(0)
+      self.total_sim_reward, self.total_real_reward = 0.0, 0.0
+      self.successful_dones = 0
 
-    in_graph_wrappers = [(atari.MemoryWrapper, {})] + self.in_graph_wrappers
+    in_graph_wrappers = self.in_graph_wrappers + [(atari.MemoryWrapper, {})]
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
         simulated_environment=self.simulated_environment)
@@ -341,35 +348,45 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         if avilable_data_size < 1:
           sess.run(self.collect_trigger_op)
         observ, reward, action, done, img = sess.run(self.data_get_op)
-        self.total_sim_reward += reward
-        observ_numpy_img = decode_image_from_png(observ)
-        err = np.ndarray.astype(np.maximum(np.abs(self.real_ob - observ_numpy_img, dtype=np.int) - 10, 0),
-                                np.uint8)
-        debug_im_np = np.concatenate([observ_numpy_img, self.real_ob, err], axis=1)
-        debug_im = encode_image_to_png(debug_im_np)
-        if done:
-          self.dones += 1
-          self.successful_dones += 1 if self.total_real_reward==self.total_sim_reward else 0
-          if self.dones%self.report_reward_statistics_every==0:
-            print("Got correct total rewards {} out of {}:".format(self.successful_dones, self.report_reward_statistics_every))
-            self.successful_dones = 0
+        debug_im = None
+        if self.make_extra_debug_info:
+          self.total_sim_reward += reward
+          observ_numpy_img = decode_image_from_png(observ)
+          err = np.ndarray.astype(np.maximum(np.abs(self.real_ob - observ_numpy_img, dtype=np.int) - 10, 0),
+                                  np.uint8)
+          debug_im_np = np.concatenate([observ_numpy_img, self.real_ob, err], axis=1)
+          debug_im = encode_image_to_png(debug_im_np)
+          if done:
+            self.dones += 1
+            self.successful_dones += 1 if self.total_real_reward==self.total_sim_reward else 0
+            if self.dones%self.report_reward_statistics_every==0:
+              print("Got correct total rewards {} out of {}:".format(self.successful_dones, self.report_reward_statistics_every))
+              self.successful_dones = 0
 
-          self.total_real_reward = 0.0
-          self.total_sim_reward = 0.0
-          self.real_ob, self.real_reward = self.real_env.reset(), 0
-        else:
-          self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
-          self.total_real_reward += self.real_reward
+            self.total_real_reward = 0.0
+            self.total_sim_reward = 0.0
+            self.real_reward = 0
+            self.real_env.reset()
+            # Slight weirdness to make sim env and real env aligned
+            for _ in range(simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES):
+              self.real_ob, _, _, _ = self.real_env.step(0)
+          else:
+            self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
+            self.total_real_reward += self.real_reward
         if FLAGS.autoencoder_path:
           observ = self.autoencode(img, sess)
-        yield {"image/encoded": [observ],
-               "image/encoded_debug": [debug_im],
+        ret_dict =  {"image/encoded": [observ],
                "image/format": ["png"],
                "image/height": [self.frame_height],
                "image/width": [self.frame_width],
                "action": [int(action)],
                "done": [int(False)],
                "reward": [int(reward) - self.min_reward]}
+
+        if self.make_extra_debug_info:
+          ret_dict["image/encoded_debug"] = [debug_im]
+
+        yield ret_dict
         pieces_generated += 1
 
 
@@ -380,6 +397,16 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
   def __init__(self, *args, **kwargs):
     super(GymSimulatedDiscreteProblemWithAgent, self).__init__(*args, **kwargs)
     self.simulated_environment = True
+    self.make_extra_debug_info = True
+    self.real_env = self.environment_spec()
+
+    try:
+      #we assume that the real env is wrapped with TimeLimit
+      timelimit = self._max_episode_steps - simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
+    except:
+      #if not set some reasonable default
+      timelimit = 100
+    self.in_graph_wrappers.append((TimeLimitWrapper, {"timelimit": timelimit}))
     self.debug_dump_frames_path = "debug_frames_sim"
 
   def restore_networks(self, sess):
