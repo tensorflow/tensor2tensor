@@ -38,6 +38,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+import numpy as np
 
 
 flags = tf.flags
@@ -182,6 +183,37 @@ class GymPongRandom50k(GymPongRandom5k):
   def num_steps(self):
     return 50000
 
+@registry.register_problem
+class GymWrappedPongRandom5k(GymDiscreteProblem):
+  """Pong game, random actions."""
+
+  @property
+  def env_name(self):
+    #enforces registering environment T2TPongWarmUp20RewSkip1000Steps-v1
+    import tensor2tensor.data_generators.gym_utils
+    return "T2TPongWarmUp20RewSkip1000Steps-v1"
+
+  @property
+  def min_reward(self):
+    return -1
+
+  @property
+  def num_rewards(self):
+    return 3
+
+  @property
+  def num_steps(self):
+    return 5000
+
+
+@registry.register_problem
+class GymWrappedPongRandom50k(GymPongRandom5k):
+  """Pong game, random actions."""
+
+  @property
+  def num_steps(self):
+    return 50000
+
 
 @registry.register_problem
 class GymFreewayRandom5k(GymDiscreteProblem):
@@ -223,17 +255,25 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
 
     # defaults
     self.environment_spec = lambda: gym.make(self.env_name)
+    self.real_env = self.environment_spec()
     self.in_graph_wrappers = []
     self.collect_hparams = rl.atari_base()
     self.settable_num_steps = 20000
     self.simulated_environment = None
-    self.warm_up = 10
+    self.warm_up = 10 # PM:This should be probably removed
+    self.report_reward_statistics_every = 10
+    self.dones = 0
+
 
   @property
   def num_steps(self):
     return self.settable_num_steps
 
   def _setup(self):
+    self.real_ob, self.real_reward = self.real_env.reset(), 0
+    self.total_sim_reward, self.total_real_reward = 0.0, 0.0
+    self.successful_dones = 0
+
     in_graph_wrappers = [(atari.MemoryWrapper, {})] + self.in_graph_wrappers
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
@@ -287,6 +327,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       return sess.run(encoded)
 
   def generate_encoded_samples(self, data_dir, tmp_dir, unused_dataset_split):
+    from tensor2tensor.data_generators.gym_utils import decode_image_from_png, encode_image_to_png
     self._setup()
     self.debug_dump_frames_path = os.path.join(
         data_dir, self.debug_dump_frames_path)
@@ -299,10 +340,30 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         avilable_data_size = sess.run(self.avilable_data_size_op)
         if avilable_data_size < 1:
           sess.run(self.collect_trigger_op)
-        observ, reward, action, _, img = sess.run(self.data_get_op)
+        observ, reward, action, done, img = sess.run(self.data_get_op)
+        self.total_sim_reward += reward
+        observ_numpy_img = decode_image_from_png(observ)
+        err = np.ndarray.astype(np.maximum(np.abs(self.real_ob - observ_numpy_img, dtype=np.int) - 10, 0),
+                                np.uint8)
+        debug_im_np = np.concatenate([observ_numpy_img, self.real_ob, err], axis=1)
+        debug_im = encode_image_to_png(debug_im_np)
+        if done:
+          self.dones += 1
+          self.successful_dones += 1 if self.total_real_reward==self.total_sim_reward else 0
+          if self.dones%self.report_reward_statistics_every==0:
+            print("Got correct total rewards {} out of {}:".format(self.successful_dones, self.report_reward_statistics_every))
+            self.successful_dones = 0
+
+          self.total_real_reward = 0.0
+          self.total_sim_reward = 0.0
+          self.real_ob, self.real_reward = self.real_env.reset(), 0
+        else:
+          self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
+          self.total_real_reward += self.real_reward
         if FLAGS.autoencoder_path:
           observ = self.autoencode(img, sess)
         yield {"image/encoded": [observ],
+               "image/encoded_debug": [debug_im],
                "image/format": ["png"],
                "image/height": [self.frame_height],
                "image/width": [self.frame_width],
@@ -342,6 +403,17 @@ class GymSimulatedDiscreteProblemWithAgentOnPong(
 class GymDiscreteProblemWithAgentOnPong(
     GymDiscreteProblemWithAgent, GymPongRandom5k):
   pass
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
+    GymSimulatedDiscreteProblemWithAgent, GymWrappedPongRandom5k):
+  pass
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedPong(
+    GymDiscreteProblemWithAgent, GymWrappedPongRandom5k):
+  pass
+
 
 
 @registry.register_problem
