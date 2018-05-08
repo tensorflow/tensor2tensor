@@ -275,7 +275,7 @@ class ExternalProcessEnv(object):
           break
         raise KeyError("Received message of unknown type {}".format(message))
     except Exception:  # pylint: disable=broad-except
-      stacktrace = "".join(traceback.format_exception(*sys.exc_info()))
+      stacktrace = "".join(traceback.format_exception(*sys.exc_info()))  # pylint: disable=no-value-for-parameter
       tf.logging.error("Error in environment process: {}".format(stacktrace))
       conn.send((self._EXCEPTION, stacktrace))
     conn.close()
@@ -307,5 +307,6 @@ def define_batch_env(constructor, num_agents, xvfb=False):
 
 
 def define_simulated_batch_env(environment_lambda, num_agents):
-  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(environment_lambda, num_agents)
+  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
+      environment_lambda, num_agents)
   return cur_batch_env

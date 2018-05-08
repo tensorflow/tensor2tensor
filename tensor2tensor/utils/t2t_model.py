@@ -280,10 +280,13 @@ class T2TModel(base.Layer):
     target_modality = self._problem_hparams.target_modality
     if isinstance(target_modality, dict):
       for k, v in six.iteritems(target_modality):
-        with tf.variable_scope(
-            "%s/%s" % (v.name, k)):  # TODO(aidangomez): share variables?
-          log_info("Transforming '%s' with %s.targets_bottom", k, v.name)
-          transformed_features[k] = v.targets_bottom(features[k])
+        if k in features:
+          with tf.variable_scope(
+              "%s/%s" % (v.name, k)):  # TODO(aidangomez): share variables?
+            log_info("Transforming '%s' with %s.targets_bottom", k, v.name)
+            transformed_features[k] = v.targets_bottom(features[k])
+        else:
+          tf.logging.warn("Modality not found in features: %s", k)
     else:
       with tf.variable_scope(target_modality.name):
         if "targets" in features:

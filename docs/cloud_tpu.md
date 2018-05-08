@@ -18,6 +18,11 @@ See the official tutorial for [running Transformer
 on Cloud TPUs](https://cloud.google.com/tpu/docs/tutorials/transformer)
 for some examples and try out your own problems.
 
+You can train an Automatic Speech Recognition (ASR) model with Transformer
+on TPU by using `transformer` as `model` with `transformer_librispeech_tpu` as
+`hparams_set` and `librispeech` as `problem`. See this [tutorial](tutorials/ast_with_transformer.md) for more details on training it and this
+[notebook](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/asr_transformer.ipynb) to see how the resulting model transcribes your speech to text.
+
 Image Transformer:
 * `imagetransformer` with `imagetransformer_base_tpu` (or
     `imagetransformer_tiny_tpu`)

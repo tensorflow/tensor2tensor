@@ -1,9 +1,12 @@
 # Automatic Speech Recognition (ASR) with Transformer
 
+Check out the [Automatic Speech Recognition notebook](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/asr_transformer.ipynb) to see how the resulting model transcribes your speech to text.
+
 ## Data set
 
 This tutorial uses the publicly available
 [Librispeech](http://www.openslr.org/12/) ASR corpus.
+
 
 ## Generate the dataset
 

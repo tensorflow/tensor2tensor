@@ -22,6 +22,7 @@ from __future__ import print_function
 
 import six
 
+from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -106,6 +107,7 @@ class BasicConvGen(t2t_model.T2TModel):
         shape = common_layers.shape_list(y)
         x = x[:, :shape[1], :shape[2], :]
         x = common_layers.layer_norm(x + y)
+        x = common_attention.add_timing_signal_nd(x)
 
     # Cut down to original size.
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
@@ -167,14 +169,14 @@ def basic_conv():
   hparams.batch_size = 8
   hparams.num_hidden_layers = 2
   hparams.optimizer = "Adafactor"
-  hparams.learning_rate_constant = 0.5
+  hparams.learning_rate_constant = 1.5
   hparams.learning_rate_warmup_steps = 1500
   hparams.learning_rate_schedule = "linear_warmup * constant * rsqrt_decay"
   hparams.label_smoothing = 0.0
   hparams.initializer = "uniform_unit_scaling"
   hparams.initializer_gain = 1.0
   hparams.weight_decay = 0.0
-  hparams.dropout = 0.2
+  hparams.dropout = 0.5
   hparams.add_hparam("num_compress_steps", 6)
   hparams.add_hparam("filter_double_steps", 5)
   return hparams

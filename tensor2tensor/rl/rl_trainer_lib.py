@@ -34,6 +34,8 @@ from tensor2tensor.rl.envs import utils
 import tensorflow as tf
 
 
+
+
 def define_train(hparams, environment_spec, event_dir):
   """Define the training setup."""
   policy_lambda = hparams.network
@@ -42,7 +44,7 @@ def define_train(hparams, environment_spec, event_dir):
     environment_spec = lambda: gym.make("PongNoFrameskip-v4")
     wrappers = hparams.in_graph_wrappers if hasattr(
         hparams, "in_graph_wrappers") else []
-    wrappers.append((tf_atari_wrappers.MaxAndSkipEnv, {"skip": 4}))
+    wrappers.append((tf_atari_wrappers.MaxAndSkipWrapper, {"skip": 4}))
     hparams.in_graph_wrappers = wrappers
   if isinstance(environment_spec, str):
     env_lambda = lambda: gym.make(environment_spec)
@@ -56,10 +58,11 @@ def define_train(hparams, environment_spec, event_dir):
       "network",
       functools.partial(policy_lambda, batch_env.action_space, hparams))
 
-  memory, collect_summary = collect.define_collect(
-      policy_factory, batch_env, hparams, eval_phase=False)
-  ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
-  summary = tf.summary.merge([collect_summary, ppo_summary])
+  with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+    memory, collect_summary = collect.define_collect(
+        policy_factory, batch_env, hparams, eval_phase=False)
+    ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
+    summary = tf.summary.merge([collect_summary, ppo_summary])
 
   with tf.variable_scope("eval", reuse=tf.AUTO_REUSE):
     eval_env_lambda = env_lambda

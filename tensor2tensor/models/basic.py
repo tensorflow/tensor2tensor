@@ -30,6 +30,7 @@ import tensorflow as tf
 
 @registry.register_model
 class BasicFcRelu(t2t_model.T2TModel):
+  """Basic fully-connected + ReLU model."""
 
   def body(self, features):
     hparams = self.hparams
@@ -49,6 +50,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
 
   def __init__(self, *args, **kwargs):
     super(BasicAutoencoder, self).__init__(*args, **kwargs)
+    self.cur_bottleneck_tensor = None
     self.is1d = None
 
   def bottleneck(self, x):
@@ -120,6 +122,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
       x = self.encoder(x)
       # Bottleneck (mix during early training, not too important but stable).
       b = self.bottleneck(x)
+      self.cur_bottleneck_tensor = b
       b_loss = self.bottleneck_loss(b)
       b = self.unbottleneck(b, common_layers.shape_list(x)[-1])
       b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
@@ -153,8 +156,13 @@ class BasicAutoencoder(t2t_model.T2TModel):
     # Sample in [-1, 1] as the bottleneck is under tanh.
     return 2.0 * tf.random_uniform(size) - 1.0
 
-  def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
-            alpha=0.0):
+  def encode(self, x, *args, **kwargs):
+    """Auto-encode x and return the bottleneck."""
+    features = {"targets": x}
+    self(features)  # pylint: disable=not-callable
+    return self.cur_bottleneck_tensor
+
+  def infer(self, features, *args, **kwargs):
     """Produce predictions from the model by sampling."""
     # Inputs and features preparation needed to handle edge cases.
     if not features:

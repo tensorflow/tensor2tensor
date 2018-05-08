@@ -21,18 +21,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-
 # Dependency imports
-
-import gym
 
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
-import numpy as np
 
 
 flags = tf.flags
@@ -61,14 +56,19 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.action_shape = list(initalization_env.action_space.shape)
     self.action_dtype = tf.int32
 
-    obs_1 = initalization_env.reset()
+    initalization_env.reset()
+    skip_frames = 20
+    for _ in range(skip_frames):
+      initalization_env.step(0)
+    obs_1 = initalization_env.step(0)[0]
     obs_2 = initalization_env.step(0)[0]
 
     self.frame_1 = tf.expand_dims(tf.cast(obs_1, tf.float32), 0)
     self.frame_2 = tf.expand_dims(tf.cast(obs_2, tf.float32), 0)
 
     shape = (self.length,) + initalization_env.observation_space.shape
-    # TODO(blazej0) - make more generic - make higher number of previous observations possible.
+    # TODO(blazej0) - make more generic - make higher number of
+    #   previous observations possible.
     self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
     self._prev_observ = tf.Variable(tf.zeros(shape, tf.float32),
                                     trainable=False)
@@ -91,6 +91,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
         model_output = self._model.infer(inputs)
       observ = model_output["targets"]
       observ = tf.cast(observ[:, 0, :, :, :], tf.float32)
+      # TODO(lukaszkaiser): instead of -1 use min_reward in the line below.
       reward = model_output["target_reward"][:, 0, 0, 0] - 1
       reward = tf.cast(reward, tf.float32)
       done = tf.constant(False, tf.bool, shape=(self.length,))

@@ -290,7 +290,8 @@ class Transformer(t2t_model.T2TModel):
       if target_modality.is_class_modality:
         decode_length = 1
       else:
-        decode_length = common_layers.shape_list(inputs)[1] + decode_length
+        decode_length = (common_layers.shape_list(inputs)[1] +
+                         features.get("decode_length", decode_length))
 
       # TODO(llion): Clean up this reshaping logic.
       inputs = tf.expand_dims(inputs, axis=1)
@@ -327,7 +328,8 @@ class Transformer(t2t_model.T2TModel):
       partial_targets = tf.to_int64(partial_targets)
       partial_targets_shape = common_layers.shape_list(partial_targets)
       partial_targets_length = partial_targets_shape[1]
-      decode_length += partial_targets_length
+      decode_length = (partial_targets_length +
+                       features.get("decode_length", decode_length))
       batch_size = partial_targets_shape[0]
 
     if hparams.pos == "timing":
@@ -412,7 +414,8 @@ class Transformer(t2t_model.T2TModel):
         beam_size=beam_size,
         top_beams=top_beams,
         alpha=alpha,
-        batch_size=batch_size)
+        batch_size=batch_size,
+        force_decode_length=self._decode_hparams.force_decode_length)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -431,7 +434,8 @@ def fast_decode(encoder_output,
                 top_beams=1,
                 alpha=1.0,
                 eos_id=beam_search.EOS_ID,
-                batch_size=None):
+                batch_size=None,
+                force_decode_length=False):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding, uses beam search iff
@@ -452,6 +456,8 @@ def fast_decode(encoder_output,
       the preference for longer translations.
     eos_id: End-of-sequence symbol in beam search.
     batch_size: an integer scalar - must be passed if there is no input
+    force_decode_length: bool, whether to force the full decode length, or if
+      False, stop when all beams hit eos_id.
 
   Returns:
       A dict of decoding results {
@@ -505,14 +511,14 @@ def fast_decode(encoder_output,
       scores = scores[:, :top_beams]
   else:  # Greedy
 
-    def inner_loop(i, finished, next_id, decoded_ids, cache, log_prob):
+    def inner_loop(i, hit_eos, next_id, decoded_ids, cache, log_prob):
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
       temperature = (0.0 if hparams.sampling_method == "argmax" else
                      hparams.sampling_temp)
       next_id = common_layers.sample_with_temperature(logits, temperature)
-      finished |= tf.equal(next_id, eos_id)
+      hit_eos |= tf.equal(next_id, eos_id)
 
       log_prob_indices = tf.stack(
           [tf.range(tf.to_int64(batch_size)), next_id], axis=1)
@@ -520,19 +526,22 @@ def fast_decode(encoder_output,
 
       next_id = tf.expand_dims(next_id, axis=1)
       decoded_ids = tf.concat([decoded_ids, next_id], axis=1)
-      return i + 1, finished, next_id, decoded_ids, cache, log_prob
+      return i + 1, hit_eos, next_id, decoded_ids, cache, log_prob
 
-    def is_not_finished(i, finished, *_):
-      return (i < decode_length) & tf.logical_not(tf.reduce_all(finished))
+    def is_not_finished(i, hit_eos, *_):
+      finished = i >= decode_length
+      if not force_decode_length:
+        finished |= tf.reduce_all(hit_eos)
+      return tf.logical_not(finished)
 
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
-    finished = tf.fill([batch_size], False)
+    hit_eos = tf.fill([batch_size], False)
     next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
     initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
     _, _, _, decoded_ids, _, log_prob = tf.while_loop(
         is_not_finished,
         inner_loop, [
-            tf.constant(0), finished, next_id, decoded_ids, cache,
+            tf.constant(0), hit_eos, next_id, decoded_ids, cache,
             initial_log_prob
         ],
         shape_invariants=[
@@ -1094,6 +1103,7 @@ def transformer_base_v2():
 
 @registry.register_hparams
 def transformer_base():
+  """Base parameters for Transformer model."""
   # Update parameters here, then occasionally cut a versioned set, e.g.
   # transformer_base_v2.
   hparams = transformer_base_v2()
@@ -1607,8 +1617,8 @@ def transformer_lm_tpu_1():
 
 
 @registry.register_hparams
-def transformer_librispeech():
-  """HParams for training ASR model on Librispeech."""
+def transformer_librispeech_v1():
+  """HParams for training ASR model on LibriSpeech V1."""
   hparams = transformer_base()
 
   hparams.num_heads = 4
@@ -1624,14 +1634,62 @@ def transformer_librispeech():
 
 
 @registry.register_hparams
-def transformer_librispeech_tpu():
-  """HParams for training ASR model on Librispeech on TPU."""
-  hparams = transformer_librispeech()
+def transformer_librispeech_v2():
+  """HParams for training ASR model on LibriSpeech V2."""
+  hparams = transformer_base()
+
+  hparams.max_length = 1240000
+  hparams.max_input_seq_length = 1550
+  hparams.max_target_seq_length = 350
+  hparams.batch_size = 16
+  hparams.num_decoder_layers = 4
+  hparams.num_encoder_layers = 6
+  hparams.hidden_size = 384
+  hparams.learning_rate = 0.15
+  hparams.daisy_chain_variables = False
+  hparams.filter_size = 1536
+  hparams.num_heads = 2
+  hparams.ffn_layer = "conv_relu_conv"
+  hparams.conv_first_kernel = 9
+  hparams.weight_decay = 0
+  hparams.layer_prepostprocess_dropout = 0.2
+  hparams.relu_dropout = 0.2
+
+  return hparams
+
+
+@registry.register_hparams
+def transformer_librispeech_tpu_v1():
+  """HParams for training ASR model on Librispeech on TPU v1."""
+  hparams = transformer_librispeech_v1()
   update_hparams_for_tpu(hparams)
 
-  hparams.batch_size = 32
+  hparams.batch_size = 16
   librispeech.set_librispeech_length_hparams(hparams)
   return hparams
+
+
+@registry.register_hparams
+def transformer_librispeech_tpu_v2():
+  """HParams for training ASR model on Librispeech on TPU v2."""
+  hparams = transformer_librispeech_v2()
+  update_hparams_for_tpu(hparams)
+
+  hparams.batch_size = 16
+  librispeech.set_librispeech_length_hparams(hparams)
+  return hparams
+
+
+@registry.register_hparams
+def transformer_librispeech():
+  """HParams for training ASR model on Librispeech."""
+  return transformer_librispeech_v2()
+
+
+@registry.register_hparams
+def transformer_librispeech_tpu():
+  """HParams for training ASR model on Librispeech on TPU."""
+  return transformer_librispeech_tpu_v2()
 
 
 @registry.register_hparams

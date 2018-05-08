@@ -212,6 +212,55 @@ class RTransformer(transformer.Transformer):
 
     return decoder_output
 
+  def _greedy_infer(self, features, decode_length):
+    """Fast version of greedy decoding.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+
+    Returns:
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": decoding log probs from the beam search,
+              None if using greedy decoding (beam_size=1)
+      }
+
+    Raises:
+      NotImplementedError: If there are multiple data shards.
+    """
+    with tf.variable_scope(self.name):
+      # TODO(dehghani): Support fast decoding for r-transofmer (needs caching)
+      return self._slow_greedy_infer(features, decode_length)
+
+  def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
+    """Beam search decoding.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+      beam_size: number of beams.
+      top_beams: an integer. How many of the beams to return.
+      alpha: Float that controls the length penalty. larger the alpha, stronger
+        the preference for longer translations.
+
+    Returns:
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": decoding log probs from the beam search,
+              None if using greedy decoding (beam_size=1)
+      }
+    """
+    with tf.variable_scope(self.name):
+      # Caching is not ebabled in r-transformer
+      # TODO(dehghani): Support fast decoding for r-transofmer(needs caching)
+      return self._beam_decode_slow(features, decode_length, beam_size,
+                                    top_beams, alpha)
+
 
 @registry.register_model
 class RTransformerEncoder(transformer.Transformer):
@@ -299,8 +348,11 @@ def update_hparams_for_r_transformer(hparams):
     hparams with default values for R-Transformers hyper-parameters
 
   """
+  # If true, mixes vanilla transfomer with r-transformer.
+  hparams.add_hparam("mix_with_transformer", False)
+
   # Type of recurrency:
-  # None(no-recurrency) basic, highway, skip, dwa, act, rnn, gru, lstm.
+  # basic, highway, skip, dwa, act, rnn, gru, lstm.
   hparams.add_hparam("recurrence_type", "basic")
 
   # Number of steps (which is equivalent to num layer in transformer).
@@ -848,5 +900,35 @@ def r_transformer_step_position_timing_base():
   hparams = r_transformer_base()
   hparams.add_position_timing_signal = True
   hparams.pos = None
+  hparams.add_step_timing_signal = True
+  return hparams
+
+
+@registry.register_hparams
+def r_mix_transformer_base():
+  hparams = r_transformer_base()
+  hparams.mix_with_transformer = True
+  return hparams
+
+
+@registry.register_hparams
+def r_mix_transformer_act_step_position_timing_base():
+  hparams = r_transformer_base()
+  hparams.mix_with_transformer = True
+  hparams.recurrence_type = "act"
+  hparams.add_position_timing_signal = True
+  hparams.pos = None
+  hparams.add_step_timing_signal = True
+  return hparams
+
+
+@registry.register_hparams
+def r_mix_transformer_act_step_position_random_timing_base():
+  hparams = r_transformer_base()
+  hparams.mix_with_transformer = True
+  hparams.recurrence_type = "act"
+  hparams.add_position_timing_signal = True
+  hparams.pos = None
+  hparams.position_start_index = "random"
   hparams.add_step_timing_signal = True
   return hparams
