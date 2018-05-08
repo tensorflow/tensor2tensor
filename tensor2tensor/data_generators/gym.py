@@ -333,7 +333,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       model_saver.restore(sess, FLAGS.autoencoder_path)
       return sess.run(encoded)
 
-  def generate_encoded_samples(self, data_dir, tmp_dir, unused_dataset_split):
+  def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
     from tensor2tensor.data_generators.gym_utils import decode_image_from_png, encode_image_to_png
     self._setup()
     self.debug_dump_frames_path = os.path.join(
@@ -347,14 +347,13 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         avilable_data_size = sess.run(self.avilable_data_size_op)
         if avilable_data_size < 1:
           sess.run(self.collect_trigger_op)
-        observ, reward, action, done, img = sess.run(self.data_get_op)
+        observ, reward, action, done = sess.run(self.data_get_op)
         debug_im = None
         if self.make_extra_debug_info:
           self.total_sim_reward += reward
-          observ_numpy_img = decode_image_from_png(observ)
-          err = np.ndarray.astype(np.maximum(np.abs(self.real_ob - observ_numpy_img, dtype=np.int) - 10, 0),
+          err = np.ndarray.astype(np.maximum(np.abs(self.real_ob - observ, dtype=np.int) - 10, 0),
                                   np.uint8)
-          debug_im_np = np.concatenate([observ_numpy_img, self.real_ob, err], axis=1)
+          debug_im_np = np.concatenate([observ, self.real_ob, err], axis=1)
           debug_im = encode_image_to_png(debug_im_np)
           if done:
             self.dones += 1
@@ -374,8 +373,8 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
             self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
             self.total_real_reward += self.real_reward
         if FLAGS.autoencoder_path:
-          observ = self.autoencode(img, sess)
-        ret_dict =  {"image/encoded": [observ],
+          observ = self.autoencode(observ, sess)
+        ret_dict =  {"frame": observ,
                "image/format": ["png"],
                "image/height": [self.frame_height],
                "image/width": [self.frame_width],
