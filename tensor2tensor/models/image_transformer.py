@@ -667,14 +667,16 @@ def update_hparams_for_tpu(hparams):
 
 @registry.register_hparams
 def imagetransformer_base_tpu():
-  hparams = imagetransformer_base()
+  """Transformer base params for cifar-10."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
   update_hparams_for_tpu(hparams)
   hparams.batch_size = 4
   hparams.num_heads = 4   # heads are expensive on tpu
-  hparams.hidden_size = 256
-  hparams.filter_size = 512
-  hparams.num_hidden_layers = 8
-  hparams.sampling_method = "random"
+  hparams.num_decoder_layers = 12
+  hparams.block_length = 128
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.3
   return hparams
 
 
@@ -691,11 +693,16 @@ def imagetransformer_sep_channels_8l_tpu():
 
 @registry.register_hparams
 def imagetransformer_b10l_4h_big_uncond_dr03_tpu():
+  """Small model for tpu cifar 10."""
   hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
   update_hparams_for_tpu(hparams)
   hparams.batch_size = 4
   hparams.num_heads = 4   # heads are expensive on tpu
   hparams.num_decoder_layers = 10
+  hparams.block_length = 128
+  hparams.hidden_size = 256
+  hparams.filter_size = 1024
+  hparams.learning_rate = 0.2
   hparams.layer_preprocess_sequence = "none"
   hparams.layer_postprocess_sequence = "dan"
   return hparams
@@ -740,6 +747,8 @@ def imagetransformer_b12l_4h_big_uncond_dr03_tpu():
   hparams.num_heads = 4   # heads are expensive on tpu
   hparams.num_decoder_layers = 12
   hparams.block_length = 128
+  hparams.hidden_size = 512
+  hparams.filter_size = 1024
   hparams.layer_preprocess_sequence = "none"
   hparams.layer_postprocess_sequence = "dan"
   hparams.layer_prepostprocess_dropout = 0.3
