@@ -245,7 +245,7 @@ def main(_):
     logging = LOGS.format(task_id=i, bucket=log_dir) if log_dir else ""
     delete = DELETE_SELF.format(zone=zone)
     if FLAGS.debug_keep_up:
-      assert FLAGS.num_instances == 1
+      assert len(instance_ids) == 1
       delete = ""
     command = "{prefix} {suffix} {logging}; {delete}".format(
         prefix=FLAGS.command_prefix,

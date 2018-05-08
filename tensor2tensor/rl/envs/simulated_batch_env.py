@@ -41,41 +41,33 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   a tf.py_func(). The current batch of observations, actions, rewards, and done
   flags are held in according variables.
   """
-  NUMBER_OF_HISTORY_FRAMES = 2
 
   def __init__(self, environment_lambda, length):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
-    initialization_env = environment_lambda()
+    initalization_env = environment_lambda()
     hparams = trainer_lib.create_hparams(
         FLAGS.hparams_set, problem_name=FLAGS.problem, data_dir="UNUSED")
     hparams.force_full_predict = True
     self._model = registry.model(FLAGS.model)(
         hparams, tf.estimator.ModeKeys.PREDICT)
 
-    self.action_space = initialization_env.action_space
-    self.action_shape = list(initialization_env.action_space.shape)
+    self.action_space = initalization_env.action_space
+    self.action_shape = list(initalization_env.action_space.shape)
     self.action_dtype = tf.int32
 
-    if hasattr(initialization_env.env, "get_starting_data"):
-      starting_observations, _, _ = initialization_env.env.get_starting_data()
-      obs_1 = starting_observations[0]
-      obs_2 = starting_observations[1]
-    else:
-      # Ancient method for environments not supporting get_starting_data
-      initialization_env.reset()
-      skip_frames = 20
-      for _ in range(skip_frames):
-        initialization_env.step(0)
-      obs_1 = initialization_env.step(0)[0]
-      obs_2 = initialization_env.step(0)[0]
+    initalization_env.reset()
+    skip_frames = 20
+    for _ in range(skip_frames):
+      initalization_env.step(0)
+    obs_1 = initalization_env.step(0)[0]
+    obs_2 = initalization_env.step(0)[0]
 
     self.frame_1 = tf.expand_dims(tf.cast(obs_1, tf.float32), 0)
     self.frame_2 = tf.expand_dims(tf.cast(obs_2, tf.float32), 0)
 
-    shape = (self.length,) + initialization_env.observation_space.shape
+    shape = (self.length,) + initalization_env.observation_space.shape
     # TODO(blazej0) - make more generic - make higher number of
-    # and make it compatibile with NUMBER_OF_HISTORY_FRAMES
     #   previous observations possible.
     self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
     self._prev_observ = tf.Variable(tf.zeros(shape, tf.float32),
@@ -102,7 +94,6 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       # TODO(lukaszkaiser): instead of -1 use min_reward in the line below.
       reward = model_output["target_reward"][:, 0, 0, 0] - 1
       reward = tf.cast(reward, tf.float32)
-      reward = tf.reshape(reward, shape=(self.length,)) #some wrappers need explicit shape
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
       with tf.control_dependencies([observ]):
