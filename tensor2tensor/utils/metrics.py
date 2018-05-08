@@ -50,6 +50,7 @@ class Metrics(object):
   EDIT_DISTANCE = "edit_distance"
   SET_PRECISION = "set_precision"
   SET_RECALL = "set_recall"
+  SOFTMAX_CROSS_ENTROPY_ONE_HOT = "softmax_cross_entropy_one_hot"
   SIGMOID_ACCURACY_ONE_HOT = "sigmoid_accuracy_one_hot"
   SIGMOID_RECALL_ONE_HOT = "sigmoid_recall_one_hot"
   SIGMOID_PRECISION_ONE_HOT = "sigmoid_precision_one_hot"
@@ -298,6 +299,24 @@ def image_summary(predictions, targets, hparams):
   summary2 = tf.summary.image("data", gold, max_outputs=2)
   summary = tf.summary.merge([summary1, summary2])
   return summary, tf.zeros_like(predictions)
+
+
+def softmax_cross_entropy_one_hot(logits, labels, weights_fn=None):
+  """Calculate softmax cross entropy given one-hot labels and logits.
+
+  Args:
+    logits: Tensor of size [batch-size, o=1, p=1, num-classes]
+    labels: Tensor of size [batch-size, o=1, p=1, num-classes]
+    weights_fn: Function that takes in labels and weighs examples (unused)
+  Returns:
+    cross-entropy (scalar), weights
+  """
+  with tf.variable_scope("softmax_cross_entropy_one_hot",
+                         values=[logits, labels]):
+    del weights_fn
+    cross_entropy = tf.losses.softmax_cross_entropy(
+        onehot_labels=labels, logits=logits)
+    return cross_entropy, tf.constant(1.0)
 
 
 def sigmoid_accuracy_one_hot(logits, labels, weights_fn=None):
@@ -565,6 +584,7 @@ METRICS_FNS = {
     Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
+    Metrics.SOFTMAX_CROSS_ENTROPY_ONE_HOT: softmax_cross_entropy_one_hot,
     Metrics.SIGMOID_ACCURACY_ONE_HOT: sigmoid_accuracy_one_hot,
     Metrics.SIGMOID_RECALL_ONE_HOT: sigmoid_recall_one_hot,
     Metrics.SIGMOID_PRECISION_ONE_HOT: sigmoid_precision_one_hot,
