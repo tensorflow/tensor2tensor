@@ -23,7 +23,7 @@ import time
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs.tf_atari_wrappers import ShiftRewardWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
@@ -96,32 +96,88 @@ def train(hparams, output_dir):
     ppo_hparams.eval_every_epochs = 0
     ppo_hparams.save_models_every_epochs = ppo_epochs_num
     ppo_hparams.epoch_length = hparams.ppo_epoch_length
-    ppo_hparams.num_agents = 1
+    ppo_hparams.num_agents = hparams.ppo_num_agents
 
     in_graph_wrappers = [
-        (TimeLimitWrapper, {"timelimit": 150}),
-        (ShiftRewardWrapper, {"add_value": -2})]
+        (TimeLimitWrapper, {"timelimit": hparams.ppo_time_limit}),
+        (MaxAndSkipWrapper, {"skip": 4})]
     in_graph_wrappers += gym_problem.in_graph_wrappers
     ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
 
     ppo_dir = generator_utils.make_tmp_dir(dir=data_dir, prefix="ppo_")
-    rl_trainer_lib.train(ppo_hparams, "PongDeterministic-v4", ppo_dir)
+    rl_trainer_lib.train(ppo_hparams, gym_simulated_problem.env_name, ppo_dir)
 
-    last_model = ppo_dir + "/model{}.ckpt".format(ppo_epochs_num)
+    last_model = ppo_dir
+
+
+hparams_old = tf.contrib.training.HParams(
+    epochs=10,
+    true_env_generator_num_steps=50000,
+    generative_model="basic_conv_gen",
+    generative_model_params="basic_conv",
+    model_train_steps=50000,
+    simulated_env_generator_num_steps=300,
+    ppo_epochs_num=2000,
+    ppo_epoch_length=300,
+    game="pong",
+)
+
+# This is a tiny set for testing.
+hparams_tiny = tf.contrib.training.HParams(
+    epochs=2,
+    true_env_generator_num_steps=20,
+    generative_model="basic_conv_gen",
+    generative_model_params="basic_conv",
+    model_train_steps=10,
+    simulated_env_generator_num_steps=20,
+    ppo_epochs_num=2,
+    # Our simulated envs do not know how to reset.
+    # You should set ppo_time_limit to the value you believe that
+    # the simulated env produces a reasonable output.
+    ppo_time_limit=200,
+    # It makes sense to have ppo_time_limit=ppo_epoch_length,
+    # though it is not necessary.
+    ppo_epoch_length=200,
+    ppo_num_agents=1,
+    game="wrapped_pong",
+)
+
+hparams_small = tf.contrib.training.HParams(
+    epochs=10,
+    true_env_generator_num_steps=300,
+    generative_model="basic_conv_gen",
+    generative_model_params="basic_conv",
+    model_train_steps=100,
+    simulated_env_generator_num_steps=210,
+    ppo_epochs_num=200,
+    # Our simulated envs do not know how to reset.
+    # You should set ppo_time_limit to the value you believe that
+    # the simulated env produces a reasonable output.
+    ppo_time_limit=200,
+    # It makes sense to have ppo_time_limit=ppo_epoch_length,
+    # though it is not necessary.
+    ppo_epoch_length=200,
+    ppo_num_agents=1,
+    game="wrapped_pong",
+)
+
+hparams_first = tf.contrib.training.HParams(
+    epochs=10,
+    true_env_generator_num_steps=60000,
+    generative_model="basic_conv_gen",
+    generative_model_params="basic_conv",
+    model_train_steps=50000,
+    simulated_env_generator_num_steps=2000,
+    ppo_epochs_num=2000,  # This should be enough to see something
+    ppo_time_limit=1000,
+    ppo_epoch_length=200,  # 200 worked with the standard pong.
+    ppo_num_agents=1,
+    game="wrapped_pong",
+)
 
 
 def main(_):
-  hparams = tf.contrib.training.HParams(
-      epochs=10,
-      true_env_generator_num_steps=50000,
-      generative_model="basic_conv_gen",
-      generative_model_params="basic_conv",
-      model_train_steps=50000,
-      simulated_env_generator_num_steps=300,
-      ppo_epochs_num=2000,
-      ppo_epoch_length=300,
-      game="pong",
-  )
+  hparams = hparams_first
   hparams.parse(FLAGS.rl_hparams)
   train(hparams, FLAGS.output_dir)
 

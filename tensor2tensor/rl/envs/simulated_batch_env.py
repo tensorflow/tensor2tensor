@@ -41,37 +41,50 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   a tf.py_func(). The current batch of observations, actions, rewards, and done
   flags are held in according variables.
   """
+  NUMBER_OF_HISTORY_FRAMES = 2
 
   def __init__(self, environment_lambda, length):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
-    initalization_env = environment_lambda()
+    initialization_env = environment_lambda()
     hparams = trainer_lib.create_hparams(
         FLAGS.hparams_set, problem_name=FLAGS.problem, data_dir="UNUSED")
     hparams.force_full_predict = True
     self._model = registry.model(FLAGS.model)(
         hparams, tf.estimator.ModeKeys.PREDICT)
 
-    self.action_space = initalization_env.action_space
-    self.action_shape = list(initalization_env.action_space.shape)
+    self.action_space = initialization_env.action_space
+    self.action_shape = list(initialization_env.action_space.shape)
     self.action_dtype = tf.int32
 
-    initalization_env.reset()
-    skip_frames = 20
-    for _ in range(skip_frames):
-      initalization_env.step(0)
-    obs_1 = initalization_env.step(0)[0]
-    obs_2 = initalization_env.step(0)[0]
+    obs, num_frames = [], 2
+    if hasattr(initialization_env.env, "get_starting_data"):
+      starting_observations, _, _ = initialization_env.env.get_starting_data()
+      for i in range(num_frames):
+        obs.append(starting_observations[i])
+    else:
+      # Ancient method for environments not supporting get_starting_data
+      initialization_env.reset()
+      skip_frames = 20
+      for _ in range(skip_frames):
+        initialization_env.step(0)
+      for i in range(num_frames):
+        obs.append(initialization_env.step(0)[0])
 
-    self.frame_1 = tf.expand_dims(tf.cast(obs_1, tf.float32), 0)
-    self.frame_2 = tf.expand_dims(tf.cast(obs_2, tf.float32), 0)
+    self.frames = []
+    for i in range(num_frames):
+      self.frames.append(tf.expand_dims(tf.cast(obs[i], tf.float32), 0))
 
-    shape = (self.length,) + initalization_env.observation_space.shape
+    shape = (self.length,) + initialization_env.observation_space.shape
     # TODO(blazej0) - make more generic - make higher number of
+    # and make it compatibile with NUMBER_OF_HISTORY_FRAMES
     #   previous observations possible.
-    self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
-    self._prev_observ = tf.Variable(tf.zeros(shape, tf.float32),
-                                    trainable=False)
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      self._observ = tf.get_variable(
+          "observ", shape, initializer=tf.zeros_initializer, trainable=False)
+      self._prev_observ = tf.get_variable(
+          "prev_observ", shape,
+          initializer=tf.zeros_initializer, trainable=False)
 
   def __len__(self):
     """Number of combined environments."""
@@ -94,6 +107,8 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       # TODO(lukaszkaiser): instead of -1 use min_reward in the line below.
       reward = model_output["target_reward"][:, 0, 0, 0] - 1
       reward = tf.cast(reward, tf.float32)
+      # Some wrappers need explicit shape, so we reshape here.
+      reward = tf.reshape(reward, shape=(self.length,))
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
       with tf.control_dependencies([observ]):
@@ -126,8 +141,10 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     observ = tf.gather(self._observ, indices)
     observ = 0.0 * tf.check_numerics(observ, "observ")
     with tf.control_dependencies([
-        tf.scatter_update(self._observ, indices, observ + self.frame_2),
-        tf.scatter_update(self._prev_observ, indices, observ + self.frame_1)]):
+        tf.scatter_update(self._observ, indices,
+                          observ + self.frames[1]),
+        tf.scatter_update(self._prev_observ, indices,
+                          observ + self.frames[0])]):
       return tf.identity(self._observ.read_value())
 
   @property

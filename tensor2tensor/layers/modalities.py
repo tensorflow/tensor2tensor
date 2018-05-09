@@ -546,7 +546,7 @@ class VideoModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        cutoff=0.02,
+        cutoff=0.01,
         weights_fn=self.targets_weights_fn)
 
 
