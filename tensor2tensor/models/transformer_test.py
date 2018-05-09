@@ -162,7 +162,7 @@ class TransformerTest(tf.test.TestCase):
       tf.global_variables_initializer().run()
       beam_res = beam_result.eval()
 
-    self.assertEqual(beam_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertEqual(beam_res.shape[0], BATCH_SIZE)
 
   def testBeamVsFast(self):
     model, features = get_model(transformer.transformer_small())
@@ -203,8 +203,6 @@ class TransformerTest(tf.test.TestCase):
       beam_res = beam_result.eval()
       fast_res = fast_result.eval()
 
-    self.assertEqual(fast_res.shape,
-                     (BATCH_SIZE, INPUT_LENGTH + decode_length))
     self.assertAllClose(beam_res, fast_res)
 
   def testTransformerWithoutProblem(self):
