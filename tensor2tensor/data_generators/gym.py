@@ -32,12 +32,15 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
+from tensor2tensor.rl.envs import simulated_batch_env
+from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.rl.envs.utils import batch_env_factory
 
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+import numpy as np
 
 
 flags = tf.flags
@@ -182,6 +185,37 @@ class GymPongRandom50k(GymPongRandom5k):
   def num_steps(self):
     return 50000
 
+@registry.register_problem
+class GymWrappedPongRandom5k(GymDiscreteProblem):
+  """Pong game, random actions."""
+
+  @property
+  def env_name(self):
+    #enforces registering environment T2TPongWarmUp20RewSkip1000Steps-v1
+    import tensor2tensor.data_generators.gym_utils
+    return "T2TPongWarmUp20RewSkip1000Steps-v1"
+
+  @property
+  def min_reward(self):
+    return -1
+
+  @property
+  def num_rewards(self):
+    return 3
+
+  @property
+  def num_steps(self):
+    return 5000
+
+
+@registry.register_problem
+class GymWrappedPongRandom50k(GymPongRandom5k):
+  """Pong game, random actions."""
+
+  @property
+  def num_steps(self):
+    return 50000
+
 
 @registry.register_problem
 class GymFreewayRandom5k(GymDiscreteProblem):
@@ -220,6 +254,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     super(GymDiscreteProblemWithAgent, self).__init__(*args, **kwargs)
     self._env = None
     self.debug_dump_frames_path = "debug_frames_env"
+    self.make_extra_debug_info = False
 
     # defaults
     self.environment_spec = lambda: gym.make(self.env_name)
@@ -227,14 +262,26 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self.collect_hparams = rl.atari_base()
     self.settable_num_steps = 20000
     self.simulated_environment = None
-    self.warm_up = 10
+    self.warm_up = 10 # PM:This should be probably removed
+
 
   @property
   def num_steps(self):
     return self.settable_num_steps
 
   def _setup(self):
-    in_graph_wrappers = [(atari.MemoryWrapper, {})] + self.in_graph_wrappers
+    if self.make_extra_debug_info:
+      self.report_reward_statistics_every = 10
+      self.dones = 0
+      self.real_reward = 0
+      self.real_env.reset()
+      # Slight weirdness to make sim env and real env aligned
+      for _ in range(simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES):
+        self.real_ob, _, _, _ = self.real_env.step(0)
+      self.total_sim_reward, self.total_real_reward = 0.0, 0.0
+      self.successful_dones = 0
+
+    in_graph_wrappers = self.in_graph_wrappers + [(atari.MemoryWrapper, {})]
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
         simulated_environment=self.simulated_environment)
@@ -286,7 +333,8 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       model_saver.restore(sess, FLAGS.autoencoder_path)
       return sess.run(encoded)
 
-  def generate_encoded_samples(self, data_dir, tmp_dir, unused_dataset_split):
+  def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
+    from tensor2tensor.data_generators.gym_utils import decode_image_from_png, encode_image_to_png
     self._setup()
     self.debug_dump_frames_path = os.path.join(
         data_dir, self.debug_dump_frames_path)
@@ -299,16 +347,45 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         avilable_data_size = sess.run(self.avilable_data_size_op)
         if avilable_data_size < 1:
           sess.run(self.collect_trigger_op)
-        observ, reward, action, _, img = sess.run(self.data_get_op)
+        observ, reward, action, done = sess.run(self.data_get_op)
+        debug_im = None
+        if self.make_extra_debug_info:
+          self.total_sim_reward += reward
+          err = np.ndarray.astype(np.maximum(np.abs(self.real_ob - observ, dtype=np.int) - 10, 0),
+                                  np.uint8)
+          debug_im_np = np.concatenate([observ, self.real_ob, err], axis=1)
+          debug_im = encode_image_to_png(debug_im_np)
+          if done:
+            self.dones += 1
+            self.successful_dones += 1 if self.total_real_reward==self.total_sim_reward else 0
+            if self.dones%self.report_reward_statistics_every==0:
+              print("Got correct total rewards {} out of {}:".format(self.successful_dones, self.report_reward_statistics_every))
+              self.successful_dones = 0
+
+            self.total_real_reward = 0.0
+            self.total_sim_reward = 0.0
+            self.real_reward = 0
+            self.real_env.reset()
+            # Slight weirdness to make sim env and real env aligned
+            for _ in range(simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES):
+              self.real_ob, _, _, _ = self.real_env.step(0)
+          else:
+            self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
+            self.total_real_reward += self.real_reward
         if FLAGS.autoencoder_path:
-          observ = self.autoencode(img, sess)
-        yield {"image/encoded": [observ],
+          observ = self.autoencode(observ, sess)
+        ret_dict =  {"frame": observ,
                "image/format": ["png"],
                "image/height": [self.frame_height],
                "image/width": [self.frame_width],
                "action": [int(action)],
                "done": [int(False)],
                "reward": [int(reward) - self.min_reward]}
+
+        if self.make_extra_debug_info:
+          ret_dict["image/encoded_debug"] = [debug_im]
+
+        yield ret_dict
         pieces_generated += 1
 
 
@@ -319,6 +396,16 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
   def __init__(self, *args, **kwargs):
     super(GymSimulatedDiscreteProblemWithAgent, self).__init__(*args, **kwargs)
     self.simulated_environment = True
+    self.make_extra_debug_info = True
+    self.real_env = self.environment_spec()
+
+    try:
+      #we assume that the real env is wrapped with TimeLimit
+      timelimit = self._max_episode_steps - simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
+    except:
+      #if not set some reasonable default
+      timelimit = 100
+    self.in_graph_wrappers.append((TimeLimitWrapper, {"timelimit": timelimit}))
     self.debug_dump_frames_path = "debug_frames_sim"
 
   def restore_networks(self, sess):
@@ -342,6 +429,17 @@ class GymSimulatedDiscreteProblemWithAgentOnPong(
 class GymDiscreteProblemWithAgentOnPong(
     GymDiscreteProblemWithAgent, GymPongRandom5k):
   pass
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
+    GymSimulatedDiscreteProblemWithAgent, GymWrappedPongRandom5k):
+  pass
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedPong(
+    GymDiscreteProblemWithAgent, GymWrappedPongRandom5k):
+  pass
+
 
 
 @registry.register_problem
