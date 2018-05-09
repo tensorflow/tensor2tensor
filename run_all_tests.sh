@@ -2,7 +2,7 @@ docker pull gcr.io/fathom-containers/t2tgpu
 
 docker run -it \
        -v /home/circleci/diseaseTools:/usr/src/diseaseTools \
-       -v /home/circlci/tensor2tensor:/usr/src/tensor2tensor \
+       -v /home/circleci/tensor2tensor:/usr/src/tensor2tensor \
        -w /usr/src/tensor2tensor \
        gcr.io/fathom-containers/t2tgpu \
        python3 -m pytest -vv \
