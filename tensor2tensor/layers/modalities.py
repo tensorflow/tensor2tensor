@@ -546,7 +546,7 @@ class VideoModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        cutoff=0.02,
+        cutoff=0.01,
         weights_fn=self.targets_weights_fn)
 
 
@@ -635,6 +635,26 @@ class ClassLabelModality(modality.Modality):
       x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
       res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
+
+
+@registry.register_class_label_modality("onehot")
+class OneHotClassLabelModality(ClassLabelModality):
+  """Used for one-hot encoded class labels."""
+
+  def loss(self, top_out, targets):
+    """Apply softmax cross-entropy between outputs and targets.
+
+    Args:
+      top_out: logits Tensor with shape [batch, ?, ?, num_classes]
+      targets: one-hot encoding Tensor with shape [batch, ?, ?, num_classes]
+    Returns:
+      loss_scale (cross-entropy), loss_denom
+    """
+    loss_scale = tf.losses.softmax_cross_entropy(
+        onehot_labels=targets, logits=top_out)
+    weights = self.targets_weights_fn(targets)
+    loss_denom = tf.reduce_sum(weights)
+    return loss_scale, loss_denom
 
 
 @registry.register_generic_modality("default")
@@ -768,10 +788,58 @@ class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
 
   def loss(self, top_out, targets):
     # Expect inputs of size [batch-size, 1, 1, num-classes], where the
-    # last dimension of num-classes represents binary labels for each class
+    # last dimension of num-classes represents logits for binary labels
     loss_scale = tf.losses.sigmoid_cross_entropy(
         multi_class_labels=targets, logits=top_out)
     # Weigh all classes equally
     weights = self.targets_weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)
     return loss_scale, loss_denom
+
+
+@registry.register_class_label_modality("onehot_softmax_max_pooling")
+class SoftmaxMaxPoolingClassLabelModality(OneHotClassLabelModality):
+  """Softmax cross-entropy applied on max-pooling over timesteps."""
+
+  @property
+  def name(self):
+    return "softmax_max_pooling_onehot_class_label_modality_%d_%d" % (
+        self._vocab_size, self._body_input_depth)
+
+  def top(self, body_output, _):
+    with tf.variable_scope(self.name):
+      x = body_output
+      x = tf.reduce_max(x, axis=1, keepdims=True)
+      return tf.layers.dense(x, self._vocab_size)
+
+
+@registry.register_class_label_modality("onehot_softmax_average_pooling")
+class SoftmaxAveragePoolingClassLabelModality(OneHotClassLabelModality):
+  """Softmax cross-entropy applied on average-pooling over timesteps."""
+
+  @property
+  def name(self):
+    return "softmax_average_pooling_onehot_class_label_modality_%d_%d" % (
+        self._vocab_size, self._body_input_depth)
+
+  def top(self, body_output, _):
+    with tf.variable_scope(self.name):
+      x = body_output
+      x = tf.reduce_mean(x, axis=1, keepdims=True)
+      return tf.layers.dense(x, self._vocab_size)
+
+
+@registry.register_class_label_modality("onehot_softmax_last_timestep")
+class SoftmaxLastTimestepClassLabelModality(OneHotClassLabelModality):
+  """Softmax cross-entropy applied on last-timestep encoding."""
+
+  @property
+  def name(self):
+    return "softmax_last_timestep_onehot_class_label_modality_%d_%d" % (
+        self._vocab_size, self._body_input_depth)
+
+  def top(self, body_output, _):
+    with tf.variable_scope(self.name):
+      x = body_output
+      x = tf.expand_dims(x[:, -1], 1)  # Pick the last timestep
+      return tf.layers.dense(x, self._vocab_size)

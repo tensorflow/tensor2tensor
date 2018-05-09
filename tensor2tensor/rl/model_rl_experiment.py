@@ -16,14 +16,14 @@
 
 import datetime
 import os
-import tempfile
 import time
 
 # Dependency imports
 
 from tensor2tensor.bin import t2t_trainer
+from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs.tf_atari_wrappers import ShiftRewardWrapper, MaxAndSkipWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
@@ -33,6 +33,8 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
+
+flags.DEFINE_string("rl_hparams", "", "Overrides for RL-specific HParams.")
 
 
 def train(hparams, output_dir):
@@ -49,8 +51,8 @@ def train(hparams, output_dir):
   line = ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    "
   for iloop in range(hparams.epochs):
     time_delta = time.time() - start_time
-    print(line+"Step {}.1. - generate data from policy. "
-          "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
+    tf.logging.info("%s Step %d.1 - generate data from policy. Time: %s",
+                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
     FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
     FLAGS.agent_policy_path = last_model
     gym_problem = registry.problem(FLAGS.problem)
@@ -60,8 +62,8 @@ def train(hparams, output_dir):
     gym_problem.generate_data(iter_data_dir, tmp_dir)
 
     time_delta = time.time() - start_time
-    print(line+"Step {}.2. - generate env model. "
-          "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
+    tf.logging.info("%s Step %d.2 - generate env model. Time: %s",
+                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
     # 2. generate env model
     FLAGS.data_dir = iter_data_dir
     FLAGS.output_dir = output_dir
@@ -73,8 +75,8 @@ def train(hparams, output_dir):
 
     # Dump frames from env model.
     time_delta = time.time() - start_time
-    print(line+"Step {}.3. - evaluate env model. "
-          "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
+    tf.logging.info("%s Step %d.3 - evaluate env model. Time: %s",
+                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
     gym_simulated_problem = registry.problem(
         "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
     sim_steps = hparams.simulated_env_generator_num_steps
@@ -83,74 +85,101 @@ def train(hparams, output_dir):
 
     # PPO.
     time_delta = time.time() - start_time
-    print(line + "Step {}.4. - train PPO in model env."
-          " Time: {}".format(iloop,
-                             str(datetime.timedelta(seconds=time_delta))))
+    tf.logging.info("%s Step %d.4 - train PPO in model env. Time: %s",
+                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
     ppo_epochs_num = hparams.ppo_epochs_num
-    ppo_hparams = trainer_lib.create_hparams(
-        "atari_base",
-        "epochs_num={},simulated_environment=True,eval_every_epochs=0,"
-        "save_models_every_epochs={}".format(ppo_epochs_num+1, ppo_epochs_num),
-        data_dir=output_dir)
+
+    # Setup PPO hparams
+    ppo_hparams = trainer_lib.create_hparams("atari_base", data_dir=output_dir)
+    ppo_hparams.epochs_num = ppo_epochs_num + 1
+    ppo_hparams.simulated_environment = True
+    ppo_hparams.eval_every_epochs = 0
+    ppo_hparams.save_models_every_epochs = ppo_epochs_num
     ppo_hparams.epoch_length = hparams.ppo_epoch_length
-    ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
+    ppo_hparams.num_agents = hparams.ppo_num_agents
+
     in_graph_wrappers = [
         (TimeLimitWrapper, {"timelimit": hparams.ppo_time_limit}),
-         (MaxAndSkipWrapper, {"skip": 4})]
+        (MaxAndSkipWrapper, {"skip": 4})]
     in_graph_wrappers += gym_problem.in_graph_wrappers
     ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
-    ppo_hparams.num_agents = hparams.ppo_num_agents
+
+    ppo_dir = generator_utils.make_tmp_dir(dir=data_dir, prefix="ppo_")
     rl_trainer_lib.train(ppo_hparams, gym_simulated_problem.env_name, ppo_dir)
 
-    last_model = ppo_dir + "/model{}.ckpt".format(ppo_epochs_num)
+    last_model = ppo_dir
 
 
-def main(_):
-  hparams = tf.contrib.training.HParams(
-      epochs=10,
-      true_env_generator_num_steps=50000,
-      generative_model="basic_conv_gen",
-      generative_model_params="basic_conv",
-      model_train_steps=50000,
-      simulated_env_generator_num_steps=300,
-      ppo_epochs_num=2000,
-      ppo_epoch_length=300,
-      game="pong",
-  )
-  hparams_small = tf.contrib.training.HParams(
-      epochs=10,
-      true_env_generator_num_steps=300,
-      generative_model="basic_conv_gen",
-      generative_model_params="basic_conv",
-      model_train_steps=100,
-      simulated_env_generator_num_steps=210,
-      ppo_epochs_num=200,
+hparams_old = tf.contrib.training.HParams(
+    epochs=10,
+    true_env_generator_num_steps=50000,
+    generative_model="basic_conv_gen",
+    generative_model_params="basic_conv",
+    model_train_steps=50000,
+    simulated_env_generator_num_steps=300,
+    ppo_epochs_num=2000,
+    ppo_epoch_length=300,
+    game="pong",
+)
 
-      ppo_time_limit=200, #Our simulated envs do not know how to reset. You should set ppo_time_limit,
-                          #  to the value, you believe that the simulated env produces a reasonable output
-      ppo_epoch_length=200, #It makes sense to have ppo_time_limit=ppo_epoch_length though it is not necessary
-      ppo_num_agents=1,
-      game="wrapped_pong",
-  )
+# This is a tiny set for testing.
+hparams_tiny = tf.contrib.training.HParams(
+    epochs=2,
+    true_env_generator_num_steps=20,
+    generative_model="basic_conv_gen",
+    generative_model_params="basic_conv",
+    model_train_steps=10,
+    simulated_env_generator_num_steps=20,
+    ppo_epochs_num=2,
+    # Our simulated envs do not know how to reset.
+    # You should set ppo_time_limit to the value you believe that
+    # the simulated env produces a reasonable output.
+    ppo_time_limit=200,
+    # It makes sense to have ppo_time_limit=ppo_epoch_length,
+    # though it is not necessary.
+    ppo_epoch_length=200,
+    ppo_num_agents=1,
+    game="wrapped_pong",
+)
 
-  hparams_first = tf.contrib.training.HParams(
+hparams_small = tf.contrib.training.HParams(
     epochs=10,
     true_env_generator_num_steps=300,
     generative_model="basic_conv_gen",
     generative_model_params="basic_conv",
     model_train_steps=100,
-    simulated_env_generator_num_steps=2000,
-
-    ppo_epochs_num=2000, #This should be enough to see something
-    ppo_time_limit=1000,  # Our simulated envs do not know how to reset. You should set ppo_time_limit,
-    #  to the value, you believe that the simulated env produces a reasonable output. Probably it is good to set it
-    #  to the limit set in the real env. In the case of T2TPongWarmUp20RewSkip1000Steps-v1 it is 1000
-    ppo_epoch_length=200,  # 200 worked with the standard pong
+    simulated_env_generator_num_steps=210,
+    ppo_epochs_num=200,
+    # Our simulated envs do not know how to reset.
+    # You should set ppo_time_limit to the value you believe that
+    # the simulated env produces a reasonable output.
+    ppo_time_limit=200,
+    # It makes sense to have ppo_time_limit=ppo_epoch_length,
+    # though it is not necessary.
+    ppo_epoch_length=200,
     ppo_num_agents=1,
     game="wrapped_pong",
-  )
+)
 
-  train(hparams_small, FLAGS.output_dir)
+hparams_first = tf.contrib.training.HParams(
+    epochs=10,
+    true_env_generator_num_steps=60000,
+    generative_model="basic_conv_gen",
+    generative_model_params="basic_conv",
+    model_train_steps=50000,
+    simulated_env_generator_num_steps=2000,
+    ppo_epochs_num=2000,  # This should be enough to see something
+    ppo_time_limit=1000,
+    ppo_epoch_length=200,  # 200 worked with the standard pong.
+    ppo_num_agents=1,
+    game="wrapped_pong",
+)
+
+
+def main(_):
+  hparams = hparams_first
+  hparams.parse(FLAGS.rl_hparams)
+  train(hparams, FLAGS.output_dir)
 
 
 if __name__ == "__main__":

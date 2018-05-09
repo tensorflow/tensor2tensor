@@ -93,7 +93,7 @@ def cifar_generator(cifar_version, tmp_dir, training, how_many, start_from=0):
   all_images, all_labels = [], []
   for filename in data_files:
     path = os.path.join(tmp_dir, prefix, filename)
-    with tf.gfile.Open(path, "r") as f:
+    with tf.gfile.Open(path, "rb") as f:
       data = cPickle.load(f)
     images = data["data"]
     num_images = images.shape[0]

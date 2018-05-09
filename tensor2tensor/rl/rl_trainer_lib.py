@@ -72,12 +72,10 @@ def define_train(hparams, environment_spec, event_dir):
       d = 2 if env_lambda().metadata.get("semantics.autoreset") else 1
       eval_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
           env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
-    wrapped_eval_env_lambda = lambda: utils.EvalVideoWrapper(eval_env_lambda())
-    # eval_batch_env = utils.define_batch_env(
-    #     wrapped_eval_env_lambda, hparams.num_eval_agents,
-    #     xvfb=hparams.video_during_eval)
+      eval_env_lambda = (
+          lambda: utils.EvalVideoWrapper(eval_env_lambda()))
     eval_batch_env = utils.batch_env_factory(
-        wrapped_eval_env_lambda, hparams,
+        eval_env_lambda, hparams,
         num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
 
     # TODO(blazej0): correct to the version below.
@@ -120,8 +118,10 @@ def train(hparams, environment_spec, event_dir=None):
       if (hparams.eval_every_epochs and
           epoch_index % hparams.eval_every_epochs == 0):
         summary = sess.run(eval_summary_op)
-        if summary_writer:
+        if summary_writer and summary:
           summary_writer.add_summary(summary, epoch_index)
+        else:
+          tf.logging.info("Eval summary not saved")
       if (model_saver and hparams.save_models_every_epochs and
           epoch_index % hparams.save_models_every_epochs == 0):
         model_saver.save(sess, os.path.join(event_dir,

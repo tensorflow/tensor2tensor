@@ -24,6 +24,7 @@ import os
 import random
 import stat
 import tarfile
+import tempfile
 
 # Dependency imports
 
@@ -622,3 +623,18 @@ def pack_examples(examples,
       combined.append(packer(x, spacing))
   for c in combined:
     yield c.to_dict()
+
+
+def make_tmp_dir(suffix="", prefix="tmp", dir=None):  # pylint: disable=redefined-builtin
+  """Make a temporary directory."""
+  if dir is None:
+    return tempfile.mkdtemp(suffix, prefix, dir)
+  else:
+    while True:
+      rand_term = random.randint(1, 9999)
+      tmp_dir = os.path.join(dir, "%s%d%s" % (prefix, rand_term, suffix))
+      if tf.gfile.Exists(tmp_dir):
+        continue
+      tf.gfile.MakeDirs(tmp_dir)
+      break
+    return tmp_dir
