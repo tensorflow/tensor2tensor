@@ -35,7 +35,7 @@ jobs:
 
       # TODO: build sphinx docs? or will we always use the upstream sphinx docs???
 
-smoke-testinfra:
+  smoke-testinfra:
     machine: true
     workDir: ~/diseaseTools
     steps:
