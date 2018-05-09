@@ -1,8 +1,3 @@
-# to run on dev machine:
-#USER=cluster
-# to run on circleci:
-USER=circleci
-
 T2T=tensor2tensor
 DT=diseaseTools
 IMAGE=gcr.io/fathom-containers/t2t_test
@@ -12,8 +7,8 @@ GCS_KEY_PATH=/usr/src/diseaseTools/gcloud/keys/google-auth.json
 docker pull $IMAGE
 
 docker run -it \
-       -v /home/$USER/$DT:/usr/src/diseaseTools \
-       -v /home/$USER/$T2T:/usr/src/tensor2tensor \
+       -v $HOME/$DT:/usr/src/diseaseTools \
+       -v $HOME/$T2T:/usr/src/tensor2tensor \
        -w /usr/src/tensor2tensor \
        --env PYTHONPATH=/usr/src/tensor2tensor:/usr/src/diseaseTools \
        --env $GCS_KEY_NAME=$GCS_KEY_PATH \
