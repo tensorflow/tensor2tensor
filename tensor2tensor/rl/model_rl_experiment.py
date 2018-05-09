@@ -16,12 +16,12 @@
 
 import datetime
 import os
-import tempfile
 import time
 
 # Dependency imports
 
 from tensor2tensor.bin import t2t_trainer
+from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl.envs.tf_atari_wrappers import ShiftRewardWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
@@ -33,6 +33,8 @@ import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
+
+flags.DEFINE_string("rl_hparams", "", "Overrides for RL-specific HParams.")
 
 
 def train(hparams, output_dir):
@@ -49,8 +51,8 @@ def train(hparams, output_dir):
   line = ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    "
   for iloop in range(hparams.epochs):
     time_delta = time.time() - start_time
-    print(line+"Step {}.1. - generate data from policy. "
-          "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
+    tf.logging.info("%s Step %d.1 - generate data from policy. Time: %s",
+                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
     FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
     FLAGS.agent_policy_path = last_model
     gym_problem = registry.problem(FLAGS.problem)
@@ -60,8 +62,8 @@ def train(hparams, output_dir):
     gym_problem.generate_data(iter_data_dir, tmp_dir)
 
     time_delta = time.time() - start_time
-    print(line+"Step {}.2. - generate env model. "
-          "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
+    tf.logging.info("%s Step %d.2 - generate env model. Time: %s",
+                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
     # 2. generate env model
     FLAGS.data_dir = iter_data_dir
     FLAGS.output_dir = output_dir
@@ -73,8 +75,8 @@ def train(hparams, output_dir):
 
     # Dump frames from env model.
     time_delta = time.time() - start_time
-    print(line+"Step {}.3. - evalue env model. "
-          "Time: {}".format(iloop, str(datetime.timedelta(seconds=time_delta))))
+    tf.logging.info("%s Step %d.3 - evaluate env model. Time: %s",
+                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
     gym_simulated_problem = registry.problem(
         "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
     sim_steps = hparams.simulated_env_generator_num_steps
@@ -83,23 +85,26 @@ def train(hparams, output_dir):
 
     # PPO.
     time_delta = time.time() - start_time
-    print(line + "Step {}.4. - train PPO in model env."
-          " Time: {}".format(iloop,
-                             str(datetime.timedelta(seconds=time_delta))))
+    tf.logging.info("%s Step %d.4 - train PPO in model env. Time: %s",
+                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
     ppo_epochs_num = hparams.ppo_epochs_num
-    ppo_hparams = trainer_lib.create_hparams(
-        "atari_base",
-        "epochs_num={},simulated_environment=True,eval_every_epochs=0,"
-        "save_models_every_epochs={}".format(ppo_epochs_num+1, ppo_epochs_num),
-        data_dir=output_dir)
+
+    # Setup PPO hparams
+    ppo_hparams = trainer_lib.create_hparams("atari_base", data_dir=output_dir)
+    ppo_hparams.epochs_num = ppo_epochs_num + 1
+    ppo_hparams.simulated_environment = True
+    ppo_hparams.eval_every_epochs = 0
+    ppo_hparams.save_models_every_epochs = ppo_epochs_num
     ppo_hparams.epoch_length = hparams.ppo_epoch_length
-    ppo_dir = tempfile.mkdtemp(dir=data_dir, prefix="ppo_")
+    ppo_hparams.num_agents = 1
+
     in_graph_wrappers = [
         (TimeLimitWrapper, {"timelimit": 150}),
         (ShiftRewardWrapper, {"add_value": -2})]
     in_graph_wrappers += gym_problem.in_graph_wrappers
     ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
-    ppo_hparams.num_agents = 1
+
+    ppo_dir = generator_utils.make_tmp_dir(dir=data_dir, prefix="ppo_")
     rl_trainer_lib.train(ppo_hparams, "PongDeterministic-v4", ppo_dir)
 
     last_model = ppo_dir + "/model{}.ckpt".format(ppo_epochs_num)
@@ -117,6 +122,7 @@ def main(_):
       ppo_epoch_length=300,
       game="pong",
   )
+  hparams.parse(FLAGS.rl_hparams)
   train(hparams, FLAGS.output_dir)
 
 
