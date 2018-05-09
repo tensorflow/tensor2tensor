@@ -28,16 +28,7 @@ jobs:
 
       - type: shell
         name: Running tests
-        command: |
-          python3 -m pytest \
-          --ignore=../tensor2tensor/tensor2tensor/utils/registry_test.py \
-          --ignore=../tensor2tensor/tensor2tensor/utils/trainer_lib_test.py \
-          --ignore=../tensor2tensor/tensor2tensor/visualization/visualization_test.py \
-          --ignore=../tensor2tensor/tensor2tensor/problems_test.py \
-          --ignore=../tensor2tensor/tensor2tensor/bin/t2t_trainer_test.py \
-          --ignore=../tensor2tensor/tensor2tensor/data_generators/algorithmic_math_test.py \
-          --ignore=../tensor2tensor/tensor2tensor/models/research/r_transformer_test.py \
-          /usr/src/tensor2tensor
+        command: ./run_all_tests.sh
 
       - store_test_results:
           path: ~/tensor2tensor/test_results
