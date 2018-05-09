@@ -1,3 +1,5 @@
+docker pull gcr.io/fathom-containers/t2tgpu
+
 docker run -it \
        -v /home/circleci/diseaseTools:/usr/src/diseaseTools \
        -v /home/circlci/tensor2tensor:/usr/src/tensor2tensor \
@@ -10,4 +12,5 @@ docker run -it \
        --ignore=tensor2tensor/problems_test.py \
        --ignore=tensor2tensor/bin/t2t_trainer_test.py \
        --ignore=tensor2tensor/data_generators/algorithmic_math_test.py \
-       --ignore=tensor2tensor/models/research/r_transformer_test.py
+       --ignore=tensor2tensor/models/research/r_transformer_test.py \
+       tensor2tensor
