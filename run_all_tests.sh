@@ -11,7 +11,7 @@ GCS_KEY_PATH=/usr/src/diseaseTools/gcloud/keys/google-auth.json
 
 docker pull $IMAGE
 
-nvidia-docker run -it \
+docker run -it \
        -v /home/$USER/$DT:/usr/src/diseaseTools \
        -v /home/$USER/$T2T:/usr/src/tensor2tensor \
        -w /usr/src/tensor2tensor \
