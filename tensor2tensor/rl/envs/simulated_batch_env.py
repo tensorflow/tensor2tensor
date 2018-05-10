@@ -121,7 +121,6 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       actions = [action]*SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
       actions = tf.concat(actions, axis=0)
       history = self.history_buffer.get_all_elements()
-      history_mean = tf.reduce_mean(history)
       inputs = {"inputs": tf.expand_dims(history, axis=0),  # Add batch.
                 "input_action": tf.expand_dims(actions, axis=0)}
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
