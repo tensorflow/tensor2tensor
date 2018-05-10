@@ -73,10 +73,10 @@ def define_train(hparams, environment_spec, event_dir):
       # Some environments reset environments automatically, when reached done
       # state. For them we shall record only every second episode.
       d = 2 if env_lambda().metadata.get("semantics.autoreset") else 1
-      eval_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
+      monitor_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
           env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
       eval_env_lambda = (
-          lambda: utils.EvalVideoWrapper(eval_env_lambda()))
+          lambda: utils.EvalVideoWrapper(monitor_env_lambda()))
     eval_hparams = copy.deepcopy(hparams)
     eval_hparams.simulated_environment = eval_hparams.simulated_eval_environment
     eval_batch_env = utils.batch_env_factory(
