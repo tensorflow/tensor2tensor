@@ -59,7 +59,7 @@ def train(hparams, output_dir):
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
   tf.gfile.MakeDirs(output_dir)
-  last_model = ""
+  last_model_dir = ""
   start_time = time.time()
   line = ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    "
   epoch_metrics = []
@@ -69,7 +69,7 @@ def train(hparams, output_dir):
     tf.logging.info("%s Step %d.1 - generate data from policy. Time: %s",
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
     FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
-    FLAGS.agent_policy_path = last_model
+    FLAGS.agent_policy_path = last_model_dir
     gym_problem = registry.problem(FLAGS.problem)
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
     iter_data_dir = os.path.join(data_dir, str(iloop))
@@ -114,7 +114,8 @@ def train(hparams, output_dir):
     ppo_epochs_num = hparams.ppo_epochs_num
     ppo_hparams.epochs_num = ppo_epochs_num
     ppo_hparams.simulated_environment = True
-    ppo_hparams.eval_every_epochs = 0
+    ppo_hparams.simulated_eval_environment = False
+    ppo_hparams.eval_every_epochs = ppo_epochs_num
     ppo_hparams.save_models_every_epochs = ppo_epochs_num
     ppo_hparams.epoch_length = hparams.ppo_epoch_length
     ppo_hparams.num_agents = hparams.ppo_num_agents
@@ -126,10 +127,15 @@ def train(hparams, output_dir):
     ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
 
     ppo_dir = generator_utils.make_tmp_dir(dir=data_dir, prefix="ppo_")
-    rl_trainer_lib.train(ppo_hparams, gym_simulated_problem.env_name, ppo_dir)
-    last_model = ppo_dir
+    eval_env_res = rl_trainer_lib.train(
+        ppo_hparams, gym_simulated_problem.env_name, ppo_dir)
+    last_model_dir = ppo_dir
+    tf.logging.info("%s Phase %d finished - eval env result = %f. Time: %s",
+                    line, iloop, eval_env_res,
+                    str(datetime.timedelta(seconds=time_delta)))
 
-    eval_metrics = {"model_reward_accuracy": model_reward_accuracy}
+    eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
+                    "eval_env_res": eval_env_res}
     epoch_metrics.append(eval_metrics)
 
   # Report the evaluation metrics from the final epoch
