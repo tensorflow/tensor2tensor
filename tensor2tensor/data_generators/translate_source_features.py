@@ -307,20 +307,20 @@ class SourceFeatureProblem(translate.TranslateProblem):
                                  {"f_number": f_number,
                                   "vocab_size" : self.get_feature_encoders()[sfeat].vocab_size})
             
-      target_vocab_size = self._encoders["targets"].vocab_size
-      p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
-      
-      p.sfeat_delimiter = self.sfeat_delimiter
-      p.use_subword_tags = self.use_subword_tags
-      p.vocab_type = self.vocab_type
+    target_vocab_size = self._encoders["targets"].vocab_size
+    p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
 
-      if self.packed_length:
-        identity = (registry.Modalities.GENERIC, None)
-        if self.has_inputs:
-          p.input_modality["inputs_segmentation"] = identity
-          p.input_modality["inputs_position"] = identity
-        p.input_modality["targets_segmentation"] = identity
-        p.input_modality["targets_position"] = identity
+    p.sfeat_delimiter = self.sfeat_delimiter
+    p.use_subword_tags = self.use_subword_tags
+    p.vocab_type = self.vocab_type
+
+    if self.packed_length:
+      identity = (registry.Modalities.GENERIC, None)
+      if self.has_inputs:
+        p.input_modality["inputs_segmentation"] = identity
+        p.input_modality["inputs_position"] = identity
+      p.input_modality["targets_segmentation"] = identity
+      p.input_modality["targets_position"] = identity
     
 
 class SubwordTextEncoder(text_encoder.SubwordTextEncoder):
