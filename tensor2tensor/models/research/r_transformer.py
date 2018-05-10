@@ -44,7 +44,7 @@ import tensorflow as tf
 
 @registry.register_model
 class RTransformer(transformer.Transformer):
-  """R-Transformer: Depth-wise recurrent transoformer model."""
+  """R-Transformer: Depth-wise recurrent transformer model."""
 
   def encode(self, inputs, target_space, hparams, features=None):
     """Encode r-transformer inputs.
@@ -231,9 +231,8 @@ class RTransformer(transformer.Transformer):
     Raises:
       NotImplementedError: If there are multiple data shards.
     """
-    with tf.variable_scope(self.name):
-      # TODO(dehghani): Support fast decoding for r-transofmer (needs caching)
-      return self._slow_greedy_infer(features, decode_length)
+    # TODO(dehghani): Support fast decoding for r-transformer (needs caching)
+    return self._slow_greedy_infer(features, decode_length)
 
   def _beam_decode(self, features, decode_length, beam_size, top_beams, alpha):
     """Beam search decoding.
@@ -255,16 +254,15 @@ class RTransformer(transformer.Transformer):
               None if using greedy decoding (beam_size=1)
       }
     """
-    with tf.variable_scope(self.name):
-      # Caching is not ebabled in r-transformer
-      # TODO(dehghani): Support fast decoding for r-transofmer(needs caching)
-      return self._beam_decode_slow(features, decode_length, beam_size,
-                                    top_beams, alpha)
+    # Caching is not ebabled in r-transformer
+    # TODO(dehghani): Support fast decoding for r-transformer(needs caching)
+    return self._beam_decode_slow(features, decode_length, beam_size,
+                                  top_beams, alpha)
 
 
 @registry.register_model
 class RTransformerEncoder(transformer.Transformer):
-  """R-Transformer Encoder: Depth-wise recurrent transoformer encoder-only."""
+  """R-Transformer Encoder: Depth-wise recurrent transformer encoder-only."""
 
   def encode(self, inputs, target_space, hparams, features=None):
     """Encode transformer inputs.
@@ -348,7 +346,7 @@ def update_hparams_for_r_transformer(hparams):
     hparams with default values for R-Transformers hyper-parameters
 
   """
-  # If true, mixes vanilla transfomer with r-transformer.
+  # If true, mixes vanilla transformer with r-transformer.
   hparams.add_hparam("mix_with_transformer", False)
 
   # Type of recurrency:
@@ -930,5 +928,15 @@ def r_mix_transformer_act_step_position_random_timing_base():
   hparams.add_position_timing_signal = True
   hparams.pos = None
   hparams.position_start_index = "random"
+  hparams.add_step_timing_signal = True
+  return hparams
+
+
+@registry.register_hparams
+def r_transformer_act_step_position_timing_big():
+  hparams = r_transformer_big()
+  hparams.recurrence_type = "act"
+  hparams.add_position_timing_signal = True
+  hparams.pos = None
   hparams.add_step_timing_signal = True
   return hparams
