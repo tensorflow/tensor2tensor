@@ -12,7 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Training of model-based RL agents."""
+r"""Training of model-based RL agents.
+Example invocation:
+python -m tensor2tensor.rl.model_rl_experiment \
+    --output_dir=$HOME/t2t/rl_v1 \
+    --rl_hparams_set=rl_modelrl_first \
+    --rl_hparams='true_env_generator_num_steps=10000,epochs=3'
+"""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import datetime
 import os
@@ -34,6 +43,8 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
+flags.DEFINE_string("rl_hparams_set", "rl_modelrl_first",
+                    "Which RL hparams set to use.")
 flags.DEFINE_string("rl_hparams", "", "Overrides for RL-specific HParams.")
 
 
@@ -49,7 +60,9 @@ def train(hparams, output_dir):
   last_model = ""
   start_time = time.time()
   line = ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    "
+  epoch_metrics = []
   for iloop in range(hparams.epochs):
+    # Generate environment frames
     time_delta = time.time() - start_time
     tf.logging.info("%s Step %d.1 - generate data from policy. Time: %s",
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
@@ -64,7 +77,8 @@ def train(hparams, output_dir):
     time_delta = time.time() - start_time
     tf.logging.info("%s Step %d.2 - generate env model. Time: %s",
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
-    # 2. generate env model
+
+    # Train env model
     FLAGS.data_dir = iter_data_dir
     FLAGS.output_dir = output_dir
     FLAGS.model = hparams.generative_model
@@ -73,7 +87,7 @@ def train(hparams, output_dir):
     FLAGS.eval_steps = 10
     t2t_trainer.main([])
 
-    # Dump frames from env model.
+    # Evaluate and dump frames from env model
     time_delta = time.time() - start_time
     tf.logging.info("%s Step %d.3 - evaluate env model. Time: %s",
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
@@ -82,16 +96,19 @@ def train(hparams, output_dir):
     sim_steps = hparams.simulated_env_generator_num_steps
     gym_simulated_problem.settable_num_steps = sim_steps
     gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
+    model_reward_accuracy = (
+        gym_simulated_problem.successful_episode_reward_predictions / sim_steps)
 
-    # PPO.
+    # Train PPO agent
     time_delta = time.time() - start_time
     tf.logging.info("%s Step %d.4 - train PPO in model env. Time: %s",
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
-    ppo_epochs_num = hparams.ppo_epochs_num
 
     # Setup PPO hparams
-    ppo_hparams = trainer_lib.create_hparams("atari_base", data_dir=output_dir)
-    ppo_hparams.epochs_num = ppo_epochs_num + 1
+    ppo_hparams = trainer_lib.create_hparams("ppo_atari_base",
+                                             data_dir=output_dir)
+    ppo_epochs_num = hparams.ppo_epochs_num
+    ppo_hparams.epochs_num = ppo_epochs_num
     ppo_hparams.simulated_environment = True
     ppo_hparams.eval_every_epochs = 0
     ppo_hparams.save_models_every_epochs = ppo_epochs_num
@@ -106,81 +123,104 @@ def train(hparams, output_dir):
 
     ppo_dir = generator_utils.make_tmp_dir(dir=data_dir, prefix="ppo_")
     rl_trainer_lib.train(ppo_hparams, gym_simulated_problem.env_name, ppo_dir)
-
     last_model = ppo_dir
 
+    eval_metrics = {"model_reward_accuracy": model_reward_accuracy}
+    epoch_metrics.append(eval_metrics)
 
-hparams_old = tf.contrib.training.HParams(
-    epochs=10,
-    true_env_generator_num_steps=50000,
-    generative_model="basic_conv_gen",
-    generative_model_params="basic_conv",
-    model_train_steps=50000,
-    simulated_env_generator_num_steps=300,
-    ppo_epochs_num=2000,
-    ppo_epoch_length=300,
-    game="pong",
-)
+  # Report the evaluation metrics from the final epoch
+  return epoch_metrics[-1]
 
-# This is a tiny set for testing.
-hparams_tiny = tf.contrib.training.HParams(
-    epochs=2,
-    true_env_generator_num_steps=20,
-    generative_model="basic_conv_gen",
-    generative_model_params="basic_conv",
-    model_train_steps=10,
-    simulated_env_generator_num_steps=20,
-    ppo_epochs_num=2,
-    # Our simulated envs do not know how to reset.
-    # You should set ppo_time_limit to the value you believe that
-    # the simulated env produces a reasonable output.
-    ppo_time_limit=200,
-    # It makes sense to have ppo_time_limit=ppo_epoch_length,
-    # though it is not necessary.
-    ppo_epoch_length=200,
-    ppo_num_agents=1,
-    game="wrapped_pong",
-)
 
-hparams_small = tf.contrib.training.HParams(
-    epochs=10,
-    true_env_generator_num_steps=300,
-    generative_model="basic_conv_gen",
-    generative_model_params="basic_conv",
-    model_train_steps=100,
-    simulated_env_generator_num_steps=210,
-    ppo_epochs_num=200,
-    # Our simulated envs do not know how to reset.
-    # You should set ppo_time_limit to the value you believe that
-    # the simulated env produces a reasonable output.
-    ppo_time_limit=200,
-    # It makes sense to have ppo_time_limit=ppo_epoch_length,
-    # though it is not necessary.
-    ppo_epoch_length=200,
-    ppo_num_agents=1,
-    game="wrapped_pong",
-)
+@registry.register_hparams
+def rl_modelrl_tiny():
+  # This is a tiny set for testing.
+  return tf.contrib.training.HParams(
+      epochs=2,
+      true_env_generator_num_steps=20,
+      generative_model="basic_conv_gen",
+      generative_model_params="basic_conv",
+      model_train_steps=10,
+      simulated_env_generator_num_steps=20,
+      ppo_epochs_num=2,
+      # Our simulated envs do not know how to reset.
+      # You should set ppo_time_limit to the value you believe that
+      # the simulated env produces a reasonable output.
+      ppo_time_limit=200,
+      # It makes sense to have ppo_time_limit=ppo_epoch_length,
+      # though it is not necessary.
+      ppo_epoch_length=200,
+      ppo_num_agents=1,
+      game="wrapped_pong",
+  )
 
-hparams_first = tf.contrib.training.HParams(
-    epochs=10,
-    true_env_generator_num_steps=60000,
-    generative_model="basic_conv_gen",
-    generative_model_params="basic_conv",
-    model_train_steps=50000,
-    simulated_env_generator_num_steps=2000,
-    ppo_epochs_num=2000,  # This should be enough to see something
-    ppo_time_limit=1000,
-    ppo_epoch_length=200,  # 200 worked with the standard pong.
-    ppo_num_agents=1,
-    game="wrapped_pong",
-)
+
+@registry.register_hparams
+def rl_modelrl_small():
+  return tf.contrib.training.HParams(
+      epochs=10,
+      true_env_generator_num_steps=300,
+      generative_model="basic_conv_gen",
+      generative_model_params="basic_conv",
+      model_train_steps=100,
+      simulated_env_generator_num_steps=210,
+      ppo_epochs_num=200,
+      # Our simulated envs do not know how to reset.
+      # You should set ppo_time_limit to the value you believe that
+      # the simulated env produces a reasonable output.
+      ppo_time_limit=200,
+      # It makes sense to have ppo_time_limit=ppo_epoch_length,
+      # though it is not necessary.
+      ppo_epoch_length=200,
+      ppo_num_agents=1,
+      game="wrapped_pong",
+  )
+
+
+@registry.register_hparams
+def rl_modelrl_first():
+  return tf.contrib.training.HParams(
+      epochs=10,
+      true_env_generator_num_steps=60000,
+      generative_model="basic_conv_gen",
+      generative_model_params="basic_conv",
+      model_train_steps=50000,
+      simulated_env_generator_num_steps=2000,
+      ppo_epochs_num=2000,  # This should be enough to see something
+      ppo_time_limit=200,
+      ppo_epoch_length=200,  # 200 worked with the standard pong.
+      ppo_num_agents=1,
+      game="wrapped_pong",
+  )
+
+
+@registry.register_hparams
+def rl_modelrl_v1():
+  return tf.contrib.training.HParams(
+      epochs=10,
+      true_env_generator_num_steps=50000,
+      generative_model="basic_conv_gen",
+      generative_model_params="basic_conv",
+      model_train_steps=50000,
+      simulated_env_generator_num_steps=300,
+      ppo_epochs_num=2000,
+      ppo_epoch_length=300,
+      game="pong",
+  )
+
+
+def create_rl_hparams():
+  hparams = registry.hparams(FLAGS.rl_hparams_set)()
+  hparams.parse(FLAGS.rl_hparams)
+  return hparams
 
 
 def main(_):
-  hparams = hparams_first
-  hparams.parse(FLAGS.rl_hparams)
-  train(hparams, FLAGS.output_dir)
+  hp = create_rl_hparams()
+  output_dir = FLAGS.output_dir
+  train(hp, output_dir)
 
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()
