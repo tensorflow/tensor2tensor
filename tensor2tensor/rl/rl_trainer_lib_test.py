@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Tests of basic flow of collecting trajectories and training PPO."""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 # Dependency imports
 
@@ -29,13 +32,13 @@ class TrainTest(tf.test.TestCase):
 
   def test_no_crash_pendulum(self):
     hparams = trainer_lib.create_hparams(
-        "continuous_action_base",
+        "ppo_continuous_action_base",
         TrainTest.test_config)
     rl_trainer_lib.train(hparams, "Pendulum-v0")
 
   def test_no_crash_cartpole(self):
     hparams = trainer_lib.create_hparams(
-        "discrete_action_base",
+        "ppo_discrete_action_base",
         TrainTest.test_config)
     rl_trainer_lib.train(hparams, "CartPole-v0")
 
