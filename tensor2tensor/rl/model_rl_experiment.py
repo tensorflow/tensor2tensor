@@ -69,7 +69,7 @@ def train(hparams, output_dir):
     FLAGS.output_dir = output_dir
     FLAGS.model = hparams.generative_model
     FLAGS.hparams_set = hparams.generative_model_params
-    FLAGS.train_steps = hparams.model_train_steps * (iloop + 2)
+    FLAGS.train_steps = hparams.model_train_steps * (iloop + 1)
     FLAGS.eval_steps = 10
     t2t_trainer.main([])
 
@@ -79,7 +79,7 @@ def train(hparams, output_dir):
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
     gym_simulated_problem = registry.problem(
         "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
-    sim_steps = hparams.simulated_env_generator_num_steps
+    sim_steps = hparams.simulated_env_generator_num_steps * (iloop + 1)
     gym_simulated_problem.settable_num_steps = sim_steps
     gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
 
