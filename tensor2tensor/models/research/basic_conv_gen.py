@@ -76,7 +76,7 @@ class BasicConvGen(t2t_model.T2TModel):
         x = common_layers.layer_norm(x)
 
     # Add embedded action.
-    action = tf.reshape(features["input_action"][:, -1, :],
+    action = tf.reshape(features["input_action"][:, 1, :],
                         [-1, 1, 1, hparams.hidden_size])
     action_mask = tf.layers.dense(action, filters, name="action_mask")
     zeros_mask = tf.zeros(common_layers.shape_list(x)[:-1] + [filters],

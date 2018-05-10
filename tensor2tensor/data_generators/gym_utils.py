@@ -118,7 +118,7 @@ class PongWrapper(WarmupWrapper):
 def wrapped_pong_factory(warm_up_examples=0, action_space_reduction=False,
                          reward_skip_steps=0, big_ball=False):
   env = gym.make("PongDeterministic-v4")
-  env = env.env  # Remove time_limit wrapper.
+  env = env.env  # Remove timelime wrapper.
   env = PongWrapper(env, warm_up_examples=warm_up_examples,
                     action_space_reduction=action_space_reduction,
                     reward_skip_steps=reward_skip_steps,
