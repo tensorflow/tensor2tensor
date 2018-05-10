@@ -48,7 +48,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.length = length
     initialization_env = environment_lambda()
     hparams = trainer_lib.create_hparams(
-        FLAGS.hparams_set, problem_name=FLAGS.problem, data_dir="UNUSED")
+        FLAGS.hparams_set, problem_name=FLAGS.problem)
     hparams.force_full_predict = True
     self._model = registry.model(FLAGS.model)(
         hparams, tf.estimator.ModeKeys.PREDICT)

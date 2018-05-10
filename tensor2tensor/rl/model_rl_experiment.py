@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 r"""Training of model-based RL agents.
+
 Example invocation:
+
 python -m tensor2tensor.rl.model_rl_experiment \
     --output_dir=$HOME/t2t/rl_v1 \
     --rl_hparams_set=rl_modelrl_first \
