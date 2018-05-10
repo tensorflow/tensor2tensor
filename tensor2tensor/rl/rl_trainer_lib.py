@@ -22,8 +22,10 @@ import os
 
 # Dependency imports
 
+import copy
 import gym
 
+from tensorflow.core.framework import summary_pb2
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
@@ -75,17 +77,28 @@ def define_train(hparams, environment_spec, event_dir):
           env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
       eval_env_lambda = (
           lambda: utils.EvalVideoWrapper(eval_env_lambda()))
+    eval_hparams = copy.deepcopy(hparams)
+    eval_hparams.simulated_environment = eval_hparams.simulated_eval_environment
     eval_batch_env = utils.batch_env_factory(
-        eval_env_lambda, hparams,
+        eval_env_lambda, eval_hparams,
         num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
 
     # TODO(blazej0): correct to the version below.
-    corrected = False
+    corrected = True
     eval_summary = tf.no_op()
     if corrected:
       _, eval_summary = collect.define_collect(
           policy_factory, eval_batch_env, hparams, eval_phase=True)
   return summary, eval_summary
+
+def parse_from_summary(summary, name):
+  if isinstance(summary, bytes):
+    summ = summary_pb2.Summary()
+    summ.ParseFromString(summary)
+    summary = summ
+  for v in summary.value:
+    if name in v.tag:
+      return v.simple_value
 
 
 def train(hparams, environment_spec, event_dir=None):
@@ -102,10 +115,11 @@ def train(hparams, environment_spec, event_dir=None):
     model_saver = None
 
   if hparams.simulated_environment:
-    env_model_loader = tf.train.Saver(tf.global_variables(".*basic_conv_gen.*"))
+    env_model_loader = tf.train.Saver(tf.global_variables("basic_conv_gen.*"))
   else:
     env_model_loader = None
 
+  eval_result = None
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     if env_model_loader:
@@ -121,9 +135,11 @@ def train(hparams, environment_spec, event_dir=None):
         summary = sess.run(eval_summary_op)
         if summary_writer and summary:
           summary_writer.add_summary(summary, epoch_index)
+          eval_result = parse_from_summary(summary, "mean_score_this_iter")
         else:
           tf.logging.info("Eval summary not saved")
       if (model_saver and hparams.save_models_every_epochs and
           epoch_index % hparams.save_models_every_epochs == 0):
         model_saver.save(sess, os.path.join(event_dir,
                                             "model{}.ckpt".format(epoch_index)))
+  return eval_result
