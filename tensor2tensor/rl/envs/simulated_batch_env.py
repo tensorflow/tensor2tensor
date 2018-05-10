@@ -93,7 +93,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       # Ancient method for environments not supporting get_starting_data
       # This is probably not compatibile with NUMBER_OF_HISTORY_FRAMES!=2
       # Should be removed at some point
-      num_frames = 2
+      num_frames = SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
       initialization_env.reset()
       skip_frames = 20
       for _ in range(skip_frames):
