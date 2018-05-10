@@ -38,6 +38,8 @@ jobs:
   smoke-testinfra:
     machine: true
     workDir: ~/diseaseTools
+    environment:
+      PYTHONPATH: .
     steps:
       - type: shell
         name: Checkout diseaseTools develop
