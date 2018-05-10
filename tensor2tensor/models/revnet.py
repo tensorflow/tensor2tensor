@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 
 """Creates a RevNet with the bottleneck residual function.
 
@@ -353,17 +352,25 @@ def revnet_base():
   hparams.add_hparam('num_channels_init_block', 64)
   hparams.add_hparam('dim', '2d')
 
+  # Variable init
+  hparams.initializer = 'normal_unit_scaling'
+  hparams.initializer_gain = 2.
+
+  # Optimization
   hparams.optimizer = 'Momentum'
-  hparams.learning_rate = 0.4
-
-  hparams.learning_rate_boundaries = [40000, 80000, 120000, 140000]
-  hparams.learning_rate_multiples = [0.1, 0.01, 0.001, 0.0002]
-  hparams.learning_rate_decay_scheme = 'piecewise'
-
+  hparams.optimizer_momentum_momentum = 0.9
+  hparams.optimizer_momentum_nesterov = True
   hparams.weight_decay = 1e-4
+  hparams.clip_grad_norm = 0.0
+  # (base_lr=0.1) * (batch_size=128*8 (on TPU, or 8 GPUs)=1024) / (256.)
+  hparams.learning_rate = 0.4
+  hparams.learning_rate_decay_scheme = 'cosine'
+  # For image_imagenet224, 120k training steps, which effectively makes this a
+  # cosine decay (i.e. no cycles).
+  hparams.learning_rate_cosine_cycle_steps = 120000
 
   # Can run with a batch size of 128 with Problem ImageImagenet224
-  hparams.tpu_batch_size_per_shard = 128
+  hparams.batch_size = 128
   return hparams
 
 
@@ -381,12 +388,11 @@ def revnet_cifar_base():
   hparams.init_kernel_size = 3
   hparams.init_maxpool = False
   hparams.strides = [1, 2, 2]
-  hparams.tpu_batch_size_per_shard = 128
-  hparams.weight_decay = 5e-3
+  hparams.batch_size = 128
+  hparams.weight_decay = 1e-4
 
   hparams.learning_rate = 0.1
-  hparams.learning_rate_boundaries = [2000, 4000, 6000, 8000]
-  hparams.learning_rate_multiples = [0.1, 0.01, 0.001, 0.0001]
+  hparams.learning_rate_cosine_cycle_steps = 5000
   return hparams
 
 
@@ -396,6 +402,8 @@ def revnet_38_cifar():
   hparams.bottleneck = False
   hparams.num_channels = [16, 32, 56]
   hparams.num_layers_per_block = [2, 2, 2]
+  hparams.initializer = 'normal_unit_scaling'
+  hparams.initializer_gain = 1.5
   return hparams
 
 

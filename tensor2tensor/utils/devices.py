@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Device placement and data parallelism."""
 from __future__ import absolute_import
 from __future__ import division
@@ -77,7 +76,7 @@ def data_parallelism(daisy_chain_variables=True,
                      worker_job="/job:localhost",
                      no_data_parallelism=False):
   """See data_parallelism_from_flags."""
-  tf.logging.info("schuedule=%s" % schedule)
+  tf.logging.info("schedule=%s" % schedule)
   tf.logging.info("worker_gpu=%s" % worker_gpu)
   tf.logging.info("sync=%s" % sync)
   def _ps_replicas(all_workers=False):

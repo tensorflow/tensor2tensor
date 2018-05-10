@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """The Neural GPU model and its variants."""
 
 from __future__ import absolute_import
@@ -21,7 +20,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
@@ -37,7 +36,7 @@ def neural_gpu_body(inputs, hparams, name=None):
 
     def step(state, inp):  # pylint: disable=missing-docstring
       x = tf.nn.dropout(state, 1.0 - hparams.dropout)
-      for layer in xrange(hparams.num_hidden_layers):
+      for layer in range(hparams.num_hidden_layers):
         x = common_layers.conv_gru(
             x, (hparams.kernel_height, hparams.kernel_width),
             hparams.hidden_size,
@@ -70,7 +69,7 @@ def diagonal_neural_gpu(inputs, hparams, name=None):
       """Single step of the improved Neural GPU."""
       state, _ = state_tup
       x = state
-      for layer in xrange(hparams.num_hidden_layers):
+      for layer in range(hparams.num_hidden_layers):
         x, new_loss = common_layers.diagonal_conv_gru(
             x, (hparams.kernel_height, hparams.kernel_width),
             hparams.hidden_size,
@@ -111,7 +110,7 @@ def neural_gpu():
   hparams.num_hidden_layers = 1
   hparams.kernel_height = 3
   hparams.kernel_width = 1
-  hparams.learning_rate_decay_scheme = "exp50k"
+  hparams.learning_rate_decay_scheme = "exp"
   hparams.learning_rate = 0.02
   hparams.learning_rate_warmup_steps = 3000
   hparams.initializer_gain = 1.0

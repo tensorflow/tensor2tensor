@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Registry for models, hyperparameter settings, problem types, and datasets.
 
 Define a new model by subclassing T2TModel and register it:
@@ -63,6 +62,7 @@ class Modalities(object):
   SYMBOL = "symbol"
   IMAGE = "image"
   AUDIO = "audio"
+  VIDEO = "video"
   CLASS_LABEL = "class_label"
   GENERIC = "generic"
   REAL = "real"
@@ -72,6 +72,7 @@ _MODALITIES = {
     Modalities.SYMBOL: {},
     Modalities.IMAGE: {},
     Modalities.AUDIO: {},
+    Modalities.VIDEO: {},
     Modalities.CLASS_LABEL: {},
     Modalities.GENERIC: {},
     Modalities.REAL: {},
@@ -243,8 +244,7 @@ def problem(name):
     """Determines if problem_name specifies a copy and/or reversal.
 
     Args:
-      problem_name: A string containing a single problem name from
-        FLAGS.problems.
+      problem_name: str, problem name, possibly with suffixes.
 
     Returns:
       base_name: A string with the base problem name.
@@ -293,6 +293,11 @@ def symbol_modality(name=None):
 def generic_modality(name=None):
   return _internal_get_modality(name, _MODALITIES[Modalities.GENERIC],
                                 Modalities.GENERIC.capitalize())
+
+
+def video_modality(name=None):
+  return _internal_get_modality(name, _MODALITIES[Modalities.VIDEO],
+                                Modalities.VIDEO.capitalize())
 
 
 def audio_modality(name=None):
@@ -365,6 +370,12 @@ def register_image_modality(name=None):
                                      Modalities.IMAGE.capitalize())
 
 
+def register_video_modality(name=None):
+  """Register a video modality. name defaults to class name snake-cased."""
+  return _internal_register_modality(name, _MODALITIES[Modalities.VIDEO],
+                                     Modalities.VIDEO.capitalize())
+
+
 def register_class_label_modality(name=None):
   """Register an image modality. name defaults to class name snake-cased."""
   return _internal_register_modality(name, _MODALITIES[Modalities.CLASS_LABEL],
@@ -406,8 +417,9 @@ def create_modality(modality_spec, model_hparams):
   """
   retrieval_fns = {
       Modalities.SYMBOL: symbol_modality,
-      Modalities.AUDIO: audio_modality,
       Modalities.IMAGE: image_modality,
+      Modalities.AUDIO: audio_modality,
+      Modalities.VIDEO: video_modality,
       Modalities.CLASS_LABEL: class_label_modality,
       Modalities.GENERIC: generic_modality,
       Modalities.REAL: real_modality,

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utilities for creating Sparsely-Gated Mixture-of-Experts Layers.
 
 See "Outrageously Large Neural Networks"
@@ -29,11 +28,10 @@ import math
 # Dependency imports
 
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
-from tensorflow.python.eager import context
 from tensorflow.python.framework import function
 
 DEFAULT_DEV_STRING = "existing_device"
@@ -66,7 +64,7 @@ def add_scope(scope=None, scope_fn=None):
   """Return a decorator which add a TF name/variable scope to a function.
 
   Note that the function returned by the decorator accept an additional 'name'
-  parameter, which can overwritte the name scope given when the function is
+  parameter, which can overwrite the name scope given when the function is
   created.
 
   Args:
@@ -117,7 +115,7 @@ class Parallelism(object):
 
       e = []
       f = []
-      for i in xrange(len(devices)):
+      for i in range(len(devices)):
         with tf.device(devices[i]):
           e_, f_ = func(a[i], b[i], c)
           e.append(e_)
@@ -177,11 +175,11 @@ class Parallelism(object):
       my_args = transpose_list_of_lists(
           [self._maybe_repeat(arg) for arg in args])
     else:
-      my_args = [[] for _ in xrange(self.n)]
-    my_kwargs = [{} for _ in xrange(self.n)]
+      my_args = [[] for _ in range(self.n)]
+    my_kwargs = [{} for _ in range(self.n)]
     for k, v in six.iteritems(kwargs):
       vals = self._maybe_repeat(v)
-      for i in xrange(self.n):
+      for i in range(self.n):
         my_kwargs[i][k] = vals[i]
 
     # Construct lists of functions.
@@ -191,7 +189,7 @@ class Parallelism(object):
     outputs = []
     cache = {}
     tensor_to_var = {}
-    for i in xrange(self.n):
+    for i in range(self.n):
 
       def daisy_chain_getter(getter, name, *args, **kwargs):
         """Get a variable and cache in a daisy chain."""
@@ -412,7 +410,7 @@ def _my_top_k(x, k):
   tf.nn.top_k is implemented for GPU, but the gradient, sparse_to_dense,
   seems not to be, so if we use tf.nn.top_k, then both the top_k and its
   gradient go on cpu.  Once this is not an issue, this function becomes
-  obselete and should be replaced by tf.nn.top_k.
+  obsolete and should be replaced by tf.nn.top_k.
 
   Args:
     x: a 2d Tensor.
@@ -427,7 +425,7 @@ def _my_top_k(x, k):
   values = []
   indices = []
   depth = tf.shape(x)[1]
-  for i in xrange(k):
+  for i in range(k):
     values.append(tf.reduce_max(x, 1))
     argmax = tf.argmax(x, 1)
     indices.append(argmax)
@@ -560,7 +558,7 @@ class PadRemover(object):
           x,
           indices=self.nonpad_ids,
       )
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         # This is a hack but for some reason, gather_nd return a tensor of
         # undefined shape, so the shape is set up manually
         x.set_shape([None] + x_shape[1:])
@@ -587,12 +585,12 @@ class PadRemover(object):
 
 @add_name_scope("map_ids")
 def map_ids(x, indices, map_fn):
-  """Apply a function to each coordinate ids of a multidimentional tensor.
+  """Apply a function to each coordinate ids of a multidimensional tensor.
 
   This allows to process each sequence of a batch independently. This is
   similar to tf.map_fn but with tensor where the batch dim has been flatten.
 
-  Warning: The indices ids have to be contigous and orderd in memory as the
+  Warning: The indices ids have to be contiguous and ordered in memory as the
   output vector for each of the ids are simply concatenated after being
   processed.
   Ex: if your indices are [0,2,2,1,2,0], the output will contains the processed
@@ -895,7 +893,7 @@ def ffn_expert_fn(input_size,
   """
   def my_fn(x):
     layer_sizes = [input_size] + hidden_sizes + [output_size]
-    for i in xrange(1 + len(hidden_sizes)):
+    for i in range(1 + len(hidden_sizes)):
       w = tf.get_variable("w_%d" % i, layer_sizes[i:i+2], tf.float32)
       x = tf.matmul(x, w)
       if i < len(hidden_sizes):
@@ -909,7 +907,7 @@ def ffn_expert_fn(input_size,
 def reshape_like(a, b):
   """Reshapes a to match the shape of b in all but the last dimension."""
   ret = tf.reshape(a, tf.concat([tf.shape(b)[:-1], tf.shape(a)[-1:]], 0))
-  if not context.in_eager_mode():
+  if not tf.contrib.eager.in_eager_mode():
     ret.set_shape(b.get_shape().as_list()[:-1] + a.get_shape().as_list()[-1:])
   return ret
 
@@ -917,7 +915,7 @@ def reshape_like(a, b):
 def flatten_all_but_last(a):
   """Flatten all dimensions of a except the last."""
   ret = tf.reshape(a, [-1, tf.shape(a)[-1]])
-  if not context.in_eager_mode():
+  if not tf.contrib.eager.in_eager_mode():
     ret.set_shape([None] + a.get_shape().as_list()[-1:])
   return ret
 
@@ -962,7 +960,7 @@ def distributed_moe(data_parallelism,
   #   We use the default of reuse=False.  Otherwise, the experts would all
   #   use the same variables.
   ep = Parallelism(
-      [expert_devices[i % len(expert_devices)] for i in xrange(num_experts)],
+      [expert_devices[i % len(expert_devices)] for i in range(num_experts)],
       reuse=None)
   # Experts expect 2d input tensors, so flatten the batch dimension and all
   # spatial dimensions together.

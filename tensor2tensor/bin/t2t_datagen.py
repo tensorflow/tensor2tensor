@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Produces the training and dev data for --problem into --data_dir.
 
 Produces sharded and shuffled TFRecord files of tensorflow.Example protocol
@@ -44,8 +43,8 @@ from fathomtf.services.model_management import (fathom_t2t_model_setup,
 
 import numpy as np
 
+from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import algorithmic_math
-from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
 from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import snli
@@ -59,6 +58,8 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 # Fathom
+flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
+
 flags.DEFINE_string("data_dir", "", "Data directory.")
 flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
                     "Temporary storage directory.")
@@ -77,7 +78,7 @@ flags.DEFINE_integer("task_id", -1, "For distributed data generation.")
 flags.DEFINE_integer("task_id_start", -1, "For distributed data generation.")
 flags.DEFINE_integer("task_id_end", -1, "For distributed data generation.")
 flags.DEFINE_integer(
-    "num_concurrent_processes", 10,
+    "num_concurrent_processes", None,
     "Applies only to problems for which multiprocess_generate=True.")
 flags.DEFINE_string("t2t_usr_dir", "",
                     "Path to a Python module that will be imported. The "
@@ -146,7 +147,7 @@ def main(_):
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   # Fathom
-  _ = fathom_t2t_model_setup()
+  fathom_t2t_model_setup()
 
   # Calculate the list of problems to generate.
   problems = sorted(

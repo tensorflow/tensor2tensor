@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Librispeech dataset."""
 
 import os
@@ -21,9 +20,11 @@ import tarfile
 # Dependency imports
 
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 
+import tensorflow as tf
 
 _LIBRISPEECH_TRAIN_DATASETS = [
     [
@@ -39,7 +40,7 @@ _LIBRISPEECH_TRAIN_DATASETS = [
         "train-other-500"
     ],
 ]
-_LIBRISPEECH_TEST_DATASETS = [
+_LIBRISPEECH_DEV_DATASETS = [
     [
         "http://www.openslr.org/resources/12/dev-clean.tar.gz",
         "dev-clean"
@@ -47,6 +48,16 @@ _LIBRISPEECH_TEST_DATASETS = [
     [
         "http://www.openslr.org/resources/12/dev-other.tar.gz",
         "dev-other"
+    ],
+]
+_LIBRISPEECH_TEST_DATASETS = [
+    [
+        "http://www.openslr.org/resources/12/test-clean.tar.gz",
+        "test-clean"
+    ],
+    [
+        "http://www.openslr.org/resources/12/test-other.tar.gz",
+        "test-other"
     ],
 ]
 
@@ -66,14 +77,13 @@ def _collect_data(directory, input_ext, transcription_ext):
       transcript_path = os.path.join(root, transcript)
       with open(transcript_path, "r") as transcript_file:
         for transcript_line in transcript_file:
-          line_contents = transcript_line.split(" ", 1)
-          assert len(line_contents) == 2
+          line_contents = transcript_line.strip().split(" ", 1)
           media_base, label = line_contents
           key = os.path.join(root, media_base)
           assert key not in data_files
           media_name = "%s.%s"%(media_base, input_ext)
           media_path = os.path.join(root, media_name)
-          data_files[key] = (media_path, label)
+          data_files[key] = (media_base, media_path, label)
   return data_files
 
 
@@ -83,7 +93,8 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
 
   # Select only the clean data
   TRAIN_DATASETS = _LIBRISPEECH_TRAIN_DATASETS
-  DEV_DATASETS = _LIBRISPEECH_TEST_DATASETS
+  DEV_DATASETS = _LIBRISPEECH_DEV_DATASETS
+  TEST_DATASETS = _LIBRISPEECH_TEST_DATASETS
 
   @property
   def num_shards(self):
@@ -95,6 +106,10 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
 
   @property
   def num_dev_shards(self):
+    return 1
+
+  @property
+  def num_test_shards(self):
     return 1
 
   @property
@@ -128,13 +143,19 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
       audio_encoder = encoders["waveforms"]
       text_encoder = encoders["targets"]
 
-      for media_file, text_data in sorted(data_pairs)[start_from:]:
+      for utt_id, media_file, text_data in sorted(data_pairs)[start_from:]:
         if how_many > 0 and i == how_many:
           return
         i += 1
+        wav_data = audio_encoder.encode(media_file)
+        spk_id, unused_book_id, _ = utt_id.split("-")
         yield {
-            "waveforms": audio_encoder.encode(media_file),
-            "targets": text_encoder.encode(text_data)
+            "waveforms": wav_data,
+            "waveform_lens": [len(wav_data)],
+            "targets": text_encoder.encode(text_data),
+            "raw_transcript": [text_data],
+            "utt_id": [utt_id],
+            "spk_id": [spk_id],
         }
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
@@ -142,6 +163,11 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
         data_dir, self.num_shards, shuffled=False)
     dev_paths = self.dev_filepaths(
         data_dir, self.num_dev_shards, shuffled=False)
+    test_paths = self.test_filepaths(
+        data_dir, self.num_test_shards, shuffled=True)
+
+    generator_utils.generate_files(
+        self.generator(data_dir, tmp_dir, self.TEST_DATASETS), test_paths)
 
     if self.use_train_shards_for_dev:
       all_paths = train_paths + dev_paths
@@ -155,21 +181,81 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
 
 
 @registry.register_problem()
+class LibrispeechTrainFullTestClean(Librispeech):
+  """Problem to train on full 960h, but evaluate on clean data only."""
+
+  def training_filepaths(self, data_dir, num_shards, shuffled):
+    return Librispeech.training_filepaths(data_dir, num_shards, shuffled)
+
+  def dev_filepaths(self, data_dir, num_shards, shuffled):
+    return LibrispeechClean.dev_filepaths(data_dir, num_shards, shuffled)
+
+  def test_filepaths(self, data_dir, num_shards, shuffled):
+    return LibrispeechClean.test_filepaths(data_dir, num_shards, shuffled)
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    raise Exception("Generate librispeech and librispeech_clean data.")
+
+  def filepattern(self, data_dir, mode, shard=None):
+    """Get filepattern for data files for mode.
+
+    Matches mode to a suffix.
+    * DatasetSplit.TRAIN: train
+    * DatasetSplit.EVAL: dev
+    * DatasetSplit.TEST: test
+    * tf.estimator.ModeKeys.PREDICT: dev
+
+    Args:
+      data_dir: str, data directory.
+      mode: DatasetSplit
+      shard: int, if provided, will only read data from the specified shard.
+
+    Returns:
+      filepattern str
+    """
+    shard_str = "-%05d" % shard if shard is not None else ""
+    if mode == problem.DatasetSplit.TRAIN:
+      path = os.path.join(data_dir, "librispeech")
+      suffix = "train"
+    elif mode in [problem.DatasetSplit.EVAL, tf.estimator.ModeKeys.PREDICT]:
+      path = os.path.join(data_dir, "librispeech_clean")
+      suffix = "dev"
+    else:
+      assert mode == problem.DatasetSplit.TEST
+      path = os.path.join(data_dir, "librispeech_clean")
+      suffix = "test"
+
+    return "%s-%s%s*" % (path, suffix, shard_str)
+
+
+@registry.register_problem()
 class LibrispeechCleanSmall(Librispeech):
-  """Problem spec for Librispeech using 100h clean train data."""
+  """Problem spec for Librispeech using 100h clean train and clean eval data."""
 
   # Select only the clean data
   TRAIN_DATASETS = _LIBRISPEECH_TRAIN_DATASETS[:1]
-  DEV_DATASETS = _LIBRISPEECH_TEST_DATASETS[:1]
+  DEV_DATASETS = _LIBRISPEECH_DEV_DATASETS[:1]
+  TEST_DATASETS = _LIBRISPEECH_TEST_DATASETS[:1]
 
 
 @registry.register_problem()
 class LibrispeechClean(Librispeech):
-  """Problem spec for Librispeech using 460h clean train data."""
+  """Problem spec for Librispeech using 460h clean train and clean eval data."""
 
   # Select only the clean data
   TRAIN_DATASETS = _LIBRISPEECH_TRAIN_DATASETS[:2]
-  DEV_DATASETS = _LIBRISPEECH_TEST_DATASETS[:1]
+  DEV_DATASETS = _LIBRISPEECH_DEV_DATASETS[:1]
+  TEST_DATASETS = _LIBRISPEECH_TEST_DATASETS[:1]
+
+
+@registry.register_problem()
+class LibrispeechNoisy(Librispeech):
+  """Problem spec for Librispeech using 400h noisy train and noisy eval data."""
+
+  # Select only the clean data
+  TRAIN_DATASETS = _LIBRISPEECH_TRAIN_DATASETS[2:]
+  DEV_DATASETS = _LIBRISPEECH_DEV_DATASETS[1:]
+  TEST_DATASETS = _LIBRISPEECH_TEST_DATASETS[1:]
 
 
 # TODO(lukaszkaiser): clean up hparams or remove from here.
@@ -185,4 +271,11 @@ def add_librispeech_hparams(hparams):
   hparams.learning_rate = 0.05
   hparams.train_steps = 5000000
   hparams.num_hidden_layers = 4
+  return hparams
+
+
+def set_librispeech_length_hparams(hparams):
+  hparams.max_length = 1650 * 80  # this limits inputs[1] * inputs[2]
+  hparams.max_input_seq_length = 1650
+  hparams.max_target_seq_length = 350
   return hparams

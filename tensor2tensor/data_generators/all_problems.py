@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,44 +12,84 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Imports for problem modules."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# pylint: disable=unused-import
-from tensor2tensor.data_generators import algorithmic
-from tensor2tensor.data_generators import algorithmic_math
-from tensor2tensor.data_generators import audio
-from tensor2tensor.data_generators import cipher
-from tensor2tensor.data_generators import cnn_dailymail
-from tensor2tensor.data_generators import desc2code
-from tensor2tensor.data_generators import gym
-from tensor2tensor.data_generators import ice_parsing
-from tensor2tensor.data_generators import image
-from tensor2tensor.data_generators import imdb
-from tensor2tensor.data_generators import librispeech
-from tensor2tensor.data_generators import lm1b
-from tensor2tensor.data_generators import multinli
-from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.data_generators import ptb
-from tensor2tensor.data_generators import snli
-from tensor2tensor.data_generators import translate_encs
-from tensor2tensor.data_generators import translate_ende
-from tensor2tensor.data_generators import translate_enfr
-from tensor2tensor.data_generators import translate_enmk
-from tensor2tensor.data_generators import translate_enzh
-from tensor2tensor.data_generators import wiki
-from tensor2tensor.data_generators import wsj_parsing
+import importlib
+import six
 
 
-# Problem modules that require optional dependencies
-# pylint: disable=g-import-not-at-top
-try:
-  # Requires h5py
-  from tensor2tensor.data_generators import gene_expression
-except ImportError:
-  pass
-# pylint: enable=g-import-not-at-top
-# pylint: enable=unused-import
+modules = [
+    "tensor2tensor.data_generators.algorithmic",
+    "tensor2tensor.data_generators.algorithmic_math",
+    "tensor2tensor.data_generators.audio",
+    "tensor2tensor.data_generators.celeba",
+    "tensor2tensor.data_generators.cifar",
+    "tensor2tensor.data_generators.cipher",
+    "tensor2tensor.data_generators.cnn_dailymail",
+    "tensor2tensor.data_generators.desc2code",
+    "tensor2tensor.data_generators.fsns",
+    "tensor2tensor.data_generators.gene_expression",
+    # FATHOM
+    # remove gym dependency
+    #"tensor2tensor.data_generators.gym",
+    "tensor2tensor.data_generators.ice_parsing",
+    "tensor2tensor.data_generators.imagenet",
+    "tensor2tensor.data_generators.imdb",
+    "tensor2tensor.data_generators.librispeech",
+    "tensor2tensor.data_generators.lm1b",
+    "tensor2tensor.data_generators.mnist",
+    "tensor2tensor.data_generators.mscoco",
+    "tensor2tensor.data_generators.multinli",
+    "tensor2tensor.data_generators.ocr",
+    "tensor2tensor.data_generators.problem_hparams",
+    "tensor2tensor.data_generators.ptb",
+    "tensor2tensor.data_generators.snli",
+    "tensor2tensor.data_generators.squad",
+    "tensor2tensor.data_generators.translate_encs",
+    "tensor2tensor.data_generators.translate_ende",
+    "tensor2tensor.data_generators.translate_enet",
+    "tensor2tensor.data_generators.translate_enfr",
+    "tensor2tensor.data_generators.translate_enmk",
+    "tensor2tensor.data_generators.translate_envi",
+    "tensor2tensor.data_generators.translate_enzh",
+    "tensor2tensor.data_generators.twentybn",
+    "tensor2tensor.data_generators.wiki",
+    "tensor2tensor.data_generators.wikisum.wikisum",
+    "tensor2tensor.data_generators.wsj_parsing",
+]
+
+
+
+def _py_err_msg(module):
+  if six.PY2:
+    msg = "No module named %s" % module.split(".")[-1]
+  else:
+    msg = "No module named '%s'" % module
+  return msg
+
+
+def _handle_errors(errors):
+  """Log out and possibly reraise errors during import."""
+  if not errors:
+    return
+  log_all = True  # pylint: disable=unused-variable
+  err_msg = "Skipped importing {num_missing} data_generators modules."
+  print(err_msg.format(num_missing=len(errors)))
+  for module, err in errors:
+    err_str = str(err)
+    if err_str != _py_err_msg(module):
+      raise err
+    if log_all:
+      print("Did not import module: %s; Cause: %s" % (module, err_str))
+
+
+_errors = []
+for _module in modules:
+  try:
+    importlib.import_module(_module)
+  except ImportError as error:
+    _errors.append((_module, error))
+_handle_errors(_errors)

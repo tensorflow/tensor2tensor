@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Hyperparameters and ranges common to multiple models."""
 
 from __future__ import absolute_import
@@ -91,7 +90,6 @@ def basic_params1():
       learning_rate=0.1,
       sampling_method="argmax",  # "argmax" or "random"
       sampling_temp=1.0,  # temperature for sampling
-      problem_choice="adaptive",  # "uniform", "adaptive", "distributed"
       # expand the logits a piece at a time - saves memory.
       factored_logits=False,
       multiply_embedding_mode="sqrt_depth",
@@ -102,13 +100,13 @@ def basic_params1():
       moe_loss_coef=1e-2,
       # Sequences of operations to perform on layer input and layer output.
       # Used by common_layers.layer_preprocess, common_layers.layer_postprocess
-      # Each character repsesnts an operation:
+      # Each character represents an operation:
       # none: no preprocessing
       #    d: apply dropout
       #    n: apply normalization (see norm_type and norm_epsilon)
       #    a: add layer input (residual connection - only during postprocess)
       # The special string "none" is used instead of the empty string
-      # to indicate no pre/postprocesisng, since the empty string causes
+      # to indicate no pre/postprocessing, since the empty string causes
       # trouble for hyperparameter tuning.
       # TODO(noam): The current settings ("", "dan") are the published version
       # of the transformer.  ("n", "da") seems better for harder-to-learn
@@ -174,13 +172,13 @@ def basic_params1():
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
-      # You can change this behavior by overridding preprocess_example() method
+      # You can change this behavior by overriding preprocess_example() method
       # in your problem class.
       max_input_seq_length=0,
       # The maximum length of "target" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
-      # You can change this behavior by overridding preprocess_example() method
+      # You can change this behavior by overriding preprocess_example() method
       # in your problem class.
       max_target_seq_length=0,
       # if nonzero, we split the target sequences on example read.
@@ -220,7 +218,7 @@ def basic_params1():
       scheduled_sampling_warmup_steps=50000,
       scheduled_sampling_gold_mixin_prob=0.5,
       # This setting controls whether to copy variables around in a daisy chain
-      # (if true) or leave their placement to Tensorflow. It only affects multi
+      # (if true) or leave their placement to TensorFlow. It only affects multi
       # device training and mostly should be turned on for performance. One
       # exception are recurrent models: with dynamic loops it must be off.
       daisy_chain_variables=True,
@@ -229,9 +227,20 @@ def basic_params1():
       force_full_predict=False,
       # Set this for pure model parallelism.  There is only one data shard.
       no_data_parallelism=False,
-      # Set this to the dtype used for activation. Variables will still be
-      # stored in float32.
+      # dtype used for activations. - "float32" or "bfloat16"
+      # activation_dtype="bfloat16" currently only works on TPU.
+      #    It lowers activation-memory usage
+      #    and does not appear to affect quality.
+      #    You can train on TPU with activation_dtype="bfloat16" and evaluate
+      #    on CPU/GPU with activation_dtype="float32"
       activation_dtype="float32",
+      # dtype used for parameters: "float32" or "bfloat16"
+      # bfloat16 currently only works with optimizer="adafactor".
+      #   The savings in memory allow for training larger models.
+      #   Weights are encoded as (w*128)^8, using pseudostochastic
+      #   roundoff.  Initial experiments show that model quality is similar
+      #   to baseline for about 3M training steps, but worse thereafter.
+      weight_dtype="float32",
   )
 
 

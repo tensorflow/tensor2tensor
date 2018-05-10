@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utilities for attention."""
 from __future__ import absolute_import
 from __future__ import division
@@ -27,7 +26,6 @@ import operator
 import numpy as np
 
 from six.moves import range  # pylint: disable=redefined-builtin
-from six.moves import xrange  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
@@ -37,7 +35,7 @@ import tensorflow as tf
 
 from tensorflow.python.framework import function
 
-# Struct conatining the sequences ids and order on a batch (are send to the
+# Struct containing the sequences ids and order on a batch (are send to the
 # expert to allow them to compute the bias mask)
 BatchInfo = collections.namedtuple("BatchInfo", "coordinates, order")
 
@@ -57,9 +55,9 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
 
   Args:
     hparams (tf.HParams): the model hparameters
-    dp (expert_utils.Parallelism): A data paralelism object. If not given,
+    dp (expert_utils.Parallelism): A data parallelism object. If not given,
       the dp calls are simply ignored.
-    ps_devices: a reference to model._ps_devices (only used by the moe layer)
+    ps_devices: a reference to model._ps_devices (only used by the MOE layer)
 
   Returns:
     dict[str:fct]: A dictionary containing the standardized functions
@@ -82,9 +80,9 @@ def get_standardized_layers(hparams, dp=None, ps_devices=None):
       fct_in (fct): The function to register
       default_args (list): The default parameters to add to the function.
       default_kwargs (dict): The default parameters to add to the function.
-        Those arguments can be overwriten when calling the function.
-      use_dp (bool): Wrap the function call within a dataparalellism object if
-        dp is available. Some layers (like moe) must be called without dp.
+        Those arguments can be overwritten when calling the function.
+      use_dp (bool): Wrap the function call within a dataparallelism object if
+        dp is available. Some layers (like MOE) must be called without dp.
       recompute_grad (bool): If True, recompute the function during the
         backward pass to save memory
 
@@ -319,8 +317,8 @@ def add_standard_attention_hparams(hparams):
   hparams.add_hparam("attention_red_nonlinearity", "none")
 
   # Fully connected layers flags
-  # To be more concistent, should use filter_size to also controle the moe
-  # size if moe_hidden_sizes not set
+  # To be more consistent, should use filter_size to also control the MOE
+  # size if moe_hidden_sizes not set.
   hparams.add_hparam("filter_size", 2048)
   hparams.add_hparam("relu_dropout", 0.0)
 
@@ -400,7 +398,7 @@ def get_timing_signal_1d(length,
   memory inputs to attention.
 
   The use of relative position is possible because sin(x+y) and cos(x+y) can be
-  experessed in terms of y, sin(x) and cos(x).
+  expressed in terms of y, sin(x) and cos(x).
 
   In particular, we use a geometric sequence of timescales starting with
   min_timescale and ending with max_timescale.  The number of different
@@ -540,7 +538,7 @@ def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
       (tf.to_float(num_timescales) - 1))
   inv_timescales = min_timescale * tf.exp(
       tf.to_float(tf.range(num_timescales)) * -log_timescale_increment)
-  for dim in xrange(num_dims):
+  for dim in range(num_dims):
     length = common_layers.shape_list(x)[dim + 1]
     position = tf.to_float(tf.range(length))
     scaled_time = tf.expand_dims(position, 1) * tf.expand_dims(
@@ -549,9 +547,9 @@ def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
     prepad = dim * 2 * num_timescales
     postpad = channels - (dim + 1) * 2 * num_timescales
     signal = tf.pad(signal, [[0, 0], [prepad, postpad]])
-    for _ in xrange(1 + dim):
+    for _ in range(1 + dim):
       signal = tf.expand_dims(signal, 0)
-    for _ in xrange(num_dims - 1 - dim):
+    for _ in range(num_dims - 1 - dim):
       signal = tf.expand_dims(signal, -2)
     x += signal
   return x
@@ -579,7 +577,7 @@ def add_positional_embedding_nd(x, max_length, name):
   base_shape = [1] * (num_dims + 1) + [depth]
   base_start = [0] * (num_dims + 2)
   base_size = [-1] + [1] * num_dims + [depth]
-  for i in xrange(num_dims):
+  for i in range(num_dims):
     shape = base_shape[:]
     start = base_start[:]
     size = base_size[:]
@@ -861,8 +859,8 @@ def attention_bias_batch(
 
   bc_v = tf.expand_dims(to_float(batch_coordinates_q), 1)
   bc_h = tf.expand_dims(to_float(batch_coordinates_k), 0)
-  bias_batch = bc_h - bc_v  # Broadcast to create [length_q, length_k] mask
-  # Theshold non zeros to 1.0
+  bias_batch = bc_h - bc_v  # Broadcast to create [length_q, length_k] mask.
+  # Threshold non zeros to 1.0.
   bias_batch = condition_fn(bias_batch)
   bias_batch *= -1e9  # Set non zeros to -infinity
   return bias_batch
@@ -877,9 +875,9 @@ attention_bias_coordinates = functools.partial(
 # Mask similar to upper triangular mask, but allow dispatching
 attention_bias_future = functools.partial(
     attention_bias_batch,
-    # Elems can attend to themself (otherwise would use bias_batch + 1.0)
-    # No tf.abs to consider the order
-    # tf.maximum and tf.minimum to threshold the values
+    # Elems can attend to themselves (otherwise would use bias_batch + 1.0).
+    # No tf.abs to consider the order,
+    # tf.maximum and tf.minimum to threshold the values.
     condition_fn=lambda bias: tf.maximum(0.0, tf.minimum(1.0, bias)),
 )
 
@@ -1060,7 +1058,7 @@ def grouped_attention_multihead(query_antecedent,
   memory_target_density indicates the average how many groups in which
   a key-value pair should participate.
 
-  We use auxialiary losses to ensure that each group contains roughly
+  We use auxiliary losses to ensure that each group contains roughly
   the same number of queries and the same number of key-value pairs.
   If for a given sequence, the actual number of queries/pairs sent to
   an expert exceeds this target by a factor of more than
@@ -1316,7 +1314,7 @@ def dot_product_attention(q,
     name: an optional string
     make_image_summary: True if you want an image summary.
     save_weights_to: an optional dictionary to capture attention weights
-      for vizualization; the weights tensor will be appended there under
+      for visualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
     dropout_broadcast_dims:  an optional list of integers less than 4
       specifying in which dimensions to broadcast the dropout decisions.
@@ -1378,7 +1376,7 @@ def _relative_attention_inner(x, y, z, transpose):
     x: Tensor with shape [batch_size, heads, length, length or depth].
     y: Tensor with shape [batch_size, heads, length, depth].
     z: Tensor with shape [length, length, depth].
-    transpose: Whether to tranpose inner matrices of y and z. Should be true if
+    transpose: Whether to transpose inner matrices of y and z. Should be true if
         last dimension of x is depth, not length.
 
   Returns:
@@ -1422,7 +1420,7 @@ def dot_product_attention_relative(q,
     k: a Tensor with shape [batch, heads, length, depth].
     v: a Tensor with shape [batch, heads, length, depth].
     bias: bias Tensor.
-    max_relative_position: an integer specifying the maxmimum distance between
+    max_relative_position: an integer specifying the maximum distance between
         inputs that unique position embeddings should be learned for.
     dropout_rate: a floating point number.
     image_shapes: optional tuple of integer scalars.
@@ -1463,6 +1461,140 @@ def dot_product_attention_relative(q,
     if not tf.get_variable_scope().reuse and make_image_summary:
       attention_image_summary(weights, image_shapes)
     return _relative_attention_inner(weights, v, relations_values, False)
+
+
+def _relative_position_to_absolute_position_masked(x):
+  """Helper to dot_product_self_attention_relative_v2.
+
+  Rearrange an attention logits or weights Tensor.
+
+  The dimensions of the input represent:
+  [batch, heads, query_position, memory_position - query_position + length - 1]
+
+  The dimensions of the output represent:
+  [batch, heads, query_position, memory_position]
+
+  Only works with masked_attention.  Undefined behavior for regions of the
+  input where memory_position > query_position.
+
+  Args:
+    x: a Tensor with shape [batch, heads, length, length]
+
+  Returns:
+    a Tensor with shape [batch, heads, length, length]
+  """
+  batch, heads, length, _ = common_layers.shape_list(x)
+  x = tf.pad(x, [[0, 0], [0, 0], [0, 0], [1, 0]])
+  x = tf.reshape(x, [batch, heads, 1 + length, length])
+  x = tf.slice(x, [0, 0, 1, 0], [-1, -1, -1, -1])
+  return x
+
+
+def _absolute_position_to_relative_position_masked(x):
+  """Helper to dot_product_self_attention_relative_v2.
+
+  Rearrange an attention logits or weights Tensor.
+
+  The dimensions of the input represent:
+  [batch, heads, query_position, memory_position]
+
+  The dimensions of the output represent:
+  [batch, heads, query_position, memory_position - query_position + length - 1]
+
+  Only works with masked_attention.  Undefined behavior for regions of the
+  input where memory_position > query_position.
+
+  Args:
+    x: a Tensor with shape [batch, heads, length, length]
+
+  Returns:
+    a Tensor with shape [batch, heads, length, length]
+  """
+  batch, heads, length, _ = common_layers.shape_list(x)
+  x = tf.pad(x, [[0, 0], [0, 0], [1, 0], [0, 0]])
+  x = tf.reshape(x, [batch, heads, length, length + 1])
+  x = tf.slice(x, [0, 0, 0, 1], [batch, heads, length, length])
+  return x
+
+
+def dot_product_self_attention_relative_v2(q,
+                                           k,
+                                           v,
+                                           bias,
+                                           max_length=None,
+                                           dropout_rate=0.0,
+                                           image_shapes=None,
+                                           name=None,
+                                           make_image_summary=True,
+                                           dropout_broadcast_dims=None):
+  """Calculate relative position-aware dot-product self-attention.
+
+  Only works for masked self-attention (no looking forward).
+  TODO(noam): extend to unmasked self-attention
+
+  The attention calculation is augmented with learned representations for the
+  relative position between each element in q and each element in k and v.
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth].
+    k: a Tensor with shape [batch, heads, length, depth].
+    v: a Tensor with shape [batch, heads, length, depth].
+    bias: bias Tensor.
+    max_length: an integer - changing this invalidates checkpoints
+    dropout_rate: a floating point number.
+    image_shapes: optional tuple of integer scalars.
+    name: an optional string.
+    make_image_summary: Whether to make an attention image summary.
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
+
+  Returns:
+    A Tensor.
+  """
+  with tf.variable_scope(
+      name, default_name="dot_product_self_attention_relative_v2",
+      values=[q, k, v]):
+
+    # This calculation only works for self attention.
+    # q, k and v must therefore have the same shape.
+    q.get_shape().assert_is_compatible_with(k.get_shape())
+    q.get_shape().assert_is_compatible_with(v.get_shape())
+
+    # Use separate embeddings suitable for keys and values.
+    length = common_layers.shape_list(q)[2]
+    assert max_length is not None
+
+    # [batch, num_heads, query_length, memory_length]
+    logits = tf.matmul(q, k, transpose_b=True)
+
+    # now add relative logits
+    # [batch, num_heads, query_length, max_length]
+    rel_logits = common_layers.dense(q, max_length, name="rel0")
+    # [batch, num_heads, query_length, max_length]
+    rel_logits = tf.slice(
+        rel_logits, [0, 0, 0, max_length - length], [-1, -1, -1, -1])
+    rel_logits = _relative_position_to_absolute_position_masked(rel_logits)
+    logits += rel_logits
+
+    if bias is not None:
+      logits += bias
+    weights = tf.nn.softmax(logits, name="attention_weights")
+    # dropping out the attention links for each of the heads
+    weights = common_layers.dropout_with_broadcast_dims(
+        weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
+    if expert_utils.should_generate_summaries() and make_image_summary:
+      attention_image_summary(weights, image_shapes)
+    ret = tf.matmul(weights, v)
+    # [batch, num_heads, query_length, memory_length]
+    relative_weights = _absolute_position_to_relative_position_masked(weights)
+    # [batch, num_heads, query_length, memory_length]
+    relative_weights = tf.pad(
+        relative_weights, [[0, 0], [0, 0], [0, 0], [max_length - length, 0]])
+    relative_weights.set_shape([None, None, None, max_length])
+    depth_v = common_layers.shape_list(v)[3]
+    ret += common_layers.dense(relative_weights, depth_v, name="rel1")
+    return ret
 
 
 def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
@@ -2141,7 +2273,7 @@ def gather_indices_2d(x, block_shape, block_stride):
 
 
 def make_2d_block_raster_mask(query_shape, memory_flange):
-  """creates a mask for 2d block raster scany.
+  """Creates a mask for 2d block raster scan.
 
   The query mask can look to the left, top left, top, and top right, but
   not to the right. Inside the query, we have the standard raster scan
@@ -2446,6 +2578,7 @@ def multihead_attention(query_antecedent,
                         save_weights_to=None,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
+                        max_length=None,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -2493,6 +2626,7 @@ def multihead_attention(query_antecedent,
     dropout_broadcast_dims:  an optional list of integers less than 4
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
+    max_length: an integer - needed by relative attention
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -2509,7 +2643,7 @@ def multihead_attention(query_antecedent,
         [batch_size, length_q, hidden_dim]
     unless the cache dict is provided in which case only the last memory
     position is calculated and the output shape is [batch_size, 1, hidden_dim]
-    Optionaly returns an additional loss parameters (ex: load balance loss for
+    Optionally returns an additional loss parameters (ex: load balance loss for
     the experts) returned by the attention_type function.
 
   Raises:
@@ -2563,6 +2697,11 @@ def multihead_attention(query_antecedent,
       x = dot_product_attention_relative(q, k, v, bias, max_relative_position,
                                          dropout_rate, image_shapes,
                                          make_image_summary=make_image_summary)
+    elif attention_type == "dot_product_relative_v2":
+      x = dot_product_self_attention_relative_v2(
+          q, k, v, bias, max_length, dropout_rate, image_shapes,
+          make_image_summary=make_image_summary,
+          dropout_broadcast_dims=dropout_broadcast_dims)
     elif attention_type == "local_within_block_mask_right":
       x = masked_within_block_local_attention_1d(q, k, v,
                                                  block_length=block_length)
@@ -2661,7 +2800,7 @@ def ffn_self_attention_layer(x,
   We use self-attention to do feedforward computations. We apply this function
   positionwise where for each position, we linearly transform the output to have
   depth filter_depth, and break up the result depth-wise into num_parts
-  contiguous parts.  The parts self-attentd, we concatenate the results
+  contiguous parts.  The parts self-attend, we concatenate the results
   depth-wise, and we linearly transform to a depth of output_depth. The
   goal is to get multiplicative interactions between components of a
   representation.
@@ -2764,7 +2903,7 @@ def parameter_attention(x,
         x, total_key_depth, use_bias=False, name="q_transform")
     if dropout_rate:
       # This is a cheaper form of attention dropout where we use to use
-      # the same dropout decisions across batch elemets and query positions,
+      # the same dropout decisions across batch elements and query positions,
       # but different decisions across heads and memory positions.
       v = tf.nn.dropout(
           v, 1.0 - dropout_rate, noise_shape=[num_heads, memory_rows, 1])
@@ -2787,7 +2926,7 @@ def parameter_attention(x,
 
 @expert_utils.add_name_scope()
 def coordinate_tensor(shape, axis):
-  """Return a tensor with given shape containing coordinte along given axis.
+  """Return a tensor with given shape containing coordinate along given axis.
 
   Args:
     shape: a Tensor representing the shape of the output Tensor
@@ -2879,7 +3018,7 @@ def self_attention_expert(
     def mask_and_call_attention(x):
       """Function applied once for each sequence of the batch."""
 
-      # Mask to prevent sequences of attenting to the future
+      # Mask to prevent sequences of attending to the future
       length = common_layers.shape_list(x)[1]  # x has shape [1, length,...]
       bias_past = tf.reshape(
           attention_bias_lower_triangle(length), [length, length])
@@ -2972,7 +3111,7 @@ def expert_dot_product(q, k, v, info_q, info_k):
   """Perform dot product on a subset of the sequence.
 
   Can add a mask to the attention to prevent sequences to attend to each other
-  and to prevent attention to the futur.
+  and to prevent attention to the future.
 
   Args:
     q (tf.Tensor): Queries of shape [length_expert_q, depth_k]
@@ -3201,16 +3340,12 @@ def sparse_dot_product_attention(q, k, v, bi, use_map_fn, experts_params):
   gates_q = tf.stack(list_gates_q)
   gates_k = tf.stack(list_gates_k)
 
-  # Process each head separatly
+  # Process each head separately.
   v_out = map_fn_switch(
       lambda args: dot_product_single_head(bi=bi, *args),
       elems=(q, k, v, gates_q, gates_k),
       dtype=(tf.float32),
       parallel_iterations=2,
-      # back_prop=True,
-      # swap_memory=False,
-      # infer_shape=True,
-      # name=None
       use_map_fn=use_map_fn,
   )
 
@@ -3436,9 +3571,8 @@ def conv_elems_1d(x, factor, out_depth=None):
 
   Merge/restore/compress factors positions of dim depth of the input into
   a single position of dim out_depth.
-  This is basically just a strided convolution without overlapp
-  between each strides.
-  The original length has to be divided by factor.
+  This is basically just a strided convolution without overlap
+  between each strides. The original length has to be divided by factor.
 
   Args:
     x (tf.Tensor): shape [batch_size, length, depth]
@@ -3481,7 +3615,7 @@ def local_reduction_attention(x, block_length, multihead_params):
   def dot_product_self_local_attention_flattened(q, k, v):
     """Strided block local self-attention.
 
-    No overlapp between the blocks.
+    No overlap between the blocks.
 
     Args:
       q (tf.Tensor): shape [batch, heads, length, depth_k]
@@ -3562,7 +3696,7 @@ def multihead_self_attention_reduced(
 
   Args:
     x (tf.Tensor): float32 of shape [batch, length, depth]
-    memory_antecedent (tf.Tensor): Unsuported for now
+    memory_antecedent (tf.Tensor): Unsupported for now
     bias (tf.Tensor): Ignored
     factor (int): compression factor for the memory sequence
     multihead_params (dict): parameters for multihead attention
@@ -3584,7 +3718,7 @@ def multihead_self_attention_reduced(
 
   depth = x.get_shape().as_list()[-1]
 
-  # Could try to have some overlapp between the blocks but that would
+  # Could try to have some overlap between the blocks but that would
   # create conv artifacts, would make it difficult to not attend to the future
   # within one group and the padding should be handled specially.
 
@@ -3715,7 +3849,7 @@ def multihead_self_attention_memory_efficient(x,
     wqkv_split = tf.unstack(wqkv, num=num_heads)
     wo_split = tf.unstack(wo, num=num_heads)
     y = 0
-    for h in xrange(num_heads):
+    for h in range(num_heads):
       with tf.control_dependencies([y] if h > 0 else []):
         combined = tf.nn.conv1d(n, wqkv_split[h], 1, "SAME")
         q, k, v = tf.split(combined, 3, axis=2)
@@ -3742,7 +3876,7 @@ def multihead_self_attention_memory_efficient(x,
         dwqkvs = []
         dwos = []
         dn = 0
-        for h in xrange(num_heads):
+        for h in range(num_heads):
           with tf.control_dependencies(deps):
             combined = tf.nn.conv1d(n, wqkv_split[h], 1, "SAME")
             q, k, v = tf.split(combined, 3, axis=2)

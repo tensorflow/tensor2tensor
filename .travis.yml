@@ -2,29 +2,70 @@ language: python
 python:
   - "2.7"
   - "3.6"
-before_install:
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq libhdf5-dev
-install:
-  - pip install tensorflow
-  - pip install .[tests]
 env:
   global:
     - T2T_PROBLEM=algorithmic_reverse_binary40_test
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
+  matrix:
+    - TF_VERSION="1.5.*"
+    - TF_VERSION="1.6.*"
+    - TF_VERSION="1.7.*"
+matrix:
+  exclude:
+    - python: "3.6"
+      env: TF_VERSION="1.5.*"
+    - python: "3.6"
+      env: TF_VERSION="1.6.*"
+before_install:
+  - echo "deb [arch=amd64] http://storage.googleapis.com/tensorflow-serving-apt stable tensorflow-model-server tensorflow-model-server-universal" | sudo tee /etc/apt/sources.list.d/tensorflow-serving.list
+  - curl https://storage.googleapis.com/tensorflow-serving-apt/tensorflow-serving.release.pub.gpg | sudo apt-key add -
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq libhdf5-dev
+  - sudo apt-get install -qq tensorflow-model-server
+install:
+  - pip install -q "tensorflow==$TF_VERSION"
+  - pip install -q .[tests]
+  # Make sure we have the latest version of numpy - avoid problems we were
+  # seeing with Python 3
+  - pip install -q -U numpy
 script:
-  - pytest --ignore=tensor2tensor/utils/registry_test.py --ignore=tensor2tensor/problems_test.py --ignore=tensor2tensor/utils/trainer_lib_test.py --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
+  # Check import
+  - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
+
+  # Run tests
+  - pytest
+    --ignore=tensor2tensor/utils/registry_test.py
+    --ignore=tensor2tensor/utils/trainer_lib_test.py
+    --ignore=tensor2tensor/visualization/visualization_test.py
+    --ignore=tensor2tensor/problems_test.py
+    --ignore=tensor2tensor/bin/t2t_trainer_test.py
+    --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
+    --ignore=tensor2tensor/models/research/r_transformer_test.py  # Requires new feature in tf.foldl (rm with TF 1.9)
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
+  - pytest tensor2tensor/visualization/visualization_test.py
+
+  # Run installed scripts
   - t2t-datagen 2>&1 | grep translate && echo passed
-  - t2t-trainer --registry_help --t2t_usr_dir=./tensor2tensor/test_data/example_usr_dir 2>&1 | grep my_very_own_hparams && echo passed
-  - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
   - t2t-trainer --registry_help
-  - mkdir $T2T_DATA_DIR
-  - mkdir $T2T_TRAIN_DIR
+
+  # Test --t2t_usr_dir
+  - t2t-trainer --registry_help --t2t_usr_dir=./tensor2tensor/test_data/example_usr_dir 2>&1 | grep my_very_own_hparams && echo passed
+
+  # Run data generation, training, and decoding on a dummy problem
   - t2t-datagen --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR
-  - t2t-trainer --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
-  - t2t-decoder --problems=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
+  - t2t-trainer --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
+  - t2t-decoder --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
+
+  # Export and query (on Python 2 only)
+  # Bug: https://github.com/tensorflow/serving/issues/819
+  #- if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "1.6.*"  ]]; then
+  #      t2t-exporter --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR;
+  #      pip install tensorflow-serving-api;
+  #      tensorflow_model_server --port=9000 --model_name=my_model --model_base_path=$T2T_TRAIN_DIR/export/Servo &
+  #      sleep 10;
+  #      t2t-query-server --problem=$T2T_PROBLEM --server=localhost:9000 --servable_name=my_model --data_dir=$T2T_DATA_DIR --inputs_once='1 0 1 0 1 0';
+  #  fi
 git:
   depth: 3

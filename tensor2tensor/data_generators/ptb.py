@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data generators for PTB data-sets."""
 
 from __future__ import absolute_import
@@ -29,6 +28,7 @@ import tarfile
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -57,7 +57,7 @@ def _build_vocab(filename, vocab_path, vocab_size):
   Args:
     filename: file to read list of words from.
     vocab_path: path where to save the vocabulary.
-    vocab_size: size of the vocablulary to generate.
+    vocab_size: size of the vocabulary to generate.
   """
   data = _read_words(filename)
   counter = collections.Counter(data)
@@ -76,58 +76,69 @@ def _get_token_encoder(vocab_dir, vocab_name, filename):
   return text_encoder.TokenTextEncoder(vocab_path)
 
 
-class PTBProblem(problem.Text2TextProblem):
-  """A class for generating PTB data."""
+def _maybe_download_corpus(tmp_dir, vocab_type):
+  """Download and unpack the corpus.
+
+  Args:
+    tmp_dir: directory containing dataset.
+    vocab_type: which vocabulary are we using.
+
+  Returns:
+    The list of names of files.
+  """
+  filename = os.path.basename(PTB_URL)
+  compressed_filepath = generator_utils.maybe_download(
+      tmp_dir, filename, PTB_URL)
+  ptb_files = []
+  ptb_char_files = []
+
+  with tarfile.open(compressed_filepath, "r:gz") as tgz:
+    files = []
+    # Selecting only relevant files.
+    for m in tgz.getmembers():
+      if "ptb" in m.name and ".txt" in m.name:
+        if "char" in m.name:
+          ptb_char_files += [m.name]
+        else:
+          ptb_files += [m.name]
+        files += [m]
+
+    tgz.extractall(tmp_dir, members=files)
+
+  if vocab_type == text_problems.VocabType.CHARACTER:
+    return ptb_char_files
+  else:
+    return ptb_files
+
+
+@registry.register_problem
+class LanguagemodelPtb10k(text_problems.Text2SelfProblem):
+  """PTB, 10k vocab."""
 
   @property
-  def has_inputs(self):
-    return False
+  def dataset_splits(self):
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 10,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
 
   @property
-  def target_space_id(self):
-    if self.is_character_level:
-      return problem.SpaceID.EN_CHR
-    return problem.SpaceID.EN_TOK
+  def is_generate_per_split(self):
+    return True
 
   @property
-  def num_shards(self):
-    return 10
+  def vocab_filename(self):
+    return "vocab.lmptb.10000"
 
   @property
-  def vocab_name(self):
-    return "vocab.lmptb_10k"
+  def vocab_type(self):
+    return text_problems.VocabType.TOKEN
 
-  @property
-  def use_subword_tokenizer(self):
-    return False
-
-  @property
-  def targeted_vocab_size(self):
-    return 10000
-
-  def generator(self, data_dir, tmp_dir, train):
-    filename = os.path.basename(PTB_URL)
-    compressed_filepath = generator_utils.maybe_download(
-        tmp_dir, filename, PTB_URL)
-    ptb_files = []
-    ptb_char_files = []
-    with tarfile.open(compressed_filepath, "r:gz") as tgz:
-      files = []
-      # Selecting only relevant files.
-      for m in tgz.getmembers():
-        if "ptb" in m.name and ".txt" in m.name:
-          if "char" in m.name:
-            ptb_char_files += [m.name]
-          else:
-            ptb_files += [m.name]
-          files += [m]
-
-      tgz.extractall(tmp_dir, members=files)
-
-    if self.is_character_level:
-      files = ptb_char_files
-    else:
-      files = ptb_files
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    files = _maybe_download_corpus(tmp_dir, self.vocab_type)
 
     train_file, valid_file = None, None
     for filename in files:
@@ -139,37 +150,24 @@ class PTBProblem(problem.Text2TextProblem):
     assert train_file, "Training file not found"
     assert valid_file, "Validation file not found"
 
-    if self.is_character_level:
-      encoder = text_encoder.ByteTextEncoder()
-    else:
-      encoder = _get_token_encoder(data_dir, self.vocab_file, train_file)
+    _get_token_encoder(data_dir, self.vocab_filename, train_file)
 
-    if train:
-      return self._generator(train_file, encoder)
-    return self._generator(valid_file, encoder)
+    train = dataset_split == problem.DatasetSplit.TRAIN
+    filepath = train_file if train else valid_file
 
-  def _generator(self, filename, encoder):
-    with tf.gfile.GFile(filename, "r") as f:
-      for line in f:
-        line = " ".join(line.replace("\n", " %s " % EOS).split())
-        tok = encoder.encode(line)
-        if tok:
-          yield {"inputs": [0], "targets": tok}
+    def _generate_samples():
+      with tf.gfile.GFile(filepath, "r") as f:
+        for line in f:
+          line = " ".join(line.replace("\n", " %s " % EOS).split())
+          yield {"targets": line}
+
+    return _generate_samples()
 
 
 @registry.register_problem
-class LanguagemodelPtb10k(PTBProblem):
-  """A class for generating PTB data, 10k vocab."""
+class LanguagemodelPtbCharacters(LanguagemodelPtb10k):
+  """PTB, character-level."""
 
   @property
-  def is_character_level(self):
-    return False
-
-
-@registry.register_problem
-class LanguagemodelPtbCharacters(PTBProblem):
-  """A class for generating PTB data, character-level."""
-
-  @property
-  def is_character_level(self):
-    return True
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER

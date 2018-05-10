@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for tensor2tensor.utils.metrics."""
 from __future__ import absolute_import
 from __future__ import division
@@ -106,6 +105,121 @@ class CommonLayersTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       actual = session.run(a)
     self.assertEqual(actual.shape, ())
+
+  def testSigmoidAccuracyOneHot(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [-1., 1.],
+        [1., -1.]
+    ])
+    labels = np.array([
+        [0, 1],
+        [1, 0],
+        [1, 0],
+        [0, 1]
+    ])
+    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
+    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_accuracy_one_hot(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertEqual(s, 0.5)
+
+  def testSigmoidPrecisionOneHot(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [1., -1.],
+        [1., -1.]
+    ])
+    labels = np.array([
+        [0, 1],
+        [0, 1],
+        [0, 1],
+        [0, 1]
+    ])
+    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
+    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_precision_one_hot(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertEqual(s, 0.25)
+
+  def testSigmoidRecallOneHot(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [1., -1.],
+        [1., -1.]
+    ])
+    labels = np.array([
+        [0, 1],
+        [0, 1],
+        [0, 1],
+        [0, 1]
+    ])
+    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
+    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_recall_one_hot(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertEqual(s, 0.25)
+
+  def testSigmoidCrossEntropyOneHot(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [1., -1.],
+        [1., -1.]
+    ])
+    labels = np.array([
+        [0, 1],
+        [1, 0],
+        [0, 0],
+        [0, 1]
+    ])
+    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
+    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_cross_entropy_one_hot(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertAlmostEqual(s, 0.688, places=3)
+
+  def testRocAuc(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [1., -1.],
+        [1., -1.]
+    ])
+    labels = np.array([
+        [1],
+        [0],
+        [1],
+        [0]
+    ])
+    logits = np.expand_dims(np.expand_dims(logits, 1), 1)
+    labels = np.expand_dims(np.expand_dims(labels, 1), 1)
+
+    with self.test_session() as session:
+      score, _ = metrics.roc_auc(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertAlmostEqual(s, 0.750, places=3)
 
 
 if __name__ == '__main__':

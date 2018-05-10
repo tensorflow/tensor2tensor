@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for tensor2tensor.beam_search."""
 
 from __future__ import absolute_import
@@ -303,7 +302,8 @@ class BeamSearchTest(tf.test.TestCase):
     states = {
         "state": tf.zeros((batch_size, 1)),
     }
-    states["state"]._shape = tf.TensorShape((None, 1))
+    states["state"] = tf.placeholder_with_default(
+        states["state"], shape=(None, 1))
 
     final_ids, _ = beam_search.beam_search(
         symbols_to_logits,
@@ -352,7 +352,8 @@ class BeamSearchTest(tf.test.TestCase):
     states = {
         "state": tf.zeros((batch_size, 1)),
     }
-    states["state"]._shape = tf.TensorShape((None, 1))
+    states["state"] = tf.placeholder_with_default(
+        states["state"], shape=(None, 1))
 
     final_ids, _ = beam_search.beam_search(
         symbols_to_logits,

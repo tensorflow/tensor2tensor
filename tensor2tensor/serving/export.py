@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Export a trained model for serving."""
 from __future__ import absolute_import
 from __future__ import division
@@ -45,7 +44,7 @@ def create_hparams():
       FLAGS.hparams_set,
       FLAGS.hparams,
       data_dir=os.path.expanduser(FLAGS.data_dir),
-      problem_name=FLAGS.problems)
+      problem_name=FLAGS.problem)
 
 
 def main(_):
@@ -61,7 +60,7 @@ def main(_):
 
   estimator = create_estimator(run_config, hparams)
 
-  problem = hparams.problem_instances[0]
+  problem = hparams.problem
   strategy = trainer_lib.create_export_strategy(problem, hparams)
 
   export_dir = os.path.join(ckpt_dir, "export", strategy.name)

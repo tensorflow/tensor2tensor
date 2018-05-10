@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Gene expression problems.
 
 Inputs are bases ACTG (with indices assigned in that order).
@@ -44,7 +43,7 @@ import os
 import h5py
 import numpy as np
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import dna_encoder
 from tensor2tensor.data_generators import generator_utils
@@ -130,7 +129,7 @@ class GeneExpressionProblem(problem.Problem):
     # Start and wait for processes in batches
     num_batches = int(
         math.ceil(float(len(processes)) / MAX_CONCURRENT_PROCESSES))
-    for i in xrange(num_batches):
+    for i in range(num_batches):
       start = i * MAX_CONCURRENT_PROCESSES
       end = start + MAX_CONCURRENT_PROCESSES
       current = processes[start:end]
@@ -211,7 +210,7 @@ def generate_shard_args(outfiles, num_examples):
   """Generate start and end indices per outfile."""
   num_shards = len(outfiles)
   num_examples_per_shard = num_examples // num_shards
-  start_idxs = [i * num_examples_per_shard for i in xrange(num_shards)]
+  start_idxs = [i * num_examples_per_shard for i in range(num_shards)]
   end_idxs = list(start_idxs)
   end_idxs.pop(0)
   end_idxs.append(num_examples)
@@ -249,7 +248,7 @@ def dataset_generator(filepath,
     if end_idx is None:
       end_idx = inp_data.len()
 
-    for i in xrange(start_idx, end_idx):
+    for i in range(start_idx, end_idx):
       if i % 100 == 0:
         print("Generating example %d for %s" % (i, dataset))
       inputs, mask, outputs = inp_data[i], mask_data[i], out_data[i]

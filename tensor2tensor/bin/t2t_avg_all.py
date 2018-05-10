@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""Script to continously average last N checkpoints in a given directory."""
+"""Script to continuously average last N checkpoints in a given directory."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 from collections import deque
-import logging
 import os
 import shutil
 
@@ -45,8 +43,6 @@ flags.DEFINE_integer("wait_minutes", 0,
 
 
 def main(_):
-  tf.logging._handler.setFormatter(  # pylint: disable=protected-access
-      logging.Formatter("%(asctime)s:" + logging.BASIC_FORMAT, None))
   tf.logging.set_verbosity(tf.logging.INFO)
 
   model_dir = os.path.expanduser(FLAGS.model_dir)
@@ -56,7 +52,8 @@ def main(_):
   # Copy flags.txt with the original time, so t2t-bleu can report correct
   # relative time.
   tf.gfile.MakeDirs(FLAGS.output_dir)
-  if not os.path.exists(os.path.join(output_dir, "flags.txt")):
+  if (not os.path.exists(os.path.join(output_dir, "flags.txt")) and
+      os.path.exists(os.path.join(model_dir, "flags.txt"))):
     shutil.copy2(os.path.join(model_dir, "flags.txt"),
                  os.path.join(output_dir, "flags.txt"))
 

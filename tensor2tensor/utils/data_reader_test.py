@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data reader test."""
 
 from __future__ import absolute_import
@@ -25,7 +24,7 @@ import tempfile
 # Dependency imports
 
 import numpy as np
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem as problem_mod
@@ -39,7 +38,7 @@ import tensorflow as tf
 class TestProblem(problem_mod.Problem):
 
   def generator(self, data_dir, tmp_dir, is_training):
-    for i in xrange(30):
+    for i in range(30):
       yield {"inputs": [i] * (i + 1), "targets": [i], "floats": [i + 0.5]}
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
@@ -90,15 +89,15 @@ class DataReaderTest(tf.test.TestCase):
         os.remove(f)
 
   def testBasicExampleReading(self):
-    dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
-                                   data_dir=self.data_dir,
-                                   repeat=False,
-                                   shuffle_files=False)
+    dataset = self.problem.dataset(
+        tf.estimator.ModeKeys.TRAIN,
+        data_dir=self.data_dir,
+        shuffle_files=False)
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       # Check that there are multiple examples that have the right fields of the
       # right type (lists of int/float).
-      for _ in xrange(10):
+      for _ in range(10):
         ex_val = sess.run(examples)
         inputs, targets, floats = (ex_val["inputs"], ex_val["targets"],
                                    ex_val["floats"])
@@ -109,10 +108,10 @@ class DataReaderTest(tf.test.TestCase):
           self.assertGreater(len(field), 0)
 
   def testPreprocess(self):
-    dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
-                                   data_dir=self.data_dir,
-                                   repeat=False,
-                                   shuffle_files=False)
+    dataset = self.problem.dataset(
+        tf.estimator.ModeKeys.TRAIN,
+        data_dir=self.data_dir,
+        shuffle_files=False)
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       ex_val = sess.run(examples)
@@ -121,16 +120,16 @@ class DataReaderTest(tf.test.TestCase):
 
   def testLengthFilter(self):
     max_len = 15
-    dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
-                                   data_dir=self.data_dir,
-                                   repeat=False,
-                                   shuffle_files=False)
+    dataset = self.problem.dataset(
+        tf.estimator.ModeKeys.TRAIN,
+        data_dir=self.data_dir,
+        shuffle_files=False)
     dataset = dataset.filter(
         lambda ex: data_reader.example_valid_size(ex, 0, max_len))
     examples = dataset.make_one_shot_iterator().get_next()
     with tf.train.MonitoredSession() as sess:
       ex_lens = []
-      for _ in xrange(max_len):
+      for _ in range(max_len):
         ex_lens.append(len(sess.run(examples)["inputs"]))
 
     self.assertAllEqual(list(range(1, max_len + 1)), sorted(ex_lens))
@@ -216,10 +215,10 @@ class DataReaderTest(tf.test.TestCase):
     boundaries = [10, 20, 30]
     batch_sizes = [10, 8, 4, 2]
 
-    dataset = self.problem.dataset(tf.estimator.ModeKeys.TRAIN,
-                                   data_dir=self.data_dir,
-                                   repeat=False,
-                                   shuffle_files=False)
+    dataset = self.problem.dataset(
+        tf.estimator.ModeKeys.TRAIN,
+        data_dir=self.data_dir,
+        shuffle_files=False)
     dataset = data_reader.bucket_by_sequence_length(
         dataset, example_len, boundaries, batch_sizes)
     batch = dataset.make_one_shot_iterator().get_next()
