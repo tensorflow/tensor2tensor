@@ -56,23 +56,23 @@ def ppo_base_v1():
 
 
 @registry.register_hparams
-def continuous_action_base():
+def ppo_continuous_action_base():
   hparams = ppo_base_v1()
   hparams.add_hparam("network", feed_forward_gaussian_fun)
   return hparams
 
 
 @registry.register_hparams
-def discrete_action_base():
+def ppo_discrete_action_base():
   hparams = ppo_base_v1()
   hparams.add_hparam("network", feed_forward_categorical_fun)
   return hparams
 
 
 @registry.register_hparams
-def atari_base():
+def ppo_atari_base():
   """Atari base parameters."""
-  hparams = discrete_action_base()
+  hparams = ppo_discrete_action_base()
   hparams.learning_rate = 16e-5
   hparams.num_agents = 5
   hparams.epoch_length = 200

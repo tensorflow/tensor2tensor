@@ -256,12 +256,13 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     super(GymDiscreteProblemWithAgent, self).__init__(*args, **kwargs)
     self._env = None
     self.debug_dump_frames_path = "debug_frames_env"
-    self.make_extra_debug_info = False
+    self.make_extra_debug_info = True
 
     # defaults
     self.environment_spec = lambda: gym.make(self.env_name)
+    self.real_env = self.environment_spec()
     self.in_graph_wrappers = []
-    self.collect_hparams = rl.atari_base()
+    self.collect_hparams = rl.ppo_atari_base()
     self.settable_num_steps = 20000
     self.simulated_environment = None
     self.warm_up = 10  # TODO(piotrm): This should be probably removed.
@@ -303,7 +304,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
           simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES):
         self.real_ob, _, _, _ = self.real_env.step(0)
       self.total_sim_reward, self.total_real_reward = 0.0, 0.0
-      self.successful_dones = 0
+      self.successful_episode_reward_predictions = 0
 
     in_graph_wrappers = self.in_graph_wrappers + [(atari.MemoryWrapper, {})]
     env_hparams = tf.contrib.training.HParams(
@@ -396,11 +397,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
           if done:
             self.dones += 1
             if self.total_real_reward == self.total_sim_reward:
-              self.successful_dones += 1
-            if self.dones % self.report_reward_statistics_every == 0:
-              print("Got correct total rewards {} out of {}:".format(
-                  self.successful_dones, self.report_reward_statistics_every))
-              self.successful_dones = 0
+              self.successful_episode_reward_predictions += 1
 
             self.total_real_reward = 0.0
             self.total_sim_reward = 0.0
