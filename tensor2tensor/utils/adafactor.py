@@ -54,7 +54,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
 
     absolute_update_scale := relative_update_scale * parameter_scale
     relative_update_scale := min((step_num + 1)**-0.5, 1e-2)
-    parameter_scale := max(rms(var)), 1e-3)
+    parameter_scale := max(rms(var)), epsilon2)
     clip(x) := x / max(1.0, rms(x))
     grad_scale := tf.sqrt(v)   (v is the second-moment estimator)
 
@@ -71,7 +71,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
   The update rule is as follows:
   ```
   decay_rate = 1 - (step_num + 1) ^ -0.8
-  grad_squared = tf.square(grad) + epsilon
+  grad_squared = tf.square(grad) + epsilon1
   if var is 2-dimensional:
     v_r <- decay_rate * v_r + (1 - decay_rate) * reduce_mean(grad_squared, 1)
     v_c <- decay_rate * v_c + (1 - decay_rate) * reduce_mean(grad_squared, 0)
@@ -112,7 +112,9 @@ class AdafactorOptimizer(tf.train.Optimizer):
                simulated_quantize_bits=None,
                parameter_encoding=None,
                use_locking=False,
-               name="Adafactor"):
+               name="Adafactor",
+               epsilon1=1e-30,
+               epsilon2=1e-3):
     """Construct a new Adafactor optimizer.
 
     See class comment.
@@ -132,6 +134,8 @@ class AdafactorOptimizer(tf.train.Optimizer):
       use_locking: If True use locks for update operations.
       name: Optional name for the operations created when applying gradients.
         Defaults to "AdafactorOptimizer".
+      epsilon1: Regularization constant for squared gradient.
+      epsilon2: Regularization constant for parameter scale.
 
     Raises:
       ValueError: if absolute_update_scale and relative_update_scale_fn are both
@@ -151,6 +155,8 @@ class AdafactorOptimizer(tf.train.Optimizer):
     self._simulated_quantize_bits = simulated_quantize_bits
     self._parameter_encoding = parameter_encoding
     self._quantization_noise = quantization.noise_from_step_num()
+    self._epsilon1 = epsilon1
+    self._epsilon2 = epsilon2
 
   def _should_use_factored_second_moment_estimate(self, shape):
     """Should we use a factored second moment estimator.
@@ -198,11 +204,11 @@ class AdafactorOptimizer(tf.train.Optimizer):
     Returns:
       a Scalar
     """
-    return tf.maximum(reduce_rms(var), 0.001)
+    return tf.maximum(reduce_rms(var), self._epsilon2)
 
   def _resource_apply_dense(self, grad, var):
     grad = tf.to_float(grad)
-    grad_squared = tf.square(grad) + 1e-30
+    grad_squared = tf.square(grad) + self._epsilon1
     grad_squared_mean = tf.reduce_mean(grad_squared)
     decay_rate = self._decay_rate
     update_scale = self._learning_rate
