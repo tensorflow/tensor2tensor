@@ -105,7 +105,9 @@ def decode(estimator, hparams, decode_hp):
       ckpt_time = os.path.getmtime(FLAGS.checkpoint_path + ".index")
       os.utime(FLAGS.decode_to_file, (ckpt_time, ckpt_time))
   else:
-    decoding.decode_from_dataset(
+
+    # Fathom
+    predictions = decoding.decode_from_dataset(
         estimator,
         FLAGS.problem,
         hparams,
@@ -176,6 +178,13 @@ def score_file(filename):
       results.append(np_loss)
   return results
 
+    # Fathom
+    if FLAGS.fathom_output_predictions:
+      print('Assuming only one problem...')
+      assert '-' not in FLAGS.problems
+      problem = registry.problem(FLAGS.problems)
+      problem.output_predictions(predictions)
+    
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)

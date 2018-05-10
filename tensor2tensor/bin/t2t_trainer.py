@@ -75,7 +75,7 @@ try:
   # continuous_train_and_eval is broken w/ early stopping
   flags.DEFINE_string("schedule", "train_and_evaluate",
                       "Method of Experiment to run.")
-  flags.DEFINE_integer("eval_steps", 10000,
+  flags.DEFINE_integer("eval_steps", 100,
                        "Number of steps in evaluation. By default, eval will "
                        "stop after eval_steps or when it runs through the eval "
                        "dataset once in full, whichever comes first, so this "

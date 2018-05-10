@@ -1108,7 +1108,16 @@ class T2TModel(base.Layer):
       else:
         predictions = {"predictions": logits}
 
-      return tf.estimator.EstimatorSpec(
+      # Fathom
+      if isinstance(logits, dict):
+        return tf.estimator.EstimatorSpec(
+          tf.estimator.ModeKeys.EVAL,
+          predictions=logits,
+          eval_metric_ops=eval_metrics,
+          loss=loss)
+
+      else:
+        return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           predictions=predictions,
           eval_metric_ops=eval_metrics,
