@@ -164,8 +164,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     """
     with tf.control_dependencies([self.history_buffer.reset()]):
       with tf.control_dependencies([self._observ.assign(0.0*self._observ)]):
-        ooo = tf.Print(self._observ.read_value(), [1], message="reset op")
-        return tf.identity(ooo)
+        return tf.identity(self._observ.read_value())
 
 
   @property
