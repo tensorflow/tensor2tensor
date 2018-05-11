@@ -102,8 +102,8 @@ def r_transformer_encoder(encoder_input,
     ffn_unit = functools.partial(
         transformer_encoder_ffn_unit,
         hparams=hparams,
-        pad_remover=pad_remover,
-        nonpadding_mask=nonpadding)
+        nonpadding_mask=nonpadding,
+        pad_remover=pad_remover)
 
     attention_unit = functools.partial(
         transformer_encoder_attention_unit,
@@ -199,19 +199,32 @@ def r_transformer_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
   Raises:
     ValueError: Unknown recurrence type
   """
+
+  def add_vanilla_transformer_layer(x, num_layers):
+    """Passes the input through num_layers of vanilla transformer layers.
+
+    Args:
+     x: input
+     num_layers: number of layers
+
+    Returns:
+       output of vanilla_transformer_layer
+    """
+
+    if hparams.add_position_timing_signal:
+      # In case of add_position_timing_signal=true, we set  hparams.pos=None
+      # and add position timing signal at the beginning of each step, so for
+      # the vanilla transformer, we need to add timing signal here.
+      x = common_attention.add_timing_signal_1d(x)
+    for layer in xrange(num_layers):
+      with tf.variable_scope("layer_%d" % layer):
+        x = ffn_unit(attention_unit(x))
+    return x
+
   with tf.variable_scope("r_transformer_%s" % hparams.recurrence_type):
 
-    if hparams.mix_with_transformer:
-
-      if hparams.add_position_timing_signal:
-        # In case of add_position_timing_signal=true, we set  hparams.pos=None
-        # and add position timing signal at the beginning of each step, so for
-        # the vanilla transformer part,  we need to add timing signal here.
-        x = common_attention.add_timing_signal_1d(x)
-
-      for layer in xrange(hparams.num_hidden_layers):
-        with tf.variable_scope("layer_%d" % layer):
-          x = ffn_unit(attention_unit(x))
+    if hparams.mix_with_transformer == "before_rt":
+      x = add_vanilla_transformer_layer(x, hparams.num_mixedin_layers)
 
     if hparams.recurrence_type == "act":
       return r_transformer_act(x, hparams, ffn_unit, attention_unit)
@@ -226,6 +239,9 @@ def r_transformer_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
       # This can be the if we use r_transformer_lstm layer.
       if hparams.get("use_memory_as_final_state", False):
         output = extra_output
+
+    if hparams.mix_with_transformer == "after_rt":
+      output = add_vanilla_transformer_layer(output, hparams.num_mixedin_layers)
 
     return output, extra_output
 
@@ -324,19 +340,19 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
 
 def transformer_encoder_ffn_unit(x,
                                  hparams,
-                                 pad_remover=None,
-                                 nonpadding_mask=None):
+                                 nonpadding_mask=None,
+                                 pad_remover=None):
   """Applies a feed-forward function which is parametrised for encoding.
 
   Args:
     x: input
     hparams: model hyper-parameters
-    pad_remover: to mask out padding in convolutional layers (efficiency).
     nonpadding_mask: optional Tensor with shape [batch_size, encoder_length]
     indicating what positions are not padding.  This is used
     to mask out padding in convoltutional layers.  We generally only
     need this mask for "packed" datasets, because for ordinary datasets,
     no padding is ever followed by nonpadding.
+    pad_remover: to mask out padding in convolutional layers (efficiency).
 
   Returns:
     the output tensor
@@ -351,14 +367,16 @@ def transformer_encoder_ffn_unit(x,
           conv_padding="SAME",
           nonpadding_mask=nonpadding_mask)
 
-    if hparams.transformer_ffn_type == "sep":
-      y = common_layers.conv_hidden_relu(
+    if hparams.transformer_ffn_type == "sepconv":
+      assert nonpadding_mask is not None, (
+          "The nonpadding_mask should be provided, otherwise the model uses "
+          "the leaked padding information to estimate the length!")
+      y = common_layers.sepconv_relu_sepconv(
           common_layers.layer_preprocess(x, hparams),
-          padding="SAME",
-          kernel_size=(3, 1),
-          second_kernel_size=(31, 1),
-          hidden_size=hparams.filter_size,
+          filter_size=hparams.filter_size,
           output_size=hparams.hidden_size,
+          padding="SAME",
+          nonpadding_mask=nonpadding_mask,
           dropout=hparams.relu_dropout)
 
     x = common_layers.layer_postprocess(x, y, hparams)
@@ -434,14 +452,13 @@ def transformer_decoder_ffn_unit(x, hparams, nonpadding_mask=None):
           conv_padding="LEFT",
           nonpadding_mask=nonpadding_mask)
 
-    if hparams.transformer_ffn_type == "sep":
-      y = common_layers.conv_hidden_relu(
+    if hparams.transformer_ffn_type == "sepconv":
+      y = common_layers.sepconv_relu_sepconv(
           common_layers.layer_preprocess(x, hparams),
-          padding="LEFT",
-          kernel_size=(3, 1),
-          second_kernel_size=(31, 1),
-          hidden_size=hparams.filter_size,
+          filter_size=hparams.filter_size,
           output_size=hparams.hidden_size,
+          padding="LEFT",
+          nonpadding_mask=nonpadding_mask,
           dropout=hparams.relu_dropout)
 
     x = common_layers.layer_postprocess(x, y, hparams)
@@ -1810,7 +1827,7 @@ def step_preprocess(x, step, hparams):
     num_steps = (
         hparams.act_max_steps
         if hparams.recurrence_type == "act" else hparams.num_rec_steps)
-    if hparams.step_timing_signal_type == "leaned":
+    if hparams.step_timing_signal_type == "learned":
       x = common_attention.add_layer_timing_signal_learned_1d(
           x, step, num_steps)
     elif hparams.step_timing_signal_type == "sinusoid":

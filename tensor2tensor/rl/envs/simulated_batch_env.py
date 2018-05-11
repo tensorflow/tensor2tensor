@@ -39,46 +39,39 @@ FLAGS = flags.FLAGS
 class HistoryBuffer(object):
   """History Buffer."""
 
-  def __init__(self, input_data_iterator, problem):
-    self.input_data_iterator = input_data_iterator
-    self.autoencoder_model = None
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      if FLAGS.autoencoder_path:
-        # Feeds for autoencoding.
-        problem.setup_autoencoder()
-        self.autoencoder_model = problem.autoencoder_model
-        self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
-    initial_frames = self.get_initial_observations()
+  def __init__(self, initial_frames, problem):
     self._history_buff = None
     initial_shape = common_layers.shape_list(initial_frames)
+    var_shape = [initial_shape[0], problem.frame_height, problem.frame_width,
+                 problem.num_channels]
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      history_buff = tf.get_variable("history_observ", initial_shape,
+      history_buff = tf.get_variable("history_observ", var_shape,
                                      initializer=tf.zeros_initializer,
                                      trainable=False)
     self._history_buff = history_buff
     self._assigned = False
-
-  def get_initial_observations(self):
-    initial_frames = self.input_data_iterator.get_next()["inputs"]
-    if self.autoencoder_model:
-      autoencoded = self.autoencoder_model.encode(
-        tf.expand_dims(initial_frames, axis=1))
-      autoencoded_shape = common_layers.shape_list(autoencoded)
-      autoencoded = tf.reshape(  # Make 8-bit groups.
-        autoencoded, autoencoded_shape[:-1] + [3, 8])
-      initial_frames = discretization.bit_to_int(autoencoded, 8)
-      initial_frames = tf.to_float(initial_frames)
-    else:
-      initial_frames = tf.cast(initial_frames, tf.float32)
-    return initial_frames
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      if FLAGS.autoencoder_path:
+        # Feeds for autoencoding.
+        problem.setup_autoencoder()
+        autoencoder_model = problem.autoencoder_model
+        autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
+        autoencoded = autoencoder_model.encode(
+            tf.expand_dims(initial_frames, axis=1))
+        autoencoded_shape = common_layers.shape_list(autoencoded)
+        autoencoded = tf.reshape(  # Make 8-bit groups.
+            autoencoded, autoencoded_shape[:-1] + [3, 8])
+        initial_frames = discretization.bit_to_int(autoencoded, 8)
+        initial_frames = tf.to_float(initial_frames)
+      self.initial_frames = initial_frames
+      with tf.control_dependencies([history_buff.assign(initial_frames)]):
+        self._history_buff_id = tf.identity(history_buff)
 
   def get_all_elements(self):
     if self._assigned:
       return self._history_buff.read_value()
-    initial_frames = self.get_initial_observations()
-    with tf.control_dependencies([self.history_buff.assign(initial_frames)]):
-      self._assigned = True
-      return tf.identity(initial_frames)
+    self._assigned = True
+    return self.initial_frames
 
   def move_by_one_element(self, element):
     last_removed = self.get_all_elements()[1:, ...]
@@ -91,7 +84,7 @@ class HistoryBuffer(object):
 
   def reset(self):
     with tf.control_dependencies([self._history_buff.assign(
-        self.get_initial_observations())]):
+        self.initial_frames)]):
       self._assigned = True
       return self._history_buff.read_value()
 
@@ -122,10 +115,25 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.action_shape = list(initialization_env.action_space.shape)
     self.action_dtype = tf.int32
 
-    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir)
-    input_data_iterator = dataset.make_one_shot_iterator()
+    obs = []
+    if hasattr(initialization_env.env, "get_starting_data"):
+      obs, _, _ = initialization_env.env.get_starting_data()
+    else:
+      # TODO(piotrmilos): Ancient method for environments not supporting
+      # get_starting_data. This is probably not compatibile with
+      # self._num_frames != 2 and should be removed at some point.
+      num_frames = self._num_frames
+      initialization_env.reset()
+      skip_frames = 20
+      for _ in range(skip_frames):
+        initialization_env.step(0)
+      for _ in range(num_frames):
+        obs.append(initialization_env.step(0)[0])
 
-    self.history_buffer = HistoryBuffer(input_data_iterator, problem=problem)
+    initial_frames = tf.stack(obs)
+    initial_frames = tf.cast(initial_frames, tf.float32)
+
+    self.history_buffer = HistoryBuffer(initial_frames, problem=problem)
 
     height, width, channels = initialization_env.observation_space.shape
     # TODO(lukaszkaiser): remove this and just use Problem.frame_height.
@@ -189,8 +197,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
       Batch tensor of the new observations.
     """
     with tf.control_dependencies([self.history_buffer.reset()]):
-      with tf.control_dependencies([self._observ.assign(
-              self.history_buffer.get_all_elements()[-1:, ...])]):
+      with tf.control_dependencies([self._observ.assign(0.0*self._observ)]):
         return tf.identity(self._observ.read_value())
 
   @property
