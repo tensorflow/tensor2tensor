@@ -31,8 +31,7 @@ import tensorflow as tf
 from tensorflow.python.eager import context
 
 # Fathom
-from fathomt2t_dependencies.common_t2t_utils import (
-  get_all_problems_from_hparams, get_problem_from_hparams)
+from fathomt2t_dependencies.common_t2t_utils import get_problem_from_hparams
 
 @registry.register_symbol_modality("default")
 class SymbolModality(modality.Modality):
