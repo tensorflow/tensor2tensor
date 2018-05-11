@@ -35,7 +35,7 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
-from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper, MaxAndSkipWrapper
 from tensor2tensor.rl.envs.utils import batch_env_factory
 
 
@@ -208,6 +208,26 @@ class GymWrappedPongRandom5k(GymDiscreteProblem):
   def num_steps(self):
     return 5000
 
+@registry.register_problem
+class GymWrappedBreakoutRandom5k(GymDiscreteProblem):
+  """Pong game, random actions."""
+
+  @property
+  def env_name(self):
+    return "T2TBreakoutWarmUp20RewSkip70Steps-v1"
+
+  @property
+  def min_reward(self):
+    return -1
+
+  @property
+  def num_rewards(self):
+    return 3
+
+  @property
+  def num_steps(self):
+    return 5000
+
 
 @registry.register_problem
 class GymWrappedPongRandom50k(GymPongRandom5k):
@@ -224,7 +244,7 @@ class GymFreewayRandom5k(GymDiscreteProblem):
 
   @property
   def env_name(self):
-    return "FreewayDeterministic-v4"
+    return "T2TFreewayWarmUp20RewSkip200Steps-v1"
 
   @property
   def min_reward(self):
@@ -326,7 +346,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.sum_of_rewards = 0.0
       self.successful_episode_reward_predictions = 0
 
-    in_graph_wrappers = self.in_graph_wrappers + [(atari.MemoryWrapper, {})]
+    in_graph_wrappers = self.in_graph_wrappers + [(atari.MemoryWrapper, {})]+ [(MaxAndSkipWrapper, {"skip": 4})]
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
         problem=self,
@@ -510,18 +530,28 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedPong(
-    GymDiscreteProblemWithAgent, GymWrappedPongRandom5k):
+class GymDiscreteProblemWithAgentOnWrappedBreakout(
+    GymDiscreteProblemWithAgent, GymWrappedBreakoutRandom5k):
+  pass
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
+    GymSimulatedDiscreteProblemWithAgent, GymWrappedBreakoutRandom5k):
   pass
 
 
 @registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnFreeway(
+class GymDiscreteProblemWithAgentOnWrappedPong(
+    GymDiscreteProblemWithAgent, GymWrappedPongRandom5k):
+  pass
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnWrappedFreeway(
     GymSimulatedDiscreteProblemWithAgent, GymFreewayRandom5k):
   pass
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnFreeway(
+class GymDiscreteProblemWithAgentOnWrappedFreeway(
     GymDiscreteProblemWithAgent, GymFreewayRandom5k):
   pass
