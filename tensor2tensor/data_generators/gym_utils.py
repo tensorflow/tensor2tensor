@@ -179,7 +179,7 @@ class BreakoutWrapper(WarmupWrapper):
     return ob, rew, done, info
 
   def reset(self, **kwargs):
-    observation = super().reset(**kwargs)
+    observation = super(BreakoutWrapper, self).reset(**kwargs)
     self.env.step(BreakoutWrapper.FIRE_ACTION)
     self.direction_info = deque([], maxlen=2)
     observation = self.process_observation(observation)
@@ -238,6 +238,64 @@ gym.envs.register(id="T2TBreakoutWarmUp20RewSkip70Steps-v1",
                       reward_clipping=True
                   ),
                   max_episode_steps=70)
+
+
+class FreewayWrapper(WarmupWrapper):
+
+  def __init__(self, env,
+               warm_up_examples=0,
+               reward_clipping=True,
+               easy_freeway=False):
+    super(FreewayWrapper, self).__init__(env, warm_up_examples)
+    self.easy_freeway=easy_freeway
+    self.half_way_reward = 1.0
+
+    # this is probably not needed, just in case
+    self.reward_clipping = reward_clipping
+
+  def chicken_height(self, image):
+    raise NotImplementedError()
+
+  def step(self, ac):
+    ob, rew, done, info = self.env.step(ac)
+
+    if self.easy_freeway:
+      if rew > 0:
+        self.half_way_reward = 1
+      chicken_height = self.chicken_height(ob)
+      if chicken_height<105:
+        rew += self.half_way_reward
+        self.half_way_reward = 0
+
+    if self.reward_clipping:
+      rew = np.sign(rew)
+
+    return ob, rew, done, info
+
+  def reset(self, **kwargs):
+    self.half_way_reward = 1.0
+    observation = super(FreewayWrapper, self).reset(**kwargs)
+    return observation
+
+def wrapped_freeway_factory(warm_up_examples = 0,
+                            reward_clipping = True,
+                            easy_freeway=False):
+  """Wrapped freeway games."""
+  env = gym.make("FreewayDeterministic-v4")
+  env = env.env  # Remove time_limit wrapper.
+  env = FreewayWrapper(env, warm_up_examples = warm_up_examples,
+                            reward_clipping=reward_clipping,
+                            easy_freeway=easy_freeway)
+
+  return env
+
+gym.envs.register(id="T2TFreewayWarmUp20RewSkip200Steps-v1",
+                  entry_point=lambda: wrapped_freeway_factory(  # pylint: disable=g-long-lambda
+                      warm_up_examples=1,
+                      reward_clipping=True,
+                      easy_freeway=False
+                  ),
+                  max_episode_steps=200)
 
 
 def encode_image_to_png(image):

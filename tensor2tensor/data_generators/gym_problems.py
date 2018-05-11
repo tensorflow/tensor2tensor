@@ -244,7 +244,7 @@ class GymFreewayRandom5k(GymDiscreteProblem):
 
   @property
   def env_name(self):
-    return "FreewayDeterministic-v4"
+    return "T2TFreewayWarmUp20RewSkip200Steps-v1"
 
   @property
   def min_reward(self):
@@ -546,12 +546,12 @@ class GymDiscreteProblemWithAgentOnWrappedPong(
   pass
 
 @registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnFreeway(
+class GymSimulatedDiscreteProblemWithAgentOnWrappedFreeway(
     GymSimulatedDiscreteProblemWithAgent, GymFreewayRandom5k):
   pass
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnFreeway(
+class GymDiscreteProblemWithAgentOnWrappedFreeway(
     GymDiscreteProblemWithAgent, GymFreewayRandom5k):
   pass
