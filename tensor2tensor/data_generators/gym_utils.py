@@ -15,6 +15,7 @@
 """Utilities for openai gym."""
 
 # Dependency imports
+from collections import deque
 
 import gym
 
@@ -28,10 +29,10 @@ from tensor2tensor.data_generators import image_utils
 class WarmupWrapper(gym.Wrapper):
   """Warmup wrapper."""
 
-  def __init__(self, env, warm_up_examples=0):
+  def __init__(self, env, warm_up_examples=0, warmup_action=0):
     gym.Wrapper.__init__(self, env)
     self.warm_up_examples = warm_up_examples
-    self.warm_up_action = 0
+    self.warm_up_action = warmup_action
     self.observation_space = gym.spaces.Box(
         low=0, high=255, shape=(210, 160, 3), dtype=np.uint8)
 
@@ -129,6 +130,113 @@ gym.envs.register(id="T2TPongWarmUp20RewSkip1000Steps-v1",
                   entry_point=lambda: wrapped_pong_factory(  # pylint: disable=g-long-lambda
                       warm_up_examples=20, reward_skip_steps=15),
                   max_episode_steps=200)
+
+
+
+class BreakoutWrapper(WarmupWrapper):
+
+  FIRE_ACTION = 1
+
+  def __init__(self, env, warm_up_examples = 0,
+               ball_down_skip=0,
+               big_ball=False,
+               include_direction_info=False,
+               reward_clipping=True):
+    super(BreakoutWrapper, self).__init__(env, warm_up_examples=0,
+                                          warmup_action=BreakoutWrapper.FIRE_ACTION)
+    self.warm_up_examples = warm_up_examples
+    self.observation_space = gym.spaces.Box(low=0, high=255,
+                                            shape=(210, 160, 3),
+                                            dtype=np.uint8)
+    self.ball_down_skip = ball_down_skip
+    self.big_ball = big_ball
+    self.reward_clipping = reward_clipping
+    self.include_direction_info = include_direction_info
+    self.direction_info = deque([], maxlen=2)
+    self.points_gained = False
+    assert not self.include_direction_info or  ball_down_skip>=9, \
+      "ball_down_skip should be bigger equal 9 for include_direction_info to work correctly"
+
+  def step(self, ac):
+    ob, rew, done, info = self.env.step(ac)
+
+    if BreakoutWrapper.find_ball(ob) is None and self.ball_down_skip != 0:
+      for _ in range(self.ball_down_skip):
+        # We assume that nothing interesting happens during ball_down_skip
+        # and discard all information.
+        # We fire all the time to start new game
+        ob, _, _, _ = self.env.step(BreakoutWrapper.FIRE_ACTION)
+        self.direction_info.append(BreakoutWrapper.find_ball(ob))
+
+    ob = self.process_observation(ob)
+
+    self.points_gained = self.points_gained or rew >0
+
+    if self.reward_clipping:
+      rew = np.sign(rew)
+
+
+    return ob, rew, done, info
+
+  def reset(self, **kwargs):
+    observation = super().reset(**kwargs)
+    self.env.step(BreakoutWrapper.FIRE_ACTION)
+    observation = self.process_observation(observation)
+    return observation
+
+  @staticmethod
+  def find_ball(ob, default=None):
+    off_x = 63
+    clipped_ob = ob[off_x:-21, :, 0]
+    pos = np.argwhere(clipped_ob == 200)
+
+    if pos is None or len(pos) == 0:
+      return default
+
+    x = off_x + pos[0][0]
+    y = 0 + pos[0][1]
+    return x, y
+
+  def process_observation(self, obs):
+    if self.big_ball:
+      pos = BreakoutWrapper.find_ball(obs)
+      if pos is not None:
+        x, y = pos
+        obs[x-5:x+5, y-5:y+5,:] = 255
+
+    if self.include_direction_info:
+      for point in list(self.direction_info):
+        if point is not None:
+          x, y = point
+          obs[x-2:x+2, y-2:y+2, 1] = 255
+
+    return obs
+
+def wrapped_breakout_factory(warm_up_examples = 0,
+               ball_down_skip=0,
+               big_ball=False,
+               include_direction_info=False,
+               reward_clipping=True):
+  """Wrapped breakout games."""
+  env = gym.make("BreakoutDeterministic-v4")
+  env = env.env  # Remove time_limit wrapper.
+  env = BreakoutWrapper(env, warm_up_examples = warm_up_examples,
+                             ball_down_skip=ball_down_skip,
+                             big_ball=big_ball,
+                             include_direction_info=include_direction_info,
+                             reward_clipping=reward_clipping)
+  return env
+
+
+gym.envs.register(id="T2TBreakoutWarmUp20RewSkip70Steps-v1",
+                  entry_point=lambda: wrapped_breakout_factory(  # pylint: disable=g-long-lambda
+                      warm_up_examples=1,
+                      ball_down_skip=9,
+                      big_ball=False,
+                      include_direction_info=True,
+                      reward_clipping=True
+                  ),
+                  max_episode_steps=70)
 
 
 def encode_image_to_png(image):
