@@ -36,7 +36,7 @@ from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
 
-import fathomt2t_utils.t2t_trainer_utils as fathom
+import fathomt2t.t2t_utils.t2t_trainer_utils as fathom
 
 flags = tf.flags
 FLAGS = flags.FLAGS
