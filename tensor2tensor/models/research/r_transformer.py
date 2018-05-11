@@ -371,6 +371,14 @@ def update_hparams_for_r_transformer(hparams):
   # Either "learned" or "sinusoid"
   hparams.add_hparam("step_timing_signal_type", "learned")
 
+  # Add or concat the timing signal (applied both on position and step timing).
+  # Options: "add" and "concat".
+  hparams.add_hparam("add_or_concat_timing_signal", "add")
+
+  # Add SRU at the beginning of each r-transformer step.
+  # This can be considered as a position timing signal
+  hparams.add_hparam("add_sru", False)
+
   # Default ffn layer is separable convolution.
   # Options: "fc" and "sepconv".
   hparams.add_hparam("transformer_ffn_type", "sepconv")
@@ -944,4 +952,34 @@ def r_transformer_act_step_position_timing_big():
   hparams.add_position_timing_signal = True
   hparams.pos = None
   hparams.add_step_timing_signal = True
+  return hparams
+
+
+@registry.register_hparams
+def r_transformer_act_step_position_timing_concat_tiny():
+  hparams = r_transformer_tiny()
+  hparams.recurrence_type = "act"
+  hparams.add_position_timing_signal = True
+  hparams.pos = None
+  hparams.add_step_timing_signal = True
+  hparams.add_or_concat_timing_signal = "concat"
+  return hparams
+
+
+@registry.register_hparams
+def r_transformer_act_step_position_timing_concat_base():
+  hparams = r_transformer_base()
+  hparams.recurrence_type = "act"
+  hparams.add_position_timing_signal = True
+  hparams.pos = None
+  hparams.add_step_timing_signal = True
+  hparams.add_or_concat_timing_signal = "concat"
+  return hparams
+
+
+@registry.register_hparams
+def r_transformer_act_with_sru_base():
+  hparams = r_transformer_base()
+  hparams.recurrence_type = "act"
+  hparams.add_sru = True
   return hparams

@@ -1820,19 +1820,23 @@ def step_preprocess(x, step, hparams):
     preprocessed input.
 
   """
+  original_channel_size = common_layers.shape_list(x)[-1]
+
   if hparams.add_position_timing_signal:
     x = add_position_timing_signal(x, step, hparams)
 
   if hparams.add_step_timing_signal:
-    num_steps = (
-        hparams.act_max_steps
-        if hparams.recurrence_type == "act" else hparams.num_rec_steps)
-    if hparams.step_timing_signal_type == "learned":
-      x = common_attention.add_layer_timing_signal_learned_1d(
-          x, step, num_steps)
-    elif hparams.step_timing_signal_type == "sinusoid":
-      x = common_attention.add_layer_timing_signal_sinusoid_1d(
-          x, step, num_steps)
+    x = add_step_timing_signal(x, step, hparams)
+
+  if ((hparams.add_position_timing_signal or hparams.add_position_timing_signal)
+      and hparams.add_or_concat_timing_signal == "concat"):
+    # linear projection to the original dimension of x
+    x = common_layers.dense(
+        x, original_channel_size, activation=None, use_bias=False)
+
+  if hparams.add_sru:
+    x = common_layers.sru(x)
+
   return x
 
 
@@ -1845,7 +1849,7 @@ def add_position_timing_signal(x, step, hparams):
     hparams: model hyper parameters
 
   Returns:
-    a Tensor the same shape as x.
+    a Tensor with the same shape as x.
 
   """
 
@@ -1869,5 +1873,54 @@ def add_position_timing_signal(x, step, hparams):
   # No need for the timing signal in the encoder/decoder input preparation
   assert hparams.pos is None
 
-  x_with_timing = common_attention.add_timing_signal_1d(x, start_index=index)
+  length = common_layers.shape_list(x)[1]
+  channels = common_layers.shape_list(x)[2]
+  signal = common_attention.get_timing_signal_1d(
+      length, channels, start_index=index)
+
+  if hparams.add_or_concat_timing_signal == "add":
+    x_with_timing = x + signal
+
+  elif hparams.add_or_concat_timing_signal == "concat":
+    batch_size = common_layers.shape_list(x)[0]
+    signal_tiled = tf.tile(signal, [batch_size, 1, 1])
+    x_with_timing = tf.concat((x, signal_tiled), axis=-1)
+
+  return x_with_timing
+
+
+def add_step_timing_signal(x, step, hparams):
+  """Add n-dimensional embedding as the step (vertical) timing signal.
+
+  Args:
+    x: a tensor with shape [batch, length, depth]
+    step: step
+    hparams: model hyper parameters
+
+  Returns:
+    a Tensor with the same shape as x.
+
+  """
+  num_steps = (
+      hparams.act_max_steps
+      if hparams.recurrence_type == "act" else hparams.num_rec_steps)
+  channels = common_layers.shape_list(x)[-1]
+
+  if hparams.step_timing_signal_type == "learned":
+    signal = common_attention.get_layer_timing_signal_learned_1d(
+        channels, step, num_steps)
+
+  elif hparams.step_timing_signal_type == "sinusoid":
+    signal = common_attention.get_layer_timing_signal_sinusoid_1d(
+        channels, step, num_steps)
+
+  if hparams.add_or_concat_timing_signal == "add":
+    x_with_timing = x + signal
+
+  elif hparams.add_or_concat_timing_signal == "concat":
+    batch_size = common_layers.shape_list(x)[0]
+    length = common_layers.shape_list(x)[1]
+    signal_tiled = tf.tile(signal, [batch_size, length, 1])
+    x_with_timing = tf.concat((x, signal_tiled), axis=-1)
+
   return x_with_timing

@@ -474,6 +474,30 @@ def add_timing_signal_1d(x,
 
 
 @expert_utils.add_name_scope()
+def get_layer_timing_signal_learned_1d(channels, layer, num_layers):
+  """get n-dimensional embedding as the layer (vertical) timing signal.
+
+  Adds embeddings to represent the position of the layer in the tower.
+
+  Args:
+    channels: dimension of the timing signal
+    layer: layer num
+    num_layers: total number of layers
+
+  Returns:
+    a Tensor of timing signals [1, 1, channels].
+  """
+  shape = [num_layers, 1, 1, channels]
+  layer_embedding = (
+      tf.get_variable(
+          "layer_embedding",
+          shape,
+          initializer=tf.random_normal_initializer(0, channels**-0.5)) *
+      (channels**0.5))
+  return layer_embedding[layer, :, :, :]
+
+
+@expert_utils.add_name_scope()
 def add_layer_timing_signal_learned_1d(x, layer, num_layers):
   """Add n-dimensional embedding as the layer (vertical) timing signal.
 
@@ -487,18 +511,29 @@ def add_layer_timing_signal_learned_1d(x, layer, num_layers):
   Returns:
     a Tensor the same shape as x.
   """
-  x_shape = common_layers.shape_list(x)
-  depth = x_shape[-1]
-
-  shape = [num_layers, 1, 1, depth]
-  layer_embedding = (
-      tf.get_variable(
-          "layer_embedding",
-          shape,
-          initializer=tf.random_normal_initializer(0, depth**-0.5)) * (depth**
-                                                                       0.5))
-  x += layer_embedding[layer, :, :, :]
+  channels = common_layers.shape_list(x)[-1]
+  signal = get_layer_timing_signal_learned_1d(channels, layer, num_layers)
+  x += signal
   return x
+
+
+@expert_utils.add_name_scope()
+def get_layer_timing_signal_sinusoid_1d(channels, layer, num_layers):
+  """Add sinusoids of different frequencies as layer (vertical) timing signal.
+
+  Args:
+    channels: dimension of the timing signal
+    layer: layer num
+    num_layers: total number of layers
+
+  Returns:
+    a Tensor of timing signals [1, 1, channels].
+  """
+
+  signal = get_timing_signal_1d(num_layers, channels)
+  layer_signal = tf.expand_dims(signal[:, layer, :], axis=1)
+
+  return layer_signal
 
 
 @expert_utils.add_name_scope()
@@ -515,10 +550,9 @@ def add_layer_timing_signal_sinusoid_1d(x, layer, num_layers):
   """
 
   channels = common_layers.shape_list(x)[-1]
-  signal = get_timing_signal_1d(num_layers, channels)
-  layer_signal = tf.expand_dims(signal[:, layer, :], axis=1)
+  signal = get_layer_timing_signal_sinusoid_1d(channels, layer, num_layers)
 
-  return x + layer_signal
+  return x + signal
 
 
 @expert_utils.add_name_scope()
