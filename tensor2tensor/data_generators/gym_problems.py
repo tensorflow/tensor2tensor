@@ -36,6 +36,7 @@ from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import simulated_batch_env
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
+from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.rl.envs.utils import batch_env_factory
 
@@ -64,7 +65,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   @property
   def num_input_frames(self):
     """Number of frames to batch on one input."""
-    return 2
+    return SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
 
   @property
   def num_target_frames(self):
@@ -364,7 +365,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       model_saver.restore(sess, ckpt)
     if FLAGS.autoencoder_path:
       autoencoder_saver = tf.train.Saver(
-          tf.global_variables(".*autoencoder.*"))
+          tf.global_variables("autoencoder.*"))
       ckpts = tf.train.get_checkpoint_state(FLAGS.autoencoder_path)
       ckpt = ckpts.model_checkpoint_path
       autoencoder_saver.restore(sess, ckpt)
@@ -438,7 +439,7 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
     try:
       # We assume that the real env is wrapped with TimeLimit.
       history = simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
-      timelimit = self._max_episode_steps - history
+      timelimit = self.real_env._max_episode_steps - history    # pylint: disable=protected-access
     except:  # pylint: disable=bare-except
       # If not, set some reasonable default.
       timelimit = 100
@@ -448,7 +449,7 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
   def restore_networks(self, sess):
     super(GymSimulatedDiscreteProblemWithAgent, self).restore_networks(sess)
     # TODO(blazej): adjust regexp for different models.
-    env_model_loader = tf.train.Saver(tf.global_variables(".*basic_conv_gen.*"))
+    env_model_loader = tf.train.Saver(tf.global_variables("basic_conv_gen.*"))
     sess = tf.get_default_session()
 
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)

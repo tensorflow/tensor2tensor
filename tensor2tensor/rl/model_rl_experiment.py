@@ -98,8 +98,11 @@ def train(hparams, output_dir):
     sim_steps = hparams.simulated_env_generator_num_steps
     gym_simulated_problem.settable_num_steps = sim_steps
     gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
-    model_reward_accuracy = (
-        gym_simulated_problem.successful_episode_reward_predictions / sim_steps)
+    model_reward_accuracy = 0.0
+    if gym_simulated_problem.dones != 0:
+      n = float(gym_simulated_problem.dones)
+      model_reward_accuracy = (
+          gym_simulated_problem.successful_episode_reward_predictions / n)
 
     # Train PPO agent
     time_delta = time.time() - start_time
