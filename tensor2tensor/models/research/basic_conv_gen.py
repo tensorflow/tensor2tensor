@@ -183,8 +183,14 @@ def basic_conv():
 
 
 @registry.register_hparams
+def basic_conv_tpu():
+  hparams = basic_conv()
+  hparams.batch_size = 1
+
+
+@registry.register_hparams
 def basic_conv_ae():
-  """Small conv model."""
+  """Conv autoencoder."""
   hparams = basic_conv()
   hparams.hidden_size = 128
   hparams.batch_size = 32
@@ -215,3 +221,12 @@ def basic_conv_l2():
   hparams = basic_conv()
   hparams.target_modality = "video:l2"
   return hparams
+
+
+@registry.register_ranged_hparams
+def basic_conv_base_range(rhp):
+  rhp.set_float("dropout", 0.0, 0.6)
+  rhp.set_discrete("batch_size", [2, 4, 8, 16])
+  rhp.set_discrete("hidden_size", [16, 24, 32, 48, 64])
+  rhp.set_int("num_compress_steps", 4, 7)
+  rhp.set_int("num_hidden_layers", 1, 3)

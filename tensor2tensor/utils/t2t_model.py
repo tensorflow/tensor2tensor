@@ -1255,12 +1255,14 @@ def _create_tpu_eval_metrics_fn(problem, hparams):
       logits = kwargs
 
     for name, fn in metric_fns:
-      if isinstance(logits, dict):
+      if isinstance(logits, dict) and isinstance(labels, dict):
         for k, v in six.iteritems(logits):
-          if isinstance(labels, dict):
-            metrics_dict["%s/%s" % (name, k)] = fn(v, labels[k])
-          else:
-            metrics_dict["%s/%s" % (name, k)] = fn(v, labels)
+          metrics_dict["%s/%s" % (k, name)] = fn(v, labels[k])
+      elif isinstance(logits, dict):
+        tf.logging.warning("Logits is a dict, but labels is not; only "
+                           "evaluating logits['targets'] against labels.")
+        metrics_dict["%s/%s" % ("targets", name)] = fn(logits["targets"],
+                                                       labels)
       else:
         metrics_dict[name] = fn(logits, labels)
 

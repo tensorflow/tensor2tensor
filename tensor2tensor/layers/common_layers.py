@@ -1677,6 +1677,9 @@ def pad_to_same_length(x, y, final_length_divisible_by=1, axis=1):
   with tf.name_scope("pad_to_same_length", values=[x, y]):
     x_length = shape_list(x)[axis]
     y_length = shape_list(y)[axis]
+    if (isinstance(x_length, int) and isinstance(y_length, int) and
+        x_length == y_length and final_length_divisible_by == 2):
+      return x, y
     max_length = tf.maximum(x_length, y_length)
     if final_length_divisible_by > 1:
       # Find the nearest larger-or-equal integer divisible by given number.
@@ -1711,7 +1714,7 @@ def pad_with_zeros(logits, labels):
   """Pad labels on the length dimension to match logits length."""
   with tf.name_scope("pad_with_zeros", values=[logits, labels]):
     logits, labels = pad_to_same_length(logits, labels)
-    if len(labels.shape.as_list()) == 3:  # 2-d labels.
+    if len(labels.shape) == 3:  # 2-d labels.
       logits, labels = pad_to_same_length(logits, labels, axis=2)
     return logits, labels
 
@@ -2668,6 +2671,13 @@ def shape_list(x):
       dim = shape[i]
     ret.append(dim)
   return ret
+
+
+def list_product(els):
+  prod = els[0]
+  for el in els[1:]:
+    prod *= el
+  return prod
 
 
 def sample_with_temperature(logits, temperature):

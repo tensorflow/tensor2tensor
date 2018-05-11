@@ -147,6 +147,21 @@ def padded_sequence_accuracy(predictions,
     padded_predictions, padded_labels = common_layers.pad_with_zeros(
         predictions, labels)
     weights = weights_fn(padded_labels)
+
+    # Flatten, keeping batch dim (and num_classes dim for predictions)
+    # TPU argmax can only deal with a limited number of dimensions
+    predictions_shape = common_layers.shape_list(padded_predictions)
+    batch_size = predictions_shape[0]
+    num_classes = predictions_shape[-1]
+    flat_size = common_layers.list_product(
+        common_layers.shape_list(padded_labels)[1:])
+    padded_predictions = tf.reshape(
+        padded_predictions,
+        [batch_size, common_layers.list_product(predictions_shape[1:-1]),
+         num_classes])
+    padded_labels = tf.reshape(padded_labels, [batch_size, flat_size])
+    weights = tf.reshape(weights, [batch_size, flat_size])
+
     outputs = tf.to_int32(tf.argmax(padded_predictions, axis=-1))
     padded_labels = tf.to_int32(padded_labels)
     not_correct = tf.to_float(tf.not_equal(outputs, padded_labels)) * weights

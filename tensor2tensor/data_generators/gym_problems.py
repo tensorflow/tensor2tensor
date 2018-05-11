@@ -179,6 +179,20 @@ class GymPongRandom5k(GymDiscreteProblem):
   def num_steps(self):
     return 5000
 
+  # Hard-coding num_actions, frame_height, frame_width to avoid loading
+  # libale.so file.
+  @property
+  def num_actions(self):
+    return 6
+
+  @property
+  def frame_height(self):
+    return 210
+
+  @property
+  def frame_width(self):
+    return 160
+
 
 @registry.register_problem
 class GymPongRandom50k(GymPongRandom5k):
@@ -187,6 +201,10 @@ class GymPongRandom50k(GymPongRandom5k):
   @property
   def num_steps(self):
     return 50000
+
+  def eval_metrics(self):
+    eval_metrics = [metrics.Metrics.ACC_PER_SEQ]
+    return eval_metrics
 
 
 @registry.register_problem
@@ -282,7 +300,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
 
     # Defaults.
     self.environment_spec = lambda: gym.make(self.env_name)
-    self.real_env = self.environment_spec()
+    self._real_env = None
     self.in_graph_wrappers = []
     self.collect_hparams = rl.ppo_atari_base()
     self.settable_num_steps = 50000
@@ -296,6 +314,13 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self.total_sim_reward, self.total_real_reward = 0.0, 0.0
     self.sum_of_rewards = 0.0
     self.successful_episode_reward_predictions = 0
+
+  @property
+  def real_env(self):
+    """Lazy caching environment construction."""
+    if self._real_env is None:
+      self._real_env = self.environment_spec()
+    return self._real_env
 
   @property
   def num_steps(self):
@@ -491,7 +516,6 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
     super(GymSimulatedDiscreteProblemWithAgent, self).__init__(*args, **kwargs)
     self.simulated_environment = True
     self.make_extra_debug_info = True
-    self.real_env = self.environment_spec()
 
     try:
       # We assume that the real env is wrapped with TimeLimit.
