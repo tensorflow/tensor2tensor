@@ -194,6 +194,21 @@ def rl_modelrl_tiny():
   )
   return rl_modelrl_base().override_from_dict(tiny_hp.values())
 
+@registry.register_hparams
+def rl_modelrl_tiny_breakout():
+  """Tiny set for testing."""
+  tiny_hp = tf.contrib.training.HParams(
+      epochs=2,
+      true_env_generator_num_steps=200,
+      model_train_steps=10,
+      simulated_env_generator_num_steps=20,
+      ppo_epochs_num=2,
+      ppo_time_limit=20,
+      ppo_epoch_length=20,
+      game="wrapped_breakout"
+  )
+  return rl_modelrl_base().override_from_dict(tiny_hp.values())
+
 
 @registry.register_hparams
 def rl_modelrl_ae():
