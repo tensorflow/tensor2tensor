@@ -208,6 +208,26 @@ class GymWrappedPongRandom5k(GymDiscreteProblem):
   def num_steps(self):
     return 5000
 
+@registry.register_problem
+class GymWrappedBreakoutRandom5k(GymDiscreteProblem):
+  """Pong game, random actions."""
+
+  @property
+  def env_name(self):
+    return "T2TBreakoutWarmUp20RewSkip70Steps-v1"
+
+  @property
+  def min_reward(self):
+    return -1
+
+  @property
+  def num_rewards(self):
+    return 3
+
+  @property
+  def num_steps(self):
+    return 5000
+
 
 @registry.register_problem
 class GymWrappedPongRandom50k(GymPongRandom5k):
@@ -510,10 +530,20 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
 
 
 @registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedBreakout(
+    GymDiscreteProblemWithAgent, GymWrappedBreakoutRandom5k):
+  pass
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
+    GymSimulatedDiscreteProblemWithAgent, GymWrappedBreakoutRandom5k):
+  pass
+
+
+@registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPong(
     GymDiscreteProblemWithAgent, GymWrappedPongRandom5k):
   pass
-
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnFreeway(

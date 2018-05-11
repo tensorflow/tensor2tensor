@@ -117,11 +117,11 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
     obs = []
     if hasattr(initialization_env.env, "get_starting_data"):
-      obs, _, _ = initialization_env.env.get_starting_data()
+      obs, _, _ = initialization_env.env.get_starting_data(self._num_frames)
     else:
       # TODO(piotrmilos): Ancient method for environments not supporting
-      # get_starting_data. This is probably not compatibile with
-      # self._num_frames != 2 and should be removed at some point.
+      # get_starting_data. This should be avoided. Namely you should use
+      # envs wrapped with gym_utils.WarmupWrapper
       num_frames = self._num_frames
       initialization_env.reset()
       skip_frames = 20
