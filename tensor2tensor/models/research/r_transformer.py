@@ -939,6 +939,7 @@ def r_mix_transformer_act_step_position_timing_mix_after_rt_base():
 @registry.register_hparams
 def r_transformer_act_step_position_timing_big():
   hparams = r_transformer_big()
+  hparams.batch_size //= 2
   hparams.recurrence_type = "act"
   hparams.add_position_timing_signal = True
   hparams.pos = None
