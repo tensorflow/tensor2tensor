@@ -183,6 +183,17 @@ def basic_conv():
 
 
 @registry.register_hparams
+def basic_conv_ae():
+  """Small conv model."""
+  hparams = basic_conv()
+  hparams.hidden_size = 128
+  hparams.batch_size = 32
+  hparams.num_hidden_layers = 3
+  hparams.num_compress_steps = 3
+  return hparams
+
+
+@registry.register_hparams
 def basic_conv_small():
   """Small conv model."""
   hparams = basic_conv()

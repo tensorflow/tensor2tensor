@@ -50,7 +50,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
 
   def __init__(self, *args, **kwargs):
     super(BasicAutoencoder, self).__init__(*args, **kwargs)
-    self.cur_bottleneck_tensor = None
+    self._cur_bottleneck_tensor = None
     self.is1d = None
 
   def bottleneck(self, x):
@@ -122,7 +122,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
       x = self.encoder(x)
       # Bottleneck (mix during early training, not too important but stable).
       b = self.bottleneck(x)
-      self.cur_bottleneck_tensor = b
+      self._cur_bottleneck_tensor = b
       b_loss = self.bottleneck_loss(b)
       b = self.unbottleneck(b, common_layers.shape_list(x)[-1])
       b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
@@ -133,7 +133,10 @@ class BasicAutoencoder(t2t_model.T2TModel):
       else:
         x = b
     else:
-      b = self.sample()
+      if self._cur_bottleneck_tensor is None:
+        b = self.sample()
+      else:
+        b = self._cur_bottleneck_tensor
       res_size = self.hparams.hidden_size * 2**self.hparams.num_hidden_layers
       res_size = min(res_size, hparams.max_hidden_size)
       x = self.unbottleneck(b, res_size)
@@ -156,11 +159,13 @@ class BasicAutoencoder(t2t_model.T2TModel):
     # Sample in [-1, 1] as the bottleneck is under tanh.
     return 2.0 * tf.random_uniform(size) - 1.0
 
-  def encode(self, x, *args, **kwargs):
+  def encode(self, x):
     """Auto-encode x and return the bottleneck."""
     features = {"targets": x}
     self(features)  # pylint: disable=not-callable
-    return self.cur_bottleneck_tensor
+    res = self._cur_bottleneck_tensor
+    self._cur_bottleneck_tensor = None
+    return res
 
   def infer(self, features, *args, **kwargs):
     """Produce predictions from the model by sampling."""
@@ -178,9 +183,10 @@ class BasicAutoencoder(t2t_model.T2TModel):
       num_channels = self.hparams.problem.num_channels
     except AttributeError:
       num_channels = 1
-    features["targets"] = tf.zeros(
-        [self.hparams.batch_size, 1, 1, num_channels],
-        dtype=tf.int32)
+    if "targets" not in features:
+      features["targets"] = tf.zeros(
+          [self.hparams.batch_size, 1, 1, num_channels],
+          dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     samples = tf.argmax(logits, axis=-1)
 
@@ -190,6 +196,24 @@ class BasicAutoencoder(t2t_model.T2TModel):
 
     # Return samples.
     return samples
+
+  def decode(self, bottleneck):
+    """Auto-decode from the bottleneck and return the result."""
+    # Get the shape from bottleneck and num channels.
+    shape = common_layers.shape_list(bottleneck)
+    try:
+      num_channels = self.hparams.problem.num_channels
+    except AttributeError:
+      num_channels = 1
+    dummy_targets = tf.zeros(shape[:-1] + [num_channels])
+    # Set the bottleneck to decode.
+    if len(shape) > 4:
+      bottleneck = tf.squeeze(bottleneck, axis=[1])
+    self._cur_bottleneck_tensor = bottleneck
+    # Run decoding.
+    res = self.infer({"targets": dummy_targets})
+    self._cur_bottleneck_tensor = None
+    return res
 
   def _get_kernel_and_strides(self):
     hparams = self.hparams

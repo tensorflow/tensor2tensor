@@ -38,6 +38,9 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
     # Run the basic autoencoder part first.
     basic_result, losses = super(AutoencoderAutoregressive, self).body(features)
+    if hparams.autoregressive_mode == "none":
+      assert not hparams.autoregressive_forget_base
+      return basic_result, losses
     shape = common_layers.shape_list(basic_result)
     basic1d = tf.reshape(basic_result, [shape[0], -1, shape[3]])
     # During autoregressive inference, don't resample.
@@ -68,9 +71,6 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
       concat1d = tf.reshape(features["targets"], [shape[0], -1, shape[3]])
       concat1d = common_layers.shift_right_3d(concat1d)
     # The autoregressive part depends on the mode.
-    if hparams.autoregressive_mode == "none":
-      assert not hparams.autoregressive_forget_base
-      return basic_result, losses
     if hparams.autoregressive_mode == "conv3":
       res = common_layers.conv1d(concat1d, shape[3], 3, padding="LEFT",
                                  activation=common_layers.belu,
@@ -106,9 +106,10 @@ class AutoencoderAutoregressive(basic.BasicAutoencoder):
       num_channels = self.hparams.problem.num_channels
     except AttributeError:
       num_channels = 1
-    features["targets"] = tf.zeros(
-        [self.hparams.batch_size, 1, 1, num_channels],
-        dtype=tf.int32)
+    if "targets" not in features:
+      features["targets"] = tf.zeros(
+          [self.hparams.batch_size, 1, 1, num_channels],
+          dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     samples = common_layers.sample_with_temperature(
         logits, 0.0)

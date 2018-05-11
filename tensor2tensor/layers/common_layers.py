@@ -2681,7 +2681,10 @@ def sample_with_temperature(logits, temperature):
     a Tensor with one fewer dimension than logits.
   """
   if temperature == 0.0:
-    return tf.argmax(logits, -1)
+    # TF argmax doesn't handle >5 dimensions, so we reshape here.
+    logits_shape = shape_list(logits)
+    argmax = tf.argmax(tf.reshape(logits, [-1, logits_shape[-1]]), axis=1)
+    return tf.reshape(argmax, logits_shape[:-1])
   else:
     assert temperature > 0.0
     reshaped_logits = (

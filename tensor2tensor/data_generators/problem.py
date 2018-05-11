@@ -425,7 +425,8 @@ class Problem(object):
       return self._hparams
 
     if self._encoders is None:
-      data_dir = (model_hparams and model_hparams.data_dir) or None
+      data_dir = (model_hparams and hasattr(model_hparams, "data_dir") and
+                  model_hparams.data_dir) or None
       self.get_feature_encoders(data_dir)
 
     hp = _default_hparams()
@@ -738,7 +739,7 @@ class Problem(object):
       return standardize_shapes(example, batch_size=batch_size)
 
     # Read and preprocess
-    data_dir = data_dir or hparams.data_dir
+    data_dir = data_dir or (hasattr(hparams, "data_dir") and hparams.data_dir)
 
     dataset_kwargs = dataset_kwargs or {}
     dataset_kwargs.update({
@@ -902,6 +903,7 @@ class Problem(object):
 
 
 class FeatureInfo(object):
+  """Encapsulates information about a feature."""
 
   def __init__(self,
                encoder=None,
