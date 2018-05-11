@@ -64,20 +64,21 @@ def train(hparams, output_dir):
   line = ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    "
   epoch_metrics = []
   for iloop in range(hparams.epochs):
-    # Generate environment frames
-    time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.1 - generate data from policy. Time: %s",
-                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
-    FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
-    FLAGS.agent_policy_path = last_model
-    gym_problem = registry.problem(FLAGS.problem)
-    gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
-    iter_data_dir = os.path.join(data_dir, str(iloop))
-    tf.gfile.MakeDirs(iter_data_dir)
-    gym_problem.generate_data(iter_data_dir, tmp_dir)
+    # Generate random frames.
+    if iloop == 0:
+      time_delta = time.time() - start_time
+      tf.logging.info("%s Step %d.0 - generate random data. Time: %s",
+                      line, iloop, str(datetime.timedelta(seconds=time_delta)))
+      FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
+      FLAGS.agent_policy_path = ""
+      gym_problem = registry.problem(FLAGS.problem)
+      gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
+      iter_data_dir = os.path.join(data_dir, "0random")
+      tf.gfile.MakeDirs(iter_data_dir)
+      gym_problem.generate_data(iter_data_dir, tmp_dir)
 
     time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.2 - generate env model. Time: %s",
+    tf.logging.info("%s Step %d.1 - generate env model. Time: %s",
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
 
     # Train env model
@@ -91,7 +92,7 @@ def train(hparams, output_dir):
 
     # Evaluate and dump frames from env model
     time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.3 - evaluate env model. Time: %s",
+    tf.logging.info("%s Step %d.1a - evaluate env model. Time: %s",
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
     gym_simulated_problem = registry.problem(
         "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
@@ -106,7 +107,7 @@ def train(hparams, output_dir):
 
     # Train PPO agent
     time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.4 - train PPO in model env. Time: %s",
+    tf.logging.info("%s Step %d.2 - train PPO in model env. Time: %s",
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
 
     # Setup PPO hparams
@@ -119,6 +120,7 @@ def train(hparams, output_dir):
     ppo_hparams.save_models_every_epochs = ppo_epochs_num
     ppo_hparams.epoch_length = hparams.ppo_epoch_length
     ppo_hparams.num_agents = hparams.ppo_num_agents
+    ppo_hparams.problem = gym_problem
 
     in_graph_wrappers = [
         (TimeLimitWrapper, {"timelimit": hparams.ppo_time_limit}),
@@ -130,7 +132,25 @@ def train(hparams, output_dir):
     rl_trainer_lib.train(ppo_hparams, gym_simulated_problem.env_name, ppo_dir)
     last_model = ppo_dir
 
-    eval_metrics = {"model_reward_accuracy": model_reward_accuracy}
+    # Generate environment frames.
+    time_delta = time.time() - start_time
+    tf.logging.info("%s Step %d.3 - generate environment data. Time: %s",
+                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
+    FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
+    FLAGS.agent_policy_path = last_model
+    gym_problem = registry.problem(FLAGS.problem)
+    gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
+    iter_data_dir = os.path.join(data_dir, str(iloop))
+    tf.gfile.MakeDirs(iter_data_dir)
+    gym_problem.generate_data(iter_data_dir, tmp_dir)
+    mean_reward = 0.0
+    if gym_problem.dones != 0:
+      mean_reward = gym_problem.sum_of_rewards / float(gym_problem.dones)
+    tf.logging.info("%s Step %d mean reward: %.4f" % (line, iloop, mean_reward))
+
+    # Report metrics.
+    eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
+                    "mean_reward": mean_reward}
     epoch_metrics.append(eval_metrics)
 
   # Report the evaluation metrics from the final epoch
@@ -173,6 +193,22 @@ def rl_modelrl_tiny():
       ppo_epoch_length=20,
   )
   return rl_modelrl_base().override_from_dict(tiny_hp.values())
+
+
+@registry.register_hparams
+def rl_modelrl_ae():
+  """Parameter set for autoencoders."""
+  hparams = rl_modelrl_base()
+  hparams.generative_model_params = "basic_conv_ae"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_tiny_ae():
+  """Tiny set for testing autoencoders."""
+  hparams = rl_modelrl_tiny()
+  hparams.generative_model_params = "basic_conv_ae"
+  return hparams
 
 
 def create_loop_hparams():

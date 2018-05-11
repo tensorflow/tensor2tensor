@@ -34,9 +34,7 @@ from tensor2tensor.layers import discretization
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
-from tensor2tensor.rl.envs import simulated_batch_env
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
-from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.rl.envs.utils import batch_env_factory
 
@@ -65,7 +63,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   @property
   def num_input_frames(self):
     """Number of frames to batch on one input."""
-    return SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
+    return 2
 
   @property
   def num_target_frames(self):
@@ -258,8 +256,9 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self._env = None
     self.debug_dump_frames_path = "debug_frames_env"
     self.make_extra_debug_info = True
+    self.autoencoder_model = None
 
-    # defaults
+    # Defaults.
     self.environment_spec = lambda: gym.make(self.env_name)
     self.real_env = self.environment_spec()
     self.in_graph_wrappers = []
@@ -267,6 +266,14 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self.settable_num_steps = 20000
     self.simulated_environment = None
     self.warm_up = 10  # TODO(piotrm): This should be probably removed.
+
+    # Debug info.
+    self.dones = 0
+    self.real_reward = 0
+    self.real_env.reset()
+    self.total_sim_reward, self.total_real_reward = 0.0, 0.0
+    self.sum_of_rewards = 0.0
+    self.successful_episode_reward_predictions = 0
 
   @property
   def num_steps(self):
@@ -294,6 +301,18 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       return int(math.ceil(self.raw_frame_width / 32))
     return self.raw_frame_width
 
+  def setup_autoencoder(self):
+    if self.autoencoder_model is not None:
+      return
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
+      autoencoder_hparams.data_dir = "unused"
+      autoencoder_hparams.problem_hparams = self.get_hparams(
+          autoencoder_hparams)
+      autoencoder_hparams.problem = self
+      self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
+          autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
+
   def _setup(self):
     if self.make_extra_debug_info:
       self.report_reward_statistics_every = 10
@@ -301,15 +320,16 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.real_reward = 0
       self.real_env.reset()
       # Slight weirdness to make sim env and real env aligned
-      for _ in range(
-          simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES):
+      for _ in range(self.num_input_frames):
         self.real_ob, _, _, _ = self.real_env.step(0)
       self.total_sim_reward, self.total_real_reward = 0.0, 0.0
+      self.sum_of_rewards = 0.0
       self.successful_episode_reward_predictions = 0
 
     in_graph_wrappers = self.in_graph_wrappers + [(atari.MemoryWrapper, {})]
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
+        problem=self,
         simulated_environment=self.simulated_environment)
 
     generator_batch_env = batch_env_factory(
@@ -337,13 +357,9 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     if FLAGS.autoencoder_path:
       # TODO(lukaszkaiser): remove hard-coded autoencoder params.
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-        autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
-        autoencoder_hparams.data_dir = "unused"
-        autoencoder_hparams.problem_hparams = self.get_hparams(
-            autoencoder_hparams)
-        autoencoder_hparams.problem = self
-        autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
-            autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
+        self.setup_autoencoder()
+        autoencoder_model = self.autoencoder_model
+        # Feeds for autoencoding.
         shape = [self.raw_frame_height, self.raw_frame_width, self.num_channels]
         self.autoencoder_feed = tf.placeholder(tf.int32, shape=shape)
         autoencoded = autoencoder_model.encode(
@@ -352,6 +368,14 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
             autoencoded, [self.frame_height, self.frame_width,
                           self.num_channels, 8])  # 8-bit groups.
         self.autoencoder_result = discretization.bit_to_int(autoencoded, 8)
+        # Now for autodecoding.
+        shape = [self.frame_height, self.frame_width, self.num_channels]
+        self.autodecoder_feed = tf.placeholder(tf.int32, shape=shape)
+        bottleneck = tf.reshape(
+            discretization.int_to_bit(self.autodecoder_feed, 8),
+            [1, 1, self.frame_height, self.frame_width, self.num_channels * 8])
+        autoencoder_model.set_mode(tf.estimator.ModeKeys.PREDICT)
+        self.autodecoder_result = autoencoder_model.decode(bottleneck)
 
     self.avilable_data_size_op = atari.MemoryWrapper.singleton.speculum.size()
     self.data_get_op = atari.MemoryWrapper.singleton.speculum.dequeue()
@@ -373,6 +397,10 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
   def autoencode(self, image, sess):
     return sess.run(self.autoencoder_result, {self.autoencoder_feed: image})
 
+  def autodecode(self, encoded, sess):
+    res = sess.run(self.autodecoder_result, {self.autodecoder_feed: encoded})
+    return res[0, 0, :self.raw_frame_height, :self.raw_frame_width, :]
+
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
     self._setup()
     self.debug_dump_frames_path = os.path.join(
@@ -390,11 +418,12 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         debug_im = None
         if self.make_extra_debug_info:
           self.total_sim_reward += reward
-          err = np.ndarray.astype(np.maximum(np.abs(
-              self.real_ob - observ, dtype=np.int) - 10, 0),
-                                  np.uint8)
-          debug_im_np = np.concatenate([observ, self.real_ob, err], axis=1)
-          debug_im = gym_utils.encode_image_to_png(debug_im_np)
+          if not FLAGS.autoencoder_path:
+            err = np.ndarray.astype(np.maximum(np.abs(
+                self.real_ob - observ, dtype=np.int) - 10, 0),
+                                    np.uint8)
+            debug_im_np = np.concatenate([observ, self.real_ob, err], axis=1)
+            debug_im = gym_utils.encode_image_to_png(debug_im_np)
           if done:
             self.dones += 1
             if self.total_real_reward == self.total_sim_reward:
@@ -405,14 +434,19 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
             self.real_reward = 0
             self.real_env.reset()
             # Slight weirdness to make sim env and real env aligned
-            for _ in range(
-                simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES):
+            for _ in range(self.num_input_frames):
               self.real_ob, _, _, _ = self.real_env.step(0)
           else:
             self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
             self.total_real_reward += self.real_reward
+            self.sum_of_rewards += self.real_reward
         if FLAGS.autoencoder_path:
-          observ = self.autoencode(observ, sess)
+          if self.simulated_environment:
+            debug_im = gym_utils.encode_image_to_png(
+                self.autodecode(observ, sess))
+          else:
+            observ = self.autoencode(observ, sess)
+            debug_im = gym_utils.encode_image_to_png(observ)
         ret_dict = {"frame": observ,
                     "image/format": ["png"],
                     "image/height": [self.frame_height],
@@ -438,7 +472,7 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
 
     try:
       # We assume that the real env is wrapped with TimeLimit.
-      history = simulated_batch_env.SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
+      history = self.num_input_frames
       timelimit = self.real_env._max_episode_steps - history    # pylint: disable=protected-access
     except:  # pylint: disable=bare-except
       # If not, set some reasonable default.

@@ -23,6 +23,8 @@ from __future__ import print_function
 
 # Dependency imports
 
+from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import discretization
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
@@ -37,27 +39,53 @@ FLAGS = flags.FLAGS
 class HistoryBuffer(object):
   """History Buffer."""
 
-  def __init__(self, initial_frames):
+  def __init__(self, initial_frames, problem):
     self._history_buff = None
-    self.initial_frames = initial_frames
+    initial_shape = common_layers.shape_list(initial_frames)
+    var_shape = [initial_shape[0], problem.frame_height, problem.frame_width,
+                 problem.num_channels]
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      self._history_buff = tf.get_variable(
-          "history_observ", initializer=self.initial_frames, trainable=False)
+      history_buff = tf.get_variable("history_observ", var_shape,
+                                     initializer=tf.zeros_initializer,
+                                     trainable=False)
+    self._history_buff = history_buff
+    self._assigned = False
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      if FLAGS.autoencoder_path:
+        # Feeds for autoencoding.
+        problem.setup_autoencoder()
+        autoencoder_model = problem.autoencoder_model
+        autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
+        autoencoded = autoencoder_model.encode(
+            tf.expand_dims(initial_frames, axis=1))
+        autoencoded_shape = common_layers.shape_list(autoencoded)
+        autoencoded = tf.reshape(  # Make 8-bit groups.
+            autoencoded, autoencoded_shape[:-1] + [3, 8])
+        initial_frames = discretization.bit_to_int(autoencoded, 8)
+        initial_frames = tf.to_float(initial_frames)
+      self.initial_frames = initial_frames
+      with tf.control_dependencies([history_buff.assign(initial_frames)]):
+        self._history_buff_id = tf.identity(history_buff)
 
   def get_all_elements(self):
-    return self._history_buff.read_value()
+    if self._assigned:
+      return self._history_buff.read_value()
+    self._assigned = True
+    return self.initial_frames
 
   def move_by_one_element(self, element):
-    last_removed = self._history_buff.read_value()[1:, ...]
+    last_removed = self.get_all_elements()[1:, ...]
     element = tf.expand_dims(element, dim=0)
     moved = tf.concat([last_removed, element], axis=0)
     with tf.control_dependencies([moved]):
       with tf.control_dependencies([self._history_buff.assign(moved)]):
+        self._assigned = True
         return self._history_buff.read_value()
 
   def reset(self):
     with tf.control_dependencies([self._history_buff.assign(
         self.initial_frames)]):
+      self._assigned = True
       return self._history_buff.read_value()
 
 
@@ -68,11 +96,11 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   a tf.py_func(). The current batch of observations, actions, rewards, and done
   flags are held in according variables.
   """
-  NUMBER_OF_HISTORY_FRAMES = 4
 
-  def __init__(self, environment_lambda, length):
+  def __init__(self, environment_lambda, length, problem):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
+    self._num_frames = problem.num_input_frames
 
     # TODO(piotrmilos): For the moment we are fine with that.
     assert self.length == 1, "Currently SimulatedBatchEnv support only one env"
@@ -93,8 +121,8 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     else:
       # TODO(piotrmilos): Ancient method for environments not supporting
       # get_starting_data. This is probably not compatibile with
-      # NUMBER_OF_HISTORY_FRAMES!=2 and should be removed at some point.
-      num_frames = SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
+      # self._num_frames != 2 and should be removed at some point.
+      num_frames = self._num_frames
       initialization_env.reset()
       skip_frames = 20
       for _ in range(skip_frames):
@@ -105,9 +133,14 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     initial_frames = tf.stack(obs)
     initial_frames = tf.cast(initial_frames, tf.float32)
 
-    self.history_buffer = HistoryBuffer(initial_frames)
+    self.history_buffer = HistoryBuffer(initial_frames, problem=problem)
 
-    shape = (self.length,) + initialization_env.observation_space.shape
+    height, width, channels = initialization_env.observation_space.shape
+    # TODO(lukaszkaiser): remove this and just use Problem.frame_height.
+    if FLAGS.autoencoder_path:
+      height = problem.frame_height
+      width = problem.frame_width
+    shape = (self.length, height, width, channels)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       self._observ = tf.get_variable(
           "observ", shape, initializer=tf.zeros_initializer, trainable=False)
@@ -119,7 +152,7 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):
       action = tf.expand_dims(action, axis=0)
-      actions = [action]*SimulatedBatchEnv.NUMBER_OF_HISTORY_FRAMES
+      actions = [action] * self._num_frames
       actions = tf.concat(actions, axis=0)
       history = self.history_buffer.get_all_elements()
       inputs = {"inputs": tf.expand_dims(history, axis=0),  # Add batch.
