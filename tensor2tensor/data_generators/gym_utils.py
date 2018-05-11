@@ -28,18 +28,17 @@ from tensor2tensor.data_generators import image_utils
 class WarmupWrapper(gym.Wrapper):
   """Warmup wrapper."""
 
-  def __init__(self, env, num_frames, warm_up_examples=0):
+  def __init__(self, env, warm_up_examples=0):
     gym.Wrapper.__init__(self, env)
-    self._num_frames = num_frames
     self.warm_up_examples = warm_up_examples
     self.warm_up_action = 0
     self.observation_space = gym.spaces.Box(
         low=0, high=255, shape=(210, 160, 3), dtype=np.uint8)
 
-  def get_starting_data(self):
+  def get_starting_data(self, num_frames):
     self.reset()
     starting_observations, starting_actions, starting_rewards = [], [], []
-    for _ in range(self._num_frames):
+    for _ in range(num_frames):
       observation, rew, _, _ = self.env.step(self.warm_up_action)
       starting_observations.append(observation)
       starting_rewards.append(rew)
@@ -63,11 +62,11 @@ class WarmupWrapper(gym.Wrapper):
 class PongWrapper(WarmupWrapper):
   """Pong Wrapper."""
 
-  def __init__(self, env, num_frames, warm_up_examples=0,
+  def __init__(self, env, warm_up_examples=0,
                action_space_reduction=False,
                reward_skip_steps=0,
                big_ball=False):
-    super(PongWrapper, self).__init__(env, num_frames, warm_up_examples=0)
+    super(PongWrapper, self).__init__(env, warm_up_examples=0)
     self.action_space_reduction = action_space_reduction
     if self.action_space_reduction:
       self.action_space = gym.spaces.Discrete(2)
@@ -114,17 +113,15 @@ class PongWrapper(WarmupWrapper):
       return x, y
 
 
-def wrapped_pong_factory(
-    num_frames=2, warm_up_examples=0, action_space_reduction=False,
+def wrapped_pong_factory(warm_up_examples=0, action_space_reduction=False,
     reward_skip_steps=0, big_ball=False):
   """Wrapped pong games."""
   env = gym.make("PongDeterministic-v4")
   env = env.env  # Remove time_limit wrapper.
-  env = PongWrapper(env, num_frames=num_frames,
-                    warm_up_examples=warm_up_examples,
-                    action_space_reduction=action_space_reduction,
-                    reward_skip_steps=reward_skip_steps,
-                    big_ball=big_ball)
+  env = PongWrapper(env, warm_up_examples=warm_up_examples,
+                         action_space_reduction=action_space_reduction,
+                         reward_skip_steps=reward_skip_steps,
+                         big_ball=big_ball)
   return env
 
 
