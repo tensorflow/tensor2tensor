@@ -30,6 +30,10 @@ import tensorflow as tf
 
 from tensorflow.python.eager import context
 
+# Fathom
+from fathomt2t_dependencies.common_t2t_utils import (
+  get_all_problems_from_hparams, get_problem_from_hparams)
+
 @registry.register_symbol_modality("default")
 class SymbolModality(modality.Modality):
   """Modality for sets of discrete symbols.
@@ -240,7 +244,7 @@ class ImageModality(modality.Modality):
   # TODO: consider if we can revert to just .problem
   def _get_num_channels(self):
     try:
-      return self._model_hparams.problem_instances[0].num_channels
+      return get_problem_from_hparams(self._model_hparams).num_channels
     except AttributeError:
       return self._model_hparams.problem.num_channels
 
