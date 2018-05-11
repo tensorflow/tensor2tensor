@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from typing import List, Dict
 import collections
 import contextlib
 import copy
@@ -57,6 +58,44 @@ _no_problem_err_str = (
 _no_problem_err = (
     lambda method_name: _no_problem_err_str % (method_name, method_name))
 
+
+# Fathom
+def combine_shards(sharded_top_outputs: List[Dict[str, tf.Tensor]]) -> Dict[str, tf.Tensor]:
+  """(Fathom) Combine the dicts that our modality tops emit, rather than
+  the tensors that standard T2T modality tops emit.
+
+  This is a relatively minor change, but shows up in many different
+  spots, so we discuss it here. The general format is a dict with keys
+  'logits' and 'outputs'. Other keys can be added if desired, but are
+  not required. This requires changes in the metrics and in this
+  module.
+
+  Note that this gracefully handles the behavior of existing t2t
+  modalities that emit logits.
+
+  Args:
+      sharded_top_outputs: dict mapping strings to tensors or None
+                           (for each key, all shards should have a
+                           tensor or all shards should have None)
+
+  Returns:
+      top_outputs: dict mapping string to tensor or None
+
+  """
+  assert len(sharded_top_outputs) >= 1
+
+  # if a base t2t modality, just concat the input along axis 0
+  if not isinstance(sharded_top_outputs[0], dict):
+    return tf.concat(sharded_top_outputs, 0)
+  
+  return_value = dict()
+  for k in sharded_top_outputs[0]:
+    if all(shard[k] is None for shard in sharded_top_outputs):
+      return_value[k] = None
+    else:
+      return_value[k] = tf.concat([shard[k] for shard in sharded_top_outputs], 0)
+
+  return return_value
 
 
 class T2TModel(base.Layer):
@@ -1033,8 +1072,8 @@ class T2TModel(base.Layer):
 
     if not hasattr(hparams, "problem"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
-
-    problem = get_problem_from_hparams(hparams)
+    
+    problem = hparams.problem_instances[0] or hparams.problem
     if common_layers.is_on_tpu():
       # Fathom
       assert False, 'Not supporting TPUs yet'
