@@ -94,6 +94,15 @@ def combine_shards(sharded_top_outputs: List[Dict[str, tf.Tensor]]) -> Dict[str,
 
   return return_value
 
+# Fathom
+def get_problem_from_hparams(hparams):
+    """Get the problem instance from an hparams object"""
+    if hasattr(hparams, 'problem_instances'):
+        return hparams.problem_instances[0] or hparams.problem
+
+    else:
+        return hparams.problem
+
 
 class T2TModel(base.Layer):
   """Abstract base class for models.
@@ -1069,8 +1078,8 @@ class T2TModel(base.Layer):
 
     if not hasattr(hparams, "problem"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
-    
-    problem = hparams.problem_instances[0] or hparams.problem
+
+    problem = get_problem_from_hparams(hparams)
     if common_layers.is_on_tpu():
       # Fathom
       assert False, 'Not supporting TPUs yet'
