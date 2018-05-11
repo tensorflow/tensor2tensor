@@ -47,6 +47,9 @@ import tensorflow as tf
 from tensorflow.python.layers import base
 from tensorflow.python.ops import variable_scope
 
+# Fathom
+from fathomt2t_dependencies.common_t2t_utils import combine_shards, get_problem_from_hparams
+
 _no_problem_err_str = (
     "The default implementation of %s requires that the "
     "model be used with a Problem. If using a Problem, augment the "

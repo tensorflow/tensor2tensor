@@ -37,6 +37,9 @@ import tensorflow as tf
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python import debug
 
+# Fathom
+from fathomt2t_dependencies.common_t2t_utils import get_all_problems_from_hparams
+
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -178,8 +181,8 @@ def create_experiment(data_dir, model_name, train_steps, eval_steps, hparams,
 
   optional_kwargs = {}
   if FLAGS.export_saved_model:
-    assert len(hparams.problem_instances) == 1
-    problem = hparams.problem_instances[0]
+    assert len(get_all_problems_from_hparams(hparams)) == 1
+    problem = get_problem_from_hparams(hparams)
     optional_kwargs["export_strategies"] = [
         make_export_strategy(problem, hparams)
     ]

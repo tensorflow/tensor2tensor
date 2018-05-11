@@ -41,43 +41,9 @@ from tensor2tensor.utils import yellowfin
 import tensorflow as tf
 from tensorflow.python.framework import dtypes
 
+# Fathom
+from fathomt2t_dependencies.common_t2t_utils import combine_shards, get_all_problems_from_hparams
 
-def combine_shards(sharded_top_outputs: List[Dict[str, tf.Tensor]]) -> Dict[str, tf.Tensor]:
-  """(Fathom) Combine the dicts that our modality tops emit, rather than
-  the tensors that standard T2T modality tops emit.
-
-  This is a relatively minor change, but shows up in many different
-  spots, so we discuss it here. The general format is a dict with keys
-  'logits' and 'outputs'. Other keys can be added if desired, but are
-  not required. This requires changes in the metrics and in this
-  module.
-
-  Note that this gracefully handles the behavior of existing t2t
-  modalities that emit logits.
-
-  Args:
-      sharded_top_outputs: dict mapping strings to tensors or None
-                           (for each key, all shards should have a
-                           tensor or all shards should have None)
-
-  Returns:
-      top_outputs: dict mapping string to tensor or None
-
-  """
-  assert len(sharded_top_outputs) >= 1
-
-  # if a base t2t modality, just concat the input along axis 0
-  if not isinstance(sharded_top_outputs[0], dict):
-    return tf.concat(sharded_top_outputs, 0)
-  
-  return_value = dict()
-  for k in sharded_top_outputs[0]:
-    if all(shard[k] is None for shard in sharded_top_outputs):
-      return_value[k] = None
-    else:
-      return_value[k] = tf.concat([shard[k] for shard in sharded_top_outputs], 0)
-
-  return return_value
 
 def model_fn(model,
              features,
@@ -112,7 +78,7 @@ def model_fn(model,
   Returns:
     tf.estimator.EstimatorSpec
   """
-  assert len(problem_names) == len(hparams.problem_instances)
+  assert len(problem_names) == len(get_all_problems_from_hparams(hparams))
   decode_hp = decode_hparams
 
   # TODO(rsepassi): This still depends on FLAGS. Rm eventually.
@@ -250,7 +216,7 @@ def model_fn(model,
 
   if mode == tf.estimator.ModeKeys.EVAL:
     eval_metrics_fns = metrics.create_evaluation_metrics(
-        zip(problem_names, hparams.problem_instances), hparams)
+        zip(problem_names, get_all_problems_from_hparams(hparams)), hparams)
 
     eval_metrics = {}
     for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
