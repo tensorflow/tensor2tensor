@@ -181,6 +181,7 @@ class BreakoutWrapper(WarmupWrapper):
   def reset(self, **kwargs):
     observation = super().reset(**kwargs)
     self.env.step(BreakoutWrapper.FIRE_ACTION)
+    self.direction_info = deque([], maxlen=2)
     observation = self.process_observation(observation)
     return observation
 
