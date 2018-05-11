@@ -93,7 +93,7 @@ def flags_as_args():
 def get_default_master_type(num_gpus=1, use_tpu=False):
   """Returns master_type for trainingInput."""
   if use_tpu:
-    return "standard_tpu"
+    return "cloud_tpu"
   elif num_gpus <= 0:
     return "standard"
   elif num_gpus == 1:
@@ -276,7 +276,7 @@ def validate_flags():
     assert FLAGS.worker_gpu in [1, 4, 8]
   if FLAGS.cloud_mlengine_master_type:
     if FLAGS.use_tpu:
-      assert FLAGS.cloud_mlengine_master_type == "standard_tpu"
+      assert FLAGS.cloud_mlengine_master_type == "cloud_tpu"
     elif FLAGS.worker_gpu:
       if FLAGS.worker_gpu == 1:
         assert FLAGS.cloud_mlengine_master_type in ["standard_gpu",
