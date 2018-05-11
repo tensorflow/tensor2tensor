@@ -160,7 +160,7 @@ def train(hparams, output_dir):
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=10,
+      epochs=2,
       true_env_generator_num_steps=60000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
@@ -208,6 +208,24 @@ def rl_modelrl_tiny_ae():
   """Tiny set for testing autoencoders."""
   hparams = rl_modelrl_tiny()
   hparams.generative_model_params = "basic_conv_ae"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_tiny_breakout():
+  """Tiny set for testing Breakout."""
+  hparams = rl_modelrl_tiny()
+  hparams.game = "wrapped_breakout"
+  hparams.true_env_generator_num_steps = 200
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_tiny_freeway():
+  """Tiny set for testing Freeway."""
+  hparams = rl_modelrl_tiny()
+  hparams.game = "wrapped_freeway"
+  hparams.true_env_generator_num_steps = 200
   return hparams
 
 
