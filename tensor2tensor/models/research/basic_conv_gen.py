@@ -165,8 +165,8 @@ class BasicConvGen(t2t_model.T2TModel):
 def basic_conv():
   """Basic 2-frame conv model."""
   hparams = common_hparams.basic_params1()
-  hparams.hidden_size = 32
-  hparams.batch_size = 8
+  hparams.hidden_size = 64
+  hparams.batch_size = 4
   hparams.num_hidden_layers = 2
   hparams.optimizer = "Adafactor"
   hparams.learning_rate_constant = 1.5
@@ -176,7 +176,7 @@ def basic_conv():
   hparams.initializer = "uniform_unit_scaling"
   hparams.initializer_gain = 1.0
   hparams.weight_decay = 0.0
-  hparams.dropout = 0.5
+  hparams.dropout = 0.4
   hparams.add_hparam("num_compress_steps", 6)
   hparams.add_hparam("filter_double_steps", 5)
   return hparams
@@ -192,10 +192,11 @@ def basic_conv_tpu():
 def basic_conv_ae():
   """Conv autoencoder."""
   hparams = basic_conv()
-  hparams.hidden_size = 128
+  hparams.hidden_size = 256
   hparams.batch_size = 32
   hparams.num_hidden_layers = 3
-  hparams.num_compress_steps = 3
+  hparams.num_compress_steps = 2
+  hparams.dropout = 0.2
   return hparams
 
 

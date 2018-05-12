@@ -64,7 +64,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   @property
   def num_input_frames(self):
     """Number of frames to batch on one input."""
-    return 2
+    return 4
 
   @property
   def num_target_frames(self):
@@ -301,6 +301,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     # Defaults.
     self.environment_spec = lambda: gym.make(self.env_name)
     self._real_env = None
+    self.real_env_problem = None
     self.in_graph_wrappers = []
     self.collect_hparams = rl.ppo_atari_base()
     self.settable_num_steps = 50000
@@ -377,7 +378,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         (atari.MemoryWrapper, {}), (MaxAndSkipWrapper, {"skip": 4})]
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
-        problem=self,
+        problem=self.real_env_problem if self.real_env_problem else self,
         simulated_environment=self.simulated_environment)
 
     generator_batch_env = batch_env_factory(
@@ -494,7 +495,8 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
                 self.autodecode(observ, sess))
           else:
             observ = self.autoencode(observ, sess)
-            debug_im = gym_utils.encode_image_to_png(observ)
+            debug_im = gym_utils.encode_image_to_png(
+                self.autodecode(observ, sess))
         ret_dict = {"frame": observ,
                     "image/format": ["png"],
                     "image/height": [self.frame_height],

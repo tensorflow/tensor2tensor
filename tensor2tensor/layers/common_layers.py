@@ -1678,7 +1678,7 @@ def pad_to_same_length(x, y, final_length_divisible_by=1, axis=1):
     x_length = shape_list(x)[axis]
     y_length = shape_list(y)[axis]
     if (isinstance(x_length, int) and isinstance(y_length, int) and
-        x_length == y_length and final_length_divisible_by == 2):
+        x_length == y_length and final_length_divisible_by == 1):
       return x, y
     max_length = tf.maximum(x_length, y_length)
     if final_length_divisible_by > 1:
