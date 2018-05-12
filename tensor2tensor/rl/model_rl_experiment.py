@@ -98,6 +98,7 @@ def train(hparams, output_dir):
         "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
     sim_steps = hparams.simulated_env_generator_num_steps
     gym_simulated_problem.settable_num_steps = sim_steps
+    gym_simulated_problem.real_env_problem = gym_problem
     gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
     model_reward_accuracy = 0.0
     if gym_simulated_problem.dones != 0:
@@ -160,7 +161,7 @@ def train(hparams, output_dir):
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=10,
+      epochs=2,
       true_env_generator_num_steps=60000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
@@ -185,42 +186,12 @@ def rl_modelrl_tiny():
   """Tiny set for testing."""
   tiny_hp = tf.contrib.training.HParams(
       epochs=2,
-      true_env_generator_num_steps=20,
-      model_train_steps=10,
-      simulated_env_generator_num_steps=20,
-      ppo_epochs_num=2,
-      ppo_time_limit=20,
-      ppo_epoch_length=20,
-  )
-  return rl_modelrl_base().override_from_dict(tiny_hp.values())
-
-@registry.register_hparams
-def rl_modelrl_tiny_breakout():
-  """Tiny set for testing."""
-  tiny_hp = tf.contrib.training.HParams(
-      epochs=2,
       true_env_generator_num_steps=200,
       model_train_steps=10,
-      simulated_env_generator_num_steps=20,
+      simulated_env_generator_num_steps=200,
       ppo_epochs_num=2,
       ppo_time_limit=20,
       ppo_epoch_length=20,
-      game="wrapped_breakout"
-  )
-  return rl_modelrl_base().override_from_dict(tiny_hp.values())
-
-@registry.register_hparams
-def rl_modelrl_tiny_freeway():
-  """Tiny set for testing."""
-  tiny_hp = tf.contrib.training.HParams(
-      epochs=2,
-      true_env_generator_num_steps=200,
-      model_train_steps=10,
-      simulated_env_generator_num_steps=20,
-      ppo_epochs_num=2,
-      ppo_time_limit=20,
-      ppo_epoch_length=20,
-      game="wrapped_freeway"
   )
   return rl_modelrl_base().override_from_dict(tiny_hp.values())
 
@@ -238,6 +209,22 @@ def rl_modelrl_tiny_ae():
   """Tiny set for testing autoencoders."""
   hparams = rl_modelrl_tiny()
   hparams.generative_model_params = "basic_conv_ae"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_tiny_breakout():
+  """Tiny set for testing Breakout."""
+  hparams = rl_modelrl_tiny()
+  hparams.game = "wrapped_breakout"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_tiny_freeway():
+  """Tiny set for testing Freeway."""
+  hparams = rl_modelrl_tiny()
+  hparams.game = "wrapped_freeway"
   return hparams
 
 

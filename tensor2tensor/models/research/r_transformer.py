@@ -346,8 +346,12 @@ def update_hparams_for_r_transformer(hparams):
     hparams with default values for R-Transformers hyper-parameters
 
   """
-  # If true, mixes vanilla transformer with r-transformer.
-  hparams.add_hparam("mix_with_transformer", False)
+  # If not None, mixes vanilla transformer with r-transformer.
+  # Options: None, "before_rt", and "after_rt".
+  hparams.add_hparam("mix_with_transformer", None)
+
+  # Number of vanilla transformer layers used to be mixed with r-transofmer.
+  hparams.add_hparam("num_mixedin_layers", 2)
 
   # Type of recurrency:
   # basic, highway, skip, dwa, act, rnn, gru, lstm.
@@ -365,10 +369,19 @@ def update_hparams_for_r_transformer(hparams):
   # Add an step embedding at each step (vertical timing)
   hparams.add_hparam("add_step_timing_signal", False)
   # Either "learned" or "sinusoid"
-  hparams.add_hparam("step_timing_signal_type", "leaned")
+  hparams.add_hparam("step_timing_signal_type", "learned")
+
+  # Add or concat the timing signal (applied both on position and step timing).
+  # Options: "add" and "concat".
+  hparams.add_hparam("add_or_concat_timing_signal", "add")
+
+  # Add SRU at the beginning of each r-transformer step.
+  # This can be considered as a position timing signal
+  hparams.add_hparam("add_sru", False)
 
   # Default ffn layer is separable convolution.
-  hparams.add_hparam("transformer_ffn_type", "sep")
+  # Options: "fc" and "sepconv".
+  hparams.add_hparam("transformer_ffn_type", "sepconv")
 
   # Transform bias (in models with highway or skip connection).
   hparams.add_hparam("transform_bias_init", -1.0)
@@ -903,16 +916,16 @@ def r_transformer_step_position_timing_base():
 
 
 @registry.register_hparams
-def r_mix_transformer_base():
+def r_transformer_mix_after_rt_base():
   hparams = r_transformer_base()
-  hparams.mix_with_transformer = True
+  hparams.mix_with_transformer = "before_rt"
   return hparams
 
 
 @registry.register_hparams
-def r_mix_transformer_act_step_position_timing_base():
+def r_transformer_act_step_position_timing_mix_before_rt_base():
   hparams = r_transformer_base()
-  hparams.mix_with_transformer = True
+  hparams.mix_with_transformer = "before_rt"
   hparams.recurrence_type = "act"
   hparams.add_position_timing_signal = True
   hparams.pos = None
@@ -921,13 +934,12 @@ def r_mix_transformer_act_step_position_timing_base():
 
 
 @registry.register_hparams
-def r_mix_transformer_act_step_position_random_timing_base():
+def r_mix_transformer_act_step_position_timing_mix_after_rt_base():
   hparams = r_transformer_base()
-  hparams.mix_with_transformer = True
+  hparams.mix_with_transformer = "after_rt"
   hparams.recurrence_type = "act"
   hparams.add_position_timing_signal = True
   hparams.pos = None
-  hparams.position_start_index = "random"
   hparams.add_step_timing_signal = True
   return hparams
 
@@ -935,8 +947,39 @@ def r_mix_transformer_act_step_position_random_timing_base():
 @registry.register_hparams
 def r_transformer_act_step_position_timing_big():
   hparams = r_transformer_big()
+  hparams.batch_size //= 2
   hparams.recurrence_type = "act"
   hparams.add_position_timing_signal = True
   hparams.pos = None
   hparams.add_step_timing_signal = True
+  return hparams
+
+
+@registry.register_hparams
+def r_transformer_act_step_position_timing_concat_tiny():
+  hparams = r_transformer_tiny()
+  hparams.recurrence_type = "act"
+  hparams.add_position_timing_signal = True
+  hparams.pos = None
+  hparams.add_step_timing_signal = True
+  hparams.add_or_concat_timing_signal = "concat"
+  return hparams
+
+
+@registry.register_hparams
+def r_transformer_act_step_position_timing_concat_base():
+  hparams = r_transformer_base()
+  hparams.recurrence_type = "act"
+  hparams.add_position_timing_signal = True
+  hparams.pos = None
+  hparams.add_step_timing_signal = True
+  hparams.add_or_concat_timing_signal = "concat"
+  return hparams
+
+
+@registry.register_hparams
+def r_transformer_act_with_sru_base():
+  hparams = r_transformer_base()
+  hparams.recurrence_type = "act"
+  hparams.add_sru = True
   return hparams

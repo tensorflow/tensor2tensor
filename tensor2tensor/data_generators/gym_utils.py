@@ -14,8 +14,9 @@
 # limitations under the License.
 """Utilities for openai gym."""
 
-# Dependency imports
 from collections import deque
+
+# Dependency imports
 
 import gym
 
@@ -115,14 +116,14 @@ class PongWrapper(WarmupWrapper):
 
 
 def wrapped_pong_factory(warm_up_examples=0, action_space_reduction=False,
-    reward_skip_steps=0, big_ball=False):
+                         reward_skip_steps=0, big_ball=False):
   """Wrapped pong games."""
   env = gym.make("PongDeterministic-v4")
   env = env.env  # Remove time_limit wrapper.
   env = PongWrapper(env, warm_up_examples=warm_up_examples,
-                         action_space_reduction=action_space_reduction,
-                         reward_skip_steps=reward_skip_steps,
-                         big_ball=big_ball)
+                    action_space_reduction=action_space_reduction,
+                    reward_skip_steps=reward_skip_steps,
+                    big_ball=big_ball)
   return env
 
 
@@ -132,18 +133,19 @@ gym.envs.register(id="T2TPongWarmUp20RewSkip1000Steps-v1",
                   max_episode_steps=200)
 
 
-
 class BreakoutWrapper(WarmupWrapper):
+  """Breakout Wrapper."""
 
   FIRE_ACTION = 1
 
-  def __init__(self, env, warm_up_examples = 0,
+  def __init__(self, env, warm_up_examples=0,
                ball_down_skip=0,
                big_ball=False,
                include_direction_info=False,
                reward_clipping=True):
-    super(BreakoutWrapper, self).__init__(env, warm_up_examples=0,
-                                          warmup_action=BreakoutWrapper.FIRE_ACTION)
+    super(BreakoutWrapper, self).__init__(
+        env, warm_up_examples=0,
+        warmup_action=BreakoutWrapper.FIRE_ACTION)
     self.warm_up_examples = warm_up_examples
     self.observation_space = gym.spaces.Box(low=0, high=255,
                                             shape=(210, 160, 3),
@@ -154,8 +156,9 @@ class BreakoutWrapper(WarmupWrapper):
     self.include_direction_info = include_direction_info
     self.direction_info = deque([], maxlen=2)
     self.points_gained = False
-    assert not self.include_direction_info or  ball_down_skip>=9, \
-      "ball_down_skip should be bigger equal 9 for include_direction_info to work correctly"
+    msg = ("ball_down_skip should be bigger equal 9 for "
+           "include_direction_info to work correctly")
+    assert not self.include_direction_info or ball_down_skip >= 9, msg
 
   def step(self, ac):
     ob, rew, done, info = self.env.step(ac)
@@ -170,11 +173,10 @@ class BreakoutWrapper(WarmupWrapper):
 
     ob = self.process_observation(ob)
 
-    self.points_gained = self.points_gained or rew >0
+    self.points_gained = self.points_gained or rew > 0
 
     if self.reward_clipping:
       rew = np.sign(rew)
-
 
     return ob, rew, done, info
 
@@ -191,7 +193,7 @@ class BreakoutWrapper(WarmupWrapper):
     clipped_ob = ob[off_x:-21, :, 0]
     pos = np.argwhere(clipped_ob == 200)
 
-    if pos is None or len(pos) == 0:
+    if not pos:
       return default
 
     x = off_x + pos[0][0]
@@ -203,7 +205,7 @@ class BreakoutWrapper(WarmupWrapper):
       pos = BreakoutWrapper.find_ball(obs)
       if pos is not None:
         x, y = pos
-        obs[x-5:x+5, y-5:y+5,:] = 255
+        obs[x-5:x+5, y-5:y+5, :] = 255
 
     if self.include_direction_info:
       for point in list(self.direction_info):
@@ -213,19 +215,20 @@ class BreakoutWrapper(WarmupWrapper):
 
     return obs
 
-def wrapped_breakout_factory(warm_up_examples = 0,
-               ball_down_skip=0,
-               big_ball=False,
-               include_direction_info=False,
-               reward_clipping=True):
+
+def wrapped_breakout_factory(warm_up_examples=0,
+                             ball_down_skip=0,
+                             big_ball=False,
+                             include_direction_info=False,
+                             reward_clipping=True):
   """Wrapped breakout games."""
   env = gym.make("BreakoutDeterministic-v4")
   env = env.env  # Remove time_limit wrapper.
-  env = BreakoutWrapper(env, warm_up_examples = warm_up_examples,
-                             ball_down_skip=ball_down_skip,
-                             big_ball=big_ball,
-                             include_direction_info=include_direction_info,
-                             reward_clipping=reward_clipping)
+  env = BreakoutWrapper(env, warm_up_examples=warm_up_examples,
+                        ball_down_skip=ball_down_skip,
+                        big_ball=big_ball,
+                        include_direction_info=include_direction_info,
+                        reward_clipping=reward_clipping)
   return env
 
 
@@ -241,13 +244,14 @@ gym.envs.register(id="T2TBreakoutWarmUp20RewSkip70Steps-v1",
 
 
 class FreewayWrapper(WarmupWrapper):
+  """Wrapper for Freeway."""
 
   def __init__(self, env,
                warm_up_examples=0,
                reward_clipping=True,
                easy_freeway=False):
     super(FreewayWrapper, self).__init__(env, warm_up_examples)
-    self.easy_freeway=easy_freeway
+    self.easy_freeway = easy_freeway
     self.half_way_reward = 1.0
 
     # this is probably not needed, just in case
@@ -263,7 +267,7 @@ class FreewayWrapper(WarmupWrapper):
       if rew > 0:
         self.half_way_reward = 1
       chicken_height = self.chicken_height(ob)
-      if chicken_height<105:
+      if chicken_height < 105:
         rew += self.half_way_reward
         self.half_way_reward = 0
 
@@ -277,15 +281,16 @@ class FreewayWrapper(WarmupWrapper):
     observation = super(FreewayWrapper, self).reset(**kwargs)
     return observation
 
-def wrapped_freeway_factory(warm_up_examples = 0,
-                            reward_clipping = True,
+
+def wrapped_freeway_factory(warm_up_examples=0,
+                            reward_clipping=True,
                             easy_freeway=False):
   """Wrapped freeway games."""
   env = gym.make("FreewayDeterministic-v4")
   env = env.env  # Remove time_limit wrapper.
-  env = FreewayWrapper(env, warm_up_examples = warm_up_examples,
-                            reward_clipping=reward_clipping,
-                            easy_freeway=easy_freeway)
+  env = FreewayWrapper(env, warm_up_examples=warm_up_examples,
+                       reward_clipping=reward_clipping,
+                       easy_freeway=easy_freeway)
 
   return env
 

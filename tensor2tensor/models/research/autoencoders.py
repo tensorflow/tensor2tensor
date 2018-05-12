@@ -305,6 +305,8 @@ class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
 
   def bottleneck(self, x):
     hparams = self.hparams
+    if hparams.unordered:
+      return super(AutoencoderOrderedDiscrete, self).bottleneck(x)
     noise = hparams.bottleneck_noise
     hparams.bottleneck_noise = 0.0  # We'll add noise below.
     x = discretization.parametrized_bottleneck(x, hparams)
@@ -497,6 +499,7 @@ def autoencoder_ordered_discrete():
   """Basic autoencoder model."""
   hparams = autoencoder_residual_discrete()
   hparams.bottleneck_noise = 1.0
+  hparams.add_hparam("unordered", False)
   return hparams
 
 
@@ -507,7 +510,8 @@ def autoencoder_discrete_pong():
   hparams.bottleneck_size = 24
   hparams.dropout = 0.2
   hparams.batch_size = 2
-  hparams.bottleneck_noise = 0.4
+  hparams.bottleneck_noise = 0.2
+  hparams.unordered = True
   return hparams
 
 

@@ -35,7 +35,8 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
-from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper, MaxAndSkipWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.rl.envs.utils import batch_env_factory
 
 
@@ -63,7 +64,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   @property
   def num_input_frames(self):
     """Number of frames to batch on one input."""
-    return 2
+    return 4
 
   @property
   def num_target_frames(self):
@@ -178,6 +179,20 @@ class GymPongRandom5k(GymDiscreteProblem):
   def num_steps(self):
     return 5000
 
+  # Hard-coding num_actions, frame_height, frame_width to avoid loading
+  # libale.so file.
+  @property
+  def num_actions(self):
+    return 6
+
+  @property
+  def frame_height(self):
+    return 210
+
+  @property
+  def frame_width(self):
+    return 160
+
 
 @registry.register_problem
 class GymPongRandom50k(GymPongRandom5k):
@@ -186,6 +201,10 @@ class GymPongRandom50k(GymPongRandom5k):
   @property
   def num_steps(self):
     return 50000
+
+  def eval_metrics(self):
+    eval_metrics = [metrics.Metrics.ACC_PER_SEQ]
+    return eval_metrics
 
 
 @registry.register_problem
@@ -207,6 +226,7 @@ class GymWrappedPongRandom5k(GymDiscreteProblem):
   @property
   def num_steps(self):
     return 5000
+
 
 @registry.register_problem
 class GymWrappedBreakoutRandom5k(GymDiscreteProblem):
@@ -280,10 +300,11 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
 
     # Defaults.
     self.environment_spec = lambda: gym.make(self.env_name)
-    self.real_env = self.environment_spec()
+    self._real_env = None
+    self.real_env_problem = None
     self.in_graph_wrappers = []
     self.collect_hparams = rl.ppo_atari_base()
-    self.settable_num_steps = 20000
+    self.settable_num_steps = 50000
     self.simulated_environment = None
     self.warm_up = 10  # TODO(piotrm): This should be probably removed.
 
@@ -294,6 +315,13 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self.total_sim_reward, self.total_real_reward = 0.0, 0.0
     self.sum_of_rewards = 0.0
     self.successful_episode_reward_predictions = 0
+
+  @property
+  def real_env(self):
+    """Lazy caching environment construction."""
+    if self._real_env is None:
+      self._real_env = self.environment_spec()
+    return self._real_env
 
   @property
   def num_steps(self):
@@ -346,10 +374,11 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.sum_of_rewards = 0.0
       self.successful_episode_reward_predictions = 0
 
-    in_graph_wrappers = self.in_graph_wrappers + [(atari.MemoryWrapper, {})]+ [(MaxAndSkipWrapper, {"skip": 4})]
+    in_graph_wrappers = self.in_graph_wrappers + [
+        (atari.MemoryWrapper, {}), (MaxAndSkipWrapper, {"skip": 4})]
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
-        problem=self,
+        problem=self.real_env_problem if self.real_env_problem else self,
         simulated_environment=self.simulated_environment)
 
     generator_batch_env = batch_env_factory(
@@ -466,7 +495,8 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
                 self.autodecode(observ, sess))
           else:
             observ = self.autoencode(observ, sess)
-            debug_im = gym_utils.encode_image_to_png(observ)
+            debug_im = gym_utils.encode_image_to_png(
+                self.autodecode(observ, sess))
         ret_dict = {"frame": observ,
                     "image/format": ["png"],
                     "image/height": [self.frame_height],
@@ -488,7 +518,6 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
     super(GymSimulatedDiscreteProblemWithAgent, self).__init__(*args, **kwargs)
     self.simulated_environment = True
     self.make_extra_debug_info = True
-    self.real_env = self.environment_spec()
 
     try:
       # We assume that the real env is wrapped with TimeLimit.
@@ -534,6 +563,7 @@ class GymDiscreteProblemWithAgentOnWrappedBreakout(
     GymDiscreteProblemWithAgent, GymWrappedBreakoutRandom5k):
   pass
 
+
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
     GymSimulatedDiscreteProblemWithAgent, GymWrappedBreakoutRandom5k):
@@ -544,6 +574,7 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
 class GymDiscreteProblemWithAgentOnWrappedPong(
     GymDiscreteProblemWithAgent, GymWrappedPongRandom5k):
   pass
+
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedFreeway(

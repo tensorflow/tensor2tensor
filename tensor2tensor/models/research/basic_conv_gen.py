@@ -165,8 +165,8 @@ class BasicConvGen(t2t_model.T2TModel):
 def basic_conv():
   """Basic 2-frame conv model."""
   hparams = common_hparams.basic_params1()
-  hparams.hidden_size = 32
-  hparams.batch_size = 8
+  hparams.hidden_size = 64
+  hparams.batch_size = 4
   hparams.num_hidden_layers = 2
   hparams.optimizer = "Adafactor"
   hparams.learning_rate_constant = 1.5
@@ -176,20 +176,27 @@ def basic_conv():
   hparams.initializer = "uniform_unit_scaling"
   hparams.initializer_gain = 1.0
   hparams.weight_decay = 0.0
-  hparams.dropout = 0.5
+  hparams.dropout = 0.4
   hparams.add_hparam("num_compress_steps", 6)
   hparams.add_hparam("filter_double_steps", 5)
   return hparams
 
 
 @registry.register_hparams
-def basic_conv_ae():
-  """Small conv model."""
+def basic_conv_tpu():
   hparams = basic_conv()
-  hparams.hidden_size = 128
+  hparams.batch_size = 1
+
+
+@registry.register_hparams
+def basic_conv_ae():
+  """Conv autoencoder."""
+  hparams = basic_conv()
+  hparams.hidden_size = 256
   hparams.batch_size = 32
   hparams.num_hidden_layers = 3
-  hparams.num_compress_steps = 3
+  hparams.num_compress_steps = 2
+  hparams.dropout = 0.2
   return hparams
 
 
@@ -215,3 +222,12 @@ def basic_conv_l2():
   hparams = basic_conv()
   hparams.target_modality = "video:l2"
   return hparams
+
+
+@registry.register_ranged_hparams
+def basic_conv_base_range(rhp):
+  rhp.set_float("dropout", 0.0, 0.6)
+  rhp.set_discrete("batch_size", [2, 4, 8, 16])
+  rhp.set_discrete("hidden_size", [16, 24, 32, 48, 64])
+  rhp.set_int("num_compress_steps", 4, 7)
+  rhp.set_int("num_hidden_layers", 1, 3)

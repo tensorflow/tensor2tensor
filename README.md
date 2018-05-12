@@ -78,6 +78,7 @@ to modify the hyperparameters if you run on a different setup.
 ### Image Classification
 
 For image classification, we have a number of standard data-sets:
+
 * ImageNet (a large data-set): `--problem=image_imagenet`, or one
    of the re-scaled versions (`image_imagenet224`, `image_imagenet64`,
    `image_imagenet32`)
@@ -99,6 +100,7 @@ close to 97% accuracy on CIFAR-10.
 ### Language Modeling
 
 For language modeling, we have these data-sets in T2T:
+
 * PTB (a small data-set): `--problem=languagemodel_ptb10k` for
     word-level modeling and `--problem=languagemodel_ptb_characters`
     for character-level modeling.
@@ -113,6 +115,7 @@ We suggest to start with `--model=transformer` on this task and use
 ### Sentiment Analysis
 
 For the task of recognizing the sentiment of a sentence, use
+
 * the IMDB data-set: `--problem=sentiment_imdb`
 
 We suggest to use `--model=transformer_encoder` here and since it is
@@ -122,6 +125,7 @@ few steps (e.g., `--train_steps=2000`).
 ### Speech Recognition
 
 For speech-to-text, we have these data-sets in T2T:
+
 * Librispeech (English speech to text): `--problem=librispeech` for
     the whole set and `--problem=librispeech_clean` for a smaller
     but nicely filtered part.
@@ -129,6 +133,7 @@ For speech-to-text, we have these data-sets in T2T:
 ### Summarization
 
 For summarizing longer text into shorter one we have these data-sets:
+
 * CNN/DailyMail articles summarized into a few sentences:
   `--problem=summarize_cnn_dailymail32k`
 
@@ -139,6 +144,7 @@ This yields good ROUGE scores.
 ### Translation
 
 There are a number of translation data-sets in T2T:
+
 * English-German: `--problem=translate_ende_wmt32k`
 * English-French: `--problem=translate_enfr_wmt32k`
 * English-Czech: `--problem=translate_encs_wmt32k`
