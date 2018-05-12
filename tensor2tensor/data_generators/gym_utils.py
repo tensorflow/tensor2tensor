@@ -68,7 +68,7 @@ class PongWrapper(WarmupWrapper):
                action_space_reduction=False,
                reward_skip_steps=0,
                big_ball=False):
-    super(PongWrapper, self).__init__(env, warm_up_examples=0)
+    super(PongWrapper, self).__init__(env, warm_up_examples=warm_up_examples)
     self.action_space_reduction = action_space_reduction
     if self.action_space_reduction:
       self.action_space = gym.spaces.Discrete(2)
@@ -148,7 +148,7 @@ class BreakoutWrapper(WarmupWrapper):
                include_direction_info=False,
                reward_clipping=True):
     super(BreakoutWrapper, self).__init__(
-        env, warm_up_examples=0,
+        env, warm_up_examples=warm_up_examples,
         warmup_action=BreakoutWrapper.FIRE_ACTION)
     self.warm_up_examples = warm_up_examples
     self.observation_space = gym.spaces.Box(low=0, high=255,
