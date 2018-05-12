@@ -35,6 +35,7 @@ import tempfile
 
 # Dependency imports
 
+
 import numpy as np
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
@@ -209,6 +210,7 @@ def generate_data_in_process(arg):
 
 
 def generate_data_for_registered_problem(problem_name):
+  """Generate data for a registered problem."""
   tf.logging.info("Generating data for %s.", problem_name)
   if FLAGS.num_shards:
     raise ValueError("--num_shards should not be set for registered Problem.")

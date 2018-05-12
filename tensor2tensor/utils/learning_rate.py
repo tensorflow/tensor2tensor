@@ -25,7 +25,9 @@ import tensorflow as tf
 
 
 def learning_rate_factor(name, step_num, hparams):
+  """Compute the designated learning rate factor from hparams."""
   if name == "constant":
+    tf.logging.info("Base learning rate: %f", hparams.learning_rate_constant)
     return hparams.learning_rate_constant
   elif name == "linear_warmup":
     return tf.minimum(1.0, step_num / hparams.learning_rate_warmup_steps)
@@ -64,6 +66,7 @@ def legacy_learning_rate_schedule(hparams):
     decay = _learning_rate_decay(hparams, warmup_steps)
     ret = tf.where(step_num < warmup_steps, warmup, decay)
   optimizer_correction = 0.002 if "Adam" in hparams.optimizer else 1.0
+  tf.logging.info("Base learning rate: %f", hparams.learning_rate)
   return ret * optimizer_correction * hparams.learning_rate
 
 

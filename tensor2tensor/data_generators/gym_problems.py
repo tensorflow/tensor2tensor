@@ -132,20 +132,20 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   def min_reward(self):
     raise NotImplementedError()
 
-  @property
-  def num_testing_steps(self):
-    return None
-
   def get_action(self, observation=None):
     return self.env.action_space.sample()
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("video", 256),
-                        "input_reward": ("symbol", self.num_rewards),
-                        "input_action": ("symbol", self.num_actions)}
-    p.target_modality = {"targets": ("video", 256),
-                         "target_reward": ("symbol", self.num_rewards)}
+    p.input_modality = {
+        "inputs": ("video", 256),
+        "input_reward": ("symbol:weights_all", self.num_rewards),
+        "input_action": ("symbol:weights_all", self.num_actions)
+    }
+    p.target_modality = {
+        "targets": ("video", 256),
+        "target_reward": ("symbol:weights_all", self.num_rewards)
+    }
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
@@ -183,20 +183,6 @@ class GymPongRandom5k(GymDiscreteProblem):
   def num_steps(self):
     return 5000
 
-  # Hard-coding num_actions, frame_height, frame_width to avoid loading
-  # libale.so file.
-  @property
-  def num_actions(self):
-    return 6
-
-  @property
-  def frame_height(self):
-    return 210
-
-  @property
-  def frame_width(self):
-    return 160
-
 
 @registry.register_problem
 class GymPongRandom50k(GymPongRandom5k):
@@ -217,7 +203,7 @@ class GymWrappedPongRandom5k(GymDiscreteProblem):
 
   @property
   def env_name(self):
-    return "T2TPongWarmUp20RewSkip200Steps-v1"
+    return "T2TPongWarmUp20RewSkip1000Steps-v1"
 
   @property
   def min_reward(self):
@@ -230,31 +216,6 @@ class GymWrappedPongRandom5k(GymDiscreteProblem):
   @property
   def num_steps(self):
     return 5000
-
-
-@registry.register_problem
-class GymWrappedLongPongRandom(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  @property
-  def env_name(self):
-    return "T2TPongWarmUp20RewSkip2000Steps-v1"
-
-  @property
-  def min_reward(self):
-    return -1
-
-  @property
-  def num_rewards(self):
-    return 3
-
-  @property
-  def num_steps(self):
-    return 5000
-
-  @property
-  def num_testing_steps(self):
-    return 100
 
 
 @registry.register_problem
@@ -340,7 +301,6 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     # Debug info.
     self.dones = 0
     self.real_reward = 0
-    self.real_env.reset()
     self.total_sim_reward, self.total_real_reward = 0.0, 0.0
     self.sum_of_rewards = 0.0
     self.successful_episode_reward_predictions = 0
@@ -547,20 +507,23 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
     super(GymSimulatedDiscreteProblemWithAgent, self).__init__(*args, **kwargs)
     self.simulated_environment = True
     self.make_extra_debug_info = True
+    self.debug_dump_frames_path = "debug_frames_sim"
 
-    if self.num_testing_steps is not None:
-      timelimit = self.num_testing_steps
-    else:
+  @property
+  def real_env(self):
+    """Lazy caching environment construction."""
+    if self._real_env is None:
+      self._real_env = self.environment_spec()
       try:
         # We assume that the real env is wrapped with TimeLimit.
         history = self.num_input_frames
-        timelimit = self.real_env._max_episode_steps - history  # pylint: disable=protected-access
+        timelimit = self.real_env._max_episode_steps - history    # pylint: disable=protected-access
       except:  # pylint: disable=bare-except
         # If not, set some reasonable default.
         timelimit = 100
-
-    self.in_graph_wrappers.append((TimeLimitWrapper, {"timelimit": timelimit}))
-    self.debug_dump_frames_path = "debug_frames_sim"
+      self.in_graph_wrappers.append(
+          (TimeLimitWrapper, {"timelimit": timelimit}))
+    return self._real_env
 
   def restore_networks(self, sess):
     super(GymSimulatedDiscreteProblemWithAgent, self).restore_networks(sess)
@@ -590,16 +553,6 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
     GymSimulatedDiscreteProblemWithAgent, GymWrappedPongRandom5k):
   pass
 
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedLongPong(
-    GymDiscreteProblemWithAgent, GymWrappedLongPongRandom):
-  pass
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
-    GymSimulatedDiscreteProblemWithAgent, GymWrappedLongPongRandom):
-  pass
-
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedBreakout(
@@ -616,7 +569,21 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPong(
     GymDiscreteProblemWithAgent, GymWrappedPongRandom5k):
-  pass
+  """GymDiscreteProblemWithAgentOnWrappedPong."""
+
+  # Hard-coding num_actions, frame_height, frame_width to avoid loading
+  # libale.so file.
+  @property
+  def num_actions(self):
+    return 6
+
+  @property
+  def frame_height(self):
+    return 210
+
+  @property
+  def frame_width(self):
+    return 160
 
 
 @registry.register_problem
@@ -628,4 +595,26 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedFreeway(
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedFreeway(
     GymDiscreteProblemWithAgent, GymFreewayRandom5k):
-  pass
+  """GymDiscreteProblemWithAgentOnWrappedFreeway."""
+
+  # Hard-coding num_actions, frame_height, frame_width to avoid loading
+  # libale.so file.
+  @property
+  def num_actions(self):
+    return 3
+
+  @property
+  def frame_height(self):
+    return 210
+
+  @property
+  def frame_width(self):
+    return 160
+
+  @property
+  def raw_frame_height(self):
+    return self.frame_height
+
+  @property
+  def raw_frame_width(self):
+    return self.frame_width
