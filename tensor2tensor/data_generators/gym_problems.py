@@ -132,6 +132,10 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   def min_reward(self):
     raise NotImplementedError()
 
+  @property
+  def num_testing_steps(self):
+    return None
+
   def get_action(self, observation=None):
     return self.env.action_space.sample()
 
@@ -213,7 +217,7 @@ class GymWrappedPongRandom5k(GymDiscreteProblem):
 
   @property
   def env_name(self):
-    return "T2TPongWarmUp20RewSkip1000Steps-v1"
+    return "T2TPongWarmUp20RewSkip200Steps-v1"
 
   @property
   def min_reward(self):
@@ -226,6 +230,31 @@ class GymWrappedPongRandom5k(GymDiscreteProblem):
   @property
   def num_steps(self):
     return 5000
+
+
+@registry.register_problem
+class GymWrappedLongPongRandom(GymDiscreteProblem):
+  """Pong game, random actions."""
+
+  @property
+  def env_name(self):
+    return "T2TPongWarmUp20RewSkip2000Steps-v1"
+
+  @property
+  def min_reward(self):
+    return -1
+
+  @property
+  def num_rewards(self):
+    return 3
+
+  @property
+  def num_steps(self):
+    return 5000
+
+  @property
+  def num_testing_steps(self):
+    return 100
 
 
 @registry.register_problem
@@ -519,13 +548,17 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
     self.simulated_environment = True
     self.make_extra_debug_info = True
 
-    try:
-      # We assume that the real env is wrapped with TimeLimit.
-      history = self.num_input_frames
-      timelimit = self.real_env._max_episode_steps - history    # pylint: disable=protected-access
-    except:  # pylint: disable=bare-except
-      # If not, set some reasonable default.
-      timelimit = 100
+    if self.num_testing_steps is not None:
+      timelimit = self.num_testing_steps
+    else:
+      try:
+        # We assume that the real env is wrapped with TimeLimit.
+        history = self.num_input_frames
+        timelimit = self.real_env._max_episode_steps - history  # pylint: disable=protected-access
+      except:  # pylint: disable=bare-except
+        # If not, set some reasonable default.
+        timelimit = 100
+
     self.in_graph_wrappers.append((TimeLimitWrapper, {"timelimit": timelimit}))
     self.debug_dump_frames_path = "debug_frames_sim"
 
@@ -555,6 +588,16 @@ class GymDiscreteProblemWithAgentOnPong(
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
     GymSimulatedDiscreteProblemWithAgent, GymWrappedPongRandom5k):
+  pass
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedLongPong(
+    GymDiscreteProblemWithAgent, GymWrappedLongPongRandom):
+  pass
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
+    GymSimulatedDiscreteProblemWithAgent, GymWrappedLongPongRandom):
   pass
 
 
