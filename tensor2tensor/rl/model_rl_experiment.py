@@ -226,7 +226,7 @@ def rl_modelrl_tiny_breakout():
 def rl_modelrl_tiny_freeway():
   """Tiny set for testing Freeway."""
   hparams = rl_modelrl_tiny()
-  hparams.game = "wrapped_freeway"
+  hparams.game = "freeway"
   return hparams
 
 
