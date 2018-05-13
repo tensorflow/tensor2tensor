@@ -25,6 +25,7 @@ modules = [
     "tensor2tensor.data_generators.algorithmic",
     "tensor2tensor.data_generators.algorithmic_math",
     "tensor2tensor.data_generators.audio",
+    "tensor2tensor.data_generators.babi_qa",
     "tensor2tensor.data_generators.celeba",
     "tensor2tensor.data_generators.cifar",
     "tensor2tensor.data_generators.cipher",
