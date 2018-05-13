@@ -515,6 +515,13 @@ def autoencoder_discrete_pong():
   return hparams
 
 
+@registry.register_ranged_hparams
+def autoencoder_discrete_pong_range(rhp):
+  """Narrow tuning grid."""
+  rhp.set_float("dropout", 0.1, 0.5)
+  rhp.set_discrete("max_hidden_size", [1024, 2048, 4096])
+
+
 @registry.register_hparams
 def autoencoder_stacked():
   """Stacked autoencoder model."""

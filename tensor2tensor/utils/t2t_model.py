@@ -664,7 +664,7 @@ class T2TModel(base.Layer):
     if top_beams == 1:
       samples = ids[:, 0, 1:]
     else:
-      samples = ids[:, :top_beams, 1]
+      samples = ids[:, :top_beams, 1:]
 
     return {"outputs": samples, "scores": scores}
 

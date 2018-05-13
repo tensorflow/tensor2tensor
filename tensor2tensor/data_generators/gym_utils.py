@@ -68,7 +68,7 @@ class PongWrapper(WarmupWrapper):
                action_space_reduction=False,
                reward_skip_steps=0,
                big_ball=False):
-    super(PongWrapper, self).__init__(env, warm_up_examples=0)
+    super(PongWrapper, self).__init__(env, warm_up_examples=warm_up_examples)
     self.action_space_reduction = action_space_reduction
     if self.action_space_reduction:
       self.action_space = gym.spaces.Discrete(2)
@@ -127,10 +127,16 @@ def wrapped_pong_factory(warm_up_examples=0, action_space_reduction=False,
   return env
 
 
-gym.envs.register(id="T2TPongWarmUp20RewSkip1000Steps-v1",
+gym.envs.register(id="T2TPongWarmUp20RewSkip200Steps-v1",
                   entry_point=lambda: wrapped_pong_factory(  # pylint: disable=g-long-lambda
                       warm_up_examples=20, reward_skip_steps=15),
                   max_episode_steps=200)
+
+
+gym.envs.register(id="T2TPongWarmUp20RewSkip2000Steps-v1",
+                  entry_point=lambda: wrapped_pong_factory(  # pylint: disable=g-long-lambda
+                      warm_up_examples=20, reward_skip_steps=15),
+                  max_episode_steps=2000)
 
 
 class BreakoutWrapper(WarmupWrapper):
@@ -144,7 +150,7 @@ class BreakoutWrapper(WarmupWrapper):
                include_direction_info=False,
                reward_clipping=True):
     super(BreakoutWrapper, self).__init__(
-        env, warm_up_examples=0,
+        env, warm_up_examples=warm_up_examples,
         warmup_action=BreakoutWrapper.FIRE_ACTION)
     self.warm_up_examples = warm_up_examples
     self.observation_space = gym.spaces.Box(low=0, high=255,
