@@ -72,7 +72,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return 1
 
   def eval_metrics(self):
-    eval_metrics = [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ]
+    eval_metrics = [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
+                    metrics.Metrics.IMAGE_RMSE]
     return eval_metrics
 
   @property
@@ -195,10 +196,6 @@ class GymPongRandom50k(GymPongRandom5k):
   @property
   def num_steps(self):
     return 50000
-
-  def eval_metrics(self):
-    eval_metrics = [metrics.Metrics.ACC_PER_SEQ]
-    return eval_metrics
 
 
 @registry.register_problem

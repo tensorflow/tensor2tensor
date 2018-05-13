@@ -131,7 +131,6 @@ def set_random_seed():
 
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   # Calculate the list of problems to generate.
@@ -235,4 +234,5 @@ def generate_data_for_registered_problem(problem_name):
     problem.generate_data(data_dir, tmp_dir, task_id)
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

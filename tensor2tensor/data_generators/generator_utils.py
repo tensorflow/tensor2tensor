@@ -638,3 +638,43 @@ def make_tmp_dir(suffix="", prefix="tmp", dir=None):  # pylint: disable=redefine
       tf.gfile.MakeDirs(tmp_dir)
       break
     return tmp_dir
+
+
+def tfrecord_iterator(filenames, gzipped=False, example_spec=None):
+  """Yields records from TFRecord files.
+
+  Args:
+    filenames: list<str>, list of TFRecord filenames to read from.
+    gzipped: bool, whether the TFRecord files are gzip-encoded.
+    example_spec: dict<str feature name, tf.VarLenFeature/tf.FixedLenFeature>,
+      if provided, will parse each record as a tensorflow.Example proto.
+
+  Yields:
+    Records (or parsed Examples, if example_spec is provided) from files.
+  """
+  with tf.Graph().as_default():
+    dataset = tf.data.Dataset.from_tensor_slices(filenames)
+
+    def _load_records(filename):
+      return tf.data.TFRecordDataset(
+          filename,
+          compression_type=tf.constant("GZIP") if gzipped else None,
+          buffer_size=16 * 1000 * 1000)
+
+    dataset = dataset.flat_map(_load_records)
+
+    def _parse_example(ex_ser):
+      return tf.parse_single_example(ex_ser, example_spec)
+
+    if example_spec:
+      dataset = dataset.map(_parse_example, num_parallel_calls=32)
+    dataset = dataset.prefetch(100)
+    record_it = dataset.make_one_shot_iterator().get_next()
+
+    with tf.Session() as sess:
+      while True:
+        try:
+          ex = sess.run(record_it)
+          yield ex
+        except tf.errors.OutOfRangeError:
+          break

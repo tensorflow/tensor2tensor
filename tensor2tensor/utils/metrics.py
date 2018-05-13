@@ -57,9 +57,19 @@ class Metrics(object):
   SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
   ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
+  IMAGE_RMSE = "image_rmse"
+
+
+def image_rmse(predictions, labels, weights_fn=common_layers.weights_all):
+  """RMSE but will argmax if last dim is 256."""
+  if predictions.shape[-1] == 256:
+    predictions = tf.argmax(predictions, axis=-1)
+  return padded_rmse(predictions, labels, weights_fn)
 
 
 def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
+  predictions = tf.to_float(predictions)
+  labels = tf.to_float(labels)
   predictions, labels = common_layers.pad_with_zeros(predictions, labels)
   targets = labels
   weights = weights_fn(targets)
@@ -483,6 +493,20 @@ def create_evaluation_metrics(problems, model_hparams):
 
     return problem_metric_fn
 
+  def make_image_wrapped_metric_fn(metric_fn):
+    """Metric fn without tf.metrics.mean."""
+
+    def image_wrapped_metric_fn(predictions,
+                                features,
+                                labels,
+                                weights_fn=common_layers.weights_all):
+      del weights_fn
+      del features
+      predictions, labels = reduce_dimensions(predictions, labels)
+      return metric_fn(predictions, labels, model_hparams)
+
+    return image_wrapped_metric_fn
+
   eval_metrics = dict()
   for problem_instance in problems:
     problem_name = problem_instance.name
@@ -494,45 +518,23 @@ def create_evaluation_metrics(problems, model_hparams):
                                     metrics,
                                     list(METRICS_FNS.keys())))
 
-    def image_wrapped_metric_fn(predictions,
-                                features,
-                                labels,
-                                weights_fn=common_layers.weights_all):
-      del weights_fn
-      del features
-      predictions, labels = reduce_dimensions(predictions, labels)
-      return metric_fn(predictions, labels, model_hparams)
-
     tm = problem_instance.get_hparams().target_modality
-    if isinstance(tm, dict):
-      for k, v in six.iteritems(tm):
-        if isinstance(v, tuple):
-          v = registry.create_modality(v, model_hparams)
-        weights_fn = v.targets_weights_fn
+    if not isinstance(tm, dict):
+      tm = {"targets": tm}
 
-        for metric in metrics:
-          metric_fn = METRICS_FNS[metric]
-          metric_name = "metrics-%s/%s/%s" % (problem_name, k, metric)
-          if metric == Metrics.IMAGE_SUMMARY:
-            eval_metrics[metric_name] = image_wrapped_metric_fn
-          else:
-            problem_metric_fn = make_problem_specific_metric_fn(
-                metric_fn, weights_fn)
-            eval_metrics[metric_name] = problem_metric_fn
-    else:
-      if isinstance(tm, tuple):
-        tm = registry.create_modality(tm, model_hparams)
-      weights_fn = tm.targets_weights_fn
+    for target_name, modality in six.iteritems(tm):
+      if isinstance(modality, tuple):
+        modality = registry.create_modality(modality, model_hparams)
+      weights_fn = modality.targets_weights_fn
 
       for metric in metrics:
         metric_fn = METRICS_FNS[metric]
-        metric_name = "metrics-%s/%s" % (problem_name, metric)
+        metric_name = "metrics-%s/%s/%s" % (problem_name, target_name, metric)
         if metric == Metrics.IMAGE_SUMMARY:
-          eval_metrics[metric_name] = image_wrapped_metric_fn
+          eval_metrics[metric_name] = make_image_wrapped_metric_fn(metric_fn)
         else:
-          problem_metric_fn = make_problem_specific_metric_fn(
+          eval_metrics[metric_name] = make_problem_specific_metric_fn(
               metric_fn, weights_fn)
-          eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
 
@@ -608,4 +610,5 @@ METRICS_FNS = {
     Metrics.SET_RECALL: set_recall,
     Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
+    Metrics.IMAGE_RMSE: image_rmse,
 }

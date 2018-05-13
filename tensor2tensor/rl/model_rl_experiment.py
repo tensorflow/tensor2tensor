@@ -63,6 +63,7 @@ def train(hparams, output_dir):
   start_time = time.time()
   line = ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    "
   epoch_metrics = []
+  iter_data_dirs = []
   for iloop in range(hparams.epochs):
     # Generate random frames.
     if iloop == 0:
@@ -74,6 +75,7 @@ def train(hparams, output_dir):
       gym_problem = registry.problem(FLAGS.problem)
       gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
       iter_data_dir = os.path.join(data_dir, "0random")
+      iter_data_dirs.append(iter_data_dir)
       tf.gfile.MakeDirs(iter_data_dir)
       gym_problem.generate_data(iter_data_dir, tmp_dir)
       mean_reward = gym_problem.sum_of_rewards / max(1.0, gym_problem.dones)
@@ -144,8 +146,13 @@ def train(hparams, output_dir):
     gym_problem = registry.problem(FLAGS.problem)
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
     iter_data_dir = os.path.join(data_dir, str(iloop))
+    iter_data_dirs.append(iter_data_dir)
     tf.gfile.MakeDirs(iter_data_dir)
     gym_problem.generate_data(iter_data_dir, tmp_dir)
+    combine_world_model_train_data(gym_problem,
+                                   iter_data_dir,
+                                   iter_data_dirs[:-1])
+
     mean_reward = 0.0
     if gym_problem.dones != 0:
       mean_reward = gym_problem.sum_of_rewards / float(gym_problem.dones)
@@ -158,6 +165,22 @@ def train(hparams, output_dir):
 
   # Report the evaluation metrics from the final epoch
   return epoch_metrics[-1]
+
+
+def combine_world_model_train_data(problem, final_data_dir, old_data_dirs):
+  """Add training data from old_data_dirs into final_data_dir."""
+  for data_dir in old_data_dirs:
+    suffix = os.path.basename(data_dir)
+    # Glob train files in old data_dir
+    old_train_files = tf.gfile.Glob(
+        problem.filepattern(data_dir, tf.estimator.ModeKeys.TRAIN))
+    for fname in old_train_files:
+      # Move them to the new data_dir with a suffix
+      # Since the data is read based on a prefix filepattern, adding the suffix
+      # should be fine.
+      new_fname = os.path.join(final_data_dir,
+                               os.path.basename(fname) + "." + suffix)
+      tf.gfile.Rename(fname, new_fname)
 
 
 @registry.register_hparams
