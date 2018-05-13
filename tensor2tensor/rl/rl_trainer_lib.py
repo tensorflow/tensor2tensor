@@ -35,8 +35,6 @@ from tensor2tensor.rl.envs import utils
 import tensorflow as tf
 
 
-
-
 def define_train(hparams, environment_spec, event_dir):
   """Define the training setup."""
   policy_lambda = hparams.network

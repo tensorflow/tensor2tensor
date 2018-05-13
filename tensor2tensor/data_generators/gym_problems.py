@@ -141,11 +141,15 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("video", 256),
-                        "input_reward": ("symbol", self.num_rewards),
-                        "input_action": ("symbol", self.num_actions)}
-    p.target_modality = {"targets": ("video", 256),
-                         "target_reward": ("symbol", self.num_rewards)}
+    p.input_modality = {
+        "inputs": ("video", 256),
+        "input_reward": ("symbol:weights_all", self.num_rewards),
+        "input_action": ("symbol:weights_all", self.num_actions)
+    }
+    p.target_modality = {
+        "targets": ("video", 256),
+        "target_reward": ("symbol:weights_all", self.num_rewards)
+    }
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
@@ -182,20 +186,6 @@ class GymPongRandom5k(GymDiscreteProblem):
   @property
   def num_steps(self):
     return 5000
-
-  # Hard-coding num_actions, frame_height, frame_width to avoid loading
-  # libale.so file.
-  @property
-  def num_actions(self):
-    return 6
-
-  @property
-  def frame_height(self):
-    return 210
-
-  @property
-  def frame_width(self):
-    return 160
 
 
 @registry.register_problem
@@ -340,7 +330,6 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     # Debug info.
     self.dones = 0
     self.real_reward = 0
-    self.real_env.reset()
     self.total_sim_reward, self.total_real_reward = 0.0, 0.0
     self.sum_of_rewards = 0.0
     self.successful_episode_reward_predictions = 0
@@ -390,6 +379,20 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
           autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
 
+  def autoencode_tensor(self, x):
+    if self.autoencoder_model is None:
+      return x
+    shape = [self.raw_frame_height, self.raw_frame_width, self.num_channels]
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
+      # TODO(lukaszkaiser): we assume batch size=1 for now here, change later!
+      autoencoded = self.autoencoder_model.encode(
+          tf.reshape(x, [1, 1] + shape))
+    autoencoded = tf.reshape(
+        autoencoded, [self.frame_height, self.frame_width,
+                      self.num_channels, 8])  # 8-bit groups.
+    return discretization.bit_to_int(autoencoded, 8)
+
   def _setup(self):
     if self.make_extra_debug_info:
       self.report_reward_statistics_every = 10
@@ -426,12 +429,6 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
           create_scope_now_=True,
           unique_name_="network")
 
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      self.collect_hparams.epoch_length = 10
-      _, self.collect_trigger_op = collect.define_collect(
-          policy_factory, generator_batch_env, self.collect_hparams,
-          eval_phase=False, scope="define_collect")
-
     if FLAGS.autoencoder_path:
       # TODO(lukaszkaiser): remove hard-coded autoencoder params.
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
@@ -440,12 +437,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         # Feeds for autoencoding.
         shape = [self.raw_frame_height, self.raw_frame_width, self.num_channels]
         self.autoencoder_feed = tf.placeholder(tf.int32, shape=shape)
-        autoencoded = autoencoder_model.encode(
-            tf.reshape(self.autoencoder_feed, [1, 1] + shape))
-        autoencoded = tf.reshape(
-            autoencoded, [self.frame_height, self.frame_width,
-                          self.num_channels, 8])  # 8-bit groups.
-        self.autoencoder_result = discretization.bit_to_int(autoencoded, 8)
+        self.autoencoder_result = self.autoencode_tensor(self.autoencoder_feed)
         # Now for autodecoding.
         shape = [self.frame_height, self.frame_width, self.num_channels]
         self.autodecoder_feed = tf.placeholder(tf.int32, shape=shape)
@@ -454,6 +446,20 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
             [1, 1, self.frame_height, self.frame_width, self.num_channels * 8])
         autoencoder_model.set_mode(tf.estimator.ModeKeys.PREDICT)
         self.autodecoder_result = autoencoder_model.decode(bottleneck)
+
+    def preprocess_fn(x):
+      # TODO(lukaszkaiser): we assume batch size=1 for now here, change later!
+      return tf.expand_dims(tf.to_float(self.autoencode_tensor(x)), axis=0)
+
+    shape = [1, self.frame_height, self.frame_width, self.num_channels]
+    do_preprocess = (self.autoencoder_model is not None and
+                     not self.simulated_environment)
+    preprocess = (preprocess_fn, shape) if do_preprocess else None
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      self.collect_hparams.epoch_length = 10
+      _, self.collect_trigger_op = collect.define_collect(
+          policy_factory, generator_batch_env, self.collect_hparams,
+          eval_phase=False, scope="define_collect", preprocess=preprocess)
 
     self.avilable_data_size_op = atari.MemoryWrapper.singleton.speculum.size()
     self.data_get_op = atari.MemoryWrapper.singleton.speculum.dequeue()
@@ -523,9 +529,11 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
             debug_im = gym_utils.encode_image_to_png(
                 self.autodecode(observ, sess))
           else:
+            orig_observ = observ
             observ = self.autoencode(observ, sess)
-            debug_im = gym_utils.encode_image_to_png(
-                self.autodecode(observ, sess))
+            debug_im_np = np.concatenate([self.autodecode(observ, sess),
+                                          orig_observ], axis=1)
+            debug_im = gym_utils.encode_image_to_png(debug_im_np)
         ret_dict = {"frame": observ,
                     "image/format": ["png"],
                     "image/height": [self.frame_height],
@@ -547,20 +555,26 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
     super(GymSimulatedDiscreteProblemWithAgent, self).__init__(*args, **kwargs)
     self.simulated_environment = True
     self.make_extra_debug_info = True
-
-    if self.num_testing_steps is not None:
-      timelimit = self.num_testing_steps
-    else:
-      try:
-        # We assume that the real env is wrapped with TimeLimit.
-        history = self.num_input_frames
-        timelimit = self.real_env._max_episode_steps - history  # pylint: disable=protected-access
-      except:  # pylint: disable=bare-except
-        # If not, set some reasonable default.
-        timelimit = 100
-
-    self.in_graph_wrappers.append((TimeLimitWrapper, {"timelimit": timelimit}))
     self.debug_dump_frames_path = "debug_frames_sim"
+
+  @property
+  def real_env(self):
+    """Lazy caching environment construction."""
+    if self._real_env is None:
+      self._real_env = self.environment_spec()
+      if self.num_testing_steps is not None:
+        timelimit = self.num_testing_steps
+      else:
+        try:
+          # We assume that the real env is wrapped with TimeLimit.
+          history = self.num_input_frames
+          timelimit = self.real_env._max_episode_steps - history  # pylint: disable=protected-access
+        except:  # pylint: disable=bare-except
+          # If not, set some reasonable default.
+          timelimit = 100
+      self.in_graph_wrappers.append(
+          (TimeLimitWrapper, {"timelimit": timelimit}))
+    return self._real_env
 
   def restore_networks(self, sess):
     super(GymSimulatedDiscreteProblemWithAgent, self).restore_networks(sess)
@@ -590,10 +604,12 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
     GymSimulatedDiscreteProblemWithAgent, GymWrappedPongRandom5k):
   pass
 
+
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedLongPong(
     GymDiscreteProblemWithAgent, GymWrappedLongPongRandom):
   pass
+
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
@@ -616,7 +632,21 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPong(
     GymDiscreteProblemWithAgent, GymWrappedPongRandom5k):
-  pass
+  """GymDiscreteProblemWithAgentOnWrappedPong."""
+
+  # Hard-coding num_actions, frame_height, frame_width to avoid loading
+  # libale.so file.
+  @property
+  def num_actions(self):
+    return 6
+
+  @property
+  def frame_height(self):
+    return 7 if FLAGS.autoencoder_path else 210
+
+  @property
+  def frame_width(self):
+    return 5 if FLAGS.autoencoder_path else 160
 
 
 @registry.register_problem
@@ -628,4 +658,26 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedFreeway(
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedFreeway(
     GymDiscreteProblemWithAgent, GymFreewayRandom5k):
-  pass
+  """GymDiscreteProblemWithAgentOnWrappedFreeway."""
+
+  # Hard-coding num_actions, frame_height, frame_width to avoid loading
+  # libale.so file.
+  @property
+  def num_actions(self):
+    return 3
+
+  @property
+  def frame_height(self):
+    return 7 if FLAGS.autoencoder_path else 210
+
+  @property
+  def frame_width(self):
+    return 5 if FLAGS.autoencoder_path else 160
+
+  @property
+  def raw_frame_height(self):
+    return self.frame_height
+
+  @property
+  def raw_frame_width(self):
+    return self.frame_width

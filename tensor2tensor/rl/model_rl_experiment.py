@@ -76,6 +76,8 @@ def train(hparams, output_dir):
       iter_data_dir = os.path.join(data_dir, "0random")
       tf.gfile.MakeDirs(iter_data_dir)
       gym_problem.generate_data(iter_data_dir, tmp_dir)
+      mean_reward = gym_problem.sum_of_rewards / max(1.0, gym_problem.dones)
+      tf.logging.info("%s Step 0.0 random reward: %.4f" % (line, mean_reward))
 
     time_delta = time.time() - start_time
     tf.logging.info("%s Step %d.1 - generate env model. Time: %s",
@@ -162,13 +164,13 @@ def train(hparams, output_dir):
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
       epochs=2,
-      true_env_generator_num_steps=60000,
+      true_env_generator_num_steps=30000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
       ppo_params="ppo_atari_base",
-      model_train_steps=50000,
+      model_train_steps=20000,
       simulated_env_generator_num_steps=2000,
-      ppo_epochs_num=2000,  # This should be enough to see something
+      ppo_epochs_num=300,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.

@@ -21,13 +21,17 @@ import tensorflow as tf
 
 
 def define_collect(policy_factory, batch_env, hparams,
-                   eval_phase, policy_to_actions_lambda=None, scope=""):
+                   eval_phase, policy_to_actions_lambda=None,
+                   scope="", preprocess=None):
   """Collect trajectories."""
   eval_phase = tf.convert_to_tensor(eval_phase)
-  memory_shape = [hparams.epoch_length] + [batch_env.observ.shape.as_list()[0]]
+  batch_env_shape = batch_env.observ.get_shape().as_list()
+  if preprocess is not None:
+    batch_env_shape = preprocess[1]
+  memory_shape = [hparams.epoch_length] + [batch_env_shape[0]]
   memories_shapes_and_types = [
       # observation
-      (memory_shape + batch_env.observ.shape.as_list()[1:], tf.float32),
+      (memory_shape + batch_env_shape[1:], tf.float32),
       (memory_shape, tf.float32),      # reward
       (memory_shape, tf.bool),         # done
       # action
@@ -61,6 +65,8 @@ def define_collect(policy_factory, batch_env, hparams,
       # operation. We are waiting for tf.copy:
       # https://github.com/tensorflow/tensorflow/issues/11186
       obs_copy = batch_env.observ + 0
+      if preprocess is not None:
+        obs_copy = preprocess[0](obs_copy)
       actor_critic = policy_factory(tf.expand_dims(obs_copy, 0))
       policy = actor_critic.policy
       if policy_to_actions_lambda:

@@ -413,7 +413,6 @@ class T2TModel(base.Layer):
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
-    log_info("Base learning rate: %f", self.hparams.learning_rate)
     lr = learning_rate.learning_rate_schedule(self.hparams)
     if num_async_replicas > 1:
       log_info("Dividing learning rate by num_async_replicas: %d",

@@ -163,7 +163,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
     """Auto-encode x and return the bottleneck."""
     features = {"targets": x}
     self(features)  # pylint: disable=not-callable
-    res = self._cur_bottleneck_tensor
+    res = tf.maximum(0.0, self._cur_bottleneck_tensor)  # Be 0/1 and not -1/1.
     self._cur_bottleneck_tensor = None
     return res
 
@@ -209,6 +209,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
     # Set the bottleneck to decode.
     if len(shape) > 4:
       bottleneck = tf.squeeze(bottleneck, axis=[1])
+    bottleneck = 2 * bottleneck - 1  # Be -1/1 instead of 0/1.
     self._cur_bottleneck_tensor = bottleneck
     # Run decoding.
     res = self.infer({"targets": dummy_targets})

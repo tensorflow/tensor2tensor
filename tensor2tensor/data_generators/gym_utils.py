@@ -132,10 +132,12 @@ gym.envs.register(id="T2TPongWarmUp20RewSkip200Steps-v1",
                       warm_up_examples=20, reward_skip_steps=15),
                   max_episode_steps=200)
 
+
 gym.envs.register(id="T2TPongWarmUp20RewSkip2000Steps-v1",
                   entry_point=lambda: wrapped_pong_factory(  # pylint: disable=g-long-lambda
                       warm_up_examples=20, reward_skip_steps=15),
                   max_episode_steps=2000)
+
 
 class BreakoutWrapper(WarmupWrapper):
   """Breakout Wrapper."""
@@ -197,7 +199,7 @@ class BreakoutWrapper(WarmupWrapper):
     clipped_ob = ob[off_x:-21, :, 0]
     pos = np.argwhere(clipped_ob == 200)
 
-    if not pos:
+    if not pos.size:
       return default
 
     x = off_x + pos[0][0]

@@ -170,6 +170,15 @@ class SymbolModality(modality.Modality):
               logits, body_output_shape[:-1] + [1, self._vocab_size])
 
 
+@registry.register_symbol_modality("weights_all")
+class SymbolModalityWeightsAll(SymbolModality):
+  """SymbolModality for features that do not have 0-padding."""
+
+  @property
+  def targets_weights_fn(self):
+    return common_layers.weights_all
+
+
 @registry.register_symbol_modality("ctc")
 class CTCSymbolModality(SymbolModality):
   """SymbolModality that uses CTC loss."""
