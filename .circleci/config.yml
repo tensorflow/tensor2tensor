@@ -43,6 +43,7 @@ jobs:
     environment:
       PYTHONPATH: .
     steps:
+      - type: checkout
       - type: shell
         name: Checkout diseaseTools develop
         command: git clone -b develop git@github.com:medicode/diseaseTools.git ~/diseaseTools;
