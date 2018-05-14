@@ -86,7 +86,7 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
           updates = [
               opt.apply_gradients([(tf.constant(g0), var0),
                                    (tf.constant(g1), var1)])
-              for g0, g1 in zip(grads0_np_lst, grads1_np_lst)[:n]]
+              for g0, g1 in zip(grads0_np_lst, grads1_np_lst)][:n]
 
           self.evaluate(tf.global_variables_initializer())
           beta1_power, beta2_power = opt._get_beta_accumulators()
