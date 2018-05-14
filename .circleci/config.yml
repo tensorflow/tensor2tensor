@@ -49,7 +49,7 @@ jobs:
         command: git clone -b develop git@github.com:medicode/diseaseTools.git ~/diseaseTools;
       - type: shell
         name: Enter diseaseTools directory
-        command: cd diseaseTools
+        command: cd $HOME/diseaseTools
       - run: *DOCKER_LOGIN
       - type: shell
         name: Use Python 2
