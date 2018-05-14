@@ -189,7 +189,7 @@ class ImageImagenet32(ImageImagenetRescaled):
 
 @registry.register_problem
 class ImageImagenet64Gen(ImageImagenet):
-  """Cifar-10 Tune."""
+  """Imagenet 64 from the pixen cnn paper"""
 
   @property
   def train_shards(self):
@@ -261,6 +261,33 @@ class ImageImagenetMultiResolutionGen(ImageImagenet64Gen):
                    [res**2 // highest_res, highest_res, self.num_channels])
         for scaled_image, res in zip(scaled_images, hparams.resolutions)],
                                   axis=0)
+    return example
+
+
+@registry.register_problem
+class ImageImagenet32Small(ImageImagenet):
+  """Imagenet small from the pixel cnn paper"""
+
+  @property
+  def is_small(self):
+    return False  # Modalities like for CIFAR.
+
+  @property
+  def num_classes(self):
+    return 1000
+
+  @property
+  def train_shards(self):
+    return 1024
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_IMAGENET_SMALL_IMAGE_SIZE,
+                                 _IMAGENET_SMALL_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
 

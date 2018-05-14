@@ -100,7 +100,7 @@ class SuperLM(t2t_model.T2TModel):
     # Bypass the symbol modality and compute logits directly.
     # We compute a different set of logits on each shard, and sum them.
     logits = mp(tf.layers.dense, decoder_output, vocab_size, name="logits")
-    logits = common_layers.all_reduce_ring(logits, mp)
+    logits = expert_utils.all_reduce_ring(logits, mp)
     logits = mp(tf.multiply, logits, mp.n ** -0.5)
     # We now have identical logits on all shards.
     # Shard 0 gets returned to the estimator.
@@ -109,7 +109,7 @@ class SuperLM(t2t_model.T2TModel):
     logits_shard_0 = tf.expand_dims(logits_shard_0, 3)
     # On each device, we compute the loss for a part of the batch.
     # This is faster than computing the whole loss on one shard.
-    mp, logits = common_layers.reduce_by_device(mp, logits, lambda l: l[0])
+    mp, logits = expert_utils.reduce_by_device(mp, logits, lambda l: l[0])
     def _loss_for_shard(logits, targets, shard):
       if mp.n > 1:
         logits = common_layers.approximate_split(logits, mp.n, 0)[shard]
@@ -180,7 +180,7 @@ def _super_stack(inputs,
           return tuple(tf.split(
               t, [mix_size, hparams.hidden_size - mix_size], 2))
         to_mix, to_keep = mp(_split, x)
-        mixed = common_layers.all_reduce_ring(to_mix, mp)
+        mixed = expert_utils.all_reduce_ring(to_mix, mp)
         mixed = mp(tf.multiply, mixed, mp.n ** -0.5)
         x = mp(lambda a, b: tf.concat([a, b], 2), mixed, to_keep)
       elif layer_type == "att":

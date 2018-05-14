@@ -387,7 +387,8 @@ def encoder_decoder_attention_loss(expected_attention_logits,
 def get_timing_signal_1d(length,
                          channels,
                          min_timescale=1.0,
-                         max_timescale=1.0e4):
+                         max_timescale=1.0e4,
+                         start_index=0):
   """Gets a bunch of sinusoids of different frequencies.
 
   Each channel of the input Tensor is incremented by a sinusoid of a different
@@ -413,11 +414,12 @@ def get_timing_signal_1d(length,
         different timescales is equal to channels / 2.
     min_timescale: a float
     max_timescale: a float
+    start_index: index of first position
 
   Returns:
     a Tensor of timing signals [1, length, channels]
   """
-  position = tf.to_float(tf.range(length))
+  position = tf.to_float(tf.range(length) + start_index)
   num_timescales = channels // 2
   log_timescale_increment = (
       math.log(float(max_timescale) / float(min_timescale)) /
@@ -432,7 +434,10 @@ def get_timing_signal_1d(length,
 
 
 @expert_utils.add_name_scope()
-def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
+def add_timing_signal_1d(x,
+                         min_timescale=1.0,
+                         max_timescale=1.0e4,
+                         start_index=0):
   """Adds a bunch of sinusoids of different frequencies to a Tensor.
 
   Each channel of the input Tensor is incremented by a sinusoid of a different
@@ -456,13 +461,97 @@ def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
     x: a Tensor with shape [batch, length, channels]
     min_timescale: a float
     max_timescale: a float
+    start_index: index of first position
 
   Returns:
     a Tensor the same shape as x.
   """
   length = common_layers.shape_list(x)[1]
   channels = common_layers.shape_list(x)[2]
-  signal = get_timing_signal_1d(length, channels, min_timescale, max_timescale)
+  signal = get_timing_signal_1d(length, channels, min_timescale, max_timescale,
+                                start_index)
+  return x + signal
+
+
+@expert_utils.add_name_scope()
+def get_layer_timing_signal_learned_1d(channels, layer, num_layers):
+  """get n-dimensional embedding as the layer (vertical) timing signal.
+
+  Adds embeddings to represent the position of the layer in the tower.
+
+  Args:
+    channels: dimension of the timing signal
+    layer: layer num
+    num_layers: total number of layers
+
+  Returns:
+    a Tensor of timing signals [1, 1, channels].
+  """
+  shape = [num_layers, 1, 1, channels]
+  layer_embedding = (
+      tf.get_variable(
+          "layer_embedding",
+          shape,
+          initializer=tf.random_normal_initializer(0, channels**-0.5)) *
+      (channels**0.5))
+  return layer_embedding[layer, :, :, :]
+
+
+@expert_utils.add_name_scope()
+def add_layer_timing_signal_learned_1d(x, layer, num_layers):
+  """Add n-dimensional embedding as the layer (vertical) timing signal.
+
+  Adds embeddings to represent the position of the layer in the tower.
+
+  Args:
+    x: a tensor with shape [batch, length, depth]
+    layer: layer num
+    num_layers: total number of layers
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+  channels = common_layers.shape_list(x)[-1]
+  signal = get_layer_timing_signal_learned_1d(channels, layer, num_layers)
+  x += signal
+  return x
+
+
+@expert_utils.add_name_scope()
+def get_layer_timing_signal_sinusoid_1d(channels, layer, num_layers):
+  """Add sinusoids of different frequencies as layer (vertical) timing signal.
+
+  Args:
+    channels: dimension of the timing signal
+    layer: layer num
+    num_layers: total number of layers
+
+  Returns:
+    a Tensor of timing signals [1, 1, channels].
+  """
+
+  signal = get_timing_signal_1d(num_layers, channels)
+  layer_signal = tf.expand_dims(signal[:, layer, :], axis=1)
+
+  return layer_signal
+
+
+@expert_utils.add_name_scope()
+def add_layer_timing_signal_sinusoid_1d(x, layer, num_layers):
+  """Add sinusoids of different frequencies as layer (vertical) timing signal.
+
+  Args:
+    x: a Tensor with shape [batch, length, channels]
+    layer: layer num
+    num_layers: total number of layers
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+
+  channels = common_layers.shape_list(x)[-1]
+  signal = get_layer_timing_signal_sinusoid_1d(channels, layer, num_layers)
+
   return x + signal
 
 
@@ -1242,7 +1331,7 @@ def grouped_attention_multihead(query_antecedent,
     extra_loss *= extra_loss_multiplier
 
     # Show a bunch of summaries.
-    if expert_utils.should_generate_summaries() and make_image_summary:
+    if common_layers.should_generate_summaries() and make_image_summary:
       tf.summary.histogram("q_group_size", q_group_size)
       tf.summary.histogram("m_group_size", m_group_size)
       tf.summary.scalar("q_loss", q_loss)
@@ -1328,6 +1417,7 @@ def dot_product_attention(q,
     # [batch, num_heads, query_length, memory_length]
     logits = tf.matmul(q, k, transpose_b=True)
     if bias is not None:
+      bias = tf.cast(bias, logits.dtype)
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
     if save_weights_to is not None:
@@ -1336,7 +1426,7 @@ def dot_product_attention(q,
     # dropping out the attention links for each of the heads
     weights = common_layers.dropout_with_broadcast_dims(
         weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
-    if expert_utils.should_generate_summaries() and make_image_summary:
+    if common_layers.should_generate_summaries() and make_image_summary:
       attention_image_summary(weights, image_shapes)
     return tf.matmul(weights, v)
 
@@ -1583,7 +1673,7 @@ def dot_product_self_attention_relative_v2(q,
     # dropping out the attention links for each of the heads
     weights = common_layers.dropout_with_broadcast_dims(
         weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
-    if expert_utils.should_generate_summaries() and make_image_summary:
+    if common_layers.should_generate_summaries() and make_image_summary:
       attention_image_summary(weights, image_shapes)
     ret = tf.matmul(weights, v)
     # [batch, num_heads, query_length, memory_length]
@@ -1745,6 +1835,7 @@ def masked_local_attention_1d(q, k, v, block_length=128,
     good_part = common_layers.ones_matrix_band_part(block_length, local_length,
                                                     -1, block_length)
     mask = (1.0 - good_part) * -1e9
+    mask = tf.cast(mask, attention.dtype)
     attention += tf.reshape(mask, [1, 1, 1, block_length, local_length])
     attention = tf.nn.softmax(attention)
     # TODO(noam): figure out how to show a summary for the remaining blocks.
@@ -3796,7 +3887,7 @@ def scaled_dot_product_attention_simple(q, k, v, bias, name=None):
     if bias is not None:
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
-    if expert_utils.should_generate_summaries():
+    if common_layers.should_generate_summaries():
       tf.summary.image(
           "attention", tf.expand_dims(tf.pow(weights, 0.2), 3), max_outputs=1)
     return tf.matmul(weights, v)

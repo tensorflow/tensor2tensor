@@ -206,7 +206,7 @@ def write_ref_content(url, ref, f):
 async def fetch_url(url, session, side_data):
   text = None
   try:
-    async with session.get(url, timeout=30, verify_ssl=False) as response:
+    async with session.get(url, timeout=10, verify_ssl=False) as response:
       if response.status == 200:
         text = await response.text()
       else:

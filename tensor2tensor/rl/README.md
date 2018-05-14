@@ -14,7 +14,7 @@ Currently the only supported algorithm is Proximal Policy Optimization - PPO.
 ```
 python rl/t2t_rl_trainer.py \
   --problem=Pendulum-v0 \
-  --hparams_set continuous_action_base \
+  --hparams_set ppo_continuous_action_base \
   [--output_dir dir_location]
 ```
 
@@ -23,7 +23,7 @@ python rl/t2t_rl_trainer.py \
 ```
 python tensor2tensor/rl/t2t_rl_trainer.py \
   --problem stacked_pong \
-  --hparams_set atari_base \
+  --hparams_set ppo_atari_base \
   --hparams num_agents=5 \
   [--output_dir dir_location]
 ```

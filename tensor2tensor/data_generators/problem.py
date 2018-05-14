@@ -425,7 +425,8 @@ class Problem(object):
       return self._hparams
 
     if self._encoders is None:
-      data_dir = (model_hparams and model_hparams.data_dir) or None
+      data_dir = (model_hparams and hasattr(model_hparams, "data_dir") and
+                  model_hparams.data_dir) or None
       self.get_feature_encoders(data_dir)
 
     hp = _default_hparams()
@@ -738,7 +739,7 @@ class Problem(object):
       return standardize_shapes(example, batch_size=batch_size)
 
     # Read and preprocess
-    data_dir = data_dir or hparams.data_dir
+    data_dir = data_dir or (hasattr(hparams, "data_dir") and hparams.data_dir)
 
     dataset_kwargs = dataset_kwargs or {}
     dataset_kwargs.update({
@@ -764,7 +765,7 @@ class Problem(object):
       dataset = skip_random_fraction(dataset, data_files[0])
 
     dataset = dataset.map(
-        data_reader.cast_int64_to_int32, num_parallel_calls=num_threads)
+        data_reader.cast_ints_to_int32, num_parallel_calls=num_threads)
 
     if self.batch_size_means_tokens:
       batch_size_means_tokens = True
@@ -862,7 +863,7 @@ class Problem(object):
     dataset = dataset.map(self.decode_example)
     dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
     dataset = dataset.map(self.maybe_reverse_and_copy)
-    dataset = dataset.map(data_reader.cast_int64_to_int32)
+    dataset = dataset.map(data_reader.cast_ints_to_int32)
     dataset = dataset.padded_batch(1000, dataset.output_shapes)
     dataset = dataset.map(standardize_shapes)
     features = tf.contrib.data.get_single_element(dataset)
@@ -902,6 +903,7 @@ class Problem(object):
 
 
 class FeatureInfo(object):
+  """Encapsulates information about a feature."""
 
   def __init__(self,
                encoder=None,

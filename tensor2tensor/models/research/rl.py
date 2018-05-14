@@ -47,7 +47,7 @@ def ppo_base_v1():
   hparams.add_hparam("epochs_num", 2000)
   hparams.add_hparam("eval_every_epochs", 10)
   hparams.add_hparam("num_eval_agents", 3)
-  hparams.add_hparam("video_during_eval", True)
+  hparams.add_hparam("video_during_eval", False)
   hparams.add_hparam("save_models_every_epochs", 30)
   hparams.add_hparam("optimization_batch_size", 50)
   hparams.add_hparam("max_gradients_norm", 0.5)
@@ -56,23 +56,23 @@ def ppo_base_v1():
 
 
 @registry.register_hparams
-def continuous_action_base():
+def ppo_continuous_action_base():
   hparams = ppo_base_v1()
   hparams.add_hparam("network", feed_forward_gaussian_fun)
   return hparams
 
 
 @registry.register_hparams
-def discrete_action_base():
+def ppo_discrete_action_base():
   hparams = ppo_base_v1()
   hparams.add_hparam("network", feed_forward_categorical_fun)
   return hparams
 
 
 @registry.register_hparams
-def atari_base():
+def ppo_atari_base():
   """Atari base parameters."""
-  hparams = discrete_action_base()
+  hparams = ppo_discrete_action_base()
   hparams.learning_rate = 16e-5
   hparams.num_agents = 5
   hparams.epoch_length = 200
@@ -180,4 +180,15 @@ def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
     value = tf.contrib.layers.fully_connected(x, 1, activation_fn=None)[..., 0]
     policy = tf.contrib.distributions.Categorical(logits=logits)
 
+  return NetworkOutput(policy, value, lambda a: a)
+
+
+def random_policy_fun(action_space, unused_config, observations):
+  """Random policy with categorical output."""
+  obs_shape = observations.shape.as_list()
+  with tf.variable_scope("network_parameters"):
+    value = tf.zeros(obs_shape[:2])
+    policy = tf.distributions.Categorical(
+        probs=[[[1. / float(action_space.n)] * action_space.n
+               ] * (obs_shape[0] * obs_shape[1])])
   return NetworkOutput(policy, value, lambda a: a)

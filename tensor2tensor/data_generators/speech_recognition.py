@@ -251,6 +251,7 @@ class SpeechRecognitionProblem(problem.Problem):
     p.add_hparam("audio_upper_edge_hertz", 8000.0)
     p.add_hparam("audio_num_mel_bins", 80)
     p.add_hparam("audio_add_delta_deltas", True)
+    p.add_hparam("num_zeropad_frames", 250)
 
     p = defaults
     # p.stop_at_eos = int(False)
@@ -319,8 +320,9 @@ class SpeechRecognitionProblem(problem.Problem):
 
       # Later models like to flatten the two spatial dims. Instead, we add a
       # unit spatial dim and flatten the frequencies and channels.
-      example["inputs"] = tf.reshape(
-          mel_fbanks, [fbank_size[1], fbank_size[2], fbank_size[3]])
+      example["inputs"] = tf.concat([
+          tf.reshape(mel_fbanks, [fbank_size[1], fbank_size[2], fbank_size[3]]),
+          tf.zeros((p.num_zeropad_frames, fbank_size[2], fbank_size[3]))], 0)
 
     if not p.audio_keep_example_waveforms:
       del example["waveforms"]

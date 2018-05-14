@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Library for training of RL agent with PPO algorithm."""
-
 from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import functools
 import os
@@ -42,7 +43,7 @@ def define_train(hparams, environment_spec, event_dir):
     environment_spec = lambda: gym.make("PongNoFrameskip-v4")
     wrappers = hparams.in_graph_wrappers if hasattr(
         hparams, "in_graph_wrappers") else []
-    wrappers.append((tf_atari_wrappers.MaxAndSkipEnv, {"skip": 4}))
+    wrappers.append((tf_atari_wrappers.MaxAndSkipWrapper, {"skip": 4}))
     hparams.in_graph_wrappers = wrappers
   if isinstance(environment_spec, str):
     env_lambda = lambda: gym.make(environment_spec)
@@ -56,7 +57,7 @@ def define_train(hparams, environment_spec, event_dir):
       "network",
       functools.partial(policy_lambda, batch_env.action_space, hparams))
 
-  with tf.variable_scope("", reuse=tf.AUTO_REUSE):
+  with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     memory, collect_summary = collect.define_collect(
         policy_factory, batch_env, hparams, eval_phase=False)
     ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
@@ -70,12 +71,10 @@ def define_train(hparams, environment_spec, event_dir):
       d = 2 if env_lambda().metadata.get("semantics.autoreset") else 1
       eval_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
           env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
-    wrapped_eval_env_lambda = lambda: utils.EvalVideoWrapper(eval_env_lambda())
-    # eval_batch_env = utils.define_batch_env(
-    #     wrapped_eval_env_lambda, hparams.num_eval_agents,
-    #     xvfb=hparams.video_during_eval)
+      eval_env_lambda = (
+          lambda: utils.EvalVideoWrapper(eval_env_lambda()))
     eval_batch_env = utils.batch_env_factory(
-        wrapped_eval_env_lambda, hparams,
+        eval_env_lambda, hparams,
         num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
 
     # TODO(blazej0): correct to the version below.
@@ -101,7 +100,7 @@ def train(hparams, environment_spec, event_dir=None):
     model_saver = None
 
   if hparams.simulated_environment:
-    env_model_loader = tf.train.Saver(tf.global_variables(".*basic_conv_gen.*"))
+    env_model_loader = tf.train.Saver(tf.global_variables("basic_conv_gen.*"))
   else:
     env_model_loader = None
 
@@ -118,8 +117,10 @@ def train(hparams, environment_spec, event_dir=None):
       if (hparams.eval_every_epochs and
           epoch_index % hparams.eval_every_epochs == 0):
         summary = sess.run(eval_summary_op)
-        if summary_writer:
+        if summary_writer and summary:
           summary_writer.add_summary(summary, epoch_index)
+        else:
+          tf.logging.info("Eval summary not saved")
       if (model_saver and hparams.save_models_every_epochs and
           epoch_index % hparams.save_models_every_epochs == 0):
         model_saver.save(sess, os.path.join(event_dir,

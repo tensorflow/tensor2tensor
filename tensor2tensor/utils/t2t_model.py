@@ -185,9 +185,9 @@ class T2TModel(base.Layer):
         sharded_logits = body_out
       else:
         if isinstance(body_out, dict):
-          sharded_logits = {}
-          sharded_losses = {}
-          for k, v in six.iteritems(body_out):
+          sharded_logits = collections.OrderedDict()
+          sharded_losses = collections.OrderedDict()
+          for k, v in sorted(six.iteritems(body_out)):
             sharded_logits[k] = dp(self.top, v, datashard_to_features)
             sharded_losses[k] = dp(self.loss, sharded_logits[k],
                                    datashard_to_features)
@@ -233,7 +233,7 @@ class T2TModel(base.Layer):
     transformed_features = self.bottom(features)
 
     if self.hparams.activation_dtype == "bfloat16":
-      for k, v in six.iteritems(transformed_features):
+      for k, v in sorted(six.iteritems(transformed_features)):
         if v.dtype == tf.float32:
           transformed_features[k] = tf.cast(v, tf.bfloat16)
 
@@ -280,12 +280,13 @@ class T2TModel(base.Layer):
     target_modality = self._problem_hparams.target_modality
     if isinstance(target_modality, dict):
       for k, v in six.iteritems(target_modality):
-        with tf.variable_scope(
-            "%s/%s" %
-            (v.name,
-             k)):  # TODO(aidangomez): share variables across modalities?
-          log_info("Transforming 'targets' with %s.targets_bottom", v.name)
-          transformed_features[k] = v.targets_bottom(features[k])
+        if k in features:
+          with tf.variable_scope(
+              "%s/%s" % (v.name, k)):  # TODO(aidangomez): share variables?
+            log_info("Transforming '%s' with %s.targets_bottom", k, v.name)
+            transformed_features[k] = v.targets_bottom(features[k])
+        else:
+          tf.logging.warn("Modality not found in features: %s", k)
     else:
       with tf.variable_scope(target_modality.name):
         if "targets" in features:
@@ -350,9 +351,10 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = {k: None for k in body_output.keys()}
-      assert set(body_output.keys()) == set(target_modality.keys()), (
-          "The keys of model_body's returned logits dict must match the keys "
-          "of problem_hparams.target_modality's dict.")
+      for k in body_output.keys():
+        assert k in target_modality.keys(), (
+            "The key %s of model_body's returned logits dict must be in "
+            "problem_hparams.target_modality's dict." % k)
       logits = {}
       for k, v in six.iteritems(body_output):
         with tf.variable_scope(k):  # TODO(aidangomez): share variables here?
@@ -363,9 +365,11 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = None
-      assert not isinstance(target_modality, dict), (
-          "model_body must return a dictionary of logits when "
-          "problem_hparams.target_modality is a dict.")
+      if isinstance(target_modality, dict):
+        assert "targets" in target_modality, (
+            "model_body returned single logits so 'targets' must be a key "
+            "since problem_hparams.target_modality is a dict.")
+        target_modality = target_modality["targets"]
       return self._top_single(body_output, target_modality, features)
 
   def _loss_single(self, logits, target_modality, feature):
@@ -387,9 +391,10 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = {k: None for k in logits.keys()}
-      assert set(logits.keys()) == set(target_modality.keys()), (
-          "The keys of model_body's returned logits dict must match the keys "
-          "of problem_hparams.target_modality's dict.")
+      for k in logits.keys():
+        assert k in target_modality.keys(), (
+            "The key %s of model_body's returned logits dict must be in "
+            "problem_hparams.target_modality's dict." % k)
       losses = {}
       for k, v in six.iteritems(logits):
         losses[k] = self._loss_single(v, target_modality[k], features[k])
@@ -399,14 +404,15 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = None
-      assert not isinstance(target_modality, dict), (
-          "model_body must return a dictionary of logits when "
-          "problem_hparams.target_modality is a dict.")
+      if isinstance(target_modality, dict):
+        assert "targets" in target_modality, (
+            "model_body returned single logits so 'targets' must be a key "
+            "since problem_hparams.target_modality is a dict.")
+        target_modality = target_modality["targets"]
       return self._loss_single(logits, target_modality, features["targets"])
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
-    log_info("Base learning rate: %f", self.hparams.learning_rate)
     lr = learning_rate.learning_rate_schedule(self.hparams)
     if num_async_replicas > 1:
       log_info("Dividing learning rate by num_async_replicas: %d",
@@ -456,7 +462,8 @@ class T2TModel(base.Layer):
     if isinstance(problem_hparams.target_modality, dict):
       target_modality = {}
       for f, modality_spec in six.iteritems(problem_hparams.target_modality):
-        if target_modality_name:
+        # TODO(lukaszkaiser): allow overriding other target modalities.
+        if target_modality_name and f == "targets":
           _warn_changed_modality_type(target_modality_name, modality_spec[0],
                                       "target_modality/%s" % f)
           modality_spec = (target_modality_name, modality_spec[1])
@@ -657,7 +664,7 @@ class T2TModel(base.Layer):
     if top_beams == 1:
       samples = ids[:, 0, 1:]
     else:
-      samples = ids[:, :top_beams, 1]
+      samples = ids[:, :top_beams, 1:]
 
     return {"outputs": samples, "scores": scores}
 
@@ -968,7 +975,7 @@ class T2TModel(base.Layer):
     # Set known shapes
     if use_tpu:
       if isinstance(logits, dict):
-        for k, v in six.iteritems(logits):
+        for k, v in sorted(six.iteritems(logits)):
           if "scalar/" in k:
             continue
 
@@ -990,7 +997,7 @@ class T2TModel(base.Layer):
 
     # Summarize losses
     with tf.name_scope("losses"):
-      for loss_name, loss_val in losses_dict.items():
+      for loss_name, loss_val in sorted(losses_dict.items()):
         tf.summary.scalar(loss_name, loss_val)
 
     # Accumulate losses
@@ -1056,8 +1063,16 @@ class T2TModel(base.Layer):
         if isinstance(logits, dict):
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           k = metric_name.split("/")[1]
-          eval_metrics[metric_name] = metric_fn(
-              logits[k], features, features[k])
+          if k in logits:
+            eval_metrics[metric_name] = metric_fn(
+                logits[k], features, features[k])
+          else:
+            # We do not make it an error because we sometimes run models that
+            # predict only parts of the targets defined by the Problem class.
+            # For example, an autoencoder or pure-video model can run on a gym
+            # problem even if another model is also predicting other things,
+            # like actions or rewards.
+            tf.logging.warning("No key %s in logits for evaluation." % k)
         else:
           eval_metrics[metric_name] = metric_fn(
               logits, features, features["targets"])
@@ -1239,12 +1254,14 @@ def _create_tpu_eval_metrics_fn(problem, hparams):
       logits = kwargs
 
     for name, fn in metric_fns:
-      if isinstance(logits, dict):
+      if isinstance(logits, dict) and isinstance(labels, dict):
         for k, v in six.iteritems(logits):
-          if isinstance(labels, dict):
-            metrics_dict["%s/%s" % (name, k)] = fn(v, labels[k])
-          else:
-            metrics_dict["%s/%s" % (name, k)] = fn(v, labels)
+          metrics_dict["%s/%s" % (k, name)] = fn(v, labels[k])
+      elif isinstance(logits, dict):
+        tf.logging.warning("Logits is a dict, but labels is not; only "
+                           "evaluating logits['targets'] against labels.")
+        metrics_dict["%s/%s" % ("targets", name)] = fn(logits["targets"],
+                                                       labels)
       else:
         metrics_dict[name] = fn(logits, labels)
 
@@ -1273,7 +1290,7 @@ def _create_host_call(model_dir):
   summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
 
   gs_t = tf.reshape(tf.train.get_global_step(), [1])
-  summary_kwargs = dict()
+  summary_kwargs = collections.OrderedDict()
   for t in summaries:
     if t.op.type != "ScalarSummary":
       continue
@@ -1299,7 +1316,7 @@ def _create_host_call(model_dir):
     gs = kwargs.pop("global_step")[0]
     with tf.contrib.summary.create_file_writer(model_dir).as_default():
       with tf.contrib.summary.always_record_summaries():
-        for name, value in six.iteritems(kwargs):
+        for name, value in sorted(six.iteritems(kwargs)):
           tf.contrib.summary.scalar(
               name, tf.reduce_mean(tf.to_float(value)), step=gs)
 

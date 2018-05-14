@@ -21,12 +21,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
-
 # Dependency imports
 
-import gym
-
+from tensor2tensor.layers import common_layers
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
@@ -38,7 +35,49 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 
-flags.DEFINE_string("frames_path", "", "Path to the first frames.")
+class HistoryBuffer(object):
+  """History Buffer."""
+
+  def __init__(self, input_data_iterator):
+    self.input_data_iterator = input_data_iterator
+    initial_frames = self.get_initial_observations()
+    self._history_buff = None
+    initial_shape = common_layers.shape_list(initial_frames)
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      history_buff = tf.get_variable("history_observ", initial_shape,
+                                     initializer=tf.zeros_initializer,
+                                     trainable=False)
+    self._history_buff = history_buff
+    self._assigned = False
+
+  def get_initial_observations(self):
+    """Initial observations."""
+    initial_frames = self.input_data_iterator.get_next()["inputs"]
+    initial_frames = tf.cast(initial_frames, tf.float32)
+    return initial_frames
+
+  def get_all_elements(self):
+    if self._assigned:
+      return self._history_buff.read_value()
+    initial_frames = self.get_initial_observations()
+    with tf.control_dependencies([self.history_buff.assign(initial_frames)]):
+      self._assigned = True
+      return tf.identity(initial_frames)
+
+  def move_by_one_element(self, element):
+    last_removed = self.get_all_elements()[1:, ...]
+    element = tf.expand_dims(element, dim=0)
+    moved = tf.concat([last_removed, element], axis=0)
+    with tf.control_dependencies([moved]):
+      with tf.control_dependencies([self._history_buff.assign(moved)]):
+        self._assigned = True
+        return self._history_buff.read_value()
+
+  def reset(self):
+    with tf.control_dependencies([self._history_buff.assign(
+        self.get_initial_observations())]):
+      self._assigned = True
+      return self._history_buff.read_value()
 
 
 class SimulatedBatchEnv(InGraphBatchEnv):
@@ -49,42 +88,35 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, length, observ_shape, observ_dtype, action_shape,
-               action_dtype):
+  def __init__(self, environment_lambda, length, problem):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
+    self._num_frames = problem.num_input_frames
+
+    # TODO(piotrmilos): For the moment we are fine with that.
+    assert self.length == 1, "Currently SimulatedBatchEnv support only one env"
+    initialization_env = environment_lambda()
     hparams = trainer_lib.create_hparams(
-        FLAGS.hparams_set, problem_name=FLAGS.problem, data_dir="UNUSED")
+        FLAGS.hparams_set, problem_name=FLAGS.problem)
     hparams.force_full_predict = True
     self._model = registry.model(FLAGS.model)(
         hparams, tf.estimator.ModeKeys.PREDICT)
 
-    self.action_shape = action_shape
-    self.action_dtype = action_dtype
+    self.action_space = initialization_env.action_space
+    self.action_shape = list(initialization_env.action_space.shape)
+    self.action_dtype = tf.int32
 
-    with open(os.path.join(FLAGS.frames_path, "frame1.png"), "rb") as f:
-      png_frame_1_raw = f.read()
+    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir)
+    dataset = dataset.repeat()
+    input_data_iterator = dataset.make_one_shot_iterator()
 
-    with open(os.path.join(FLAGS.frames_path, "frame2.png"), "rb") as f:
-      png_frame_2_raw = f.read()
+    self.history_buffer = HistoryBuffer(input_data_iterator)
 
-    self.frame_1 = tf.expand_dims(tf.cast(tf.image.decode_png(png_frame_1_raw),
-                                          tf.float32), 0)
-    self.frame_2 = tf.expand_dims(tf.cast(tf.image.decode_png(png_frame_2_raw),
-                                          tf.float32), 0)
-
-    shape = (self.length,) + observ_shape
-    self._observ = tf.Variable(tf.zeros(shape, observ_dtype), trainable=False)
-    self._prev_observ = tf.Variable(tf.zeros(shape, observ_dtype),
-                                    trainable=False)
-    self._starting_observ = tf.Variable(tf.zeros(shape, observ_dtype),
-                                        trainable=False)
-
-    observ_dtype = tf.int64
-
-  @property
-  def action_space(self):
-    return gym.make("PongNoFrameskip-v4").action_space
+    shape = (self.length, problem.frame_height, problem.frame_width,
+             problem.num_channels)
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      self._observ = tf.get_variable(
+          "observ", shape, initializer=tf.zeros_initializer, trainable=False)
 
   def __len__(self):
     """Number of combined environments."""
@@ -92,25 +124,28 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):
-      input0 = self._prev_observ.read_value()
-      input1 = self._observ.read_value()
-      # Note: the merging below must be consistent with video_utils format.
-      inputs_merged = tf.concat([input0, input1], axis=0)
-      action = tf.expand_dims(action, axis=0)  # Action needs time too.
-      action = tf.concat([action, action], axis=0)
-      inputs = {"inputs": tf.expand_dims(inputs_merged, axis=0),  # Add batch.
-                "input_action": tf.expand_dims(action, axis=0)}
-      model_output = self._model.infer(inputs)
+      action = tf.expand_dims(action, axis=0)
+      actions = [action] * self._num_frames
+      actions = tf.concat(actions, axis=0)
+      history = self.history_buffer.get_all_elements()
+      inputs = {"inputs": tf.expand_dims(history, axis=0),  # Add batch.
+                "input_action": tf.expand_dims(actions, axis=0)}
+      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+        model_output = self._model.infer(inputs)
       observ = model_output["targets"]
       observ = tf.cast(observ[:, 0, :, :, :], tf.float32)
+      # TODO(lukaszkaiser): instead of -1 use min_reward in the line below.
       reward = model_output["target_reward"][:, 0, 0, 0] - 1
       reward = tf.cast(reward, tf.float32)
+      # Some wrappers need explicit shape, so we reshape here.
+      reward = tf.reshape(reward, shape=(self.length,))
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
       with tf.control_dependencies([observ]):
-        with tf.control_dependencies([self._prev_observ.assign(self._observ)]):
-          with tf.control_dependencies([self._observ.assign(observ)]):
-            return tf.identity(reward), tf.identity(done)
+        with tf.control_dependencies(
+            [self._observ.assign(observ),
+             self.history_buffer.move_by_one_element(observ[0, ...])]):
+          return tf.identity(reward), tf.identity(done)
 
   def reset(self, indices=None):
     """Reset the batch of environments.
@@ -134,12 +169,10 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     Returns:
       Batch tensor of the new observations.
     """
-    observ = tf.gather(self._observ, indices)
-    observ = 0.0 * tf.check_numerics(observ, "observ")
-    with tf.control_dependencies([
-        tf.scatter_update(self._observ, indices, observ + self.frame_2),
-        tf.scatter_update(self._prev_observ, indices, observ + self.frame_1)]):
-      return tf.identity(self._observ.read_value())
+    with tf.control_dependencies([self.history_buffer.reset()]):
+      with tf.control_dependencies([self._observ.assign(
+          self.history_buffer.get_all_elements()[-1:, ...])]):
+        return tf.identity(self._observ.read_value())
 
   @property
   def observ(self):

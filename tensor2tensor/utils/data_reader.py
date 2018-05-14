@@ -27,10 +27,10 @@ from six.moves import range  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
 
-def cast_int64_to_int32(features):
+def cast_ints_to_int32(features):
   f = {}
   for k, v in six.iteritems(features):
-    if v.dtype == tf.int64:
+    if v.dtype in [tf.int64, tf.uint8]:
       v = tf.to_int32(v)
     f[k] = v
   return f

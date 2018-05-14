@@ -284,6 +284,7 @@ def transformer_decoder_layers(inputs,
                                self_attention_bias=None,
                                encoder_decoder_attention_bias=None,
                                attention_type=AttentionType.LOCAL_2D,
+                               losses=None,
                                name="transformer"):
   """Multi layer transformer."""
   x = inputs
@@ -335,7 +336,8 @@ def transformer_decoder_layers(inputs,
                                 hparams)
         x = common_layers.layer_postprocess(x, y, hparams)
       # feed-fwd layers + skip connections
-      y = ffn_layer(common_layers.layer_preprocess(x, hparams), hparams)
+      y = ffn_layer(common_layers.layer_preprocess(x, hparams), hparams,
+                    losses=losses)
       x = common_layers.layer_postprocess(x, y, hparams)
   return common_layers.layer_preprocess(x, hparams)
 
@@ -375,7 +377,7 @@ def transformer_encoder_layers(inputs,
   return common_layers.layer_preprocess(x, hparams)
 
 
-def ffn_layer(x, hparams):
+def ffn_layer(x, hparams, losses=None):
   """ffn layer transformer."""
   with tf.variable_scope("ffn"):
     if hparams.ffn_layer == "none":
@@ -402,6 +404,23 @@ def ffn_layer(x, hparams):
           x, hparams.filter_size, hparams.hidden_size, hparams.num_parts,
           hparams.attention_dropout, hparams.share_kv)
       y = tf.reshape(y, x_shape)
+    elif hparams.ffn_layer == "local_moe_tpu":
+      overhead = (hparams.moe_overhead_train
+                  if hparams.mode == tf.estimator.ModeKeys.TRAIN
+                  else hparams.moe_overhead_eval)
+      x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
+      y, loss = expert_utils.local_moe_tpu(
+          x, hparams.filter_size // 2,
+          hparams.hidden_size,
+          hparams.moe_num_experts, overhead=overhead,
+          loss_coef=hparams.moe_loss_coef)
+      if is_4d:
+        y = tf.reshape(y, x_shape)
+      if losses is None:
+        raise ValueError(
+            "transformer_ffn_layer with type local_moe_tpu must pass in "
+            "a losses list")
+      losses.append(loss)
     else:
       assert hparams.ffn_layer == "glu_ffn"
       y = common_layers.gated_linear_unit_layer(x)
@@ -491,10 +510,10 @@ def postprocess_image(x, rows, cols, hparams):
   batch = common_layers.shape_list(x)[0]
   channels = 256
   x = tf.reshape(x, [batch, rows, cols, hparams.hidden_size])
-  # targets = common_layers.conv(x, 256, (1, 1), name="output_conv")
   targets = tf.layers.dense(x, 256, use_bias=True, activation=None,
                             name="output_conv")
-  if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
+  if (hparams.mode == tf.contrib.learn.ModeKeys.INFER and
+      hparams.block_raster_scan):
     y = targets
     y = tf.reshape(y, [batch, -1, hparams.img_len*3, channels])
     yshape = common_layers.shape_list(y)
@@ -542,8 +561,7 @@ def prepare_decoder(targets, hparams):
 
   # during training, images are [batch, IMG_LEN, IMG_LEN, 3].
   # At inference, they are [batch, curr_infer_length, 1, 1]
-  if (hparams.mode == tf.contrib.learn.ModeKeys.INFER and
-      hparams.block_raster_scan):
+  if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
     curr_infer_length = targets_shape[1]
     if hparams.block_raster_scan:
       assert hparams.img_len*channels % hparams.query_shape[1] == 0
@@ -591,6 +609,7 @@ def prepare_decoder(targets, hparams):
     x = tf.reshape(x, [targets_shape[0],
                        x_shape[1], x_shape[2], hparams.hidden_size])
     x = add_pos_signals(x, hparams, "dec_pos")
+  x = tf.cast(x, targets.dtype)
   return x, x_shape[1], x_shape[2]
 
 
