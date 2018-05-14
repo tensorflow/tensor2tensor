@@ -14,7 +14,7 @@ jobs:
         name: Checkout diseaseTools repo
         command: |
           DT_BRANCH='develop';
-          if [ ${CIRCLE_BRANCH} != 'master' ]; then
+          if [[ ${CIRCLE_BRANCH} != 'master' ]]; then
             if [[ $(git ls-remote --heads git@github.com:medicode/diseaseTools.git -b ${CIRCLE_BRANCH}) ]]; then
               DT_BRANCH=${CIRCLE_BRANCH};
             fi;
