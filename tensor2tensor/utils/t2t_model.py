@@ -1073,7 +1073,7 @@ class T2TModel(base.Layer):
     if not hasattr(hparams, "problem"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
     
-    problem = hparams.problem_instances[0] or hparams.problem
+    problem = get_problem_from_hparams(hparams)
     if common_layers.is_on_tpu():
       # Fathom
       assert False, 'Not supporting TPUs yet'
