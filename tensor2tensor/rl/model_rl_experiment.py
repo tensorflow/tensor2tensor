@@ -186,14 +186,14 @@ def combine_world_model_train_data(problem, final_data_dir, old_data_dirs):
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=2,
+      epochs=3,
       true_env_generator_num_steps=30000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
       ppo_params="ppo_atari_base",
-      model_train_steps=20000,
+      model_train_steps=100000,
       simulated_env_generator_num_steps=2000,
-      ppo_epochs_num=300,  # This should be enough to see something
+      ppo_epochs_num=1500,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.

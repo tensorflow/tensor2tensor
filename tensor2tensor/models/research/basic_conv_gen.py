@@ -174,10 +174,10 @@ def basic_conv():
   hparams.learning_rate_schedule = "linear_warmup * constant * rsqrt_decay"
   hparams.label_smoothing = 0.0
   hparams.initializer = "uniform_unit_scaling"
-  hparams.initializer_gain = 1.0
+  hparams.initializer_gain = 1.3
   hparams.weight_decay = 0.0
-  hparams.clip_grad_norm = 2.0
-  hparams.dropout = 0.4
+  hparams.clip_grad_norm = 1.0
+  hparams.dropout = 0.5
   hparams.add_hparam("num_compress_steps", 6)
   hparams.add_hparam("filter_double_steps", 2)
   return hparams
@@ -195,9 +195,9 @@ def basic_conv_ae():
   hparams = basic_conv()
   hparams.hidden_size = 256
   hparams.batch_size = 32
-  hparams.num_hidden_layers = 3
+  hparams.num_hidden_layers = 4
   hparams.num_compress_steps = 2
-  hparams.dropout = 0.2
+  hparams.dropout = 0.5
   return hparams
 
 
@@ -233,10 +233,10 @@ def basic_conv_base_range(rhp):
   rhp.set_int("num_compress_steps", 5, 8)
   rhp.set_discrete("batch_size", [4, 8, 16, 32])
   rhp.set_int("num_hidden_layers", 1, 3)
-  rhp.set_float("learning_rate_constant", 1., 10.)
-  rhp.set_int("learning_rate_warmup_steps", 500, 3000)
-  rhp.set_float("initializer_gain", 0.2, 2.)
   rhp.set_int("filter_double_steps", 1, 6)
+  rhp.set_float("learning_rate_constant", 1., 4.)
+  rhp.set_int("learning_rate_warmup_steps", 500, 3000)
+  rhp.set_float("initializer_gain", 0.8, 1.8)
 
 
 @registry.register_ranged_hparams
@@ -251,3 +251,15 @@ def basic_conv_clip_range(rhp):
   """Filter doubling and dropout tuning grid."""
   rhp.set_float("dropout", 0.3, 0.4)
   rhp.set_float("clip_grad_norm", 0.5, 10.0)
+
+
+@registry.register_ranged_hparams
+def basic_conv_ae_range(rhp):
+  """Autoencoder world model tuning grid."""
+  rhp.set_float("dropout", 0.4, 0.6)
+  rhp.set_int("num_compress_steps", 1, 3)
+  rhp.set_int("num_hidden_layers", 2, 6)
+  rhp.set_float("learning_rate_constant", 1., 4.)
+  rhp.set_int("learning_rate_warmup_steps", 500, 3000)
+  rhp.set_float("initializer_gain", 0.8, 1.8)
+  rhp.set_int("filter_double_steps", 1, 3)

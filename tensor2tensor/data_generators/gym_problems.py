@@ -647,6 +647,12 @@ class GymDiscreteProblemWithAgentOnWrappedPong(
 
 
 @registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
+    GymDiscreteProblemWithAgentOnWrappedPong):
+  pass
+
+
+@registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedFreeway(
     GymSimulatedDiscreteProblemWithAgent, GymFreewayRandom5k):
   pass
