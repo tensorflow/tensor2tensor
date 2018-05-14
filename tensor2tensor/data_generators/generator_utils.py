@@ -640,6 +640,14 @@ def make_tmp_dir(suffix="", prefix="tmp", dir=None):  # pylint: disable=redefine
     return tmp_dir
 
 
+def tfrecord_iterator_for_problem(problem, data_dir,
+                                  dataset_split=tf.estimator.ModeKeys.TRAIN):
+  """Iterate over the records on disk for the Problem."""
+  filenames = tf.gfile.Glob(problem.filepattern(data_dir, mode=dataset_split))
+  example_spec = problem.example_reading_spec()[0]
+  return tfrecord_iterator(filenames, example_spec=example_spec)
+
+
 def tfrecord_iterator(filenames, gzipped=False, example_spec=None):
   """Yields records from TFRecord files.
 
