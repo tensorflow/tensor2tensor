@@ -149,14 +149,6 @@ def set_hparams_from_args(args):
     as_hparams = "," + as_hparams
   FLAGS.hparams += as_hparams
 
-def get_problem_name():
-  try: 
-    problems = FLAGS.problems.split("-")
-    assert len(problems) == 1
-    return problems[0]
-  except AttributeError:
-    return FLAGS.problem
-
 ##################
 #
 # END FATHOM ADDS
@@ -175,7 +167,7 @@ def create_hparams():
 def create_experiment_fn():
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
-      problem_name=get_problem_name(),
+      problem_name=FLAGS.problem,
       data_dir=os.path.expanduser(FLAGS.data_dir),
       train_steps=FLAGS.train_steps,
       eval_steps=FLAGS.eval_steps,
@@ -252,7 +244,7 @@ def generate_data():
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
 
-  problem_name = get_problem_name()
+  problem_name = FLAGS.problem
   tf.logging.info("Generating data for %s" % problem_name)
   registry.problem(problem_name).generate_data(data_dir, tmp_dir)
 
@@ -347,7 +339,7 @@ def maybe_cloud_tpu():
 def main(argv):
   # Fathom
   if FLAGS.fathom:
-      fathom.t2t_trainer_setup(get_problem_name())
+      fathom.t2t_trainer_setup(FLAGS.problem)
 
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
