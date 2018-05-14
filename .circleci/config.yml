@@ -39,7 +39,7 @@ jobs:
 
   smoke-testinfra:
     machine: true
-    workDir: ~/diseaseTools
+    workDir: ~
     environment:
       PYTHONPATH: .
     steps:
@@ -47,6 +47,9 @@ jobs:
       - type: shell
         name: Checkout diseaseTools develop
         command: git clone -b develop git@github.com:medicode/diseaseTools.git ~/diseaseTools;
+      - type: shell
+        name: Enter diseaseTools directory
+        command: cd diseaseTools
       - run: *DOCKER_LOGIN
       - type: shell
         name: Use Python 2
