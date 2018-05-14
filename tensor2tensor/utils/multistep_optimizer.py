@@ -48,7 +48,7 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
     """
     super(MultistepAdamOptimizer, self)._create_slots(var_list)
     first_var = min(var_list, key=lambda x: x.name)
-    self._create_non_slot_variable(initial_value=0,
+    self._create_non_slot_variable(initial_value=0 if self._n == 1 else 1,
                                    name="iter",
                                    colocate_with=first_var)
     for v in var_list:
