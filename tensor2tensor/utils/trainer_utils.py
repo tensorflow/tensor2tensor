@@ -63,6 +63,9 @@ flags.DEFINE_string(
     model.""")
 flags.DEFINE_string("problems", "", "Dash separated list of problems to "
                     "solve.")
+# Fathom - allow singular problem flag
+flags.DEFINE_string("problem", "", "Dash separated list of problems to "
+                    "solve.")
 flags.DEFINE_string("data_dir", None, "Directory with training data.")
 flags.DEFINE_integer("train_steps", 250000,
                      "The number of steps to run training for.")
