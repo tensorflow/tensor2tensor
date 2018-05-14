@@ -48,6 +48,11 @@ def adam_update_numpy(param,
 class MultistepAdamOptimizerTest(tf.test.TestCase):
 
   def testMultistep(self):
+    ver = tf.__version__.split('.')
+    # TODO: Remove version check once 1.5 is not tested anymore
+    if int(ver[0]) <= 1 and int(ver[1]) < 6:
+      # MultistepAdamOptimizer requires TF >= 1.6
+      return
     dtype = tf.float32
     beta1=0.2
     beta2=0.99
@@ -79,8 +84,8 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
           opt = MultistepAdamOptimizer(
               n=n, beta1=beta1, beta2=beta2, learning_rate=alpha)
           updates = [
-              opt.apply_gradients(zip([tf.constant(g0), tf.constant(g1)],
-                                      [var0, var1]))
+              opt.apply_gradients([(tf.constant(g0), var0),
+                                   (tf.constant(g1), var1)])
               for g0, g1 in zip(grads0_np_lst, grads1_np_lst)[:n]]
 
           self.evaluate(tf.global_variables_initializer())
