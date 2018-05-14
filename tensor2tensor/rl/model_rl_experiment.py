@@ -179,7 +179,7 @@ def rl_modelrl_base():
       # though it is not necessary.
       ppo_epoch_length=200,
       ppo_num_agents=1,
-      game="wrapped_pong",
+      game="wrapped_long_pong",
   )
 
 
