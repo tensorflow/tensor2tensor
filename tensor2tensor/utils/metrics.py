@@ -473,7 +473,6 @@ def create_evaluation_metrics(problems, model_hparams):
       if ("features" in args) or keywords:
         kwargs["features"] = features
 
-      predictions, labels = reduce_dimensions(predictions, labels)
       # (epurdy/fathom) see comment in model_builder.py, function
       # combine_shards for discussion
       if isinstance(predictions, dict):
@@ -481,14 +480,17 @@ def create_evaluation_metrics(problems, model_hparams):
         keywords = keywords or []
         if 'outputs' in args or 'outputs' in keywords:
           kwargs['outputs'] = predictions['outputs']
-        logits = predictions['logits']
+        logits = predictions['logits'][0]
+        kwargs['outputs'] = predictions['outputs'][0]
       else:
-        logits = predictions  
-        
+        predictions, labels = reduce_dimensions(predictions, labels)
+        logits = predictions
+
+
       def wrapped_metric_fn():
         return metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
 
-      scores, weights = metric_fn(predictions, labels,
+      scores, weights = metric_fn(logits, labels,
                                   weights_fn=weights_fn, **kwargs)
       return tf.metrics.mean(scores, weights)
 

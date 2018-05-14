@@ -1100,16 +1100,16 @@ class T2TModel(base.Layer):
             loss=loss)
     else:
       eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
-      eval_metrics = metrics.Metrics
+      eval_metrics = {}
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
-        if isinstance(logits, dict):
+        k = metric_name.split("/")[1]
+        if isinstance(logits, dict) and k in logits:
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
-          k = metric_name.split("/")[1]
           eval_metrics[metric_name] = metric_fn(
               logits[k], features, features[k])
         else:
           eval_metrics[metric_name] = metric_fn(
-              logits, features, features["targets"])
+              logits, features, features["targets"]) #, outputs=logits['outputs'][0])
       if isinstance(logits, dict):
         predictions = logits
       else:
@@ -1119,7 +1119,7 @@ class T2TModel(base.Layer):
       if isinstance(logits, dict):
         return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
-          predictions=logits,
+          predictions=logits['logits'][0],
           eval_metric_ops=eval_metrics,
           loss=loss)
 
