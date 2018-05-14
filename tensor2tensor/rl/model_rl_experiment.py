@@ -179,7 +179,7 @@ def rl_modelrl_base():
       # though it is not necessary.
       ppo_epoch_length=200,
       ppo_num_agents=1,
-      game="wrapped_pong",
+      game="wrapped_long_pong",
   )
 
 
@@ -226,7 +226,7 @@ def rl_modelrl_tiny_breakout():
 def rl_modelrl_tiny_freeway():
   """Tiny set for testing Freeway."""
   hparams = rl_modelrl_tiny()
-  hparams.game = "wrapped_freeway"
+  hparams.game = "freeway"
   return hparams
 
 

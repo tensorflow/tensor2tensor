@@ -283,7 +283,7 @@ class GymFreewayRandom5k(GymDiscreteProblem):
 
   @property
   def env_name(self):
-    return "T2TFreewayWarmUp20RewSkip200Steps-v1"
+    return "FreewayDeterministic-v4"
 
   @property
   def min_reward(self):
@@ -650,15 +650,15 @@ class GymDiscreteProblemWithAgentOnWrappedPong(
 
 
 @registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedFreeway(
+class GymSimulatedDiscreteProblemWithAgentOnFreeway(
     GymSimulatedDiscreteProblemWithAgent, GymFreewayRandom5k):
   pass
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedFreeway(
+class GymDiscreteProblemWithAgentOnFreeway(
     GymDiscreteProblemWithAgent, GymFreewayRandom5k):
-  """GymDiscreteProblemWithAgentOnWrappedFreeway."""
+  """GymDiscreteProblemWithAgentOnFreeway."""
 
   # Hard-coding num_actions, frame_height, frame_width to avoid loading
   # libale.so file.
