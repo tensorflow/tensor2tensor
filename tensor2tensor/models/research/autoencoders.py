@@ -438,7 +438,8 @@ def autoencoder_residual():
   """Residual autoencoder model."""
   hparams = autoencoder_autoregressive()
   hparams.optimizer = "Adafactor"
-  hparams.learning_rate_constant = 0.2
+  hparams.clip_grad_norm = 1.0
+  hparams.learning_rate_constant = 0.5
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup * rsqrt_decay"
   hparams.dropout = 0.05
@@ -508,9 +509,10 @@ def autoencoder_discrete_pong():
   """Discrete autoencoder model for compressing pong frames."""
   hparams = autoencoder_ordered_discrete()
   hparams.bottleneck_size = 24
-  hparams.dropout = 0.2
+  hparams.dropout = 0.1
   hparams.batch_size = 2
   hparams.bottleneck_noise = 0.2
+  hparams.max_hidden_size = 1024
   hparams.unordered = True
   return hparams
 
@@ -518,8 +520,8 @@ def autoencoder_discrete_pong():
 @registry.register_ranged_hparams
 def autoencoder_discrete_pong_range(rhp):
   """Narrow tuning grid."""
-  rhp.set_float("dropout", 0.1, 0.5)
-  rhp.set_discrete("max_hidden_size", [1024, 2048, 4096])
+  rhp.set_float("dropout", 0.0, 0.2)
+  rhp.set_discrete("max_hidden_size", [1024, 2048])
 
 
 @registry.register_hparams

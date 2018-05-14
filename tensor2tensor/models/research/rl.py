@@ -87,6 +87,35 @@ def ppo_atari_base():
   return hparams
 
 
+@registry.register_hparams
+def ppo_pong_base():
+  """Pong base parameters."""
+  hparams = ppo_discrete_action_base()
+  hparams.learning_rate = 8e-5
+  hparams.num_agents = 8
+  hparams.epoch_length = 200
+  hparams.gae_gamma = 0.985
+  hparams.gae_lambda = 0.985
+  hparams.entropy_loss_coef = 0.003
+  hparams.value_loss_coef = 1
+  hparams.optimization_epochs = 2
+  hparams.epochs_num = 1000
+  hparams.num_eval_agents = 1
+  hparams.network = feed_forward_cnn_small_categorical_fun
+  hparams.clipping_coef = 0.2
+  hparams.optimization_batch_size = 4
+  hparams.max_gradients_norm = 0.5
+  return hparams
+
+
+@registry.register_hparams
+def ppo_pong_ae_base():
+  """Pong autoencoder base parameters."""
+  hparams = ppo_pong_base()
+  hparams.network = feed_forward_categorical_fun
+  return hparams
+
+
 NetworkOutput = collections.namedtuple(
     "NetworkOutput", "policy, value, action_postprocessing")
 

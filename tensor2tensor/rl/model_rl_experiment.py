@@ -91,7 +91,7 @@ def train(hparams, output_dir):
     FLAGS.model = hparams.generative_model
     FLAGS.hparams_set = hparams.generative_model_params
     FLAGS.train_steps = hparams.model_train_steps * (iloop + 2)
-    FLAGS.eval_steps = 10
+    FLAGS.eval_steps = 100
     t2t_trainer.main([])
 
     # Evaluate and dump frames from env model
@@ -109,6 +109,8 @@ def train(hparams, output_dir):
       n = float(gym_simulated_problem.dones)
       model_reward_accuracy = (
           gym_simulated_problem.successful_episode_reward_predictions / n)
+    tf.logging.info("%s Step %d.1a env model reward accuracy: %.4f" % (
+        line, iloop, model_reward_accuracy))
 
     # Train PPO agent
     time_delta = time.time() - start_time
@@ -190,10 +192,10 @@ def rl_modelrl_base():
       true_env_generator_num_steps=30000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
-      ppo_params="ppo_atari_base",
+      ppo_params="ppo_pong_base",
       model_train_steps=100000,
       simulated_env_generator_num_steps=2000,
-      ppo_epochs_num=1500,  # This should be enough to see something
+      ppo_epochs_num=500,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
@@ -225,6 +227,7 @@ def rl_modelrl_tiny():
 def rl_modelrl_ae():
   """Parameter set for autoencoders."""
   hparams = rl_modelrl_base()
+  hparams.ppo_params = "ppo_pong_ae_base",
   hparams.generative_model_params = "basic_conv_ae"
   return hparams
 
@@ -233,6 +236,7 @@ def rl_modelrl_ae():
 def rl_modelrl_tiny_ae():
   """Tiny set for testing autoencoders."""
   hparams = rl_modelrl_tiny()
+  hparams.ppo_params = "ppo_pong_ae_base",
   hparams.generative_model_params = "basic_conv_ae"
   return hparams
 
