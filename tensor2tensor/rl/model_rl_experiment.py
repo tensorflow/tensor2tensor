@@ -202,7 +202,7 @@ def rl_modelrl_base():
       # though it is not necessary.
       ppo_epoch_length=200,
       ppo_num_agents=1,
-      game="wrapped_pong",
+      game="wrapped_long_pong",
   )
 
 
@@ -212,7 +212,7 @@ def rl_modelrl_tiny():
   tiny_hp = tf.contrib.training.HParams(
       epochs=2,
       true_env_generator_num_steps=200,
-      model_train_steps=10,
+      model_train_steps=2,
       simulated_env_generator_num_steps=200,
       ppo_epochs_num=2,
       ppo_time_limit=20,
@@ -249,8 +249,16 @@ def rl_modelrl_tiny_breakout():
 def rl_modelrl_tiny_freeway():
   """Tiny set for testing Freeway."""
   hparams = rl_modelrl_tiny()
-  hparams.game = "wrapped_freeway"
+  hparams.game = "freeway"
   return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_tiny_2agents():
+  """Tiny set for testing. With two ppo agents."""
+  hp = rl_modelrl_tiny()
+  hp.ppo_num_agents = 2
+  return hp
 
 
 def create_loop_hparams():
