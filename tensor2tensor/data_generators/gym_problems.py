@@ -395,10 +395,11 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.report_reward_statistics_every = 10
       self.dones = 0
       self.real_reward = 0
-      self.real_env.reset()
       # Slight weirdness to make sim env and real env aligned
-      for _ in range(self.num_input_frames):
-        self.real_ob, _, _, _ = self.real_env.step(0)
+      if self.simulated_environment:
+        self.real_env.reset()
+        for _ in range(self.num_input_frames):
+          self.real_ob, _, _, _ = self.real_env.step(0)
       self.total_sim_reward, self.total_real_reward = 0.0, 0.0
       self.sum_of_rewards = 0.0
       self.successful_episode_reward_predictions = 0
@@ -499,6 +500,9 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         debug_im = None
         if self.make_extra_debug_info:
           self.total_sim_reward += reward
+          if not self.simulated_environment:
+            self.real_ob = observ
+            self.real_reward = reward
           if not FLAGS.autoencoder_path:
             err = np.ndarray.astype(np.maximum(np.abs(
                 self.real_ob - observ, dtype=np.int) - 10, 0),
@@ -513,12 +517,14 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
             self.total_real_reward = 0.0
             self.total_sim_reward = 0.0
             self.real_reward = 0
-            self.real_env.reset()
-            # Slight weirdness to make sim env and real env aligned
-            for _ in range(self.num_input_frames):
-              self.real_ob, _, _, _ = self.real_env.step(0)
+            if self.simulated_environment:
+              self.real_env.reset()
+              # Slight weirdness to make sim env and real env aligned
+              for _ in range(self.num_input_frames):
+                self.real_ob, _, _, _ = self.real_env.step(0)
           else:
-            self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
+            if self.simulated_environment:
+              self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
             self.total_real_reward += self.real_reward
             self.sum_of_rewards += self.real_reward
         if FLAGS.autoencoder_path:

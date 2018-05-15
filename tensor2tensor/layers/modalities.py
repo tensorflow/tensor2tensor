@@ -551,11 +551,12 @@ class VideoModality(modality.Modality):
     """Compute loss numerator and denominator for one shard of output."""
     logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
     targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
+    cutoff = getattr(self._model_hparams, "video_modality_loss_cutoff", 0.01)
     return common_layers.padded_cross_entropy(
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        cutoff=0.01,
+        cutoff=cutoff,
         weights_fn=self.targets_weights_fn)
 
 
@@ -578,7 +579,7 @@ class VideoModalityL1(VideoModality):
 
   @property
   def cutoff(self):
-    return 0.2
+    return getattr(self._model_hparams, "video_modality_loss_cutoff", 0.2)
 
   def internal_loss(self, logits, targets):
     return tf.nn.relu(tf.abs(logits - targets) - self.cutoff)

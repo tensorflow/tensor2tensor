@@ -180,6 +180,7 @@ def basic_conv():
   hparams.dropout = 0.5
   hparams.add_hparam("num_compress_steps", 6)
   hparams.add_hparam("filter_double_steps", 2)
+  hparams.add_hparam("video_modality_loss_cutoff", 0.01)
   return hparams
 
 
@@ -197,7 +198,7 @@ def basic_conv_ae():
   hparams.batch_size = 32
   hparams.num_hidden_layers = 4
   hparams.num_compress_steps = 2
-  hparams.dropout = 0.5
+  hparams.dropout = 0.4
   return hparams
 
 
@@ -214,6 +215,7 @@ def basic_conv_l1():
   """Basic conv model with L1 modality."""
   hparams = basic_conv()
   hparams.target_modality = "video:l1"
+  hparams.video_modality_loss_cutoff = 3.0
   return hparams
 
 
@@ -222,6 +224,7 @@ def basic_conv_l2():
   """Basic conv model with L2 modality."""
   hparams = basic_conv()
   hparams.target_modality = "video:l2"
+  hparams.video_modality_loss_cutoff = 3.0
   return hparams
 
 
@@ -247,19 +250,24 @@ def basic_conv_doubling_range(rhp):
 
 
 @registry.register_ranged_hparams
-def basic_conv_clip_range(rhp):
+def basic_conv_clipgrad_range(rhp):
   """Filter doubling and dropout tuning grid."""
   rhp.set_float("dropout", 0.3, 0.4)
   rhp.set_float("clip_grad_norm", 0.5, 10.0)
 
 
 @registry.register_ranged_hparams
+def basic_conv_xent_cutoff_range(rhp):
+  """Cross-entropy tuning grid."""
+  rhp.set_float("video_modality_loss_cutoff", 0.005, 0.05)
+
+
+@registry.register_ranged_hparams
 def basic_conv_ae_range(rhp):
   """Autoencoder world model tuning grid."""
-  rhp.set_float("dropout", 0.4, 0.6)
+  rhp.set_float("dropout", 0.3, 0.5)
   rhp.set_int("num_compress_steps", 1, 3)
   rhp.set_int("num_hidden_layers", 2, 6)
-  rhp.set_float("learning_rate_constant", 1., 4.)
-  rhp.set_int("learning_rate_warmup_steps", 500, 3000)
-  rhp.set_float("initializer_gain", 0.8, 1.8)
-  rhp.set_int("filter_double_steps", 1, 3)
+  rhp.set_float("learning_rate_constant", 1., 2.)
+  rhp.set_float("initializer_gain", 0.8, 1.5)
+  rhp.set_int("filter_double_steps", 2, 3)

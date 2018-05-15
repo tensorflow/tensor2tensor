@@ -43,11 +43,8 @@ class HistoryBuffer(object):
                              tf.float32)
     self.initial_frames = tf.stack([initial_frames]*length)
     initial_shape = common_layers.shape_list(self.initial_frames)
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      self._history_buff = tf.get_variable(
-          "history_buffer",
-          initializer=tf.zeros(initial_shape, tf.float32),
-          trainable=False)
+    self._history_buff = tf.Variable(tf.zeros(initial_shape, tf.float32),
+                                     trainable=False)
     self._assigned = False
 
   def get_all_elements(self):
@@ -108,10 +105,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
     shape = (self.length, problem.frame_height, problem.frame_width,
              problem.num_channels)
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      self._observ = tf.get_variable("observation",
-                                     initializer=tf.zeros(shape, tf.float32),
-                                     trainable=False)
+    self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
 
   def __len__(self):
     """Number of combined environments."""
