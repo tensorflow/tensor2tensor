@@ -25,8 +25,9 @@ import sys
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
-from tensor2tensor.utils import cloud_mlengine
-from tensor2tensor.utils import cloud_tpu
+# Fathom commented out
+# from tensor2tensor.utils import cloud_mlengine
+# from tensor2tensor.utils import cloud_tpu
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
