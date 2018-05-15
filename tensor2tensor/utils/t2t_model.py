@@ -197,9 +197,10 @@ class T2TModel(base.Layer):
       sharded_logits, losses = self.model_fn_sharded(sharded_features)
 
       # Fathom
-      if isinstance(sharded_logits, list):
+      if isinstance(sharded_logits, dict):
+        return {k:combine_shards(v) for k, v in sharded_logits.items()}, losses
+      else:
         return combine_shards(sharded_logits), losses
-      return sharded_logits, losses
 
   @property
   def use_body_sharded(self):
