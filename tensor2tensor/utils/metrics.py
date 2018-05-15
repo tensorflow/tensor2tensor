@@ -480,8 +480,8 @@ def create_evaluation_metrics(problems, model_hparams):
         keywords = keywords or []
         if 'outputs' in args or 'outputs' in keywords:
           kwargs['outputs'] = predictions['outputs']
-        logits = predictions['logits'][0]
-        kwargs['outputs'] = predictions['outputs'][0]
+        logits = predictions['logits']
+        kwargs['outputs'] = predictions['outputs']
       else:
         predictions, labels = reduce_dimensions(predictions, labels)
         logits = predictions
