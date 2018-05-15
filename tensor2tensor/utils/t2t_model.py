@@ -1119,7 +1119,7 @@ class T2TModel(base.Layer):
       if isinstance(logits, dict):
         return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
-          predictions=logits['logits'][0],
+          predictions=logits['logits'],
           eval_metric_ops=eval_metrics,
           loss=loss)
 
