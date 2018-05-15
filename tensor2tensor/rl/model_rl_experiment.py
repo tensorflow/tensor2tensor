@@ -103,6 +103,7 @@ def train(hparams, output_dir):
     sim_steps = hparams.simulated_env_generator_num_steps
     gym_simulated_problem.settable_num_steps = sim_steps
     gym_simulated_problem.real_env_problem = gym_problem
+    gym_simulated_problem.simulation_random_starts = False
     gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
     model_reward_accuracy = 0.0
     if gym_simulated_problem.dones != 0:
@@ -123,6 +124,7 @@ def train(hparams, output_dir):
     ppo_epochs_num = hparams.ppo_epochs_num
     ppo_hparams.epochs_num = ppo_epochs_num
     ppo_hparams.simulated_environment = True
+    ppo_hparams.simulation_random_starts = hparams.simulation_random_starts
     ppo_hparams.eval_every_epochs = 0
     ppo_hparams.save_models_every_epochs = ppo_epochs_num
     ppo_hparams.epoch_length = hparams.ppo_epoch_length
@@ -197,6 +199,7 @@ def rl_modelrl_base():
       ppo_params="ppo_pong_base",
       model_train_steps=100000,
       simulated_env_generator_num_steps=2000,
+      simulation_random_starts=True,
       ppo_epochs_num=500,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
@@ -266,6 +269,13 @@ def rl_modelrl_freeway():
   hparams.game = "freeway"
   return hparams
 
+
+@registry.register_hparams
+def rl_modelrl_tiny_simulation_deterministic_starts():
+  """Tiny set for testing. With two ppo agents."""
+  hp = rl_modelrl_tiny()
+  hp.simulation_random_starts = False
+  return hp
 
 def create_loop_hparams():
   hparams = registry.hparams(FLAGS.loop_hparams_set)()

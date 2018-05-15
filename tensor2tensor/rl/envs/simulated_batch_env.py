@@ -38,19 +38,25 @@ FLAGS = flags.FLAGS
 class HistoryBuffer(object):
   """History Buffer."""
 
-  def __init__(self, input_data_iterator, length):
-    initial_frames = tf.cast(input_data_iterator.get_next()["inputs"],
-                             tf.float32)
-    self.initial_frames = tf.stack([initial_frames]*length)
-    initial_shape = common_layers.shape_list(self.initial_frames)
+  def __init__(self, input_dataset, length):
+    self.input_data_iterator = input_dataset.map(
+      lambda x: x["inputs"]).batch(length).make_one_shot_iterator()
+    self.length = length
+    initial_frames = self.get_initial_observations(length)
+    initial_shape = [length] + common_layers.shape_list(initial_frames)[1:]
     self._history_buff = tf.Variable(tf.zeros(initial_shape, tf.float32),
                                      trainable=False)
     self._assigned = False
 
+  def get_initial_observations(self, n):
+    initial_frames = self.input_data_iterator.get_next()
+    return tf.cast(initial_frames[:n, ], tf.float32)
+
   def get_all_elements(self):
     if self._assigned:
       return self._history_buff.read_value()
-    assign = self._history_buff.assign(self.initial_frames)
+    assign = self._history_buff.assign(
+      self.get_initial_observations(self.length))
     with tf.control_dependencies([assign]):
       self._assigned = True
       return tf.identity(self.initial_frames)
@@ -66,7 +72,7 @@ class HistoryBuffer(object):
 
   def reset(self, indices):
     number_of_indices = tf.size(indices)
-    initial_frames = self.initial_frames[:number_of_indices, ...]
+    initial_frames = self.get_initial_observations(number_of_indices)
     scatter_op = tf.scatter_update(self._history_buff, indices, initial_frames)
     with tf.control_dependencies([scatter_op]):
       self._assigned = True
@@ -81,7 +87,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, environment_lambda, length, problem):
+  def __init__(self, environment_lambda, length, problem,
+               simulation_random_starts):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
     self._num_frames = problem.num_input_frames
@@ -97,11 +104,14 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self.action_shape = list(initialization_env.action_space.shape)
     self.action_dtype = tf.int32
 
-    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir)
-    dataset = dataset.repeat()
-    input_data_iterator = dataset.make_one_shot_iterator()
+    if simulation_random_starts:
+      dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
+                                shuffle_files=True)
+    else:
+      dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
+                                shuffle_files=False).take(1)
 
-    self.history_buffer = HistoryBuffer(input_data_iterator, self.length)
+    self.history_buffer = HistoryBuffer(dataset.repeat(), self.length)
 
     shape = (self.length, problem.frame_height, problem.frame_width,
              problem.num_channels)
