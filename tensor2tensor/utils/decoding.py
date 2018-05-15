@@ -110,7 +110,7 @@ def decode_from_dataset(estimator,
 
   Args:
       estimator: tf.Estimator instance
-      problem_names: names of problems to decode from
+      problem_name: names of problem to decode from
       decode_hp: Decode hyperparameters
       decode_to_file: file to output decoded things to
       dataset_split: if 'test', decode from test dataset, otherwise
@@ -134,7 +134,7 @@ def decode_from_dataset(estimator,
       "max_records": decode_hp.num_samples
   }
   
-  for problem_idx, problem_name in enumerate(problem_names):
+  for problem_idx, problem_name in enumerate([problem_name]):
     # Build the inference input function
     infer_input_fn = input_fn_builder.build_input_fn(
         mode=tf.estimator.ModeKeys.PREDICT,
