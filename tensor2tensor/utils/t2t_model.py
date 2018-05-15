@@ -1109,7 +1109,7 @@ class T2TModel(base.Layer):
               logits[k], features, features[k])
         else:
           eval_metrics[metric_name] = metric_fn(
-              logits, features, features["targets"]) #, outputs=logits['outputs'][0])
+              logits, features, features["targets"])
       if isinstance(logits, dict):
         predictions = logits
       else:
