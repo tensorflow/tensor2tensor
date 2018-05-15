@@ -190,7 +190,7 @@ def combine_world_model_train_data(problem, final_data_dir, old_data_dirs):
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=3,
+      epochs=2,
       true_env_generator_num_steps=30000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
@@ -205,7 +205,7 @@ def rl_modelrl_base():
       # It makes sense to have ppo_time_limit=ppo_epoch_length,
       # though it is not necessary.
       ppo_epoch_length=200,
-      ppo_num_agents=1,
+      ppo_num_agents=8,
       game="wrapped_long_pong",
   )
 
@@ -260,25 +260,9 @@ def rl_modelrl_tiny_freeway():
 
 
 @registry.register_hparams
-def rl_modelrl_tiny_2agents():
-  """Tiny set for testing. With two ppo agents."""
-  hp = rl_modelrl_tiny()
-  hp.ppo_num_agents = 2
-  return hp
-
-
-@registry.register_hparams
-def rl_modelrl_pong_8agents():
-  """Tiny set for testing. With two ppo agents."""
-  hp = rl_modelrl_base()
-  hp.ppo_num_agents = 8
-  return hp
-
-
-@registry.register_hparams
-def rl_modelrl_freeway_8agents():
+def rl_modelrl_freeway():
   """Tiny set for testing Freeway."""
-  hparams = rl_modelrl_pong_8agents()
+  hparams = rl_modelrl_base()
   hparams.game = "freeway"
   return hparams
 
