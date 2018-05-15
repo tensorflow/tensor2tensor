@@ -24,6 +24,7 @@ import os
 
 # Dependency imports
 
+
 import gym
 import numpy as np
 
@@ -410,9 +411,6 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         in_graph_wrappers=in_graph_wrappers,
         problem=self.real_env_problem if self.real_env_problem else self,
         simulated_environment=self.simulated_environment)
-    if self.simulated_environment:
-      env_hparams.add_hparam("simulation_random_starts",
-                             self.simulation_random_starts)
 
     generator_batch_env = batch_env_factory(
         self.environment_spec, env_hparams, num_agents=1, xvfb=False)

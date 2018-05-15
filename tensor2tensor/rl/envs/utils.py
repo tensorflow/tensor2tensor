@@ -291,8 +291,7 @@ def batch_env_factory(environment_lambda, hparams, num_agents, xvfb=False):
 
   if hparams.simulated_environment:
     cur_batch_env = define_simulated_batch_env(
-        environment_lambda, num_agents, hparams.problem,
-        hparams.simulation_random_starts)
+        environment_lambda, num_agents, hparams.problem)
   else:
     cur_batch_env = define_batch_env(environment_lambda, num_agents, xvfb=xvfb)
   for w in wrappers:
@@ -311,8 +310,7 @@ def define_batch_env(constructor, num_agents, xvfb=False):
     return env
 
 
-def define_simulated_batch_env(environment_lambda, num_agents, problem,
-                               simulation_random_starts):
+def define_simulated_batch_env(environment_lambda, num_agents, problem):
   cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
-      environment_lambda, num_agents, problem, simulation_random_starts)
+      environment_lambda, num_agents, problem)
   return cur_batch_env
