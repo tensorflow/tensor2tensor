@@ -18,7 +18,7 @@ Example invocation:
 
 python -m tensor2tensor.rl.model_rl_experiment \
     --output_dir=$HOME/t2t/rl_v1 \
-    --loop_hparams_set=rl_modelrl_first \
+    --loop_hparams_set=rl_modelrl_base \
     --loop_hparams='true_env_generator_num_steps=10000,epochs=3'
 """
 from __future__ import absolute_import
@@ -45,7 +45,7 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("loop_hparams_set", "rl_modelrl_first",
+flags.DEFINE_string("loop_hparams_set", "rl_modelrl_base",
                     "Which RL hparams set to use.")
 flags.DEFINE_string("loop_hparams", "", "Overrides for overall loop HParams.")
 
@@ -169,6 +169,8 @@ def train(hparams, output_dir):
   return epoch_metrics[-1]
 
 
+
+
 def combine_world_model_train_data(problem, final_data_dir, old_data_dirs):
   """Add training data from old_data_dirs into final_data_dir."""
   for data_dir in old_data_dirs:
@@ -263,6 +265,22 @@ def rl_modelrl_tiny_2agents():
   hp = rl_modelrl_tiny()
   hp.ppo_num_agents = 2
   return hp
+
+
+@registry.register_hparams
+def rl_modelrl_pong_8agents():
+  """Tiny set for testing. With two ppo agents."""
+  hp = rl_modelrl_base()
+  hp.ppo_num_agents = 8
+  return hp
+
+
+@registry.register_hparams
+def rl_modelrl_freeway_8agents():
+  """Tiny set for testing Freeway."""
+  hparams = rl_modelrl_pong_8agents()
+  hparams.game = "freeway"
+  return hparams
 
 
 def create_loop_hparams():
