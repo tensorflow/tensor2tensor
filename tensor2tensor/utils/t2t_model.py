@@ -428,6 +428,11 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.target_modality
       else:
         target_modality = {k: None for k in logits.keys()}
+
+      if not isinstance(target_modality, dict):
+        return self._loss_single(
+          logits, target_modality, features['targets'])
+        
       assert set(logits.keys()) == set(target_modality.keys()), (
           "The keys of model_body's returned logits dict must match the keys "
           "of problem_hparams.target_modality's dict.")
