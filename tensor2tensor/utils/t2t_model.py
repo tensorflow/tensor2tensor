@@ -429,8 +429,8 @@ class T2TModel(base.Layer):
       else:
         target_modality = {k: None for k in logits.keys()}
       assert set(logits.keys()) == set(target_modality.keys()), (
-        "The keys of model_body's returned logits dict must match the keys "
-        "of problem_hparams.target_modality's dict.")
+          "The keys of model_body's returned logits dict must match the keys "
+          "of problem_hparams.target_modality's dict.")
       losses = {}
       for k, v in six.iteritems(logits):
         losses[k] = self._loss_single(v, target_modality[k], features[k])
