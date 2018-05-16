@@ -483,10 +483,6 @@ def create_evaluation_metrics(problems, model_hparams):
       else:
         predictions, labels = reduce_dimensions(predictions, labels)
 
-
-      def wrapped_metric_fn():
-        return metric_fn(predictions, labels, weights_fn=weights_fn, **kwargs)
-
       scores, weights = metric_fn(predictions, labels,
                                   weights_fn=weights_fn, **kwargs)
       return tf.metrics.mean(scores, weights)
