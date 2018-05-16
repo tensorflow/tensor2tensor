@@ -56,7 +56,7 @@ jobs:
         command: pip install git+git://github.com/google/python-fire.git@v0.1.1
       - type: shell
         name: Activate and get GCloud credentials
-        command: python ~/diseaseTools/gcloud/get_credentials.py run
+        command: python ./gcloud/get_credentials.py run
         workDir: ~/diseaseTools
       - type: shell
         name: Install kubectl
@@ -67,7 +67,7 @@ jobs:
       - type: shell
         name: Trigger smoke tests
         # CI sets up the root directory to project, which is here the tensor2tensor repo
-        command: python ~/diseaseTools/fathomairflow/integration_tests/trigger_tests_on_testinfra.py trigger_smoke_tests ~/project
+        command: python ./fathomairflow/integration_tests/trigger_tests_on_testinfra.py trigger_smoke_tests ~/project
         workDir: ~/diseaseTools
 workflows:
   version: 2
