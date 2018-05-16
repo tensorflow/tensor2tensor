@@ -133,92 +133,84 @@ def decode_from_dataset(estimator,
       "dataset_split": dataset_split,
       "max_records": decode_hp.num_samples
   }
-  
-  for problem_idx, problem_name in enumerate([problem_name]):
-    # Build the inference input function
-    infer_input_fn = input_fn_builder.build_input_fn(
-        mode=tf.estimator.ModeKeys.PREDICT,
-        hparams=hparams,
-        data_dir=hparams.data_dir,
-        num_datashards=devices.data_parallelism().n,
-        fixed_problem=problem_idx,
-        batch_size=decode_hp.batch_size,
-        dataset_split=dataset_split,
-        shard=shard)
 
-    # Get the predictions as an iterable
-    predictions = estimator.predict(infer_input_fn)
+  problem = hparams.problem
+  infer_input_fn = problem.make_estimator_input_fn(
+    tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
 
-    # Just return the generator directly if requested
-    if return_generator:
-      return predictions
+  # Get the predictions as an iterable
+  predictions = estimator.predict(infer_input_fn)
+
+  # Just return the generator directly if requested
+  if return_generator:
+    return predictions
     
-    # Prepare output file writers if decode_to_file passed
-    if decode_to_file:
-      if decode_hp.shards > 1:
-        decode_filename = decode_to_file + ("%.2d" % decode_hp.shard_id)
-      else:
-        decode_filename = decode_to_file
-      output_filepath = _decode_filename(decode_filename, problem_name,
+  # Prepare output file writers if decode_to_file passed
+  if decode_to_file:
+    if decode_hp.shards > 1:
+      decode_filename = decode_to_file + ("%.2d" % decode_hp.shard_id)
+    else:
+      decode_filename = decode_to_file
+    output_filepath = _decode_filename(decode_filename, problem_name,
                                          decode_hp)
-      parts = output_filepath.split(".")
-      parts[-1] = "targets"
-      target_filepath = ".".join(parts)
+    parts = output_filepath.split(".")
+    parts[-1] = "targets"
+    target_filepath = ".".join(parts)
 
-      output_file = tf.gfile.Open(output_filepath, "w")
-      target_file = tf.gfile.Open(target_filepath, "w")
+    output_file = tf.gfile.Open(output_filepath, "w")
+    target_file = tf.gfile.Open(target_filepath, "w")
 
-    problem_hparams = hparams.problems[problem_idx]
-    # Inputs vocabulary is set to targets if there are no inputs in the problem,
-    # e.g., for language models where the inputs are just a prefix of targets.
-    has_input = "inputs" in problem_hparams.vocabulary
-    inputs_vocab_key = "inputs" if has_input else "targets"
-    inputs_vocab = problem_hparams.vocabulary[inputs_vocab_key]
-    targets_vocab = problem_hparams.vocabulary["targets"]
-    predictions_out = []
-    for num_predictions, prediction in enumerate(predictions):
-      predictions_out.append(prediction)
-      num_predictions += 1
-      inputs = prediction["inputs"]
-      targets = prediction["targets"]
-      outputs = prediction["outputs"]
+  problem_hparams = hparams.problems[problem_idx]
+  # Inputs vocabulary is set to targets if there are no inputs in the problem,
+  # e.g., for language models where the inputs are just a prefix of targets.
+  has_input = "inputs" in problem_hparams.vocabulary
+  inputs_vocab_key = "inputs" if has_input else "targets"
+  inputs_vocab = problem_hparams.vocabulary[inputs_vocab_key]
+  targets_vocab = problem_hparams.vocabulary["targets"]
+  predictions_out = []
+  for num_predictions, prediction in enumerate(predictions):
+    predictions_out.append(prediction)
+    num_predictions += 1
+    inputs = prediction["inputs"]
+    targets = prediction["targets"]
+    outputs = prediction["outputs"]
 
-      # Log predictions
-      decoded_outputs = []
-      if decode_hp.return_beams:
-        output_beams = np.split(outputs, decode_hp.beam_size, axis=0)
-        for i, beam in enumerate(output_beams):
-          tf.logging.info("BEAM %d:" % i)
-          decoded = log_decode_results(
-              inputs,
-              beam,
-              problem_name,
-              num_predictions,
-              inputs_vocab,
-              targets_vocab,
-              save_images=decode_hp.save_images,
-              model_dir=estimator.model_dir,
-              identity_output=decode_hp.identity_output,
-              targets=targets)
-          decoded_outputs.append(decoded)
-      else:
+    # Log predictions
+    decoded_outputs = []
+    if decode_hp.return_beams:
+      output_beams = np.split(outputs, decode_hp.beam_size, axis=0)
+      for i, beam in enumerate(output_beams):
+        tf.logging.info("BEAM %d:" % i)
         decoded = log_decode_results(
-            inputs,
-            beam,
-            problem_name,
-            num_predictions,
-            inputs_vocab,
-            targets_vocab,
-            save_images=decode_hp.save_images,
-            model_dir=estimator.model_dir,
-            identity_output=decode_hp.identity_output,
-            targets=targets,
-            log_targets=decode_hp.log_targets)
+          inputs,
+          beam,
+          problem_name,
+          num_predictions,
+          inputs_vocab,
+          targets_vocab,
+          save_images=decode_hp.save_images,
+          model_dir=estimator.model_dir,
+          identity_output=decode_hp.identity_output,
+          targets=targets)
         decoded_outputs.append(decoded)
-        if decode_hp.write_beam_scores:
-          decoded_scores.append(score)
     else:
       decoded = log_decode_results(
+        inputs,
+        beam,
+        problem_name,
+        num_predictions,
+        inputs_vocab,
+        targets_vocab,
+        save_images=decode_hp.save_images,
+        model_dir=estimator.model_dir,
+        identity_output=decode_hp.identity_output,
+        targets=targets,
+        log_targets=decode_hp.log_targets)
+      decoded_outputs.append(decoded)
+      if decode_hp.write_beam_scores:
+          decoded_scores.append(score)
+      else:
+        decoded = log_decode_results(
           inputs,
           outputs,
           problem_name,
@@ -230,7 +222,7 @@ def decode_from_dataset(estimator,
           identity_output=decode_hp.identity_output,
           targets=targets,
           log_targets=decode_hp.log_targets)
-      decoded_outputs.append(decoded)
+        decoded_outputs.append(decoded)
 
     # Write out predictions if decode_to_file passed
     if decode_to_file:

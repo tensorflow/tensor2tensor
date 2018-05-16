@@ -348,13 +348,16 @@ def main(argv):
   log_registry()
 
   if FLAGS.cloud_mlengine:
+    # Fathom
+    assert False, 'No cloudml support currently'
     return cloud_mlengine.launch()
 
   if FLAGS.generate_data:
     generate_data()
 
-  if cloud_mlengine.job_dir():
-    FLAGS.output_dir = cloud_mlengine.job_dir()
+  # Fathom commented out
+  # if cloud_mlengine.job_dir():
+  #   FLAGS.output_dir = cloud_mlengine.job_dir()
     
   if argv:
     set_hparams_from_args(argv[1:])
