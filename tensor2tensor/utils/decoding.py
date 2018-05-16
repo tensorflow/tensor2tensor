@@ -134,9 +134,10 @@ def decode_from_dataset(estimator,
       "max_records": decode_hp.num_samples
   }
 
+  # Build the inference input function
   problem = hparams.problem
   infer_input_fn = problem.make_estimator_input_fn(
-    tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
+      tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
 
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn)
@@ -152,7 +153,7 @@ def decode_from_dataset(estimator,
     else:
       decode_filename = decode_to_file
     output_filepath = _decode_filename(decode_filename, problem_name,
-                                         decode_hp)
+                                       decode_hp)
     parts = output_filepath.split(".")
     parts[-1] = "targets"
     target_filepath = ".".join(parts)

@@ -230,8 +230,7 @@ def fathom_padded_accuracy(predictions,
     weights_fn=weights_fn)
 
 
-def set_precision(predictions,
-                  labels,
+def set_precision(predictions, labels,
                   weights_fn=common_layers.weights_nonzero):
   """Precision of set predictions.
 
@@ -274,6 +273,7 @@ def set_recall(predictions, labels, weights_fn=common_layers.weights_nonzero):
     labels = tf.reduce_max(labels, axis=1)
     labels = tf.cast(labels, tf.bool)
     return tf.to_float(tf.equal(labels, predictions)), weights
+
 
 def image_summary(predictions, targets, hparams):
   """Reshapes predictions and passes it to tensorboard.

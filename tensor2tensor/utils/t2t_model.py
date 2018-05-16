@@ -388,18 +388,16 @@ class T2TModel(base.Layer):
     if isinstance(logits, dict):
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
-        return self._loss_single(
-          logits, target_modality, features['targets'])
       else:
         target_modality = {k: None for k in logits.keys()}
 
-        assert set(logits.keys()) == set(target_modality.keys()), (
-            "The keys of model_body's returned logits dict must match the keys "
-            "of problem_hparams.target_modality's dict.")
-        losses = {}
-        for k, v in six.iteritems(logits):
-          losses[k] = self._loss_single(v, target_modality[k], features[k])
-        return tf.add_n([n / d for n, d in losses.values()])
+      assert set(logits.keys()) == set(target_modality.keys()), (
+          "The keys of model_body's returned logits dict must match the keys "
+          "of problem_hparams.target_modality's dict.")
+      losses = {}
+      for k, v in six.iteritems(logits):
+        losses[k] = self._loss_single(v, target_modality[k], features[k])
+      return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
@@ -1039,7 +1037,7 @@ class T2TModel(base.Layer):
 
     if not hasattr(hparams, "problem"):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
-    
+
     problem = hparams.problem
     if common_layers.is_on_tpu():
       # Fathom
@@ -1080,10 +1078,10 @@ class T2TModel(base.Layer):
         predictions = {"predictions": logits}
 
       return tf.estimator.EstimatorSpec(
-        tf.estimator.ModeKeys.EVAL,
-        predictions=predictions,
-        eval_metric_ops=eval_metrics,
-        loss=loss)
+          tf.estimator.ModeKeys.EVAL,
+          predictions=predictions,
+          eval_metric_ops=eval_metrics,
+          loss=loss)
 
   def estimator_spec_predict(self, features, use_tpu=False):
     """Construct EstimatorSpec for PREDICT mode."""
@@ -1441,6 +1439,7 @@ def summarize_features(features, num_shards=1):
         tf.summary.scalar("%s_nonpadding_tokens" % k, nonpadding_tokens)
         tf.summary.scalar("%s_nonpadding_fraction" % k,
                           tf.reduce_mean(nonpadding))
+
 
 _already_logged = set()
 

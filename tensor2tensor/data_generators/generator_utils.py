@@ -143,10 +143,9 @@ def generate_files(generator, output_filenames, max_cases=None, check_existing_f
       if None (default), we use the generator until StopIteration is raised.
   """
   # Fathom
-  if check_existing_files:
-    if outputs_exist(output_filenames):
-      tf.logging.info("Skipping generator because outputs files exist")
-      return
+  if outputs_exist(output_filenames) and check_existing_files:
+    tf.logging.info("Skipping generator because outputs files exist")
+    return
   tmp_filenames = [fname + ".incomplete" for fname in output_filenames]
   num_shards = len(output_filenames)
   writers = [tf.python_io.TFRecordWriter(fname) for fname in tmp_filenames]
