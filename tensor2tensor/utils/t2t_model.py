@@ -1106,7 +1106,7 @@ class T2TModel(base.Layer):
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
         parts = metric_name.split("/")
         assert len(parts) >= 2, 'Metric name does not have expected format!'
-        k = parts[1]]
+        k = parts[1]
         if isinstance(logits, dict) and k in logits:
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           eval_metrics[metric_name] = metric_fn(
