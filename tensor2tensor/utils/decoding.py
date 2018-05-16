@@ -182,19 +182,6 @@ def decode_from_dataset(estimator,
       for i, beam in enumerate(output_beams):
         tf.logging.info("BEAM %d:" % i)
         decoded = log_decode_results(
-            inputs,
-            beam,
-            problem_name,
-            num_predictions,
-            inputs_vocab,
-            targets_vocab,
-            save_images=decode_hp.save_images,
-            model_dir=estimator.model_dir,
-            identity_output=decode_hp.identity_output,
-            targets=targets)
-        decoded_outputs.append(decoded)
-    else:
-      decoded = log_decode_results(
           inputs,
           beam,
           problem_name,
@@ -204,15 +191,12 @@ def decode_from_dataset(estimator,
           save_images=decode_hp.save_images,
           model_dir=estimator.model_dir,
           identity_output=decode_hp.identity_output,
-          targets=targets,
-          log_targets=decode_hp.log_targets)
-      decoded_outputs.append(decoded)
-      if decode_hp.write_beam_scores:
-        decoded_scores.append(score)
-  else:
-    decoded = log_decode_results(
+          targets=targets)
+        decoded_outputs.append(decoded)
+    else:
+      decoded = log_decode_results(
         inputs,
-        outputs,
+        beam,
         problem_name,
         num_predictions,
         inputs_vocab,
@@ -222,22 +206,38 @@ def decode_from_dataset(estimator,
         identity_output=decode_hp.identity_output,
         targets=targets,
         log_targets=decode_hp.log_targets)
-    decoded_outputs.append(decoded)
-
-  # Write out predictions if decode_to_file passed
-  if decode_to_file:
-    for i, (d_input, d_output, d_target) in enumerate(decoded_outputs):
-      beam_score_str = ""
+      decoded_outputs.append(decoded)
       if decode_hp.write_beam_scores:
-        beam_score_str = "\t%.2f" % decoded_scores[i]
-      output_file.write(
-          str(d_output) + beam_score_str + decode_hp.delimiter)
-      target_file.write(str(d_target) + decode_hp.delimiter)
-      input_file.write(str(d_input) + decode_hp.delimiter)
+          decoded_scores.append(score)
+      else:
+        decoded = log_decode_results(
+          inputs,
+          outputs,
+          problem_name,
+          num_predictions,
+          inputs_vocab,
+          targets_vocab,
+          save_images=decode_hp.save_images,
+          model_dir=estimator.model_dir,
+          identity_output=decode_hp.identity_output,
+          targets=targets,
+          log_targets=decode_hp.log_targets)
+        decoded_outputs.append(decoded)
 
-  if (decode_hp.num_samples >= 0 and
-      num_predictions >= decode_hp.num_samples):
-    break
+    # Write out predictions if decode_to_file passed
+    if decode_to_file:
+      for i, (d_input, d_output, d_target) in enumerate(decoded_outputs):
+        beam_score_str = ""
+        if decode_hp.write_beam_scores:
+          beam_score_str = "\t%.2f" % decoded_scores[i]
+        output_file.write(
+            str(d_output) + beam_score_str + decode_hp.delimiter)
+        target_file.write(str(d_target) + decode_hp.delimiter)
+        input_file.write(str(d_input) + decode_hp.delimiter)
+
+    if (decode_hp.num_samples >= 0 and
+        num_predictions >= decode_hp.num_samples):
+      break
 
   if decode_to_file:
     output_file.close()
