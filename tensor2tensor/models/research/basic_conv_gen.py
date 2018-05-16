@@ -216,7 +216,7 @@ def basic_conv_l1():
   """Basic conv model with L1 modality."""
   hparams = basic_conv()
   hparams.target_modality = "video:l1"
-  hparams.video_modality_loss_cutoff = 3.0
+  hparams.video_modality_loss_cutoff = 2.4
   return hparams
 
 
@@ -225,7 +225,7 @@ def basic_conv_l2():
   """Basic conv model with L2 modality."""
   hparams = basic_conv()
   hparams.target_modality = "video:l2"
-  hparams.video_modality_loss_cutoff = 3.0
+  hparams.video_modality_loss_cutoff = 2.4
   return hparams
 
 
