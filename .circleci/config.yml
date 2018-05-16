@@ -47,9 +47,9 @@ jobs:
       - type: shell
         name: Checkout diseaseTools develop
         command: git clone -b develop git@github.com:medicode/diseaseTools.git ~/diseaseTools;
-      - type: shell
-        name: Enter diseaseTools directory
-        command: cd ~/diseaseTools
+      # - type: shell
+      #   name: Enter diseaseTools directory
+      #   command: cd ~/diseaseTools
       - run: *DOCKER_LOGIN
       - type: shell
         name: Use Python 2
@@ -60,6 +60,7 @@ jobs:
       - type: shell
         name: Activate and get GCloud credentials
         command: python ~/diseaseTools/gcloud/get_credentials.py run
+        workDir: ~/diseaseTools
       - type: shell
         name: Install kubectl
         command: |
