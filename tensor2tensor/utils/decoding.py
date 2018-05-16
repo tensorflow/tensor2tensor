@@ -160,7 +160,7 @@ def decode_from_dataset(estimator,
     output_file = tf.gfile.Open(output_filepath, "w")
     target_file = tf.gfile.Open(target_filepath, "w")
 
-  problem_hparams = hparams.problems[problem_idx]
+  problem_hparams = hparams.problem_hparams
   # Inputs vocabulary is set to targets if there are no inputs in the problem,
   # e.g., for language models where the inputs are just a prefix of targets.
   has_input = "inputs" in problem_hparams.vocabulary
