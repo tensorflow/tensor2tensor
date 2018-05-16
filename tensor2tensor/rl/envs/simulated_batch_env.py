@@ -79,6 +79,23 @@ class HistoryBuffer(object):
       return self._history_buff.read_value()
 
 
+def compute_uncertainty_reward(logits, predictions):
+  """Uncertainty reward based on logits."""
+  # TODO(rsepassi): Add support for L1/L2 loss models. Current code only
+  # works for softmax models.
+  vocab_size = logits.shape[-1]
+  assert vocab_size > 1
+  log_probs = common_layers.log_prob_from_logits(logits)
+  max_log_probs = common_layers.index_last_dim_with_indices(log_probs,
+                                                            predictions)
+  # Threshold
+  neg_log_prob = tf.nn.relu(-max_log_probs - 0.02)
+  # Sum across all but the batch dimension
+  reduce_dims = list(range(len(neg_log_prob.shape)))[1:]
+  summed = tf.reduce_sum(neg_log_prob, axis=reduce_dims)
+  return summed / 10
+
+
 class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   """Batch of environments inside the TensorFlow graph.
 
@@ -88,10 +105,12 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   """
 
   def __init__(self, environment_lambda, length, problem,
-               simulation_random_starts):
+               simulation_random_starts=False, intrinsic_reward_scale=0.):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
+    self._min_reward = problem.min_reward
     self._num_frames = problem.num_input_frames
+    self._intrinsic_reward_scale = intrinsic_reward_scale
 
     initialization_env = environment_lambda()
     hparams = trainer_lib.create_hparams(
@@ -130,13 +149,30 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         model_output = self._model.infer(
             {"inputs": history, "input_action": actions})
-      observ = model_output["targets"]
-      observ = tf.cast(observ[:, 0, :, :, :], tf.float32)
-      # TODO(lukaszkaiser): instead of -1 use min_reward in the line below.
-      reward = model_output["target_reward"][:, 0, 0, 0] - 1
-      reward = tf.cast(reward, tf.float32)
-      # Some wrappers need explicit shape, so we reshape here.
-      reward = tf.reshape(reward, shape=(self.length,))
+
+      observ = tf.to_float(tf.squeeze(model_output["targets"], axis=1))
+
+      reward = (tf.squeeze(model_output["target_reward"], axis=[1, 2, 3]) +
+                self._min_reward)
+      reward = tf.reshape(tf.to_float(reward), shape=(self.length,))
+
+      if self._intrinsic_reward_scale:
+        # Use the model's uncertainty about its prediction as an intrinsic
+        # reward. The uncertainty is measured by the log probability of the
+        # predicted pixel value.
+        if "targets_logits" not in model_output:
+          raise ValueError("The use of intrinsic rewards requires access to "
+                           "the logits. Ensure that model.infer returns "
+                           "'targets_logits'")
+        uncertainty_reward = compute_uncertainty_reward(
+            model_output["targets_logits"], model_output["targets"])
+        uncertainty_reward = tf.minimum(
+            1., self._intrinsic_reward_scale * uncertainty_reward)
+        uncertainty_reward = tf.Print(uncertainty_reward, [uncertainty_reward],
+                                      message="uncertainty_reward", first_n=1,
+                                      summarize=8)
+        reward += uncertainty_reward
+
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
       with tf.control_dependencies([observ]):

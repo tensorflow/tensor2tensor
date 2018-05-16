@@ -421,6 +421,8 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     if self.simulated_environment:
       env_hparams.add_hparam("simulation_random_starts",
                              self.simulation_random_starts)
+      env_hparams.add_hparam("intrinsic_reward_scale",
+                             self.intrinsic_reward_scale)
 
     generator_batch_env = batch_env_factory(
         self.environment_spec, env_hparams, num_agents=1, xvfb=False)

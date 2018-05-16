@@ -2998,6 +2998,39 @@ def top_1_tpu(inputs):
   return tf.squeeze(inputs_max, -1), tf.reduce_max(index, axis=-1)
 
 
+def index_last_dim_with_indices(x, indices):
+  """Use indices to index into the last axis of x.
+
+  This can be useful for recovering the actual probabilities of a sample from a
+  probability distribution.
+
+  Args:
+    x: Tensor, n-d.
+    indices: Tensor, (n-1)-d, where the dimension sizes match the first (n-1)
+      dimensions of x. The values of indices will be used to index into the last
+      axis of x.
+
+  Returns:
+    Tensor, (n-1)-d.
+  """
+  assert len(x.shape) == len(indices.shape) + 1
+
+  x_shape = shape_list(x)
+  vocab_size = x_shape[-1]
+
+  flat_x = tf.reshape(x, [list_product(x_shape[:-1]), vocab_size])
+  flat_indices = tf.reshape(indices, [list_product(x_shape[:-1])])
+
+  idx = tf.stack(
+      [tf.range(tf.to_int64(shape_list(flat_indices)[0])),
+       tf.to_int64(flat_indices)], axis=1)
+  flat_x_idx = tf.gather_nd(flat_x, idx)
+
+  x_idx = tf.reshape(flat_x_idx, x_shape[:-1])
+
+  return x_idx
+
+
 def should_generate_summaries():
   """Is this an appropriate context to generate summaries.
 

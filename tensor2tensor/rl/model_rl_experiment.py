@@ -139,6 +139,7 @@ def train(hparams, output_dir):
     gym_simulated_problem.settable_num_steps = sim_steps
     gym_simulated_problem.real_env_problem = gym_problem
     gym_simulated_problem.simulation_random_starts = False
+    gym_simulated_problem.intrinsic_reward_scale = 0.
     gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
     model_reward_accuracy = 0.0
     if gym_simulated_problem.dones != 0:
@@ -160,6 +161,7 @@ def train(hparams, output_dir):
     ppo_hparams.epochs_num = ppo_epochs_num
     ppo_hparams.simulated_environment = True
     ppo_hparams.simulation_random_starts = hparams.simulation_random_starts
+    ppo_hparams.intrinsic_reward_scale = hparams.intrinsic_reward_scale
     ppo_hparams.eval_every_epochs = 0
     ppo_hparams.save_models_every_epochs = ppo_epochs_num
     ppo_hparams.epoch_length = hparams.ppo_epoch_length
@@ -236,6 +238,7 @@ def rl_modelrl_base():
       model_train_steps=100000,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
+      intrinsic_reward_scale=0.,
       ppo_epochs_num=500,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that

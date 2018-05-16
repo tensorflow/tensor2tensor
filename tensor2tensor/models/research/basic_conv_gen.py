@@ -150,6 +150,7 @@ class BasicConvGen(t2t_model.T2TModel):
       results = {}
       for k, v in six.iteritems(logits):
         results[k] = logits_to_samples(v)
+        results["%s_logits" % k] = v
     else:
       results = logits_to_samples(logits)
 
