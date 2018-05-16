@@ -70,7 +70,8 @@ def train(hparams, output_dir):
   orig_autoencoder_path = FLAGS.autoencoder_path
   for iloop in range(hparams.epochs):
     # Train autoencoder if needed.
-    if hparams.autoencoder_train_steps > 0 and not orig_autoencoder_path:
+    if (hparams.autoencoder_train_steps > 0 and iloop == 0 and
+        not orig_autoencoder_path):
       time_delta = time.time() - start_time
       tf.logging.info("%s Step AE - train autoencoder. Time: %s",
                       line, str(datetime.timedelta(seconds=time_delta)))
@@ -223,6 +224,8 @@ def combine_world_model_train_data(problem, final_data_dir, old_data_dirs):
       # should be fine.
       new_fname = os.path.join(final_data_dir,
                                os.path.basename(fname) + "." + suffix)
+      if tf.gfile.Exists(new_fname):
+        tf.gfile.Remove(new_fname)
       tf.gfile.Copy(fname, new_fname)
 
 
@@ -250,6 +253,16 @@ def rl_modelrl_base():
       ppo_num_agents=8,
       game="wrapped_long_pong",
   )
+
+
+@registry.register_hparams
+def rl_modelrl_medium():
+  """Small set for larger testing."""
+  hparams = rl_modelrl_base()
+  hparams.true_env_generator_num_steps //= 2
+  hparams.model_train_steps //= 2
+  hparams.ppo_epochs_num //= 2
+  return hparams
 
 
 @registry.register_hparams
@@ -286,6 +299,14 @@ def rl_modelrl_l1_base():
 
 
 @registry.register_hparams
+def rl_modelrl_l1_medium():
+  """Medium parameter set with L1 loss."""
+  hparams = rl_modelrl_medium()
+  hparams.generative_model_params = "basic_conv_l1"
+  return hparams
+
+
+@registry.register_hparams
 def rl_modelrl_l1_short():
   """Short parameter set with L1 loss."""
   hparams = rl_modelrl_short()
@@ -295,7 +316,7 @@ def rl_modelrl_l1_short():
 
 @registry.register_hparams
 def rl_modelrl_l1_tiny():
-  """Short parameter set with L1 loss."""
+  """Tiny parameter set with L1 loss."""
   hparams = rl_modelrl_tiny()
   hparams.generative_model_params = "basic_conv_l1"
   return hparams
@@ -310,6 +331,14 @@ def rl_modelrl_l2_base():
 
 
 @registry.register_hparams
+def rl_modelrl_l2_medium():
+  """Medium parameter set with L2 loss."""
+  hparams = rl_modelrl_medium()
+  hparams.generative_model_params = "basic_conv_l2"
+  return hparams
+
+
+@registry.register_hparams
 def rl_modelrl_l2_short():
   """Short parameter set with L2 loss."""
   hparams = rl_modelrl_short()
@@ -319,7 +348,7 @@ def rl_modelrl_l2_short():
 
 @registry.register_hparams
 def rl_modelrl_l2_tiny():
-  """Short parameter set with L1 loss."""
+  """Tiny parameter set with L2 loss."""
   hparams = rl_modelrl_tiny()
   hparams.generative_model_params = "basic_conv_l2"
   return hparams
@@ -332,6 +361,33 @@ def rl_modelrl_ae_base():
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "basic_conv_ae"
   hparams.autoencoder_train_steps = 100000
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_ae_l1_base():
+  """Parameter set for autoencoders and L1 loss."""
+  hparams = rl_modelrl_ae_base()
+  hparams.generative_model_params = "basic_conv_l1"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_ae_l2_base():
+  """Parameter set for autoencoders and L2 loss."""
+  hparams = rl_modelrl_ae_base()
+  hparams.generative_model_params = "basic_conv_l2"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_ae_medium():
+  """Medium parameter set for autoencoders."""
+  hparams = rl_modelrl_ae_base()
+  hparams.autoencoder_train_steps //= 2
+  hparams.true_env_generator_num_steps //= 2
+  hparams.model_train_steps //= 2
+  hparams.ppo_epochs_num //= 2
   return hparams
 
 
