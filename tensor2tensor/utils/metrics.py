@@ -61,8 +61,10 @@ class Metrics(object):
 
 
 def image_rmse(predictions, labels, weights_fn=common_layers.weights_all):
-  """RMSE but will argmax if last dim is 256."""
-  if predictions.shape[-1] == 256:
+  """RMSE but will argmax if last dim is not 1."""
+  if common_layers.shape_list(predictions)[-1] == 1:
+    predictions = tf.squeeze(predictions, axis=[-1])
+  else:
     predictions = tf.argmax(predictions, axis=-1)
   return padded_rmse(predictions, labels, weights_fn)
 
@@ -71,10 +73,10 @@ def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   predictions = tf.to_float(predictions)
   labels = tf.to_float(labels)
   predictions, labels = common_layers.pad_with_zeros(predictions, labels)
-  targets = labels
-  weights = weights_fn(targets)
-  error = tf.sqrt(tf.pow(predictions - labels, 2))
-  return tf.reduce_sum(error * weights), tf.reduce_sum(weights)
+  weights = weights_fn(labels)
+  error = tf.pow(predictions - labels, 2)
+  error_sqrt = tf.sqrt(tf.reduce_sum(error * weights))
+  return error_sqrt, tf.reduce_sum(weights)
 
 
 def padded_log_poisson(predictions,

@@ -56,15 +56,50 @@ def train(hparams, output_dir):
   data_dir = os.path.expanduser(prefix + "/data")
   tmp_dir = os.path.expanduser(prefix + "/tmp")
   output_dir = os.path.expanduser(prefix + "/output")
+  autoencoder_dir = os.path.expanduser(prefix + "/autoencoder")
   tf.gfile.MakeDirs(data_dir)
   tf.gfile.MakeDirs(tmp_dir)
   tf.gfile.MakeDirs(output_dir)
+  tf.gfile.MakeDirs(autoencoder_dir)
   last_model = ""
   start_time = time.time()
   line = ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    "
   epoch_metrics = []
   iter_data_dirs = []
+  ae_data_dirs = []
+  orig_autoencoder_path = FLAGS.autoencoder_path
   for iloop in range(hparams.epochs):
+    # Train autoencoder if needed.
+    if hparams.autoencoder_train_steps > 0 and not orig_autoencoder_path:
+      time_delta = time.time() - start_time
+      tf.logging.info("%s Step AE - train autoencoder. Time: %s",
+                      line, str(datetime.timedelta(seconds=time_delta)))
+      with tf.Graph().as_default():
+        # Generate data.
+        FLAGS.autoencoder_path = ""
+        FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
+        FLAGS.agent_policy_path = ""
+        gym_problem = registry.problem(FLAGS.problem)
+        gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
+        ae_data_dir = os.path.join(data_dir, "ae%d" % iloop)
+        ae_data_dirs.append(ae_data_dir)
+        tf.gfile.MakeDirs(ae_data_dir)
+        gym_problem.generate_data(ae_data_dir, tmp_dir)
+        if ae_data_dirs[:-1]:
+          combine_world_model_train_data(gym_problem,
+                                         ae_data_dir,
+                                         ae_data_dirs[:-1])
+        # Train AE.
+        FLAGS.data_dir = ae_data_dir
+        FLAGS.output_dir = autoencoder_dir
+        # TODO(lukaszkaiser): make non-hardcoded here and in gym_problems.py.
+        FLAGS.model = "autoencoder_ordered_discrete"
+        FLAGS.hparams_set = "autoencoder_discrete_pong"
+        FLAGS.train_steps = hparams.autoencoder_train_steps * (iloop + 2)
+        FLAGS.eval_steps = 100
+        t2t_trainer.main([])
+        FLAGS.autoencoder_path = autoencoder_dir
+
     # Generate random frames.
     if iloop == 0:
       time_delta = time.time() - start_time
@@ -192,11 +227,12 @@ def combine_world_model_train_data(problem, final_data_dir, old_data_dirs):
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=2,
+      epochs=3,
       true_env_generator_num_steps=30000,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
       ppo_params="ppo_pong_base",
+      autoencoder_train_steps=0,
       model_train_steps=100000,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
@@ -211,6 +247,16 @@ def rl_modelrl_base():
       ppo_num_agents=8,
       game="wrapped_long_pong",
   )
+
+
+@registry.register_hparams
+def rl_modelrl_short():
+  """Small set for larger testing."""
+  hparams = rl_modelrl_base()
+  hparams.true_env_generator_num_steps //= 5
+  hparams.model_train_steps //= 10
+  hparams.ppo_epochs_num //= 10
+  return hparams
 
 
 @registry.register_hparams
@@ -229,20 +275,81 @@ def rl_modelrl_tiny():
 
 
 @registry.register_hparams
-def rl_modelrl_ae():
-  """Parameter set for autoencoders."""
+def rl_modelrl_l1_base():
+  """Parameter set with L1 loss."""
   hparams = rl_modelrl_base()
-  hparams.ppo_params = "ppo_pong_ae_base",
-  hparams.generative_model_params = "basic_conv_ae"
+  hparams.generative_model_params = "basic_conv_l1"
   return hparams
 
 
 @registry.register_hparams
-def rl_modelrl_tiny_ae():
+def rl_modelrl_l1_short():
+  """Short parameter set with L1 loss."""
+  hparams = rl_modelrl_short()
+  hparams.generative_model_params = "basic_conv_l1"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_l1_tiny():
+  """Short parameter set with L1 loss."""
+  hparams = rl_modelrl_tiny()
+  hparams.generative_model_params = "basic_conv_l1"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_l2_base():
+  """Parameter set with L2 loss."""
+  hparams = rl_modelrl_base()
+  hparams.generative_model_params = "basic_conv_l2"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_l2_short():
+  """Short parameter set with L2 loss."""
+  hparams = rl_modelrl_short()
+  hparams.generative_model_params = "basic_conv_l2"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_l2_tiny():
+  """Short parameter set with L1 loss."""
+  hparams = rl_modelrl_tiny()
+  hparams.generative_model_params = "basic_conv_l2"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_ae_base():
+  """Parameter set for autoencoders."""
+  hparams = rl_modelrl_base()
+  hparams.ppo_params = "ppo_pong_ae_base"
+  hparams.generative_model_params = "basic_conv_ae"
+  hparams.autoencoder_train_steps = 100000
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_ae_short():
+  """Small parameter set for autoencoders."""
+  hparams = rl_modelrl_ae_base()
+  hparams.autoencoder_train_steps //= 10
+  hparams.true_env_generator_num_steps //= 5
+  hparams.model_train_steps //= 10
+  hparams.ppo_epochs_num //= 10
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_ae_tiny():
   """Tiny set for testing autoencoders."""
   hparams = rl_modelrl_tiny()
-  hparams.ppo_params = "ppo_pong_ae_base",
+  hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "basic_conv_ae"
+  hparams.autoencoder_train_steps = 20
   return hparams
 
 

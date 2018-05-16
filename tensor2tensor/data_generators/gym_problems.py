@@ -319,7 +319,9 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self._real_env = None
     self.real_env_problem = None
     self.in_graph_wrappers = []
-    self.collect_hparams = rl.ppo_atari_base()
+    self.collect_hparams = rl.ppo_pong_base()
+    if FLAGS.autoencoder_path:
+      self.collect_hparams = rl.ppo_pong_ae_base()
     self.settable_num_steps = 50000
     self.simulated_environment = None
     self.warm_up = 10  # TODO(piotrm): This should be probably removed.
@@ -350,8 +352,14 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
   def frame_height(self):
     if FLAGS.autoencoder_path:
       # TODO(lukaszkaiser): remove hard-coded autoencoder params.
-      return int(math.ceil(self.raw_frame_height / 32))
+      return int(math.ceil(self.raw_frame_height / self.autoencoder_factor))
     return self.raw_frame_height
+
+  @property
+  def autoencoder_factor(self):
+    """By how much to divide sizes when using autoencoders."""
+    hparams = autoencoders.autoencoder_discrete_pong()
+    return 2**hparams.num_hidden_layers
 
   @property
   def raw_frame_width(self):
@@ -361,7 +369,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
   def frame_width(self):
     if FLAGS.autoencoder_path:
       # TODO(lukaszkaiser): remove hard-coded autoencoder params.
-      return int(math.ceil(self.raw_frame_width / 32))
+      return int(math.ceil(self.raw_frame_width / self.autoencoder_factor))
     return self.raw_frame_width
 
   def setup_autoencoder(self):
@@ -648,11 +656,15 @@ class GymDiscreteProblemWithAgentOnWrappedPong(
 
   @property
   def frame_height(self):
-    return 7 if FLAGS.autoencoder_path else 210
+    if not FLAGS.autoencoder_path:
+      return 210
+    return int(math.ceil(210 / self.autoencoder_factor))
 
   @property
   def frame_width(self):
-    return 5 if FLAGS.autoencoder_path else 160
+    if not FLAGS.autoencoder_path:
+      return 160
+    return int(math.ceil(160 / self.autoencoder_factor))
 
 
 @registry.register_problem
@@ -680,11 +692,15 @@ class GymDiscreteProblemWithAgentOnFreeway(
 
   @property
   def frame_height(self):
-    return 7 if FLAGS.autoencoder_path else 210
+    if not FLAGS.autoencoder_path:
+      return 210
+    return int(math.ceil(210 / self.autoencoder_factor))
 
   @property
   def frame_width(self):
-    return 5 if FLAGS.autoencoder_path else 160
+    if not FLAGS.autoencoder_path:
+      return 160
+    return int(math.ceil(160 / self.autoencoder_factor))
 
   @property
   def raw_frame_height(self):

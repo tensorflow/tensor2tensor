@@ -709,6 +709,9 @@ class RealL2LossModality(RealModality):
 
   def loss(self, top_out, targets):
     predictions = top_out
+    if (len(common_layers.shape_list(top_out)) != len(
+        common_layers.shape_list(targets))):
+      predictions = tf.squeeze(top_out, axis=[-1])
     with tf.name_scope("l2"):
       weights = self.targets_weights_fn(targets)
       l2 = tf.pow(predictions - targets, 2)
@@ -721,9 +724,11 @@ class RealLogPoissonLossModality(RealModality):
 
   def loss(self, top_out, targets):
     predictions = top_out
+    if (len(common_layers.shape_list(top_out)) != len(
+        common_layers.shape_list(targets))):
+      predictions = tf.squeeze(top_out, axis=[-1])
     with tf.name_scope("log_possion"):
       weights = self.targets_weights_fn(targets)
-
       lp_loss = tf.nn.log_poisson_loss(targets, predictions)
       return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
 

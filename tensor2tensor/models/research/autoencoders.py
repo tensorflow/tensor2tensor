@@ -508,6 +508,7 @@ def autoencoder_ordered_discrete():
 def autoencoder_discrete_pong():
   """Discrete autoencoder model for compressing pong frames."""
   hparams = autoencoder_ordered_discrete()
+  hparams.num_hidden_layers = 4
   hparams.bottleneck_size = 24
   hparams.dropout = 0.1
   hparams.batch_size = 2

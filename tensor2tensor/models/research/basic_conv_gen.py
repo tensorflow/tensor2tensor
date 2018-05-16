@@ -180,7 +180,7 @@ def basic_conv():
   hparams.dropout = 0.5
   hparams.add_hparam("num_compress_steps", 6)
   hparams.add_hparam("filter_double_steps", 2)
-  hparams.add_hparam("video_modality_loss_cutoff", 0.01)
+  hparams.add_hparam("video_modality_loss_cutoff", 0.02)
   return hparams
 
 
