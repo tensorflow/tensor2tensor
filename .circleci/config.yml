@@ -68,7 +68,7 @@ jobs:
           sudo mv ./kubectl /usr/local/bin/kubectl
       - type: shell
         name: Trigger smoke tests
-        command: python ~/diseaseTools/fathomairflow/integration_tests/trigger_tests_on_testinfra.py trigger_smoke_tests ~/project/tensor2tensor
+        command: python ~/diseaseTools/fathomairflow/integration_tests/trigger_tests_on_testinfra.py trigger_smoke_tests ~/project
 workflows:
   version: 2
   build-test-deploy-tensor2tensor:
