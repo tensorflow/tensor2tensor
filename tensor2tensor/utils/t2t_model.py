@@ -1115,7 +1115,7 @@ class T2TModel(base.Layer):
           eval_metrics[metric_name] = metric_fn(
               logits, features, features["targets"])
       if isinstance(logits, dict):
-        predictions = {"predictions": logits['logits']}
+        predictions = logits
       else:
         predictions = {"predictions": logits}
 
