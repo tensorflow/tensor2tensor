@@ -388,16 +388,24 @@ class T2TModel(base.Layer):
     if isinstance(logits, dict):
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
+        # Fathom
+        # This and below changes needed b/c we sometimes send in
+        # logits as a dict...that is our format, and not theirs.
+        #
+        # TODO: see if we can streamline this handling to stay
+        # closer to upstream.
+        return self._loss_single(
+          logits, target_modality, features['targets'])
       else:
         target_modality = {k: None for k in logits.keys()}
 
-      assert set(logits.keys()) == set(target_modality.keys()), (
-          "The keys of model_body's returned logits dict must match the keys "
-          "of problem_hparams.target_modality's dict.")
-      losses = {}
-      for k, v in six.iteritems(logits):
-        losses[k] = self._loss_single(v, target_modality[k], features[k])
-      return tf.add_n([n / d for n, d in losses.values()])
+        assert set(logits.keys()) == set(target_modality.keys()), (
+            "The keys of model_body's returned logits dict must match the keys "
+            "of problem_hparams.target_modality's dict.")
+        losses = {}
+        for k, v in six.iteritems(logits):
+          losses[k] = self._loss_single(v, target_modality[k], features[k])
+        return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
