@@ -28,8 +28,6 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-from tensorflow.python.eager import context
-
 # Fathom
 from fathomt2t_dependencies.common_t2t_utils import get_problem_from_hparams
 
@@ -212,13 +210,13 @@ class ImageModality(modality.Modality):
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
       inputs = tf.to_float(inputs)
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("inputs", inputs, max_outputs=2)
       return inputs
 
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("targets_bottom",
                          tf.cast(inputs, tf.uint8), max_outputs=1)
       inputs_shape = common_layers.shape_list(inputs)
@@ -239,17 +237,9 @@ class ImageModality(modality.Modality):
                                name="merge_pixel_embedded_channels")
       return merged
 
-  # FATHOM
-  # TODO: consider if we can revert to just .problem
-  def _get_num_channels(self):
-    try:
-      return get_problem_from_hparams(self._model_hparams).num_channels
-    except AttributeError:
-      return self._model_hparams.problem.num_channels
-
   def top(self, body_output, _):
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
-    num_channels = self._get_num_channels()
+    num_channels = self._model_hparams.problem.num_channels
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
@@ -267,8 +257,7 @@ class ImageModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        weights_fn=self.targets_weights_fn,
-        gaussian=True)
+        weights_fn=self.targets_weights_fn)
 
 
 @registry.register_image_modality("image_channel_compress")
