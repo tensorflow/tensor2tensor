@@ -77,6 +77,6 @@ workflows:
       - smoke-testinfra:  # only smoke from master if tests pass
           requires:
             - build-test-tensor2tensor # require CI tests to pass
-          # filters:
-          #   branches:
-          #     only: master
+          filters:
+            branches:
+              only: master
