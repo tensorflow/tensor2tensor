@@ -41,7 +41,7 @@ jobs:
     machine: true
     workDir: ~
     environment:
-      PYTHONPATH: .
+      PYTHONPATH: ~/diseaseTools:.
     steps:
       - type: checkout
       - type: shell
@@ -68,7 +68,8 @@ jobs:
           sudo mv ./kubectl /usr/local/bin/kubectl
       - type: shell
         name: Trigger smoke tests
-        command: python ~/diseaseTools/fathomairflow/integration_tests/trigger_tests_on_testinfra.py trigger_smoke_tests ~/tensor2tensor
+        # CI sets up the root directory to project, which is here the tensor2tensor repo
+        command: python ~/diseaseTools/fathomairflow/integration_tests/trigger_tests_on_testinfra.py trigger_smoke_tests ~/project
 workflows:
   version: 2
   build-test-deploy-tensor2tensor:
