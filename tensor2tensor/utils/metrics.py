@@ -463,9 +463,6 @@ def create_evaluation_metrics(problems, model_hparams):
 
     def problem_metric_fn(predictions, features, labels):
       """Metric fn."""
-      labels = features.get("targets", None)
-      problem_choice = features.get("problem_choice", 0)
-
       # Send along the entire features dict if the metric fn has the kwarg
       # "features".
       kwargs = {}
@@ -476,18 +473,19 @@ def create_evaluation_metrics(problems, model_hparams):
       # (epurdy/fathom) see comment in model_builder.py, function
       # combine_shards for discussion
       if isinstance(predictions, dict):
+        for k in predictions:
+          predictions[k], labels = reduce_dimensions(predictions[k], labels)
         args = args or []
         keywords = keywords or []
         if 'outputs' in args or 'outputs' in keywords:
           kwargs['outputs'] = predictions['outputs']
-        logits = predictions['logits']
+        predictions = predictions['logits']
       else:
         predictions, labels = reduce_dimensions(predictions, labels)
-        logits = predictions
 
 
       def wrapped_metric_fn():
-        return metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
+        return metric_fn(predictions, labels, weights_fn=weights_fn, **kwargs)
 
       scores, weights = metric_fn(logits, labels,
                                   weights_fn=weights_fn, **kwargs)

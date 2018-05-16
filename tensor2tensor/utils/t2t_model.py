@@ -427,20 +427,18 @@ class T2TModel(base.Layer):
     if isinstance(logits, dict):
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
+        return self._loss_single(
+          logits, target_modality, features['targets'])
       else:
         target_modality = {k: None for k in logits.keys()}
 
-      if not isinstance(target_modality, dict):
-        return self._loss_single(
-          logits, target_modality, features['targets'])
-        
-      assert set(logits.keys()) == set(target_modality.keys()), (
-          "The keys of model_body's returned logits dict must match the keys "
-          "of problem_hparams.target_modality's dict.")
-      losses = {}
-      for k, v in six.iteritems(logits):
-        losses[k] = self._loss_single(v, target_modality[k], features[k])
-      return tf.add_n([n / d for n, d in losses.values()])
+        assert set(logits.keys()) == set(target_modality.keys()), (
+            "The keys of model_body's returned logits dict must match the keys "
+            "of problem_hparams.target_modality's dict.")
+        losses = {}
+        for k, v in six.iteritems(logits):
+          losses[k] = self._loss_single(v, target_modality[k], features[k])
+        return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
@@ -1106,7 +1104,9 @@ class T2TModel(base.Layer):
       eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
       eval_metrics = {}
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
-        k = metric_name.split("/")[1]
+        parts = metric_name.split("/")
+        assert len(parts) >= 2, 'Metric name does not have expected format!'
+        k = parts[1]]
         if isinstance(logits, dict) and k in logits:
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           eval_metrics[metric_name] = metric_fn(
@@ -1115,24 +1115,15 @@ class T2TModel(base.Layer):
           eval_metrics[metric_name] = metric_fn(
               logits, features, features["targets"])
       if isinstance(logits, dict):
-        predictions = logits
+        predictions = {"predictions": logits['logits']}
       else:
         predictions = {"predictions": logits}
 
-      # Fathom
-      if isinstance(logits, dict):
-        return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
-          predictions=logits['logits'],
-          eval_metric_ops=eval_metrics,
-          loss=loss)
-
-      else:
-        return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
-          predictions=predictions,
-          eval_metric_ops=eval_metrics,
-          loss=loss)
+      return tf.estimator.EstimatorSpec(
+        tf.estimator.ModeKeys.EVAL,
+        predictions=predictions,
+        eval_metric_ops=eval_metrics,
+        loss=loss)
 
   def estimator_spec_predict(self, features, use_tpu=False):
     """Construct EstimatorSpec for PREDICT mode."""
