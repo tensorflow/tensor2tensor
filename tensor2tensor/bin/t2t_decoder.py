@@ -176,7 +176,6 @@ def score_file(filename):
       # Get the score.
       np_loss = sess.run(losses["training"], feed)
       results.append(np_loss)
-  return results
 
     # Fathom
     if FLAGS.fathom_output_predictions:
@@ -184,7 +183,9 @@ def score_file(filename):
       assert '-' not in FLAGS.problems
       problem = registry.problem(FLAGS.problems)
       problem.output_predictions(predictions)
-    
+
+  return results
+      
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)

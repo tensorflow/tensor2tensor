@@ -167,7 +167,7 @@ def generate_files(generator, output_filenames, max_cases=None, check_existing_f
     writer.close()
 
   for tmp_name, final_name in zip(tmp_filenames, output_filenames):
-    tf.gfile.Rename(tmp_name, final_name)
+    tf.gfile.Rename(tmp_name, final_name, overwrite=True)
 
   tf.logging.info("Generated %s Examples", counter)
 

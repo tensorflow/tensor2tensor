@@ -197,7 +197,10 @@ class T2TModel(base.Layer):
       sharded_logits, losses = self.model_fn_sharded(sharded_features)
 
       # Fathom
-      return combine_shards(sharded_logits), losses
+      if isinstance(sharded_logits, dict):
+        return {k:combine_shards(v) for k, v in sharded_logits.items()}, losses
+      else:
+        return combine_shards(sharded_logits), losses
 
   @property
   def use_body_sharded(self):
@@ -424,15 +427,18 @@ class T2TModel(base.Layer):
     if isinstance(logits, dict):
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
+        return self._loss_single(
+          logits, target_modality, features['targets'])
       else:
         target_modality = {k: None for k in logits.keys()}
-      assert set(logits.keys()) == set(target_modality.keys()), (
-          "The keys of model_body's returned logits dict must match the keys "
-          "of problem_hparams.target_modality's dict.")
-      losses = {}
-      for k, v in six.iteritems(logits):
-        losses[k] = self._loss_single(v, target_modality[k], features[k])
-      return tf.add_n([n / d for n, d in losses.values()])
+
+        assert set(logits.keys()) == set(target_modality.keys()), (
+            "The keys of model_body's returned logits dict must match the keys "
+            "of problem_hparams.target_modality's dict.")
+        losses = {}
+        for k, v in six.iteritems(logits):
+          losses[k] = self._loss_single(v, target_modality[k], features[k])
+        return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
@@ -1098,9 +1104,10 @@ class T2TModel(base.Layer):
       eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
       eval_metrics = {}
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
-        if isinstance(logits, dict):
+        parts = metric_name.split("/")
+        if isinstance(logits, dict) and len(parts) >= 2 and parts[1] in logits:
+          k = parts[1]
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
-          k = metric_name.split("/")[1]
           eval_metrics[metric_name] = metric_fn(
               logits[k], features, features[k])
         else:
@@ -1111,20 +1118,11 @@ class T2TModel(base.Layer):
       else:
         predictions = {"predictions": logits}
 
-      # Fathom
-      if isinstance(logits, dict):
-        return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
-          predictions=logits,
-          eval_metric_ops=eval_metrics,
-          loss=loss)
-
-      else:
-        return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
-          predictions=predictions,
-          eval_metric_ops=eval_metrics,
-          loss=loss)
+      return tf.estimator.EstimatorSpec(
+        tf.estimator.ModeKeys.EVAL,
+        predictions=predictions,
+        eval_metric_ops=eval_metrics,
+        loss=loss)
 
   def estimator_spec_predict(self, features, use_tpu=False):
     """Construct EstimatorSpec for PREDICT mode."""
