@@ -28,9 +28,6 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-# Fathom
-from fathomt2t_dependencies.common_t2t_utils import get_problem_from_hparams
-
 @registry.register_symbol_modality("default")
 class SymbolModality(modality.Modality):
   """Modality for sets of discrete symbols.
@@ -694,9 +691,12 @@ class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
 
   def top(self, body_output, _):
     """Transform inputs from model space to target space.
+    
     Average over inner dims and a linear layer to logits.
+    
     Args:
       body_output: A Tensor with shape [batch, timesteps, 1, body_output_size].
+    
     Returns:
       a Tensors, each with shape [batch_size, 1, 1, vocab_size]
     """
@@ -714,4 +714,3 @@ class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
     weights = self.targets_weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)
     return loss_scale, loss_denom
-

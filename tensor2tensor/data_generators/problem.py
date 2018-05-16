@@ -699,6 +699,7 @@ class Problem(object):
                config=None,
                dataset_kwargs=None):
     """Builds input pipeline for problem.
+    
     Args:
       mode: tf.estimator.ModeKeys
       hparams: HParams, model hparams
@@ -708,6 +709,7 @@ class Problem(object):
         TPU
       dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
         method when called
+    
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """

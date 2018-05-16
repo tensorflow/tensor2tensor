@@ -229,4 +229,3 @@ def get_variable_initializer(hparams):
         hparams.initializer_gain, mode="fan_avg", distribution="uniform")
   else:
     raise ValueError("Unrecognized initializer: %s" % hparams.initializer)
-

@@ -314,6 +314,7 @@ def execute_schedule(exp):
   with profile_context():
     getattr(exp, FLAGS.schedule)()
 
+
 @contextlib.contextmanager
 def maybe_cloud_tpu():
   """If FLAGS.cloud_tpu is set, setup Cloud instances."""
@@ -332,7 +333,8 @@ def maybe_cloud_tpu():
   with cloud_tpu.cloud_tpu(
       FLAGS.cloud_vm_name,
       FLAGS.cloud_tpu_name,
-      delete_on_done=FLAGS.cloud_delete_on_done) as tpu_master:
+      delete_on_done=FLAGS.cloud_delete_on_done,
+      skip_confirmation=FLAGS.cloud_skip_confirmation) as tpu_master:
     FLAGS.master = tpu_master
     yield
 
