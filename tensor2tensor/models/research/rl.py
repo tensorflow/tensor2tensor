@@ -116,6 +116,7 @@ def ppo_pong_base():
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
   hparams = ppo_pong_base()
+  hparams.learning_rate = 4e-5
   hparams.network = dense_bitwise_categorical_fun
   return hparams
 
