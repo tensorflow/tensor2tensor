@@ -53,9 +53,8 @@ def define_train(hparams, environment_spec, event_dir):
   batch_env = utils.batch_env_factory(
       env_lambda, hparams, num_agents=hparams.num_agents)
 
-  policy_factory = tf.make_template(
-      "network",
-      functools.partial(policy_lambda, batch_env.action_space, hparams))
+  policy_factory = functools.partial(
+      policy_lambda, batch_env.action_space, hparams)
 
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     memory, collect_summary = collect.define_collect(
@@ -89,44 +88,47 @@ def define_train(hparams, environment_spec, event_dir):
 def train(hparams, environment_spec, event_dir=None, model_dir=None,
           restore_agent=True):
   """Train."""
-  train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
-                                                   event_dir)
-  if event_dir:
-    summary_writer = tf.summary.FileWriter(
-        event_dir, graph=tf.get_default_graph(), flush_secs=60)
-  if model_dir:
-    model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
-  else:
-    summary_writer = None
-    model_saver = None
+  with tf.name_scope("rl_train"):
+    train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
+                                                     event_dir)
+    if event_dir:
+      summary_writer = tf.summary.FileWriter(
+          event_dir, graph=tf.get_default_graph(), flush_secs=60)
+    if model_dir:
+      model_saver = tf.train.Saver(
+          tf.global_variables(".*network_parameters.*"))
+    else:
+      summary_writer = None
+      model_saver = None
 
-  if hparams.simulated_environment:
-    env_model_loader = tf.train.Saver(tf.global_variables("basic_conv_gen.*"))
-  else:
-    env_model_loader = None
+    if hparams.simulated_environment:
+      env_model_loader = tf.train.Saver(tf.global_variables("basic_conv_gen.*"))
+    else:
+      env_model_loader = None
 
-  with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
-    if env_model_loader:
-      trainer_lib.restore_checkpoint(hparams.world_model_dir,
-                                     env_model_loader, sess, must_restore=True)
-    start_step = 0
-    if model_saver and restore_agent:
-      start_step = trainer_lib.restore_checkpoint(model_dir, model_saver, sess)
-    for epoch_index in range(hparams.epochs_num):
-      summary = sess.run(train_summary_op)
-      if summary_writer:
-        summary_writer.add_summary(summary, epoch_index)
-      if (hparams.eval_every_epochs and
-          epoch_index % hparams.eval_every_epochs == 0):
-        summary = sess.run(eval_summary_op)
-        if summary_writer and summary:
+    with tf.Session() as sess:
+      sess.run(tf.global_variables_initializer())
+      if env_model_loader:
+        trainer_lib.restore_checkpoint(
+            hparams.world_model_dir, env_model_loader, sess, must_restore=True)
+      start_step = 0
+      if model_saver and restore_agent:
+        start_step = trainer_lib.restore_checkpoint(
+            model_dir, model_saver, sess)
+      for epoch_index in range(hparams.epochs_num):
+        summary = sess.run(train_summary_op)
+        if summary_writer:
           summary_writer.add_summary(summary, epoch_index)
-        else:
-          tf.logging.info("Eval summary not saved")
-      if (model_saver and hparams.save_models_every_epochs and
-          (epoch_index % hparams.save_models_every_epochs == 0 or
-           (epoch_index + 1) == hparams.epochs_num)):
-        ckpt_path = os.path.join(
-            model_dir, "model.ckpt-{}".format(epoch_index + start_step))
-        model_saver.save(sess, ckpt_path)
+        if (hparams.eval_every_epochs and
+            epoch_index % hparams.eval_every_epochs == 0):
+          summary = sess.run(eval_summary_op)
+          if summary_writer and summary:
+            summary_writer.add_summary(summary, epoch_index)
+          else:
+            tf.logging.info("Eval summary not saved")
+        if (model_saver and hparams.save_models_every_epochs and
+            (epoch_index % hparams.save_models_every_epochs == 0 or
+             (epoch_index + 1) == hparams.epochs_num)):
+          ckpt_path = os.path.join(
+              model_dir, "model.ckpt-{}".format(epoch_index + start_step))
+          model_saver.save(sess, ckpt_path)

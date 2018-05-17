@@ -513,8 +513,7 @@ class VideoModality(modality.Modality):
       reshape_shape = body_output_shape[:3]
       reshape_shape.extend([num_channels, num_frames, self.top_dimensionality])
       res = tf.layers.dense(
-          body_output, self.top_dimensionality * num_channels * num_frames,
-          use_bias=False)
+          body_output, self.top_dimensionality * num_channels * num_frames)
       res = tf.reshape(res, reshape_shape)
       res = tf.transpose(res, [0, 4, 1, 2, 3, 5])
       if not tf.get_variable_scope().reuse:

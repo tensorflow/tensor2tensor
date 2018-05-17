@@ -37,7 +37,7 @@ from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
@@ -91,10 +91,8 @@ def temporary_flags(flag_settings):
 
 
 def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
-                           tmp_dir, autoencoder_path=None):
+                           tmp_dir, autoencoder_path=None, eval_phase=False):
   """Run the agent against the real environment and return mean reward."""
-  gym_problem = registry.problem(problem_name)
-  gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
   tf.gfile.MakeDirs(data_dir)
   with temporary_flags({
       "problem": problem_name,
@@ -102,6 +100,9 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
       "autoencoder_path": autoencoder_path,
       "only_use_ae_for_policy": True,
   }):
+    gym_problem = registry.problem(problem_name)
+    gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
+    gym_problem.eval_phase = eval_phase
     gym_problem.generate_data(data_dir, tmp_dir)
     mean_reward = gym_problem.sum_of_rewards / max(1.0, gym_problem.dones)
 
@@ -154,7 +155,7 @@ def train_agent(problem_name, simulated_problem_name, agent_model_dir,
 
   in_graph_wrappers = [
       (TimeLimitWrapper, {"timelimit": hparams.ppo_time_limit}),
-      (MaxAndSkipWrapper, {"skip": 4})]
+      (StackAndSkipWrapper, {"skip": 4})]
   in_graph_wrappers += gym_problem.in_graph_wrappers
   ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
 
@@ -381,176 +382,25 @@ def training_loop(hparams, output_dir):
     ppo_model_dir = directories["ppo"]
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
-    train_agent(world_model_problem, simulated_problem_name, ppo_model_dir,
+    train_agent(world_model_problem, problem_name, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
                 hparams, autoencoder_path=autoencoder_model_dir)
 
-    # Collect data from the real environment
+    # Collect data from the real environment.
     log("Generating real environment data")
     mean_reward = generate_real_env_data(
-        problem_name,
-        ppo_model_dir, hparams, epoch_data_dir, directories["tmp"],
-        autoencoder_path=autoencoder_model_dir)
-    log("Mean reward: %.4f", mean_reward)
+        problem_name, ppo_model_dir, hparams, epoch_data_dir,
+        directories["tmp"], autoencoder_path=autoencoder_model_dir)
+    log("Mean reward during generation: %.4f", mean_reward)
 
-    # Report metrics.
-    eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
-                    "mean_reward": mean_reward}
-    epoch_metrics.append(eval_metrics)
-
-  # Report the evaluation metrics from the final epoch
-  return epoch_metrics[-1]
-
-
-def train(hparams, output_dir):
-  """Training function."""
-  prefix = output_dir
-  data_dir = os.path.expanduser(prefix + "/data")
-  tmp_dir = os.path.expanduser(prefix + "/tmp")
-  output_dir = os.path.expanduser(prefix + "/output")
-  autoencoder_dir = os.path.expanduser(prefix + "/autoencoder")
-  tf.gfile.MakeDirs(data_dir)
-  tf.gfile.MakeDirs(tmp_dir)
-  tf.gfile.MakeDirs(output_dir)
-  tf.gfile.MakeDirs(autoencoder_dir)
-  last_model = ""
-  start_time = time.time()
-  line = ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    "
-  epoch_metrics = []
-  iter_data_dirs = []
-  ae_data_dirs = []
-  orig_autoencoder_path = FLAGS.autoencoder_path
-  for iloop in range(hparams.epochs):
-    # Train autoencoder if needed.
-    if (hparams.autoencoder_train_steps > 0 and iloop == 0 and
-        not orig_autoencoder_path):
-      time_delta = time.time() - start_time
-      tf.logging.info("%s Step AE - train autoencoder. Time: %s",
-                      line, str(datetime.timedelta(seconds=time_delta)))
-      with tf.Graph().as_default():
-        # Generate data.
-        FLAGS.autoencoder_path = ""
-        FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
-        FLAGS.agent_policy_path = ""
-        gym_problem = registry.problem(FLAGS.problem)
-        gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
-        ae_data_dir = os.path.join(data_dir, "ae%d" % iloop)
-        ae_data_dirs.append(ae_data_dir)
-        tf.gfile.MakeDirs(ae_data_dir)
-        gym_problem.generate_data(ae_data_dir, tmp_dir)
-        if ae_data_dirs[:-1]:
-          combine_training_data(gym_problem,
-                                ae_data_dir,
-                                ae_data_dirs[:-1])
-        # Train AE.
-        FLAGS.data_dir = ae_data_dir
-        FLAGS.output_dir = autoencoder_dir
-        # TODO(lukaszkaiser): make non-hardcoded here and in gym_problems.py.
-        FLAGS.model = "autoencoder_ordered_discrete"
-        FLAGS.hparams_set = "autoencoder_discrete_pong"
-        FLAGS.train_steps = hparams.autoencoder_train_steps * (iloop + 2)
-        FLAGS.eval_steps = 100
-        t2t_trainer.main([])
-        FLAGS.autoencoder_path = autoencoder_dir
-
-    # Generate random frames.
-    if iloop == 0:
-      time_delta = time.time() - start_time
-      tf.logging.info("%s Step %d.0 - generate random data. Time: %s",
-                      line, iloop, str(datetime.timedelta(seconds=time_delta)))
-      FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
-      FLAGS.agent_policy_path = ""
-      gym_problem = registry.problem(FLAGS.problem)
-      gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
-      iter_data_dir = os.path.join(data_dir, "0random")
-      iter_data_dirs.append(iter_data_dir)
-      tf.gfile.MakeDirs(iter_data_dir)
-      gym_problem.generate_data(iter_data_dir, tmp_dir)
-      mean_reward = gym_problem.sum_of_rewards / max(1.0, gym_problem.dones)
-      tf.logging.info("%s Step 0.0 random reward: %.4f" % (line, mean_reward))
-
-    time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.1 - generate env model. Time: %s",
-                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
-
-    # Train env model
-    FLAGS.data_dir = iter_data_dir
-    FLAGS.output_dir = output_dir
-    FLAGS.model = hparams.generative_model
-    FLAGS.hparams_set = hparams.generative_model_params
-    FLAGS.train_steps = hparams.model_train_steps * (iloop + 2)
-    FLAGS.eval_steps = 100
-    t2t_trainer.main([])
-
-    # Evaluate and dump frames from env model
-    time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.1a - evaluate env model. Time: %s",
-                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
-    gym_simulated_problem = registry.problem(
-        "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
-    sim_steps = hparams.simulated_env_generator_num_steps
-    gym_simulated_problem.settable_num_steps = sim_steps
-    gym_simulated_problem.real_env_problem = gym_problem
-    gym_simulated_problem.simulation_random_starts = False
-    gym_simulated_problem.intrinsic_reward_scale = 0.
-    gym_simulated_problem.generate_data(iter_data_dir, tmp_dir)
-    model_reward_accuracy = 0.0
-    if gym_simulated_problem.dones != 0:
-      n = float(gym_simulated_problem.dones)
-      model_reward_accuracy = (
-          gym_simulated_problem.successful_episode_reward_predictions / n)
-    tf.logging.info("%s Step %d.1a env model reward accuracy: %.4f" % (
-        line, iloop, model_reward_accuracy))
-
-    # Train PPO agent
-    time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.2 - train PPO in model env. Time: %s",
-                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
-
-    # Setup PPO hparams
-    ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params,
-                                             data_dir=output_dir)
-    ppo_epochs_num = hparams.ppo_epochs_num
-    ppo_hparams.epochs_num = ppo_epochs_num
-    ppo_hparams.simulated_environment = True
-    ppo_hparams.simulation_random_starts = hparams.simulation_random_starts
-    ppo_hparams.intrinsic_reward_scale = hparams.intrinsic_reward_scale
-    ppo_hparams.eval_every_epochs = 0
-    ppo_hparams.save_models_every_epochs = ppo_epochs_num
-    ppo_hparams.epoch_length = hparams.ppo_epoch_length
-    ppo_hparams.num_agents = hparams.ppo_num_agents
-    ppo_hparams.problem = gym_problem
-
-    in_graph_wrappers = [
-        (TimeLimitWrapper, {"timelimit": hparams.ppo_time_limit}),
-        (MaxAndSkipWrapper, {"skip": 4})]
-    in_graph_wrappers += gym_problem.in_graph_wrappers
-    ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
-
-    ppo_dir = generator_utils.make_tmp_dir(dir=data_dir, prefix="ppo_")
-    rl_trainer_lib.train(ppo_hparams, gym_simulated_problem.env_name, ppo_dir)
-    last_model = ppo_dir
-
-    # Generate environment frames.
-    time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.3 - generate environment data. Time: %s",
-                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
-    FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
-    FLAGS.agent_policy_path = last_model
-    gym_problem = registry.problem(FLAGS.problem)
-    gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
-    iter_data_dir = os.path.join(data_dir, str(iloop))
-    iter_data_dirs.append(iter_data_dir)
-    tf.gfile.MakeDirs(iter_data_dir)
-    gym_problem.generate_data(iter_data_dir, tmp_dir)
-    combine_training_data(gym_problem,
-                          iter_data_dir,
-                          iter_data_dirs[:-1])
-
-    mean_reward = 0.0
-    if gym_problem.dones != 0:
-      mean_reward = gym_problem.sum_of_rewards / float(gym_problem.dones)
-    tf.logging.info("%s Step %d mean reward: %.4f" % (line, iloop, mean_reward))
+    # Collect data from the real environment for eval in the last epoch.
+    if epoch == hparams.epochs - 1:
+      log("Generating environment data for eval")
+      mean_reward = generate_real_env_data(
+          problem_name, ppo_model_dir, hparams,
+          os.path.join(epoch_data_dir, "evaldata"), directories["tmp"],
+          autoencoder_path=autoencoder_model_dir, eval_phase=True)
+      log("Mean reward: %.4f", mean_reward)
 
     # Report metrics.
     eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
@@ -775,7 +625,7 @@ def rl_modelrl_ae_tiny():
 
 
 @registry.register_hparams
-def rl_modelrl_tiny_breakout():
+def rl_modelrl_breakout_tiny():
   """Tiny set for testing Breakout."""
   hparams = rl_modelrl_tiny()
   hparams.game = "wrapped_breakout"
@@ -783,7 +633,55 @@ def rl_modelrl_tiny_breakout():
 
 
 @registry.register_hparams
-def rl_modelrl_tiny_freeway():
+def rl_modelrl_breakout_base():
+  """Base set for testing Breakout."""
+  hparams = rl_modelrl_base()
+  hparams.game = "wrapped_breakout"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_breakout_ae_base():
+  """Base set for testing Breakout with an autoencoder."""
+  hparams = rl_modelrl_ae_base()
+  hparams.game = "wrapped_breakout"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_breakout_medium():
+  """Medium set for testing Breakout."""
+  hparams = rl_modelrl_medium()
+  hparams.game = "wrapped_breakout"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_breakout_ae_medium():
+  """Medium set for testing Breakout with an autoencoder."""
+  hparams = rl_modelrl_ae_medium()
+  hparams.game = "wrapped_breakout"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_breakout_short():
+  """Short set for testing Breakout."""
+  hparams = rl_modelrl_short()
+  hparams.game = "wrapped_breakout"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_breakout_ae_short():
+  """Short set for testing Breakout with an autoencoder."""
+  hparams = rl_modelrl_ae_short()
+  hparams.game = "wrapped_breakout"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_freeway_tiny():
   """Tiny set for testing Freeway."""
   hparams = rl_modelrl_tiny()
   hparams.game = "freeway"
@@ -791,9 +689,49 @@ def rl_modelrl_tiny_freeway():
 
 
 @registry.register_hparams
-def rl_modelrl_freeway():
-  """Tiny set for testing Freeway."""
+def rl_modelrl_freeway_base():
+  """Base set for testing Freeway."""
   hparams = rl_modelrl_base()
+  hparams.game = "freeway"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_freeway_ae_base():
+  """Base set for testing Freeway with an autoencoder."""
+  hparams = rl_modelrl_ae_base()
+  hparams.game = "freeway"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_freeway_medium():
+  """Medium set for testing Freeway."""
+  hparams = rl_modelrl_medium()
+  hparams.game = "freeway"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_freeway_ae_medium():
+  """Medium set for testing Freeway with an autoencoder."""
+  hparams = rl_modelrl_ae_medium()
+  hparams.game = "freeway"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_freeway_short():
+  """Short set for testing Freeway."""
+  hparams = rl_modelrl_short()
+  hparams.game = "freeway"
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_freeway_ae_short():
+  """Short set for testing Freeway with an autoencoder."""
+  hparams = rl_modelrl_ae_short()
   hparams.game = "freeway"
   return hparams
 
