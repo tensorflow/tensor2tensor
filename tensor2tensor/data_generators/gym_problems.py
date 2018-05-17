@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
 import math
 import os
 
@@ -35,7 +34,7 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
-from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.rl.envs.utils import batch_env_factory
 
@@ -50,8 +49,12 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 
-flags.DEFINE_string("agent_policy_path", "", "File with model for agent.")
-flags.DEFINE_string("autoencoder_path", "", "File with model for autoencoder.")
+flags.DEFINE_string("agent_policy_path", None, "File with model for agent.")
+flags.DEFINE_string("autoencoder_path", None,
+                    "File with model for autoencoder.")
+flags.DEFINE_boolean("only_use_ae_for_policy", False,
+                     "Whether to only use the autoencoder for the policy and "
+                     "still write out full-resolution frames.")
 
 
 class GymDiscreteProblem(video_utils.VideoProblem):
@@ -250,7 +253,7 @@ class GymWrappedBreakoutRandom5k(GymDiscreteProblem):
 
   @property
   def env_name(self):
-    return "T2TBreakoutWarmUp20RewSkip70Steps-v1"
+    return "T2TBreakoutWarmUp20RewSkip500Steps-v1"
 
   @property
   def min_reward(self):
@@ -323,8 +326,8 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     if FLAGS.autoencoder_path:
       self.collect_hparams = rl.ppo_pong_ae_base()
     self.settable_num_steps = 50000
-    self.eval_runs = 0
     self.simulated_environment = None
+    self.eval_phase = False
     self.warm_up = 10  # TODO(piotrm): This should be probably removed.
 
     # Debug info.
@@ -385,18 +388,19 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
           autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
 
-  def autoencode_tensor(self, x):
+  def autoencode_tensor(self, x, batch_size=1):
     if self.autoencoder_model is None:
       return x
     shape = [self.raw_frame_height, self.raw_frame_width, self.num_channels]
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
-      # TODO(lukaszkaiser): we assume batch size=1 for now here, change later!
       autoencoded = self.autoencoder_model.encode(
-          tf.reshape(x, [1, 1] + shape))
+          tf.reshape(x, [batch_size, 1] + shape))
     autoencoded = tf.reshape(
-        autoencoded, [self.frame_height, self.frame_width,
+        autoencoded, [batch_size, self.frame_height, self.frame_width,
                       self.num_channels, 8])  # 8-bit groups.
+    if batch_size == 1:
+      autoencoded = tf.squeeze(autoencoded, axis=0)
     return discretization.bit_to_int(autoencoded, 8)
 
   def _setup(self):
@@ -414,7 +418,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.successful_episode_reward_predictions = 0
 
     in_graph_wrappers = self.in_graph_wrappers + [
-        (atari.MemoryWrapper, {}), (MaxAndSkipWrapper, {"skip": 4})]
+        (atari.MemoryWrapper, {}), (StackAndSkipWrapper, {"skip": 4})]
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
         problem=self.real_env_problem if self.real_env_problem else self,
@@ -434,12 +438,6 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       else:
         # When no agent_policy_path is set, just generate random samples.
         policy_lambda = rl.random_policy_fun
-      policy_factory = tf.make_template(
-          "network",
-          functools.partial(policy_lambda, self.environment_spec().action_space,
-                            self.collect_hparams),
-          create_scope_now_=True,
-          unique_name_="network")
 
     if FLAGS.autoencoder_path:
       # TODO(lukaszkaiser): remove hard-coded autoencoder params.
@@ -460,18 +458,29 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         self.autodecoder_result = autoencoder_model.decode(bottleneck)
 
     def preprocess_fn(x):
-      # TODO(lukaszkaiser): we assume batch size=1 for now here, change later!
-      return tf.expand_dims(tf.to_float(self.autoencode_tensor(x)), axis=0)
+      shape = [self.raw_frame_height, self.raw_frame_width, self.num_channels]
+      # TODO(lukaszkaiser): we assume x comes from StackAndSkipWrapper skip=4.
+      xs = [tf.reshape(t, [1] + shape) for t in tf.split(x, 4, axis=-1)]
+      autoencoded = self.autoencode_tensor(tf.concat(xs, axis=0), batch_size=4)
+      encs = [tf.squeeze(t, axis=[0]) for t in tf.split(autoencoded, 4, axis=0)]
+      res = tf.to_float(tf.concat(encs, axis=-1))
+      return tf.expand_dims(res, axis=0)
 
-    shape = [1, self.frame_height, self.frame_width, self.num_channels]
+    # TODO(lukaszkaiser): x is from StackAndSkipWrapper thus 4*num_channels.
+    shape = [1, self.frame_height, self.frame_width, 4 * self.num_channels]
     do_preprocess = (self.autoencoder_model is not None and
                      not self.simulated_environment)
     preprocess = (preprocess_fn, shape) if do_preprocess else None
+
+    def policy(x):
+      return policy_lambda(self.environment_spec().action_space,
+                           self.collect_hparams, x)
+
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       self.collect_hparams.epoch_length = 10
       _, self.collect_trigger_op = collect.define_collect(
-          policy_factory, generator_batch_env, self.collect_hparams,
-          eval_phase=(self.eval_runs > 0),
+          policy, generator_batch_env, self.collect_hparams,
+          eval_phase=self.eval_phase,
           scope="define_collect", preprocess=preprocess)
 
     self.avilable_data_size_op = atari.MemoryWrapper.singleton.speculum.size()
@@ -506,9 +515,14 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
       self.restore_networks(sess)
+      if FLAGS.only_use_ae_for_policy:
+        # If only the policy should use the autoencoder, then reset the flag so
+        # that other components here act as though there is no autoencoder and
+        # so write out full-resolution images. The policy graph was already
+        # built and self.collect_trigger_op is all that's used from it.
+        FLAGS.autoencoder_path = None
       pieces_generated = 0
-      while ((pieces_generated < self.num_steps + self.warm_up) and
-             (self.eval_runs == 0 or self.dones < self.eval_runs)):
+      while pieces_generated < self.num_steps + self.warm_up:
         avilable_data_size = sess.run(self.avilable_data_size_op)
         if avilable_data_size < 1:
           sess.run(self.collect_trigger_op)
@@ -631,6 +645,12 @@ class GymDiscreteProblemWithAgentOnWrappedLongPong(
 
 
 @registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
+    GymDiscreteProblemWithAgentOnWrappedLongPong):
+  pass
+
+
+@registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
     GymSimulatedDiscreteProblemWithAgent, GymWrappedLongPongRandom):
   pass
@@ -639,6 +659,12 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedBreakout(
     GymDiscreteProblemWithAgent, GymWrappedBreakoutRandom5k):
+  pass
+
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedBreakoutAe(
+    GymDiscreteProblemWithAgentOnWrappedBreakout):
   pass
 
 
@@ -714,3 +740,9 @@ class GymDiscreteProblemWithAgentOnFreeway(
   @property
   def raw_frame_width(self):
     return self.frame_width
+
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnFreewayAe(  # with autoencoder
+    GymDiscreteProblemWithAgentOnFreeway):
+  pass

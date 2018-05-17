@@ -195,10 +195,11 @@ def basic_conv_tpu():
 def basic_conv_ae():
   """Conv autoencoder."""
   hparams = basic_conv()
+  hparams.input_modalities = "inputs:video:bitwise"
   hparams.hidden_size = 256
-  hparams.batch_size = 32
+  hparams.batch_size = 16
   hparams.num_hidden_layers = 4
-  hparams.num_compress_steps = 2
+  hparams.num_compress_steps = 3
   hparams.dropout = 0.4
   return hparams
 

@@ -109,7 +109,6 @@ class MaxAndSkipWrapper(WrapperBase):
     self._observ = None
     observs_shape = batch_env.observ.shape
     observ_dtype = tf.float32
-
     self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
                                trainable=False)
 
@@ -134,6 +133,43 @@ class MaxAndSkipWrapper(WrapperBase):
 
       with tf.control_dependencies([self._observ.assign(simulate_ret[0])]):
         return tf.identity(simulate_ret[1]), tf.identity(simulate_ret[2])
+
+
+class StackAndSkipWrapper(WrapperBase):
+  """Stack and skip wrapper."""
+
+  def __init__(self, batch_env, skip=4):
+    super(StackAndSkipWrapper, self).__init__(batch_env)
+    self.skip = skip
+    self._observ = None
+    self.old_shape = batch_env.observ.shape.as_list()
+    observs_shape = self.old_shape[:-1] + [self.old_shape[-1] * self.skip]
+    observ_dtype = tf.float32
+    self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
+                               trainable=False)
+
+  def simulate(self, action):
+    with tf.name_scope("environment/simulate"):  # Do we need this?
+      initializer = (tf.zeros(self.old_shape, dtype=tf.float32),
+                     tf.fill((len(self),), 0.0), tf.fill((len(self),), False))
+
+      def not_done_step(a, _):
+        reward, done = self._batch_env.simulate(action)
+        with tf.control_dependencies([reward, done]):
+          r0 = self._batch_env.observ
+          r1 = tf.add(a[1], reward)
+          r2 = tf.logical_or(a[2], done)
+          return (r0, r1, r2)
+
+      simulate_ret = tf.scan(not_done_step, tf.range(self.skip),
+                             initializer=initializer, parallel_iterations=1,
+                             infer_shape=False)
+      observations, rewards, dones = simulate_ret
+      split_observations = tf.split(observations, self.skip, axis=0)
+      split_observations = [tf.squeeze(o, axis=0) for o in split_observations]
+      observation = tf.concat(split_observations, axis=-1)
+      with tf.control_dependencies([self._observ.assign(observation)]):
+        return tf.identity(rewards[-1, ...]), tf.identity(dones[-1, ...])
 
 
 class TimeLimitWrapper(WrapperBase):
