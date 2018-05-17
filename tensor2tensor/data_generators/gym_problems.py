@@ -323,6 +323,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     if FLAGS.autoencoder_path:
       self.collect_hparams = rl.ppo_pong_ae_base()
     self.settable_num_steps = 50000
+    self.eval_runs = 0
     self.simulated_environment = None
     self.warm_up = 10  # TODO(piotrm): This should be probably removed.
 
@@ -470,7 +471,8 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.collect_hparams.epoch_length = 10
       _, self.collect_trigger_op = collect.define_collect(
           policy_factory, generator_batch_env, self.collect_hparams,
-          eval_phase=False, scope="define_collect", preprocess=preprocess)
+          eval_phase=(self.eval_runs > 0),
+          scope="define_collect", preprocess=preprocess)
 
     self.avilable_data_size_op = atari.MemoryWrapper.singleton.speculum.size()
     self.data_get_op = atari.MemoryWrapper.singleton.speculum.dequeue()
@@ -505,7 +507,8 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       sess.run(tf.global_variables_initializer())
       self.restore_networks(sess)
       pieces_generated = 0
-      while pieces_generated < self.num_steps + self.warm_up:
+      while ((pieces_generated < self.num_steps + self.warm_up) and
+             (self.eval_runs == 0 or self.dones < self.eval_runs)):
         avilable_data_size = sess.run(self.avilable_data_size_op)
         if avilable_data_size < 1:
           sess.run(self.collect_trigger_op)
