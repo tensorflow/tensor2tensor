@@ -124,8 +124,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self.action_dtype = tf.int32
 
     if simulation_random_starts:
-      dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
-                                shuffle_files=True)
+      dataset = problem.dataset(
+        tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
+        shuffle_files=True).skip(10).shuffle(buffer_size=100)
     else:
       dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
                                 shuffle_files=False).take(1)
