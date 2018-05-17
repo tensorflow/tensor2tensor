@@ -104,7 +104,7 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
     gym_problem.eval_phase = eval_phase
     gym_problem.generate_data(data_dir, tmp_dir)
-    mean_reward = gym_problem.sum_of_rewards / max(1.0, gym_problem.dones)
+    mean_reward = gym_problem.sum_of_rewards / (1.0 + gym_problem.dones)
 
   return mean_reward
 
