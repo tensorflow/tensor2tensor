@@ -24,13 +24,13 @@ import os
 
 import gym
 
-
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import collect
 from tensor2tensor.rl import ppo
 from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.rl.envs import utils
+from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 
@@ -86,15 +86,16 @@ def define_train(hparams, environment_spec, event_dir):
   return summary, eval_summary
 
 
-def train(hparams, environment_spec, event_dir=None):
+def train(hparams, environment_spec, event_dir=None, model_dir=None,
+          restore_agent=True):
   """Train."""
   train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
                                                    event_dir)
   if event_dir:
     summary_writer = tf.summary.FileWriter(
         event_dir, graph=tf.get_default_graph(), flush_secs=60)
+  if model_dir:
     model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
-    # TODO(blazej): Make sure that policy is restored properly.
   else:
     summary_writer = None
     model_saver = None
@@ -107,9 +108,11 @@ def train(hparams, environment_spec, event_dir=None):
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     if env_model_loader:
-      ckpts = tf.train.get_checkpoint_state(hparams.data_dir)
-      ckpt = ckpts.model_checkpoint_path
-      env_model_loader.restore(sess, ckpt)
+      trainer_lib.restore_checkpoint(hparams.world_model_dir,
+                                     env_model_loader, sess, must_restore=True)
+    start_step = 0
+    if model_saver and restore_agent:
+      start_step = trainer_lib.restore_checkpoint(model_dir, model_saver, sess)
     for epoch_index in range(hparams.epochs_num):
       summary = sess.run(train_summary_op)
       if summary_writer:
@@ -121,9 +124,9 @@ def train(hparams, environment_spec, event_dir=None):
           summary_writer.add_summary(summary, epoch_index)
         else:
           tf.logging.info("Eval summary not saved")
-      if (model_saver and (
-          (hparams.save_models_every_epochs and
-           epoch_index % hparams.save_models_every_epochs == 0) or
-          (epoch_index == hparams.epochs_num-1))):
-        model_saver.save(sess, os.path.join(event_dir,
-                                            "model{}.ckpt".format(epoch_index)))
+      if (model_saver and hparams.save_models_every_epochs and
+          (epoch_index % hparams.save_models_every_epochs == 0 or
+           (epoch_index + 1) == hparams.epochs_num)):
+        ckpt_path = os.path.join(
+            model_dir, "model.ckpt-{}".format(epoch_index + start_step))
+        model_saver.save(sess, ckpt_path)

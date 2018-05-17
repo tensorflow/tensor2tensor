@@ -50,8 +50,12 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 
-flags.DEFINE_string("agent_policy_path", "", "File with model for agent.")
-flags.DEFINE_string("autoencoder_path", "", "File with model for autoencoder.")
+flags.DEFINE_string("agent_policy_path", None, "File with model for agent.")
+flags.DEFINE_string("autoencoder_path", None,
+                    "File with model for autoencoder.")
+flags.DEFINE_boolean("only_use_ae_for_policy", False,
+                     "Whether to only use the autoencoder for the policy and "
+                     "still write out full-resolution frames.")
 
 
 class GymDiscreteProblem(video_utils.VideoProblem):
@@ -504,6 +508,12 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
       self.restore_networks(sess)
+      if FLAGS.only_use_ae_for_policy:
+        # If only the policy should use the autoencoder, then reset the flag so
+        # that other components here act as though there is no autoencoder and
+        # so write out full-resolution images. The policy graph was already
+        # built and self.collect_trigger_op is all that's used from it.
+        FLAGS.autoencoder_path = None
       pieces_generated = 0
       while pieces_generated < self.num_steps + self.warm_up:
         avilable_data_size = sess.run(self.avilable_data_size_op)
@@ -628,6 +638,12 @@ class GymDiscreteProblemWithAgentOnWrappedLongPong(
 
 
 @registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
+    GymDiscreteProblemWithAgentOnWrappedLongPong):
+  pass
+
+
+@registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
     GymSimulatedDiscreteProblemWithAgent, GymWrappedLongPongRandom):
   pass
@@ -636,6 +652,12 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedBreakout(
     GymDiscreteProblemWithAgent, GymWrappedBreakoutRandom5k):
+  pass
+
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnWrappedBreakoutAe(
+    GymDiscreteProblemWithAgentOnWrappedBreakout):
   pass
 
 
@@ -711,3 +733,9 @@ class GymDiscreteProblemWithAgentOnFreeway(
   @property
   def raw_frame_width(self):
     return self.frame_width
+
+
+@registry.register_problem
+class GymDiscreteProblemWithAgentOnFreewayAe(  # with autoencoder
+    GymDiscreteProblemWithAgentOnFreeway):
+  pass
