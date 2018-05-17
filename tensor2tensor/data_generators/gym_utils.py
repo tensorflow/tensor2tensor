@@ -238,7 +238,7 @@ def wrapped_breakout_factory(warm_up_examples=0,
   return env
 
 
-gym.envs.register(id="T2TBreakoutWarmUp20RewSkip70Steps-v1",
+gym.envs.register(id="T2TBreakoutWarmUp20RewSkip500Steps-v1",
                   entry_point=lambda: wrapped_breakout_factory(  # pylint: disable=g-long-lambda
                       warm_up_examples=1,
                       ball_down_skip=9,
@@ -246,7 +246,7 @@ gym.envs.register(id="T2TBreakoutWarmUp20RewSkip70Steps-v1",
                       include_direction_info=True,
                       reward_clipping=True
                   ),
-                  max_episode_steps=70)
+                  max_episode_steps=500)
 
 
 class FreewayWrapper(WarmupWrapper):
@@ -300,13 +300,13 @@ def wrapped_freeway_factory(warm_up_examples=0,
 
   return env
 
-gym.envs.register(id="T2TFreewayWarmUp20RewSkip200Steps-v1",
+gym.envs.register(id="T2TFreewayWarmUp20RewSkip500Steps-v1",
                   entry_point=lambda: wrapped_freeway_factory(  # pylint: disable=g-long-lambda
                       warm_up_examples=1,
                       reward_clipping=True,
                       easy_freeway=False
                   ),
-                  max_episode_steps=200)
+                  max_episode_steps=500)
 
 
 def encode_image_to_png(image):

@@ -121,8 +121,9 @@ def train(hparams, environment_spec, event_dir=None):
           summary_writer.add_summary(summary, epoch_index)
         else:
           tf.logging.info("Eval summary not saved")
-      if (model_saver and ((hparams.save_models_every_epochs and
-          epoch_index % hparams.save_models_every_epochs == 0)
-          or (epoch_index == hparams.epochs_num-1))):
+      if (model_saver and (
+          (hparams.save_models_every_epochs and
+           epoch_index % hparams.save_models_every_epochs == 0) or
+          (epoch_index == hparams.epochs_num-1))):
         model_saver.save(sess, os.path.join(event_dir,
                                             "model{}.ckpt".format(epoch_index)))

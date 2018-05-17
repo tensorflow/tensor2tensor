@@ -179,24 +179,12 @@ def train(hparams, output_dir):
     rl_trainer_lib.train(ppo_hparams, gym_simulated_problem.env_name, ppo_dir)
     last_model = ppo_dir
 
-    # Evaluate agent.
+    # Generate environment frames.
     time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.3 - evaluate agent. Time: %s",
+    tf.logging.info("%s Step %d.3 - generate environment data. Time: %s",
                     line, iloop, str(datetime.timedelta(seconds=time_delta)))
     FLAGS.problem = "gym_discrete_problem_with_agent_on_%s" % hparams.game
     FLAGS.agent_policy_path = last_model
-    eval_gym_problem = registry.problem(FLAGS.problem)
-    eval_gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
-    eval_gym_problem.eval_runs = 5
-    eval_data_dir = os.path.join(data_dir, str(iloop)+"eval")
-    iter_data_dirs.append(eval_data_dir)
-    tf.gfile.MakeDirs(eval_data_dir)
-    eval_gym_problem.generate_data(eval_data_dir, tmp_dir)
-
-    # Generate environment frames.
-    time_delta = time.time() - start_time
-    tf.logging.info("%s Step %d.4 - generate environment data. Time: %s",
-                    line, iloop, str(datetime.timedelta(seconds=time_delta)))
     gym_problem = registry.problem(FLAGS.problem)
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
     iter_data_dir = os.path.join(data_dir, str(iloop))
@@ -208,8 +196,8 @@ def train(hparams, output_dir):
                                    iter_data_dirs[:-1])
 
     mean_reward = 0.0
-    if eval_gym_problem.dones != 0:
-      mean_reward = eval_gym_problem.sum_of_rewards / float(eval_gym_problem.dones)
+    if gym_problem.dones != 0:
+      mean_reward = gym_problem.sum_of_rewards / float(gym_problem.dones)
     tf.logging.info("%s Step %d mean reward: %.4f" % (line, iloop, mean_reward))
 
     # Report metrics.

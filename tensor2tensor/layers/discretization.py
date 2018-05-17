@@ -195,6 +195,15 @@ def int_to_bit(x_int, num_bits, base=2):
   return tf.to_float(res)
 
 
+def int_to_bit_embed(x_int, num_bits, embedding_size, base=2):
+  """Turn x_int into a bitwise (lower-endian) tensor and embed densly."""
+  shape = common_layers.shape_list(x_int)
+  inputs = int_to_bit(x_int, num_bits, base=base)
+  inputs = tf.reshape(inputs, shape[:-1] + [shape[-1] * 8])
+  inputs = 2.0 * tf.to_float(inputs) - 1.0  # Move from 0/1 to -1/1.
+  return tf.layers.dense(inputs, embedding_size, name="int_to_bit_embed")
+
+
 def embed(x,
           hidden_size,
           z_size,
