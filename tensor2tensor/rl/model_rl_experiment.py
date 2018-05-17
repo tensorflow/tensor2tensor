@@ -443,16 +443,20 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
       epochs=3,
-      true_env_generator_num_steps=30000,
+      # Total frames used for training =
+      # steps * (1 - 1/11) * epochs
+      # 1/11 steps are used for evaluation data
+      # 100k frames for training = 36666
+      true_env_generator_num_steps=36666,
       generative_model="basic_conv_gen",
       generative_model_params="basic_conv",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
-      model_train_steps=100000,
+      model_train_steps=50000,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=500,  # This should be enough to see something
+      ppo_epochs_num=250,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
@@ -476,8 +480,6 @@ def rl_modelrl_medium():
   """Small set for larger testing."""
   hparams = rl_modelrl_base()
   hparams.true_env_generator_num_steps //= 2
-  hparams.model_train_steps //= 2
-  hparams.ppo_epochs_num //= 2
   return hparams
 
 
