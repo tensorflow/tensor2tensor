@@ -34,7 +34,7 @@ import time
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
@@ -171,7 +171,7 @@ def train(hparams, output_dir):
 
     in_graph_wrappers = [
         (TimeLimitWrapper, {"timelimit": hparams.ppo_time_limit}),
-        (MaxAndSkipWrapper, {"skip": 4})]
+        (StackAndSkipWrapper, {"skip": 4})]
     in_graph_wrappers += gym_problem.in_graph_wrappers
     ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
 

@@ -35,7 +35,7 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
-from tensor2tensor.rl.envs.tf_atari_wrappers import MaxAndSkipWrapper
+from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.rl.envs.utils import batch_env_factory
 
@@ -413,7 +413,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.successful_episode_reward_predictions = 0
 
     in_graph_wrappers = self.in_graph_wrappers + [
-        (atari.MemoryWrapper, {}), (MaxAndSkipWrapper, {"skip": 4})]
+        (atari.MemoryWrapper, {}), (StackAndSkipWrapper, {"skip": 4})]
     env_hparams = tf.contrib.training.HParams(
         in_graph_wrappers=in_graph_wrappers,
         problem=self.real_env_problem if self.real_env_problem else self,
