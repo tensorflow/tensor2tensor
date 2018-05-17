@@ -77,12 +77,8 @@ def define_train(hparams, environment_spec, event_dir):
         eval_env_lambda, hparams,
         num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
 
-    # TODO(blazej0): correct to the version below.
-    corrected = True
-    eval_summary = tf.no_op()
-    if corrected:
-      _, eval_summary = collect.define_collect(
-          policy_factory, eval_batch_env, hparams, eval_phase=True)
+    _, eval_summary = collect.define_collect(
+        policy_factory, eval_batch_env, hparams, eval_phase=True)
   return summary, eval_summary
 
 

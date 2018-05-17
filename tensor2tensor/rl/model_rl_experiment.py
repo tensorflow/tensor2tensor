@@ -134,28 +134,28 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
     t2t_trainer.main([])
 
 
-def train_agent(problem_name, simulated_problem_name, agent_model_dir,
+def train_agent(problem_name, agent_model_dir,
                 event_dir, world_model_dir, epoch_data_dir, hparams,
                 autoencoder_path=None):
   """Train the PPO agent in the simulated environment."""
   gym_problem = registry.problem(problem_name)
-  gym_simulated_problem = registry.problem(simulated_problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_epochs_num = hparams.ppo_epochs_num
   ppo_hparams.epochs_num = ppo_epochs_num
   ppo_hparams.simulated_environment = True
   ppo_hparams.simulation_random_starts = hparams.simulation_random_starts
   ppo_hparams.intrinsic_reward_scale = hparams.intrinsic_reward_scale
-  ppo_hparams.eval_every_epochs = 10
+  ppo_hparams.eval_every_epochs = 50
   ppo_hparams.save_models_every_epochs = ppo_epochs_num
   ppo_hparams.epoch_length = hparams.ppo_epoch_length
   ppo_hparams.num_agents = hparams.ppo_num_agents
   ppo_hparams.problem = gym_problem
   ppo_hparams.world_model_dir = world_model_dir
-  hparams.ppo_time_limit = max(ppo_hparams.epoch_length*4 + 20, 1000)
+  # 4x for the StackAndSkipWrapper
+  ppo_time_limit = max(ppo_hparams.epoch_length * 4 + 20, 250)
 
   in_graph_wrappers = [
-      (TimeLimitWrapper, {"timelimit": hparams.ppo_time_limit}),
+      (TimeLimitWrapper, {"timelimit": ppo_time_limit}),
       (StackAndSkipWrapper, {"skip": 4})]
   in_graph_wrappers += gym_problem.in_graph_wrappers
   ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
@@ -168,7 +168,7 @@ def train_agent(problem_name, simulated_problem_name, agent_model_dir,
       "data_dir": epoch_data_dir,
       "autoencoder_path": autoencoder_path,
   }):
-    rl_trainer_lib.train(ppo_hparams, gym_simulated_problem.env_name, event_dir,
+    rl_trainer_lib.train(ppo_hparams, gym_problem.env_name, event_dir,
                          agent_model_dir)
 
 
@@ -210,6 +210,8 @@ def train_world_model(problem_name, data_dir, output_dir, hparams, epoch,
       "hparams_set": hparams.generative_model_params,
       "eval_steps": 100,
       "train_steps": train_steps,
+      # Hack: If training on autoencoded frames, autoencoder_path needs to be
+      # set so that the problem reports the right sizes for frames.
       "autoencoder_path": "dummy" if use_autoencoder else None,
   }):
     t2t_trainer.main([])
@@ -299,51 +301,61 @@ def check_problems(problem_names):
     registry.problem(problem_name)
 
 
-def training_loop(hparams, output_dir):
+def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   """Run the main training loop."""
+  if report_fn:
+    assert report_metric is not None
+
   # Global state
-  directories = setup_directories(output_dir,
-                                  ["data", "tmp", "world_model", "autoencoder",
-                                   "ppo"])
+
+  # Directories
+  subdirectories = ["data", "tmp", "world_model", "ppo"]
+  using_autoencoder = hparams.autoencoder_train_steps > 0
+  if using_autoencoder:
+    subdirectories.append("autoencoder")
+  directories = setup_directories(output_dir, subdirectories)
+
+  # Problems
   problem_name = "gym_discrete_problem_with_agent_on_%s" % hparams.game
   ae_problem_name = problem_name + "_ae"
   simulated_problem_name = (
       "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
-  using_autoencoder = hparams.autoencoder_train_steps > 0
   world_model_problem = ae_problem_name if using_autoencoder else problem_name
-  autoencoder_model_dir = (
-      (FLAGS.autoencoder_path or directories["autoencoder"])
-      if using_autoencoder else None)
-  FLAGS.autoencoder_path = None
-  log_relative_time = make_relative_timing_fn()
   check_problems([problem_name, world_model_problem, simulated_problem_name])
+
+  # Autoencoder model dir
+  autoencoder_model_dir = (FLAGS.autoencoder_path or
+                           directories.get("autoencoder"))
+  FLAGS.autoencoder_path = None
+
+  # Timing log function
+  log_relative_time = make_relative_timing_fn()
 
   # Per-epoch state
   epoch_metrics = []
   epoch_data_dirs = []
-  # epoch_ae_data_dirs = []
 
   # Collect data from the real environment with random policy
   data_dir = os.path.join(directories["data"], "random")
   epoch_data_dirs.append(data_dir)
   tf.logging.info("Generating real environment data with random policy")
   mean_reward = generate_real_env_data(
-      problem_name,
-      None, hparams, data_dir, directories["tmp"])
-  tf.logging.info("Mean reward: %.4f", mean_reward)
+      problem_name, None, hparams, data_dir, directories["tmp"])
+  tf.logging.info("Mean reward (random): %.4f", mean_reward)
 
   for epoch in range(hparams.epochs):
+    is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
 
     # Combine all previously collected environment data
     epoch_data_dir = os.path.join(directories["data"], str(epoch))
-    epoch_data_dirs.append(epoch_data_dir)
     tf.gfile.MakeDirs(epoch_data_dir)
     # Because the data is being combined in every iteration, we only need to
     # copy from the previous directory.
     combine_training_data(registry.problem(problem_name),
                           epoch_data_dir,
-                          epoch_data_dirs[-2:-1])
+                          epoch_data_dirs[-1:])
+    epoch_data_dirs.append(epoch_data_dir)
 
     if using_autoencoder:
       # Train the Autoencoder on all prior environment frames
@@ -354,11 +366,6 @@ def training_loop(hparams, output_dir):
       log("Autoencoding environment frames")
       encode_env_frames(problem_name, world_model_problem,
                         autoencoder_model_dir, epoch_data_dir)
-
-      # Combine the autoencoded problem data
-      combine_training_data(registry.problem(world_model_problem),
-                            epoch_data_dir,
-                            epoch_data_dirs[-2:-1])
 
     # Train world model
     log("Training world model")
@@ -383,30 +390,27 @@ def training_loop(hparams, output_dir):
     ppo_model_dir = directories["ppo"]
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
-    train_agent(world_model_problem, problem_name, ppo_model_dir,
+    train_agent(world_model_problem, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
                 hparams, autoencoder_path=autoencoder_model_dir)
 
     # Collect data from the real environment.
     log("Generating real environment data")
+    if is_final_epoch:
+      epoch_data_dir = os.path.join(epoch_data_dir, "final_eval")
     mean_reward = generate_real_env_data(
         problem_name, ppo_model_dir, hparams, epoch_data_dir,
-        directories["tmp"], autoencoder_path=autoencoder_model_dir)
+        directories["tmp"], autoencoder_path=autoencoder_model_dir,
+        eval_phase=is_final_epoch)
     log("Mean reward during generation: %.4f", mean_reward)
-
-    # Collect data from the real environment for eval in the last epoch.
-    if epoch == hparams.epochs - 1:
-      log("Generating environment data for eval")
-      mean_reward = generate_real_env_data(
-          problem_name, ppo_model_dir, hparams,
-          os.path.join(epoch_data_dir, "evaldata"), directories["tmp"],
-          autoencoder_path=autoencoder_model_dir, eval_phase=True)
-      log("Mean reward: %.4f", mean_reward)
 
     # Report metrics.
     eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
                     "mean_reward": mean_reward}
     epoch_metrics.append(eval_metrics)
+    log("Eval metrics: %s", str(eval_metrics))
+    if report_fn:
+      report_fn(eval_metrics[report_metric], epoch)
 
   # Report the evaluation metrics from the final epoch
   return epoch_metrics[-1]
@@ -452,7 +456,7 @@ def rl_modelrl_base():
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
-      ppo_time_limit=200,  # TODO(blazej) - currently it is unused.
+      ppo_time_limit=200,  # TODO(blazej): this param is unused
       # It makes sense to have ppo_time_limit=ppo_epoch_length,
       # though it is not necessary.
       ppo_epoch_length=40,
@@ -621,7 +625,7 @@ def rl_modelrl_ae_tiny():
   hparams = rl_modelrl_tiny()
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "basic_conv_ae"
-  hparams.autoencoder_train_steps = 20
+  hparams.autoencoder_train_steps = 2
   return hparams
 
 
