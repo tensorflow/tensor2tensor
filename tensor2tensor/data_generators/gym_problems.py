@@ -541,6 +541,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
             debug_im = gym_utils.encode_image_to_png(debug_im_np)
           if done:
             self.dones += 1
+            self.sum_of_rewards += self.real_reward
             if self.total_real_reward == self.total_sim_reward:
               self.successful_episode_reward_predictions += 1
 
