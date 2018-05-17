@@ -22,9 +22,10 @@ import tensorflow as tf
 
 def define_collect(policy_factory, batch_env, hparams,
                    eval_phase, policy_to_actions_lambda=None,
-                   scope="", preprocess=None):
+                   scope="", preprocess=None, on_simulated=False):
   """Collect trajectories."""
   eval_phase = tf.convert_to_tensor(eval_phase)
+  on_simulated = tf.convert_to_tensor(on_simulated)
   batch_env_shape = batch_env.observ.get_shape().as_list()
   if preprocess is not None:
     batch_env_shape = preprocess[1]
@@ -51,7 +52,8 @@ def define_collect(policy_factory, batch_env, hparams,
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
                     tf.assign(cumulative_rewards, tf.zeros(len(batch_env))))
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var, eval_phase), group, tf.no_op)
+      tf.logical_or(should_reset_var, tf.logical_or(eval_phase, on_simulated)),
+      group, tf.no_op)
 
   with tf.control_dependencies([reset_op]):
     reset_once_op = tf.assign(should_reset_var, False)

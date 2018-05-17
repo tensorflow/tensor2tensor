@@ -146,12 +146,13 @@ def train_agent(problem_name, simulated_problem_name, agent_model_dir,
   ppo_hparams.simulated_environment = True
   ppo_hparams.simulation_random_starts = hparams.simulation_random_starts
   ppo_hparams.intrinsic_reward_scale = hparams.intrinsic_reward_scale
-  ppo_hparams.eval_every_epochs = 0
+  ppo_hparams.eval_every_epochs = 10
   ppo_hparams.save_models_every_epochs = ppo_epochs_num
   ppo_hparams.epoch_length = hparams.ppo_epoch_length
   ppo_hparams.num_agents = hparams.ppo_num_agents
   ppo_hparams.problem = gym_problem
   ppo_hparams.world_model_dir = world_model_dir
+  hparams.ppo_time_limit = max(ppo_hparams.epoch_length*4 + 20, 1000)
 
   in_graph_wrappers = [
       (TimeLimitWrapper, {"timelimit": hparams.ppo_time_limit}),
@@ -451,11 +452,11 @@ def rl_modelrl_base():
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
-      ppo_time_limit=200,
+      ppo_time_limit=200,  # TODO(blazej) - currently it is unused.
       # It makes sense to have ppo_time_limit=ppo_epoch_length,
       # though it is not necessary.
-      ppo_epoch_length=200,
-      ppo_num_agents=8,
+      ppo_epoch_length=40,
+      ppo_num_agents=20,
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
       ppo_continue_training=True,

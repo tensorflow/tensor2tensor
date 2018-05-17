@@ -58,7 +58,8 @@ def define_train(hparams, environment_spec, event_dir):
 
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     memory, collect_summary = collect.define_collect(
-        policy_factory, batch_env, hparams, eval_phase=False)
+        policy_factory, batch_env, hparams, eval_phase=False,
+        on_simulated=hparams.simulated_environment)
     ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
     summary = tf.summary.merge([collect_summary, ppo_summary])
 
@@ -77,7 +78,7 @@ def define_train(hparams, environment_spec, event_dir):
         num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
 
     # TODO(blazej0): correct to the version below.
-    corrected = False
+    corrected = True
     eval_summary = tf.no_op()
     if corrected:
       _, eval_summary = collect.define_collect(
