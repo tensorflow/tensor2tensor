@@ -151,8 +151,8 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams.num_agents = hparams.ppo_num_agents
   ppo_hparams.problem = gym_problem
   ppo_hparams.world_model_dir = world_model_dir
-  # 4x for the StackAndSkipWrapper
-  ppo_time_limit = max(ppo_hparams.epoch_length * 4 + 20, 250)
+  # 4x for the StackAndSkipWrapper minus one to always finish for reporting.
+  ppo_time_limit = (ppo_hparams.epoch_length - 1) * 4
 
   in_graph_wrappers = [
       (TimeLimitWrapper, {"timelimit": ppo_time_limit}),
@@ -456,15 +456,15 @@ def rl_modelrl_base():
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=250,  # This should be enough to see something
+      ppo_epochs_num=200,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
       ppo_time_limit=200,  # TODO(blazej): this param is unused
       # It makes sense to have ppo_time_limit=ppo_epoch_length,
       # though it is not necessary.
-      ppo_epoch_length=40,
-      ppo_num_agents=20,
+      ppo_epoch_length=60,
+      ppo_num_agents=16,
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
       ppo_continue_training=True,
@@ -579,7 +579,7 @@ def rl_modelrl_ae_base():
   hparams = rl_modelrl_base()
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "basic_conv_ae"
-  hparams.autoencoder_train_steps = 100000
+  hparams.autoencoder_train_steps = 30000
   return hparams
 
 
@@ -603,10 +603,7 @@ def rl_modelrl_ae_l2_base():
 def rl_modelrl_ae_medium():
   """Medium parameter set for autoencoders."""
   hparams = rl_modelrl_ae_base()
-  hparams.autoencoder_train_steps //= 2
   hparams.true_env_generator_num_steps //= 2
-  hparams.model_train_steps //= 2
-  hparams.ppo_epochs_num //= 2
   return hparams
 
 
@@ -730,8 +727,11 @@ def rl_modelrl_freeway_ae_medium():
 @registry.register_hparams
 def rl_modelrl_freeway_short():
   """Short set for testing Freeway."""
-  hparams = rl_modelrl_short()
-  hparams.game = "freeway"
+  hparams = rl_modelrl_freeway_medium()
+  hparams.true_env_generator_num_steps //= 5
+  hparams.model_train_steps //= 2
+  hparams.ppo_epochs_num //= 2
+  hparams.intrinsic_reward_scale = 0.1
   return hparams
 
 
