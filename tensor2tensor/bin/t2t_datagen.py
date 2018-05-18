@@ -41,6 +41,7 @@ import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
 from fathomtf.services.model_management import (fathom_t2t_model_setup,
                                                 fix_paths_for_workspace)
+import absl
 
 import numpy as np
 
@@ -61,7 +62,7 @@ FLAGS = flags.FLAGS
 # Fathom
 try:
   flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
-except:
+except absl.flags._exceptions.DuplicateFlagError:
   pass
 
 flags.DEFINE_string("data_dir", "", "Data directory.")
