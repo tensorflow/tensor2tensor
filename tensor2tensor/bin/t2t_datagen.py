@@ -59,7 +59,10 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 # Fathom
-flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
+try:
+  flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
+except:
+  pass
 
 flags.DEFINE_string("data_dir", "", "Data directory.")
 flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
