@@ -1257,7 +1257,7 @@ def local_moe_tpu(inputs,
   mask_1 *= tf.to_float(tf.less(position_in_expert_1, expert_capacity_f))
   # [batch, 1, num_experts]
   # How many examples in this sequence go to this expert
-  mask_1_count = tf.reduce_sum(mask_1, axis=1, keep_dims=True)
+  mask_1_count = tf.reduce_sum(mask_1, axis=1, keepdims=True)
   # [batch, length] - mostly ones, but zeros where something didn't fit
   mask_1_flat = tf.reduce_sum(mask_1, axis=2)
   position_in_expert_1 = tf.reduce_sum(position_in_expert_1, axis=2)
@@ -1284,7 +1284,7 @@ def local_moe_tpu(inputs,
       common_layers.cumsum(mask_2, axis=1, exclusive=True) + mask_1_count)
   position_in_expert_2 *= mask_2
   mask_2 *= tf.to_float(tf.less(position_in_expert_2, expert_capacity_f))
-  mask_2_count = tf.reduce_sum(mask_2, axis=1, keep_dims=True)
+  mask_2_count = tf.reduce_sum(mask_2, axis=1, keepdims=True)
   mask_2_flat = tf.reduce_sum(mask_2, axis=2)
   position_in_expert_2 = tf.reduce_sum(position_in_expert_2, axis=2)
   gate_2 *= mask_2_flat

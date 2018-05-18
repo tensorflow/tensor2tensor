@@ -237,7 +237,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       vr_update = tf.assign(vr, new_vr, use_locking=self._use_locking)
       vc_update = tf.assign(vc, new_vc, use_locking=self._use_locking)
       updates = [vr_update, vc_update]
-      long_term_mean = tf.reduce_mean(new_vr, -1, keep_dims=True)
+      long_term_mean = tf.reduce_mean(new_vr, -1, keepdims=True)
       r_factor = tf.rsqrt(new_vr / long_term_mean)
       c_factor = tf.rsqrt(new_vc)
       x = grad * tf.expand_dims(r_factor, -1) * tf.expand_dims(c_factor, -2)

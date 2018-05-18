@@ -113,7 +113,7 @@ class BasicConvGen(t2t_model.T2TModel):
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
 
     # Reward prediction.
-    reward_pred = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
+    reward_pred = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     return {"targets": x, "target_reward": reward_pred}
 
   def infer(self, features, *args, **kwargs):

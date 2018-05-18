@@ -228,9 +228,9 @@ def standardize_images(x):
   """Image standardization on batches."""
   with tf.name_scope("standardize_images", [x]):
     x = tf.to_float(x)
-    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keep_dims=True)
+    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keepdims=True)
     x_variance = tf.reduce_mean(
-        tf.square(x - x_mean), axis=[1, 2, 3], keep_dims=True)
+        tf.square(x - x_mean), axis=[1, 2, 3], keepdims=True)
     x_shape = shape_list(x)
     num_pixels = tf.to_float(x_shape[1] * x_shape[2] * x_shape[3])
     x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
@@ -604,8 +604,8 @@ def layer_norm_vars(filters):
 def layer_norm_compute_python(x, epsilon, scale, bias):
   """Layer norm raw computation."""
   epsilon, scale, bias = [tf.cast(t, x.dtype) for t in [epsilon, scale, bias]]
-  mean = tf.reduce_mean(x, axis=[-1], keep_dims=True)
-  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keep_dims=True)
+  mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
+  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keepdims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
   return norm_x * scale + bias
 
@@ -1289,7 +1289,7 @@ def mask_from_embedding(emb):
   Returns:
     a 0.0/1.0 Tensor with shape [batch, width, height, 1].
   """
-  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keep_dims=True))
+  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keepdims=True))
 
 
 def mask_leq(target_length, source_length):
@@ -1913,7 +1913,7 @@ def global_pool_1d(inputs, pooling_type="MAX", mask=None):
       if mask is not None:
         # Some elems are dummy elems so we can't just reduce the average.
         output = tf.reduce_sum(inputs, axis=1)
-        num_elems = tf.reduce_sum(mask, axis=1, keep_dims=True)
+        num_elems = tf.reduce_sum(mask, axis=1, keepdims=True)
         output = tf.div(output, tf.maximum(num_elems, 1))
       else:
         output = tf.reduce_mean(inputs, axis=1)
@@ -2977,7 +2977,7 @@ def argmax_with_score(logits, axis=None):
 
 
 def log_prob_from_logits(logits, reduce_axis=-1):
-  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keep_dims=True)
+  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keepdims=True)
 
 
 def top_1_tpu(inputs):
@@ -2992,7 +2992,7 @@ def top_1_tpu(inputs):
     values: a Tensor with shape [...]
     indices: a Tensor with shape [...]
   """
-  inputs_max = tf.reduce_max(inputs, axis=-1, keep_dims=True)
+  inputs_max = tf.reduce_max(inputs, axis=-1, keepdims=True)
   mask = tf.to_int32(tf.equal(inputs_max, inputs))
   index = tf.range(tf.shape(inputs)[-1]) * mask
   return tf.squeeze(inputs_max, -1), tf.reduce_max(index, axis=-1)
