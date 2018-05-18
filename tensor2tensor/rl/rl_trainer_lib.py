@@ -83,7 +83,7 @@ def define_train(hparams, environment_spec, event_dir):
 
 
 def train(hparams, environment_spec, event_dir=None, model_dir=None,
-          restore_agent=True):
+          restore_agent=True, epoch=0):
   """Train."""
   with tf.name_scope("rl_train"):
     train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
@@ -112,6 +112,13 @@ def train(hparams, environment_spec, event_dir=None, model_dir=None,
       if model_saver and restore_agent:
         start_step = trainer_lib.restore_checkpoint(
             model_dir, model_saver, sess)
+
+      # Fail-friendly, don't train if already trained for this epoch
+      if start_step >= ((hparams.epochs_num * (epoch+1)) - 5):
+        tf.logging.info("Skipping PPO training for epoch %d as train steps "
+                        "(%d) already reached", epoch, start_step)
+        return
+
       for epoch_index in range(hparams.epochs_num):
         summary = sess.run(train_summary_op)
         if summary_writer:
@@ -127,5 +134,5 @@ def train(hparams, environment_spec, event_dir=None, model_dir=None,
             (epoch_index % hparams.save_models_every_epochs == 0 or
              (epoch_index + 1) == hparams.epochs_num)):
           ckpt_path = os.path.join(
-              model_dir, "model.ckpt-{}".format(epoch_index + start_step))
+              model_dir, "model.ckpt-{}".format(epoch_index + 1 + start_step))
           model_saver.save(sess, ckpt_path)

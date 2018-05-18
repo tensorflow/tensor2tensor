@@ -45,7 +45,7 @@ flags.DEFINE_string("t2t_usr_dir", None,
                     "The imported files should contain registrations, "
                     "e.g. @registry.register_model calls, that will then be "
                     "available to the t2t-trainer.")
-flags.DEFINE_integer("random_seed", 1234, "Random seed.")
+flags.DEFINE_integer("random_seed", None, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")

@@ -136,7 +136,7 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
 
 def train_agent(problem_name, agent_model_dir,
                 event_dir, world_model_dir, epoch_data_dir, hparams,
-                autoencoder_path=None):
+                autoencoder_path=None, epoch=0):
   """Train the PPO agent in the simulated environment."""
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -151,6 +151,8 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams.num_agents = hparams.ppo_num_agents
   ppo_hparams.problem = gym_problem
   ppo_hparams.world_model_dir = world_model_dir
+  if hparams.ppo_learning_rate:
+    ppo_hparams.learning_rate = hparams.ppo_learning_rate
   # 4x for the StackAndSkipWrapper minus one to always finish for reporting.
   ppo_time_limit = (ppo_hparams.epoch_length - 1) * 4
 
@@ -169,7 +171,7 @@ def train_agent(problem_name, agent_model_dir,
       "autoencoder_path": autoencoder_path,
   }):
     rl_trainer_lib.train(ppo_hparams, gym_problem.env_name, event_dir,
-                         agent_model_dir)
+                         agent_model_dir, epoch=epoch)
 
 
 def evaluate_world_model(simulated_problem_name, problem_name, hparams,
@@ -281,19 +283,32 @@ def encode_env_frames(problem_name, ae_problem_name, autoencoder_path,
     ae_training_paths = ae_problem.training_filepaths(epoch_data_dir, 10, True)
     ae_eval_paths = ae_problem.dev_filepaths(epoch_data_dir, 1, True)
 
+    skip_train = False
+    skip_eval = False
+    for path in ae_training_paths:
+      if tf.gfile.Exists(path):
+        skip_train = True
+        break
+    for path in ae_eval_paths:
+      if tf.gfile.Exists(path):
+        skip_eval = True
+        break
+
     # Encode train data
-    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, epoch_data_dir,
-                              shuffle_files=False, output_buffer_size=100,
-                              preprocess=False)
-    encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
-                   ae_training_paths)
+    if not skip_train:
+      dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, epoch_data_dir,
+                                shuffle_files=False, output_buffer_size=100,
+                                preprocess=False)
+      encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
+                     ae_training_paths)
 
     # Encode eval data
-    dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, epoch_data_dir,
-                              shuffle_files=False, output_buffer_size=100,
-                              preprocess=False)
-    encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
-                   ae_eval_paths)
+    if not skip_eval:
+      dataset = problem.dataset(tf.estimator.ModeKeys.EVAL, epoch_data_dir,
+                                shuffle_files=False, output_buffer_size=100,
+                                preprocess=False)
+      encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
+                     ae_eval_paths)
 
 
 def check_problems(problem_names):
@@ -392,7 +407,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       ppo_model_dir = ppo_event_dir
     train_agent(world_model_problem, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
-                hparams, autoencoder_path=autoencoder_model_dir)
+                hparams, autoencoder_path=autoencoder_model_dir, epoch=epoch)
 
     # Collect data from the real environment.
     log("Generating real environment data")
@@ -465,6 +480,7 @@ def rl_modelrl_base():
       # though it is not necessary.
       ppo_epoch_length=60,
       ppo_num_agents=16,
+      ppo_learning_rate=0.,
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
       ppo_continue_training=True,
@@ -479,6 +495,14 @@ def rl_modelrl_base():
 def rl_modelrl_medium():
   """Small set for larger testing."""
   hparams = rl_modelrl_base()
+  hparams.true_env_generator_num_steps //= 2
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_25k():
+  """Small set for larger testing."""
+  hparams = rl_modelrl_medium()
   hparams.true_env_generator_num_steps //= 2
   return hparams
 
@@ -580,6 +604,13 @@ def rl_modelrl_ae_base():
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "basic_conv_ae"
   hparams.autoencoder_train_steps = 30000
+  return hparams
+
+
+@registry.register_hparams
+def rl_modelrl_ae_25k():
+  hparams = rl_modelrl_ae_base()
+  hparams.true_env_generator_num_steps //= 4
   return hparams
 
 
