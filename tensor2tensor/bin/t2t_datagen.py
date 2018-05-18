@@ -60,6 +60,10 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 # Fathom
+# TODO: find some more permanent and clean solution to the problem of
+# flags being defined in multiple places. Cleanest is probably to have
+# a flags.py that lives in diseaseTools and which contains literally
+# all fathom-defined t2t flags, and then strip all of them out of t2t.
 try:
   flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
 except absl.flags._exceptions.DuplicateFlagError:
