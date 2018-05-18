@@ -644,7 +644,9 @@ class T2TModel(base.Layer):
     # Setting decode length to input length + decode_length
     decode_length = tf.constant(decode_length)
     if "partial_targets" not in features:
-      decode_length += common_layers.shape_list(features["inputs"])[1]
+      inputs = features["inputs"]
+      decode_length = (common_layers.shape_list(inputs)[1] +
+                       features.get("decode_length", decode_length))
     ids, scores = beam_search.beam_search(
         symbols_to_logits_fn,
         initial_ids,
