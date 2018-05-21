@@ -215,7 +215,8 @@ def get_variable_initializer(hparams):
   if not hparams.initializer:
     return None
 
-  tf.logging.info("Using variable initializer: %s", hparams.initializer)
+  if not tf.contrib.eager.in_eager_mode():
+    tf.logging.info("Using variable initializer: %s", hparams.initializer)
   if hparams.initializer == "orthogonal":
     return tf.orthogonal_initializer(gain=hparams.initializer_gain)
   elif hparams.initializer == "uniform":

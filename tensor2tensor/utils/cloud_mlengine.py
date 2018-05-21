@@ -33,6 +33,7 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 CONSOLE_URL = "https://console.cloud.google.com/mlengine/jobs/"
+RUNTIME_VERSION = "1.8"
 
 # TODO(rsepassi):
 # * Enable multi-machine sync/async training
@@ -86,7 +87,7 @@ def flags_as_args():
       continue
     if name.startswith("autotune"):
       continue
-    args.extend(["--%s" % name, str(val)])
+    args.extend(["--%s=%s" % (name, str(val))])
   return args
 
 
@@ -113,7 +114,7 @@ def configure_job():
       "pythonModule": "tensor2tensor.bin.t2t_trainer",
       "args": flags_as_args(),
       "region": text_encoder.native_to_unicode(cloud.default_region()),
-      "runtimeVersion": "1.5",
+      "runtimeVersion": RUNTIME_VERSION,
       "pythonVersion": "3.5" if sys.version_info.major == 3 else "2.7",
       "jobDir": FLAGS.output_dir,
       "scaleTier": "CUSTOM",
