@@ -882,7 +882,7 @@ class T2TModel(base.Layer):
         v = tf.expand_dims(v, axis=-1)
         v_shape = [1]
       if v_shape == [1]:
-        v = tf.tile(v, [self._num_datashards])
+        v = tf.tile(v, tf.to_int32([self._num_datashards]))
       sharded_features[k] = self._data_parallelism(
           tf.identity, tf.split(v, self._num_datashards, 0))
     return sharded_features
@@ -1288,7 +1288,7 @@ def _create_host_call(model_dir):
   graph = tf.get_default_graph()
   summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
 
-  gs_t = tf.reshape(tf.train.get_global_step(), [1])
+  gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
   summary_kwargs = collections.OrderedDict()
   for t in summaries:
     if t.op.type != "ScalarSummary":
@@ -1296,9 +1296,9 @@ def _create_host_call(model_dir):
 
     name = t.op.name
     tensor = t.op.inputs[1]
-    assert tensor.shape.is_compatible_with(
-        []), ("ScalarSummary %s must have shape [], but is: %s." %
-              (name, tensor.shape))
+    assert tensor.shape.is_compatible_with([])
+    if tensor.dtype == tf.int64:
+      tensor = tf.to_int32(tensor)
     summary_kwargs[name] = tf.reshape(tensor, [1])
   summary_kwargs["global_step"] = gs_t
 
@@ -1312,7 +1312,7 @@ def _create_host_call(model_dir):
     Returns:
       List of summary ops to run on the CPU host.
     """
-    gs = kwargs.pop("global_step")[0]
+    gs = tf.to_int64(kwargs.pop("global_step")[0])
     with tf.contrib.summary.create_file_writer(model_dir).as_default():
       with tf.contrib.summary.always_record_summaries():
         for name, value in sorted(six.iteritems(kwargs)):
