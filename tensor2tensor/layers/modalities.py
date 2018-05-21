@@ -693,11 +693,11 @@ class RealModality(modality.Modality):
 
   def bottom(self, x):
     with tf.variable_scope("real"):
-      return tf.layers.dense(x, self._body_input_depth)
+      return tf.layers.dense(x, self._body_input_depth, name="bottom")
 
   def top(self, body_output, _):
     with tf.variable_scope("real"):
-      return tf.layers.dense(body_output, self._vocab_size)
+      return tf.layers.dense(body_output, self._vocab_size, name="top")
 
   def loss(self, top_out, targets):
     raise NotImplementedError()
