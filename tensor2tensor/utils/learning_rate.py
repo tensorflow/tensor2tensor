@@ -74,8 +74,8 @@ def _global_step(hparams):
   """Adjust global step if a multi-step optimizer is used."""
   step = tf.to_float(tf.train.get_or_create_global_step())
   multiplier = hparams.optimizer_multistep_accumulate_steps
-  if multiplier is not None and multiplier > 1:
-    step = step / tf.constant(multiplier, dtype=tf.float32)
+  if multiplier:
+    step = step / tf.to_float(multiplier)
     tf.logging.info("Divided global step by %d for multi-step optimizer."
                     % multiplier)
   return step
