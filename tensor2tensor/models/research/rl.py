@@ -22,6 +22,8 @@ import operator
 
 import gym
 from tensor2tensor.layers import common_hparams
+from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import discretization
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -52,6 +54,8 @@ def ppo_base_v1():
   hparams.add_hparam("optimization_batch_size", 50)
   hparams.add_hparam("max_gradients_norm", 0.5)
   hparams.add_hparam("simulated_environment", False)
+  hparams.add_hparam("simulation_random_starts", False)
+  hparams.add_hparam("intrinsic_reward_scale", 0.)
   return hparams
 
 
@@ -84,6 +88,36 @@ def ppo_atari_base():
   hparams.epochs_num = 10000
   hparams.num_eval_agents = 1
   hparams.network = feed_forward_cnn_small_categorical_fun
+  return hparams
+
+
+@registry.register_hparams
+def ppo_pong_base():
+  """Pong base parameters."""
+  hparams = ppo_discrete_action_base()
+  hparams.learning_rate = 8e-5
+  hparams.num_agents = 8
+  hparams.epoch_length = 200
+  hparams.gae_gamma = 0.985
+  hparams.gae_lambda = 0.985
+  hparams.entropy_loss_coef = 0.003
+  hparams.value_loss_coef = 1
+  hparams.optimization_epochs = 2
+  hparams.epochs_num = 1000
+  hparams.num_eval_agents = 1
+  hparams.network = feed_forward_cnn_small_categorical_fun
+  hparams.clipping_coef = 0.2
+  hparams.optimization_batch_size = 4
+  hparams.max_gradients_norm = 0.5
+  return hparams
+
+
+@registry.register_hparams
+def ppo_pong_ae_base():
+  """Pong autoencoder base parameters."""
+  hparams = ppo_pong_base()
+  hparams.learning_rate = 4e-5
+  hparams.network = dense_bitwise_categorical_fun
   return hparams
 
 
@@ -158,27 +192,55 @@ def feed_forward_categorical_fun(action_space, config, observations):
 def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
   """Small cnn network with categorical output."""
   del config
-
-  obs_shape = observations.shape.as_list()
+  obs_shape = common_layers.shape_list(observations)
   x = tf.reshape(observations, [-1] + obs_shape[2:])
 
   with tf.variable_scope("network_parameters"):
-    x = tf.to_float(x) / 255.0
-    x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                 activation_fn=tf.nn.relu, padding="SAME")
-    x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
-                                 activation_fn=tf.nn.relu, padding="SAME")
+    with tf.variable_scope("feed_forward_cnn_small"):
+      x = tf.to_float(x) / 255.0
+      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
+                                   activation_fn=tf.nn.relu, padding="SAME")
+      x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
+                                   activation_fn=tf.nn.relu, padding="SAME")
 
-    flat_x = tf.reshape(
-        x, [tf.shape(observations)[0], tf.shape(observations)[1],
-            functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
+      flat_x = tf.reshape(
+          x, [obs_shape[0], obs_shape[1],
+              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
 
-    x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
-    logits = tf.contrib.layers.fully_connected(x, action_space.n,
-                                               activation_fn=None)
+      x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
 
-    value = tf.contrib.layers.fully_connected(x, 1, activation_fn=None)[..., 0]
-    policy = tf.contrib.distributions.Categorical(logits=logits)
+      logits = tf.contrib.layers.fully_connected(x, action_space.n,
+                                                 activation_fn=None)
+
+      value = tf.contrib.layers.fully_connected(
+          x, 1, activation_fn=None)[..., 0]
+      policy = tf.contrib.distributions.Categorical(logits=logits)
+
+  return NetworkOutput(policy, value, lambda a: a)
+
+
+def dense_bitwise_categorical_fun(action_space, config, observations):
+  """Dense network with bitwise input and categorical output."""
+  del config
+  obs_shape = common_layers.shape_list(observations)
+  x = tf.reshape(observations, [-1] + obs_shape[2:])
+
+  with tf.variable_scope("network_parameters"):
+    with tf.variable_scope("dense_bitwise"):
+      x = discretization.int_to_bit_embed(x, 8, 32)
+      flat_x = tf.reshape(
+          x, [obs_shape[0], obs_shape[1],
+              functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
+
+      x = tf.contrib.layers.fully_connected(flat_x, 256, tf.nn.relu)
+      x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
+
+      logits = tf.contrib.layers.fully_connected(x, action_space.n,
+                                                 activation_fn=None)
+
+      value = tf.contrib.layers.fully_connected(
+          x, 1, activation_fn=None)[..., 0]
+      policy = tf.contrib.distributions.Categorical(logits=logits)
 
   return NetworkOutput(policy, value, lambda a: a)
 

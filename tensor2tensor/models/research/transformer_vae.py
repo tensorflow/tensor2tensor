@@ -92,9 +92,9 @@ def top_k_softmax(x, k):
   """Calculate softmax(x), select top-k and rescale to sum to 1."""
   x = tf.nn.softmax(x)
   top_x, _ = tf.nn.top_k(x, k=k+1)
-  min_top = tf.reduce_min(top_x, axis=-1, keep_dims=True)
+  min_top = tf.reduce_min(top_x, axis=-1, keepdims=True)
   x = tf.nn.relu((x - min_top) + 1e-12)
-  x /= tf.reduce_sum(x, axis=-1, keep_dims=True)
+  x /= tf.reduce_sum(x, axis=-1, keepdims=True)
   return x, tf.reduce_max(top_x, axis=-1)
 
 

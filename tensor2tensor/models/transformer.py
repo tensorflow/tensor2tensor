@@ -589,19 +589,12 @@ class TransformerScorer(Transformer):
     # Compute the log probabilities
     log_probs = common_layers.log_prob_from_logits(logits)
 
-    # Slice out the log_probs of the targets
     targets = features["targets"]
     assert len(targets.shape) == 4  # [batch, time, 1, 1]
     targets = tf.squeeze(targets, [2, 3])
-    batch_size, timesteps = common_layers.shape_list(targets)
-    vocab_size = common_layers.shape_list(log_probs)[-1]
-    flat_targets = tf.reshape(targets, [batch_size * timesteps])
-    flat_log_probs = tf.reshape(log_probs, [batch_size * timesteps, vocab_size])
-    flat_indices = tf.stack(
-        [tf.range(tf.to_int64(common_layers.shape_list(flat_targets)[0])),
-         tf.to_int64(flat_targets)], axis=1)
-    flat_log_probs = tf.gather_nd(flat_log_probs, flat_indices)
-    log_probs = tf.reshape(flat_log_probs, [batch_size, timesteps])
+
+    # Slice out the log_probs of the targets
+    log_probs = common_layers.index_last_dim_with_indices(log_probs, targets)
 
     # Sum over time to get the log_prob of the sequence
     scores = tf.reduce_sum(log_probs, axis=1)

@@ -539,8 +539,8 @@ class Problem(object):
 
     data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
     tf.logging.info("Reading data files from %s", data_filepattern)
-    data_files = tf.contrib.slim.parallel_reader.get_data_files(
-        data_filepattern)
+    data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
+        data_filepattern))
 
     # Functions used in dataset transforms below
     def _load_records_and_preprocess(filename):
@@ -592,7 +592,7 @@ class Problem(object):
     decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
         data_fields, data_items_to_decoders)
 
-    decode_items = list(data_items_to_decoders)
+    decode_items = list(sorted(data_items_to_decoders))
     decoded = decoder.decode(serialized_example, items=decode_items)
     return dict(zip(decode_items, decoded))
 

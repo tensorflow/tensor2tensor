@@ -259,13 +259,12 @@ class T2TModel(base.Layer):
     if not self._problem_hparams:
       log_warn("Without a Problem, T2TModel.bottom is a passthrough.")
       return features
-
-    transformed_features = {}
+    transformed_features = collections.OrderedDict()
     all_previous_modalities = []
 
     # Transform the input features
-    for key, input_modality in six.iteritems(
-        self._problem_hparams.input_modality):
+    for key, input_modality in sorted(six.iteritems(
+        self._problem_hparams.input_modality)):
       if key not in features:
         tf.logging.warning("Missing feature %s - ignoring." % key)
         continue
@@ -500,8 +499,8 @@ class T2TModel(base.Layer):
 
   def _fill_problem_hparams_features(self, features):
     if features is not None:
-      for k, v in six.iteritems(
-          problem_hparams_to_features(self._problem_hparams)):
+      for k, v in sorted(six.iteritems(
+          problem_hparams_to_features(self._problem_hparams))):
         if k not in features:
           features[k] = tf.constant(v, name=k)
 
@@ -876,7 +875,7 @@ class T2TModel(base.Layer):
 
   def _shard_features(self, features):  # pylint: disable=missing-docstring
     sharded_features = dict()
-    for k, v in six.iteritems(features):
+    for k, v in sorted(six.iteritems(features)):
       v = tf.convert_to_tensor(v)
       v_shape = common_layers.shape_list(v)
       if not v_shape:
@@ -1409,7 +1408,7 @@ def average_sharded_losses(sharded_losses):
     losses: dict<str loss_name, Tensor avg_loss>
   """
   losses = {}
-  for loss_name in sharded_losses[0]:
+  for loss_name in sorted(sharded_losses[0]):
     all_shards = [shard_losses[loss_name] for shard_losses in sharded_losses]
     if isinstance(all_shards[0], tuple):
       sharded_num, sharded_den = zip(*all_shards)
@@ -1425,7 +1424,7 @@ def average_sharded_losses(sharded_losses):
 
 def summarize_features(features, num_shards=1):
   with tf.name_scope("input_stats"):
-    for (k, v) in six.iteritems(features):
+    for (k, v) in sorted(six.iteritems(features)):
       if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1:
         tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // num_shards)
         tf.summary.scalar("%s_length" % k, tf.shape(v)[1])

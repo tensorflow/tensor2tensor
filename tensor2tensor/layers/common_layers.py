@@ -228,9 +228,9 @@ def standardize_images(x):
   """Image standardization on batches."""
   with tf.name_scope("standardize_images", [x]):
     x = tf.to_float(x)
-    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keep_dims=True)
+    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keepdims=True)
     x_variance = tf.reduce_mean(
-        tf.square(x - x_mean), axis=[1, 2, 3], keep_dims=True)
+        tf.square(x - x_mean), axis=[1, 2, 3], keepdims=True)
     x_shape = shape_list(x)
     num_pixels = tf.to_float(x_shape[1] * x_shape[2] * x_shape[3])
     x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
@@ -604,8 +604,8 @@ def layer_norm_vars(filters):
 def layer_norm_compute_python(x, epsilon, scale, bias):
   """Layer norm raw computation."""
   epsilon, scale, bias = [tf.cast(t, x.dtype) for t in [epsilon, scale, bias]]
-  mean = tf.reduce_mean(x, axis=[-1], keep_dims=True)
-  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keep_dims=True)
+  mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
+  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keepdims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
   return norm_x * scale + bias
 
@@ -1289,7 +1289,7 @@ def mask_from_embedding(emb):
   Returns:
     a 0.0/1.0 Tensor with shape [batch, width, height, 1].
   """
-  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keep_dims=True))
+  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keepdims=True))
 
 
 def mask_leq(target_length, source_length):
@@ -1913,7 +1913,7 @@ def global_pool_1d(inputs, pooling_type="MAX", mask=None):
       if mask is not None:
         # Some elems are dummy elems so we can't just reduce the average.
         output = tf.reduce_sum(inputs, axis=1)
-        num_elems = tf.reduce_sum(mask, axis=1, keep_dims=True)
+        num_elems = tf.reduce_sum(mask, axis=1, keepdims=True)
         output = tf.div(output, tf.maximum(num_elems, 1))
       else:
         output = tf.reduce_mean(inputs, axis=1)
@@ -2977,7 +2977,7 @@ def argmax_with_score(logits, axis=None):
 
 
 def log_prob_from_logits(logits, reduce_axis=-1):
-  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keep_dims=True)
+  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keepdims=True)
 
 
 def top_1_tpu(inputs):
@@ -2992,10 +2992,43 @@ def top_1_tpu(inputs):
     values: a Tensor with shape [...]
     indices: a Tensor with shape [...]
   """
-  inputs_max = tf.reduce_max(inputs, axis=-1, keep_dims=True)
+  inputs_max = tf.reduce_max(inputs, axis=-1, keepdims=True)
   mask = tf.to_int32(tf.equal(inputs_max, inputs))
   index = tf.range(tf.shape(inputs)[-1]) * mask
   return tf.squeeze(inputs_max, -1), tf.reduce_max(index, axis=-1)
+
+
+def index_last_dim_with_indices(x, indices):
+  """Use indices to index into the last axis of x.
+
+  This can be useful for recovering the actual probabilities of a sample from a
+  probability distribution.
+
+  Args:
+    x: Tensor, n-d.
+    indices: Tensor, (n-1)-d, where the dimension sizes match the first (n-1)
+      dimensions of x. The values of indices will be used to index into the last
+      axis of x.
+
+  Returns:
+    Tensor, (n-1)-d.
+  """
+  assert len(x.shape) == len(indices.shape) + 1
+
+  x_shape = shape_list(x)
+  vocab_size = x_shape[-1]
+
+  flat_x = tf.reshape(x, [list_product(x_shape[:-1]), vocab_size])
+  flat_indices = tf.reshape(indices, [list_product(x_shape[:-1])])
+
+  idx = tf.stack(
+      [tf.range(tf.to_int64(shape_list(flat_indices)[0])),
+       tf.to_int64(flat_indices)], axis=1)
+  flat_x_idx = tf.gather_nd(flat_x, idx)
+
+  x_idx = tf.reshape(flat_x_idx, x_shape[:-1])
+
+  return x_idx
 
 
 def should_generate_summaries():
@@ -3019,3 +3052,36 @@ def reshape_like(a, b):
   if not tf.contrib.eager.in_eager_mode():
     ret.set_shape(b.get_shape().as_list()[:-1] + a.get_shape().as_list()[-1:])
   return ret
+
+
+def summarize_video(video, prefix, max_outputs=1):
+  """Summarize the video using image summaries starting with prefix."""
+  video_shape = shape_list(video)
+  if len(video_shape) != 5:
+    raise ValueError("Assuming videos given as tensors in the format "
+                     "[batch, time, height, width, channels] but got one "
+                     "of shape: %s" % str(video_shape))
+  if tf.contrib.eager.in_eager_mode():
+    return
+  if video.get_shape().as_list()[1] is None:
+    tf.summary.image(
+        "%s_last_frame" % prefix, tf.cast(video[:, -1, :, :, :], tf.uint8),
+        max_outputs=max_outputs)
+  else:
+    for k in range(video_shape[1]):
+      tf.summary.image(
+          "%s_frame_%d" % (prefix, k), tf.cast(video[:, k, :, :, :], tf.uint8),
+          max_outputs=max_outputs)
+
+
+def time_to_channels(embedded_video):
+  """Put time dimension on channels in an embedded video."""
+  video_shape = shape_list(embedded_video)
+  if len(video_shape) != 5:
+    raise ValueError("Assuming videos given as tensors in the format "
+                     "[batch, time, height, width, channels] but got one "
+                     "of shape: %s" % str(video_shape))
+  transposed = tf.transpose(embedded_video, [0, 2, 3, 1, 4])
+  return tf.reshape(transposed,
+                    [video_shape[0], video_shape[2], video_shape[3],
+                     video_shape[1] * video_shape[4]])

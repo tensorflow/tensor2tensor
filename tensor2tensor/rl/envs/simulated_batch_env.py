@@ -24,7 +24,7 @@ from __future__ import print_function
 # Dependency imports
 
 from tensor2tensor.layers import common_layers
-from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
+from tensor2tensor.rl.envs import in_graph_batch_env
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -38,49 +38,65 @@ FLAGS = flags.FLAGS
 class HistoryBuffer(object):
   """History Buffer."""
 
-  def __init__(self, input_data_iterator):
-    self.input_data_iterator = input_data_iterator
-    initial_frames = self.get_initial_observations()
-    self._history_buff = None
-    initial_shape = common_layers.shape_list(initial_frames)
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      history_buff = tf.get_variable("history_observ", initial_shape,
-                                     initializer=tf.zeros_initializer,
+  def __init__(self, input_dataset, length):
+    self.input_data_iterator = (
+        input_dataset.batch(length).make_one_shot_iterator())
+    self.length = length
+    initial_frames = self.get_initial_observations(length)
+    initial_shape = [length] + common_layers.shape_list(initial_frames)[1:]
+    self._history_buff = tf.Variable(tf.zeros(initial_shape, tf.float32),
                                      trainable=False)
-    self._history_buff = history_buff
     self._assigned = False
 
-  def get_initial_observations(self):
-    """Initial observations."""
-    initial_frames = self.input_data_iterator.get_next()["inputs"]
-    initial_frames = tf.cast(initial_frames, tf.float32)
-    return initial_frames
+  def get_initial_observations(self, n):
+    initial_frames = self.input_data_iterator.get_next()
+    return tf.cast(initial_frames[:n, ...], tf.float32)
 
   def get_all_elements(self):
     if self._assigned:
       return self._history_buff.read_value()
-    initial_frames = self.get_initial_observations()
-    with tf.control_dependencies([self.history_buff.assign(initial_frames)]):
+    assign = self._history_buff.assign(
+        self.get_initial_observations(self.length))
+    with tf.control_dependencies([assign]):
       self._assigned = True
-      return tf.identity(initial_frames)
+      return tf.identity(self.initial_frames)
 
   def move_by_one_element(self, element):
-    last_removed = self.get_all_elements()[1:, ...]
-    element = tf.expand_dims(element, dim=0)
-    moved = tf.concat([last_removed, element], axis=0)
+    last_removed = self.get_all_elements()[:, 1:, ...]
+    element = tf.expand_dims(element, dim=1)
+    moved = tf.concat([last_removed, element], axis=1)
     with tf.control_dependencies([moved]):
       with tf.control_dependencies([self._history_buff.assign(moved)]):
         self._assigned = True
         return self._history_buff.read_value()
 
-  def reset(self):
-    with tf.control_dependencies([self._history_buff.assign(
-        self.get_initial_observations())]):
+  def reset(self, indices):
+    number_of_indices = tf.size(indices)
+    initial_frames = self.get_initial_observations(number_of_indices)
+    scatter_op = tf.scatter_update(self._history_buff, indices, initial_frames)
+    with tf.control_dependencies([scatter_op]):
       self._assigned = True
       return self._history_buff.read_value()
 
 
-class SimulatedBatchEnv(InGraphBatchEnv):
+def compute_uncertainty_reward(logits, predictions):
+  """Uncertainty reward based on logits."""
+  # TODO(rsepassi): Add support for L1/L2 loss models. Current code only
+  # works for softmax models.
+  vocab_size = logits.shape[-1]
+  assert vocab_size > 1
+  log_probs = common_layers.log_prob_from_logits(logits)
+  max_log_probs = common_layers.index_last_dim_with_indices(log_probs,
+                                                            predictions)
+  # Threshold
+  neg_log_prob = tf.nn.relu(-max_log_probs - 0.02)
+  # Sum across all but the batch dimension
+  reduce_dims = list(range(len(neg_log_prob.shape)))[1:]
+  summed = tf.reduce_sum(neg_log_prob, axis=reduce_dims)
+  return summed / 10
+
+
+class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   """Batch of environments inside the TensorFlow graph.
 
   The batch of environments will be stepped and reset inside of the graph using
@@ -88,13 +104,14 @@ class SimulatedBatchEnv(InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, environment_lambda, length, problem):
+  def __init__(self, environment_lambda, length, problem,
+               simulation_random_starts=False, intrinsic_reward_scale=0.):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
+    self._min_reward = problem.min_reward
     self._num_frames = problem.num_input_frames
+    self._intrinsic_reward_scale = intrinsic_reward_scale
 
-    # TODO(piotrmilos): For the moment we are fine with that.
-    assert self.length == 1, "Currently SimulatedBatchEnv support only one env"
     initialization_env = environment_lambda()
     hparams = trainer_lib.create_hparams(
         FLAGS.hparams_set, problem_name=FLAGS.problem)
@@ -106,17 +123,20 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     self.action_shape = list(initialization_env.action_space.shape)
     self.action_dtype = tf.int32
 
-    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir)
-    dataset = dataset.repeat()
-    input_data_iterator = dataset.make_one_shot_iterator()
+    if simulation_random_starts:
+      dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
+                                shuffle_files=True)
+      dataset = dataset.shuffle(buffer_size=100)
+    else:
+      dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
+                                shuffle_files=False).take(1)
 
-    self.history_buffer = HistoryBuffer(input_data_iterator)
+    dataset = dataset.map(lambda x: x["inputs"]).repeat()
+    self.history_buffer = HistoryBuffer(dataset, self.length)
 
     shape = (self.length, problem.frame_height, problem.frame_width,
              problem.num_channels)
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      self._observ = tf.get_variable(
-          "observ", shape, initializer=tf.zeros_initializer, trainable=False)
+    self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
 
   def __len__(self):
     """Number of combined environments."""
@@ -124,27 +144,42 @@ class SimulatedBatchEnv(InGraphBatchEnv):
 
   def simulate(self, action):
     with tf.name_scope("environment/simulate"):
-      action = tf.expand_dims(action, axis=0)
-      actions = [action] * self._num_frames
-      actions = tf.concat(actions, axis=0)
+      actions = tf.concat([tf.expand_dims(action, axis=1)] * self._num_frames,
+                          axis=1)
       history = self.history_buffer.get_all_elements()
-      inputs = {"inputs": tf.expand_dims(history, axis=0),  # Add batch.
-                "input_action": tf.expand_dims(actions, axis=0)}
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-        model_output = self._model.infer(inputs)
-      observ = model_output["targets"]
-      observ = tf.cast(observ[:, 0, :, :, :], tf.float32)
-      # TODO(lukaszkaiser): instead of -1 use min_reward in the line below.
-      reward = model_output["target_reward"][:, 0, 0, 0] - 1
-      reward = tf.cast(reward, tf.float32)
-      # Some wrappers need explicit shape, so we reshape here.
-      reward = tf.reshape(reward, shape=(self.length,))
+        model_output = self._model.infer(
+            {"inputs": history, "input_action": actions})
+
+      observ = tf.to_float(tf.squeeze(model_output["targets"], axis=1))
+
+      reward = (tf.squeeze(model_output["target_reward"], axis=[1, 2, 3]) +
+                self._min_reward)
+      reward = tf.reshape(tf.to_float(reward), shape=(self.length,))
+
+      if self._intrinsic_reward_scale:
+        # Use the model's uncertainty about its prediction as an intrinsic
+        # reward. The uncertainty is measured by the log probability of the
+        # predicted pixel value.
+        if "targets_logits" not in model_output:
+          raise ValueError("The use of intrinsic rewards requires access to "
+                           "the logits. Ensure that model.infer returns "
+                           "'targets_logits'")
+        uncertainty_reward = compute_uncertainty_reward(
+            model_output["targets_logits"], model_output["targets"])
+        uncertainty_reward = tf.minimum(
+            1., self._intrinsic_reward_scale * uncertainty_reward)
+        uncertainty_reward = tf.Print(uncertainty_reward, [uncertainty_reward],
+                                      message="uncertainty_reward", first_n=1,
+                                      summarize=8)
+        reward += uncertainty_reward
+
       done = tf.constant(False, tf.bool, shape=(self.length,))
 
       with tf.control_dependencies([observ]):
         with tf.control_dependencies(
             [self._observ.assign(observ),
-             self.history_buffer.move_by_one_element(observ[0, ...])]):
+             self.history_buffer.move_by_one_element(observ)]):
           return tf.identity(reward), tf.identity(done)
 
   def reset(self, indices=None):
@@ -169,9 +204,9 @@ class SimulatedBatchEnv(InGraphBatchEnv):
     Returns:
       Batch tensor of the new observations.
     """
-    with tf.control_dependencies([self.history_buffer.reset()]):
+    with tf.control_dependencies([self.history_buffer.reset(indices)]):
       with tf.control_dependencies([self._observ.assign(
-          self.history_buffer.get_all_elements()[-1:, ...])]):
+          self.history_buffer.get_all_elements()[:, -1, ...])]):
         return tf.identity(self._observ.read_value())
 
   @property

@@ -22,6 +22,7 @@ from __future__ import print_function
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import discretization
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
@@ -473,21 +474,8 @@ class VideoModality(modality.Modality):
 
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
+      common_layers.summarize_video(inputs, "inputs")
       inputs_shape = common_layers.shape_list(inputs)
-      if len(inputs_shape) != 5:
-        raise ValueError("Assuming videos given as tensors in the format "
-                         "[batch, time, height, width, channels] but got one "
-                         "of shape: %s" % str(inputs_shape))
-      if not tf.contrib.eager.in_eager_mode():
-        if inputs.get_shape().as_list()[1] is None:
-          tf.summary.image(
-              "inputs_last_frame", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
-              max_outputs=1)
-        else:
-          for k in range(inputs_shape[1]):
-            tf.summary.image(
-                "inputs_frame_%d" % k, tf.cast(inputs[:, k, :, :, :], tf.uint8),
-                max_outputs=1)
       # Standardize frames.
       inputs = tf.reshape(inputs, [-1] + inputs_shape[2:])
       inputs = common_layers.standardize_images(inputs)
@@ -499,17 +487,10 @@ class VideoModality(modality.Modality):
           [inputs_shape[0], inputs_shape[2], inputs_shape[3],
            inputs_shape[1] * inputs_shape[4]])
 
-  def targets_bottom(self, inputs):
-    with tf.variable_scope(self.name):
+  def targets_bottom(self, inputs, summary_prefix="targets_bottom"):
+    with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
+      common_layers.summarize_video(inputs, summary_prefix)
       inputs_shape = common_layers.shape_list(inputs)
-      if len(inputs_shape) != 5:
-        raise ValueError("Assuming videos given as tensors in the format "
-                         "[batch, time, height, width, channels] but got one "
-                         "of shape: %s" % str(inputs_shape))
-      if not tf.contrib.eager.in_eager_mode():
-        tf.summary.image(
-            "targets_bottom", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
-            max_outputs=1)
       # We embed each of 256=self.top_dimensionality possible pixel values.
       embedding_var = tf.get_variable(
           "pixel_embedding",
@@ -520,15 +501,9 @@ class VideoModality(modality.Modality):
       # Let's now merge all channels that were embedded into a single vector.
       merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[4]
       embedded = tf.reshape(embedded, inputs_shape[:4] + [merged_size])
-      # Put time dimension on channels and add a dense layer.
-      embedded = tf.transpose(embedded, [0, 2, 3, 1, 4])
-      embedded = tf.reshape(
-          embedded,
-          [inputs_shape[0], inputs_shape[2], inputs_shape[3],
-           inputs_shape[1] * merged_size])
-      merged = tf.layers.dense(embedded, self._body_input_depth,
-                               name="merge_pixel_embedded_frames")
-      return merged
+      transposed = common_layers.time_to_channels(embedded)
+      return tf.layers.dense(transposed, self._body_input_depth,
+                             name="merge_pixel_embedded_frames")
 
   def top(self, body_output, _):
     num_channels = self._model_hparams.problem.num_channels
@@ -551,12 +526,39 @@ class VideoModality(modality.Modality):
     """Compute loss numerator and denominator for one shard of output."""
     logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
     targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
+    cutoff = getattr(self._model_hparams, "video_modality_loss_cutoff", 0.01)
     return common_layers.padded_cross_entropy(
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        cutoff=0.01,
+        cutoff=cutoff,
         weights_fn=self.targets_weights_fn)
+
+
+@registry.register_video_modality("embed")
+class VideoModalityEmbed(VideoModality):
+  """Video Modality where bottom embeds pixels."""
+
+  def bottom(self, inputs):
+    return super(VideoModalityEmbed, self).targets_bottom(
+        inputs, summary_prefix="bottom")
+
+
+@registry.register_video_modality("bitwise")
+class VideoModalityBitwise(VideoModality):
+  """Video Modality where bottom embeds pixels bitwise."""
+
+  def bottom(self, inputs):
+    with tf.variable_scope(self.name):
+      common_layers.summarize_video(inputs, "targets_bottom")
+      # Embed bitwise.
+      assert self.top_dimensionality == 256
+      embedded = discretization.int_to_bit_embed(
+          inputs, 8, self.PIXEL_EMBEDDING_SIZE)
+      # Transpose and project.
+      transposed = common_layers.time_to_channels(embedded)
+      return tf.layers.dense(transposed, self._body_input_depth,
+                             name="merge_pixel_embedded_frames")
 
 
 @registry.register_video_modality("l1")
@@ -578,7 +580,7 @@ class VideoModalityL1(VideoModality):
 
   @property
   def cutoff(self):
-    return 0.2
+    return getattr(self._model_hparams, "video_modality_loss_cutoff", 0.2)
 
   def internal_loss(self, logits, targets):
     return tf.nn.relu(tf.abs(logits - targets) - self.cutoff)
@@ -708,6 +710,9 @@ class RealL2LossModality(RealModality):
 
   def loss(self, top_out, targets):
     predictions = top_out
+    if (len(common_layers.shape_list(top_out)) != len(
+        common_layers.shape_list(targets))):
+      predictions = tf.squeeze(top_out, axis=[-1])
     with tf.name_scope("l2"):
       weights = self.targets_weights_fn(targets)
       l2 = tf.pow(predictions - targets, 2)
@@ -720,9 +725,11 @@ class RealLogPoissonLossModality(RealModality):
 
   def loss(self, top_out, targets):
     predictions = top_out
+    if (len(common_layers.shape_list(top_out)) != len(
+        common_layers.shape_list(targets))):
+      predictions = tf.squeeze(top_out, axis=[-1])
     with tf.name_scope("log_possion"):
       weights = self.targets_weights_fn(targets)
-
       lp_loss = tf.nn.log_poisson_loss(targets, predictions)
       return tf.reduce_sum(lp_loss * weights), tf.reduce_sum(weights)
 
