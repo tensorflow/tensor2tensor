@@ -672,6 +672,86 @@ def discrete_bottleneck(x,
 # * The [method]_unbottleneck function moves from discretized state to dense.
 
 
+def get_vq_bottleneck(bottleneck_size, hidden_size):
+  """Get lookup table for VQ bottleneck."""
+  with tf.variable_scope("vq", reuse=tf.AUTO_REUSE):
+    means = tf.get_variable(
+        name="means",
+        shape=[bottleneck_size, hidden_size],
+        initializer=tf.uniform_unit_scaling_initializer())
+
+    ema_count = tf.get_variable(
+        name="ema_count",
+        shape=[bottleneck_size],
+        initializer=tf.constant_initializer(0),
+        trainable=False)
+
+    with tf.colocate_with(means):
+      ema_means = tf.get_variable(
+          name="ema_means",
+          initializer=means.initialized_value(),
+          trainable=False)
+  return means, ema_means, ema_count
+
+
+def vq_nearest_neighbor(x, means):
+  """Find the nearest element in means to elements in x."""
+  bottleneck_size = common_layers.shape_list(means)[0]
+  x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keepdims=True)
+  means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True)
+  scalar_prod = tf.matmul(x, means, transpose_b=True)
+  dist = x_norm_sq + tf.transpose(means_norm_sq) - 2 * scalar_prod
+  x_means_idx = tf.argmax(-dist, axis=-1)
+  x_means_hot = tf.one_hot(x_means_idx, bottleneck_size)
+  x_means_hot_flat = tf.reshape(x_means_hot, [-1, bottleneck_size])
+  x_means = tf.matmul(x_means_hot_flat, means)
+  e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  return x_means_hot, e_loss
+
+
+def vq_discrete_bottleneck(x,
+                           bottleneck_size,
+                           beta=0.25,
+                           decay=0.999,
+                           epsilon=1e-5):
+  """Simple vector quantized discrete bottleneck."""
+  hidden_size = common_layers.shape_list(x)[-1]
+  means, ema_means, ema_count = get_vq_bottleneck(bottleneck_size, hidden_size)
+  x_means_hot, e_loss = vq_nearest_neighbor(x, means)
+
+  # Update the ema variables
+  updated_ema_count = moving_averages.assign_moving_average(
+      ema_count,
+      tf.reduce_sum(
+          tf.reshape(x_means_hot, shape=[-1, bottleneck_size]), axis=0),
+      decay,
+      zero_debias=False)
+
+  dw = tf.matmul(x_means_hot, x, transpose_a=True)
+
+  updated_ema_means = moving_averages.assign_moving_average(
+      ema_means, dw, decay, zero_debias=False)
+  n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
+  updated_ema_count = (
+      (updated_ema_count + epsilon) / (n + bottleneck_size * epsilon) * n)
+  updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
+  with tf.control_dependencies([e_loss]):
+    update_means = tf.assign(means, updated_ema_means)
+    with tf.control_dependencies([update_means]):
+      loss = beta * e_loss
+
+  d = x_means_hot
+  return d, loss
+
+
+def vq_discrete_unbottleneck(x, hidden_size):
+  """Simple undiscretization from vector quantized representation."""
+  x = tf.to_float(x)
+  bottleneck_size = common_layers.shape_list(x)[1]
+  means, _, _ = get_vq_bottleneck(bottleneck_size, hidden_size)
+  return tf.matmul(x, means)
+
+
 def tanh_discrete_bottleneck(x, bottleneck_size, bottleneck_noise,
                              discretize_warmup_steps, mode):
   """Simple discretization through tanh, flip bottleneck_noise many bits."""
@@ -738,6 +818,9 @@ def parametrized_bottleneck(x, hparams):
         x, hparams.bottleneck_size, hparams.bottleneck_noise * 0.5,
         hparams.discretize_warmup_steps, hparams.mode,
         hparams.isemhash_noise_dev, hparams.isemhash_mix_prob)
+  if hparams.bottleneck_kind == "vq":
+    return vq_discrete_bottleneck(x, hparams.bottleneck_size, hparams.beta,
+                                  hparams.decay, hparams.epsilon)
   raise ValueError("Unsupported hparams.bottleneck_kind %s"
                    % hparams.bottleneck_kind)
 
@@ -749,5 +832,7 @@ def parametrized_unbottleneck(x, hidden_size, hparams):
   if hparams.bottleneck_kind == "isemhash":
     return isemhash_unbottleneck(
         x, hidden_size, hparams.isemhash_filter_size_multiplier)
+  if hparams.bottleneck_kind == "vq":
+    return vq_discrete_unbottleneck(x, hidden_size)
   raise ValueError("Unsupported hparams.bottleneck_kind %s"
                    % hparams.bottleneck_kind)

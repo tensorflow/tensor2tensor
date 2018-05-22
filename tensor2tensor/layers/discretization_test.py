@@ -119,6 +119,48 @@ class DiscretizationTest(tf.test.TestCase):
       self.assertEqual(np.shape(x_means_hot_eval), (1, 2, 4))
       self.assertTrue(np.all(x_means_hot_eval == x_means_hot_test))
 
+  def testGetVQBottleneck(self):
+    bottleneck_size = 4
+    hidden_size = 3
+    means, _, ema_count = discretization.get_vq_bottleneck(bottleneck_size,
+                                                           hidden_size)
+    assign_op = means.assign(tf.zeros(shape=[bottleneck_size, hidden_size]))
+    means_new, _, _ = discretization.get_vq_bottleneck(bottleneck_size,
+                                                       hidden_size)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      sess.run(assign_op)
+      self.assertTrue(np.all(sess.run(means_new) == 0))
+      self.assertTrue(np.all(sess.run(ema_count) == 0))
+
+  def testVQNearestNeighbors(self):
+    x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
+    means = tf.constant(
+        [[1, 0, 0], [0, 1, 0], [0, 0, 1], [9, 9, 9]], dtype=tf.float32)
+    x_means_hot, _ = discretization.vq_nearest_neighbor(x, means)
+    x_means_hot_test = np.array([[0, 1, 0, 0], [1, 0, 0, 0]])
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
+      self.assertTrue(np.all(x_means_hot_eval == x_means_hot_test))
+
+  def testVQDiscreteBottleneck(self):
+    x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
+    x_means_hot, _ = discretization.vq_discrete_bottleneck(x, bottleneck_size=4)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
+
+  def testVQDiscreteUnbottlenck(self):
+    x = tf.constant([[1, 0, 0, 0], [0, 0, 1, 0]], dtype=tf.int32)
+    x_means = discretization.vq_discrete_unbottleneck(x, hidden_size=3)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_eval = sess.run(x_means)
+      self.assertEqual(np.shape(x_means_eval), (2, 3))
+
 
 if __name__ == '__main__':
   tf.test.main()
