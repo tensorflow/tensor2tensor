@@ -23,7 +23,6 @@ import contextlib
 import functools
 from functools import partial
 import math
-import random
 
 # Dependency imports
 
@@ -2528,7 +2527,7 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
 
   @function.Defun(
       *(in_types + var_types + out_types),
-      func_name="identity_custom_grad%d" % random.randint(1, 10**9),
+      func_name="identity_custom_grad%d" % ops.uid(),
       python_grad_func=custom_grad_fn,
       shape_func=lambda _: [t.get_shape() for t in outputs])
   def identity(*args):
