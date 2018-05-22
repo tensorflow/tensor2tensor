@@ -693,7 +693,8 @@ class RealModality(modality.Modality):
 
   def bottom(self, x):
     with tf.variable_scope("real"):
-      return tf.layers.dense(x, self._body_input_depth, name="bottom")
+      return tf.layers.dense(tf.to_float(x), self._body_input_depth,
+                             name="bottom")
 
   def top(self, body_output, _):
     with tf.variable_scope("real"):
