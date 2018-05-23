@@ -50,6 +50,7 @@ setup(
         'tensorflow': ['tensorflow>=1.5.0'],
         'tensorflow_gpu': ['tensorflow-gpu>=1.5.0'],
         'tests': ['pytest', 'mock'],
+        'allen': ['allensdk==0.14.4', 'Pillow==5.1.0', 'pandas==0.23.0']
     },
     classifiers=[
         'Development Status :: 4 - Beta',
