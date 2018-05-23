@@ -463,8 +463,8 @@ def rl_modelrl_base():
       # 1/11 steps are used for evaluation data
       # 100k frames for training = 36666
       true_env_generator_num_steps=36666,
-      generative_model="basic_conv_gen",
-      generative_model_params="basic_conv",
+      generative_model="next_frame_basic",
+      generative_model_params="next_frame",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
       model_train_steps=50000,
@@ -537,7 +537,7 @@ def rl_modelrl_tiny():
 def rl_modelrl_l1_base():
   """Parameter set with L1 loss."""
   hparams = rl_modelrl_base()
-  hparams.generative_model_params = "basic_conv_l1"
+  hparams.generative_model_params = "next_frame_l1"
   return hparams
 
 
@@ -545,7 +545,7 @@ def rl_modelrl_l1_base():
 def rl_modelrl_l1_medium():
   """Medium parameter set with L1 loss."""
   hparams = rl_modelrl_medium()
-  hparams.generative_model_params = "basic_conv_l1"
+  hparams.generative_model_params = "next_frame_l1"
   return hparams
 
 
@@ -553,7 +553,7 @@ def rl_modelrl_l1_medium():
 def rl_modelrl_l1_short():
   """Short parameter set with L1 loss."""
   hparams = rl_modelrl_short()
-  hparams.generative_model_params = "basic_conv_l1"
+  hparams.generative_model_params = "next_frame_l1"
   return hparams
 
 
@@ -561,7 +561,7 @@ def rl_modelrl_l1_short():
 def rl_modelrl_l1_tiny():
   """Tiny parameter set with L1 loss."""
   hparams = rl_modelrl_tiny()
-  hparams.generative_model_params = "basic_conv_l1"
+  hparams.generative_model_params = "next_frame_l1"
   return hparams
 
 
@@ -569,7 +569,7 @@ def rl_modelrl_l1_tiny():
 def rl_modelrl_l2_base():
   """Parameter set with L2 loss."""
   hparams = rl_modelrl_base()
-  hparams.generative_model_params = "basic_conv_l2"
+  hparams.generative_model_params = "next_frame_l2"
   return hparams
 
 
@@ -577,7 +577,7 @@ def rl_modelrl_l2_base():
 def rl_modelrl_l2_medium():
   """Medium parameter set with L2 loss."""
   hparams = rl_modelrl_medium()
-  hparams.generative_model_params = "basic_conv_l2"
+  hparams.generative_model_params = "next_frame_l2"
   return hparams
 
 
@@ -585,7 +585,7 @@ def rl_modelrl_l2_medium():
 def rl_modelrl_l2_short():
   """Short parameter set with L2 loss."""
   hparams = rl_modelrl_short()
-  hparams.generative_model_params = "basic_conv_l2"
+  hparams.generative_model_params = "next_frame_l2"
   return hparams
 
 
@@ -593,7 +593,7 @@ def rl_modelrl_l2_short():
 def rl_modelrl_l2_tiny():
   """Tiny parameter set with L2 loss."""
   hparams = rl_modelrl_tiny()
-  hparams.generative_model_params = "basic_conv_l2"
+  hparams.generative_model_params = "next_frame_l2"
   return hparams
 
 
@@ -602,7 +602,7 @@ def rl_modelrl_ae_base():
   """Parameter set for autoencoders."""
   hparams = rl_modelrl_base()
   hparams.ppo_params = "ppo_pong_ae_base"
-  hparams.generative_model_params = "basic_conv_ae"
+  hparams.generative_model_params = "next_frame_ae"
   hparams.autoencoder_train_steps = 30000
   return hparams
 
@@ -618,7 +618,7 @@ def rl_modelrl_ae_25k():
 def rl_modelrl_ae_l1_base():
   """Parameter set for autoencoders and L1 loss."""
   hparams = rl_modelrl_ae_base()
-  hparams.generative_model_params = "basic_conv_l1"
+  hparams.generative_model_params = "next_frame_l1"
   return hparams
 
 
@@ -626,7 +626,7 @@ def rl_modelrl_ae_l1_base():
 def rl_modelrl_ae_l2_base():
   """Parameter set for autoencoders and L2 loss."""
   hparams = rl_modelrl_ae_base()
-  hparams.generative_model_params = "basic_conv_l2"
+  hparams.generative_model_params = "next_frame_l2"
   return hparams
 
 
@@ -654,7 +654,7 @@ def rl_modelrl_ae_tiny():
   """Tiny set for testing autoencoders."""
   hparams = rl_modelrl_tiny()
   hparams.ppo_params = "ppo_pong_ae_base"
-  hparams.generative_model_params = "basic_conv_ae"
+  hparams.generative_model_params = "next_frame_ae"
   hparams.autoencoder_train_steps = 2
   return hparams
 

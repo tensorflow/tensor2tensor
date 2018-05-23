@@ -819,8 +819,8 @@ def parametrized_bottleneck(x, hparams):
         hparams.discretize_warmup_steps, hparams.mode,
         hparams.isemhash_noise_dev, hparams.isemhash_mix_prob)
   if hparams.bottleneck_kind == "vq":
-    return vq_discrete_bottleneck(x, hparams.bottleneck_size, hparams.beta,
-                                  hparams.decay, hparams.epsilon)
+    return vq_discrete_bottleneck(x, hparams.bottleneck_size, hparams.vq_beta,
+                                  hparams.vq_decay, hparams.vq_epsilon)
   raise ValueError("Unsupported hparams.bottleneck_kind %s"
                    % hparams.bottleneck_kind)
 

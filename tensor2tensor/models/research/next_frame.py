@@ -32,8 +32,8 @@ import tensorflow as tf
 
 
 @registry.register_model
-class BasicConvGen(t2t_model.T2TModel):
-  """Basic convolutional next-frame model."""
+class NextFrameBasic(t2t_model.T2TModel):
+  """Basic next-frame model, may take actions and predict rewards too."""
 
   def make_even_size(self, x):
     """Pad x to be even-sized on axis 1 and 2, but only if necessary."""
@@ -75,13 +75,14 @@ class BasicConvGen(t2t_model.T2TModel):
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)
 
-    # Add embedded action.
-    action = tf.reshape(features["input_action"][:, -1, :],
-                        [-1, 1, 1, hparams.hidden_size])
-    action_mask = tf.layers.dense(action, filters, name="action_mask")
-    zeros_mask = tf.zeros(common_layers.shape_list(x)[:-1] + [filters],
-                          dtype=tf.float32)
-    x *= action_mask + zeros_mask
+    # Add embedded action if present.
+    if "input_action" in features:
+      action = tf.reshape(features["input_action"][:, -1, :],
+                          [-1, 1, 1, hparams.hidden_size])
+      action_mask = tf.layers.dense(action, filters, name="action_mask")
+      zeros_mask = tf.zeros(common_layers.shape_list(x)[:-1] + [filters],
+                            dtype=tf.float32)
+      x *= action_mask + zeros_mask
 
     # Run a stack of convolutions.
     for i in range(hparams.num_hidden_layers):
@@ -112,7 +113,9 @@ class BasicConvGen(t2t_model.T2TModel):
     # Cut down to original size.
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
 
-    # Reward prediction.
+    # Reward prediction if needed.
+    if "target_reward" not in features:
+      return x
     reward_pred = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     return {"targets": x, "target_reward": reward_pred}
 
@@ -163,7 +166,7 @@ class BasicConvGen(t2t_model.T2TModel):
 
 
 @registry.register_hparams
-def basic_conv():
+def next_frame():
   """Basic 2-frame conv model."""
   hparams = common_hparams.basic_params1()
   hparams.hidden_size = 64
@@ -186,15 +189,15 @@ def basic_conv():
 
 
 @registry.register_hparams
-def basic_conv_tpu():
-  hparams = basic_conv()
+def next_frame_tpu():
+  hparams = next_frame()
   hparams.batch_size = 1
 
 
 @registry.register_hparams
-def basic_conv_ae():
+def next_frame_ae():
   """Conv autoencoder."""
-  hparams = basic_conv()
+  hparams = next_frame()
   hparams.input_modalities = "inputs:video:bitwise"
   hparams.hidden_size = 256
   hparams.batch_size = 16
@@ -205,33 +208,33 @@ def basic_conv_ae():
 
 
 @registry.register_hparams
-def basic_conv_small():
+def next_frame_small():
   """Small conv model."""
-  hparams = basic_conv()
+  hparams = next_frame()
   hparams.hidden_size = 32
   return hparams
 
 
 @registry.register_hparams
-def basic_conv_l1():
+def next_frame_l1():
   """Basic conv model with L1 modality."""
-  hparams = basic_conv()
+  hparams = next_frame()
   hparams.target_modality = "video:l1"
   hparams.video_modality_loss_cutoff = 2.4
   return hparams
 
 
 @registry.register_hparams
-def basic_conv_l2():
+def next_frame_l2():
   """Basic conv model with L2 modality."""
-  hparams = basic_conv()
+  hparams = next_frame()
   hparams.target_modality = "video:l2"
   hparams.video_modality_loss_cutoff = 2.4
   return hparams
 
 
 @registry.register_ranged_hparams
-def basic_conv_base_range(rhp):
+def next_frame_base_range(rhp):
   """Basic tuning grid."""
   rhp.set_float("dropout", 0.2, 0.6)
   rhp.set_discrete("hidden_size", [64, 128, 256])
@@ -245,27 +248,27 @@ def basic_conv_base_range(rhp):
 
 
 @registry.register_ranged_hparams
-def basic_conv_doubling_range(rhp):
+def next_frame_doubling_range(rhp):
   """Filter doubling and dropout tuning grid."""
   rhp.set_float("dropout", 0.2, 0.6)
   rhp.set_int("filter_double_steps", 2, 5)
 
 
 @registry.register_ranged_hparams
-def basic_conv_clipgrad_range(rhp):
+def next_frame_clipgrad_range(rhp):
   """Filter doubling and dropout tuning grid."""
   rhp.set_float("dropout", 0.3, 0.4)
   rhp.set_float("clip_grad_norm", 0.5, 10.0)
 
 
 @registry.register_ranged_hparams
-def basic_conv_xent_cutoff_range(rhp):
+def next_frame_xent_cutoff_range(rhp):
   """Cross-entropy tuning grid."""
   rhp.set_float("video_modality_loss_cutoff", 0.005, 0.05)
 
 
 @registry.register_ranged_hparams
-def basic_conv_ae_range(rhp):
+def next_frame_ae_range(rhp):
   """Autoencoder world model tuning grid."""
   rhp.set_float("dropout", 0.3, 0.5)
   rhp.set_int("num_compress_steps", 1, 3)

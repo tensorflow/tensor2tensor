@@ -25,6 +25,7 @@ import sys
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
+from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import cloud_tpu
 from tensor2tensor.utils import decoding
@@ -331,6 +332,7 @@ def main(argv):
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
+
 
   if FLAGS.cloud_mlengine:
     return cloud_mlengine.launch()

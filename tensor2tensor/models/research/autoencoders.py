@@ -480,6 +480,9 @@ def autoencoder_residual_discrete():
   hparams.add_hparam("isemhash_noise_dev", 0.5)
   hparams.add_hparam("isemhash_mix_prob", 0.5)
   hparams.add_hparam("isemhash_filter_size_multiplier", 2.0)
+  hparams.add_hparam("vq_beta", 0.25)
+  hparams.add_hparam("vq_decay", 0.999)
+  hparams.add_hparam("vq_epsilon", 1e-5)
   return hparams
 
 

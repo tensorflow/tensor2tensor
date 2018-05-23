@@ -77,6 +77,7 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
         "inputs": ("video", 256),
         "input_frame_number": ("symbol:identity", 1)
     }
+    p.target_modality = ("video", 256)
 
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
     frame_number = 0
