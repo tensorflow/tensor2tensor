@@ -30,7 +30,7 @@ before_install:
   # - sudo apt-get install -qq tensorflow-model-server
 install:
   - pip install -q "tensorflow==$TF_VERSION"
-  - pip install -q .[tests]
+  - pip install -q .[tests,allen]
   # Make sure we have the latest version of numpy - avoid problems we were
   # seeing with Python 3
   - pip install -q -U numpy
