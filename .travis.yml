@@ -36,7 +36,7 @@ before_install:
   # - sudo apt-get install -qq tensorflow-model-server
 install:
   - pip install -q "tensorflow==$TF_VERSION"
-  - pip install -q .[tests]
+  - pip install -q .[tests,allen]
   # Make sure to install the atari extras for gym
   - pip install "gym[atari]"
   # Make sure we have the latest version of numpy - avoid problems we were
