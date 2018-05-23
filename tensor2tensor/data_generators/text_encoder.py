@@ -1005,3 +1005,33 @@ class ImageEncoder(object):
   @property
   def vocab_size(self):
     return 256
+
+
+class RealEncoder(object):
+  """Encoder class for saving and loading float values."""
+
+  def encode(self, s):
+    """Transform a string (space separated float values) into a float array.
+
+    Args:
+      s: space separated float values.
+
+    Returns:
+      Array of float values.
+    """
+    return [float(w) for w in s.split()]
+
+  def decode(self, ids):
+    """Transform sequence of float values into string (float values).
+
+    Args:
+      ids: array of floats to be converted.
+
+    Returns:
+      String having space separated float values.
+
+    Raises:
+      ValueError: if the ids are not of the appropriate size.
+    """
+    return " ".join(ids)
+  
