@@ -487,7 +487,19 @@ def fast_decode(encoder_output,
   }
 
   if encoder_output is not None:
-    cache["encoder_output"] = encoder_output
+    for layer in range(num_layers):
+      layer_name = "layer_%d" % layer
+      with tf.variable_scope("body/decoder/%s/encdec_attention/multihead_attention" % layer_name):
+        k_encdec = common_attention.compute_attention_component(
+              encoder_output, key_channels, name="k")
+        k_encdec = common_attention.split_heads(k_encdec, hparams.num_heads)
+        v_encdec = common_attention.compute_attention_component(
+              encoder_output, value_channels, name="v")
+        v_encdec = common_attention.split_heads(v_encdec, hparams.num_heads)
+      cache[layer_name]["k_encdec"] = k_encdec
+      cache[layer_name]["v_encdec"] = v_encdec
+
+    cache["encoder_output"] = tf.zeros(()) # Just a flag
     cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
 
   if beam_size > 1:  # Beam Search
@@ -888,7 +900,6 @@ def transformer_decoder(decoder_input,
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
-            # TODO(llion): Add caching.
             y = common_attention.multihead_attention(
                 common_layers.layer_preprocess(x, hparams),
                 encoder_output,
@@ -899,6 +910,7 @@ def transformer_decoder(decoder_input,
                 hparams.num_heads,
                 hparams.attention_dropout,
                 save_weights_to=save_weights_to,
+                cache=layer_cache,
                 make_image_summary=make_image_summary,
                 dropout_broadcast_dims=attention_dropout_broadcast_dims,
                 max_length=hparams.get("max_length"))
