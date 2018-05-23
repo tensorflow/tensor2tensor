@@ -25,9 +25,6 @@ class QueryProcessor(object):
   protos are in better shape.
   """
 
-  def __init__(self):
-    pass
-
   def process(self, query):
     """Returns the generated visualizations for query.
 

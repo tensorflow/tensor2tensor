@@ -19,9 +19,6 @@ from __future__ import print_function
 
 import os
 import struct
-
-# Dependency imports
-
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.utils import registry

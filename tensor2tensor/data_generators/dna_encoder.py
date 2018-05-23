@@ -23,7 +23,6 @@ from __future__ import division
 from __future__ import print_function
 
 import itertools
-# Dependency imports
 
 from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import text_encoder
@@ -116,9 +115,10 @@ class DelimitedDNAEncoder(DNAEncoder):
   def _tokens(self):
     return super(DelimitedDNAEncoder, self)._tokens() + [self._delimiter_key]
 
-  def encode(self, delimited_string):
+  def encode(self, s):
+    delimited_string = s
     ids = []
-    for s in delimited_string.split(self.delimiter):
-      ids.extend(super(DelimitedDNAEncoder, self).encode(s))
+    for part in delimited_string.split(self.delimiter):
+      ids.extend(super(DelimitedDNAEncoder, self).encode(part))
       ids.append(self._tokens_to_ids[self._delimiter_key])
     return ids[:-1]

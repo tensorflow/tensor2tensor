@@ -19,9 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry

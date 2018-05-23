@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import six
 import sympy
 from tensor2tensor.data_generators import algorithmic_math

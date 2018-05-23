@@ -19,9 +19,6 @@ from __future__ import print_function
 
 import functools
 import os
-
-# Dependency imports
-
 import gym
 
 from tensor2tensor import models  # pylint: disable=unused-import

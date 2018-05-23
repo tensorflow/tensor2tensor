@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -68,6 +65,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
       return x
 
   def bottleneck_loss(self, b):
+    del b
     return 0.0
 
   def make_even_size(self, x):
@@ -150,7 +148,8 @@ class BasicAutoencoder(t2t_model.T2TModel):
                             hparams.bottleneck_warmup_steps // 2, is_training)
     return res, {"bottleneck_loss": b_loss}
 
-  def sample(self):
+  def sample(self, features=None):
+    del features
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
@@ -167,8 +166,9 @@ class BasicAutoencoder(t2t_model.T2TModel):
     self._cur_bottleneck_tensor = None
     return res
 
-  def infer(self, features, *args, **kwargs):
+  def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
     """Produce predictions from the model by sampling."""
+    del args, kwargs
     # Inputs and features preparation needed to handle edge cases.
     if not features:
       features = {}

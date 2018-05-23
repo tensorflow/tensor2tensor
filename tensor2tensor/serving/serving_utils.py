@@ -19,8 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import base64
-
-# Dependency imports
 from googleapiclient import discovery
 from grpc.beta import implementations
 

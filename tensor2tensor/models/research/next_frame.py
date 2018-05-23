@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import six
 
 from tensor2tensor.layers import common_attention
@@ -119,8 +116,9 @@ class NextFrameBasic(t2t_model.T2TModel):
     reward_pred = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     return {"targets": x, "target_reward": reward_pred}
 
-  def infer(self, features, *args, **kwargs):
+  def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
     """Produce predictions from the model by running it."""
+    del args, kwargs
     # Inputs and features preparation needed to handle edge cases.
     if not features:
       features = {}

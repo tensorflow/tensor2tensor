@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
@@ -248,7 +245,8 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
                           hparams.mode == tf.estimator.ModeKeys.TRAIN)
     return x
 
-  def sample(self):
+  def sample(self, features=None):
+    del features
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
@@ -262,7 +260,7 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
 class AutoencoderResidualDiscrete(AutoencoderResidual):
   """Discrete residual autoencoder."""
 
-  def bottleneck(self, x, bottleneck_size=None):
+  def bottleneck(self, x, bottleneck_size=None):  # pylint: disable=arguments-differ
     if bottleneck_size is not None:
       old_bottleneck_size = self.hparams.bottleneck_size
       self.hparams.bottleneck_size = bottleneck_size
@@ -281,7 +279,8 @@ class AutoencoderResidualDiscrete(AutoencoderResidual):
     part_avg = tf.abs(tf.reduce_sum(b * selection)) / (selection_size + 1)
     return part_avg
 
-  def sample(self):
+  def sample(self, features=None):
+    del features
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
@@ -303,7 +302,7 @@ class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
   def bottleneck_loss(self, unused_b):
     return 0.0
 
-  def bottleneck(self, x):
+  def bottleneck(self, x):  # pylint: disable=arguments-differ
     hparams = self.hparams
     if hparams.unordered:
       return super(AutoencoderOrderedDiscrete, self).bottleneck(x)

@@ -26,7 +26,6 @@ import random
 import shutil
 import string
 
-# Dependency imports
 import mock
 import six
 from six.moves import range  # pylint: disable=redefined-builtin

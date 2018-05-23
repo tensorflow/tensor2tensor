@@ -13,14 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Discretization bottlenecks used to train discrete latent variables."""
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 from functools import partial
-# Dependency imports
+
 from tensor2tensor.layers import common_layers
+
 import tensorflow as tf
+
 from tensorflow.python.training import moving_averages
 
 

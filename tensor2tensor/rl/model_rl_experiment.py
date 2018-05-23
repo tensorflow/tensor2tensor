@@ -30,9 +30,6 @@ import datetime
 import math
 import os
 import time
-
-# Dependency imports
-
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.layers import discretization

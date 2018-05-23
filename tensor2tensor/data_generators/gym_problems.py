@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import math
 import os
-
-# Dependency imports
-
 import gym
 import numpy as np
 
@@ -141,6 +138,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return None
 
   def get_action(self, observation=None):
+    del observation
     return self.env.action_space.sample()
 
   def hparams(self, defaults, unused_model_hparams):

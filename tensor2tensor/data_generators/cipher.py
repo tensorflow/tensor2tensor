@@ -18,9 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 from collections import deque
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import algorithmic

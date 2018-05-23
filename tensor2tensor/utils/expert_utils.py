@@ -24,9 +24,6 @@ from __future__ import print_function
 
 import functools
 import math
-
-# Dependency imports
-
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
@@ -1017,9 +1014,9 @@ def local_moe(x,
       expert_kwargs["x"] = dispatcher.dispatch(x_flat)
     if pass_gates:
       expert_kwargs["gates"] = dispatcher.expert_to_gates()
-    for k, v in six.iteritems(additional_dispatch_params or {}):
-      v = flatten_all_but_last(v)
-      expert_kwargs[k] = dispatcher.dispatch(v)
+    for key, val in six.iteritems(additional_dispatch_params or {}):
+      val = flatten_all_but_last(val)
+      expert_kwargs[key] = dispatcher.dispatch(val)
 
     ep = Parallelism([DEFAULT_DEV_STRING] * num_experts, reuse=None)
     expert_outputs = ep(expert_fn, **expert_kwargs)

@@ -33,9 +33,6 @@ import os
 import random
 import tempfile
 
-# Dependency imports
-
-
 import numpy as np
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import

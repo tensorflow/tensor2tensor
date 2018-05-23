@@ -24,9 +24,6 @@ import functools
 from functools import partial
 import math
 
-# Dependency imports
-
-
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 
@@ -1433,8 +1430,8 @@ def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
     while nonpadding_mask.get_shape().ndims < inputs.get_shape().ndims:
       nonpadding_mask = tf.expand_dims(nonpadding_mask, -1)
     return inputs * nonpadding_mask
-  else:
-    return inputs
+
+  return inputs
 
 
 def dense_relu_dense(inputs,
@@ -2225,7 +2222,7 @@ def fn_device_dependency(name, device=""):
       assert outs
 
       deps = outs
-      if isinstance(outs[0], list) or isinstance(outs[0], tuple):
+      if isinstance(outs[0], (list, tuple)):
         assert len(outs) == 1
         deps = outs[0]
       fn_device_dependency_dict()[key] = deps
@@ -2499,7 +2496,7 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
   if grad_fn is None:
     return outputs
 
-  if not (isinstance(outputs, tuple) or isinstance(outputs, list)):
+  if not isinstance(outputs, (tuple, list)):
     outputs = [outputs]
   outputs = list(outputs)
 
@@ -2772,7 +2769,7 @@ def _recompute_grad(fn, args):
         with tf.variable_scope(cached_vs[0], reuse=True):
           outputs = fn(*inputs)
 
-    if not (isinstance(outputs, list) or isinstance(outputs, tuple)):
+    if not isinstance(outputs, (list, tuple)):
       outputs = [outputs]
     outputs = list(outputs)
     grads = tf.gradients(outputs, inputs + variables, output_grads)

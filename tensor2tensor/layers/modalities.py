@@ -16,9 +16,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
@@ -119,8 +116,7 @@ class SymbolModality(modality.Modality):
     self._bottom_was_called = True
     if self._model_hparams.shared_embedding_and_softmax_weights:
       return self.bottom_simple(x, "shared", reuse=None)
-    else:
-      return self.bottom_simple(x, "input_emb", reuse=None)
+    return self.bottom_simple(x, "input_emb", reuse=None)
 
   def targets_bottom(self, x):
     if self._model_hparams.shared_embedding_and_softmax_weights:
@@ -184,8 +180,9 @@ class SymbolModalityWeightsAll(SymbolModality):
 class CTCSymbolModality(SymbolModality):
   """SymbolModality that uses CTC loss."""
 
-  def loss(self, logits, targets):
+  def loss(self, top_out, targets):
     """Compute the CTC loss."""
+    logits = top_out
     with tf.name_scope("ctc_loss", values=[logits, targets]):
       # For CTC we assume targets are 1d, [batch, length, 1, 1] here.
       targets_shape = targets.get_shape().as_list()
@@ -214,14 +211,15 @@ class ImageModality(modality.Modality):
   """Modality for images."""
   PIXEL_EMBEDDING_SIZE = 64
 
-  def bottom(self, inputs):
+  def bottom(self, x):
     with tf.variable_scope(self.name):
-      inputs = tf.to_float(inputs)
+      x = tf.to_float(x)
       if not tf.contrib.eager.in_eager_mode():
-        tf.summary.image("inputs", inputs, max_outputs=2)
-      return inputs
+        tf.summary.image("inputs", x, max_outputs=2)
+      return x
 
-  def targets_bottom(self, inputs):
+  def targets_bottom(self, x):
+    inputs = x
     with tf.variable_scope(self.name):
       if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("targets_bottom",
@@ -258,8 +256,9 @@ class ImageModality(modality.Modality):
         tf.summary.image("result", res_argmax, max_outputs=1)
       return res
 
-  def loss(self, logits, targets):
+  def loss(self, top_out, targets):
     """Compute loss numerator and denominator for one shard of output."""
+    logits = top_out
     return common_layers.padded_cross_entropy(
         logits,
         targets,
@@ -306,11 +305,11 @@ class ImageChannelCompressModality(modality.Modality):
       x.set_shape([None, None, None, self._body_input_depth])
       return x
 
-  def bottom(self, inputs):
-    return self.bottom_compress(inputs, "input_bottom")
+  def bottom(self, x):
+    return self.bottom_compress(x, "input_bottom")
 
-  def targets_bottom(self, inputs):
-    return self.bottom_compress(inputs, "output_bottom")
+  def targets_bottom(self, x):
+    return self.bottom_compress(x, "output_bottom")
 
   def top(self, body_output, _):
     with tf.variable_scope(self.name):
@@ -357,7 +356,8 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
 
     return tf.concat(channel_target_embs, axis=-1)
 
-  def targets_bottom(self, inputs):
+  def targets_bottom(self, x):
+    inputs = x
     io_depth = self._model_hparams.num_channels
     tshape = common_layers.shape_list(inputs)
     hidden_size = self._model_hparams.hidden_size
@@ -382,14 +382,15 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
 class AudioModality(modality.Modality):
   """Performs strided conv compressions for audio data."""
 
-  def bottom(self, inputs):
+  def bottom(self, x):
     """Transform input from data space to model space.
 
     Args:
-      inputs: A Tensor with shape [batch, ...]
+      x: A Tensor with shape [batch, ...]
     Returns:
       body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
     """
+    inputs = x
     with tf.variable_scope(self.name):
       # TODO(aidangomez): Will need to sort out a better audio pipeline
       def xnet_resblock(x, filters, res_relu, name):
@@ -426,14 +427,15 @@ class AudioModality(modality.Modality):
 class AudioSpectralModality(modality.Modality):
   """Performs strided conv compressions for audio spectral data."""
 
-  def bottom(self, inputs):
+  def bottom(self, x):
     """Transform input from data space to model space.
 
     Args:
-      inputs: A Tensor with shape [batch, ...]
+      x: A Tensor with shape [batch, ...]
     Returns:
       body_input: A Tensor with shape [batch, ?, ?, body_input_depth].
     """
+    inputs = x
     with tf.variable_scope(self.name):
       # TODO(aidangomez): Will need to sort out a better audio pipeline
       def xnet_resblock(x, filters, res_relu, name):
@@ -472,7 +474,8 @@ class VideoModality(modality.Modality):
   """Modality for videos, i.e., time-sequences of frames."""
   PIXEL_EMBEDDING_SIZE = 64
 
-  def bottom(self, inputs):
+  def bottom(self, x):
+    inputs = x
     with tf.variable_scope(self.name):
       common_layers.summarize_video(inputs, "inputs")
       inputs_shape = common_layers.shape_list(inputs)
@@ -487,7 +490,8 @@ class VideoModality(modality.Modality):
           [inputs_shape[0], inputs_shape[2], inputs_shape[3],
            inputs_shape[1] * inputs_shape[4]])
 
-  def targets_bottom(self, inputs, summary_prefix="targets_bottom"):
+  def targets_bottom(self, x, summary_prefix="targets_bottom"):  # pylint: disable=arguments-differ
+    inputs = x
     with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, summary_prefix)
       inputs_shape = common_layers.shape_list(inputs)
@@ -522,8 +526,9 @@ class VideoModality(modality.Modality):
         tf.summary.image("result", res_argmax, max_outputs=1)
       return res
 
-  def loss(self, logits, targets):
+  def loss(self, top_out, targets):
     """Compute loss numerator and denominator for one shard of output."""
+    logits = top_out
     logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
     targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
     cutoff = getattr(self._model_hparams, "video_modality_loss_cutoff", 0.01)
@@ -539,16 +544,17 @@ class VideoModality(modality.Modality):
 class VideoModalityEmbed(VideoModality):
   """Video Modality where bottom embeds pixels."""
 
-  def bottom(self, inputs):
+  def bottom(self, x):
     return super(VideoModalityEmbed, self).targets_bottom(
-        inputs, summary_prefix="bottom")
+        x, summary_prefix="bottom")
 
 
 @registry.register_video_modality("bitwise")
 class VideoModalityBitwise(VideoModality):
   """Video Modality where bottom embeds pixels bitwise."""
 
-  def bottom(self, inputs):
+  def bottom(self, x):
+    inputs = x
     with tf.variable_scope(self.name):
       common_layers.summarize_video(inputs, "targets_bottom")
       # Embed bitwise.
@@ -585,8 +591,9 @@ class VideoModalityL1(VideoModality):
   def internal_loss(self, logits, targets):
     return tf.nn.relu(tf.abs(logits - targets) - self.cutoff)
 
-  def loss(self, logits, targets):
+  def loss(self, top_out, targets):
     """Compute loss numerator and denominator for one shard of output."""
+    logits = top_out
     logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:-1])
     targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
     weights = self.targets_weights_fn(targets)

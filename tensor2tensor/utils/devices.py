@@ -18,9 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import inspect
-
-# Dependency imports
-
 from tensor2tensor.utils import expert_utils as eu
 import tensorflow as tf
 

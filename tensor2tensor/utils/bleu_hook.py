@@ -24,9 +24,6 @@ import re
 import sys
 import time
 import unicodedata
-
-# Dependency imports
-
 import numpy as np
 import six
 # pylint: disable=redefined-builtin
@@ -242,7 +239,7 @@ def _read_stepfiles_list(path_prefix, path_suffix=".index", min_steps=0):
   """Return list of StepFiles sorted by step from files at path_prefix."""
   stepfiles = []
   for filename in _try_twice_tf_glob(path_prefix + "*-[0-9]*" + path_suffix):
-    basename = filename[:-len(path_suffix)] if len(path_suffix) else filename
+    basename = filename[:-len(path_suffix)] if path_suffix else filename
     try:
       steps = int(basename.rsplit("-")[-1])
     except ValueError:  # The -[0-9]* part is not an integer.

@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.utils.yellowfin import YellowFinOptimizer
@@ -33,7 +30,8 @@ n_iter = 0
 
 class YellowFinTest(tf.test.TestCase):
 
-  def tuneEverything(self, x0squared, c, t, gmin, gmax):
+  def tune_everything(self, x0squared, c, t, gmin, gmax):
+    del t
     # First tune based on dynamic range
     if c == 0:
       dr = gmax / gmin
@@ -191,11 +189,11 @@ class YellowFinTest(tf.test.TestCase):
                        0.001 * g_norm_avg / g_norm_squared_avg)
 
         if i > 0:
-          lr, mu = self.tuneEverything(target_dist**2,
-                                       target_var,
-                                       1,
-                                       target_h_min,
-                                       target_h_max)
+          lr, mu = self.tune_everything(target_dist**2,
+                                        target_var,
+                                        1,
+                                        target_h_min,
+                                        target_h_max)
           target_lr = 0.999 * target_lr + 0.001 * lr
           target_mu = 0.999 * target_mu + 0.001 * mu
 

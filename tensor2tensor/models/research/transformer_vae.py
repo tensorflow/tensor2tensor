@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import functools
 import math
-
-# Dependency imports
-
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
@@ -59,6 +56,7 @@ def residual_conv(x, repeat, k, hparams, name, reuse=None):
 
 
 def attend(x, source, hparams, name):
+  """Self-attention layer with source as memory antecedent."""
   with tf.variable_scope(name):
     x = tf.squeeze(x, axis=2)
     if len(source.get_shape()) > 3:
@@ -181,7 +179,9 @@ def decode_transformer(encoder_output,
                                      hparams.num_channels*hparams.hidden_size])
 
       # Prepare decoder inputs and bias.
-      decoder_input, _, _, bias = cia.prepare_decoder(targets, hparams)
+      # TODO(nikip): Make prepare_decoder return bias
+      decoder_input, _, _ = cia.prepare_decoder(targets, hparams)
+      bias = None
 
       # Add class label to decoder input.
       if not hparams.drop_inputs:
@@ -606,11 +606,12 @@ class TransformerAE(t2t_model.T2TModel):
     features["cache_raw"] = cache
 
   def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
-            alpha=0.0):
+            alpha=0.0, use_tpu=False):
     """Produce predictions from the model."""
     if not self._hparams.do_mask:
-      return super(TransformerAE, self).infer(
-          features, decode_length, beam_size, top_beams, alpha)["outputs"]
+      infer_out = super(TransformerAE, self).infer(
+          features, decode_length, beam_size, top_beams, alpha, use_tpu=use_tpu)
+      return infer_out["outputs"]
     if not features:
       features = {}
     inputs_old = None

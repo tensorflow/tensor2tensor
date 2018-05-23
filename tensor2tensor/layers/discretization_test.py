@@ -17,13 +17,14 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-# Dependency imports
+
 import numpy as np
 from tensor2tensor.layers import discretization
 import tensorflow as tf
 
 
 class DiscretizationTest(tf.test.TestCase):
+  """Tests for discretization layers."""
 
   def setUp(self):
     tf.set_random_seed(1234)

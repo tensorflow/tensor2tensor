@@ -23,9 +23,6 @@ import copy
 import functools
 import math
 import time
-
-# Dependency imports
-
 import six
 
 from tensor2tensor.data_generators import text_encoder
@@ -144,7 +141,9 @@ class T2TModel(base.Layer):
     else:
       return None
 
-  def call(self, features):
+  def call(self, inputs, **kwargs):
+    del kwargs
+    features = inputs
     set_custom_getter_compose(self._custom_getter)
     tf.get_variable_scope().set_initializer(
         optimize.get_variable_initializer(self.hparams))
@@ -537,6 +536,7 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`
       }
     """
+    del use_tpu
     set_custom_getter_compose(self._custom_getter)
     with self._eager_var_store.as_default():
       # TODO(rsepassi): Make decoding work with real-valued model outputs
@@ -1032,6 +1032,7 @@ class T2TModel(base.Layer):
 
   def estimator_spec_eval(self, features, logits, labels, loss, losses_dict):
     """Construct EstimatorSpec for EVAL mode."""
+    del losses_dict
     hparams = self.hparams
 
     if not hasattr(hparams, "problem"):

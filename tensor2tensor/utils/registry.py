@@ -45,9 +45,6 @@ from __future__ import print_function
 
 import inspect
 import re
-
-# Dependency imports
-
 import six
 import tensorflow as tf
 

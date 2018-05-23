@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research import transformer_vae
 from tensor2tensor.utils import registry
@@ -45,6 +42,7 @@ def generator(x, hparams, name, reuse=False):
 
 
 def lossfn(real_input, fake_input, compress, hparams, lsgan, name):
+  """Loss function."""
   eps = 1e-12
   with tf.variable_scope(name):
     d1 = discriminator(real_input, compress, hparams, "discriminator")

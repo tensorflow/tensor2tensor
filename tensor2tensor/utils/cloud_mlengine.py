@@ -95,15 +95,16 @@ def get_default_master_type(num_gpus=1, use_tpu=False):
   """Returns master_type for trainingInput."""
   if use_tpu:
     return "cloud_tpu"
-  elif num_gpus <= 0:
-    return "standard"
-  elif num_gpus == 1:
-    return "standard_p100"
-  elif num_gpus == 4:
-    return "complex_model_m_p100"
-  elif num_gpus == 8:
-    return "complex_model_l_gpu"
-  assert False
+  gpus_to_master_map = {
+      0: "standard",
+      1: "standard_p100",
+      4: "complex_model_m_p100",
+      8: "complex_model_l_gpu",
+  }
+  if num_gpus not in gpus_to_master_map:
+    raise ValueError("Num gpus must be in %s" %
+                     str(sorted(list(gpus_to_master_map.keys()))))
+  return gpus_to_master_map[num_gpus]
 
 
 def configure_job():

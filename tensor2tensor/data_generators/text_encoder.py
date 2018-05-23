@@ -28,9 +28,6 @@ from itertools import chain
 import math
 import re
 import tempfile
-
-# Dependency imports
-
 import numpy as np
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -215,10 +212,12 @@ class ClassLabelEncoder(TextEncoder):
 
     self._class_labels = class_labels
 
-  def encode(self, label_str):
+  def encode(self, s):
+    label_str = s
     return self._class_labels.index(label_str)
 
-  def decode(self, label_id):
+  def decode(self, ids):
+    label_id = ids
     if isinstance(label_id, list):
       assert len(label_id) == 1
       label_id, = label_id
@@ -248,14 +247,15 @@ class OneHotClassLabelEncoder(TextEncoder):
 
     self._class_labels = class_labels
 
-  def encode(self, label_str, on_value=1, off_value=0):
+  def encode(self, label_str, on_value=1, off_value=0):  # pylint: disable=arguments-differ
     e = np.zeros(self.vocab_size, dtype=np.int32)
     if off_value != 0:
       e.fill(off_value)
     e[self._class_labels.index(label_str)] = on_value
     return e.tolist()
 
-  def decode(self, label_id):
+  def decode(self, ids):
+    label_id = ids
     if isinstance(label_id, np.ndarray):
       label_id = np.squeeze(label_id).astype(np.int8).tolist()
     assert isinstance(label_id, list)
@@ -303,8 +303,9 @@ class TokenTextEncoder(TextEncoder):
       assert vocab_list is not None
       self._init_vocab_from_list(vocab_list)
 
-  def encode(self, sentence):
+  def encode(self, s):
     """Converts a space-separated string of tokens to a list of ids."""
+    sentence = s
     tokens = sentence.strip().split()
     if self._replace_oov is not None:
       tokens = [t if t in self._token_to_id else self._replace_oov
@@ -482,16 +483,16 @@ class SubwordTextEncoder(TextEncoder):
       self._load_from_file(filename)
     super(SubwordTextEncoder, self).__init__(num_reserved_ids=None)
 
-  def encode(self, raw_text):
+  def encode(self, s):
     """Converts a native string to a list of subtoken ids.
 
     Args:
-      raw_text: a native string.
+      s: a native string.
     Returns:
       a list of integers in the range [0, vocab_size)
     """
     return self._tokens_to_subtoken_ids(
-        tokenizer.encode(native_to_unicode(raw_text)))
+        tokenizer.encode(native_to_unicode(s)))
 
   def encode_without_tokenizing(self, token_text):
     """Converts string to list of subtoken ids without calling tokenizer.
@@ -510,19 +511,19 @@ class SubwordTextEncoder(TextEncoder):
     """
     return self._tokens_to_subtoken_ids([native_to_unicode(token_text)])
 
-  def decode(self, subtokens):
+  def decode(self, ids):
     """Converts a sequence of subtoken ids to a native string.
 
     Args:
-      subtokens: a list of integers in the range [0, vocab_size)
+      ids: a list of integers in the range [0, vocab_size)
     Returns:
       a native string
     """
     return unicode_to_native(
-        tokenizer.decode(self._subtoken_ids_to_tokens(subtokens)))
+        tokenizer.decode(self._subtoken_ids_to_tokens(ids)))
 
-  def decode_list(self, subtokens):
-    return [self._subtoken_id_to_subtoken_string(s) for s in subtokens]
+  def decode_list(self, ids):
+    return [self._subtoken_id_to_subtoken_string(s) for s in ids]
 
   @property
   def vocab_size(self):

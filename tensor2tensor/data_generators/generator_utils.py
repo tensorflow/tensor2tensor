@@ -25,13 +25,11 @@ import random
 import stat
 import tarfile
 import tempfile
-
-# Dependency imports
-
 import requests
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
-import six.moves.urllib_request as urllib  # Imports urllib on Python2, urllib.request on Python3
+# Imports urllib on Python2, urllib.request on Python3
+import six.moves.urllib_request as urllib
 
 from tensor2tensor.data_generators import text_encoder
 

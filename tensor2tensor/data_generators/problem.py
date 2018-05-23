@@ -19,7 +19,7 @@ from __future__ import print_function
 import collections
 import os
 import random
-# Dependency imports
+
 import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
@@ -787,7 +787,7 @@ class Problem(object):
         dataset = dataset.apply(
             tf.contrib.data.batch_and_drop_remainder(batch_size))
       else:
-        num_shards = (config and config.data_parallelism.n) or 1
+        num_shards = config.data_parallelism.n if config else 1
         batch_size = hparams.batch_size * num_shards
         dataset = dataset.batch(batch_size)
     else:

@@ -7,13 +7,17 @@ env:
     - T2T_PROBLEM=algorithmic_reverse_binary40_test
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
+    - TF_LATEST="1.8.*"
   matrix:
+    # We test against the last 4 versions of TensorFlow
+    # If updating, also update TF_LATEST above
     - TF_VERSION="1.5.*"
     - TF_VERSION="1.6.*"
     - TF_VERSION="1.7.*"
     - TF_VERSION="1.8.*"
 matrix:
   exclude:
+    # We test against all versions in Python 2 but only the latest in Python 3
     - python: "3.6"
       env: TF_VERSION="1.5.*"
     - python: "3.6"
@@ -38,14 +42,18 @@ script:
   # Check import
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
 
+  # Lint
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST*"  ]]; then
+        pylint tensor2tensor;
+    fi
+
   # Run tests
   - pytest
-    --ignore=tensor2tensor/utils/registry_test.py
-    --ignore=tensor2tensor/utils/trainer_lib_test.py
-    --ignore=tensor2tensor/visualization/visualization_test.py
-    --ignore=tensor2tensor/problems_test.py
-    --ignore=tensor2tensor/bin/t2t_trainer_test.py
-    --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
+    --ignore=tensor2tensor/utils/registry_test.py  # tested separately
+    --ignore=tensor2tensor/utils/trainer_lib_test.py  # tested separately
+    --ignore=tensor2tensor/visualization/visualization_test.py  # tested separately
+    --ignore=tensor2tensor/bin/t2t_trainer_test.py  # tested separately
+    --ignore=tensor2tensor/data_generators/algorithmic_math_test.py  # flaky
     --ignore=tensor2tensor/models/research/r_transformer_test.py  # Requires new feature in tf.foldl (rm with TF 1.9)
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py

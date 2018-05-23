@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Utils for attention mechanism for images."""
-# Dependency imports
 
 from six.moves import range  # pylint: disable=redefined-builtin
 
