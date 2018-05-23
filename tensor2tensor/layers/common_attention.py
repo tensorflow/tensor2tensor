@@ -2794,9 +2794,8 @@ def multihead_attention(query_antecedent,
         v = cache["v"] = tf.concat([cache["v"], v], axis=1)
 
     q = split_heads(q, num_heads)
-    if cache is None or memory_antecedent is None:
-      k = split_heads(k, num_heads)
-      v = split_heads(v, num_heads)
+    k = split_heads(k, num_heads)
+    v = split_heads(v, num_heads)
 
     key_depth_per_head = total_key_depth // num_heads
     q *= key_depth_per_head**-0.5
