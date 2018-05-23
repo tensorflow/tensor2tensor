@@ -60,6 +60,7 @@ setup(
             # explicit pip install gym[atari] for the tests.
             # 'gym[atari]',
         ],
+        'allen': ['allensdk==0.14.4', 'Pillow==5.1.0', 'pandas==0.23.0']
     },
     classifiers=[
         'Development Status :: 4 - Beta',
