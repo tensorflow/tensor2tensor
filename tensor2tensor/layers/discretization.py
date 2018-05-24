@@ -734,8 +734,8 @@ def vq_discrete_bottleneck(x,
 
   dw = tf.matmul(x_means_hot, x, transpose_a=True)
 
-  updated_ema_means = moving_averages.assign_moving_average(
-      ema_means, dw, decay, zero_debias=False)
+  updated_ema_means = tf.identity(moving_averages.assign_moving_average(
+      ema_means, dw, decay, zero_debias=False))
   n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
   updated_ema_count = (
       (updated_ema_count + epsilon) / (n + bottleneck_size * epsilon) * n)
