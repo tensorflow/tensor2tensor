@@ -113,6 +113,7 @@ class ConditionalOptimizer(tf.train.Optimizer):
       # Fathom: Ryan Sepassi said this would help
       if v.dtype == g.dtype:
         return (g, v)
+      print('compute_gradients', v.dtype, g.dtype)
       return (tf.cast(g, v.dtype), v)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
