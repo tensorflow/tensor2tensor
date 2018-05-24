@@ -120,7 +120,7 @@ class ImageCeleba(image_utils.ImageProblem):
       landmarks = img_landmarks[img_name]
       attrs = img_attrs[img_name]
 
-      with tf.gfile.Open(filename, "r") as f:
+      with tf.gfile.Open(filename, "rb") as f:
         encoded_image_data = f.read()
         yield {
             "image/encoded": [encoded_image_data],

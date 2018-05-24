@@ -107,6 +107,8 @@ class ConditionalOptimizer(tf.train.Optimizer):
     def cast_grad(g, v):
       if v is None or g is None:
         return (g, v)
+      if g.dtype == v.dtype:
+        return (g, v)
       return (tf.cast(g, v.dtype), v)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients

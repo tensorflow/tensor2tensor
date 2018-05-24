@@ -203,29 +203,28 @@ def maybe_download(directory, filename, uri):
   Returns:
     The path to the downloaded file.
   """
-  if not tf.gfile.Exists(directory):
-    tf.logging.info("Creating directory %s" % directory)
-    tf.gfile.MakeDirs(directory)
+  tf.gfile.MakeDirs(directory)
   filepath = os.path.join(directory, filename)
-  if not tf.gfile.Exists(filepath):
-    tf.logging.info("Downloading %s to %s" % (uri, filepath))
-    try:
-      tf.gfile.Copy(uri, filepath)
-    except tf.errors.UnimplementedError:
-      if uri.startswith("http"):
-        inprogress_filepath = filepath + ".incomplete"
-        inprogress_filepath, _ = urllib.urlretrieve(
-            uri, inprogress_filepath, reporthook=download_report_hook)
-        # Print newline to clear the carriage return from the download progress
-        print()
-        tf.gfile.Rename(inprogress_filepath, filepath)
-      else:
-        raise ValueError("Unrecognized URI: " + filepath)
-    statinfo = os.stat(filepath)
-    tf.logging.info("Successfully downloaded %s, %s bytes." %
-                    (filename, statinfo.st_size))
-  else:
+  if tf.gfile.Exists(filepath):
     tf.logging.info("Not downloading, file already found: %s" % filepath)
+    return filepath
+
+  tf.logging.info("Downloading %s to %s" % (uri, filepath))
+  try:
+    tf.gfile.Copy(uri, filepath)
+  except tf.errors.UnimplementedError:
+    if uri.startswith("http"):
+      inprogress_filepath = filepath + ".incomplete"
+      inprogress_filepath, _ = urllib.urlretrieve(
+          uri, inprogress_filepath, reporthook=download_report_hook)
+      # Print newline to clear the carriage return from the download progress
+      print()
+      tf.gfile.Rename(inprogress_filepath, filepath)
+    else:
+      raise ValueError("Unrecognized URI: " + filepath)
+  statinfo = os.stat(filepath)
+  tf.logging.info("Successfully downloaded %s, %s bytes." %
+                  (filename, statinfo.st_size))
   return filepath
 
 
