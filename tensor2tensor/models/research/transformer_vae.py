@@ -220,6 +220,10 @@ def ae_latent_softmax(latents_pred, latents_discrete, hparams):
   if hparams.num_decode_blocks < 2:
     latents_logits = tf.layers.dense(latents_pred, vocab_size,
                                      name="extra_logits")
+    if hparams.logit_normalization:
+      latents_logits *= tf.rsqrt(1e-8 +
+                                 tf.reduce_mean(tf.square(latents_logits)))
+
     loss = None
     if latents_discrete is not None:
       if hparams.soft_em:
@@ -667,6 +671,7 @@ def transformer_ae_small():
   hparams.add_hparam("z_size", 14)
   hparams.add_hparam("noise_dev", 0.5)
   hparams.add_hparam("d_mix", 0.5)
+  hparams.add_hparam("logit_normalization", True)
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, dvq.
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)
