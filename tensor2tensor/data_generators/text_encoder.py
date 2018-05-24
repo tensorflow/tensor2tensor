@@ -115,17 +115,21 @@ class TextEncoder(object):
     """
     return [int(w) + self._num_reserved_ids for w in s.split()]
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
     """Transform a sequence of int ids into a human-readable string.
 
     EOS is not expected in ids.
 
     Args:
       ids: list of integers to be converted.
+      strip_extraneous: bool, whether to strip off extraneous tokens
+        (EOS and PAD).
 
     Returns:
       s: human-readable string.
     """
+    if strip_extraneous:
+      ids = strip_ids(ids, list(range(self._num_reserved_ids)))
     return " ".join(self.decode_list(ids))
 
   def decode_list(self, ids):
@@ -166,7 +170,9 @@ class ByteTextEncoder(TextEncoder):
     # Python3: explicitly convert to UTF-8
     return [c + numres for c in s.encode("utf-8")]
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
+    if strip_extraneous:
+      ids = strip_ids(ids, list(range(self._num_reserved_ids)))
     numres = self._num_reserved_ids
     decoded_ids = []
     int2byte = six.int2byte
@@ -216,7 +222,8 @@ class ClassLabelEncoder(TextEncoder):
     label_str = s
     return self._class_labels.index(label_str)
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
+    del strip_extraneous
     label_id = ids
     if isinstance(label_id, list):
       assert len(label_id) == 1
@@ -254,7 +261,8 @@ class OneHotClassLabelEncoder(TextEncoder):
     e[self._class_labels.index(label_str)] = on_value
     return e.tolist()
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
+    del strip_extraneous
     label_id = ids
     if isinstance(label_id, np.ndarray):
       label_id = np.squeeze(label_id).astype(np.int8).tolist()
@@ -313,7 +321,7 @@ class TokenTextEncoder(TextEncoder):
     ret = [self._token_to_id[tok] for tok in tokens]
     return ret[::-1] if self._reverse else ret
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
     return " ".join(self.decode_list(ids))
 
   def decode_list(self, ids):
@@ -511,14 +519,19 @@ class SubwordTextEncoder(TextEncoder):
     """
     return self._tokens_to_subtoken_ids([native_to_unicode(token_text)])
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
     """Converts a sequence of subtoken ids to a native string.
 
     Args:
       ids: a list of integers in the range [0, vocab_size)
+      strip_extraneous: bool, whether to strip off extraneous tokens
+        (EOS and PAD).
+
     Returns:
       a native string
     """
+    if strip_extraneous:
+      ids = strip_ids(ids, list(range(self._num_reserved_ids)))
     return unicode_to_native(
         tokenizer.decode(self._subtoken_ids_to_tokens(ids)))
 
@@ -956,11 +969,12 @@ class ImageEncoder(object):
       raise NotImplementedError("Image reading not implemented.")
     return im.imread(s)
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
     """Transform a sequence of int ids into an image file.
 
     Args:
       ids: list of integers to be converted.
+      strip_extraneous: unused
 
     Returns:
       Path to the temporary file where the image was saved.
@@ -968,6 +982,7 @@ class ImageEncoder(object):
     Raises:
       ValueError: if the ids are not of the appropriate size.
     """
+    del strip_extraneous
     _, tmp_file_path = tempfile.mkstemp("_decode.png")
     if self._height is None or self._width is None:
       size = int(math.sqrt(len(ids) / self._channels))
@@ -1022,11 +1037,12 @@ class RealEncoder(object):
     """
     return [float(w) for w in s.split()]
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
     """Transform sequence of float values into string (float values).
 
     Args:
       ids: array of floats to be converted.
+      strip_extraneous: unused
 
     Returns:
       String having space separated float values.
@@ -1034,5 +1050,13 @@ class RealEncoder(object):
     Raises:
       ValueError: if the ids are not of the appropriate size.
     """
+    del strip_extraneous
     return " ".join(ids)
-  
+
+
+def strip_ids(ids, ids_to_strip):
+  """Strip ids_to_strip from the end ids."""
+  ids = list(ids)
+  while ids[-1] in ids_to_strip:
+    ids.pop()
+  return ids
