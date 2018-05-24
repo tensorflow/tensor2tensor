@@ -566,7 +566,7 @@ class VideoModalityBitwise(VideoModality):
       return tf.layers.dense(transposed, self._body_input_depth,
                              name="merge_pixel_embedded_frames")
 
-  def targets_bottom(self, x):
+  def targets_bottom(self, x):  # pylint: disable=arguments-differ
     inputs = x
     with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, "targets_bottom")
