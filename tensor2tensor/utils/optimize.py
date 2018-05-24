@@ -106,9 +106,17 @@ class ConditionalOptimizer(tf.train.Optimizer):
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
   def compute_gradients(self, loss, var_list=None, **kwargs):
-    # Fathom: this simple implementation is necessary to prevent
-    # slowness, presumably because of word embeddings weirdness
-    return self._opt.compute_gradients(loss, var_list, **kwargs)
+    gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
+    def cast_grad(g, v):
+      if v is None or g is None:
+        return (g, v)
+      # Fathom: Ryan Sepassi said this would help
+      if v.dtype == g.dtype:
+        return (g, v)
+      return (tf.cast(g, v.dtype), v)
+    gradients = [cast_grad(g, v) for g, v in gradients]
+    return gradients
+    # return self._opt.compute_gradients(loss, var_list, **kwargs)
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     return self._opt.apply_gradients(
