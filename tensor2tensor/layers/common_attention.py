@@ -2790,12 +2790,15 @@ def multihead_attention(query_antecedent,
         k = cache["k_encdec"]
         v = cache["v_encdec"]
       else:
-        k = cache["k"] = tf.concat([cache["k"], k], axis=1)
-        v = cache["v"] = tf.concat([cache["v"], v], axis=1)
+        k = split_heads(k, num_heads)
+        v = split_heads(v, num_heads)
+        k = cache["k"] = tf.concat([cache["k"], k], axis=2)
+        v = cache["v"] = tf.concat([cache["v"], v], axis=2)
 
     q = split_heads(q, num_heads)
-    k = split_heads(k, num_heads)
-    v = split_heads(v, num_heads)
+    if cache is None:
+      k = split_heads(k, num_heads)
+      v = split_heads(v, num_heads)
 
     key_depth_per_head = total_key_depth // num_heads
     q *= key_depth_per_head**-0.5
@@ -2836,6 +2839,10 @@ def multihead_attention(query_antecedent,
       x = dilated_self_attention_1d(q, k, v, block_length, block_width,
                                     gap_size, num_memory_blocks)
     x = combine_heads(x)
+
+    # Set last dim specifically.
+    x.set_shape(x.shape.as_list()[:-1] + [total_value_depth])
+
     x = common_layers.dense(
         x, output_depth, use_bias=False, name="output_transform")
     if additional_returned_value is not None:

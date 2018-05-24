@@ -480,8 +480,8 @@ def fast_decode(encoder_output,
 
   cache = {
       "layer_%d" % layer: {
-          "k": tf.zeros([batch_size, 0, key_channels]),
-          "v": tf.zeros([batch_size, 0, value_channels]),
+          "k": common_attention.split_heads(tf.zeros([batch_size, 0, key_channels]), hparams.num_heads),
+          "v": common_attention.split_heads(tf.zeros([batch_size, 0, value_channels]), hparams.num_heads),
           "f": tf.zeros([batch_size, 0, hparams.hidden_size]),
       } for layer in range(num_layers)
   }
@@ -492,12 +492,14 @@ def fast_decode(encoder_output,
       with tf.variable_scope("body/decoder/%s/encdec_attention/multihead_attention" % layer_name):
         k_encdec = common_attention.compute_attention_component(
               encoder_output, key_channels, name="k")
+        k_encdec = common_attention.split_heads(k_encdec, hparams.num_heads)
         v_encdec = common_attention.compute_attention_component(
               encoder_output, value_channels, name="v")
+        v_encdec = common_attention.split_heads(v_encdec, hparams.num_heads)
       cache[layer_name]["k_encdec"] = k_encdec
       cache[layer_name]["v_encdec"] = v_encdec
 
-    cache["encoder_output"] = encoder_output # useless. it should be removed.
+    cache["encoder_output"] = tf.zeros_like(tf.placeholder(tf.float32, (None, 0, 0))) # Just a flag
     cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
 
   if beam_size > 1:  # Beam Search
