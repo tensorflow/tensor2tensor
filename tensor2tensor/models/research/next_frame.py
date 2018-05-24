@@ -198,9 +198,9 @@ def next_frame_ae():
   hparams = next_frame()
   hparams.input_modalities = "inputs:video:bitwise"
   hparams.hidden_size = 256
-  hparams.batch_size = 16
+  hparams.batch_size = 8
   hparams.num_hidden_layers = 4
-  hparams.num_compress_steps = 3
+  hparams.num_compress_steps = 4
   hparams.dropout = 0.4
   return hparams
 

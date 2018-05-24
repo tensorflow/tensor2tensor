@@ -693,6 +693,7 @@ def get_vq_bottleneck(bottleneck_size, hidden_size):
           name="ema_means",
           initializer=means.initialized_value(),
           trainable=False)
+
   return means, ema_means, ema_count
 
 
@@ -717,8 +718,10 @@ def vq_discrete_bottleneck(x,
                            decay=0.999,
                            epsilon=1e-5):
   """Simple vector quantized discrete bottleneck."""
-  hidden_size = common_layers.shape_list(x)[-1]
+  x_shape = common_layers.shape_list(x)
+  hidden_size = x_shape[-1]
   means, ema_means, ema_count = get_vq_bottleneck(bottleneck_size, hidden_size)
+  x = tf.reshape(x, [-1, hidden_size])
   x_means_hot, e_loss = vq_nearest_neighbor(x, means)
 
   # Update the ema variables
@@ -738,26 +741,29 @@ def vq_discrete_bottleneck(x,
       (updated_ema_count + epsilon) / (n + bottleneck_size * epsilon) * n)
   updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
   with tf.control_dependencies([e_loss]):
-    update_means = tf.assign(means, updated_ema_means)
+    update_means = means.assign(updated_ema_means)
     with tf.control_dependencies([update_means]):
       loss = beta * e_loss
 
-  d = x_means_hot
+  d = tf.reshape(x_means_hot, x_shape[:-1] + [bottleneck_size])
   return d, loss
 
 
 def vq_discrete_unbottleneck(x, hidden_size):
   """Simple undiscretization from vector quantized representation."""
+  x_shape = common_layers.shape_list(x)
   x = tf.to_float(x)
-  bottleneck_size = common_layers.shape_list(x)[1]
+  bottleneck_size = common_layers.shape_list(x)[-1]
   means, _, _ = get_vq_bottleneck(bottleneck_size, hidden_size)
-  return tf.matmul(x, means)
+  result = tf.matmul(tf.reshape(x, [-1, x_shape[-1]]), means)
+  return tf.reshape(result,
+                    x_shape[:-1] + [common_layers.shape_list(means)[-1]])
 
 
-def tanh_discrete_bottleneck(x, bottleneck_size, bottleneck_noise,
+def tanh_discrete_bottleneck(x, bottleneck_bits, bottleneck_noise,
                              discretize_warmup_steps, mode):
   """Simple discretization through tanh, flip bottleneck_noise many bits."""
-  x = tf.tanh(tf.layers.dense(x, bottleneck_size,
+  x = tf.tanh(tf.layers.dense(x, bottleneck_bits,
                               name="tanh_discrete_bottleneck"))
   d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
   if mode == tf.estimator.ModeKeys.TRAIN:
@@ -766,7 +772,7 @@ def tanh_discrete_bottleneck(x, bottleneck_size, bottleneck_noise,
     d *= noise
   d = common_layers.mix(d, x, discretize_warmup_steps,
                         mode == tf.estimator.ModeKeys.TRAIN)
-  return d
+  return d, 0.0
 
 
 def tanh_discrete_unbottleneck(x, hidden_size):
@@ -775,12 +781,12 @@ def tanh_discrete_unbottleneck(x, hidden_size):
   return x
 
 
-def isemhash_bottleneck(x, bottleneck_size, bottleneck_noise,
+def isemhash_bottleneck(x, bottleneck_bits, bottleneck_noise,
                         discretize_warmup_steps, mode,
                         isemhash_noise_dev=0.5, isemhash_mix_prob=0.5):
   """Improved semantic hashing bottleneck."""
   with tf.variable_scope("isemhash_bottleneck"):
-    x = tf.layers.dense(x, bottleneck_size, name="dense")
+    x = tf.layers.dense(x, bottleneck_bits, name="dense")
     y = common_layers.saturating_sigmoid(x)
     if isemhash_noise_dev > 0 and mode == tf.estimator.ModeKeys.TRAIN:
       noise = tf.truncated_normal(
@@ -795,7 +801,7 @@ def isemhash_bottleneck(x, bottleneck_size, bottleneck_noise,
       d = common_layers.mix(d, 2.0 * y - 1.0, discretize_warmup_steps,
                             mode == tf.estimator.ModeKeys.TRAIN,
                             max_prob=isemhash_mix_prob)
-    return d
+    return d, 0.0
 
 
 def isemhash_unbottleneck(x, hidden_size, isemhash_filter_size_multiplier=1.0):
@@ -813,15 +819,16 @@ def parametrized_bottleneck(x, hparams):
   """Meta-function calling all the above bottlenecks with hparams."""
   if hparams.bottleneck_kind == "tanh_discrete":
     return tanh_discrete_bottleneck(
-        x, hparams.bottleneck_size, hparams.bottleneck_noise * 0.5,
+        x, hparams.bottleneck_bits, hparams.bottleneck_noise * 0.5,
         hparams.discretize_warmup_steps, hparams.mode)
   if hparams.bottleneck_kind == "isemhash":
     return isemhash_bottleneck(
-        x, hparams.bottleneck_size, hparams.bottleneck_noise * 0.5,
+        x, hparams.bottleneck_bits, hparams.bottleneck_noise * 0.5,
         hparams.discretize_warmup_steps, hparams.mode,
         hparams.isemhash_noise_dev, hparams.isemhash_mix_prob)
   if hparams.bottleneck_kind == "vq":
-    return vq_discrete_bottleneck(x, hparams.bottleneck_size, hparams.vq_beta,
+    bottleneck_size = 2**hparams.bottleneck_bits
+    return vq_discrete_bottleneck(x, bottleneck_size, hparams.vq_beta,
                                   hparams.vq_decay, hparams.vq_epsilon)
   raise ValueError("Unsupported hparams.bottleneck_kind %s"
                    % hparams.bottleneck_kind)

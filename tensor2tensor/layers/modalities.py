@@ -555,7 +555,20 @@ class VideoModalityBitwise(VideoModality):
 
   def bottom(self, x):
     inputs = x
-    with tf.variable_scope(self.name):
+    with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
+      common_layers.summarize_video(inputs, "bottom")
+      # Embed bitwise.
+      assert self.top_dimensionality == 256
+      embedded = discretization.int_to_bit_embed(
+          inputs, 8, self.PIXEL_EMBEDDING_SIZE)
+      # Transpose and project.
+      transposed = common_layers.time_to_channels(embedded)
+      return tf.layers.dense(transposed, self._body_input_depth,
+                             name="merge_pixel_embedded_frames")
+
+  def targets_bottom(self, x):
+    inputs = x
+    with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
       common_layers.summarize_video(inputs, "targets_bottom")
       # Embed bitwise.
       assert self.top_dimensionality == 256

@@ -263,7 +263,9 @@ def encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
         except tf.errors.OutOfRangeError:
           break
 
-    generator_utils.generate_files(generator(), out_files)
+    generator_utils.generate_files(
+        generator(), out_files,
+        cycle_every_n=problem.total_number_of_frames // 10)
 
 
 def encode_env_frames(problem_name, ae_problem_name, autoencoder_path,
@@ -522,7 +524,7 @@ def rl_modelrl_tiny():
       true_env_generator_num_steps=100,
       model_train_steps=2,
       simulated_env_generator_num_steps=100,
-      ppo_epochs_num=2,
+      ppo_epochs_num=6,
       ppo_time_limit=20,
       ppo_epoch_length=20,
       ppo_num_agents=2,
@@ -600,7 +602,7 @@ def rl_modelrl_ae_base():
   hparams = rl_modelrl_base()
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
-  hparams.autoencoder_train_steps = 30000
+  hparams.autoencoder_train_steps = 50000
   return hparams
 
 

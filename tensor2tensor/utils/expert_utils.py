@@ -81,6 +81,8 @@ def _add_variable_proxy_methods(var, proxy_tensor):
   """
   proxy_tensor.read_value = lambda: tf.identity(proxy_tensor)
   proxy_tensor.assign_sub = var.assign_sub
+  proxy_tensor.assign = var.assign
+  proxy_tensor.initialized_value = var.initialized_value
 
 
 class Parallelism(object):
