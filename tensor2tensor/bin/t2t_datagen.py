@@ -41,6 +41,7 @@ import fathomt2t
 import fathomairflow.dags.dag_management.xcom_manipulation as xcom
 from fathomtf.services.model_management import (fathom_t2t_model_setup,
                                                 fix_paths_for_workspace)
+import absl
 
 import numpy as np
 
@@ -59,7 +60,14 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 # Fathom
-flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
+# TODO: find some more permanent and clean solution to the problem of
+# flags being defined in multiple places. Cleanest is probably to have
+# a flags.py that lives in diseaseTools and which contains literally
+# all fathom-defined t2t flags, and then strip all of them out of t2t.
+try:
+  flags.DEFINE_string("gcs_subpath", None, "Subpath to the model")
+except absl.flags._exceptions.DuplicateFlagError:
+  pass
 
 flags.DEFINE_string("data_dir", "", "Data directory.")
 flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
