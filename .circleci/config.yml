@@ -22,6 +22,11 @@ jobs:
           git clone -b ${DT_BRANCH} git@github.com:medicode/diseaseTools.git ~/diseaseTools;
 
       - type: shell
+        name: Setup Google Cloud Credentials
+        workDir: ~/
+        command: &GCP_LOGIN mkdir -p ~/diseaseTools/gcloud/keys && echo $CIRCLCI_GCP_SERVICE_ACCOUNT_KEY | base64 --decode --ignore-garbage > ~/diseaseTools/gcloud/keys/google-auth.json
+          
+      - type: shell
         name: Docker pull images
         command: docker pull gcr.io/fathom-containers/t2t_test
 
