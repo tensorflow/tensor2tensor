@@ -34,8 +34,8 @@ class TimeseriesTest(tf.test.TestCase):
     shutil.rmtree(cls.tmp_dir)
     os.mkdir(cls.tmp_dir)
 
-  def testTimeSeriesToyProblem(self):
-    problem = timeseries.TimeSeriesToyProblem(
+  def testTimeseriesToyProblem(self):
+    problem = timeseries.TimeseriesToyProblem(
         num_train_shards=1, num_eval_shards=1, num_samples=4)
     problem.generate_data(self.tmp_dir, self.tmp_dir)
 
