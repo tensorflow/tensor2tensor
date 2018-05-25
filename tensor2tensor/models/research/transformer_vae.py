@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import functools
 import math
-
-# Dependency imports
-
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
@@ -59,6 +56,7 @@ def residual_conv(x, repeat, k, hparams, name, reuse=None):
 
 
 def attend(x, source, hparams, name):
+  """Self-attention layer with source as memory antecedent."""
   with tf.variable_scope(name):
     x = tf.squeeze(x, axis=2)
     if len(source.get_shape()) > 3:
@@ -92,9 +90,9 @@ def top_k_softmax(x, k):
   """Calculate softmax(x), select top-k and rescale to sum to 1."""
   x = tf.nn.softmax(x)
   top_x, _ = tf.nn.top_k(x, k=k+1)
-  min_top = tf.reduce_min(top_x, axis=-1, keep_dims=True)
+  min_top = tf.reduce_min(top_x, axis=-1, keepdims=True)
   x = tf.nn.relu((x - min_top) + 1e-12)
-  x /= tf.reduce_sum(x, axis=-1, keep_dims=True)
+  x /= tf.reduce_sum(x, axis=-1, keepdims=True)
   return x, tf.reduce_max(top_x, axis=-1)
 
 
@@ -181,7 +179,9 @@ def decode_transformer(encoder_output,
                                      hparams.num_channels*hparams.hidden_size])
 
       # Prepare decoder inputs and bias.
-      decoder_input, _, _, bias = cia.prepare_decoder(targets, hparams)
+      # TODO(nikip): Make prepare_decoder return bias
+      decoder_input, _, _ = cia.prepare_decoder(targets, hparams)
+      bias = None
 
       # Add class label to decoder input.
       if not hparams.drop_inputs:
@@ -220,6 +220,10 @@ def ae_latent_softmax(latents_pred, latents_discrete, hparams):
   if hparams.num_decode_blocks < 2:
     latents_logits = tf.layers.dense(latents_pred, vocab_size,
                                      name="extra_logits")
+    if hparams.logit_normalization:
+      latents_logits *= tf.rsqrt(1e-8 +
+                                 tf.reduce_mean(tf.square(latents_logits)))
+
     loss = None
     if latents_discrete is not None:
       if hparams.soft_em:
@@ -606,11 +610,12 @@ class TransformerAE(t2t_model.T2TModel):
     features["cache_raw"] = cache
 
   def infer(self, features=None, decode_length=50, beam_size=1, top_beams=1,
-            alpha=0.0):
+            alpha=0.0, use_tpu=False):
     """Produce predictions from the model."""
     if not self._hparams.do_mask:
-      return super(TransformerAE, self).infer(
-          features, decode_length, beam_size, top_beams, alpha)["outputs"]
+      infer_out = super(TransformerAE, self).infer(
+          features, decode_length, beam_size, top_beams, alpha, use_tpu=use_tpu)
+      return infer_out["outputs"]
     if not features:
       features = {}
     inputs_old = None
@@ -666,6 +671,7 @@ def transformer_ae_small():
   hparams.add_hparam("z_size", 14)
   hparams.add_hparam("noise_dev", 0.5)
   hparams.add_hparam("d_mix", 0.5)
+  hparams.add_hparam("logit_normalization", True)
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, dvq.
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)

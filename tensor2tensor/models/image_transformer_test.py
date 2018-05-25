@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
@@ -30,7 +27,7 @@ import tensorflow as tf
 
 class ImagetransformerTest(tf.test.TestCase):
 
-  def _testImagetransformer(self, net):
+  def _test_imagetransformer(self, net):
     batch_size = 3
     size = 7
     vocab_size = 256
@@ -53,7 +50,7 @@ class ImagetransformerTest(tf.test.TestCase):
     self.assertEqual(res.shape, (batch_size, size, size, 3, vocab_size))
 
   def testImagetransformer(self):
-    self._testImagetransformer(image_transformer.Imagetransformer)
+    self._test_imagetransformer(image_transformer.Imagetransformer)
 
 
 if __name__ == "__main__":

@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import rev_block
 
 import tensorflow as tf
@@ -74,12 +71,12 @@ class RevBlockTest(tf.test.TestCase):
       self.assertAllClose(y1, y1_inv)
       self.assertAllClose(y2, y2_inv)
 
-  def _testRevBlock(self,
-                    x=None,
-                    f=None,
-                    g=None,
-                    f_side_input=None,
-                    g_side_input=None):
+  def _test_rev_block(self,
+                      x=None,
+                      f=None,
+                      g=None,
+                      f_side_input=None,
+                      g_side_input=None):
     tf.set_random_seed(1234)
 
     if f is None:
@@ -144,7 +141,7 @@ class RevBlockTest(tf.test.TestCase):
         self.assertAllClose(g1, g2)
 
   def testRevBlock(self):
-    self._testRevBlock()
+    self._test_rev_block()
 
   def testSideInput(self):
     f_side_input = tf.random_uniform([self.BATCH_SIZE, self.CHANNELS // 2])
@@ -153,7 +150,7 @@ class RevBlockTest(tf.test.TestCase):
       return tf.layers.dense(
           x, self.CHANNELS // 2, use_bias=True) + side_input[0]
 
-    self._testRevBlock(f=f, f_side_input=[f_side_input])
+    self._test_rev_block(f=f, f_side_input=[f_side_input])
 
   def testMultipleFns(self):
 
@@ -163,23 +160,7 @@ class RevBlockTest(tf.test.TestCase):
     def f2(x):
       return tf.layers.dense(x, self.CHANNELS // 2, activation=tf.nn.relu)
 
-    self._testRevBlock(f=[f1, f2, f1, f2])
-
-  # TODO(rsepassi): Recent change to conv seems to have broken this test. Find
-  # out why.
-  def _testConvAndBatchNorm(self):
-
-    x = tf.random_uniform(
-        [self.BATCH_SIZE, 10, self.CHANNELS], dtype=tf.float32)
-
-    def f(x):
-      x = tf.layers.conv1d(x, self.CHANNELS // 2, 3, padding="same")
-      x = tf.layers.batch_normalization(x, training=True)
-      x = tf.layers.conv1d(x, self.CHANNELS // 2, 3, padding="same")
-      x = tf.layers.batch_normalization(x, training=True)
-      return x
-
-    self._testRevBlock(x=x, f=f)
+    self._test_rev_block(f=[f1, f2, f1, f2])
 
 
 if __name__ == "__main__":

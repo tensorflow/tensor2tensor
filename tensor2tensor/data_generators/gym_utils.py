@@ -15,9 +15,6 @@
 """Utilities for openai gym."""
 
 from collections import deque
-
-# Dependency imports
-
 import gym
 
 import numpy as np
@@ -27,6 +24,7 @@ import six
 from tensor2tensor.data_generators import image_utils
 
 
+# pylint: disable=method-hidden
 class WarmupWrapper(gym.Wrapper):
   """Warmup wrapper."""
 
@@ -48,11 +46,11 @@ class WarmupWrapper(gym.Wrapper):
 
     return starting_observations, starting_actions, starting_rewards
 
-  def step(self, ac):
-    action = ac
+  def step(self, action):
     return self.env.step(action)
 
   def reset(self, **kwargs):
+    del kwargs
     self.env.reset()
     observation = None
     for _ in range(self.warm_up_examples):
@@ -78,10 +76,9 @@ class PongWrapper(WarmupWrapper):
     self.reward_skip_steps = reward_skip_steps
     self.big_ball = big_ball
 
-  def step(self, ac):
-    action = ac
+  def step(self, action):
     if self.action_space_reduction:
-      action = 2 if int(ac) == 0 else 5
+      action = 2 if int(action) == 0 else 5
     ob, rew, done, info = self.env.step(action)
     ob = self.process_observation(ob)
     if rew != 0 and self.reward_skip_steps != 0:
@@ -166,8 +163,8 @@ class BreakoutWrapper(WarmupWrapper):
            "include_direction_info to work correctly")
     assert not self.include_direction_info or ball_down_skip >= 9, msg
 
-  def step(self, ac):
-    ob, rew, done, info = self.env.step(ac)
+  def step(self, action):
+    ob, rew, done, info = self.env.step(action)
 
     if BreakoutWrapper.find_ball(ob) is None and self.ball_down_skip != 0:
       for _ in range(self.ball_down_skip):
@@ -266,8 +263,8 @@ class FreewayWrapper(WarmupWrapper):
   def chicken_height(self, image):
     raise NotImplementedError()
 
-  def step(self, ac):
-    ob, rew, done, info = self.env.step(ac)
+  def step(self, action):
+    ob, rew, done, info = self.env.step(action)
 
     if self.easy_freeway:
       if rew > 0:

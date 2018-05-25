@@ -22,9 +22,6 @@ import functools
 import os
 from subprocess import call
 import tempfile
-
-# Dependency imports
-
 import numpy as np
 from scipy.io import wavfile
 import scipy.signal
@@ -338,15 +335,16 @@ class SpeechRecognitionProblem(problem.Problem):
 class SpeechRecognitionModality(modality.Modality):
   """Common ASR filterbank processing."""
 
-  def bottom(self, inputs):
+  def bottom(self, x):
     """Use batchnorm instead of CMVN and shorten the stft with strided convs.
 
     Args:
-      inputs: float32 tensor with shape [batch_size, len, 1, freqs * channels]
+      x: float32 tensor with shape [batch_size, len, 1, freqs * channels]
 
     Returns:
       float32 tensor with shape [batch_size, shorter_len, 1, hidden_size]
     """
+    inputs = x
     p = self._model_hparams
 
     num_mel_bins = p.audio_num_mel_bins

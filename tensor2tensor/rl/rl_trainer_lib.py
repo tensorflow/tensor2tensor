@@ -19,9 +19,6 @@ from __future__ import print_function
 
 import functools
 import os
-
-# Dependency imports
-
 import gym
 
 from tensor2tensor import models  # pylint: disable=unused-import
@@ -77,17 +74,13 @@ def define_train(hparams, environment_spec, event_dir):
         eval_env_lambda, hparams,
         num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
 
-    # TODO(blazej0): correct to the version below.
-    corrected = True
-    eval_summary = tf.no_op()
-    if corrected:
-      _, eval_summary = collect.define_collect(
-          policy_factory, eval_batch_env, hparams, eval_phase=True)
+    _, eval_summary = collect.define_collect(
+        policy_factory, eval_batch_env, hparams, eval_phase=True)
   return summary, eval_summary
 
 
 def train(hparams, environment_spec, event_dir=None, model_dir=None,
-          restore_agent=True):
+          restore_agent=True, epoch=0):
   """Train."""
   with tf.name_scope("rl_train"):
     train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
@@ -103,7 +96,8 @@ def train(hparams, environment_spec, event_dir=None, model_dir=None,
       model_saver = None
 
     if hparams.simulated_environment:
-      env_model_loader = tf.train.Saver(tf.global_variables("basic_conv_gen.*"))
+      env_model_loader = tf.train.Saver(
+          tf.global_variables("next_frame_basic.*"))
     else:
       env_model_loader = None
 
@@ -116,6 +110,13 @@ def train(hparams, environment_spec, event_dir=None, model_dir=None,
       if model_saver and restore_agent:
         start_step = trainer_lib.restore_checkpoint(
             model_dir, model_saver, sess)
+
+      # Fail-friendly, don't train if already trained for this epoch
+      if start_step >= ((hparams.epochs_num * (epoch+1)) - 5):
+        tf.logging.info("Skipping PPO training for epoch %d as train steps "
+                        "(%d) already reached", epoch, start_step)
+        return
+
       for epoch_index in range(hparams.epochs_num):
         summary = sess.run(train_summary_op)
         if summary_writer:
@@ -131,5 +132,5 @@ def train(hparams, environment_spec, event_dir=None, model_dir=None,
             (epoch_index % hparams.save_models_every_epochs == 0 or
              (epoch_index + 1) == hparams.epochs_num)):
           ckpt_path = os.path.join(
-              model_dir, "model.ckpt-{}".format(epoch_index + start_step))
+              model_dir, "model.ckpt-{}".format(epoch_index + 1 + start_step))
           model_saver.save(sess, ckpt_path)

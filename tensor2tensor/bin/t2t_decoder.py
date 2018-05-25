@@ -32,9 +32,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-
-# Dependency imports
-
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import decoding
@@ -80,6 +77,7 @@ def create_decode_hparams():
 
 
 def decode(estimator, hparams, decode_hp):
+  """Decode from estimator. Interactive, from file, or from dataset."""
   if FLAGS.decode_interactive:
     if estimator.config.use_tpu:
       raise ValueError("TPU can only decode from dataset.")

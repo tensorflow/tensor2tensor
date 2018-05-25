@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import quantization
 
 import tensorflow as tf
@@ -206,7 +206,8 @@ class AdafactorOptimizer(tf.train.Optimizer):
     """
     return tf.maximum(reduce_rms(var), self._epsilon2)
 
-  def _resource_apply_dense(self, grad, var):
+  def _resource_apply_dense(self, grad, handle):
+    var = handle
     grad = tf.to_float(grad)
     grad_squared = tf.square(grad) + self._epsilon1
     grad_squared_mean = tf.reduce_mean(grad_squared)
@@ -237,7 +238,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       vr_update = tf.assign(vr, new_vr, use_locking=self._use_locking)
       vc_update = tf.assign(vc, new_vc, use_locking=self._use_locking)
       updates = [vr_update, vc_update]
-      long_term_mean = tf.reduce_mean(new_vr, -1, keep_dims=True)
+      long_term_mean = tf.reduce_mean(new_vr, -1, keepdims=True)
       r_factor = tf.rsqrt(new_vr / long_term_mean)
       c_factor = tf.rsqrt(new_vc)
       x = grad * tf.expand_dims(r_factor, -1) * tf.expand_dims(c_factor, -2)
@@ -255,7 +256,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       m = self.get_slot(var, "m")
       new_m = self._beta1 * tf.to_float(m) + (1.0 - self._beta1) * subtrahend
       subtrahend = new_m
-      new_m = tf.cast(new_m, var.dtype)
+      new_m = common_layers.cast_like(new_m, var)
       updates.append(tf.assign(m, new_m, use_locking=self._use_locking))
     new_val = tf.to_float(old_val) - subtrahend
     if var.dtype.base_dtype == tf.bfloat16:

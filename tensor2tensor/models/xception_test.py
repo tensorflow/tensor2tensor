@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
@@ -31,7 +28,7 @@ import tensorflow as tf
 
 class XceptionTest(tf.test.TestCase):
 
-  def _testXception(self, img_size):
+  def _test_xception(self, img_size):
     vocab_size = 9
     batch_size = 3
     x = np.random.random_integers(
@@ -54,10 +51,10 @@ class XceptionTest(tf.test.TestCase):
     self.assertEqual(res.shape, (batch_size, 1, 1, 1, vocab_size))
 
   def testXceptionSmallImage(self):
-    self._testXception(img_size=9)
+    self._test_xception(img_size=9)
 
   def testXceptionLargeImage(self):
-    self._testXception(img_size=256)
+    self._test_xception(img_size=256)
 
 
 if __name__ == "__main__":

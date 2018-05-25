@@ -25,9 +25,6 @@ description of the model and the results obtained with its early version.
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import librispeech
@@ -574,9 +571,10 @@ class TransformerScorer(Transformer):
             decode_length=50,
             beam_size=1,
             top_beams=1,
-            alpha=0.0):
+            alpha=0.0,
+            use_tpu=False):
     """Returns the targets and their log probabilities."""
-    del decode_length, beam_size, top_beams, alpha
+    del decode_length, beam_size, top_beams, alpha, use_tpu
     assert features is not None
 
     # Run the model

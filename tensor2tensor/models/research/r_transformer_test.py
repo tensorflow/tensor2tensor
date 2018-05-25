@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
@@ -35,7 +32,8 @@ VOCAB_SIZE = 10
 
 class RTransformerTest(tf.test.TestCase):
 
-  def getModel(self, hparams, mode=tf.estimator.ModeKeys.TRAIN, has_input=True):
+  def get_model(self, hparams, mode=tf.estimator.ModeKeys.TRAIN,
+                has_input=True):
     hparams.hidden_size = 8
     hparams.filter_size = 32
     hparams.num_heads = 1
@@ -59,7 +57,7 @@ class RTransformerTest(tf.test.TestCase):
     return r_transformer.RTransformer(hparams, mode, p_hparams), features
 
   def testTransformer(self):
-    model, features = self.getModel(r_transformer.r_transformer_base())
+    model, features = self.get_model(r_transformer.r_transformer_base())
     logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())

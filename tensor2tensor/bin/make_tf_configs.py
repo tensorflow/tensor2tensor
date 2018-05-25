@@ -29,9 +29,6 @@ from __future__ import division
 from __future__ import print_function
 
 import json
-
-# Dependency imports
-
 import tensorflow as tf
 
 flags = tf.flags

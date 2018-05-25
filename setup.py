@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.6.2',
+    version='1.6.3',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -49,7 +49,7 @@ setup(
     extras_require={
         'tensorflow': ['tensorflow>=1.5.0'],
         'tensorflow_gpu': ['tensorflow-gpu>=1.5.0'],
-        'tests': ['pytest', 'mock'],
+        'tests': ['pytest', 'mock', 'pylint'],
     },
     classifiers=[
         'Development Status :: 4 - Beta',
