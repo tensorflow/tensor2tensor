@@ -167,6 +167,28 @@ class NextFrameBasic(t2t_model.T2TModel):
     return results
 
 
+@registry.register_model
+class NextFrameStochastic(NextFrameBasic):
+  """Stochastic next-frame model."""
+
+  def body(self, features):
+    hparams = self.hparams
+    filters = hparams.hidden_size
+
+    # Split inputs time-wise into a list of frames. Inputs are by default
+    # concatenated time-wise on channels in VideoModality, so we split on
+    # the last axis. Can do the same for target frames with num_target_frames.
+    # TODO(lukaszkaiser): should we change VideoModality to not concatenate?
+    num_frames = hparams.problem.num_input_frames
+    input_frames = tf.split(features["inputs"], num_frames, axis=-1)
+
+    # For now predict using just a linear transformation of the last frame.
+    # Here input_frames[-1] is contrast-normalized last frame.
+    prediction = tf.layers.dense(input_frames[-1], filters,
+                                 name="final_dense")
+    return prediction
+
+
 @registry.register_hparams
 def next_frame():
   """Basic 2-frame conv model."""
