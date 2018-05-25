@@ -167,6 +167,11 @@ class AutoencoderResidual(AutoencoderAutoregressive):
       residual_conv = tf.layers.conv2d
       if hparams.residual_use_separable_conv:
         residual_conv = tf.layers.separable_conv2d
+      # Input embedding with a non-zero bias for uniform inputs.
+      x = tf.layers.dense(
+          x, hparams.hidden_size, name="embed", activation=common_layers.belu,
+          bias_initializer=tf.random_normal_initializer(stddev=0.01))
+      x = common_attention.add_timing_signal_nd(x)
       # Down-convolutions.
       for i in range(hparams.num_hidden_layers):
         with tf.variable_scope("layer_%d" % i):

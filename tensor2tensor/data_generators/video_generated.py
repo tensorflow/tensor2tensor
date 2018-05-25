@@ -176,14 +176,14 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
       yield image
 
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
-    frame_number = 0
+    counter = 0
     done = False
     while not done:
       for frame_number, frame in enumerate(
           self.generate_stochastic_shape_instance()):
-        if frame_number >= self.total_number_of_frames:
+        if counter >= self.total_number_of_frames:
           done = True
           break
 
         yield {"frame": frame, "frame_number": [frame_number]}
-        frame_number += 1
+        counter += 1

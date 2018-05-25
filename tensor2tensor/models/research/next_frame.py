@@ -58,7 +58,11 @@ class NextFrameBasic(t2t_model.T2TModel):
 
     # Embed the inputs.
     inputs_shape = common_layers.shape_list(features["inputs"])
-    x = tf.layers.dense(features["inputs"], filters, name="inputs_embed")
+    # Using non-zero bias initializer below for edge cases of uniform inputs.
+    x = tf.layers.dense(
+        features["inputs"], filters, name="inputs_embed",
+        bias_initializer=tf.random_normal_initializer(stddev=0.01))
+    x = common_attention.add_timing_signal_nd(x)
 
     # Down-stride.
     layer_inputs = [x]
