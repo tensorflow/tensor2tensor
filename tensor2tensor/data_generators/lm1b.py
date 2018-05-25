@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import tarfile
-
-# Dependency imports
-
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils

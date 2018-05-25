@@ -33,6 +33,7 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 CONSOLE_URL = "https://console.cloud.google.com/mlengine/jobs/"
+RUNTIME_VERSION = "1.8"
 
 # TODO(rsepassi):
 # * Enable multi-machine sync/async training
@@ -86,7 +87,7 @@ def flags_as_args():
       continue
     if name.startswith("autotune"):
       continue
-    args.extend(["--%s" % name, str(val)])
+    args.extend(["--%s=%s" % (name, str(val))])
   return args
 
 
@@ -94,15 +95,16 @@ def get_default_master_type(num_gpus=1, use_tpu=False):
   """Returns master_type for trainingInput."""
   if use_tpu:
     return "cloud_tpu"
-  elif num_gpus <= 0:
-    return "standard"
-  elif num_gpus == 1:
-    return "standard_p100"
-  elif num_gpus == 4:
-    return "complex_model_m_p100"
-  elif num_gpus == 8:
-    return "complex_model_l_gpu"
-  assert False
+  gpus_to_master_map = {
+      0: "standard",
+      1: "standard_p100",
+      4: "complex_model_m_p100",
+      8: "complex_model_l_gpu",
+  }
+  if num_gpus not in gpus_to_master_map:
+    raise ValueError("Num gpus must be in %s" %
+                     str(sorted(list(gpus_to_master_map.keys()))))
+  return gpus_to_master_map[num_gpus]
 
 
 def configure_job():
@@ -113,7 +115,7 @@ def configure_job():
       "pythonModule": "tensor2tensor.bin.t2t_trainer",
       "args": flags_as_args(),
       "region": text_encoder.native_to_unicode(cloud.default_region()),
-      "runtimeVersion": "1.5",
+      "runtimeVersion": RUNTIME_VERSION,
       "pythonVersion": "3.5" if sys.version_info.major == 3 else "2.7",
       "jobDir": FLAGS.output_dir,
       "scaleTier": "CUSTOM",

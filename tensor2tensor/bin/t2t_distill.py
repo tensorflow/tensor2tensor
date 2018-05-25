@@ -22,9 +22,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-
-# Dependency imports
-
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.bin import t2t_trainer
@@ -46,7 +43,8 @@ def main(argv):
   t2t_trainer.log_registry()
 
   if FLAGS.cloud_mlengine:
-    return cloud_mlengine.launch()
+    cloud_mlengine.launch()
+    return
 
   if FLAGS.generate_data:
     t2t_trainer.generate_data()

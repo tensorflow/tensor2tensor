@@ -39,9 +39,6 @@ from __future__ import print_function
 
 import copy
 import functools
-
-# Dependency imports
-
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer

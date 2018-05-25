@@ -23,9 +23,6 @@ from __future__ import print_function
 
 from collections import namedtuple
 import random
-
-# Dependency imports
-
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
 import sympy

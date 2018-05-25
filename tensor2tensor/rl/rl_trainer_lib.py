@@ -19,9 +19,6 @@ from __future__ import print_function
 
 import functools
 import os
-
-# Dependency imports
-
 import gym
 
 from tensor2tensor import models  # pylint: disable=unused-import
@@ -99,7 +96,8 @@ def train(hparams, environment_spec, event_dir=None, model_dir=None,
       model_saver = None
 
     if hparams.simulated_environment:
-      env_model_loader = tf.train.Saver(tf.global_variables("basic_conv_gen.*"))
+      env_model_loader = tf.train.Saver(
+          tf.global_variables("next_frame_basic.*"))
     else:
       env_model_loader = None
 

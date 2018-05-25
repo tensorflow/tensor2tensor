@@ -29,9 +29,6 @@ import signal
 import subprocess
 import sys
 import traceback
-
-# Dependency imports
-
 import gym
 
 from tensor2tensor.rl.envs import batch_env
@@ -76,13 +73,13 @@ class EvalVideoWrapper(gym.Wrapper):
     if self._reset_counter % 2 == 1:
       self._active = True
       return self.env.reset(**kwargs)
-    else:
-      self._active = False
-      self._last_returned = (self._last_returned[0],
-                             self._last_returned[1],
-                             False,  # done = False
-                             self._last_returned[3])
-      return self._last_returned[0]
+
+    self._active = False
+    self._last_returned = (self._last_returned[0],
+                           self._last_returned[1],
+                           False,  # done = False
+                           self._last_returned[3])
+    return self._last_returned[0]
 
 
 class ExternalProcessEnv(object):
@@ -207,8 +204,7 @@ class ExternalProcessEnv(object):
     promise = self.call("step", action)
     if blocking:
       return promise()
-    else:
-      return promise
+    return promise
 
   def reset(self, blocking=True):
     """Reset the environment.
@@ -223,8 +219,7 @@ class ExternalProcessEnv(object):
     promise = self.call("reset")
     if blocking:
       return promise()
-    else:
-      return promise
+    return promise
 
   def _receive(self):
     """Wait for a message from the worker process and return its payload.

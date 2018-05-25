@@ -14,11 +14,8 @@
 # limitations under the License.
 """Data generators for parsing data-sets."""
 
-import os
-
-# Dependency imports
-
-from tensor2tensor.data_generators import generator_utils
+# import os
+# from tensor2tensor.data_generators import generator_utils
 
 import tensorflow as tf
 
@@ -103,13 +100,17 @@ def parsing_token_generator(data_dir, tmp_dir, train, source_vocab_size,
   Returns:
     A generator to a dictionary of inputs and outputs.
   """
-  source_symbolizer_vocab = generator_utils.get_or_generate_vocab(
-      data_dir, tmp_dir, "wsj_source.vocab.%d" % source_vocab_size,
-      source_vocab_size)
-  target_symbolizer_vocab = generator_utils.get_or_generate_vocab(
-      data_dir, tmp_dir, "wsj_target.vocab.%d" % target_vocab_size,
-      target_vocab_size)
-  filename = "%s_%s.trees" % (FLAGS.parsing_path, "train" if train else "dev")
-  tree_filepath = os.path.join(tmp_dir, filename)
-  return token_generator(tree_filepath, source_symbolizer_vocab,
-                         target_symbolizer_vocab, 1)
+  # TODO(lukaszkaiser): Correct these calls to generate vocabularies. No data
+  # sources are being passed.
+  del (data_dir, tmp_dir, train, source_vocab_size, target_vocab_size)
+  assert False, "Vocabulary generation not implemented"
+  # source_symbolizer_vocab = generator_utils.get_or_generate_vocab(
+  #     data_dir, tmp_dir, "wsj_source.vocab.%d" % source_vocab_size,
+  #     source_vocab_size)
+  # target_symbolizer_vocab = generator_utils.get_or_generate_vocab(
+  #     data_dir, tmp_dir, "wsj_target.vocab.%d" % target_vocab_size,
+  #     target_vocab_size)
+  # filename = "%s_%s.trees" % (FLAGS.parsing_path, "train" if train else "dev")
+  # tree_filepath = os.path.join(tmp_dir, filename)
+  # return token_generator(tree_filepath, source_symbolizer_vocab,
+  #                        target_symbolizer_vocab, 1)

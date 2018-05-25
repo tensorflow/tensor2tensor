@@ -57,9 +57,6 @@ from __future__ import print_function
 
 import os
 import time
-
-# Dependency imports
-
 from tensor2tensor.utils import bleu_hook
 import tensorflow as tf
 

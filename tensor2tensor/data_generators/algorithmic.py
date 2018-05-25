@@ -16,9 +16,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -332,7 +329,7 @@ class AlgorithmicAdditionBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  def generator(self, base, max_length, nbr_cases):
+  def generator(self, base, max_length, nbr_cases):  # pylint: disable=arguments-differ
     """Generator for the addition task.
 
     The length of each number is drawn uniformly at random in [1, max_length/2]
@@ -382,7 +379,7 @@ class AlgorithmicMultiplicationBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  def generator(self, base, max_length, nbr_cases):
+  def generator(self, base, max_length, nbr_cases):  # pylint: disable=arguments-differ
     """Generator for the multiplication task.
 
     The length of each number is drawn uniformly at random in [1, max_length/2]

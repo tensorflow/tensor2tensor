@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import io
 import os
-
-# Dependency imports
-
 from tensor2tensor.data_generators import audio
 
 import tensorflow as tf

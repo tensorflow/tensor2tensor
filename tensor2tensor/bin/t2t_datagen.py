@@ -33,9 +33,6 @@ import os
 import random
 import tempfile
 
-# Dependency imports
-
-
 import numpy as np
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
@@ -48,6 +45,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
+
 
 flags = tf.flags
 FLAGS = flags.FLAGS

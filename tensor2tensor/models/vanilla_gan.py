@@ -20,9 +20,6 @@ Example of how to create a GAN in T2T.
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -36,6 +33,7 @@ def lrelu(input_, leak=0.2, name="lrelu"):
 
 def deconv2d(
     input_, output_shape, k_h, k_w, d_h, d_w, stddev=0.02, name="deconv2d"):
+  """Deconvolution layer."""
   with tf.variable_scope(name):
     w = tf.get_variable(
         "w", [k_h, k_w, output_shape[-1], input_.get_shape()[-1]],
@@ -188,13 +186,8 @@ class AbstractGAN(t2t_model.T2TModel):
 class VanillaGan(AbstractGAN):
   """Simple GAN for demonstration."""
 
-  def infer(self,
-            features=None,
-            decode_length=50,
-            beam_size=1,
-            top_beams=1,
-            last_position_only=False,
-            alpha=0.0):
+  def infer(self, *args, **kwargs):  # pylint: disable=arguments-differ
+    del args, kwargs
     with tf.variable_scope("body/vanilla_gan", reuse=tf.AUTO_REUSE):
       z = tf.random_uniform(
           shape=[1, self._hparams.random_sample_size],

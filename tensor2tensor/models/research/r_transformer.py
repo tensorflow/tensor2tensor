@@ -30,9 +30,6 @@ Structure of the code is explained in r_transformer_util.py
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
@@ -46,7 +43,7 @@ import tensorflow as tf
 class RTransformer(transformer.Transformer):
   """R-Transformer: Depth-wise recurrent transformer model."""
 
-  def encode(self, inputs, target_space, hparams, features=None):
+  def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode r-transformer inputs.
 
     It is similar to "transformer.encode", but it uses
@@ -60,6 +57,7 @@ class RTransformer(transformer.Transformer):
       hparams: hyperparmeters for model.
       features: optionally pass the entire features dictionary as well.
         This is needed now for "packed" datasets.
+      losses: optional list onto which to append extra training losses
 
     Returns:
       Tuple of:
@@ -70,6 +68,7 @@ class RTransformer(transformer.Transformer):
           encoder_extra_output: which is extra encoder output used in some
             variants of the model (e.g. in ACT, to pass the ponder-time to body)
     """
+    del losses
 
     inputs = common_layers.flatten4d3d(inputs)
 
@@ -96,7 +95,9 @@ class RTransformer(transformer.Transformer):
              encoder_decoder_attention_bias,
              decoder_self_attention_bias,
              hparams,
-             nonpadding=None):
+             cache=None,
+             nonpadding=None,
+             losses=None):
     """Decode R-Transformer outputs from encoder representation.
 
     It is similar to "transformer.decode", but it uses
@@ -113,7 +114,10 @@ class RTransformer(transformer.Transformer):
       decoder_self_attention_bias: Bias and mask weights for decoder
         self-attention. [batch_size, decoder_length]
       hparams: hyperparmeters for model.
+      cache: dict, containing tensors which are the results of previous
+          attentions, used for fast decoding.
       nonpadding: optional Tensor with shape [batch_size, decoder_length]
+      losses: optional list onto which to append extra training losses
 
     Returns:
        Tuple of:
@@ -123,6 +127,7 @@ class RTransformer(transformer.Transformer):
             variants of the model (e.g. in ACT, to pass the ponder-time to body)
 
     """
+    del cache, losses
 
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
@@ -264,7 +269,7 @@ class RTransformer(transformer.Transformer):
 class RTransformerEncoder(transformer.Transformer):
   """R-Transformer Encoder: Depth-wise recurrent transformer encoder-only."""
 
-  def encode(self, inputs, target_space, hparams, features=None):
+  def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode transformer inputs.
 
     Args:
@@ -274,6 +279,7 @@ class RTransformerEncoder(transformer.Transformer):
       hparams: hyperparmeters for model.
       features: optionally pass the entire features dictionary as well.
         This is needed now for "packed" datasets.
+      losses: optional list onto which to append extra training losses
 
     Returns:
       Tuple of:
@@ -282,6 +288,7 @@ class RTransformerEncoder(transformer.Transformer):
           encoder_extra_output: which is extra encoder output used in some
             variants of the model (e.g. in ACT, to pass the ponder-time to body)
     """
+    del losses
     inputs = common_layers.flatten4d3d(inputs)
 
     (encoder_input, self_attention_bias, _) = (

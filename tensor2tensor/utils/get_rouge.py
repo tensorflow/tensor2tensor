@@ -22,10 +22,7 @@ import logging
 import os
 import shutil
 from tempfile import mkdtemp
-
-# Dependency imports
-
-from pyrouge import Rouge155
+import pyrouge
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -53,7 +50,7 @@ def prep_data(decode_dir, target_dir):
 
 
 def main(_):
-  rouge = Rouge155()
+  rouge = pyrouge.Rouge155()
   rouge.log.setLevel(logging.ERROR)
   rouge.system_filename_pattern = "rouge.(\\d+).txt"
   rouge.model_filename_pattern = "rouge.[A-Z].#ID#.txt"

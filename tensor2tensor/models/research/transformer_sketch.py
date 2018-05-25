@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.models.research import transformer_vae
@@ -33,7 +30,7 @@ from tensor2tensor.utils import registry
 class TransformerSketch(transformer.Transformer):
   """Transformer with strided convolutions."""
 
-  def encode(self, inputs, target_space, hparams):
+  def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Add two layers strided convolutions ontop of encode."""
     inputs = common_layers.conv_block(
         inputs,
@@ -44,12 +41,13 @@ class TransformerSketch(transformer.Transformer):
         name="small_image_conv")
 
     hparams.num_compress_steps = 2
-    compressed_inputs = transformer_vae.compress(inputs, is_2d=True,
+    compressed_inputs = transformer_vae.compress(inputs, None, is_2d=True,
                                                  hparams=hparams,
                                                  name="convolutions")
 
     return super(TransformerSketch, self).encode(
-        compressed_inputs, target_space, hparams)
+        compressed_inputs, target_space, hparams, features=features,
+        losses=losses)
 
 
 @registry.register_hparams

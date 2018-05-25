@@ -20,11 +20,9 @@ from __future__ import print_function
 import contextlib
 import os
 import sys
-
-# Dependency imports
-
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
+from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import cloud_tpu
 from tensor2tensor.utils import decoding
@@ -332,8 +330,10 @@ def main(argv):
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   log_registry()
 
+
   if FLAGS.cloud_mlengine:
-    return cloud_mlengine.launch()
+    cloud_mlengine.launch()
+    return
 
   if FLAGS.generate_data:
     generate_data()

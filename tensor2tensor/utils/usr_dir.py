@@ -20,9 +20,6 @@ from __future__ import print_function
 import importlib
 import os
 import sys
-
-# Dependency imports
-
 import tensorflow as tf
 
 

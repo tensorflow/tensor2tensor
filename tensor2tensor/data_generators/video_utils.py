@@ -19,9 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-
-# Dependency imports
-
 import six
 
 from tensor2tensor.data_generators import generator_utils
@@ -120,7 +117,7 @@ class VideoProblem(problem.Problem):
     """
     raise NotImplementedError()
 
-  def example_reading_spec(self, label_repr=None):
+  def example_reading_spec(self):
     extra_data_fields, extra_data_items_to_decoders = self.extra_reading_spec
 
     data_fields = {
@@ -323,7 +320,7 @@ class VideoProblemOld(problem.Problem):
     """Number of color channels."""
     return 3
 
-  def example_reading_spec(self, label_repr=None):
+  def example_reading_spec(self):
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
