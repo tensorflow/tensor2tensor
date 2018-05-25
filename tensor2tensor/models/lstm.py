@@ -121,7 +121,7 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
     #
     # For multi-head attention project output back to hidden size.
     if hparams.output_attention == 1 and hparams.num_heads > 1:
-      output = tf.layers.dense(output, hparams.hidden_size)
+      outputs = tf.layers.dense(outputs, hparams.hidden_size)
 
     return outputs
 
