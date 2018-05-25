@@ -225,8 +225,8 @@ def lstm_seq2seq_internal_bid_encoder(inputs, targets, sequence_lengths,
       # Flatten inputs.
       inputs = common_layers.flatten4d3d(inputs)
       # LSTM encoder.
-      _, final_encoder_state = lstm_bid_encoder(inputs, hparams, train,
-                                                "encoder")
+      _, final_encoder_state = lstm_bid_encoder(
+        inputs, sequence_lengths, hparams, train, "encoder")
     else:
       final_encoder_state = None
     # LSTM decoder.
