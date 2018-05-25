@@ -1064,7 +1064,7 @@ def universal_transformer_act(x, hparams, ffn_unit, attention_unit):
     ValueError: Unknown act type
 
   """
-
+  # TODO(dehghani): Use pad_remover for the act computations.
   if hparams.act_type == "basic":
     return universal_transformer_act_basic(
         x, hparams, ffn_unit, attention_unit)
