@@ -43,18 +43,25 @@ script:
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
 
   # Lint
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST*"  ]]; then
-        pylint tensor2tensor;
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
+        pylint -j 2 tensor2tensor;
     fi
 
   # Run tests
+  # Ignores:
+  # Tested separately:
+  #   * registry_test
+  #   * trainer_lib_test
+  #   * visualization_test
+  # algorithmic_math_test: flaky
+  # r_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
   - pytest
-    --ignore=tensor2tensor/utils/registry_test.py  # tested separately
-    --ignore=tensor2tensor/utils/trainer_lib_test.py  # tested separately
-    --ignore=tensor2tensor/visualization/visualization_test.py  # tested separately
-    --ignore=tensor2tensor/bin/t2t_trainer_test.py  # tested separately
-    --ignore=tensor2tensor/data_generators/algorithmic_math_test.py  # flaky
-    --ignore=tensor2tensor/models/research/r_transformer_test.py  # Requires new feature in tf.foldl (rm with TF 1.9)
+    --ignore=tensor2tensor/utils/registry_test.py
+    --ignore=tensor2tensor/utils/trainer_lib_test.py
+    --ignore=tensor2tensor/visualization/visualization_test.py
+    --ignore=tensor2tensor/bin/t2t_trainer_test.py
+    --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
+    --ignore=tensor2tensor/models/research/r_transformer_test.py
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
   - pytest tensor2tensor/visualization/visualization_test.py

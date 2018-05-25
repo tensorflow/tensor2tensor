@@ -20,13 +20,17 @@ from __future__ import print_function
 
 import math
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
+try:
+  import matplotlib.pyplot as plt  # pylint: disable=g-import-not-at-top
+except ImportError:
+  pass
 
 
 @registry.register_problem
