@@ -42,17 +42,13 @@ script:
   # Check import
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
 
-  # Lint
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
-        pylint -j 2 tensor2tensor;
-    fi
-
   # Run tests
   # Ignores:
   # Tested separately:
   #   * registry_test
   #   * trainer_lib_test
   #   * visualization_test
+  #   * model_rl_experiment_test
   # algorithmic_math_test: flaky
   # r_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
   - pytest
@@ -62,6 +58,7 @@ script:
     --ignore=tensor2tensor/bin/t2t_trainer_test.py
     --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
     --ignore=tensor2tensor/models/research/r_transformer_test.py
+    --ignore=tensor2tensor/rl/model_rl_experiment_test.py
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
   - pytest tensor2tensor/visualization/visualization_test.py
@@ -77,6 +74,15 @@ script:
   - t2t-datagen --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR
   - t2t-trainer --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
   - t2t-decoder --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
+
+  # Do some things only on Python 2 and the latest TF version
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
+        pylint -j 2 tensor2tensor;
+    fi
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
+        pytest tensor2tensor/rl/model_rl_experiment_test.py;
+    fi
+
 
   # Export and query (on Python 2 only)
   # Bug: https://github.com/tensorflow/serving/issues/819

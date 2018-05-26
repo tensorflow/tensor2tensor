@@ -240,6 +240,17 @@ def next_frame_small():
 
 
 @registry.register_hparams
+def next_frame_tiny():
+  """Tiny for testing."""
+  hparams = next_frame()
+  hparams.hidden_size = 32
+  hparams.num_hidden_layers = 1
+  hparams.num_compress_steps = 2
+  hparams.filter_double_steps = 1
+  return hparams
+
+
+@registry.register_hparams
 def next_frame_l1():
   """Basic conv model with L1 modality."""
   hparams = next_frame()
