@@ -49,7 +49,7 @@ setup(
     extras_require={
         'tensorflow': ['tensorflow>=1.5.0'],
         'tensorflow_gpu': ['tensorflow-gpu>=1.5.0'],
-        'tests': ['pytest', 'mock', 'pylint'],
+        'tests': ['pytest', 'mock', 'pylint', 'jupyter'],
     },
     classifiers=[
         'Development Status :: 4 - Beta',
