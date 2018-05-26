@@ -8,6 +8,8 @@ env:
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
     - TF_LATEST="1.8.*"
+    # This is necessary to have gsutil work with Python 2.7
+    - BOTO_CONFIG=/dev/null
   matrix:
     # We test against the last 4 versions of TensorFlow
     # If updating, also update TF_LATEST above
@@ -35,6 +37,8 @@ before_install:
 install:
   - pip install -q "tensorflow==$TF_VERSION"
   - pip install -q .[tests]
+  # Make sure to install the atari extras for gym
+  - pip install "gym[atari]"
   # Make sure we have the latest version of numpy - avoid problems we were
   # seeing with Python 3
   - pip install -q -U numpy
@@ -83,7 +87,7 @@ script:
         pytest tensor2tensor/rl/model_rl_experiment_test.py;
     fi
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
-        jupyter nbconvert --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb;
+        jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb;
     fi
 
   # Export and query (on Python 2 only)
