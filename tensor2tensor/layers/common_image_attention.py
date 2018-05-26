@@ -608,7 +608,7 @@ def prepare_decoder(targets, hparams):
     x = tf.reshape(x, [targets_shape[0],
                        x_shape[1], x_shape[2], hparams.hidden_size])
     x = add_pos_signals(x, hparams, "dec_pos")
-  x = tf.cast(x, targets.dtype)
+  x = common_layers.cast_like(x, targets)
   return x, x_shape[1], x_shape[2]
 
 

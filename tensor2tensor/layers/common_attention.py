@@ -582,7 +582,7 @@ def add_timing_signal_1d_given_position(x,
           tf.expand_dims(inv_timescales, 0), 0))
   signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=2)
   signal = tf.pad(signal, [[0, 0], [0, 0], [0, tf.mod(channels, 2)]])
-  signal = tf.cast(signal, x.dtype)
+  signal = common_layers.cast_like(signal, x)
   return x + signal
 
 
@@ -1416,7 +1416,7 @@ def dot_product_attention(q,
     # [batch, num_heads, query_length, memory_length]
     logits = tf.matmul(q, k, transpose_b=True)
     if bias is not None:
-      bias = tf.cast(bias, logits.dtype)
+      bias = common_layers.cast_like(bias, logits)
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
     if save_weights_to is not None:
@@ -1834,7 +1834,7 @@ def masked_local_attention_1d(q, k, v, block_length=128,
     good_part = common_layers.ones_matrix_band_part(block_length, local_length,
                                                     -1, block_length)
     mask = (1.0 - good_part) * -1e9
-    mask = tf.cast(mask, attention.dtype)
+    mask = common_layers.cast_like(mask, attention)
     attention += tf.reshape(mask, [1, 1, 1, block_length, local_length])
     attention = tf.nn.softmax(attention)
     # TODO(noam): figure out how to show a summary for the remaining blocks.
