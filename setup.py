@@ -56,7 +56,7 @@ setup(
             'jupyter',
             'gsutil'
             # Need atari extras for Travis tests, but because gym is already in
-            # install_requires, pip skips the atari extras, so we instread do an
+            # install_requires, pip skips the atari extras, so we instead do an
             # explicit pip install gym[atari] for the tests.
             # 'gym[atari]',
         ],
