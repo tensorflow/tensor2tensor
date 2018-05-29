@@ -11,11 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data download utilities.
-
-Usage: python download.py --tmp_dir <temporary directory> ...
-
-"""
+"""Utils. for Allen Brain Atlas dataset, download and subimages."""
 
 import math
 import os
@@ -38,42 +34,6 @@ except ImportError as e:
                    "`pip install tensor2tensor[allen]`.")
   # Don't throw the error, it just buries the informative log message.
   exit(1)
-
-
-flags = tf.flags
-
-flags.DEFINE_string("tmp_dir", None,
-                    ("Root path to save and access allen institute "
-                     "histology data"))
-flags.DEFINE_integer("num_sections", 1,
-                     "The number of image sections to download.")
-flags.DEFINE_integer("images_per_section", 1,
-                     "The number of images per section to download.")
-
-FLAGS = flags.FLAGS
-
-
-def maybe_mkdir(path):
-  """Passive mkdir, analagous to shell `mkdir -p`.
-
-  Analagous to Python 3 os.mkdirs(path, exist_ok=True).
-
-  Args:
-    path (str): A filesystem path to create.
-
-  """
-
-  arr = path.split("/")
-
-  current_path = '/'
-
-  for comp in arr:
-    current_path += (comp + "/")
-    if not os.path.exists(current_path):
-      os.mkdir(current_path)
-
-  if not os.path.exists(path):
-    raise Exception("Failed passive mkdir for path %s" % path)
 
 
 def maybe_get_section_list(data_root,
@@ -110,11 +70,11 @@ def maybe_get_section_list(data_root,
 
   meta_root = os.path.join(data_root, "meta")
 
-  maybe_mkdir(meta_root)
+  tf.gfile.MakeDirs(meta_root)
   section_list_path = os.path.join(meta_root,
                                    "section_list_%s.csv" % num_rows)
 
-  if os.path.exists(section_list_path):
+  if tf.gfile.Exists(section_list_path):
     tf.logging.info("Section list found, skipping download.")
     data = pd.read_csv(section_list_path)
     return data
@@ -168,12 +128,12 @@ def maybe_get_image_list(section_dataset_id,
   """
 
   meta_root = os.path.join(data_root, "meta")
-  maybe_mkdir(meta_root)
+  tf.gfile.MakeDirs(meta_root)
   section_list_path = os.path.join(
       meta_root, ("image_list_for_section"
                   "%s_%s.csv" % (section_dataset_id, num_rows)))
 
-  if os.path.exists(section_list_path):
+  if tf.gfile.Exists(section_list_path):
     tf.logging.info("Image list found for section id "
                     "%s, skipping download." % section_dataset_id)
     data = pd.read_csv(section_list_path)
@@ -224,7 +184,7 @@ def maybe_download_image_dataset(image_list,
   """
 
   dataset_root = os.path.join(data_root, "raw", str(image_dataset_id))
-  maybe_mkdir(dataset_root)
+  tf.gfile.MakeDirs(dataset_root)
 
   if image_api_client is None:
     image_api_client = ImageDownloadApi()
@@ -238,10 +198,10 @@ def maybe_download_image_dataset(image_list,
            "%s" % image_id)
     filename = "raw_%s.jpg" % image_id
     output_base = os.path.join(dataset_root, str(image_id))
-    maybe_mkdir(output_base)
+    tf.gfile.MakeDirs(output_base)
     output_path = os.path.join(output_base, filename)
     output_paths.append(output_path)
-    if os.path.exists(output_path):
+    if tf.gfile.Exists(output_path):
       tf.logging.info("Skipping download, image "
                       "%s of %s at path %s already exists." % (
                           i, num_images, output_path))
@@ -263,7 +223,7 @@ def maybe_download_image_dataset(image_list,
 
 def maybe_download_image_datasets(data_root,
                                   section_offset=0,
-                                  num_sections=1,
+                                  num_sections="all",
                                   images_per_section="all"):
   """Maybe download all images from specified subset of studies.
 
@@ -280,6 +240,8 @@ def maybe_download_image_datasets(data_root,
 
   section_list = maybe_get_section_list(data_root, num_rows=num_sections)
   total_num_sections = len(section_list)
+  if num_sections == "all":
+    num_sections = total_num_sections
   tf.logging.info("Obtained section list with "
                   "%s num_sections" % total_num_sections)
 
@@ -311,41 +273,6 @@ def maybe_download_image_datasets(data_root,
                                                     image_api_client)
 
     return image_data_paths
-
-
-def _get_raw_file_paths(data_root, prefix=None):
-  """Searches first-level subdirs. of data_root for files with prefix.
-
-  Args:
-    data_root (str): Root path of where data and meta. are written.
-    prefix (str): The prefix to use as positive filter.
-
-  """
-  directories = os.listdir(data_root)
-  hits = []
-
-  tf.logging.info(directories)
-
-  for directory in directories:
-    if directory != "raw":
-      continue
-    directory_path = os.path.join(data_root, directory)
-    tf.logging.info(directory_path)
-    for subdir in os.listdir(directory_path):
-
-      subdir_path = os.path.join(data_root, directory, subdir)
-      tf.logging.info("Building path list for raw images in "
-                      "%s" % subdir_path)
-
-      for image_id in os.listdir(subdir_path):
-
-        image_path = os.path.join(subdir_path, image_id,
-                                  "%s_%s.jpg" % (prefix, image_id))
-
-        if os.path.exists(image_path):
-          hits.append(image_path)
-
-  return hits
 
 
 def subimage_files_for_image_file(raw_image_path,
@@ -386,7 +313,7 @@ def subimage_files_for_image_file(raw_image_path,
   path_manifest_path = os.path.join(metadata_base_path,
                                     path_manifest_filename)
 
-  if os.path.exists(path_manifest_path):
+  if tf.gfile.Exists(path_manifest_path):
     tf.logging.info("Skipping generation of subimages which already "
                     "exist with path manifest: %s" % path_manifest_path)
     return
@@ -399,7 +326,7 @@ def subimage_files_for_image_file(raw_image_path,
 
   count = 0
 
-  with open(path_manifest_path, "w") as path_manifest_file:
+  with tf.gfile.Open(path_manifest_path, "w") as path_manifest_file:
 
     for h_index in range(0, int(math.floor(shape[0]/xy_size))):
       h_offset = h_index * xy_size
@@ -421,7 +348,7 @@ def subimage_files_for_image_file(raw_image_path,
             prefix, count, image_filename)
         subimage_path = os.path.join(image_dir, subimage_filename)
 
-        with open(subimage_path, "w") as f:
+        with tf.gfile.Open(subimage_path, "w") as f:
           Image.fromarray(subimage).save(f, subimage_format)
 
         # Write the name of the generated subimage to the path
@@ -435,50 +362,123 @@ def subimage_files_for_image_file(raw_image_path,
           return
 
 
-def subimages_for_image_files(root_data_dir):
-  """Wrapper running subimages_for_image_file over multiple files.
+def mock_raw_image(x_dim=1024, y_dim=1024, num_channels=3,
+                   output_path=None, write_image=True):
+  """Generate random `x_dim` by `y_dim`, optionally to `output_path`.
 
   Args:
-    root_data_dir (str): The directory below which to look for image path
-      list files.
+    output_path (str): Path to which to write image.
+    x_dim (int): The x dimension of generated raw image.
+    y_dim (int): The x dimension of generated raw image.
+    return_raw_image (bool): Whether to return the generated image (as a
+      numpy array).
+
+  Returns:
+    numpy.array: The random `x_dim` by `y_dim` image (i.e. array).
 
   """
 
-  meta_root = os.path.join(root_data_dir, "meta")
+  rand_shape = (x_dim, y_dim, num_channels)
+  tf.logging.debug(rand_shape)
 
-  # Gets all jpegs under current dir with prefix raw_
-  image_path_list = _get_raw_file_paths(root_data_dir, prefix="raw")
+  if num_channels != 3:
+    raise NotImplementedError("mock_raw_image for channels != 3 not yet "
+                              "implemented.")
 
-  tf.logging.info(image_path_list)
+  img = np.random.random(rand_shape)
+  img = np.uint8(img*255)
 
-  tf.logging.info("Producing subimages for # raw images: "
-                  "%s" % len(image_path_list))
-  for image_file_path in image_path_list:
-    subimage_files_for_image_file(image_file_path, meta_root)
+  if write_image:
+    if not isinstance(output_path, str):
+      raise ValueError("Output path must be of type str if write_image=True, "
+                       "saw %s." % output_path)
 
+    pil_img = Image.fromarray(img, mode="RGB")
+    with tf.gfile.Open(output_path, "w") as f:
+      pil_img.save(f, "jpeg")
 
-def main(_):
-  """Run the top-level image downloader followed by subimage generator."""
-
-  if not isinstance(FLAGS.tmp_dir, str):
-    raise ValueError("Temp dir provided vi --tmp_dir must be of type "
-                     "str, saw %s" % FLAGS.tmp_dir)
-
-  if not os.path.exists(FLAGS.tmp_dir):
-    raise ValueError("The tmp_dir provided via command line flags "
-                     "is not an existing path, saw %s" % FLAGS.tmp_dir)
-
-  num_sections = int(FLAGS.num_sections)
-  img_per_section = int(FLAGS.images_per_section)
-  maybe_download_image_datasets(data_root=FLAGS.tmp_dir,
-                                section_offset=0,
-                                num_sections=num_sections,
-                                images_per_section=img_per_section)
-
-  subimages_for_image_files(FLAGS.tmp_dir)
+  return img
 
 
-if __name__ == '__main__':
+def mock_raw_data(tmp_dir, raw_dim=1024, num_channels=3, num_images=1):
+  """Mock a raw data download directory with meta and raw subdirs.
 
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  Notes:
+
+    * This utility is shared by tests in both allen_brain_utils and
+      allen_brain so kept here instead of in one of *_test.
+
+  E.g.
+    {data_root}/
+      meta/
+      raw/
+        dataset_id/
+          image_id/
+            raw_{image_id}.jpg [random image]
+
+  Args:
+    tmp_dir (str): Temporary dir in which to mock data.
+    raw_dim (int): The x and y dimension of generated raw imgs.
+
+  Returns:
+    tmp_dir (str): Path to root of generated data dir.
+
+  """
+
+  meta = os.path.join(tmp_dir, "meta")
+  raw = os.path.join(tmp_dir, "raw")
+  os.mkdir(meta)
+  os.mkdir(raw)
+  mock_dataset_id = "70474875"
+  mock_image_id = "70450649"
+
+  # Write dummy section list
+  header = (",blue_channel,delegate,expression,failed,failed_facet,"
+            "green_channel,id,name,plane_of_section_id,qc_date,red_channel,"
+            "reference_space_id,rnaseq_design_id,section_thickness,"
+            "specimen_id,sphinx_id,storage_directory,weight\n")
+  record = ("0,,False,True,False,734881840,,70474875,,2,"
+            "2009-05-02T22:52:23Z,,10,,25.0,70430933,6981,/external/aibssan/"
+            "production32/prod334/image_series_70474875/,5270\n")
+
+  with tf.gfile.Open(os.path.join(meta, "section_list_all.csv"), "w") as f:
+    f.write(header)
+    f.write(record)
+
+  dataset = os.path.join(raw, mock_dataset_id)
+  os.mkdir(dataset)
+
+  # Write dummy image list
+  header = (",annotated,axes,bits_per_component,data_set_id,"
+            "expression_path,failed,height,id,image_height,"
+            "image_type,image_width,isi_experiment_id,lims1_id,"
+            "number_of_components,ophys_experiment_id,path,"
+            "projection_function,resolution,section_number,"
+            "specimen_id,structure_id,tier_count,width,x,y\n")
+
+  image_list_fname = "image_list_for_section70474875_all.csv"
+  with tf.gfile.Open(os.path.join(meta, image_list_fname), "w") as f:
+    f.write(header)
+    for image_id in range(1, num_images):
+      image_id = str(image_id)
+      f.write(",,,,%s,,,,%s,,,,,%s,,,,,,,,,,,,\n" % (mock_dataset_id,
+                                                     image_id,
+                                                     image_id))
+
+      image_dir = os.path.join(dataset, image_id)
+      os.mkdir(image_dir)
+      raw_image_path = os.path.join(image_dir, "raw_%s.jpg" % image_id)
+
+      mock_raw_image(x_dim=raw_dim, y_dim=raw_dim, num_channels=num_channels,
+                     output_path=raw_image_path)
+
+
+class TemporaryDirectory(object):
+  """For py2 support of `with tempfile.TemporaryDirectory() as name:`"""
+
+  def __enter__(self):
+    self.name = tempfile.mkdtemp()
+    return self.name
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    shutil.rmtree(self.name)
