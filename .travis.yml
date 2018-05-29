@@ -55,6 +55,7 @@ script:
   #   * model_rl_experiment_test
   # algorithmic_math_test: flaky
   # universal_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
+  - pytest
     --ignore=tensor2tensor/utils/registry_test.py
     --ignore=tensor2tensor/utils/trainer_lib_test.py
     --ignore=tensor2tensor/visualization/visualization_test.py
