@@ -872,7 +872,9 @@ class Problem(object):
     dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
     dataset = dataset.map(self.maybe_reverse_and_copy)
     dataset = dataset.map(data_reader.cast_ints_to_int32)
-    dataset = dataset.padded_batch(1000, dataset.output_shapes)
+    dataset = dataset.padded_batch(
+        tf.shape(serialized_example, out_type=tf.int64)[0],
+        dataset.output_shapes)
     dataset = dataset.map(standardize_shapes)
     features = tf.contrib.data.get_single_element(dataset)
 
