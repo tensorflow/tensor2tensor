@@ -1036,4 +1036,3 @@ class RealEncoder(object):
     """
     return " ".join(ids)
   
-  
