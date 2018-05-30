@@ -157,12 +157,9 @@ class TransformerTest(tf.test.TestCase):
 
     with self.test_session():
       tf.global_variables_initializer().run()
-      beam_result.eval()
+      beam_res = beam_result.eval()
 
-    # TODO(petershaw): This test is flaky because the decode may hit EOS before
-    # getting to the expected length.
-    # self.assertEqual(beam_res.shape,
-    #                  (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertEqual(beam_res.shape, (BATCH_SIZE, INPUT_LENGTH + decode_length))
 
   def testBeamVsFast(self):
     model, features = get_model(transformer.transformer_small())

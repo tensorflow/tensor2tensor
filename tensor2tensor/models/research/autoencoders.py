@@ -167,11 +167,6 @@ class AutoencoderResidual(AutoencoderAutoregressive):
       residual_conv = tf.layers.conv2d
       if hparams.residual_use_separable_conv:
         residual_conv = tf.layers.separable_conv2d
-      # Input embedding with a non-zero bias for uniform inputs.
-      x = tf.layers.dense(
-          x, hparams.hidden_size, name="embed", activation=common_layers.belu,
-          bias_initializer=tf.random_normal_initializer(stddev=0.01))
-      x = common_attention.add_timing_signal_nd(x)
       # Down-convolutions.
       for i in range(hparams.num_hidden_layers):
         with tf.variable_scope("layer_%d" % i):
@@ -240,7 +235,7 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
 
   def bottleneck(self, x):
     hparams = self.hparams
-    x = tf.tanh(tf.layers.dense(x, hparams.bottleneck_bits, name="bottleneck"))
+    x = tf.tanh(tf.layers.dense(x, hparams.bottleneck_size, name="bottleneck"))
     d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
       noise = tf.random_uniform(common_layers.shape_list(x))
@@ -248,7 +243,7 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
       d *= noise
     x = common_layers.mix(d, x, hparams.discretize_warmup_steps,
                           hparams.mode == tf.estimator.ModeKeys.TRAIN)
-    return x, 0.0
+    return x
 
   def sample(self, features=None):
     del features
@@ -256,7 +251,7 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
     size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
-            hp.bottleneck_bits]
+            hp.bottleneck_size]
     rand = tf.random_uniform(size)
     return 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
 
@@ -265,24 +260,24 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
 class AutoencoderResidualDiscrete(AutoencoderResidual):
   """Discrete residual autoencoder."""
 
-  def variance_loss(self, b):
+  def bottleneck(self, x, bottleneck_size=None):  # pylint: disable=arguments-differ
+    if bottleneck_size is not None:
+      old_bottleneck_size = self.hparams.bottleneck_size
+      self.hparams.bottleneck_size = bottleneck_size
+    res = discretization.parametrized_bottleneck(x, self.hparams)
+    if bottleneck_size is not None:
+      self.hparams.bottleneck_size = old_bottleneck_size
+    return res
+
+  def unbottleneck(self, x, res_size):
+    return discretization.parametrized_unbottleneck(x, res_size, self.hparams)
+
+  def bottleneck_loss(self, b):
     part = tf.random_uniform(common_layers.shape_list(b))
     selection = tf.to_float(tf.less(part, tf.random_uniform([])))
     selection_size = tf.reduce_sum(selection)
     part_avg = tf.abs(tf.reduce_sum(b * selection)) / (selection_size + 1)
     return part_avg
-
-  def bottleneck(self, x, bottleneck_bits=None):  # pylint: disable=arguments-differ
-    if bottleneck_bits is not None:
-      old_bottleneck_bits = self.hparams.bottleneck_bits
-      self.hparams.bottleneck_bits = bottleneck_bits
-    res, loss = discretization.parametrized_bottleneck(x, self.hparams)
-    if bottleneck_bits is not None:
-      self.hparams.bottleneck_bits = old_bottleneck_bits
-    return res, loss
-
-  def unbottleneck(self, x, res_size):
-    return discretization.parametrized_unbottleneck(x, res_size, self.hparams)
 
   def sample(self, features=None):
     del features
@@ -290,7 +285,7 @@ class AutoencoderResidualDiscrete(AutoencoderResidual):
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
     size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
-            hp.bottleneck_bits]
+            hp.bottleneck_size]
     rand = tf.random_uniform(size)
     res = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
     # If you want to set some first bits to a fixed value, do this:
@@ -304,19 +299,22 @@ class AutoencoderResidualDiscrete(AutoencoderResidual):
 class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
   """Ordered discrete autoencoder."""
 
+  def bottleneck_loss(self, unused_b):
+    return 0.0
+
   def bottleneck(self, x):  # pylint: disable=arguments-differ
     hparams = self.hparams
     if hparams.unordered:
       return super(AutoencoderOrderedDiscrete, self).bottleneck(x)
     noise = hparams.bottleneck_noise
     hparams.bottleneck_noise = 0.0  # We'll add noise below.
-    x, loss = discretization.parametrized_bottleneck(x, hparams)
+    x = discretization.parametrized_bottleneck(x, hparams)
     hparams.bottleneck_noise = noise
     if hparams.mode == tf.estimator.ModeKeys.TRAIN:
-      # We want a number p such that p^bottleneck_bits = 1 - noise.
-      # So log(p) * bottleneck_bits = log(noise)
-      log_p = tf.log(1 - float(noise) / 2) / float(hparams.bottleneck_bits)
-      # Probabilities of flipping are p, p^2, p^3, ..., p^bottleneck_bits.
+      # We want a number p such that p^bottleneck_size = 1 - noise.
+      # So log(p) * bottleneck_size = log(noise)
+      log_p = tf.log(1 - float(noise) / 2) / float(hparams.bottleneck_size)
+      # Probabilities of flipping are p, p^2, p^3, ..., p^bottleneck_size.
       noise_mask = 1.0 - tf.exp(tf.cumsum(tf.zeros_like(x) + log_p, axis=-1))
       # Having the no-noise mask, we can make noise just uniformly at random.
       ordered_noise = tf.random_uniform(tf.shape(x))
@@ -324,25 +322,24 @@ class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
       ordered_noise = tf.to_float(tf.less(noise_mask, ordered_noise))
       # Now we flip the bits of x on the noisy positions (ordered and normal).
       x *= 2.0 * ordered_noise - 1
-    return x, loss
+    return x
 
 
 @registry.register_model
 class AutoencoderStacked(AutoencoderResidualDiscrete):
   """A stacked autoencoder."""
 
-  def stack(self, b, size, bottleneck_bits, name):
+  def stack(self, b, size, bottleneck_size, name):
     with tf.variable_scope(name + "_stack"):
       unb = self.unbottleneck(b, size)
       enc = self.encoder(unb)
-      b, _ = self.bottleneck(enc, bottleneck_bits=bottleneck_bits)
-      return b
+      return self.bottleneck(enc, bottleneck_size=bottleneck_size)
 
-  def unstack(self, b, size, bottleneck_bits, name):
+  def unstack(self, b, size, bottleneck_size, name):
     with tf.variable_scope(name + "_unstack"):
       unb = self.unbottleneck(b, size)
       dec = self.decoder(unb)
-      pred = tf.layers.dense(dec, bottleneck_bits, name="pred")
+      pred = tf.layers.dense(dec, bottleneck_size, name="pred")
       pred_shape = common_layers.shape_list(pred)
       pred1 = tf.reshape(pred, pred_shape[:-1] + [-1, 2])
       x, y = tf.split(pred1, 2, axis=-1)
@@ -360,12 +357,13 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
           labels=labels_discrete, logits=b_pred)
       return tf.reduce_mean(loss)
 
-  def full_stack(self, b, x_size, bottleneck_bits, losses, is_training, i):
-    stack1_b = self.stack(b, x_size, bottleneck_bits, "step%d" % i)
+  def full_stack(self, b, x_size, bottleneck_size, losses, is_training, i):
+    stack1_b = self.stack(b, x_size, bottleneck_size, "step%d" % i)
     if i > 1:
-      stack1_b = self.full_stack(stack1_b, 2 * x_size, 2 * bottleneck_bits,
+      stack1_b = self.full_stack(stack1_b, 2 * x_size, 2 * bottleneck_size,
                                  losses, is_training, i - 1)
-    b1, b_pred = self.unstack(stack1_b, x_size, bottleneck_bits, "step%d" % i)
+    b1, b_pred = self.unstack(stack1_b, x_size, bottleneck_size, "step%d" % i)
+    losses["bottleneck%d_loss" % i] = self.bottleneck_loss(stack1_b)
     losses["stack%d_loss" % i] = self.stack_loss(b, b_pred, "step%d" % i)
     b_shape = common_layers.shape_list(b)
     if is_training:
@@ -392,9 +390,10 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
       x = self.encoder(x)
       x_size = common_layers.shape_list(x)[-1]
       # Bottleneck (mix during early training, not too important but stable).
-      b, b_loss = self.bottleneck(x)
+      b = self.bottleneck(x)
+      b_loss = self.bottleneck_loss(b)
       losses = {"bottleneck0_loss": b_loss}
-      b = self.full_stack(b, 2 * x_size, 2 * hparams.bottleneck_bits,
+      b = self.full_stack(b, 2 * x_size, 2 * hparams.bottleneck_size,
                           losses, is_training, num_stacks - 1)
       b = self.unbottleneck(b, x_size)
       b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
@@ -461,7 +460,7 @@ def autoencoder_basic_discrete():
   hparams = autoencoder_autoregressive()
   hparams.num_hidden_layers = 5
   hparams.hidden_size = 64
-  hparams.bottleneck_bits = 4096
+  hparams.bottleneck_size = 4096
   hparams.bottleneck_noise = 0.1
   hparams.bottleneck_warmup_steps = 3000
   hparams.add_hparam("discretize_warmup_steps", 5000)
@@ -472,7 +471,7 @@ def autoencoder_basic_discrete():
 def autoencoder_residual_discrete():
   """Residual discrete autoencoder model."""
   hparams = autoencoder_residual()
-  hparams.bottleneck_bits = 4096
+  hparams.bottleneck_size = 4096
   hparams.bottleneck_noise = 0.1
   hparams.bottleneck_warmup_steps = 3000
   hparams.add_hparam("discretize_warmup_steps", 5000)
@@ -500,7 +499,7 @@ def autoencoder_residual_discrete_big():
 
 @registry.register_hparams
 def autoencoder_ordered_discrete():
-  """Ordered discrete autoencoder model."""
+  """Basic autoencoder model."""
   hparams = autoencoder_residual_discrete()
   hparams.bottleneck_noise = 1.0
   hparams.add_hparam("unordered", False)
@@ -508,41 +507,16 @@ def autoencoder_ordered_discrete():
 
 
 @registry.register_hparams
-def autoencoder_ordered_discrete_vq():
-  """Ordered discrete autoencoder model with VQ bottleneck."""
-  hparams = autoencoder_ordered_discrete()
-  hparams.bottleneck_kind = "vq"
-  hparams.bottleneck_bits = 16
-  return hparams
-
-
-@registry.register_hparams
 def autoencoder_discrete_pong():
   """Discrete autoencoder model for compressing pong frames."""
   hparams = autoencoder_ordered_discrete()
-  hparams.num_hidden_layers = 2
-  hparams.bottleneck_bits = 24
+  hparams.num_hidden_layers = 4
+  hparams.bottleneck_size = 24
   hparams.dropout = 0.1
   hparams.batch_size = 2
   hparams.bottleneck_noise = 0.2
   hparams.max_hidden_size = 1024
   hparams.unordered = True
-  return hparams
-
-
-@registry.register_hparams
-def autoencoder_discrete_cifar():
-  """Discrete autoencoder model for compressing cifar."""
-  hparams = autoencoder_ordered_discrete()
-  hparams.bottleneck_noise = 0.0
-  hparams.bottleneck_size = 90
-  hparams.unordered = True
-  hparams.num_hidden_layers = 2
-  hparams.hidden_size = 256
-  hparams.num_residual_layers = 4
-  hparams.batch_size = 32
-  hparams.learning_rate_constant = 2.0
-  hparams.dropout = 0.1
   return hparams
 
 
@@ -557,5 +531,5 @@ def autoencoder_discrete_pong_range(rhp):
 def autoencoder_stacked():
   """Stacked autoencoder model."""
   hparams = autoencoder_residual_discrete()
-  hparams.bottleneck_bits = 128
+  hparams.bottleneck_size = 128
   return hparams

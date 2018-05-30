@@ -17,7 +17,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import quantization
 
 import tensorflow as tf
@@ -256,7 +255,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       m = self.get_slot(var, "m")
       new_m = self._beta1 * tf.to_float(m) + (1.0 - self._beta1) * subtrahend
       subtrahend = new_m
-      new_m = common_layers.cast_like(new_m, var)
+      new_m = tf.cast(new_m, var.dtype)
       updates.append(tf.assign(m, new_m, use_locking=self._use_locking))
     new_val = tf.to_float(old_val) - subtrahend
     if var.dtype.base_dtype == tf.bfloat16:

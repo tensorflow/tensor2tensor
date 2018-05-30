@@ -1,27 +1,22 @@
+<!-- **Note** Please tag your issue with *bug*, *feature request* or *help* -->
+
 ### Description
 
-...
+> …
 
-### Environment information
+### *TensorFlow* and *tensor2tensor* versions
 
-```
-OS: <your answer here>
+<!-- **Note** Run `pip freeze | grep tensor` to get versions -->
 
-$ pip freeze | grep tensor
-# your output here
+> …
 
-$ python -V
-# your output here
-```
+### In case of bug report: Steps to reproduce the problem
 
-### For bugs: reproduction and error logs
+> …
 
-```
-# Steps to reproduce:
-...
-```
+### In case of bug report: Error log
 
-```
-# Error logs:
-...
-```
+<!-- Please use code markdown (```) to format output messages. -->
+<!-- See https://help.github.com/articles/creating-and-highlighting-code-blocks/ -->
+
+> …
