@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor
 from tensor2tensor.utils import yellowfin
 
@@ -105,11 +106,9 @@ class ConditionalOptimizer(tf.train.Optimizer):
   def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
     gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
     def cast_grad(g, v):
-      if v is None or g is None:
-        return (g, v)
-      if g.dtype == v.dtype:
-        return (g, v)
-      return (tf.cast(g, v.dtype), v)
+      if v is not None and g is not None:
+        g = common_layers.cast_like(g, v)
+      return (g, v)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
 

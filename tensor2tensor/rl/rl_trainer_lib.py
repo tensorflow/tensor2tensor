@@ -112,7 +112,7 @@ def train(hparams, environment_spec, event_dir=None, model_dir=None,
             model_dir, model_saver, sess)
 
       # Fail-friendly, don't train if already trained for this epoch
-      if start_step >= ((hparams.epochs_num * (epoch+1)) - 5):
+      if start_step >= ((hparams.epochs_num * (epoch + 1))):
         tf.logging.info("Skipping PPO training for epoch %d as train steps "
                         "(%d) already reached", epoch, start_step)
         return

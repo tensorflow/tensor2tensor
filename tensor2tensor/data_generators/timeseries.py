@@ -28,25 +28,27 @@ import tensorflow as tf
 
 
 @registry.register_problem
-class TimeSeriesToyProblem(problem.Problem):
+class TimeseriesToyProblem(problem.Problem):
   """Base Problem for multi timeseries for datasets."""
 
   def __init__(self,
                was_reversed=False,
                was_copy=False,
+               num_series=2,
                num_train_shards=9,
                num_eval_shards=1,
                num_samples=100):
-    super(TimeSeriesToyProblem, self).__init__(was_reversed, was_copy)
+    super(TimeseriesToyProblem, self).__init__(was_reversed, was_copy)
     self._num_train_shards = num_train_shards
     self._num_eval_shards = num_eval_shards
     self._num_samples = num_samples
+    self._num_series = num_series
 
   def feature_encoders(self, data_dir):
     del data_dir
     return {
-        'inputs': text_encoder.RealEncoder(),
-        'targets': text_encoder.RealEncoder()
+        "inputs": text_encoder.RealEncoder(),
+        "targets": text_encoder.RealEncoder()
     }
 
   @property
@@ -59,39 +61,49 @@ class TimeSeriesToyProblem(problem.Problem):
     """Splits of data to produce and number of output shards for each."""
     # 10% evaluation data
     return [{
-        'split': problem.DatasetSplit.TRAIN,
-        'shards': self._num_train_shards,
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": self._num_train_shards,
     }, {
-        'split': problem.DatasetSplit.EVAL,
-        'shards': self._num_eval_shards,
+        "split": problem.DatasetSplit.EVAL,
+        "shards": self._num_eval_shards,
     }]
 
   def eval_metrics(self):
     eval_metrics = [metrics.Metrics.RMSE]
-
     return eval_metrics
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+    # Time series are flat on disk, we un-flatten them back here.
+    flat_inputs = example["inputs"]
+    flat_targets = example["targets"]
+    example["inputs"] = tf.reshape(flat_inputs, [-1, self._num_series])
+    example["targets"] = tf.reshape(flat_targets, [-1, self._num_series])
+    return example
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
     del data_dir
     del tmp_dir
     del dataset_split
 
-    series_1 = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+    series = [[float(i + n) for n in range(self._num_series)]
+              for i in range(10)]
 
-    # This generates _num_samples instances of each possible split of series_1;
+    # This generates _num_samples instances of each possible split of series;
     # inputs & targets are of variable size.
-    for x in range(self._num_samples):
+    for _ in range(self._num_samples):
       split_index = random.randint(1, 9)
-      inputs, targets = series_1[:split_index], series_1[split_index:]
-      example_keys = ['inputs', 'targets']
-      ex_dict = dict(zip(example_keys, [inputs, targets]))
-      print('Inputs & Targets #', x, ':', ex_dict)
+      inputs, targets = series[:split_index], series[split_index:]
+      # We need to flatten the lists on disk for tf,Example to work.
+      flat_inputs = [item for sublist in inputs for item in sublist]
+      flat_targets = [item for sublist in targets for item in sublist]
+      example_keys = ["inputs", "targets"]
+      ex_dict = dict(zip(example_keys, [flat_inputs, flat_targets]))
       yield ex_dict
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {'inputs': (registry.Modalities.REAL, 1)}
-    p.target_modality = (registry.Modalities.REAL, 1)
+    p.input_modality = {"inputs": (registry.Modalities.REAL, self._num_series)}
+    p.target_modality = (registry.Modalities.REAL, self._num_series)
     p.input_space_id = problem.SpaceID.REAL
     p.target_space_id = problem.SpaceID.REAL
 
@@ -102,8 +114,8 @@ class TimeSeriesToyProblem(problem.Problem):
         problem.DatasetSplit.TEST: self.test_filepaths,
     }
 
-    split_paths = [(split['split'], filepath_fns[split['split']](
-        data_dir, split['shards'], shuffled=False))
+    split_paths = [(split["split"], filepath_fns[split["split"]](
+        data_dir, split["shards"], shuffled=False))
                    for split in self.dataset_splits]
 
     all_paths = []
@@ -123,8 +135,8 @@ class TimeSeriesToyProblem(problem.Problem):
 
   def example_reading_spec(self):
     data_fields = {
-        'inputs': tf.VarLenFeature(tf.float32),
-        'targets': tf.VarLenFeature(tf.float32),
+        "inputs": tf.VarLenFeature(tf.float32),
+        "targets": tf.VarLenFeature(tf.float32),
     }
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)

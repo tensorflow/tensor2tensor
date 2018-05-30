@@ -72,6 +72,11 @@ class AutoencoderTest(tf.test.TestCase):
     res = self.get_mnist_random_output("autoencoder_ordered_discrete")
     self.assertEqual(res.shape, self.mnist_output_shape)
 
+  def testAutoencoderOrderedDiscreteVQ(self):
+    res = self.get_mnist_random_output(
+        "autoencoder_ordered_discrete", "autoencoder_ordered_discrete_vq")
+    self.assertEqual(res.shape, self.mnist_output_shape)
+
   def testAutoencoderStacked(self):
     res = self.get_mnist_random_output("autoencoder_stacked")
     self.assertEqual(res.shape, self.mnist_output_shape)

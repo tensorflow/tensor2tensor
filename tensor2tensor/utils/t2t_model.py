@@ -229,29 +229,30 @@ class T2TModel(base.Layer):
     return sharded_logits, losses
 
   def model_fn(self, features):
-    transformed_features = self.bottom(features)
+    with tf.variable_scope(tf.get_variable_scope(), use_resource=True):
+      transformed_features = self.bottom(features)
 
-    if self.hparams.activation_dtype == "bfloat16":
-      for k, v in sorted(six.iteritems(transformed_features)):
-        if v.dtype == tf.float32:
-          transformed_features[k] = tf.cast(v, tf.bfloat16)
+      if self.hparams.activation_dtype == "bfloat16":
+        for k, v in sorted(six.iteritems(transformed_features)):
+          if v.dtype == tf.float32:
+            transformed_features[k] = tf.cast(v, tf.bfloat16)
 
-    with tf.variable_scope("body"):
-      log_info("Building model body")
-      body_out = self.body(transformed_features)
-    output, losses = self._normalize_body_output(body_out)
+      with tf.variable_scope("body"):
+        log_info("Building model body")
+        body_out = self.body(transformed_features)
+      output, losses = self._normalize_body_output(body_out)
 
-    if "training" in losses:
-      log_info("Skipping T2TModel top and loss because training loss "
-               "returned from body")
-      logits = output
-    else:
-      logits = self.top(output, features)
-      losses["training"] = 0.0
-      if self._hparams.mode != tf.estimator.ModeKeys.PREDICT:
-        losses["training"] = self.loss(logits, features)
+      if "training" in losses:
+        log_info("Skipping T2TModel top and loss because training loss "
+                 "returned from body")
+        logits = output
+      else:
+        logits = self.top(output, features)
+        losses["training"] = 0.0
+        if self._hparams.mode != tf.estimator.ModeKeys.PREDICT:
+          losses["training"] = self.loss(logits, features)
 
-    return logits, losses
+      return logits, losses
 
   def bottom(self, features):
     """Transform features to feed into body."""

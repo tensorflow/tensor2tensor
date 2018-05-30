@@ -81,6 +81,8 @@ def _add_variable_proxy_methods(var, proxy_tensor):
   """
   proxy_tensor.read_value = lambda: tf.identity(proxy_tensor)
   proxy_tensor.assign_sub = var.assign_sub
+  proxy_tensor.assign = var.assign
+  proxy_tensor.initialized_value = var.initialized_value
 
 
 class Parallelism(object):
@@ -179,7 +181,8 @@ class Parallelism(object):
           v = tf.identity(last_device_v)
         else:
           var = getter(name, *args, **kwargs)
-          v = tf.identity(var._ref())  # pylint: disable=protected-access
+          # v = tf.identity(var._ref())  # pylint: disable=protected-access
+          v = var.read_value()
 
         # keep track of the original variable
         tensor_to_var[v] = var
@@ -200,7 +203,8 @@ class Parallelism(object):
 
         v = getter(name, *args, **kwargs)
         with tf.device(self._caching_devices[i]):
-          ret = tf.identity(v._ref())  # pylint: disable=protected-access
+          # ret = tf.identity(v._ref())  # pylint: disable=protected-access
+          ret = v.read_value()
         _add_variable_proxy_methods(v, ret)
         cache[key] = ret
         return ret
