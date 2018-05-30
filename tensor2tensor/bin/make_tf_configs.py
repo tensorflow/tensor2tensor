@@ -37,6 +37,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string("masters", "", "Comma-separated list of master addresses")
 flags.DEFINE_string("ps", "", "Comma-separated list of ps addresses")
 
+# Bogus change for getting familiar with pull requests.
 
 def main(_):
   if not (FLAGS.masters and FLAGS.ps):
