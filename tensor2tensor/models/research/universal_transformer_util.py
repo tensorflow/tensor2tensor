@@ -59,12 +59,12 @@ import tensorflow as tf
 
 
 def universal_transformer_encoder(encoder_input,
-                          encoder_self_attention_bias,
-                          hparams,
-                          name="encoder",
-                          nonpadding=None,
-                          save_weights_to=None,
-                          make_image_summary=True):
+                                  encoder_self_attention_bias,
+                                  hparams,
+                                  name="encoder",
+                                  nonpadding=None,
+                                  save_weights_to=None,
+                                  make_image_summary=True):
   """Universal Transformer encoder function.
 
   Prepares all the arguments and the inputs and passes it to a
@@ -186,7 +186,8 @@ def universal_transformer_decoder(decoder_input,
         save_weights_to=save_weights_to,
         make_image_summary=make_image_summary)
 
-    x, extra_output = universal_transformer_layer(x, hparams, ffn_unit, attention_unit)
+    x, extra_output = universal_transformer_layer(
+        x, hparams, ffn_unit, attention_unit)
 
     return common_layers.layer_preprocess(x, hparams), extra_output
 
@@ -228,7 +229,7 @@ def universal_transformer_layer(x,
       # and add position timing signal at the beginning of each step, so for
       # the vanilla transformer, we need to add timing signal here.
       x = common_attention.add_timing_signal_1d(x)
-    for layer in range(num_layers):
+    for layer in xrange(num_layers):
       with tf.variable_scope("layer_%d" % layer):
         x = ffn_unit(attention_unit(x))
     return x
@@ -761,8 +762,10 @@ def universal_transformer_skip(layer_inputs,
   return new_state, inputs, memory
 
 
-def universal_transformer_depthwise_attention(
-      layer_inputs, step, hparams, ffn_unit,attention_unit):
+def universal_transformer_depthwise_attention(layer_inputs,
+                                              step, hparams,
+                                              ffn_unit,
+                                              attention_unit):
   """universal_transformer with depth-wise attention.
 
   It uses an attention mechanism-flipped vertically-
@@ -889,10 +892,10 @@ def universal_transformer_rnn(layer_inputs,
 
 
 def universal_transformer_gru(layer_inputs,
-                      step,
-                      hparams,
-                      attention_unit,
-                      pad_remover=None):
+                              step,
+                              hparams,
+                              attention_unit,
+                              pad_remover=None):
   """The RT layer which models recurencey similar to GRU cell.
 
     It's an R-transformer with a gru applied over the stats on depth.
@@ -964,10 +967,10 @@ def universal_transformer_gru(layer_inputs,
 
 
 def universal_transformer_lstm(layer_inputs,
-                       step,
-                       hparams,
-                       attention_unit,
-                       pad_remover=None):
+                               step,
+                               hparams,
+                               attention_unit,
+                               pad_remover=None):
   """The UT layer which models recurencey similar to GRU cell.
 
   It's an R-transformer with a gru applied over the stats on depth.

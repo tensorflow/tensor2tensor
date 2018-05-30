@@ -15,9 +15,9 @@
 """Universal Transformers.
 
 
-Universal Transformer is recurrent in depth while employing self-attention 
-to combine information from different parts of sequences. 
-In contrast to the Transformer, given enough memory its recurrence in depth 
+Universal Transformer is recurrent in depth while employing self-attention
+to combine information from different parts of sequences.
+In contrast to the Transformer, given enough memory its recurrence in depth
 makes the Universal Transformer computationally universal.
 """
 
@@ -25,7 +25,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
@@ -74,13 +73,13 @@ class UniversalTransformer(transformer.Transformer):
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
-    encoder_output, encoder_extra_output = (
-      universal_transformer_util.universal_transformer_encoder(
-         encoder_input,
-         self_attention_bias,
-         hparams,
-         nonpadding=transformer.features_to_nonpadding(features, "inputs"),
-         save_weights_to=self.attention_weights))
+    (encoder_output, encoder_extra_output) = (
+        universal_transformer_util.universal_transformer_encoder(
+            encoder_input,
+            self_attention_bias,
+            hparams,
+            nonpadding=transformer.features_to_nonpadding(features, "inputs"),
+            save_weights_to=self.attention_weights))
 
     return encoder_output, encoder_decoder_attention_bias, encoder_extra_output
 
@@ -122,15 +121,15 @@ class UniversalTransformer(transformer.Transformer):
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
     # No caching in Universal Transformers!
-    decoder_output, dec_extra_output = (
-      universal_transformer_util.universal_transformer_decoder(
-        decoder_input,
-        encoder_output,
-        decoder_self_attention_bias,
-        encoder_decoder_attention_bias,
-        hparams,
-        nonpadding=nonpadding,
-        save_weights_to=self.attention_weights))
+    (decoder_output, dec_extra_output) = (
+        universal_transformer_util.universal_transformer_decoder(
+            decoder_input,
+            encoder_output,
+            decoder_self_attention_bias,
+            encoder_decoder_attention_bias,
+            hparams,
+            nonpadding=nonpadding,
+            save_weights_to=self.attention_weights))
 
     # Expand since t2t expects 4d tensors.
     return tf.expand_dims(decoder_output, axis=2), dec_extra_output
@@ -257,7 +256,7 @@ class UniversalTransformer(transformer.Transformer):
 
 @registry.register_model
 class UniversalTransformerEncoder(transformer.Transformer):
-  """Universal Transformer Encoder: Depth-wise recurrent transformer encoder-only."""
+  """Universal Transformer Encoder: Has no decoder (e.g.for classification)."""
 
   def encode(self, inputs, target_space, hparams, features=None):
     """Encode transformer inputs.
@@ -285,13 +284,13 @@ class UniversalTransformerEncoder(transformer.Transformer):
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
 
-    encoder_output, encoder_extra_output = (
-      universal_transformer_util.universal_transformer_encoder(
-         encoder_input,
-         self_attention_bias,
-         hparams,
-         nonpadding=transformer.features_to_nonpadding(features, "inputs"),
-         save_weights_to=self.attention_weights))
+    (encoder_output, encoder_extra_output) = (
+        universal_transformer_util.universal_transformer_encoder(
+            encoder_input,
+            self_attention_bias,
+            hparams,
+            nonpadding=transformer.features_to_nonpadding(features, "inputs"),
+            save_weights_to=self.attention_weights))
 
     return encoder_output, encoder_extra_output
 
