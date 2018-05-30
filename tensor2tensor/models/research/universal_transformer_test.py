@@ -35,7 +35,8 @@ VOCAB_SIZE = 10
 
 class UniversalTransformerTest(tf.test.TestCase):
 
-  def getModel(self, hparams, mode=tf.estimator.ModeKeys.TRAIN, has_input=True):
+  def get_model(self,
+                hparams, mode=tf.estimator.ModeKeys.TRAIN, has_input=True):
     hparams.hidden_size = 8
     hparams.filter_size = 32
     hparams.num_heads = 1
@@ -56,11 +57,12 @@ class UniversalTransformerTest(tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32)
     }
 
-    return universal_transformer.UniversalTransformer(hparams, mode, p_hparams), features
+    return universal_transformer.UniversalTransformer(
+        hparams, mode, p_hparams), features
 
   def testTransformer(self):
-    model, features = self.getModel(
-      universal_transformer.universal_transformer_base())
+    model, features = self.get_model(
+        universal_transformer.universal_transformer_base())
     logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
