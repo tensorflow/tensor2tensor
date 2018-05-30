@@ -115,7 +115,7 @@ class TextEncoder(object):
     """
     return [int(w) + self._num_reserved_ids for w in s.split()]
 
-  def decode(self, ids, strip_extraneous=False):
+  def decode(self, ids):
     """Transform a sequence of int ids into a human-readable string.
 
     EOS is not expected in ids.
@@ -126,8 +126,6 @@ class TextEncoder(object):
     Returns:
       s: human-readable string.
     """
-    if strip_extraneous:
-      ids = strip_ids(ids, list(range(self._num_reserved_ids or 0)))
     return " ".join(self.decode_list(ids))
 
   def decode_list(self, ids):
@@ -168,9 +166,7 @@ class ByteTextEncoder(TextEncoder):
     # Python3: explicitly convert to UTF-8
     return [c + numres for c in s.encode("utf-8")]
 
-  def decode(self, ids, strip_extraneous=False):
-    if strip_extraneous:
-      ids = strip_ids(ids, list(range(self._num_reserved_ids or 0)))
+  def decode(self, ids):
     numres = self._num_reserved_ids
     decoded_ids = []
     int2byte = six.int2byte
@@ -515,7 +511,7 @@ class SubwordTextEncoder(TextEncoder):
     """
     return self._tokens_to_subtoken_ids([native_to_unicode(token_text)])
 
-  def decode(self, ids, strip_extraneous=False):
+  def decode(self, ids):
     """Converts a sequence of subtoken ids to a native string.
 
     Args:
@@ -523,8 +519,6 @@ class SubwordTextEncoder(TextEncoder):
     Returns:
       a native string
     """
-    if strip_extraneous:
-      ids = strip_ids(ids, list(range(self._num_reserved_ids or 0)))
     return unicode_to_native(
         tokenizer.decode(self._subtoken_ids_to_tokens(ids)))
 
