@@ -44,17 +44,10 @@ def learning_rate_schedule(hparams):
   schedule_string = hparams.learning_rate_schedule
   names = schedule_string.split("*")
   names = [name.strip() for name in names if name.strip()]
-  lr_value = 1.0
+  ret = tf.constant(1.0)
   for name in names:
-    lr_value *= learning_rate_factor(name, step_num, hparams)
-
-  with tf.variable_scope("training"):
-    lr = tf.get_variable("learning_rate", [], trainable=False)
-    update_ops = tf.get_collection_ref(tf.GraphKeys.UPDATE_OPS)
-    assign_lr = tf.assign(lr, lr_value)
-    update_ops.append(assign_lr)
-
-  return lr
+    ret *= learning_rate_factor(name, step_num, hparams)
+  return ret
 
 
 def legacy_learning_rate_schedule(hparams):
