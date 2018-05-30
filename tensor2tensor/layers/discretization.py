@@ -291,8 +291,7 @@ def embed(x,
     else:
       raise ValueError("Unknown bottleneck kind.")
 
-    h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
-    return tf.layers.dense(tf.nn.relu(h2), hidden_size, name="vcfin")
+    return h1
 
 
 def vae(x, name, z_size):
@@ -650,8 +649,7 @@ def discrete_bottleneck(x,
     else:
       raise ValueError("Unknown discretization method.")
 
-    h2 = tf.layers.dense(tf.nn.relu(h1), filter_size, name="vch2")
-    res = tf.layers.dense(tf.nn.relu(h2), hidden_size, name="vcfin")
+    res = h1
 
     embed_fn = partial(
         embed,
