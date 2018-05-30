@@ -97,6 +97,14 @@ class AlgorithmicTest(tf.test.TestCase):
       self.assertEqual(d["targets"].count(5), 0)
     self.assertEqual(counter, 10)
 
+  def testSortGenerator(self):
+    sort_problem = algorithmic.AlgorithmicSortProblem()
+    counter = 0
+    for d in sort_problem.generator(10, 10, 10):
+      counter += 1
+      self.assertEqual(list(sorted(d["inputs"])), d["targets"])
+    self.assertEqual(counter, 10)
+
 
 if __name__ == "__main__":
   tf.test.main()

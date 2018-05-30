@@ -564,11 +564,19 @@ class Problem(object):
         "partition: %d num_data_files: %d" % (partition_id, len(data_files)))
     if shuffle_files:
       random.shuffle(data_files)
-    dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
 
-    dataset = dataset.apply(
-        tf.contrib.data.parallel_interleave(
-            _load_records_and_preprocess, sloppy=is_training, cycle_length=8))
+    # Create data-set from files by parsing, pre-processing and interleaving.
+    if shuffle_files:
+      dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
+      dataset = dataset.apply(
+          tf.contrib.data.parallel_interleave(
+              _load_records_and_preprocess, sloppy=True, cycle_length=8))
+    else:
+      dataset = None
+      for f in data_files:
+        f_data = _load_records_and_preprocess(f)
+        dataset = f_data if dataset is None else dataset.concatenate(f_data)
+
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
     dataset = dataset.take(max_records)

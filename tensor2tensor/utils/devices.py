@@ -162,7 +162,8 @@ def data_parallelism(daisy_chain_variables=True,
           _replica_device_setter(worker_job + "/GPU:%d" % d)
           for d in _gpu_order(worker_gpu)
       ]
-      caching_devices = [worker_job + "/GPU:0"] * worker_gpu
+      # caching_devices = [worker_job + "/GPU:0"] * worker_gpu
+      caching_devices = None
     else:
       datashard_devices = [_replica_device_setter(worker_job)]
       caching_devices = None

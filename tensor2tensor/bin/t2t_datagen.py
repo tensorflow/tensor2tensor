@@ -46,6 +46,7 @@ from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
 
+
 flags = tf.flags
 FLAGS = flags.FLAGS
 
