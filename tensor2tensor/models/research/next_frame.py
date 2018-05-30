@@ -58,11 +58,7 @@ class NextFrameBasic(t2t_model.T2TModel):
 
     # Embed the inputs.
     inputs_shape = common_layers.shape_list(features["inputs"])
-    # Using non-zero bias initializer below for edge cases of uniform inputs.
-    x = tf.layers.dense(
-        features["inputs"], filters, name="inputs_embed",
-        bias_initializer=tf.random_normal_initializer(stddev=0.01))
-    x = common_attention.add_timing_signal_nd(x)
+    x = tf.layers.dense(features["inputs"], filters, name="inputs_embed")
 
     # Down-stride.
     layer_inputs = [x]
@@ -167,28 +163,6 @@ class NextFrameBasic(t2t_model.T2TModel):
     return results
 
 
-@registry.register_model
-class NextFrameStochastic(NextFrameBasic):
-  """Stochastic next-frame model."""
-
-  def body(self, features):
-    hparams = self.hparams
-    filters = hparams.hidden_size
-
-    # Split inputs time-wise into a list of frames. Inputs are by default
-    # concatenated time-wise on channels in VideoModality, so we split on
-    # the last axis. Can do the same for target frames with num_target_frames.
-    # TODO(lukaszkaiser): should we change VideoModality to not concatenate?
-    num_frames = hparams.problem.num_input_frames
-    input_frames = tf.split(features["inputs"], num_frames, axis=-1)
-
-    # For now predict using just a linear transformation of the last frame.
-    # Here input_frames[-1] is contrast-normalized last frame.
-    prediction = tf.layers.dense(input_frames[-1], filters,
-                                 name="final_dense")
-    return prediction
-
-
 @registry.register_hparams
 def next_frame():
   """Basic 2-frame conv model."""
@@ -224,9 +198,9 @@ def next_frame_ae():
   hparams = next_frame()
   hparams.input_modalities = "inputs:video:bitwise"
   hparams.hidden_size = 256
-  hparams.batch_size = 8
+  hparams.batch_size = 16
   hparams.num_hidden_layers = 4
-  hparams.num_compress_steps = 4
+  hparams.num_compress_steps = 3
   hparams.dropout = 0.4
   return hparams
 
@@ -236,17 +210,6 @@ def next_frame_small():
   """Small conv model."""
   hparams = next_frame()
   hparams.hidden_size = 32
-  return hparams
-
-
-@registry.register_hparams
-def next_frame_tiny():
-  """Tiny for testing."""
-  hparams = next_frame()
-  hparams.hidden_size = 32
-  hparams.num_hidden_layers = 1
-  hparams.num_compress_steps = 2
-  hparams.filter_double_steps = 1
   return hparams
 
 

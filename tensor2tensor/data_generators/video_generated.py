@@ -20,17 +20,13 @@ from __future__ import print_function
 
 import math
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
-try:
-  import matplotlib.pyplot as plt  # pylint: disable=g-import-not-at-top
-except ImportError:
-  pass
 
 
 @registry.register_problem
@@ -176,14 +172,14 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
       yield image
 
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
-    counter = 0
+    frame_number = 0
     done = False
     while not done:
       for frame_number, frame in enumerate(
           self.generate_stochastic_shape_instance()):
-        if counter >= self.total_number_of_frames:
+        if frame_number >= self.total_number_of_frames:
           done = True
           break
 
         yield {"frame": frame, "frame_number": [frame_number]}
-        counter += 1
+        frame_number += 1

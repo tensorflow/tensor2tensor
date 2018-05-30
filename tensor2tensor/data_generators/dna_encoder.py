@@ -84,7 +84,7 @@ class DNAEncoder(text_encoder.TextEncoder):
       ids.append(self._tokens_to_ids[chunk])
     return ids
 
-  def decode(self, ids, strip_extraneous=False):
+  def decode(self, ids):
     bases = []
     for idx in ids:
       if idx >= self._num_reserved_ids:
@@ -92,8 +92,6 @@ class DNAEncoder(text_encoder.TextEncoder):
         if self.PAD in chunk:
           chunk = chunk[:chunk.index(self.PAD)]
       else:
-        if strip_extraneous:
-          continue
         chunk = [text_encoder.RESERVED_TOKENS[idx]]
       bases.extend(chunk)
     return "".join(bases)
