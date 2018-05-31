@@ -53,6 +53,7 @@ class UniversalTransformer(transformer.Transformer):
       hparams: hyperparmeters for model.
       features: optionally pass the entire features dictionary as well.
         This is needed now for "packed" datasets.
+      losses: Unused.
 
     Returns:
       Tuple of:
@@ -84,7 +85,6 @@ class UniversalTransformer(transformer.Transformer):
 
     return encoder_output, encoder_decoder_attention_bias, encoder_extra_output
 
-
   def decode(self,
              decoder_input,
              encoder_output,
@@ -110,7 +110,9 @@ class UniversalTransformer(transformer.Transformer):
       decoder_self_attention_bias: Bias and mask weights for decoder
         self-attention. [batch_size, decoder_length]
       hparams: hyperparmeters for model.
+      cache: Unimplemented.
       nonpadding: optional Tensor with shape [batch_size, decoder_length]
+      losses: Unused.
 
     Returns:
        Tuple of:
@@ -275,6 +277,7 @@ class UniversalTransformerEncoder(transformer.Transformer):
       hparams: hyperparmeters for model.
       features: optionally pass the entire features dictionary as well.
         This is needed now for "packed" datasets.
+      losses: Unused.
 
     Returns:
       Tuple of:
@@ -879,8 +882,6 @@ def universal_transformer_base_range(rhp):
   rhp.set_discrete("transformer_ffn_type", ["sepconv", "fc"])
   rhp.set_float("learning_rate", 0.3, 3.0, scale=rhp.LOG_SCALE)
   rhp.set_float("weight_decay", 0.0, 2.0)
-
-
 
 
 @registry.register_ranged_hparams

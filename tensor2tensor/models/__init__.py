@@ -44,7 +44,6 @@ from tensor2tensor.models.research import gene_expression
 from tensor2tensor.models.research import lm_experiments
 from tensor2tensor.models.research import multimodel
 from tensor2tensor.models.research import next_frame
-from tensor2tensor.models.research import universal_transformer
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
@@ -52,4 +51,5 @@ from tensor2tensor.models.research import transformer_revnet
 from tensor2tensor.models.research import transformer_sketch
 from tensor2tensor.models.research import transformer_symshard
 from tensor2tensor.models.research import transformer_vae
+from tensor2tensor.models.research import universal_transformer
 # pylint: enable=unused-import
