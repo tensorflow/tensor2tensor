@@ -39,7 +39,7 @@ import tensorflow as tf
 class UniversalTransformer(transformer.Transformer):
   """Universal Transformer: Depth-wise recurrent transformer model."""
 
-  def encode(self, inputs, target_space, hparams, features=None):
+  def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode Universal Transformer inputs.
 
     It is similar to "transformer.encode", but it uses
@@ -63,6 +63,7 @@ class UniversalTransformer(transformer.Transformer):
           encoder_extra_output: which is extra encoder output used in some
             variants of the model (e.g. in ACT, to pass the ponder-time to body)
     """
+    del losses
 
     inputs = common_layers.flatten4d3d(inputs)
 
@@ -83,13 +84,16 @@ class UniversalTransformer(transformer.Transformer):
 
     return encoder_output, encoder_decoder_attention_bias, encoder_extra_output
 
+
   def decode(self,
              decoder_input,
              encoder_output,
              encoder_decoder_attention_bias,
              decoder_self_attention_bias,
              hparams,
-             nonpadding=None):
+             cache=None,
+             nonpadding=None,
+             losses=None):
     """Decode Universal Transformer outputs from encoder representation.
 
     It is similar to "transformer.decode", but it uses
@@ -116,6 +120,9 @@ class UniversalTransformer(transformer.Transformer):
             variants of the model (e.g. in ACT, to pass the ponder-time to body)
 
     """
+    del losses
+    # TODO(dehghani): enable caching.
+    del cache
 
     decoder_input = tf.nn.dropout(decoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
@@ -258,7 +265,7 @@ class UniversalTransformer(transformer.Transformer):
 class UniversalTransformerEncoder(transformer.Transformer):
   """Universal Transformer Encoder: Has no decoder (e.g.for classification)."""
 
-  def encode(self, inputs, target_space, hparams, features=None):
+  def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Encode transformer inputs.
 
     Args:
@@ -276,6 +283,7 @@ class UniversalTransformerEncoder(transformer.Transformer):
           encoder_extra_output: which is extra encoder output used in some
             variants of the model (e.g. in ACT, to pass the ponder-time to body)
     """
+    del losses
     inputs = common_layers.flatten4d3d(inputs)
 
     (encoder_input, self_attention_bias, _) = (
