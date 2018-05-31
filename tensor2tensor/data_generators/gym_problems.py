@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import math
 import os
-
-# Dependency imports
-
 import gym
 import numpy as np
 
@@ -141,6 +138,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return None
 
   def get_action(self, observation=None):
+    del observation
     return self.env.action_space.sample()
 
   def hparams(self, defaults, unused_model_hparams):
@@ -613,7 +611,8 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
   def restore_networks(self, sess):
     super(GymSimulatedDiscreteProblemWithAgent, self).restore_networks(sess)
     # TODO(blazej): adjust regexp for different models.
-    env_model_loader = tf.train.Saver(tf.global_variables("basic_conv_gen.*"))
+    env_model_loader = tf.train.Saver(tf.global_variables(
+        "next_frame_basic.*"))
     sess = tf.get_default_session()
 
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)

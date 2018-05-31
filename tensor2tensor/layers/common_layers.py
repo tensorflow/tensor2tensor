@@ -23,10 +23,6 @@ import contextlib
 import functools
 from functools import partial
 import math
-import random
-
-# Dependency imports
-
 
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -297,8 +293,8 @@ def dropout_no_scaling(x, keep_prob):
   """
   if keep_prob == 1.0:
     return x
-  return x * tf.cast(
-      tf.less(tf.random_uniform(tf.shape(x)), keep_prob), x.dtype)
+  mask = tf.less(tf.random_uniform(tf.shape(x)), keep_prob)
+  return x * cast_like(mask, x)
 
 
 def embedding(x,
@@ -603,7 +599,7 @@ def layer_norm_vars(filters):
 
 def layer_norm_compute_python(x, epsilon, scale, bias):
   """Layer norm raw computation."""
-  epsilon, scale, bias = [tf.cast(t, x.dtype) for t in [epsilon, scale, bias]]
+  epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
   mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
   variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keepdims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
@@ -655,7 +651,7 @@ def group_norm(x, filters=None, num_groups=8, epsilon=1e-5):
       "group_norm_scale", [filters], initializer=tf.ones_initializer())
   bias = tf.get_variable(
       "group_norm_bias", [filters], initializer=tf.zeros_initializer())
-  epsilon, scale, bias = [tf.cast(t, x.dtype) for t in [epsilon, scale, bias]]
+  epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
   # Reshape and compute group norm.
   x = tf.reshape(x, x_shape[:-1] + [num_groups, filters // num_groups])
   # Calculate mean and variance on heights, width, channels (not groups).
@@ -1434,8 +1430,8 @@ def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
     while nonpadding_mask.get_shape().ndims < inputs.get_shape().ndims:
       nonpadding_mask = tf.expand_dims(nonpadding_mask, -1)
     return inputs * nonpadding_mask
-  else:
-    return inputs
+
+  return inputs
 
 
 def dense_relu_dense(inputs,
@@ -2226,7 +2222,7 @@ def fn_device_dependency(name, device=""):
       assert outs
 
       deps = outs
-      if isinstance(outs[0], list) or isinstance(outs[0], tuple):
+      if isinstance(outs[0], (list, tuple)):
         assert len(outs) == 1
         deps = outs[0]
       fn_device_dependency_dict()[key] = deps
@@ -2500,7 +2496,7 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
   if grad_fn is None:
     return outputs
 
-  if not (isinstance(outputs, tuple) or isinstance(outputs, list)):
+  if not isinstance(outputs, (tuple, list)):
     outputs = [outputs]
   outputs = list(outputs)
 
@@ -2528,7 +2524,7 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
 
   @function.Defun(
       *(in_types + var_types + out_types),
-      func_name="identity_custom_grad%d" % random.randint(1, 10**9),
+      func_name="identity_custom_grad%d" % ops.uid(),
       python_grad_func=custom_grad_fn,
       shape_func=lambda _: [t.get_shape() for t in outputs])
   def identity(*args):
@@ -2773,7 +2769,7 @@ def _recompute_grad(fn, args):
         with tf.variable_scope(cached_vs[0], reuse=True):
           outputs = fn(*inputs)
 
-    if not (isinstance(outputs, list) or isinstance(outputs, tuple)):
+    if not isinstance(outputs, (list, tuple)):
       outputs = [outputs]
     outputs = list(outputs)
     grads = tf.gradients(outputs, inputs + variables, output_grads)
@@ -3085,3 +3081,18 @@ def time_to_channels(embedded_video):
   return tf.reshape(transposed,
                     [video_shape[0], video_shape[2], video_shape[3],
                      video_shape[1] * video_shape[4]])
+
+
+def cast_like(x, y):
+  """Cast x to y's dtype, if necessary."""
+  x = tf.convert_to_tensor(x)
+  y = tf.convert_to_tensor(y)
+
+  if x.dtype.base_dtype == y.dtype.base_dtype:
+    return x
+
+  cast_x = tf.cast(x, y.dtype)
+  if cast_x.device != x.device:
+    tf.logging.warning("Cast for %s may induce copy from '%s' to '%s'",
+                       x.name, x.device, cast_x.device)
+  return cast_x

@@ -19,7 +19,7 @@ from __future__ import print_function
 import collections
 import os
 import random
-# Dependency imports
+
 import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
@@ -564,11 +564,19 @@ class Problem(object):
         "partition: %d num_data_files: %d" % (partition_id, len(data_files)))
     if shuffle_files:
       random.shuffle(data_files)
-    dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
 
-    dataset = dataset.apply(
-        tf.contrib.data.parallel_interleave(
-            _load_records_and_preprocess, sloppy=is_training, cycle_length=8))
+    # Create data-set from files by parsing, pre-processing and interleaving.
+    if shuffle_files:
+      dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
+      dataset = dataset.apply(
+          tf.contrib.data.parallel_interleave(
+              _load_records_and_preprocess, sloppy=True, cycle_length=8))
+    else:
+      dataset = None
+      for f in data_files:
+        f_data = _load_records_and_preprocess(f)
+        dataset = f_data if dataset is None else dataset.concatenate(f_data)
+
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
     dataset = dataset.take(max_records)
@@ -787,7 +795,7 @@ class Problem(object):
         dataset = dataset.apply(
             tf.contrib.data.batch_and_drop_remainder(batch_size))
       else:
-        num_shards = (config and config.data_parallelism.n) or 1
+        num_shards = config.data_parallelism.n if config else 1
         batch_size = hparams.batch_size * num_shards
         dataset = dataset.batch(batch_size)
     else:
@@ -864,7 +872,9 @@ class Problem(object):
     dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
     dataset = dataset.map(self.maybe_reverse_and_copy)
     dataset = dataset.map(data_reader.cast_ints_to_int32)
-    dataset = dataset.padded_batch(1000, dataset.output_shapes)
+    dataset = dataset.padded_batch(
+        tf.shape(serialized_example, out_type=tf.int64)[0],
+        dataset.output_shapes)
     dataset = dataset.map(standardize_shapes)
     features = tf.contrib.data.get_single_element(dataset)
 

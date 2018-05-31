@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -56,19 +53,16 @@ class BasicAutoencoder(t2t_model.T2TModel):
   def bottleneck(self, x):
     with tf.variable_scope("bottleneck"):
       hparams = self.hparams
-      x = tf.layers.dense(x, hparams.bottleneck_size, name="bottleneck")
+      x = tf.layers.dense(x, hparams.bottleneck_bits, name="bottleneck")
       if hparams.mode == tf.estimator.ModeKeys.TRAIN:
         noise = 2.0 * tf.random_uniform(common_layers.shape_list(x)) - 1.0
-        return tf.tanh(x) + noise * hparams.bottleneck_noise
-      return tf.tanh(x)
+        return tf.tanh(x) + noise * hparams.bottleneck_noise, 0.0
+      return tf.tanh(x), 0.0
 
   def unbottleneck(self, x, res_size):
     with tf.variable_scope("unbottleneck"):
       x = tf.layers.dense(x, res_size, name="dense")
       return x
-
-  def bottleneck_loss(self, b):
-    return 0.0
 
   def make_even_size(self, x):
     shape = [dim if dim is not None else -1 for dim in x.get_shape().as_list()]
@@ -121,9 +115,8 @@ class BasicAutoencoder(t2t_model.T2TModel):
       # Run encoder.
       x = self.encoder(x)
       # Bottleneck (mix during early training, not too important but stable).
-      b = self.bottleneck(x)
+      b, b_loss = self.bottleneck(x)
       self._cur_bottleneck_tensor = b
-      b_loss = self.bottleneck_loss(b)
       b = self.unbottleneck(b, common_layers.shape_list(x)[-1])
       b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
       # With probability bottleneck_max_prob use the bottleneck, otherwise x.
@@ -150,12 +143,13 @@ class BasicAutoencoder(t2t_model.T2TModel):
                             hparams.bottleneck_warmup_steps // 2, is_training)
     return res, {"bottleneck_loss": b_loss}
 
-  def sample(self):
+  def sample(self, features=None):
+    del features
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
     size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
-            hp.bottleneck_size]
+            hp.bottleneck_bits]
     # Sample in [-1, 1] as the bottleneck is under tanh.
     return 2.0 * tf.random_uniform(size) - 1.0
 
@@ -167,8 +161,9 @@ class BasicAutoencoder(t2t_model.T2TModel):
     self._cur_bottleneck_tensor = None
     return res
 
-  def infer(self, features, *args, **kwargs):
+  def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
     """Produce predictions from the model by sampling."""
+    del args, kwargs
     # Inputs and features preparation needed to handle edge cases.
     if not features:
       features = {}
@@ -258,7 +253,7 @@ def basic_autoencoder():
   hparams.kernel_width = 4
   hparams.dropout = 0.1
   hparams.add_hparam("max_hidden_size", 1024)
-  hparams.add_hparam("bottleneck_size", 128)
+  hparams.add_hparam("bottleneck_bits", 128)
   hparams.add_hparam("bottleneck_noise", 0.1)
   hparams.add_hparam("bottleneck_warmup_steps", 3000)
   hparams.add_hparam("bottleneck_max_prob", 1.0)

@@ -24,7 +24,7 @@ by using the fn_with_diet_vars decorator.
 from collections import defaultdict
 import copy
 import math
-# Dependency imports
+
 from tensor2tensor.layers import common_layers
 import tensorflow as tf
 
@@ -259,6 +259,7 @@ def make_diet_var_getter(params):
   """Create a custom variable getter for diet variables according to params."""
 
   def diet_var_initializer(shape, dtype, partition_info=None):
+    """Initializer for a diet variable."""
     del dtype
     del partition_info
 
@@ -296,6 +297,7 @@ def _fn_with_diet_vars(fn, args, params):
   vs_ctr = []
 
   def grad_fn(inputs, variables, outputs, output_grads):
+    """Custom gradient function."""
     del outputs  # recomputing below
     with common_layers.fn_device_dependency("diet_grad",
                                             output_grads[0].device) as out_dep:

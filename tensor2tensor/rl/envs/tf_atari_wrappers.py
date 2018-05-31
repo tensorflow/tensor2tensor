@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 
 import tensorflow as tf

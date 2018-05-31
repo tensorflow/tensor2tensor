@@ -17,9 +17,6 @@
 import collections
 import functools
 import operator
-
-# Dependency imports
-
 import gym
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers

@@ -24,9 +24,6 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
@@ -99,6 +96,8 @@ class ImagetransformerMoe(t2t_model.T2TModel):
                                    inputs, targets, hparams)
 
     # Run decoder.
+    # TODO(nikip): Use q_padding and kv_padding
+    del q_padding, kv_padding
     decoder_output, extra_loss = cia.transformer_layers_sharded(
         dp,
         self._ps_devices,
@@ -108,8 +107,6 @@ class ImagetransformerMoe(t2t_model.T2TModel):
         self_attention_bias=None,
         enc_output=None,
         attention_type=hparams.dec_attention_type,
-        q_padding=q_padding,
-        kv_padding=kv_padding,
         name="decoder")
 
     output = dp(cia.create_output, decoder_output, rows, cols, targets, hparams)

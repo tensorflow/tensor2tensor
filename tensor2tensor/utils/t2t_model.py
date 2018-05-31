@@ -23,9 +23,6 @@ import copy
 import functools
 import math
 import time
-
-# Dependency imports
-
 import six
 
 from tensor2tensor.data_generators import text_encoder
@@ -144,7 +141,9 @@ class T2TModel(base.Layer):
     else:
       return None
 
-  def call(self, features):
+  def call(self, inputs, **kwargs):
+    del kwargs
+    features = inputs
     set_custom_getter_compose(self._custom_getter)
     tf.get_variable_scope().set_initializer(
         optimize.get_variable_initializer(self.hparams))
@@ -230,29 +229,30 @@ class T2TModel(base.Layer):
     return sharded_logits, losses
 
   def model_fn(self, features):
-    transformed_features = self.bottom(features)
+    with tf.variable_scope(tf.get_variable_scope(), use_resource=True):
+      transformed_features = self.bottom(features)
 
-    if self.hparams.activation_dtype == "bfloat16":
-      for k, v in sorted(six.iteritems(transformed_features)):
-        if v.dtype == tf.float32:
-          transformed_features[k] = tf.cast(v, tf.bfloat16)
+      if self.hparams.activation_dtype == "bfloat16":
+        for k, v in sorted(six.iteritems(transformed_features)):
+          if v.dtype == tf.float32:
+            transformed_features[k] = tf.cast(v, tf.bfloat16)
 
-    with tf.variable_scope("body"):
-      log_info("Building model body")
-      body_out = self.body(transformed_features)
-    output, losses = self._normalize_body_output(body_out)
+      with tf.variable_scope("body"):
+        log_info("Building model body")
+        body_out = self.body(transformed_features)
+      output, losses = self._normalize_body_output(body_out)
 
-    if "training" in losses:
-      log_info("Skipping T2TModel top and loss because training loss "
-               "returned from body")
-      logits = output
-    else:
-      logits = self.top(output, features)
-      losses["training"] = 0.0
-      if self._hparams.mode != tf.estimator.ModeKeys.PREDICT:
-        losses["training"] = self.loss(logits, features)
+      if "training" in losses:
+        log_info("Skipping T2TModel top and loss because training loss "
+                 "returned from body")
+        logits = output
+      else:
+        logits = self.top(output, features)
+        losses["training"] = 0.0
+        if self._hparams.mode != tf.estimator.ModeKeys.PREDICT:
+          losses["training"] = self.loss(logits, features)
 
-    return logits, losses
+      return logits, losses
 
   def bottom(self, features):
     """Transform features to feed into body."""
@@ -537,6 +537,7 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`
       }
     """
+    del use_tpu
     set_custom_getter_compose(self._custom_getter)
     with self._eager_var_store.as_default():
       # TODO(rsepassi): Make decoding work with real-valued model outputs
@@ -882,7 +883,7 @@ class T2TModel(base.Layer):
         v = tf.expand_dims(v, axis=-1)
         v_shape = [1]
       if v_shape == [1]:
-        v = tf.tile(v, [self._num_datashards])
+        v = tf.tile(v, tf.to_int32([self._num_datashards]))
       sharded_features[k] = self._data_parallelism(
           tf.identity, tf.split(v, self._num_datashards, 0))
     return sharded_features
@@ -1032,6 +1033,7 @@ class T2TModel(base.Layer):
 
   def estimator_spec_eval(self, features, logits, labels, loss, losses_dict):
     """Construct EstimatorSpec for EVAL mode."""
+    del losses_dict
     hparams = self.hparams
 
     if not hasattr(hparams, "problem"):
@@ -1288,7 +1290,7 @@ def _create_host_call(model_dir):
   graph = tf.get_default_graph()
   summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
 
-  gs_t = tf.reshape(tf.train.get_global_step(), [1])
+  gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
   summary_kwargs = collections.OrderedDict()
   for t in summaries:
     if t.op.type != "ScalarSummary":
@@ -1296,9 +1298,9 @@ def _create_host_call(model_dir):
 
     name = t.op.name
     tensor = t.op.inputs[1]
-    assert tensor.shape.is_compatible_with(
-        []), ("ScalarSummary %s must have shape [], but is: %s." %
-              (name, tensor.shape))
+    assert tensor.shape.is_compatible_with([])
+    if tensor.dtype == tf.int64:
+      tensor = tf.to_int32(tensor)
     summary_kwargs[name] = tf.reshape(tensor, [1])
   summary_kwargs["global_step"] = gs_t
 
@@ -1312,7 +1314,7 @@ def _create_host_call(model_dir):
     Returns:
       List of summary ops to run on the CPU host.
     """
-    gs = kwargs.pop("global_step")[0]
+    gs = tf.to_int64(kwargs.pop("global_step")[0])
     with tf.contrib.summary.create_file_writer(model_dir).as_default():
       with tf.contrib.summary.always_record_summaries():
         for name, value in sorted(six.iteritems(kwargs)):

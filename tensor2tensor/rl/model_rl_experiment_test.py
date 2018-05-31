@@ -12,31 +12,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Training of RL agent with PPO algorithm."""
+"""Tiny run of model_rl_experiment. Smoke test."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
-from tensor2tensor.utils import trainer_lib
+
+from tensor2tensor.rl import model_rl_experiment
 
 import tensorflow as tf
 
-flags = tf.flags
-FLAGS = flags.FLAGS
-
-# To maintain compatibility with some internal libs, we guard against these flag
-# definitions possibly erring. Apologies for the ugliness.
-try:
-  flags.DEFINE_string("output_dir", "", "Base output directory for run.")
-except:  # pylint: disable=bare-except
-  pass
+FLAGS = tf.flags.FLAGS
 
 
-def main(_):
-  hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
-  rl_trainer_lib.train(hparams, FLAGS.problem, FLAGS.output_dir)
+class ModelRLExperimentTest(tf.test.TestCase):
+
+  def test_run(self):
+    FLAGS.output_dir = tf.test.get_temp_dir()
+    FLAGS.loop_hparams_set = "rl_modelrl_tiny"
+    FLAGS.loop_hparams = "generative_model_params=next_frame_tiny"
+    FLAGS.schedule = "train"  # skip evaluation for world model training
+    model_rl_experiment.main(None)
 
 
 if __name__ == "__main__":
-  tf.app.run()
+  tf.test.main()

@@ -23,9 +23,6 @@ import json
 import os
 import random
 import zipfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import imagenet
@@ -96,7 +93,7 @@ def mscoco_generator(data_dir,
         vocab_symbolizer = text_encoder.SubwordTextEncoder(vocab_filepath)
         return vocab_symbolizer
       else:
-        raise ValueError("Vocab file does not exist: %s", vocab_filepath)
+        raise ValueError("Vocab file does not exist: %s" % vocab_filepath)
     return None
 
   vocab_symbolizer = get_vocab()

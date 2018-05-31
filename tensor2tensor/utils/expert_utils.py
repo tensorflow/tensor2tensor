@@ -24,9 +24,6 @@ from __future__ import print_function
 
 import functools
 import math
-
-# Dependency imports
-
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
@@ -84,6 +81,8 @@ def _add_variable_proxy_methods(var, proxy_tensor):
   """
   proxy_tensor.read_value = lambda: tf.identity(proxy_tensor)
   proxy_tensor.assign_sub = var.assign_sub
+  proxy_tensor.assign = var.assign
+  proxy_tensor.initialized_value = var.initialized_value
 
 
 class Parallelism(object):
@@ -182,7 +181,8 @@ class Parallelism(object):
           v = tf.identity(last_device_v)
         else:
           var = getter(name, *args, **kwargs)
-          v = tf.identity(var._ref())  # pylint: disable=protected-access
+          # v = tf.identity(var._ref())  # pylint: disable=protected-access
+          v = var.read_value()
 
         # keep track of the original variable
         tensor_to_var[v] = var
@@ -203,7 +203,8 @@ class Parallelism(object):
 
         v = getter(name, *args, **kwargs)
         with tf.device(self._caching_devices[i]):
-          ret = tf.identity(v._ref())  # pylint: disable=protected-access
+          # ret = tf.identity(v._ref())  # pylint: disable=protected-access
+          ret = v.read_value()
         _add_variable_proxy_methods(v, ret)
         cache[key] = ret
         return ret
@@ -1017,9 +1018,9 @@ def local_moe(x,
       expert_kwargs["x"] = dispatcher.dispatch(x_flat)
     if pass_gates:
       expert_kwargs["gates"] = dispatcher.expert_to_gates()
-    for k, v in six.iteritems(additional_dispatch_params or {}):
-      v = flatten_all_but_last(v)
-      expert_kwargs[k] = dispatcher.dispatch(v)
+    for key, val in six.iteritems(additional_dispatch_params or {}):
+      val = flatten_all_but_last(val)
+      expert_kwargs[key] = dispatcher.dispatch(val)
 
     ep = Parallelism([DEFAULT_DEV_STRING] * num_experts, reuse=None)
     expert_outputs = ep(expert_fn, **expert_kwargs)

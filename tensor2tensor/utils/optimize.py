@@ -16,11 +16,9 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor
 from tensor2tensor.utils import multistep_optimizer
 from tensor2tensor.utils import yellowfin
@@ -72,7 +70,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
 class ConditionalOptimizer(tf.train.Optimizer):
   """Conditional optimizer."""
 
-  def __init__(self, optimizer_name, lr, hparams, use_tpu=False):
+  def __init__(self, optimizer_name, lr, hparams, use_tpu=False):  # pylint: disable=super-init-not-called
     if optimizer_name == "Adam" and use_tpu:
       # LazyAdamOptimizer does not work on TPU
       optimizer_name = "TrueAdam"
@@ -113,12 +111,12 @@ class ConditionalOptimizer(tf.train.Optimizer):
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
-  def compute_gradients(self, loss, var_list=None, **kwargs):
+  def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
     gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
     def cast_grad(g, v):
-      if v is None or g is None:
-        return (g, v)
-      return (tf.cast(g, v.dtype), v)
+      if v is not None and g is not None:
+        g = common_layers.cast_like(g, v)
+      return (g, v)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
 
@@ -223,7 +221,8 @@ def get_variable_initializer(hparams):
   if not hparams.initializer:
     return None
 
-  tf.logging.info("Using variable initializer: %s", hparams.initializer)
+  if not tf.contrib.eager.in_eager_mode():
+    tf.logging.info("Using variable initializer: %s", hparams.initializer)
   if hparams.initializer == "orthogonal":
     return tf.orthogonal_initializer(gain=hparams.initializer_gain)
   elif hparams.initializer == "uniform":

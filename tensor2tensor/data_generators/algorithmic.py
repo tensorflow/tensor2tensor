@@ -16,9 +16,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -332,7 +329,7 @@ class AlgorithmicAdditionBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  def generator(self, base, max_length, nbr_cases):
+  def generator(self, base, max_length, nbr_cases):  # pylint: disable=arguments-differ
     """Generator for the addition task.
 
     The length of each number is drawn uniformly at random in [1, max_length/2]
@@ -382,7 +379,7 @@ class AlgorithmicMultiplicationBinary40(AlgorithmicProblem):
   def num_symbols(self):
     return 2
 
-  def generator(self, base, max_length, nbr_cases):
+  def generator(self, base, max_length, nbr_cases):  # pylint: disable=arguments-differ
     """Generator for the multiplication task.
 
     The length of each number is drawn uniformly at random in [1, max_length/2]
@@ -448,3 +445,41 @@ class AlgorithmicReverseBinary40Test(AlgorithmicReverseBinary40):
   @property
   def num_shards(self):
     return 1
+
+
+@registry.register_problem
+class AlgorithmicSortProblem(AlgorithmicProblem):
+  """Problem spec for sorting numbers."""
+
+  @property
+  def num_symbols(self):
+    return 10
+
+  @property
+  def train_length(self):
+    return 10
+
+  @property
+  def dev_length(self):
+    return 10
+
+  def generator(self, nbr_symbols, max_length, nbr_cases):
+    """Generating for sorting task on sequence of symbols.
+
+    The length of the sequence is drawn uniformly at random from [1, max_length]
+    and then symbols are drawn uniformly at random from [0, nbr_symbols) until
+    nbr_cases sequences have been produced.
+
+    Args:
+      nbr_symbols: number of symbols to use in each sequence.
+      max_length: integer, maximum length of sequences to generate.
+      nbr_cases: the number of cases to generate.
+
+    Yields:
+      A dictionary {"inputs": input-list, "targets": target-list} where
+      target-list is input-list sorted.
+    """
+    for _ in range(nbr_cases):
+      l = np.random.randint(max_length) + 1
+      inputs = list(np.random.randint(nbr_symbols, size=l))
+      yield {"inputs": inputs, "targets": list(sorted(inputs))}

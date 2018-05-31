@@ -22,7 +22,6 @@ import functools
 import math
 import operator
 
-# Dependency imports
 import numpy as np
 
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -583,7 +582,7 @@ def add_timing_signal_1d_given_position(x,
           tf.expand_dims(inv_timescales, 0), 0))
   signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=2)
   signal = tf.pad(signal, [[0, 0], [0, 0], [0, tf.mod(channels, 2)]])
-  signal = tf.cast(signal, x.dtype)
+  signal = common_layers.cast_like(signal, x)
   return x + signal
 
 
@@ -1417,7 +1416,7 @@ def dot_product_attention(q,
     # [batch, num_heads, query_length, memory_length]
     logits = tf.matmul(q, k, transpose_b=True)
     if bias is not None:
-      bias = tf.cast(bias, logits.dtype)
+      bias = common_layers.cast_like(bias, logits)
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
     if save_weights_to is not None:
@@ -1835,7 +1834,7 @@ def masked_local_attention_1d(q, k, v, block_length=128,
     good_part = common_layers.ones_matrix_band_part(block_length, local_length,
                                                     -1, block_length)
     mask = (1.0 - good_part) * -1e9
-    mask = tf.cast(mask, attention.dtype)
+    mask = common_layers.cast_like(mask, attention)
     attention += tf.reshape(mask, [1, 1, 1, block_length, local_length])
     attention = tf.nn.softmax(attention)
     # TODO(noam): figure out how to show a summary for the remaining blocks.
@@ -2634,8 +2633,7 @@ def compute_qkv(query_antecedent,
   def _compute(inp, depth, filter_width, padding, name):
     if filter_width == 1:
       return common_layers.dense(inp, depth, use_bias=False, name=name)
-    else:
-      return common_layers.conv1d(inp, depth, filter_width, padding, name=name)
+    return common_layers.conv1d(inp, depth, filter_width, padding, name=name)
   q = _compute(
       query_antecedent, total_key_depth, q_filter_width, q_padding, "q")
   k = _compute(
@@ -3101,10 +3099,9 @@ def self_attention_expert(
       """Add the bias together while considering the None case."""
       if not condition:
         return prev_bias
-      elif prev_bias is None:
+      if prev_bias is None:
         return new_bias
-      else:
-        return prev_bias + new_bias
+      return prev_bias + new_bias
 
     def mask_and_call_attention(x):
       """Function applied once for each sequence of the batch."""
@@ -3294,9 +3291,9 @@ def dot_product_single_head(q, k, v, gates_q, gates_k, bi):
   # Iterate over every dispatched group
   list_v_out = []
   for (
-      q,
-      k,
-      v,
+      q_i,
+      k_i,
+      v_i,
       qbc,
       qbo,
       kbc,
@@ -3314,9 +3311,9 @@ def dot_product_single_head(q, k, v, gates_q, gates_k, bi):
   ):
     list_v_out.append(
         expert_dot_product(
-            q,
-            k,
-            v,
+            q_i,
+            k_i,
+            v_i,
             info_q=BatchInfo(coordinates=qbc, order=qbo),
             info_k=BatchInfo(coordinates=kbc, order=kbo)))
 
@@ -3346,11 +3343,10 @@ def map_fn_switch(fn, elems, use_map_fn=True, **kwargs):
   """
   if use_map_fn:
     return tf.map_fn(fn, elems, **kwargs)
-  else:
-    elems_unpacked = (tf.unstack(e) for e in elems)
-    out_unpacked = [fn(e) for e in zip(*elems_unpacked)]
-    out = tf.stack(out_unpacked)
-    return out
+  elems_unpacked = (tf.unstack(e) for e in elems)
+  out_unpacked = [fn(e) for e in zip(*elems_unpacked)]
+  out = tf.stack(out_unpacked)
+  return out
 
 
 @expert_utils.add_name_scope()
@@ -3388,14 +3384,15 @@ def sparse_dot_product_attention(q, k, v, bi, use_map_fn, experts_params):
 
   @expert_utils.add_name_scope()
   def flatten_first_dims(x):
+    """Reshape such that x is [num_heads, -1, depth]."""
     # Case 1: Either constant batch size of size 1 or batch already flattened
     if x.get_shape().as_list()[0] == 1:
       return tf.squeeze(x, axis=0)
+
     # Case 2: Flatten batch dimension
-    else:
-      x = tf.transpose(x, perm=[1, 0, 2, 3])
-      x = tf.reshape(x, [nb_heads, -1, depth])
-      return x
+    x = tf.transpose(x, perm=[1, 0, 2, 3])
+    x = tf.reshape(x, [nb_heads, -1, depth])
+    return x
 
   def flatten_batch(x):
     if x is None:
@@ -3471,6 +3468,7 @@ def dot_product_batched_head(q, k, v, gates_q, gates_k, mask_right=False):
 
   @expert_utils.add_name_scope()
   def get_dispatcher(gates):
+    """Construct dispatcher for gates."""
     length = common_layers.shape_list(gates)[1]
     # Count the number of ones per batch (and keep the max value)
     nb_elems_to_dispatch = tf.reduce_sum(gates, axis=[1, 2])
@@ -3958,6 +3956,7 @@ def multihead_self_attention_memory_efficient(x,
 
     @function.Defun(compiled=True)
     def grad_fn(x, wqkv, wo, attention_bias, norm_scale, norm_bias, dy):
+      """Custom gradient function."""
       with tf.control_dependencies([dy]):
         n = common_layers.layer_norm_compute_python(x, epsilon, norm_scale,
                                                     norm_bias)

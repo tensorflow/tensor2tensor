@@ -162,8 +162,8 @@ def cloud_tpu(vm_name, tpu_name, delete_on_done=False, skip_confirmation=False):
 class Gcloud(object):
   """gcloud command strings."""
   # Note these can be modified by set_versions
-  VM_VERSION = "tf-1-7"
-  TPU_VERSION = "1.7"
+  VM_VERSION = "tf-1-8"
+  TPU_VERSION = "1.8"
 
   @classmethod
   def set_versions(cls, vm, tpu):

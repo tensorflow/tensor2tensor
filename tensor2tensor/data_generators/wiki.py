@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import subprocess
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import generator_utils

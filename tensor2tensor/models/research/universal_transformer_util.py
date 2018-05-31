@@ -12,24 +12,32 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Utilities for R-Transformer.
+"""Utilities for Universal Transformer.
 
+The Universal Transformer is based on the popular encoder-decoder architecture.
+However, as opposed to a fixed stack of distinct layers (as is usually the case
+for most popular neural sequence models), the Universal Transformer is
+recurrent "in depth", and repeatedly applies the same series of functions with
+the same parameters to all elements of the sequence in parallel, revising their
+representations with every step. The encoder and decoder have the same
+recurrent structure, but the decoder additionally consumes the final encoder
+representations for each position. Like the Transformer, the Universal
+Transformer is autoregressive. Trained using teacher-forcing, at generation
+time it produces its output one position at a time, with the decoder consuming
+the previously produced output positions.
 
-R-Transformer learns a function (for instance the transformer multi-head
-attention plus a feed-forward unit) and uses this function over n-steps to
-process the input.
-In other words, we can describe this as having a vanilla transformer, in which
-the weights in the layers are shared and we have a module(the recurrency module)
-next to this transformer that controls how steps communicate with each other in
-depth.
+Given an input sequence of length m, we start with a matrix whose rows are the
+d-dimensional embeddings of the symbols at each position of the sequence.
+The Universal Transformer then iteratively computes representation of the input
+at each step by applying the multiheaded dot-product self-attention mechanism,
+followed by a recurrent transition function. We also add residual connections
+around each of these function blocks and apply dropout and layer normalization.
 
-For instance, the recurrency module, can be a simple identity function
-which passes the output of a step as the input to next step (applying one layer
-of transformer n times on the input in a row --> lead to a better
-generalization!). Or as another example, the recurrent module can be an LSTM,
-(filliped vertically) next to the transformer which controls how state of the
-model changes in depth, Or even a grit transformer (a transformer which learns
-the attention over steps of an R-Transformer)
+The recurrent transition function in fact controls how steps communicate with
+each other in depth. For instance, the recurrent transition, can be a simple
+identity function which passes the output of a step as the input to next step.
+Or it can be an LSTM (filliped vertically) next to the transformer which
+controls how state  of the model changes in depth, Or even another transformer.
 
 """
 
@@ -40,8 +48,6 @@ from __future__ import print_function
 import copy
 import functools
 
-# Dependency imports
-
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
@@ -50,17 +56,17 @@ from tensor2tensor.utils import expert_utils
 import tensorflow as tf
 
 
-def r_transformer_encoder(encoder_input,
-                          encoder_self_attention_bias,
-                          hparams,
-                          name="encoder",
-                          nonpadding=None,
-                          save_weights_to=None,
-                          make_image_summary=True):
-  """R_transformer_encoder function.
+def universal_transformer_encoder(encoder_input,
+                                  encoder_self_attention_bias,
+                                  hparams,
+                                  name="encoder",
+                                  nonpadding=None,
+                                  save_weights_to=None,
+                                  make_image_summary=True):
+  """Universal Transformer encoder function.
 
   Prepares all the arguments and the inputs and passes it to a
-  r_transformer_layer to encode the encoder_input.
+  universal_transformer_layer to encode the encoder_input.
 
   Args:
     encoder_input: a Tensor
@@ -113,7 +119,7 @@ def r_transformer_encoder(encoder_input,
         save_weights_to=save_weights_to,
         make_image_summary=make_image_summary)
 
-    x, extra_output = r_transformer_layer(
+    x, extra_output = universal_transformer_layer(
         x, hparams, ffn_unit, attention_unit, pad_remover=pad_remover)
 
     if hparams.get("use_memory_as_last_state", False):
@@ -121,19 +127,19 @@ def r_transformer_encoder(encoder_input,
     return common_layers.layer_preprocess(x, hparams), extra_output
 
 
-def r_transformer_decoder(decoder_input,
-                          encoder_output,
-                          decoder_self_attention_bias,
-                          encoder_decoder_attention_bias,
-                          hparams,
-                          name="decoder",
-                          nonpadding=None,
-                          save_weights_to=None,
-                          make_image_summary=True):
-  """R_transformer decoder function.
+def universal_transformer_decoder(decoder_input,
+                                  encoder_output,
+                                  decoder_self_attention_bias,
+                                  encoder_decoder_attention_bias,
+                                  hparams,
+                                  name="decoder",
+                                  nonpadding=None,
+                                  save_weights_to=None,
+                                  make_image_summary=True):
+  """Universal Transformer decoder function.
 
   Prepares all the arguments and the inputs and passes it to a
-  core_r_transformer_layer to decoder.
+  core_universal_transformer_layer to decoder.
 
   Args:
     decoder_input: a Tensor
@@ -178,13 +184,18 @@ def r_transformer_decoder(decoder_input,
         save_weights_to=save_weights_to,
         make_image_summary=make_image_summary)
 
-    x, extra_output = r_transformer_layer(x, hparams, ffn_unit, attention_unit)
+    x, extra_output = universal_transformer_layer(
+        x, hparams, ffn_unit, attention_unit)
 
     return common_layers.layer_preprocess(x, hparams), extra_output
 
 
-def r_transformer_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
-  """Core function applying the r-transforemr layer.
+def universal_transformer_layer(x,
+                                hparams,
+                                ffn_unit,
+                                attention_unit,
+                                pad_remover=None):
+  """Core function applying the universal transforemr layer.
 
   Args:
     x: input
@@ -221,33 +232,38 @@ def r_transformer_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
         x = ffn_unit(attention_unit(x))
     return x
 
-  with tf.variable_scope("r_transformer_%s" % hparams.recurrence_type):
+  with tf.variable_scope("universal_transformer_%s" % hparams.recurrence_type):
 
-    if hparams.mix_with_transformer == "before_rt":
+    if hparams.mix_with_transformer == "before_ut":
       x = add_vanilla_transformer_layer(x, hparams.num_mixedin_layers)
 
     if hparams.recurrence_type == "act":
-      return r_transformer_act(x, hparams, ffn_unit, attention_unit)
+      return universal_transformer_act(x, hparams, ffn_unit, attention_unit)
 
     else:  # for all the other recurrency types with fixed number of steps
-      rt_function, initializer = get_rt_layer(x, hparams, ffn_unit,
+
+      ut_function, initializer = get_ut_layer(x, hparams, ffn_unit,
                                               attention_unit, pad_remover)
 
       output, _, extra_output = tf.foldl(
-          rt_function, tf.range(hparams.num_rec_steps), initializer=initializer)
+          ut_function, tf.range(hparams.num_rec_steps), initializer=initializer)
 
-      # This can be the if we use r_transformer_lstm layer.
+      # This can be the if we use universal_transformer_lstm layer.
       if hparams.get("use_memory_as_final_state", False):
         output = extra_output
 
-    if hparams.mix_with_transformer == "after_rt":
+    if hparams.mix_with_transformer == "after_ut":
       output = add_vanilla_transformer_layer(output, hparams.num_mixedin_layers)
 
     return output, extra_output
 
 
-def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
-  """provides the function that is used in r-transforemr steps.
+def get_ut_layer(x,
+                 hparams,
+                 ffn_unit,
+                 attention_unit,
+                 pad_remover=None):
+  """Provides the function that is used in universal transforemr steps.
 
   Args:
     x: input
@@ -257,33 +273,33 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
     pad_remover: to mask out padding in convolutional layers (efficiency).
 
   Returns:
-    rt_function and the rt_initializer
+    ut_function and the ut_initializer
 
   Raises:
     ValueError: Unknown recurrence type
   """
 
   if hparams.recurrence_type == "basic":
-    rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = functools.partial(
-        r_transformer_basic,
+    ut_initializer = (x, x, x)  # (state, input, memory)
+    ut_function = functools.partial(
+        universal_transformer_basic,
         hparams=hparams,
         ffn_unit=ffn_unit,
         attention_unit=attention_unit)
 
   elif hparams.recurrence_type == "highway":
-    rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = functools.partial(
-        r_transformer_highway,
+    ut_initializer = (x, x, x)  # (state, input, memory)
+    ut_function = functools.partial(
+        universal_transformer_highway,
         hparams=hparams,
         ffn_unit=ffn_unit,
         attention_unit=attention_unit,
         pad_remover=pad_remover)
 
   elif hparams.recurrence_type == "skip":
-    rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = functools.partial(
-        r_transformer_skip,
+    ut_initializer = (x, x, x)  # (state, input, memory)
+    ut_function = functools.partial(
+        universal_transformer_skip,
         hparams=hparams,
         ffn_unit=ffn_unit,
         attention_unit=attention_unit,
@@ -299,35 +315,35 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
     # filling the first slot with the original input
     memory = fill_memory_slot(memory_empty, x, 0)
 
-    rt_initializer = (x, x, memory)  # (state, input, memory)
-    rt_function = functools.partial(
-        r_transformer_depthwise_attention,
+    ut_initializer = (x, x, memory)  # (state, input, memory)
+    ut_function = functools.partial(
+        universal_transformer_depthwise_attention,
         hparams=hparams,
         ffn_unit=ffn_unit,
         attention_unit=attention_unit)
 
   elif hparams.recurrence_type == "rnn":
-    rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = functools.partial(
-        r_transformer_rnn,
+    ut_initializer = (x, x, x)  # (state, input, memory)
+    ut_function = functools.partial(
+        universal_transformer_rnn,
         hparams=hparams,
         ffn_unit=ffn_unit,
         attention_unit=attention_unit,
         pad_remover=pad_remover)
 
   elif hparams.recurrence_type == "gru":
-    rt_initializer = (x, x, x)  # (state, input, memory)
-    rt_function = functools.partial(
-        r_transformer_gru,
+    ut_initializer = (x, x, x)  # (state, input, memory)
+    ut_function = functools.partial(
+        universal_transformer_gru,
         hparams=hparams,
         attention_unit=attention_unit,
         pad_remover=pad_remover)
 
   elif hparams.recurrence_type == "lstm":
     memory = tf.zeros(common_layers.shape_list(x))
-    rt_initializer = (x, x, memory)  # (state, input, memory)
-    rt_function = functools.partial(
-        r_transformer_lstm,
+    ut_initializer = (x, x, memory)  # (state, input, memory)
+    ut_function = functools.partial(
+        universal_transformer_lstm,
         hparams=hparams,
         attention_unit=attention_unit,
         pad_remover=pad_remover)
@@ -335,7 +351,7 @@ def get_rt_layer(x, hparams, ffn_unit, attention_unit, pad_remover=None):
   else:
     raise ValueError("Unknown recurrence type: %s" % hparams.recurrence_type)
 
-  return rt_function, rt_initializer
+  return ut_function, ut_initializer
 
 
 def transformer_encoder_ffn_unit(x,
@@ -375,6 +391,8 @@ def transformer_encoder_ffn_unit(x,
           common_layers.layer_preprocess(x, hparams),
           filter_size=hparams.filter_size,
           output_size=hparams.hidden_size,
+          first_kernel_size=(3, 1),
+          second_kernel_size=(5, 1),
           padding="SAME",
           nonpadding_mask=nonpadding_mask,
           dropout=hparams.relu_dropout)
@@ -427,7 +445,9 @@ def transformer_encoder_attention_unit(x,
   return x
 
 
-def transformer_decoder_ffn_unit(x, hparams, nonpadding_mask=None):
+def transformer_decoder_ffn_unit(x,
+                                 hparams,
+                                 nonpadding_mask=None):
   """Applies a feed-forward function which is parametrised for decoding.
 
   Args:
@@ -457,6 +477,8 @@ def transformer_decoder_ffn_unit(x, hparams, nonpadding_mask=None):
           common_layers.layer_preprocess(x, hparams),
           filter_size=hparams.filter_size,
           output_size=hparams.hidden_size,
+          first_kernel_size=(3, 1),
+          second_kernel_size=(5, 1),
           padding="LEFT",
           nonpadding_mask=nonpadding_mask,
           dropout=hparams.relu_dropout)
@@ -531,8 +553,11 @@ def transformer_decoder_attention_unit(x,
   return x
 
 
-def r_transformer_basic(layer_inputs, step, hparams, ffn_unit, attention_unit):
-  """Basic r_transformer.
+def universal_transformer_basic(layer_inputs,
+                                step, hparams,
+                                ffn_unit,
+                                attention_unit):
+  """Basic universal_transformer.
 
   This is in fact vanilla transformer in which weights are shared between
   layers. For some tasks, this simple idea brings a generalization that is not
@@ -559,13 +584,12 @@ def r_transformer_basic(layer_inputs, step, hparams, ffn_unit, attention_unit):
   return new_state, inputs, memory
 
 
-def r_transformer_highway(layer_inputs,
-                          step,
-                          hparams,
-                          ffn_unit,
-                          attention_unit,
-                          pad_remover=None):
-  """R_transformer with highway connection.
+def universal_transformer_highway(layer_inputs,
+                                  step, hparams,
+                                  ffn_unit,
+                                  attention_unit,
+                                  pad_remover=None):
+  """universal_transformer with highway connection.
 
 
   It transforms the state using attention and ffn and wrap this transformation
@@ -648,13 +672,13 @@ def r_transformer_highway(layer_inputs,
   return new_state, inputs, memory
 
 
-def r_transformer_skip(layer_inputs,
-                       step,
-                       hparams,
-                       ffn_unit,
-                       attention_unit,
-                       pad_remover=None):
-  """R_transformer with highway connection.
+def universal_transformer_skip(layer_inputs,
+                               step,
+                               hparams,
+                               ffn_unit,
+                               attention_unit,
+                               pad_remover=None):
+  """universal_transformer with highway connection.
 
 
   It transforms the state using attention and ffn and wrap this transformation
@@ -736,9 +760,11 @@ def r_transformer_skip(layer_inputs,
   return new_state, inputs, memory
 
 
-def r_transformer_depthwise_attention(layer_inputs, step, hparams, ffn_unit,
-                                      attention_unit):
-  """R_transformer with depth-wise attention.
+def universal_transformer_depthwise_attention(layer_inputs,
+                                              step, hparams,
+                                              ffn_unit,
+                                              attention_unit):
+  """universal_transformer with depth-wise attention.
 
   It uses an attention mechanism-flipped vertically-
   over all the states from previous steps to generate the new_state.
@@ -791,15 +817,15 @@ def r_transformer_depthwise_attention(layer_inputs, step, hparams, ffn_unit,
   return new_state, inputs, memory
 
 
-def r_transformer_rnn(layer_inputs,
-                      step,
-                      hparams,
-                      ffn_unit,
-                      attention_unit,
-                      pad_remover=None):
-  """The RT layer which models recurencey similar to basic RNN cell.
+def universal_transformer_rnn(layer_inputs,
+                              step,
+                              hparams,
+                              ffn_unit,
+                              attention_unit,
+                              pad_remover=None):
+  """The UT layer which models recurencey similar to basic RNN cell.
 
-    It's an R-transformer with an RNN applied over the stats on depth.
+    It's an U-Transformer with an RNN applied over the stats on depth.
 
   Args:
     layer_inputs:
@@ -863,11 +889,11 @@ def r_transformer_rnn(layer_inputs,
   return new_state, inputs, memory
 
 
-def r_transformer_gru(layer_inputs,
-                      step,
-                      hparams,
-                      attention_unit,
-                      pad_remover=None):
+def universal_transformer_gru(layer_inputs,
+                              step,
+                              hparams,
+                              attention_unit,
+                              pad_remover=None):
   """The RT layer which models recurencey similar to GRU cell.
 
     It's an R-transformer with a gru applied over the stats on depth.
@@ -938,12 +964,12 @@ def r_transformer_gru(layer_inputs,
   return new_state, inputs, memory
 
 
-def r_transformer_lstm(layer_inputs,
-                       step,
-                       hparams,
-                       attention_unit,
-                       pad_remover=None):
-  """The RT layer which models recurencey similar to GRU cell.
+def universal_transformer_lstm(layer_inputs,
+                               step,
+                               hparams,
+                               attention_unit,
+                               pad_remover=None):
+  """The UT layer which models recurencey similar to GRU cell.
 
   It's an R-transformer with a gru applied over the stats on depth.
   based on LSTM paper: https://arxiv.org/pdf/1409.2329.pdf
@@ -1021,7 +1047,7 @@ def r_transformer_lstm(layer_inputs,
   return new_state, inputs, memory
 
 
-def r_transformer_act(x, hparams, ffn_unit, attention_unit):
+def universal_transformer_act(x, hparams, ffn_unit, attention_unit):
   """ACT based models.
 
   Implementations of all act models are based on craffel@'s cl/160711592.
@@ -1039,25 +1065,29 @@ def r_transformer_act(x, hparams, ffn_unit, attention_unit):
     ValueError: Unknown act type
 
   """
-
+  # TODO(dehghani): Use pad_remover for the act computations.
   if hparams.act_type == "basic":
-    return r_transformer_act_basic(x, hparams, ffn_unit, attention_unit)
+    return universal_transformer_act_basic(
+        x, hparams, ffn_unit, attention_unit)
 
   elif hparams.act_type == "accumulated":
-    return r_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit)
+    return universal_transformer_act_accumulated(
+        x, hparams, ffn_unit, attention_unit)
 
   elif hparams.act_type == "global":
-    return r_transformer_act_global(x, hparams, ffn_unit, attention_unit)
+    return universal_transformer_act_global(
+        x, hparams, ffn_unit, attention_unit)
 
   elif hparams.act_type == "random":
-    return r_transformer_act_random(x, hparams, ffn_unit, attention_unit)
+    return universal_transformer_act_random(
+        x, hparams, ffn_unit, attention_unit)
 
   else:
     raise ValueError("Unknown act type: %s" % hparams.act_type)
 
 
-def r_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
-  """Basic r_transformer with ACT based on remainder-distribution ACT.
+def universal_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
+  """Basic universal_transformer with ACT based on remainder-distribution ACT.
 
   Args:
     x: input
@@ -1100,7 +1130,7 @@ def r_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
   previous_state = tf.zeros_like(state, name="previous_state")
   step = tf.constant(0, dtype=tf.int32)
 
-  def rt_function(state, step, halting_probability, remainders, n_updates,
+  def ut_function(state, step, halting_probability, remainders, n_updates,
                   previous_state):
     """implements act (position-wise halting).
 
@@ -1196,7 +1226,7 @@ def r_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
 
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
-      should_continue, rt_function,
+      should_continue, ut_function,
       (state, step, halting_probability, remainders, n_updates, previous_state))
 
   ponder_times = n_updates
@@ -1207,8 +1237,8 @@ def r_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
   return new_state, (ponder_times, remainders)
 
 
-def r_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
-  """The RTAct layer where the final state is accumulation of all states.
+def universal_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
+  """The UTAct layer where the final state is the accumulation of all states.
 
     (similar to the main ACT paper: --> check the issue of differentiability)
 
@@ -1252,7 +1282,7 @@ def r_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
   accumulated_state = tf.zeros_like(state, name="previous_state")
   step = tf.constant(0, dtype=tf.int32)
 
-  def rt_function(state, step, halting_probability, remainders, n_updates,
+  def ut_function(state, step, halting_probability, remainders, n_updates,
                   accumulated_state):
     """Position-wise act.
 
@@ -1347,7 +1377,7 @@ def r_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
 
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, accumulated_state) = tf.while_loop(
-      should_continue, rt_function, (state, step, halting_probability,
+      should_continue, ut_function, (state, step, halting_probability,
                                      remainders, n_updates, accumulated_state))
 
   ponder_times = n_updates
@@ -1358,8 +1388,8 @@ def r_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
   return accumulated_state, (ponder_times, remainders)
 
 
-def r_transformer_act_global(x, hparams, ffn_unit, attention_unit):
-  """The RTAct  with global halting probability (not position-wise).
+def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
+  """The UTAct  with global halting probability (not position-wise).
 
   Args:
     x: input
@@ -1388,7 +1418,7 @@ def r_transformer_act_global(x, hparams, ffn_unit, attention_unit):
   previous_state = tf.zeros_like(state, name="previous_state")
   step = tf.constant(0, dtype=tf.int32)
 
-  def rt_function(state, step, halting_probability, remainders, n_updates,
+  def ut_function(state, step, halting_probability, remainders, n_updates,
                   previous_state):
     """implements act (global halting).
 
@@ -1489,7 +1519,7 @@ def r_transformer_act_global(x, hparams, ffn_unit, attention_unit):
 
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
-      should_continue, rt_function,
+      should_continue, ut_function,
       (state, step, halting_probability, remainders, n_updates, previous_state))
 
   ponder_times = n_updates
@@ -1500,8 +1530,8 @@ def r_transformer_act_global(x, hparams, ffn_unit, attention_unit):
   return new_state, (ponder_times, remainders)
 
 
-def r_transformer_act_random(x, hparams, ffn_unit, attention_unit):
-  """r_transformer with ACT with random halting probability.
+def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
+  """universal_transformer with ACT with random halting probability.
 
   Args:
     x: input
@@ -1544,7 +1574,7 @@ def r_transformer_act_random(x, hparams, ffn_unit, attention_unit):
   previous_state = tf.zeros_like(state, name="previous_state")
   step = tf.constant(0, dtype=tf.int32)
 
-  def rt_function(state, step, halting_probability, remainders, n_updates,
+  def ut_function(state, step, halting_probability, remainders, n_updates,
                   previous_state):
     """Implements act (position-wise halting).
 
@@ -1636,7 +1666,7 @@ def r_transformer_act_random(x, hparams, ffn_unit, attention_unit):
 
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
-      should_continue, rt_function,
+      should_continue, ut_function,
       (state, step, halting_probability, remainders, n_updates, previous_state))
 
   ponder_times = n_updates

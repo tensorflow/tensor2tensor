@@ -24,9 +24,6 @@ python data_generators/inspect_tfrecord.py \
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import six
 
 from tensor2tensor.data_generators import text_encoder
