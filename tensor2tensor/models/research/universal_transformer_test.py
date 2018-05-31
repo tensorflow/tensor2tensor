@@ -17,10 +17,13 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+# Dependency imports
+
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.models.research import r_transformer
+from tensor2tensor.models.research import universal_transformer
 
 import tensorflow as tf
 
@@ -30,10 +33,10 @@ TARGET_LENGTH = 7
 VOCAB_SIZE = 10
 
 
-class RTransformerTest(tf.test.TestCase):
+class UniversalTransformerTest(tf.test.TestCase):
 
-  def get_model(self, hparams, mode=tf.estimator.ModeKeys.TRAIN,
-                has_input=True):
+  def get_model(self,
+                hparams, mode=tf.estimator.ModeKeys.TRAIN, has_input=True):
     hparams.hidden_size = 8
     hparams.filter_size = 32
     hparams.num_heads = 1
@@ -54,10 +57,12 @@ class RTransformerTest(tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32)
     }
 
-    return r_transformer.RTransformer(hparams, mode, p_hparams), features
+    return universal_transformer.UniversalTransformer(
+        hparams, mode, p_hparams), features
 
   def testTransformer(self):
-    model, features = self.get_model(r_transformer.r_transformer_base())
+    model, features = self.get_model(
+        universal_transformer.universal_transformer_base())
     logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
