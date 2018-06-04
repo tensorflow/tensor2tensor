@@ -40,7 +40,7 @@ def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  t2t_trainer.log_registry()
+  t2t_trainer.maybe_log_registry_and_exit()
 
   if FLAGS.cloud_mlengine:
     cloud_mlengine.launch()
@@ -94,7 +94,7 @@ def create_teacher_experiment(run_config, hparams, argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  t2t_trainer.log_registry()
+  t2t_trainer.maybe_log_registry_and_exit()
 
   if FLAGS.cloud_mlengine:
     return cloud_mlengine.launch()
@@ -121,7 +121,7 @@ def create_student_experiment(run_config, hparams, argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  t2t_trainer.log_registry()
+  t2t_trainer.maybe_log_registry_and_exit()
 
   if FLAGS.cloud_mlengine:
     return cloud_mlengine.launch()

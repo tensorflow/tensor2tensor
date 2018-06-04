@@ -247,7 +247,7 @@ def profile_context():
     yield
 
 
-def log_registry():
+def maybe_log_registry_and_exit():
   if FLAGS.registry_help:
     tf.logging.info(registry.help_string())
     sys.exit(0)
@@ -328,7 +328,7 @@ def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  log_registry()
+  maybe_log_registry_and_exit()
 
 
   if FLAGS.cloud_mlengine:

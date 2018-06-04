@@ -27,7 +27,8 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
-def lstm(inputs, hparams, train, name, initial_state=None, lengths=None):
+def lstm(inputs, hparams, train, name, initial_state=None,
+         sequence_length=None):
   """Run LSTM cell on inputs, assuming they are [batch x time x size]."""
 
   def dropout_lstm_cell():
@@ -41,13 +42,14 @@ def lstm(inputs, hparams, train, name, initial_state=None, lengths=None):
         tf.contrib.rnn.MultiRNNCell(layers),
         inputs,
         initial_state=initial_state,
-        sequence_length=lengths,
+        sequence_length=sequence_length,
         dtype=tf.float32,
         time_major=False)
 
 
 def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
-                           encoder_outputs, lengths=None):
+                           encoder_outputs, encoder_output_length=None,
+                           decoder_input_length=None):
   """Run LSTM cell with attention on inputs of shape [batch x time x size]."""
 
   def dropout_lstm_cell():
@@ -64,7 +66,8 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
     raise ValueError("Unknown hparams.attention_mechanism = %s, must be "
                      "luong or bahdanau." % hparams.attention_mechanism)
   attention_mechanism = attention_mechanism_class(
-      hparams.hidden_size, encoder_outputs, memory_sequence_length=lengths)
+      hparams.hidden_size, encoder_outputs,
+      memory_sequence_length=encoder_output_length)
 
   cell = tf.contrib.seq2seq.AttentionWrapper(
       tf.nn.rnn_cell.MultiRNNCell(layers),
@@ -82,6 +85,7 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
         cell,
         inputs,
         initial_state=initial_state,
+        sequence_length=decoder_input_length,
         dtype=tf.float32,
         time_major=False)
 
@@ -120,18 +124,21 @@ def lstm_seq2seq_internal_attention(inputs, targets, hparams, train):
     # This is a temporary fix for varying-length sequences within in a batch.
     # A more complete fix should pass a length tensor from outside so that
     # all the lstm variants can use it.
-    lengths = tf.reduce_sum(
-        common_layers.mask_from_embedding(inputs), [1, 2, 3])
+    inputs_length = common_layers.length_from_embedding(inputs)
     # Flatten inputs.
     inputs = common_layers.flatten4d3d(inputs)
     # LSTM encoder.
     encoder_outputs, final_encoder_state = lstm(
-        inputs, hparams, train, "encoder", lengths=lengths)
+        inputs, hparams, train, "encoder", sequence_length=inputs_length)
     # LSTM decoder with attention
     shifted_targets = common_layers.shift_right(targets)
+    # Add 1 to account for the padding added to the left from shift_right
+    targets_length = common_layers.length_from_embedding(shifted_targets) + 1
     decoder_outputs, _ = lstm_attention_decoder(
         common_layers.flatten4d3d(shifted_targets), hparams, train, "decoder",
-        final_encoder_state, encoder_outputs, lengths=lengths)
+        final_encoder_state, encoder_outputs,
+        encoder_output_length=inputs_length,
+        decoder_input_length=targets_length)
     return tf.expand_dims(decoder_outputs, axis=2)
 
 

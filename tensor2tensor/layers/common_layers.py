@@ -1288,6 +1288,17 @@ def mask_from_embedding(emb):
   return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keepdims=True))
 
 
+def length_from_embedding(emb):
+  """Compute the length of each sequence in the batch.
+
+  Args:
+    emb: a sequence embedding Tensor with shape [batch, max_time, 1, depth].
+  Returns:
+    a Tensor with shape [batch].
+  """
+  return tf.reduce_sum(mask_from_embedding(emb), [1, 2, 3])
+
+
 def mask_leq(target_length, source_length):
   """A mask with 1.0 wherever source_pos <= target_pos and 0.0 elsewhere.
 
