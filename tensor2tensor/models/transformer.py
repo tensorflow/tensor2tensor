@@ -145,7 +145,7 @@ class Transformer(t2t_model.T2TModel):
           "inputs": Transformer inputs [batch_size, input_length, hidden_dim]
           "targets": Target decoder outputs.
               [batch_size, decoder_length, hidden_dim]
-          "target_space_id"
+          "target_space_id": A scalar int from data_generators.problem.SpaceID.
 
     Returns:
       Final decoder representation. [batch_size, decoder_length, hidden_dim]
