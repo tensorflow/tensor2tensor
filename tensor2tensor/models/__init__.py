@@ -47,6 +47,7 @@ from tensor2tensor.models.research import next_frame
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
+from tensor2tensor.models.research import transformer_nat
 from tensor2tensor.models.research import transformer_revnet
 from tensor2tensor.models.research import transformer_sketch
 from tensor2tensor.models.research import transformer_symshard

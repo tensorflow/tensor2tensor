@@ -121,7 +121,8 @@ class DiscretizationTest(tf.test.TestCase):
       self.assertTrue(np.all(x_means_hot_eval == x_means_hot_test))
 
   def testGetVQBottleneck(self):
-    bottleneck_size = 4
+    bottleneck_bits = 2
+    bottleneck_size = 2**bottleneck_bits
     hidden_size = 3
     means, _, ema_count = discretization.get_vq_bottleneck(bottleneck_size,
                                                            hidden_size)
@@ -148,7 +149,7 @@ class DiscretizationTest(tf.test.TestCase):
 
   def testVQDiscreteBottleneck(self):
     x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
-    x_means_hot, _ = discretization.vq_discrete_bottleneck(x, bottleneck_size=4)
+    x_means_hot, _ = discretization.vq_discrete_bottleneck(x, bottleneck_bits=2)
     with self.test_session() as sess:
       tf.global_variables_initializer().run()
       x_means_hot_eval = sess.run(x_means_hot)
