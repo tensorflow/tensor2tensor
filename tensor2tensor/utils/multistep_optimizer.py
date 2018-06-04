@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Optimizer variants which make it possible to use very large batch sizes with
-limited GPU memory. Optimizers in this module accumulate the gradients for n 
-batches, and call the optimizer's update rule every n batches with the 
+limited GPU memory. Optimizers in this module accumulate the gradients for n
+batches, and call the optimizer's update rule every n batches with the
 accumulated gradients.
 
 See [Saunders et al., 2018](https://arxiv.org/abs/1805.00456) for details.
@@ -35,15 +35,15 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
   def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8,
                use_locking=False, name="Adam", n=1):
     super(MultistepAdamOptimizer, self).__init__(
-      learning_rate=learning_rate, beta1=beta1, beta2=beta2, epsilon=epsilon, 
-      use_locking=use_locking, name=name)
+        learning_rate=learning_rate, beta1=beta1, beta2=beta2, epsilon=epsilon,
+        use_locking=use_locking, name=name)
     self._n = n  # Call Adam optimizer every n batches with accumulated grads
     self._n_t = None  # n as tensor
 
   def _create_slots(self, var_list):
     """Create slot variables for Adam with accumulated gradients.
 
-    Like super class method, but additionally creates slots for the gradient 
+    Like super class method, but additionally creates slots for the gradient
     accumulator `acc_grad` and the counter variable.
     """
     super(MultistepAdamOptimizer, self)._create_slots(var_list)
@@ -65,7 +65,7 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
     super(MultistepAdamOptimizer, self)._prepare()
     self._n_t = tf.convert_to_tensor(self._n, name="n")
 
-  def _apply_cond(self, apply_fn, grad, var, *args,**kwargs):
+  def _apply_cond(self, apply_fn, grad, var, *args, **kwargs):
     """Conditionally apply or accumulate gradient.
 
     Call `apply_fn only if the current counter value (iter) is zero. This
@@ -85,30 +85,30 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
     def accumulate_gradient(grad_acc, grad):
       assign_op = tf.assign_add(grad_acc, grad, use_locking=self._use_locking)
       return tf.group(assign_op)  # Strip return value
-      
+
     return tf.cond(tf.equal(self._get_iter_variable(), 0),
                    lambda: apply_adam(
-                     grad_acc, apply_fn, grad, var, *args, **kwargs),
+                       grad_acc, apply_fn, grad, var, *args, **kwargs),
                    lambda: accumulate_gradient(grad_acc, grad))
 
   def _apply_dense(self, grad, var):
     return self._apply_cond(
-      super(MultistepAdamOptimizer, self)._apply_dense, grad, var)
+        super(MultistepAdamOptimizer, self)._apply_dense, grad, var)
 
   def _resource_apply_dense(self, grad, var):
     return self._apply_cond(
-      super(MultistepAdamOptimizer, self)._resource_apply_dense, grad, var)
+        super(MultistepAdamOptimizer, self)._resource_apply_dense, grad, var)
 
   def _apply_sparse_shared(self, grad, var, indices, scatter_add):
     return self._apply_cond(
-      super(MultistepAdamOptimizer, self)._apply_sparse_shared, grad, var,
-      indices, scatter_add)
+        super(MultistepAdamOptimizer, self)._apply_sparse_shared, grad, var,
+        indices, scatter_add)
 
   def _apply_sparse(self, grad, var):
     # TODO: Implement a sparse version
     dense_grad = tf.convert_to_tensor(grad)
     return self._apply_cond(
-      super(MultistepAdamOptimizer, self)._apply_dense, dense_grad, var)
+        super(MultistepAdamOptimizer, self)._apply_dense, dense_grad, var)
 
   def _finish(self, update_ops, name_scope):
     """Like super class method, but updates beta_power variables only every
@@ -129,11 +129,11 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
               beta2_power * self._beta2_t,
               use_locking=self._use_locking)
           return tf.group(update_beta1, update_beta2)
-        maybe_update_beta = tf.cond(tf.equal(iter_, 0),
-          update_beta_op, tf.no_op)
+        maybe_update_beta = tf.cond(
+            tf.equal(iter_, 0), update_beta_op, tf.no_op)
         with tf.control_dependencies([maybe_update_beta]):
-          update_iter = iter_.assign(tf.mod(iter_ + 1, self._n_t), 
+          update_iter = iter_.assign(tf.mod(iter_ + 1, self._n_t),
                                      use_locking=self._use_locking)
     return tf.group(
-      *update_ops + [update_iter, maybe_update_beta], name=name_scope)
+        *update_ops + [update_iter, maybe_update_beta], name=name_scope)
 

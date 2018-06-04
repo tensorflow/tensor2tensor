@@ -34,20 +34,20 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
       # MultistepAdamOptimizer requires TF >= 1.6
       return
     dtype = tf.float32
-    beta1=0.2
-    beta2=0.99
-    alpha=10.0
+    beta1 = 0.2
+    beta2 = 0.99
+    alpha = 10.0
     grads0_np_lst = [
-      np.array([0.1, 0.1], dtype=dtype.as_numpy_dtype),
-      np.array([0.2, -0.1], dtype=dtype.as_numpy_dtype),
-      np.array([0.3, 0.1], dtype=dtype.as_numpy_dtype),
-      np.array([0.4, -0.1], dtype=dtype.as_numpy_dtype)
+        np.array([0.1, 0.1], dtype=dtype.as_numpy_dtype),
+        np.array([0.2, -0.1], dtype=dtype.as_numpy_dtype),
+        np.array([0.3, 0.1], dtype=dtype.as_numpy_dtype),
+        np.array([0.4, -0.1], dtype=dtype.as_numpy_dtype)
     ]
     grads1_np_lst = [
-      np.array([0.01, 0.01], dtype=dtype.as_numpy_dtype),
-      np.array([0.02, 0.02], dtype=dtype.as_numpy_dtype),
-      np.array([-0.04, 0.04], dtype=dtype.as_numpy_dtype),
-      np.array([-0.04, 0.06], dtype=dtype.as_numpy_dtype)
+        np.array([0.01, 0.01], dtype=dtype.as_numpy_dtype),
+        np.array([0.02, 0.02], dtype=dtype.as_numpy_dtype),
+        np.array([-0.04, 0.04], dtype=dtype.as_numpy_dtype),
+        np.array([-0.04, 0.06], dtype=dtype.as_numpy_dtype)
     ]
     var0_np = np.array([1.0, 2.0], dtype=dtype.as_numpy_dtype)
     var1_np = np.array([3.0, 4.0], dtype=dtype.as_numpy_dtype)
@@ -81,7 +81,7 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
            multistep_beta2_power) = multistep_opt._get_beta_accumulators()
 
           # Run 3 steps of Adam
-          for t in range(1, 4):
+          for _ in range(1, 4):
             self.evaluate(singlestep_update)
             for multistep_update in multistep_updates:
               self.evaluate(multistep_update)
