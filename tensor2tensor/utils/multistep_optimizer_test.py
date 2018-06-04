@@ -21,28 +21,8 @@ from __future__ import print_function
 # Dependency imports
 
 import numpy as np
-
-from tensor2tensor.utils.multistep_optimizer import MultistepAdamOptimizer
-
 import tensorflow as tf
-
-
-def adam_update_numpy(param,
-                      g_t,
-                      t,
-                      m,
-                      v,
-                      alpha=0.001,
-                      beta1=0.9,
-                      beta2=0.999,
-                      epsilon=1e-8):
-  alpha_t = alpha * np.sqrt(1 - beta2**t) / (1 - beta1**t)
-
-  m_t = beta1 * m + (1 - beta1) * g_t
-  v_t = beta2 * v + (1 - beta2) * g_t * g_t
-
-  param_t = param - alpha_t * m_t / (np.sqrt(v_t) + epsilon)
-  return param_t, m_t, v_t
+from tensor2tensor.utils.multistep_optimizer import MultistepAdamOptimizer
 
 
 class MultistepAdamOptimizerTest(tf.test.TestCase):
@@ -69,53 +49,56 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
       np.array([-0.04, 0.04], dtype=dtype.as_numpy_dtype),
       np.array([-0.04, 0.06], dtype=dtype.as_numpy_dtype)
     ]
+    var0_np = np.array([1.0, 2.0], dtype=dtype.as_numpy_dtype)
+    var1_np = np.array([3.0, 4.0], dtype=dtype.as_numpy_dtype)
     # Test accumulating gradients for n=1..4 steps
     for n in range(1, 5):
       with self.test_session():
         with self.test_session(graph=tf.Graph()):
-          # Initialize variables for numpy implementation.
-          m0, v0, m1, v1 = 0.0, 0.0, 0.0, 0.0
-          var0_np = np.array([1.0, 2.0], dtype=dtype.as_numpy_dtype)
-          var1_np = np.array([3.0, 4.0], dtype=dtype.as_numpy_dtype)
+          singlestep_var0 = tf.Variable(var0_np)
+          singlestep_var1 = tf.Variable(var1_np)
 
-          var0 = tf.Variable(var0_np)
-          var1 = tf.Variable(var1_np)
+          multistep_var0 = tf.Variable(var0_np)
+          multistep_var1 = tf.Variable(var1_np)
 
-          opt = MultistepAdamOptimizer(
+          singlestep_opt = tf.train.AdamOptimizer(
+              beta1=beta1, beta2=beta2, learning_rate=alpha)
+          multistep_opt = MultistepAdamOptimizer(
               n=n, beta1=beta1, beta2=beta2, learning_rate=alpha)
-          updates = [
-              opt.apply_gradients([(tf.constant(g0), var0),
-                                   (tf.constant(g1), var1)])
+
+          singlestep_update = singlestep_opt.apply_gradients([
+              (tf.constant(sum(grads0_np_lst[:n]) / n), singlestep_var0),
+              (tf.constant(sum(grads1_np_lst[:n]) / n), singlestep_var1)])
+          multistep_updates = [
+              multistep_opt.apply_gradients([(tf.constant(g0), multistep_var0),
+                                             (tf.constant(g1), multistep_var1)])
               for g0, g1 in zip(grads0_np_lst, grads1_np_lst)][:n]
 
           self.evaluate(tf.global_variables_initializer())
-          beta1_power, beta2_power = opt._get_beta_accumulators()
-          # Fetch params to validate initial values
-          self.assertAllClose([1.0, 2.0], self.evaluate(var0))
-          self.assertAllClose([3.0, 4.0], self.evaluate(var1))
+          (singlestep_beta1_power,
+           singlestep_beta2_power) = singlestep_opt._get_beta_accumulators()
+          (multistep_beta1_power,
+           multistep_beta2_power) = multistep_opt._get_beta_accumulators()
 
-          # Average gradients for numpy implementation
-          avg_grads0_np = sum(grads0_np_lst[:n]) / n
-          avg_grads1_np = sum(grads1_np_lst[:n]) / n
           # Run 3 steps of Adam
           for t in range(1, 4):
-            for update in updates:  # Do n updates
-              self.evaluate(update)
+            self.evaluate(singlestep_update)
+            for multistep_update in multistep_updates:
+              self.evaluate(multistep_update)
 
-            self.assertAllCloseAccordingToType(beta1**(t + 1),
-                                               self.evaluate(beta1_power))
-            self.assertAllCloseAccordingToType(beta2**(t + 1),
-                                               self.evaluate(beta2_power))
-            var0_np, m0, v0 = adam_update_numpy(
-                var0_np, avg_grads0_np, t, m0, v0,
-                beta1=beta1, beta2=beta2, alpha=alpha)
-            var1_np, m1, v1 = adam_update_numpy(
-                var1_np, avg_grads1_np, t, m1, v1,
-                beta1=beta1, beta2=beta2, alpha=alpha)
-
+            self.assertAllCloseAccordingToType(
+                self.evaluate(singlestep_beta1_power),
+                self.evaluate(multistep_beta1_power))
+            self.assertAllCloseAccordingToType(
+                self.evaluate(singlestep_beta2_power),
+                self.evaluate(multistep_beta2_power))
             # Validate updated params
-            self.assertAllCloseAccordingToType(var0_np, self.evaluate(var0))
-            self.assertAllCloseAccordingToType(var1_np, self.evaluate(var1))
+            self.assertAllCloseAccordingToType(
+                self.evaluate(singlestep_var0),
+                self.evaluate(multistep_var0))
+            self.assertAllCloseAccordingToType(
+                self.evaluate(singlestep_var1),
+                self.evaluate(multistep_var1))
 
 
 if __name__ == "__main__":
