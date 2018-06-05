@@ -40,12 +40,12 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   @property
   def num_input_frames(self):
     """Number of frames to batch on one input."""
-    return 4
+    return 1
 
   @property
   def num_target_frames(self):
     """Number of frames to predict in one step."""
-    return 1
+    return 3
 
   @property
   def is_generate_per_split(self):
@@ -66,7 +66,11 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
 
   @property
   def video_length(self):
-    return 5
+    return self.num_input_frames + self.num_target_frames
+
+  @property
+  def random_skip(self):
+    return False
 
   @property
   def extra_reading_spec(self):
@@ -130,11 +134,11 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
                           [-1.0, -1.0]
                          ])
 
-    rnd = np.random.randint(len(direction))
     sp = np.array([lim/2.0, lim/2.0])
+    rnd = np.random.randint(len(direction))
     di = direction[rnd]
 
-    colors = ["b", "g", "r", "c", "m", "y", "k"]
+    colors = ["b", "g", "r", "c", "m", "y"]
     color = np.random.choice(colors)
 
     shape = np.random.choice([
@@ -149,7 +153,6 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
     plt.ioff()
 
     xy = np.array(sp)
-    di = direction[0]
 
     for _ in range(self.video_length):
       fig = plt.figure()
