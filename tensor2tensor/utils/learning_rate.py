@@ -40,7 +40,7 @@ def learning_rate_factor(name, step_num, hparams):
 
 def learning_rate_schedule(hparams):
   """Learning rate schedule based on hparams."""
-  step_num = _global_step(hparams)
+  step_num = tf.to_float(tf.train.get_or_create_global_step())
   schedule_string = hparams.learning_rate_schedule
   names = schedule_string.split("*")
   names = [name.strip() for name in names if name.strip()]
@@ -52,7 +52,7 @@ def learning_rate_schedule(hparams):
 
 def legacy_learning_rate_schedule(hparams):
   """Backwards-compatible learning-rate schedule."""
-  step_num = _global_step(hparams)
+  step_num = tf.to_float(tf.train.get_or_create_global_step())
   warmup_steps = tf.to_float(hparams.learning_rate_warmup_steps)
   if hparams.learning_rate_decay_scheme == "noam":
     ret = 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
@@ -65,17 +65,6 @@ def legacy_learning_rate_schedule(hparams):
   optimizer_correction = 0.002 if "Adam" in hparams.optimizer else 1.0
   tf.logging.info("Base learning rate: %f", hparams.learning_rate)
   return ret * optimizer_correction * hparams.learning_rate
-
-
-def _global_step(hparams):
-  """Adjust global step if a multi-step optimizer is used."""
-  step = tf.to_float(tf.train.get_or_create_global_step())
-  multiplier = hparams.optimizer_multistep_accumulate_steps
-  if multiplier:
-    step = step / tf.to_float(multiplier)
-    tf.logging.info("Divided global step by %d for multi-step optimizer."
-                    % multiplier)
-  return step
 
 
 def _legacy_sqrt_decay(step):
@@ -106,7 +95,7 @@ def _learning_rate_decay(hparams, warmup_steps=0):
   """Learning rate decay multiplier."""
   scheme = hparams.learning_rate_decay_scheme
   warmup_steps = tf.to_float(warmup_steps)
-  global_step = _global_step(hparams)
+  global_step = tf.to_float(tf.train.get_or_create_global_step())
 
   if not scheme or scheme == "none":
     return tf.constant(1.)
