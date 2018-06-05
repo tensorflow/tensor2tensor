@@ -40,7 +40,7 @@ def learning_rate_factor(name, step_num, hparams):
 
 def learning_rate_schedule(hparams):
   """Learning rate schedule based on hparams."""
-  step_num = tf.to_float(tf.train.get_or_create_global_step())
+  step_num = _global_step(hparams)
   schedule_string = hparams.learning_rate_schedule
   names = schedule_string.split("*")
   names = [name.strip() for name in names if name.strip()]
@@ -52,19 +52,31 @@ def learning_rate_schedule(hparams):
 
 def legacy_learning_rate_schedule(hparams):
   """Backwards-compatible learning-rate schedule."""
-  step_num = tf.to_float(tf.train.get_or_create_global_step())
+  step_num = _global_step(hparams)
   warmup_steps = tf.to_float(hparams.learning_rate_warmup_steps)
   if hparams.learning_rate_decay_scheme == "noam":
     ret = 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
         (step_num + 1) * warmup_steps**-1.5, (step_num + 1)**-0.5)
   else:
     warmup_steps = hparams.learning_rate_warmup_steps
-    warmup = _learning_rate_warmup(warmup_steps)
+    warmup = _learning_rate_warmup(warmup_steps, hparams=hparams)
     decay = _learning_rate_decay(hparams, warmup_steps)
     ret = tf.where(step_num < warmup_steps, warmup, decay)
   optimizer_correction = 0.002 if "Adam" in hparams.optimizer else 1.0
   tf.logging.info("Base learning rate: %f", hparams.learning_rate)
   return ret * optimizer_correction * hparams.learning_rate
+
+
+def _global_step(hparams):
+  """Adjust global step if a multi-step optimizer is used."""
+  step = tf.to_float(tf.train.get_or_create_global_step())
+  multiplier = hparams.optimizer_multistep_accumulate_steps
+  if not multiplier:
+    return step
+
+  tf.logging.info("Dividing global step by %d for multi-step optimizer."
+                  % multiplier)
+  return step / tf.to_float(multiplier)
 
 
 def _legacy_sqrt_decay(step):
@@ -95,7 +107,7 @@ def _learning_rate_decay(hparams, warmup_steps=0):
   """Learning rate decay multiplier."""
   scheme = hparams.learning_rate_decay_scheme
   warmup_steps = tf.to_float(warmup_steps)
-  global_step = tf.to_float(tf.train.get_or_create_global_step())
+  global_step = _global_step(hparams)
 
   if not scheme or scheme == "none":
     return tf.constant(1.)
@@ -136,7 +148,7 @@ def _learning_rate_decay(hparams, warmup_steps=0):
                    hparams.learning_rate_decay_scheme)
 
 
-def _learning_rate_warmup(warmup_steps, warmup_schedule="exp"):
+def _learning_rate_warmup(warmup_steps, warmup_schedule="exp", hparams=None):
   """Learning rate warmup multiplier."""
   if not warmup_steps:
     return tf.constant(1.)
@@ -145,7 +157,7 @@ def _learning_rate_warmup(warmup_steps, warmup_schedule="exp"):
                   warmup_schedule, warmup_steps)
 
   warmup_steps = tf.to_float(warmup_steps)
-  global_step = tf.to_float(tf.train.get_or_create_global_step())
+  global_step = _global_step(hparams)
 
   if warmup_schedule == "exp":
     return tf.exp(tf.log(0.01) / warmup_steps)**(warmup_steps - global_step)

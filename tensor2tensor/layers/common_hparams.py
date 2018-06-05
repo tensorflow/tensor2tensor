@@ -64,6 +64,8 @@ def basic_params1():
       optimizer_adafactor_memory_exponent=0.8,
       optimizer_adafactor_clipping_threshold=1.0,
       optimizer_adafactor_multiply_by_parameter_scale=True,
+      # Number of accumulating steps for multi step optimizers.
+      optimizer_multistep_accumulate_steps=None,
       weight_decay=1e-6,
       weight_noise=0.0,
       # Defines the learning rate as a product of named functions.

@@ -1137,6 +1137,15 @@ def transformer_base_single_gpu():
 
 
 @registry.register_hparams
+def transformer_base_multistep8():
+  """HParams for simulating 8 GPUs with MultistepAdam optimizer."""
+  hparams = transformer_base()
+  hparams.optimizer = "MultistepAdam"
+  hparams.optimizer_multistep_accumulate_steps = 8
+  return hparams
+
+
+@registry.register_hparams
 def transformer_parsing_base():
   """HParams for parsing on WSJ only."""
   hparams = transformer_base()
