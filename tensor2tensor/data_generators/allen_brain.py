@@ -147,18 +147,11 @@ def _generator(tmp_dir, training, size=_BASE_EXAMPLE_IMAGE_SIZE,
         # uint8 type.
         subimage = np.uint8(np.clip(std_sub, 0, 1)*255)
 
-        # ----------
         # TODO: I'm guessing there is a better way to do this.
-
         subimage = Image.fromarray(subimage)
-
         buff = BytesIO()
-
         subimage.save(buff, format="JPEG")
-
         subimage_encoded = buff.getvalue()
-
-        # -----------
 
         yield {
             "image/encoded": [subimage_encoded],
@@ -166,16 +159,6 @@ def _generator(tmp_dir, training, size=_BASE_EXAMPLE_IMAGE_SIZE,
             "image/height": [height],
             "image/width": [width]
         }
-
-    #with tf.gfile.Open(filename, "rb") as f:
-    #  encoded_image = f.read()
-      #example = {
-      #  "image/encoded": [encoded_image],
-      #  "image/format": ["jpeg"],
-      #  "image/height": [height],
-      #  "image/width": [width]
-      #}
-      #yield example
 
 
 @registry.register_problem
@@ -267,8 +250,7 @@ class AllenBrainImage2image(problem.Problem):
     eval_metrics = [
         metrics.Metrics.ACC,
         metrics.Metrics.ACC_PER_SEQ,
-        metrics.Metrics.NEG_LOG_PERPLEXITY,
-        metrics.Metrics.IMAGE_SUMMARY
+        metrics.Metrics.NEG_LOG_PERPLEXITY
     ]
     return eval_metrics
 
@@ -303,47 +285,6 @@ class AllenBrainImage2imageDim48to64(AllenBrainImage2image):
   Notes:
 
     * 1.25x resolution up-sampling to 64px target.
-
-    * See AllenBrainImage2image for more details.
-
-  """
-
-  @property
-  def input_dim(self):
-    return 48
-
-  @property
-  def output_dim(self):
-    return 64
-
-
-@registry.register_problem
-class AllenBrainImage2imageDim64to64Paint1(AllenBrainImage2image):
-  """64px to 64px mapping with 1% in-painting."""
-
-  @property
-  def inpaint_fraction(self):
-    return 0.01
-
-  @property
-  def input_dim(self):
-    return 64
-
-  @property
-  def output_dim(self):
-    return 64
-
-
-@registry.register_problem
-class AllenBrainImage2imageExpand48to64(AllenBrainImage2image):
-  """48px to 64px expansion problem.
-
-  Notes:
-
-    * 1.25x sub-image expansion to 64px target, i.e. we learn to map
-      a full resolution, centered, 48px sub-image back to the original
-      64px image which was center-cropped to produce the input 48px
-      image.
 
     * See AllenBrainImage2image for more details.
 
