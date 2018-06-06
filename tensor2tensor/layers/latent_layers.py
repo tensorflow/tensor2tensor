@@ -497,7 +497,7 @@ def transformer_autoencoder(inputs,
 
     # Call the autoregressive latent prediction model.
     _, latents_pred_loss = latent_prediction_model(
-        targets_c,
+        inputs,
         ed_attention_bias,
         latents_discrete,
         latents_dense,
