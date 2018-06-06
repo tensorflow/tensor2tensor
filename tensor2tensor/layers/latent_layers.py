@@ -98,7 +98,7 @@ def ae_latent_softmax(latents_pred, latents_discrete, hparams):
         if hparams.soft_em:
           # latents_discrete is actually one-hot of multinomial samples
           assert hparams.num_decode_blocks == 1
-          loss = tf.nn.softmax_cross_entropy_with_logits(
+          loss = tf.nn.softmax_cross_entropy_with_logits_v2(
               labels=latents_discrete, logits=latents_logits)
         else:
           loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
