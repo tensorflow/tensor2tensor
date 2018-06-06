@@ -114,6 +114,9 @@ flags.DEFINE_integer("autotune_parallel_trials", 1,
 flags.DEFINE_string("job-dir", None,
                     "DO NOT USE. Exists only for Cloud ML Engine to pass in "
                     "during hyperparameter tuning. Overrides --output_dir.")
+flags.DEFINE_integer("log_step_count_steps", 100,
+                     "Number of local steps after which progress is printed "
+                     "out")
 
 
 def set_hparams_from_args(args):
@@ -220,6 +223,7 @@ def create_run_config(hp):
       random_seed=FLAGS.random_seed,
       tpu_infeed_sleep_secs=FLAGS.tpu_infeed_sleep_secs,
       inter_op_parallelism_threads=FLAGS.inter_op_parallelism_threads,
+      log_step_count_steps=FLAGS.log_step_count_steps,
       intra_op_parallelism_threads=FLAGS.intra_op_parallelism_threads)
 
 

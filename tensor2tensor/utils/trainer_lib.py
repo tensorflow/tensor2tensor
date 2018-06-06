@@ -110,6 +110,7 @@ def create_run_config(master="",
                       tpu_infeed_sleep_secs=None,
                       use_tpu=False,
                       inter_op_parallelism_threads=0,
+                      log_step_count_steps=100,
                       intra_op_parallelism_threads=0):
   """Create RunConfig, TPUConfig, and Parallelism object."""
   session_config = create_session_config(
@@ -129,6 +130,7 @@ def create_run_config(master="",
       "keep_checkpoint_max": keep_checkpoint_max,
       "keep_checkpoint_every_n_hours": keep_checkpoint_every_n_hours,
       "tf_random_seed": random_seed,
+      "log_step_count_steps": log_step_count_steps
   }
   if save_checkpoints_secs:
     del run_config_args["save_checkpoints_steps"]
