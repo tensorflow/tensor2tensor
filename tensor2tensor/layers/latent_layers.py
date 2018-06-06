@@ -14,12 +14,16 @@
 # limitations under the License.
 """Utils for latent variable models."""
 
+import functools
+
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import discretization
 from tensor2tensor.models import transformer
+from tensor2tensor.utils import beam_search
 
 import tensorflow as tf
 
@@ -80,7 +84,7 @@ def multinomial_sample(x, vocab_size, temperature):
 
 def ae_latent_softmax(latents_pred, latents_discrete, hparams):
   """Latent prediction and loss."""
-  vocab_size = 2 ** hparams.z_size
+  vocab_size = 2**hparams.bottleneck_bits
   if hparams.num_decode_blocks < 2:
     with tf.variable_scope("extra_logits"):
       latents_logits = tf.layers.dense(latents_pred, vocab_size,
@@ -103,26 +107,41 @@ def ae_latent_softmax(latents_pred, latents_discrete, hparams):
                                   hparams.sampling_temp)
       return sample, loss
 
-  # Multi-block case.
-  block_vocab_size = 2**(hparams.z_size // hparams.num_decode_blocks)
-  latents_logits = [
-      tf.layers.dense(
-          latents_pred, block_vocab_size, name="extra_logits_%d" % i)
-      for i in range(hparams.num_decode_blocks)
-  ]
-  loss = None
-  if latents_discrete is not None:
-    losses = []
-    for i in range(hparams.num_decode_blocks):
-      d = tf.floormod(tf.floordiv(latents_discrete,
-                                  block_vocab_size**i), block_vocab_size)
-      losses.append(tf.nn.sparse_softmax_cross_entropy_with_logits(
-          labels=d, logits=latents_logits[i]))
-    loss = sum(losses)
-  samples = [multinomial_sample(l, block_vocab_size, hparams.sampling_temp)
-             for l in latents_logits]
-  sample = sum([s * block_vocab_size**i for i, s in enumerate(samples)])
-  return sample, loss
+
+def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
+  """Sample from the latent space in the autoencoder."""
+
+  def symbols_to_logits_fn(ids):
+    """Go from ids to logits."""
+    ids = tf.expand_dims(ids, axis=2)  # Ids start with added all-zeros.
+    latents_discrete = tf.pad(ids[:, 1:], [[0, 0], [0, 1], [0, 0]])
+
+    with tf.variable_scope(tf.get_variable_scope(), reuse=False):
+      latents_dense = embed(
+          tf.one_hot(latents_discrete, depth=2**hparams.bottleneck_bits),
+          hparams.hidden_size)
+      latents_pred = transformer_latent_decoder(inputs, ed, latents_dense,
+                                                hparams, "extra")
+      logits = tf.layers.dense(
+          latents_pred, 2**hparams.bottleneck_bits, name="extra_logits")
+      current_output_position = common_layers.shape_list(ids)[1] - 1
+      logits = logits[:, current_output_position, :]
+    return logits
+
+  initial_ids = tf.zeros([tf.shape(latents_dense_in)[0]], dtype=tf.int32)
+  length = tf.shape(latents_dense_in)[1]
+  ids, _ = beam_search.beam_search(
+      symbols_to_logits_fn,
+      initial_ids,
+      1,
+      length,
+      2**hparams.bottleneck_bits,
+      alpha=0.0,
+      eos_id=-1,
+      stop_early=False)
+
+  res = tf.expand_dims(ids[:, 0, :], axis=2)  # Pick first beam.
+  return res[:, 1:]  # Remove the added all-zeros from ids.
 
 
 def residual_block_layer(inputs, hparams):
@@ -397,32 +416,33 @@ def transformer_latent_decoder(encoder_output,
     return decoder_output
 
 
-def bottleneck_layer(targets_c,
-                     hparams,
-                     name="bottlneck_d"):
+def bottleneck_layer(targets_c, hparams):
   """Compute latents from compressed targets."""
-  # TODO(nikip): Condense hparams by removing options we don't use.
-  latents_dense, latents_discrete, extra_loss, embed_func = (
-      hparams.bottleneck(
-          x=targets_c,
-          filter_size=hparams.compress_filter_size,
-          name=name,
-          mode=hparams.mode))
+  latents_discrete_hot, extra_loss = discretization.parametrized_bottleneck(
+      targets_c, hparams)
+  latents_dense = discretization.parametrized_unbottleneck(
+      latents_discrete_hot, hparams.hidden_size, hparams)
+  latents_discrete = tf.argmax(latents_discrete_hot, axis=-1)
+
   if DO_SUMMARIES:
     tf.summary.histogram("b0", tf.reshape(latents_discrete, [-1]))
-  return latents_dense, latents_discrete, extra_loss, embed_func
+  return latents_dense, latents_discrete, extra_loss
 
 
-def latent_prediction_model(
-    inputs, ed_attention_bias,
-    latents_discrete, embed,
-    hparams, name="latent_pred"):
+def latent_prediction_model(inputs,
+                            ed_attention_bias,
+                            latents_discrete,
+                            latents_dense,
+                            hparams,
+                            name="latent_pred"):
   """Transformer based latent prediction model."""
   with tf.variable_scope(name):
+    # latents_dense = discretization.parametrized_unbottleneck(
+    #     latents_discrete, hparams.hidden_size, hparams)
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
-      latents_pred = transformer_latent_decoder(
-          inputs, ed_attention_bias,
-          tf.stop_gradient(embed(latents_discrete)), hparams, name + "_extra")
+      latents_pred = transformer_latent_decoder(inputs, ed_attention_bias,
+                                                tf.stop_gradient(latents_dense),
+                                                hparams, name + "_extra")
       _, latent_pred_loss = ae_latent_softmax(
           latents_pred, tf.stop_gradient(latents_discrete), hparams)
   return latents_pred, latent_pred_loss
@@ -470,19 +490,36 @@ def transformer_autoencoder(inputs,
   # TODO(lukaszkaiser): return extra losses batchwise, multiply before mean.
   # Call bottleneck layer to get the latents.
   # Returns embedded latents, discrete latents, loss and the embedding function.
-  latents_dense, latents_discrete, extra_loss, embed = (
-      bottleneck_layer(targets_c, hparams))
-  extra_loss = tf.reduce_mean(extra_loss) * tf.to_float(cond)
+  if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+    latents_dense, latents_discrete, extra_loss = (
+        bottleneck_layer(targets_c, hparams))
+    extra_loss = tf.reduce_mean(extra_loss) * tf.to_float(cond)
 
-  # Call the autoregressive latent prediction model.
-  _, latents_pred_loss = latent_prediction_model(
-      targets_c, ed_attention_bias, latents_discrete,
-      embed, hparams, name="latent_pred")
-  latents_pred_loss = tf.reduce_mean(latents_pred_loss) * tf.to_float(cond)
-
-  # Assign latent loss
-  losses["latent_pred"] = latents_pred_loss
-  losses["extra_loss"] = extra_loss
+    # Call the autoregressive latent prediction model.
+    _, latents_pred_loss = latent_prediction_model(
+        targets_c,
+        ed_attention_bias,
+        latents_discrete,
+        latents_dense,
+        hparams,
+        name="latent_pred")
+    latents_pred_loss = tf.reduce_mean(latents_pred_loss) * tf.to_float(cond)
+    # Assign latent loss
+    losses["latent_pred"] = latents_pred_loss
+    losses["extra_loss"] = extra_loss
+  else:
+    latent_len = (
+        hparams.img_len * hparams.img_len * hparams.num_latents) / 2**(
+            hparams.num_compress_steps)
+    embed = functools.partial(
+        discretization.parametrized_unbottleneck, hparams=hparams)
+    latents_dense = tf.zeros([batch_size, latent_len, 1, hparams.hidden_size])
+    if cache is None:
+      cache = ae_latent_sample_beam(latents_dense, inputs, ed_attention_bias,
+                                    embed, hparams)
+    latents_dense = embed(
+        tf.one_hot(cache, depth=2**hparams.bottleneck_bits),
+        hparams.hidden_size)
 
   latents_decoder = latents_dense
   if len(original_targets_shape) == 4:
