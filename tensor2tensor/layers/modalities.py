@@ -540,6 +540,41 @@ class VideoModality(modality.Modality):
         weights_fn=self.targets_weights_fn)
 
 
+@registry.register_video_modality("raw")
+class VideoModalityRaw(modality.Modality):
+  """Modality for raw videos, i.e., time-sequences of frames."""
+
+  def bottom(self, x):
+    common_layers.summarize_video(x, "inputs")
+    return common_layers.convert_rgb_to_real(x)
+
+  def targets_bottom(self, x):
+    common_layers.summarize_video(x, "targets_bottom")
+    return common_layers.convert_rgb_to_real(x)
+
+  def top(self, body_output, _):
+    frames = tf.stack(body_output, axis=1)
+    rgb_frames = common_layers.convert_real_to_rgb(frames)
+    common_layers.summarize_video(rgb_frames, "body_output")
+    return frames
+
+  def loss(self, top_out, targets):
+    assert(top_out.shape.as_list() == targets.shape.as_list()), \
+           "The dimensions doesn't match."
+
+    common_layers.summarize_video(targets, "targets_top")
+    targets = common_layers.convert_rgb_to_real(targets)
+
+    num_frames = top_out.shape[1].value
+    loss = 0.0
+    for frame_id in range(num_frames):
+      frame = tf.to_float(top_out[:, frame_id])
+      target = tf.to_float(targets[:, frame_id])
+      loss += tf.reduce_mean(tf.square(frame - target))
+    loss /= num_frames
+    return loss, tf.zeros_like(loss)
+
+
 @registry.register_video_modality("embed")
 class VideoModalityEmbed(VideoModality):
   """Video Modality where bottom embeds pixels."""

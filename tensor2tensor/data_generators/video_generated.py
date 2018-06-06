@@ -22,6 +22,7 @@ import math
 
 import numpy as np
 
+from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import registry
 
@@ -45,7 +46,7 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   @property
   def num_target_frames(self):
     """Number of frames to predict in one step."""
-    return 3
+    return 4
 
   @property
   def is_generate_per_split(self):
@@ -73,6 +74,17 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
     return False
 
   @property
+  def dataset_splits(self):
+    """Splits of data to produce and number of output shards for each."""
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 1,
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
+
+  @property
   def extra_reading_spec(self):
     """Additional data fields to store on disk and their decoders."""
     data_fields = {
@@ -87,10 +99,10 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.input_modality = {
-        "inputs": ("video", 256),
+        "inputs": ("video:raw", 256),
         "input_frame_number": ("symbol:identity", 1)
     }
-    p.target_modality = ("video", 256)
+    p.target_modality = ("video:raw", 256)
 
   @staticmethod
   def get_circle(x, y, z, c, s):
