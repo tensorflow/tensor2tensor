@@ -24,6 +24,7 @@ import numpy as np
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -72,6 +73,11 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   @property
   def random_skip(self):
     return False
+
+  def eval_metrics(self):
+    eval_metrics = [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
+                    metrics.Metrics.IMAGE_RMSE]
+    return eval_metrics
 
   @property
   def dataset_splits(self):

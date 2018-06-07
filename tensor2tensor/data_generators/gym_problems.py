@@ -395,8 +395,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       autoencoded = self.autoencoder_model.encode(
           tf.reshape(x, [batch_size, 1] + shape))
     autoencoded = tf.reshape(
-        autoencoded, [batch_size, self.frame_height, self.frame_width,
-                      self.num_channels, 8])  # 8-bit groups.
+        autoencoded, [batch_size] + self.frame_shape + [8])  # 8-bit groups.
     if batch_size == 1:
       autoencoded = tf.squeeze(autoencoded, axis=0)
     return discretization.bit_to_int(autoencoded, 8)
@@ -447,7 +446,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         self.autoencoder_feed = tf.placeholder(tf.int32, shape=shape)
         self.autoencoder_result = self.autoencode_tensor(self.autoencoder_feed)
         # Now for autodecoding.
-        shape = [self.frame_height, self.frame_width, self.num_channels]
+        shape = self.frame_shape
         self.autodecoder_feed = tf.placeholder(tf.int32, shape=shape)
         bottleneck = tf.reshape(
             discretization.int_to_bit(self.autodecoder_feed, 8),

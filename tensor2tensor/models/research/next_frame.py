@@ -145,13 +145,13 @@ class NextFrameBasic(t2t_model.T2TModel):
 
     # Get predictions.
     try:
-      num_channels = self._hparams.problem.num_channels
+      num_channels = self.hparams.problem.num_channels
     except AttributeError:
       num_channels = 1
     features["targets"] = tf.zeros(
-        [self._hparams.batch_size, 1, 1, 1, num_channels], dtype=tf.int32)
+        [self.hparams.batch_size, 1, 1, 1, num_channels], dtype=tf.int32)
     features["target_reward"] = tf.zeros(
-        [self._hparams.batch_size, 1, 1], dtype=tf.int32)
+        [self.hparams.batch_size, 1, 1], dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     if isinstance(logits, dict):
       results = {}
@@ -242,7 +242,7 @@ class NextFrameStochastic(NextFrameBasic):
       # batch_size x latent_size
       samples = tf.random_normal(tf.shape(latent_mean), 0, 1, dtype=tf.float32)
 
-    if self.hparams.mode == "train":
+    if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
       return latent_mean, latent_std, samples
     else:
       # No latent tower at inference time, just standard gaussian.
@@ -288,9 +288,8 @@ class NextFrameStochastic(NextFrameBasic):
     if cdna + dna != 1:
       raise ValueError("More than one, or no network option specified.")
 
-    batch_size, img_height, img_width, color_channels = \
-    images[0].get_shape()[0:4]
-    batch_size = tf.shape(images[0])[0]
+    img_height, img_width, color_channels = self.hparams.problem.frame_shape
+    batch_size = common_layers.shape_list(images[0])[0]
     lstm_func = self.basic_conv_lstm_cell
 
     # Generated robot states and images.
@@ -341,7 +340,7 @@ class NextFrameStochastic(NextFrameBasic):
         elif done_warm_start:
           # Scheduled sampling
           prev_image = self.scheduled_sample(
-              image, gen_images[-1], batch_size, num_ground_truth)
+              image, gen_images[-1], self.hparams.batch_size, num_ground_truth)
         else:
           # Always feed in ground_truth
           prev_image = image
@@ -390,7 +389,7 @@ class NextFrameStochastic(NextFrameBasic):
           latent = samples
           if self.hparams.multi_latent:
             latent = samples[timestep]
-          if self.hparams.mode == "train":
+          if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
             # TODO(mbz): put 1st stage of training back in if necessary
             latent = latent_mean + tf.exp(latent_std / 2.0) * latent
           with tf.control_dependencies([latent]):
@@ -434,7 +433,7 @@ class NextFrameStochastic(NextFrameBasic):
           # Using largest hidden state for predicting untied conv kernels.
           enc7 = slim.layers.conv2d_transpose(
               enc6,
-              self.hparams.DNA_KERN_SIZE**2,
+              self.hparams.dna_kernel_size**2,
               1,
               stride=1,
               scope="convt4",
@@ -510,17 +509,17 @@ class NextFrameStochastic(NextFrameBasic):
     # Predict kernels using linear function of last hidden layer.
     cdna_kerns = slim.layers.fully_connected(
         cdna_input,
-        self.hparams.DNA_KERN_SIZE *
-        self.hparams.DNA_KERN_SIZE * num_masks,
+        self.hparams.dna_kernel_size *
+        self.hparams.dna_kernel_size * num_masks,
         scope="cdna_params",
         activation_fn=None)
 
     # Reshape and normalize.
     cdna_kerns = tf.reshape(
-        cdna_kerns, [batch_size, self.hparams.DNA_KERN_SIZE,
-                     self.hparams.DNA_KERN_SIZE, 1, num_masks])
-    cdna_kerns = tf.nn.relu(cdna_kerns - self.hparams.RELU_SHIFT) \
-               + self.hparams.RELU_SHIFT
+        cdna_kerns, [batch_size, self.hparams.dna_kernel_size,
+                     self.hparams.dna_kernel_size, 1, num_masks])
+    cdna_kerns = (tf.nn.relu(cdna_kerns - self.hparams.relu_shift)
+                  + self.hparams.relu_shift)
     norm_factor = tf.reduce_sum(cdna_kerns, [1, 2, 3], keep_dims=True)
     cdna_kerns /= norm_factor
 
@@ -530,8 +529,8 @@ class NextFrameStochastic(NextFrameBasic):
     # depthwise_conv2d can apply a different transformation to each sample.
     cdna_kerns = tf.transpose(cdna_kerns, [1, 2, 0, 4, 3])
     cdna_kerns = tf.reshape(cdna_kerns,
-                            [self.hparams.DNA_KERN_SIZE,
-                             self.hparams.DNA_KERN_SIZE,
+                            [self.hparams.dna_kernel_size,
+                             self.hparams.dna_kernel_size,
                              batch_size,
                              num_masks])
     # Swap the batch and channel dimensions.
@@ -565,8 +564,8 @@ class NextFrameStochastic(NextFrameBasic):
     image_width = int(prev_image.get_shape()[2])
 
     inputs = []
-    for xkern in range(self.hparams.DNA_KERN_SIZE):
-      for ykern in range(self.hparams.DNA_KERN_SIZE):
+    for xkern in range(self.hparams.dna_kernel_size):
+      for ykern in range(self.hparams.dna_kernel_size):
         inputs.append(
             tf.expand_dims(
                 tf.slice(prev_image_pad, [0, xkern, ykern, 0],
@@ -574,8 +573,8 @@ class NextFrameStochastic(NextFrameBasic):
     inputs = tf.concat(axis=3, values=inputs)
 
     # Normalize channels to 1.
-    kernel = tf.nn.relu(dna_input -self.hparams.RELU_SHIFT) \
-           + self.hparams.RELU_SHIFT
+    kernel = (tf.nn.relu(dna_input -self.hparams.relu_shift)
+              + self.hparams.relu_shift)
     kernel = tf.expand_dims(kernel / tf.reduce_sum(kernel, [3], keep_dims=True),
                             [4])
     return tf.reduce_sum(kernel * inputs, [3], keep_dims=False)
@@ -699,17 +698,16 @@ class NextFrameStochastic(NextFrameBasic):
     input_frames = tf.unstack(features["inputs"], axis=1)
     target_frames = tf.unstack(features["targets"], axis=1)
 
-    num_frames = hparams.problem.num_input_frames + \
-                 hparams.problem.num_target_frames
-    batch_size = tf.shape(input_frames)[0]
+    num_frames = hparams.problem.num_input_and_target_frames
+    batch_size = common_layers.shape_list(input_frames)[0]
     fake_zeros = [tf.zeros((batch_size, 1), dtype=tf.float32)
                   for _ in range(num_frames)]
-
+    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
     gen_images, _, latent_mean, latent_std = self.construct_model(
         images=input_frames + target_frames,
         actions=fake_zeros,
         states=fake_zeros,
-        k=900.0 if self.hparams.mode == "training" else -1.0,
+        k=900.0 if is_training else -1.0,
         use_state=False,
         num_masks=10,
         cdna=True,
@@ -722,11 +720,12 @@ class NextFrameStochastic(NextFrameBasic):
                    lambda: self.hparams.latent_loss_multiplier,
                    lambda: 0.0)
 
-    tf.summary.scalar("beta", beta)
-    tf.summary.histogram("posterior_mean", latent_mean)
-    tf.summary.histogram("posterior_std", latent_std)
+    if is_training:
+      tf.summary.scalar("beta", beta)
+      tf.summary.histogram("posterior_mean", latent_mean)
+      tf.summary.histogram("posterior_std", latent_std)
 
-    if self.hparams.mode == "train":
+    if is_training:
       kl_loss = self.kl_divergence(latent_mean, latent_std)
       tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
     kl_loss *= beta
@@ -772,8 +771,8 @@ def next_frame_stochastic():
   hparams.add_hparam("num_iterations_2nd_stage", 10000)
   hparams.add_hparam("latent_loss_multiplier", 1e-4)
   hparams.add_hparam("multi_latent", False)
-  hparams.add_hparam("RELU_SHIFT", 1e-12)
-  hparams.add_hparam("DNA_KERN_SIZE", 5)
+  hparams.add_hparam("relu_shift", 1e-12)
+  hparams.add_hparam("dna_kernel_size", 5)
   return hparams
 
 
@@ -876,4 +875,3 @@ def next_frame_ae_range(rhp):
   rhp.set_float("learning_rate_constant", 1., 2.)
   rhp.set_float("initializer_gain", 0.8, 1.5)
   rhp.set_int("filter_double_steps", 2, 3)
-

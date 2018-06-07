@@ -556,23 +556,15 @@ class VideoModalityRaw(modality.Modality):
     frames = tf.stack(body_output, axis=1)
     rgb_frames = common_layers.convert_real_to_rgb(frames)
     common_layers.summarize_video(rgb_frames, "body_output")
-    return frames
+    # TODO(lukaszkaiser): remove the need for the last dimension of 1 in eval.
+    return tf.expand_dims(rgb_frames, axis=-1)
 
   def loss(self, top_out, targets):
+    top_out = tf.squeeze(top_out, axis=[-1])
     assert(top_out.shape.as_list() == targets.shape.as_list()), \
            "The dimensions doesn't match."
-
-    common_layers.summarize_video(targets, "targets_top")
-    targets = common_layers.convert_rgb_to_real(targets)
-
-    num_frames = top_out.shape[1].value
-    loss = 0.0
-    for frame_id in range(num_frames):
-      frame = tf.to_float(top_out[:, frame_id])
-      target = tf.to_float(targets[:, frame_id])
-      loss += tf.reduce_mean(tf.square(frame - target))
-    loss /= num_frames
-    return loss, tf.zeros_like(loss)
+    loss = tf.square(top_out - tf.to_float(targets))
+    return tf.reduce_sum(loss), tf.reduce_sum(tf.ones_like(loss))
 
 
 @registry.register_video_modality("embed")

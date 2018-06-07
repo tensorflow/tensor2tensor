@@ -65,6 +65,11 @@ class VideoProblem(problem.Problem):
     raise NotImplementedError
 
   @property
+  def frame_shape(self):
+    """Shape of a frame: a list [height , width , channels]."""
+    return [self.frame_height, self.frame_width, self.num_channels]
+
+  @property
   def total_number_of_frames(self):
     """The total number of frames, needed for sharding."""
     raise NotImplementedError
@@ -78,6 +83,11 @@ class VideoProblem(problem.Problem):
   def num_target_frames(self):
     """Number of frames to batch on one target."""
     return 1
+
+  @property
+  def num_input_and_target_frames(self):
+    """Number of frames on input and target added."""
+    return self.num_input_frames + self.num_target_frames
 
   @property
   def random_skip(self):
@@ -194,7 +204,7 @@ class VideoProblem(problem.Problem):
       return self.preprocess_example(example, mode, hparams)
     preprocessed_dataset = dataset.map(_preprocess)
 
-    num_frames = self.num_input_frames + self.num_target_frames
+    num_frames = self.num_input_and_target_frames
     # We jump by a random position at the beginning to add variety.
     if self.random_skip:
       random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
