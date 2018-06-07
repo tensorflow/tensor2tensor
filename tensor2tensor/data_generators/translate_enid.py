@@ -28,31 +28,33 @@ from tensor2tensor.utils import registry
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
 
+_REPO = "https://github.com/prasastoadi/parallel-corpora-en-id/raw/master/"
+
 # IWSLT17 :
-# 	109335 sentences
-#	https://wit3.fbk.eu/mt.php?release=2017-01-more
+# 109335 sentences
+# https://wit3.fbk.eu/mt.php?release=2017-01-more
 # PANL-BPPT :
-#	24024 sentences
-# 	http://www.panl10n.net/english/outputs/Indonesia/BPPT/0902/BPPTIndToEngCorpusHalfM.zip
+# 24024 sentences
+# http://www.panl10n.net/english/outputs/Indonesia/BPPT/0902/BPPTIndToEngCorpusHalfM.zip # pylint: disable=line-too-long
 _ENID_TRAIN_DATASETS = [
     [
-        "https://github.com/prasastoadi/parallel-corpora-en-id/raw/master/IWSLT17.train.en-id.tok.tgz",
+        _REPO + "IWSLT17.train.en-id.tok.tgz",
         ("IWSLT17.train.en-id.tok.en", "IWSLT17.train.en-id.tok.id")
     ],
     [
-        "https://github.com/prasastoadi/parallel-corpora-en-id/raw/master/PANL-BPPT-ECO-EN-ID-150Kw.tok.tgz",
+        _REPO + "PANL-BPPT-ECO-EN-ID-150Kw.tok.tgz",
         ("PANL-BPPT-ECO-EN-150Kw.tok.txt", "PANL-BPPT-ECO-ID-150Kw.tok.txt")
     ],
     [
-        "https://github.com/prasastoadi/parallel-corpora-en-id/raw/master/PANL-BPPT-INT-EN-ID-150Kw.tok.tgz",
+        _REPO + "PANL-BPPT-INT-EN-ID-150Kw.tok.tgz",
         ("PANL-BPPT-INT-EN-150Kw.tok.txt", "PANL-BPPT-INT-ID-150Kw.tok.txt")
     ],
     [
-        "https://github.com/prasastoadi/parallel-corpora-en-id/raw/master/PANL-BPPT-SCI-EN-ID-100Kw.tok.tgz",
+        _REPO + "PANL-BPPT-SCI-EN-ID-100Kw.tok.tgz",
         ("PANL-BPPT-SCI-EN-100Kw.tok.txt", "PANL-BPPT-SCI-ID-100Kw.tok.txt")
     ],
     [
-        "https://github.com/prasastoadi/parallel-corpora-en-id/raw/master/PANL-BPPT-SPO-EN-ID-100Kw.tok.tgz",
+        _REPO + "PANL-BPPT-SPO-EN-ID-100Kw.tok.tgz",
         ("PANL-BPPT-SPO-EN-100Kw.tok.txt", "PANL-BPPT-SPO-ID-100Kw.tok.txt")
     ],
 ]
@@ -62,8 +64,9 @@ _ENID_TRAIN_DATASETS = [
 # https://wit3.fbk.eu/mt.php?release=2017-01-more
 _ENID_TEST_DATASETS = [
     [
-        "https://github.com/prasastoadi/parallel-corpora-en-id/raw/master/IWSLT17.TED.tst2017plus.en-id.tok.tgz",
-        ("IWSLT17.TED.tst2017plus.en-id.tok.en", "IWSLT17.TED.tst2017plus.en-id.tok.id")
+        _REPO + "IWSLT17.TED.tst2017plus.en-id.tok.tgz",
+        ("IWSLT17.TED.tst2017plus.en-id.tok.en",
+         "IWSLT17.TED.tst2017plus.en-id.tok.id")
     ]
 ]
 

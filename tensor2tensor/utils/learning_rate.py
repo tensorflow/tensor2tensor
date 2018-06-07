@@ -44,7 +44,7 @@ def learning_rate_schedule(hparams):
   schedule_string = hparams.learning_rate_schedule
   names = schedule_string.split("*")
   names = [name.strip() for name in names if name.strip()]
-  ret = tf.constant(1.0)
+  ret = 1.0
   for name in names:
     ret *= learning_rate_factor(name, step_num, hparams)
   return ret
