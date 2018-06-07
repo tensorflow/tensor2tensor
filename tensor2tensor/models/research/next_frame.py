@@ -619,6 +619,10 @@ class NextFrameStochastic(NextFrameBasic):
     Returns:
        A tensors representing the initial state.
     """
+
+    del state_initializer
+    del dtype
+
     # recoded by @mbz
     initial_state = tf.zeros([tf.shape(inputs)[0]] + state_shape)
     return initial_state
