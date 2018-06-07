@@ -519,17 +519,17 @@ def rl_modelrl_short():
 @registry.register_hparams
 def rl_modelrl_tiny():
   """Tiny set for testing."""
-  tiny_hp = tf.contrib.training.HParams(
-      epochs=2,
-      true_env_generator_num_steps=100,
-      model_train_steps=2,
-      simulated_env_generator_num_steps=100,
-      ppo_epochs_num=6,
-      ppo_time_limit=20,
-      ppo_epoch_length=20,
-      ppo_num_agents=2,
-  )
-  return rl_modelrl_base().override_from_dict(tiny_hp.values())
+  return rl_modelrl_base().override_from_dict(
+      tf.contrib.training.HParams(
+          epochs=2,
+          true_env_generator_num_steps=100,
+          simulated_env_generator_num_steps=100,
+          model_train_steps=2,
+          ppo_epochs_num=2,
+          ppo_time_limit=5,
+          ppo_epoch_length=5,
+          ppo_num_agents=2,
+      ).values())
 
 
 @registry.register_hparams

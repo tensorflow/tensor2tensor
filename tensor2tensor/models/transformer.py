@@ -145,7 +145,7 @@ class Transformer(t2t_model.T2TModel):
           "inputs": Transformer inputs [batch_size, input_length, hidden_dim]
           "targets": Target decoder outputs.
               [batch_size, decoder_length, hidden_dim]
-          "target_space_id"
+          "target_space_id": A scalar int from data_generators.problem.SpaceID.
 
     Returns:
       Final decoder representation. [batch_size, decoder_length, hidden_dim]
@@ -1133,6 +1133,15 @@ def transformer_base_single_gpu():
   hparams = transformer_base()
   hparams.batch_size = 2048
   hparams.learning_rate_warmup_steps = 16000
+  return hparams
+
+
+@registry.register_hparams
+def transformer_base_multistep8():
+  """HParams for simulating 8 GPUs with MultistepAdam optimizer."""
+  hparams = transformer_base()
+  hparams.optimizer = "MultistepAdam"
+  hparams.optimizer_multistep_accumulate_steps = 8
   return hparams
 
 

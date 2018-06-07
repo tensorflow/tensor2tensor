@@ -107,21 +107,6 @@ class LSTMTest(tf.test.TestCase):
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 6, 1, 1, vocab_size))
 
-  def testFindSequenceLengths(self):
-    vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    x[0, 1:, :, :] = 0
-    x[1, 2:, :, :] = 0
-    with self.test_session() as session:
-      input_ids = tf.constant(x, dtype=tf.int32)
-      sequence_lengths = lstm.find_sequence_lengths(input_ids)
-      session.run(tf.global_variables_initializer())
-      res = session.run(sequence_lengths)
-    self.assertEqual(res.shape, (3,))
-    self.assertEqual(res[0], 1)
-    self.assertEqual(res[1], 2)
-    self.assertEqual(res[2], 5)
-
 
 if __name__ == "__main__":
   tf.test.main()

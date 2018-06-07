@@ -80,6 +80,11 @@ class VideoProblem(problem.Problem):
     return 1
 
   @property
+  def random_skip(self):
+    """Whether to skip random inputs at the beginning or not."""
+    return True
+
+  @property
   def extra_reading_spec(self):
     """Additional data fields to store on disk and their decoders."""
     return {}, {}
@@ -191,8 +196,9 @@ class VideoProblem(problem.Problem):
 
     num_frames = self.num_input_frames + self.num_target_frames
     # We jump by a random position at the beginning to add variety.
-    random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
-    preprocessed_dataset = preprocessed_dataset.skip(random_skip)
+    if self.random_skip:
+      random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
+      preprocessed_dataset = preprocessed_dataset.skip(random_skip)
     batch_dataset = preprocessed_dataset.apply(
         tf.contrib.data.batch_and_drop_remainder(num_frames))
     dataset = batch_dataset.map(features_from_batch).shuffle(8)
