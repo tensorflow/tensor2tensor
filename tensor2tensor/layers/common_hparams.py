@@ -185,6 +185,9 @@ def basic_params1():
       # examples.  e.g.  The examples may be written with length 65536, but we
       # want to split each example into 64 examples of length 1024.
       split_to_length=0,
+      # Video settings: how many frames to batch on input and targets.
+      video_num_input_frames=1,
+      video_num_target_frames=1,
       # This flag allows us to optionally treat a seq-to-seq problem
       # as a language model.  Legal values are:
       #

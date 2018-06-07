@@ -698,7 +698,8 @@ class NextFrameStochastic(NextFrameBasic):
     input_frames = tf.unstack(features["inputs"], axis=1)
     target_frames = tf.unstack(features["targets"], axis=1)
 
-    num_frames = hparams.problem.num_input_and_target_frames
+    num_frames = (hparams.video_num_input_frames +
+                  hparams.video_num_target_frames)
     batch_size = common_layers.shape_list(input_frames)[0]
     fake_zeros = [tf.zeros((batch_size, 1), dtype=tf.float32)
                   for _ in range(num_frames)]
@@ -712,7 +713,7 @@ class NextFrameStochastic(NextFrameBasic):
         num_masks=10,
         cdna=True,
         dna=False,
-        context_frames=hparams.problem.num_input_frames)
+        context_frames=hparams.video_num_input_frames)
 
     kl_loss = 0.0
     step_num = tf.train.get_or_create_global_step()
@@ -730,7 +731,7 @@ class NextFrameStochastic(NextFrameBasic):
       tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
     kl_loss *= beta
 
-    predictions = gen_images[hparams.problem.num_input_frames-1:]
+    predictions = gen_images[hparams.video_num_input_frames-1:]
     return predictions, kl_loss
 
 
@@ -738,6 +739,8 @@ class NextFrameStochastic(NextFrameBasic):
 def next_frame():
   """Basic 2-frame conv model."""
   hparams = common_hparams.basic_params1()
+  hparams.video_num_input_frames = 4
+  hparams.video_num_target_frames = 1
   hparams.hidden_size = 64
   hparams.batch_size = 4
   hparams.num_hidden_layers = 2
@@ -761,6 +764,8 @@ def next_frame():
 def next_frame_stochastic():
   """SV2P model."""
   hparams = common_hparams.basic_params1()
+  hparams.video_num_input_frames = 1
+  hparams.video_num_target_frames = 4
   hparams.batch_size = 8
   hparams.learning_rate_constant = 1e-3
   hparams.learning_rate_schedule = "constant"

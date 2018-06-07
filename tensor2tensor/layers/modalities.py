@@ -511,7 +511,7 @@ class VideoModality(modality.Modality):
 
   def top(self, body_output, _):
     num_channels = self._model_hparams.problem.num_channels
-    num_frames = self._model_hparams.problem.num_target_frames
+    num_frames = self._model_hparams.video_num_target_frames
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
@@ -613,7 +613,7 @@ class VideoModalityL1(VideoModality):
 
   def top(self, body_output, _):
     num_channels = self._model_hparams.problem.num_channels
-    num_frames = self._model_hparams.problem.num_target_frames
+    num_frames = self._model_hparams.video_num_target_frames
     with tf.variable_scope("rgb"):
       body_output_shape = common_layers.shape_list(body_output)
       res = tf.layers.dense(body_output, num_channels * num_frames, name="cast")

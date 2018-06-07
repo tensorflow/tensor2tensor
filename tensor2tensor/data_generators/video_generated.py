@@ -40,16 +40,6 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   """Shapes moving in a stochastic way."""
 
   @property
-  def num_input_frames(self):
-    """Number of frames to batch on one input."""
-    return 1
-
-  @property
-  def num_target_frames(self):
-    """Number of frames to predict in one step."""
-    return 4
-
-  @property
   def is_generate_per_split(self):
     """Whether we have a train/test split or just hold out data."""
     return False  # Just hold out some generated data for evals.
@@ -68,7 +58,7 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
 
   @property
   def video_length(self):
-    return self.num_input_frames + self.num_target_frames
+    return 5
 
   @property
   def random_skip(self):

@@ -63,13 +63,10 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   @property
   def num_input_frames(self):
-    """Number of frames to batch on one input."""
+    """Number of frames on input for real environment."""
+    # TODO(lukaszkaiser): This must be equal to hparams.video_num_input_frames,
+    # we should automate this to avoid bug in the future.
     return 4
-
-  @property
-  def num_target_frames(self):
-    """Number of frames to batch on one target."""
-    return 1
 
   def eval_metrics(self):
     eval_metrics = [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
@@ -731,14 +728,6 @@ class GymDiscreteProblemWithAgentOnFreeway(
     if not FLAGS.autoencoder_path:
       return 160
     return int(math.ceil(160 / self.autoencoder_factor))
-
-  @property
-  def raw_frame_height(self):
-    return self.frame_height
-
-  @property
-  def raw_frame_width(self):
-    return self.frame_width
 
 
 @registry.register_problem

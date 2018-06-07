@@ -75,21 +75,6 @@ class VideoProblem(problem.Problem):
     raise NotImplementedError
 
   @property
-  def num_input_frames(self):
-    """Number of frames to batch on one input."""
-    return 1
-
-  @property
-  def num_target_frames(self):
-    """Number of frames to batch on one target."""
-    return 1
-
-  @property
-  def num_input_and_target_frames(self):
-    """Number of frames on input and target added."""
-    return self.num_input_frames + self.num_target_frames
-
-  @property
   def random_skip(self):
     """Whether to skip random inputs at the beginning or not."""
     return True
@@ -157,7 +142,7 @@ class VideoProblem(problem.Problem):
     def split_on_batch(x):
       """Split x on batch dimension into x[:size, ...] and x[size:, ...]."""
       length = len(x.get_shape())
-      size = self.num_input_frames
+      size = hparams.video_num_input_frames
       if length < 1:
         raise ValueError("Batched tensor of length < 1.")
       if length == 1:
@@ -187,10 +172,10 @@ class VideoProblem(problem.Problem):
         if k == "frame":  # We rename past frames to inputs and targets.
           s1, s2 = split_on_batch(v)
           # Reshape just to make sure shapes are right and set.
-          s1 = tf.reshape(s1, [self.num_input_frames, self.frame_height,
-                               self.frame_width, self.num_channels])
-          s2 = tf.reshape(s2, [self.num_target_frames, self.frame_height,
-                               self.frame_width, self.num_channels])
+          s1 = tf.reshape(
+              s1, [hparams.video_num_input_frames] + self.frame_shape)
+          s2 = tf.reshape(
+              s2, [hparams.video_num_target_frames] + self.frame_shape)
           features["inputs"] = s1
           features["targets"] = s2
         else:
@@ -203,8 +188,8 @@ class VideoProblem(problem.Problem):
     def _preprocess(example):
       return self.preprocess_example(example, mode, hparams)
     preprocessed_dataset = dataset.map(_preprocess)
-
-    num_frames = self.num_input_and_target_frames
+    num_frames = (hparams.video_num_input_frames +
+                  hparams.video_num_target_frames)
     # We jump by a random position at the beginning to add variety.
     if self.random_skip:
       random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)

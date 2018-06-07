@@ -122,11 +122,11 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
     if simulation_random_starts:
       dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
-                                shuffle_files=True)
+                                shuffle_files=True, hparams=hparams)
       dataset = dataset.shuffle(buffer_size=100)
     else:
       dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
-                                shuffle_files=False).take(1)
+                                shuffle_files=False, hparams=hparams).take(1)
 
     dataset = dataset.map(lambda x: x["inputs"]).repeat()
     self.history_buffer = HistoryBuffer(dataset, self.length)
