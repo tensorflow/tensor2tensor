@@ -34,14 +34,17 @@ class WrapperBase(InGraphBatchEnv):
   @property
   def observ(self):
     """Access the variable holding the current observation."""
-    return self._observ
+    return self._observ.read_value()
 
   def __len__(self):
     """Number of combined environments."""
     return self._length
 
-  def reset(self, indices=None):
-    return self._batch_env.reset(indices)
+  def _reset_non_empty(self, indices):
+    new_values = self._batch_env._reset_non_empty(indices)
+    assign_op = tf.scatter_update(self._observ, indices, new_values)
+    with tf.control_dependencies([assign_op]):
+      return tf.identity(new_values)
 
 
 class TransformWrapper(WrapperBase):
@@ -168,6 +171,14 @@ class StackAndSkipWrapper(WrapperBase):
       with tf.control_dependencies([self._observ.assign(observation)]):
         return tf.identity(rewards[-1, ...]), tf.identity(dones[-1, ...])
 
+  def _reset_non_empty(self, indices):
+    new_values = tf.gather(self._batch_env._reset_non_empty(indices), indices)
+    inx = tf.concat([tf.ones(tf.size(tf.shape(new_values)),
+                             dtype=tf.int32)[:-1], [self.skip]], axis=0)
+    assign_op = tf.scatter_update(self._observ, indices,
+                                  tf.tile(new_values, inx))
+    with tf.control_dependencies([assign_op]):
+      return tf.identity(self.observ)
 
 class TimeLimitWrapper(WrapperBase):
   """Time limit wrapper."""
@@ -189,11 +200,14 @@ class TimeLimitWrapper(WrapperBase):
         with tf.control_dependencies([inc]):
           return tf.identity(reward), tf.identity(new_done)
 
-  def reset(self, indices=None):
+  def _reset_non_empty(self, indices):
     op_zero = tf.scatter_update(self._time_elapsed, indices,
-                                tf.zeros(tf.shape(indices), dtype=tf.int32))
-    with tf.control_dependencies([op_zero]):
-      return self._batch_env.reset(indices)
+                                tf.gather(tf.zeros((len(self),), tf.int32),
+                                          indices))
+    new_values = tf.gather(self._batch_env._reset_non_empty(indices), indices)
+    assign_op = tf.scatter_update(self._observ, indices, new_values)
+    with tf.control_dependencies([op_zero, assign_op]):
+      return tf.identity(self.observ)
 
 
 class MemoryWrapper(WrapperBase):

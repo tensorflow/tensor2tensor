@@ -39,24 +39,16 @@ class HistoryBuffer(object):
     self.input_data_iterator = (
         input_dataset.batch(length).make_one_shot_iterator())
     self.length = length
-    initial_frames = self.get_initial_observations(length)
+    initial_frames = self.get_initial_observations()
     initial_shape = [length] + common_layers.shape_list(initial_frames)[1:]
     self._history_buff = tf.Variable(tf.zeros(initial_shape, tf.float32),
                                      trainable=False)
-    self._assigned = False
 
-  def get_initial_observations(self, n):
-    initial_frames = self.input_data_iterator.get_next()
-    return tf.cast(initial_frames[:n, ...], tf.float32)
+  def get_initial_observations(self):
+    return tf.cast(self.input_data_iterator.get_next(), tf.float32)
 
   def get_all_elements(self):
-    if self._assigned:
-      return self._history_buff.read_value()
-    assign = self._history_buff.assign(
-        self.get_initial_observations(self.length))
-    with tf.control_dependencies([assign]):
-      self._assigned = True
-      return tf.identity(self.initial_frames)
+    return self._history_buff.read_value()
 
   def move_by_one_element(self, element):
     last_removed = self.get_all_elements()[:, 1:, ...]
@@ -64,15 +56,12 @@ class HistoryBuffer(object):
     moved = tf.concat([last_removed, element], axis=1)
     with tf.control_dependencies([moved]):
       with tf.control_dependencies([self._history_buff.assign(moved)]):
-        self._assigned = True
         return self._history_buff.read_value()
 
   def reset(self, indices):
-    number_of_indices = tf.size(indices)
-    initial_frames = self.get_initial_observations(number_of_indices)
+    initial_frames = tf.gather(self.get_initial_observations(), indices)
     scatter_op = tf.scatter_update(self._history_buff, indices, initial_frames)
     with tf.control_dependencies([scatter_op]):
-      self._assigned = True
       return self._history_buff.read_value()
 
 
@@ -179,19 +168,6 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
              self.history_buffer.move_by_one_element(observ)]):
           return tf.identity(reward), tf.identity(done)
 
-  def reset(self, indices=None):
-    """Reset the batch of environments.
-
-    Args:
-      indices: The batch indices of the environments to reset.
-
-    Returns:
-      Batch tensor of the new observations.
-    """
-    return tf.cond(
-        tf.cast(tf.shape(indices)[0], tf.bool),
-        lambda: self._reset_non_empty(indices), lambda: 0.0)
-
   def _reset_non_empty(self, indices):
     """Reset the batch of environments.
 
@@ -209,4 +185,4 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   @property
   def observ(self):
     """Access the variable holding the current observation."""
-    return self._observ
+    return tf.identity(self._observ)

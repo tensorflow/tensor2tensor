@@ -21,6 +21,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import tensorflow as tf
+
 
 class InGraphBatchEnv(object):
   """Abstract class for batch of environments inside the TensorFlow graph.
@@ -67,7 +69,9 @@ class InGraphBatchEnv(object):
     Returns:
       Batch tensor of the new observations.
     """
-    raise NotImplementedError
+    return tf.cond(
+        tf.cast(tf.reduce_sum(indices+1), tf.bool),
+        lambda: self._reset_non_empty(indices), lambda: 0.0)
 
   @property
   def observ(self):

@@ -48,9 +48,11 @@ def define_collect(policy_factory, batch_env, hparams,
 
   should_reset_var = tf.Variable(True, trainable=False)
 
+  zeros_tensor = tf.zeros(len(batch_env))
+
   def group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
-                    tf.assign(cumulative_rewards, tf.zeros(len(batch_env))))
+                    tf.assign(cumulative_rewards, zeros_tensor))
   reset_op = tf.cond(
       tf.logical_or(should_reset_var, tf.logical_or(eval_phase, on_simulated)),
       group, tf.no_op)
@@ -98,7 +100,7 @@ def define_collect(policy_factory, batch_env, hparams,
         reset_env_op = batch_env.reset(agent_indices_to_reset)
         reset_cumulative_rewards_op = tf.scatter_update(
             cumulative_rewards, agent_indices_to_reset,
-            tf.zeros(tf.shape(agent_indices_to_reset)))
+            tf.gather(zeros_tensor, agent_indices_to_reset))
       with tf.control_dependencies([reset_env_op,
                                     reset_cumulative_rewards_op]):
         return [index + 1, scores_sum + scores_sum_delta,
