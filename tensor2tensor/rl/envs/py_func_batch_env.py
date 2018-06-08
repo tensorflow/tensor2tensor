@@ -95,19 +95,6 @@ class PyFuncBatchEnv(InGraphBatchEnv):
       with tf.control_dependencies([self._observ.assign(observ)]):
         return tf.identity(reward), tf.identity(done)
 
-  def reset(self, indices=None):
-    """Reset the batch of environments.
-
-    Args:
-      indices: The batch indices of the environments to reset.
-
-    Returns:
-      Batch tensor of the new observations.
-    """
-    return tf.cond(
-        tf.cast(tf.shape(indices)[0], tf.bool),
-        lambda: self._reset_non_empty(indices), lambda: 0.0)
-
   def _reset_non_empty(self, indices):
     """Reset the batch of environments.
 
