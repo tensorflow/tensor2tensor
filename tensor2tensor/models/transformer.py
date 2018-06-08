@@ -515,8 +515,7 @@ def fast_decode(encoder_output,
       cache[layer_name]["k_encdec"] = k_encdec
       cache[layer_name]["v_encdec"] = v_encdec
 
-    cache["encoder_output"] = tf.zeros_like(
-        tf.placeholder(tf.float32, (None, 0, 0)))  # Just a flag
+    cache["encoder_output"] = encoder_output
     cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
 
   if beam_size > 1:  # Beam Search

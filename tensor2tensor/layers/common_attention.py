@@ -1193,8 +1193,7 @@ def grouped_attention_multihead(query_antecedent,
                      "attention heads (%d)." % (total_value_depth, num_heads))
   depth_v = total_value_depth // num_heads
   with tf.variable_scope(
-      name,
-      default_name="multihead_attention_sparse",
+      name, default_name="multihead_attention_sparse",
       values=[query_antecedent, memory_antecedent]):
     q = common_layers.dense(
         query_antecedent, total_key_depth, use_bias=False, name="q_transform")
@@ -2774,7 +2773,8 @@ def multihead_attention(query_antecedent,
   if total_value_depth % num_heads != 0:
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
-  with tf.variable_scope(name, values=[query_antecedent, memory_antecedent]):
+  with tf.variable_scope(name, default_name="multihead_attention",
+                         values=[query_antecedent, memory_antecedent]):
 
     if cache is None or memory_antecedent is None:
       q, k, v = compute_qkv(query_antecedent, memory_antecedent,
