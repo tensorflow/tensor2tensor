@@ -21,8 +21,6 @@ import operator
 import os
 import time
 
-# Dependency imports
-
 import numpy as np
 import six
 
@@ -73,8 +71,8 @@ def log_decode_results(inputs,
   is_image = "image" in problem_name
   decoded_inputs = None
   if is_image and save_images:
-    save_path = os.path.join(model_dir, "%s_prediction_%d.jpg" %
-                             (problem_name, prediction_idx))
+    save_path = os.path.join(
+        model_dir, "%s_prediction_%d.jpg" % (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
   elif inputs_vocab:
     if identity_output:
@@ -139,8 +137,7 @@ def decode_from_dataset(estimator,
       decode_filename = decode_to_file + ("%.2d" % decode_hp.shard_id)
     else:
       decode_filename = decode_to_file
-    output_filepath = _decode_filename(decode_filename, problem_name,
-                                       decode_hp)
+    output_filepath = _decode_filename(decode_filename, problem_name, decode_hp)
     parts = output_filepath.split(".")
     parts[-1] = "targets"
     target_filepath = ".".join(parts)
@@ -211,8 +208,7 @@ def decode_from_dataset(estimator,
         beam_score_str = ""
         if decode_hp.write_beam_scores:
           beam_score_str = "\t%.2f" % decoded_scores[i]
-        output_file.write(
-            str(d_output) + beam_score_str + decode_hp.delimiter)
+        output_file.write(str(d_output) + beam_score_str + decode_hp.delimiter)
         target_file.write(str(d_target) + decode_hp.delimiter)
         input_file.write(str(d_input) + decode_hp.delimiter)
 
@@ -254,9 +250,9 @@ def decode_from_file(estimator,
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   def input_fn():
-    input_gen = _decode_batch_input_fn(
-        num_decode_batches, sorted_inputs, inputs_vocab,
-        decode_hp.batch_size, decode_hp.max_input_size)
+    input_gen = _decode_batch_input_fn(num_decode_batches, sorted_inputs,
+                                       inputs_vocab, decode_hp.batch_size,
+                                       decode_hp.max_input_size)
     gen_fn = make_input_fn_from_generator(input_gen)
     example = gen_fn()
     return _decode_input_tensor_to_features_dict(example, hparams)
@@ -289,29 +285,39 @@ def decode_from_file(estimator,
       for k, beam in enumerate(output_beams):
         tf.logging.info("BEAM %d:" % k)
         score = scores and scores[k]
-        _, decoded_outputs, _ = log_decode_results(result["inputs"], beam,
-                                                   problem_name, None,
-                                                   inputs_vocab, targets_vocab,
-                                                   log_results=decode_hp.log_results)
+        _, decoded_outputs, _ = log_decode_results(
+            result["inputs"],
+            beam,
+            problem_name,
+            None,
+            inputs_vocab,
+            targets_vocab,
+            log_results=decode_hp.log_results)
         beam_decodes.append(decoded_outputs)
         if decode_hp.write_beam_scores:
           beam_scores.append(score)
       if decode_hp.write_beam_scores:
-        decodes.append("\t".join(
-            ["\t".join([d, "%.2f" % s]) for d, s
-             in zip(beam_decodes, beam_scores)]))
+        decodes.append("\t".join([
+            "\t".join([d, "%.2f" % s])
+            for d, s in zip(beam_decodes, beam_scores)
+        ]))
       else:
         decodes.append("\t".join(beam_decodes))
     else:
       _, decoded_outputs, _ = log_decode_results(
-          result["inputs"], result["outputs"], problem_name,
-          None, inputs_vocab, targets_vocab,
+          result["inputs"],
+          result["outputs"],
+          problem_name,
+          None,
+          inputs_vocab,
+          targets_vocab,
           log_results=decode_hp.log_results)
       decodes.append(decoded_outputs)
     total_time_per_step += elapsed_time
     total_cnt += result["outputs"].shape[-1]
   tf.logging.info("Elapsed Time: %5.5f" % (time.time() - start_time))
-  tf.logging.info("Averaged Single Token Generation Time: %5.7f" % (total_time_per_step / total_cnt))
+  tf.logging.info("Averaged Single Token Generation Time: %5.7f" %
+                  (total_time_per_step / total_cnt))
 
   # Reversing the decoded inputs and outputs because they were reversed in
   # _decode_batch_input_fn
@@ -400,8 +406,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
             targets_vocab.decode(_save_until_eos(result["outputs"], is_image)))
 
 
-def _decode_batch_input_fn(num_decode_batches, sorted_inputs,
-                           vocabulary, batch_size, max_input_size):
+def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
+                           batch_size, max_input_size):
   """Generator to produce batches of inputs."""
   tf.logging.info(" batch %d" % num_decode_batches)
   # First reverse all the input sentences so that if you're going to get OOMs,
@@ -517,8 +523,9 @@ def show_and_save_image(img, save_path):
   try:
     import matplotlib.pyplot as plt  # pylint: disable=g-import-not-at-top
   except ImportError as e:
-    tf.logging.warning("Showing and saving an image requires matplotlib to be "
-                       "installed: %s", e)
+    tf.logging.warning(
+        "Showing and saving an image requires matplotlib to be "
+        "installed: %s", e)
     raise NotImplementedError("Image display and save not implemented.")
   plt.imshow(img)
   plt.savefig(save_path)
