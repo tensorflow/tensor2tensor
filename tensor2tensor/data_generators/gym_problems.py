@@ -170,6 +170,20 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 class GymPongRandom5k(GymDiscreteProblem):
   """Pong game, random actions."""
 
+  # Hard-coding num_actions, frame_height, frame_width to avoid loading
+  # libale.so file.
+  @property
+  def num_actions(self):
+    return 6
+
+  @property
+  def frame_height(self):
+    return 210
+
+  @property
+  def frame_width(self):
+    return 160
+
   @property
   def env_name(self):
     return "PongDeterministic-v4"

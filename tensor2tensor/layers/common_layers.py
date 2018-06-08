@@ -3111,3 +3111,29 @@ def cast_like(x, y):
     tf.logging.warning("Cast for %s may induce copy from '%s' to '%s'",
                        x.name, x.device, cast_x.device)
   return cast_x
+
+
+def make_even_size(x):
+  """Pad x to be even-sized on axis 1 and 2, but only if necessary."""
+  x_shape = x.get_shape().as_list()
+  assert len(x_shape) > 2, "Only 3+-dimensional tensors supported."
+  shape = [dim if dim is not None else -1 for dim in x_shape]
+  new_shape = x_shape  # To make sure constant shapes remain constant.
+  if x_shape[1] is not None:
+    new_shape[1] = 2 * int(math.ceil(x_shape[1] * 0.5))
+  if x_shape[2] is not None:
+    new_shape[2] = 2 * int(math.ceil(x_shape[2] * 0.5))
+  if shape[1] % 2 == 0 and shape[2] % 2 == 0:
+    return x
+  if shape[1] % 2 == 0:
+    x, _ = pad_to_same_length(x, x, final_length_divisible_by=2, axis=2)
+    x.set_shape(new_shape)
+    return x
+  if shape[2] % 2 == 0:
+    x, _ = pad_to_same_length(x, x, final_length_divisible_by=2, axis=1)
+    x.set_shape(new_shape)
+    return x
+  x, _ = pad_to_same_length(x, x, final_length_divisible_by=2, axis=1)
+  x, _ = pad_to_same_length(x, x, final_length_divisible_by=2, axis=2)
+  x.set_shape(new_shape)
+  return x

@@ -65,17 +65,13 @@ class BasicAutoencoder(t2t_model.T2TModel):
       return x
 
   def make_even_size(self, x):
-    shape = [dim if dim is not None else -1 for dim in x.get_shape().as_list()]
-    if shape[1] % 2 == 0 and shape[2] % 2 == 0:
-      return x
-    if shape[1] % 2 == 0 and self.is1d:
+    if not self.is1d:
+      return common_layers.make_even_size(x)
+    shape1 = x.get_shape().as_list()[1]
+    if shape1 is not None and shape1 % 2 == 0:
       return x
     x, _ = common_layers.pad_to_same_length(
         x, x, final_length_divisible_by=2, axis=1)
-    if self.is1d:
-      return x
-    x, _ = common_layers.pad_to_same_length(
-        x, x, final_length_divisible_by=2, axis=2)
     return x
 
   def encoder(self, x):

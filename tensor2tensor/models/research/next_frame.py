@@ -17,6 +17,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import numpy as np
 import six
 
@@ -33,25 +34,6 @@ slim = tf.contrib.slim
 @registry.register_model
 class NextFrameBasic(t2t_model.T2TModel):
   """Basic next-frame model, may take actions and predict rewards too."""
-
-  def make_even_size(self, x):
-    """Pad x to be even-sized on axis 1 and 2, but only if necessary."""
-    shape = [dim if dim is not None else -1 for dim in x.get_shape().as_list()]
-    if shape[1] % 2 == 0 and shape[2] % 2 == 0:
-      return x
-    if shape[1] % 2 == 0:
-      x, _ = common_layers.pad_to_same_length(
-          x, x, final_length_divisible_by=2, axis=2)
-      return x
-    if shape[2] % 2 == 0:
-      x, _ = common_layers.pad_to_same_length(
-          x, x, final_length_divisible_by=2, axis=1)
-      return x
-    x, _ = common_layers.pad_to_same_length(
-        x, x, final_length_divisible_by=2, axis=1)
-    x, _ = common_layers.pad_to_same_length(
-        x, x, final_length_divisible_by=2, axis=2)
-    return x
 
   def body(self, features):
     hparams = self.hparams
@@ -71,7 +53,7 @@ class NextFrameBasic(t2t_model.T2TModel):
     for i in range(hparams.num_compress_steps):
       with tf.variable_scope("downstride%d" % i):
         layer_inputs.append(x)
-        x = self.make_even_size(x)
+        x = common_layers.make_even_size(x)
         if i < hparams.filter_double_steps:
           filters *= 2
         x = tf.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
@@ -196,13 +178,14 @@ class NextFrameStochastic(NextFrameBasic):
 
     with slim.arg_scope([slim.conv2d], reuse=False):
       stacked_images = tf.concat(images, 3)
-
+      stacked_images = common_layers.make_even_size(stacked_images)
       latent_enc1 = slim.conv2d(
           stacked_images,
           32, [3, 3],
           stride=2,
           scope="latent_conv1")
       latent_enc1 = slim.batch_norm(latent_enc1, scope="latent_bn1")
+      latent_enc1 = common_layers.make_even_size(latent_enc1)
 
       latent_enc2 = slim.conv2d(
           latent_enc1,
@@ -218,6 +201,7 @@ class NextFrameStochastic(NextFrameBasic):
           scope="latent_conv3")
       latent_enc3 = slim.batch_norm(latent_enc3, scope="latent_bn3")
 
+      latent_enc3 = common_layers.make_even_size(latent_enc3)
       latent_mean = slim.conv2d(
           latent_enc3,
           self.hparams.latent_channels, [3, 3],
@@ -348,6 +332,7 @@ class NextFrameStochastic(NextFrameBasic):
         # Predicted state is always fed back in
         state_action = tf.concat(axis=1, values=[action, current_state])
 
+        prev_image = common_layers.make_even_size(prev_image)
         enc0 = slim.layers.conv2d(
             prev_image,
             32, [5, 5],
@@ -362,6 +347,7 @@ class NextFrameStochastic(NextFrameBasic):
         hidden2, lstm_state2 = lstm_func(
             hidden1, lstm_state2, lstm_size[1], scope="state2")
         hidden2 = layer_norm(hidden2, scope="layer_norm3")
+        hidden2 = common_layers.make_even_size(hidden2)
         enc1 = slim.layers.conv2d(
             hidden2, hidden2.get_shape()[3], [3, 3], stride=2, scope="conv2")
 
@@ -371,16 +357,17 @@ class NextFrameStochastic(NextFrameBasic):
         hidden4, lstm_state4 = lstm_func(
             hidden3, lstm_state4, lstm_size[3], scope="state4")
         hidden4 = layer_norm(hidden4, scope="layer_norm5")
+        hidden4 = common_layers.make_even_size(hidden4)
         enc2 = slim.layers.conv2d(
             hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
 
         # Pass in state and action.
         smear = tf.reshape(
             state_action,
-            [-1, 1, 1, int(state_action.get_shape()[1])])
+            [-1, 1, 1, int(common_layers.shape_list(state_action)[1])])
+        enc2_shape = common_layers.shape_list(enc2)
         smear = tf.tile(
-            smear, [1, int(enc2.get_shape()[1]),
-                    int(enc2.get_shape()[2]), 1])
+            smear, [1, enc2_shape[1], enc2_shape[2], 1])
         if use_state:
           enc2 = tf.concat(axis=3, values=[enc2, smear])
 
@@ -404,6 +391,8 @@ class NextFrameStochastic(NextFrameBasic):
         enc4 = slim.layers.conv2d_transpose(
             hidden5, hidden5.get_shape()[3], 3, stride=2, scope="convt1")
 
+        enc1_shape = common_layers.shape_list(enc1)
+        enc4 = enc4[:, :enc1_shape[1], :enc1_shape[2], :]  # Cut to shape.
         hidden6, lstm_state6 = lstm_func(
             enc4, lstm_state6, lstm_size[5], scope="state6")  # 16x16
         hidden6 = layer_norm(hidden6, scope="layer_norm7")
@@ -412,6 +401,8 @@ class NextFrameStochastic(NextFrameBasic):
 
         enc5 = slim.layers.conv2d_transpose(
             hidden6, hidden6.get_shape()[3], 3, stride=2, scope="convt2")
+        enc0_shape = common_layers.shape_list(enc0)
+        enc5 = enc5[:, :enc0_shape[1], :enc0_shape[2], :]  # Cut to shape.
         hidden7, lstm_state7 = lstm_func(
             enc5, lstm_state7, lstm_size[6], scope="state7")  # 32x32
         hidden7 = layer_norm(hidden7, scope="layer_norm8")
@@ -604,29 +595,6 @@ class NextFrameStochastic(NextFrameBasic):
     return tf.dynamic_stitch([ground_truth_idx, generated_idx],
                              [ground_truth_examps, generated_examps])
 
-  def init_state(self,
-                 inputs,
-                 state_shape,
-                 state_initializer=tf.zeros_initializer(),
-                 dtype=tf.float32):
-    """Helper function to create an initial state given inputs.
-
-    Args:
-      inputs: input Tensor, at least 2D, the first dimension being batch_size
-      state_shape: the shape of the state.
-      state_initializer: Initializer(shape, dtype) for state Tensor.
-      dtype: Optional dtype, needed when inputs is None.
-    Returns:
-       A tensors representing the initial state.
-    """
-
-    del state_initializer
-    del dtype
-
-    # recoded by @mbz
-    initial_state = tf.zeros([tf.shape(inputs)[0]] + state_shape)
-    return initial_state
-
   # TODO(mbz): use tf.distributions.kl_divergence instead.
   def kl_divergence(self, mu, log_sigma):
     """KL divergence of diagonal gaussian N(mu,exp(log_sigma)) and N(0,1).
@@ -668,10 +636,9 @@ class NextFrameStochastic(NextFrameBasic):
     Returns:
        a tuple of tensors representing output and the new state.
     """
-    spatial_size = [v.value for v in inputs.get_shape()[1:3]]
-
     if state is None:
-      state = self.init_state(inputs, spatial_size + [2 * num_channels])
+      inputs_shape = common_layers.shape_list(inputs)
+      state = tf.zeros(inputs_shape[:3] + [2 * num_channels])
     with tf.variable_scope(scope,
                            "BasicConvLstmCell",
                            [inputs, state],
@@ -767,13 +734,12 @@ def next_frame():
 @registry.register_hparams
 def next_frame_stochastic():
   """SV2P model."""
-  hparams = common_hparams.basic_params1()
+  hparams = next_frame()
   hparams.video_num_input_frames = 1
   hparams.video_num_target_frames = 4
   hparams.batch_size = 8
-  hparams.learning_rate_constant = 1e-3
-  hparams.learning_rate_schedule = "constant"
-  hparams.weight_decay = 0.0
+  hparams.target_modality = "video:raw"
+  hparams.input_modalities = "inputs:video:raw"
   hparams.add_hparam("stochastic_model", True)
   hparams.add_hparam("latent_channels", 1)
   hparams.add_hparam("latent_std_min", -5.0)
