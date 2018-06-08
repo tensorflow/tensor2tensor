@@ -49,6 +49,8 @@ flags.DEFINE_string("checkpoint_path", None,
                     "Path to the model checkpoint. Overrides output_dir.")
 flags.DEFINE_string("decode_from_file", None,
                     "Path to the source file for decoding")
+flags.DEFINE_string("source_feature_file", None,
+                    "Path to the source feature file for decoding")
 flags.DEFINE_string("decode_to_file", None,
                     "Path to the decoded (output) file")
 flags.DEFINE_bool("keep_timestamp", False,
@@ -86,7 +88,8 @@ def decode(estimator, hparams, decode_hp):
   elif FLAGS.decode_from_file:
     if estimator.config.use_tpu:
       raise ValueError("TPU can only decode from dataset.")
-    decoding.decode_from_file(estimator, FLAGS.decode_from_file, hparams,
+    decoding.decode_from_file(estimator, FLAGS.decode_from_file,
+                              FLAGS.source_feature_file, hparams,
                               decode_hp, FLAGS.decode_to_file,
                               checkpoint_path=FLAGS.checkpoint_path)
     if FLAGS.checkpoint_path and FLAGS.keep_timestamp:

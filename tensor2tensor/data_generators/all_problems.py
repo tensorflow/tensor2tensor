@@ -58,6 +58,7 @@ modules = [
     "tensor2tensor.data_generators.translate_enmk",
     "tensor2tensor.data_generators.translate_envi",
     "tensor2tensor.data_generators.translate_enzh",
+    "tensor2tensor.data_generators.translate_enfr_src_feat",
     "tensor2tensor.data_generators.twentybn",
     "tensor2tensor.data_generators.video_generated",
     "tensor2tensor.data_generators.wiki",

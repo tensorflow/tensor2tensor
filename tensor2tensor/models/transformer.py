@@ -299,9 +299,15 @@ class Transformer(t2t_model.T2TModel):
       inputs = tf.reshape(inputs, [s[0] * s[1], s[2], s[3], s[4]])
       # _shard_features called to ensure that the variable names match
       inputs = self._shard_features({"inputs": inputs})["inputs"]
-      input_modality = self._problem_hparams.input_modality["inputs"]
-      with tf.variable_scope(input_modality.name):
-        inputs = input_modality.bottom_sharded(inputs, dp)
+
+      if getattr(self.hparams, "source_feature_embedding_sizes", None):
+        # The problem has source features
+        inputs = self.shard_sfeatures(inputs, features, dp)
+      else:
+        input_modality = self._problem_hparams.input_modality["inputs"]
+        with tf.variable_scope(input_modality.name):
+          inputs = input_modality.bottom_sharded(inputs, dp)
+
       with tf.variable_scope("body"):
         encoder_output, encoder_decoder_attention_bias = dp(
             self.encode, inputs, features["target_space_id"], hparams,
@@ -784,6 +790,12 @@ def transformer_encoder(encoder_input,
   Returns:
     y: a Tensors
   """
+  ehs = getattr(hparams, "enc_hidden_size", None)
+  if not ehs:
+    ehs = hparams.hidden_size
+    # update hparams: add new 'hidden_size' for encoder
+    hparams.add_hparam("enc_hidden_size", ehs)
+
   x = encoder_input
   attention_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
@@ -806,9 +818,9 @@ def transformer_encoder(encoder_input,
               common_layers.layer_preprocess(x, hparams),
               None,
               encoder_self_attention_bias,
-              hparams.attention_key_channels or hparams.hidden_size,
-              hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
+              hparams.attention_key_channels or hparams.enc_hidden_size,
+              hparams.attention_value_channels or hparams.enc_hidden_size,
+              hparams.enc_hidden_size,
               hparams.num_heads,
               hparams.attention_dropout,
               attention_type=hparams.self_attention_type,
@@ -822,6 +834,7 @@ def transformer_encoder(encoder_input,
           y = transformer_ffn_layer(
               common_layers.layer_preprocess(x, hparams), hparams, pad_remover,
               conv_padding="SAME", nonpadding_mask=nonpadding,
+              hidden_size=hparams.enc_hidden_size,
               losses=losses)
           x = common_layers.layer_postprocess(x, y, hparams)
     # if normalization is done in layer_preprocess, then it should also be done
@@ -902,7 +915,7 @@ def transformer_decoder(decoder_input,
                 common_layers.layer_preprocess(x, hparams),
                 encoder_output,
                 encoder_decoder_attention_bias,
-                hparams.attention_key_channels or hparams.hidden_size,
+                hparams.attention_key_channels or hparams.enc_hidden_size,
                 hparams.attention_value_channels or hparams.hidden_size,
                 hparams.hidden_size,
                 hparams.num_heads,
@@ -933,6 +946,7 @@ def transformer_ffn_layer(x,
                           pad_remover=None,
                           conv_padding="LEFT",
                           nonpadding_mask=None,
+                          hidden_size=None,
                           losses=None,
                           cache=None):
   """Feed-forward layer in the transformer.
@@ -959,6 +973,8 @@ def transformer_ffn_layer(x,
   Raises:
     ValueError: If losses arg is None, but layer generates extra losses.
   """
+  if not hidden_size:
+    hidden_size = hparams.hidden_size
   ffn_layer = hparams.ffn_layer
   relu_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
@@ -976,7 +992,7 @@ def transformer_ffn_layer(x,
     conv_output = common_layers.dense_relu_dense(
         x,
         hparams.filter_size,
-        hparams.hidden_size,
+        hidden_size,
         dropout=hparams.relu_dropout,
         dropout_broadcast_dims=relu_dropout_broadcast_dims)
     if pad_remover:
@@ -988,7 +1004,7 @@ def transformer_ffn_layer(x,
     return common_layers.conv_relu_conv(
         x,
         hparams.filter_size,
-        hparams.hidden_size,
+        hidden_size,
         first_kernel_size=hparams.conv_first_kernel,
         second_kernel_size=1,
         padding=conv_padding,
@@ -997,15 +1013,15 @@ def transformer_ffn_layer(x,
         cache=cache)
   elif ffn_layer == "parameter_attention":
     return common_attention.parameter_attention(
-        x, hparams.parameter_attention_key_channels or hparams.hidden_size,
-        hparams.parameter_attention_value_channels or hparams.hidden_size,
-        hparams.hidden_size, hparams.filter_size, hparams.num_heads,
+        x, hparams.parameter_attention_key_channels or hidden_size,
+        hparams.parameter_attention_value_channels or hidden_size,
+        hidden_size, hparams.filter_size, hparams.num_heads,
         hparams.attention_dropout)
   elif ffn_layer == "conv_hidden_relu_with_sepconv":
     return common_layers.conv_hidden_relu(
         x,
         hparams.filter_size,
-        hparams.hidden_size,
+        hidden_size,
         kernel_size=(3, 1),
         second_kernel_size=(31, 1),
         padding="LEFT",
@@ -1038,6 +1054,7 @@ def transformer_base_v1():
   hparams = common_hparams.basic_params1()
   hparams.norm_type = "layer"
   hparams.hidden_size = 512
+  hparams.enc_hidden_size = None
   hparams.batch_size = 4096
   hparams.max_length = 256
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
