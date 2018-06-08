@@ -107,8 +107,8 @@ class TimeseriesProblem(problem.Problem):
 
     # Generate samples with num_input_timestamps for "inputs" and
     # num_target_timestamps in the "targets".
-    for split_index in xrange(self.num_input_timestamps,
-                              num_timestamps - self.num_target_timestamps + 1):
+    for split_index in range(self.num_input_timestamps,
+                             num_timestamps - self.num_target_timestamps + 1):
       inputs = series[split_index -
                       self.num_input_timestamps:split_index, :].tolist()
       targets = series[split_index:split_index +
