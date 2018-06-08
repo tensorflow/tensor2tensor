@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import random
+import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -27,22 +27,8 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
-@registry.register_problem
-class TimeseriesToyProblem(problem.Problem):
-  """Base Problem for multi timeseries for datasets."""
-
-  def __init__(self,
-               was_reversed=False,
-               was_copy=False,
-               num_series=2,
-               num_train_shards=9,
-               num_eval_shards=1,
-               num_samples=100):
-    super(TimeseriesToyProblem, self).__init__(was_reversed, was_copy)
-    self._num_train_shards = num_train_shards
-    self._num_eval_shards = num_eval_shards
-    self._num_samples = num_samples
-    self._num_series = num_series
+class TimeseriesProblem(problem.Problem):
+  """Base Problem for multi timeseries datasets."""
 
   def feature_encoders(self, data_dir):
     del data_dir
@@ -62,11 +48,40 @@ class TimeseriesToyProblem(problem.Problem):
     # 10% evaluation data
     return [{
         "split": problem.DatasetSplit.TRAIN,
-        "shards": self._num_train_shards,
+        "shards": self.num_train_shards,
     }, {
         "split": problem.DatasetSplit.EVAL,
-        "shards": self._num_eval_shards,
+        "shards": self.num_eval_shards,
     }]
+
+  @property
+  def num_train_shards(self):
+    """Number of training shards."""
+    return 9
+
+  @property
+  def num_eval_shards(self):
+    """Number of eval shards."""
+    return 1
+
+  @property
+  def num_series(self):
+    """Number of timeseries."""
+    raise NotImplementedError()
+
+  @property
+  def num_input_timestamps(self):
+    """Number of timestamps to include in the input."""
+    raise NotImplementedError()
+
+  @property
+  def num_target_timestamps(self):
+    """Number of timestamps to include in the target."""
+    raise NotImplementedError()
+
+  def timeseries_dataset(self):
+    """Multi-timeseries data [ timestamps , self.num_series ] ."""
+    raise NotImplementedError()
 
   def eval_metrics(self):
     eval_metrics = [metrics.Metrics.RMSE]
@@ -76,8 +91,10 @@ class TimeseriesToyProblem(problem.Problem):
     # Time series are flat on disk, we un-flatten them back here.
     flat_inputs = example["inputs"]
     flat_targets = example["targets"]
-    example["inputs"] = tf.reshape(flat_inputs, [-1, self._num_series])
-    example["targets"] = tf.reshape(flat_targets, [-1, self._num_series])
+    example["inputs"] = tf.reshape(flat_inputs,
+                                   [self.num_input_timestamps, self.num_series])
+    example["targets"] = tf.reshape(
+        flat_targets, [self.num_target_timestamps, self.num_series])
     return example
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
@@ -85,14 +102,17 @@ class TimeseriesToyProblem(problem.Problem):
     del tmp_dir
     del dataset_split
 
-    series = [[float(i + n) for n in range(self._num_series)]
-              for i in range(10)]
+    series = self.timeseries_dataset()
+    num_timestamps = len(series)
 
-    # This generates _num_samples instances of each possible split of series;
-    # inputs & targets are of variable size.
-    for _ in range(self._num_samples):
-      split_index = random.randint(1, 9)
-      inputs, targets = series[:split_index], series[split_index:]
+    # Generate samples with num_input_timestamps for "inputs" and
+    # num_target_timestamps in the "targets".
+    for split_index in xrange(self.num_input_timestamps,
+                              num_timestamps - self.num_target_timestamps + 1):
+      inputs = series[split_index -
+                      self.num_input_timestamps:split_index, :].tolist()
+      targets = series[split_index:split_index +
+                       self.num_target_timestamps, :].tolist()
       # We need to flatten the lists on disk for tf,Example to work.
       flat_inputs = [item for sublist in inputs for item in sublist]
       flat_targets = [item for sublist in targets for item in sublist]
@@ -102,8 +122,8 @@ class TimeseriesToyProblem(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.REAL, self._num_series)}
-    p.target_modality = (registry.Modalities.REAL, self._num_series)
+    p.input_modality = {"inputs": (registry.Modalities.REAL, self.num_series)}
+    p.target_modality = (registry.Modalities.REAL, self.num_series)
     p.input_space_id = problem.SpaceID.REAL
     p.target_space_id = problem.SpaceID.REAL
 
@@ -140,3 +160,38 @@ class TimeseriesToyProblem(problem.Problem):
     }
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
+
+
+@registry.register_problem
+class TimeseriesToyProblem(TimeseriesProblem):
+  """Timeseries problem with a toy dataset."""
+
+  @property
+  def num_train_shards(self):
+    """Number of training shards."""
+    return 1
+
+  @property
+  def num_eval_shards(self):
+    """Number of eval shards."""
+    return 1
+
+  @property
+  def num_series(self):
+    """Number of timeseries."""
+    return 2
+
+  @property
+  def num_input_timestamps(self):
+    """Number of timestamps to include in the input."""
+    return 2
+
+  @property
+  def num_target_timestamps(self):
+    """Number of timestamps to include in the target."""
+    return 2
+
+  def timeseries_dataset(self):
+    series = [[float(i + n) for n in range(self.num_series)] for i in range(10)]
+
+    return np.array(series)

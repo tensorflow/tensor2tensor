@@ -35,8 +35,7 @@ class TimeseriesTest(tf.test.TestCase):
     os.mkdir(cls.tmp_dir)
 
   def testTimeseriesToyProblem(self):
-    problem = timeseries.TimeseriesToyProblem(
-        num_train_shards=1, num_eval_shards=1, num_samples=4)
+    problem = timeseries.TimeseriesToyProblem()
     problem.generate_data(self.tmp_dir, self.tmp_dir)
 
     dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, self.tmp_dir)
@@ -47,16 +46,19 @@ class TimeseriesTest(tf.test.TestCase):
     with self.test_session() as sess:
       examples.append(sess.run(features))
       examples.append(sess.run(features))
+      examples.append(sess.run(features))
+      examples.append(sess.run(features))
+
       try:
         sess.run(features)
       except tf.errors.OutOfRangeError:
         exhausted = True
 
     self.assertTrue(exhausted)
-    self.assertEqual(2, len(examples))
+    self.assertEqual(4, len(examples))
 
     self.assertNotEqual(
-        list(examples[0]["inputs"]), list(examples[1]["inputs"]))
+        list(examples[0]["inputs"][0]), list(examples[1]["inputs"][0]))
 
 
 if __name__ == "__main__":
