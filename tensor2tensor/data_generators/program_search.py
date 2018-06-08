@@ -63,7 +63,7 @@ class ProgramSearchAlgolisp(text_problems.Text2TextProblem):
   @staticmethod
   def _flatten_target_programs(iterable):
     # The target programs are read as nested lists, we should flatten them.
-    yield unicode("[")
+    yield "["
     it = iter(iterable)
     for e in it:
       if isinstance(e, (list, tuple)):
@@ -71,7 +71,7 @@ class ProgramSearchAlgolisp(text_problems.Text2TextProblem):
           yield f
       else:
         yield e
-    yield unicode("]")
+    yield "]"
 
   @staticmethod
   def _parse_json_to_dict(json_line):
