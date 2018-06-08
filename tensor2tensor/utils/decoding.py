@@ -19,6 +19,10 @@ from __future__ import print_function
 
 import operator
 import os
+import time
+
+# Dependency imports
+
 import numpy as np
 import six
 
@@ -38,7 +42,7 @@ def decode_hparams(overrides=""):
   """Hyperparameters for decoding."""
   hp = tf.contrib.training.HParams(
       save_images=False,
-      log_targets=True,
+      log_results=True,
       extra_length=100,
       batch_size=0,
       beam_size=4,
@@ -64,7 +68,7 @@ def log_decode_results(inputs,
                        save_images=False,
                        model_dir=None,
                        identity_output=False,
-                       log_targets=True):
+                       log_results=True):
   """Log inference results."""
   is_image = "image" in problem_name
   decoded_inputs = None
@@ -78,7 +82,8 @@ def log_decode_results(inputs,
     else:
       decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs, is_image))
 
-    tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
+    if log_results:
+      tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
   decoded_targets = None
   decoded_outputs = None
@@ -88,11 +93,11 @@ def log_decode_results(inputs,
       decoded_targets = " ".join(map(str, targets.flatten()))
   else:
     decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
-    if targets is not None and log_targets:
+    if targets is not None and log_results:
       decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
-
-  tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
-  if targets is not None and log_targets:
+  if log_results:
+    tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
+  if targets is not None and log_results:
     tf.logging.info("Inference results TARGET: %s" % decoded_targets)
   return decoded_inputs, decoded_outputs, decoded_targets
 
@@ -181,7 +186,7 @@ def decode_from_dataset(estimator,
             model_dir=estimator.model_dir,
             identity_output=decode_hp.identity_output,
             targets=targets,
-            log_targets=decode_hp.log_targets)
+            log_results=decode_hp.log_results)
         decoded_outputs.append(decoded)
         if decode_hp.write_beam_scores:
           decoded_scores.append(score)
@@ -197,7 +202,7 @@ def decode_from_dataset(estimator,
           model_dir=estimator.model_dir,
           identity_output=decode_hp.identity_output,
           targets=targets,
-          log_targets=decode_hp.log_targets)
+          log_results=decode_hp.log_results)
       decoded_outputs.append(decoded)
 
     # Write out predictions if decode_to_file passed
@@ -258,7 +263,22 @@ def decode_from_file(estimator,
 
   decodes = []
   result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
-  for result in result_iter:
+
+  start_time = time.time()
+  total_time_per_step = 0
+  total_cnt = 0
+
+  def timer(gen):
+    while True:
+      try:
+        start_time = time.time()
+        item = next(gen)
+        elapsed_time = time.time() - start_time
+        yield elapsed_time, item
+      except StopIteration:
+        break
+
+  for elapsed_time, result in timer(result_iter):
     if decode_hp.return_beams:
       beam_decodes = []
       beam_scores = []
@@ -271,7 +291,8 @@ def decode_from_file(estimator,
         score = scores and scores[k]
         _, decoded_outputs, _ = log_decode_results(result["inputs"], beam,
                                                    problem_name, None,
-                                                   inputs_vocab, targets_vocab)
+                                                   inputs_vocab, targets_vocab,
+                                                   log_results=decode_hp.log_results)
         beam_decodes.append(decoded_outputs)
         if decode_hp.write_beam_scores:
           beam_scores.append(score)
@@ -284,8 +305,13 @@ def decode_from_file(estimator,
     else:
       _, decoded_outputs, _ = log_decode_results(
           result["inputs"], result["outputs"], problem_name,
-          None, inputs_vocab, targets_vocab)
+          None, inputs_vocab, targets_vocab,
+          log_results=decode_hp.log_results)
       decodes.append(decoded_outputs)
+    total_time_per_step += elapsed_time
+    total_cnt += result["outputs"].shape[-1]
+  tf.logging.info("Elapsed Time: %5.5f" % (time.time() - start_time))
+  tf.logging.info("Averaged Single Token Generation Time: %5.7f" % (total_time_per_step / total_cnt))
 
   # Reversing the decoded inputs and outputs because they were reversed in
   # _decode_batch_input_fn

@@ -2604,6 +2604,28 @@ def masked_local_attention_2d(q,
     return output
 
 
+def compute_attention_component(antecedent,
+                       total_depth,
+                       filter_width=1,
+                       padding="VALID",
+                       name="c"):
+  """Computes attention compoenent (query, key or value).
+
+  Args:
+    antecedent: a Tensor with shape [batch, length, channels]
+    total_depth: an integer
+    filter_width: An integer specifying how wide you want the attention component to be.
+    padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+    name: a string specifying scope name.
+ 
+  Returns:
+    c : [batch, length, depth] tensor
+  """
+  if filter_width == 1:
+    return common_layers.dense(antecedent, total_depth, use_bias=False, name=name)
+  else:
+    return common_layers.conv1d(antecedent, total_depth, filter_width, padding, name=name)
+
 def compute_qkv(query_antecedent,
                 memory_antecedent,
                 total_key_depth,
@@ -2618,7 +2640,7 @@ def compute_qkv(query_antecedent,
     query_antecedent: a Tensor with shape [batch, length_q, channels]
     memory_antecedent: a Tensor with shape [batch, length_m, channels]
     total_key_depth: an integer
-    total_value_depth: and integer
+    total_value_depth: an integer
     q_filter_width: An integer specifying how wide you want the query to be.
     kv_filter_width: An integer specifying how wide you want the keys and values
     to be.
@@ -2630,15 +2652,11 @@ def compute_qkv(query_antecedent,
   """
   if memory_antecedent is None:
     memory_antecedent = query_antecedent
-  def _compute(inp, depth, filter_width, padding, name):
-    if filter_width == 1:
-      return common_layers.dense(inp, depth, use_bias=False, name=name)
-    return common_layers.conv1d(inp, depth, filter_width, padding, name=name)
-  q = _compute(
+  q = compute_attention_component(
       query_antecedent, total_key_depth, q_filter_width, q_padding, "q")
-  k = _compute(
+  k = compute_attention_component(
       memory_antecedent, total_key_depth, kv_filter_width, kv_padding, "k")
-  v = _compute(
+  v = compute_attention_component(
       memory_antecedent, total_value_depth, kv_filter_width, kv_padding, "v")
   return q, k, v
 
@@ -2663,7 +2681,7 @@ def multihead_attention(query_antecedent,
                         cache=None,
                         gap_size=0,
                         num_memory_blocks=2,
-                        name=None,
+                        name="multihead_attention",
                         save_weights_to=None,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
@@ -2747,12 +2765,12 @@ def multihead_attention(query_antecedent,
                      "attention heads (%d)." % (total_value_depth, num_heads))
   with tf.variable_scope(
       name,
-      default_name="multihead_attention",
       values=[query_antecedent, memory_antecedent]):
-    q, k, v = compute_qkv(query_antecedent, memory_antecedent, total_key_depth,
-                          total_value_depth, q_filter_width, kv_filter_width,
-                          q_padding, kv_padding)
 
+    if cache is None or memory_antecedent is None:
+      q, k, v =  compute_qkv(query_antecedent, memory_antecedent, total_key_depth,
+                            total_value_depth, q_filter_width, kv_filter_width,
+                            q_padding, kv_padding)
     if cache is not None:
       if attention_type != "dot_product":
         # TODO(petershaw): Support caching when using relative position
@@ -2763,12 +2781,24 @@ def multihead_attention(query_antecedent,
       if bias is None:
         raise ValueError("Bias required for caching. See function docstring "
                          "for details.")
-      k = cache["k"] = tf.concat([cache["k"], k], axis=1)
-      v = cache["v"] = tf.concat([cache["v"], v], axis=1)
+
+      if memory_antecedent is not None:
+        # Encoder-Decoder Attention Cache
+        q = compute_attention_component(query_antecedent, total_key_depth,
+                                        q_filter_width, q_padding, "q")
+        k = cache["k_encdec"]
+        v = cache["v_encdec"]
+      else:
+        k = split_heads(k, num_heads)
+        v = split_heads(v, num_heads)
+        k = cache["k"] = tf.concat([cache["k"], k], axis=2)
+        v = cache["v"] = tf.concat([cache["v"], v], axis=2)
 
     q = split_heads(q, num_heads)
-    k = split_heads(k, num_heads)
-    v = split_heads(v, num_heads)
+    if cache is None:
+      k = split_heads(k, num_heads)
+      v = split_heads(v, num_heads)
+
     key_depth_per_head = total_key_depth // num_heads
     q *= key_depth_per_head**-0.5
 
@@ -2808,6 +2838,10 @@ def multihead_attention(query_antecedent,
       x = dilated_self_attention_1d(q, k, v, block_length, block_width,
                                     gap_size, num_memory_blocks)
     x = combine_heads(x)
+
+    # Set last dim specifically.
+    x.set_shape(x.shape.as_list()[:-1] + [total_value_depth])
+
     x = common_layers.dense(
         x, output_depth, use_bias=False, name="output_transform")
     if additional_returned_value is not None:
