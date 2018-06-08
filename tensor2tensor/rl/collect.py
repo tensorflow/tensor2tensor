@@ -51,8 +51,10 @@ def define_collect(policy_factory, batch_env, hparams,
   zeros_tensor = tf.zeros(len(batch_env))
 
   def group():
-    return tf.group(batch_env.reset(tf.range(len(batch_env))),
-                    tf.assign(cumulative_rewards, zeros_tensor))
+    return tf.group(
+        batch_env.reset(tf.range(len(batch_env))),
+        tf.assign(cumulative_rewards, zeros_tensor))
+
   reset_op = tf.cond(
       tf.logical_or(should_reset_var, tf.logical_or(eval_phase, on_simulated)),
       group, tf.no_op)

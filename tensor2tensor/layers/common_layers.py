@@ -1300,7 +1300,7 @@ def length_from_embedding(emb):
   Returns:
     a Tensor with shape [batch].
   """
-  return tf.cast(tf.reduce_sum(mask_from_embedding(emb), [1, 2, 3]), tf.int32)
+  return tf.reduce_sum(mask_from_embedding(emb), [1, 2, 3])
 
 
 def mask_leq(target_length, source_length):
