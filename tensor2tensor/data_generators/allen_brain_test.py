@@ -32,8 +32,8 @@ class TestAllenBrain(tf.test.TestCase):
   def setUp(self):
 
     self.all_problems = [
-        allen_brain.AllenBrainImage2image,
-        allen_brain.AllenBrainImage2imageDim48to64
+        allen_brain.Img2imgAllenBrain,
+        allen_brain.Img2imgAllenBrainDim48to64
     ]
 
   def test_generator_produces_examples(self):
@@ -99,7 +99,7 @@ class TestAllenBrain(tf.test.TestCase):
 
     """
 
-    problem_object = allen_brain.AllenBrainImage2image()
+    problem_object = allen_brain.Img2imgAllenBrain()
 
     with TemporaryDirectory() as tmp_dir:
 

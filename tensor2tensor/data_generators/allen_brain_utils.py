@@ -13,7 +13,6 @@
 
 """Utils. for Allen Brain Atlas dataset, download and subimages."""
 
-import math
 import os
 import shutil
 import tempfile
@@ -22,18 +21,41 @@ import numpy as np
 import tensorflow as tf
 
 
-# Gracefully inform users of the need to install problem-specific deps.
-try:
-  from allensdk.api.queries.rma_api import RmaApi
-  from allensdk.api.queries.image_download_api import ImageDownloadApi
-  from PIL import Image
-  import pandas as pd
-except ImportError as e:
-  tf.logging.error("This problem requires the installation of additional "
-                   "dependencies. To proceed, please run "
-                   "`pip install tensor2tensor[allen]`.")
-  # Don't throw the error, it just buries the informative log message.
-  exit(1)
+def try_importing_allensdk():
+  """Import necessary allensdk objects if the function is called."""
+  try:
+    from allensdk.api.queries.rma_api import RmaApi
+    from allensdk.api.queries.image_download_api import ImageDownloadApi
+  except ImportError:
+    tf.logging.error("Can't import allensdk. Please install it, "
+                     "such as by running `pip install allensdk`.")
+    exit(1)
+
+  return RmaApi, ImageDownloadApi
+
+
+def try_importing_pandas():
+  """Import pandas if the function is called."""
+  try:
+    import pandas
+  except ImportError:
+    tf.logging.error("Can't import pandas. Please install it, "
+                     "such as by running `pip install pandas`.")
+    exit(1)
+
+  return pandas
+
+
+def try_importing_pil_image():
+  """Import a PIL Image object if the function is called."""
+  try:
+    from PIL import Image
+  except ImportError:
+    tf.logging.error("Can't import Image from PIL (Pillow). Please install it, "
+                     "such as by running `pip install Pillow`.")
+    exit(1)
+
+  return Image
 
 
 def maybe_get_section_list(data_root,
@@ -58,15 +80,17 @@ def maybe_get_section_list(data_root,
     See also: http://help.brain-map.org/display/api/Downloading+an+Image
 
   Args:
-    data_root (str): Root path of where data and meta. are written.
-    product_abbreviation (str): Allen api product abbreviation (e.g.
+    data_root: str, root path of where data and meta. are written.
+    product_abbreviation: str, Allen api product abbreviation (e.g.
       Mouse).
-    num_rows (int): The number of rows to return from Allen API
+    num_rows: int, The number of rows to return from Allen API
       SectionDataSet query.
 
   """
 
-  rma = RmaApi()
+  rma, _ = try_importing_allensdk()
+
+  pd = try_importing_pandas()
 
   meta_root = os.path.join(data_root, "meta")
 
@@ -100,7 +124,7 @@ def maybe_get_section_list(data_root,
 def maybe_get_image_list(section_dataset_id,
                          data_root,
                          num_rows="all",
-                         image_api_client=None):
+                         client=None):
   """Obtain a list of images given a section dataset ID.
 
   Notes:
@@ -118,12 +142,12 @@ def maybe_get_image_list(section_dataset_id,
     See also: http://help.brain-map.org/display/api/Downloading+an+Image
 
   Args:
-    section_dataset_id (int): The integer ID of an Allen Institute API
+    section_dataset_id: int, the integer ID of an Allen Institute API
       SectionDataSet.
-    data_root (str): Root path of where data and meta. are written.
-    num_rows (int): The number of images to obtain from the
+    data_root: str, root path of where data and meta. are written.
+    num_rows: int, the number of images to obtain from the
       SectionDataSet.
-    image_api_client (object): An Allen Institute API client object.
+    client: object, an Allen Institute API client object.
 
   """
 
@@ -136,17 +160,19 @@ def maybe_get_image_list(section_dataset_id,
   if tf.gfile.Exists(section_list_path):
     tf.logging.info("Image list found for section id "
                     "%s, skipping download." % section_dataset_id)
+    pd = try_importing_pandas()
     data = pd.read_csv(section_list_path)
     return data
 
   tf.logging.info("Getting image list for section: "
                   "%s" % section_dataset_id)
 
-  if image_api_client is None:
-    image_api_client = ImageDownloadApi()
+  if client is None:
+    allensdk = try_importing_allensdk()
+    client = allensdk.api.queries.image_download_api.ImageDownloadApi()
 
   data = pd.DataFrame(
-      image_api_client.section_image_query(
+      client.section_image_query(
           section_dataset_id, num_rows=num_rows))
 
   data.to_csv(section_list_path)
@@ -160,7 +186,7 @@ def maybe_get_image_list(section_dataset_id,
 def maybe_download_image_dataset(image_list,
                                  image_dataset_id,
                                  data_root,
-                                 image_api_client=None):
+                                 client=None):
   """Given a list of image IDs, download the corresponding images.
 
   Notes:
@@ -175,19 +201,19 @@ def maybe_download_image_dataset(image_list,
     See also: http://help.brain-map.org/display/api/Downloading+an+Image
 
   Args:
-    image_list (list): A list of section image ID's.
-    image_dataset_id (int): The ID for the SectionDataSet for which images
+    image_list: list, a list of section image ID's.
+    image_dataset_id: int, the ID for the SectionDataSet for which images
       are being downloaded.
-    data_root (str): Root path of where data and meta. are written.
-    image_api_client (object): An Allen Institute API client object.
+    data_root: str, root path of where data and meta. are written.
+    client: object, an Allen Institute API client object.
 
   """
 
   dataset_root = os.path.join(data_root, "raw", str(image_dataset_id))
   tf.gfile.MakeDirs(dataset_root)
 
-  if image_api_client is None:
-    image_api_client = ImageDownloadApi()
+  if client is None:
+    _, client = try_importing_allensdk()
 
   tf.logging.info("Starting download of %s images..." % len(image_list))
   num_images = len(image_list)
@@ -213,8 +239,8 @@ def maybe_download_image_dataset(image_list,
 
     tmp_file = tempfile.NamedTemporaryFile(delete=False)
 
-    image_api_client.retrieve_file_over_http(url, tmp_file.name)
-    shutil.move(tmp_file.name, output_path)
+    client.retrieve_file_over_http(url, tmp_file.name)
+    tf.gfile.Rename(tmp_file.name, output_path)
 
   tf.logging.info("Finished downloading images.")
 
@@ -228,12 +254,12 @@ def maybe_download_image_datasets(data_root,
   """Maybe download all images from specified subset of studies.
 
   Args:
-    data_root (str): Root path of where data and meta. are written.
-    section_offset (int): The number of sections to skip at the beginning
+    data_root: str, root path of where data and meta. are written.
+    section_offset: int, the number of sections to skip at the beginning
       of the section list.
-    num_sections (int): The number of sections to obtain from the section
+    num_sections: int, the number of sections to obtain from the section
       list.
-    images_per_section (int): The number of images to obtain for each
+    images_per_section: int, the number of images to obtain for each
       section.
 
   """
@@ -258,108 +284,21 @@ def maybe_download_image_datasets(data_root,
 
   section_list_subset = section_list["id"][section_offset:end_index]
 
-  image_api_client = ImageDownloadApi()
+  _, client = try_importing_allensdk()
 
   for image_dataset_id in section_list_subset:
 
     image_list = maybe_get_image_list(image_dataset_id,
                                       data_root,
                                       images_per_section,
-                                      image_api_client)
+                                      client)
 
     image_data_paths = maybe_download_image_dataset(image_list,
                                                     image_dataset_id,
                                                     data_root,
-                                                    image_api_client)
+                                                    client)
 
     return image_data_paths
-
-
-def subimage_files_for_image_file(raw_image_path,
-                                  metadata_base_path,
-                                  xy_size=1024,
-                                  max_output=None,
-                                  subimage_format="jpeg",
-                                  strip_input_prefix=True):
-  """Tile an image file to produce sub images of specified size and format.
-
-  Args:
-    raw_image_path (str): The path to an input image from which subimages
-      will be produced.
-    metadata_base_path (str): The directory to which subimage path lists
-      should be written.
-    xy_size (int): The x and y dimension of sub-image to produce, i.e.
-      xy_size by xy_size images.
-    max_output (int): The maximum number of sub-images to produce.
-    subimage_format (str): The format of subimage to produce (e.g. jpeg,
-      png).
-    strip_input_prefix (bool): Whether to strip input prefix in
-      constructing output fnames (e.g. raw_some_tag ->
-      1024x1024_some_tag vs. raw_some_tag -> 1024x1024_raw_some_tag)
-
-  """
-
-  image_dir, image_filename = os.path.split(raw_image_path)
-
-  prefix = "%sx%s" % (xy_size, xy_size)
-
-  if strip_input_prefix:
-    image_filename = "_".join(image_filename.split("_")[1:])
-
-  path_manifest_filename = ".".join([image_filename.split(".")[0], "csv"])
-  path_manifest_filename = "_".join([prefix,
-                                     "path_manifest",
-                                     path_manifest_filename])
-  path_manifest_path = os.path.join(metadata_base_path,
-                                    path_manifest_filename)
-
-  if tf.gfile.Exists(path_manifest_path):
-    tf.logging.info("Skipping generation of subimages which already "
-                    "exist with path manifest: %s" % path_manifest_path)
-    return
-
-  tf.logging.info("Generating subimages for image at path: "
-                  "%s" % raw_image_path)
-  img = Image.open(raw_image_path)
-  img = np.float32(img)
-  shape = np.shape(img)
-
-  count = 0
-
-  with tf.gfile.Open(path_manifest_path, "w") as path_manifest_file:
-
-    for h_index in range(0, int(math.floor(shape[0]/xy_size))):
-      h_offset = h_index * xy_size
-      h_end = h_offset + xy_size - 1
-      for v_index in range(0, int(math.floor(shape[1]/xy_size))):
-        v_offset = v_index * xy_size
-        v_end = v_offset + xy_size - 1
-
-        # Extract a sub-image tile and convert to float in range
-        # [0, 1-ish].
-        # pylint: disable=invalid-sequence-index
-        std_sub = img[h_offset:h_end, v_offset:v_end]/255.0
-
-        # Clip the ish, convert from [0,1] to [0, 255], then to
-        # uint8 type.
-        subimage = np.uint8(np.clip(std_sub, 0, 1)*255)
-
-        subimage_filename = "%s_%s_%s" % (
-            prefix, count, image_filename)
-        subimage_path = os.path.join(image_dir, subimage_filename)
-
-        with tf.gfile.Open(subimage_path, "w") as f:
-          Image.fromarray(subimage).save(f, subimage_format)
-
-        # Write the name of the generated subimage to the path
-        # manifest
-        path_manifest_file.write(subimage_path + "\n")
-
-        count += 1
-        if max_output is not None and count >= max_output:
-          tf.logging.info("Reached maximum number of subimages: "
-                          "%s" % max_output)
-          return
 
 
 def mock_raw_image(x_dim=1024, y_dim=1024, num_channels=3,
@@ -367,10 +306,10 @@ def mock_raw_image(x_dim=1024, y_dim=1024, num_channels=3,
   """Generate random `x_dim` by `y_dim`, optionally to `output_path`.
 
   Args:
-    output_path (str): Path to which to write image.
-    x_dim (int): The x dimension of generated raw image.
-    y_dim (int): The x dimension of generated raw image.
-    return_raw_image (bool): Whether to return the generated image (as a
+    output_path: str, path to which to write image.
+    x_dim: int, the x dimension of generated raw image.
+    y_dim: int, the x dimension of generated raw image.
+    return_raw_image: bool, whether to return the generated image (as a
       numpy array).
 
   Returns:
@@ -393,7 +332,8 @@ def mock_raw_image(x_dim=1024, y_dim=1024, num_channels=3,
       raise ValueError("Output path must be of type str if write_image=True, "
                        "saw %s." % output_path)
 
-    pil_img = Image.fromarray(img, mode="RGB")
+    image_obj = try_importing_pil_image()
+    pil_img = image_obj.fromarray(img, mode="RGB")
     with tf.gfile.Open(output_path, "w") as f:
       pil_img.save(f, "jpeg")
 
@@ -417,20 +357,19 @@ def mock_raw_data(tmp_dir, raw_dim=1024, num_channels=3, num_images=1):
             raw_{image_id}.jpg [random image]
 
   Args:
-    tmp_dir (str): Temporary dir in which to mock data.
-    raw_dim (int): The x and y dimension of generated raw imgs.
+    tmp_dir: str, temporary dir in which to mock data.
+    raw_dim int, the x and y dimension of generated raw imgs.
 
   Returns:
-    tmp_dir (str): Path to root of generated data dir.
+    tmp_dir: str, path to root of generated data dir.
 
   """
 
   meta = os.path.join(tmp_dir, "meta")
   raw = os.path.join(tmp_dir, "raw")
-  os.mkdir(meta)
-  os.mkdir(raw)
+  tf.gfile.MakeDirs(meta)
+  tf.gfile.MakeDirs(raw)
   mock_dataset_id = "70474875"
-  mock_image_id = "70450649"
 
   # Write dummy section list
   header = (",blue_channel,delegate,expression,failed,failed_facet,"
@@ -446,31 +385,34 @@ def mock_raw_data(tmp_dir, raw_dim=1024, num_channels=3, num_images=1):
     f.write(record)
 
   dataset = os.path.join(raw, mock_dataset_id)
-  os.mkdir(dataset)
+  tf.gfile.MakeDirs(dataset)
 
-  # Write dummy image list
   header = (",annotated,axes,bits_per_component,data_set_id,"
             "expression_path,failed,height,id,image_height,"
             "image_type,image_width,isi_experiment_id,lims1_id,"
             "number_of_components,ophys_experiment_id,path,"
             "projection_function,resolution,section_number,"
-            "specimen_id,structure_id,tier_count,width,x,y\n")
+            "specimen_id,structure_id,tier_count,width,x,y").split(",")
 
-  image_list_fname = "image_list_for_section70474875_all.csv"
-  with tf.gfile.Open(os.path.join(meta, image_list_fname), "w") as f:
-    f.write(header)
-    for image_id in range(1, num_images):
-      image_id = str(image_id)
-      f.write(",,,,%s,,,,%s,,,,,%s,,,,,,,,,,,,\n" % (mock_dataset_id,
-                                                     image_id,
-                                                     image_id))
+  pd = try_importing_pandas()
+  image_list = pd.DataFrame(np.zeros(shape=(num_images, len(header))),
+                            columns=header)
 
-      image_dir = os.path.join(dataset, image_id)
-      os.mkdir(image_dir)
-      raw_image_path = os.path.join(image_dir, "raw_%s.jpg" % image_id)
+  image_list_fname = os.path.join(meta, "image_list*_all.csv")
 
-      mock_raw_image(x_dim=raw_dim, y_dim=raw_dim, num_channels=num_channels,
-                     output_path=raw_image_path)
+  for image_id in range(1, num_images):
+    image_list["data_set_id"][image_id] = mock_dataset_id
+    image_list["id"][image_id] = image_id
+
+    image_dir = os.path.join(dataset, image_id)
+    tf.gfile.MakeDirs(image_dir)
+    raw_image_path = os.path.join(image_dir, "raw_%s.jpg" % image_id)
+
+    mock_raw_image(x_dim=raw_dim, y_dim=raw_dim,
+                   num_channels=num_channels,
+                   output_path=raw_image_path)
+
+  image_list.write_csv(image_list_fname)
 
 
 class TemporaryDirectory(object):
