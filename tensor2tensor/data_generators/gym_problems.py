@@ -147,7 +147,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     }
     p.target_modality = {
         "targets": ("video", 256),
-        "target_reward": ("symbol:weights_all", self.num_rewards)
+        "target_reward": ("symbol:weights_all", self.num_rewards),
+        "target_action": ("symbol:weights_all", self.num_actions)
     }
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE

@@ -176,68 +176,75 @@ class NextFrameStochastic(NextFrameBasic):
     """
     sequence_length = len(images)
 
-    with slim.arg_scope([slim.conv2d], reuse=False):
-      stacked_images = tf.concat(images, 3)
-      stacked_images = common_layers.make_even_size(stacked_images)
-      latent_enc1 = slim.conv2d(
-          stacked_images,
-          32, [3, 3],
-          stride=2,
-          scope="latent_conv1")
-      latent_enc1 = slim.batch_norm(latent_enc1, scope="latent_bn1")
-      latent_enc1 = common_layers.make_even_size(latent_enc1)
+    with slim.arg_scope([slim.conv2d, slim.batch_norm], reuse=False):
+      images = tf.concat(images, 3)
 
-      latent_enc2 = slim.conv2d(
-          latent_enc1,
-          64, [3, 3],
-          stride=2,
-          scope="latent_conv2")
-      latent_enc2 = slim.batch_norm(latent_enc2, scope="latent_bn2")
+      x = images
+      x = common_layers.make_even_size(x)
+      x = slim.conv2d(x, 32, [3, 3], stride=2, scope="latent_conv1")
+      x = slim.batch_norm(x, scope="latent_bn1")
+      x = common_layers.make_even_size(x)
+      x = slim.conv2d(x, 64, [3, 3], stride=2, scope="latent_conv2")
+      x = slim.batch_norm(x, scope="latent_bn2")
+      x = slim.conv2d(x, 64, [3, 3], stride=1, scope="latent_conv3")
+      x = slim.batch_norm(x, scope="latent_bn3")
 
-      latent_enc3 = slim.conv2d(
-          latent_enc2,
-          64, [3, 3],
-          stride=1,
-          scope="latent_conv3")
-      latent_enc3 = slim.batch_norm(latent_enc3, scope="latent_bn3")
-
-      latent_enc3 = common_layers.make_even_size(latent_enc3)
-      latent_mean = slim.conv2d(
-          latent_enc3,
-          self.hparams.latent_channels, [3, 3],
-          stride=2,
-          activation_fn=None,
-          scope="latent_mean")
-
-      latent_std = slim.conv2d(
-          latent_enc3,
-          self.hparams.latent_channels, [3, 3],
-          stride=2,
-          scope="latent_std")
-
-      latent_std += self.hparams.latent_std_min
+      nc = self.hparams.latent_channels
+      mean = slim.conv2d(
+          x, nc, [3, 3], stride=2, activation_fn=None, scope="latent_mean")
+      std = slim.conv2d(x, nc, [3, 3], stride=2, scope="latent_std")
+      std += self.hparams.latent_std_min
 
     if self.hparams.multi_latent:
       # timestep x batch_size x latent_size
       samples = tf.random_normal(
-          [sequence_length-1] + latent_mean.shape, 0, 1,
+          [sequence_length-1] + mean.shape, 0, 1,
           dtype=tf.float32)
     else:
       # batch_size x latent_size
-      samples = tf.random_normal(tf.shape(latent_mean), 0, 1, dtype=tf.float32)
+      samples = tf.random_normal(tf.shape(mean), 0, 1, dtype=tf.float32)
 
     if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
-      return latent_mean, latent_std, samples
+      return mean, std, samples
     else:
       # No latent tower at inference time, just standard gaussian.
       return None, None, samples
 
+  def reward_prediction(self, inputs, reuse):
+    """Builds a reward prediction network."""
+    with slim.arg_scope([slim.conv2d, slim.batch_norm], reuse=reuse):
+      x = inputs
+      x = slim.conv2d(x, 32, [3, 3], scope="reward_conv1")
+      x = slim.batch_norm(x, scope="reward_bn1")
+      x = slim.conv2d(x, 16, [3, 3], scope="reward_conv2")
+      x = slim.batch_norm(x, scope="reward_bn2")
+      x = slim.conv2d(x, 1, [3, 3], scope="reward_conv3", activation_fn=None)
+    return x
+
+  def encode_to_shape(self, inputs, shape, reuse):
+    """Encode the given tensor to given image shape."""
+    with slim.arg_scope([slim.fully_connected], reuse=reuse):
+      w, h = shape[1].value, shape[2].value
+      x = inputs
+      x = tf.contrib.layers.flatten(x)
+      x = slim.fully_connected(x, w * h, scope="encoding_full")
+      x = tf.reshape(x, (-1, w, h, 1))
+      return x
+
+  def decode_to_shape(self, inputs, shape, reuse):
+    """Encode the given tensor to given image shape."""
+    with slim.arg_scope([slim.fully_connected], reuse=reuse):
+      x = inputs
+      x = tf.contrib.layers.flatten(x)
+      x = slim.fully_connected(x, shape[2].value, scope="decoding_full")
+      x = tf.expand_dims(x, axis=1)
+      return x
+
   def construct_model(self,
                       images,
                       actions,
-                      states,
+                      rewards,
                       k=-1,
-                      use_state=False,
                       num_masks=10,
                       cdna=True,
                       dna=False,
@@ -245,11 +252,13 @@ class NextFrameStochastic(NextFrameBasic):
     """Build convolutional lstm video predictor using CDNA, or DNA.
 
     Args:
-      images: tensor of ground truth image sequences
-      actions: tensor of action sequences
-      states: tensor of ground truth state sequences
+      images: list of tensors of ground truth image sequences
+              there should be a 4D image ?xWxHxC for each timestep
+      actions: list of action tensors
+               each action should be in the shape ?x1xZ
+      rewards: list of reward tensors
+               each reward should be in the shape ?x1xZ
       k: constant used for scheduled sampling. -1 to feed in own prediction.
-      use_state: True to include state and action in prediction
       num_masks: the number of different pixel motion predictions (and
                  the number of masks for each of those predictions)
       cdna: True to use Convoluational Dynamic Neural Advection (CDNA)
@@ -258,7 +267,9 @@ class NextFrameStochastic(NextFrameBasic):
                       feeding in own predictions
     Returns:
       gen_images: predicted future image frames
-      gen_states: predicted future states
+      gen_rewards: predicted future rewards
+      latent_mean: mean of approximated posterior
+      latent_std: std of approximated posterior
 
     Raises:
       ValueError: if more than one network option specified or more than 1 mask
@@ -273,12 +284,11 @@ class NextFrameStochastic(NextFrameBasic):
       raise ValueError("More than one, or no network option specified.")
 
     img_height, img_width, color_channels = self.hparams.problem.frame_shape
-    batch_size = common_layers.shape_list(images[0])[0]
+    batch_size = self.hparams.batch_size
     lstm_func = self.basic_conv_lstm_cell
 
-    # Generated robot states and images.
-    gen_states, gen_images = [], []
-    current_state = states[0]
+    # Predicted images and rewards.
+    gen_rewards, gen_images = [], []
 
     if k == -1:
       feedself = True
@@ -303,12 +313,12 @@ class NextFrameStochastic(NextFrameBasic):
       latent_mean, latent_std, samples = latent_tower_outputs
 
     # Main tower
-    timestep = 0
     layer_norm = tf.contrib.layers.layer_norm
 
-    for image, action in zip(images[:-1], actions[:-1]):
+    for timestep, image, action, reward in zip(
+        range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
       # Reuse variables after the first timestep.
-      reuse = bool(gen_images)
+      reuse = timestep > 0
 
       done_warm_start = len(gen_images) > context_frames - 1
       with slim.arg_scope(
@@ -321,16 +331,17 @@ class NextFrameStochastic(NextFrameBasic):
         if feedself and done_warm_start:
           # Feed in generated image.
           prev_image = gen_images[-1]
+          prev_reward = gen_rewards[-1]
         elif done_warm_start:
           # Scheduled sampling
           prev_image = self.scheduled_sample(
-              image, gen_images[-1], self.hparams.batch_size, num_ground_truth)
+              image, gen_images[-1], batch_size, num_ground_truth)
+          prev_reward = self.scheduled_sample(
+              reward, gen_rewards[-1], batch_size, num_ground_truth)
         else:
           # Always feed in ground_truth
           prev_image = image
-
-        # Predicted state is always fed back in
-        state_action = tf.concat(axis=1, values=[action, current_state])
+          prev_reward = reward
 
         prev_image = common_layers.make_even_size(prev_image)
         enc0 = slim.layers.conv2d(
@@ -361,15 +372,10 @@ class NextFrameStochastic(NextFrameBasic):
         enc2 = slim.layers.conv2d(
             hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
 
-        # Pass in state and action.
-        smear = tf.reshape(
-            state_action,
-            [-1, 1, 1, int(common_layers.shape_list(state_action)[1])])
-        enc2_shape = common_layers.shape_list(enc2)
-        smear = tf.tile(
-            smear, [1, enc2_shape[1], enc2_shape[2], 1])
-        if use_state:
-          enc2 = tf.concat(axis=3, values=[enc2, smear])
+        # Pass in reward and action.
+        emb_action = self.encode_to_shape(action, enc2.get_shape(), reuse)
+        emb_reward = self.encode_to_shape(prev_reward, enc2.get_shape(), reuse)
+        enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
 
         # Setup latent
         if self.hparams.stochastic_model:
@@ -468,15 +474,12 @@ class NextFrameStochastic(NextFrameBasic):
           output += layer * mask
         gen_images.append(output)
 
-        current_state = slim.layers.fully_connected(
-            state_action,
-            int(current_state.get_shape()[1]),
-            scope="state_pred",
-            activation_fn=None)
-        gen_states.append(current_state)
-        timestep += 1
+        p_reward = self.reward_prediction(hidden5, reuse)
+        p_reward = self.decode_to_shape(p_reward, reward.shape, reuse)
 
-    return gen_images, gen_states, latent_mean, latent_std
+        gen_rewards.append(p_reward)
+
+    return gen_images, gen_rewards, latent_mean, latent_std
 
   def cdna_transformation(self,
                           prev_image,
@@ -662,48 +665,72 @@ class NextFrameStochastic(NextFrameBasic):
 
       return new_h, tf.concat(axis=3, values=[new_c, new_h])
 
+  def get_input_if_exists(self, features, key, batch_size, num_frames):
+    if key in features:
+      x = features[key]
+    else:
+      x = tf.zeros((batch_size, num_frames, 1, self.hparams.hidden_size))
+    return tf.unstack(x, axis=1)
+
   def body(self, features):
     hparams = self.hparams
+    batch_size = self.hparams.batch_size
 
     # Split inputs and targets time-wise into a list of frames.
     input_frames = tf.unstack(features["inputs"], axis=1)
     target_frames = tf.unstack(features["targets"], axis=1)
 
-    num_frames = (hparams.video_num_input_frames +
-                  hparams.video_num_target_frames)
-    batch_size = common_layers.shape_list(input_frames)[0]
-    fake_zeros = [tf.zeros((batch_size, 1), dtype=tf.float32)
-                  for _ in range(num_frames)]
+    # Get actions if exist otherwise use zeros
+    input_actions = self.get_input_if_exists(
+        features, "input_action", batch_size, hparams.video_num_input_frames)
+    target_actions = self.get_input_if_exists(
+        features, "target_action", batch_size, hparams.video_num_target_frames)
+
+    # Get rewards if exist otherwise use zeros
+    input_rewards = self.get_input_if_exists(
+        features, "input_reward", batch_size, hparams.video_num_input_frames)
+    target_rewards = self.get_input_if_exists(
+        features, "target_reward", batch_size, hparams.video_num_target_frames)
+
+    all_actions = input_actions + target_actions
+    all_rewards = input_rewards + target_rewards
+
     is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
-    gen_images, _, latent_mean, latent_std = self.construct_model(
+    gen_images, gen_rewards, latent_mean, latent_std = self.construct_model(
         images=input_frames + target_frames,
-        actions=fake_zeros,
-        states=fake_zeros,
+        actions=all_actions,
+        rewards=all_rewards,
         k=900.0 if is_training else -1.0,
-        use_state=False,
         num_masks=10,
         cdna=True,
         dna=False,
         context_frames=hparams.video_num_input_frames)
 
-    kl_loss = 0.0
     step_num = tf.train.get_or_create_global_step()
     beta = tf.cond(step_num > self.hparams.num_iterations_2nd_stage,
                    lambda: self.hparams.latent_loss_multiplier,
                    lambda: 0.0)
 
+    kl_loss = 0.0
     if is_training:
+      kl_loss = self.kl_divergence(latent_mean, latent_std)
+
       tf.summary.scalar("beta", beta)
       tf.summary.histogram("posterior_mean", latent_mean)
       tf.summary.histogram("posterior_std", latent_std)
-
-    if is_training:
-      kl_loss = self.kl_divergence(latent_mean, latent_std)
       tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
-    kl_loss *= beta
+
+    extra_loss = beta * kl_loss
 
     predictions = gen_images[hparams.video_num_input_frames-1:]
-    return predictions, kl_loss
+    reward_pred = tf.stack(
+        gen_rewards[hparams.video_num_input_frames-1:], axis=1)
+
+    return_targets = predictions
+    if "target_reward" in features:
+      return_targets = {"targets": predictions, "target_reward": reward_pred}
+
+    return return_targets, extra_loss
 
 
 @registry.register_hparams
@@ -735,8 +762,8 @@ def next_frame():
 def next_frame_stochastic():
   """SV2P model."""
   hparams = next_frame()
-  hparams.video_num_input_frames = 1
-  hparams.video_num_target_frames = 4
+  hparams.video_num_input_frames = 4
+  hparams.video_num_target_frames = 1
   hparams.batch_size = 8
   hparams.target_modality = "video:raw"
   hparams.input_modalities = "inputs:video:raw"

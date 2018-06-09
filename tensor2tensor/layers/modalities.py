@@ -561,8 +561,6 @@ class VideoModalityRaw(modality.Modality):
 
   def loss(self, top_out, targets):
     top_out = tf.squeeze(top_out, axis=[-1])
-    assert(top_out.shape.as_list() == targets.shape.as_list()), \
-           "The dimensions doesn't match."
     loss = tf.square(top_out - tf.to_float(targets))
     return tf.reduce_sum(loss), tf.reduce_sum(tf.ones_like(loss))
 
