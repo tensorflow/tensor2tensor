@@ -176,7 +176,7 @@ class NextFrameStochastic(NextFrameBasic):
     """
     sequence_length = len(images)
 
-    with slim.arg_scope([slim.conv2d, slim.batch_norm], reuse=False):
+    with tf.variable_scope("latent"):
       images = tf.concat(images, 3)
 
       x = images
@@ -210,9 +210,9 @@ class NextFrameStochastic(NextFrameBasic):
       # No latent tower at inference time, just standard gaussian.
       return None, None, samples
 
-  def reward_prediction(self, inputs, reuse):
+  def reward_prediction(self, inputs):
     """Builds a reward prediction network."""
-    with slim.arg_scope([slim.conv2d, slim.batch_norm], reuse=reuse):
+    with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
       x = inputs
       x = slim.conv2d(x, 32, [3, 3], scope="reward_conv1")
       x = slim.batch_norm(x, scope="reward_bn1")
@@ -221,9 +221,9 @@ class NextFrameStochastic(NextFrameBasic):
       x = slim.conv2d(x, 1, [3, 3], scope="reward_conv3", activation_fn=None)
     return x
 
-  def encode_to_shape(self, inputs, shape, reuse):
+  def encode_to_shape(self, inputs, shape):
     """Encode the given tensor to given image shape."""
-    with slim.arg_scope([slim.fully_connected], reuse=reuse):
+    with tf.variable_scope("reward_enc", reuse=tf.AUTO_REUSE):
       w, h = shape[1].value, shape[2].value
       x = inputs
       x = tf.contrib.layers.flatten(x)
@@ -231,9 +231,9 @@ class NextFrameStochastic(NextFrameBasic):
       x = tf.reshape(x, (-1, w, h, 1))
       return x
 
-  def decode_to_shape(self, inputs, shape, reuse):
+  def decode_to_shape(self, inputs, shape):
     """Encode the given tensor to given image shape."""
-    with slim.arg_scope([slim.fully_connected], reuse=reuse):
+    with tf.variable_scope("reward_dec", reuse=tf.AUTO_REUSE):
       x = inputs
       x = tf.contrib.layers.flatten(x)
       x = slim.fully_connected(x, shape[2].value, scope="decoding_full")
@@ -317,17 +317,9 @@ class NextFrameStochastic(NextFrameBasic):
 
     for timestep, image, action, reward in zip(
         range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
-      # Reuse variables after the first timestep.
-      reuse = timestep > 0
 
       done_warm_start = len(gen_images) > context_frames - 1
-      with slim.arg_scope(
-          [
-              lstm_func, slim.layers.conv2d, slim.layers.fully_connected,
-              layer_norm, slim.layers.conv2d_transpose
-          ],
-          reuse=reuse):
-
+      with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
         if feedself and done_warm_start:
           # Feed in generated image.
           prev_image = gen_images[-1]
@@ -373,8 +365,8 @@ class NextFrameStochastic(NextFrameBasic):
             hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
 
         # Pass in reward and action.
-        emb_action = self.encode_to_shape(action, enc2.get_shape(), reuse)
-        emb_reward = self.encode_to_shape(prev_reward, enc2.get_shape(), reuse)
+        emb_action = self.encode_to_shape(action, enc2.get_shape())
+        emb_reward = self.encode_to_shape(prev_reward, enc2.get_shape())
         enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
 
         # Setup latent
@@ -474,8 +466,8 @@ class NextFrameStochastic(NextFrameBasic):
           output += layer * mask
         gen_images.append(output)
 
-        p_reward = self.reward_prediction(hidden5, reuse)
-        p_reward = self.decode_to_shape(p_reward, reward.shape, reuse)
+        p_reward = self.reward_prediction(hidden5)
+        p_reward = self.decode_to_shape(p_reward, reward.shape)
 
         gen_rewards.append(p_reward)
 
@@ -620,8 +612,7 @@ class NextFrameStochastic(NextFrameBasic):
                            num_channels,
                            filter_size=5,
                            forget_bias=1.0,
-                           scope=None,
-                           reuse=None):
+                           scope=None):
     """Basic LSTM recurrent network cell, with 2D convolution connctions.
 
     We add forget_bias (default: 1) to the biases of the forget gate in order to
@@ -635,7 +626,6 @@ class NextFrameStochastic(NextFrameBasic):
       filter_size: the shape of the each convolution filter.
       forget_bias: the initial value of the forget biases.
       scope: Optional scope for variable_scope.
-      reuse: whether or not the layer and the variables should be reused.
     Returns:
        a tuple of tensors representing output and the new state.
     """
@@ -645,7 +635,7 @@ class NextFrameStochastic(NextFrameBasic):
     with tf.variable_scope(scope,
                            "BasicConvLstmCell",
                            [inputs, state],
-                           reuse=reuse):
+                           reuse=tf.AUTO_REUSE):
       inputs.get_shape().assert_has_rank(4)
       state.get_shape().assert_has_rank(4)
       c, h = tf.split(axis=3, num_or_size_splits=2, value=state)
