@@ -240,6 +240,17 @@ class NextFrameStochastic(NextFrameBasic):
       x = tf.expand_dims(x, axis=1)
       return x
 
+  def conv_lstm_2d(self, inputs, state, output_channels,
+                   kernel_size=5, scope=None):
+    input_shape = common_layers.shape_list(inputs)
+    cell = tf.contrib.rnn.ConvLSTMCell(
+        2, input_shape[1:], output_channels,
+        [kernel_size, kernel_size], name=scope)
+    if state is None:
+      state = cell.zero_state(self.hparams.batch_size, tf.float32)
+    outputs, new_state = cell(inputs, state)
+    return outputs, new_state
+
   def construct_model(self,
                       images,
                       actions,
@@ -285,7 +296,6 @@ class NextFrameStochastic(NextFrameBasic):
 
     img_height, img_width, color_channels = self.hparams.problem.frame_shape
     batch_size = self.hparams.batch_size
-    lstm_func = self.basic_conv_lstm_cell
 
     # Predicted images and rewards.
     gen_rewards, gen_images = [], []
@@ -303,9 +313,8 @@ class NextFrameStochastic(NextFrameBasic):
       feedself = False
 
     # LSTM state sizes and states.
-    lstm_size = np.int32(np.array([32, 32, 64, 64, 128, 64, 32]))
-    lstm_state1, lstm_state2, lstm_state3, lstm_state4 = None, None, None, None
-    lstm_state5, lstm_state6, lstm_state7 = None, None, None
+    lstm_size = np.array([32, 32, 64, 64, 128, 64, 32], dtype=np.int32)
+    lstm_state = [None] * 7
 
     # Latent tower
     if self.hparams.stochastic_model:
@@ -314,6 +323,7 @@ class NextFrameStochastic(NextFrameBasic):
 
     # Main tower
     layer_norm = tf.contrib.layers.layer_norm
+    lstm_func = self.conv_lstm_2d
 
     for timestep, image, action, reward in zip(
         range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
@@ -344,21 +354,21 @@ class NextFrameStochastic(NextFrameBasic):
             normalizer_fn=layer_norm,
             normalizer_params={"scope": "layer_norm1"})
 
-        hidden1, lstm_state1 = lstm_func(
-            enc0, lstm_state1, lstm_size[0], scope="state1")
+        hidden1, lstm_state[0] = lstm_func(
+            enc0, lstm_state[0], lstm_size[0], scope="state1")
         hidden1 = layer_norm(hidden1, scope="layer_norm2")
-        hidden2, lstm_state2 = lstm_func(
-            hidden1, lstm_state2, lstm_size[1], scope="state2")
+        hidden2, lstm_state[1] = lstm_func(
+            hidden1, lstm_state[1], lstm_size[1], scope="state2")
         hidden2 = layer_norm(hidden2, scope="layer_norm3")
         hidden2 = common_layers.make_even_size(hidden2)
         enc1 = slim.layers.conv2d(
             hidden2, hidden2.get_shape()[3], [3, 3], stride=2, scope="conv2")
 
-        hidden3, lstm_state3 = lstm_func(
-            enc1, lstm_state3, lstm_size[2], scope="state3")
+        hidden3, lstm_state[2] = lstm_func(
+            enc1, lstm_state[2], lstm_size[2], scope="state3")
         hidden3 = layer_norm(hidden3, scope="layer_norm4")
-        hidden4, lstm_state4 = lstm_func(
-            hidden3, lstm_state4, lstm_size[3], scope="state4")
+        hidden4, lstm_state[3] = lstm_func(
+            hidden3, lstm_state[3], lstm_size[3], scope="state4")
         hidden4 = layer_norm(hidden4, scope="layer_norm5")
         hidden4 = common_layers.make_even_size(hidden4)
         enc2 = slim.layers.conv2d(
@@ -383,16 +393,16 @@ class NextFrameStochastic(NextFrameBasic):
         enc3 = slim.layers.conv2d(
             enc2, hidden4.get_shape()[3], [1, 1], stride=1, scope="conv4")
 
-        hidden5, lstm_state5 = lstm_func(
-            enc3, lstm_state5, lstm_size[4], scope="state5")  # last 8x8
+        hidden5, lstm_state[4] = lstm_func(
+            enc3, lstm_state[4], lstm_size[4], scope="state5")  # last 8x8
         hidden5 = layer_norm(hidden5, scope="layer_norm6")
         enc4 = slim.layers.conv2d_transpose(
             hidden5, hidden5.get_shape()[3], 3, stride=2, scope="convt1")
 
         enc1_shape = common_layers.shape_list(enc1)
         enc4 = enc4[:, :enc1_shape[1], :enc1_shape[2], :]  # Cut to shape.
-        hidden6, lstm_state6 = lstm_func(
-            enc4, lstm_state6, lstm_size[5], scope="state6")  # 16x16
+        hidden6, lstm_state[5] = lstm_func(
+            enc4, lstm_state[5], lstm_size[5], scope="state6")  # 16x16
         hidden6 = layer_norm(hidden6, scope="layer_norm7")
         # Skip connection.
         hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
@@ -401,8 +411,8 @@ class NextFrameStochastic(NextFrameBasic):
             hidden6, hidden6.get_shape()[3], 3, stride=2, scope="convt2")
         enc0_shape = common_layers.shape_list(enc0)
         enc5 = enc5[:, :enc0_shape[1], :enc0_shape[2], :]  # Cut to shape.
-        hidden7, lstm_state7 = lstm_func(
-            enc5, lstm_state7, lstm_size[6], scope="state7")  # 32x32
+        hidden7, lstm_state[6] = lstm_func(
+            enc5, lstm_state[6], lstm_size[6], scope="state7")  # 32x32
         hidden7 = layer_norm(hidden7, scope="layer_norm8")
 
         # Skip connection.
@@ -604,56 +614,6 @@ class NextFrameStochastic(NextFrameBasic):
     return -.5 * tf.reduce_sum(
         1. + log_sigma - tf.square(mu) - tf.exp(log_sigma),
         axis=1)
-
-  @slim.add_arg_scope
-  def basic_conv_lstm_cell(self,
-                           inputs,
-                           state,
-                           num_channels,
-                           filter_size=5,
-                           forget_bias=1.0,
-                           scope=None):
-    """Basic LSTM recurrent network cell, with 2D convolution connctions.
-
-    We add forget_bias (default: 1) to the biases of the forget gate in order to
-    reduce the scale of forgetting in the beginning of the training.
-    It does not allow cell clipping, a projection layer, and does not
-    use peep-hole connections: it is the basic baseline.
-    Args:
-      inputs: input Tensor, 4D, batch x height x width x channels.
-      state: state Tensor, 4D, batch x height x width x channels.
-      num_channels: the number of output channels in the layer.
-      filter_size: the shape of the each convolution filter.
-      forget_bias: the initial value of the forget biases.
-      scope: Optional scope for variable_scope.
-    Returns:
-       a tuple of tensors representing output and the new state.
-    """
-    if state is None:
-      inputs_shape = common_layers.shape_list(inputs)
-      state = tf.zeros(inputs_shape[:3] + [2 * num_channels])
-    with tf.variable_scope(scope,
-                           "BasicConvLstmCell",
-                           [inputs, state],
-                           reuse=tf.AUTO_REUSE):
-      inputs.get_shape().assert_has_rank(4)
-      state.get_shape().assert_has_rank(4)
-      c, h = tf.split(axis=3, num_or_size_splits=2, value=state)
-      inputs_h = tf.concat(axis=3, values=[inputs, h])
-      # Parameters of gates are concatenated into one conv for efficiency.
-      i_j_f_o = slim.layers.conv2d(inputs_h,
-                                   4 * num_channels, [filter_size, filter_size],
-                                   stride=1,
-                                   activation_fn=None,
-                                   scope="Gates")
-
-      # i = input_gate, j = new_input, f = forget_gate, o = output_gate
-      i, j, f, o = tf.split(axis=3, num_or_size_splits=4, value=i_j_f_o)
-
-      new_c = c * tf.sigmoid(f + forget_bias) + tf.sigmoid(i) * tf.tanh(j)
-      new_h = tf.tanh(new_c) * tf.sigmoid(o)
-
-      return new_h, tf.concat(axis=3, values=[new_c, new_h])
 
   def get_input_if_exists(self, features, key, batch_size, num_frames):
     if key in features:
