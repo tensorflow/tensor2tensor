@@ -153,7 +153,7 @@ There are a number of translation data-sets in T2T:
 
 You can get translations in the other direction by appending `_rev` to
 the problem name, e.g., for German-English use
-`--problem=translate_ende_wmt32k_rev`.
+`--problem=translate_ende_wmt32k_rev` (NOTE: You still need to download the orginal data with t2t-datagen `--problem=translate_ende_wmt32k`).
 
 For all translation problems, we suggest to try the Transformer model:
 `--model=transformer`. At first it is best to try the base setting,
