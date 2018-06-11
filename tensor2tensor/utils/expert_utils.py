@@ -1478,15 +1478,16 @@ def all_reduce_ring(x, parallelism, maybe_reduce=True, use_bfloat16=True):
             assert op == "copy"
             x_split[target_device][shard] = tf.identity(source)
     center = parallelism.n // 2
+
     # accumulate everything towards the center.
-    for i in range(center, parallelism.n - 1)[::-1]:
+    for i in reversed(range(center, parallelism.n - 1)):
       _step(i + 1, i, x_split, op="plus_eq")
     for i in range(center):
       _step(i, i + 1, x_split, op="plus_eq")
     # copy everything away from the center.
     for i in range(center, parallelism.n - 1):
       _step(i, i + 1, x_split, op="copy")
-    for i in range(center)[::-1]:
+    for i in reversed(range(center)):
       _step(i + 1, i, x_split, op="copy")
     x_concat = parallelism(tf.concat, x_split, 0)
     y = parallelism(common_layers.reshape_like_all_dims, x_concat, x)
