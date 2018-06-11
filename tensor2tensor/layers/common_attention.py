@@ -3047,13 +3047,13 @@ def parameter_attention(x,
     k = tf.get_variable(
         "k",
         var_shape_k,
-        initializer=tf.random_normal_initializer(0, output_depth**-0.5)) * (
-            num_heads**0.5)
+        initializer=tf.random_normal_initializer(
+            0, output_depth**-0.5 * (num_heads**0.5)))
     v = tf.get_variable(
         "v",
         var_shape_v,
-        initializer=tf.random_normal_initializer(0, output_depth**-0.5)) * (
-            output_depth**0.5)
+        initializer=tf.random_normal_initializer(
+            0, output_depth**-0.5 * (output_depth**0.5)))
     batch_size = common_layers.shape_list(x)[0]
     length = common_layers.shape_list(x)[1]
     q = common_layers.dense(
