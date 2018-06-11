@@ -87,14 +87,22 @@ class TimeseriesProblem(problem.Problem):
     eval_metrics = [metrics.Metrics.RMSE]
     return eval_metrics
 
+  @property
+  def normalizing_constant(self):
+    """Constant by which all data will be multiplied to be more normalized."""
+    return 1.0  # Adjust so that your loss is around 1 or 10 or 100, not 1e+9.
+
   def preprocess_example(self, example, unused_mode, unused_hparams):
     # Time series are flat on disk, we un-flatten them back here.
     flat_inputs = example["inputs"]
     flat_targets = example["targets"]
-    example["inputs"] = tf.reshape(flat_inputs,
-                                   [self.num_input_timestamps, self.num_series])
+    c = self.normalizing_constant
+    # Tensor2Tensor models expect [height, width, depth] examples, here we
+    # use height for time and set width to 1 and num_series is our depth.
+    example["inputs"] = tf.reshape(
+        flat_inputs, [self.num_input_timestamps, 1, self.num_series]) * c
     example["targets"] = tf.reshape(
-        flat_targets, [self.num_target_timestamps, self.num_series])
+        flat_targets, [self.num_target_timestamps, 1, self.num_series]) * c
     return example
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):

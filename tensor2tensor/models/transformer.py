@@ -1491,6 +1491,14 @@ def transformer_relative_big():
   return hparams
 
 
+@registry.register_hparams
+def transformer_timeseries():
+  hparams = transformer_small()
+  hparams.batch_size = 256
+  hparams.learning_rate_warmup_steps = 2000
+  return hparams
+
+
 def update_hparams_for_tpu(hparams):
   """Change hparams to be compatible with TPU training."""
 

@@ -58,7 +58,7 @@ class TimeseriesTest(tf.test.TestCase):
     self.assertEqual(4, len(examples))
 
     self.assertNotEqual(
-        list(examples[0]["inputs"][0]), list(examples[1]["inputs"][0]))
+        list(examples[0]["inputs"][0, 0]), list(examples[1]["inputs"][0, 0]))
 
 
 if __name__ == "__main__":
