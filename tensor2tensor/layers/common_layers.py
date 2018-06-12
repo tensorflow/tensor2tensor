@@ -1826,15 +1826,18 @@ def padded_cross_entropy(logits,
         weights_fn=weights_fn,
         reduce_sum=reduce_sum)
   confidence = 1.0 - label_smoothing
-  vocab_size = shape_list(logits)[-1]
+  logits_shape = shape_list(logits)
+  vocab_size = logits_shape[-1]
   with tf.name_scope("padded_cross_entropy", values=[logits, labels]):
-    if len(logits.get_shape().as_list()) == 2:
+    if len(logits_shape) == 2:
       # Deal with the case where we did not insert extra dimensions due to
       # TPU issues.  No pad-to-same-length happens in this case.
       # TODO(noam): remove this logic once TPU can handle extra dimensions.
       labels = tf.reshape(labels, [-1])
     else:
       logits, labels = pad_with_zeros(logits, labels)
+    logits = tf.reshape(logits, shape_list(labels) + [vocab_size],
+                        name="padded_cross_entropy_size_check")
     logits = tf.cast(logits, tf.float32)
     xent = smoothing_cross_entropy(logits, labels, vocab_size, confidence,
                                    gaussian=gaussian)

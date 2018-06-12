@@ -675,6 +675,7 @@ class NextFrameStochastic(NextFrameBasic):
     predictions = gen_images[hparams.video_num_input_frames-1:]
     reward_pred = tf.stack(
         gen_rewards[hparams.video_num_input_frames-1:], axis=1)
+    reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove undeeded dimension.
 
     return_targets = predictions
     if "target_reward" in features:
