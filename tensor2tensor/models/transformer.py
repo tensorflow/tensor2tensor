@@ -741,14 +741,21 @@ def transformer_prepare_decoder(targets, hparams, features=None):
     decoder_input: a Tensor, bottom of decoder stack
     decoder_self_attention_bias: a bias tensor for use in decoder self-attention
   """
-  if hparams.prepend_mode == "prepend_inputs_full_attention":
-    decoder_self_attention_bias = (
-        common_attention.attention_bias_prepend_inputs_full_attention(
-            common_attention.embedding_to_padding(targets)))
+  if hparams.causal_decoder_self_attention:
+    # Causal attention.
+    if hparams.prepend_mode == "prepend_inputs_full_attention":
+      decoder_self_attention_bias = (
+          common_attention.attention_bias_prepend_inputs_full_attention(
+              common_attention.embedding_to_padding(targets)))
+    else:
+      decoder_self_attention_bias = (
+          common_attention.attention_bias_lower_triangle(
+              common_layers.shape_list(targets)[1]))
   else:
+    # Full attention.
+    decoder_padding = common_attention.embedding_to_padding(targets)
     decoder_self_attention_bias = (
-        common_attention.attention_bias_lower_triangle(
-            common_layers.shape_list(targets)[1]))
+        common_attention.attention_bias_ignore_padding(decoder_padding))
 
   if features and "targets_segmentation" in features:
     # "Packed" dataset - keep the examples from seeing each other.
@@ -1103,6 +1110,7 @@ def transformer_base_v1():
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("nbr_decoder_problems", 1)
   hparams.add_hparam("proximity_bias", False)
+  hparams.add_hparam("causal_decoder_self_attention", True)
   hparams.add_hparam("use_pad_remover", True)
   hparams.add_hparam("self_attention_type", "dot_product")
   hparams.add_hparam("max_relative_position", 0)
