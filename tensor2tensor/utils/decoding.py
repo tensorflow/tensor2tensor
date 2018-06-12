@@ -28,6 +28,7 @@ from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import registry
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -150,7 +151,7 @@ def decode_from_dataset(estimator,
       tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
 
   target_modality_is_symbol = \
-    hparams.problem_hparams.target_modality[0] == "symbol"
+    hparams.problem_hparams.target_modality[0] == registry.Modalities.SYMBOL
 
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn)
@@ -276,7 +277,7 @@ def decode_from_file(estimator,
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
   target_modality_is_symbol = \
-    hparams.problem_hparams.target_modality[0] == "symbol"
+    hparams.problem_hparams.target_modality[0] == registry.Modalities.SYMBOL
 
   def input_fn():
     input_gen = _decode_batch_input_fn(num_decode_batches, sorted_inputs,
@@ -413,7 +414,7 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
     return example
 
   target_modality_is_symbol = \
-    hparams.problem_hparams.target_modality[0] == "symbol"
+    hparams.problem_hparams.target_modality[0] == registry.Modalities.SYMBOL
 
   result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
   for result in result_iter:
