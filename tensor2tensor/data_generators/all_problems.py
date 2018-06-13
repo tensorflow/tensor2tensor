@@ -33,6 +33,7 @@ modules = [
     "tensor2tensor.data_generators.desc2code",
     "tensor2tensor.data_generators.fsns",
     "tensor2tensor.data_generators.gene_expression",
+    "tensor2tensor.data_generators.google_robot_pushing",
     "tensor2tensor.data_generators.gym_problems",
     "tensor2tensor.data_generators.ice_parsing",
     "tensor2tensor.data_generators.imagenet",
