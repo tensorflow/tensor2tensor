@@ -125,8 +125,8 @@ class ImageImagenet(image_utils.Image2ClassProblem):
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     # TODO(lukaszkaiser): find a better way than printing this.
     print("To generate the ImageNet dataset in the proper format, follow "
-          "instructions at https://github.com/tensorflow/models/blob/master"
-          "/inception/README.md#getting-started")
+          "instructions at https://github.com/tensorflow/models/tree/master"
+          "/research/inception/README.md#getting-started")
 
   def preprocess_example(self, example, mode, _):
     return imagenet_preprocess_example(example, mode)
