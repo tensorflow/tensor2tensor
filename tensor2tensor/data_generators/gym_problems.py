@@ -21,6 +21,7 @@ from __future__ import print_function
 import math
 import os
 import gym
+import gym_ple       # pylint: disable=unused-import
 import numpy as np
 
 from tensor2tensor.data_generators import gym_utils
@@ -165,6 +166,27 @@ class GymDiscreteProblem(video_utils.VideoProblem):
              "action": [action],
              "done": [done],
              "reward": [int(reward - self.min_reward)]}
+
+
+@registry.register_problem
+class GymWaterWorldRandom5k(GymDiscreteProblem):
+  """WaterWorld game, random actions."""
+
+  @property
+  def env_name(self):
+    return "WaterWorldFast-v0"
+
+  @property
+  def min_reward(self):
+    return -1
+
+  @property
+  def num_rewards(self):
+    return 3
+
+  @property
+  def num_steps(self):
+    return 5000
 
 
 @registry.register_problem

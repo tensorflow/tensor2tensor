@@ -38,6 +38,10 @@ class GymProblemsTest(tf.test.TestCase):
     problem = gym_problems.GymPongRandom5k()
     self.assertEqual(5000, problem.num_steps)
 
+  def testPyGamesBoots(self):
+    problem = gym_problems.GymWaterWorldRandom5k()
+    self.assertEqual(5000, problem.num_steps)
+
 
 if __name__ == "__main__":
   tf.test.main()

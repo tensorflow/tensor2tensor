@@ -39,6 +39,7 @@ setup(
         'google-api-python-client',
         'gunicorn',
         'gym',
+        'gym_ple',
         'h5py',
         'numpy',
         'requests',
