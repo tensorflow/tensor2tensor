@@ -2798,6 +2798,12 @@ def _recompute_grad(fn, args):
     # bfloat16. This is a hack to ensure that grad_vars are the right type.
     if grad_inputs[0].dtype == tf.bfloat16:
       grad_vars = [tf.cast(grad_var, tf.bfloat16) for grad_var in grad_vars]
+    if is_on_tpu():
+      # TODO(noam): remove this hack once XLA does the right thing.
+      # Force the gradients on the inputs to be computed before the variables
+      # are updated.  This saves memory by preventing XLA from making an extra
+      # copy of the variables.
+      grad_vars = force_dependency(grad_vars, grad_inputs)
     return grad_inputs, grad_vars
 
   @fn_with_custom_grad(grad_fn)
@@ -2807,6 +2813,24 @@ def _recompute_grad(fn, args):
     return fn(*args)
 
   return fn_with_recompute(*args)
+
+
+def force_dependency(xs, ys):
+  """Force all of xs to depend on all of ys, using a false data dependency.
+
+  XLA seems to ignore control dependencies.
+
+  Args:
+    xs: a list of tensors
+    ys: a list of tensors:
+  Returns:
+    a list of tensors of the same length as xs
+  """
+  def _first_element(x):
+    ndims = x.get_shape().ndims
+    return tf.reshape(tf.slice(x, [0] * ndims, [1] * ndims), [])
+  my_zero = tf.add_n([_first_element(y) for y  in ys if y is not None]) * 1e-30
+  return [x + my_zero for x in xs]
 
 
 def dense(x, units, **kwargs):
