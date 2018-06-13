@@ -43,7 +43,7 @@ DATA_TEST_NOVEL = (5, "/push_testnovel/push_testnovel.tfrecord-{:05d}-of-00005")
 
 
 @registry.register_problem
-class GoogleRobotPushing(video_utils.VideoProblem):
+class VideoGoogleRobotPushing(video_utils.VideoProblem):
   """Google robot pushing dataset."""
 
   @property
@@ -117,8 +117,8 @@ class GoogleRobotPushing(video_utils.VideoProblem):
     p = defaults
     p.input_modality = {
         # Pixels are in 0..255 range.
-        "inputs": ("video:raw", 256),
+        "inputs": ("video", 256),
     }
     p.target_modality = {
-        "targets": ("video:raw", 256),
+        "targets": ("video", 256),
     }

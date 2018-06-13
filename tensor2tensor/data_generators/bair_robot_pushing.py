@@ -41,7 +41,7 @@ DATA_URL = (
 
 
 @registry.register_problem
-class BairRobotPushing(video_utils.VideoProblem):
+class VideoBairRobotPushing(video_utils.VideoProblem):
   """Berkeley (BAIR) robot pushing dataset."""
 
   @property
@@ -117,8 +117,8 @@ class BairRobotPushing(video_utils.VideoProblem):
     p = defaults
     p.input_modality = {
         # Pixels are in 0..255 range.
-        "inputs": ("video:raw", 256),
+        "inputs": ("video", 256),
     }
     p.target_modality = {
-        "targets": ("video:raw", 256),
+        "targets": ("video", 256),
     }
