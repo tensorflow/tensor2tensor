@@ -18,30 +18,17 @@ As the audio import in `t2t-datagen` uses `sox` to generate normalized
 waveforms, please install it as appropriate (e.g. `apt-get install sox`).
 
 ```
+# Generate both the full dataset and the small clean version, which we use for
+# evaluation.
 t2t-datagen --problem=librispeech --data_dir=$DATA_DIR --tmp_dir=$TMP_DIR
+t2t-datagen --problem=librispeech_clean --data_dir=$DATA_DIR --tmp_dir=$TMP_DIR
 ```
 
-You can also use smaller versions of the dataset by replacing `librispeech` with
-`librispeech_clean` or `librispeech_clean_small`
+The problem `librispeech_train_full_test_clean` will train on the full dataset
+but evaluate on the clean dataset.
 
-## Training on GPUs
-
-To train a model on GPU set up`OUT_DIR` and run the trainer:
-
-```
-t2t-trainer \
-  --model=transformer \
-  --hparams_set=transformer_librispeech \
-  --problem=librispeech \
-  --train_steps=120000 \
-  --eval_steps=3 \
-  --local_eval_frequency=100 \
-  --data_dir=$DATA_DIR \
-  --output_dir=$OUT_DIR
-```
-
-This model should achieve approximately 22% accuracy per sequence after
-approximately 80,000 steps.
+You can also use `librispeech_clean_small` which is a small version of the
+clean dataset.
 
 ## Training on Cloud TPUs
 
@@ -53,7 +40,7 @@ t2t-trainer \
   --model=transformer \
   --hparams_set=transformer_librispeech_tpu \
   --hparams=max_length=125550,max_input_seq_length=1550,max_target_seq_length=350,batch_size=16 \
-  --problem=librispeech \
+  --problem=librispeech_train_full_test_clean \
   --train_steps=210000 \
   --eval_steps=3 \
   --local_eval_frequency=100 \
@@ -71,7 +58,7 @@ t2t-trainer \
   --model=transformer \
   --hparams_set=transformer_librispeech_tpu \
   --hparams=max_length=295650,max_input_seq_length=3650,max_target_seq_length=650,batch_size=6 \
-  --problem=librispeech \
+  --problem=librispeech_train_full_test_clean \
   --train_steps=230000 \
   --eval_steps=3 \
   --local_eval_frequency=100 \
@@ -86,3 +73,22 @@ documentation](https://github.com/tensorflow/tensor2tensor/tree/master/docs/clou
 for Tensor2Tensor on Cloud TPUs, or the [official Google Cloud Platform
 documentation](https://cloud.google.com/tpu/docs/tutorials/transformer) for
 Cloud TPUs.
+
+## Training on GPUs
+
+To train a model on GPU set up`OUT_DIR` and run the trainer:
+
+```
+t2t-trainer \
+  --model=transformer \
+  --hparams_set=transformer_librispeech_tpu \
+  --problem=librispeech \
+  --train_steps=120000 \
+  --eval_steps=3 \
+  --local_eval_frequency=100 \
+  --data_dir=$DATA_DIR \
+  --output_dir=$OUT_DIR
+```
+
+This model should achieve approximately 22% accuracy per sequence after
+approximately 80,000 steps.
