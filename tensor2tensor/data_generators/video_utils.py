@@ -22,7 +22,6 @@ import os
 import six
 
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import metrics
@@ -72,6 +71,12 @@ class VideoProblem(problem.Problem):
   @property
   def total_number_of_frames(self):
     """The total number of frames, needed for sharding."""
+    # It can also be a lower number -- we will switch shards every
+    # total_number_of_frames // num_shards time, so for example if
+    # you know that every video is 30 frames long and you have 100 shards
+    # then it's sufficient to set this to 30 * 100 so no shard-switching
+    # occurs during the generation of a video. For videos of variable length,
+    # just make this large so switching shards mid-video is very rare.
     raise NotImplementedError
 
   @property
@@ -244,25 +249,32 @@ class VideoProblem(problem.Problem):
     Raises:
       ValueError: if the frame has a different number of channels than required.
     """
-    for features in self.generate_samples(data_dir, tmp_dir, dataset_split):
-      unencoded_frame = features.pop("frame")
-      height, width, channels = unencoded_frame.shape
-      if channels != self.num_channels:
-        raise ValueError("Generated frame has %d channels while the class "
-                         "assumes %d channels." % (channels, self.num_channels))
-      if height != self.frame_height:
-        raise ValueError("Generated frame has height %d while the class "
-                         "assumes height %d." % (height, self.frame_height))
-      if width != self.frame_width:
-        raise ValueError("Generated frame has width %d while the class "
-                         "assumes width %d." % (width, self.frame_width))
-      encoded_frame = six.next(
-          image_utils.encode_images_as_png([unencoded_frame]))
-      features["image/encoded"] = [encoded_frame]
-      features["image/format"] = ["png"]
-      features["image/height"] = [height]
-      features["image/width"] = [width]
-      yield features
+    with tf.Graph().as_default():
+      image_t = tf.placeholder(
+          dtype=tf.uint8,
+          shape=(self.frame_height, self.frame_width, self.num_channels))
+      encoded_image_t = tf.image.encode_png(image_t)
+      with tf.Session() as sess:
+        for features in self.generate_samples(data_dir, tmp_dir, dataset_split):
+          unencoded_frame = features.pop("frame")
+          height, width, channels = unencoded_frame.shape
+          if channels != self.num_channels:
+            raise ValueError("Generated frame has %d channels while the class "
+                             "assumes %d channels." % (channels,
+                                                       self.num_channels))
+          if height != self.frame_height:
+            raise ValueError("Generated frame has height %d while the class "
+                             "assumes height %d." % (height, self.frame_height))
+          if width != self.frame_width:
+            raise ValueError("Generated frame has width %d while the class "
+                             "assumes width %d." % (width, self.frame_width))
+          encoded_frame = sess.run(encoded_image_t, feed_dict={
+              image_t: unencoded_frame})
+          features["image/encoded"] = [encoded_frame]
+          features["image/format"] = ["png"]
+          features["image/height"] = [height]
+          features["image/width"] = [width]
+          yield features
 
   def generate_encoded_samples_debug(self, data_dir, tmp_dir, dataset_split):
     """Generate samples of the encoded frames and dump for debug if needed."""
@@ -303,7 +315,8 @@ class VideoProblem(problem.Problem):
       for split, paths in split_paths:
         generator_utils.generate_files(
             self.generate_encoded_samples_debug(
-                data_dir, tmp_dir, split), paths)
+                data_dir, tmp_dir, split), paths,
+            cycle_every_n=self.total_number_of_frames // len(paths))
     else:
       generator_utils.generate_files(
           self.generate_encoded_samples_debug(

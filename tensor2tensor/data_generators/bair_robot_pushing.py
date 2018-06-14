@@ -60,6 +60,11 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
   def is_generate_per_split(self):
     return True
 
+  @property
+  def total_number_of_frames(self):
+    # TODO(mbz): correct this number to be the real total number of frames.
+    return 30 * 10 * 1000
+
   def parse_frames(self, filenames):
     image_key = "{}/image_aux1/encoded"
     action_key = "{}/action"

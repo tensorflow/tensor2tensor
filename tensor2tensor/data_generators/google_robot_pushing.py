@@ -59,6 +59,11 @@ class VideoGoogleRobotPushing(video_utils.VideoProblem):
     return 64
 
   @property
+  def total_number_of_frames(self):
+    # TODO(mbz): correct this number to be the real total number of frames.
+    return 50 * 10 * 1000
+
+  @property
   def is_generate_per_split(self):
     return True
 

@@ -154,7 +154,7 @@ def generate_files(generator, output_filenames,
   for case in generator:
     if case is None:
       continue
-    if counter > 0 and counter % 100000 == 0:
+    if counter % 100000 == 0:
       tf.logging.info("Generating case %d." % counter)
     counter += 1
     if max_cases and counter > max_cases:

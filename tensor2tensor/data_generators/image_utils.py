@@ -158,9 +158,9 @@ def encode_images_as_png(images):
     for image in images:
       yield tf.image.encode_png(image).numpy()
   else:
-    (width, height, channels) = images[0].shape
+    (height, width, channels) = images[0].shape
     with tf.Graph().as_default():
-      image_t = tf.placeholder(dtype=tf.uint8, shape=(width, height, channels))
+      image_t = tf.placeholder(dtype=tf.uint8, shape=(height, width, channels))
       encoded_image_t = tf.image.encode_png(image_t)
       with tf.Session() as sess:
         for image in images:
