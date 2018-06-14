@@ -67,7 +67,7 @@ class TrainerLibTest(tf.test.TestCase):
         use_tpu=False)
     run_config = trainer_lib.create_run_config(
         model_dir=self.data_dir, num_gpus=0, use_tpu=False)
-    hparams = registry.hparams("transformer_tiny_tpu")()
+    hparams = registry.hparams("transformer_tiny_tpu")
     exp = exp_fn(run_config, hparams)
     exp.test()
 

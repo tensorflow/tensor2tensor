@@ -733,6 +733,7 @@ def next_frame_stochastic():
 def next_frame_tpu():
   hparams = next_frame()
   hparams.batch_size = 1
+  return hparams
 
 
 @registry.register_hparams

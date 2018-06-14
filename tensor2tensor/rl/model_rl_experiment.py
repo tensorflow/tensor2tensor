@@ -781,7 +781,7 @@ def rl_modelrl_tiny_simulation_deterministic_starts():
 
 
 def create_loop_hparams():
-  hparams = registry.hparams(FLAGS.loop_hparams_set)()
+  hparams = registry.hparams(FLAGS.loop_hparams_set)
   hparams.parse(FLAGS.loop_hparams)
   return hparams
 

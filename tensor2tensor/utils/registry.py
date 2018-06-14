@@ -165,12 +165,17 @@ def register_hparams(name=None):
 
 
 def hparams(name):
+  """Retrieve registered hparams by name."""
   if name not in _HPARAMS:
     error_msg = "HParams set %s never registered. Sets registered:\n%s"
     raise LookupError(
         error_msg % (name,
                      display_list_by_prefix(list_hparams(), starting_spaces=4)))
-  return _HPARAMS[name]
+  hp = _HPARAMS[name]()
+  if hp is None:
+    raise TypeError("HParams %s is None. Make sure the registered function "
+                    "returns the HParams object." % name)
+  return hp
 
 
 def list_hparams():
