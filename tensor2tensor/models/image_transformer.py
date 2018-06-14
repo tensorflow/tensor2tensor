@@ -102,8 +102,8 @@ class ImagetransformerPlus(t2t_model.T2TModel):
     # TODO(avaswani) Figure out if we need residuals or layer norm
     return output
 
-  def loss(self, pred, features):
-    return common_layers.dml_loss(pred, features["targets"])
+  def loss(self, logits, features):
+    return common_layers.dml_loss(logits, features["targets"])
 
   def sample(self, features):
     """Run the model and extract samples.
