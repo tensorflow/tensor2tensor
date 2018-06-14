@@ -673,7 +673,7 @@ class NextFrameStochastic(NextFrameBasic):
     # TODO(mbz): what should it be if it's undefined?
     if step_num is None:
       step_num = _LARGE_STEP_NUMBER
-    beta = tf.cond(step_num > self.hparams.num_iterations_2nd_stage,
+    beta = tf.cond(tf.greater(step_num, self.hparams.num_iterations_2nd_stage),
                    lambda: self.hparams.latent_loss_multiplier,
                    lambda: 0.0)
 
