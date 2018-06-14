@@ -93,8 +93,7 @@ def log_decode_results(inputs,
     decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
     if targets is not None and log_results:
       decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
-  if log_results:
-    tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
+  tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None and log_results:
     tf.logging.info("Inference results TARGET: %s" % decoded_targets)
   return decoded_inputs, decoded_outputs, decoded_targets
