@@ -27,32 +27,30 @@ import tensorflow as tf
 from tensorflow.python.training import moving_averages
 
 
-def get_vq_bottleneck(bottleneck_size, hidden_size):
+def init_vq_bottleneck(bottleneck_size, hidden_size):
   """Get lookup table for VQ bottleneck."""
-  with tf.variable_scope("vq", reuse=tf.AUTO_REUSE):
-    means = tf.get_variable(
-        name="means",
-        shape=[bottleneck_size, hidden_size],
-        initializer=tf.uniform_unit_scaling_initializer())
-
-    ema_count = tf.get_variable(
-        name="ema_count",
-        shape=[bottleneck_size],
-        initializer=tf.constant_initializer(0),
+  means = tf.get_variable(
+      name="means",
+      shape=[bottleneck_size, hidden_size],
+      initializer=tf.uniform_unit_scaling_initializer())
+  ema_count = tf.get_variable(
+      name="ema_count",
+      shape=[bottleneck_size],
+      initializer=tf.constant_initializer(0),
+      trainable=False)
+  with tf.colocate_with(means):
+    ema_means = tf.get_variable(
+        name="ema_means",
+        initializer=means.initialized_value(),
         trainable=False)
-
-    with tf.colocate_with(means):
-      ema_means = tf.get_variable(
-          name="ema_means",
-          initializer=means.initialized_value(),
-          trainable=False)
 
   return means, ema_means, ema_count
 
 
-def vq_nearest_neighbor(x, means, hparams):
+def vq_nearest_neighbor(x, hparams):
   """Find the nearest element in means to elements in x."""
-  bottleneck_size = common_layers.shape_list(means)[0]
+  bottleneck_size = 2**hparams.bottleneck_bits
+  means = hparams.means
   x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keepdims=True)
   means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True)
   scalar_prod = tf.matmul(x, means, transpose_b=True)
@@ -60,60 +58,63 @@ def vq_nearest_neighbor(x, means, hparams):
   if hparams.bottleneck_kind == "em":
     x_means_idx = tf.multinomial(-dist, num_samples=hparams.num_samples)
     x_means_hot = tf.one_hot(
-        x_means_idx, depth=common_layers.shape_list(means)[0])
-    x_means_hot = tf.reduce_sum(x_means_hot, axis=1)
+        x_means_idx, depth=bottleneck_size)
+    x_means_hot = tf.reduce_mean(x_means_hot, axis=1)
   else:
     x_means_idx = tf.argmax(-dist, axis=-1)
-    x_means_hot = tf.one_hot(x_means_idx, bottleneck_size)
-  x_means_hot_flat = tf.reshape(x_means_hot, [-1, bottleneck_size])
-  x_means = tf.matmul(x_means_hot_flat, means)
+    x_means_hot = tf.one_hot(x_means_idx, depth=bottleneck_size)
+  x_means = tf.matmul(x_means_hot, means)
   e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
   return x_means_hot, e_loss
 
 
 def vq_discrete_bottleneck(x, hparams):
   """Simple vector quantized discrete bottleneck."""
+  tf.logging.info("Using EMA with beta = {}".format(hparams.beta))
   bottleneck_size = 2**hparams.bottleneck_bits
   x_shape = common_layers.shape_list(x)
-  means, ema_means, ema_count = get_vq_bottleneck(bottleneck_size,
-                                                  hparams.hidden_size)
   x = tf.reshape(x, [-1, hparams.hidden_size])
   x_means_hot, e_loss = vq_nearest_neighbor(
-      x, means, hparams)
+      x, hparams)
+  means, ema_means, ema_count = (hparams.means, hparams.ema_means,
+                                 hparams.ema_count)
 
   # Update the ema variables
   updated_ema_count = moving_averages.assign_moving_average(
       ema_count,
-      tf.reduce_sum(
-          tf.reshape(x_means_hot, shape=[-1, bottleneck_size]), axis=0),
+      tf.reduce_sum(x_means_hot, axis=0),
       hparams.decay,
       zero_debias=False)
 
   dw = tf.matmul(x_means_hot, x, transpose_a=True)
-  updated_ema_means = tf.identity(moving_averages.assign_moving_average(
-      ema_means, dw, hparams.decay, zero_debias=False))
+  updated_ema_means = moving_averages.assign_moving_average(
+      ema_means, dw, hparams.decay, zero_debias=False)
   n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
   updated_ema_count = (
       (updated_ema_count + hparams.epsilon) /
       (n + bottleneck_size * hparams.epsilon) * n)
-  updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
+  # pylint: disable=g-no-augmented-assignment
+  updated_ema_means = updated_ema_means / tf.expand_dims(
+      updated_ema_count, axis=-1)
+  # pylint: enable=g-no-augmented-assignment
   with tf.control_dependencies([e_loss]):
-    update_means = means.assign(updated_ema_means)
+    update_means = tf.assign(means, updated_ema_means)
     with tf.control_dependencies([update_means]):
       loss = hparams.beta * e_loss
 
-  d = tf.reshape(x_means_hot, x_shape[:-1] + [bottleneck_size])
-  return d, loss
+  discrete = tf.reshape(x_means_hot, x_shape[:-1] + [bottleneck_size])
+  return discrete, loss
 
 
 def vq_discrete_unbottleneck(x, hparams):
   """Simple undiscretization from vector quantized representation."""
   x_shape = common_layers.shape_list(x)
-  x = tf.to_float(x)
   bottleneck_size = 2**hparams.bottleneck_bits
-  means, _, _ = get_vq_bottleneck(bottleneck_size, hparams.hidden_size)
-  result = tf.matmul(tf.reshape(x, [-1, x_shape[-1]]), means)
-  return tf.reshape(result, x_shape[:-1] + [hparams.hidden_size])
+  means = hparams.means
+  x_flat = tf.reshape(x, [-1, bottleneck_size])
+  result = tf.matmul(x_flat, means)
+  result = tf.reshape(result, x_shape[:-1] + [hparams.hidden_size])
+  return result
 
 
 def residual_conv(x, repeat, k, hparams, name, reuse=None):
@@ -177,8 +178,7 @@ def encode(x, x_space, hparams, name):
 def decode_transformer(encoder_output, encoder_decoder_attention_bias, targets,
                        hparams, name):
   """Original Transformer decoder."""
-  orig_hparams = hparams
-  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+  with tf.variable_scope(name):
     targets = common_layers.flatten4d3d(targets)
 
     decoder_input, decoder_self_bias = (
@@ -195,22 +195,22 @@ def decode_transformer(encoder_output, encoder_decoder_attention_bias, targets,
     decoder_output = tf.reshape(
         decoder_output, [decoder_output_shape[0], -1, 1, hparams.hidden_size])
     # Expand since t2t expects 4d tensors.
-    hparams = orig_hparams
     return decoder_output
 
 
-def get_latent_pred_loss(latents_pred, latents_discrete, hparams):
+def get_latent_pred_loss(latents_pred, latents_discrete_hot, hparams):
   """Latent prediction and loss."""
   latents_logits = tf.layers.dense(
       latents_pred, 2**hparams.bottleneck_bits, name="extra_logits")
+  # loss = tf.losses.softmax_cross_entropy(onehot_labels=latents_discrete_hot,
+  #                                        logits=latents_logits)
   loss = tf.nn.softmax_cross_entropy_with_logits_v2(
-      labels=latents_discrete, logits=latents_logits)
+      labels=tf.stop_gradient(latents_discrete_hot), logits=latents_logits)
   return loss
 
 
 def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
   """Sample from the latent space in the autoencoder."""
-
   def symbols_to_logits_fn(ids):
     """Go from ids to logits."""
     ids = tf.expand_dims(ids, axis=2)  # Ids start with added all-zeros.
@@ -232,9 +232,9 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
   ids, _ = beam_search.beam_search(
       symbols_to_logits_fn,
       initial_ids,
-      1,
-      length,
-      2**hparams.bottleneck_bits,
+      beam_size=1,
+      decode_length=length,
+      vocab_size=2**hparams.bottleneck_bits,
       alpha=0.0,
       eos_id=-1,
       stop_early=False)
@@ -245,59 +245,45 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
 
 def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
   """Main step used for training."""
-  # Prepare.
-  if inputs is not None:
-    batch_size = common_layers.shape_list(inputs)[0]
-  else:
-    batch_size = common_layers.shape_list(targets)[0]
-  targets = tf.reshape(targets, [batch_size, -1, 1, hparams.hidden_size])
-
   # Encoder.
-  if inputs is not None:
-    inputs = common_layers.flatten4d3d(inputs)
-    inputs, ed = encode(inputs, target_space, hparams, "input_enc")
-    inputs_ex, ed_ex = inputs, ed
-  else:
-    ed, inputs_ex, ed_ex = None, None, None
+  inputs = common_layers.flatten4d3d(inputs)
+  inputs, ed = encode(inputs, target_space, hparams, "input_enc")
 
   # Autoencoding.
   losses = {"extra": tf.constant(0.0), "latent_pred": tf.constant(0.0)}
 
   max_targets_len_from_inputs = tf.concat([inputs, inputs], axis=1)
-
   targets, _ = common_layers.pad_to_same_length(
       targets,
       max_targets_len_from_inputs,
       final_length_divisible_by=2**hparams.num_compress_steps)
   targets_c = compress(targets, hparams, "compress")
-
   if hparams.mode != tf.estimator.ModeKeys.PREDICT:
     # Compress and bottleneck.
     latents_discrete_hot, extra_loss = vq_discrete_bottleneck(
         x=targets_c, hparams=hparams)
-    latents_dense = vq_discrete_unbottleneck(latents_discrete_hot, hparams)
+    latents_dense = vq_discrete_unbottleneck(
+        latents_discrete_hot, hparams=hparams)
+    latents_dense = targets_c + tf.stop_gradient(latents_dense - targets_c)
     latents_discrete = tf.argmax(latents_discrete_hot, axis=-1)
     tf.summary.histogram("codes", tf.reshape(latents_discrete[:, 0, :], [-1]))
-    pc = common_layers.inverse_exp_decay(hparams.startup_steps)
-    pc = pc if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
-    cond = tf.less(tf.random_uniform([batch_size]), pc)
-    latents_dense = tf.where(cond, latents_dense, targets_c)
-    losses["extra"] = extra_loss * tf.reduce_mean(tf.to_float(cond))
+    losses["extra"] = extra_loss
 
-    # Extra loss predicting latent code from input. Discrete only.
-    latents_pred = decode_transformer(inputs_ex, ed_ex, latents_dense, hparams,
+    # Extra loss predicting latent code from input.
+    latents_pred = decode_transformer(inputs, ed, latents_dense, hparams,
                                       "extra")
     latent_pred_loss = get_latent_pred_loss(latents_pred, latents_discrete_hot,
                                             hparams)
-    losses["latent_pred"] = tf.reduce_mean(latent_pred_loss * tf.to_float(cond))
+    losses["latent_pred"] = tf.reduce_mean(latent_pred_loss)
   else:
     latent_len = common_layers.shape_list(targets_c)[1]
     embed = functools.partial(vq_discrete_unbottleneck, hparams=hparams)
     latents_dense = tf.zeros_like(targets_c[:, :latent_len, :, :])
     if cache is None:
-      cache = ae_latent_sample_beam(latents_dense, inputs_ex, ed_ex, embed,
+      cache = ae_latent_sample_beam(latents_dense, inputs, ed, embed,
                                     hparams)
-    latents_dense = embed(tf.one_hot(cache, depth=2**hparams.bottleneck_bits))
+    cache_hot = tf.one_hot(cache, depth=2**hparams.bottleneck_bits)
+    latents_dense = embed(cache_hot)
 
   # Postprocess.
   d = latents_dense
@@ -311,18 +297,22 @@ def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
     d = residual_conv(d, 1, (3, 1), hparams, "decompress_rc_%d" % j)
     d = decompress_step(d, hparams, i > 0, "decompress_%d" % j)
 
-  res = decode_transformer(inputs, ed, targets, hparams, "decoder")
-  # We'll start training the extra model of latents after mask_startup_steps.
-  nonlatent_steps = hparams.mask_startup_steps
-  latent_time = tf.less(nonlatent_steps,
-                        tf.to_int32(tf.train.get_global_step()))
-  losses["latent_pred"] *= tf.to_float(latent_time)
+  targets = d
+  res = decode_transformer(inputs, ed, d, hparams, "decoder")
   return res, losses, cache
 
 
 @registry.register_model
 class TransformerNAT(t2t_model.T2TModel):
   """Nonautoregressive Transformer from https://arxiv.org/abs/1805.11063."""
+
+  def __init__(self, *args, **kwargs):
+    super(TransformerNAT, self).__init__(*args, **kwargs)
+    means, ema_means, ema_count = init_vq_bottleneck(
+        2**self._hparams.bottleneck_bits, self._hparams.hidden_size)
+    self._hparams.means = means
+    self._hparams.ema_means = ema_means
+    self._hparams.ema_count = ema_count
 
   @property
   def has_input(self):
@@ -338,11 +328,10 @@ class TransformerNAT(t2t_model.T2TModel):
       return res, loss
 
   def prepare_features_for_infer(self, features):
-    beam_batch_size = self._decode_hparams.beam_size
-    beam_batch_size *= self._decode_hparams.batch_size
-    inputs = tf.zeros([beam_batch_size, 1, 1, self._hparams.hidden_size])
+    batch_size = self._decode_hparams.batch_size
+    inputs = tf.zeros([batch_size, 1, 1, self._hparams.hidden_size])
     inputs = inputs if "inputs" in features else None
-    targets = tf.zeros([beam_batch_size, 1, 1, self._hparams.hidden_size])
+    targets = tf.zeros([batch_size, 1, 1, self._hparams.hidden_size])
     with tf.variable_scope("transformer_nat/body"):
       _, _, cache = ae_transformer_internal(
           inputs, targets, features["target_space_id"], self._hparams)
@@ -356,9 +345,29 @@ class TransformerNAT(t2t_model.T2TModel):
             alpha=0.0,
             use_tpu=False):
     """Produce predictions from the model."""
-    infer_out = super(TransformerNAT, self).infer(
-        features, decode_length, beam_size, top_beams, alpha, use_tpu=use_tpu)
-    return infer_out["outputs"]
+    if not features:
+      features = {}
+    inputs_old = None
+    if "inputs" in features and len(features["inputs"].shape) < 4:
+      inputs_old = features["inputs"]
+      features["inputs"] = tf.expand_dims(features["inputs"], 2)
+
+    # Create an initial targets tensor.
+    if "partial_targets" in features:
+      initial_output = tf.convert_to_tensor(features["partial_targets"])
+    else:
+      batch_size = common_layers.shape_list(features["inputs"])[0]
+      length = common_layers.shape_list(features["inputs"])[1]
+      target_length = tf.to_int32(2.0 * tf.to_float(length))
+      initial_output = tf.zeros((batch_size, target_length, 1, 1),
+                                dtype=tf.int64)
+
+    features["targets"] = initial_output
+    logits, _ = self(features)  # pylint: disable=not-callable
+    samples = tf.argmax(logits, axis=-1)
+    if inputs_old is not None:  # Restore to not confuse Estimator.
+      features["inputs"] = inputs_old
+    return samples
 
 
 @registry.register_hparams
@@ -372,15 +381,14 @@ def transformer_nat_small():
   hparams.hidden_size = 384
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
-  hparams.optimizer = "Adam"  # Can be unstable, maybe try Adam.
+  hparams.force_full_predict = True
+  hparams.optimizer = "Adam"
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.997  # Needs tuning, try 0.98 to 0.999.
-  hparams.add_hparam("bottleneck_kind", "em")
+  hparams.add_hparam("bottleneck_kind", "vq")
   hparams.add_hparam("bottleneck_bits", 12)
   hparams.add_hparam("num_compress_steps", 3)
-  hparams.add_hparam("startup_steps", 10000)
-  hparams.add_hparam("mask_startup_steps", 50000)
   hparams.add_hparam("beta", 0.25)
   hparams.add_hparam("epsilon", 1e-5)
   hparams.add_hparam("decay", 0.999)
@@ -396,4 +404,17 @@ def transformer_nat_base():
   hparams.hidden_size = 512
   hparams.filter_size = 4096
   hparams.num_hidden_layers = 6
+  return hparams
+
+
+@registry.register_hparams
+def transformer_nat_big():
+  """Set of hyperparameters."""
+  hparams = transformer_nat_small()
+  hparams.batch_size = 2048
+  hparams.hidden_size = 1024
+  hparams.filter_size = 4096
+  hparams.num_hidden_layers = 6
+  hparams.num_heads = 16
+  hparams.layer_prepostprocess_dropout = 0.3
   return hparams
