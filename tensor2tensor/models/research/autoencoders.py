@@ -535,7 +535,7 @@ def autoencoder_discrete_cifar():
   """Discrete autoencoder model for compressing cifar."""
   hparams = autoencoder_ordered_discrete()
   hparams.bottleneck_noise = 0.0
-  hparams.bottleneck_size = 90
+  hparams.bottleneck_bits = 90
   hparams.unordered = True
   hparams.num_hidden_layers = 2
   hparams.hidden_size = 256
