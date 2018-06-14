@@ -130,10 +130,17 @@ class NextFrameBasic(t2t_model.T2TModel):
       num_channels = self.hparams.problem.num_channels
     except AttributeError:
       num_channels = 1
-    features["targets"] = tf.zeros(
-        [self.hparams.batch_size, 1, 1, 1, num_channels], dtype=tf.int32)
+    if "inputs" in features:
+      inputs_shape = common_layers.shape_list(features["inputs"])
+      targets_shape = [inputs_shape[0], self.hparams.video_num_target_frames,
+                       inputs_shape[2], inputs_shape[3], num_channels]
+    else:
+      tf.logging.warn("Guessing targets shape as no inputs are given.")
+      targets_shape = [self.hparams.batch_size,
+                       self.hparams.video_num_target_frames, 1, 1, num_channels]
+    features["targets"] = tf.zeros(targets_shape, dtype=tf.int32)
     features["target_reward"] = tf.zeros(
-        [self.hparams.batch_size, 1, 1], dtype=tf.int32)
+        [targets_shape[0], 1, 1], dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     if isinstance(logits, dict):
       results = {}
@@ -149,6 +156,9 @@ class NextFrameBasic(t2t_model.T2TModel):
 
     # Return results.
     return results
+
+
+_LARGE_STEP_NUMBER = 100000
 
 
 @registry.register_model
@@ -247,7 +257,7 @@ class NextFrameStochastic(NextFrameBasic):
         2, input_shape[1:], output_channels,
         [kernel_size, kernel_size], name=scope)
     if state is None:
-      state = cell.zero_state(self.hparams.batch_size, tf.float32)
+      state = cell.zero_state(input_shape[0], tf.float32)
     outputs, new_state = cell(inputs, state)
     return outputs, new_state
 
@@ -295,7 +305,7 @@ class NextFrameStochastic(NextFrameBasic):
       raise ValueError("More than one, or no network option specified.")
 
     img_height, img_width, color_channels = self.hparams.problem.frame_shape
-    batch_size = self.hparams.batch_size
+    batch_size = common_layers.shape_list(images[0])[0]
 
     # Predicted images and rewards.
     gen_rewards, gen_images = [], []
@@ -305,7 +315,10 @@ class NextFrameStochastic(NextFrameBasic):
     else:
       # Scheduled sampling:
       # Calculate number of ground-truth frames to pass in.
-      iter_num = tf.train.get_or_create_global_step()
+      iter_num = tf.train.get_global_step()
+      # TODO(mbz): what should it be if it's undefined?
+      if iter_num is None:
+        iter_num = _LARGE_STEP_NUMBER
       num_ground_truth = tf.to_int32(
           tf.round(
               tf.to_float(batch_size) *
@@ -624,7 +637,7 @@ class NextFrameStochastic(NextFrameBasic):
 
   def body(self, features):
     hparams = self.hparams
-    batch_size = self.hparams.batch_size
+    batch_size = common_layers.shape_list(features["inputs"])[0]
 
     # Split inputs and targets time-wise into a list of frames.
     input_frames = tf.unstack(features["inputs"], axis=1)
@@ -656,7 +669,10 @@ class NextFrameStochastic(NextFrameBasic):
         dna=False,
         context_frames=hparams.video_num_input_frames)
 
-    step_num = tf.train.get_or_create_global_step()
+    step_num = tf.train.get_global_step()
+    # TODO(mbz): what should it be if it's undefined?
+    if step_num is None:
+      step_num = _LARGE_STEP_NUMBER
     beta = tf.cond(step_num > self.hparams.num_iterations_2nd_stage,
                    lambda: self.hparams.latent_loss_multiplier,
                    lambda: 0.0)
@@ -716,16 +732,25 @@ def next_frame_stochastic():
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 1
   hparams.batch_size = 8
-  hparams.target_modality = "video:raw"
-  hparams.input_modalities = "inputs:video:raw"
+  hparams.target_modality = "video:l2raw"
+  hparams.input_modalities = "inputs:video:l2raw"
+  hparams.video_modality_loss_cutoff = 0.0
   hparams.add_hparam("stochastic_model", True)
   hparams.add_hparam("latent_channels", 1)
   hparams.add_hparam("latent_std_min", -5.0)
-  hparams.add_hparam("num_iterations_2nd_stage", 10000)
+  hparams.add_hparam("num_iterations_2nd_stage", 50000)
   hparams.add_hparam("latent_loss_multiplier", 1e-4)
   hparams.add_hparam("multi_latent", False)
   hparams.add_hparam("relu_shift", 1e-12)
   hparams.add_hparam("dna_kernel_size", 5)
+  return hparams
+
+
+@registry.register_hparams
+def next_frame_stochastic_cutoff():
+  """SV2P model with additional cutoff in L2 loss for environments like pong."""
+  hparams = next_frame_stochastic()
+  hparams.video_modality_loss_cutoff = 0.4
   return hparams
 
 

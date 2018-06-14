@@ -549,31 +549,6 @@ class VideoModality(modality.Modality):
         weights_fn=self.targets_weights_fn)
 
 
-@registry.register_video_modality("raw")
-class VideoModalityRaw(modality.Modality):
-  """Modality for raw videos, i.e., time-sequences of frames."""
-
-  def bottom(self, x):
-    common_layers.summarize_video(x, "inputs")
-    return common_layers.convert_rgb_to_real(x)
-
-  def targets_bottom(self, x):
-    common_layers.summarize_video(x, "targets_bottom")
-    return common_layers.convert_rgb_to_real(x)
-
-  def top(self, body_output, _):
-    frames = tf.stack(body_output, axis=1)
-    rgb_frames = common_layers.convert_real_to_rgb(frames)
-    common_layers.summarize_video(rgb_frames, "body_output")
-    # TODO(lukaszkaiser): remove the need for the last dimension of 1 in eval.
-    return tf.expand_dims(rgb_frames, axis=-1)
-
-  def loss(self, top_out, targets):
-    top_out = tf.squeeze(top_out, axis=[-1])
-    loss = tf.square(top_out - tf.to_float(targets))
-    return tf.reduce_sum(loss), tf.reduce_sum(tf.ones_like(loss))
-
-
 @registry.register_video_modality("embed")
 class VideoModalityEmbed(VideoModality):
   """Video Modality where bottom embeds pixels."""
@@ -659,6 +634,25 @@ class VideoModalityL2(VideoModalityL1):
 
   def internal_loss(self, logits, targets):
     return tf.nn.relu((logits - targets)**2 - self.cutoff * self.cutoff)
+
+
+@registry.register_video_modality("l2raw")
+class VideoModalityL2Raw(VideoModalityL2):
+  """Modality with L2 loss and raw input (sequences of frames)."""
+
+  def bottom(self, x):
+    common_layers.summarize_video(x, "inputs")
+    return common_layers.convert_rgb_to_real(x)
+
+  def targets_bottom(self, x):
+    common_layers.summarize_video(x, "targets_bottom")
+    return common_layers.convert_rgb_to_real(x)
+
+  def top(self, body_output, _):
+    frames = tf.stack(body_output, axis=1)
+    rgb_frames = common_layers.convert_real_to_rgb(frames)
+    common_layers.summarize_video(rgb_frames, "body_output")
+    return tf.expand_dims(rgb_frames, axis=-1)
 
 
 @registry.register_class_label_modality("default")

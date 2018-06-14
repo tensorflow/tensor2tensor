@@ -139,9 +139,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
       observ = tf.to_float(tf.squeeze(model_output["targets"], axis=1))
 
-      reward = (tf.squeeze(model_output["target_reward"], axis=[1, 2, 3]) +
-                self._min_reward)
-      reward = tf.reshape(tf.to_float(reward), shape=(self.length,))
+      reward = tf.to_float(model_output["target_reward"])
+      reward = tf.reshape(reward, shape=(self.length,)) + self._min_reward
 
       if self._intrinsic_reward_scale:
         # Use the model's uncertainty about its prediction as an intrinsic

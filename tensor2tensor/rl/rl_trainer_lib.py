@@ -97,7 +97,7 @@ def train(hparams, environment_spec, event_dir=None, model_dir=None,
 
     if hparams.simulated_environment:
       env_model_loader = tf.train.Saver(
-          tf.global_variables("next_frame_basic.*"))
+          tf.global_variables("next_frame*"))
     else:
       env_model_loader = None
 

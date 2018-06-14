@@ -491,6 +491,15 @@ def rl_modelrl_base():
 
 
 @registry.register_hparams
+def rl_modelrl_base_stochastic():
+  """Base setting with a stochastic next-frame model."""
+  hparams = rl_modelrl_base()
+  hparams.generative_model = "next_frame_stochastic"
+  hparams.generative_model_params = "next_frame_stochastic_cutoff"
+  return hparams
+
+
+@registry.register_hparams
 def rl_modelrl_medium():
   """Small set for larger testing."""
   hparams = rl_modelrl_base()
@@ -530,6 +539,17 @@ def rl_modelrl_tiny():
           ppo_epoch_length=5,
           ppo_num_agents=2,
       ).values())
+
+
+@registry.register_hparams
+def rl_modelrl_tiny_stochastic():
+  """Tiny setting with a stochastic next-frame model."""
+  hparams = rl_modelrl_tiny()
+  hparams.generative_model = "next_frame_stochastic"
+  hparams.generative_model_params = "next_frame_stochastic_cutoff"
+  hparams.true_env_generator_num_steps = 1000
+  hparams.simulated_env_generator_num_steps = 1000
+  return hparams
 
 
 @registry.register_hparams

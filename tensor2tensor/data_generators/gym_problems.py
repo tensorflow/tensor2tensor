@@ -23,7 +23,8 @@ import os
 import gym
 import numpy as np
 
-from tensor2tensor.data_generators import gym_utils
+# We need gym_utils for the game environments defined there.
+from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.layers import discretization
@@ -546,8 +547,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
             err = np.ndarray.astype(np.maximum(np.abs(
                 self.real_ob - observ, dtype=np.int) - 10, 0),
                                     np.uint8)
-            debug_im_np = np.concatenate([observ, self.real_ob, err], axis=1)
-            debug_im = gym_utils.encode_image_to_png(debug_im_np)
+            debug_im = np.concatenate([observ, self.real_ob, err], axis=1)
           if done:
             self.dones += 1
             self.sum_of_rewards += self.real_reward
@@ -569,14 +569,12 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
             self.sum_of_rewards += self.real_reward
         if FLAGS.autoencoder_path:
           if self.simulated_environment:
-            debug_im = gym_utils.encode_image_to_png(
-                self.autodecode(observ, sess))
+            debug_im = self.autodecode(observ, sess)
           else:
             orig_observ = observ
             observ = self.autoencode(observ, sess)
-            debug_im_np = np.concatenate([self.autodecode(observ, sess),
-                                          orig_observ], axis=1)
-            debug_im = gym_utils.encode_image_to_png(debug_im_np)
+            debug_im = np.concatenate([self.autodecode(observ, sess),
+                                       orig_observ], axis=1)
         ret_dict = {"frame": observ,
                     "image/format": ["png"],
                     "image/height": [self.frame_height],
@@ -585,7 +583,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
                     "done": [int(False)],
                     "reward": [int(reward) - self.min_reward]}
         if self.make_extra_debug_info:
-          ret_dict["image/encoded_debug"] = [debug_im]
+          ret_dict["image/debug"] = debug_im
         yield ret_dict
         pieces_generated += 1
 
@@ -622,8 +620,7 @@ class GymSimulatedDiscreteProblemWithAgent(GymDiscreteProblemWithAgent):
   def restore_networks(self, sess):
     super(GymSimulatedDiscreteProblemWithAgent, self).restore_networks(sess)
     # TODO(blazej): adjust regexp for different models.
-    env_model_loader = tf.train.Saver(tf.global_variables(
-        "next_frame_basic.*"))
+    env_model_loader = tf.train.Saver(tf.global_variables("next_frame*"))
     sess = tf.get_default_session()
 
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)

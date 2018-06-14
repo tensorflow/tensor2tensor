@@ -19,10 +19,6 @@ import gym
 
 import numpy as np
 
-import six
-
-from tensor2tensor.data_generators import image_utils
-
 
 # pylint: disable=method-hidden
 class WarmupWrapper(gym.Wrapper):
@@ -304,9 +300,3 @@ gym.envs.register(id="T2TFreewayWarmUp20RewSkip500Steps-v1",
                       easy_freeway=False
                   ),
                   max_episode_steps=500)
-
-
-def encode_image_to_png(image):
-  encoded = six.next(
-      image_utils.encode_images_as_png([image]))
-  return encoded

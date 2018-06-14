@@ -251,8 +251,7 @@ class VideoProblem(problem.Problem):
     """
     with tf.Graph().as_default():
       image_t = tf.placeholder(
-          dtype=tf.uint8,
-          shape=(self.frame_height, self.frame_width, self.num_channels))
+          dtype=tf.uint8, shape=(None, None, None))
       encoded_image_t = tf.image.encode_png(image_t)
       with tf.Session() as sess:
         for features in self.generate_samples(data_dir, tmp_dir, dataset_split):
@@ -274,6 +273,11 @@ class VideoProblem(problem.Problem):
           features["image/format"] = ["png"]
           features["image/height"] = [height]
           features["image/width"] = [width]
+          if "image/debug" in features:
+            unencoded_debug = features.pop("image/debug")
+            encoded_debug = sess.run(encoded_image_t, feed_dict={
+                image_t: unencoded_debug})
+            features["image/encoded_debug"] = encoded_debug
           yield features
 
   def generate_encoded_samples_debug(self, data_dir, tmp_dir, dataset_split):
