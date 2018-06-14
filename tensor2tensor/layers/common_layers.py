@@ -206,6 +206,17 @@ def convert_rgb_to_real(x):
     return x
 
 
+def convert_rgb_to_symmetric_real(x):
+  """Conversion of pixel values to real numbers."""
+  with tf.name_scope("rgb_to_real", values=[x]):
+    x = tf.to_float(x)
+    # Use the formula (value/127.5) - 1 to convert each channel value into a
+    # real number in the range -1 to 1. We use 127.5 instead of 128 because
+    # the intensities are in the range 0 to 255. This is used for dmol.
+    x = (x / 127.5) - 1
+    return x
+
+
 def convert_real_to_rgb(x):
   """Conversion of real numbers to pixel values."""
   with tf.name_scope("real_to_rgb", values=[x]):
@@ -1847,6 +1858,157 @@ def padded_cross_entropy(logits,
     if not reduce_sum:
       return xent * weights, weights
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
+
+
+def dml_loss(
+    pred, labels,
+    weights_fn=weights_nonzero,  # Unused
+    reduce_sum=True):
+  """Discretized mixture of logistics loss.
+
+  Args:
+    pred: a tensor of shape [batch, height, width, 10*num_mixtures]
+    labels: a [batch, height, width, channels] tensor of real pixel intensities
+    weights_fn: weights function
+    reduce_sum: A boolean, to return scalar mean loss instead of per position
+
+  Returns:
+    a pair of tensors of loss/sum of losses, denominator
+  """
+  del weights_fn  # Unused
+  real_labels = convert_rgb_to_real(labels)
+  dml_loss_value = discretized_mix_logistic_loss(real_labels, pred,
+                                                 sum_all=reduce_sum)
+  if reduce_sum:
+    return dml_loss_value, tf.reduce_sum(tf.ones(tf.shape(labels),
+                                                 tf.float32))
+  else:
+    return dml_loss_value/3., tf.ones(tf.shape(dml_loss_value),
+                                      tf.float32)
+
+
+def discretized_mix_logistic_loss(labels, pred, sum_all=True):
+  """Computes log likelihood for the discretized mixture of logistics loss.
+
+  Args:
+    labels: A [batch, height, width, channels] tensor of true pixel intensities
+      rescaled to [-1, 1]. The computation assumes channels is 3.
+    pred: A [batch, height, width, hparams.num_mixtures*10] tensor of floats
+      comprising one unnormalized mixture probability, three means
+      (one per channel), three standard deviations (one per channel),
+      and three coefficients which linearly parameterize dependence across
+      channels
+    sum_all: A boolean to return scalar mean loss or per position
+
+  Returns:
+    per_position_loss: A [batch, height, width, 3] tensor of the
+      conditional probability of each channel given all previous channels if
+      not sum_all else add all the losses (for eval)
+  """
+
+  # Extract mixture probabilities, means, scale, and coefficient parameters.
+  l_shape = shape_list(labels)
+  num_mix = shape_list(pred)[-1] // 10
+  logits = pred[:, :, :, :num_mix]  # unnormalized mixture probabilities
+  pred = tf.reshape(
+      pred[:, :, :, num_mix:],
+      [l_shape[0], l_shape[1], l_shape[2], l_shape[3], num_mix * 3])
+  means = pred[:, :, :, :, :num_mix]
+  log_scales = tf.maximum(pred[:, :, :, :, num_mix:2 * num_mix], -7.)
+  coeffs = tf.tanh(pred[:, :, :, :, 2 * num_mix:3 * num_mix])
+  labels = (  # tile labels across number of mixtures
+      tf.reshape(labels, [l_shape[0], l_shape[1], l_shape[2], l_shape[3], 1]) +
+      tf.zeros([l_shape[0], l_shape[1], l_shape[2], l_shape[3], num_mix])
+  )
+
+  # p(x) = sigmoid((x - means_i + 1/255.)/scale_i) -
+  #        sigmoid((x - means_i - 1/255.)/scale_i)
+  # for each channel i. The means are linearly parameterized.
+  means_0 = tf.reshape(means[:, :, :, 0, :],
+                       [l_shape[0], l_shape[1], l_shape[2], 1, num_mix])
+  means_1 = tf.reshape(means[:, :, :, 1, :] +
+                       coeffs[:, :, :, 0, :] * labels[:, :, :, 0, :],
+                       [l_shape[0], l_shape[1], l_shape[2], 1, num_mix])
+  means_2 = tf.reshape(means[:, :, :, 2, :] +
+                       coeffs[:, :, :, 1, :] * labels[:, :, :, 0, :] +
+                       coeffs[:, :, :, 2, :] * labels[:, :, :, 1, :],
+                       [l_shape[0], l_shape[1], l_shape[2], 1, num_mix])
+  means = tf.concat([means_0, means_1, means_2], 3)
+  centered_labels = labels - means
+  inv_stdv = tf.exp(-log_scales)
+  plus_in = inv_stdv * (centered_labels + 1. / 255.)
+  min_in = inv_stdv * (centered_labels - 1. / 255.)
+  cdf_plus = tf.nn.sigmoid(plus_in)
+  cdf_min = tf.nn.sigmoid(min_in)
+  # Compute log probability for edge case of 0 (before scaling), 255 (before
+  # scaling), and all other cases respectively.
+  prob_0 = plus_in - tf.nn.softplus(plus_in)
+  prob_255 = -tf.nn.softplus(min_in)
+  prob_event = cdf_plus - cdf_min
+
+  # Robustly select log-prob based on numerical edge-cases: (a) [-1, -1+eps);
+  # (b) (1-eps, 1]; (c) NaNs during `tf.gradients` of `tf.select`, which may
+  # cause `tf.log(0.)`; (d) p(x) < 1e-5.
+  mid_in = inv_stdv * centered_labels
+  log_prob_event_approx = (
+      mid_in - log_scales - 2. * tf.nn.softplus(mid_in) - np.log(127.5))
+  log_probs = tf.where(labels < -0.999, prob_0,
+                       tf.where(labels > 0.999, prob_255,
+                                tf.where(prob_event > 1e-5,
+                                         tf.log(tf.maximum(prob_event, 1e-12)),
+                                         log_prob_event_approx)))
+  # Sum over mixtures.
+  log_probs = tf.reduce_sum(log_probs, 3) + tf.nn.log_softmax(logits, axis=-1)
+  if sum_all:
+    output = -tf.reduce_sum(tf.reduce_logsumexp(log_probs, axis=-1))
+    return output
+  else:
+    output = -tf.reduce_logsumexp(log_probs, axis=-1, keep_dims=True)
+    return output
+
+
+def sample_from_discretized_mix_logistic(l, nr_mix, seed=None):
+  """Sampling from a discretized mixture of logistics using gumbel softmax.
+
+  Args:
+    l: output of body, of shape [batch, length, num_mixtures * 10]
+    nr_mix: Integer number of mixtures
+    seed: Random seed
+
+  Returns:
+    A tensor of shape [batch, length, 3] with real intensities scaled between
+    -1 and 1
+  """
+  ls_t = tf.shape(l)
+  ls = [ls_t[0], ls_t[1], ls_t[2], ls_t[3]]
+  xs = ls[:-1] + [3]
+  # unpack parameters
+  logit_probs = l[:, :, :, :nr_mix]
+  l = tf.reshape(l[:, :, :, nr_mix:], xs + [nr_mix * 3])
+  # sample mixture indicator from softmax using gumbel softmax
+  sel = tf.one_hot(tf.argmax(logit_probs - tf.log(-tf.log(tf.random_uniform(
+      tf.shape(logit_probs), minval=1e-5, maxval=1. - 1e-5, seed=seed))), 3),
+                   depth=nr_mix, dtype=tf.float32)
+  sel = tf.reshape(sel, xs[:-1] + [1, nr_mix])
+  # select logistic parameters
+  means = tf.reduce_sum(l[:, :, :, :, :nr_mix] * sel, 4)
+  log_scales = tf.maximum(tf.reduce_sum(
+      l[:, :, :, :, nr_mix:2 * nr_mix] * sel, 4), -7.)
+  coeffs = tf.reduce_sum(tf.nn.tanh(
+      l[:, :, :, :, 2 * nr_mix:3 * nr_mix]) * sel, 4)
+  # sample from logistic & clip to interval
+  # we don't actually round to the nearest 8bit value when sampling
+  u = tf.random_uniform(tf.shape(means), minval=1e-5, maxval=1. - 1e-5,
+                        seed=seed)
+  x = means + tf.exp(log_scales) * (tf.log(u) - tf.log(1. - u))
+  x0 = tf.clip_by_value(x[:, :, :, 0], -1., 1)
+  x1 = tf.clip_by_value(x[:, :, :, 1] + coeffs[:, :, :, 0] * x0, -1., 1)
+  x2 = tf.minimum(tf.maximum(
+      x[:, :, :, 2] + coeffs[:, :, :, 1] * x0 + coeffs[:, :, :, 2] * x1, -1.),
+                  1.)
+  return tf.concat([tf.reshape(x0, xs[:-1] + [1]),
+                    tf.reshape(x1, xs[:-1] + [1]),
+                    tf.reshape(x2, xs[:-1] + [1])], 3)
 
 
 def smoothing_cross_entropy(logits,

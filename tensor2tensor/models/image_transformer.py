@@ -71,6 +71,59 @@ class Imagetransformer(t2t_model.T2TModel):
 
 
 @registry.register_model
+class ImagetransformerPlus(t2t_model.T2TModel):
+  """Imagetransformer with discretized mixture of logistics loss."""
+
+  def body(self, features):
+    hparams = copy.copy(self._hparams)
+    inputs = features["inputs"]
+    targets = features["targets"]
+    # Prepare decoder inputs and bias.
+    decoder_input, _, _ = cia.prepare_decoder(targets, hparams)
+    # Add class label to decoder input.
+    if not hparams.unconditional:
+      decoder_input += tf.reshape(
+          inputs,
+          [common_layers.shape_list(targets)[0], 1, 1, hparams.hidden_size])
+    decoder_output = cia.transformer_decoder_layers(
+        decoder_input,
+        None,
+        hparams.num_decoder_layers or hparams.num_hidden_layers,
+        hparams,
+        attention_type=hparams.dec_attention_type,
+        name="decoder")
+    # reshape it into [batch, height, width, depth]
+    decoder_output = tf.reshape(decoder_output, tf.shape(targets))
+    # there are 10 sets of parameters that you need to produce, location, scale,
+    # and coefficient parameter for each
+    output = tf.layers.dense(decoder_output, hparams.num_mixtures*10,
+                             use_bias=False, activation=None,
+                             name="output_mixtures_conv")
+    # TODO(avaswani) Figure out if we need residuals or layer norm
+    return output
+
+  def loss(self, pred, features):
+    return common_layers.dml_loss(pred, features["targets"])
+
+  def sample(self, features):
+    """Run the model and extract samples.
+
+    Args:
+      features: an map of string to `Tensor`.
+
+    Returns:
+       samples: an integer `Tensor`.
+       logits: a list of `Tensor`s, one per datashard.
+       losses: a dictionary: {loss-name (string): floating point `Scalar`}.
+    """
+    logits, losses = self(features)  # pylint: disable=not-callable
+
+    samples = common_layers.sample_from_discretized_mix_logistic(
+        logits, 10, seed=None)
+    return samples, logits, losses
+
+
+@registry.register_model
 class ImagetransformerMoe(t2t_model.T2TModel):
   """Conditional image generation with attention and MoE."""
 
@@ -175,6 +228,9 @@ def image_transformer_base():
 
   hparams.add_hparam("unconditional", False)  # unconditional generation
 
+  # parameters of discretized mixture of logistics loss from pixel cnn++
+  hparams.add_hparam("num_mixtures", 10)
+
   # These parameters are only used when ffn_layer=="local_moe_tpu"
   hparams.add_hparam("moe_overhead_train", 1.0)
   hparams.add_hparam("moe_overhead_eval", 2.0)
@@ -259,6 +315,145 @@ def imagetransformer_base_10l_8h_big_uncond_dr03_dan_64():
   hparams.batch_size = 1
   hparams.img_len = 64
   hparams.layer_prepostprocess_dropout = 0.1
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_sep_channels_8l_8h():
+  """separate rgb embeddings."""
+  hparams = imagetransformer_base()
+  hparams.num_heads = 8
+  hparams.batch_size = 4
+  hparams.attention_key_channels = hparams.attention_value_channels = 0
+  hparams.hidden_size = 512
+  hparams.filter_size = 512
+  hparams.num_hidden_layers = 8
+  hparams.sampling_method = "random"
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.target_modality = "image:image_channel_bottom_identity"
+  hparams.summarize_grads = True
+  hparams.learning_rate = 0.1
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_8l_8h_big_cond_dr03_dan():
+  """big 1d model for conditional image generation.2.99 on cifar10."""
+  hparams = imagetransformerpp_sep_channels_8l_8h()
+  hparams.hidden_size = 512
+  hparams.num_heads = 8
+  hparams.filter_size = 2048
+  hparams.batch_size = 4
+  hparams.max_length = 3075
+  hparams.layer_prepostprocess_dropout = 0.3
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.summarize_grads = True
+  hparams.learning_rate = 0.01
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_8l_8h_big_cond_dr03_dan_a():
+  hparams = imagetransformerpp_base_8l_8h_big_cond_dr03_dan()
+  hparams.learning_rate = 0.1
+  hparams.num_channels = 1
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan():
+  hparams = imagetransformerpp_base_8l_8h_big_cond_dr03_dan_a()
+  hparams.unconditional = True
+  hparams.num_decoder_layers = 10
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_a():
+  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan()
+  hparams.learning_rate = 0.01
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_b():
+  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan()
+  hparams.learning_rate = 0.1
+  hparams.hidden_size = 256
+  hparams.attention_key_channels = 512
+  hparams.attention_value_channels = 512
+  hparams.filter_size = 1024
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_e():
+  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_b()
+  hparams.learning_rate_warmup_steps = 16000
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_f():
+  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_b()
+  hparams.num_mixtures = 5
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_g():
+  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_b()
+  hparams.filter_size = 512
+  hparams.layer_prepostprocess_dropout = 0.1
+  hparams.learning_rate = 0.1
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.pos = "emb"
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_k():
+  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_g()
+  hparams.num_decoder_layers = 12
+  hparams.clip_grad_norm = 0.
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_l():
+  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_g()
+  hparams.num_decoder_layers = 12
+  hparams.clip_grad_norm = 40.
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_m():
+  hparams = imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_k()
+  hparams.batch_size = 8
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_14l_8h_big_uncond_dr03_dan_p():
+  """Gets to 2.92 in just under 4 days on 8 p100s."""
+  hparams = imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_l()
+  hparams.num_decoder_layers = 14
+  hparams.batch_size = 8
+  hparams.layer_prepostprocess_dropout = 0.2
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_14l_8h_big_uncond_dr03_dan_eval():
+  """Gets to 2.92 in just under 4 days on 8 p100s."""
+  hparams = imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_l()
+  hparams.num_decoder_layers = 14
+  hparams.batch_size = 8
+  # hparams.layer_prepostprocess_dropout = 0.2
   return hparams
 
 

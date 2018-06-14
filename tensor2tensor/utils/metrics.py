@@ -54,6 +54,7 @@ class Metrics(object):
   SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
   ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
+  DMOL_PERPLEXITY = "disc_mol_neg_log_perplexity"
   IMAGE_RMSE = "image_rmse"
 
 
@@ -229,6 +230,16 @@ def padded_neg_log_perplexity(predictions,
   """Average log-perplexity exluding padding 0s. No smoothing."""
   num, den = common_layers.padded_cross_entropy(
       predictions, labels, 0.0, weights_fn=weights_fn, reduce_sum=False)
+  return (-num, den)
+
+
+def dmol_neg_log_perplexity(predictions,
+                            labels,
+                            weights_fn=None):
+  """Average log-perplexity excluding padding 0s. No smoothing."""
+  del weights_fn  # Unused
+  num, den = common_layers.dml_loss(
+      predictions, labels, reduce_sum=False)
   return (-num, den)
 
 
@@ -609,5 +620,6 @@ METRICS_FNS = {
     Metrics.SET_RECALL: set_recall,
     Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
+    Metrics.DMOL_PERPLEXITY: dmol_neg_log_perplexity,
     Metrics.IMAGE_RMSE: image_rmse,
 }

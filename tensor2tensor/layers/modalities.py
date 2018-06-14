@@ -290,8 +290,10 @@ class ImageChannelCompressModality(modality.Modality):
     """
     with tf.variable_scope(name):
       inputs = tf.to_float(inputs)
-      tf.summary.image("inputs", inputs, max_outputs=2)
-      inputs = common_layers.convert_rgb_to_real(inputs)
+      hp = self._model_hparams
+      if hp.mode != tf.estimator.ModeKeys.PREDICT:
+        tf.summary.image("inputs", inputs, max_outputs=2)
+      inputs = common_layers.convert_rgb_to_symmetric_real(inputs)
       ishape = common_layers.shape_list(inputs)
       inputs = tf.reshape(inputs, [-1, ishape[1], ishape[2] * ishape[3], 1])
       inputs.set_shape([None, None, None, 1])
@@ -332,6 +334,13 @@ class ImageChannelCompressModality(modality.Modality):
       x = tf.reshape(x,
                      [-1, img_len, img_len, channels, self.top_dimensionality])
       return x
+
+
+@registry.register_image_modality("image_channel_bottom_identity")
+class ImageChannelBottomIdentityModality(ImageChannelCompressModality):
+
+  def top(self, body_output, _):
+    return body_output
 
 
 @registry.register_image_modality("channel_embeddings_bottom")

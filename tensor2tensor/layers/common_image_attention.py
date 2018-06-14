@@ -621,10 +621,8 @@ def prepare_image(inputs, hparams, name=None):
   channels = hparams.num_channels
 
   hidden_size = hparams.hidden_size
-  # Only do lookup if the embeddings haven't been looked up already.
-  # if the last dimension is number of channels, then this is very likely the
-  # channel ids tensor. We have to make sure.
-  if inputs_shape[-1] == hparams.num_channels:
+  # Only do lookup if the modality is identity
+  if hparams.target_modality == "image:identity":
     inputs = tf.to_int32(inputs)
     x = get_channel_embeddings(channels, inputs, hidden_size, name=name)
   else:
@@ -675,5 +673,5 @@ def add_pos_signals(x, hparams, name="pos_emb"):
     else:
       assert hparams.pos == "emb"
       x = common_attention.add_positional_embedding_nd(
-          x, hparams.max_length, name=name)
+          x, hparams.max_length, name)
   return x

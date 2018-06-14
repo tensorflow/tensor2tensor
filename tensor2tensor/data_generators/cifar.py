@@ -27,6 +27,7 @@ from six.moves import cPickle
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import mnist
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -170,6 +171,19 @@ class ImageCifar10PlainGen(ImageCifar10Plain):
     example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     example["inputs"] = tf.to_int64(example["inputs"])
     return example
+
+
+@registry.register_problem
+class ImageCifar10PlainGenDmol(ImageCifar10PlainGen):
+  """Discretized mixture of logistics problem."""
+
+  def dataset_filename(self):
+    return "image_cifar10_plain"  # Reuse CIFAR-10 plain data.
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.DMOL_PERPLEXITY
+    ]
 
 
 @registry.register_problem
