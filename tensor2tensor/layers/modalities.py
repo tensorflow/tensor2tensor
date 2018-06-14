@@ -644,7 +644,7 @@ class VideoModalityL2Raw(VideoModalityL2):
     common_layers.summarize_video(x, "inputs")
     return common_layers.convert_rgb_to_real(x)
 
-  def targets_bottom(self, x):
+  def targets_bottom(self, x):  # pylint: disable=arguments-differ
     common_layers.summarize_video(x, "targets_bottom")
     return common_layers.convert_rgb_to_real(x)
 
