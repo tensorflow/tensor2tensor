@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import shutil
-
-# Dependency imports
-
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import generator_utils
@@ -36,7 +33,8 @@ import tensorflow as tf
 @registry.register_problem
 class TinyAlgo(algorithmic.AlgorithmicIdentityBinary40):
 
-  def generate_data(self, data_dir, _):
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    del tmp_dir, task_id
     identity_problem = algorithmic.AlgorithmicIdentityBinary40()
     generator_utils.generate_files(
         identity_problem.generator(self.num_symbols, 40, 100000),
@@ -69,7 +67,7 @@ class TrainerLibTest(tf.test.TestCase):
         use_tpu=False)
     run_config = trainer_lib.create_run_config(
         model_dir=self.data_dir, num_gpus=0, use_tpu=False)
-    hparams = registry.hparams("transformer_tiny_tpu")()
+    hparams = registry.hparams("transformer_tiny_tpu")
     exp = exp_fn(run_config, hparams)
     exp.test()
 

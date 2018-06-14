@@ -24,9 +24,6 @@ from __future__ import print_function
 
 import functools
 import math
-
-# Dependency imports
-
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
@@ -84,6 +81,8 @@ def _add_variable_proxy_methods(var, proxy_tensor):
   """
   proxy_tensor.read_value = lambda: tf.identity(proxy_tensor)
   proxy_tensor.assign_sub = var.assign_sub
+  proxy_tensor.assign = var.assign
+  proxy_tensor.initialized_value = var.initialized_value
 
 
 class Parallelism(object):
@@ -182,7 +181,8 @@ class Parallelism(object):
           v = tf.identity(last_device_v)
         else:
           var = getter(name, *args, **kwargs)
-          v = tf.identity(var._ref())  # pylint: disable=protected-access
+          # v = tf.identity(var._ref())  # pylint: disable=protected-access
+          v = var.read_value()
 
         # keep track of the original variable
         tensor_to_var[v] = var
@@ -203,7 +203,8 @@ class Parallelism(object):
 
         v = getter(name, *args, **kwargs)
         with tf.device(self._caching_devices[i]):
-          ret = tf.identity(v._ref())  # pylint: disable=protected-access
+          # ret = tf.identity(v._ref())  # pylint: disable=protected-access
+          ret = v.read_value()
         _add_variable_proxy_methods(v, ret)
         cache[key] = ret
         return ret
@@ -1017,9 +1018,9 @@ def local_moe(x,
       expert_kwargs["x"] = dispatcher.dispatch(x_flat)
     if pass_gates:
       expert_kwargs["gates"] = dispatcher.expert_to_gates()
-    for k, v in six.iteritems(additional_dispatch_params or {}):
-      v = flatten_all_but_last(v)
-      expert_kwargs[k] = dispatcher.dispatch(v)
+    for key, val in six.iteritems(additional_dispatch_params or {}):
+      val = flatten_all_but_last(val)
+      expert_kwargs[key] = dispatcher.dispatch(val)
 
     ep = Parallelism([DEFAULT_DEV_STRING] * num_experts, reuse=None)
     expert_outputs = ep(expert_fn, **expert_kwargs)
@@ -1257,7 +1258,7 @@ def local_moe_tpu(inputs,
   mask_1 *= tf.to_float(tf.less(position_in_expert_1, expert_capacity_f))
   # [batch, 1, num_experts]
   # How many examples in this sequence go to this expert
-  mask_1_count = tf.reduce_sum(mask_1, axis=1, keep_dims=True)
+  mask_1_count = tf.reduce_sum(mask_1, axis=1, keepdims=True)
   # [batch, length] - mostly ones, but zeros where something didn't fit
   mask_1_flat = tf.reduce_sum(mask_1, axis=2)
   position_in_expert_1 = tf.reduce_sum(position_in_expert_1, axis=2)
@@ -1284,7 +1285,7 @@ def local_moe_tpu(inputs,
       common_layers.cumsum(mask_2, axis=1, exclusive=True) + mask_1_count)
   position_in_expert_2 *= mask_2
   mask_2 *= tf.to_float(tf.less(position_in_expert_2, expert_capacity_f))
-  mask_2_count = tf.reduce_sum(mask_2, axis=1, keep_dims=True)
+  mask_2_count = tf.reduce_sum(mask_2, axis=1, keepdims=True)
   mask_2_flat = tf.reduce_sum(mask_2, axis=2)
   position_in_expert_2 = tf.reduce_sum(position_in_expert_2, axis=2)
   gate_2 *= mask_2_flat
@@ -1477,15 +1478,16 @@ def all_reduce_ring(x, parallelism, maybe_reduce=True, use_bfloat16=True):
             assert op == "copy"
             x_split[target_device][shard] = tf.identity(source)
     center = parallelism.n // 2
+
     # accumulate everything towards the center.
-    for i in range(center, parallelism.n - 1)[::-1]:
+    for i in reversed(range(center, parallelism.n - 1)):
       _step(i + 1, i, x_split, op="plus_eq")
     for i in range(center):
       _step(i, i + 1, x_split, op="plus_eq")
     # copy everything away from the center.
     for i in range(center, parallelism.n - 1):
       _step(i, i + 1, x_split, op="copy")
-    for i in range(center)[::-1]:
+    for i in reversed(range(center)):
       _step(i + 1, i, x_split, op="copy")
     x_concat = parallelism(tf.concat, x_split, 0)
     y = parallelism(common_layers.reshape_like_all_dims, x_concat, x)

@@ -18,9 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import re
-
-# Dependency imports
-
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 

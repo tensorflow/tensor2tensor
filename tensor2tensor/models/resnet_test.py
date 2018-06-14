@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
@@ -38,7 +35,7 @@ def resnet_tiny_cpu():
 
 class ResnetTest(tf.test.TestCase):
 
-  def _testResnet(self, img_size, output_size):
+  def _test_resnet(self, img_size, output_size):
     vocab_size = 9
     batch_size = 2
     x = np.random.random_integers(
@@ -61,7 +58,7 @@ class ResnetTest(tf.test.TestCase):
     self.assertEqual(res.shape, (batch_size,) + output_size + (1, vocab_size))
 
   def testResnetLarge(self):
-    self._testResnet(img_size=224, output_size=(1, 1))
+    self._test_resnet(img_size=224, output_size=(1, 1))
 
 
 if __name__ == "__main__":

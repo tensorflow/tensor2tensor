@@ -27,14 +27,10 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-from collections import defaultdict
 import csv
 import gzip
 import os
 import random
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -77,15 +73,16 @@ def _build_vocab(examples, example_field, vocab_dir, vocab_name):
   return encoder
 
 
-def load_examples(tmp_dir, equalize_classes=False):
+def load_examples(tmp_dir, prop_train=0.09, prop_val=0.01):
   """Loads exampls from the tsv file.
 
   Args:
     tmp_dir: temp directory.
-    equalize_classes: if equalize number of examples in the classes.
+    prop_train: proportion of the train data
+    prop_val: proportion of the validation data
 
   Returns:
-    All examples in the dataset.
+    All examples in the dataset pluse train, test, and development splits.
 
   """
 
@@ -99,26 +96,18 @@ def load_examples(tmp_dir, equalize_classes=False):
     ex = {x: int(y) if y.isdigit() else y for x, y in d.items()}
     all_examples.append(ex)
 
-  classes = defaultdict(list)
-  for ex in all_examples:
-    classes[ex['verb_pos']].append(ex)
-
-  del all_examples[:]
-  assert len(classes) == 2
-
-  c1 = classes.values()[0]
-  c2 = classes.values()[1]
   random.seed(1)
-  random.shuffle(c1)
-  random.shuffle(c2)
-  if equalize_classes:
-    l = min(len(c1), len(c2))
-    all_examples = c1[:l] + c2[:l]
-  else:
-    all_examples = c1 + c2
   random.shuffle(all_examples)
+  n_train = int(len(all_examples) * prop_train)
+  n_val = n_train + int(len(all_examples) * prop_val)
+  train = all_examples[:n_train]
+  val = all_examples[n_train:n_val]
+  test = []
+  for e in all_examples[n_val:]:
+    if e['n_intervening'] == e['n_diff_intervening']:
+      test.append(e)
 
-  return all_examples
+  return all_examples, train, val, test
 
 
 @registry.register_problem
@@ -128,7 +117,7 @@ class SvaNumberPrediction(text_problems.Text2ClassProblem):
   @property
   def is_generate_per_split(self):
     # generate_data will shard the data into TRAIN and EVAL for us.
-    return False
+    return True
 
   @property
   def dataset_splits(self):
@@ -145,8 +134,21 @@ class SvaNumberPrediction(text_problems.Text2ClassProblem):
         'shards': 1,
     }, {
         'split': problem.DatasetSplit.EVAL,
-        'shards': 9,
+        'shards': 1,
+    }, {
+        'split': problem.DatasetSplit.TEST,
+        'shards': 10,
     }]
+
+  @property
+  def train_proportion(self):
+    # generate_data will shard the data into TRAIN and EVAL for us.
+    return 0.09
+
+  @property
+  def validation_proportion(self):
+    # generate_data will shard the data into TRAIN and EVAL for us.
+    return 0.01
 
   @property
   def vocab_type(self):
@@ -179,8 +181,18 @@ class SvaNumberPrediction(text_problems.Text2ClassProblem):
       sample generator.
     """
     example_filed = 'sentence'
-    examples = load_examples(tmp_dir)
-    _build_vocab(examples, example_filed, data_dir, self.vocab_filename)
+    examples_for_vocab, train, val, test = load_examples(
+        tmp_dir, self.train_proportion, self.validation_proportion)
+    _build_vocab(
+        examples_for_vocab, example_filed, data_dir, self.vocab_filename)
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      examples = train
+
+    elif dataset_split == problem.DatasetSplit.EVAL:
+      examples = val
+
+    elif dataset_split == problem.DatasetSplit.TEST:
+      examples = test
 
     def _generate_samples():
       for example in examples:
@@ -199,6 +211,7 @@ class SvaNumberPrediction(text_problems.Text2ClassProblem):
     Returns:
       List of evaluation metrics of interest.
     """
+    # TODO(dehghani): Implement accuracy of the target word as a t2t metric.
     return [metrics.Metrics.ACC]
 
 
@@ -209,7 +222,7 @@ class SvaLanguageModeling(text_problems.Text2SelfProblem):
   @property
   def is_generate_per_split(self):
     # generate_data will shard the data into TRAIN and EVAL for us.
-    return False
+    return True
 
   @property
   def dataset_splits(self):
@@ -226,8 +239,21 @@ class SvaLanguageModeling(text_problems.Text2SelfProblem):
         'shards': 1,
     }, {
         'split': problem.DatasetSplit.EVAL,
-        'shards': 9,
+        'shards': 1,
+    }, {
+        'split': problem.DatasetSplit.TEST,
+        'shards': 10,
     }]
+
+  @property
+  def train_proportion(self):
+    # generate_data will shard the data into TRAIN and EVAL for us.
+    return 0.09
+
+  @property
+  def validation_proportion(self):
+    # generate_data will shard the data into TRAIN and EVAL for us.
+    return 0.01
 
   @property
   def vocab_type(self):
@@ -245,9 +271,20 @@ class SvaLanguageModeling(text_problems.Text2SelfProblem):
       sample generator.
 
     """
+
     example_filed = 'sentence'
-    examples = load_examples(tmp_dir)
-    _build_vocab(examples, example_filed, data_dir, self.vocab_filename)
+    examples_for_vocab, train, val, test = load_examples(
+        tmp_dir, self.train_proportion, self.validation_proportion)
+    _build_vocab(
+        examples_for_vocab, example_filed, data_dir, self.vocab_filename)
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      examples = train
+
+    elif dataset_split == problem.DatasetSplit.EVAL:
+      examples = val
+
+    elif dataset_split == problem.DatasetSplit.TEST:
+      examples = test
 
     def _generate_samples():
       for example in examples:

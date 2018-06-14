@@ -18,9 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import inspect
-
-# Dependency imports
-
 import numpy as np
 import six
 
@@ -50,20 +47,34 @@ class Metrics(object):
   EDIT_DISTANCE = "edit_distance"
   SET_PRECISION = "set_precision"
   SET_RECALL = "set_recall"
+  SOFTMAX_CROSS_ENTROPY_ONE_HOT = "softmax_cross_entropy_one_hot"
   SIGMOID_ACCURACY_ONE_HOT = "sigmoid_accuracy_one_hot"
   SIGMOID_RECALL_ONE_HOT = "sigmoid_recall_one_hot"
   SIGMOID_PRECISION_ONE_HOT = "sigmoid_precision_one_hot"
   SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
   ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
+  DMOL_PERPLEXITY = "disc_mol_neg_log_perplexity"
+  IMAGE_RMSE = "image_rmse"
+
+
+def image_rmse(predictions, labels, weights_fn=common_layers.weights_all):
+  """RMSE but will argmax if last dim is not 1."""
+  if common_layers.shape_list(predictions)[-1] == 1:
+    predictions = tf.squeeze(predictions, axis=[-1])
+  else:
+    predictions = tf.argmax(predictions, axis=-1)
+  return padded_rmse(predictions, labels, weights_fn)
 
 
 def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
+  predictions = tf.to_float(predictions)
+  labels = tf.to_float(labels)
   predictions, labels = common_layers.pad_with_zeros(predictions, labels)
-  targets = labels
-  weights = weights_fn(targets)
-  error = tf.sqrt(tf.pow(predictions - labels, 2))
-  return tf.reduce_sum(error * weights), tf.reduce_sum(weights)
+  weights = weights_fn(labels)
+  error = tf.pow(predictions - labels, 2)
+  error_sqrt = tf.sqrt(tf.reduce_sum(error * weights))
+  return error_sqrt, tf.reduce_sum(weights)
 
 
 def padded_log_poisson(predictions,
@@ -146,6 +157,21 @@ def padded_sequence_accuracy(predictions,
     padded_predictions, padded_labels = common_layers.pad_with_zeros(
         predictions, labels)
     weights = weights_fn(padded_labels)
+
+    # Flatten, keeping batch dim (and num_classes dim for predictions)
+    # TPU argmax can only deal with a limited number of dimensions
+    predictions_shape = common_layers.shape_list(padded_predictions)
+    batch_size = predictions_shape[0]
+    num_classes = predictions_shape[-1]
+    flat_size = common_layers.list_product(
+        common_layers.shape_list(padded_labels)[1:])
+    padded_predictions = tf.reshape(
+        padded_predictions,
+        [batch_size, common_layers.list_product(predictions_shape[1:-1]),
+         num_classes])
+    padded_labels = tf.reshape(padded_labels, [batch_size, flat_size])
+    weights = tf.reshape(weights, [batch_size, flat_size])
+
     outputs = tf.to_int32(tf.argmax(padded_predictions, axis=-1))
     padded_labels = tf.to_int32(padded_labels)
     not_correct = tf.to_float(tf.not_equal(outputs, padded_labels)) * weights
@@ -204,6 +230,16 @@ def padded_neg_log_perplexity(predictions,
   """Average log-perplexity exluding padding 0s. No smoothing."""
   num, den = common_layers.padded_cross_entropy(
       predictions, labels, 0.0, weights_fn=weights_fn, reduce_sum=False)
+  return (-num, den)
+
+
+def dmol_neg_log_perplexity(predictions,
+                            labels,
+                            weights_fn=None):
+  """Average log-perplexity excluding padding 0s. No smoothing."""
+  del weights_fn  # Unused
+  num, den = common_layers.dml_loss(
+      predictions, labels, reduce_sum=False)
   return (-num, den)
 
 
@@ -298,6 +334,24 @@ def image_summary(predictions, targets, hparams):
   summary2 = tf.summary.image("data", gold, max_outputs=2)
   summary = tf.summary.merge([summary1, summary2])
   return summary, tf.zeros_like(predictions)
+
+
+def softmax_cross_entropy_one_hot(logits, labels, weights_fn=None):
+  """Calculate softmax cross entropy given one-hot labels and logits.
+
+  Args:
+    logits: Tensor of size [batch-size, o=1, p=1, num-classes]
+    labels: Tensor of size [batch-size, o=1, p=1, num-classes]
+    weights_fn: Function that takes in labels and weighs examples (unused)
+  Returns:
+    cross-entropy (scalar), weights
+  """
+  with tf.variable_scope("softmax_cross_entropy_one_hot",
+                         values=[logits, labels]):
+    del weights_fn
+    cross_entropy = tf.losses.softmax_cross_entropy(
+        onehot_labels=labels, logits=logits)
+    return cross_entropy, tf.constant(1.0)
 
 
 def sigmoid_accuracy_one_hot(logits, labels, weights_fn=None):
@@ -449,6 +503,20 @@ def create_evaluation_metrics(problems, model_hparams):
 
     return problem_metric_fn
 
+  def make_image_wrapped_metric_fn(metric_fn):
+    """Metric fn without tf.metrics.mean."""
+
+    def image_wrapped_metric_fn(predictions,
+                                features,
+                                labels,
+                                weights_fn=common_layers.weights_all):
+      del weights_fn
+      del features
+      predictions, labels = reduce_dimensions(predictions, labels)
+      return metric_fn(predictions, labels, model_hparams)
+
+    return image_wrapped_metric_fn
+
   eval_metrics = dict()
   for problem_instance in problems:
     problem_name = problem_instance.name
@@ -460,45 +528,23 @@ def create_evaluation_metrics(problems, model_hparams):
                                     metrics,
                                     list(METRICS_FNS.keys())))
 
-    def image_wrapped_metric_fn(predictions,
-                                features,
-                                labels,
-                                weights_fn=common_layers.weights_all):
-      del weights_fn
-      del features
-      predictions, labels = reduce_dimensions(predictions, labels)
-      return metric_fn(predictions, labels, model_hparams)
-
     tm = problem_instance.get_hparams().target_modality
-    if isinstance(tm, dict):
-      for k, v in six.iteritems(tm):
-        if isinstance(v, tuple):
-          v = registry.create_modality(v, model_hparams)
-        weights_fn = v.targets_weights_fn
+    if not isinstance(tm, dict):
+      tm = {"targets": tm}
 
-        for metric in metrics:
-          metric_fn = METRICS_FNS[metric]
-          metric_name = "metrics-%s/%s/%s" % (problem_name, k, metric)
-          if metric == Metrics.IMAGE_SUMMARY:
-            eval_metrics[metric_name] = image_wrapped_metric_fn
-          else:
-            problem_metric_fn = make_problem_specific_metric_fn(
-                metric_fn, weights_fn)
-            eval_metrics[metric_name] = problem_metric_fn
-    else:
-      if isinstance(tm, tuple):
-        tm = registry.create_modality(tm, model_hparams)
-      weights_fn = tm.targets_weights_fn
+    for target_name, modality in six.iteritems(tm):
+      if isinstance(modality, tuple):
+        modality = registry.create_modality(modality, model_hparams)
+      weights_fn = modality.targets_weights_fn
 
       for metric in metrics:
         metric_fn = METRICS_FNS[metric]
-        metric_name = "metrics-%s/%s" % (problem_name, metric)
+        metric_name = "metrics-%s/%s/%s" % (problem_name, target_name, metric)
         if metric == Metrics.IMAGE_SUMMARY:
-          eval_metrics[metric_name] = image_wrapped_metric_fn
+          eval_metrics[metric_name] = make_image_wrapped_metric_fn(metric_fn)
         else:
-          problem_metric_fn = make_problem_specific_metric_fn(
+          eval_metrics[metric_name] = make_problem_specific_metric_fn(
               metric_fn, weights_fn)
-          eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
 
@@ -565,6 +611,7 @@ METRICS_FNS = {
     Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
+    Metrics.SOFTMAX_CROSS_ENTROPY_ONE_HOT: softmax_cross_entropy_one_hot,
     Metrics.SIGMOID_ACCURACY_ONE_HOT: sigmoid_accuracy_one_hot,
     Metrics.SIGMOID_RECALL_ONE_HOT: sigmoid_recall_one_hot,
     Metrics.SIGMOID_PRECISION_ONE_HOT: sigmoid_precision_one_hot,
@@ -573,4 +620,6 @@ METRICS_FNS = {
     Metrics.SET_RECALL: set_recall,
     Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
+    Metrics.DMOL_PERPLEXITY: dmol_neg_log_perplexity,
+    Metrics.IMAGE_RMSE: image_rmse,
 }

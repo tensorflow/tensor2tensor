@@ -20,9 +20,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import gym
 
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
@@ -97,19 +94,6 @@ class PyFuncBatchEnv(InGraphBatchEnv):
       done.set_shape((len(self),))
       with tf.control_dependencies([self._observ.assign(observ)]):
         return tf.identity(reward), tf.identity(done)
-
-  def reset(self, indices=None):
-    """Reset the batch of environments.
-
-    Args:
-      indices: The batch indices of the environments to reset.
-
-    Returns:
-      Batch tensor of the new observations.
-    """
-    return tf.cond(
-        tf.cast(tf.shape(indices)[0], tf.bool),
-        lambda: self._reset_non_empty(indices), lambda: 0.0)
 
   def _reset_non_empty(self, indices):
     """Reset the batch of environments.

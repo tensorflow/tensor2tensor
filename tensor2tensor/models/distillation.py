@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -57,11 +54,11 @@ class Distillation(t2t_model.T2TModel):
     elif hparams.distill_phase == "distill" and hparams.student_learning_rate:
       hparams.learning_rate = hparams.student_learning_rate
 
-    self.teacher_hparams = registry.hparams(hparams.teacher_hparams)()
+    self.teacher_hparams = registry.hparams(hparams.teacher_hparams)
     self.teacher_model = registry.model(
         hparams.teacher_model)(self.teacher_hparams, mode, problem_hparams,
                                data_parallelism, decode_hparams)
-    self.student_hparams = registry.hparams(hparams.student_hparams)()
+    self.student_hparams = registry.hparams(hparams.student_hparams)
     self.student_model = registry.model(
         hparams.student_model)(self.student_hparams, mode, problem_hparams,
                                data_parallelism, decode_hparams)

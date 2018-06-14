@@ -23,9 +23,6 @@ import os
 import random
 import re
 import zipfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -159,6 +156,7 @@ class Desc2CodeProblem(text_problems.Text2TextProblem):
     ))
 
     def generator_samples_content(get_source, get_target):
+      """Generate samples."""
       source, target = None, None
       # Iterate over the coding samples
       for sample in samples:
@@ -182,8 +180,11 @@ class Desc2CodeProblem(text_problems.Text2TextProblem):
 
     # Generate vocab for both source and target
 
-    source_vocab = generator_utils.get_or_generate_vocab(
-        data_dir, tmp_dir, self.vocab_input_filename, self.input_vocab_size)
+    # TODO(lukaszkaiser): Fix vocab generation call. No sources given.
+    assert not self.vocab_input_filename
+    source_vocab = None
+    # source_vocab = generator_utils.get_or_generate_vocab(
+    #     data_dir, tmp_dir, self.vocab_input_filename, self.input_vocab_size)
 
     target_vocab = generator_utils.get_or_generate_vocab_inner(
         data_dir=data_dir,

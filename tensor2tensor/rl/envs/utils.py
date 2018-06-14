@@ -17,6 +17,9 @@
 # The code was based on Danijar Hafner's code from tf.agents:
 # https://github.com/tensorflow/agents/blob/master/agents/tools/wrappers.py
 # https://github.com/tensorflow/agents/blob/master/agents/scripts/utility.py
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import atexit
 import multiprocessing
@@ -26,9 +29,6 @@ import signal
 import subprocess
 import sys
 import traceback
-
-# Dependency imports
-
 import gym
 
 from tensor2tensor.rl.envs import batch_env
@@ -73,13 +73,13 @@ class EvalVideoWrapper(gym.Wrapper):
     if self._reset_counter % 2 == 1:
       self._active = True
       return self.env.reset(**kwargs)
-    else:
-      self._active = False
-      self._last_returned = (self._last_returned[0],
-                             self._last_returned[1],
-                             False,  # done = False
-                             self._last_returned[3])
-      return self._last_returned[0]
+
+    self._active = False
+    self._last_returned = (self._last_returned[0],
+                           self._last_returned[1],
+                           False,  # done = False
+                           self._last_returned[3])
+    return self._last_returned[0]
 
 
 class ExternalProcessEnv(object):
@@ -204,8 +204,7 @@ class ExternalProcessEnv(object):
     promise = self.call("step", action)
     if blocking:
       return promise()
-    else:
-      return promise
+    return promise
 
   def reset(self, blocking=True):
     """Reset the environment.
@@ -220,8 +219,7 @@ class ExternalProcessEnv(object):
     promise = self.call("reset")
     if blocking:
       return promise()
-    else:
-      return promise
+    return promise
 
   def _receive(self):
     """Wait for a message from the worker process and return its payload.
@@ -287,7 +285,10 @@ def batch_env_factory(environment_lambda, hparams, num_agents, xvfb=False):
       hparams, "in_graph_wrappers") else []
 
   if hparams.simulated_environment:
-    cur_batch_env = define_simulated_batch_env(environment_lambda, num_agents)
+    cur_batch_env = define_simulated_batch_env(
+        environment_lambda, num_agents, hparams.problem,
+        hparams.simulation_random_starts,
+        hparams.intrinsic_reward_scale)
   else:
     cur_batch_env = define_batch_env(environment_lambda, num_agents, xvfb=xvfb)
   for w in wrappers:
@@ -306,7 +307,10 @@ def define_batch_env(constructor, num_agents, xvfb=False):
     return env
 
 
-def define_simulated_batch_env(environment_lambda, num_agents):
+def define_simulated_batch_env(environment_lambda, num_agents, problem,
+                               simulation_random_starts=False,
+                               intrinsic_reward_scale=0.):
   cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
-      environment_lambda, num_agents)
+      environment_lambda, num_agents, problem, simulation_random_starts,
+      intrinsic_reward_scale)
   return cur_batch_env

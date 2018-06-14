@@ -16,9 +16,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 import six
@@ -27,10 +24,10 @@ from six.moves import range  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
 
-def cast_int64_to_int32(features):
+def cast_ints_to_int32(features):
   f = {}
-  for k, v in six.iteritems(features):
-    if v.dtype == tf.int64:
+  for k, v in sorted(six.iteritems(features)):
+    if v.dtype in [tf.int64, tf.uint8]:
       v = tf.to_int32(v)
     f[k] = v
   return f
@@ -39,7 +36,7 @@ def cast_int64_to_int32(features):
 def example_length(example):
   length = 0
   # Length of the example is the maximum length of the feature lengths
-  for v in example.values():
+  for _, v in sorted(six.iteritems(example)):
     # For images the sequence length is the size of the spatial dimensions.
     feature_length = (tf.shape(v)[0] if len(v.get_shape()) < 3 else
                       tf.shape(v)[0] * tf.shape(v)[1])

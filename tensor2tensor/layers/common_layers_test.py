@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 from tensor2tensor.layers import common_layers
 
@@ -27,6 +24,16 @@ import tensorflow as tf
 
 
 class CommonLayersTest(tf.test.TestCase):
+
+  def testIndexLastDimWithIndices(self):
+    x = np.array([[2., 3., 4., 5.],
+                  [6., 7., 8., 9.]])
+    indices = np.array([2, 0])
+    x_idx = common_layers.index_last_dim_with_indices(x, indices)
+
+    expected = np.array([4., 6.])
+    with self.test_session() as sess:
+      self.assertAllEqual(expected, sess.run(x_idx))
 
   def testSaturatingSigmoid(self):
     x = np.array([-120.0, -100.0, 0.0, 100.0, 120.0], dtype=np.float32)

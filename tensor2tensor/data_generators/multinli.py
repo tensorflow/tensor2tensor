@@ -22,9 +22,6 @@ from __future__ import print_function
 import json
 import os
 import zipfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -77,6 +74,7 @@ class MultinliProblem(problem.Problem):
       return 'multinli_1.0/multinli_1.0_dev_mismatched.jsonl'
 
   def _examples(self, data_dir, tmp_dir, train):
+    del data_dir
     file_path = generator_utils.maybe_download(tmp_dir, self._ZIP, self._URL)
     zip_ref = zipfile.ZipFile(file_path, 'r')
     zip_ref.extractall(tmp_dir)

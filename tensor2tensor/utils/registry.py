@@ -45,9 +45,6 @@ from __future__ import print_function
 
 import inspect
 import re
-
-# Dependency imports
-
 import six
 import tensorflow as tf
 
@@ -168,12 +165,17 @@ def register_hparams(name=None):
 
 
 def hparams(name):
+  """Retrieve registered hparams by name."""
   if name not in _HPARAMS:
     error_msg = "HParams set %s never registered. Sets registered:\n%s"
     raise LookupError(
         error_msg % (name,
                      display_list_by_prefix(list_hparams(), starting_spaces=4)))
-  return _HPARAMS[name]
+  hp = _HPARAMS[name]()
+  if hp is None:
+    raise TypeError("HParams %s is None. Make sure the registered function "
+                    "returns the HParams object." % name)
+  return hp
 
 
 def list_hparams():
@@ -263,7 +265,7 @@ def problem(name):
   base_name, was_reversed, was_copy = parse_problem_name(name)
 
   if base_name not in _PROBLEMS:
-    all_problem_names = sorted(list_problems())
+    all_problem_names = list_problems()
     error_lines = ["%s not in the set of supported problems:" % base_name
                   ] + all_problem_names
     error_msg = "\n  * ".join(error_lines)
@@ -272,7 +274,7 @@ def problem(name):
 
 
 def list_problems():
-  return list(_PROBLEMS)
+  return sorted(list(_PROBLEMS))
 
 
 def _internal_get_modality(name, mod_collection, collection_str):

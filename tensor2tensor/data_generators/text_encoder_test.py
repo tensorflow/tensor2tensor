@@ -26,7 +26,6 @@ import random
 import shutil
 import string
 
-# Dependency imports
 import mock
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -70,7 +69,7 @@ class TokenTextEncoderTest(tf.test.TestCase):
     """Make sure the test dir exists and is empty."""
     cls.test_temp_dir = os.path.join(tf.test.get_temp_dir(), "encoder_test")
     shutil.rmtree(cls.test_temp_dir, ignore_errors=True)
-    os.mkdir(cls.test_temp_dir)
+    tf.gfile.MakeDirs(cls.test_temp_dir)
 
   def test_save_and_reload(self):
     """Test that saving and reloading doesn't change the vocab.
@@ -114,7 +113,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     """Make sure the test dir exists and is empty."""
     cls.test_temp_dir = os.path.join(tf.test.get_temp_dir(), "encoder_test")
     shutil.rmtree(cls.test_temp_dir, ignore_errors=True)
-    os.mkdir(cls.test_temp_dir)
+    tf.gfile.MakeDirs(cls.test_temp_dir)
 
   def test_encode_decode(self):
     corpus = (

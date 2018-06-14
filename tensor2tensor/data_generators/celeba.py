@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import zipfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.utils import registry
@@ -123,7 +120,7 @@ class ImageCeleba(image_utils.ImageProblem):
       landmarks = img_landmarks[img_name]
       attrs = img_attrs[img_name]
 
-      with tf.gfile.Open(filename, "r") as f:
+      with tf.gfile.Open(filename, "rb") as f:
         encoded_image_data = f.read()
         yield {
             "image/encoded": [encoded_image_data],

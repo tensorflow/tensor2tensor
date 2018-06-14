@@ -22,9 +22,6 @@ import gzip
 import io
 import os
 import tempfile
-
-# Dependency imports
-
 from builtins import bytes  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils

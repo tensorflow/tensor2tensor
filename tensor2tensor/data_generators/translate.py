@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import tarfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -166,6 +163,20 @@ class TranslateDistillProblem(TranslateProblem):
 
   def is_generate_per_split(self):
     return True
+
+  def example_reading_spec(self):
+    data_fields = {"dist_targets": tf.VarLenFeature(tf.int64)}
+
+    if self.has_inputs:
+      data_fields["inputs"] = tf.VarLenFeature(tf.int64)
+
+    # hack: ignoring true targets and putting dist_targets in targets
+    data_items_to_decoders = {
+        "inputs": tf.contrib.slim.tfexample_decoder.Tensor("inputs"),
+        "targets": tf.contrib.slim.tfexample_decoder.Tensor("dist_targets"),
+    }
+
+    return (data_fields, data_items_to_decoders)
 
   def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
     """Get vocab for distill problems."""

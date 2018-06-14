@@ -19,9 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -62,7 +59,7 @@ class ImageProblem(problem.Problem):
     """Number of color channels."""
     return 3
 
-  def example_reading_spec(self, label_repr=None):
+  def example_reading_spec(self):
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),
@@ -156,13 +153,14 @@ class Image2ClassProblem(ImageProblem):
 
 
 def encode_images_as_png(images):
+  """Yield images encoded as pngs."""
   if tf.contrib.eager.in_eager_mode():
     for image in images:
       yield tf.image.encode_png(image).numpy()
   else:
-    (width, height, channels) = images[0].shape
+    (height, width, channels) = images[0].shape
     with tf.Graph().as_default():
-      image_t = tf.placeholder(dtype=tf.uint8, shape=(width, height, channels))
+      image_t = tf.placeholder(dtype=tf.uint8, shape=(height, width, channels))
       encoded_image_t = tf.image.encode_png(image_t)
       with tf.Session() as sess:
         for image in images:

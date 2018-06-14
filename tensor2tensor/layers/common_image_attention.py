@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Utils for attention mechanism for images."""
-# Dependency imports
 
 from six.moves import range  # pylint: disable=redefined-builtin
 
@@ -510,10 +509,10 @@ def postprocess_image(x, rows, cols, hparams):
   batch = common_layers.shape_list(x)[0]
   channels = 256
   x = tf.reshape(x, [batch, rows, cols, hparams.hidden_size])
-  # targets = common_layers.conv(x, 256, (1, 1), name="output_conv")
   targets = tf.layers.dense(x, 256, use_bias=True, activation=None,
                             name="output_conv")
-  if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
+  if (hparams.mode == tf.contrib.learn.ModeKeys.INFER and
+      hparams.block_raster_scan):
     y = targets
     y = tf.reshape(y, [batch, -1, hparams.img_len*3, channels])
     yshape = common_layers.shape_list(y)
@@ -561,8 +560,7 @@ def prepare_decoder(targets, hparams):
 
   # during training, images are [batch, IMG_LEN, IMG_LEN, 3].
   # At inference, they are [batch, curr_infer_length, 1, 1]
-  if (hparams.mode == tf.contrib.learn.ModeKeys.INFER and
-      hparams.block_raster_scan):
+  if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
     curr_infer_length = targets_shape[1]
     if hparams.block_raster_scan:
       assert hparams.img_len*channels % hparams.query_shape[1] == 0
@@ -610,7 +608,7 @@ def prepare_decoder(targets, hparams):
     x = tf.reshape(x, [targets_shape[0],
                        x_shape[1], x_shape[2], hparams.hidden_size])
     x = add_pos_signals(x, hparams, "dec_pos")
-  x = tf.cast(x, targets.dtype)
+  x = common_layers.cast_like(x, targets)
   return x, x_shape[1], x_shape[2]
 
 
@@ -623,10 +621,8 @@ def prepare_image(inputs, hparams, name=None):
   channels = hparams.num_channels
 
   hidden_size = hparams.hidden_size
-  # Only do lookup if the embeddings haven't been looked up already.
-  # if the last dimension is number of channels, then this is very likely the
-  # channel ids tensor. We have to make sure.
-  if inputs_shape[-1] == hparams.num_channels:
+  # Only do lookup if the modality is identity
+  if hparams.target_modality == "image:identity":
     inputs = tf.to_int32(inputs)
     x = get_channel_embeddings(channels, inputs, hidden_size, name=name)
   else:
@@ -677,5 +673,5 @@ def add_pos_signals(x, hparams, name="pos_emb"):
     else:
       assert hparams.pos == "emb"
       x = common_attention.add_positional_embedding_nd(
-          x, hparams.max_length, name=name)
+          x, hparams.max_length, name)
   return x

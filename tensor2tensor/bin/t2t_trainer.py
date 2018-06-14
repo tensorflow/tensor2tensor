@@ -20,11 +20,9 @@ from __future__ import print_function
 import contextlib
 import os
 import sys
-
-# Dependency imports
-
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
+from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import cloud_tpu
 from tensor2tensor.utils import decoding
@@ -45,7 +43,7 @@ flags.DEFINE_string("t2t_usr_dir", None,
                     "The imported files should contain registrations, "
                     "e.g. @registry.register_model calls, that will then be "
                     "available to the t2t-trainer.")
-flags.DEFINE_integer("random_seed", 1234, "Random seed.")
+flags.DEFINE_integer("random_seed", None, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")
@@ -116,6 +114,9 @@ flags.DEFINE_integer("autotune_parallel_trials", 1,
 flags.DEFINE_string("job-dir", None,
                     "DO NOT USE. Exists only for Cloud ML Engine to pass in "
                     "during hyperparameter tuning. Overrides --output_dir.")
+flags.DEFINE_integer("log_step_count_steps", 100,
+                     "Number of local steps after which progress is printed "
+                     "out")
 
 
 def set_hparams_from_args(args):
@@ -222,6 +223,7 @@ def create_run_config(hp):
       random_seed=FLAGS.random_seed,
       tpu_infeed_sleep_secs=FLAGS.tpu_infeed_sleep_secs,
       inter_op_parallelism_threads=FLAGS.inter_op_parallelism_threads,
+      log_step_count_steps=FLAGS.log_step_count_steps,
       intra_op_parallelism_threads=FLAGS.intra_op_parallelism_threads)
 
 
@@ -249,7 +251,7 @@ def profile_context():
     yield
 
 
-def log_registry():
+def maybe_log_registry_and_exit():
   if FLAGS.registry_help:
     tf.logging.info(registry.help_string())
     sys.exit(0)
@@ -330,10 +332,12 @@ def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  log_registry()
+  maybe_log_registry_and_exit()
+
 
   if FLAGS.cloud_mlengine:
-    return cloud_mlengine.launch()
+    cloud_mlengine.launch()
+    return
 
   if FLAGS.generate_data:
     generate_data()

@@ -13,18 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Collect trajectories from interactions of agent with environment."""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import tensorflow as tf
 
 
 def define_collect(policy_factory, batch_env, hparams,
-                   eval_phase, policy_to_actions_lambda=None, scope=""):
+                   eval_phase, policy_to_actions_lambda=None,
+                   scope="", preprocess=None, on_simulated=False):
   """Collect trajectories."""
   eval_phase = tf.convert_to_tensor(eval_phase)
-  memory_shape = [hparams.epoch_length] + [batch_env.observ.shape.as_list()[0]]
+  on_simulated = tf.convert_to_tensor(on_simulated)
+  batch_env_shape = batch_env.observ.get_shape().as_list()
+  if preprocess is not None:
+    batch_env_shape = preprocess[1]
+  memory_shape = [hparams.epoch_length] + [batch_env_shape[0]]
   memories_shapes_and_types = [
       # observation
-      (memory_shape + batch_env.observ.shape.as_list()[1:], tf.float32),
+      (memory_shape + batch_env_shape[1:], tf.float32),
       (memory_shape, tf.float32),      # reward
       (memory_shape, tf.bool),         # done
       # action
@@ -40,11 +48,16 @@ def define_collect(policy_factory, batch_env, hparams,
 
   should_reset_var = tf.Variable(True, trainable=False)
 
+  zeros_tensor = tf.zeros(len(batch_env))
+
   def group():
-    return tf.group(batch_env.reset(tf.range(len(batch_env))),
-                    tf.assign(cumulative_rewards, tf.zeros(len(batch_env))))
+    return tf.group(
+        batch_env.reset(tf.range(len(batch_env))),
+        tf.assign(cumulative_rewards, zeros_tensor))
+
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var, eval_phase), group, tf.no_op)
+      tf.logical_or(should_reset_var, tf.logical_or(eval_phase, on_simulated)),
+      group, tf.no_op)
 
   with tf.control_dependencies([reset_op]):
     reset_once_op = tf.assign(should_reset_var, False)
@@ -58,6 +71,8 @@ def define_collect(policy_factory, batch_env, hparams,
       # operation. We are waiting for tf.copy:
       # https://github.com/tensorflow/tensorflow/issues/11186
       obs_copy = batch_env.observ + 0
+      if preprocess is not None:
+        obs_copy = preprocess[0](obs_copy)
       actor_critic = policy_factory(tf.expand_dims(obs_copy, 0))
       policy = actor_critic.policy
       if policy_to_actions_lambda:
@@ -87,7 +102,7 @@ def define_collect(policy_factory, batch_env, hparams,
         reset_env_op = batch_env.reset(agent_indices_to_reset)
         reset_cumulative_rewards_op = tf.scatter_update(
             cumulative_rewards, agent_indices_to_reset,
-            tf.zeros(tf.shape(agent_indices_to_reset)))
+            tf.gather(zeros_tensor, agent_indices_to_reset))
       with tf.control_dependencies([reset_env_op,
                                     reset_cumulative_rewards_op]):
         return [index + 1, scores_sum + scores_sum_delta,

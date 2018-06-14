@@ -23,10 +23,6 @@ import contextlib
 import functools
 from functools import partial
 import math
-import random
-
-# Dependency imports
-
 
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -206,10 +202,25 @@ def convert_rgb_to_real(x):
   """Conversion of pixel values to real numbers."""
   with tf.name_scope("rgb_to_real", values=[x]):
     x = tf.to_float(x)
+    x /= 255.0
+    return x
+
+
+def convert_rgb_to_symmetric_real(x):
+  """Conversion of pixel values to real numbers."""
+  with tf.name_scope("rgb_to_real", values=[x]):
+    x = tf.to_float(x)
     # Use the formula (value/127.5) - 1 to convert each channel value into a
     # real number in the range -1 to 1. We use 127.5 instead of 128 because
-    # the intensities are in the range 0 to 255
+    # the intensities are in the range 0 to 255. This is used for dmol.
     x = (x / 127.5) - 1
+    return x
+
+
+def convert_real_to_rgb(x):
+  """Conversion of real numbers to pixel values."""
+  with tf.name_scope("real_to_rgb", values=[x]):
+    x *= 255.0
     return x
 
 
@@ -228,9 +239,9 @@ def standardize_images(x):
   """Image standardization on batches."""
   with tf.name_scope("standardize_images", [x]):
     x = tf.to_float(x)
-    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keep_dims=True)
+    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keepdims=True)
     x_variance = tf.reduce_mean(
-        tf.square(x - x_mean), axis=[1, 2, 3], keep_dims=True)
+        tf.square(x - x_mean), axis=[1, 2, 3], keepdims=True)
     x_shape = shape_list(x)
     num_pixels = tf.to_float(x_shape[1] * x_shape[2] * x_shape[3])
     x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
@@ -297,8 +308,8 @@ def dropout_no_scaling(x, keep_prob):
   """
   if keep_prob == 1.0:
     return x
-  return x * tf.cast(
-      tf.less(tf.random_uniform(tf.shape(x)), keep_prob), x.dtype)
+  mask = tf.less(tf.random_uniform(tf.shape(x)), keep_prob)
+  return x * cast_like(mask, x)
 
 
 def embedding(x,
@@ -603,9 +614,9 @@ def layer_norm_vars(filters):
 
 def layer_norm_compute_python(x, epsilon, scale, bias):
   """Layer norm raw computation."""
-  epsilon, scale, bias = [tf.cast(t, x.dtype) for t in [epsilon, scale, bias]]
-  mean = tf.reduce_mean(x, axis=[-1], keep_dims=True)
-  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keep_dims=True)
+  epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
+  mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
+  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keepdims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
   return norm_x * scale + bias
 
@@ -655,7 +666,7 @@ def group_norm(x, filters=None, num_groups=8, epsilon=1e-5):
       "group_norm_scale", [filters], initializer=tf.ones_initializer())
   bias = tf.get_variable(
       "group_norm_bias", [filters], initializer=tf.zeros_initializer())
-  epsilon, scale, bias = [tf.cast(t, x.dtype) for t in [epsilon, scale, bias]]
+  epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
   # Reshape and compute group norm.
   x = tf.reshape(x, x_shape[:-1] + [num_groups, filters // num_groups])
   # Calculate mean and variance on heights, width, channels (not groups).
@@ -1289,7 +1300,18 @@ def mask_from_embedding(emb):
   Returns:
     a 0.0/1.0 Tensor with shape [batch, width, height, 1].
   """
-  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keep_dims=True))
+  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keepdims=True))
+
+
+def length_from_embedding(emb):
+  """Compute the length of each sequence in the batch.
+
+  Args:
+    emb: a sequence embedding Tensor with shape [batch, max_time, 1, depth].
+  Returns:
+    a Tensor with shape [batch].
+  """
+  return tf.cast(tf.reduce_sum(mask_from_embedding(emb), [1, 2, 3]), tf.int32)
 
 
 def mask_leq(target_length, source_length):
@@ -1434,8 +1456,8 @@ def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
     while nonpadding_mask.get_shape().ndims < inputs.get_shape().ndims:
       nonpadding_mask = tf.expand_dims(nonpadding_mask, -1)
     return inputs * nonpadding_mask
-  else:
-    return inputs
+
+  return inputs
 
 
 def dense_relu_dense(inputs,
@@ -1677,6 +1699,9 @@ def pad_to_same_length(x, y, final_length_divisible_by=1, axis=1):
   with tf.name_scope("pad_to_same_length", values=[x, y]):
     x_length = shape_list(x)[axis]
     y_length = shape_list(y)[axis]
+    if (isinstance(x_length, int) and isinstance(y_length, int) and
+        x_length == y_length and final_length_divisible_by == 1):
+      return x, y
     max_length = tf.maximum(x_length, y_length)
     if final_length_divisible_by > 1:
       # Find the nearest larger-or-equal integer divisible by given number.
@@ -1711,7 +1736,7 @@ def pad_with_zeros(logits, labels):
   """Pad labels on the length dimension to match logits length."""
   with tf.name_scope("pad_with_zeros", values=[logits, labels]):
     logits, labels = pad_to_same_length(logits, labels)
-    if len(labels.shape.as_list()) == 3:  # 2-d labels.
+    if len(labels.shape) == 3:  # 2-d labels.
       logits, labels = pad_to_same_length(logits, labels, axis=2)
     return logits, labels
 
@@ -1812,15 +1837,18 @@ def padded_cross_entropy(logits,
         weights_fn=weights_fn,
         reduce_sum=reduce_sum)
   confidence = 1.0 - label_smoothing
-  vocab_size = shape_list(logits)[-1]
+  logits_shape = shape_list(logits)
+  vocab_size = logits_shape[-1]
   with tf.name_scope("padded_cross_entropy", values=[logits, labels]):
-    if len(logits.get_shape().as_list()) == 2:
+    if len(logits_shape) == 2:
       # Deal with the case where we did not insert extra dimensions due to
       # TPU issues.  No pad-to-same-length happens in this case.
       # TODO(noam): remove this logic once TPU can handle extra dimensions.
       labels = tf.reshape(labels, [-1])
     else:
       logits, labels = pad_with_zeros(logits, labels)
+    logits = tf.reshape(logits, shape_list(labels) + [vocab_size],
+                        name="padded_cross_entropy_size_check")
     logits = tf.cast(logits, tf.float32)
     xent = smoothing_cross_entropy(logits, labels, vocab_size, confidence,
                                    gaussian=gaussian)
@@ -1830,6 +1858,157 @@ def padded_cross_entropy(logits,
     if not reduce_sum:
       return xent * weights, weights
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
+
+
+def dml_loss(
+    pred, labels,
+    weights_fn=weights_nonzero,  # Unused
+    reduce_sum=True):
+  """Discretized mixture of logistics loss.
+
+  Args:
+    pred: a tensor of shape [batch, height, width, 10*num_mixtures]
+    labels: a [batch, height, width, channels] tensor of real pixel intensities
+    weights_fn: weights function
+    reduce_sum: A boolean, to return scalar mean loss instead of per position
+
+  Returns:
+    a pair of tensors of loss/sum of losses, denominator
+  """
+  del weights_fn  # Unused
+  real_labels = convert_rgb_to_real(labels)
+  dml_loss_value = discretized_mix_logistic_loss(real_labels, pred,
+                                                 sum_all=reduce_sum)
+  if reduce_sum:
+    return dml_loss_value, tf.reduce_sum(tf.ones(tf.shape(labels),
+                                                 tf.float32))
+  else:
+    return dml_loss_value/3., tf.ones(tf.shape(dml_loss_value),
+                                      tf.float32)
+
+
+def discretized_mix_logistic_loss(labels, pred, sum_all=True):
+  """Computes log likelihood for the discretized mixture of logistics loss.
+
+  Args:
+    labels: A [batch, height, width, channels] tensor of true pixel intensities
+      rescaled to [-1, 1]. The computation assumes channels is 3.
+    pred: A [batch, height, width, hparams.num_mixtures*10] tensor of floats
+      comprising one unnormalized mixture probability, three means
+      (one per channel), three standard deviations (one per channel),
+      and three coefficients which linearly parameterize dependence across
+      channels
+    sum_all: A boolean to return scalar mean loss or per position
+
+  Returns:
+    per_position_loss: A [batch, height, width, 3] tensor of the
+      conditional probability of each channel given all previous channels if
+      not sum_all else add all the losses (for eval)
+  """
+
+  # Extract mixture probabilities, means, scale, and coefficient parameters.
+  l_shape = shape_list(labels)
+  num_mix = shape_list(pred)[-1] // 10
+  logits = pred[:, :, :, :num_mix]  # unnormalized mixture probabilities
+  pred = tf.reshape(
+      pred[:, :, :, num_mix:],
+      [l_shape[0], l_shape[1], l_shape[2], l_shape[3], num_mix * 3])
+  means = pred[:, :, :, :, :num_mix]
+  log_scales = tf.maximum(pred[:, :, :, :, num_mix:2 * num_mix], -7.)
+  coeffs = tf.tanh(pred[:, :, :, :, 2 * num_mix:3 * num_mix])
+  labels = (  # tile labels across number of mixtures
+      tf.reshape(labels, [l_shape[0], l_shape[1], l_shape[2], l_shape[3], 1]) +
+      tf.zeros([l_shape[0], l_shape[1], l_shape[2], l_shape[3], num_mix])
+  )
+
+  # p(x) = sigmoid((x - means_i + 1/255.)/scale_i) -
+  #        sigmoid((x - means_i - 1/255.)/scale_i)
+  # for each channel i. The means are linearly parameterized.
+  means_0 = tf.reshape(means[:, :, :, 0, :],
+                       [l_shape[0], l_shape[1], l_shape[2], 1, num_mix])
+  means_1 = tf.reshape(means[:, :, :, 1, :] +
+                       coeffs[:, :, :, 0, :] * labels[:, :, :, 0, :],
+                       [l_shape[0], l_shape[1], l_shape[2], 1, num_mix])
+  means_2 = tf.reshape(means[:, :, :, 2, :] +
+                       coeffs[:, :, :, 1, :] * labels[:, :, :, 0, :] +
+                       coeffs[:, :, :, 2, :] * labels[:, :, :, 1, :],
+                       [l_shape[0], l_shape[1], l_shape[2], 1, num_mix])
+  means = tf.concat([means_0, means_1, means_2], 3)
+  centered_labels = labels - means
+  inv_stdv = tf.exp(-log_scales)
+  plus_in = inv_stdv * (centered_labels + 1. / 255.)
+  min_in = inv_stdv * (centered_labels - 1. / 255.)
+  cdf_plus = tf.nn.sigmoid(plus_in)
+  cdf_min = tf.nn.sigmoid(min_in)
+  # Compute log probability for edge case of 0 (before scaling), 255 (before
+  # scaling), and all other cases respectively.
+  prob_0 = plus_in - tf.nn.softplus(plus_in)
+  prob_255 = -tf.nn.softplus(min_in)
+  prob_event = cdf_plus - cdf_min
+
+  # Robustly select log-prob based on numerical edge-cases: (a) [-1, -1+eps);
+  # (b) (1-eps, 1]; (c) NaNs during `tf.gradients` of `tf.select`, which may
+  # cause `tf.log(0.)`; (d) p(x) < 1e-5.
+  mid_in = inv_stdv * centered_labels
+  log_prob_event_approx = (
+      mid_in - log_scales - 2. * tf.nn.softplus(mid_in) - np.log(127.5))
+  log_probs = tf.where(labels < -0.999, prob_0,
+                       tf.where(labels > 0.999, prob_255,
+                                tf.where(prob_event > 1e-5,
+                                         tf.log(tf.maximum(prob_event, 1e-12)),
+                                         log_prob_event_approx)))
+  # Sum over mixtures.
+  log_probs = tf.reduce_sum(log_probs, 3) + tf.nn.log_softmax(logits, axis=-1)
+  if sum_all:
+    output = -tf.reduce_sum(tf.reduce_logsumexp(log_probs, axis=-1))
+    return output
+  else:
+    output = -tf.reduce_logsumexp(log_probs, axis=-1, keep_dims=True)
+    return output
+
+
+def sample_from_discretized_mix_logistic(l, nr_mix, seed=None):
+  """Sampling from a discretized mixture of logistics using gumbel softmax.
+
+  Args:
+    l: output of body, of shape [batch, length, num_mixtures * 10]
+    nr_mix: Integer number of mixtures
+    seed: Random seed
+
+  Returns:
+    A tensor of shape [batch, length, 3] with real intensities scaled between
+    -1 and 1
+  """
+  ls_t = tf.shape(l)
+  ls = [ls_t[0], ls_t[1], ls_t[2], ls_t[3]]
+  xs = ls[:-1] + [3]
+  # unpack parameters
+  logit_probs = l[:, :, :, :nr_mix]
+  l = tf.reshape(l[:, :, :, nr_mix:], xs + [nr_mix * 3])
+  # sample mixture indicator from softmax using gumbel softmax
+  sel = tf.one_hot(tf.argmax(logit_probs - tf.log(-tf.log(tf.random_uniform(
+      tf.shape(logit_probs), minval=1e-5, maxval=1. - 1e-5, seed=seed))), 3),
+                   depth=nr_mix, dtype=tf.float32)
+  sel = tf.reshape(sel, xs[:-1] + [1, nr_mix])
+  # select logistic parameters
+  means = tf.reduce_sum(l[:, :, :, :, :nr_mix] * sel, 4)
+  log_scales = tf.maximum(tf.reduce_sum(
+      l[:, :, :, :, nr_mix:2 * nr_mix] * sel, 4), -7.)
+  coeffs = tf.reduce_sum(tf.nn.tanh(
+      l[:, :, :, :, 2 * nr_mix:3 * nr_mix]) * sel, 4)
+  # sample from logistic & clip to interval
+  # we don't actually round to the nearest 8bit value when sampling
+  u = tf.random_uniform(tf.shape(means), minval=1e-5, maxval=1. - 1e-5,
+                        seed=seed)
+  x = means + tf.exp(log_scales) * (tf.log(u) - tf.log(1. - u))
+  x0 = tf.clip_by_value(x[:, :, :, 0], -1., 1)
+  x1 = tf.clip_by_value(x[:, :, :, 1] + coeffs[:, :, :, 0] * x0, -1., 1)
+  x2 = tf.minimum(tf.maximum(
+      x[:, :, :, 2] + coeffs[:, :, :, 1] * x0 + coeffs[:, :, :, 2] * x1, -1.),
+                  1.)
+  return tf.concat([tf.reshape(x0, xs[:-1] + [1]),
+                    tf.reshape(x1, xs[:-1] + [1]),
+                    tf.reshape(x2, xs[:-1] + [1])], 3)
 
 
 def smoothing_cross_entropy(logits,
@@ -1876,7 +2055,7 @@ def smoothing_cross_entropy(logits,
           depth=vocab_size,
           on_value=confidence,
           off_value=low_confidence)
-    xentropy = tf.nn.softmax_cross_entropy_with_logits(
+    xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
         logits=logits, labels=soft_targets)
     return xentropy - normalizing
 
@@ -1910,7 +2089,7 @@ def global_pool_1d(inputs, pooling_type="MAX", mask=None):
       if mask is not None:
         # Some elems are dummy elems so we can't just reduce the average.
         output = tf.reduce_sum(inputs, axis=1)
-        num_elems = tf.reduce_sum(mask, axis=1, keep_dims=True)
+        num_elems = tf.reduce_sum(mask, axis=1, keepdims=True)
         output = tf.div(output, tf.maximum(num_elems, 1))
       else:
         output = tf.reduce_mean(inputs, axis=1)
@@ -2223,7 +2402,7 @@ def fn_device_dependency(name, device=""):
       assert outs
 
       deps = outs
-      if isinstance(outs[0], list) or isinstance(outs[0], tuple):
+      if isinstance(outs[0], (list, tuple)):
         assert len(outs) == 1
         deps = outs[0]
       fn_device_dependency_dict()[key] = deps
@@ -2497,7 +2676,7 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
   if grad_fn is None:
     return outputs
 
-  if not (isinstance(outputs, tuple) or isinstance(outputs, list)):
+  if not isinstance(outputs, (tuple, list)):
     outputs = [outputs]
   outputs = list(outputs)
 
@@ -2525,7 +2704,7 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
 
   @function.Defun(
       *(in_types + var_types + out_types),
-      func_name="identity_custom_grad%d" % random.randint(1, 10**9),
+      func_name="identity_custom_grad%d" % ops.uid(),
       python_grad_func=custom_grad_fn,
       shape_func=lambda _: [t.get_shape() for t in outputs])
   def identity(*args):
@@ -2670,6 +2849,13 @@ def shape_list(x):
   return ret
 
 
+def list_product(els):
+  prod = els[0]
+  for el in els[1:]:
+    prod *= el
+  return prod
+
+
 def sample_with_temperature(logits, temperature):
   """Either argmax or random sampling.
 
@@ -2681,7 +2867,10 @@ def sample_with_temperature(logits, temperature):
     a Tensor with one fewer dimension than logits.
   """
   if temperature == 0.0:
-    return tf.argmax(logits, -1)
+    # TF argmax doesn't handle >5 dimensions, so we reshape here.
+    logits_shape = shape_list(logits)
+    argmax = tf.argmax(tf.reshape(logits, [-1, logits_shape[-1]]), axis=1)
+    return tf.reshape(argmax, logits_shape[:-1])
   else:
     assert temperature > 0.0
     reshaped_logits = (
@@ -2760,7 +2949,7 @@ def _recompute_grad(fn, args):
         with tf.variable_scope(cached_vs[0], reuse=True):
           outputs = fn(*inputs)
 
-    if not (isinstance(outputs, list) or isinstance(outputs, tuple)):
+    if not isinstance(outputs, (list, tuple)):
       outputs = [outputs]
     outputs = list(outputs)
     grads = tf.gradients(outputs, inputs + variables, output_grads)
@@ -2771,12 +2960,6 @@ def _recompute_grad(fn, args):
     # bfloat16. This is a hack to ensure that grad_vars are the right type.
     if grad_inputs[0].dtype == tf.bfloat16:
       grad_vars = [tf.cast(grad_var, tf.bfloat16) for grad_var in grad_vars]
-    if is_on_tpu():
-      # TODO(noam): remove this hack once XLA does the right thing.
-      # Force the gradients on the inputs to be computed before the variables
-      # are updated.  This saves memory by preventing XLA from making an extra
-      # copy of the variables.
-      grad_vars = force_dependency(grad_vars, grad_inputs)
     return grad_inputs, grad_vars
 
   @fn_with_custom_grad(grad_fn)
@@ -2786,24 +2969,6 @@ def _recompute_grad(fn, args):
     return fn(*args)
 
   return fn_with_recompute(*args)
-
-
-def force_dependency(xs, ys):
-  """Force all of xs to depend on all of ys, using a false data dependency.
-
-  XLA seems to ignore control dependencies.
-
-  Args:
-    xs: a list of tensors
-    ys: a list of tensors:
-  Returns:
-    a list of tensors of the same length as xs
-  """
-  def _first_element(x):
-    ndims = x.get_shape().ndims
-    return tf.reshape(tf.slice(x, [0] * ndims, [1] * ndims), [])
-  my_zero = tf.add_n([_first_element(y) for y  in ys if y is not None]) * 1e-30
-  return [x + my_zero for x in xs]
 
 
 def dense(x, units, **kwargs):
@@ -2964,7 +3129,7 @@ def argmax_with_score(logits, axis=None):
 
 
 def log_prob_from_logits(logits, reduce_axis=-1):
-  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keep_dims=True)
+  return logits - tf.reduce_logsumexp(logits, axis=reduce_axis, keepdims=True)
 
 
 def top_1_tpu(inputs):
@@ -2979,10 +3144,43 @@ def top_1_tpu(inputs):
     values: a Tensor with shape [...]
     indices: a Tensor with shape [...]
   """
-  inputs_max = tf.reduce_max(inputs, axis=-1, keep_dims=True)
+  inputs_max = tf.reduce_max(inputs, axis=-1, keepdims=True)
   mask = tf.to_int32(tf.equal(inputs_max, inputs))
   index = tf.range(tf.shape(inputs)[-1]) * mask
   return tf.squeeze(inputs_max, -1), tf.reduce_max(index, axis=-1)
+
+
+def index_last_dim_with_indices(x, indices):
+  """Use indices to index into the last axis of x.
+
+  This can be useful for recovering the actual probabilities of a sample from a
+  probability distribution.
+
+  Args:
+    x: Tensor, n-d.
+    indices: Tensor, (n-1)-d, where the dimension sizes match the first (n-1)
+      dimensions of x. The values of indices will be used to index into the last
+      axis of x.
+
+  Returns:
+    Tensor, (n-1)-d.
+  """
+  assert len(x.shape) == len(indices.shape) + 1
+
+  x_shape = shape_list(x)
+  vocab_size = x_shape[-1]
+
+  flat_x = tf.reshape(x, [list_product(x_shape[:-1]), vocab_size])
+  flat_indices = tf.reshape(indices, [list_product(x_shape[:-1])])
+
+  idx = tf.stack(
+      [tf.range(tf.to_int64(shape_list(flat_indices)[0])),
+       tf.to_int64(flat_indices)], axis=1)
+  flat_x_idx = tf.gather_nd(flat_x, idx)
+
+  x_idx = tf.reshape(flat_x_idx, x_shape[:-1])
+
+  return x_idx
 
 
 def should_generate_summaries():
@@ -3006,3 +3204,77 @@ def reshape_like(a, b):
   if not tf.contrib.eager.in_eager_mode():
     ret.set_shape(b.get_shape().as_list()[:-1] + a.get_shape().as_list()[-1:])
   return ret
+
+
+def summarize_video(video, prefix, max_outputs=1):
+  """Summarize the video using image summaries starting with prefix."""
+  video_shape = shape_list(video)
+  if len(video_shape) != 5:
+    raise ValueError("Assuming videos given as tensors in the format "
+                     "[batch, time, height, width, channels] but got one "
+                     "of shape: %s" % str(video_shape))
+  if tf.contrib.eager.in_eager_mode():
+    return
+  if video.get_shape().as_list()[1] is None:
+    tf.summary.image(
+        "%s_last_frame" % prefix, tf.cast(video[:, -1, :, :, :], tf.uint8),
+        max_outputs=max_outputs)
+  else:
+    for k in range(video_shape[1]):
+      tf.summary.image(
+          "%s_frame_%d" % (prefix, k), tf.cast(video[:, k, :, :, :], tf.uint8),
+          max_outputs=max_outputs)
+
+
+def time_to_channels(embedded_video):
+  """Put time dimension on channels in an embedded video."""
+  video_shape = shape_list(embedded_video)
+  if len(video_shape) != 5:
+    raise ValueError("Assuming videos given as tensors in the format "
+                     "[batch, time, height, width, channels] but got one "
+                     "of shape: %s" % str(video_shape))
+  transposed = tf.transpose(embedded_video, [0, 2, 3, 1, 4])
+  return tf.reshape(transposed,
+                    [video_shape[0], video_shape[2], video_shape[3],
+                     video_shape[1] * video_shape[4]])
+
+
+def cast_like(x, y):
+  """Cast x to y's dtype, if necessary."""
+  x = tf.convert_to_tensor(x)
+  y = tf.convert_to_tensor(y)
+
+  if x.dtype.base_dtype == y.dtype.base_dtype:
+    return x
+
+  cast_x = tf.cast(x, y.dtype)
+  if cast_x.device != x.device:
+    tf.logging.warning("Cast for %s may induce copy from '%s' to '%s'",
+                       x.name, x.device, cast_x.device)
+  return cast_x
+
+
+def make_even_size(x):
+  """Pad x to be even-sized on axis 1 and 2, but only if necessary."""
+  x_shape = x.get_shape().as_list()
+  assert len(x_shape) > 2, "Only 3+-dimensional tensors supported."
+  shape = [dim if dim is not None else -1 for dim in x_shape]
+  new_shape = x_shape  # To make sure constant shapes remain constant.
+  if x_shape[1] is not None:
+    new_shape[1] = 2 * int(math.ceil(x_shape[1] * 0.5))
+  if x_shape[2] is not None:
+    new_shape[2] = 2 * int(math.ceil(x_shape[2] * 0.5))
+  if shape[1] % 2 == 0 and shape[2] % 2 == 0:
+    return x
+  if shape[1] % 2 == 0:
+    x, _ = pad_to_same_length(x, x, final_length_divisible_by=2, axis=2)
+    x.set_shape(new_shape)
+    return x
+  if shape[2] % 2 == 0:
+    x, _ = pad_to_same_length(x, x, final_length_divisible_by=2, axis=1)
+    x.set_shape(new_shape)
+    return x
+  x, _ = pad_to_same_length(x, x, final_length_divisible_by=2, axis=1)
+  x, _ = pad_to_same_length(x, x, final_length_divisible_by=2, axis=2)
+  x.set_shape(new_shape)
+  return x

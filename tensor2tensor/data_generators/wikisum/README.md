@@ -116,10 +116,10 @@ Pricing is taken from
 
 * `WikisumCommoncrawl`
   * `get_references_commoncrawl`: $50 (1k machines, 1 CPU, 2G memory, 1 hour)
-  * `produce_examples`: $25 (1k machines, 1 CPU, 2G memory, 30 minutes)
+  * `produce_examples`: $25 (1k machines, 1 CPU, 3G memory, 30 minutes)
 * `WikisumWeb`
   * `get_references_web`: $600 (1k machines, 4 CPU, 4G memory, 4 hours)
-  * `produce_examples`: $25 (1k machines, 1 CPU, 2G memory, 30 minutes)
+  * `produce_examples`: $25 (1k machines, 1 CPU, 3G memory, 30 minutes)
 
 ## Commands to generate `WikisumCommoncrawl`
 
@@ -147,11 +147,16 @@ python -m tensor2tensor.data_generators.wikisum.generate_vocab \
 # Produce examples
 python -m tensor2tensor.data_generators.wikisum.parallel_launch \
   --num_instances=1000 \
-  --cpu=1 --mem=2 \
+  --cpu=1 --mem=3 \
   --name=wikisum-cc-produce \
   --log_dir=$BUCKET/logs \
   --setup_command="pip install tensor2tensor tensorflow -U -q --user" \
   --command_prefix="python -m tensor2tensor.data_generators.wikisum.produce_examples --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --for_commoncrawl --task_id"
+
+# Validate data
+python -m tensor2tensor.data_generators.wikisum.validate_data \
+  --out_dir=$BUCKET/data \
+  --for_commoncrawl
 ```
 
 ## Commands to generate `WikisumWeb`
@@ -179,11 +184,15 @@ python -m tensor2tensor.data_generators.wikisum.generate_vocab \
 # Produce examples
 python -m tensor2tensor.data_generators.wikisum.parallel_launch \
   --num_instances=1000 \
-  --cpu=1 --mem=2 \
+  --cpu=1 --mem=3 \
   --name=wikisum-web-produce \
   --log_dir=$BUCKET/logs \
   --setup_command="pip install tensor2tensor tensorflow -U -q --user" \
   --command_prefix="python -m tensor2tensor.data_generators.wikisum.produce_examples --out_dir=$BUCKET/data --refs_dir=$BUCKET/wiki_references --num_tasks=1000 --task_id"
+
+# Validate data
+python -m tensor2tensor.data_generators.wikisum.validate_data \
+  --out_dir=$BUCKET/data
 ```
 
 ## Training

@@ -19,13 +19,9 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-
-# Dependency imports
-
 import six
 
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import metrics
@@ -68,19 +64,25 @@ class VideoProblem(problem.Problem):
     raise NotImplementedError
 
   @property
+  def frame_shape(self):
+    """Shape of a frame: a list [height , width , channels]."""
+    return [self.frame_height, self.frame_width, self.num_channels]
+
+  @property
   def total_number_of_frames(self):
     """The total number of frames, needed for sharding."""
+    # It can also be a lower number -- we will switch shards every
+    # total_number_of_frames // num_shards time, so for example if
+    # you know that every video is 30 frames long and you have 100 shards
+    # then it's sufficient to set this to 30 * 100 so no shard-switching
+    # occurs during the generation of a video. For videos of variable length,
+    # just make this large so switching shards mid-video is very rare.
     raise NotImplementedError
 
   @property
-  def num_input_frames(self):
-    """Number of frames to batch on one input."""
-    return 1
-
-  @property
-  def num_target_frames(self):
-    """Number of frames to batch on one target."""
-    return 1
+  def random_skip(self):
+    """Whether to skip random inputs at the beginning or not."""
+    return True
 
   @property
   def extra_reading_spec(self):
@@ -120,7 +122,7 @@ class VideoProblem(problem.Problem):
     """
     raise NotImplementedError()
 
-  def example_reading_spec(self, label_repr=None):
+  def example_reading_spec(self):
     extra_data_fields, extra_data_items_to_decoders = self.extra_reading_spec
 
     data_fields = {
@@ -145,7 +147,7 @@ class VideoProblem(problem.Problem):
     def split_on_batch(x):
       """Split x on batch dimension into x[:size, ...] and x[size:, ...]."""
       length = len(x.get_shape())
-      size = self.num_input_frames
+      size = hparams.video_num_input_frames
       if length < 1:
         raise ValueError("Batched tensor of length < 1.")
       if length == 1:
@@ -175,10 +177,10 @@ class VideoProblem(problem.Problem):
         if k == "frame":  # We rename past frames to inputs and targets.
           s1, s2 = split_on_batch(v)
           # Reshape just to make sure shapes are right and set.
-          s1 = tf.reshape(s1, [self.num_input_frames, self.frame_height,
-                               self.frame_width, self.num_channels])
-          s2 = tf.reshape(s2, [self.num_target_frames, self.frame_height,
-                               self.frame_width, self.num_channels])
+          s1 = tf.reshape(
+              s1, [hparams.video_num_input_frames] + self.frame_shape)
+          s2 = tf.reshape(
+              s2, [hparams.video_num_target_frames] + self.frame_shape)
           features["inputs"] = s1
           features["targets"] = s2
         else:
@@ -191,11 +193,12 @@ class VideoProblem(problem.Problem):
     def _preprocess(example):
       return self.preprocess_example(example, mode, hparams)
     preprocessed_dataset = dataset.map(_preprocess)
-
-    num_frames = self.num_input_frames + self.num_target_frames
+    num_frames = (hparams.video_num_input_frames +
+                  hparams.video_num_target_frames)
     # We jump by a random position at the beginning to add variety.
-    random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
-    preprocessed_dataset = preprocessed_dataset.skip(random_skip)
+    if self.random_skip:
+      random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
+      preprocessed_dataset = preprocessed_dataset.skip(random_skip)
     batch_dataset = preprocessed_dataset.apply(
         tf.contrib.data.batch_and_drop_remainder(num_frames))
     dataset = batch_dataset.map(features_from_batch).shuffle(8)
@@ -246,25 +249,32 @@ class VideoProblem(problem.Problem):
     Raises:
       ValueError: if the frame has a different number of channels than required.
     """
-    for features in self.generate_samples(data_dir, tmp_dir, dataset_split):
-      unencoded_frame = features.pop("frame")
-      height, width, channels = unencoded_frame.shape
-      if channels != self.num_channels:
-        raise ValueError("Generated frame has %d channels while the class "
-                         "assumes %d channels." % (channels, self.num_channels))
-      if height != self.frame_height:
-        raise ValueError("Generated frame has height %d while the class "
-                         "assumes height %d." % (height, self.frame_height))
-      if width != self.frame_width:
-        raise ValueError("Generated frame has width %d while the class "
-                         "assumes width %d." % (width, self.frame_width))
-      encoded_frame = six.next(
-          image_utils.encode_images_as_png([unencoded_frame]))
-      features["image/encoded"] = [encoded_frame]
-      features["image/format"] = ["png"]
-      features["image/height"] = [height]
-      features["image/width"] = [width]
-      yield features
+    with tf.Graph().as_default():
+      image_t = tf.placeholder(
+          dtype=tf.uint8,
+          shape=(self.frame_height, self.frame_width, self.num_channels))
+      encoded_image_t = tf.image.encode_png(image_t)
+      with tf.Session() as sess:
+        for features in self.generate_samples(data_dir, tmp_dir, dataset_split):
+          unencoded_frame = features.pop("frame")
+          height, width, channels = unencoded_frame.shape
+          if channels != self.num_channels:
+            raise ValueError("Generated frame has %d channels while the class "
+                             "assumes %d channels." % (channels,
+                                                       self.num_channels))
+          if height != self.frame_height:
+            raise ValueError("Generated frame has height %d while the class "
+                             "assumes height %d." % (height, self.frame_height))
+          if width != self.frame_width:
+            raise ValueError("Generated frame has width %d while the class "
+                             "assumes width %d." % (width, self.frame_width))
+          encoded_frame = sess.run(encoded_image_t, feed_dict={
+              image_t: unencoded_frame})
+          features["image/encoded"] = [encoded_frame]
+          features["image/format"] = ["png"]
+          features["image/height"] = [height]
+          features["image/width"] = [width]
+          yield features
 
   def generate_encoded_samples_debug(self, data_dir, tmp_dir, dataset_split):
     """Generate samples of the encoded frames and dump for debug if needed."""
@@ -305,7 +315,8 @@ class VideoProblem(problem.Problem):
       for split, paths in split_paths:
         generator_utils.generate_files(
             self.generate_encoded_samples_debug(
-                data_dir, tmp_dir, split), paths)
+                data_dir, tmp_dir, split), paths,
+            cycle_every_n=self.total_number_of_frames // len(paths))
     else:
       generator_utils.generate_files(
           self.generate_encoded_samples_debug(
@@ -323,7 +334,7 @@ class VideoProblemOld(problem.Problem):
     """Number of color channels."""
     return 3
 
-  def example_reading_spec(self, label_repr=None):
+  def example_reading_spec(self):
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),
         "image/format": tf.FixedLenFeature((), tf.string),

@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import algorithmic
@@ -98,6 +95,14 @@ class AlgorithmicTest(tf.test.TestCase):
       self.assertEqual(d["inputs"].count(5), 0)
       self.assertEqual(d["targets"].count(4), 0)
       self.assertEqual(d["targets"].count(5), 0)
+    self.assertEqual(counter, 10)
+
+  def testSortGenerator(self):
+    sort_problem = algorithmic.AlgorithmicSortProblem()
+    counter = 0
+    for d in sort_problem.generator(10, 10, 10):
+      counter += 1
+      self.assertEqual(list(sorted(d["inputs"])), d["targets"])
     self.assertEqual(counter, 10)
 
 

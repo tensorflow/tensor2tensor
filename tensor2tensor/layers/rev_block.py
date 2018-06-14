@@ -23,9 +23,6 @@ from __future__ import division
 from __future__ import print_function
 
 import re
-
-# Dependency imports
-
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
@@ -52,10 +49,10 @@ def _rev_layer_forward(xs, f, g, f_side_input, g_side_input,
   x1, x2 = xs
   y1 = x1 + (f(x2, f_side_input) if f_side_input else f(x2))
   y2 = x2 + (g(y1, g_side_input) if g_side_input else g(y1))
+  out = (y1, y2)
   if gate_outputs:
-    return tf.tuple([y1, y2])
-  else:
-    return (y1, y2)
+    out = tf.tuple(out)
+  return out
 
 
 def _rev_layer_backward(ys, grad_ys, f, g, f_vars, f_side_input, g_vars,

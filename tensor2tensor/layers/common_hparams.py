@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import registry
 
@@ -67,6 +64,8 @@ def basic_params1():
       optimizer_adafactor_memory_exponent=0.8,
       optimizer_adafactor_clipping_threshold=1.0,
       optimizer_adafactor_multiply_by_parameter_scale=True,
+      # Number of accumulating steps for multi step optimizers.
+      optimizer_multistep_accumulate_steps=None,
       weight_decay=1e-6,
       weight_noise=0.0,
       # Defines the learning rate as a product of named functions.
@@ -186,6 +185,9 @@ def basic_params1():
       # examples.  e.g.  The examples may be written with length 65536, but we
       # want to split each example into 64 examples of length 1024.
       split_to_length=0,
+      # Video settings: how many frames to batch on input and targets.
+      video_num_input_frames=1,
+      video_num_target_frames=1,
       # This flag allows us to optionally treat a seq-to-seq problem
       # as a language model.  Legal values are:
       #
@@ -388,3 +390,9 @@ def basic_range1(ranged_hparams):
   rhp.set_categorical(
       "optimizer",
       ["Adam", "Adagrad", "Momentum", "RMSProp", "SGD", "YellowFin"])
+
+
+@registry.register_ranged_hparams
+def basic_moe_range(rhp):
+  """Moe range; when this parameter is unused, it allows us to see variance."""
+  rhp.set_float("moe_loss_coef", 0.01, 0.02)

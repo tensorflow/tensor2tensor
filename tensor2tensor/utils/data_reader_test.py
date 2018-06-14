@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import tempfile
-
-# Dependency imports
-
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 
@@ -38,6 +35,7 @@ import tensorflow as tf
 class TestProblem(problem_mod.Problem):
 
   def generator(self, data_dir, tmp_dir, is_training):
+    del data_dir, tmp_dir, is_training
     for i in range(30):
       yield {"inputs": [i] * (i + 1), "targets": [i], "floats": [i + 0.5]}
 

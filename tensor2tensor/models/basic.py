@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -50,38 +47,31 @@ class BasicAutoencoder(t2t_model.T2TModel):
 
   def __init__(self, *args, **kwargs):
     super(BasicAutoencoder, self).__init__(*args, **kwargs)
-    self.cur_bottleneck_tensor = None
+    self._cur_bottleneck_tensor = None
     self.is1d = None
 
   def bottleneck(self, x):
     with tf.variable_scope("bottleneck"):
       hparams = self.hparams
-      x = tf.layers.dense(x, hparams.bottleneck_size, name="bottleneck")
+      x = tf.layers.dense(x, hparams.bottleneck_bits, name="bottleneck")
       if hparams.mode == tf.estimator.ModeKeys.TRAIN:
         noise = 2.0 * tf.random_uniform(common_layers.shape_list(x)) - 1.0
-        return tf.tanh(x) + noise * hparams.bottleneck_noise
-      return tf.tanh(x)
+        return tf.tanh(x) + noise * hparams.bottleneck_noise, 0.0
+      return tf.tanh(x), 0.0
 
   def unbottleneck(self, x, res_size):
     with tf.variable_scope("unbottleneck"):
       x = tf.layers.dense(x, res_size, name="dense")
       return x
 
-  def bottleneck_loss(self, b):
-    return 0.0
-
   def make_even_size(self, x):
-    shape = [dim if dim is not None else -1 for dim in x.get_shape().as_list()]
-    if shape[1] % 2 == 0 and shape[2] % 2 == 0:
-      return x
-    if shape[1] % 2 == 0 and self.is1d:
+    if not self.is1d:
+      return common_layers.make_even_size(x)
+    shape1 = x.get_shape().as_list()[1]
+    if shape1 is not None and shape1 % 2 == 0:
       return x
     x, _ = common_layers.pad_to_same_length(
         x, x, final_length_divisible_by=2, axis=1)
-    if self.is1d:
-      return x
-    x, _ = common_layers.pad_to_same_length(
-        x, x, final_length_divisible_by=2, axis=2)
     return x
 
   def encoder(self, x):
@@ -121,9 +111,8 @@ class BasicAutoencoder(t2t_model.T2TModel):
       # Run encoder.
       x = self.encoder(x)
       # Bottleneck (mix during early training, not too important but stable).
-      b = self.bottleneck(x)
-      self.cur_bottleneck_tensor = b
-      b_loss = self.bottleneck_loss(b)
+      b, b_loss = self.bottleneck(x)
+      self._cur_bottleneck_tensor = b
       b = self.unbottleneck(b, common_layers.shape_list(x)[-1])
       b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
       # With probability bottleneck_max_prob use the bottleneck, otherwise x.
@@ -133,7 +122,10 @@ class BasicAutoencoder(t2t_model.T2TModel):
       else:
         x = b
     else:
-      b = self.sample()
+      if self._cur_bottleneck_tensor is None:
+        b = self.sample()
+      else:
+        b = self._cur_bottleneck_tensor
       res_size = self.hparams.hidden_size * 2**self.hparams.num_hidden_layers
       res_size = min(res_size, hparams.max_hidden_size)
       x = self.unbottleneck(b, res_size)
@@ -147,23 +139,27 @@ class BasicAutoencoder(t2t_model.T2TModel):
                             hparams.bottleneck_warmup_steps // 2, is_training)
     return res, {"bottleneck_loss": b_loss}
 
-  def sample(self):
+  def sample(self, features=None):
+    del features
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
     size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
-            hp.bottleneck_size]
+            hp.bottleneck_bits]
     # Sample in [-1, 1] as the bottleneck is under tanh.
     return 2.0 * tf.random_uniform(size) - 1.0
 
-  def encode(self, x, *args, **kwargs):
+  def encode(self, x):
     """Auto-encode x and return the bottleneck."""
     features = {"targets": x}
     self(features)  # pylint: disable=not-callable
-    return self.cur_bottleneck_tensor
+    res = tf.maximum(0.0, self._cur_bottleneck_tensor)  # Be 0/1 and not -1/1.
+    self._cur_bottleneck_tensor = None
+    return res
 
-  def infer(self, features, *args, **kwargs):
+  def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
     """Produce predictions from the model by sampling."""
+    del args, kwargs
     # Inputs and features preparation needed to handle edge cases.
     if not features:
       features = {}
@@ -178,9 +174,10 @@ class BasicAutoencoder(t2t_model.T2TModel):
       num_channels = self.hparams.problem.num_channels
     except AttributeError:
       num_channels = 1
-    features["targets"] = tf.zeros(
-        [self.hparams.batch_size, 1, 1, num_channels],
-        dtype=tf.int32)
+    if "targets" not in features:
+      features["targets"] = tf.zeros(
+          [self.hparams.batch_size, 1, 1, num_channels],
+          dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     samples = tf.argmax(logits, axis=-1)
 
@@ -190,6 +187,25 @@ class BasicAutoencoder(t2t_model.T2TModel):
 
     # Return samples.
     return samples
+
+  def decode(self, bottleneck):
+    """Auto-decode from the bottleneck and return the result."""
+    # Get the shape from bottleneck and num channels.
+    shape = common_layers.shape_list(bottleneck)
+    try:
+      num_channels = self.hparams.problem.num_channels
+    except AttributeError:
+      num_channels = 1
+    dummy_targets = tf.zeros(shape[:-1] + [num_channels])
+    # Set the bottleneck to decode.
+    if len(shape) > 4:
+      bottleneck = tf.squeeze(bottleneck, axis=[1])
+    bottleneck = 2 * bottleneck - 1  # Be -1/1 instead of 0/1.
+    self._cur_bottleneck_tensor = bottleneck
+    # Run decoding.
+    res = self.infer({"targets": dummy_targets})
+    self._cur_bottleneck_tensor = None
+    return res
 
   def _get_kernel_and_strides(self):
     hparams = self.hparams
@@ -233,7 +249,7 @@ def basic_autoencoder():
   hparams.kernel_width = 4
   hparams.dropout = 0.1
   hparams.add_hparam("max_hidden_size", 1024)
-  hparams.add_hparam("bottleneck_size", 128)
+  hparams.add_hparam("bottleneck_bits", 128)
   hparams.add_hparam("bottleneck_noise", 0.1)
   hparams.add_hparam("bottleneck_warmup_steps", 3000)
   hparams.add_hparam("bottleneck_max_prob", 1.0)

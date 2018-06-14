@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import tarfile
-
-# Dependency imports
-
 import numpy as np
 
 from six.moves import cPickle
@@ -30,6 +27,7 @@ from six.moves import cPickle
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import mnist
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -93,7 +91,7 @@ def cifar_generator(cifar_version, tmp_dir, training, how_many, start_from=0):
   all_images, all_labels = [], []
   for filename in data_files:
     path = os.path.join(tmp_dir, prefix, filename)
-    with tf.gfile.Open(path, "r") as f:
+    with tf.gfile.Open(path, "rb") as f:
       data = cPickle.load(f)
     images = data["data"]
     num_images = images.shape[0]
@@ -173,6 +171,19 @@ class ImageCifar10PlainGen(ImageCifar10Plain):
     example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     example["inputs"] = tf.to_int64(example["inputs"])
     return example
+
+
+@registry.register_problem
+class ImageCifar10PlainGenDmol(ImageCifar10PlainGen):
+  """Discretized mixture of logistics problem."""
+
+  def dataset_filename(self):
+    return "image_cifar10_plain"  # Reuse CIFAR-10 plain data.
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.DMOL_PERPLEXITY
+    ]
 
 
 @registry.register_problem

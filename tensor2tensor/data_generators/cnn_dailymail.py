@@ -22,9 +22,6 @@ import hashlib
 import io
 import os
 import tarfile
-
-# Dependency imports
-
 import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem

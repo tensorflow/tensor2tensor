@@ -19,8 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import base64
-
-# Dependency imports
 from googleapiclient import discovery
 from grpc.beta import implementations
 
@@ -56,7 +54,7 @@ def _encode(inputs, encoder, add_eos=True):
 
 
 def _decode(output_ids, output_decoder):
-  return output_decoder.decode(output_ids)
+  return output_decoder.decode(output_ids, strip_extraneous=True)
 
 
 

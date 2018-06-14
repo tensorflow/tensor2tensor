@@ -33,8 +33,6 @@ import os
 import random
 import tempfile
 
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
@@ -47,6 +45,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
+
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -130,7 +129,6 @@ def set_random_seed():
 
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   # Calculate the list of problems to generate.
@@ -209,6 +207,7 @@ def generate_data_in_process(arg):
 
 
 def generate_data_for_registered_problem(problem_name):
+  """Generate data for a registered problem."""
   tf.logging.info("Generating data for %s.", problem_name)
   if FLAGS.num_shards:
     raise ValueError("--num_shards should not be set for registered Problem.")
@@ -233,4 +232,5 @@ def generate_data_for_registered_problem(problem_name):
     problem.generate_data(data_dir, tmp_dir, task_id)
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

@@ -24,9 +24,6 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
@@ -501,6 +498,7 @@ def img2img_transformer2d_n31():
 
 @registry.register_hparams
 def img2img_transformer2d_n24():
+  """Set of hyperparameters."""
   hparams = img2img_transformer2d_base()
   hparams.batch_size = 1
   hparams.hidden_size = 1024
