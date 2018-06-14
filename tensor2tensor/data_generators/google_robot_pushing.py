@@ -64,6 +64,10 @@ class VideoGoogleRobotPushing(video_utils.VideoProblem):
     return 50 * 10 * 1000
 
   @property
+  def max_number_of_frames_per_video(self):
+    return 60
+
+  @property
   def is_generate_per_split(self):
     return True
 
@@ -77,6 +81,8 @@ class VideoGoogleRobotPushing(video_utils.VideoProblem):
       x.ParseFromString(serialized_example)
       # there are 6 features per frame
       nf = len(x.features.feature.keys()) // 6
+      # it seems features after 60 don't have any image
+      nf = min(nf, self.max_number_of_frames_per_video)
 
       for i in range(nf):
         image_name = image_key.format(i)
