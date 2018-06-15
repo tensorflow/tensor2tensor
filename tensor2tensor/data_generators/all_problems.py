@@ -88,6 +88,7 @@ def _handle_errors(errors):
   for module, err in errors:
     err_str = str(err)
     if err_str != _py_err_msg(module):
+      print("From module %s" % module)
       raise err
     if log_all:
       print("Did not import module: %s; Cause: %s" % (module, err_str))
