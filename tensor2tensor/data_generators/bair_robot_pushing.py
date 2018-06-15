@@ -27,7 +27,6 @@ from __future__ import print_function
 import os
 import tarfile
 import numpy as np
-from PIL import Image
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -38,6 +37,12 @@ import tensorflow as tf
 
 DATA_URL = (
     "http://rail.eecs.berkeley.edu/datasets/bair_robot_pushing_dataset_v0.tar")
+
+
+# Lazy load PIL.Image
+def PIL_Image():  # pylint: disable=invalid-name
+  from PIL import Image  # pylint: disable=g-import-not-at-top
+  return Image
 
 
 @registry.register_problem
@@ -85,7 +90,7 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
           state_name = state_key.format(i)
 
           byte_str = x.features.feature[image_name].bytes_list.value[0]
-          img = Image.frombytes(
+          img = PIL_Image().frombytes(
               "RGB", (self.frame_width, self.frame_height), byte_str)
           arr = np.array(img.getdata())
           frame = arr.reshape(
