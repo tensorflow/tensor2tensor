@@ -1051,7 +1051,7 @@ class RealEncoder(object):
       ValueError: if the ids are not of the appropriate size.
     """
     del strip_extraneous
-    return " ".join(ids)
+    return " ".join([str(i) for i in ids])
 
 
 def strip_ids(ids, ids_to_strip):

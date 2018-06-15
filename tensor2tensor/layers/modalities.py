@@ -739,6 +739,10 @@ class RealModality(modality.Modality):
   * Top is a linear projection layer to vocab_size.
   """
 
+  @property
+  def top_is_pointwise(self):
+    return True
+
   def bottom(self, x):
     with tf.variable_scope("real"):
       return tf.layers.dense(tf.to_float(x), self._body_input_depth,

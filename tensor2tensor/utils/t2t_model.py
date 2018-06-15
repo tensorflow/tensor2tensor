@@ -141,6 +141,12 @@ class T2TModel(base.Layer):
     else:
       return None
 
+  @property
+  def _target_modality_is_real(self):
+    """Whether the target modality is real-valued."""
+    target_modality = self._problem_hparams.target_modality
+    return target_modality.name.startswith("real_")
+
   def call(self, inputs, **kwargs):
     del kwargs
     features = inputs
@@ -732,7 +738,11 @@ class T2TModel(base.Layer):
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
       if not tf.contrib.eager.in_eager_mode():
-        recent_output.set_shape([None, None, None, 1])
+        if self._target_modality_is_real:
+          dim = self._problem_hparams.target_modality.top_dimensionality
+          recent_output.set_shape([None, None, None, dim])
+        else:
+          recent_output.set_shape([None, None, None, 1])
       padded = tf.pad(recent_output, [[0, 0], [0, 1], [0, 0], [0, 0]])
       features["targets"] = padded
       # This is inefficient in that it generates samples at all timesteps,
@@ -745,10 +755,14 @@ class T2TModel(base.Layer):
       else:
         cur_sample = samples[:,
                              common_layers.shape_list(recent_output)[1], :, :]
-      cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
-      samples = tf.concat([recent_output, cur_sample], axis=1)
-      if not tf.contrib.eager.in_eager_mode():
-        samples.set_shape([None, None, None, 1])
+      if self._target_modality_is_real:
+        cur_sample = tf.expand_dims(cur_sample, axis=1)
+        samples = tf.concat([recent_output, cur_sample], axis=1)
+      else:
+        cur_sample = tf.to_int64(tf.expand_dims(cur_sample, axis=1))
+        samples = tf.concat([recent_output, cur_sample], axis=1)
+        if not tf.contrib.eager.in_eager_mode():
+          samples.set_shape([None, None, None, 1])
 
       # Assuming we have one shard for logits.
       logits = tf.concat([recent_logits, logits[:, -1:]], 1)
@@ -764,7 +778,11 @@ class T2TModel(base.Layer):
       batch_size = common_layers.shape_list(initial_output)[0]
     else:
       batch_size = common_layers.shape_list(features["inputs"])[0]
-      initial_output = tf.zeros((batch_size, 0, 1, 1), dtype=tf.int64)
+      if self._target_modality_is_real:
+        dim = self._problem_hparams.target_modality.top_dimensionality
+        initial_output = tf.zeros((batch_size, 0, 1, dim), dtype=tf.float32)
+      else:
+        initial_output = tf.zeros((batch_size, 0, 1, 1), dtype=tf.int64)
     # Hack: foldl complains when the output shape is less specified than the
     # input shape, so we confuse it about the input shape.
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
@@ -783,10 +801,17 @@ class T2TModel(base.Layer):
 
     # Initial values of result, logits and loss.
     result = initial_output
-    # tensor of shape [batch_size, time, 1, 1, vocab_size]
-    logits = tf.zeros((batch_size, 0, 1, 1, target_modality.top_dimensionality))
+    if self._target_modality_is_real:
+      logits = tf.zeros((batch_size, 0, 1, target_modality.top_dimensionality))
+      logits_shape_inv = [None, None, None, None]
+    else:
+      # tensor of shape [batch_size, time, 1, 1, vocab_size]
+      logits = tf.zeros((batch_size, 0, 1, 1,
+                         target_modality.top_dimensionality))
+      logits_shape_inv = [None, None, None, None, None]
     if not tf.contrib.eager.in_eager_mode():
-      logits.set_shape([None, None, None, None, None])
+      logits.set_shape(logits_shape_inv)
+
     loss = 0.0
 
     def while_exit_cond(result, logits, loss):  # pylint: disable=unused-argument
@@ -822,7 +847,7 @@ class T2TModel(base.Layer):
         infer_step, [result, logits, loss],
         shape_invariants=[
             tf.TensorShape([None, None, None, None]),
-            tf.TensorShape([None, None, None, None, None]),
+            tf.TensorShape(logits_shape_inv),
             tf.TensorShape([]),
         ],
         back_prop=False,
@@ -857,6 +882,8 @@ class T2TModel(base.Layer):
        losses: a dictionary: {loss-name (string): floating point `Scalar`}.
     """
     logits, losses = self(features)  # pylint: disable=not-callable
+    if self._target_modality_is_real:
+      return logits, logits, losses  # Raw numbers returned from real modality.
     if self.hparams.sampling_method == "argmax":
       samples = tf.argmax(logits, axis=-1)
     else:

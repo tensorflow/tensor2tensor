@@ -213,6 +213,9 @@ class Transformer(t2t_model.T2TModel):
     Raises:
       NotImplementedError: If there are multiple data shards.
     """
+    # For real-valued modalities use the slow decode path for now.
+    if self._target_modality_is_real:
+      return  super(Transformer, self)._greedy_infer(features, decode_length)
     with tf.variable_scope(self.name):
       return self._fast_decode(features, decode_length)
 
