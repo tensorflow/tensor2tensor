@@ -95,10 +95,10 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.input_modality = {
-        "inputs": ("video:raw", 256),
+        "inputs": ("video", 256),
         "input_frame_number": ("symbol:identity", 1)
     }
-    p.target_modality = ("video:raw", 256)
+    p.target_modality = ("video", 256)
 
   @staticmethod
   def get_circle(x, y, z, c, s):
