@@ -36,7 +36,7 @@ before_install:
   # - sudo apt-get install -qq tensorflow-model-server
 install:
   - pip install -q "tensorflow==$TF_VERSION"
-  - pip install -q .[tests]
+  - pip install -q .[tests,allen]
   # Make sure to install the atari extras for gym
   - pip install "gym[atari]"
   # Make sure we have the latest version of numpy - avoid problems we were
@@ -63,10 +63,13 @@ script:
     --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
     --ignore=tensor2tensor/models/research/universal_transformer_test.py
     --ignore=tensor2tensor/rl/model_rl_experiment_test.py
+    --ignore=tensor2tensor/data_generators/allen_brain_test.py
+    --ignore=tensor2tensor/data_generators/allen_brain_utils_test.py
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
   - pytest tensor2tensor/visualization/visualization_test.py
-
+  - pytest tensor2tensor/data_generators/allen_brain_test.py
+  - pytest tensor2tensor/data_generators/allen_brain_utils_test.py
   # Run installed scripts
   - t2t-datagen 2>&1 | grep translate && echo passed
   - t2t-trainer --registry_help
