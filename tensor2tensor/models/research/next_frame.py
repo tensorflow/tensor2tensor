@@ -139,8 +139,9 @@ class NextFrameBasic(t2t_model.T2TModel):
       targets_shape = [self.hparams.batch_size,
                        self.hparams.video_num_target_frames, 1, 1, num_channels]
     features["targets"] = tf.zeros(targets_shape, dtype=tf.int32)
-    features["target_reward"] = tf.zeros(
-        [targets_shape[0], 1, 1], dtype=tf.int32)
+    if "target_reward" in self.hparams.problem_hparams.target_modality:
+      features["target_reward"] = tf.zeros(
+          [targets_shape[0], 1, 1], dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     if isinstance(logits, dict):
       results = {}

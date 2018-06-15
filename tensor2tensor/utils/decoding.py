@@ -68,6 +68,22 @@ def log_decode_results(inputs,
                        identity_output=False,
                        log_results=True):
   """Log inference results."""
+
+  # TODO(lukaszkaiser) refactor this into feature_encoder
+  is_video = "video" in problem_name
+  if is_video:
+    def fix_and_save_video(vid, prefix):
+      save_path_template = os.path.join(
+          model_dir, "%s_%s_%d_{}.png" % (problem_name, prefix, prediction_idx))
+      # this is only required for predictions
+      if vid.shape[-1] == 1:
+        vid = np.squeeze(vid, axis=-1)
+      save_video(vid, save_path_template)
+    tf.logging.info("Saving video: {}".format(prediction_idx))
+    fix_and_save_video(inputs, "inputs")
+    fix_and_save_video(outputs, "outputs")
+    fix_and_save_video(targets, "targets")
+
   is_image = "image" in problem_name
   decoded_inputs = None
   if is_image and save_images:
@@ -80,7 +96,7 @@ def log_decode_results(inputs,
     else:
       decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs, is_image))
 
-    if log_results:
+    if log_results and not is_video:
       tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
   decoded_targets = None
@@ -93,8 +109,9 @@ def log_decode_results(inputs,
     decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
     if targets is not None and log_results:
       decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
-  tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
-  if targets is not None and log_results:
+  if not is_video:
+    tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
+  if targets is not None and log_results and not is_video:
     tf.logging.info("Inference results TARGET: %s" % decoded_targets)
   return decoded_inputs, decoded_outputs, decoded_targets
 
@@ -516,6 +533,21 @@ def _interactive_input_fn(hparams, decode_hp):
           problem_lib.problem_hparams_to_features(p_hparams)):
         features[k] = np.array(v).astype(np.int32)
       yield features
+
+
+def save_video(video, save_path_template):
+  """Save frames of the videos into files."""
+  try:
+    from PIL import Image  # pylint: disable=g-import-not-at-top
+  except ImportError as e:
+    tf.logging.warning(
+        "Showing and saving an image requires PIL library to be "
+        "installed: %s", e)
+    raise NotImplementedError("Image display and save not implemented.")
+
+  for i, frame in enumerate(video):
+    save_path = save_path_template.format(i)
+    Image.fromarray(np.uint8(frame)).save(save_path)
 
 
 def show_and_save_image(img, save_path):
