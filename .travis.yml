@@ -36,6 +36,10 @@ before_install:
   # - sudo apt-get install -qq tensorflow-model-server
 install:
   - pip install -q "tensorflow==$TF_VERSION"
+  # First ensure that the base dependencies are sufficient for a full import
+  - pip install -q .
+  - t2t-trainer --registry_help
+  # Then install the test dependencies
   - pip install -q .[tests]
   # Make sure to install the atari extras for gym
   - pip install "gym[atari]"
