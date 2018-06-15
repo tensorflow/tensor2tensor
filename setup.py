@@ -41,6 +41,7 @@ setup(
         'gym',
         'h5py',
         'numpy',
+        'oauth2client',
         'requests',
         'scipy',
         'sympy',
