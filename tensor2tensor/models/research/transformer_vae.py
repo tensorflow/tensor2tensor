@@ -360,7 +360,14 @@ def ae_transformer_internal(inputs,
     targets, _ = common_layers.pad_to_same_length(
         targets, max_targets_len_from_inputs,
         final_length_divisible_by=2**hparams.num_compress_steps)
-    targets_c = compress(targets, inputs, False, hparams, "compress")
+    if hparams.word_dropout:
+      mask = tf.random_uniform(shape=common_layers.shape_list(targets),
+                               minval=0.0, maxval=1.0)
+      targets_noisy = tf.where(mask > hparams.word_dropout, targets,
+                               tf.zeros_like(targets))
+    else:
+      targets_noisy = targets
+    targets_c = compress(targets_noisy, inputs, False, hparams, "compress")
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
       latents_dense, latents_discrete, extra_loss, embed = hparams.bottleneck(
@@ -668,6 +675,7 @@ def transformer_ae_small():
   hparams.add_hparam("noise_dev", 0.5)
   hparams.add_hparam("d_mix", 0.5)
   hparams.add_hparam("logit_normalization", True)
+  hparams.add_hparam("word_dropout", 0.1)
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, dvq.
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)

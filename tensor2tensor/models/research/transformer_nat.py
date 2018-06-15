@@ -299,6 +299,9 @@ def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
 
   targets = d
   res = decode_transformer(inputs, ed, d, hparams, "decoder")
+  latent_time = tf.less(hparams.mask_startup_steps,
+                        tf.to_int32(tf.train.get_global_step()))
+  losses["latent_pred"] *= tf.to_float(latent_time)
   return res, losses, cache
 
 
@@ -385,7 +388,7 @@ def transformer_nat_small():
   hparams.optimizer = "Adam"
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.optimizer_adam_beta1 = 0.9
-  hparams.optimizer_adam_beta2 = 0.997  # Needs tuning, try 0.98 to 0.999.
+  hparams.optimizer_adam_beta2 = 0.997
   hparams.add_hparam("bottleneck_kind", "vq")
   hparams.add_hparam("bottleneck_bits", 12)
   hparams.add_hparam("num_compress_steps", 3)
@@ -393,6 +396,7 @@ def transformer_nat_small():
   hparams.add_hparam("epsilon", 1e-5)
   hparams.add_hparam("decay", 0.999)
   hparams.add_hparam("num_samples", 10)
+  hparams.add_hparam("mask_startup_steps", 50000)
   return hparams
 
 
