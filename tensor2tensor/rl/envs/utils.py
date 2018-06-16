@@ -32,7 +32,6 @@ import traceback
 import gym
 
 from tensor2tensor.rl.envs import batch_env
-
 from tensor2tensor.rl.envs import py_func_batch_env
 from tensor2tensor.rl.envs import simulated_batch_env
 
@@ -279,38 +278,87 @@ class ExternalProcessEnv(object):
     conn.close()
 
 
-def batch_env_factory(environment_lambda, hparams, num_agents, xvfb=False):
+def batch_env_factory(hparams, xvfb=False):
   """Factory of batch envs."""
-  wrappers = hparams.in_graph_wrappers if hasattr(
-      hparams, "in_graph_wrappers") else []
 
   if hparams.simulated_environment:
-    cur_batch_env = define_simulated_batch_env(
-        environment_lambda, num_agents, hparams.problem,
+    cur_batch_env = _define_simulated_batch_env(
+      hparams, hparams.num_agents, hparams.problem,
         hparams.simulation_random_starts,
         hparams.intrinsic_reward_scale)
   else:
-    cur_batch_env = define_batch_env(environment_lambda, num_agents, xvfb=xvfb)
-  for w in wrappers:
-    cur_batch_env = w[0](cur_batch_env, **w[1])
+    cur_batch_env = _define_batch_env(hparams, xvfb=xvfb)
   return cur_batch_env
 
 
-def define_batch_env(constructor, num_agents, xvfb=False):
+def _define_batch_env(hparams, xvfb=False):
   """Create environments and apply all desired wrappers."""
+  if isinstance(hparams.environment_spec, str):
+    environment_lambda = lambda: gym.make(hparams.environment_spec)
+  else:
+    environment_lambda = hparams.environment_spec
+
   with tf.variable_scope("environments"):
     envs = [
-        ExternalProcessEnv(constructor, xvfb)
-        for _ in range(num_agents)]
+        ExternalProcessEnv(environment_lambda, xvfb)
+        for _ in range(hparams.num_agents)]
     env = batch_env.BatchEnv(envs, blocking=False)
     env = py_func_batch_env.PyFuncBatchEnv(env)
     return env
 
 
-def define_simulated_batch_env(environment_lambda, num_agents, problem,
+def _define_simulated_batch_env(hparams, num_agents, problem,
                                simulation_random_starts=False,
                                intrinsic_reward_scale=0.):
   cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
-      environment_lambda, num_agents, problem, simulation_random_starts,
+      hparams, num_agents, problem, simulation_random_starts,
       intrinsic_reward_scale)
   return cur_batch_env
+
+
+def get_action_space(hparams):
+  if isinstance(hparams.environment_spec, str):
+    environment_lambda = lambda: gym.make(hparams.environment_spec)
+  else:
+    environment_lambda = hparams.environment_spec
+
+  action_space = environment_lambda().action_space
+  action_shape = list(parse_shape(action_space))
+  action_dtype = parse_dtype(action_space)
+
+  return action_space, action_shape, action_dtype
+
+def get_policy(observations, hparams):
+  policy_network_lambda = hparams.policy_network
+  action_space, _, _ = get_action_space(hparams)
+  return policy_network_lambda(action_space, hparams, observations)
+
+def parse_shape(space):
+  """Get a tensor shape from a OpenAI Gym space.
+
+  Args:
+    space: Gym space.
+
+  Returns:
+    Shape tuple.
+  """
+  if isinstance(space, gym.spaces.Discrete):
+    return ()
+  if isinstance(space, gym.spaces.Box):
+    return space.shape
+  raise NotImplementedError()
+
+def parse_dtype(space):
+  """Get a tensor dtype from a OpenAI Gym space.
+
+  Args:
+    space: Gym space.
+
+  Returns:
+    TensorFlow data type.
+  """
+  if isinstance(space, gym.spaces.Discrete):
+    return tf.int32
+  if isinstance(space, gym.spaces.Box):
+    return tf.float32
+  raise NotImplementedError()

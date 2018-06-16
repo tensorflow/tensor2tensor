@@ -31,13 +31,15 @@ class TrainTest(tf.test.TestCase):
     hparams = trainer_lib.create_hparams(
         "ppo_continuous_action_base",
         TrainTest.test_config)
-    rl_trainer_lib.train(hparams, "Pendulum-v0")
+    hparams.add_hparam("environment_spec", "Pendulum-v0")
+    rl_trainer_lib.train(hparams)
 
   def test_no_crash_cartpole(self):
     hparams = trainer_lib.create_hparams(
         "ppo_discrete_action_base",
         TrainTest.test_config)
-    rl_trainer_lib.train(hparams, "CartPole-v0")
+    hparams.add_hparam("environment_spec", "CartPole-v0")
+    rl_trainer_lib.train(hparams)
 
 
 if __name__ == "__main__":

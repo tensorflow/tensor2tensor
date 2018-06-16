@@ -22,6 +22,7 @@ from __future__ import division
 from __future__ import print_function
 from tensor2tensor.layers import common_layers
 from tensor2tensor.rl.envs import in_graph_batch_env
+from tensor2tensor.rl.envs import utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -90,7 +91,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, environment_lambda, length, problem,
+  def __init__(self, hparams, length, problem,
                simulation_random_starts=False, intrinsic_reward_scale=0.):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
@@ -98,16 +99,14 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self._num_frames = problem.num_input_frames
     self._intrinsic_reward_scale = intrinsic_reward_scale
 
-    initialization_env = environment_lambda()
-    hparams = trainer_lib.create_hparams(
+    # initialization_env = environment_lambda()
+    model_hparams = trainer_lib.create_hparams(
         FLAGS.hparams_set, problem_name=FLAGS.problem)
-    hparams.force_full_predict = True
+    model_hparams.force_full_predict = True
     self._model = registry.model(FLAGS.model)(
-        hparams, tf.estimator.ModeKeys.PREDICT)
+      model_hparams, tf.estimator.ModeKeys.PREDICT)
 
-    self.action_space = initialization_env.action_space
-    self.action_shape = list(initialization_env.action_space.shape)
-    self.action_dtype = tf.int32
+    _, self.action_shape, self.action_dtype = utils.get_action_space(hparams)
 
     if simulation_random_starts:
       dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
