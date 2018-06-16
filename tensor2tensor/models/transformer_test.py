@@ -240,6 +240,43 @@ class TransformerTest(tf.test.TestCase):
       res = session.run(extra_loss["attention_loss"])
     self.assertEqual(res.shape, ())
 
+  def testGreedySlowTPUVsNonTPU(self):
+    model, features = get_model(transformer.transformer_small())
+
+    decode_length = 3
+
+    out_logits, _ = model(features)
+    out_logits = tf.squeeze(out_logits, axis=[2, 3])
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        logits=tf.reshape(out_logits, [-1, VOCAB_SIZE]),
+        labels=tf.reshape(features["targets"], [-1]))
+    loss = tf.reduce_mean(loss)
+    apply_grad = tf.train.AdamOptimizer(0.001).minimize(loss)
+
+    with self.test_session():
+      tf.global_variables_initializer().run()
+      for _ in range(100):
+        apply_grad.run()
+
+    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+
+    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+      slow_result_non_tpu = model._slow_greedy_infer(
+          features, decode_length)["outputs"]
+      slow_result_non_tpu = tf.squeeze(slow_result_non_tpu, axis=[2, 3])
+
+      slow_result_tpu = model._slow_greedy_infer_tpu(
+          features, decode_length)["outputs"]
+      slow_result_tpu = tf.squeeze(slow_result_tpu, axis=[2, 3])
+
+    with self.test_session():
+      slow_non_tpu_res = slow_result_non_tpu.eval()
+      slow_tpu_res = slow_result_tpu.eval()
+
+    self.assertEqual(slow_tpu_res.shape,
+                     (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertAllClose(slow_tpu_res, slow_non_tpu_res)
+
 
 class TransformerScorerTest(tf.test.TestCase):
 

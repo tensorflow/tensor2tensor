@@ -194,12 +194,13 @@ class Transformer(t2t_model.T2TModel):
     else:
       return ret
 
-  def _greedy_infer(self, features, decode_length):
+  def _greedy_infer(self, features, decode_length, use_tpu=False):
     """Fast version of greedy decoding.
 
     Args:
       features: an map of string to `Tensor`
       decode_length: an integer.  How many additional timesteps to decode.
+      use_tpu: A bool. Whether to build the inference graph for TPU.
 
     Returns:
       A dict of decoding results {

@@ -41,6 +41,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 from tensorflow.python.layers import base
+from tensorflow.python.ops import inplace_ops
 from tensorflow.python.ops import variable_scope
 
 _no_problem_err_str = (
@@ -342,10 +343,23 @@ class T2TModel(base.Layer):
         logits = target_modality.top(body_output, features.get("targets"))
       else:
         # Take body outputs for the last position only, and targets too.
-        last_position_body_output = tf.expand_dims(
-            body_output[:, -1, :, :], axis=[1])
-        last_position_targets = tf.expand_dims(
-            features["targets"][:, -1:, :, :], axis=[1])
+        if "decode_loop_step" not in features:
+          last_position_body_output = tf.expand_dims(
+              body_output[:, -1, :, :], axis=[1])
+          last_position_targets = tf.expand_dims(
+              features["targets"][:, -1:, :, :], axis=[1])
+        else:
+          body_output_shape = body_output.shape.as_list()
+          last_position_body_output = tf.slice(
+              body_output,
+              [0, features["decode_loop_step"][0], 0, 0],
+              [body_output_shape[0], 1, body_output_shape[2],
+               body_output_shape[3]])
+          target_shape = features["targets"].shape.as_list()
+          last_position_targets = tf.slice(
+              features["targets"],
+              [0, features["decode_loop_step"][0], 0, 0],
+              [target_shape[0], 1, target_shape[2], target_shape[3]])
         logits = target_modality.top(last_position_body_output,
                                      last_position_targets)
     return logits
@@ -543,7 +557,6 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`
       }
     """
-    del use_tpu
     set_custom_getter_compose(self._custom_getter)
     with self._eager_var_store.as_default():
       # TODO(rsepassi): Make decoding work with real-valued model outputs
@@ -561,7 +574,7 @@ class T2TModel(base.Layer):
           beam_size = 1  # No use to run beam-search for a single class.
       if beam_size == 1:
         log_info("Greedy Decoding")
-        results = self._greedy_infer(features, decode_length)
+        results = self._greedy_infer(features, decode_length, use_tpu)
       else:
         log_info("Beam Decoding with beam size %d" % beam_size)
         results = self._beam_decode(features, decode_length, beam_size,
@@ -674,7 +687,7 @@ class T2TModel(base.Layer):
 
     return {"outputs": samples, "scores": scores}
 
-  def _greedy_infer(self, features, decode_length):
+  def _greedy_infer(self, features, decode_length, use_tpu=False):
     """A greedy inference method.
 
     Models should ideally implement a more efficient version of this function.
@@ -682,6 +695,7 @@ class T2TModel(base.Layer):
     Args:
       features: an map of string to `Tensor`
       decode_length: an integer.  How many additional timesteps to decode.
+      use_tpu: A bool, whether to build the inference graph for TPU.
 
     Returns:
       A dict of decoding results {
@@ -693,7 +707,174 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`}
       }
     """
-    return self._slow_greedy_infer(features, decode_length)
+    return (self._slow_greedy_infer_tpu(features, decode_length) if use_tpu else
+            self._slow_greedy_infer(features, decode_length))
+
+  def _slow_greedy_infer_tpu(self, features, decode_length):
+    """A slow greedy inference method on TPU.
+
+    Quadratic time in decode_length.
+
+    Args:
+      features: An map of string to `Tensor`.
+      decode_length: An integer, how many additional timesteps to decode.
+
+    Returns:
+      A dict of decoding results {
+          "outputs": integer `Tensor` of decoded ids of shape
+              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, top_beams, <= decode_length]
+          "scores": None
+          "logits": `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+          "losses": a dictionary: {loss-name (string): floating point `Scalar`}
+      }
+    """
+    if not features:
+      features = {}
+    inputs_old = None
+    if "inputs" in features and len(features["inputs"].shape) < 4:
+      inputs_old = features["inputs"]
+      features["inputs"] = tf.expand_dims(features["inputs"], 2)
+    if not self.has_input:
+      # Prepare partial targets.
+      # In either features["inputs"] or features["targets"].
+      # We force the outputs to begin with these sequences.
+      partial_targets = features.get("inputs")
+      if partial_targets is None:
+        partial_targets = features["targets"]
+      features["partial_targets"] = tf.to_int64(partial_targets)
+    # Save the targets in a var and reassign it after the tf.while loop to avoid
+    # having targets being in a 'while' frame. This ensures targets when used
+    # in metric functions stays in the same frame as other vars.
+    targets_old = features.get("targets", None)
+
+    target_modality = self._problem_hparams.target_modality
+
+    def infer_step(i, recent_output, recent_logits, unused_loss):
+      """Inference step."""
+      if not tf.contrib.eager.in_eager_mode():
+        recent_output.set_shape([None, None, None, 1])
+      padded = tf.pad(recent_output, [[0, 0], [0, 1], [0, 0], [0, 0]])
+      features["targets"] = padded
+      # This is inefficient in that it generates samples at all timesteps,
+      # not just the last one, except if target_modality is pointwise.
+      features["decode_loop_step"] = i
+      samples, logits, losses = self.sample(features)
+      # Concatenate the already-generated recent_output with last timestep
+      # of the newly-generated samples.
+      if target_modality.top_is_pointwise:
+        cur_sample = samples[:, -1, :, :]
+      else:
+        cur_sample = samples[:, i, :, :]
+      samples = tf.transpose(recent_output, perm=[1, 0, 2, 3])
+      samples = inplace_ops.alias_inplace_update(
+          samples, i, tf.to_int64(cur_sample))
+      samples = tf.transpose(samples, perm=[1, 0, 2, 3])
+      if not tf.contrib.eager.in_eager_mode():
+        samples.set_shape([None, None, None, 1])
+
+      # Assuming we have one shard for logits.
+      recent_logits = tf.transpose(recent_logits, perm=[1, 0, 2, 3, 4])
+      recent_logits = inplace_ops.alias_inplace_update(
+          recent_logits, i, tf.squeeze(logits[:, -1:], axis=1))
+      logits = tf.transpose(recent_logits, perm=[1, 0, 2, 3, 4])
+      loss = sum([l for l in losses.values() if l is not None])
+      return i + 1, samples, logits, loss
+
+    # Create an initial output tensor. This will be passed
+    # to the infer_step, which adds one timestep at every iteration.
+    if "partial_targets" in features:
+      initial_output = tf.to_int64(features["partial_targets"])
+      while len(initial_output.get_shape().as_list()) < 4:
+        initial_output = tf.expand_dims(initial_output, 2)
+      batch_size = common_layers.shape_list(initial_output)[0]
+    else:
+      batch_size = common_layers.shape_list(features["inputs"])[0]
+      initial_output = tf.zeros((batch_size, 0, 1, 1), dtype=tf.int64)
+    # Hack: foldl complains when the output shape is less specified than the
+    # input shape, so we confuse it about the input shape.
+    initial_output = tf.slice(initial_output, [0, 0, 0, 0],
+                              common_layers.shape_list(initial_output))
+    target_modality = self._problem_hparams.target_modality
+    if target_modality.is_class_modality:
+      decode_length = 1
+    else:
+      if "partial_targets" in features:
+        prefix_length = common_layers.shape_list(
+            features["partial_targets"])[1]
+      else:
+        prefix_length = common_layers.shape_list(
+            features["inputs"])[1]
+      decode_length = prefix_length + decode_length
+
+    # Initial values of result, logits and loss.
+    result = tf.concat([initial_output,
+                        tf.zeros([batch_size, decode_length, 1, 1], tf.int64)],
+                       axis=1)
+    # tensor padded to [batch_size, decode_length, 1, 1, vocab_size]
+    logits = tf.zeros((batch_size, decode_length, 1, 1,
+                       target_modality.top_dimensionality))
+    if not tf.contrib.eager.in_eager_mode():
+      logits.set_shape([None, None, None, None, None])
+    loss = 0.0
+
+    def while_exit_cond(i, result, logits, loss):  # pylint: disable=unused-argument
+      """Exit the loop either if reach decode_length or EOS."""
+      not_overflow = i < decode_length
+
+      if self._problem_hparams.stop_at_eos:
+
+        def fn_not_eos():
+          # Check if the last predicted element is a EOS
+          return tf.reduce_any(
+              tf.not_equal(
+                  tf.squeeze(result[:, -1, :, :]), text_encoder.EOS_ID))
+
+        not_eos = tf.cond(
+            # We only check for early stopping if there is at least 1 element (
+            # otherwise not_eos will crash).
+            tf.not_equal(i, 0),
+            fn_not_eos,
+            lambda: True,
+        )
+
+        return tf.cond(
+            tf.equal(batch_size, 1),
+            # If batch_size == 1, we check EOS for early stopping.
+            lambda: tf.logical_and(not_overflow, not_eos),
+            # Else, just wait for max length
+            lambda: not_overflow)
+      return not_overflow
+
+    _, result, logits, loss = tf.while_loop(
+        while_exit_cond,
+        infer_step, [tf.constant(0), result, logits, loss],
+        shape_invariants=[
+            tf.TensorShape([]),
+            tf.TensorShape([batch_size, decode_length, 1, 1]),
+            tf.TensorShape([batch_size, decode_length, 1, 1,
+                            target_modality.top_dimensionality]),
+            tf.TensorShape([]),
+        ],
+        back_prop=False,
+        parallel_iterations=1)
+    if inputs_old is not None:  # Restore to not confuse Estimator.
+      features["inputs"] = inputs_old
+    # Reassign targets back to the previous value.
+    if targets_old is not None:
+      features["targets"] = targets_old
+    losses = {"training": loss}
+    if "partial_targets" in features:
+      partial_target_length = common_layers.shape_list(
+          features["partial_targets"])[1]
+      result = tf.slice(result, [0, partial_target_length, 0, 0],
+                        [-1, -1, -1, -1])
+    return {
+        "outputs": result,
+        "scores": None,
+        "logits": logits,
+        "losses": losses,
+    }
 
   def _slow_greedy_infer(self, features, decode_length):
     """A slow greedy inference method.
