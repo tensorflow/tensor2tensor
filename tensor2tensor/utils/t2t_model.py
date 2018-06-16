@@ -117,6 +117,16 @@ class T2TModel(base.Layer):
     if self._problem_hparams:
       self._create_modalities(self._problem_hparams, self._hparams)
 
+  # Replace the two methods below in order to add custom SessionRunHooks to
+  # the training procedure.
+  @staticmethod
+  def train_hooks():
+    return []
+
+  @staticmethod
+  def eval_hooks():
+    return []
+
   @property
   def hparams(self):
     return self._hparams
@@ -270,8 +280,8 @@ class T2TModel(base.Layer):
     all_previous_modalities = []
 
     # Transform the input features
-    for key, input_modality in sorted(six.iteritems(
-        self._problem_hparams.input_modality)):
+    for key, input_modality in sorted(
+        six.iteritems(self._problem_hparams.input_modality)):
       if key not in features:
         tf.logging.warning("Missing feature %s - ignoring." % key)
         continue
@@ -519,8 +529,8 @@ class T2TModel(base.Layer):
 
   def _fill_problem_hparams_features(self, features):
     if features is not None:
-      for k, v in sorted(six.iteritems(
-          problem_hparams_to_features(self._problem_hparams))):
+      for k, v in sorted(
+          six.iteritems(problem_hparams_to_features(self._problem_hparams))):
         if k not in features:
           features[k] = tf.constant(v, name=k)
 
@@ -973,11 +983,9 @@ class T2TModel(base.Layer):
       decode_length = 1
     else:
       if "partial_targets" in features:
-        prefix_length = common_layers.shape_list(
-            features["partial_targets"])[1]
+        prefix_length = common_layers.shape_list(features["partial_targets"])[1]
       else:
-        prefix_length = common_layers.shape_list(
-            features["inputs"])[1]
+        prefix_length = common_layers.shape_list(features["inputs"])[1]
       decode_length = prefix_length + decode_length
 
     # Initial values of result, logits and loss.
@@ -1111,6 +1119,16 @@ class T2TModel(base.Layer):
       for k, v in six.iteritems(feats):
         features[k].append(v)
     return features
+
+  @staticmethod
+  def get_train_hooks(model_name):
+    model_cls = registry.model(model_name)
+    return model_cls.train_hooks()
+
+  @staticmethod
+  def get_eval_hooks(model_name):
+    model_cls = registry.model(model_name)
+    return model_cls.eval_hooks()
 
   @staticmethod
   def make_estimator_model_fn(model_name,
@@ -1273,8 +1291,8 @@ class T2TModel(base.Layer):
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
           k = metric_name.split("/")[1]
           if k in logits:
-            eval_metrics[metric_name] = metric_fn(
-                logits[k], features, features[k])
+            eval_metrics[metric_name] = metric_fn(logits[k], features,
+                                                  features[k])
           else:
             # We do not make it an error because we sometimes run models that
             # predict only parts of the targets defined by the Problem class.
@@ -1283,8 +1301,8 @@ class T2TModel(base.Layer):
             # like actions or rewards.
             tf.logging.warning("No key %s in logits for evaluation." % k)
         else:
-          eval_metrics[metric_name] = metric_fn(
-              logits, features, features["targets"])
+          eval_metrics[metric_name] = metric_fn(logits, features,
+                                                features["targets"])
       if isinstance(logits, dict):
         predictions = logits
       else:
@@ -1339,8 +1357,7 @@ class T2TModel(base.Layer):
 
     if use_tpu:
       return tf.contrib.tpu.TPUEstimatorSpec(
-          tf.estimator.ModeKeys.PREDICT,
-          predictions=predictions)
+          tf.estimator.ModeKeys.PREDICT, predictions=predictions)
     else:
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.PREDICT,
@@ -1684,8 +1701,10 @@ def _compose_custom_getters(getter_a, getter_b):
     return getter_b
   if not getter_b:
     return getter_a
+
   def getter_fn(getter, *args, **kwargs):
     return getter_b(functools.partial(getter_a, getter), *args, **kwargs)
+
   return getter_fn
 
 
@@ -1698,5 +1717,5 @@ def set_custom_getter_compose(custom_getter):
     custom_getter: a custom getter.
   """
   tf.get_variable_scope().set_custom_getter(
-      _compose_custom_getters(
-          tf.get_variable_scope().custom_getter, custom_getter))
+      _compose_custom_getters(tf.get_variable_scope().custom_getter,
+                              custom_getter))
