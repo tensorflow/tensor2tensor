@@ -67,7 +67,7 @@ class _MemoryWrapper(WrapperBase):
 
     with tf.control_dependencies([assign]):
       enqueue_op = self.speculum.enqueue(
-          [self._observ, reward, done, action])
+          [self._observ.read_value(), reward, done, action])
       with tf.control_dependencies([enqueue_op]):
         return tf.identity(reward), tf.identity(done)
 

@@ -82,6 +82,14 @@ def standard_atari_parameters():
   return tf.contrib.training.HParams(wrappers=wrappers)
 
 @registry.register_hparams
+def discrete_random_action_base():
+  hparams = common_hparams.basic_params1()
+  hparams.add_hparam("policy_network", random_policy_fun)
+  hparams.add_hparam("policy_network_params", "standard_atari_parameters")
+  return hparams
+
+
+@registry.register_hparams
 def ppo_atari_base():
   """Atari base parameters."""
   hparams = ppo_discrete_action_base()
@@ -113,7 +121,7 @@ def ppo_pong_base():
   hparams.optimization_epochs = 2
   hparams.epochs_num = 1000
   hparams.num_eval_agents = 1
-  hparams.network = feed_forward_cnn_small_categorical_fun
+  hparams.policy_network = feed_forward_cnn_small_categorical_fun
   hparams.clipping_coef = 0.2
   hparams.optimization_batch_size = 4
   hparams.max_gradients_norm = 0.5

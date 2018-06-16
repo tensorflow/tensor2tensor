@@ -332,14 +332,14 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self.environment_spec = lambda: gym.make(self.env_name)
     self._real_env = None
     self.real_env_problem = None
-    self.in_graph_wrappers = []
+    self._internal_memory_size = 10
+
     self.collect_hparams = rl.ppo_pong_base()
     if FLAGS.autoencoder_path:
       self.collect_hparams = rl.ppo_pong_ae_base()
     self.settable_num_steps = 50000
     self.simulated_environment = None
     self.eval_phase = False
-    self.warm_up = 10  # TODO(piotrm): This should be probably removed.
 
     # Debug info.
     self.dones = 0
@@ -427,10 +427,7 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       self.sum_of_rewards = 0.0
       self.successful_episode_reward_predictions = 0
 
-    in_graph_wrappers = self.in_graph_wrappers + [
-        (atari.MemoryWrapper, {}), (StackAndSkipWrapper, {"skip": 4})]
     env_hparams = tf.contrib.training.HParams(
-        in_graph_wrappers=in_graph_wrappers,
         problem=self.real_env_problem if self.real_env_problem else self,
         simulated_environment=self.simulated_environment)
     if self.simulated_environment:
@@ -439,15 +436,8 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       env_hparams.add_hparam("intrinsic_reward_scale",
                              self.intrinsic_reward_scale)
 
-    generator_batch_env = batch_env_factory(
-        self.environment_spec, env_hparams, num_agents=1, xvfb=False)
-
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      if FLAGS.agent_policy_path:
-        policy_lambda = self.collect_hparams.network
-      else:
-        # When no agent_policy_path is set, just generate random samples.
-        policy_lambda = rl.random_policy_fun
+    # generator_batch_env = batch_env_factory(
+    #     self.environment_spec, env_hparams, num_agents=1, xvfb=False)
 
     if FLAGS.autoencoder_path:
       # TODO(lukaszkaiser): remove hard-coded autoencoder params.
@@ -482,19 +472,17 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
                      not self.simulated_environment)
     preprocess = (preprocess_fn, shape) if do_preprocess else None
 
-    def policy(x):
-      return policy_lambda(self.environment_spec().action_space,
-                           self.collect_hparams, x)
+    if not FLAGS.agent_policy_path:
+      self.collect_hparams.policy_network = rl.random_policy_fun
 
+    self.collect_hparams.add_hparam("environment_spec", self.environment_spec)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      self.collect_hparams.epoch_length = 10
-      _, self.collect_trigger_op = collect.define_collect(
-          policy, generator_batch_env, self.collect_hparams,
-          eval_phase=self.eval_phase,
-          scope="define_collect", preprocess=preprocess)
-
-    self.avilable_data_size_op = atari.MemoryWrapper.singleton.speculum.size()
-    self.data_get_op = atari.MemoryWrapper.singleton.speculum.dequeue()
+      self.collect_hparams.epoch_length = self._internal_memory_size
+      self.collect_hparams.num_agents = 1 #it is possible to set more
+      self.collect_memory, self.collect_trigger_op = collect.define_collect(
+          self.collect_hparams, scope="gym_problems",
+          collect_level=0,
+          eval_phase=self.eval_phase)
 
   def restore_networks(self, sess):
     if FLAGS.agent_policy_path:
@@ -532,11 +520,17 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
         # built and self.collect_trigger_op is all that's used from it.
         FLAGS.autoencoder_path = None
       pieces_generated = 0
-      while pieces_generated < self.num_steps + self.warm_up:
-        avilable_data_size = sess.run(self.avilable_data_size_op)
-        if avilable_data_size < 1:
+      memory_index = 0
+      memory = None
+      while pieces_generated < self.num_steps:
+        if memory is None or memory_index>=self._internal_memory_size:
           sess.run(self.collect_trigger_op)
-        observ, reward, action, done = sess.run(self.data_get_op)
+          memory = sess.run(self.collect_memory)
+          memory_index = 0
+        data = [memory[i][memory_index][0] for i in range(4)]
+        memory_index += 1
+        observ, reward, done, action = data
+        observ = observ.astype(np.uint8) # TODO(piotrmilos). This should be probably done in collect
         debug_im = None
         if self.make_extra_debug_info:
           self.total_sim_reward += reward
