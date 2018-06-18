@@ -36,9 +36,7 @@ import copy
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.layers import discretization
-from tensor2tensor.models.research.rl import EnvironmentSpec
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
@@ -143,8 +141,6 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_epochs_num = hparams.ppo_epochs_num
   ppo_hparams.epochs_num = ppo_epochs_num
-  ppo_hparams.simulation_random_starts = hparams.simulation_random_starts
-  ppo_hparams.intrinsic_reward_scale = hparams.intrinsic_reward_scale
   ppo_hparams.eval_every_epochs = 50
   ppo_hparams.save_models_every_epochs = ppo_epochs_num
   ppo_hparams.epoch_length = hparams.ppo_epoch_length
@@ -154,16 +150,19 @@ def train_agent(problem_name, agent_model_dir,
   if hparams.ppo_learning_rate:
     ppo_hparams.learning_rate = hparams.ppo_learning_rate
 
-  environment_spec = gym_problem.environment_spec
+  environment_spec = copy.copy(gym_problem.environment_spec)
+  environment_spec.simulated_env = True
+  environment_spec.add_hparam("simulation_random_starts",
+                              hparams.simulation_random_starts)
+  environment_spec.add_hparam("intrinsic_reward_scale",
+                              hparams.intrinsic_reward_scale)
+
   # 4x for the StackAndSkipWrapper minus one to always finish for reporting.
   ppo_time_limit = (ppo_hparams.epoch_length - 1) * 4
-  wrappers = copy.copy(environment_spec.wrappers)
-  wrappers.append([TimeLimitWrapper, {"timelimit": ppo_time_limit}])
-  ppo_hparams.add_hparam("environment_spec",
-                         EnvironmentSpec(env_lambda=environment_spec.env_lambda,
-                                         wrappers=wrappers,
-                                         simulated_env=True))
+  wrappers = environment_spec.wrappers + [[TimeLimitWrapper, {"timelimit": ppo_time_limit}]]
+  environment_spec.wrappers = wrappers
 
+  ppo_hparams.add_hparam("environment_spec", environment_spec)
 
   with temporary_flags({
       "problem": problem_name,

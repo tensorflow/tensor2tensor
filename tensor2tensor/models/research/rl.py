@@ -119,7 +119,6 @@ def ppo_pong_base():
   hparams.max_gradients_norm = 0.5
   return hparams
 
-EnvironmentSpec = collections.namedtuple('EnvironmentSpec', 'env_lambda, wrappers, simulated_env')
 
 def standard_atari_env_spec(env):
   """Parameters of environement specification"""
@@ -131,7 +130,10 @@ def standard_atari_env_spec(env):
     env_lambda = env
   assert env is not None, "Unknown specification of environment"
 
-  return EnvironmentSpec(env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
+  return tf.contrib.training.HParams(env_lambda=env_lambda,
+                                     wrappers=standard_wrappers,
+                                     simulated_env=False)
+
 
 def simple_gym_spec(env):
   """Parameters of environement specification"""
@@ -143,7 +145,9 @@ def simple_gym_spec(env):
     env_lambda = env
   assert env is not None, "Unknown specification of environment"
 
-  return EnvironmentSpec(env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
+  return tf.contrib.training.HParams(env_lambda=env_lambda,
+                                     wrappers=standard_wrappers,
+                                     simulated_env=False)
 
 @registry.register_hparams
 def ppo_pong_ae_base():
