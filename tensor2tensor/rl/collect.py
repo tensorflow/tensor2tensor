@@ -18,15 +18,12 @@ from __future__ import division
 from __future__ import print_function
 
 
-
 import copy
 import tensorflow as tf
-
 from tensor2tensor.rl.envs import utils
-
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
 from tensor2tensor.rl.envs.utils import get_policy
-from tensor2tensor.utils import registry
+
 
 def _rollout_metadata(batch_env):
   batch_env_shape = batch_env.observ.get_shape().as_list()
