@@ -20,7 +20,7 @@ from __future__ import print_function
 import importlib
 import six
 
-modules = [
+MODULES = [
     "tensor2tensor.data_generators.algorithmic",
     "tensor2tensor.data_generators.algorithmic_math",
     "tensor2tensor.data_generators.audio",
@@ -67,6 +67,7 @@ modules = [
     "tensor2tensor.data_generators.wikitext103",
     "tensor2tensor.data_generators.wsj_parsing",
 ]
+ALL_MODULES = list(MODULES)
 
 
 
@@ -94,10 +95,11 @@ def _handle_errors(errors):
       print("Did not import module: %s; Cause: %s" % (module, err_str))
 
 
-_errors = []
-for _module in modules:
-  try:
-    importlib.import_module(_module)
-  except ImportError as error:
-    _errors.append((_module, error))
-_handle_errors(_errors)
+def import_modules(modules):
+  errors = []
+  for module in modules:
+    try:
+      importlib.import_module(module)
+    except ImportError as error:
+      errors.append((module, error))
+  _handle_errors(errors)

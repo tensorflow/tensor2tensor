@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.data_generators import all_problems  # pylint: disable=unused-import
+from tensor2tensor.data_generators import all_problems
 from tensor2tensor.utils import registry
 
 
@@ -27,3 +27,6 @@ def problem(name):
 
 def available():
   return sorted(registry.list_problems())
+
+
+all_problems.import_modules(all_problems.ALL_MODULES)
