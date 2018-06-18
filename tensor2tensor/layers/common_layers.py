@@ -3014,24 +3014,16 @@ def _recompute_grad(fn, args):
 
 
 def dense(x, units, **kwargs):
-  """Identical to tf.layers.dense, Memory optimization on tpu."""
-  fn = lambda x: tf.layers.dense(x, units, **kwargs)
-  if is_on_tpu():
-    # TODO(noam): remove this hack once XLA does the right thing.
-    # Forces the gradients on the inputs to be computed before the variables
-    # are updated.  This saves memory by preventing XLA from making an extra
-    # copy of the variables.
-    return _recompute_grad(fn, [x])
-  else:
-    return fn(x)
+  """Identical to tf.layers.dense."""
+  return tf.layers.dense(x, units, **kwargs)
 
 
-def _batch_dense(inputs,
-                 units,
-                 activation=None,
-                 kernel_initializer=None,
-                 reuse=None,
-                 name=None):
+def batch_dense(inputs,
+                units,
+                activation=None,
+                kernel_initializer=None,
+                reuse=None,
+                name=None):
   """Multiply a batch of input matrices by a batch of parameter matrices.
 
   Each input matrix is multiplied by the corresponding parameter matrix.
@@ -3074,19 +3066,6 @@ def _batch_dense(inputs,
     if activation is not None:
       y = activation(y)
     return y
-
-
-def batch_dense(x, units, **kwargs):
-  """Identical to _batch_dense, Memory optimization on tpu."""
-  fn = lambda x: _batch_dense(x, units, **kwargs)
-  if is_on_tpu():
-    # TODO(noam): remove this hack once XLA does the right thing.
-    # Forces the gradients on the inputs to be computed before the variables
-    # are updated.  This saves memory by preventing XLA from making an extra
-    # copy of the variables.
-    return _recompute_grad(fn, [x])
-  else:
-    return fn(x)
 
 
 def mix(x1, x2, steps, is_training,
