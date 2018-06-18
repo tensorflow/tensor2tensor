@@ -35,7 +35,7 @@ class GymProblemsTest(tf.test.TestCase):
     os.mkdir(cls.tmp_dir)
 
   def testGymAtariBoots(self):
-    problem = gym_problems.GymPongRandom5k()
+    problem = gym_problems.GymSimulatedDiscreteProblemWithAgentOnPong()
     self.assertEqual(5000, problem.num_steps)
 
 

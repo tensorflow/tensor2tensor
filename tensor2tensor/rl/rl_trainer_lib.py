@@ -32,59 +32,42 @@ from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
 
-def define_train(hparams, environment_spec, event_dir):
+def define_train(hparams, event_dir):
   """Define the training setup."""
-  policy_lambda = hparams.network
-
-  if environment_spec == "stacked_pong":
-    environment_spec = lambda: gym.make("PongNoFrameskip-v4")
-    wrappers = hparams.in_graph_wrappers if hasattr(
-        hparams, "in_graph_wrappers") else []
-    wrappers.append((tf_atari_wrappers.MaxAndSkipWrapper, {"skip": 4}))
-    hparams.in_graph_wrappers = wrappers
-  if isinstance(environment_spec, str):
-    env_lambda = lambda: gym.make(environment_spec)
-  else:
-    env_lambda = environment_spec
-
-  batch_env = utils.batch_env_factory(
-      env_lambda, hparams, num_agents=hparams.num_agents)
-
-  policy_factory = functools.partial(
-      policy_lambda, batch_env.action_space, hparams)
 
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     memory, collect_summary = collect.define_collect(
-        policy_factory, batch_env, hparams, eval_phase=False,
-        on_simulated=hparams.simulated_environment)
-    ppo_summary = ppo.define_ppo_epoch(memory, policy_factory, hparams)
+        hparams, "ppo_train", eval_phase=False, on_simulated=hparams.simulated_environment)
+    ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     summary = tf.summary.merge([collect_summary, ppo_summary])
 
-  with tf.variable_scope("eval", reuse=tf.AUTO_REUSE):
-    eval_env_lambda = env_lambda
-    if event_dir and hparams.video_during_eval:
-      # Some environments reset environments automatically, when reached done
-      # state. For them we shall record only every second episode.
-      d = 2 if env_lambda().metadata.get("semantics.autoreset") else 1
-      eval_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
-          env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
-      eval_env_lambda = (
-          lambda: utils.EvalVideoWrapper(eval_env_lambda()))
-    eval_batch_env = utils.batch_env_factory(
-        eval_env_lambda, hparams,
-        num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
+  # with tf.variable_scope("eval", reuse=tf.AUTO_REUSE):
+  #   eval_env_lambda = env_lambda
+  #   if event_dir and hparams.video_during_eval:
+  #     # Some environments reset environments automatically, when reached done
+  #     # state. For them we shall record only every second episode.
+  #     d = 2 if env_lambda().metadata.get("semantics.autoreset") else 1
+  #     eval_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
+  #         env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
+  #     eval_env_lambda = (
+  #         lambda: utils.EvalVideoWrapper(eval_env_lambda()))
+  #   eval_batch_env = utils.batch_env_factory(
+  #       eval_env_lambda, hparams,
+  #       num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
+  #
+  #   _, eval_summary = collect_new.define_collect(
+  #       policy_factory, eval_batch_env, hparams, eval_phase=True)
 
-    _, eval_summary = collect.define_collect(
-        policy_factory, eval_batch_env, hparams, eval_phase=True)
+  #Fake for development
+  eval_summary = summary
   return summary, eval_summary
 
 
-def train(hparams, environment_spec, event_dir=None, model_dir=None,
+def train(hparams, event_dir=None, model_dir=None,
           restore_agent=True, epoch=0):
   """Train."""
   with tf.name_scope("rl_train"):
-    train_summary_op, eval_summary_op = define_train(hparams, environment_spec,
-                                                     event_dir)
+    train_summary_op, eval_summary_op = define_train(hparams, event_dir)
     if event_dir:
       summary_writer = tf.summary.FileWriter(
           event_dir, graph=tf.get_default_graph(), flush_secs=60)
