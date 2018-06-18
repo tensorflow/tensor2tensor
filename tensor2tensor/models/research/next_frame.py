@@ -658,10 +658,13 @@ class NextFrameStochastic(NextFrameBasic):
 
     all_actions = input_actions + target_actions
     all_rewards = input_rewards + target_rewards
+    all_frames = input_frames + target_frames
+
+    tf.summary.image("full_video", tf.concat(all_frames, axis=1))
 
     is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
     gen_images, gen_rewards, latent_mean, latent_std = self.construct_model(
-        images=input_frames + target_frames,
+        images=all_frames,
         actions=all_actions,
         rewards=all_rewards,
         k=900.0 if is_training else -1.0,
@@ -730,7 +733,7 @@ def next_frame():
 def next_frame_stochastic():
   """SV2P model."""
   hparams = next_frame()
-  hparams.video_num_input_frames = 4
+  hparams.video_num_input_frames = 2
   hparams.video_num_target_frames = 1
   hparams.batch_size = 8
   hparams.target_modality = "video:l2raw"

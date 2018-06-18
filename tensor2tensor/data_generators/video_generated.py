@@ -22,7 +22,6 @@ import math
 
 import numpy as np
 
-from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
@@ -54,7 +53,8 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
 
   @property
   def total_number_of_frames(self):
-    return 10000
+    # 10k videos
+    return 10000 * self.video_length
 
   @property
   def video_length(self):
@@ -68,17 +68,6 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
     eval_metrics = [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
                     metrics.Metrics.IMAGE_RMSE]
     return eval_metrics
-
-  @property
-  def dataset_splits(self):
-    """Splits of data to produce and number of output shards for each."""
-    return [{
-        "split": problem.DatasetSplit.TRAIN,
-        "shards": 1,
-    }, {
-        "split": problem.DatasetSplit.EVAL,
-        "shards": 1,
-    }]
 
   @property
   def extra_reading_spec(self):

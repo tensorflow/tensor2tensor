@@ -100,6 +100,14 @@ class VideoProblem(problem.Problem):
         "shards": 1,
     }]
 
+  @property
+  def only_keep_videos_from_0th_frame(self):
+    return True
+
+  @property
+  def use_not_breaking_batching(self):
+    return False
+
   def preprocess_example(self, example, mode, hparams):
     """Runtime preprocessing, e.g., resize example["frame"]."""
     return example
@@ -192,6 +200,52 @@ class VideoProblem(problem.Problem):
     # Batch and construct features.
     def _preprocess(example):
       return self.preprocess_example(example, mode, hparams)
+
+    def avoid_break_batching(dataset):
+      """Smart preprocessing to avoid break between videos!
+
+      Simple batching of images into videos may result into broken videos
+      with two parts from two different videos. This preprocessing avoids
+      this using the frame number.
+
+      Args:
+        dataset: raw not-batched dataset.
+
+      Returns:
+        batched not-broken videos.
+
+      """
+      def check_integrity_and_batch(*datasets):
+        """Checks whether a sequence of frames are from the same video.
+
+        Args:
+          *datasets: datasets each skipping 1 frame from the previous one.
+
+        Returns:
+          batched data and the integrity flag.
+        """
+        frame_numbers = [dataset["frame_number"][0] for dataset in datasets]
+
+        not_broken = tf.equal(
+            frame_numbers[-1] - frame_numbers[0], num_frames-1)
+        if self.only_keep_videos_from_0th_frame:
+          not_broken = tf.logical_and(not_broken, tf.equal(frame_numbers[0], 0))
+
+        features = {}
+        for key in datasets[0].keys():
+          values = [dataset[key] for dataset in datasets]
+          batch = tf.stack(values)
+          features[key] = batch
+        return features, not_broken
+
+      ds = [dataset.skip(i) for i in range(num_frames)]
+      dataset = tf.data.Dataset.zip(tuple(ds))
+      dataset = dataset.map(check_integrity_and_batch)
+      dataset = dataset.filter(lambda _, not_broken: not_broken)
+      dataset = dataset.map(lambda features, _: features)
+
+      return dataset
+
     preprocessed_dataset = dataset.map(_preprocess)
     num_frames = (hparams.video_num_input_frames +
                   hparams.video_num_target_frames)
@@ -199,8 +253,11 @@ class VideoProblem(problem.Problem):
     if self.random_skip:
       random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
       preprocessed_dataset = preprocessed_dataset.skip(random_skip)
-    batch_dataset = preprocessed_dataset.apply(
-        tf.contrib.data.batch_and_drop_remainder(num_frames))
+    if self.use_not_breaking_batching:
+      batch_dataset = avoid_break_batching(preprocessed_dataset)
+    else:
+      batch_dataset = preprocessed_dataset.apply(
+          tf.contrib.data.batch_and_drop_remainder(num_frames))
     dataset = batch_dataset.map(features_from_batch).shuffle(8)
     return dataset
 
