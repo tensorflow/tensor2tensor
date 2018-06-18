@@ -1355,18 +1355,20 @@ class T2TModel(base.Layer):
 
     _remove_summaries()
 
+    export_outputs = {
+        tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+            tf.estimator.export.PredictOutput(export_out)
+    }
     if use_tpu:
       return tf.contrib.tpu.TPUEstimatorSpec(
-          tf.estimator.ModeKeys.PREDICT, predictions=predictions)
+          tf.estimator.ModeKeys.PREDICT,
+          predictions=predictions,
+          export_outputs=export_outputs)
     else:
       return tf.estimator.EstimatorSpec(
           tf.estimator.ModeKeys.PREDICT,
           predictions=predictions,
-          export_outputs={
-              tf.saved_model.signature_constants.
-              DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-                  tf.estimator.export.PredictOutput(export_out)
-          })
+          export_outputs=export_outputs)
 
   def _normalize_body_output(self, body_out):
     if isinstance(body_out, tuple):
