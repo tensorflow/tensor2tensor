@@ -241,6 +241,10 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(res.shape, ())
 
   def testGreedySlowTPUVsNonTPU(self):
+    # Only works with TF 1.8+
+    major, minor, _ = [int(el) for el in tf.__version__.split(".")]
+    if major < 1 or (major == 1 and minor < 8):
+      return
     model, features = get_model(transformer.transformer_small())
 
     decode_length = 3
