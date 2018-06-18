@@ -149,7 +149,7 @@ def main(_):
     problems = [p for p in problems if "timit" not in p]
   # Remove parsing if paths are not given.
   if not FLAGS.parsing_path:
-    problems = [p for p in problems if "parsing" not in p]
+    problems = [p for p in problems if "parsing_english_ptb" not in p]
 
   if not problems:
     problems_str = "\n  * ".join(
