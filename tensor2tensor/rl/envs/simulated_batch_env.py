@@ -106,7 +106,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self._model = registry.model(FLAGS.model)(
       model_hparams, tf.estimator.ModeKeys.PREDICT)
 
-    _, self.action_shape, self.action_dtype = utils.get_action_space(hparams)
+    _, self.action_shape, self.action_dtype = utils.get_action_space(hparams.environment_spec)
 
     if simulation_random_starts:
       dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,

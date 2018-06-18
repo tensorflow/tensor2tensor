@@ -73,21 +73,13 @@ def basic_policy_parameters():
 def ppo_discrete_action_base():
   hparams = ppo_base_v1()
   hparams.add_hparam("policy_network", feed_forward_categorical_fun)
-  hparams.add_hparam("policy_network_params", "standard_atari_parameters")
   return hparams
-
-@registry.register_hparams
-def standard_atari_parameters():
-  wrappers = [[tf_atari_wrappers.MaxAndSkipWrapper, {"skip": 4}]]
-  return tf.contrib.training.HParams(wrappers=wrappers)
 
 @registry.register_hparams
 def discrete_random_action_base():
   hparams = common_hparams.basic_params1()
   hparams.add_hparam("policy_network", random_policy_fun)
-  hparams.add_hparam("policy_network_params", "standard_atari_parameters")
   return hparams
-
 
 @registry.register_hparams
 def ppo_atari_base():
@@ -127,6 +119,31 @@ def ppo_pong_base():
   hparams.max_gradients_norm = 0.5
   return hparams
 
+EnvironmentSpec = collections.namedtuple('EnvironmentSpec', 'env_lambda, wrappers, simulated_env')
+
+def standard_atari_env_spec(env):
+  """Parameters of environement specification"""
+  standard_wrappers = [[tf_atari_wrappers.MaxAndSkipWrapper, {"skip": 4}]]
+  env_lambda = None
+  if isinstance(env, str):
+    env_lambda = lambda: gym.make(env)
+  if callable(env):
+    env_lambda = env
+  assert env is not None, "Unknown specification of environment"
+
+  return EnvironmentSpec(env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
+
+def simple_gym_spec(env):
+  """Parameters of environement specification"""
+  standard_wrappers = None
+  env_lambda = None
+  if isinstance(env, str):
+    env_lambda = lambda : gym.make(env)
+  if callable(env):
+    env_lambda = env
+  assert env is not None, "Unknown specification of environment"
+
+  return EnvironmentSpec(env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
 
 @registry.register_hparams
 def ppo_pong_ae_base():

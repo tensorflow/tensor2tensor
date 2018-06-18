@@ -281,27 +281,26 @@ class ExternalProcessEnv(object):
 def batch_env_factory(hparams, xvfb=False):
   """Factory of batch envs."""
 
-  if hparams.simulated_environment:
+  environment_spec = hparams.environment_spec
+
+  if environment_spec.simulated_env:
     cur_batch_env = _define_simulated_batch_env(
-      hparams, hparams.num_agents, hparams.problem,
+      environment_spec, hparams.num_agents, hparams.problem,
         hparams.simulation_random_starts,
         hparams.intrinsic_reward_scale)
   else:
-    cur_batch_env = _define_batch_env(hparams, xvfb=xvfb)
+    cur_batch_env = _define_batch_env(environment_spec, hparams.num_agents,
+                                      xvfb=xvfb)
   return cur_batch_env
 
 
-def _define_batch_env(hparams, xvfb=False):
+def _define_batch_env(environment_spec, num_agents, xvfb=False):
   """Create environments and apply all desired wrappers."""
-  if isinstance(hparams.environment_spec, str):
-    environment_lambda = lambda: gym.make(hparams.environment_spec)
-  else:
-    environment_lambda = hparams.environment_spec
 
   with tf.variable_scope("environments"):
     envs = [
-        ExternalProcessEnv(environment_lambda, xvfb)
-        for _ in range(hparams.num_agents)]
+        ExternalProcessEnv(environment_spec.env_lambda, xvfb)
+        for _ in range(num_agents)]
     env = batch_env.BatchEnv(envs, blocking=False)
     env = py_func_batch_env.PyFuncBatchEnv(env)
     return env
@@ -316,22 +315,36 @@ def _define_simulated_batch_env(hparams, num_agents, problem,
   return cur_batch_env
 
 
-def get_action_space(hparams):
-  if isinstance(hparams.environment_spec, str):
-    environment_lambda = lambda: gym.make(hparams.environment_spec)
-  else:
-    environment_lambda = hparams.environment_spec
-
-  action_space = environment_lambda().action_space
+def get_action_space(environment_spec):
+  """Get action spece associated with environment spec
+    
+  Args:
+     environment_spec:  EnvironmentSpec object
+     
+  Returns:
+    OpenAi Gym action spece
+  """
+  action_space = environment_spec.env_lambda().action_space
   action_shape = list(parse_shape(action_space))
   action_dtype = parse_dtype(action_space)
 
   return action_space, action_shape, action_dtype
 
+
 def get_policy(observations, hparams):
+  """Get policy network
+  
+  Args:
+    observations: Tensor with observations
+    hparams: parameters 
+    
+  Returns:
+    Tensor with policy and value function output
+  """
   policy_network_lambda = hparams.policy_network
-  action_space, _, _ = get_action_space(hparams)
+  action_space, _, _ = get_action_space(hparams.environment_spec)
   return policy_network_lambda(action_space, hparams, observations)
+
 
 def parse_shape(space):
   """Get a tensor shape from a OpenAI Gym space.

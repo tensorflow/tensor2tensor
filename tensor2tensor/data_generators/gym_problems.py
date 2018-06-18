@@ -436,9 +436,6 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
       env_hparams.add_hparam("intrinsic_reward_scale",
                              self.intrinsic_reward_scale)
 
-    # generator_batch_env = batch_env_factory(
-    #     self.environment_spec, env_hparams, num_agents=1, xvfb=False)
-
     if FLAGS.autoencoder_path:
       # TODO(lukaszkaiser): remove hard-coded autoencoder params.
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):

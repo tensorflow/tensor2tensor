@@ -60,8 +60,6 @@ class _MemoryWrapper(WrapperBase):
 
   def simulate(self, action):
     reward, done = self._batch_env.simulate(action)
-    # # image = tf.cast(self._batch_env.observ[0, ...], tf.uint8)
-    # image = self._batch_env.observ #possibly remove
     with tf.control_dependencies([reward, done]):
       assign = self._observ.assign(self._batch_env.observ)
 
@@ -80,8 +78,8 @@ def define_collect(hparams, scope, eval_phase,
 
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     batch_env = utils.batch_env_factory(hparams)
-    policy_hparams = registry.hparams(hparams.policy_network_params)
-    wrappers = copy.copy(policy_hparams.wrappers) if policy_hparams.wrappers else []
+    environment_wrappers = hparams.environment_spec.wrappers
+    wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
     #Put memory wrapper at the level you want to gather observations at
     #Negative indices need to be shifted for insert to work correctly
     collect_level = collect_level if collect_level>=0 else len(wrappers) + collect_level + 1
