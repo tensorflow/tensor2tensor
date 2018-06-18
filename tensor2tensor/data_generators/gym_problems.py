@@ -238,6 +238,9 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     p.target_space_id = problem.SpaceID.IMAGE
 
 
+class GymAEDiscreteProblem(GymDiscreteProblem):
+  pass
+
 @registry.register_problem
 class GymPongRandom(GymDiscreteProblem):
   """Pong game, random actions."""
@@ -355,10 +358,7 @@ class GymRealDiscreteProblem(GymDiscreteProblem):
     return standard_atari_env_spec(self.env_name)
 
 
-class GymAEDiscreteProblem(GymDiscreteProblem):
-  pass
 
-@registry.register_problem
 class GymSimulatedDiscreteProblem(GymDiscreteProblem):
   """Simulated gym environment with discrete actions and rewards."""
 
@@ -367,15 +367,12 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     self.make_extra_debug_info = True
     self.debug_dump_frames_path = "debug_frames_sim"
     self.intrinsic_reward_scale = 0.0
-    self.simulation_random_starts = True
+    self.simulation_random_starts = False
     super(GymSimulatedDiscreteProblem, self).__init__(*args, **kwargs)
 
   def _setup(self):
     super(GymSimulatedDiscreteProblem, self)._setup()
     if self.make_extra_debug_info:
-      self.report_reward_statistics_every = 10
-      self.dones = 0
-      self.real_reward = 0
       # Slight weirdness to make sim env and real env aligned
       self.real_env.reset()
       for _ in range(self.num_input_frames):
@@ -412,31 +409,34 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     return debug_im
 
   @property
-  def real_env(self):
-    """Lazy caching environment construction."""
-    if self._real_env is None:
-      self._real_env = self.environment_spec()
-      if self.num_testing_steps is not None:
-        timelimit = self.num_testing_steps
-      else:
-        try:
-          # We assume that the real env is wrapped with TimeLimit.
-          history = self.num_input_frames
-          timelimit = self.real_env._max_episode_steps - history  # pylint: disable=protected-access
-        except:  # pylint: disable=bare-except
-          # If not, set some reasonable default.
-          timelimit = 100
-      self.in_graph_wrappers.append(
-          (TimeLimitWrapper, {"timelimit": timelimit}))
-    return self._real_env
+  def initial_frames_problem(self):
+    raise NotImplemented()
 
   def get_environment_spec(self):
     env_spec = standard_atari_env_spec(self.env_name)
+
+    #Set reasonable time limit (as we do not simulate done)
+    self.real_env = env_spec.env_lambda()
+    if self.num_testing_steps is not None:
+      timelimit = self.num_testing_steps
+    else:
+      try:
+        # We assume that the real env is wrapped with TimeLimit.
+        history = self.num_input_frames
+        timelimit = self.real_env._max_episode_steps - history  # pylint: disable=protected-access
+      except:  # pylint: disable=bare-except
+        # If not, set some reasonable default.
+        timelimit = 100
+
     env_spec.simulated_env = True
     env_spec.add_hparam("simulation_random_starts",
                            self.simulation_random_starts)
     env_spec.add_hparam("intrinsic_reward_scale",
                            self.intrinsic_reward_scale)
+    initial_frames_problem = registry.problem(self.initial_frames_problem)
+    env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
+    env_spec.wrappers.append([TimeLimitWrapper, {"timelimit": timelimit}])
+
     return env_spec
 
   def restore_networks(self, sess):
@@ -453,7 +453,10 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnPong(
     GymSimulatedDiscreteProblem, GymPongRandom):
-  pass
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_pong"
 
 
 @registry.register_problem
@@ -465,7 +468,10 @@ class GymDiscreteProblemWithAgentOnPong(
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
   GymSimulatedDiscreteProblem, GymWrappedPongRandom):
-  pass
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_wrapped_pong"
 
 
 @registry.register_problem
@@ -483,7 +489,10 @@ class GymDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
     GymSimulatedDiscreteProblem, GymWrappedLongPongRandom):
-  pass
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_wrapped_long_pong"
 
 
 @registry.register_problem
@@ -501,7 +510,11 @@ class GymDiscreteProblemWithAgentOnWrappedBreakoutAe(
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
     GymSimulatedDiscreteProblem, GymWrappedBreakoutRandom):
-  pass
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_wrapped_breakout"
+
 
 
 @registry.register_problem
@@ -537,7 +550,11 @@ class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnFreeway(
     GymSimulatedDiscreteProblem, GymFreewayRandom):
-  pass
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_freeway"
+
 
 
 @registry.register_problem

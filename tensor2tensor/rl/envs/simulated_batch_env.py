@@ -91,12 +91,14 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, hparams, length, problem,
-               simulation_random_starts=False, intrinsic_reward_scale=0.):
+  def __init__(self, hparams, length, simulation_random_starts=False,
+               intrinsic_reward_scale=0.):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
-    self._min_reward = problem.min_reward
-    self._num_frames = problem.num_input_frames
+    environment_spec = hparams.environment_spec
+    initial_frames_problem = environment_spec.initial_frames_problem
+    self._min_reward = initial_frames_problem.min_reward
+    self._num_frames = initial_frames_problem.num_input_frames
     self._intrinsic_reward_scale = intrinsic_reward_scale
 
     # initialization_env = environment_lambda()
@@ -106,21 +108,21 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self._model = registry.model(FLAGS.model)(
       model_hparams, tf.estimator.ModeKeys.PREDICT)
 
-    _, self.action_shape, self.action_dtype = utils.get_action_space(hparams.environment_spec)
+    _, self.action_shape, self.action_dtype = utils.get_action_space(environment_spec)
 
     if simulation_random_starts:
-      dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
+      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
                                 shuffle_files=True, hparams=hparams)
       dataset = dataset.shuffle(buffer_size=100)
     else:
-      dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
+      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
                                 shuffle_files=True, hparams=hparams).take(1)
 
     dataset = dataset.map(lambda x: x["inputs"]).repeat()
     self.history_buffer = HistoryBuffer(dataset, self.length)
 
-    shape = (self.length, problem.frame_height, problem.frame_width,
-             problem.num_channels)
+    shape = (self.length, initial_frames_problem.frame_height,
+             initial_frames_problem.frame_width, initial_frames_problem.num_channels)
     self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
 
   def __len__(self):
