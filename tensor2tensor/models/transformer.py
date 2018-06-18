@@ -967,7 +967,8 @@ def transformer_ffn_layer(x,
                           conv_padding="LEFT",
                           nonpadding_mask=None,
                           losses=None,
-                          cache=None):
+                          cache=None,
+                          readout_filter_size=0):
   """Feed-forward layer in the transformer.
 
   Args:
@@ -984,6 +985,8 @@ def transformer_ffn_layer(x,
     losses: optional list onto which to append extra training losses
     cache: dict, containing tensors which are the results of previous
         attentions, used for fast decoding.
+    readout_filter_size: if it's greater than 0, then it will be used instead of
+      filter_size
 
 
   Returns:
@@ -1020,7 +1023,7 @@ def transformer_ffn_layer(x,
   elif ffn_layer == "conv_relu_conv":
     return common_layers.conv_relu_conv(
         x,
-        hparams.filter_size,
+        readout_filter_size or hparams.filter_size,
         hparams.hidden_size,
         first_kernel_size=hparams.conv_first_kernel,
         second_kernel_size=1,
@@ -1032,12 +1035,13 @@ def transformer_ffn_layer(x,
     return common_attention.parameter_attention(
         x, hparams.parameter_attention_key_channels or hparams.hidden_size,
         hparams.parameter_attention_value_channels or hparams.hidden_size,
-        hparams.hidden_size, hparams.filter_size, hparams.num_heads,
+        hparams.hidden_size, readout_filter_size or hparams.filter_size,
+        hparams.num_heads,
         hparams.attention_dropout)
   elif ffn_layer == "conv_hidden_relu_with_sepconv":
     return common_layers.conv_hidden_relu(
         x,
-        hparams.filter_size,
+        readout_filter_size or hparams.filter_size,
         hparams.hidden_size,
         kernel_size=(3, 1),
         second_kernel_size=(31, 1),

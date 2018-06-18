@@ -55,6 +55,7 @@ class Metrics(object):
   ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
   DMOL_PERPLEXITY = "disc_mol_neg_log_perplexity"
+  ABS_ERR = "mean_absolute_error"
   IMAGE_RMSE = "image_rmse"
 
 
@@ -75,6 +76,15 @@ def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   error = tf.pow(predictions - labels, 2)
   error_sqrt = tf.sqrt(tf.reduce_sum(error * weights))
   return error_sqrt, tf.reduce_sum(weights)
+
+
+def abs_error(predictions, labels, weights_fn=None):
+  """Computes mean(abs(preds-target))."""
+  del weights_fn  # Unused
+  targets = tf.squeeze(labels, axis=[2, 3])
+  batch_abs_error = tf.abs(predictions - targets)
+  den = tf.ones(tf.shape(batch_abs_error), dtype=tf.float32)
+  return (batch_abs_error, den)
 
 
 def padded_log_poisson(predictions,
@@ -621,5 +631,6 @@ METRICS_FNS = {
     Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
     Metrics.DMOL_PERPLEXITY: dmol_neg_log_perplexity,
+    Metrics.ABS_ERR: abs_error,
     Metrics.IMAGE_RMSE: image_rmse,
 }
