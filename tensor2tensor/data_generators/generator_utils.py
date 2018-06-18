@@ -481,6 +481,7 @@ def _shuffle_single(fname):
 
 
 def shuffle_dataset(filenames):
+  """Shuffles the dataset."""
   if outputs_exist(filenames):
     tf.logging.info("Skipping shuffle because output files exist")
     return
@@ -490,6 +491,7 @@ def shuffle_dataset(filenames):
     pool.map(_shuffle_single, filenames)
   else:
     _shuffle_single(filenames[0])
+  tf.logging.info("Data shuffled.")
 
 
 class SequencePacker(object):
