@@ -106,7 +106,7 @@ class VideoProblem(problem.Problem):
 
   @property
   def use_not_breaking_batching(self):
-    return False
+    return True
 
   def preprocess_example(self, example, mode, hparams):
     """Runtime preprocessing, e.g., resize example["frame"]."""
@@ -224,12 +224,15 @@ class VideoProblem(problem.Problem):
         Returns:
           batched data and the integrity flag.
         """
-        frame_numbers = [dataset["frame_number"][0] for dataset in datasets]
+        not_broken = tf.constant(True)
+        if "frame_number" in datasets[0]:
+          frame_numbers = [dataset["frame_number"][0] for dataset in datasets]
 
-        not_broken = tf.equal(
-            frame_numbers[-1] - frame_numbers[0], num_frames-1)
-        if self.only_keep_videos_from_0th_frame:
-          not_broken = tf.logical_and(not_broken, tf.equal(frame_numbers[0], 0))
+          not_broken = tf.equal(
+              frame_numbers[-1] - frame_numbers[0], num_frames-1)
+          if self.only_keep_videos_from_0th_frame:
+            not_broken = tf.logical_and(not_broken,
+                                        tf.equal(frame_numbers[0], 0))
 
         features = {}
         for key in datasets[0].keys():
