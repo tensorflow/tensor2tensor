@@ -35,7 +35,6 @@ class TrainTest(tf.test.TestCase):
         TrainTest.test_config)
 
     hparams.add_hparam("environment_spec", simple_gym_spec("Pendulum-v0"))
-    hparams.add_hparam("environment_wrappers", None)
     rl_trainer_lib.train(hparams)
 
   def test_no_crash_cartpole(self):
@@ -44,7 +43,6 @@ class TrainTest(tf.test.TestCase):
         TrainTest.test_config)
 
     hparams.add_hparam("environment_spec", standard_atari_env_spec("CartPole-v0"))
-
     rl_trainer_lib.train(hparams)
 
 

@@ -30,6 +30,7 @@ from tensor2tensor.data_generators import video_utils
 from tensor2tensor.layers import discretization
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
+from tensor2tensor.models.research.rl import standard_atari_env_spec
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers as atari
 from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
@@ -329,12 +330,13 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     self.autoencoder_model = None
 
     # Defaults.
-    self.environment_spec = lambda: gym.make(self.env_name)
+    self.environment_spec = standard_atari_env_spec(self.env_name)
     self._real_env = None
     self.real_env_problem = None
     self._internal_memory_size = 10
 
     self.collect_hparams = rl.ppo_pong_base()
+    self.collect_hparams.add_hparam("environment_spec", self.environment_spec)
     if FLAGS.autoencoder_path:
       self.collect_hparams = rl.ppo_pong_ae_base()
     self.settable_num_steps = 50000
@@ -472,7 +474,6 @@ class GymDiscreteProblemWithAgent(GymDiscreteProblem):
     if not FLAGS.agent_policy_path:
       self.collect_hparams.policy_network = rl.random_policy_fun
 
-    self.collect_hparams.add_hparam("environment_spec", self.environment_spec)
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       self.collect_hparams.epoch_length = self._internal_memory_size
       self.collect_hparams.num_agents = 1 #it is possible to set more

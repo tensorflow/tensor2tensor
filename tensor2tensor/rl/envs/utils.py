@@ -284,12 +284,14 @@ def batch_env_factory(hparams, xvfb=False):
   environment_spec = hparams.environment_spec
 
   if environment_spec.simulated_env:
+    # TODO(piotrmilos): Consider passing only relevant paramters
     cur_batch_env = _define_simulated_batch_env(
-      environment_spec, hparams.num_agents, hparams.problem,
+      hparams, hparams.num_agents, hparams.problem,
         hparams.simulation_random_starts,
         hparams.intrinsic_reward_scale)
   else:
-    cur_batch_env = _define_batch_env(environment_spec, hparams.num_agents,
+
+    cur_batch_env = _define_batch_env(hparams.environment_spec, hparams.num_agents,
                                       xvfb=xvfb)
   return cur_batch_env
 
@@ -322,7 +324,7 @@ def get_action_space(environment_spec):
      environment_spec:  EnvironmentSpec object
      
   Returns:
-    OpenAi Gym action spece
+    OpenAi Gym action space
   """
   action_space = environment_spec.env_lambda().action_space
   action_shape = list(parse_shape(action_space))

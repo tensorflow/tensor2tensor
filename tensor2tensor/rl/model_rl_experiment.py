@@ -30,9 +30,13 @@ import datetime
 import math
 import os
 import time
+
+import copy
+
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.layers import discretization
+from tensor2tensor.models.research.rl import EnvironmentSpec
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
@@ -139,7 +143,6 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_epochs_num = hparams.ppo_epochs_num
   ppo_hparams.epochs_num = ppo_epochs_num
-  ppo_hparams.simulated_environment = True
   ppo_hparams.simulation_random_starts = hparams.simulation_random_starts
   ppo_hparams.intrinsic_reward_scale = hparams.intrinsic_reward_scale
   ppo_hparams.eval_every_epochs = 50
@@ -150,14 +153,17 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams.world_model_dir = world_model_dir
   if hparams.ppo_learning_rate:
     ppo_hparams.learning_rate = hparams.ppo_learning_rate
+
+  environment_spec = gym_problem.environment_spec
   # 4x for the StackAndSkipWrapper minus one to always finish for reporting.
   ppo_time_limit = (ppo_hparams.epoch_length - 1) * 4
+  wrappers = copy.copy(environment_spec.wrappers)
+  wrappers.append([TimeLimitWrapper, {"timelimit": ppo_time_limit}])
+  ppo_hparams.add_hparam("environment_spec",
+                         EnvironmentSpec(env_lambda=environment_spec.env_lambda,
+                                         wrappers=wrappers,
+                                         simulated_env=True))
 
-  in_graph_wrappers = [
-      (TimeLimitWrapper, {"timelimit": ppo_time_limit}),
-      (StackAndSkipWrapper, {"skip": 4})]
-  in_graph_wrappers += gym_problem.in_graph_wrappers
-  ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
 
   with temporary_flags({
       "problem": problem_name,
@@ -167,8 +173,7 @@ def train_agent(problem_name, agent_model_dir,
       "data_dir": epoch_data_dir,
       "autoencoder_path": autoencoder_path,
   }):
-    rl_trainer_lib.train(ppo_hparams, gym_problem.env_name, event_dir,
-                         agent_model_dir, epoch=epoch)
+    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=epoch)
 
 
 def evaluate_world_model(simulated_problem_name, problem_name, hparams,
