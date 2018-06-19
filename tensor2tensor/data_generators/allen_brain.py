@@ -301,7 +301,7 @@ class Img2imgAllenBrainDim8to32(Img2imgAllenBrain):
 
   Notes:
 
-    * Tiny for test and development purposes. 
+    * Tiny for test and development purposes.
 
   """
 
