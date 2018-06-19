@@ -37,16 +37,21 @@ before_install:
 install:
   - pip install -q "tensorflow==$TF_VERSION"
   # First ensure that the base dependencies are sufficient for a full import
-  - pip install -q .
+  - pip list | grep pandas
+  - pip install .
   - t2t-trainer --registry_help
   # Then install the test dependencies
-  - pip install -q .[tests,allen]
+  - pip list | grep pandas
+  - pip install .[tests,allen]
+  - pip list | grep pandas
   # Make sure to install the atari extras for gym
   - pip install "gym[atari]"
+  - pip list | grep pandas
   # Make sure we have the latest version of numpy - avoid problems we were
   # seeing with Python 3
-  - pip install -q -U numpy
+  - pip install -U numpy
 script:
+  - pip list | grep pandas
   # Check import
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
 
@@ -57,6 +62,8 @@ script:
   #   * trainer_lib_test
   #   * visualization_test
   #   * model_rl_experiment_test
+  #   * allen_brain_test
+  #   * allen_brain_utils_test
   # algorithmic_math_test: flaky
   # universal_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
   - pytest
