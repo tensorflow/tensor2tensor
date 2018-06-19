@@ -163,6 +163,7 @@ def create_experiment_fn():
       eval_steps=FLAGS.eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
       schedule=FLAGS.schedule,
+      eval_throttle_seconds=FLAGS.eval_throttle_seconds,
       export=FLAGS.export_saved_model,
       decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams),
       use_tfdbg=FLAGS.tfdbg,

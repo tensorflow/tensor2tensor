@@ -205,6 +205,8 @@ def create_estimator(model_name,
 def create_hooks(use_tfdbg=False,
                  use_dbgprofile=False,
                  dbgprofile_kwargs=None,
+                 use_validation_monitor=False,
+                 validation_monitor_kwargs=None,
                  use_early_stopping=False,
                  early_stopping_kwargs=None):
   """Create train and eval hooks for Experiment."""
@@ -223,6 +225,12 @@ def create_hooks(use_tfdbg=False,
     defaults = dict(save_steps=10, show_dataflow=True, show_memory=True)
     defaults.update(dbgprofile_kwargs)
     train_hooks.append(tf.train.ProfilerHook(**defaults))
+
+  if use_validation_monitor:
+    tf.logging.info("Using ValidationMonitor")
+    train_hooks.append(
+        tf.contrib.learn.monitors.ValidationMonitor(
+            hooks=eval_hooks, **validation_monitor_kwargs))
 
   if use_early_stopping:
     tf.logging.info("Using EarlyStoppingHook")
@@ -244,16 +252,17 @@ class T2TExperiment(object):
     self._estimator = estimator
 
   def continuous_train_and_eval(self):
+
     tf.estimator.train_and_evaluate(self._estimator, self._train_spec,
                                     self._eval_spec)
+    return self.evaluate()
 
   def train_and_evaluate(self):
-    tf.logging.warning(
-        "Note that train_and_evaluate now behaves the same as"
-        " continuous_train_and_eval. tensor2tensor no longer supports"
-        " training and evaluation in the same graph."
-    )
-    self.continuous_train_and_eval()
+    if self._eval_spec is None:
+      tf.logging.warning("EvalSpec not provided. Estimator will not manage "
+                         "model evaluation. Assuming ValidationMonitor present "
+                         "in train_hooks.")
+      self.train()
 
   def train(self):
     self._estimator.train(
@@ -262,7 +271,7 @@ class T2TExperiment(object):
         max_steps=self._train_spec.max_steps)
 
   def evaluate(self):
-    self._estimator.evaluate(
+    return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
         hooks=self._eval_spec.hooks)
@@ -307,15 +316,14 @@ class T2TExperiment(object):
 
   def test(self):
     """Perform 1 step of train and 2 step of eval."""
+    if self._eval_spec is None:
+      return self.train_and_evaluate()
+
     self._estimator.train(
-        self._train_spec.input_fn,
-        hooks=self._train_spec.hooks,
-        max_steps=1)
+        self._train_spec.input_fn, hooks=self._train_spec.hooks, max_steps=1)
 
     self._estimator.evaluate(
-        self._eval_spec.input_fn,
-        steps=1,
-        hooks=self._eval_spec.hooks)
+        self._eval_spec.input_fn, steps=1, hooks=self._eval_spec.hooks)
 
   def run_std_server(self):
     """Starts a TensorFlow server and joins the serving thread.
@@ -350,6 +358,7 @@ def create_experiment(run_config,
                       train_steps,
                       eval_steps,
                       min_eval_frequency=2000,
+                      eval_throttle_seconds=600,
                       schedule="train_and_evaluate",
                       export=False,
                       decode_hparams=None,
@@ -391,6 +400,13 @@ def create_experiment(run_config,
                     "See serving/export.py.")
 
   # Hooks
+  validation_monitor_kwargs = dict(
+      input_fn=eval_input_fn,
+      eval_steps=eval_steps,
+      every_n_steps=min_eval_frequency,
+      early_stopping_rounds=eval_early_stopping_steps,
+      early_stopping_metric=eval_early_stopping_metric,
+      early_stopping_metric_minimize=eval_early_stopping_metric_minimize)
   dbgprofile_kwargs = {"output_dir": run_config.model_dir}
   early_stopping_kwargs = dict(
       events_dir=os.path.join(run_config.model_dir, "eval_continuous"),
@@ -404,6 +420,8 @@ def create_experiment(run_config,
   if schedule == "continuous_train_and_eval" and min_eval_frequency:
     tf.logging.warn("ValidationMonitor only works with "
                     "--schedule=train_and_evaluate")
+  use_validation_monitor = (
+      schedule == "train_and_evaluate" and min_eval_frequency)
   # Distributed early stopping
   local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
   use_early_stopping = (
@@ -412,19 +430,29 @@ def create_experiment(run_config,
       use_tfdbg=use_tfdbg,
       use_dbgprofile=use_dbgprofile,
       dbgprofile_kwargs=dbgprofile_kwargs,
+      use_validation_monitor=use_validation_monitor,
+      validation_monitor_kwargs=validation_monitor_kwargs,
       use_early_stopping=use_early_stopping,
       early_stopping_kwargs=early_stopping_kwargs)
   train_hooks += t2t_model.T2TModel.get_train_hooks(model_name)
   eval_hooks += t2t_model.T2TModel.get_eval_hooks(model_name)
 
+  train_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
+      train_hooks, estimator)
+  eval_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
+      eval_hooks, estimator)
+
   train_spec = tf.estimator.TrainSpec(
       train_input_fn, max_steps=train_steps, hooks=train_hooks)
-  eval_spec = tf.estimator.EvalSpec(
-      eval_input_fn,
-      steps=eval_steps,
-      hooks=eval_hooks,
-      start_delay_secs=0 if hparams.schedule == "evaluate" else 120,
-      throttle_secs=600)
+  if use_validation_monitor:
+    eval_spec = None
+  else:
+    eval_spec = tf.estimator.EvalSpec(
+        eval_input_fn,
+        steps=eval_steps,
+        hooks=eval_hooks,
+        start_delay_secs=0 if hparams.schedule == "evaluate" else 120,
+        throttle_secs=eval_throttle_seconds)
 
   return T2TExperiment(estimator, hparams, train_spec, eval_spec)
 
