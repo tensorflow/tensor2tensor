@@ -242,7 +242,9 @@ class TransformerTest(tf.test.TestCase):
 
   def testGreedySlowTPUVsNonTPU(self):
     # Only works with TF 1.8+
-    major, minor, _ = [int(el) for el in tf.__version__.split(".")]
+    # Version string can take the following form: "1.9.0-rc0"
+    major_str, minor_str, unused_rest = tf.__version__.split(".", 3)
+    major, minor = int(major_str), int(minor_str)
     if major < 1 or (major == 1 and minor < 8):
       return
     model, features = get_model(transformer.transformer_small())
