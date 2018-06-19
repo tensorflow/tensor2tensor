@@ -654,6 +654,14 @@ class VideoModalityL2Raw(VideoModalityL2):
     common_layers.summarize_video(rgb_frames, "body_output")
     return tf.expand_dims(rgb_frames, axis=-1)
 
+  def loss(self, top_out, targets):
+    prediction = top_out
+    prediction = tf.squeeze(prediction, axis=-1)
+    prediction = common_layers.convert_rgb_to_real(prediction)
+    groundtruth = common_layers.convert_rgb_to_real(targets)
+    loss = tf.losses.mean_squared_error(prediction, groundtruth)
+    return loss, tf.constant(1.0)
+
 
 @registry.register_class_label_modality("default")
 class ClassLabelModality(modality.Modality):

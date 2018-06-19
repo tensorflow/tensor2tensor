@@ -185,8 +185,6 @@ class NextFrameStochastic(NextFrameBasic):
       latent_loss: loss of the latent twoer
       samples: random samples sampled from standard guassian
     """
-    sequence_length = len(images)
-
     with tf.variable_scope("latent"):
       images = tf.concat(images, 3)
 
@@ -206,20 +204,11 @@ class NextFrameStochastic(NextFrameBasic):
       std = slim.conv2d(x, nc, [3, 3], stride=2, scope="latent_std")
       std += self.hparams.latent_std_min
 
-    if self.hparams.multi_latent:
-      # timestep x batch_size x latent_size
-      samples = tf.random_normal(
-          [sequence_length-1] + mean.shape, 0, 1,
-          dtype=tf.float32)
-    else:
-      # batch_size x latent_size
-      samples = tf.random_normal(tf.shape(mean), 0, 1, dtype=tf.float32)
-
-    if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
-      return mean, std, samples
-    else:
       # No latent tower at inference time, just standard gaussian.
-      return None, None, samples
+      if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+        return tf.zeros_like(mean), tf.zeros_like(std)
+
+      return mean, std
 
   def reward_prediction(self, inputs):
     """Builds a reward prediction network."""
@@ -404,6 +393,11 @@ class NextFrameStochastic(NextFrameBasic):
 
       return output, p_reward, lstm_state
 
+  def get_guassian_latent(self, latent_mean, latent_std):
+    latent = tf.random_normal(tf.shape(latent_mean), 0, 1, dtype=tf.float32)
+    latent = latent_mean + tf.exp(latent_std / 2.0) * latent
+    return latent
+
   def construct_model(self,
                       images,
                       actions,
@@ -444,10 +438,9 @@ class NextFrameStochastic(NextFrameBasic):
 
     # Latent tower
     if self.hparams.stochastic_model:
-      latent_tower_outputs = self.construct_latent_tower(images)
-      latent_mean, latent_std, samples = latent_tower_outputs
+      latent_mean, latent_std = self.construct_latent_tower(images)
 
-    pred_image, pred_reward = None, None
+    pred_image, pred_reward, latent = None, None, None
     for timestep, image, action, reward in zip(
         range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
       # Scheduled Sampling
@@ -457,15 +450,10 @@ class NextFrameStochastic(NextFrameBasic):
       input_image, input_reward = self.get_scheduled_sample_inputs(
           done_warm_start, k, groundtruth_items, generated_items, batch_size)
 
-      # Setup latent
-      latent = None
+      # Latent
       if self.hparams.stochastic_model:
-        latent = samples
-        if self.hparams.multi_latent:
-          latent = samples[timestep]
-        if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
-          # TODO(mbz): put 1st stage of training back in if necessary
-          latent = latent_mean + tf.exp(latent_std / 2.0) * latent
+        if timestep == 0 or self.hparams.multi_latent:
+          latent = self.get_guassian_latent(latent_mean, latent_std)
 
       # Prediction
       pred_image, pred_reward, lstm_state = self.construct_predictive_tower(
@@ -744,9 +732,12 @@ def next_frame():
 def next_frame_stochastic():
   """SV2P model."""
   hparams = next_frame()
+  hparams.optimizer = "TrueAdam"
+  hparams.learning_rate_schedule = "constant"
+  hparams.learning_rate_constant = 1e-3
   hparams.video_num_input_frames = 1
   hparams.video_num_target_frames = 3
-  hparams.batch_size = 8
+  hparams.batch_size = 16
   hparams.target_modality = "video:l2raw"
   hparams.input_modalities = "inputs:video:l2raw"
   hparams.video_modality_loss_cutoff = 0.0
@@ -756,7 +747,7 @@ def next_frame_stochastic():
   hparams.add_hparam("latent_channels", 1)
   hparams.add_hparam("latent_std_min", -5.0)
   hparams.add_hparam("num_iterations_2nd_stage", 10000)
-  hparams.add_hparam("latent_loss_multiplier", 1e-4)
+  hparams.add_hparam("latent_loss_multiplier", 1e-3)
   hparams.add_hparam("multi_latent", False)
   hparams.add_hparam("relu_shift", 1e-12)
   hparams.add_hparam("dna_kernel_size", 5)
