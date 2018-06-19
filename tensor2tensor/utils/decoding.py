@@ -51,6 +51,9 @@ def decode_hparams(overrides=""):
       identity_output=False,
       num_samples=-1,
       delimiter="\n",
+      decode_to_file=None,
+      shards=1,
+      shard_id=0,
       force_decode_length=False)
   hp.parse(overrides)
   return hp
@@ -148,6 +151,7 @@ def decode_from_dataset(estimator,
   predictions = estimator.predict(infer_input_fn)
 
   # Prepare output file writers if decode_to_file passed
+  decode_to_file = decode_to_file or decode_hp.decode_to_file
   if decode_to_file:
     if decode_hp.shards > 1:
       decode_filename = decode_to_file + ("%.2d" % decode_hp.shard_id)

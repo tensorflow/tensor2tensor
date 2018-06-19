@@ -62,7 +62,7 @@ flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "See TensorFlow config.proto for details.")
 
 # To maintain compatibility with some internal libs, we guard against these flag
-# definitions possibly erring. Apologies for the ugliness.
+# definitions possibly erroring. Apologies for the ugliness.
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")

@@ -22,6 +22,7 @@ import os
 import random
 import numpy as np
 
+from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import metrics_hook
 from tensor2tensor.utils import registry
@@ -31,6 +32,24 @@ import tensorflow as tf
 
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
+
+
+def next_checkpoint(model_dir, timeout_mins=120):
+  """Yields successive checkpoints from model_dir."""
+  last_ckpt = None
+  while True:
+    last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
+        model_dir,
+        last_ckpt,
+        seconds_to_sleep=60,
+        timeout=60 * timeout_mins)
+
+    if last_ckpt is None:
+      tf.logging.info(
+          "Eval timeout: no new checkpoints within %dm" % timeout_mins)
+      break
+
+    yield last_ckpt
 
 
 def create_session_config(log_device_placement=False,
@@ -190,7 +209,7 @@ def create_estimator(model_name,
     predict_batch_size = batch_size
     if decode_hparams and decode_hparams.batch_size:
       predict_batch_size = decode_hparams.batch_size
-    return tf.contrib.tpu.TPUEstimator(
+    estimator = tf.contrib.tpu.TPUEstimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
@@ -198,8 +217,9 @@ def create_estimator(model_name,
         eval_batch_size=batch_size if "eval" in schedule else None,
         predict_batch_size=predict_batch_size)
   else:
-    return tf.estimator.Estimator(
+    estimator = tf.estimator.Estimator(
         model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
+  return estimator
 
 
 def create_hooks(use_tfdbg=False,
@@ -245,14 +265,15 @@ def create_hooks(use_tfdbg=False,
 class T2TExperiment(object):
   """Custom Experiment class for running distributed experiments."""
 
-  def __init__(self, estimator, hparams, train_spec, eval_spec):
+  def __init__(self, estimator, hparams, train_spec, eval_spec,
+               decode_hparams=None):
     self._train_spec = train_spec
     self._eval_spec = eval_spec
     self._hparams = hparams
+    self._decode_hparams = decode_hparams
     self._estimator = estimator
 
   def continuous_train_and_eval(self):
-
     tf.estimator.train_and_evaluate(self._estimator, self._train_spec,
                                     self._eval_spec)
     return self.evaluate()
@@ -274,45 +295,25 @@ class T2TExperiment(object):
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
-        hooks=self._eval_spec.hooks)
+        hooks=self._eval_spec.hooks,
+        name="eval")
+
+  def evaluate_on_train_data(self):
+    self._estimator.evaluate(
+        self._train_spec.input_fn,
+        steps=self._eval_spec.steps,
+        hooks=self._eval_spec.hooks,
+        name="eval_train")
 
   def continuous_eval(self):
     """Evaluate until checkpoints stop being produced."""
-    last_ckpt = None
-    while True:
-      # Wait up to half an hour for a new checkpoint
-      last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
-          self._hparams.model_dir,
-          last_ckpt,
-          seconds_to_sleep=60,
-          timeout=60 * 30)
-
-      if last_ckpt is None:
-        raise Exception("Eval timeout: no new checkpoints within 30mins")
-
-      self._estimator.evaluate(
-          self._eval_spec.input_fn,
-          steps=self._eval_spec.steps,
-          hooks=self._eval_spec.hooks)
+    for _ in next_checkpoint(self._hparams.model_dir):
+      self.evaluate()
 
   def continuous_eval_on_train_data(self):
     """Evaluate on train data until checkpoints stop being produced."""
-    last_ckpt = None
-    while True:
-      # Wait up to half an hour for a new checkpoint
-      last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
-          self._hparams.model_dir,
-          last_ckpt,
-          seconds_to_sleep=60,
-          timeout=60 * 30)
-
-      if last_ckpt is None:
-        raise Exception("Eval timeout: no new checkpoints within 30mins")
-
-      self._estimator.evaluate(
-          self._train_spec.input_fn,
-          steps=self._eval_spec.steps,
-          hooks=self._eval_spec.hooks)
+    for _ in next_checkpoint(self._hparams.model_dir):
+      self.evaluate_on_train_data()
 
   def test(self):
     """Perform 1 step of train and 2 step of eval."""
@@ -348,6 +349,16 @@ class T2TExperiment(object):
         start=False)
     server.start()
     server.join()
+
+  def decode(self):
+    """Decodes from dataset."""
+    decoding.decode_from_dataset(self._estimator, self._hparams.problem.name,
+                                 self._hparams, self._decode_hparams)
+
+  def continuous_decode(self):
+    """Decode from dataset on new checkpoint."""
+    for _ in next_checkpoint(self._hparams.model_dir):
+      self.decode()
 
 
 def create_experiment(run_config,
@@ -454,7 +465,8 @@ def create_experiment(run_config,
         start_delay_secs=0 if hparams.schedule == "evaluate" else 120,
         throttle_secs=eval_throttle_seconds)
 
-  return T2TExperiment(estimator, hparams, train_spec, eval_spec)
+  return T2TExperiment(estimator, hparams, train_spec, eval_spec,
+                       decode_hparams)
 
 
 def create_experiment_fn(*args, **kwargs):
