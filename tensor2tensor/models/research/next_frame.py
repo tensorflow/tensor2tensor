@@ -186,7 +186,9 @@ class NextFrameStochastic(NextFrameBasic):
       samples: random samples sampled from standard guassian
     """
     with tf.variable_scope("latent"):
-      images = tf.concat(images, 3)
+      # this allows more predicted frames at inference time
+      latent_images = images[:self.hparams.latent_num_frames]
+      images = tf.concat(latent_images, 3)
 
       x = images
       x = common_layers.make_even_size(x)
@@ -422,11 +424,6 @@ class NextFrameStochastic(NextFrameBasic):
     Raises:
       ValueError: if more than 1 mask specified for DNA model.
     """
-    # Each image is being used twice, in latent tower and main tower.
-    # This is to make sure we are using the *same* image for both, ...
-    # ... given how TF queues work.
-    images = [tf.identity(image) for image in images]
-
     batch_size = common_layers.shape_list(images[0])[0]
     context_frames = self.hparams.video_num_input_frames
 
@@ -461,7 +458,7 @@ class NextFrameStochastic(NextFrameBasic):
       gen_images.append(pred_image)
       gen_rewards.append(pred_reward)
 
-    return gen_images, gen_rewards, latent_mean, latent_std
+    return gen_images, gen_rewards, [latent_mean], [latent_std]
 
   def cdna_transformation(self,
                           prev_image,
@@ -660,8 +657,14 @@ class NextFrameStochastic(NextFrameBasic):
     all_rewards = input_rewards + target_rewards
     all_frames = input_frames + target_frames
 
+    # Each image is being used twice, in latent tower and main tower.
+    # This is to make sure we are using the *same* image for both, ...
+    # ... given how TF queues work.
+    # NOT sure if this is required at all. Doesn't hurt though! :)
+    all_frames = [tf.identity(frame) for frame in all_frames]
+
     is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
-    gen_images, gen_rewards, latent_mean, latent_std = self.construct_model(
+    gen_images, gen_rewards, latent_means, latent_stds = self.construct_model(
         images=all_frames,
         actions=all_actions,
         rewards=all_rewards,
@@ -678,11 +681,12 @@ class NextFrameStochastic(NextFrameBasic):
 
     kl_loss = 0.0
     if is_training:
-      kl_loss = self.kl_divergence(latent_mean, latent_std)
+      for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
+        kl_loss += self.kl_divergence(mean, std)
+        tf.summary.histogram("posterior_mean_%d" % i, mean)
+        tf.summary.histogram("posterior_std_%d" % i, std)
 
       tf.summary.scalar("beta", beta)
-      tf.summary.histogram("posterior_mean", latent_mean)
-      tf.summary.histogram("posterior_std", latent_std)
       tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
 
     extra_loss = beta * kl_loss
@@ -701,6 +705,47 @@ class NextFrameStochastic(NextFrameBasic):
       return_targets = {"targets": predictions, "target_reward": reward_pred}
 
     return return_targets, extra_loss
+
+
+@registry.register_model
+class NextFrameStochasticTwoFrames(NextFrameStochastic):
+  """Stochastic next-frame model with 2 frames posterior."""
+
+  def construct_model(self, images, actions, rewards, k=-1):
+    batch_size = common_layers.shape_list(images[0])[0]
+    context_frames = self.hparams.video_num_input_frames
+
+    # Predicted images and rewards.
+    gen_rewards, gen_images, latent_means, latent_stds = [], [], [], []
+
+    # LSTM states.
+    lstm_state = [None] * 7
+
+    pred_image, pred_reward, latent = None, None, None
+    for timestep, image, action, reward in zip(
+        range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
+      # Scheduled Sampling
+      done_warm_start = timestep > context_frames - 1
+      groundtruth_items = [image, reward]
+      generated_items = [pred_image, pred_reward]
+      input_image, input_reward = self.get_scheduled_sample_inputs(
+          done_warm_start, k, groundtruth_items, generated_items, batch_size)
+
+      # Latent
+      # TODO(mbz): should we use input_image iunstead of image?
+      latent_images = [image, images[timestep+1]]
+      latent_mean, latent_std = self.construct_latent_tower(latent_images)
+      latent = self.get_guassian_latent(latent_mean, latent_std)
+      latent_means.append(latent_mean)
+      latent_stds.append(latent_std)
+
+      # Prediction
+      pred_image, pred_reward, lstm_state = self.construct_predictive_tower(
+          input_image, input_reward, action, lstm_state, latent)
+      gen_images.append(pred_image)
+      gen_rewards.append(pred_reward)
+
+    return gen_images, gen_rewards, latent_means, latent_stds
 
 
 @registry.register_hparams
@@ -751,6 +796,9 @@ def next_frame_stochastic():
   hparams.add_hparam("multi_latent", False)
   hparams.add_hparam("relu_shift", 1e-12)
   hparams.add_hparam("dna_kernel_size", 5)
+  hparams.add_hparam(
+      "latent_num_frames",  # use all frames by default.
+      hparams.video_num_input_frames + hparams.video_num_target_frames)
   return hparams
 
 
