@@ -99,7 +99,7 @@ class TestAllenBrain(tf.test.TestCase):
 
     """
 
-    problem_object = allen_brain.Img2imgAllenBrain()
+    problem_object = allen_brain.Img2imgAllenBrainDim8to32()
 
     with TemporaryDirectory() as tmp_dir:
 

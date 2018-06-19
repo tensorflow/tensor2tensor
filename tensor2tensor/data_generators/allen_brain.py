@@ -294,3 +294,21 @@ class Img2imgAllenBrainDim48to64(Img2imgAllenBrain):
   @property
   def output_dim(self):
     return 64
+
+
+class Img2imgAllenBrainDim8to32(Img2imgAllenBrain):
+  """8px to 16px resolution up-sampling problem.
+
+  Notes:
+
+    * Tiny for test and development purposes. 
+
+  """
+
+  @property
+  def input_dim(self):
+    return 8
+
+  @property
+  def output_dim(self):
+    return 32
