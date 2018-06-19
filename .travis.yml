@@ -37,21 +37,16 @@ before_install:
 install:
   - pip install -q "tensorflow==$TF_VERSION"
   # First ensure that the base dependencies are sufficient for a full import
-  - pip list | grep pandas
-  - pip install .
+  - pip install -q .
   - t2t-trainer --registry_help
   # Then install the test dependencies
-  - pip list | grep pandas
-  - pip install .[tests,allen]
-  - pip list | grep pandas
+  - pip install -q .[tests,allen]
   # Make sure to install the atari extras for gym
   - pip install "gym[atari]"
-  - pip list | grep pandas
   # Make sure we have the latest version of numpy - avoid problems we were
   # seeing with Python 3
-  - pip install -U numpy
+  - pip install -q -U numpy
 script:
-  - pip list | grep pandas
   # Check import
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
 
