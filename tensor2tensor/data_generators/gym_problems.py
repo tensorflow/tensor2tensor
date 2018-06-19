@@ -279,16 +279,6 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     env_model_loader.restore(sess, ckpt)
 
 
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnPong(
-    GymSimulatedDiscreteProblem, GymPongRandom):
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_pong"
-
-
 @registry.register_problem
 class GymPongRandom(GymDiscreteProblem):
   """Pong game, random actions."""
@@ -373,6 +363,15 @@ class GymWrappedBreakoutRandom(GymDiscreteProblem):
   @property
   def num_rewards(self):
     return 3
+
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnPong(
+    GymSimulatedDiscreteProblem, GymPongRandom):
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_pong"
 
 
 @registry.register_problem
