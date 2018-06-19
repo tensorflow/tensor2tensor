@@ -178,7 +178,9 @@ def hparams(name):
   return hp
 
 
-def list_hparams():
+def list_hparams(prefix=None):
+  if prefix:
+    return [name for name in _HPARAMS if name.startswith(prefix)]
   return list(_HPARAMS)
 
 
