@@ -24,23 +24,14 @@ import gym
 import numpy as np
 
 # We need gym_utils for the game environments defined there.
-from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
-from tensor2tensor.layers import discretization
-from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research.rl import standard_atari_env_spec
 from tensor2tensor.rl import collect
-from tensor2tensor.rl.envs import tf_atari_wrappers as atari
-from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
-from tensor2tensor.rl.envs.utils import batch_env_factory
-
-
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-
 import tensorflow as tf
 
 
@@ -68,16 +59,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
     self.environment_spec = self.get_environment_spec()
     self.eval_phase = False
-
-    # Debug info
-    self.make_extra_debug_info = True
-    self.dones = 0
-    self.real_reward = 0
-    self.total_sim_reward = 0.0
-    self.total_real_reward = 0.0
-    self.sum_of_rewards = 0.0
-    self.successful_episode_reward_predictions = 0
-    self.report_reward_statistics_every = 10
 
   def _setup(self):
     collect_hparams = rl.ppo_pong_base()
@@ -115,8 +96,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
         observ, reward, done, action = data
         observ = observ.astype(np.uint8) # TODO(piotrmilos). This should be probably done in collect
         debug_im = None
-        if self.make_extra_debug_info:
-          debug_im = self.get_debug_image(data)
 
         ret_dict = {"frame": observ,
                     "image/format": ["png"],
@@ -125,13 +104,9 @@ class GymDiscreteProblem(video_utils.VideoProblem):
                     "action": [int(action)],
                     "done": [int(False)],
                     "reward": [int(reward) - self.min_reward]}
-        if self.make_extra_debug_info:
-          ret_dict["image/debug"] = debug_im
+
         yield ret_dict
         pieces_generated += 1
-
-  def get_debug_image(self, data):
-    raise NotImplemented()
 
   def restore_networks(self, sess):
     if FLAGS.agent_policy_path:
@@ -140,7 +115,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       ckpts = tf.train.get_checkpoint_state(FLAGS.agent_policy_path)
       ckpt = ckpts.model_checkpoint_path
       model_saver.restore(sess, ckpt)
-
 
   @property
   def num_input_frames(self):
@@ -240,6 +214,80 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
 class GymAEDiscreteProblem(GymDiscreteProblem):
   pass
+
+
+class GymRealDiscreteProblem(GymDiscreteProblem):
+
+  def __init__(self, *args, **kwargs):
+    super(GymRealDiscreteProblem, self).__init__(*args, **kwargs)
+    self.make_extra_debug_info = False
+
+  def get_environment_spec(self):
+    return standard_atari_env_spec(self.env_name)
+
+
+
+class GymSimulatedDiscreteProblem(GymDiscreteProblem):
+  """Simulated gym environment with discrete actions and rewards."""
+
+  def __init__(self, *args, **kwargs):
+    self.simulated_environment = True
+    self.debug_dump_frames_path = "debug_frames_sim"
+    self.intrinsic_reward_scale = 0.0
+    self.simulation_random_starts = False
+    super(GymSimulatedDiscreteProblem, self).__init__(*args, **kwargs)
+
+  @property
+  def initial_frames_problem(self):
+    raise NotImplemented()
+
+  def get_environment_spec(self):
+    env_spec = standard_atari_env_spec(self.env_name)
+
+    #Set reasonable time limit (as we do not simulate done)
+    real_env = env_spec.env_lambda()
+    if self.num_testing_steps is not None:
+      timelimit = self.num_testing_steps
+    else:
+      try:
+        # We assume that the real env is wrapped with TimeLimit.
+        history = self.num_input_frames
+        timelimit = real_env._max_episode_steps - history  # pylint: disable=protected-access
+      except:  # pylint: disable=bare-except
+        # If not, set some reasonable default.
+        timelimit = 100
+
+    env_spec.simulated_env = True
+    env_spec.add_hparam("simulation_random_starts",
+                           self.simulation_random_starts)
+    env_spec.add_hparam("intrinsic_reward_scale",
+                           self.intrinsic_reward_scale)
+    initial_frames_problem = registry.problem(self.initial_frames_problem)
+    env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
+    env_spec.wrappers.append([TimeLimitWrapper, {"timelimit": timelimit}])
+
+    return env_spec
+
+  def restore_networks(self, sess):
+    super(GymSimulatedDiscreteProblem, self).restore_networks(sess)
+    # TODO(blazej): adjust regexp for different models.
+    env_model_loader = tf.train.Saver(tf.global_variables("next_frame*"))
+    sess = tf.get_default_session()
+
+    ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
+    ckpt = ckpts.model_checkpoint_path
+    env_model_loader.restore(sess, ckpt)
+
+
+
+@registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnPong(
+    GymSimulatedDiscreteProblem, GymPongRandom):
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_pong"
+
 
 @registry.register_problem
 class GymPongRandom(GymDiscreteProblem):
@@ -342,122 +390,6 @@ class GymFreewayRandom(GymDiscreteProblem):
   @property
   def num_rewards(self):
     return 2
-
-
-class GymRealDiscreteProblem(GymDiscreteProblem):
-
-  def __init__(self, *args, **kwargs):
-    super(GymRealDiscreteProblem, self).__init__(*args, **kwargs)
-    self.make_extra_debug_info = False
-
-  def get_debug_image(self):
-    #TODO(piotrmilos): possibly change this
-    raise NotImplemented()
-
-  def get_environment_spec(self):
-    return standard_atari_env_spec(self.env_name)
-
-
-
-class GymSimulatedDiscreteProblem(GymDiscreteProblem):
-  """Simulated gym environment with discrete actions and rewards."""
-
-  def __init__(self, *args, **kwargs):
-    self.simulated_environment = True
-    self.make_extra_debug_info = True
-    self.debug_dump_frames_path = "debug_frames_sim"
-    self.intrinsic_reward_scale = 0.0
-    self.simulation_random_starts = False
-    super(GymSimulatedDiscreteProblem, self).__init__(*args, **kwargs)
-
-  def _setup(self):
-    super(GymSimulatedDiscreteProblem, self)._setup()
-    if self.make_extra_debug_info:
-      # Slight weirdness to make sim env and real env aligned
-      self.real_env.reset()
-      for _ in range(self.num_input_frames):
-        self.real_ob, _, _, _ = self.real_env.step(0)
-      self.total_sim_reward, self.total_real_reward = 0.0, 0.0
-      self.sum_of_rewards = 0.0
-      self.successful_episode_reward_predictions = 0
-
-  def get_debug_image(self, data):
-    observ, reward, done, action = data
-    self.total_sim_reward += reward
-    err = np.ndarray.astype(np.maximum(np.abs(
-      self.real_ob - observ, dtype=np.int) - 10, 0),
-                            np.uint8)
-    debug_im = np.concatenate([observ, self.real_ob, err], axis=1)
-
-    if done:
-      self.dones += 1
-      self.sum_of_rewards += self.real_reward
-      if self.total_real_reward == self.total_sim_reward:
-        self.successful_episode_reward_predictions += 1
-
-      self.total_real_reward = 0.0
-      self.total_sim_reward = 0.0
-      self.real_reward = 0
-      # Slight weirdness to make sim env and real env aligned
-      for _ in range(self.num_input_frames):
-        self.real_ob, _, _, _ = self.real_env.step(0)
-    else:
-      self.real_ob, self.real_reward, _, _ = self.real_env.step(action)
-      self.total_real_reward += self.real_reward
-      self.sum_of_rewards += self.real_reward
-
-    return debug_im
-
-  @property
-  def initial_frames_problem(self):
-    raise NotImplemented()
-
-  def get_environment_spec(self):
-    env_spec = standard_atari_env_spec(self.env_name)
-
-    #Set reasonable time limit (as we do not simulate done)
-    self.real_env = env_spec.env_lambda()
-    if self.num_testing_steps is not None:
-      timelimit = self.num_testing_steps
-    else:
-      try:
-        # We assume that the real env is wrapped with TimeLimit.
-        history = self.num_input_frames
-        timelimit = self.real_env._max_episode_steps - history  # pylint: disable=protected-access
-      except:  # pylint: disable=bare-except
-        # If not, set some reasonable default.
-        timelimit = 100
-
-    env_spec.simulated_env = True
-    env_spec.add_hparam("simulation_random_starts",
-                           self.simulation_random_starts)
-    env_spec.add_hparam("intrinsic_reward_scale",
-                           self.intrinsic_reward_scale)
-    initial_frames_problem = registry.problem(self.initial_frames_problem)
-    env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
-    env_spec.wrappers.append([TimeLimitWrapper, {"timelimit": timelimit}])
-
-    return env_spec
-
-  def restore_networks(self, sess):
-    super(GymSimulatedDiscreteProblem, self).restore_networks(sess)
-    # TODO(blazej): adjust regexp for different models.
-    env_model_loader = tf.train.Saver(tf.global_variables("next_frame*"))
-    sess = tf.get_default_session()
-
-    ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
-    ckpt = ckpts.model_checkpoint_path
-    env_model_loader.restore(sess, ckpt)
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnPong(
-    GymSimulatedDiscreteProblem, GymPongRandom):
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_pong"
-
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnPong(

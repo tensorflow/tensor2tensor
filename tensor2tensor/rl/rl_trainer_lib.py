@@ -41,26 +41,7 @@ def define_train(hparams, event_dir):
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     summary = tf.summary.merge([collect_summary, ppo_summary])
 
-  # with tf.variable_scope("eval", reuse=tf.AUTO_REUSE):
-  #   eval_env_lambda = env_lambda
-  #   if event_dir and hparams.video_during_eval:
-  #     # Some environments reset environments automatically, when reached done
-  #     # state. For them we shall record only every second episode.
-  #     d = 2 if env_lambda().metadata.get("semantics.autoreset") else 1
-  #     eval_env_lambda = lambda: gym.wrappers.Monitor(  # pylint: disable=g-long-lambda
-  #         env_lambda(), event_dir, video_callable=lambda i: i % d == 0)
-  #     eval_env_lambda = (
-  #         lambda: utils.EvalVideoWrapper(eval_env_lambda()))
-  #   eval_batch_env = utils.batch_env_factory(
-  #       eval_env_lambda, hparams,
-  #       num_agents=hparams.num_eval_agents, xvfb=hparams.video_during_eval)
-  #
-  #   _, eval_summary = collect_new.define_collect(
-  #       policy_factory, eval_batch_env, hparams, eval_phase=True)
-
-  #Fake for development
-  eval_summary = summary
-  return summary, eval_summary
+  return summary, None
 
 
 def train(hparams, event_dir=None, model_dir=None,
@@ -106,7 +87,8 @@ def train(hparams, event_dir=None, model_dir=None,
           summary_writer.add_summary(summary, epoch_index)
         if (hparams.eval_every_epochs and
             epoch_index % hparams.eval_every_epochs == 0):
-          summary = sess.run(eval_summary_op)
+          print("Eval is to be implemented") #TODO(piotrmilos):implement
+          # summary = sess.run(eval_summary_op)
           if summary_writer and summary:
             summary_writer.add_summary(summary, epoch_index)
           else:
