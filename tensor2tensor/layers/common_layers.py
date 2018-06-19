@@ -3332,3 +3332,55 @@ def make_even_size(x):
   x, _ = pad_to_same_length(x, x, final_length_divisible_by=2, axis=2)
   x.set_shape(new_shape)
   return x
+
+
+def sliced_gan_loss(input1, input2, discriminator, num_vecs,
+                    do_random_vecs=True, do_tanh=True):
+  """Loss inspired by the sliced WGAN paper: https://arxiv.org/abs/1804.01947.
+
+  Puts input1 and input2 through the provided discriminator to get logits.
+  Then, computes num_vecs random projections of the logits, sorts them on
+  the batch dimension and returns the L2 loss between the sorted vectors.
+  See the above-mentioned paper for the reasoning behind it.
+
+  Args:
+    input1: first discriminator inputs.
+    input2: second discriminator inputs.
+    discriminator: inputs -> logits function.
+    num_vecs: how many random vectors to use for projections.
+    do_random_vecs: whether to use random vectors or just tanh of the logits.
+    do_tanh: if true (default) we'll also just use tanh of the logits.
+
+  Returns:
+    The generator loss, i.e., the sliced approximation of the distance between
+    the projected distributions (warning: discriminator should maximize it).
+  """
+  with tf.variable_scope("sliced_gan"):
+    with tf.variable_scope("discriminator"):
+      logits1 = discriminator(input1)
+    with tf.variable_scope("discriminator", reuse=True):
+      logits2 = discriminator(input2)
+
+    if do_random_vecs:
+      random_vecs = tf.nn.l2_normalize(
+          tf.random_uniform([shape_list(logits1)[-1], num_vecs]), axis=0)
+
+    def get_sorted_projections(x):
+      """Make projections of x and sort them on the batch dimension."""
+      x = tf.reshape(x, [-1, shape_list(x)[-1]])
+      batch_size = shape_list(x)[0]
+      if do_random_vecs and do_tanh:
+        n = tf.nn.l2_normalize(x, axis=1)
+        proj = tf.concat([tf.matmul(n, random_vecs), tf.tanh(x)], axis=1)
+      elif do_random_vecs:
+        n = tf.nn.l2_normalize(x, axis=1)
+        proj = tf.matmul(n, random_vecs)
+      else:
+        proj = tf.tanh(x)
+      proj = tf.transpose(proj, [1, 0])  # [num_vecs, batch] after this.
+      values, _ = tf.nn.top_k(proj, k=batch_size, sorted=True)
+      return values
+
+    proj1 = get_sorted_projections(logits1)
+    proj2 = get_sorted_projections(logits2)
+    return tf.reduce_mean(tf.square(proj1 - proj2))

@@ -213,10 +213,9 @@ class ImageModality(modality.Modality):
 
   def bottom(self, x):
     with tf.variable_scope(self.name):
-      x = tf.to_float(x)
       if not tf.contrib.eager.in_eager_mode():
-        tf.summary.image("inputs", x, max_outputs=2)
-      return x
+        tf.summary.image("inputs", tf.cast(x, tf.uint8), max_outputs=2)
+      return tf.to_float(x)
 
   def targets_bottom(self, x):
     inputs = x
