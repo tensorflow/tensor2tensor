@@ -262,15 +262,153 @@ class NextFrameStochastic(NextFrameBasic):
     outputs, new_state = cell(inputs, state)
     return outputs, new_state
 
+  def construct_predictive_tower(
+      self, input_image, input_reward, action, lstm_state, latent):
+    # Main tower
+    layer_norm = tf.contrib.layers.layer_norm
+    lstm_func = self.conv_lstm_2d
+    lstm_size = np.array([32, 32, 64, 64, 128, 64, 32], dtype=np.int32)
+    batch_size = common_layers.shape_list(input_image)[0]
+    # the number of different pixel motion predictions
+    # and the number of masks for each of those predictions
+    num_masks = self.hparams.num_masks
+
+    img_height, img_width, color_channels = self.hparams.problem.frame_shape
+
+    with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
+      input_image = common_layers.make_even_size(input_image)
+      enc0 = slim.layers.conv2d(
+          input_image,
+          32, [5, 5],
+          stride=2,
+          scope="scale1_conv1",
+          normalizer_fn=layer_norm,
+          normalizer_params={"scope": "layer_norm1"})
+
+      hidden1, lstm_state[0] = lstm_func(
+          enc0, lstm_state[0], lstm_size[0], scope="state1")
+      hidden1 = layer_norm(hidden1, scope="layer_norm2")
+      hidden2, lstm_state[1] = lstm_func(
+          hidden1, lstm_state[1], lstm_size[1], scope="state2")
+      hidden2 = layer_norm(hidden2, scope="layer_norm3")
+      hidden2 = common_layers.make_even_size(hidden2)
+      enc1 = slim.layers.conv2d(
+          hidden2, hidden2.get_shape()[3], [3, 3], stride=2, scope="conv2")
+
+      hidden3, lstm_state[2] = lstm_func(
+          enc1, lstm_state[2], lstm_size[2], scope="state3")
+      hidden3 = layer_norm(hidden3, scope="layer_norm4")
+      hidden4, lstm_state[3] = lstm_func(
+          hidden3, lstm_state[3], lstm_size[3], scope="state4")
+      hidden4 = layer_norm(hidden4, scope="layer_norm5")
+      hidden4 = common_layers.make_even_size(hidden4)
+      enc2 = slim.layers.conv2d(
+          hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
+
+      # Pass in reward and action.
+      emb_action = self.encode_to_shape(action, enc2.get_shape())
+      emb_reward = self.encode_to_shape(input_reward, enc2.get_shape())
+      enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
+
+      if latent is not None:
+        with tf.control_dependencies([latent]):
+          enc2 = tf.concat([enc2, latent], 3)
+
+      enc3 = slim.layers.conv2d(
+          enc2, hidden4.get_shape()[3], [1, 1], stride=1, scope="conv4")
+
+      hidden5, lstm_state[4] = lstm_func(
+          enc3, lstm_state[4], lstm_size[4], scope="state5")  # last 8x8
+      hidden5 = layer_norm(hidden5, scope="layer_norm6")
+      enc4 = slim.layers.conv2d_transpose(
+          hidden5, hidden5.get_shape()[3], 3, stride=2, scope="convt1")
+
+      enc1_shape = common_layers.shape_list(enc1)
+      enc4 = enc4[:, :enc1_shape[1], :enc1_shape[2], :]  # Cut to shape.
+      hidden6, lstm_state[5] = lstm_func(
+          enc4, lstm_state[5], lstm_size[5], scope="state6")  # 16x16
+      hidden6 = layer_norm(hidden6, scope="layer_norm7")
+      # Skip connection.
+      hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
+
+      enc5 = slim.layers.conv2d_transpose(
+          hidden6, hidden6.get_shape()[3], 3, stride=2, scope="convt2")
+      enc0_shape = common_layers.shape_list(enc0)
+      enc5 = enc5[:, :enc0_shape[1], :enc0_shape[2], :]  # Cut to shape.
+      hidden7, lstm_state[6] = lstm_func(
+          enc5, lstm_state[6], lstm_size[6], scope="state7")  # 32x32
+      hidden7 = layer_norm(hidden7, scope="layer_norm8")
+
+      # Skip connection.
+      hidden7 = tf.concat(axis=3, values=[hidden7, enc0])  # both 32x32
+
+      enc6 = slim.layers.conv2d_transpose(
+          hidden7,
+          hidden7.get_shape()[3],
+          3,
+          stride=2,
+          scope="convt3",
+          activation_fn=None,
+          normalizer_fn=layer_norm,
+          normalizer_params={"scope": "layer_norm9"})
+
+      if self.hparams.model_options == "DNA":
+        # Using largest hidden state for predicting untied conv kernels.
+        enc7 = slim.layers.conv2d_transpose(
+            enc6,
+            self.hparams.dna_kernel_size**2,
+            1,
+            stride=1,
+            scope="convt4",
+            activation_fn=None)
+      else:
+        # Using largest hidden state for predicting a new image layer.
+        enc7 = slim.layers.conv2d_transpose(
+            enc6,
+            color_channels,
+            1,
+            stride=1,
+            scope="convt4",
+            activation_fn=None)
+        # This allows the network to also generate one image from scratch,
+        # which is useful when regions of the image become unoccluded.
+        transformed = [tf.nn.sigmoid(enc7)]
+
+      if self.hparams.model_options == "CDNA":
+        # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
+        cdna_input = tf.contrib.layers.flatten(hidden5)
+        transformed += self.cdna_transformation(
+            input_image, cdna_input, num_masks, int(color_channels))
+      elif self.hparams.model_options == "DNA":
+        # Only one mask is supported (more should be unnecessary).
+        if num_masks != 1:
+          raise ValueError("Only one mask is supported for DNA model.")
+        transformed = [self.dna_transformation(input_image, enc7)]
+
+      masks = slim.layers.conv2d_transpose(
+          enc6, num_masks + 1, 1,
+          stride=1, scope="convt7", activation_fn=None)
+      masks = tf.reshape(
+          tf.nn.softmax(tf.reshape(masks, [-1, num_masks + 1])),
+          [batch_size,
+           int(img_height),
+           int(img_width), num_masks + 1])
+      mask_list = tf.split(
+          axis=3, num_or_size_splits=num_masks + 1, value=masks)
+      output = mask_list[0] * input_image
+      for layer, mask in zip(transformed, mask_list[1:]):
+        output += layer * mask
+
+      p_reward = self.reward_prediction(hidden5)
+      p_reward = self.decode_to_shape(p_reward, input_reward.shape)
+
+      return output, p_reward, lstm_state
+
   def construct_model(self,
                       images,
                       actions,
                       rewards,
-                      k=-1,
-                      num_masks=10,
-                      cdna=True,
-                      dna=False,
-                      context_frames=2):
+                      k=-1):
     """Build convolutional lstm video predictor using CDNA, or DNA.
 
     Args:
@@ -281,12 +419,6 @@ class NextFrameStochastic(NextFrameBasic):
       rewards: list of reward tensors
                each reward should be in the shape ?x1xZ
       k: constant used for scheduled sampling. -1 to feed in own prediction.
-      num_masks: the number of different pixel motion predictions (and
-                 the number of masks for each of those predictions)
-      cdna: True to use Convoluational Dynamic Neural Advection (CDNA)
-      dna: True to use Dynamic Neural Advection (DNA)
-      context_frames: number of ground truth frames to pass in before
-                      feeding in own predictions
     Returns:
       gen_images: predicted future image frames
       gen_rewards: predicted future rewards
@@ -294,40 +426,20 @@ class NextFrameStochastic(NextFrameBasic):
       latent_std: std of approximated posterior
 
     Raises:
-      ValueError: if more than one network option specified or more than 1 mask
-      specified for DNA model.
+      ValueError: if more than 1 mask specified for DNA model.
     """
     # Each image is being used twice, in latent tower and main tower.
     # This is to make sure we are using the *same* image for both, ...
     # ... given how TF queues work.
     images = [tf.identity(image) for image in images]
 
-    if cdna + dna != 1:
-      raise ValueError("More than one, or no network option specified.")
-
-    img_height, img_width, color_channels = self.hparams.problem.frame_shape
     batch_size = common_layers.shape_list(images[0])[0]
+    context_frames = self.hparams.video_num_input_frames
 
     # Predicted images and rewards.
     gen_rewards, gen_images = [], []
 
-    if k == -1:
-      feedself = True
-    else:
-      # Scheduled sampling:
-      # Calculate number of ground-truth frames to pass in.
-      iter_num = tf.train.get_global_step()
-      # TODO(mbz): what should it be if it's undefined?
-      if iter_num is None:
-        iter_num = _LARGE_STEP_NUMBER
-      num_ground_truth = tf.to_int32(
-          tf.round(
-              tf.to_float(batch_size) *
-              (k / (k + tf.exp(tf.to_float(iter_num) / tf.to_float(k))))))
-      feedself = False
-
-    # LSTM state sizes and states.
-    lstm_size = np.array([32, 32, 64, 64, 128, 64, 32], dtype=np.int32)
+    # LSTM states.
     lstm_state = [None] * 7
 
     # Latent tower
@@ -335,165 +447,31 @@ class NextFrameStochastic(NextFrameBasic):
       latent_tower_outputs = self.construct_latent_tower(images)
       latent_mean, latent_std, samples = latent_tower_outputs
 
-    # Main tower
-    layer_norm = tf.contrib.layers.layer_norm
-    lstm_func = self.conv_lstm_2d
-
+    pred_image, pred_reward = None, None
     for timestep, image, action, reward in zip(
         range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
+      # Scheduled Sampling
+      done_warm_start = timestep > context_frames - 1
+      groundtruth_items = [image, reward]
+      generated_items = [pred_image, pred_reward]
+      input_image, input_reward = self.get_scheduled_sample_inputs(
+          done_warm_start, k, groundtruth_items, generated_items, batch_size)
 
-      done_warm_start = len(gen_images) > context_frames - 1
-      with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
-        if feedself and done_warm_start:
-          # Feed in generated image.
-          prev_image = gen_images[-1]
-          prev_reward = gen_rewards[-1]
-        elif done_warm_start:
-          # Scheduled sampling
-          prev_image = self.scheduled_sample(
-              image, gen_images[-1], batch_size, num_ground_truth)
-          prev_reward = self.scheduled_sample(
-              reward, gen_rewards[-1], batch_size, num_ground_truth)
-        else:
-          # Always feed in ground_truth
-          prev_image = image
-          prev_reward = reward
+      # Setup latent
+      latent = None
+      if self.hparams.stochastic_model:
+        latent = samples
+        if self.hparams.multi_latent:
+          latent = samples[timestep]
+        if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
+          # TODO(mbz): put 1st stage of training back in if necessary
+          latent = latent_mean + tf.exp(latent_std / 2.0) * latent
 
-        prev_image = common_layers.make_even_size(prev_image)
-        enc0 = slim.layers.conv2d(
-            prev_image,
-            32, [5, 5],
-            stride=2,
-            scope="scale1_conv1",
-            normalizer_fn=layer_norm,
-            normalizer_params={"scope": "layer_norm1"})
-
-        hidden1, lstm_state[0] = lstm_func(
-            enc0, lstm_state[0], lstm_size[0], scope="state1")
-        hidden1 = layer_norm(hidden1, scope="layer_norm2")
-        hidden2, lstm_state[1] = lstm_func(
-            hidden1, lstm_state[1], lstm_size[1], scope="state2")
-        hidden2 = layer_norm(hidden2, scope="layer_norm3")
-        hidden2 = common_layers.make_even_size(hidden2)
-        enc1 = slim.layers.conv2d(
-            hidden2, hidden2.get_shape()[3], [3, 3], stride=2, scope="conv2")
-
-        hidden3, lstm_state[2] = lstm_func(
-            enc1, lstm_state[2], lstm_size[2], scope="state3")
-        hidden3 = layer_norm(hidden3, scope="layer_norm4")
-        hidden4, lstm_state[3] = lstm_func(
-            hidden3, lstm_state[3], lstm_size[3], scope="state4")
-        hidden4 = layer_norm(hidden4, scope="layer_norm5")
-        hidden4 = common_layers.make_even_size(hidden4)
-        enc2 = slim.layers.conv2d(
-            hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
-
-        # Pass in reward and action.
-        emb_action = self.encode_to_shape(action, enc2.get_shape())
-        emb_reward = self.encode_to_shape(prev_reward, enc2.get_shape())
-        enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
-
-        # Setup latent
-        if self.hparams.stochastic_model:
-          latent = samples
-          if self.hparams.multi_latent:
-            latent = samples[timestep]
-          if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
-            # TODO(mbz): put 1st stage of training back in if necessary
-            latent = latent_mean + tf.exp(latent_std / 2.0) * latent
-          with tf.control_dependencies([latent]):
-            enc2 = tf.concat([enc2, latent], 3)
-
-        enc3 = slim.layers.conv2d(
-            enc2, hidden4.get_shape()[3], [1, 1], stride=1, scope="conv4")
-
-        hidden5, lstm_state[4] = lstm_func(
-            enc3, lstm_state[4], lstm_size[4], scope="state5")  # last 8x8
-        hidden5 = layer_norm(hidden5, scope="layer_norm6")
-        enc4 = slim.layers.conv2d_transpose(
-            hidden5, hidden5.get_shape()[3], 3, stride=2, scope="convt1")
-
-        enc1_shape = common_layers.shape_list(enc1)
-        enc4 = enc4[:, :enc1_shape[1], :enc1_shape[2], :]  # Cut to shape.
-        hidden6, lstm_state[5] = lstm_func(
-            enc4, lstm_state[5], lstm_size[5], scope="state6")  # 16x16
-        hidden6 = layer_norm(hidden6, scope="layer_norm7")
-        # Skip connection.
-        hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
-
-        enc5 = slim.layers.conv2d_transpose(
-            hidden6, hidden6.get_shape()[3], 3, stride=2, scope="convt2")
-        enc0_shape = common_layers.shape_list(enc0)
-        enc5 = enc5[:, :enc0_shape[1], :enc0_shape[2], :]  # Cut to shape.
-        hidden7, lstm_state[6] = lstm_func(
-            enc5, lstm_state[6], lstm_size[6], scope="state7")  # 32x32
-        hidden7 = layer_norm(hidden7, scope="layer_norm8")
-
-        # Skip connection.
-        hidden7 = tf.concat(axis=3, values=[hidden7, enc0])  # both 32x32
-
-        enc6 = slim.layers.conv2d_transpose(
-            hidden7,
-            hidden7.get_shape()[3],
-            3,
-            stride=2,
-            scope="convt3",
-            activation_fn=None,
-            normalizer_fn=layer_norm,
-            normalizer_params={"scope": "layer_norm9"})
-
-        if dna:
-          # Using largest hidden state for predicting untied conv kernels.
-          enc7 = slim.layers.conv2d_transpose(
-              enc6,
-              self.hparams.dna_kernel_size**2,
-              1,
-              stride=1,
-              scope="convt4",
-              activation_fn=None)
-        else:
-          # Using largest hidden state for predicting a new image layer.
-          enc7 = slim.layers.conv2d_transpose(
-              enc6,
-              color_channels,
-              1,
-              stride=1,
-              scope="convt4",
-              activation_fn=None)
-          # This allows the network to also generate one image from scratch,
-          # which is useful when regions of the image become unoccluded.
-          transformed = [tf.nn.sigmoid(enc7)]
-
-        if cdna:
-          # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
-          cdna_input = tf.contrib.layers.flatten(hidden5)
-          transformed += self.cdna_transformation(
-              prev_image, cdna_input, num_masks, int(color_channels))
-        elif dna:
-          # Only one mask is supported (more should be unnecessary).
-          if num_masks != 1:
-            raise ValueError("Only one mask is supported for DNA model.")
-          transformed = [self.dna_transformation(prev_image, enc7)]
-
-        masks = slim.layers.conv2d_transpose(
-            enc6, num_masks + 1, 1,
-            stride=1, scope="convt7", activation_fn=None)
-        masks = tf.reshape(
-            tf.nn.softmax(tf.reshape(masks, [-1, num_masks + 1])),
-            [batch_size,
-             int(img_height),
-             int(img_width), num_masks + 1])
-        mask_list = tf.split(
-            axis=3, num_or_size_splits=num_masks + 1, value=masks)
-        output = mask_list[0] * prev_image
-        for layer, mask in zip(transformed, mask_list[1:]):
-          output += layer * mask
-        gen_images.append(output)
-
-        p_reward = self.reward_prediction(hidden5)
-        p_reward = self.decode_to_shape(p_reward, reward.shape)
-
-        gen_rewards.append(p_reward)
+      # Prediction
+      pred_image, pred_reward, lstm_state = self.construct_predictive_tower(
+          input_image, input_reward, action, lstm_state, latent)
+      gen_images.append(pred_image)
+      gen_rewards.append(pred_reward)
 
     return gen_images, gen_rewards, latent_mean, latent_std
 
@@ -605,14 +583,48 @@ class NextFrameStochastic(NextFrameBasic):
       New batch with num_ground_truth sampled from ground_truth_x and the rest
       from generated_x.
     """
-    idx = tf.random_shuffle(tf.range(int(batch_size)))
+    idx = tf.random_shuffle(tf.range(batch_size))
     ground_truth_idx = tf.gather(idx, tf.range(num_ground_truth))
-    generated_idx = tf.gather(idx, tf.range(num_ground_truth, int(batch_size)))
+    generated_idx = tf.gather(idx, tf.range(num_ground_truth, batch_size))
 
     ground_truth_examps = tf.gather(ground_truth_x, ground_truth_idx)
     generated_examps = tf.gather(generated_x, generated_idx)
     return tf.dynamic_stitch([ground_truth_idx, generated_idx],
                              [ground_truth_examps, generated_examps])
+
+  def get_scheduled_sample_inputs(
+      self, done_warm_start, k, groundtruth_items, generated_items, batch_size):
+
+    with tf.variable_scope("scheduled_sampling", reuse=tf.AUTO_REUSE):
+      if k < 0:
+        feedself = True
+      else:
+        # Scheduled sampling:
+        # Calculate number of ground-truth frames to pass in.
+        feedself = False
+        iter_num = tf.train.get_global_step()
+        # TODO(mbz): what should it be if it's undefined?
+        if iter_num is None:
+          iter_num = _LARGE_STEP_NUMBER
+        num_ground_truth = tf.to_int32(
+            tf.round(
+                tf.to_float(batch_size) *
+                (k / (k + tf.exp(tf.to_float(iter_num) / tf.to_float(k))))))
+
+      if feedself and done_warm_start:
+        # Feed in generated stuff.
+        output_items = generated_items
+      elif done_warm_start:
+        output_items = []
+        for item_gt, item_gen in zip(groundtruth_items, generated_items):
+          # Scheduled sampling
+          output_items.append(self.scheduled_sample(
+              item_gt, item_gen, batch_size, num_ground_truth))
+      else:
+        # Feed in ground_truth
+        output_items = groundtruth_items
+
+      return output_items
 
   # TODO(mbz): use tf.distributions.kl_divergence instead.
   def kl_divergence(self, mu, log_sigma):
@@ -660,18 +672,13 @@ class NextFrameStochastic(NextFrameBasic):
     all_rewards = input_rewards + target_rewards
     all_frames = input_frames + target_frames
 
-    tf.summary.image("full_video", tf.concat(all_frames, axis=1))
-
     is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
     gen_images, gen_rewards, latent_mean, latent_std = self.construct_model(
         images=all_frames,
         actions=all_actions,
         rewards=all_rewards,
-        k=900.0 if is_training else -1.0,
-        num_masks=10,
-        cdna=True,
-        dna=False,
-        context_frames=hparams.video_num_input_frames)
+        k=900.0 if is_training else -1.0
+    )
 
     step_num = tf.train.get_global_step()
     # TODO(mbz): what should it be if it's undefined?
@@ -696,6 +703,10 @@ class NextFrameStochastic(NextFrameBasic):
     reward_pred = tf.stack(
         gen_rewards[hparams.video_num_input_frames-1:], axis=1)
     reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove undeeded dimension.
+
+    frames_gt = tf.concat(all_frames[hparams.video_num_input_frames:], axis=1)
+    frames_pd = tf.concat(predictions, axis=1)
+    tf.summary.image("full_video", tf.concat([frames_gt, frames_pd], axis=2))
 
     return_targets = predictions
     if "target_reward" in features:
@@ -733,16 +744,18 @@ def next_frame():
 def next_frame_stochastic():
   """SV2P model."""
   hparams = next_frame()
-  hparams.video_num_input_frames = 2
-  hparams.video_num_target_frames = 1
+  hparams.video_num_input_frames = 1
+  hparams.video_num_target_frames = 3
   hparams.batch_size = 8
   hparams.target_modality = "video:l2raw"
   hparams.input_modalities = "inputs:video:l2raw"
   hparams.video_modality_loss_cutoff = 0.0
   hparams.add_hparam("stochastic_model", True)
+  hparams.add_hparam("model_options", "CDNA")
+  hparams.add_hparam("num_masks", 10)
   hparams.add_hparam("latent_channels", 1)
   hparams.add_hparam("latent_std_min", -5.0)
-  hparams.add_hparam("num_iterations_2nd_stage", 50000)
+  hparams.add_hparam("num_iterations_2nd_stage", 10000)
   hparams.add_hparam("latent_loss_multiplier", 1e-4)
   hparams.add_hparam("multi_latent", False)
   hparams.add_hparam("relu_shift", 1e-12)
