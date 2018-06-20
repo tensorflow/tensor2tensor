@@ -167,13 +167,14 @@ class AbstractGAN(t2t_model.T2TModel):
 class SlicedGan(AbstractGAN):
   """Sliced GAN for demonstration."""
 
-  def losses(self, inputs, g):
+  def losses(self, inputs, generated):
     """Losses in the sliced case."""
     is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
     def discriminate(x):
       return self.discriminator(x, is_training=is_training, reuse=False)
     generator_loss = common_layers.sliced_gan_loss(
-        inputs, reverse_gradient(g), discriminate, self.hparams.num_sliced_vecs)
+        inputs, reverse_gradient(generated), discriminate,
+        self.hparams.num_sliced_vecs)
     return {"training": - generator_loss}
 
   def infer(self, *args, **kwargs):  # pylint: disable=arguments-differ
