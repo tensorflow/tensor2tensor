@@ -189,7 +189,7 @@ class NextFrameStochastic(NextFrameBasic):
       latent_loss: loss of the latent twoer
       samples: random samples sampled from standard guassian
     """
-    with tf.variable_scope("latent"):
+    with tf.variable_scope("latent", reuse=tf.AUTO_REUSE):
       # this allows more predicted frames at inference time
       latent_images = images[:self.hparams.latent_num_frames]
       images = tf.concat(latent_images, 3)
@@ -883,7 +883,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     net = inputs
     net = slim.layers.fully_connected(
         net, hidden_size, activation_fn=None, scope="af1")
-    for i in xrange(nlayers):
+    for i in range(nlayers):
       net, states[i] = self.basic_lstm(
           net, states[i], hidden_size, scope="alstm%d"%i)
     net = slim.layers.fully_connected(
@@ -907,7 +907,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     net = inputs
     net = slim.layers.fully_connected(net, hidden_size,
                                       activation_fn=None, scope="bf1")
-    for i in xrange(nlayers):
+    for i in range(nlayers):
       net, states[i] = self.basic_lstm(
           net, states[i], hidden_size, scope="blstm%d"%i)
     mu = slim.layers.fully_connected(
