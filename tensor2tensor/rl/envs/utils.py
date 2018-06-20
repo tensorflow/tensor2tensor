@@ -67,10 +67,10 @@ class EvalVideoWrapper(gym.Wrapper):
 
 def get_action_space(environment_spec):
   """Get action spece associated with environment spec
-    
+
   Args:
      environment_spec:  EnvironmentSpec object
-     
+
   Returns:
     OpenAi Gym action space
   """
@@ -83,11 +83,11 @@ def get_action_space(environment_spec):
 
 def get_policy(observations, hparams):
   """Get policy network
-  
+
   Args:
     observations: Tensor with observations
-    hparams: parameters 
-    
+    hparams: parameters
+
   Returns:
     Tensor with policy and value function output
   """

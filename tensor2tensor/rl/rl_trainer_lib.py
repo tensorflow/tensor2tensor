@@ -17,27 +17,24 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
 import os
-import gym
 
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor.models.research import rl  # pylint: disable=unused-import
 from tensor2tensor.rl import collect
 from tensor2tensor.rl import ppo
-from tensor2tensor.rl.envs import tf_atari_wrappers
-from tensor2tensor.rl.envs import utils
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 
 
-def define_train(hparams, event_dir):
+def define_train(hparams, event_dir): # pylint: disable=unused-argument
   """Define the training setup."""
 
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     memory, collect_summary = collect.define_collect(
-        hparams, "ppo_train", eval_phase=False, on_simulated=hparams.simulated_environment)
+        hparams, "ppo_train", eval_phase=False,
+        on_simulated=hparams.simulated_environment)
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     summary = tf.summary.merge([collect_summary, ppo_summary])
 
@@ -48,7 +45,7 @@ def train(hparams, event_dir=None, model_dir=None,
           restore_agent=True, epoch=0):
   """Train."""
   with tf.name_scope("rl_train"):
-    train_summary_op, eval_summary_op = define_train(hparams, event_dir)
+    train_summary_op, eval_summary_op = define_train(hparams, event_dir) # pylint: disable=unused-variable
     if event_dir:
       summary_writer = tf.summary.FileWriter(
           event_dir, graph=tf.get_default_graph(), flush_secs=60)

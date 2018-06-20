@@ -30,12 +30,12 @@ def _rollout_metadata(batch_env):
   batch_env_shape = batch_env.observ.get_shape().as_list()
   batch_size = [batch_env_shape[0]]
   shapes_types_names = [
-    (batch_size + batch_env_shape[1:], tf.float32, "observation"),
-    (batch_size, tf.float32, "reward"),
-    (batch_size, tf.bool, "done"),
-    (batch_size + batch_env.action_shape, batch_env.action_dtype, "action"),
-    (batch_size, tf.float32, "pdf"),
-    (batch_size, tf.float32, "value_function"),
+      (batch_size + batch_env_shape[1:], tf.float32, "observation"),
+      (batch_size, tf.float32, "reward"),
+      (batch_size, tf.bool, "done"),
+      (batch_size + batch_env.action_shape, batch_env.action_dtype, "action"),
+      (batch_size, tf.float32, "pdf"),
+      (batch_size, tf.float32, "value_function"),
   ]
   return shapes_types_names
 
@@ -79,7 +79,8 @@ def define_collect(hparams, scope, eval_phase,
     wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
     #Put memory wrapper at the level you want to gather observations at
     #Negative indices need to be shifted for insert to work correctly
-    collect_level = collect_level if collect_level>=0 else len(wrappers) + collect_level + 1
+    collect_level = collect_level if \
+      collect_level >= 0 else len(wrappers) + collect_level + 1
     wrappers.insert(collect_level, [_MemoryWrapper, {}])
     rollout_metadata = None
     speculum = None
@@ -101,7 +102,7 @@ def define_collect(hparams, scope, eval_phase,
 
 
     cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
-                                           trainable=False)
+                                         trainable=False)
 
     should_reset_var = tf.Variable(True, trainable=False)
 
@@ -127,7 +128,7 @@ def define_collect(hparams, scope, eval_phase,
       # https://github.com/tensorflow/tensorflow/issues/11186
       obs_copy = batch_env.observ + 0
 
-      def env_step(arg1, arg2):
+      def env_step(arg1, arg2): # pylint: disable=unused-argument
         actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
         policy = actor_critic.policy
         if policy_to_actions_lambda:
@@ -142,20 +143,19 @@ def define_collect(hparams, scope, eval_phase,
 
         pdf = policy.prob(action)[0]
         value_function = actor_critic.value[0]
-        pdf = tf.reshape(pdf, shape=(hparams.num_agents, ))
-        value_function = tf.reshape(value_function, shape=(hparams.num_agents, ))
+        pdf = tf.reshape(pdf, shape=(hparams.num_agents,))
+        value_function = tf.reshape(value_function, shape=(hparams.num_agents,))
 
         with tf.control_dependencies(simulate_output):
           return tf.identity(pdf), tf.identity(value_function)
 
       pdf, value_function = tf.while_loop(
-        lambda _1, _2: tf.equal(speculum.size(), 0),
-        env_step,
-        [tf.constant(0.0, shape=(hparams.num_agents,)),
-          tf.constant(0.0, shape=(hparams.num_agents,))],
-        parallel_iterations=1,
-        back_prop=False,
-        )
+          lambda _1, _2: tf.equal(speculum.size(), 0),
+          env_step,
+          [tf.constant(0.0, shape=(hparams.num_agents,)),
+           tf.constant(0.0, shape=(hparams.num_agents,))],
+          parallel_iterations=1,
+          back_prop=False,)
 
       with tf.control_dependencies([pdf, value_function]):
         obs, reward, done, action = speculum.dequeue()

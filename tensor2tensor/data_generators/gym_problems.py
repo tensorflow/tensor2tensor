@@ -73,7 +73,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     self._internal_memory_size = 10
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       collect_hparams.epoch_length = self._internal_memory_size
-      collect_hparams.num_agents = 1 #TODO (piotrmilos). it is possible to set more
+      # TODO (piotrmilos). it is possible to set more then 1
+      collect_hparams.num_agents = 1
       self.collect_memory, self.collect_trigger_op \
         = collect.define_collect(collect_hparams, scope="gym_problems",
                                  collect_level=0, eval_phase=self.eval_phase)
@@ -90,19 +91,17 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       memory_index = 0
       memory = None
       while pieces_generated < self.num_steps:
-        if memory is None or memory_index>=self._internal_memory_size:
+        if memory is None or memory_index >= self._internal_memory_size:
           sess.run(self.collect_trigger_op)
           memory = sess.run(self.collect_memory)
           memory_index = 0
         data = [memory[i][memory_index][0] for i in range(4)]
         memory_index += 1
         observ, reward, done, action = data
-        observ = observ.astype(np.uint8) # TODO(piotrmilos). This should be probably done in collect
+        observ = observ.astype(np.uint8)
 
-        debug_im = None
         self.sum_of_rewards += reward
         self.dones += int(done)
-
 
         ret_dict = {"frame": observ,
                     "image/format": ["png"],
@@ -246,7 +245,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
 
   @property
   def initial_frames_problem(self):
-    raise NotImplemented()
+    raise NotImplementedError()
 
   def get_environment_spec(self):
     env_spec = standard_atari_env_spec(self.env_name)
@@ -266,9 +265,9 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
 
     env_spec.simulated_env = True
     env_spec.add_hparam("simulation_random_starts",
-                           self.simulation_random_starts)
+                        self.simulation_random_starts)
     env_spec.add_hparam("intrinsic_reward_scale",
-                           self.intrinsic_reward_scale)
+                        self.intrinsic_reward_scale)
     initial_frames_problem = registry.problem(self.initial_frames_problem)
     env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
     env_spec.wrappers.append([TimeLimitWrapper, {"timelimit": timelimit}])
@@ -405,7 +404,7 @@ class GymDiscreteProblemWithAgentOnPong(
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
-  GymSimulatedDiscreteProblem, GymWrappedPongRandom):
+    GymSimulatedDiscreteProblem, GymWrappedPongRandom):
 
   @property
   def initial_frames_problem(self):
@@ -414,7 +413,7 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedLongPong(
-  GymRealDiscreteProblem, GymWrappedLongPongRandom):
+    GymRealDiscreteProblem, GymWrappedLongPongRandom):
   pass
 
 
@@ -435,7 +434,7 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedBreakout(
-  GymRealDiscreteProblem, GymWrappedBreakoutRandom):
+    GymRealDiscreteProblem, GymWrappedBreakoutRandom):
   pass
 
 
@@ -457,7 +456,7 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPong(
-  GymRealDiscreteProblem, GymWrappedPongRandom):
+    GymRealDiscreteProblem, GymWrappedPongRandom):
   """GymDiscreteProblemWithAgentOnWrappedPong."""
 
   # Hard-coding num_actions, frame_height, frame_width to avoid loading
@@ -497,7 +496,7 @@ class GymSimulatedDiscreteProblemWithAgentOnFreeway(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnFreeway(
-  GymRealDiscreteProblem, GymFreewayRandom):
+    GymRealDiscreteProblem, GymFreewayRandom):
   """Freeway with agent."""
 
   # Hard-coding num_actions, frame_height, frame_width to avoid loading

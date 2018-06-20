@@ -159,10 +159,10 @@ def train_agent(problem_name, agent_model_dir,
   environment_spec.add_hparam("initial_frames_problem",
                               gym_problem)
 
-
   # 4x for the StackAndSkipWrapper minus one to always finish for reporting.
   ppo_time_limit = (ppo_hparams.epoch_length - 1) * 4
-  wrappers = environment_spec.wrappers + [[TimeLimitWrapper, {"timelimit": ppo_time_limit}]]
+  wrappers = environment_spec.wrappers + \
+             [[TimeLimitWrapper, {"timelimit": ppo_time_limit}]]
   environment_spec.wrappers = wrappers
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)

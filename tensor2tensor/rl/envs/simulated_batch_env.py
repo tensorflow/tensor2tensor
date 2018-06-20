@@ -106,23 +106,28 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
         FLAGS.hparams_set, problem_name=FLAGS.problem)
     model_hparams.force_full_predict = True
     self._model = registry.model(FLAGS.model)(
-      model_hparams, tf.estimator.ModeKeys.PREDICT)
+        model_hparams, tf.estimator.ModeKeys.PREDICT)
 
     _, self.action_shape, self.action_dtype = get_action_space(environment_spec)
 
     if simulation_random_starts:
-      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
-                                shuffle_files=True, hparams=hparams)
+      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
+                                               FLAGS.data_dir,
+                                               shuffle_files=True,
+                                               hparams=hparams)
       dataset = dataset.shuffle(buffer_size=100)
     else:
-      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
-                                shuffle_files=True, hparams=hparams).take(1)
+      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
+                                               FLAGS.data_dir,
+                                               shuffle_files=True,
+                                               hparams=hparams).take(1)
 
     dataset = dataset.map(lambda x: x["inputs"]).repeat()
     self.history_buffer = HistoryBuffer(dataset, self.length)
 
     shape = (self.length, initial_frames_problem.frame_height,
-             initial_frames_problem.frame_width, initial_frames_problem.num_channels)
+             initial_frames_problem.frame_width,
+             initial_frames_problem.num_channels)
     self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
 
   def __len__(self):

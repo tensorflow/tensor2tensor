@@ -121,7 +121,7 @@ def ppo_pong_base():
 
 
 def standard_atari_env_spec(env):
-  """Parameters of environement specification"""
+  """Parameters of environment specification"""
   standard_wrappers = [[tf_atari_wrappers.MaxAndSkipWrapper, {"skip": 4}]]
   env_lambda = None
   if isinstance(env, str):
@@ -136,11 +136,11 @@ def standard_atari_env_spec(env):
 
 
 def simple_gym_spec(env):
-  """Parameters of environement specification"""
+  """Parameters of environment specification"""
   standard_wrappers = None
   env_lambda = None
   if isinstance(env, str):
-    env_lambda = lambda : gym.make(env)
+    env_lambda = lambda: gym.make(env)
   if callable(env):
     env_lambda = env
   assert env is not None, "Unknown specification of environment"

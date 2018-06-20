@@ -22,8 +22,9 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
-import tensorflow as tf
 from tensor2tensor.rl.envs import utils
+import tensorflow as tf
+
 
 class PyFuncBatchEnv(InGraphBatchEnv):
   """Batch of environments inside the TensorFlow graph.

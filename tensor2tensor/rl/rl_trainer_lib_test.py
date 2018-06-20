@@ -19,7 +19,7 @@ from __future__ import print_function
 
 from tensor2tensor.models.research.rl import simple_gym_spec, standard_atari_env_spec
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.utils import trainer_lib, registry
+from tensor2tensor.utils import trainer_lib, registry # pylint: disable=unused-import
 
 import tensorflow as tf
 
@@ -42,7 +42,8 @@ class TrainTest(tf.test.TestCase):
         "ppo_discrete_action_base",
         TrainTest.test_config)
 
-    hparams.add_hparam("environment_spec", standard_atari_env_spec("CartPole-v0"))
+    hparams.add_hparam("environment_spec",
+                       standard_atari_env_spec("CartPole-v0"))
     rl_trainer_lib.train(hparams)
 
 
