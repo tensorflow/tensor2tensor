@@ -20,16 +20,16 @@ from __future__ import print_function
 
 import copy
 import tensorflow as tf
-from tensor2tensor.rl.envs import utils
+
+from tensor2tensor.rl.envs.batch_env_factory import batch_env_factory
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
 from tensor2tensor.rl.envs.utils import get_policy
 
 
 def _rollout_metadata(batch_env):
   batch_env_shape = batch_env.observ.get_shape().as_list()
-  batch_size =  [batch_env_shape[0]]
+  batch_size = [batch_env_shape[0]]
   shapes_types_names = [
-    # observation
     (batch_size + batch_env_shape[1:], tf.float32, "observation"),
     (batch_size, tf.float32, "reward"),
     (batch_size, tf.bool, "done"),
@@ -74,7 +74,7 @@ def define_collect(hparams, scope, eval_phase,
   """Collect trajectories."""
 
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-    batch_env = utils.batch_env_factory(hparams)
+    batch_env = batch_env_factory(hparams)
     environment_wrappers = hparams.environment_spec.wrappers
     wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
     #Put memory wrapper at the level you want to gather observations at

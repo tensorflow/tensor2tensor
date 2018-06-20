@@ -22,7 +22,7 @@ from __future__ import division
 from __future__ import print_function
 from tensor2tensor.layers import common_layers
 from tensor2tensor.rl.envs import in_graph_batch_env
-from tensor2tensor.rl.envs import utils
+from tensor2tensor.rl.envs.utils import get_action_space
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -108,7 +108,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     self._model = registry.model(FLAGS.model)(
       model_hparams, tf.estimator.ModeKeys.PREDICT)
 
-    _, self.action_shape, self.action_dtype = utils.get_action_space(environment_spec)
+    _, self.action_shape, self.action_dtype = get_action_space(environment_spec)
 
     if simulation_random_starts:
       dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
