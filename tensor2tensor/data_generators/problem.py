@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import collections
+import functools
 import os
 import random
 
@@ -812,9 +813,10 @@ class Problem(object):
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
+        shard_multiplier = (config and config.data_parallelism.n) or 1
         batching_scheme = data_reader.hparams_to_batching_scheme(
             hparams,
-            shard_multiplier=(config and config.data_parallelism.n) or 1,
+            shard_multiplier=shard_multiplier,
             length_multiplier=self.get_hparams().batch_size_multiplier)
         if hparams.use_fixed_batch_size:
           # Here  batch_size really means examples per datashard.
@@ -825,18 +827,19 @@ class Problem(object):
             batching_scheme["batch_sizes"])
 
         if not is_training:
-
-          def _pad_batch(features):
-            if not config or config.data_parallelism.n <= 1:
-              return features
+          batch_multiple = shard_multiplier
+          if hparams.use_fixed_batch_size:
+            # Make sure the last batch has the same fixed size as the rest.
+            batch_multiple *= hparams.batch_size
+          if batch_multiple > 1:
             tf.logging.warn(
                 "Padding the batch to ensure that remainder eval batches have "
                 "a batch size divisible by the number of data shards. This may "
                 "lead to incorrect metrics for non-zero-padded features, e.g. "
                 "images. Use a single datashard (i.e. 1 GPU) in that case.")
-            return pad_batch(features, config.data_parallelism.n)
-
-          dataset = dataset.map(_pad_batch, num_parallel_calls=num_threads)
+            dataset = dataset.map(
+                functools.partial(pad_batch, batch_multiple=batch_multiple),
+                num_parallel_calls=num_threads)
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
 
