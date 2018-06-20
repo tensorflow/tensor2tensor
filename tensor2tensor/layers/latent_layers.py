@@ -422,6 +422,7 @@ def bottleneck_layer(targets_c, hparams):
       targets_c, hparams)
   latents_dense = discretization.parametrized_unbottleneck(
       latents_discrete_hot, hparams.hidden_size, hparams)
+  latents_dense = targets_c + tf.stop_gradient(latents_dense - targets_c)
   latents_discrete = tf.argmax(latents_discrete_hot, axis=-1)
 
   if DO_SUMMARIES:
