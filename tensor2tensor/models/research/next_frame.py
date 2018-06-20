@@ -1088,6 +1088,8 @@ def next_frame_stochastic_cutoff():
   """SV2P model with additional cutoff in L2 loss for environments like pong."""
   hparams = next_frame_stochastic()
   hparams.video_modality_loss_cutoff = 0.4
+  hparams.video_num_input_frames = 4
+  hparams.video_num_target_frames = 1
   return hparams
 
 
