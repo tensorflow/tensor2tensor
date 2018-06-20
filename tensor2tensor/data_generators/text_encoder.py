@@ -489,7 +489,7 @@ class SubwordTextEncoder(TextEncoder):
     self.filename = filename
     if filename is not None:
       self._load_from_file(filename)
-    super(SubwordTextEncoder, self).__init__(num_reserved_ids=None)
+    super(SubwordTextEncoder, self).__init__()
 
   def encode(self, s):
     """Converts a native string to a list of subtoken ids.
