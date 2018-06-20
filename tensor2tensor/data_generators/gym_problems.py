@@ -24,6 +24,7 @@ import gym
 import numpy as np
 
 # We need gym_utils for the game environments defined there.
+from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.models.research import rl
@@ -59,6 +60,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
     self.environment_spec = self.get_environment_spec()
     self.eval_phase = False
+    self.sum_of_rewards = 0.0
+    self.dones = 0
 
   def _setup(self):
     collect_hparams = rl.ppo_pong_base()
@@ -95,7 +98,11 @@ class GymDiscreteProblem(video_utils.VideoProblem):
         memory_index += 1
         observ, reward, done, action = data
         observ = observ.astype(np.uint8) # TODO(piotrmilos). This should be probably done in collect
+
         debug_im = None
+        self.sum_of_rewards += reward
+        self.dones += int(done)
+
 
         ret_dict = {"frame": observ,
                     "image/format": ["png"],
