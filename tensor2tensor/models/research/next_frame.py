@@ -164,7 +164,11 @@ _LARGE_STEP_NUMBER = 100000
 
 @registry.register_model
 class NextFrameStochastic(NextFrameBasic):
-  """Stochastic next-frame model."""
+  """ SV2P: Stochastic Variational Video Prediction.
+
+  based on the following papaer:
+  https://arxiv.org/abs/1710.11252
+  """
 
   def construct_latent_tower(self, images):
     """Builds convolutional latent tower for stochastic model.
@@ -403,8 +407,7 @@ class NextFrameStochastic(NextFrameBasic):
   def construct_model(self,
                       images,
                       actions,
-                      rewards,
-                      k=-1):
+                      rewards):
     """Build convolutional lstm video predictor using CDNA, or DNA.
 
     Args:
@@ -414,7 +417,6 @@ class NextFrameStochastic(NextFrameBasic):
                each action should be in the shape ?x1xZ
       rewards: list of reward tensors
                each reward should be in the shape ?x1xZ
-      k: constant used for scheduled sampling. -1 to feed in own prediction.
     Returns:
       gen_images: predicted future image frames
       gen_rewards: predicted future rewards
@@ -445,7 +447,7 @@ class NextFrameStochastic(NextFrameBasic):
       groundtruth_items = [image, reward]
       generated_items = [pred_image, pred_reward]
       input_image, input_reward = self.get_scheduled_sample_inputs(
-          done_warm_start, k, groundtruth_items, generated_items, batch_size)
+          done_warm_start, groundtruth_items, generated_items, batch_size)
 
       # Latent
       if self.hparams.stochastic_model:
@@ -578,10 +580,10 @@ class NextFrameStochastic(NextFrameBasic):
                              [ground_truth_examps, generated_examps])
 
   def get_scheduled_sample_inputs(
-      self, done_warm_start, k, groundtruth_items, generated_items, batch_size):
+      self, done_warm_start, groundtruth_items, generated_items, batch_size):
 
     with tf.variable_scope("scheduled_sampling", reuse=tf.AUTO_REUSE):
-      if k < 0:
+      if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
         feedself = True
       else:
         # Scheduled sampling:
@@ -591,6 +593,7 @@ class NextFrameStochastic(NextFrameBasic):
         # TODO(mbz): what should it be if it's undefined?
         if iter_num is None:
           iter_num = _LARGE_STEP_NUMBER
+        k = self.hparams.scheduled_sampling_k
         num_ground_truth = tf.to_int32(
             tf.round(
                 tf.to_float(batch_size) *
@@ -660,7 +663,7 @@ class NextFrameStochastic(NextFrameBasic):
     # Each image is being used twice, in latent tower and main tower.
     # This is to make sure we are using the *same* image for both, ...
     # ... given how TF queues work.
-    # NOT sure if this is required at all. Doesn't hurt though! :)
+    # NOT sure if this is required at all. Doesn"t hurt though! :)
     all_frames = [tf.identity(frame) for frame in all_frames]
 
     is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
@@ -668,11 +671,10 @@ class NextFrameStochastic(NextFrameBasic):
         images=all_frames,
         actions=all_actions,
         rewards=all_rewards,
-        k=900.0 if is_training else -1.0
     )
 
     step_num = tf.train.get_global_step()
-    # TODO(mbz): what should it be if it's undefined?
+    # TODO(mbz): what should it be if it"s undefined?
     if step_num is None:
       step_num = _LARGE_STEP_NUMBER
     beta = tf.cond(tf.greater(step_num, self.hparams.num_iterations_2nd_stage),
@@ -711,7 +713,7 @@ class NextFrameStochastic(NextFrameBasic):
 class NextFrameStochasticTwoFrames(NextFrameStochastic):
   """Stochastic next-frame model with 2 frames posterior."""
 
-  def construct_model(self, images, actions, rewards, k=-1):
+  def construct_model(self, images, actions, rewards):
     batch_size = common_layers.shape_list(images[0])[0]
     context_frames = self.hparams.video_num_input_frames
 
@@ -729,7 +731,7 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
       groundtruth_items = [image, reward]
       generated_items = [pred_image, pred_reward]
       input_image, input_reward = self.get_scheduled_sample_inputs(
-          done_warm_start, k, groundtruth_items, generated_items, batch_size)
+          done_warm_start, groundtruth_items, generated_items, batch_size)
 
       # Latent
       # TODO(mbz): should we use input_image iunstead of image?
@@ -746,6 +748,270 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
       gen_rewards.append(pred_reward)
 
     return gen_images, gen_rewards, latent_means, latent_stds
+
+
+@registry.register_model
+class NextFrameStochasticEmily(NextFrameStochastic):
+  """Model architecture for video prediction model.
+
+     based on following paper:
+     "Stochastic Video Generation with a Learned Prior"
+     https://arxiv.org/pdf/1802.07687.pdf
+     by Emily Denton and Rob Fergus.
+
+     This code is a translation of the original code from PyTorch:
+     https://github.com/edenton/svg
+  """
+
+  def vgg_layer(self,
+                inputs,
+                nout,
+                kernel_size=3,
+                activation=tf.nn.leaky_relu,
+                padding="SAME",
+                scope=""):
+    """A layer of VGG network with batch norm.
+
+    Args:
+      inputs: image tensor
+      nout: number of output channels
+      kernel_size: size of the kernel
+      activation: activation function
+      padding: padding of the image
+      scope: slim scope of the op
+    Returns:
+      net: output of layer
+    """
+    net = slim.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
+                      activation_fn=activation, scope=scope+"_conv")
+    net = slim.batch_norm(net, scope=scope+"_bn")
+    net = activation(net)
+    return net
+
+  def basic_lstm(self, inputs, state, num_units, scope=None):
+    input_shape = common_layers.shape_list(inputs)
+    cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=scope)
+    if state is None:
+      state = cell.zero_state(input_shape[0], tf.float32)
+    outputs, new_state = cell(inputs, state)
+    return outputs, new_state
+
+  def encoder(self, inputs, nout):
+    """VGG based image encoder.
+
+    Args:
+      inputs: image tensor with size BSx64x64xC
+      nout: number of output channels
+    Returns:
+      net: encoded image with size BSxNout
+      skips: skip connection after each layer
+    """
+    vgg_layer = self.vgg_layer
+    net01 = inputs
+    # h1
+    net11 = slim.repeat(net01, 2, vgg_layer, 64, scope="h1")
+    net12 = slim.max_pool2d(net11, [2, 2], scope="h1_pool")
+    # h2
+    net21 = slim.repeat(net12, 2, vgg_layer, 128, scope="h2")
+    net22 = slim.max_pool2d(net21, [2, 2], scope="h2_pool")
+    # h3
+    net31 = slim.repeat(net22, 3, vgg_layer, 256, scope="h3")
+    net32 = slim.max_pool2d(net31, [2, 2], scope="h3_pool")
+    # h4
+    net41 = slim.repeat(net32, 3, vgg_layer, 512, scope="h4")
+    net42 = slim.max_pool2d(net41, [2, 2], scope="h4_pool")
+    # h5
+    net51 = slim.repeat(net42, 1, vgg_layer, nout, kernel_size=4,
+                        padding="VALID", activation=tf.tanh, scope="h5")
+    skips = [net11, net21, net31, net41]
+    return net51, skips
+
+  def decoder(self, inputs, skips, nout):
+    """VGG based image decoder.
+
+    Args:
+      inputs: image tensor with size BSxX
+      skips: skip connections from encoder
+      nout: number of output channels
+    Returns:
+      net: decoded image with size BSx64x64xNout
+      skips: skip connection after each layer
+    """
+    vgg_layer = self.vgg_layer
+    net = inputs
+    # d1
+    net = slim.conv2d_transpose(net, 512, kernel_size=4, padding="VALID",
+                                scope="d1_deconv", activation_fn=None)
+    net = slim.batch_norm(net, scope="d1_bn")
+    net = tf.nn.leaky_relu(net)
+    net = common_layers.upscale(net, 2)
+    # d2
+    net = tf.concat([net, skips[3]], axis=3)
+    net = slim.repeat(net, 2, vgg_layer, 512, scope="d2a")
+    net = slim.repeat(net, 1, vgg_layer, 256, scope="d2b")
+    net = common_layers.upscale(net, 2)
+    # d3
+    net = tf.concat([net, skips[2]], axis=3)
+    net = slim.repeat(net, 2, vgg_layer, 256, scope="d3a")
+    net = slim.repeat(net, 1, vgg_layer, 128, scope="d3b")
+    net = common_layers.upscale(net, 2)
+    # d4
+    net = tf.concat([net, skips[1]], axis=3)
+    net = slim.repeat(net, 1, vgg_layer, 128, scope="d4a")
+    net = slim.repeat(net, 1, vgg_layer, 64, scope="d4b")
+    net = common_layers.upscale(net, 2)
+    # d5
+    net = tf.concat([net, skips[0]], axis=3)
+    net = slim.repeat(net, 1, vgg_layer, 64, scope="d5")
+    net = slim.conv2d_transpose(net, nout, kernel_size=3, padding="SAME",
+                                scope="d6_deconv", activation_fn=tf.sigmoid)
+    return net
+
+  def stacked_lstm(self, inputs, states, hidden_size, output_size, nlayers):
+    """Stacked LSTM layers with FC layers as input and output embeddings.
+
+    Args:
+      inputs: input tensor
+      states: a list of internal lstm states for each layer
+      hidden_size: number of lstm units
+      output_size: size of the output
+      nlayers: number of lstm layers
+    Returns:
+      net: output of the network
+      skips: a list of updated lstm states for each layer
+    """
+    net = inputs
+    net = slim.layers.fully_connected(
+        net, hidden_size, activation_fn=None, scope="af1")
+    for i in xrange(nlayers):
+      net, states[i] = self.basic_lstm(
+          net, states[i], hidden_size, scope="alstm%d"%i)
+    net = slim.layers.fully_connected(
+        net, output_size, activation_fn=tf.tanh, scope="af2")
+    return net, states
+
+  def lstm_gaussian(self, inputs, states, hidden_size, output_size, nlayers):
+    """Stacked LSTM layers with FC layer as input and gaussian as output.
+
+    Args:
+      inputs: input tensor
+      states: a list of internal lstm states for each layer
+      hidden_size: number of lstm units
+      output_size: size of the output
+      nlayers: number of lstm layers
+    Returns:
+      mu: mean of the predicted gaussian
+      logvar: log(var) of the predicted gaussian
+      skips: a list of updated lstm states for each layer
+    """
+    net = inputs
+    net = slim.layers.fully_connected(net, hidden_size,
+                                      activation_fn=None, scope="bf1")
+    for i in xrange(nlayers):
+      net, states[i] = self.basic_lstm(
+          net, states[i], hidden_size, scope="blstm%d"%i)
+    mu = slim.layers.fully_connected(
+        net, output_size, activation_fn=None, scope="bf2mu")
+    logvar = slim.layers.fully_connected(
+        net, output_size, activation_fn=None, scope="bf2log")
+    return mu, logvar, states
+
+  def construct_model(self, images, actions, rewards):
+    """Builds the stochastic model.
+
+    The model first encodes all the images (x_t) in the sequence
+    using the encoder. Let"s call the output e_t. Then it predicts the
+    latent state of the next frame using a recurrent posterior network
+    z ~ q(z|e_{0:t}) = N(mu(e_{0:t}), sigma(e_{0:t})).
+    Another recurrent network predicts the embedding of the next frame
+    using the approximated posterior e_{t+1} = p(e_{t+1}|e_{0:t}, z)
+    Finally, the decoder decodes e_{t+1} into x_{t+1}.
+    Skip connections from encoder to decoder help with reconstruction.
+
+    Args:
+      images: tensor of ground truth image sequences
+      actions: NOT used list of action tensors
+      rewards: NOT used list of reward tensors
+
+    Returns:
+      gen_images: generated images
+      fakr_rewards: input rewards as reward prediction!
+      pred_mu: predited means of posterior
+      pred_logvar: predicted log(var) of posterior
+    """
+    # model does not support action conditioned and reward prediction
+    fakr_reward_prediction = rewards
+    del actions, rewards
+
+    z_dim = self.hparams.z_dim
+    g_dim = self.hparams.g_dim
+    rnn_size = self.hparams.rnn_size
+    posterior_rnn_layers = self.hparams.posterior_rnn_layers
+    predictor_rnn_layers = self.hparams.predictor_rnn_layers
+    context_frames = self.hparams.video_num_input_frames
+
+    seq_len = len(images)
+    batch_size, _, _, color_channels = common_layers.shape_list(images[0])
+
+    # LSTM initial sizesstates.
+    predictor_states = [None] * predictor_rnn_layers
+    posterior_states = [None] * posterior_rnn_layers
+
+    tf.logging.info(">>>> Encoding")
+    # Encoding:
+    enc_images, enc_skips = [], []
+    for i, image in enumerate(images):
+      with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
+        enc, skips = self.encoder(image, rnn_size)
+        enc = tf.contrib.layers.flatten(enc)
+        enc_images.append(enc)
+        enc_skips.append(skips)
+
+    tf.logging.info(">>>> Prediction")
+    # Prediction
+    pred_enc, pred_mu, pred_logvar = [], [], []
+    for i in range(1, seq_len):
+      with tf.variable_scope("prediction", reuse=tf.AUTO_REUSE):
+        # current encoding
+        h_current = enc_images[i-1]
+        # target encoding
+        h_target = enc_images[i]
+
+        z = tf.random_normal([batch_size, z_dim], 0, 1, dtype=tf.float32)
+        mu, logvar = tf.zeros_like(z), tf.zeros_like(z)
+
+        # Only use Posterior if it's training time
+        if self.hparams.mode == tf.estimator.ModeKeys.TRAIN:
+          mu, logvar, posterior_states = self.lstm_gaussian(
+              h_target, posterior_states, rnn_size, z_dim, posterior_rnn_layers)
+
+          # The original implementation has a multiplier of 0.5
+          # Removed here for simplicity i.e. replacing var with std
+          z = z * tf.exp(logvar) + mu
+
+        # Predict output encoding
+        h_pred, predictor_states = self.stacked_lstm(
+            tf.concat([h_current, z], axis=1),
+            predictor_states, rnn_size, g_dim, predictor_rnn_layers)
+
+        pred_enc.append(h_pred)
+        pred_mu.append(mu)
+        pred_logvar.append(logvar)
+
+    tf.logging.info(">>>> Decoding")
+    # Decoding
+    gen_images = []
+    for i in range(seq_len-1):
+      with tf.variable_scope("decoding", reuse=tf.AUTO_REUSE):
+        # use skip values of last available frame
+        skip_index = min(context_frames-1, i)
+
+        h_pred = tf.reshape(pred_enc[i], [batch_size, 1, 1, g_dim])
+        x_pred = self.decoder(h_pred, enc_skips[skip_index], color_channels)
+        gen_images.append(x_pred)
+
+    tf.logging.info(">>>> Done")
+    return gen_images, fakr_reward_prediction, pred_mu, pred_logvar
 
 
 @registry.register_hparams
@@ -796,9 +1062,24 @@ def next_frame_stochastic():
   hparams.add_hparam("multi_latent", False)
   hparams.add_hparam("relu_shift", 1e-12)
   hparams.add_hparam("dna_kernel_size", 5)
+  hparams.add_hparam("scheduled_sampling_k", 900.0)
   hparams.add_hparam(
       "latent_num_frames",  # use all frames by default.
       hparams.video_num_input_frames + hparams.video_num_target_frames)
+  return hparams
+
+
+@registry.register_hparams
+def next_frame_stochastic_emily():
+  """Emily's model."""
+  hparams = next_frame_stochastic()
+  hparams.latent_loss_multiplier = 1e-4
+  hparams.learning_rate_constant = 0.002
+  hparams.add_hparam("z_dim", 10)
+  hparams.add_hparam("g_dim", 128)
+  hparams.add_hparam("rnn_size", 256)
+  hparams.add_hparam("posterior_rnn_layers", 1)
+  hparams.add_hparam("predictor_rnn_layers", 2)
   return hparams
 
 

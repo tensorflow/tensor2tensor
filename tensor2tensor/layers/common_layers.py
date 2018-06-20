@@ -3384,3 +3384,9 @@ def sliced_gan_loss(input1, input2, discriminator, num_vecs,
     proj1 = get_sorted_projections(logits1)
     proj2 = get_sorted_projections(logits2)
     return tf.reduce_mean(tf.square(proj1 - proj2))
+
+
+def upscale(inputs, f, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR):
+  """Upscaling the image by a factor of f."""
+  height, width = shape_list(inputs)[1:3]
+  return tf.image.resize_images(inputs, (height * f, width * f), method)
