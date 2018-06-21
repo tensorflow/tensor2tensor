@@ -551,12 +551,10 @@ def save_video(video, save_path_template):
 
   for i, frame in enumerate(video):
     save_path = save_path_template.format(i)
-    with tf.gfile.Open(save_path, "wb") as sp:
-      Image.fromarray(np.uint8(frame)).save(sp)
+    Image.fromarray(np.uint8(frame)).save(save_path)
 
 
 def show_and_save_image(img, save_path):
-  """Shows an image using matplotlib and saves it."""
   try:
     import matplotlib.pyplot as plt  # pylint: disable=g-import-not-at-top
   except ImportError as e:
@@ -565,8 +563,7 @@ def show_and_save_image(img, save_path):
         "installed: %s", e)
     raise NotImplementedError("Image display and save not implemented.")
   plt.imshow(img)
-  with tf.gfile.Open(save_path, "wb") as sp:
-    plt.savefig(sp)
+  plt.savefig(save_path)
 
 
 def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
