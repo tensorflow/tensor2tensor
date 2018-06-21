@@ -95,3 +95,11 @@ class SentimentIMDB(text_problems.Text2ClassProblem):
           "inputs": doc,
           "label": int(label),
       }
+
+
+@registry.register_problem
+class SentimentIMDBCharacters(SentimentIMDB):
+  """IMDB Sentiment classification, character level."""
+
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
