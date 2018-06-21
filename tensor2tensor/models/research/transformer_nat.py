@@ -202,8 +202,6 @@ def get_latent_pred_loss(latents_pred, latents_discrete_hot, hparams):
   """Latent prediction and loss."""
   latents_logits = tf.layers.dense(
       latents_pred, 2**hparams.bottleneck_bits, name="extra_logits")
-  # loss = tf.losses.softmax_cross_entropy(onehot_labels=latents_discrete_hot,
-  #                                        logits=latents_logits)
   loss = tf.nn.softmax_cross_entropy_with_logits_v2(
       labels=tf.stop_gradient(latents_discrete_hot), logits=latents_logits)
   return loss
@@ -260,8 +258,13 @@ def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
   targets_c = compress(targets, hparams, "compress")
   if hparams.mode != tf.estimator.ModeKeys.PREDICT:
     # Compress and bottleneck.
+    if hparams.denoising:
+      noise = tf.random_normal(
+          shape=common_layers.shape_list(targets_c), mean=0.0, stddev=0.1)
+    else:
+      noise = 0
     latents_discrete_hot, extra_loss = vq_discrete_bottleneck(
-        x=targets_c, hparams=hparams)
+        x=targets_c + noise, hparams=hparams)
     latents_dense = vq_discrete_unbottleneck(
         latents_discrete_hot, hparams=hparams)
     latents_dense = targets_c + tf.stop_gradient(latents_dense - targets_c)
@@ -297,8 +300,20 @@ def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
     d = residual_conv(d, 1, (3, 1), hparams, "decompress_rc_%d" % j)
     d = decompress_step(d, hparams, i > 0, "decompress_%d" % j)
 
-  targets = d
-  res = decode_transformer(inputs, ed, d, hparams, "decoder")
+  masking = common_layers.inverse_lin_decay(hparams.mask_startup_steps)
+  masking *= common_layers.inverse_exp_decay(
+      hparams.mask_startup_steps // 4)  # Not much at start.
+  masking = tf.minimum(tf.maximum(masking, 0.0), 1.0)
+  if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+    masking = 1.0
+  mask = tf.less(masking,
+                 tf.random_uniform(common_layers.shape_list(targets)[:-1]))
+  mask = tf.expand_dims(tf.to_float(mask), 3)
+
+  # targets is always [batch, length, 1, depth]
+  targets = mask * targets + (1.0 - mask) * d
+
+  res = decode_transformer(inputs, ed, targets, hparams, "decoder")
   latent_time = tf.less(hparams.mask_startup_steps,
                         tf.to_int32(tf.train.get_global_step()))
   losses["latent_pred"] *= tf.to_float(latent_time)
@@ -397,6 +412,7 @@ def transformer_nat_small():
   hparams.add_hparam("decay", 0.999)
   hparams.add_hparam("num_samples", 10)
   hparams.add_hparam("mask_startup_steps", 50000)
+  hparams.add_hparam("denoising", False)
   return hparams
 
 
