@@ -675,7 +675,7 @@ def transformer_ae_small():
   hparams.add_hparam("noise_dev", 0.5)
   hparams.add_hparam("d_mix", 0.5)
   hparams.add_hparam("logit_normalization", True)
-  hparams.add_hparam("word_dropout", 0.1)
+  hparams.add_hparam("word_dropout", 0.0)
   # Bottleneck kinds supported: dense, vae, semhash, gumbel-softmax, dvq.
   hparams.add_hparam("bottleneck_kind", "semhash")
   hparams.add_hparam("num_blocks", 1)
@@ -800,6 +800,36 @@ def transformer_ae_base():
   hparams.hidden_size = 512
   hparams.filter_size = 4096
   hparams.num_hidden_layers = 6
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_noatt():
+  """Set of hyperparameters."""
+  hparams = transformer_ae_small()
+  hparams.batch_size = 2048
+  hparams.hidden_size = 512
+  hparams.filter_size = 4096
+  hparams.num_hidden_layers = 6
+  hparams.do_attend_decompress = False
+  hparams.do_attend_decompress = False
+  hparams.word_dropout = 0.0
+  hparams.z_size = 12
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_drop_noatt():
+  """Set of hyperparameters."""
+  hparams = transformer_ae_small()
+  hparams.batch_size = 2048
+  hparams.hidden_size = 512
+  hparams.filter_size = 4096
+  hparams.num_hidden_layers = 6
+  hparams.do_attend_decompress = False
+  hparams.do_attend_decompress = False
+  hparams.word_dropout = 0.2
+  hparams.z_size = 12
   return hparams
 
 
