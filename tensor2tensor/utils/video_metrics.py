@@ -81,7 +81,8 @@ def save_results(results, output_dir, problem_name):
   for name, array in six.iteritems(results):
     output_filename = "{}_{}.npy".format(problem_name, name)
     output_filename = os.path.join(output_dir, output_filename)
-    np.save(output_filename, array)
+    with tf.gfile.Open(output_filename, "wb") as fname:
+      np.save(fname, array)
 
 
 def compute_metrics(output_video, target_video):
