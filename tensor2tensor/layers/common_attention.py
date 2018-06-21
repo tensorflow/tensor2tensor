@@ -2904,8 +2904,23 @@ def multihead_attention(query_antecedent,
       else:
         k = split_heads(k, num_heads)
         v = split_heads(v, num_heads)
-        k = cache["k"] = tf.concat([cache["k"], k], axis=2)
-        v = cache["v"] = tf.concat([cache["v"], v], axis=2)
+        decode_loop_step = kwargs.get("decode_loop_step")
+        if decode_loop_step is None:
+          k = cache["k"] = tf.concat([cache["k"], k], axis=2)
+          v = cache["v"] = tf.concat([cache["v"], v], axis=2)
+        else:
+          # Inplace update is required for inference on TPU.
+          # Inplace_ops only supports inplace_update on the first dimension.
+          # TODO(shibow): explore updating the entire Tensor instead of using
+          # inplace_ops to avoid the transposes.
+          tmp_k = tf.transpose(cache["k"], perm=[2, 0, 1, 3])
+          tmp_k = common_layers.tf_inplace_ops().alias_inplace_update(
+              tmp_k, decode_loop_step, tf.squeeze(k, axis=2))
+          k = cache["k"] = tf.transpose(tmp_k, perm=[1, 2, 0, 3])
+          tmp_v = tf.transpose(cache["v"], perm=[2, 0, 1, 3])
+          tmp_v = common_layers.tf_inplace_ops().alias_inplace_update(
+              tmp_v, decode_loop_step, tf.squeeze(v, axis=2))
+          v = cache["v"] = tf.transpose(tmp_v, perm=[1, 2, 0, 3])
 
     q = split_heads(q, num_heads)
     if cache is None:

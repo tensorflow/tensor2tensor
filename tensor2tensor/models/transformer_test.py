@@ -31,6 +31,12 @@ TARGET_LENGTH = 7
 VOCAB_SIZE = 10
 
 
+def tf_version_has_inplace_ops():
+  # Available in TF 1.8+
+  major, minor = [int(el) for el in tf.__version__.split(".")[:2]]
+  return major > 1 or (major == 1 and minor >= 8)
+
+
 def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
               has_input=True, model_cls=transformer.Transformer):
   if hparams is None:
@@ -240,13 +246,16 @@ class TransformerTest(tf.test.TestCase):
       res = session.run(extra_loss["attention_loss"])
     self.assertEqual(res.shape, ())
 
-  def testGreedySlowTPUVsNonTPU(self):
-    # Only works with TF 1.8+
-    # Version string can take the following form: "1.9.0-rc0"
-    major_str, minor_str, unused_rest = tf.__version__.split(".", 3)
-    major, minor = int(major_str), int(minor_str)
-    if major < 1 or (major == 1 and minor < 8):
-      return
+  def _create_greedy_infer_model(self, decode_length):
+    """Creates model for greedy inference testing.
+
+    Args:
+      decode_length: An integer, the decode length used for test.
+
+    Returns:
+      model: A t2t model.
+      features: An map of string to tensor.
+    """
     model, features = get_model(transformer.transformer_small())
 
     decode_length = 3
@@ -266,6 +275,16 @@ class TransformerTest(tf.test.TestCase):
 
     model.set_mode(tf.estimator.ModeKeys.PREDICT)
 
+    return model, features
+
+  def testGreedySlowTPUVsNonTPU(self):
+    if not tf_version_has_inplace_ops():
+      return
+
+    decode_length = 3
+
+    model, features = self._create_greedy_infer_model(decode_length)
+
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       slow_result_non_tpu = model._slow_greedy_infer(
           features, decode_length)["outputs"]
@@ -282,6 +301,53 @@ class TransformerTest(tf.test.TestCase):
     self.assertEqual(slow_tpu_res.shape,
                      (BATCH_SIZE, INPUT_LENGTH + decode_length))
     self.assertAllClose(slow_tpu_res, slow_non_tpu_res)
+
+  def testGreedyFastTPUVsNonTPU(self):
+    if not tf_version_has_inplace_ops():
+      return
+
+    decode_length = 3
+
+    model, features = self._create_greedy_infer_model(decode_length)
+
+    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+      fast_result_non_tpu = model._greedy_infer(
+          features, decode_length, use_tpu=False)["outputs"]
+
+      fast_result_tpu = model._greedy_infer(
+          features, decode_length, use_tpu=True)["outputs"]
+
+    with self.test_session():
+      fast_non_tpu_res = fast_result_non_tpu.eval()
+      fast_tpu_res = fast_result_tpu.eval()
+
+    self.assertEqual(fast_tpu_res.shape,
+                     (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertAllClose(fast_tpu_res, fast_non_tpu_res)
+
+  def testGreedyTPUSlowVsFast(self):
+    if not tf_version_has_inplace_ops():
+      return
+
+    decode_length = 3
+
+    model, features = self._create_greedy_infer_model(decode_length)
+
+    with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+      slow_result = model._slow_greedy_infer_tpu(
+          features, decode_length)["outputs"]
+      slow_result = tf.squeeze(slow_result, axis=[2, 3])
+
+      fast_result = model._greedy_infer(
+          features, decode_length, use_tpu=True)["outputs"]
+
+    with self.test_session():
+      slow_res = slow_result.eval()
+      fast_res = fast_result.eval()
+
+    self.assertEqual(fast_res.shape,
+                     (BATCH_SIZE, INPUT_LENGTH + decode_length))
+    self.assertAllClose(fast_res, slow_res)
 
 
 class TransformerScorerTest(tf.test.TestCase):

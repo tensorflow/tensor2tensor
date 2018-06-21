@@ -36,6 +36,12 @@ from tensorflow.python.framework import ops
 allow_defun = False
 
 
+# Lazy load inplace_ops
+def tf_inplace_ops():
+  from tensorflow.python.ops import inplace_ops  # pylint: disable=g-import-not-at-top
+  return inplace_ops
+
+
 @function.Defun(
     python_grad_func=lambda x, dy: tf.convert_to_tensor(dy),
     shape_func=lambda op: [op.inputs[0].get_shape()])
@@ -1512,14 +1518,47 @@ def conv_relu_conv(inputs,
                    nonpadding_mask=None,
                    dropout=0.0,
                    name=None,
-                   cache=None):
-  """Hidden layer with RELU activation followed by linear projection."""
+                   cache=None,
+                   decode_loop_step=None):
+  """Hidden layer with RELU activation followed by linear projection.
+
+  Args:
+    inputs: A tensor.
+    filter_size: An integer.
+    output_size: An integer.
+    first_kernel_size: An integer.
+    second_kernel_size: An integer.
+    padding: A string.
+    nonpadding_mask: A tensor.
+    dropout: A float.
+    name: A string.
+    cache: A dict, containing Tensors which are the results of previous
+        attentions, used for fast decoding.
+    decode_loop_step: An integer, step number of the decoding loop.
+        Only used for inference on TPU. If it is not None, the function
+        will do inplace update for the cache instead of concatenating the
+        current result to the cache.
+
+  Returns:
+    A Tensor.
+  """
   with tf.variable_scope(name, "conv_relu_conv", [inputs]):
     inputs = maybe_zero_out_padding(
         inputs, first_kernel_size, nonpadding_mask)
 
     if cache:
-      inputs = cache["f"] = tf.concat([cache["f"], inputs], axis=1)
+      if decode_loop_step is None:
+        inputs = cache["f"] = tf.concat([cache["f"], inputs], axis=1)
+      else:
+        # Inplace update is required for inference on TPU.
+        # Inplace_ops only supports inplace_update on the first dimension.
+        # TODO(shibow): explore updating the entire Tensor instead of using
+        # inplace_ops to avoid the transposes.
+        tmp_f = tf.transpose(cache["f"], perm=[1, 0, 2])
+        tmp_f = tf_inplace_ops().alias_inplace_update(
+            tmp_f, decode_loop_step * tf.shape(inputs)[1],
+            tf.transpose(inputs, perm=[1, 0, 2]))
+        inputs = cache["f"] = tf.transpose(tmp_f, perm=[1, 0, 2])
       inputs = cache["f"] = inputs[:, -first_kernel_size:, :]
 
     h = tpu_conv1d(inputs, filter_size, first_kernel_size, padding=padding,
