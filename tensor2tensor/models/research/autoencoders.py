@@ -281,8 +281,9 @@ class AutoencoderResidualDiscrete(AutoencoderResidual):
       self.hparams.bottleneck_bits = old_bottleneck_bits
     return res, loss
 
-  def unbottleneck(self, x, res_size):
-    return discretization.parametrized_unbottleneck(x, res_size, self.hparams)
+  def unbottleneck(self, x, res_size, reuse=None):
+    with tf.variable_scope("unbottleneck", reuse=reuse):
+      return discretization.parametrized_unbottleneck(x, res_size, self.hparams)
 
   def sample(self, features=None):
     del features
@@ -541,7 +542,7 @@ def autoencoder_discrete_cifar():
   hparams.hidden_size = 256
   hparams.num_residual_layers = 4
   hparams.batch_size = 32
-  hparams.learning_rate_constant = 2.0
+  hparams.learning_rate_constant = 1.0
   hparams.dropout = 0.1
   return hparams
 

@@ -25,6 +25,14 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
+def lrelu(input_, leak=0.2, name="lrelu"):
+  return tf.maximum(input_, leak * input_, name=name)
+
+
+def reverse_gradient(x):
+  return -x + tf.stop_gradient(2 * x)
+
+
 @registry.register_model
 class BasicFcRelu(t2t_model.T2TModel):
   """Basic fully-connected + ReLU model."""
@@ -59,8 +67,44 @@ class BasicAutoencoder(t2t_model.T2TModel):
         return tf.tanh(x) + noise * hparams.bottleneck_noise, 0.0
       return tf.tanh(x), 0.0
 
-  def unbottleneck(self, x, res_size):
-    with tf.variable_scope("unbottleneck"):
+  def discriminator(self, x, is_training):
+    """Discriminator architecture based on InfoGAN.
+
+    Args:
+      x: input images, shape [bs, h, w, channels]
+      is_training: boolean, are we in train or eval model.
+
+    Returns:
+      out_logit: the output logits (before sigmoid).
+    """
+    hparams = self.hparams
+    with tf.variable_scope(
+        "discriminator",
+        initializer=tf.random_normal_initializer(stddev=0.02)):
+      batch_size, height, width = common_layers.shape_list(x)[:3]
+      # Mapping x from [bs, h, w, c] to [bs, 1]
+      net = tf.layers.conv2d(x, 64, (4, 4), strides=(2, 2),
+                             padding="SAME", name="d_conv1")
+      # [bs, h/2, w/2, 64]
+      net = lrelu(net)
+      net = tf.layers.conv2d(net, 128, (4, 4), strides=(2, 2),
+                             padding="SAME", name="d_conv2")
+      # [bs, h/4, w/4, 128]
+      if hparams.discriminator_batchnorm:
+        net = tf.layers.batch_normalization(net, training=is_training,
+                                            momentum=0.999, name="d_bn2")
+      net = lrelu(net)
+      size = height * width
+      net = tf.reshape(net, [batch_size, size * 8])  # [bs, h * w * 8]
+      net = tf.layers.dense(net, 1024, name="d_fc3")  # [bs, 1024]
+      if hparams.discriminator_batchnorm:
+        net = tf.layers.batch_normalization(net, training=is_training,
+                                            momentum=0.999, name="d_bn3")
+      net = lrelu(net)
+      return net
+
+  def unbottleneck(self, x, res_size, reuse=None):
+    with tf.variable_scope("unbottleneck", reuse=reuse):
       x = tf.layers.dense(x, res_size, name="dense")
       return x
 
@@ -115,8 +159,13 @@ class BasicAutoencoder(t2t_model.T2TModel):
       self._cur_bottleneck_tensor = b
       b = self.unbottleneck(b, common_layers.shape_list(x)[-1])
       b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
+      if hparams.add_gan_loss:
+        # Add a purely sampled batch on which we'll compute the GAN loss.
+        g = self.unbottleneck(self.sample(), common_layers.shape_list(x)[-1],
+                              reuse=True)
+        b = tf.concat([g, b], axis=0)
       # With probability bottleneck_max_prob use the bottleneck, otherwise x.
-      if hparams.bottleneck_max_prob < 1.0:
+      if hparams.bottleneck_max_prob < -1.0:
         x = tf.where(tf.less(tf.random_uniform([]),
                              hparams.bottleneck_max_prob), b, x)
       else:
@@ -135,11 +184,29 @@ class BasicAutoencoder(t2t_model.T2TModel):
       return x, {"bottleneck_loss": 0.0}
     # Cut to the right size and mix before returning.
     res = x[:, :shape[1], :shape[2], :]
+    # Add GAN loss if requested.
+    gan_loss = 0.0
+    if hparams.add_gan_loss:
+      # Split back if we added a purely sampled batch.
+      res_gan, res = tf.split(res, 2, axis=0)
+      num_channels = self.hparams.problem.num_channels
+      res_rgb = common_layers.convert_real_to_rgb(tf.nn.sigmoid(
+          tf.layers.dense(res_gan, num_channels, name="gan_rgb")))
+      tf.summary.image("gan", tf.cast(res_rgb, tf.uint8), max_outputs=1)
+      orig_rgb = tf.to_float(features["targets_raw"])
+      def discriminate(x):
+        return self.discriminator(x, is_training=is_training)
+      gan_loss = common_layers.sliced_gan_loss(
+          orig_rgb, reverse_gradient(res_rgb),
+          discriminate, self.hparams.num_sliced_vecs)
+      gan_loss *= common_layers.inverse_lin_decay(
+          hparams.bottleneck_warmup_steps)
+    # Mix the final result and return.
     res = common_layers.mix(res, features["targets"],
                             hparams.bottleneck_warmup_steps // 2, is_training)
-    return res, {"bottleneck_loss": b_loss}
+    return res, {"bottleneck_loss": b_loss, "gan_loss": - gan_loss}
 
-  def sample(self, features=None):
+  def sample(self, features=None, shape=None):
     del features
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
@@ -255,4 +322,7 @@ def basic_autoencoder():
   hparams.add_hparam("bottleneck_max_prob", 1.0)
   hparams.add_hparam("sample_height", 32)
   hparams.add_hparam("sample_width", 32)
+  hparams.add_hparam("discriminator_batchnorm", True)
+  hparams.add_hparam("num_sliced_vecs", 4096)
+  hparams.add_hparam("add_gan_loss", False)
   return hparams

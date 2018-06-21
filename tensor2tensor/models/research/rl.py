@@ -74,7 +74,7 @@ def ppo_discrete_action_base():
 def ppo_atari_base():
   """Atari base parameters."""
   hparams = ppo_discrete_action_base()
-  hparams.learning_rate = 16e-5
+  hparams.learning_rate = 4e-4
   hparams.num_agents = 5
   hparams.epoch_length = 200
   hparams.gae_gamma = 0.985
@@ -92,7 +92,7 @@ def ppo_atari_base():
 def ppo_pong_base():
   """Pong base parameters."""
   hparams = ppo_discrete_action_base()
-  hparams.learning_rate = 8e-5
+  hparams.learning_rate = 2e-4
   hparams.num_agents = 8
   hparams.epoch_length = 200
   hparams.gae_gamma = 0.985
@@ -113,7 +113,7 @@ def ppo_pong_base():
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
   hparams = ppo_pong_base()
-  hparams.learning_rate = 4e-5
+  hparams.learning_rate = 2e-4
   hparams.network = dense_bitwise_categorical_fun
   return hparams
 
