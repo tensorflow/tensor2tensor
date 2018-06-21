@@ -265,13 +265,8 @@ def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
   targets_c = compress(targets_noisy, hparams, "compress")
   if hparams.mode != tf.estimator.ModeKeys.PREDICT:
     # Compress and bottleneck.
-    if hparams.denoising:
-      noise = tf.random_normal(
-          shape=common_layers.shape_list(targets_c), mean=0.0, stddev=0.1)
-    else:
-      noise = 0
     latents_discrete_hot, extra_loss = vq_discrete_bottleneck(
-        x=targets_c + noise, hparams=hparams)
+        x=targets_c, hparams=hparams)
     latents_dense = vq_discrete_unbottleneck(
         latents_discrete_hot, hparams=hparams)
     latents_dense = targets_c + tf.stop_gradient(latents_dense - targets_c)
@@ -420,7 +415,6 @@ def transformer_nat_small():
   hparams.add_hparam("num_samples", 10)
   hparams.add_hparam("mask_startup_steps", 50000)
   hparams.add_hparam("word_dropout", 0.0)
-  hparams.add_hparam("denoising", False)
   return hparams
 
 
