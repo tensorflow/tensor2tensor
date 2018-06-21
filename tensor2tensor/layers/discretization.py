@@ -706,7 +706,7 @@ def vq_nearest_neighbor(x, means, soft_em=False, num_samples=10):
     x_means_idx = tf.multinomial(-dist, num_samples=num_samples)
     x_means_hot = tf.one_hot(
         x_means_idx, depth=common_layers.shape_list(means)[0])
-    x_means_hot = tf.reduce_sum(x_means_hot, axis=1)
+    x_means_hot = tf.reduce_mean(x_means_hot, axis=1)
   else:
     x_means_idx = tf.argmax(-dist, axis=-1)
     x_means_hot = tf.one_hot(x_means_idx, bottleneck_size)
