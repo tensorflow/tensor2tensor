@@ -20,10 +20,9 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import gym
 
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
-
+from tensor2tensor.rl.envs import utils
 import tensorflow as tf
 
 
@@ -42,10 +41,10 @@ class PyFuncBatchEnv(InGraphBatchEnv):
       batch_env: Batch environment.
     """
     self._batch_env = batch_env
-    observ_shape = self._parse_shape(self._batch_env.observation_space)
-    observ_dtype = self._parse_dtype(self._batch_env.observation_space)
-    self.action_shape = list(self._parse_shape(self._batch_env.action_space))
-    self.action_dtype = self._parse_dtype(self._batch_env.action_space)
+    observ_shape = utils.parse_shape(self._batch_env.observation_space)
+    observ_dtype = utils.parse_dtype(self._batch_env.observation_space)
+    self.action_shape = list(utils.parse_shape(self._batch_env.action_space))
+    self.action_dtype = utils.parse_dtype(self._batch_env.action_space)
     with tf.variable_scope('env_temporary'):
       self._observ = tf.Variable(
           tf.zeros((len(self._batch_env),) + observ_shape, observ_dtype),
@@ -84,7 +83,7 @@ class PyFuncBatchEnv(InGraphBatchEnv):
     with tf.name_scope('environment/simulate'):
       if action.dtype in (tf.float16, tf.float32, tf.float64):
         action = tf.check_numerics(action, 'action')
-      observ_dtype = self._parse_dtype(self._batch_env.observation_space)
+      observ_dtype = utils.parse_dtype(self._batch_env.observation_space)
       observ, reward, done = tf.py_func(
           lambda a: self._batch_env.step(a)[:3], [action],
           [observ_dtype, tf.float32, tf.bool], name='step')
@@ -104,7 +103,7 @@ class PyFuncBatchEnv(InGraphBatchEnv):
     Returns:
       Batch tensor of the new observations.
     """
-    observ_dtype = self._parse_dtype(self._batch_env.observation_space)
+    observ_dtype = utils.parse_dtype(self._batch_env.observation_space)
     observ = tf.py_func(
         self._batch_env.reset, [indices], observ_dtype, name='reset')
     observ = tf.check_numerics(observ, 'observ')
@@ -120,33 +119,3 @@ class PyFuncBatchEnv(InGraphBatchEnv):
   def close(self):
     """Send close messages to the external process and join them."""
     self._batch_env.close()
-
-  def _parse_shape(self, space):
-    """Get a tensor shape from a OpenAI Gym space.
-
-    Args:
-      space: Gym space.
-
-    Returns:
-      Shape tuple.
-    """
-    if isinstance(space, gym.spaces.Discrete):
-      return ()
-    if isinstance(space, gym.spaces.Box):
-      return space.shape
-    raise NotImplementedError()
-
-  def _parse_dtype(self, space):
-    """Get a tensor dtype from a OpenAI Gym space.
-
-    Args:
-      space: Gym space.
-
-    Returns:
-      TensorFlow data type.
-    """
-    if isinstance(space, gym.spaces.Discrete):
-      return tf.int32
-    if isinstance(space, gym.spaces.Box):
-      return tf.float32
-    raise NotImplementedError()

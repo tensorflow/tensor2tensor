@@ -337,7 +337,7 @@ class VideoProblem(problem.Problem):
             unencoded_debug = features.pop("image/debug")
             encoded_debug = sess.run(encoded_image_t, feed_dict={
                 image_t: unencoded_debug})
-            features["image/encoded_debug"] = encoded_debug
+            features["image/encoded_debug"] = [encoded_debug]
           yield features
 
   def generate_encoded_samples_debug(self, data_dir, tmp_dir, dataset_split):

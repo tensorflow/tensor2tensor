@@ -16,8 +16,10 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+from tensor2tensor.models.research.rl import simple_gym_spec, standard_atari_env_spec
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.utils import trainer_lib
+from tensor2tensor.utils import trainer_lib, registry # pylint: disable=unused-import
 
 import tensorflow as tf
 
@@ -31,13 +33,18 @@ class TrainTest(tf.test.TestCase):
     hparams = trainer_lib.create_hparams(
         "ppo_continuous_action_base",
         TrainTest.test_config)
-    rl_trainer_lib.train(hparams, "Pendulum-v0")
+
+    hparams.add_hparam("environment_spec", simple_gym_spec("Pendulum-v0"))
+    rl_trainer_lib.train(hparams)
 
   def test_no_crash_cartpole(self):
     hparams = trainer_lib.create_hparams(
         "ppo_discrete_action_base",
         TrainTest.test_config)
-    rl_trainer_lib.train(hparams, "CartPole-v0")
+
+    hparams.add_hparam("environment_spec",
+                       standard_atari_env_spec("CartPole-v0"))
+    rl_trainer_lib.train(hparams)
 
 
 if __name__ == "__main__":
