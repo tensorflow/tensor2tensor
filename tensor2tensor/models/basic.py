@@ -207,7 +207,7 @@ class BasicAutoencoder(t2t_model.T2TModel):
     return res, {"bottleneck_loss": b_loss, "gan_loss": - gan_loss}
 
   def sample(self, features=None, shape=None):
-    del features
+    del features, shape
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers

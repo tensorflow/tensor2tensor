@@ -258,8 +258,6 @@ class TransformerTest(tf.test.TestCase):
     """
     model, features = get_model(transformer.transformer_small())
 
-    decode_length = 3
-
     out_logits, _ = model(features)
     out_logits = tf.squeeze(out_logits, axis=[2, 3])
     loss = tf.nn.sparse_softmax_cross_entropy_with_logits(

@@ -22,7 +22,6 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
 from tensor2tensor.utils import registry
-from tensor2tensor.rl.envs import tf_atari_wrappers
 
 import tensorflow as tf
 
@@ -60,26 +59,16 @@ def ppo_base_v1():
 @registry.register_hparams
 def ppo_continuous_action_base():
   hparams = ppo_base_v1()
-  hparams.add_hparam("policy_network", feed_forward_gaussian_fun)
-  hparams.add_hparam("policy_network_params", "basic_policy_parameters")
+  hparams.add_hparam("network", feed_forward_gaussian_fun)
   return hparams
 
-@registry.register_hparams
-def basic_policy_parameters():
-  wrappers = None
-  return tf.contrib.training.HParams(wrappers=wrappers)
 
 @registry.register_hparams
 def ppo_discrete_action_base():
   hparams = ppo_base_v1()
-  hparams.add_hparam("policy_network", feed_forward_categorical_fun)
+  hparams.add_hparam("network", feed_forward_categorical_fun)
   return hparams
 
-@registry.register_hparams
-def discrete_random_action_base():
-  hparams = common_hparams.basic_params1()
-  hparams.add_hparam("policy_network", random_policy_fun)
-  return hparams
 
 @registry.register_hparams
 def ppo_atari_base():
@@ -113,41 +102,12 @@ def ppo_pong_base():
   hparams.optimization_epochs = 2
   hparams.epochs_num = 1000
   hparams.num_eval_agents = 1
-  hparams.policy_network = feed_forward_cnn_small_categorical_fun
+  hparams.network = feed_forward_cnn_small_categorical_fun
   hparams.clipping_coef = 0.2
   hparams.optimization_batch_size = 4
   hparams.max_gradients_norm = 0.5
   return hparams
 
-
-def standard_atari_env_spec(env):
-  """Parameters of environment specification"""
-  standard_wrappers = [[tf_atari_wrappers.MaxAndSkipWrapper, {"skip": 4}]]
-  env_lambda = None
-  if isinstance(env, str):
-    env_lambda = lambda: gym.make(env)
-  if callable(env):
-    env_lambda = env
-  assert env is not None, "Unknown specification of environment"
-
-  return tf.contrib.training.HParams(env_lambda=env_lambda,
-                                     wrappers=standard_wrappers,
-                                     simulated_env=False)
-
-
-def simple_gym_spec(env):
-  """Parameters of environment specification"""
-  standard_wrappers = None
-  env_lambda = None
-  if isinstance(env, str):
-    env_lambda = lambda: gym.make(env)
-  if callable(env):
-    env_lambda = env
-  assert env is not None, "Unknown specification of environment"
-
-  return tf.contrib.training.HParams(env_lambda=env_lambda,
-                                     wrappers=standard_wrappers,
-                                     simulated_env=False)
 
 @registry.register_hparams
 def ppo_pong_ae_base():

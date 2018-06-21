@@ -30,13 +30,11 @@ import datetime
 import math
 import os
 import time
-
-import copy
-
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
+from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
@@ -141,31 +139,25 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_epochs_num = hparams.ppo_epochs_num
   ppo_hparams.epochs_num = ppo_epochs_num
+  ppo_hparams.simulated_environment = True
+  ppo_hparams.simulation_random_starts = hparams.simulation_random_starts
+  ppo_hparams.intrinsic_reward_scale = hparams.intrinsic_reward_scale
   ppo_hparams.eval_every_epochs = 50
   ppo_hparams.save_models_every_epochs = ppo_epochs_num
   ppo_hparams.epoch_length = hparams.ppo_epoch_length
   ppo_hparams.num_agents = hparams.ppo_num_agents
-  # ppo_hparams.problem = gym_problem
+  ppo_hparams.problem = gym_problem
   ppo_hparams.world_model_dir = world_model_dir
   if hparams.ppo_learning_rate:
     ppo_hparams.learning_rate = hparams.ppo_learning_rate
-
-  environment_spec = copy.copy(gym_problem.environment_spec)
-  environment_spec.simulated_env = True
-  environment_spec.add_hparam("simulation_random_starts",
-                              hparams.simulation_random_starts)
-  environment_spec.add_hparam("intrinsic_reward_scale",
-                              hparams.intrinsic_reward_scale)
-  environment_spec.add_hparam("initial_frames_problem",
-                              gym_problem)
-
   # 4x for the StackAndSkipWrapper minus one to always finish for reporting.
   ppo_time_limit = (ppo_hparams.epoch_length - 1) * 4
-  wrappers = environment_spec.wrappers + \
-             [[TimeLimitWrapper, {"timelimit": ppo_time_limit}]]
-  environment_spec.wrappers = wrappers
 
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
+  in_graph_wrappers = [
+      (TimeLimitWrapper, {"timelimit": ppo_time_limit}),
+      (StackAndSkipWrapper, {"skip": 4})]
+  in_graph_wrappers += gym_problem.in_graph_wrappers
+  ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
 
   with temporary_flags({
       "problem": problem_name,
@@ -175,7 +167,8 @@ def train_agent(problem_name, agent_model_dir,
       "data_dir": epoch_data_dir,
       "autoencoder_path": autoencoder_path,
   }):
-    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=epoch)
+    rl_trainer_lib.train(ppo_hparams, gym_problem.env_name, event_dir,
+                         agent_model_dir, epoch=epoch)
 
 
 def evaluate_world_model(simulated_problem_name, problem_name, hparams,
@@ -183,12 +176,12 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
                          autoencoder_path=None):
   """Generate simulated environment data and return reward accuracy."""
   gym_simulated_problem = registry.problem(simulated_problem_name)
-  # gym_problem = registry.problem(problem_name)
+  gym_problem = registry.problem(problem_name)
   sim_steps = hparams.simulated_env_generator_num_steps
   gym_simulated_problem.settable_num_steps = sim_steps
-  # gym_simulated_problem.real_env_problem = gym_problem
-  # gym_simulated_problem.simulation_random_starts = False
-  # gym_simulated_problem.intrinsic_reward_scale = 0.
+  gym_simulated_problem.real_env_problem = gym_problem
+  gym_simulated_problem.simulation_random_starts = False
+  gym_simulated_problem.intrinsic_reward_scale = 0.
   with temporary_flags({
       "problem": problem_name,
       "model": hparams.generative_model,
@@ -437,6 +430,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   return epoch_metrics[-1]
 
 
+
+
 def combine_training_data(problem, final_data_dir, old_data_dirs,
                           copy_last_eval_set=True):
   """Add training data from old_data_dirs into final_data_dir."""
@@ -543,8 +538,6 @@ def rl_modelrl_tiny():
           ppo_time_limit=5,
           ppo_epoch_length=5,
           ppo_num_agents=2,
-          # eval_world_model=True,
-          # simulation_random_starts=True
       ).values())
 
 

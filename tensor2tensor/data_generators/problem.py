@@ -813,7 +813,7 @@ class Problem(object):
       else:
         # On GPU, bucket by length
         dataset = dataset.filter(gpu_valid_size)
-        shard_multiplier = (config and config.data_parallelism.n) or 1
+        shard_multiplier = config.data_parallelism.n if config else 1
         batching_scheme = data_reader.hparams_to_batching_scheme(
             hparams,
             shard_multiplier=shard_multiplier,

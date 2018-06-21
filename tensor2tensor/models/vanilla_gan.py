@@ -148,7 +148,7 @@ class AbstractGAN(t2t_model.T2TModel):
     out_shape = common_layers.shape_list(inputs)[1:4]
     g = self.generator(z, is_training, out_shape)
 
-    losses = self.losses(inputs, g)
+    losses = self.losses(inputs, g)  # pylint: disable=not-callable
 
     summary_g_image = tf.reshape(
         g[0, :], [1] + common_layers.shape_list(inputs)[1:])
