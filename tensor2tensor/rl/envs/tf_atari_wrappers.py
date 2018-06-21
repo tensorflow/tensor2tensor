@@ -219,26 +219,3 @@ class TimeLimitWrapper(WrapperBase):
     assign_op = tf.scatter_update(self._observ, indices, new_values)
     with tf.control_dependencies([op_zero, assign_op]):
       return tf.identity(self.observ)
-
-
-class MemoryWrapper(WrapperBase):
-  """Memory wrapper."""
-
-  def __init__(self, batch_env):
-    super(MemoryWrapper, self).__init__(batch_env)
-    MemoryWrapper.singleton = self
-    assert self._length == 1, "We support only one environment"
-    infinity = 10000000
-    self.speculum = tf.FIFOQueue(infinity, dtypes=[
-        tf.uint8, tf.float32, tf.int32, tf.bool])
-    self._observ = self._batch_env.observ
-
-  def simulate(self, action):
-    with tf.name_scope("environment/simulate"):  # Do we need this?
-      reward, done = self._batch_env.simulate(action)
-      image = tf.cast(self._batch_env.observ[0, ...], tf.uint8)
-      with tf.control_dependencies([reward, done]):
-        enqueue_op = self.speculum.enqueue(
-            [image, reward, action, done])
-        with tf.control_dependencies([enqueue_op]):
-          return tf.identity(reward), tf.identity(done)
