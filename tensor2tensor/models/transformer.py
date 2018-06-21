@@ -338,8 +338,14 @@ class Transformer(t2t_model.T2TModel):
       batch_size = partial_targets_shape[0]
 
     if hparams.pos == "timing":
-      timing_signal = common_attention.get_timing_signal_1d(
+      positional_encoding = common_attention.get_timing_signal_1d(
           decode_length + 1, hparams.hidden_size)
+    elif hparams.pos == "emb":
+      positional_encoding = common_attention.add_positional_embedding(
+          tf.zeros([1, decode_length + 1, hparams.hidden_size]),
+          hparams.max_length, "targets_positional_embedding", None)
+    else:
+      positional_encoding = None
 
     def preprocess_targets(targets, i):
       """Performs preprocessing steps on the targets to prepare for the decoder.
@@ -366,10 +372,11 @@ class Transformer(t2t_model.T2TModel):
       targets = tf.cond(
           tf.equal(i, 0), lambda: tf.zeros_like(targets), lambda: targets)
 
-      if hparams.pos == "timing":
-        timing_signal_shape = timing_signal.shape.as_list()
-        targets += tf.slice(timing_signal, [0, i, 0],
-                            [timing_signal_shape[0], 1, timing_signal_shape[2]])
+      if positional_encoding is not None:
+        positional_encoding_shape = positional_encoding.shape.as_list()
+        targets += tf.slice(
+            positional_encoding, [0, i, 0],
+            [positional_encoding_shape[0], 1, positional_encoding_shape[2]])
       return targets
 
     decoder_self_attention_bias = (
@@ -552,8 +559,14 @@ class Transformer(t2t_model.T2TModel):
       batch_size = partial_targets_shape[0]
 
     if hparams.pos == "timing":
-      timing_signal = common_attention.get_timing_signal_1d(
+      positional_encoding = common_attention.get_timing_signal_1d(
           decode_length + 1, hparams.hidden_size)
+    elif hparams.pos == "emb":
+      positional_encoding = common_attention.add_positional_embedding(
+          tf.zeros([1, decode_length + 1, hparams.hidden_size]),
+          hparams.max_length, "targets_positional_embedding", None)
+    else:
+      positional_encoding = None
 
     def preprocess_targets(targets, i):
       """Performs preprocessing steps on the targets to prepare for the decoder.
@@ -580,8 +593,8 @@ class Transformer(t2t_model.T2TModel):
       targets = tf.cond(
           tf.equal(i, 0), lambda: tf.zeros_like(targets), lambda: targets)
 
-      if hparams.pos == "timing":
-        targets += timing_signal[:, i:i + 1]
+      if positional_encoding is not None:
+        targets += positional_encoding[:, i:i + 1]
       return targets
 
     decoder_self_attention_bias = (
@@ -1053,22 +1066,27 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
   if hparams.proximity_bias:
     encoder_self_attention_bias += common_attention.attention_bias_proximal(
         common_layers.shape_list(inputs)[1])
-  # Append target_space_id embedding to inputs.
-  emb_target_space = common_layers.embedding(
-      target_space,
-      32,
-      ishape_static[-1],
-      name="target_space_embedding",
-      dtype=tf.bfloat16
-      if hparams.activation_dtype == "bfloat16" else tf.float32)
-  emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
-  encoder_input += emb_target_space
+  if hparams.get("use_target_space_embedding", True):
+    # Append target_space_id embedding to inputs.
+    emb_target_space = common_layers.embedding(
+        target_space,
+        32,
+        ishape_static[-1],
+        name="target_space_embedding",
+        dtype=tf.bfloat16
+        if hparams.activation_dtype == "bfloat16" else tf.float32)
+    emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
+    encoder_input += emb_target_space
   if hparams.pos == "timing":
     if inputs_position is not None:
       encoder_input = common_attention.add_timing_signal_1d_given_position(
           encoder_input, inputs_position)
     else:
       encoder_input = common_attention.add_timing_signal_1d(encoder_input)
+  elif hparams.pos == "emb":
+    encoder_input = common_attention.add_positional_embedding(
+        encoder_input, hparams.max_length, "inputs_positional_embedding",
+        inputs_position)
   if hparams.activation_dtype == "bfloat16":
     encoder_self_attention_bias = tf.cast(encoder_self_attention_bias,
                                           tf.bfloat16)
@@ -1125,6 +1143,11 @@ def transformer_prepare_decoder(targets, hparams, features=None):
           decoder_input, targets_position)
     else:
       decoder_input = common_attention.add_timing_signal_1d(decoder_input)
+  elif hparams.pos == "emb":
+    decoder_input = common_attention.add_positional_embedding(
+        decoder_input, hparams.max_length, "targets_positional_embedding",
+        targets_position)
+
   if hparams.activation_dtype == "bfloat16":
     decoder_self_attention_bias = tf.cast(decoder_self_attention_bias,
                                           tf.bfloat16)
@@ -1193,7 +1216,8 @@ def transformer_encoder(encoder_input,
               max_relative_position=hparams.max_relative_position,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
-              max_length=hparams.get("max_length"))
+              max_length=hparams.get("max_length"),
+              vars_3d=hparams.get("attention_variables_3d"))
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -1478,6 +1502,8 @@ def transformer_base_v1():
   hparams.add_hparam("self_attention_type", "dot_product")
   hparams.add_hparam("max_relative_position", 0)
   hparams.add_hparam("conv_first_kernel", 3)
+  hparams.add_hparam("attention_variables_3d", False)
+  hparams.add_hparam("use_target_space_embedding", True)
   # These parameters are only used when ffn_layer=="local_moe_tpu"
   hparams.add_hparam("moe_overhead_train", 1.0)
   hparams.add_hparam("moe_overhead_eval", 2.0)

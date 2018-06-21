@@ -645,6 +645,27 @@ def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
 
 
 @expert_utils.add_name_scope()
+def add_positional_embedding(x, max_length, name, positions=None):
+  """Add positional embedding.
+
+  Args:
+    x: a Tensor with shape [batch, length, depth]
+    max_length: an integer.  static maximum size of any dimension.
+    name: a name for this layer.
+    positions: an optional tensor with shape [batch, length]
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+  _, length, depth = common_layers.shape_list(x)
+  var = tf.get_variable(name, [max_length, depth])
+  if positions is not None:
+    return x + tf.gather(var, tf.to_int32(positions))
+  else:
+    return x + tf.expand_dims(tf.slice(var, [0, 0], [length, -1]), 0)
+
+
+@expert_utils.add_name_scope()
 def add_positional_embedding_nd(x, max_length, name):
   """Add n-dimensional positional embedding.
 
@@ -2713,7 +2734,8 @@ def compute_attention_component(antecedent,
                                 total_depth,
                                 filter_width=1,
                                 padding="VALID",
-                                name="c"):
+                                name="c",
+                                vars_3d_num_heads=None):
   """Computes attention compoenent (query, key or value).
 
   Args:
@@ -2723,10 +2745,25 @@ def compute_attention_component(antecedent,
       component to be.
     padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     name: a string specifying scope name.
+    vars_3d_num_heads: an optional integer (if we want to use 3d variables)
 
   Returns:
     c : [batch, length, depth] tensor
   """
+  if vars_3d_num_heads:
+    assert filter_width == 1
+    input_depth = antecedent.get_shape().as_list()[-1]
+    depth_per_head = total_depth // vars_3d_num_heads
+    initializer_stddev = input_depth ** -0.5
+    if "q" in name:
+      initializer_stddev *= depth_per_head ** -0.5
+    var = tf.get_variable(
+        name, [input_depth,
+               vars_3d_num_heads,
+               total_depth // vars_3d_num_heads],
+        initializer=tf.random_normal_initializer(stddev=initializer_stddev))
+    var = tf.reshape(var, [input_depth, total_depth])
+    return tf.tensordot(antecedent, var, axes=1)
   if filter_width == 1:
     return common_layers.dense(
         antecedent, total_depth, use_bias=False, name=name)
@@ -2742,7 +2779,8 @@ def compute_qkv(query_antecedent,
                 q_filter_width=1,
                 kv_filter_width=1,
                 q_padding="VALID",
-                kv_padding="VALID"):
+                kv_padding="VALID",
+                vars_3d_num_heads=None):
   """Computes query, key and value.
 
   Args:
@@ -2755,18 +2793,25 @@ def compute_qkv(query_antecedent,
     to be.
     q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+    vars_3d_num_heads: an optional (if we want to use 3d variables)
 
   Returns:
     q, k, v : [batch, length, depth] tensors
   """
   if memory_antecedent is None:
     memory_antecedent = query_antecedent
-  q = compute_attention_component(query_antecedent, total_key_depth,
-                                  q_filter_width, q_padding, "q")
-  k = compute_attention_component(memory_antecedent, total_key_depth,
-                                  kv_filter_width, kv_padding, "k")
-  v = compute_attention_component(memory_antecedent, total_value_depth,
-                                  kv_filter_width, kv_padding, "v")
+  q = compute_attention_component(
+      query_antecedent, total_key_depth,
+      q_filter_width, q_padding, "q",
+      vars_3d_num_heads=vars_3d_num_heads)
+  k = compute_attention_component(
+      memory_antecedent, total_key_depth,
+      kv_filter_width, kv_padding, "k",
+      vars_3d_num_heads=vars_3d_num_heads)
+  v = compute_attention_component(
+      memory_antecedent, total_value_depth,
+      kv_filter_width, kv_padding, "v",
+      vars_3d_num_heads=vars_3d_num_heads)
   return q, k, v
 
 
@@ -2797,6 +2842,7 @@ def multihead_attention(query_antecedent,
                         max_length=None,
                         adjacency_matrix=None,
                         num_edge_types=5,
+                        vars_3d=False,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -2848,6 +2894,7 @@ def multihead_attention(query_antecedent,
     adjacency_matrix: an optional tensor of shape [batch, len_q, len_q]
       containing edge vectors for attention
     num_edge_types: number of edge types, an int
+    vars_3d: use 3-dimensional variables for input/output transformations
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -2877,13 +2924,15 @@ def multihead_attention(query_antecedent,
   if total_value_depth % num_heads != 0:
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
+  vars_3d_num_heads = num_heads if vars_3d else None
   with tf.variable_scope(name, default_name="multihead_attention",
                          values=[query_antecedent, memory_antecedent]):
 
     if cache is None or memory_antecedent is None:
       q, k, v = compute_qkv(query_antecedent, memory_antecedent,
                             total_key_depth, total_value_depth, q_filter_width,
-                            kv_filter_width, q_padding, kv_padding)
+                            kv_filter_width, q_padding, kv_padding,
+                            vars_3d_num_heads=vars_3d_num_heads)
     if cache is not None:
       if attention_type != "dot_product":
         # TODO(petershaw): Support caching when using relative position
@@ -2928,7 +2977,8 @@ def multihead_attention(query_antecedent,
       v = split_heads(v, num_heads)
 
     key_depth_per_head = total_key_depth // num_heads
-    q *= key_depth_per_head**-0.5
+    if not vars_3d:
+      q *= key_depth_per_head**-0.5
 
     additional_returned_value = None
     if callable(attention_type):  # Generic way to extend multihead_attention
@@ -2993,8 +3043,14 @@ def multihead_attention(query_antecedent,
     # Set last dim specifically.
     x.set_shape(x.shape.as_list()[:-1] + [total_value_depth])
 
-    x = common_layers.dense(
-        x, output_depth, use_bias=False, name="output_transform")
+    if vars_3d:
+      o_var = tf.get_variable(
+          "o", [num_heads, total_value_depth // num_heads, output_depth])
+      o_var = tf.reshape(o_var, [total_value_depth, output_depth])
+      x = tf.tensordot(x, o_var, axes=1)
+    else:
+      x = common_layers.dense(
+          x, output_depth, use_bias=False, name="output_transform")
     if additional_returned_value is not None:
       return x, additional_returned_value
     return x
