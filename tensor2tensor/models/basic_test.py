@@ -44,23 +44,6 @@ class BasicTest(tf.test.TestCase):
       res = session.run(logits)
     self.assertEqual(res.shape, (1, 1, 1, 1, 10))
 
-  def testBasicAutoencoder(self):
-    x = np.random.random_integers(0, high=255, size=(1, 28, 28, 1))
-    y = np.random.random_integers(0, high=9, size=(1, 1))
-    hparams = trainer_lib.create_hparams(
-        "basic_autoencoder", problem_name="image_mnist_rev", data_dir=".")
-    with self.test_session() as session:
-      features = {
-          "targets": tf.constant(x, dtype=tf.int32),
-          "inputs": tf.constant(y, dtype=tf.int32),
-      }
-      tf.train.create_global_step()
-      model = basic.BasicAutoencoder(hparams, tf.estimator.ModeKeys.TRAIN)
-      logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
-      res = session.run(logits)
-    self.assertEqual(res.shape, (1, 28, 28, 1, 256))
-
 
 if __name__ == "__main__":
   tf.test.main()
