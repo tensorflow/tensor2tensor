@@ -126,6 +126,8 @@ def basic_params1():
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
       symbol_modality_num_shards=1,
+      # pad vocabularies so that this value divides the vocabulary size.
+      vocab_divisor=1,
       # During training, we drop sequences whose inputs and targets are shorter
       # than min_length
       min_length=0,
