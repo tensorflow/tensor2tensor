@@ -26,6 +26,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import video_metrics
 
 import tensorflow as tf
 
@@ -37,6 +38,29 @@ def resize_video_frames(images, size):
         tf.to_int64(tf.image.resize_images(
             image, [size, size], tf.image.ResizeMethod.BILINEAR)))
   return resized_images
+
+
+def summarize_video_metrics(hook_args):
+  """Computes video metrics summaries using the decoder output."""
+  problem_name = hook_args.problem.name
+  current_problem = hook_args.problem
+  hparams = hook_args.hparams
+  output_dir = hook_args.output_dir
+  frame_shape = [
+      current_problem.frame_height, current_problem.frame_width,
+      current_problem.num_channels
+  ]
+  metrics_graph = tf.Graph()
+  with metrics_graph.as_default():
+    metrics_results = video_metrics.compute_video_metrics(
+        output_dir, problem_name, hparams.video_num_target_frames, frame_shape)
+
+  summary_values = []
+  for name, array in six.iteritems(metrics_results):
+    for ind, val in enumerate(array):
+      tag = name + "_" + str(ind)
+      summary_values.append(tf.Summary.Value(tag=tag, simple_value=val))
+  return summary_values
 
 
 class VideoProblem(problem.Problem):
@@ -111,6 +135,10 @@ class VideoProblem(problem.Problem):
   def preprocess_example(self, example, mode, hparams):
     """Runtime preprocessing, e.g., resize example["frame"]."""
     return example
+
+  @property
+  def decode_hooks(self):
+    return [summarize_video_metrics]
 
   @property
   def is_generate_per_split(self):
