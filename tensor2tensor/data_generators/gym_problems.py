@@ -68,7 +68,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   def __init__(self, *args, **kwargs):
     super(GymDiscreteProblem, self).__init__(*args, **kwargs)
     self._env = None
-    self._env = None
     self.debug_dump_frames_path = "debug_frames_env"
     self.settable_num_steps = 5000
 
@@ -135,13 +134,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       ckpts = tf.train.get_checkpoint_state(FLAGS.agent_policy_path)
       ckpt = ckpts.model_checkpoint_path
       model_saver.restore(sess, ckpt)
-
-  @property
-  def num_input_frames(self):
-    """Number of frames on input for real environment."""
-    # TODO(lukaszkaiser): This must be equal to hparams.video_num_input_frames,
-    # we should automate this to avoid bug in the future.
-    return 4
 
   def eval_metrics(self):
     eval_metrics = [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
