@@ -246,11 +246,8 @@ class TransformerTest(tf.test.TestCase):
       res = session.run(extra_loss["attention_loss"])
     self.assertEqual(res.shape, ())
 
-  def _create_greedy_infer_model(self, decode_length):
+  def _create_greedy_infer_model(self):
     """Creates model for greedy inference testing.
-
-    Args:
-      decode_length: An integer, the decode length used for test.
 
     Returns:
       model: A t2t model.
@@ -281,7 +278,7 @@ class TransformerTest(tf.test.TestCase):
 
     decode_length = 3
 
-    model, features = self._create_greedy_infer_model(decode_length)
+    model, features = self._create_greedy_infer_model()
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       slow_result_non_tpu = model._slow_greedy_infer(
@@ -306,7 +303,7 @@ class TransformerTest(tf.test.TestCase):
 
     decode_length = 3
 
-    model, features = self._create_greedy_infer_model(decode_length)
+    model, features = self._create_greedy_infer_model()
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       fast_result_non_tpu = model._greedy_infer(
@@ -329,7 +326,7 @@ class TransformerTest(tf.test.TestCase):
 
     decode_length = 3
 
-    model, features = self._create_greedy_infer_model(decode_length)
+    model, features = self._create_greedy_infer_model()
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       slow_result = model._slow_greedy_infer_tpu(
