@@ -67,7 +67,7 @@ def log_decode_results(inputs,
                        targets_vocab,
                        targets=None,
                        save_images=False,
-                       model_dir=None,
+                       output_dir=None,
                        identity_output=False,
                        log_results=True):
   """Log inference results."""
@@ -77,7 +77,8 @@ def log_decode_results(inputs,
   if is_video:
     def fix_and_save_video(vid, prefix):
       save_path_template = os.path.join(
-          model_dir, "%s_%s_%d_{}.png" % (problem_name, prefix, prediction_idx))
+          output_dir,
+          "%s_%s_%d_{}.png" % (problem_name, prefix, prediction_idx))
       # this is only required for predictions
       if vid.shape[-1] == 1:
         vid = np.squeeze(vid, axis=-1)
@@ -91,7 +92,7 @@ def log_decode_results(inputs,
   decoded_inputs = None
   if is_image and save_images:
     save_path = os.path.join(
-        model_dir, "%s_prediction_%d.jpg" % (problem_name, prediction_idx))
+        output_dir, "%s_prediction_%d.jpg" % (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
   elif inputs_vocab:
     if identity_output:
@@ -130,6 +131,10 @@ def decode_from_dataset(estimator,
                   str(problem_name))
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
+
+  # Setup the decode output directory for any artifacts that may be written out
+  output_dir = os.path.join(estimator.model_dir, "decode")
+  tf.gfile.MakeDirs(output_dir)
 
   # If decode_hp.batch_size is specified, use a fixed batch size
   if decode_hp.batch_size:
@@ -200,7 +205,7 @@ def decode_from_dataset(estimator,
             inputs_vocab,
             targets_vocab,
             save_images=decode_hp.save_images,
-            model_dir=estimator.model_dir,
+            output_dir=output_dir,
             identity_output=decode_hp.identity_output,
             targets=targets,
             log_results=decode_hp.log_results)
@@ -216,7 +221,7 @@ def decode_from_dataset(estimator,
           inputs_vocab,
           targets_vocab,
           save_images=decode_hp.save_images,
-          model_dir=estimator.model_dir,
+          output_dir=output_dir,
           identity_output=decode_hp.identity_output,
           targets=targets,
           log_results=decode_hp.log_results)
