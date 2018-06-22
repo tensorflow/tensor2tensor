@@ -733,7 +733,7 @@ def run_postdecode_hooks(decode_hook_args):
   summary_writer = tf.summary.FileWriter(decode_hook_args.output_dir)
   for hook in hooks:
     # Isolate each hook in case it creates TF ops
-    with tf.Graph():
+    with tf.Graph().as_default():
       summaries = hook(decode_hook_args)
     if summaries:
       summary = tf.Summary(value=list(summaries))
