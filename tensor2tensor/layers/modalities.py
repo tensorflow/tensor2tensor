@@ -114,12 +114,14 @@ class SymbolModality(modality.Modality):
 
   def bottom(self, x):
     self._bottom_was_called = True
-    if self._model_hparams.shared_embedding_and_softmax_weights:
+    if (self._model_hparams.shared_embedding_and_softmax_weights or
+        self._model_hparams.get("shared_embedding")):
       return self.bottom_simple(x, "shared", reuse=None)
     return self.bottom_simple(x, "input_emb", reuse=None)
 
   def targets_bottom(self, x):
-    if self._model_hparams.shared_embedding_and_softmax_weights:
+    if (self._model_hparams.shared_embedding_and_softmax_weights or
+        self._model_hparams.get("shared_embedding")):
       try:
         return self.bottom_simple(x, "shared", reuse=True)
       except ValueError:
