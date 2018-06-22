@@ -82,30 +82,20 @@ def multinomial_sample(x, vocab_size, temperature):
   return reshaped_samples
 
 
-def ae_latent_softmax(latents_pred, latents_discrete, hparams):
+def ae_latent_softmax(latents_pred, latents_discrete_hot, hparams):
   """Latent prediction and loss."""
   vocab_size = 2**hparams.bottleneck_bits
-  if hparams.num_decode_blocks < 2:
-    with tf.variable_scope("extra_logits"):
-      latents_logits = tf.layers.dense(latents_pred, vocab_size,
-                                       name="extra_logits")
-      if hparams.logit_normalization:
-        latents_logits *= tf.rsqrt(1e-8 +
-                                   tf.reduce_mean(tf.square(latents_logits)))
-
-      loss = None
-      if latents_discrete is not None:
-        if hparams.soft_em:
-          # latents_discrete is actually one-hot of multinomial samples
-          assert hparams.num_decode_blocks == 1
-          loss = tf.nn.softmax_cross_entropy_with_logits_v2(
-              labels=latents_discrete, logits=latents_logits)
-        else:
-          loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
-              labels=latents_discrete, logits=latents_logits)
-      sample = multinomial_sample(latents_logits, vocab_size,
-                                  hparams.sampling_temp)
-      return sample, loss
+  with tf.variable_scope("latent_logits"):
+    latents_logits = tf.layers.dense(latents_pred, vocab_size,
+                                     name="logits_dense")
+    if hparams.logit_normalization:
+      latents_logits *= tf.rsqrt(1e-8 +
+                                 tf.reduce_mean(tf.square(latents_logits)))
+    loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+        labels=latents_discrete_hot, logits=latents_logits)
+    sample = multinomial_sample(latents_logits, vocab_size,
+                                hparams.sampling_temp)
+    return sample, loss
 
 
 def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
@@ -427,7 +417,7 @@ def bottleneck_layer(targets_c, hparams):
 
   if DO_SUMMARIES:
     tf.summary.histogram("b0", tf.reshape(latents_discrete, [-1]))
-  return latents_dense, latents_discrete, extra_loss
+  return latents_dense, latents_discrete_hot, extra_loss
 
 
 def latent_prediction_model(inputs,
