@@ -111,6 +111,11 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
     _, self.action_shape, self.action_dtype = get_action_space(environment_spec)
 
+    # TODO(lukaszkaiser): do this in a more cleaner way
+    hparams.video_num_input_frames, hparams.video_num_target_frames = (
+        hparams.model_hparams.video_num_input_frames,
+        hparams.model_hparams.video_num_target_frames)
+
     if simulation_random_starts:
       dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                                FLAGS.data_dir,
