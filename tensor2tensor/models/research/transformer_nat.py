@@ -255,14 +255,7 @@ def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
       targets,
       max_targets_len_from_inputs,
       final_length_divisible_by=2**hparams.num_compress_steps)
-  if hparams.word_dropout:
-    mask = tf.random_uniform(shape=common_layers.shape_list(targets),
-                             minval=0.0, maxval=1.0)
-    targets_noisy = tf.where(mask > hparams.word_dropout, targets,
-                             tf.zeros_like(targets))
-  else:
-    targets_noisy = targets
-  targets_c = compress(targets_noisy, hparams, "compress")
+  targets_c = compress(targets, hparams, "compress")
   if hparams.mode != tf.estimator.ModeKeys.PREDICT:
     # Compress and bottleneck.
     latents_discrete_hot, extra_loss = vq_discrete_bottleneck(
@@ -414,7 +407,6 @@ def transformer_nat_small():
   hparams.add_hparam("decay", 0.999)
   hparams.add_hparam("num_samples", 10)
   hparams.add_hparam("mask_startup_steps", 50000)
-  hparams.add_hparam("word_dropout", 0.0)
   return hparams
 
 
@@ -426,18 +418,6 @@ def transformer_nat_base():
   hparams.hidden_size = 512
   hparams.filter_size = 4096
   hparams.num_hidden_layers = 6
-  return hparams
-
-
-@registry.register_hparams
-def transformer_nat_base_drop():
-  """Set of hyperparameters."""
-  hparams = transformer_nat_small()
-  hparams.batch_size = 2048
-  hparams.hidden_size = 512
-  hparams.filter_size = 4096
-  hparams.num_hidden_layers = 6
-  hparams.word_dropout = 0.2
   return hparams
 
 
