@@ -26,10 +26,17 @@ FLAGS = tf.flags.FLAGS
 
 class ModelRLExperimentTest(tf.test.TestCase):
 
-  def test_run(self):
+  def test_basic(self):
     FLAGS.output_dir = tf.test.get_temp_dir()
     FLAGS.loop_hparams_set = "rl_modelrl_tiny"
     FLAGS.loop_hparams = "generative_model_params=next_frame_tiny"
+    FLAGS.schedule = "train"  # skip evaluation for world model training
+    model_rl_experiment.main(None)
+
+  def test_stochastic(self):
+    FLAGS.output_dir = tf.test.get_temp_dir()
+    FLAGS.loop_hparams_set = "rl_modelrl_tiny_stochastic"
+    FLAGS.loop_hparams = "generative_model_params=next_frame_stochastic_tiny"
     FLAGS.schedule = "train"  # skip evaluation for world model training
     model_rl_experiment.main(None)
 
