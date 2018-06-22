@@ -2137,6 +2137,20 @@ def transformer_librispeech_tpu():
 
 
 @registry.register_hparams
+def transformer_common_voice():
+  """HParams for training ASR model on Mozilla Common Voice."""
+  return transformer_librispeech()
+
+
+@registry.register_hparams
+def transformer_common_voice_tpu():
+  """HParams for training ASR model on Mozilla Common Voice on TPU."""
+  hparams = transformer_librispeech_tpu()
+  hparams.batch_size = 8
+  return hparams
+
+
+@registry.register_hparams
 def transformer_supervised_attention():
   """HParams for supervised attention problems."""
   hparams = transformer_base()

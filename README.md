@@ -126,9 +126,12 @@ few steps (e.g., `--train_steps=2000`).
 
 For speech-to-text, we have these data-sets in T2T:
 
-* Librispeech (English speech to text): `--problem=librispeech` for
+* Librispeech (US English): `--problem=librispeech` for
     the whole set and `--problem=librispeech_clean` for a smaller
     but nicely filtered part.
+
+* Mozilla Common Voice (US English): `--problem=common_voice` for the whole set
+    `--problem=common_voice_clean` for a quality-checked subset.
 
 ### Summarization
 

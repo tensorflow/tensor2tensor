@@ -179,7 +179,14 @@ class AudioEncoder(object):
     # Make sure that the data is a single channel, 16bit, 16kHz wave.
     # TODO(chorowski): the directory may not be writable, this should fallback
     # to a temp path, and provide instructions for installing sox.
-    if not s.endswith(".wav"):
+    if s.endswith(".mp3"):
+      # TODO(dliebling) On Linux, check if libsox-fmt-mp3 is installed.
+      out_filepath = s[:-4] + ".wav"
+      call([
+          "sox", "--guard", s, "-r", "16k", "-b", "16", "-c", "1", out_filepath
+      ])
+      s = out_filepath
+    elif not s.endswith(".wav"):
       out_filepath = s + ".wav"
       if not os.path.exists(out_filepath):
         call(["sox", "-r", "16k", "-b", "16", "-c", "1", s, out_filepath])
