@@ -606,6 +606,17 @@ class Problem(object):
     return dict(zip(decode_items, decoded))
 
   @property
+  def decode_hooks(self):
+    """List of functions to be run after full decodes have been produced.
+
+    Returns:
+      List of functions. Each function should expect a single argument, an
+      instance of decoding.DecodeHookArgs and optionally return a list of
+      tf.Summary.Value objects.
+    """
+    return []
+
+  @property
   def has_inputs(self):
     return "inputs" in self.get_feature_encoders()
 
