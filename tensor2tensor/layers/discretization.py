@@ -766,6 +766,122 @@ def vq_discrete_unbottleneck(x, hidden_size):
   return tf.reshape(result, x_shape[:-1] + [hidden_size])
 
 
+def gumbel_softmax_discrete_bottleneck(x,
+                                       bottleneck_bits,
+                                       beta=0.25,
+                                       decay=0.999,
+                                       epsilon=1e-5,
+                                       startup_steps=15000,
+                                       hard=False,
+                                       summary=True):
+  """VQ-VAE using Gumbel-Softmax.
+
+  Different from `gumbel_softmax()` function as
+  this function calculates the KL by using the discrete entropy
+  instead of taking the argmax, and it also uses an exponential moving average
+  to update the codebook while the `gumbel_softmax()` function includes no
+  codebook update.
+
+  Args:
+    x: A `float`-like `Tensor` containing the latent vectors to be compared to
+      the codebook, whose squared difference is used as the Gumbel-Softmax
+      logits.
+    bottleneck_bits: An `int` that sets the size of the bottleneck in `log_2`.
+    beta: Beta factor for commitment loss (Default: 0.25).
+    decay: Decay factor for exponential moving average (Default: 0.999).
+    epsilon: Small value to avoid dividing by zero in EMA update
+      (Default: 1e-5).
+    startup_steps: Number of steps for KL warmup (Default: 25000).
+    hard: When `True`, we use hard Gumbel-Softmax samples and force
+      discrete latents by taking the argmax. When `False`, we use soft samples,
+      which we treat as codebook weights (Default: False).
+    summary: When `True`, we save histogram summaries of the KL term (Default:
+      True).
+
+  Returns:
+    x_means_assignments: A `float`-like `Tensor` containing the codebook
+      assignments. When `hard == True`, this is one-hot, containing the arg-max
+      of the Gumbel-Softmax samples (and we use the straightthrough gradient).
+      Otherwise, it contains the Gumbel-Softmax samples exactly, which are
+      values from the `(K-1)`-simplex where `K` is the bottleneck size.
+    loss: The loss, which is the sum of the KL between the Gumbel-Softmax and
+      the uniform prior and the commitment loss multiplied by the beta factor.
+      We approximate the KL by using the entropy of a categorical distribution
+      instead of the Gumbel Softmax.
+
+  """
+  bottleneck_size = 2**bottleneck_bits
+  x_shape = common_layers.shape_list(x)
+  hidden_size = x_shape[-1]
+  means, ema_means, ema_count = get_vq_bottleneck(bottleneck_size, hidden_size)
+  x = tf.reshape(x, [-1, hidden_size])
+
+  bottleneck_size = common_layers.shape_list(means)[0]
+  x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keepdims=True)
+  means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True)
+  scalar_prod = tf.matmul(x, means, transpose_b=True)
+  dist = x_norm_sq + tf.transpose(means_norm_sq) - 2 * scalar_prod
+
+  class_probs = tf.nn.softmax(dist)
+  log_class_probs = tf.nn.log_softmax(dist)
+  gumbel_samples = gumbel_sample(common_layers.shape_list(dist))
+  gumbel_samples *= common_layers.inverse_exp_decay(startup_steps // 5) * 0.5
+  temperature = 1.2 - common_layers.inverse_lin_decay(startup_steps)
+
+  # 10% of the time keep reasonably high temperature to keep learning.
+  temperature = tf.cond(
+      tf.less(tf.random_uniform([]), 0.9), lambda: temperature,
+      lambda: tf.random_uniform([], minval=0.5, maxval=1.0))
+  gumbel_softmax_samples = tf.nn.softmax(
+      (log_class_probs + gumbel_samples) / temperature)
+
+  # Calculate KL between q and a uniform prior.
+  kl = tf.reduce_sum(class_probs * (log_class_probs -
+                                    tf.log(1.0/bottleneck_size)), -1)
+  if summary:
+    tf.summary.histogram("KL", tf.reshape(kl, [-1]))
+
+  # Straight-through gradient estimation when we're using hard assignments.
+  if hard:
+    x_means_idx = tf.reshape(tf.argmax(gumbel_softmax_samples, axis=-1), [-1])
+    x_means_hot = tf.one_hot(x_means_idx, bottleneck_size)
+    x_means_assignments = gumbel_softmax_samples + tf.stop_gradient(
+        x_means_hot - gumbel_softmax_samples)
+  else:
+    x_means_assignments = gumbel_softmax_samples
+  x_means_assignments_flat = tf.reshape(
+      x_means_assignments, [-1, bottleneck_size])
+  x_means = tf.matmul(x_means_assignments_flat, means)
+  commitment_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+
+  # Update the ema variables.
+  updated_ema_count = moving_averages.assign_moving_average(
+      ema_count,
+      tf.reduce_sum(
+          tf.reshape(x_means_assignments, shape=[-1, bottleneck_size]), axis=0),
+      decay,
+      zero_debias=False)
+
+  dw = tf.matmul(x_means_assignments, x, transpose_a=True)
+  updated_ema_means = tf.identity(moving_averages.assign_moving_average(
+      ema_means, dw, decay, zero_debias=False))
+  n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
+  updated_ema_count = (
+      (updated_ema_count + epsilon) / (n + bottleneck_size * epsilon) * n)
+  updated_ema_means /= tf.expand_dims(updated_ema_count, axis=-1)
+  with tf.control_dependencies([commitment_loss]):
+    update_means = means.assign(updated_ema_means)
+    with tf.control_dependencies([update_means]):
+      loss = beta * commitment_loss
+
+  # Add KL loss.
+  loss += tf.reduce_mean(kl)
+
+  x_means_assignments = tf.reshape(
+      x_means_assignments, x_shape[:-1] + [bottleneck_size])
+  return x_means_assignments, loss
+
+
 def tanh_discrete_bottleneck(x, bottleneck_bits, bottleneck_noise,
                              discretize_warmup_steps, mode):
   """Simple discretization through tanh, flip bottleneck_noise many bits."""
@@ -844,6 +960,12 @@ def parametrized_bottleneck(x, hparams):
         hparams.vq_epsilon,
         soft_em=True,
         num_samples=hparams.vq_num_samples)
+  if hparams.bottleneck_kind == "gumbel_softmax":
+    return gumbel_softmax_discrete_bottleneck(x, hparams.bottleneck_bits,
+                                              hparams.vq_beta, hparams.vq_decay,
+                                              hparams.vq_epsilon,
+                                              hparams.startup_steps, hard=False,
+                                              summary=True)
 
   raise ValueError("Unsupported hparams.bottleneck_kind %s"
                    % hparams.bottleneck_kind)
@@ -856,7 +978,7 @@ def parametrized_unbottleneck(x, hidden_size, hparams):
   if hparams.bottleneck_kind == "isemhash":
     return isemhash_unbottleneck(
         x, hidden_size, hparams.isemhash_filter_size_multiplier)
-  if hparams.bottleneck_kind in ["vq", "em"]:
+  if hparams.bottleneck_kind in ["vq", "em", "gumbel_softmax"]:
     return vq_discrete_unbottleneck(x, hidden_size)
   raise ValueError("Unsupported hparams.bottleneck_kind %s"
                    % hparams.bottleneck_kind)
