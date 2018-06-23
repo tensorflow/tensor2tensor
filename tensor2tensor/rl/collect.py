@@ -58,15 +58,22 @@ class _MemoryWrapper(WrapperBase):
                                trainable=False)
 
   def simulate(self, action):
+
+    # There is subtlety here. We need to collect data
+    # obs, action = policy(obs), done, reward = env(abs, action)
+    # Thus we need to enqueue data before assigning new observation
+
     reward, done = self._batch_env.simulate(action)
+
     with tf.control_dependencies([reward, done]):
+      enqueue_op = self.speculum.enqueue(
+          [self._observ.read_value(), reward, done, action])
+
+    with tf.control_dependencies([enqueue_op]):
       assign = self._observ.assign(self._batch_env.observ)
 
     with tf.control_dependencies([assign]):
-      enqueue_op = self.speculum.enqueue(
-          [self._observ.read_value(), reward, done, action])
-      with tf.control_dependencies([enqueue_op]):
-        return tf.identity(reward), tf.identity(done)
+      return tf.identity(reward), tf.identity(done)
 
 
 def define_collect(hparams, scope, eval_phase,
