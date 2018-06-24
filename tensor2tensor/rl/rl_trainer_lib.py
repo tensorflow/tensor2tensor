@@ -33,8 +33,7 @@ def define_train(hparams, event_dir):
   del event_dir
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     memory, collect_summary = collect.define_collect(
-        hparams, "ppo_train", eval_phase=False,
-        on_simulated=hparams.simulated_environment)
+        hparams, "ppo_train", eval_phase=False)
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     summary = tf.summary.merge([collect_summary, ppo_summary])
 
@@ -56,7 +55,9 @@ def train(hparams, event_dir=None, model_dir=None,
       summary_writer = None
       model_saver = None
 
-    if hparams.simulated_environment:
+    # TODO (piotr milos): This should be refactored, possibly with
+    # handlers for each type of env
+    if hparams.environment_spec.simulated_env:
       env_model_loader = tf.train.Saver(
           tf.global_variables("next_frame*"))
     else:

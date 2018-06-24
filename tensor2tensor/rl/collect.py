@@ -78,8 +78,7 @@ class _MemoryWrapper(WrapperBase):
 
 def define_collect(hparams, scope, eval_phase,
                    collect_level=-1,
-                   policy_to_actions_lambda=None,
-                   on_simulated=False):
+                   policy_to_actions_lambda=None):
   """Collect trajectories."""
 
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
@@ -100,6 +99,8 @@ def define_collect(hparams, scope, eval_phase,
         speculum = batch_env.speculum
 
     eval_phase = tf.convert_to_tensor(eval_phase)
+    on_simulated = hparams.environment_spec.simulated_env
+
     on_simulated = tf.convert_to_tensor(on_simulated)
 
     memory = [tf.get_variable("collect_memory_{}".format(name),
