@@ -73,21 +73,19 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
     self.environment_spec = self.get_environment_spec()
     self.eval_phase = False
-    self.sum_of_rewards = 0.0
-    self.dones = 0
 
   def _setup(self):
+    self._internal_memory_size = 10
+
     collect_hparams = rl.ppo_pong_base()
     collect_hparams.add_hparam("environment_spec", self.environment_spec)
+    collect_hparams.epoch_length = self._internal_memory_size
+    collect_hparams.num_agents = 1
 
     if not FLAGS.agent_policy_path:
       collect_hparams.policy_network = rl.random_policy_fun
 
-    self._internal_memory_size = 10
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      collect_hparams.epoch_length = self._internal_memory_size
-      # TODO(piotrmilos). it is possible to set more than 1.
-      collect_hparams.num_agents = 1
       self.collect_memory, self.collect_trigger_op \
         = collect.define_collect(collect_hparams, scope="gym_problems",
                                  collect_level=0, eval_phase=self.eval_phase)
@@ -110,19 +108,21 @@ class GymDiscreteProblem(video_utils.VideoProblem):
           memory_index = 0
         data = [memory[i][memory_index][0] for i in range(4)]
         memory_index += 1
-        observ, reward, done, action = data
-        observ = observ.astype(np.uint8)
+        observation, reward, done, action = data
+        observation = observation.astype(np.uint8)
 
-        self.sum_of_rewards += reward
-        self.dones += int(done)
+        debug_image = self.collect_statistics_and_generate_debug_image(*data)
 
-        ret_dict = {"frame": observ,
+        ret_dict = {"frame": observation,
                     "image/format": ["png"],
                     "image/height": [self.frame_height],
                     "image/width": [self.frame_width],
                     "action": [int(action)],
                     "done": [int(False)],
                     "reward": [int(reward) - self.min_reward]}
+
+        if debug_image is not None:
+          ret_dict["image/debug"] = debug_image
 
         yield ret_dict
         pieces_generated += 1
@@ -176,6 +176,11 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   def num_actions(self):
     return self.env.action_space.n
 
+  def collect_statistics_and_generate_debug_image(self, observation,
+                                                  reward, done, action):
+    """This generates extra statistics and debug images"""
+    raise NotImplementedError()
+
   @property
   def frame_height(self):
     return self.env.observation_space.shape[0]
@@ -228,11 +233,52 @@ class GymAEDiscreteProblem(GymDiscreteProblem):
   pass
 
 
-class GymRealDiscreteProblem(GymDiscreteProblem):
+class BasicStatistics:
+  """Keeps basic statistics to calculate mean reward """
 
+  def __init__(self):
+    self.sum_of_rewards = 0.0
+    self.number_of_dones = 0
+
+
+
+class GymRealDiscreteProblem(GymDiscreteProblem):
   def __init__(self, *args, **kwargs):
     super(GymRealDiscreteProblem, self).__init__(*args, **kwargs)
+    self.statistics = BasicStatistics()
+
     self.make_extra_debug_info = False
+
+  def collect_statistics_and_generate_debug_image(self, observation,
+                                                  reward, done, action):
+    """Collects info required to calculate mean reward."""
+
+    self.statistics.sum_of_rewards += reward
+    self.statistics.number_of_dones += int(done)
+
+    debug_image = None
+
+    return debug_image
+
+
+class RewardPerSequenceStatistics(BasicStatistics):
+  """This encapsulates all pieces required to calculate
+  the correctness of rewards per sequence metric
+  """
+
+  def __init__(self):
+    super(RewardPerSequenceStatistics, self).__init__()
+
+    # data to calculate
+    # correctness of rewards per sequence metric
+    self.episode_sim_reward = 0.0
+    self.episode_real_reward = 0.0,
+    self.successful_episode_reward_predictions = 0
+    self.report_reward_statistics_every = 10
+
+    # auxiliary objects
+    self.real_env = None
+    self.real_ob = None
 
 
 class GymSimulatedDiscreteProblem(GymDiscreteProblem):
@@ -243,17 +289,37 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     self.debug_dump_frames_path = "debug_frames_sim"
     self.intrinsic_reward_scale = 0.0
     self.simulation_random_starts = False
+    self.statistics = RewardPerSequenceStatistics()
     super(GymSimulatedDiscreteProblem, self).__init__(*args, **kwargs)
+
+  def _setup(self):
+    super(GymSimulatedDiscreteProblem, self)._setup()
+    self._reset_real_env()
 
   @property
   def initial_frames_problem(self):
     raise NotImplementedError()
+
+  @property
+  def num_input_frames(self):
+    """Number of frames on input for real environment."""
+    # TODO(lukaszkaiser): This must be equal to hparams.video_num_input_frames,
+    # we should automate this to avoid bug in the future.
+    return 4
+
+  @property
+  def video_num_target_frames(self):
+    """Number of frames on input for real environment."""
+    # TODO(piotrmilos): This must be equal to hparams.video_num_target_frames,
+    # we should automate this to avoid bug in the future.
+    return 1
 
   def get_environment_spec(self):
     env_spec = standard_atari_env_spec(self.env_name)
 
     # Set reasonable time limit (as we do not simulate done).
     real_env = env_spec.env_lambda()
+    self.statistics.real_env = real_env
     if self.num_testing_steps is not None:
       timelimit = self.num_testing_steps
     else:
@@ -273,9 +339,44 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     initial_frames_problem = registry.problem(self.initial_frames_problem)
     env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
     env_spec.wrappers.append(
-        [tf_atari_wrappers.TimeLimitWrapper, {"timelimit": timelimit}])
+      [tf_atari_wrappers.TimeLimitWrapper, {"timelimit": timelimit}])
+    env_spec.add_hparam("video_num_input_frames", self.num_input_frames)
+    env_spec.add_hparam("video_num_target_frames", self.video_num_target_frames)
 
     return env_spec
+
+  def _reset_real_env(self):
+    stat = self.statistics
+    stat.real_env.reset()
+    for _ in range(self.num_input_frames):
+      stat.real_ob, _, _, _ = stat.real_env.step(0)
+
+    stat.episode_sim_reward = 0.0
+    stat.episode_real_reward = 0.0
+
+  def collect_statistics_and_generate_debug_image(self, observation,
+                                                  reward, done, action):
+    stat = self.statistics
+
+    stat.sum_of_rewards += reward
+    stat.number_of_dones += int(done)
+    stat.episode_sim_reward += reward
+
+    ob = np.ndarray.astype(observation, np.int)
+    err = np.ndarray.astype(np.maximum(np.abs(
+      stat.real_ob - ob, dtype=np.int) - 10, 0),
+                            np.uint8)
+    debug_im = np.concatenate([observation, stat.real_ob, err], axis=1)
+
+    if done:
+      if stat.episode_sim_reward == stat.episode_real_reward:
+        stat.successful_episode_reward_predictions += 1
+      self._reset_real_env()
+    else:
+      stat.real_ob, real_reward, _, _ = stat.real_env.step(action)
+      stat.episode_real_reward += real_reward
+
+    return debug_im
 
   def restore_networks(self, sess):
     super(GymSimulatedDiscreteProblem, self).restore_networks(sess)
@@ -376,8 +477,7 @@ class GymWrappedBreakoutRandom(GymDiscreteProblem):
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnPong(
-    GymSimulatedDiscreteProblem, GymPongRandom):
-
+  GymSimulatedDiscreteProblem, GymPongRandom):
   @property
   def initial_frames_problem(self):
     return "gym_discrete_problem_with_agent_on_pong"
@@ -402,14 +502,13 @@ class GymFreewayRandom(GymDiscreteProblem):
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnPong(
-    GymRealDiscreteProblem, GymPongRandom):
+  GymRealDiscreteProblem, GymPongRandom):
   pass
 
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
-    GymSimulatedDiscreteProblem, GymWrappedPongRandom):
-
+  GymSimulatedDiscreteProblem, GymWrappedPongRandom):
   @property
   def initial_frames_problem(self):
     return "gym_discrete_problem_with_agent_on_wrapped_pong"
@@ -417,20 +516,19 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedLongPong(
-    GymRealDiscreteProblem, GymWrappedLongPongRandom):
+  GymRealDiscreteProblem, GymWrappedLongPongRandom):
   pass
 
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
-    GymDiscreteProblemWithAgentOnWrappedLongPong):
+  GymDiscreteProblemWithAgentOnWrappedLongPong):
   pass
 
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
-    GymSimulatedDiscreteProblem, GymWrappedLongPongRandom):
-
+  GymSimulatedDiscreteProblem, GymWrappedLongPongRandom):
   @property
   def initial_frames_problem(self):
     return "gym_discrete_problem_with_agent_on_wrapped_long_pong"
@@ -438,20 +536,19 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedBreakout(
-    GymRealDiscreteProblem, GymWrappedBreakoutRandom):
+  GymRealDiscreteProblem, GymWrappedBreakoutRandom):
   pass
 
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedBreakoutAe(
-    GymDiscreteProblemWithAgentOnWrappedBreakout):
+  GymDiscreteProblemWithAgentOnWrappedBreakout):
   pass
 
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
-    GymSimulatedDiscreteProblem, GymWrappedBreakoutRandom):
-
+  GymSimulatedDiscreteProblem, GymWrappedBreakoutRandom):
   @property
   def initial_frames_problem(self):
     return "gym_discrete_problem_with_agent_on_wrapped_breakout"
@@ -459,7 +556,7 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPong(
-    GymRealDiscreteProblem, GymWrappedPongRandom):
+  GymRealDiscreteProblem, GymWrappedPongRandom):
   """GymDiscreteProblemWithAgentOnWrappedPong."""
 
   # Hard-coding num_actions, frame_height, frame_width to avoid loading
@@ -483,14 +580,13 @@ class GymDiscreteProblemWithAgentOnWrappedPong(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
-    GymDiscreteProblemWithAgentOnWrappedPong):
+  GymDiscreteProblemWithAgentOnWrappedPong):
   pass
 
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnFreeway(
-    GymSimulatedDiscreteProblem, GymFreewayRandom):
-
+  GymSimulatedDiscreteProblem, GymFreewayRandom):
   @property
   def initial_frames_problem(self):
     return "gym_discrete_problem_with_agent_on_freeway"
@@ -498,7 +594,7 @@ class GymSimulatedDiscreteProblemWithAgentOnFreeway(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnFreeway(
-    GymRealDiscreteProblem, GymFreewayRandom):
+  GymRealDiscreteProblem, GymFreewayRandom):
   """Freeway with agent."""
 
   # Hard-coding num_actions, frame_height, frame_width to avoid loading
@@ -522,5 +618,5 @@ class GymDiscreteProblemWithAgentOnFreeway(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnFreewayAe(  # with autoencoder
-    GymDiscreteProblemWithAgentOnFreeway):
+  GymDiscreteProblemWithAgentOnFreeway):
   pass
