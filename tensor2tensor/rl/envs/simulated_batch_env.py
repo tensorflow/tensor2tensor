@@ -99,7 +99,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     environment_spec = hparams.environment_spec
     initial_frames_problem = environment_spec.initial_frames_problem
     self._min_reward = initial_frames_problem.min_reward
-    self._num_frames = hparams.model_hparams.video_num_input_frames
+    self._num_frames = environment_spec.video_num_input_frames
     self._intrinsic_reward_scale = intrinsic_reward_scale
 
     # initialization_env = environment_lambda()
@@ -113,8 +113,8 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
     # TODO(lukaszkaiser): do this in a more cleaner way
     hparams.video_num_input_frames, hparams.video_num_target_frames = (
-        hparams.model_hparams.video_num_input_frames,
-        hparams.model_hparams.video_num_target_frames)
+        hparams.environment_spec.video_num_input_frames,
+        hparams.environment_spec.video_num_target_frames)
 
     if simulation_random_starts:
       dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
