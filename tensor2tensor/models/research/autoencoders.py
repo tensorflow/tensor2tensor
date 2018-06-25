@@ -783,6 +783,22 @@ def autoencoder_ordered_discrete():
 
 
 @registry.register_hparams
+def autoencoder_ordered_text():
+  """Ordered discrete autoencoder model for text."""
+  hparams = autoencoder_ordered_discrete()
+  hparams.learning_rate_constant = 2.0
+  hparams.learning_rate_warmup_steps = 2000
+  hparams.bottleneck_bits = 1024
+  hparams.batch_size = 2048
+  hparams.autoregressive_mode = "sru"
+  hparams.hidden_size = 256
+  hparams.max_hidden_size = 4096
+  hparams.bottleneck_warmup_steps = 10000
+  hparams.discretize_warmup_steps = 15000
+  return hparams
+
+
+@registry.register_hparams
 def autoencoder_ordered_discrete_vq():
   """Ordered discrete autoencoder model with VQ bottleneck."""
   hparams = autoencoder_ordered_discrete()
