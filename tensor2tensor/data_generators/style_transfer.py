@@ -12,12 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""
-Base classes for text-based language style transfer problems.
+"""Base classes for text-based language style transfer problems.
 
 * StyleTransferProblem: abstract class for style transfer problems.
-* StyleTransferShakespeare: specific problem implementation that enriches language with Shakespeare-like style.
+* StyleTransferShakespeare: specific problem implementation that enriches
+  language with Shakespeare-like style.
 """
 
 from __future__ import absolute_import
@@ -27,12 +26,12 @@ from __future__ import print_function
 import os
 import tarfile
 
-import tensorflow as tf
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
+
+import tensorflow as tf
 
 logger = tf.logging
 
@@ -59,7 +58,7 @@ _SUBWORD_VOCAB_SIZE = 8000
 
 
 class StyleTransferProblem(text_problems.Text2TextProblem):
-  """Base class for transfering styles problems"""
+  """Base class for transferring styles problems"""
 
   @property
   def target(self):
@@ -122,33 +121,37 @@ class StyleTransferProblem(text_problems.Text2TextProblem):
 
 @registry.register_problem
 class StyleTransferShakespeareToModern(StyleTransferProblem):
-  """Transfering style from Shakespeare original English to modern one"""
+  """Transferring style from Shakespeare original English to modern one"""
 
   @property
   def target(self):
-    return '.modern'
+    return ".modern"
 
   @property
   def source(self):
-    return '.original'
+    return ".original"
 
   def dataset_url(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
-    return _SHAKESPEARE_MODERN_TRAIN_DATASET if train else _SHAKESPEARE_MODERN_DEV_DATASET
+    if train:
+      return _SHAKESPEARE_MODERN_TRAIN_DATASET
+    return _SHAKESPEARE_MODERN_DEV_DATASET
 
 
 @registry.register_problem
 class StyleTransferModernToShakespeare(StyleTransferProblem):
-  """Transfering style from modern English to Shakespeare original English"""
+  """Transferring style from modern English to Shakespeare original English"""
 
   @property
   def target(self):
-    return '.original'
+    return ".original"
 
   @property
   def source(self):
-    return '.modern'
+    return ".modern"
 
   def dataset_url(self, dataset_split):
     train = dataset_split == problem.DatasetSplit.TRAIN
-    return _SHAKESPEARE_MODERN_TRAIN_DATASET if train else _SHAKESPEARE_MODERN_DEV_DATASET
+    if train:
+      return _SHAKESPEARE_MODERN_TRAIN_DATASET
+    return _SHAKESPEARE_MODERN_DEV_DATASET
