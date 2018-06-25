@@ -46,9 +46,7 @@ def batch_env_factory(hparams, xvfb=False):
   if environment_spec.simulated_env:
     # TODO(piotrmilos): Consider passing only relevant parameters
     cur_batch_env = _define_simulated_batch_env(
-        hparams, hparams.num_agents,
-        hparams.simulation_random_starts,
-        hparams.intrinsic_reward_scale)
+        environment_spec, hparams.num_agents, hparams)
   else:
 
     cur_batch_env = _define_batch_env(hparams.environment_spec,
@@ -69,12 +67,9 @@ def _define_batch_env(environment_spec, num_agents, xvfb=False):
     return env
 
 
-def _define_simulated_batch_env(hparams, num_agents,
-                                simulation_random_starts=False,
-                                intrinsic_reward_scale=0.):
-  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(
-      hparams, num_agents, simulation_random_starts,
-      intrinsic_reward_scale)
+def _define_simulated_batch_env(environment_spec, num_agents,
+                                other_hparms):
+  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(environment_spec, num_agents, other_hparms)
   return cur_batch_env
 
 

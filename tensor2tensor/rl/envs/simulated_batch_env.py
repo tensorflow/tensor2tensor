@@ -20,6 +20,9 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import copy
+
 from tensor2tensor.layers import common_layers
 from tensor2tensor.rl.envs import in_graph_batch_env
 from tensor2tensor.rl.envs.utils import get_action_space
@@ -38,12 +41,15 @@ class HistoryBuffer(object):
 
   def __init__(self, input_dataset, length):
     self.input_data_iterator = (
-        input_dataset.batch(length).make_one_shot_iterator())
+        input_dataset.batch(length).make_initializable_iterator())
     self.length = length
     initial_frames = self.get_initial_observations()
     initial_shape = [length] + common_layers.shape_list(initial_frames)[1:]
     self._history_buff = tf.Variable(tf.zeros(initial_shape, tf.float32),
                                      trainable=False)
+
+  def initialize(self, sess):
+    sess.run(self.input_data_iterator.initializer)
 
   def get_initial_observations(self):
     return tf.cast(self.input_data_iterator.get_next(), tf.float32)
@@ -91,18 +97,14 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, hparams, length,
-               simulation_random_starts=False,
-               intrinsic_reward_scale=0.):
+  def __init__(self, environment_spec, length, other_hparams):
     """Batch of environments inside the TensorFlow graph."""
     self.length = length
-    environment_spec = hparams.environment_spec
     initial_frames_problem = environment_spec.initial_frames_problem
     self._min_reward = initial_frames_problem.min_reward
     self._num_frames = environment_spec.video_num_input_frames
-    self._intrinsic_reward_scale = intrinsic_reward_scale
+    self._intrinsic_reward_scale = environment_spec.intrinsic_reward_scale
 
-    # initialization_env = environment_lambda()
     model_hparams = trainer_lib.create_hparams(
         FLAGS.hparams_set, problem_name=FLAGS.problem)
     model_hparams.force_full_predict = True
@@ -112,20 +114,22 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     _, self.action_shape, self.action_dtype = get_action_space(environment_spec)
 
     # TODO(lukaszkaiser): do this in a more cleaner way
+    # remove other_hparams
+    hparams = copy.copy(other_hparams)
     hparams.video_num_input_frames, hparams.video_num_target_frames = (
         hparams.environment_spec.video_num_input_frames,
         hparams.environment_spec.video_num_target_frames)
 
-    if simulation_random_starts:
+    if environment_spec.simulation_random_starts:
       dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                                FLAGS.data_dir,
                                                shuffle_files=True,
                                                hparams=hparams)
       dataset = dataset.shuffle(buffer_size=100)
     else:
-      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
+      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.EVAL,
                                                FLAGS.data_dir,
-                                               shuffle_files=True,
+                                               shuffle_files=False,
                                                hparams=hparams).take(1)
 
     dataset = dataset.map(lambda x: x["inputs"]).repeat()
@@ -135,6 +139,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
              initial_frames_problem.frame_width,
              initial_frames_problem.num_channels)
     self._observ = tf.Variable(tf.zeros(shape, tf.float32), trainable=False)
+
+  def initialize(self, sess):
+    self.history_buffer.initialize(sess)
 
   def __len__(self):
     """Number of combined environments."""
