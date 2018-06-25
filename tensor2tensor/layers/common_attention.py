@@ -834,6 +834,19 @@ def embedding_to_padding(emb):
 
 
 @expert_utils.add_name_scope()
+def padding_to_length(padding):
+  """Calculate the length of mask based on padding.
+
+  Args:
+    padding: a Tensor with shape [..., length].
+  Returns:
+    a Tensor with shape [...].
+  """
+  non_padding = 1.0 - padding
+  return tf.to_int64(tf.reduce_sum(non_padding, axis=-1))
+
+
+@expert_utils.add_name_scope()
 def attention_bias_local(length, max_backward, max_forward):
   """Create an bias tensor to be added to attention logits.
 
