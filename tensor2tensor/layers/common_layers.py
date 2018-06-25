@@ -1948,7 +1948,7 @@ def dml_loss(
     a pair of tensors of loss/sum of losses, denominator
   """
   del weights_fn  # Unused
-  real_labels = convert_rgb_to_real(labels)
+  real_labels = convert_rgb_to_symmetric_real(labels)
   dml_loss_value = discretized_mix_logistic_loss(real_labels, pred,
                                                  sum_all=reduce_sum)
   if reduce_sum:
