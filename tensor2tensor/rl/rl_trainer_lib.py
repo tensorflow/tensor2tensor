@@ -34,7 +34,7 @@ def define_train(hparams, event_dir):
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     memory, collect_summary, initialization\
       = collect.define_collect(
-        hparams, "ppo_train", eval_phase=False)
+          hparams, "ppo_train", eval_phase=False)
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     summary = tf.summary.merge([collect_summary, ppo_summary])
 

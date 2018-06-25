@@ -55,7 +55,7 @@ class TrainTest(tf.test.TestCase):
   # is done on the ppo code
   #
   # To run the test change epochs_num=2 to epoch_num=200
-  # and epoch_length=5 to epoch_length=200
+  # and epoch_length=4 to epoch_length=200
   # (it is set like that to meet travis timeouts
   def test_train_pong(self):
     hparams = tf.contrib.training.\
@@ -63,7 +63,7 @@ class TrainTest(tf.test.TestCase):
               eval_every_epochs=10,
               num_agents=20,
               optimization_epochs=3,
-              epoch_length=5,
+              epoch_length=4,
               entropy_loss_coef=0.003,
               learning_rate=8e-05,
               optimizer="Adam",

@@ -32,11 +32,7 @@ class WrapperBase(InGraphBatchEnv):
     self.action_dtype = batch_env.action_dtype
 
   def initialize(self, sess):
-    """
-    Initializations to be run once the tf.Session is available 
-    
-    sess - tf.Session 
-    """
+    """Initializations to be run once the tf.Session is available."""
     pass
 
   @property

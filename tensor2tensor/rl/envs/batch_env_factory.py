@@ -69,7 +69,9 @@ def _define_batch_env(environment_spec, num_agents, xvfb=False):
 
 def _define_simulated_batch_env(environment_spec, num_agents,
                                 other_hparms):
-  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(environment_spec, num_agents, other_hparms)
+  cur_batch_env = simulated_batch_env.SimulatedBatchEnv(environment_spec,
+                                                        num_agents,
+                                                        other_hparms)
   return cur_batch_env
 
 

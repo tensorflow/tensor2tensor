@@ -36,7 +36,6 @@ from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -189,7 +188,8 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
     gym_simulated_problem.generate_data(epoch_data_dir, tmp_dir)
   n = max(1., gym_simulated_problem.statistics.number_of_dones)
   model_reward_accuracy = (
-      gym_simulated_problem.statistics.successful_episode_reward_predictions / float(n))
+      gym_simulated_problem.statistics.successful_episode_reward_predictions
+      / float(n))
   return model_reward_accuracy
 
 
@@ -388,7 +388,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     if hparams.eval_world_model:
       log("Evaluating world model")
       model_reward_accuracy = evaluate_world_model(
-        simulated_problem_name, world_model_problem, hparams,
+          simulated_problem_name, world_model_problem, hparams,
           directories["world_model"],
           epoch_data_dir, directories["tmp"],
           autoencoder_path=autoencoder_model_dir)
