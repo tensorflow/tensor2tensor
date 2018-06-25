@@ -146,6 +146,7 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams.epoch_length = hparams.ppo_epoch_length
   ppo_hparams.num_agents = hparams.ppo_num_agents
   ppo_hparams.world_model_dir = world_model_dir
+  ppo_hparams.add_hparam("force_beginning_resets", True)
   if hparams.ppo_learning_rate:
     ppo_hparams.learning_rate = hparams.ppo_learning_rate
 
@@ -156,14 +157,6 @@ def train_agent(problem_name, agent_model_dir,
   environment_spec = copy.copy(gym_problem.environment_spec)
   environment_spec.simulation_random_starts = hparams.simulation_random_starts
   environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
-
-  # 4x for the StackAndSkipWrapper minus one to always finish for reporting.
-  ppo_time_limit = ppo_hparams.epoch_length - 1
-  ppo_time_limit *= model_hparams.video_num_input_frames
-
-  wrappers = environment_spec.wrappers + \
-             [[TimeLimitWrapper, {"timelimit": ppo_time_limit}]]
-  environment_spec.wrappers = wrappers
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
