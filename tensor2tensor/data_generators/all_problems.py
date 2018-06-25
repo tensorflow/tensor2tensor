@@ -50,6 +50,7 @@ MODULES = [
     "tensor2tensor.data_generators.problem_hparams",
     "tensor2tensor.data_generators.ptb",
     "tensor2tensor.data_generators.snli",
+    "tensor2tensor.data_generators.style_transfer",
     "tensor2tensor.data_generators.squad",
     "tensor2tensor.data_generators.subject_verb_agreement",
     "tensor2tensor.data_generators.timeseries",
