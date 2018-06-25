@@ -79,10 +79,17 @@ class _MemoryWrapper(WrapperBase):
 def define_collect(hparams, scope, eval_phase,
                    collect_level=-1,
                    policy_to_actions_lambda=None):
-  """Collect trajectories."""
+  """Collect trajectories.
+  Returns: memory - tensor with collected rollout
+           summaries - basic statistcs about the rollout
+           initialization_lambda - initializations to be done once 
+            tf.Session is created
+  """
 
+  to_initialize = []
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     batch_env = batch_env_factory(hparams)
+    to_initialize.append(batch_env)
     environment_wrappers = hparams.environment_spec.wrappers
     wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
     # Put memory wrapper at the level you want to gather observations at.
@@ -94,14 +101,14 @@ def define_collect(hparams, scope, eval_phase,
     speculum = None
     for w in wrappers:
       batch_env = w[0](batch_env, **w[1])
+      to_initialize.append(batch_env)
       if w[0] == _MemoryWrapper:
         rollout_metadata = _rollout_metadata(batch_env)
         speculum = batch_env.speculum
 
-    eval_phase = tf.convert_to_tensor(eval_phase)
-    on_simulated = hparams.environment_spec.simulated_env
-
-    on_simulated = tf.convert_to_tensor(on_simulated)
+    def initialization_lambda(sess):
+      for batch_env in to_initialize:
+        batch_env.initialize(sess)
 
     memory = [tf.get_variable("collect_memory_{}".format(name),
                               shape=[hparams.epoch_length]+shape,
@@ -113,15 +120,20 @@ def define_collect(hparams, scope, eval_phase,
     cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
                                          trainable=False)
 
+    eval_phase = tf.convert_to_tensor(eval_phase)
     should_reset_var = tf.Variable(True, trainable=False)
-
     zeros_tensor = tf.zeros(len(batch_env))
+
+  if "force_beginning_resets" in hparams:
+    force_beginning_resets = hparams.force_beginning_resets
+  else:
+    force_beginning_resets = False
 
   def group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
                     tf.assign(cumulative_rewards, zeros_tensor))
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var, tf.logical_or(eval_phase, on_simulated)),
+      tf.logical_or(should_reset_var, tf.convert_to_tensor(force_beginning_resets)),
       group, tf.no_op)
 
   with tf.control_dependencies([reset_op]):
@@ -217,4 +229,4 @@ def define_collect(hparams, scope, eval_phase,
     summaries = tf.summary.merge(
         [mean_score_summary,
          tf.summary.scalar("episodes_finished_this_iter", scores_num)])
-    return memory, summaries
+    return memory, summaries, initialization_lambda
