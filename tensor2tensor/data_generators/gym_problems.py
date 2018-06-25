@@ -236,7 +236,7 @@ class GymAEDiscreteProblem(GymDiscreteProblem):
   pass
 
 
-class BasicStatistics:
+class BasicStatistics(object):
   """Keeps basic statistics to calculate mean reward """
 
   def __init__(self):
