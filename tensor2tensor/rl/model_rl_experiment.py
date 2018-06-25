@@ -489,7 +489,7 @@ def rl_modelrl_base():
       game="wrapped_long_pong",
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
-      eval_world_model=False,
+      eval_world_model=True,
   )
 
 
