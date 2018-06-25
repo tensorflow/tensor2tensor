@@ -240,24 +240,21 @@ class ImageImagenetMultiResolutionGen(ImageImagenet64Gen):
 
   def preprocess_example(self, example, mode, hparams):
     image = example["inputs"]
-    # Get resize method. Include a default if not specified, or if it's not in
-    # TensorFlow's collection of pre-implemented resize methods.
-    resize_method = getattr(hparams, "resize_method", "BICUBIC")
-    resize_method = getattr(tf.image.ResizeMethod, resize_method, resize_method)
 
-    if resize_method == "DILATED":
-      scaled_images = image_utils.make_multiscale_dilated(
-          image, hparams.resolutions, num_channels=self.num_channels)
-    else:
-      scaled_images = image_utils.make_multiscale(
-          image, hparams.resolutions,
-          resize_method=resize_method, num_channels=self.num_channels)
+    if hasattr(hparams, "resize_method"):
+      method = getattr(tf.image.ResizeMethod, hparams.resize_method)
+    else:  # default
+      method = tf.image.ResizeMethod.BICUBIC
 
+    scaled_images = image_utils.make_multiscale(
+        image, hparams.resolutions,
+        resize_method=method, num_channels=self.num_channels)
+
+    highest_res = hparams.resolutions[-1]
     # Pack tuple of scaled images into one tensor. We do this by enforcing the
     # columns to match for every resolution.
     # TODO(avaswani, trandustin): We should create tuples because this will not
     # work if height*width of low res < width of high res
-    highest_res = hparams.resolutions[-1]
     example["inputs"] = tf.concat([
         tf.reshape(scaled_image,
                    [res**2 // highest_res, highest_res, self.num_channels])
