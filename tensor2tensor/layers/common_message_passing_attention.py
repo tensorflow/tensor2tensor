@@ -74,22 +74,9 @@ def multihead_graph_attention(query_antecedent,
     vars_3d: use 3-dimensional variables for input/output transformations
     **kwargs (dict): Parameters for the attention function
 
-  Caching:
-    WARNING: For decoder self-attention, i.e. when memory_antecedent == None,
-    the caching assumes that the bias contains future masking.
-
-    The caching works by saving all the previous key and value values so that
-    you are able to send just the last query location to this attention
-    function. I.e. if the cache dict is provided it assumes the query is of the
-    shape [batch_size, 1, hiddem_dim] rather than the full memory.
-
   Returns:
     The result of the attention transformation. The output shape is
         [batch_size, length_q, hidden_dim]
-    unless the cache dict is provided in which case only the last memory
-    position is calculated and the output shape is [batch_size, 1, hidden_dim]
-    Optionally returns an additional loss parameters (ex: load balance loss for
-    the experts) returned by the attention_type function.
 
   Raises:
     ValueError: if the key depth or value depth are not divisible by the
