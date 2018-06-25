@@ -543,10 +543,11 @@ class Problem(object):
     data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
         data_filepattern))
 
-    # Functions used in dataset transforms below
-    def _load_records_and_preprocess(filename):
-      # Load records from file with an 8MiB read buffer.
-      dataset = tf.data.TFRecordDataset(filename, buffer_size=8 * 1024 * 1024)
+    # Functions used in dataset transforms below. `filenames` can be either a
+    # `tf.string` tensor or `tf.data.Dataset` containing one or more filenames.
+    def _load_records_and_preprocess(filenames):
+      # Load records from file(s) with an 8MiB read buffer.
+      dataset = tf.data.TFRecordDataset(filenames, buffer_size=8 * 1024 * 1024)
       # Decode.
       dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
       # Preprocess if requested.
@@ -566,17 +567,14 @@ class Problem(object):
     if shuffle_files:
       random.shuffle(data_files)
 
+    dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
     # Create data-set from files by parsing, pre-processing and interleaving.
     if shuffle_files:
-      dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
       dataset = dataset.apply(
           tf.contrib.data.parallel_interleave(
               _load_records_and_preprocess, sloppy=True, cycle_length=8))
     else:
-      dataset = None
-      for f in data_files:
-        f_data = _load_records_and_preprocess(f)
-        dataset = f_data if dataset is None else dataset.concatenate(f_data)
+      dataset = _load_records_and_preprocess(dataset)
 
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
