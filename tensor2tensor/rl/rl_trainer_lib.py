@@ -56,7 +56,7 @@ def train(hparams, event_dir=None, model_dir=None,
       summary_writer = None
       model_saver = None
 
-    # TODO (piotr milos): This should be refactored, possibly with
+    # TODO(piotrmilos): This should be refactored, possibly with
     # handlers for each type of env
     if hparams.environment_spec.simulated_env:
       env_model_loader = tf.train.Saver(

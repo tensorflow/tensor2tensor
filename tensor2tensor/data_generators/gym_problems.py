@@ -26,7 +26,6 @@ import numpy as np
 # We need gym_utils for the game environments defined there.
 from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-import
 
-from tensorflow.contrib.training import HParams
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.models.research import rl
@@ -34,7 +33,10 @@ from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
+
 import tensorflow as tf
+
+from tensorflow.contrib.training import HParams
 
 
 flags = tf.flags
@@ -120,11 +122,11 @@ class GymDiscreteProblem(video_utils.VideoProblem):
           memory_index = 0
         data = [memory[i][memory_index][0] for i in range(4)]
         memory_index += 1
-        observation, reward, done, action = data
+        observation, reward, _, action = data
         observation = observation.astype(np.uint8)
 
-        debug_image = self.collect_statistics_and_generate_debug_image(pieces_generated,
-                                                                       *data)
+        debug_image = self.collect_statistics_and_generate_debug_image(
+            pieces_generated, *data)
         ret_dict = {
             "frame": observation,
             "frame_number": [int(pieces_generated)],
@@ -199,7 +201,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
                                                   reward,
                                                   done,
                                                   action):
-    """This generates extra statistics and debug images"""
+    """This generates extra statistics and debug images."""
     raise NotImplementedError()
 
   @property
@@ -266,8 +268,9 @@ class BasicStatistics(object):
     self.number_of_dones = 0
 
 
-
 class GymRealDiscreteProblem(GymDiscreteProblem):
+  """Discrete problem."""
+
   def __init__(self, *args, **kwargs):
     super(GymRealDiscreteProblem, self).__init__(*args, **kwargs)
     self.statistics = BasicStatistics()
@@ -340,11 +343,11 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     initial_frames_problem = environment_spec.initial_frames_problem
     # initial_frames_problem.random_skip = False
     dataset = initial_frames_problem.dataset(
-      tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
-      shuffle_files=False, hparams=hparams)
+        tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
+        shuffle_files=False, hparams=hparams)
     dataset = dataset.map(lambda x: x["input_action"]).take(1)
     input_data_iterator = (
-      dataset.batch(1).make_initializable_iterator())
+        dataset.batch(1).make_initializable_iterator())
     self._session.run(input_data_iterator.initializer)
 
     res = self._session.run(input_data_iterator.get_next())
@@ -408,16 +411,15 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
 
     ob = np.ndarray.astype(observation, np.int)
     err = np.ndarray.astype(np.maximum(np.abs(
-      stat.real_ob - ob, dtype=np.int) - 10, 0),
-                            np.uint8)
+        stat.real_ob - ob, dtype=np.int) - 10, 0), np.uint8)
     debug_im = np.concatenate([observation, stat.real_ob, err], axis=1)
 
-    assert self._internal_memory_size==self.num_testing_steps and \
-           self._internal_memory_force_beginning_resets, \
-      "The collect memory should be set in force_beginning_resets mode" \
-      "for the code below to work properly"
+    assert (self._internal_memory_size == self.num_testing_steps and
+            self._internal_memory_force_beginning_resets), (
+                "The collect memory should be set in force_beginning_resets "
+                "mode for the code below to work properly.")
 
-    if index%self._internal_memory_size == 0:
+    if index % self._internal_memory_size == 0:
       if stat.episode_sim_reward == stat.episode_real_reward:
         stat.successful_episode_reward_predictions += 1
       self._reset_real_env()
@@ -527,7 +529,8 @@ class GymWrappedBreakoutRandom(GymDiscreteProblem):
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnPong(
-  GymSimulatedDiscreteProblem, GymPongRandom):
+    GymSimulatedDiscreteProblem, GymPongRandom):
+  """Simulated pong."""
 
   @property
   def initial_frames_problem(self):
@@ -536,7 +539,6 @@ class GymSimulatedDiscreteProblemWithAgentOnPong(
   @property
   def num_testing_steps(self):
     return 100
-
 
 
 @registry.register_problem
@@ -558,13 +560,14 @@ class GymFreewayRandom(GymDiscreteProblem):
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnPong(
-  GymRealDiscreteProblem, GymPongRandom):
+    GymRealDiscreteProblem, GymPongRandom):
   pass
 
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
-  GymSimulatedDiscreteProblem, GymWrappedPongRandom):
+    GymSimulatedDiscreteProblem, GymWrappedPongRandom):
+  """Similated pong."""
 
   @property
   def initial_frames_problem(self):
@@ -575,22 +578,22 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
     return 100
 
 
-
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedLongPong(
-  GymRealDiscreteProblem, GymWrappedLongPongRandom):
+    GymRealDiscreteProblem, GymWrappedLongPongRandom):
   pass
 
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
-  GymDiscreteProblemWithAgentOnWrappedLongPong):
+    GymDiscreteProblemWithAgentOnWrappedLongPong):
   pass
 
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
-  GymSimulatedDiscreteProblem, GymWrappedLongPongRandom):
+    GymSimulatedDiscreteProblem, GymWrappedLongPongRandom):
+  """Similated pong."""
 
   @property
   def initial_frames_problem(self):
@@ -601,22 +604,22 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
     return 100
 
 
-
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedBreakout(
-  GymRealDiscreteProblem, GymWrappedBreakoutRandom):
+    GymRealDiscreteProblem, GymWrappedBreakoutRandom):
   pass
 
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedBreakoutAe(
-  GymDiscreteProblemWithAgentOnWrappedBreakout):
+    GymDiscreteProblemWithAgentOnWrappedBreakout):
   pass
 
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
-  GymSimulatedDiscreteProblem, GymWrappedBreakoutRandom):
+    GymSimulatedDiscreteProblem, GymWrappedBreakoutRandom):
+  """Similated breakout."""
 
   @property
   def initial_frames_problem(self):
@@ -627,10 +630,9 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
     return 100
 
 
-
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPong(
-  GymRealDiscreteProblem, GymWrappedPongRandom):
+    GymRealDiscreteProblem, GymWrappedPongRandom):
   """GymDiscreteProblemWithAgentOnWrappedPong."""
 
   # Hard-coding num_actions, frame_height, frame_width to avoid loading
@@ -654,13 +656,14 @@ class GymDiscreteProblemWithAgentOnWrappedPong(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
-  GymDiscreteProblemWithAgentOnWrappedPong):
+    GymDiscreteProblemWithAgentOnWrappedPong):
   pass
 
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnFreeway(
-  GymSimulatedDiscreteProblem, GymFreewayRandom):
+    GymSimulatedDiscreteProblem, GymFreewayRandom):
+  """Similated freeway."""
 
   @property
   def initial_frames_problem(self):
@@ -671,10 +674,9 @@ class GymSimulatedDiscreteProblemWithAgentOnFreeway(
     return 100
 
 
-
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnFreeway(
-  GymRealDiscreteProblem, GymFreewayRandom):
+    GymRealDiscreteProblem, GymFreewayRandom):
   """Freeway with agent."""
 
   # Hard-coding num_actions, frame_height, frame_width to avoid loading
@@ -698,5 +700,5 @@ class GymDiscreteProblemWithAgentOnFreeway(
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnFreewayAe(  # with autoencoder
-  GymDiscreteProblemWithAgentOnFreeway):
+    GymDiscreteProblemWithAgentOnFreeway):
   pass

@@ -18,7 +18,8 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.data_generators.gym_problems import standard_atari_env_spec
-from tensor2tensor.models.research.rl import simple_gym_spec, feed_forward_cnn_small_categorical_fun
+from tensor2tensor.models.research.rl import feed_forward_cnn_small_categorical_fun
+from tensor2tensor.models.research.rl import simple_gym_spec
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.utils import registry  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
@@ -79,8 +80,8 @@ class TrainTest(tf.test.TestCase):
 
     hparams.add_hparam("environment_spec",
                        standard_atari_env_spec("PongNoFrameskip-v4"))
-    rl_trainer_lib.train(hparams)
-
+    # TODO(lukaszkaiser): enable tests with Atari.
+    # rl_trainer_lib.train(hparams)
 
 
 if __name__ == "__main__":

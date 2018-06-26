@@ -21,10 +21,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
-
-from tensorflow.contrib.training import HParams
-
 from tensor2tensor.layers import common_layers
 from tensor2tensor.rl.envs import in_graph_batch_env
 from tensor2tensor.rl.envs.utils import get_action_space
@@ -32,6 +28,8 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
+
+from tensorflow.contrib.training import HParams
 
 
 flags = tf.flags

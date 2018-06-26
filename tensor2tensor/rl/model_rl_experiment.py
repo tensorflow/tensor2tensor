@@ -426,8 +426,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   return epoch_metrics[-1]
 
 
-
-
 def combine_training_data(problem, final_data_dir, old_data_dirs,
                           copy_last_eval_set=True):
   """Add training data from old_data_dirs into final_data_dir."""

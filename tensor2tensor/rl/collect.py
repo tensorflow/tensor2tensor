@@ -79,13 +79,7 @@ class _MemoryWrapper(WrapperBase):
 def define_collect(hparams, scope, eval_phase,
                    collect_level=-1,
                    policy_to_actions_lambda=None):
-  """Collect trajectories.
-  Returns: memory - tensor with collected rollout
-           summaries - basic statistcs about the rollout
-           initialization_lambda - initializations to be done once 
-            tf.Session is created
-  """
-
+  """Collect trajectories."""
   to_initialize = []
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     batch_env = batch_env_factory(hparams)
@@ -133,7 +127,8 @@ def define_collect(hparams, scope, eval_phase,
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
                     tf.assign(cumulative_rewards, zeros_tensor))
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var, tf.convert_to_tensor(force_beginning_resets)),
+      tf.logical_or(should_reset_var, tf.convert_to_tensor(
+          force_beginning_resets)),
       group, tf.no_op)
 
   with tf.control_dependencies([reset_op]):
