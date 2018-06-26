@@ -52,7 +52,7 @@ setup(
         'tensorflow': ['tensorflow>=1.5.0'],
         'tensorflow_gpu': ['tensorflow-gpu>=1.5.0'],
         'tests': [
-            'pytest', 'mock', 'pylint', 'jupyter', 'gsutil'
+            'absl-py', 'pytest', 'mock', 'pylint', 'jupyter', 'gsutil'
             # Need atari extras for Travis tests, but because gym is already in
             # install_requires, pip skips the atari extras, so we instead do an
             # explicit pip install gym[atari] for the tests.
