@@ -25,6 +25,8 @@ import numpy as np
 
 # We need gym_utils for the game environments defined there.
 from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-import
+
+from tensorflow.contrib.training import HParams
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.models.research import rl
@@ -76,6 +78,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
     self._internal_memory_size = 20
     self._internal_memory_force_beginning_resets = False
+    self._session = None
 
   def _setup(self):
     collect_hparams = rl.ppo_pong_base()
@@ -89,18 +92,24 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       collect_hparams.policy_network = rl.random_policy_fun
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      self.collect_memory, self.collect_trigger_op, self.collect_init \
+      self.collect_memory, self.collect_trigger_op, collect_init \
         = collect.define_collect(collect_hparams, scope="gym_problems",
                                  collect_level=0, eval_phase=self.eval_phase)
+
+    self._session = tf.Session()
+    collect_init(self._session)
+    self._session.run(tf.global_variables_initializer())
+
+  @property
+  def random_skip(self):
+    return False
 
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
     self._setup()
     self.debug_dump_frames_path = os.path.join(
         data_dir, self.debug_dump_frames_path)
 
-    with tf.Session() as sess:
-      sess.run(tf.global_variables_initializer())
-      self.collect_init(sess)
+    with self._session as sess:
       self.restore_networks(sess)
       pieces_generated = 0
       memory_index = 0
@@ -112,6 +121,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
         data = [memory[i][memory_index][0] for i in range(4)]
         memory_index += 1
         observation, reward, done, action = data
+        print("Data:{}".format(data[1:]))
         observation = observation.astype(np.uint8)
 
         debug_image = self.collect_statistics_and_generate_debug_image(pieces_generated,
@@ -305,9 +315,29 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     real_env = env_spec.env_lambda()
     self.statistics.real_env = real_env
 
-
   def _setup(self):
     super(GymSimulatedDiscreteProblem, self)._setup()
+
+    environment_spec = self.environment_spec
+    hparams = HParams(video_num_input_frames=
+                      environment_spec.video_num_input_frames,
+                      video_num_target_frames=
+                      environment_spec.video_num_target_frames,
+                      environment_spec=environment_spec)
+
+    initial_frames_problem = environment_spec.initial_frames_problem
+    # initial_frames_problem.random_skip = False
+    dataset = initial_frames_problem.dataset(
+      tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
+      shuffle_files=False, hparams=hparams)
+    dataset = dataset.map(lambda x: x["input_action"]).take(1)
+    input_data_iterator = (
+      dataset.batch(1).make_initializable_iterator())
+    self._session.run(input_data_iterator.initializer)
+
+    res = self._session.run(input_data_iterator.get_next())
+    print("Actions:{}".format(res))
+    self._initial_action = res[0, :, 0]
     self._reset_real_env()
 
   @property
@@ -350,8 +380,8 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
   def _reset_real_env(self):
     stat = self.statistics
     stat.real_env.reset()
-    for _ in range(self.num_input_frames):
-      stat.real_ob, _, _, _ = stat.real_env.step(0)
+    for a in self._initial_action:
+      stat.real_ob, _, _, _ = stat.real_env.step(a)
 
     stat.episode_sim_reward = 0.0
     stat.episode_real_reward = 0.0

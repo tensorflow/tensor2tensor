@@ -23,6 +23,8 @@ from __future__ import print_function
 
 import copy
 
+from tensorflow.contrib.training import HParams
+
 from tensor2tensor.layers import common_layers
 from tensor2tensor.rl.envs import in_graph_batch_env
 from tensor2tensor.rl.envs.utils import get_action_space
@@ -113,12 +115,11 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
     _, self.action_shape, self.action_dtype = get_action_space(environment_spec)
 
-    # TODO(lukaszkaiser): do this in a more cleaner way
-    # remove other_hparams
-    hparams = copy.copy(other_hparams)
-    hparams.video_num_input_frames, hparams.video_num_target_frames = (
-        hparams.environment_spec.video_num_input_frames,
-        hparams.environment_spec.video_num_target_frames)
+    hparams = HParams(video_num_input_frames=
+                      environment_spec.video_num_input_frames,
+                      video_num_target_frames=
+                      environment_spec.video_num_target_frames,
+                      environment_spec=environment_spec)
 
     if environment_spec.simulation_random_starts:
       dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
@@ -127,7 +128,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
                                                hparams=hparams)
       dataset = dataset.shuffle(buffer_size=100)
     else:
-      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.EVAL,
+      dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
                                                FLAGS.data_dir,
                                                shuffle_files=False,
                                                hparams=hparams).take(1)
