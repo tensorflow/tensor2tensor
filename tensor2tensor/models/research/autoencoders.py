@@ -146,7 +146,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
       self._cur_bottleneck_tensor = b
       b = self.unbottleneck(b, common_layers.shape_list(x)[-1])
       b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
-      if hparams.add_gan_loss:
+      if hparams.gan_loss_factor != 0.0:
         # Add a purely sampled batch on which we'll compute the GAN loss.
         g = self.unbottleneck(self.sample(), common_layers.shape_list(x)[-1],
                               reuse=True)
@@ -173,7 +173,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
     res = x[:, :shape[1], :shape[2], :]
     # Add GAN loss if requested.
     gan_loss = 0.0
-    if hparams.add_gan_loss:
+    if hparams.gan_loss_factor != 0.0:
       # Split back if we added a purely sampled batch.
       res_gan, res = tf.split(res, 2, axis=0)
       num_channels = self.hparams.problem.num_channels
@@ -186,8 +186,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
       gan_loss = common_layers.sliced_gan_loss(
           orig_rgb, reverse_gradient(res_rgb),
           discriminate, self.hparams.num_sliced_vecs)
-      gan_loss *= common_layers.inverse_lin_decay(
-          hparams.bottleneck_warmup_steps)
+      gan_loss *= hparams.gan_loss_factor
     # Mix the final result and return.
     res = common_layers.mix(res, features["targets"],
                             hparams.bottleneck_warmup_steps // 2, is_training)
@@ -692,7 +691,7 @@ def autoencoder_basic():
   hparams.add_hparam("sample_width", 32)
   hparams.add_hparam("discriminator_batchnorm", True)
   hparams.add_hparam("num_sliced_vecs", 4096)
-  hparams.add_hparam("add_gan_loss", False)
+  hparams.add_hparam("gan_loss_factor", 0.0)
   return hparams
 
 
@@ -778,6 +777,9 @@ def autoencoder_ordered_discrete():
   """Ordered discrete autoencoder model."""
   hparams = autoencoder_residual_discrete()
   hparams.bottleneck_noise = 1.0
+  hparams.gan_loss_factor = 0.0
+  hparams.dropout = 0.1
+  hparams.residual_dropout = 0.3
   hparams.add_hparam("unordered", False)
   return hparams
 
