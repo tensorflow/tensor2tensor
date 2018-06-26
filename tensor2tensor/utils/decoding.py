@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import operator
 import os
 import time
@@ -67,7 +68,7 @@ def log_decode_results(inputs,
                        targets_vocab,
                        targets=None,
                        save_images=False,
-                       model_dir=None,
+                       output_dir=None,
                        identity_output=False,
                        log_results=True):
   """Log inference results."""
@@ -77,7 +78,8 @@ def log_decode_results(inputs,
   if is_video:
     def fix_and_save_video(vid, prefix):
       save_path_template = os.path.join(
-          model_dir, "%s_%s_%d_{}.png" % (problem_name, prefix, prediction_idx))
+          output_dir,
+          "%s_%s_%d_{}.png" % (problem_name, prefix, prediction_idx))
       # this is only required for predictions
       if vid.shape[-1] == 1:
         vid = np.squeeze(vid, axis=-1)
@@ -91,7 +93,7 @@ def log_decode_results(inputs,
   decoded_inputs = None
   if is_image and save_images:
     save_path = os.path.join(
-        model_dir, "%s_prediction_%d.jpg" % (problem_name, prediction_idx))
+        output_dir, "%s_prediction_%d.jpg" % (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
   elif inputs_vocab:
     if identity_output:
@@ -130,6 +132,10 @@ def decode_from_dataset(estimator,
                   str(problem_name))
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
+
+  # Setup the decode output directory for any artifacts that may be written out
+  output_dir = os.path.join(estimator.model_dir, "decode")
+  tf.gfile.MakeDirs(output_dir)
 
   # If decode_hp.batch_size is specified, use a fixed batch size
   if decode_hp.batch_size:
@@ -200,7 +206,7 @@ def decode_from_dataset(estimator,
             inputs_vocab,
             targets_vocab,
             save_images=decode_hp.save_images,
-            model_dir=estimator.model_dir,
+            output_dir=output_dir,
             identity_output=decode_hp.identity_output,
             targets=targets,
             log_results=decode_hp.log_results)
@@ -216,7 +222,7 @@ def decode_from_dataset(estimator,
           inputs_vocab,
           targets_vocab,
           save_images=decode_hp.save_images,
-          model_dir=estimator.model_dir,
+          output_dir=output_dir,
           identity_output=decode_hp.identity_output,
           targets=targets,
           log_results=decode_hp.log_results)
@@ -240,6 +246,13 @@ def decode_from_dataset(estimator,
     output_file.close()
     target_file.close()
     input_file.close()
+
+  run_postdecode_hooks(DecodeHookArgs(
+      estimator=estimator,
+      problem=problem,
+      output_dir=output_dir,
+      hparams=hparams,
+      decode_hparams=decode_hp))
 
   tf.logging.info("Completed inference on %d samples." % num_predictions)  # pylint: disable=undefined-loop-variable
 
@@ -689,3 +702,41 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
       IMAGE_DECODE_LENGTH if input_is_image else tf.shape(x)[1] + 50)
   features["inputs"] = x
   return features
+
+
+def latest_checkpoint_step(ckpt_dir):
+  ckpt = tf.train.get_checkpoint_state(ckpt_dir)
+  if not ckpt:
+    return None
+  path = ckpt.model_checkpoint_path
+  step = int(path.split("-")[-1])
+  return step
+
+
+class DecodeHookArgs(collections.namedtuple(
+    "DecodeHookArgs",
+    ["estimator", "problem", "output_dir", "hparams", "decode_hparams"])):
+  pass
+
+
+def run_postdecode_hooks(decode_hook_args):
+  """Run hooks after decodes have run."""
+  hooks = decode_hook_args.problem.decode_hooks
+  if not hooks:
+    return
+  global_step = latest_checkpoint_step(decode_hook_args.estimator.model_dir)
+  if global_step is None:
+    tf.logging.info(
+        "Skipping decode hooks because no checkpoint yet available.")
+    return
+  tf.logging.info("Running decode hooks.")
+  summary_writer = tf.summary.FileWriter(decode_hook_args.output_dir)
+  for hook in hooks:
+    # Isolate each hook in case it creates TF ops
+    with tf.Graph().as_default():
+      summaries = hook(decode_hook_args)
+    if summaries:
+      summary = tf.Summary(value=list(summaries))
+      summary_writer.add_summary(summary, global_step)
+  summary_writer.close()
+  tf.logging.info("Decode hooks done.")

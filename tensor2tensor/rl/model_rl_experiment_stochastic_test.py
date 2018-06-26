@@ -24,12 +24,12 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 
-class ModelRLExperimentTest(tf.test.TestCase):
+class ModelRLExperimentStochasticTest(tf.test.TestCase):
 
-  def test_basic(self):
+  def test_stochastic(self):
     FLAGS.output_dir = tf.test.get_temp_dir()
-    FLAGS.loop_hparams_set = "rl_modelrl_tiny"
-    FLAGS.loop_hparams = "generative_model_params=next_frame_tiny"
+    FLAGS.loop_hparams_set = "rl_modelrl_tiny_stochastic"
+    FLAGS.loop_hparams = "generative_model_params=next_frame_stochastic_tiny"
     FLAGS.schedule = "train"  # skip evaluation for world model training
     model_rl_experiment.main(None)
 

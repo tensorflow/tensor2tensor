@@ -163,6 +163,16 @@ class DiscretizationTest(tf.test.TestCase):
       x_means_eval = sess.run(x_means)
       self.assertEqual(np.shape(x_means_eval), (2, 3))
 
+  def testGumbleSoftmaxDiscreteBottleneck(self):
+    x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
+    tf.add_to_collection(tf.GraphKeys.GLOBAL_STEP, tf.constant(1))
+    x_means_hot, _ = discretization.gumbel_softmax_discrete_bottleneck(
+        x, bottleneck_bits=2)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
+
 
 if __name__ == '__main__':
   tf.test.main()

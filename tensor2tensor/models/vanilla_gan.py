@@ -21,8 +21,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
-from tensor2tensor.models import basic
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -197,10 +197,19 @@ class SlicedGan(AbstractGAN):
 @registry.register_hparams
 def sliced_gan():
   """Basic parameters for a vanilla_gan."""
-  hparams = basic.basic_autoencoder()
-  hparams.hidden_size = 128
+  hparams = common_hparams.basic_params1()
+  hparams.optimizer = "Adam"
+  hparams.learning_rate_constant = 0.0002
+  hparams.learning_rate_warmup_steps = 500
+  hparams.learning_rate_schedule = "constant * linear_warmup"
+  hparams.label_smoothing = 0.0
   hparams.batch_size = 128
+  hparams.hidden_size = 128
+  hparams.initializer = "uniform_unit_scaling"
+  hparams.initializer_gain = 1.0
   hparams.weight_decay = 1e-6
+  hparams.kernel_height = 4
+  hparams.kernel_width = 4
   hparams.bottleneck_bits = 128
   hparams.add_hparam("discriminator_batchnorm", True)
   hparams.add_hparam("num_sliced_vecs", 4096)

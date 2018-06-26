@@ -114,12 +114,14 @@ class SymbolModality(modality.Modality):
 
   def bottom(self, x):
     self._bottom_was_called = True
-    if self._model_hparams.shared_embedding_and_softmax_weights:
+    if (self._model_hparams.shared_embedding_and_softmax_weights or
+        self._model_hparams.get("shared_embedding")):
       return self.bottom_simple(x, "shared", reuse=None)
     return self.bottom_simple(x, "input_emb", reuse=None)
 
   def targets_bottom(self, x):
-    if self._model_hparams.shared_embedding_and_softmax_weights:
+    if (self._model_hparams.shared_embedding_and_softmax_weights or
+        self._model_hparams.get("shared_embedding")):
       try:
         return self.bottom_simple(x, "shared", reuse=True)
       except ValueError:
@@ -701,6 +703,34 @@ class ClassLabelModality(modality.Modality):
       x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
       res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
+
+
+@registry.register_class_label_modality("multi_label")
+class MultiLabelModality(ClassLabelModality):
+  """Used for multi label task."""
+
+  def targets_weights_fn(self):
+    """Target weight function for multi label, defaults to nonzero labels."""
+    weights_fn = common_layers.weights_nonzero
+    return weights_fn
+
+  def loss(self, top_out, targets):
+    """Average loss over the labels."""
+    logits = top_out
+    num_labels = tf.shape(targets)[1]
+    logits = tf.tile(logits, [1, num_labels, 1, 1])
+
+    xent, weights = common_layers.padded_cross_entropy(
+        logits,
+        targets,
+        self._model_hparams.label_smoothing,
+        weights_fn=self.targets_weights_fn,)
+    xent = tf.squeeze(xent, [2, 3])
+    weights = tf.squeeze(xent, [2, 3])
+    # average loss over all labels
+    loss = (tf.reduce_sum(xent, axis=1)
+            / (tf.reduce_sum(weights, axis=1) + 1e-8))
+    return tf.reduce_mean(loss)
 
 
 @registry.register_class_label_modality("onehot")

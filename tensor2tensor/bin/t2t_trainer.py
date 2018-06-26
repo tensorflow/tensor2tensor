@@ -154,7 +154,7 @@ def create_hparams():
   return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
 
-def create_experiment_fn():
+def create_experiment_fn(**kwargs):
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
       problem_name=FLAGS.problem,
@@ -173,7 +173,8 @@ def create_experiment_fn():
       eval_early_stopping_metric_delta=FLAGS.eval_early_stopping_metric_delta,
       eval_early_stopping_metric_minimize=FLAGS.
       eval_early_stopping_metric_minimize,
-      use_tpu=FLAGS.use_tpu)
+      use_tpu=FLAGS.use_tpu,
+      **kwargs)
 
 
 def create_run_config(hp):

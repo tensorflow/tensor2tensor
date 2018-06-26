@@ -834,6 +834,19 @@ def embedding_to_padding(emb):
 
 
 @expert_utils.add_name_scope()
+def padding_to_length(padding):
+  """Calculate the length of mask based on padding.
+
+  Args:
+    padding: a Tensor with shape [..., length].
+  Returns:
+    a Tensor with shape [...].
+  """
+  non_padding = 1.0 - padding
+  return tf.to_int64(tf.reduce_sum(non_padding, axis=-1))
+
+
+@expert_utils.add_name_scope()
 def attention_bias_local(length, max_backward, max_forward):
   """Create an bias tensor to be added to attention logits.
 
@@ -1434,71 +1447,6 @@ def grouped_attention_multihead(query_antecedent,
             tf.pow(att_per_group, 0.2),
             max_outputs=trunc_heads)
     return o, extra_loss
-
-
-def graph_attention(q,
-                    k,
-                    v,
-                    bias,
-                    dropout_rate=0.0,
-                    image_shapes=None,
-                    name=None,
-                    make_image_summary=True,
-                    save_weights_to=None,
-                    dropout_broadcast_dims=None,
-                    adjacency_matrix=None,
-                    num_edge_types=5):
-  """graph attention.
-
-  Args:
-    q: a Tensor with shape [batch, heads, length_q, depth_k]
-    k: a Tensor with shape [batch, heads, length_kv, depth_k]
-    v: a Tensor with shape [batch, heads, length_kv, depth_v]
-    bias: bias Tensor (see attention_bias())
-    dropout_rate: a floating point number
-    image_shapes: optional tuple of integer scalars.
-      see comments for attention_image_summary()
-    name: an optional string
-    make_image_summary: True if you want an image summary.
-    save_weights_to: an optional dictionary to capture attention weights
-      for vizualization; the weights tensor will be appended there under
-      a string key created from the variable scope (including name).
-    dropout_broadcast_dims:  an optional list of integers less than 4
-      specifying in which dimensions to broadcast the dropout decisions.
-      saves memory.
-    adjacency_matrix: optional matrix of [batch, length, length] ids indicating
-      edge type
-    num_edge_types: an int indicating number of edge types
-  Returns:
-    A Tensor of shape [batch, length, depth(q)]
-  """
-  with tf.variable_scope(
-      name, default_name="dot_product_attention", values=[q, k, v]) as scope:
-    # [batch, num_heads, query_length, memory_length]
-    logits = tf.matmul(q, k, transpose_b=True)
-    if adjacency_matrix is not None:
-      key_head_depth = common_layers.shape_list(q)[-1]
-      adjacency_vectors = make_edge_vectors(
-          adjacency_matrix, num_edge_types, key_head_depth, name)
-      # zeroing out the vectors that have 0 entries in the adjacency
-      adjacency_vectors *= tf.to_float(
-          tf.expand_dims(adjacency_matrix, axis=-1))
-      # transposing q to be [batch, length_q, heads, depth_k]
-      # to allow for matmul with [batch, length_q, length_q, depth_k]
-      q_t = tf.transpose(q, [0, 2, 1, 3])
-      adj_logits = tf.matmul(q_t, adjacency_vectors, transpose_b=True)
-      logits += tf.transpose(adj_logits, [0, 2, 1, 3])
-    if bias is not None:
-      logits += bias
-    weights = tf.nn.softmax(logits, name="attention_weights")
-    if save_weights_to is not None:
-      save_weights_to[scope.name] = weights
-    # dropping out the attention links for each of the heads
-    weights = common_layers.dropout_with_broadcast_dims(
-        weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
-    if expert_utils.should_generate_summaries() and make_image_summary:
-      attention_image_summary(weights, image_shapes)
-    return tf.matmul(weights, v)
 
 
 def dot_product_attention(q,
@@ -2801,16 +2749,25 @@ def compute_qkv(query_antecedent,
   if memory_antecedent is None:
     memory_antecedent = query_antecedent
   q = compute_attention_component(
-      query_antecedent, total_key_depth,
-      q_filter_width, q_padding, "q",
+      query_antecedent,
+      total_key_depth,
+      q_filter_width,
+      q_padding,
+      "q",
       vars_3d_num_heads=vars_3d_num_heads)
   k = compute_attention_component(
-      memory_antecedent, total_key_depth,
-      kv_filter_width, kv_padding, "k",
+      memory_antecedent,
+      total_key_depth,
+      kv_filter_width,
+      kv_padding,
+      "k",
       vars_3d_num_heads=vars_3d_num_heads)
   v = compute_attention_component(
-      memory_antecedent, total_value_depth,
-      kv_filter_width, kv_padding, "v",
+      memory_antecedent,
+      total_value_depth,
+      kv_filter_width,
+      kv_padding,
+      "v",
       vars_3d_num_heads=vars_3d_num_heads)
   return q, k, v
 
@@ -2840,8 +2797,6 @@ def multihead_attention(query_antecedent,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
                         max_length=None,
-                        adjacency_matrix=None,
-                        num_edge_types=5,
                         vars_3d=False,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
@@ -2891,9 +2846,6 @@ def multihead_attention(query_antecedent,
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
     max_length: an integer - needed by relative attention
-    adjacency_matrix: an optional tensor of shape [batch, len_q, len_q]
-      containing edge vectors for attention
-    num_edge_types: number of edge types, an int
     vars_3d: use 3-dimensional variables for input/output transformations
     **kwargs (dict): Parameters for the attention function
 
@@ -2990,13 +2942,6 @@ def multihead_attention(query_antecedent,
                                 save_weights_to=save_weights_to,
                                 make_image_summary=make_image_summary,
                                 dropout_broadcast_dims=dropout_broadcast_dims)
-    elif attention_type == "edge_vector":
-      x = graph_attention(q, k, v, bias, dropout_rate, image_shapes,
-                          save_weights_to=save_weights_to,
-                          make_image_summary=make_image_summary,
-                          dropout_broadcast_dims=dropout_broadcast_dims,
-                          adjacency_matrix=adjacency_matrix,
-                          num_edge_types=num_edge_types)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
           q,

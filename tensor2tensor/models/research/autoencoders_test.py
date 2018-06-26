@@ -52,6 +52,10 @@ class AutoencoderTest(tf.test.TestCase):
   def mnist_output_shape(self):
     return (1, 28, 28, 1, 256)
 
+  def testAutoencoderBasic(self):
+    res = self.get_mnist_random_output("autoencoder_basic")
+    self.assertEqual(res.shape, self.mnist_output_shape)
+
   def testAutoencoderAutoregressive(self):
     res = self.get_mnist_random_output("autoencoder_autoregressive")
     self.assertEqual(res.shape, self.mnist_output_shape)

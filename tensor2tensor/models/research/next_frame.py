@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import numpy as np
 import six
 
 from tensor2tensor.layers import common_attention
@@ -170,6 +169,11 @@ class NextFrameStochastic(NextFrameBasic):
   https://arxiv.org/abs/1710.11252
   """
 
+  def tinyify(self, array):
+    if self.hparams.tiny_mode:
+      return [1 for _ in array]
+    return array
+
   def construct_latent_tower(self, images):
     """Builds convolutional latent tower for stochastic model.
 
@@ -189,6 +193,7 @@ class NextFrameStochastic(NextFrameBasic):
       latent_loss: loss of the latent twoer
       samples: random samples sampled from standard guassian
     """
+    conv_size = self.tinyify([32, 64, 64])
     with tf.variable_scope("latent", reuse=tf.AUTO_REUSE):
       # this allows more predicted frames at inference time
       latent_images = images[:self.hparams.latent_num_frames]
@@ -196,12 +201,12 @@ class NextFrameStochastic(NextFrameBasic):
 
       x = images
       x = common_layers.make_even_size(x)
-      x = slim.conv2d(x, 32, [3, 3], stride=2, scope="latent_conv1")
+      x = slim.conv2d(x, conv_size[0], [3, 3], stride=2, scope="latent_conv1")
       x = slim.batch_norm(x, scope="latent_bn1")
       x = common_layers.make_even_size(x)
-      x = slim.conv2d(x, 64, [3, 3], stride=2, scope="latent_conv2")
+      x = slim.conv2d(x, conv_size[1], [3, 3], stride=2, scope="latent_conv2")
       x = slim.batch_norm(x, scope="latent_bn2")
-      x = slim.conv2d(x, 64, [3, 3], stride=1, scope="latent_conv3")
+      x = slim.conv2d(x, conv_size[2], [3, 3], stride=1, scope="latent_conv3")
       x = slim.batch_norm(x, scope="latent_bn3")
 
       nc = self.hparams.latent_channels
@@ -218,11 +223,12 @@ class NextFrameStochastic(NextFrameBasic):
 
   def reward_prediction(self, inputs):
     """Builds a reward prediction network."""
+    conv_size = self.tinyify([32, 16])
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
       x = inputs
-      x = slim.conv2d(x, 32, [3, 3], scope="reward_conv1")
+      x = slim.conv2d(x, conv_size[0], [3, 3], scope="reward_conv1")
       x = slim.batch_norm(x, scope="reward_bn1")
-      x = slim.conv2d(x, 16, [3, 3], scope="reward_conv2")
+      x = slim.conv2d(x, conv_size[1], [3, 3], scope="reward_conv2")
       x = slim.batch_norm(x, scope="reward_bn2")
       x = slim.conv2d(x, 1, [3, 3], scope="reward_conv3", activation_fn=None)
     return x
@@ -262,11 +268,13 @@ class NextFrameStochastic(NextFrameBasic):
     # Main tower
     layer_norm = tf.contrib.layers.layer_norm
     lstm_func = self.conv_lstm_2d
-    lstm_size = np.array([32, 32, 64, 64, 128, 64, 32], dtype=np.int32)
     batch_size = common_layers.shape_list(input_image)[0]
     # the number of different pixel motion predictions
     # and the number of masks for each of those predictions
     num_masks = self.hparams.num_masks
+
+    lstm_size = self.tinyify([32, 32, 64, 64, 128, 64, 32])
+    conv_size = self.tinyify([32])
 
     img_height, img_width, color_channels = self.hparams.problem.frame_shape
 
@@ -274,7 +282,7 @@ class NextFrameStochastic(NextFrameBasic):
       input_image = common_layers.make_even_size(input_image)
       enc0 = slim.layers.conv2d(
           input_image,
-          32, [5, 5],
+          conv_size[0], [5, 5],
           stride=2,
           scope="scale1_conv1",
           normalizer_fn=layer_norm,
@@ -1066,6 +1074,7 @@ def next_frame_stochastic():
   hparams.add_hparam(
       "latent_num_frames",  # use all frames by default.
       hparams.video_num_input_frames + hparams.video_num_target_frames)
+  hparams.add_hparam("tiny_mode", False)
   return hparams
 
 
@@ -1087,6 +1096,18 @@ def next_frame_stochastic_emily():
 def next_frame_stochastic_cutoff():
   """SV2P model with additional cutoff in L2 loss for environments like pong."""
   hparams = next_frame_stochastic()
+  hparams.video_modality_loss_cutoff = 0.4
+  hparams.video_num_input_frames = 4
+  hparams.video_num_target_frames = 1
+  return hparams
+
+
+@registry.register_hparams
+def next_frame_stochastic_tiny():
+  """SV2P model with additional cutoff in L2 loss for environments like pong."""
+  hparams = next_frame_stochastic()
+  hparams.tiny_mode = True
+  hparams.num_masks = 1
   hparams.video_modality_loss_cutoff = 0.4
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 1

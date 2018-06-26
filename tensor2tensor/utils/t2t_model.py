@@ -1181,7 +1181,8 @@ class T2TModel(base.Layer):
     Returns:
       TPUEstimatorSpec if use tpu else EstimatorSpec
     """
-    _create_dummy_vars()
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      _create_dummy_vars()
     hparams = copy.deepcopy(hparams)
 
     # Instantiate model

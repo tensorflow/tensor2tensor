@@ -543,10 +543,11 @@ class Problem(object):
     data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
         data_filepattern))
 
-    # Functions used in dataset transforms below
-    def _load_records_and_preprocess(filename):
-      # Load records from file with an 8MiB read buffer.
-      dataset = tf.data.TFRecordDataset(filename, buffer_size=8 * 1024 * 1024)
+    # Functions used in dataset transforms below. `filenames` can be either a
+    # `tf.string` tensor or `tf.data.Dataset` containing one or more filenames.
+    def _load_records_and_preprocess(filenames):
+      # Load records from file(s) with an 8MiB read buffer.
+      dataset = tf.data.TFRecordDataset(filenames, buffer_size=8 * 1024 * 1024)
       # Decode.
       dataset = dataset.map(self.decode_example, num_parallel_calls=num_threads)
       # Preprocess if requested.
@@ -566,17 +567,24 @@ class Problem(object):
     if shuffle_files:
       random.shuffle(data_files)
 
+    dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
     # Create data-set from files by parsing, pre-processing and interleaving.
     if shuffle_files:
-      dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
       dataset = dataset.apply(
           tf.contrib.data.parallel_interleave(
               _load_records_and_preprocess, sloppy=True, cycle_length=8))
     else:
-      dataset = None
-      for f in data_files:
-        f_data = _load_records_and_preprocess(f)
-        dataset = f_data if dataset is None else dataset.concatenate(f_data)
+      # TFRecordDataset can get filenames as dataset in TF 1.7+.
+      # TODO(lukaszkaiser): remove when we require TF 1.7+ in general.
+      major, minor = [int(el) for el in tf.__version__.split(".")[:2]]
+      filename_dataset_ok = major > 1 or (major == 1 and minor >= 7)
+      if filename_dataset_ok:  # We can just pass a Dataset of filenames.
+        dataset = _load_records_and_preprocess(dataset)
+      else:  # Go file-by-file (can be very slow).
+        dataset = None
+        for f in data_files:
+          f_data = _load_records_and_preprocess(f)
+          dataset = f_data if dataset is None else dataset.concatenate(f_data)
 
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
@@ -604,6 +612,17 @@ class Problem(object):
     decode_items = list(sorted(data_items_to_decoders))
     decoded = decoder.decode(serialized_example, items=decode_items)
     return dict(zip(decode_items, decoded))
+
+  @property
+  def decode_hooks(self):
+    """List of functions to be run after full decodes have been produced.
+
+    Returns:
+      List of functions. Each function should expect a single argument, an
+      instance of decoding.DecodeHookArgs and optionally return a list of
+      tf.Summary.Value objects.
+    """
+    return []
 
   @property
   def has_inputs(self):

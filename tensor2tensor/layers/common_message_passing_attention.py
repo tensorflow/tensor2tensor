@@ -20,8 +20,219 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import expert_utils
 
 import tensorflow as tf
+
+
+def multihead_graph_attention(query_antecedent,
+                              memory_antecedent,
+                              bias,
+                              total_key_depth,
+                              total_value_depth,
+                              output_depth,
+                              num_heads,
+                              dropout_rate,
+                              image_shapes=None,
+                              attention_type="edge_vector",
+                              name="multihead_graph_attention",
+                              save_weights_to=None,
+                              make_image_summary=True,
+                              dropout_broadcast_dims=None,
+                              adjacency_matrix=None,
+                              num_edge_types=5,
+                              vars_3d=False,
+                              **kwargs):
+  """Multihead scaled-dot-product attention with input/output transformations.
+
+  Args:
+    query_antecedent: a Tensor with shape [batch, length_q, channels]
+    memory_antecedent: a Tensor with shape [batch, length_m, channels] or None
+    bias: bias Tensor (see attention_bias())
+    total_key_depth: an integer
+    total_value_depth: an integer
+    output_depth: an integer
+    num_heads: an integer dividing total_key_depth and total_value_depth
+    dropout_rate: a floating point number
+    image_shapes: optional tuple of integer scalars.
+                  see comments for attention_image_summary()
+    attention_type: a string, either "dot_product", "dot_product_relative",
+                    "local_mask_right", "local_unmasked", "masked_dilated_1d",
+                    "unmasked_dilated_1d", graph, or any attention function
+                    with the signature (query, key, value, **kwargs)
+    name: an optional string.
+    save_weights_to: an optional dictionary to capture attention weights
+      for vizualization; the weights tensor will be appended there under
+      a string key created from the variable scope (including name).
+    make_image_summary: Whether to make an attention image summary.
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
+    adjacency_matrix: an optional tensor of shape [batch, len_q, len_q]
+      containing edge vectors for attention
+    num_edge_types: number of edge types, an int
+    vars_3d: use 3-dimensional variables for input/output transformations
+    **kwargs (dict): Parameters for the attention function
+
+  Returns:
+    The result of the attention transformation. The output shape is
+        [batch_size, length_q, hidden_dim]
+
+  Raises:
+    ValueError: if the key depth or value depth are not divisible by the
+      number of attention heads.
+  """
+  if total_key_depth % num_heads != 0:
+    raise ValueError("Key depth (%d) must be divisible by the number of "
+                     "attention heads (%d)." % (total_key_depth, num_heads))
+  if total_value_depth % num_heads != 0:
+    raise ValueError("Value depth (%d) must be divisible by the number of "
+                     "attention heads (%d)." % (total_value_depth, num_heads))
+  vars_3d_num_heads = num_heads if vars_3d else None
+  with tf.variable_scope(name, default_name="multihead_attention",
+                         values=[query_antecedent, memory_antecedent]):
+
+    q, k, v = common_attention.compute_qkv(
+        query_antecedent, memory_antecedent, total_key_depth,
+        total_value_depth, vars_3d_num_heads=vars_3d_num_heads)
+    q = common_attention.split_heads(q, num_heads)
+    k = common_attention.split_heads(k, num_heads)
+    v = common_attention.split_heads(v, num_heads)
+
+    key_depth_per_head = total_key_depth // num_heads
+    if not vars_3d:
+      q *= key_depth_per_head**-0.5
+
+    additional_returned_value = None
+    if callable(attention_type):  # Generic way to extend multihead_attention
+      x = attention_type(q, k, v, **kwargs)
+      if isinstance(x, tuple):
+        x, additional_returned_value = x  # Unpack
+
+    elif attention_type == "edge_vector":
+      x = graph_attention(q, k, v, bias, dropout_rate, image_shapes,
+                          save_weights_to=save_weights_to,
+                          make_image_summary=make_image_summary,
+                          dropout_broadcast_dims=dropout_broadcast_dims,
+                          adjacency_matrix=adjacency_matrix,
+                          num_edge_types=num_edge_types)
+
+    x = common_attention.combine_heads(x)
+
+    # Set last dim specifically.
+    x.set_shape(x.shape.as_list()[:-1] + [total_value_depth])
+
+    if vars_3d:
+      o_var = tf.get_variable(
+          "o", [num_heads, total_value_depth // num_heads, output_depth])
+      o_var = tf.reshape(o_var, [total_value_depth, output_depth])
+      x = tf.tensordot(x, o_var, axes=1)
+    else:
+      x = common_layers.dense(
+          x, output_depth, use_bias=False, name="output_transform")
+    if additional_returned_value is not None:
+      return x, additional_returned_value
+    return x
+
+
+@expert_utils.add_name_scope()
+def make_edge_vectors(adjacency_matrix, num_edge_types, depth, name=None):
+  """Gets edge vectors for the edge types in the adjacency matrix.
+
+  Args:
+    adjacency_matrix: A [batch, num_nodes, num_nodes] tensor of ints.
+    num_edge_types: Number of different edge types
+    depth: Number of channels
+    name: a string
+  Returns:
+    A [batch, num_nodes, num_nodes, depth] vector of tensors
+  """
+  with tf.variable_scope(name, default_name="edge_vectors"):
+    att_adj_vectors_shape = [num_edge_types, depth]
+    adjacency_matrix_shape = common_layers.shape_list(adjacency_matrix)
+    adj_vectors = (
+        tf.get_variable(
+            "adj_vectors",
+            att_adj_vectors_shape,
+            initializer=tf.random_normal_initializer(0, depth**-0.5)) *
+        (depth**0.5))
+    # Avoiding gathers so that it works on TPUs
+    # adjacency_matrix_one_hot has shape
+    # [batch, num_nodes, num_nodes, num_edge_types]
+
+    adjacency_matrix_one_hot = tf.one_hot(adjacency_matrix, num_edge_types)
+
+    att_adj_vectors = tf.matmul(
+        tf.reshape(tf.to_float(adjacency_matrix_one_hot), [-1, num_edge_types]),
+        adj_vectors)
+    return tf.reshape(att_adj_vectors,
+                      [adjacency_matrix_shape[0], adjacency_matrix_shape[1],
+                       adjacency_matrix_shape[2], depth])
+
+
+def graph_attention(q,
+                    k,
+                    v,
+                    bias,
+                    dropout_rate=0.0,
+                    image_shapes=None,
+                    name=None,
+                    make_image_summary=True,
+                    save_weights_to=None,
+                    dropout_broadcast_dims=None,
+                    adjacency_matrix=None,
+                    num_edge_types=5):
+  """graph attention.
+
+  Args:
+    q: a Tensor with shape [batch, heads, length_q, depth_k]
+    k: a Tensor with shape [batch, heads, length_kv, depth_k]
+    v: a Tensor with shape [batch, heads, length_kv, depth_v]
+    bias: bias Tensor (see attention_bias())
+    dropout_rate: a floating point number
+    image_shapes: optional tuple of integer scalars.
+      see comments for attention_image_summary()
+    name: an optional string
+    make_image_summary: True if you want an image summary.
+    save_weights_to: an optional dictionary to capture attention weights
+      for vizualization; the weights tensor will be appended there under
+      a string key created from the variable scope (including name).
+    dropout_broadcast_dims:  an optional list of integers less than 4
+      specifying in which dimensions to broadcast the dropout decisions.
+      saves memory.
+    adjacency_matrix: optional matrix of [batch, length, length] ids indicating
+      edge type
+    num_edge_types: an int indicating number of edge types
+  Returns:
+    A Tensor of shape [batch, length, depth(q)]
+  """
+  with tf.variable_scope(
+      name, default_name="dot_product_attention", values=[q, k, v]) as scope:
+    # [batch, num_heads, query_length, memory_length]
+    logits = tf.matmul(q, k, transpose_b=True)
+    if adjacency_matrix is not None:
+      key_head_depth = common_layers.shape_list(q)[-1]
+      adjacency_vectors = make_edge_vectors(
+          adjacency_matrix, num_edge_types, key_head_depth, name)
+      # zeroing out the vectors that have 0 entries in the adjacency
+      adjacency_vectors *= tf.to_float(
+          tf.expand_dims(adjacency_matrix, axis=-1))
+      # transposing q to be [batch, length_q, heads, depth_k]
+      # to allow for matmul with [batch, length_q, length_q, depth_k]
+      q_t = tf.transpose(q, [0, 2, 1, 3])
+      adj_logits = tf.matmul(q_t, adjacency_vectors, transpose_b=True)
+      logits += tf.transpose(adj_logits, [0, 2, 1, 3])
+    if bias is not None:
+      logits += bias
+    weights = tf.nn.softmax(logits, name="attention_weights")
+    if save_weights_to is not None:
+      save_weights_to[scope.name] = weights
+    # dropping out the attention links for each of the heads
+    weights = common_layers.dropout_with_broadcast_dims(
+        weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
+    if common_layers.should_generate_summaries() and make_image_summary:
+      common_attention.attention_image_summary(weights, image_shapes)
+    return tf.matmul(weights, v)
 
 
 def compute_mpnn_qkv(node_states,
@@ -201,7 +412,7 @@ def dot_product_mpnn_attention(q, k, v, adjacency_matrix, num_edge_types,
     # getting dot products for q_i, k_j, and e_{ij}. This assumes that for
     # edge type 0, the dot products are 0
     all_edge_logits *= adjacency_matrix_one_hot
-    # logits will be [batch, length, length] after educing along
+    # logits will be [batch, length, length] after reducing along
     # axis 1 which has dimension num_edge_types.
     logits = tf.reduce_sum(all_edge_logits, axis=1)
     # ignoring edges if needed

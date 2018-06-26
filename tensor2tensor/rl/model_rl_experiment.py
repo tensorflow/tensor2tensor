@@ -542,9 +542,7 @@ def rl_modelrl_tiny_stochastic():
   """Tiny setting with a stochastic next-frame model."""
   hparams = rl_modelrl_tiny()
   hparams.generative_model = "next_frame_stochastic"
-  hparams.generative_model_params = "next_frame_stochastic_cutoff"
-  hparams.true_env_generator_num_steps = 1000
-  hparams.simulated_env_generator_num_steps = 1000
+  hparams.generative_model_params = "next_frame_stochastic_tiny"
   return hparams
 
 

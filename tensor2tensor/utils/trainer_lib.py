@@ -39,10 +39,7 @@ def next_checkpoint(model_dir, timeout_mins=120):
   last_ckpt = None
   while True:
     last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
-        model_dir,
-        last_ckpt,
-        seconds_to_sleep=60,
-        timeout=60 * timeout_mins)
+        model_dir, last_ckpt, seconds_to_sleep=60, timeout=60 * timeout_mins)
 
     if last_ckpt is None:
       tf.logging.info(
@@ -266,20 +263,34 @@ class T2TExperiment(object):
   """Custom Experiment class for running distributed experiments."""
 
   def __init__(self, estimator, hparams, train_spec, eval_spec,
-               decode_hparams=None):
+               use_validation_monitor, decode_hparams=None):
     self._train_spec = train_spec
     self._eval_spec = eval_spec
     self._hparams = hparams
     self._decode_hparams = decode_hparams
     self._estimator = estimator
+    self._use_validation_monitor = use_validation_monitor
 
-  def continuous_train_and_eval(self):
+  @property
+  def estimator(self):
+    return self._estimator
+
+  @property
+  def train_steps(self):
+    return self._train_spec.max_steps
+
+  @property
+  def eval_steps(self):
+    return self._eval_spec.steps
+
+  def continuous_train_and_eval(self, continuous_eval_predicate_fn=None):
+    del continuous_eval_predicate_fn
     tf.estimator.train_and_evaluate(self._estimator, self._train_spec,
                                     self._eval_spec)
     return self.evaluate()
 
   def train_and_evaluate(self):
-    if self._eval_spec is None:
+    if self._use_validation_monitor:
       tf.logging.warning("EvalSpec not provided. Estimator will not manage "
                          "model evaluation. Assuming ValidationMonitor present "
                          "in train_hooks.")
@@ -317,7 +328,7 @@ class T2TExperiment(object):
 
   def test(self):
     """Perform 1 step of train and 2 step of eval."""
-    if self._eval_spec is None:
+    if self._use_validation_monitor:
       return self.train_and_evaluate()
 
     self._estimator.train(
@@ -361,25 +372,27 @@ class T2TExperiment(object):
       self.decode()
 
 
-def create_experiment(run_config,
-                      hparams,
-                      model_name,
-                      problem_name,
-                      data_dir,
-                      train_steps,
-                      eval_steps,
-                      min_eval_frequency=2000,
-                      eval_throttle_seconds=600,
-                      schedule="train_and_evaluate",
-                      export=False,
-                      decode_hparams=None,
-                      use_tfdbg=False,
-                      use_dbgprofile=False,
-                      eval_early_stopping_steps=None,
-                      eval_early_stopping_metric=None,
-                      eval_early_stopping_metric_delta=None,
-                      eval_early_stopping_metric_minimize=True,
-                      use_tpu=False):
+def create_experiment(
+    run_config,
+    hparams,
+    model_name,
+    problem_name,
+    data_dir,
+    train_steps,
+    eval_steps,
+    min_eval_frequency=2000,
+    eval_throttle_seconds=600,
+    schedule="train_and_evaluate",
+    export=False,
+    decode_hparams=None,
+    use_tfdbg=False,
+    use_dbgprofile=False,
+    eval_early_stopping_steps=None,
+    eval_early_stopping_metric=None,
+    eval_early_stopping_metric_delta=None,
+    eval_early_stopping_metric_minimize=True,
+    autotune=False,
+    use_tpu=False):
   """Create Experiment."""
   # HParams
   hparams.add_hparam("model_dir", run_config.model_dir)
@@ -455,18 +468,27 @@ def create_experiment(run_config,
 
   train_spec = tf.estimator.TrainSpec(
       train_input_fn, max_steps=train_steps, hooks=train_hooks)
-  if use_validation_monitor:
-    eval_spec = None
-  else:
-    eval_spec = tf.estimator.EvalSpec(
-        eval_input_fn,
-        steps=eval_steps,
-        hooks=eval_hooks,
-        start_delay_secs=0 if hparams.schedule == "evaluate" else 120,
-        throttle_secs=eval_throttle_seconds)
+  eval_spec = tf.estimator.EvalSpec(
+      eval_input_fn,
+      steps=eval_steps,
+      hooks=eval_hooks,
+      start_delay_secs=0 if hparams.schedule == "evaluate" else 120,
+      throttle_secs=eval_throttle_seconds)
 
+  if autotune:
+    hooks_kwargs = {"train_monitors": train_hooks, "eval_hooks": eval_hooks}
+    return tf.contrib.learn.Experiment(
+        estimator=estimator,
+        train_input_fn=train_input_fn,
+        eval_input_fn=eval_input_fn,
+        train_steps=train_steps,
+        eval_steps=eval_steps,
+        min_eval_frequency=min_eval_frequency,
+        train_steps_per_iteration=min(min_eval_frequency, train_steps),
+        eval_delay_secs=0 if schedule == "evaluate" else 120,
+        **hooks_kwargs if not use_tpu else {})
   return T2TExperiment(estimator, hparams, train_spec, eval_spec,
-                       decode_hparams)
+                       use_validation_monitor, decode_hparams)
 
 
 def create_experiment_fn(*args, **kwargs):
@@ -511,3 +533,4 @@ def restore_checkpoint(ckpt_dir, saver, sess, must_restore=False):
   saver.restore(sess, path)
   step = int(path.split("-")[-1])
   return step
+

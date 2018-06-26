@@ -1301,7 +1301,8 @@ def transformer_decoder(decoder_input,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
-              decode_loop_step=decode_loop_step)
+              decode_loop_step=decode_loop_step,
+              vars_3d=hparams.get("attention_variables_3d"))
           x = common_layers.layer_postprocess(x, y, hparams)
         if encoder_output is not None:
           with tf.variable_scope("encdec_attention"):
@@ -1318,7 +1319,8 @@ def transformer_decoder(decoder_input,
                 cache=layer_cache,
                 make_image_summary=make_image_summary,
                 dropout_broadcast_dims=attention_dropout_broadcast_dims,
-                max_length=hparams.get("max_length"))
+                max_length=hparams.get("max_length"),
+                vars_3d=hparams.get("attention_variables_3d"))
             x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -2132,6 +2134,20 @@ def transformer_librispeech():
 def transformer_librispeech_tpu():
   """HParams for training ASR model on Librispeech on TPU."""
   return transformer_librispeech_tpu_v2()
+
+
+@registry.register_hparams
+def transformer_common_voice():
+  """HParams for training ASR model on Mozilla Common Voice."""
+  return transformer_librispeech()
+
+
+@registry.register_hparams
+def transformer_common_voice_tpu():
+  """HParams for training ASR model on Mozilla Common Voice on TPU."""
+  hparams = transformer_librispeech_tpu()
+  hparams.batch_size = 8
+  return hparams
 
 
 @registry.register_hparams
