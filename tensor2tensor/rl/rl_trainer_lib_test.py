@@ -18,7 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.data_generators.gym_problems import standard_atari_env_spec
-from tensor2tensor.models.research.rl import simple_gym_spec
+from tensor2tensor.models.research.rl import simple_gym_spec, feed_forward_cnn_small_categorical_fun
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.utils import registry  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
@@ -47,6 +47,40 @@ class TrainTest(tf.test.TestCase):
     hparams.add_hparam("environment_spec",
                        standard_atari_env_spec("CartPole-v0"))
     rl_trainer_lib.train(hparams)
+
+  # This test should sucessfully train pong.
+  # It should get train mean_score around 0 after 100 epoch
+  #
+  # This test should be run whenever ppo any bigger change
+  # is done on the ppo code
+  #
+  # To run the test change epochs_num=2 to epoch_num=200
+  # and epoch_length=4 to epoch_length=200
+  # (it is set like that to meet travis timeouts
+  def test_train_pong(self):
+    hparams = tf.contrib.training.\
+      HParams(epochs_num=2,
+              eval_every_epochs=10,
+              num_agents=20,
+              optimization_epochs=3,
+              epoch_length=4,
+              entropy_loss_coef=0.003,
+              learning_rate=8e-05,
+              optimizer="Adam",
+              policy_network=feed_forward_cnn_small_categorical_fun,
+              gae_lambda=0.985,
+              num_eval_agents=1,
+              max_gradients_norm=0.5,
+              gae_gamma=0.985,
+              optimization_batch_size=4,
+              clipping_coef=0.2,
+              value_loss_coef=1,
+              save_models_every_epochs=False)
+
+    hparams.add_hparam("environment_spec",
+                       standard_atari_env_spec("PongNoFrameskip-v4"))
+    rl_trainer_lib.train(hparams)
+
 
 
 if __name__ == "__main__":

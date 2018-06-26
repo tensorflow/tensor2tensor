@@ -31,6 +31,10 @@ class WrapperBase(InGraphBatchEnv):
     self.action_shape = batch_env.action_shape
     self.action_dtype = batch_env.action_dtype
 
+  def initialize(self, sess):
+    """Initializations to be run once the tf.Session is available."""
+    pass
+
   @property
   def observ(self):
     """Access the variable holding the current observation."""

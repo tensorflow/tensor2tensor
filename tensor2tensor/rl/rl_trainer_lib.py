@@ -32,20 +32,20 @@ def define_train(hparams, event_dir):
   """Define the training setup."""
   del event_dir
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-    memory, collect_summary = collect.define_collect(
-        hparams, "ppo_train", eval_phase=False,
-        on_simulated=hparams.simulated_environment)
+    memory, collect_summary, initialization\
+      = collect.define_collect(
+          hparams, "ppo_train", eval_phase=False)
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
     summary = tf.summary.merge([collect_summary, ppo_summary])
 
-  return summary, None
+  return summary, None, initialization
 
 
 def train(hparams, event_dir=None, model_dir=None,
           restore_agent=True, epoch=0):
   """Train."""
   with tf.name_scope("rl_train"):
-    train_summary_op, _ = define_train(hparams, event_dir)
+    train_summary_op, _, initialization = define_train(hparams, event_dir)
     if event_dir:
       summary_writer = tf.summary.FileWriter(
           event_dir, graph=tf.get_default_graph(), flush_secs=60)
@@ -56,7 +56,9 @@ def train(hparams, event_dir=None, model_dir=None,
       summary_writer = None
       model_saver = None
 
-    if hparams.simulated_environment:
+    # TODO (piotr milos): This should be refactored, possibly with
+    # handlers for each type of env
+    if hparams.environment_spec.simulated_env:
       env_model_loader = tf.train.Saver(
           tf.global_variables("next_frame*"))
     else:
@@ -64,6 +66,7 @@ def train(hparams, event_dir=None, model_dir=None,
 
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
+      initialization(sess)
       if env_model_loader:
         trainer_lib.restore_checkpoint(
             hparams.world_model_dir, env_model_loader, sess, must_restore=True)

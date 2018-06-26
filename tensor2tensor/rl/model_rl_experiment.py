@@ -36,7 +36,6 @@ from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -102,7 +101,8 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
     gym_problem.eval_phase = eval_phase
     gym_problem.generate_data(data_dir, tmp_dir)
-    mean_reward = gym_problem.sum_of_rewards / (1.0 + gym_problem.dones)
+    mean_reward = gym_problem.statistics.sum_of_rewards / \
+                  (1.0 + gym_problem.statistics.number_of_dones)
 
   return mean_reward
 
@@ -145,6 +145,7 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams.epoch_length = hparams.ppo_epoch_length
   ppo_hparams.num_agents = hparams.ppo_num_agents
   ppo_hparams.world_model_dir = world_model_dir
+  ppo_hparams.add_hparam("force_beginning_resets", True)
   if hparams.ppo_learning_rate:
     ppo_hparams.learning_rate = hparams.ppo_learning_rate
 
@@ -153,21 +154,8 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams.add_hparam("model_hparams", model_hparams)
 
   environment_spec = copy.copy(gym_problem.environment_spec)
-  environment_spec.simulated_env = True
-  environment_spec.add_hparam("simulation_random_starts",
-                              hparams.simulation_random_starts)
-  environment_spec.add_hparam("intrinsic_reward_scale",
-                              hparams.intrinsic_reward_scale)
-  environment_spec.add_hparam("initial_frames_problem",
-                              gym_problem)
-
-  # 4x for the StackAndSkipWrapper minus one to always finish for reporting.
-  ppo_time_limit = ppo_hparams.epoch_length - 1
-  ppo_time_limit *= model_hparams.video_num_input_frames
-
-  wrappers = environment_spec.wrappers + \
-             [[TimeLimitWrapper, {"timelimit": ppo_time_limit}]]
-  environment_spec.wrappers = wrappers
+  environment_spec.simulation_random_starts = hparams.simulation_random_starts
+  environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
@@ -198,9 +186,10 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
       "autoencoder_path": autoencoder_path,
   }):
     gym_simulated_problem.generate_data(epoch_data_dir, tmp_dir)
-  n = max(1., gym_simulated_problem.dones)
+  n = max(1., gym_simulated_problem.statistics.number_of_dones)
   model_reward_accuracy = (
-      gym_simulated_problem.successful_episode_reward_predictions / float(n))
+      gym_simulated_problem.statistics.successful_episode_reward_predictions
+      / float(n))
   return model_reward_accuracy
 
 
@@ -411,7 +400,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     ppo_model_dir = directories["ppo"]
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
-    train_agent(world_model_problem, ppo_model_dir,
+    train_agent(simulated_problem_name, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
                 hparams, autoencoder_path=autoencoder_model_dir, epoch=epoch)
 
@@ -493,7 +482,7 @@ def rl_modelrl_base():
       game="wrapped_long_pong",
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
-      eval_world_model=False,
+      eval_world_model=True,
   )
 
 
