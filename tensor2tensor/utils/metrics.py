@@ -430,24 +430,7 @@ def set_auc(predictions,
       auc = tf.identity(auc)
 
     return auc, tf.constant(1.0)
-    
-# Fathom old image_summary
-# def image_summary(predictions, hparams):
-#   """Reshapes predictions and passes it to tensorboard.
-#
-#   Args:
-#     predictions : A Tensor of scores of shape [batch, nlabels].
-#     hparams: model_hparams
-#
-#   Returns:
-#     summary_proto: containing the summary image for predictions
-#     weights: A Tensor of zeros of shape [batch, nlabels].
-#   """
-#   predictions_reshaped = tf.reshape(
-#       predictions, [-1, hparams.height, hparams.width, hparams.colors])
-#   return tf.summary.image(
-#       "image_summary", predictions_reshaped,
-#       max_outputs=1), tf.zeros_like(predictions)
+
 
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
