@@ -349,7 +349,6 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     self._session.run(input_data_iterator.initializer)
 
     res = self._session.run(input_data_iterator.get_next())
-    print("Actions:{}".format(res))
     self._initial_action = res[0, :, 0]
     self._reset_real_env()
 

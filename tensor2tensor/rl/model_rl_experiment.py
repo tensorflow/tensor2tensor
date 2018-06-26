@@ -378,11 +378,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                         autoencoder_model_dir, epoch_data_dir)
 
     # Train world model
-    # log("Training world model")
-    # train_world_model(world_model_problem, epoch_data_dir,
-    #                   directories["world_model"], hparams, epoch,
-    #                   use_autoencoder=using_autoencoder)
-    #
+    log("Training world model")
+    train_world_model(world_model_problem, epoch_data_dir,
+                      directories["world_model"], hparams, epoch,
+                      use_autoencoder=using_autoencoder)
+
     # Evaluate world model
     model_reward_accuracy = 0.
     if hparams.eval_world_model:
