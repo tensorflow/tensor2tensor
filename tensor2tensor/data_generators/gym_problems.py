@@ -121,7 +121,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
         data = [memory[i][memory_index][0] for i in range(4)]
         memory_index += 1
         observation, reward, done, action = data
-        print("Data:{}".format(data[1:]))
         observation = observation.astype(np.uint8)
 
         debug_image = self.collect_statistics_and_generate_debug_image(pieces_generated,
