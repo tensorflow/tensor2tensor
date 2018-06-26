@@ -126,14 +126,16 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
         debug_image = self.collect_statistics_and_generate_debug_image(pieces_generated,
                                                                        *data)
-
-        ret_dict = {"frame": observation,
-                    "image/format": ["png"],
-                    "image/height": [self.frame_height],
-                    "image/width": [self.frame_width],
-                    "action": [int(action)],
-                    "done": [int(False)],
-                    "reward": [int(reward) - self.min_reward]}
+        ret_dict = {
+            "frame": observation,
+            "frame_number": [int(pieces_generated)],
+            "image/format": ["png"],
+            "image/height": [self.frame_height],
+            "image/width": [self.frame_width],
+            "action": [int(action)],
+            "done": [int(False)],
+            "reward": [int(reward) - self.min_reward]
+        }
 
         if debug_image is not None:
           ret_dict["image/debug"] = debug_image
@@ -158,10 +160,13 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   def extra_reading_spec(self):
     """Additional data fields to store on disk and their decoders."""
     data_fields = {
+        "frame_number": tf.FixedLenFeature([1], tf.int64),
         "action": tf.FixedLenFeature([1], tf.int64),
         "reward": tf.FixedLenFeature([1], tf.int64)
     }
     decoders = {
+        "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
+            tensor_key="frame_number"),
         "action": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
         "reward": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="reward"),
     }
@@ -221,6 +226,14 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   @property
   def min_reward(self):
     raise NotImplementedError()
+
+  @property
+  def num_testing_steps(self):
+    return None
+
+  @property
+  def only_keep_videos_from_0th_frame(self):
+    return False
 
   def get_action(self, observation=None):
     del observation
