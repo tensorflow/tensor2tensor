@@ -33,6 +33,8 @@ import tensorflow as tf
 
 from tensorflow.contrib.eager.python import tfe
 
+from fathomt2t_dependencies.fh_metrics import set_auc
+
 
 class Metrics(object):
   """Available evaluation metrics."""
@@ -274,7 +276,6 @@ def set_recall(predictions, labels, weights_fn=common_layers.weights_nonzero):
     labels = tf.cast(labels, tf.bool)
     return tf.to_float(tf.equal(labels, predictions)), weights
 
-
 def image_summary(predictions, targets, hparams):
   """Reshapes predictions and passes it to tensorboard.
 
@@ -430,6 +431,23 @@ def set_auc(predictions,
 
     return auc, tf.constant(1.0)
     
+# Fathom old image_summary
+# def image_summary(predictions, hparams):
+#   """Reshapes predictions and passes it to tensorboard.
+#
+#   Args:
+#     predictions : A Tensor of scores of shape [batch, nlabels].
+#     hparams: model_hparams
+#
+#   Returns:
+#     summary_proto: containing the summary image for predictions
+#     weights: A Tensor of zeros of shape [batch, nlabels].
+#   """
+#   predictions_reshaped = tf.reshape(
+#       predictions, [-1, hparams.height, hparams.width, hparams.colors])
+#   return tf.summary.image(
+#       "image_summary", predictions_reshaped,
+#       max_outputs=1), tf.zeros_like(predictions)
 
 def create_evaluation_metrics(problems, model_hparams):
   """Creates the evaluation metrics for the model.
