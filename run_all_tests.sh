@@ -3,8 +3,7 @@ T2T=tensor2tensor
 DT=diseaseTools
 IMAGE=gcr.io/fathom-containers/t2t_test
 GCS_KEY_NAME=GOOGLE_APPLICATION_CREDENTIALS
-#GCS_KEY_PATH=/usr/src/diseaseTools/gcloud/keys/google-auth.json
-GCS_KEY_PATH=/usr/src/diseaseTools/gcloud/secrets/cloud.google.com/processing
+GCS_KEY_PATH=/usr/src/diseaseTools/gcloud/keys/google-auth.json
 
 docker pull $IMAGE
 
