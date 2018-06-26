@@ -226,7 +226,8 @@ class Text2TextProblem(problem.Problem):
       encoder = text_encoder.TokenTextEncoder(vocab_filename,
                                               replace_oov=self.oov_token)
     else:
-      raise ValueError("Unrecognized VocabType")
+      raise ValueError(
+          "Unrecognized VocabType: %s" % str(self.vocab_type))
     return encoder
 
   def _maybe_pack_examples(self, generator):

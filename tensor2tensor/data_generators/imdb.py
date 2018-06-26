@@ -101,5 +101,6 @@ class SentimentIMDB(text_problems.Text2ClassProblem):
 class SentimentIMDBCharacters(SentimentIMDB):
   """IMDB Sentiment classification, character level."""
 
+  @property
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
