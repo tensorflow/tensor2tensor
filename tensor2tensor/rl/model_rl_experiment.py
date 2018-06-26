@@ -190,6 +190,9 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
   model_reward_accuracy = (
       gym_simulated_problem.statistics.successful_episode_reward_predictions
       / float(n))
+  old_path = os.path.join(epoch_data_dir, "debug_frames_env")
+  new_path = os.path.join(epoch_data_dir, "debug_frames_env_eval")
+  tf.gfile.Rename(old_path, new_path)
   return model_reward_accuracy
 
 
