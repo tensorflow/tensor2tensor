@@ -1,43 +1,51 @@
+# coding=utf-8
+# Copyright 2018 The Tensor2Tensor Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Github function to text similatrity problems."""
+
 import os
-from tensor2tensor.utils import t2t_model
-from tensor2tensor.utils import registry
+
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.utils import registry
+from tensor2tensor.utils import t2t_model
 
 
 @registry.register_model
 class SimilarityTransformer(t2t_model.T2TModel):
-  # pylint: disable=abstract-method
-
-  """
-  This class defines the model to compute similarity scores between functions and
-  docstrings
-  """
-
-  def __init__(self, *args, **kwargs):
-    super(SimilarityTransformer, self).__init__(*args, **kwargs)
-
+  """Similarity scores between functions and docstrings."""
 
   def body(self, features):
-    # TODO: need to fill this with Transformer encoder/decoder
+    # TODO(sanyamkapoor): need to fill this with Transformer encoder/decoder
     # and loss calculation
     raise NotImplementedError
 
 
 @registry.register_problem
 class GithubFunctionDocstring(text_problems.Text2TextProblem):
-  # pylint: disable=abstract-method
-
-  """This class defines the problem of finding similarity between Python function
-   and docstring"""
+  """The problem of similarity between Python function and docstring."""
 
   @property
   def is_generate_per_split(self):
     return False
 
-  def generate_samples(self, data_dir, _tmp_dir, dataset_split):  #pylint: disable=no-self-use
-    """This method returns the generator to return {"inputs": [text], "targets": [text]} dict"""
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    """Returns the generator of {"inputs": [text], "targets": [text]} dict."""
 
-    functions_file_path = os.path.join(data_dir, '{}.function'.format(dataset_split))
-    docstrings_file_path = os.path.join(data_dir, '{}.docstring'.format(dataset_split))
+    functions_file_path = os.path.join(
+        data_dir, '{}.function'.format(dataset_split))
+    docstrings_file_path = os.path.join(
+        data_dir, '{}.docstring'.format(dataset_split))
 
-    return text_problems.text2text_txt_iterator(functions_file_path, docstrings_file_path)
+    return text_problems.text2text_txt_iterator(
+        functions_file_path, docstrings_file_path)
