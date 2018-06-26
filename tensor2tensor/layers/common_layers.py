@@ -1552,8 +1552,9 @@ def conv_relu_conv(inputs,
       else:
         # Inplace update is required for inference on TPU.
         # Inplace_ops only supports inplace_update on the first dimension.
-        # TODO(shibow): explore updating the entire Tensor instead of using
-        # inplace_ops to avoid the transposes.
+        # The performance of current implementation is better than updating
+        # the tensor by adding the result of matmul(one_hot,
+        # update_in_current_step)
         tmp_f = tf.transpose(cache["f"], perm=[1, 0, 2])
         tmp_f = tf_inplace_ops().alias_inplace_update(
             tmp_f, decode_loop_step * tf.shape(inputs)[1],

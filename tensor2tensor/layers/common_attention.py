@@ -2912,8 +2912,9 @@ def multihead_attention(query_antecedent,
         else:
           # Inplace update is required for inference on TPU.
           # Inplace_ops only supports inplace_update on the first dimension.
-          # TODO(shibow): explore updating the entire Tensor instead of using
-          # inplace_ops to avoid the transposes.
+          # The performance of current implementation is better than updating
+          # the tensor by adding the result of matmul(one_hot,
+          # update_in_current_step)
           tmp_k = tf.transpose(cache["k"], perm=[2, 0, 1, 3])
           tmp_k = common_layers.tf_inplace_ops().alias_inplace_update(
               tmp_k, decode_loop_step, tf.squeeze(k, axis=2))
