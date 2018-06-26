@@ -341,7 +341,6 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
                       environment_spec=environment_spec)
 
     initial_frames_problem = environment_spec.initial_frames_problem
-    # initial_frames_problem.random_skip = False
     dataset = initial_frames_problem.dataset(
         tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
         shuffle_files=False, hparams=hparams)
@@ -351,7 +350,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     self._session.run(input_data_iterator.initializer)
 
     res = self._session.run(input_data_iterator.get_next())
-    self._initial_action = res[0, :, 0]
+    self._initial_action = res[0, :, 0][:-1]
     self._reset_real_env()
 
   @property
@@ -406,7 +405,6 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     stat = self.statistics
 
     stat.sum_of_rewards += reward
-    stat.number_of_dones += int(done)
     stat.episode_sim_reward += reward
 
     ob = np.ndarray.astype(observation, np.int)
@@ -419,9 +417,10 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
                 "The collect memory should be set in force_beginning_resets "
                 "mode for the code below to work properly.")
 
-    if index % self._internal_memory_size == 0:
+    if (index+1) % self._internal_memory_size == 0:
       if stat.episode_sim_reward == stat.episode_real_reward:
         stat.successful_episode_reward_predictions += 1
+        stat.number_of_dones += 1
       self._reset_real_env()
     else:
       stat.real_ob, real_reward, _, _ = stat.real_env.step(action)
