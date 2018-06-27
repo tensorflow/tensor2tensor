@@ -38,17 +38,16 @@ import tensorflow as tf
 
 from tensorflow.contrib.training import HParams
 
-
 flags = tf.flags
 FLAGS = flags.FLAGS
-
 
 flags.DEFINE_string("agent_policy_path", None, "File with model for agent.")
 flags.DEFINE_string("autoencoder_path", None,
                     "File with model for autoencoder.")
-flags.DEFINE_boolean("only_use_ae_for_policy", False,
-                     "Whether to only use the autoencoder for the policy and "
-                     "still write out full-resolution frames.")
+flags.DEFINE_boolean(
+    "only_use_ae_for_policy", False,
+    "Whether to only use the autoencoder for the policy and "
+    "still write out full-resolution frames.")
 
 
 def standard_atari_env_spec(env):
@@ -61,9 +60,8 @@ def standard_atari_env_spec(env):
     env_lambda = env
   assert env is not None, "Unknown specification of environment"
 
-  return tf.contrib.training.HParams(env_lambda=env_lambda,
-                                     wrappers=standard_wrappers,
-                                     simulated_env=False)
+  return tf.contrib.training.HParams(
+      env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
 
 
 class GymDiscreteProblem(video_utils.VideoProblem):
@@ -108,8 +106,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
     self._setup()
-    self.debug_dump_frames_path = os.path.join(
-        data_dir, self.debug_dump_frames_path)
+    self.debug_dump_frames_path = os.path.join(data_dir,
+                                               self.debug_dump_frames_path)
 
     with self._session as sess:
       self.restore_networks(sess)
@@ -157,8 +155,10 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       model_saver.restore(sess, ckpt)
 
   def eval_metrics(self):
-    eval_metrics = [metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
-                    metrics.Metrics.IMAGE_RMSE]
+    eval_metrics = [
+        metrics.Metrics.ACC, metrics.Metrics.ACC_PER_SEQ,
+        metrics.Metrics.IMAGE_RMSE
+    ]
     return eval_metrics
 
   @property
@@ -170,10 +170,12 @@ class GymDiscreteProblem(video_utils.VideoProblem):
         "reward": tf.FixedLenFeature([1], tf.int64)
     }
     decoders = {
-        "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
-            tensor_key="frame_number"),
-        "action": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
-        "reward": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="reward"),
+        "frame_number":
+            tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="frame_number"),
+        "action":
+            tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
+        "reward":
+            tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="reward"),
     }
     return data_fields, decoders
 
@@ -200,13 +202,12 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   def num_actions(self):
     return self.env.action_space.n
 
-  def collect_statistics_and_generate_debug_image(self, index,
-                                                  observation,
-                                                  reward,
-                                                  done,
-                                                  action):
+  # pylint: disable=unused-argument
+  def collect_statistics_and_generate_debug_image(self, index, observation,
+                                                  reward, done, action):
     """This generates extra statistics and debug images."""
     return None
+  # pylint: enable=unused-argument
 
   @property
   def frame_height(self):
@@ -338,19 +339,19 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     super(GymSimulatedDiscreteProblem, self)._setup()
 
     environment_spec = self.environment_spec
-    hparams = HParams(video_num_input_frames=
-                      environment_spec.video_num_input_frames,
-                      video_num_target_frames=
-                      environment_spec.video_num_target_frames,
-                      environment_spec=environment_spec)
+    hparams = HParams(
+        video_num_input_frames=environment_spec.video_num_input_frames,
+        video_num_target_frames=environment_spec.video_num_target_frames,
+        environment_spec=environment_spec)
 
     initial_frames_problem = environment_spec.initial_frames_problem
     dataset = initial_frames_problem.dataset(
-        tf.estimator.ModeKeys.TRAIN, FLAGS.data_dir,
-        shuffle_files=False, hparams=hparams)
+        tf.estimator.ModeKeys.TRAIN,
+        FLAGS.data_dir,
+        shuffle_files=False,
+        hparams=hparams)
     dataset = dataset.map(lambda x: x["input_action"]).take(1)
-    input_data_iterator = (
-        dataset.batch(1).make_initializable_iterator())
+    input_data_iterator = (dataset.batch(1).make_initializable_iterator())
     self._session.run(input_data_iterator.initializer)
 
     res = self._session.run(input_data_iterator.get_next())
@@ -385,8 +386,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     env_spec.add_hparam("simulation_random_starts",
                         self.simulation_random_starts)
 
-    env_spec.add_hparam("intrinsic_reward_scale",
-                        self.intrinsic_reward_scale)
+    env_spec.add_hparam("intrinsic_reward_scale", self.intrinsic_reward_scale)
     initial_frames_problem = registry.problem(self.initial_frames_problem)
     env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
     env_spec.add_hparam("video_num_input_frames", self.num_input_frames)
@@ -409,8 +409,8 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     stat.episode_sim_reward += reward
 
     ob = np.ndarray.astype(observation, np.int)
-    err = np.ndarray.astype(np.maximum(np.abs(
-        stat.real_ob - ob, dtype=np.int) - 10, 0), np.uint8)
+    err = np.ndarray.astype(
+        np.maximum(np.abs(stat.real_ob - ob, dtype=np.int) - 10, 0), np.uint8)
     debug_im = np.concatenate([observation, stat.real_ob, err], axis=1)
 
     assert (self._internal_memory_size == self.num_testing_steps and
@@ -532,8 +532,8 @@ class GymWrappedBreakoutRandom(GymDiscreteProblem):
 
 
 @registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnPong(
-    GymSimulatedDiscreteProblem, GymPongRandom):
+class GymSimulatedDiscreteProblemWithAgentOnPong(GymSimulatedDiscreteProblem,
+                                                 GymPongRandom):
   """Simulated pong."""
 
   @property
@@ -563,8 +563,7 @@ class GymFreewayRandom(GymDiscreteProblem):
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnPong(
-    GymRealDiscreteProblem, GymPongRandom):
+class GymDiscreteProblemWithAgentOnPong(GymRealDiscreteProblem, GymPongRandom):
   pass
 
 
@@ -583,8 +582,8 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedLongPong(
-    GymRealDiscreteProblem, GymWrappedLongPongRandom):
+class GymDiscreteProblemWithAgentOnWrappedLongPong(GymRealDiscreteProblem,
+                                                   GymWrappedLongPongRandom):
   pass
 
 
@@ -609,8 +608,8 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedBreakout(
-    GymRealDiscreteProblem, GymWrappedBreakoutRandom):
+class GymDiscreteProblemWithAgentOnWrappedBreakout(GymRealDiscreteProblem,
+                                                   GymWrappedBreakoutRandom):
   pass
 
 
@@ -635,8 +634,8 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedPong(
-    GymRealDiscreteProblem, GymWrappedPongRandom):
+class GymDiscreteProblemWithAgentOnWrappedPong(GymRealDiscreteProblem,
+                                               GymWrappedPongRandom):
   """GymDiscreteProblemWithAgentOnWrappedPong."""
 
   # Hard-coding num_actions, frame_height, frame_width to avoid loading
@@ -665,8 +664,8 @@ class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
 
 
 @registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnFreeway(
-    GymSimulatedDiscreteProblem, GymFreewayRandom):
+class GymSimulatedDiscreteProblemWithAgentOnFreeway(GymSimulatedDiscreteProblem,
+                                                    GymFreewayRandom):
   """Similated freeway."""
 
   @property
@@ -679,8 +678,8 @@ class GymSimulatedDiscreteProblemWithAgentOnFreeway(
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnFreeway(
-    GymRealDiscreteProblem, GymFreewayRandom):
+class GymDiscreteProblemWithAgentOnFreeway(GymRealDiscreteProblem,
+                                           GymFreewayRandom):
   """Freeway with agent."""
 
   # Hard-coding num_actions, frame_height, frame_width to avoid loading

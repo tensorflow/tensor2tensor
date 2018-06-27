@@ -43,7 +43,6 @@ import tensorflow as tf
 from tensorflow.python.layers import base
 from tensorflow.python.ops import variable_scope
 
-
 _no_problem_err_str = (
     "The default implementation of %s requires that the "
     "model be used with a Problem. If using a Problem, augment the "
@@ -71,7 +70,8 @@ class T2TModel(base.Layer):
                mode=tf.estimator.ModeKeys.TRAIN,
                problem_hparams=None,
                data_parallelism=None,
-               decode_hparams=None):
+               decode_hparams=None,
+               **kwargs):
     """Create a T2TModel.
 
     Args:
@@ -85,6 +85,7 @@ class T2TModel(base.Layer):
         specifies devices for data parallelism.
       decode_hparams: a hyperparameter object with decoding parameters.
         See decoding.decode_hparams.
+      **kwargs: arguments to pass to base.Layer constructor.
 
     Returns:
       a T2TModel
@@ -93,7 +94,7 @@ class T2TModel(base.Layer):
     default_name = registry.default_name(type(self))
     name = self.REGISTERED_NAME or default_name
     super(T2TModel, self).__init__(
-        trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name)
+        trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name, **kwargs)
 
     if not problem_hparams and hasattr(hparams, "problem_hparams"):
       problem_hparams = hparams.problem_hparams
@@ -272,7 +273,8 @@ class T2TModel(base.Layer):
       else:
         logits = self.top(output, features)
         losses["training"] = 0.0
-        if self._hparams.mode != tf.estimator.ModeKeys.PREDICT:
+        if (self._hparams.mode != tf.estimator.ModeKeys.PREDICT and
+            self._hparams.mode != "attack"):
           losses["training"] = self.loss(logits, features)
 
       return logits, losses
@@ -367,14 +369,13 @@ class T2TModel(base.Layer):
         else:
           body_output_shape = body_output.shape.as_list()
           last_position_body_output = tf.slice(
-              body_output,
-              [0, features["decode_loop_step"][0], 0, 0],
-              [body_output_shape[0], 1, body_output_shape[2],
-               body_output_shape[3]])
+              body_output, [0, features["decode_loop_step"][0], 0, 0], [
+                  body_output_shape[0], 1, body_output_shape[2],
+                  body_output_shape[3]
+              ])
           target_shape = features["targets"].shape.as_list()
           last_position_targets = tf.slice(
-              features["targets"],
-              [0, features["decode_loop_step"][0], 0, 0],
+              features["targets"], [0, features["decode_loop_step"][0], 0, 0],
               [target_shape[0], 1, target_shape[2], target_shape[3]])
         logits = target_modality.top(last_position_body_output,
                                      last_position_targets)
@@ -723,8 +724,8 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`}
       }
     """
-    return (self._slow_greedy_infer_tpu(features, decode_length) if use_tpu else
-            self._slow_greedy_infer(features, decode_length))
+    return (self._slow_greedy_infer_tpu(features, decode_length)
+            if use_tpu else self._slow_greedy_infer(features, decode_length))
 
   def _slow_greedy_infer_tpu(self, features, decode_length):
     """A slow greedy inference method on TPU.
@@ -783,8 +784,8 @@ class T2TModel(base.Layer):
       else:
         cur_sample = samples[:, i, :, :]
       samples = tf.transpose(recent_output, perm=[1, 0, 2, 3])
-      samples = tf_inplace_ops().alias_inplace_update(
-          samples, i, tf.to_int64(cur_sample))
+      samples = tf_inplace_ops().alias_inplace_update(samples, i,
+                                                      tf.to_int64(cur_sample))
       samples = tf.transpose(samples, perm=[1, 0, 2, 3])
       if not tf.contrib.eager.in_eager_mode():
         samples.set_shape([None, None, None, 1])
@@ -816,17 +817,16 @@ class T2TModel(base.Layer):
       decode_length = 1
     else:
       if "partial_targets" in features:
-        prefix_length = common_layers.shape_list(
-            features["partial_targets"])[1]
+        prefix_length = common_layers.shape_list(features["partial_targets"])[1]
       else:
-        prefix_length = common_layers.shape_list(
-            features["inputs"])[1]
+        prefix_length = common_layers.shape_list(features["inputs"])[1]
       decode_length = prefix_length + decode_length
 
     # Initial values of result, logits and loss.
-    result = tf.concat([initial_output,
-                        tf.zeros([batch_size, decode_length, 1, 1], tf.int64)],
-                       axis=1)
+    result = tf.concat(
+        [initial_output,
+         tf.zeros([batch_size, decode_length, 1, 1], tf.int64)],
+        axis=1)
     # tensor padded to [batch_size, decode_length, 1, 1, vocab_size]
     logits = tf.zeros((batch_size, decode_length, 1, 1,
                        target_modality.top_dimensionality))
@@ -868,8 +868,10 @@ class T2TModel(base.Layer):
         shape_invariants=[
             tf.TensorShape([]),
             tf.TensorShape([batch_size, decode_length, 1, 1]),
-            tf.TensorShape([batch_size, decode_length, 1, 1,
-                            target_modality.top_dimensionality]),
+            tf.TensorShape([
+                batch_size, decode_length, 1, 1,
+                target_modality.top_dimensionality
+            ]),
             tf.TensorShape([]),
         ],
         back_prop=False,
@@ -1189,11 +1191,13 @@ class T2TModel(base.Layer):
     data_parallelism = None
     if not use_tpu and config:
       data_parallelism = config.data_parallelism
+    reuse = tf.get_variable_scope().reuse
     model = cls(
         hparams,
         mode,
         data_parallelism=data_parallelism,
-        decode_hparams=decode_hparams)
+        decode_hparams=decode_hparams,
+        _reuse=reuse)
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
@@ -1227,6 +1231,10 @@ class T2TModel(base.Layer):
         logits.set_shape(shape)
 
     assert "training" in losses_dict
+
+    # Attack mode
+    if mode == "attack":
+      return logits
 
     # Summarize losses
     with tf.name_scope("losses"):
@@ -1527,19 +1535,32 @@ def _create_host_call(model_dir):
   gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
   summary_kwargs = collections.OrderedDict()
   for t in summaries:
-    if t.op.type != "ScalarSummary":
+    if t.op.type not in ["ScalarSummary", "ImageSummary"]:
+      tf.logging.warn("Ignoring unsupported tf.Summary type %s" % t.op.type)
       continue
 
     name = t.op.name
     tensor = t.op.inputs[1]
-    assert tensor.shape.is_compatible_with([])
-    if tensor.dtype == tf.int64:
-      tensor = tf.to_int32(tensor)
-    summary_kwargs[name] = tf.reshape(tensor, [1])
+    if t.op.type == "ScalarSummary":
+      assert tensor.shape.is_compatible_with([])
+      if tensor.dtype == tf.int64:
+        tensor = tf.to_int32(tensor)
+      summary_kwargs["ScalarSummary" + name] = tf.reshape(tensor, [1])
+    elif t.op.type == "ImageSummary":
+      # TODO(aidangomez): as we move to support more types, update
+      # common_layers.tpu_safe_image_summary
+      if tensor.dtype != tf.float32:
+        tf.logging.warn(
+            "Currently T2T on TPU only supports ImageSummary of "
+            "tf.float32-type Tensors. Skipping Tensor "
+            "%s with dtype %s..." % (tensor.name, tensor.dtype))
+        continue
+      # tensor = tf.to_float(tensor)
+      summary_kwargs["ImageSummary" + name] = tensor
   summary_kwargs["global_step"] = gs_t
 
   def host_call_fn(**kwargs):
-    """Training host call. Creates scalar summaries for training metrics.
+    """Training host call. Creates summaries for training metrics.
 
     Args:
       **kwargs: Dict of {str: Tensor} , with `Tensor` of shape `[batch]`. Must
@@ -1551,9 +1572,15 @@ def _create_host_call(model_dir):
     gs = tf.to_int64(kwargs.pop("global_step")[0])
     with tf.contrib.summary.create_file_writer(model_dir).as_default():
       with tf.contrib.summary.always_record_summaries():
+        # We need to use tf.contrib.summary in order to feed the `step`.
         for name, value in sorted(six.iteritems(kwargs)):
-          tf.contrib.summary.scalar(
-              name, tf.reduce_mean(tf.to_float(value)), step=gs)
+          if name.startswith("ScalarSummary"):
+            name = name.strip("ScalarSummary")
+            tf.contrib.summary.scalar(
+                name, tf.reduce_mean(tf.to_float(value)), step=gs)
+          elif name.startswith("ImageSummary"):
+            name = name.strip("ImageSummary")
+            tf.contrib.summary.image(name, value, step=gs)
 
         return tf.contrib.summary.all_summary_ops()
 
