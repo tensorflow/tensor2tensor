@@ -190,7 +190,7 @@ class StackAndSkipWrapper(WrapperBase):
     assign_op = tf.scatter_update(self._observ, indices, tf.tile(
         new_values, inx))
     with tf.control_dependencies([assign_op]):
-      return tf.identity(self.observ)
+      return tf.gather(self.observ, indices)
 
 
 class TimeLimitWrapper(WrapperBase):
