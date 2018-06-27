@@ -304,7 +304,7 @@ class RewardPerSequenceStatistics(BasicStatistics):
     # data to calculate
     # correctness of rewards per sequence metric
     self.episode_sim_reward = 0.0
-    self.episode_real_reward = 0.0,
+    self.episode_real_reward = 0.0
     self.successful_episode_reward_predictions = 0
     self.report_reward_statistics_every = 10
 
