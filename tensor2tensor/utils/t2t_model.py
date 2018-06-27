@@ -1145,11 +1145,7 @@ class T2TModel(base.Layer):
                               use_tpu=False):
     model_cls = registry.model(model_name)
 
-    def wrapping_model_fn(features,
-                          labels,
-                          mode,
-                          params=None,
-                          config=None):
+    def wrapping_model_fn(features, labels, mode, params=None, config=None):
       return model_cls.estimator_model_fn(
           hparams,
           features,
@@ -1539,19 +1535,32 @@ def _create_host_call(model_dir):
   gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
   summary_kwargs = collections.OrderedDict()
   for t in summaries:
-    if t.op.type != "ScalarSummary":
+    if t.op.type not in ["ScalarSummary", "ImageSummary"]:
+      tf.logging.warn("Ignoring unsupported tf.Summary type %s" % t.op.type)
       continue
 
     name = t.op.name
     tensor = t.op.inputs[1]
-    assert tensor.shape.is_compatible_with([])
-    if tensor.dtype == tf.int64:
-      tensor = tf.to_int32(tensor)
-    summary_kwargs[name] = tf.reshape(tensor, [1])
+    if t.op.type == "ScalarSummary":
+      assert tensor.shape.is_compatible_with([])
+      if tensor.dtype == tf.int64:
+        tensor = tf.to_int32(tensor)
+      summary_kwargs["ScalarSummary" + name] = tf.reshape(tensor, [1])
+    elif t.op.type == "ImageSummary":
+      # TODO(aidangomez): as we move to support more types, update
+      # common_layers.tpu_safe_image_summary
+      if tensor.dtype != tf.float32:
+        tf.logging.warn(
+            "Currently T2T on TPU only supports ImageSummary of "
+            "tf.float32-type Tensors. Skipping Tensor "
+            "%s with dtype %s..." % (tensor.name, tensor.dtype))
+        continue
+      # tensor = tf.to_float(tensor)
+      summary_kwargs["ImageSummary" + name] = tensor
   summary_kwargs["global_step"] = gs_t
 
   def host_call_fn(**kwargs):
-    """Training host call. Creates scalar summaries for training metrics.
+    """Training host call. Creates summaries for training metrics.
 
     Args:
       **kwargs: Dict of {str: Tensor} , with `Tensor` of shape `[batch]`. Must
@@ -1563,9 +1572,15 @@ def _create_host_call(model_dir):
     gs = tf.to_int64(kwargs.pop("global_step")[0])
     with tf.contrib.summary.create_file_writer(model_dir).as_default():
       with tf.contrib.summary.always_record_summaries():
+        # We need to use tf.contrib.summary in order to feed the `step`.
         for name, value in sorted(six.iteritems(kwargs)):
-          tf.contrib.summary.scalar(
-              name, tf.reduce_mean(tf.to_float(value)), step=gs)
+          if name.startswith("ScalarSummary"):
+            name = name.strip("ScalarSummary")
+            tf.contrib.summary.scalar(
+                name, tf.reduce_mean(tf.to_float(value)), step=gs)
+          elif name.startswith("ImageSummary"):
+            name = name.strip("ImageSummary")
+            tf.contrib.summary.image(name, value, step=gs)
 
         return tf.contrib.summary.all_summary_ops()
 

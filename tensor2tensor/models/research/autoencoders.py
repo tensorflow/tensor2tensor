@@ -66,27 +66,26 @@ class AutoencoderBasic(t2t_model.T2TModel):
     """
     hparams = self.hparams
     with tf.variable_scope(
-        "discriminator",
-        initializer=tf.random_normal_initializer(stddev=0.02)):
+        "discriminator", initializer=tf.random_normal_initializer(stddev=0.02)):
       batch_size, height, width = common_layers.shape_list(x)[:3]
       # Mapping x from [bs, h, w, c] to [bs, 1]
-      net = tf.layers.conv2d(x, 64, (4, 4), strides=(2, 2),
-                             padding="SAME", name="d_conv1")
+      net = tf.layers.conv2d(
+          x, 64, (4, 4), strides=(2, 2), padding="SAME", name="d_conv1")
       # [bs, h/2, w/2, 64]
       net = lrelu(net)
-      net = tf.layers.conv2d(net, 128, (4, 4), strides=(2, 2),
-                             padding="SAME", name="d_conv2")
+      net = tf.layers.conv2d(
+          net, 128, (4, 4), strides=(2, 2), padding="SAME", name="d_conv2")
       # [bs, h/4, w/4, 128]
       if hparams.discriminator_batchnorm:
-        net = tf.layers.batch_normalization(net, training=is_training,
-                                            momentum=0.999, name="d_bn2")
+        net = tf.layers.batch_normalization(
+            net, training=is_training, momentum=0.999, name="d_bn2")
       net = lrelu(net)
       size = height * width
       net = tf.reshape(net, [batch_size, size * 8])  # [bs, h * w * 8]
       net = tf.layers.dense(net, 1024, name="d_fc3")  # [bs, 1024]
       if hparams.discriminator_batchnorm:
-        net = tf.layers.batch_normalization(net, training=is_training,
-                                            momentum=0.999, name="d_bn3")
+        net = tf.layers.batch_normalization(
+            net, training=is_training, momentum=0.999, name="d_bn3")
       net = lrelu(net)
       return net
 
@@ -113,8 +112,13 @@ class AutoencoderBasic(t2t_model.T2TModel):
       for i in range(hparams.num_hidden_layers):
         x = self.make_even_size(x)
         x = tf.layers.conv2d(
-            x, hparams.hidden_size * 2**(i + 1), kernel, strides=strides,
-            padding="SAME", activation=common_layers.belu, name="conv_%d" % i)
+            x,
+            hparams.hidden_size * 2**(i + 1),
+            kernel,
+            strides=strides,
+            padding="SAME",
+            activation=common_layers.belu,
+            name="conv_%d" % i)
         x = common_layers.layer_norm(x)
       return x
 
@@ -126,8 +130,13 @@ class AutoencoderBasic(t2t_model.T2TModel):
       for i in range(hparams.num_hidden_layers):
         j = hparams.num_hidden_layers - i - 1
         x = tf.layers.conv2d_transpose(
-            x, hparams.hidden_size * 2**j, kernel, strides=strides,
-            padding="SAME", activation=common_layers.belu, name="deconv_%d" % j)
+            x,
+            hparams.hidden_size * 2**j,
+            kernel,
+            strides=strides,
+            padding="SAME",
+            activation=common_layers.belu,
+            name="deconv_%d" % j)
         x = common_layers.layer_norm(x)
       return x
 
@@ -148,13 +157,13 @@ class AutoencoderBasic(t2t_model.T2TModel):
       b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
       if hparams.gan_loss_factor != 0.0:
         # Add a purely sampled batch on which we'll compute the GAN loss.
-        g = self.unbottleneck(self.sample(), common_layers.shape_list(x)[-1],
-                              reuse=True)
+        g = self.unbottleneck(
+            self.sample(), common_layers.shape_list(x)[-1], reuse=True)
         b = tf.concat([g, b], axis=0)
       # With probability bottleneck_max_prob use the bottleneck, otherwise x.
       if hparams.bottleneck_max_prob < -1.0:
-        x = tf.where(tf.less(tf.random_uniform([]),
-                             hparams.bottleneck_max_prob), b, x)
+        x = tf.where(
+            tf.less(tf.random_uniform([]), hparams.bottleneck_max_prob), b, x)
       else:
         x = b
     else:
@@ -177,28 +186,34 @@ class AutoencoderBasic(t2t_model.T2TModel):
       # Split back if we added a purely sampled batch.
       res_gan, res = tf.split(res, 2, axis=0)
       num_channels = self.hparams.problem.num_channels
-      res_rgb = common_layers.convert_real_to_rgb(tf.nn.sigmoid(
-          tf.layers.dense(res_gan, num_channels, name="gan_rgb")))
-      tf.summary.image("gan", tf.cast(res_rgb, tf.uint8), max_outputs=1)
+      res_rgb = common_layers.convert_real_to_rgb(
+          tf.nn.sigmoid(tf.layers.dense(res_gan, num_channels, name="gan_rgb")))
+      tf.summary.image(
+          "gan", common_layers.tpu_safe_image_summary(res_rgb), max_outputs=1)
       orig_rgb = tf.to_float(features["targets_raw"])
+
       def discriminate(x):
         return self.discriminator(x, is_training=is_training)
-      gan_loss = common_layers.sliced_gan_loss(
-          orig_rgb, reverse_gradient(res_rgb),
-          discriminate, self.hparams.num_sliced_vecs)
+
+      gan_loss = common_layers.sliced_gan_loss(orig_rgb,
+                                               reverse_gradient(res_rgb),
+                                               discriminate,
+                                               self.hparams.num_sliced_vecs)
       gan_loss *= hparams.gan_loss_factor
     # Mix the final result and return.
     res = common_layers.mix(res, features["targets"],
                             hparams.bottleneck_warmup_steps // 2, is_training)
-    return res, {"bottleneck_loss": b_loss, "gan_loss": - gan_loss}
+    return res, {"bottleneck_loss": b_loss, "gan_loss": -gan_loss}
 
   def sample(self, features=None, shape=None):
     del features, shape
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
-    size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
-            hp.bottleneck_bits]
+    size = [
+        hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
+        hp.bottleneck_bits
+    ]
     # Sample in [-1, 1] as the bottleneck is under tanh.
     return 2.0 * tf.random_uniform(size) - 1.0
 
@@ -229,8 +244,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
       num_channels = 1
     if "targets" not in features:
       features["targets"] = tf.zeros(
-          [self.hparams.batch_size, 1, 1, num_channels],
-          dtype=tf.int32)
+          [self.hparams.batch_size, 1, 1, num_channels], dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
     samples = tf.argmax(logits, axis=-1)
 
@@ -294,9 +308,12 @@ class AutoencoderAutoregressive(AutoencoderBasic):
       assert hparams.mode == tf.estimator.ModeKeys.PREDICT
       features["targets"] = tf.zeros_like(basic_result)
     targets_dropout = common_layers.mix(
-        features["targets"], tf.zeros_like(basic_result),
-        hparams.bottleneck_warmup_steps, is_training,
-        max_prob=1.0 - hparams.autoregressive_dropout, broadcast_last=True)
+        features["targets"],
+        tf.zeros_like(basic_result),
+        hparams.bottleneck_warmup_steps,
+        is_training,
+        max_prob=1.0 - hparams.autoregressive_dropout,
+        broadcast_last=True)
     # Sometimes it's useful to look at non-autoregressive evals.
     if (hparams.mode == tf.estimator.ModeKeys.EVAL and
         hparams.autoregressive_eval_pure_autoencoder):
@@ -311,24 +328,36 @@ class AutoencoderAutoregressive(AutoencoderBasic):
       concat1d = common_layers.shift_right_3d(concat1d)
     # The autoregressive part depends on the mode.
     if hparams.autoregressive_mode == "conv3":
-      res = common_layers.conv1d(concat1d, shape[3], 3, padding="LEFT",
-                                 activation=common_layers.belu,
-                                 name="autoregressive_conv3")
+      res = common_layers.conv1d(
+          concat1d,
+          shape[3],
+          3,
+          padding="LEFT",
+          activation=common_layers.belu,
+          name="autoregressive_conv3")
       return tf.reshape(res, shape), losses
     if hparams.autoregressive_mode == "conv5":
-      res = common_layers.conv1d(concat1d, shape[3], 5, padding="LEFT",
-                                 activation=common_layers.belu,
-                                 name="autoregressive_conv5")
+      res = common_layers.conv1d(
+          concat1d,
+          shape[3],
+          5,
+          padding="LEFT",
+          activation=common_layers.belu,
+          name="autoregressive_conv5")
       return tf.reshape(res, shape), losses
     if hparams.autoregressive_mode == "sru":
-      res = common_layers.conv1d(concat1d, shape[3], 3, padding="LEFT",
-                                 activation=common_layers.belu,
-                                 name="autoregressive_sru_conv3")
+      res = common_layers.conv1d(
+          concat1d,
+          shape[3],
+          3,
+          padding="LEFT",
+          activation=common_layers.belu,
+          name="autoregressive_sru_conv3")
       res = common_layers.sru(res)
       return tf.reshape(res, shape), losses
 
-    raise ValueError("Unsupported autoregressive mode: %s"
-                     % hparams.autoregressive_mode)
+    raise ValueError(
+        "Unsupported autoregressive mode: %s" % hparams.autoregressive_mode)
 
   def infer(self, features, *args, **kwargs):
     """Produce predictions from the model by sampling."""
@@ -347,11 +376,9 @@ class AutoencoderAutoregressive(AutoencoderBasic):
       num_channels = 1
     if "targets" not in features:
       features["targets"] = tf.zeros(
-          [self.hparams.batch_size, 1, 1, num_channels],
-          dtype=tf.int32)
+          [self.hparams.batch_size, 1, 1, num_channels], dtype=tf.int32)
     logits, _ = self(features)  # pylint: disable=not-callable
-    samples = common_layers.sample_with_temperature(
-        logits, 0.0)
+    samples = common_layers.sample_with_temperature(logits, 0.0)
     shape = common_layers.shape_list(samples)
 
     # Sample again if requested for the autoregressive part.
@@ -371,8 +398,8 @@ class AutoencoderAutoregressive(AutoencoderBasic):
         samples = common_layers.sample_with_temperature(
             logits, self.hparams.sampling_temp)
         samples1d = tf.reshape(samples, [shape[0], -1, shape[3]])
-        samples1d = tf.concat([old_samples1d[:, :i, :], samples1d[:, i:, :]],
-                              axis=1)
+        samples1d = tf.concat(
+            [old_samples1d[:, :i, :], samples1d[:, i:, :]], axis=1)
         samples = tf.reshape(samples1d, shape)
 
     # Restore inputs to not confuse Estimator in edge cases.
@@ -394,9 +421,12 @@ class AutoencoderResidual(AutoencoderAutoregressive):
     # return tf.nn.dropout(x, 1.0 - self.hparams.dropout)
     is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
     return common_layers.mix(
-        tf.zeros_like(x), x,
-        self.hparams.bottleneck_warmup_steps, is_training,
-        max_prob=self.hparams.dropout, broadcast_last=True)
+        tf.zeros_like(x),
+        x,
+        self.hparams.bottleneck_warmup_steps,
+        is_training,
+        max_prob=self.hparams.dropout,
+        broadcast_last=True)
 
   def encoder(self, x):
     with tf.variable_scope("encoder"):
@@ -411,7 +441,10 @@ class AutoencoderResidual(AutoencoderAutoregressive):
         residual_conv = tf.layers.separable_conv2d
       # Input embedding with a non-zero bias for uniform inputs.
       x = tf.layers.dense(
-          x, hparams.hidden_size, name="embed", activation=common_layers.belu,
+          x,
+          hparams.hidden_size,
+          name="embed",
+          activation=common_layers.belu,
           bias_initializer=tf.random_normal_initializer(stddev=0.01))
       x = common_attention.add_timing_signal_nd(x)
       # Down-convolutions.
@@ -422,8 +455,13 @@ class AutoencoderResidual(AutoencoderAutoregressive):
           filters = hparams.hidden_size * 2**(i + 1)
           filters = min(filters, hparams.max_hidden_size)
           x = tf.layers.conv2d(
-              x, filters, kernel, strides=strides,
-              padding="SAME", activation=common_layers.belu, name="strided")
+              x,
+              filters,
+              kernel,
+              strides=strides,
+              padding="SAME",
+              activation=common_layers.belu,
+              name="strided")
           y = x
           for r in range(hparams.num_residual_layers):
             residual_filters = filters
@@ -431,8 +469,11 @@ class AutoencoderResidual(AutoencoderAutoregressive):
               residual_filters = int(
                   filters * hparams.residual_filter_multiplier)
             y = residual_conv(
-                y, residual_filters, residual_kernel,
-                padding="SAME", activation=common_layers.belu,
+                y,
+                residual_filters,
+                residual_kernel,
+                padding="SAME",
+                activation=common_layers.belu,
                 name="residual_%d" % r)
           x += tf.nn.dropout(y, 1.0 - hparams.residual_dropout)
           x = common_layers.layer_norm(x)
@@ -458,8 +499,13 @@ class AutoencoderResidual(AutoencoderAutoregressive):
           j = hparams.num_hidden_layers - i - 1
           filters = hparams.hidden_size * 2**j
           x = tf.layers.conv2d_transpose(
-              x, filters, kernel, strides=strides,
-              padding="SAME", activation=common_layers.belu, name="strided")
+              x,
+              filters,
+              kernel,
+              strides=strides,
+              padding="SAME",
+              activation=common_layers.belu,
+              name="strided")
           y = x
           for r in range(hparams.num_residual_layers):
             residual_filters = filters
@@ -467,8 +513,11 @@ class AutoencoderResidual(AutoencoderAutoregressive):
               residual_filters = int(
                   filters * hparams.residual_filter_multiplier)
             y = residual_conv(
-                y, residual_filters, residual_kernel,
-                padding="SAME", activation=common_layers.belu,
+                y,
+                residual_filters,
+                residual_kernel,
+                padding="SAME",
+                activation=common_layers.belu,
                 name="residual_%d" % r)
           x += tf.nn.dropout(y, 1.0 - hparams.residual_dropout)
           x = common_layers.layer_norm(x)
@@ -497,8 +546,10 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
-    size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
-            hp.bottleneck_bits]
+    size = [
+        hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
+        hp.bottleneck_bits
+    ]
     rand = tf.random_uniform(size)
     return 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
 
@@ -532,8 +583,10 @@ class AutoencoderResidualDiscrete(AutoencoderResidual):
     hp = self.hparams
     div_x = 2**hp.num_hidden_layers
     div_y = 1 if self.is1d else 2**hp.num_hidden_layers
-    size = [hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
-            hp.bottleneck_bits]
+    size = [
+        hp.batch_size, hp.sample_height // div_x, hp.sample_width // div_y,
+        hp.bottleneck_bits
+    ]
     rand = tf.random_uniform(size)
     res = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
     # If you want to set some first bits to a fixed value, do this:
@@ -612,8 +665,10 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
     losses["stack%d_loss" % i] = self.stack_loss(b, b_pred, "step%d" % i)
     b_shape = common_layers.shape_list(b)
     if is_training:
-      b1 = tf.cond(tf.less(tf.random_uniform([]), 0.5),
-                   lambda: b, lambda: b1)
+      condition = tf.less(tf.random_uniform([]), 0.5)
+      condition = tf.reshape(condition, [1] * len(b.shape))
+      condition = tf.tile(condition, b.shape)
+      b1 = tf.where(condition, b, b1)
     return tf.reshape(b1, b_shape)
 
   def body(self, features):
@@ -637,14 +692,14 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
       # Bottleneck (mix during early training, not too important but stable).
       b, b_loss = self.bottleneck(x)
       losses = {"bottleneck0_loss": b_loss}
-      b = self.full_stack(b, 2 * x_size, 2 * hparams.bottleneck_bits,
-                          losses, is_training, num_stacks - 1)
+      b = self.full_stack(b, 2 * x_size, 2 * hparams.bottleneck_bits, losses,
+                          is_training, num_stacks - 1)
       b = self.unbottleneck(b, x_size)
       b = common_layers.mix(b, x, hparams.bottleneck_warmup_steps, is_training)
       # With probability bottleneck_max_prob use the bottleneck, otherwise x.
       if hparams.bottleneck_max_prob < 1.0:
-        x = tf.where(tf.less(tf.random_uniform([]),
-                             hparams.bottleneck_max_prob), b, x)
+        x = tf.where(
+            tf.less(tf.random_uniform([]), hparams.bottleneck_max_prob), b, x)
       else:
         x = b
     else:
