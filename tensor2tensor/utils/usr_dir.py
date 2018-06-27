@@ -25,8 +25,6 @@ import sys
 
 import tensorflow as tf
 
-from gcloud.gcs import fhfile
-
 INTERNAL_USR_DIR_PACKAGE = "t2t_usr_dir_internal"
 
 
