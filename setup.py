@@ -33,6 +33,7 @@ setup(
     ],
     install_requires=[
         'bz2file',
+        'cleverhans',
         'flask',
         'future',
         'gevent',
@@ -65,6 +66,9 @@ setup(
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: Apache Software License',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
+    ],
+    dependency_links=[
+        'git+https://github.com/tensorflow/cleverhans.git#egg=cleverhans'
     ],
     keywords='tensorflow machine learning',
 )

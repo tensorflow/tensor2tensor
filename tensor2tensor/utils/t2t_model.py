@@ -43,7 +43,6 @@ import tensorflow as tf
 from tensorflow.python.layers import base
 from tensorflow.python.ops import variable_scope
 
-
 _no_problem_err_str = (
     "The default implementation of %s requires that the "
     "model be used with a Problem. If using a Problem, augment the "
@@ -71,7 +70,8 @@ class T2TModel(base.Layer):
                mode=tf.estimator.ModeKeys.TRAIN,
                problem_hparams=None,
                data_parallelism=None,
-               decode_hparams=None):
+               decode_hparams=None,
+               **kwargs):
     """Create a T2TModel.
 
     Args:
@@ -85,6 +85,7 @@ class T2TModel(base.Layer):
         specifies devices for data parallelism.
       decode_hparams: a hyperparameter object with decoding parameters.
         See decoding.decode_hparams.
+      **kwargs: arguments to pass to base.Layer constructor.
 
     Returns:
       a T2TModel
@@ -93,7 +94,7 @@ class T2TModel(base.Layer):
     default_name = registry.default_name(type(self))
     name = self.REGISTERED_NAME or default_name
     super(T2TModel, self).__init__(
-        trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name)
+        trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name, **kwargs)
 
     if not problem_hparams and hasattr(hparams, "problem_hparams"):
       problem_hparams = hparams.problem_hparams
@@ -272,7 +273,8 @@ class T2TModel(base.Layer):
       else:
         logits = self.top(output, features)
         losses["training"] = 0.0
-        if self._hparams.mode != tf.estimator.ModeKeys.PREDICT:
+        if (self._hparams.mode != tf.estimator.ModeKeys.PREDICT and
+            self._hparams.mode != "attack"):
           losses["training"] = self.loss(logits, features)
 
       return logits, losses
@@ -367,14 +369,13 @@ class T2TModel(base.Layer):
         else:
           body_output_shape = body_output.shape.as_list()
           last_position_body_output = tf.slice(
-              body_output,
-              [0, features["decode_loop_step"][0], 0, 0],
-              [body_output_shape[0], 1, body_output_shape[2],
-               body_output_shape[3]])
+              body_output, [0, features["decode_loop_step"][0], 0, 0], [
+                  body_output_shape[0], 1, body_output_shape[2],
+                  body_output_shape[3]
+              ])
           target_shape = features["targets"].shape.as_list()
           last_position_targets = tf.slice(
-              features["targets"],
-              [0, features["decode_loop_step"][0], 0, 0],
+              features["targets"], [0, features["decode_loop_step"][0], 0, 0],
               [target_shape[0], 1, target_shape[2], target_shape[3]])
         logits = target_modality.top(last_position_body_output,
                                      last_position_targets)
@@ -723,8 +724,8 @@ class T2TModel(base.Layer):
           "losses": a dictionary: {loss-name (string): floating point `Scalar`}
       }
     """
-    return (self._slow_greedy_infer_tpu(features, decode_length) if use_tpu else
-            self._slow_greedy_infer(features, decode_length))
+    return (self._slow_greedy_infer_tpu(features, decode_length)
+            if use_tpu else self._slow_greedy_infer(features, decode_length))
 
   def _slow_greedy_infer_tpu(self, features, decode_length):
     """A slow greedy inference method on TPU.
@@ -783,8 +784,8 @@ class T2TModel(base.Layer):
       else:
         cur_sample = samples[:, i, :, :]
       samples = tf.transpose(recent_output, perm=[1, 0, 2, 3])
-      samples = tf_inplace_ops().alias_inplace_update(
-          samples, i, tf.to_int64(cur_sample))
+      samples = tf_inplace_ops().alias_inplace_update(samples, i,
+                                                      tf.to_int64(cur_sample))
       samples = tf.transpose(samples, perm=[1, 0, 2, 3])
       if not tf.contrib.eager.in_eager_mode():
         samples.set_shape([None, None, None, 1])
@@ -816,17 +817,16 @@ class T2TModel(base.Layer):
       decode_length = 1
     else:
       if "partial_targets" in features:
-        prefix_length = common_layers.shape_list(
-            features["partial_targets"])[1]
+        prefix_length = common_layers.shape_list(features["partial_targets"])[1]
       else:
-        prefix_length = common_layers.shape_list(
-            features["inputs"])[1]
+        prefix_length = common_layers.shape_list(features["inputs"])[1]
       decode_length = prefix_length + decode_length
 
     # Initial values of result, logits and loss.
-    result = tf.concat([initial_output,
-                        tf.zeros([batch_size, decode_length, 1, 1], tf.int64)],
-                       axis=1)
+    result = tf.concat(
+        [initial_output,
+         tf.zeros([batch_size, decode_length, 1, 1], tf.int64)],
+        axis=1)
     # tensor padded to [batch_size, decode_length, 1, 1, vocab_size]
     logits = tf.zeros((batch_size, decode_length, 1, 1,
                        target_modality.top_dimensionality))
@@ -868,8 +868,10 @@ class T2TModel(base.Layer):
         shape_invariants=[
             tf.TensorShape([]),
             tf.TensorShape([batch_size, decode_length, 1, 1]),
-            tf.TensorShape([batch_size, decode_length, 1, 1,
-                            target_modality.top_dimensionality]),
+            tf.TensorShape([
+                batch_size, decode_length, 1, 1,
+                target_modality.top_dimensionality
+            ]),
             tf.TensorShape([]),
         ],
         back_prop=False,
@@ -1143,7 +1145,11 @@ class T2TModel(base.Layer):
                               use_tpu=False):
     model_cls = registry.model(model_name)
 
-    def wrapping_model_fn(features, labels, mode, params=None, config=None):
+    def wrapping_model_fn(features,
+                          labels,
+                          mode,
+                          params=None,
+                          config=None):
       return model_cls.estimator_model_fn(
           hparams,
           features,
@@ -1189,11 +1195,13 @@ class T2TModel(base.Layer):
     data_parallelism = None
     if not use_tpu and config:
       data_parallelism = config.data_parallelism
+    reuse = tf.get_variable_scope().reuse
     model = cls(
         hparams,
         mode,
         data_parallelism=data_parallelism,
-        decode_hparams=decode_hparams)
+        decode_hparams=decode_hparams,
+        _reuse=reuse)
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
@@ -1227,6 +1235,10 @@ class T2TModel(base.Layer):
         logits.set_shape(shape)
 
     assert "training" in losses_dict
+
+    # Attack mode
+    if mode == "attack":
+      return logits
 
     # Summarize losses
     with tf.name_scope("losses"):
