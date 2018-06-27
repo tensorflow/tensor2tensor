@@ -17,7 +17,7 @@
 import os
 
 from tensor2tensor.bin import t2t_trainer
-from tensor2tensor.data_generators import problem as problem_lib
+from tensor2tensor.data_generators import problem as problem_lib  # pylint: disable=unused-import
 from tensor2tensor.utils import adv_attack_utils
 from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import registry
