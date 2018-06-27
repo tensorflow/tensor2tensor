@@ -282,6 +282,11 @@ class Transformer(t2t_model.T2TModel):
     """
     if self._num_datashards != 1:
       raise NotImplementedError("Fast decoding only supports a single shard.")
+    if "targets_segmentation" in features:
+      raise NotImplementedError(
+          "Decoding not supported on packed datasets "
+          " If you want to decode from a dataset, use the non-packed version"
+          " of the dataset when decoding.")
     dp = self._data_parallelism
     hparams = self._hparams
     target_modality = self._problem_hparams.target_modality
@@ -506,7 +511,11 @@ class Transformer(t2t_model.T2TModel):
     dp = self._data_parallelism
     hparams = self._hparams
     target_modality = self._problem_hparams.target_modality
-
+    if "targets_segmentation" in features:
+      raise NotImplementedError(
+          "Decoding not supported on packed datasets "
+          " If you want to decode from a dataset, use the non-packed version"
+          " of the dataset when decoding.")
     if self.has_input:
       inputs = features["inputs"]
       if target_modality.is_class_modality:
