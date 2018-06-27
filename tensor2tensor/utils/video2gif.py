@@ -81,7 +81,7 @@ def main(_):
       for video in video_batch:
         print("Saving {}/{}".format(count, FLAGS.num_samples))
         name = "%s_%05d" % (base_template, count)
-        decoding.save_video(video, name + "_{}.png")
+        decoding.save_video(video, name + "_{:05d}.png")
         create_gif(name)
         count += 1
 
