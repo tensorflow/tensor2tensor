@@ -343,7 +343,7 @@ class Transformer(t2t_model.T2TModel):
     elif hparams.pos == "emb":
       positional_encoding = common_attention.add_positional_embedding(
           tf.zeros([1, decode_length + 1, hparams.hidden_size]),
-          hparams.max_length, "targets_positional_embedding", None)
+          hparams.max_length, "body/targets_positional_embedding", None)
     else:
       positional_encoding = None
 
@@ -563,8 +563,8 @@ class Transformer(t2t_model.T2TModel):
           decode_length + 1, hparams.hidden_size)
     elif hparams.pos == "emb":
       positional_encoding = common_attention.add_positional_embedding(
-          tf.zeros([1, decode_length + 1, hparams.hidden_size]),
-          hparams.max_length, "targets_positional_embedding", None)
+          tf.zeros([1, decode_length, hparams.hidden_size]),
+          hparams.max_length, "body/targets_positional_embedding", None)
     else:
       positional_encoding = None
 
@@ -850,6 +850,8 @@ def fast_decode(encoder_output,
   key_channels = hparams.attention_key_channels or hparams.hidden_size
   value_channels = hparams.attention_value_channels or hparams.hidden_size
   num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
+  vars_3d_num_heads = (
+      hparams.num_heads if hparams.get("attention_variables_3d") else 0)
 
   cache = {
       "layer_%d" % layer: {
@@ -870,10 +872,12 @@ def fast_decode(encoder_output,
       with tf.variable_scope(
           "body/decoder/%s/encdec_attention/multihead_attention" % layer_name):
         k_encdec = common_attention.compute_attention_component(
-            encoder_output, key_channels, name="k")
+            encoder_output, key_channels, name="k",
+            vars_3d_num_heads=vars_3d_num_heads)
         k_encdec = common_attention.split_heads(k_encdec, hparams.num_heads)
         v_encdec = common_attention.compute_attention_component(
-            encoder_output, value_channels, name="v")
+            encoder_output, value_channels, name="v",
+            vars_3d_num_heads=vars_3d_num_heads)
         v_encdec = common_attention.split_heads(v_encdec, hparams.num_heads)
       cache[layer_name]["k_encdec"] = k_encdec
       cache[layer_name]["v_encdec"] = v_encdec
@@ -1023,7 +1027,7 @@ class TransformerEncoder(t2t_model.T2TModel):
 def features_to_nonpadding(features, inputs_or_targets="inputs"):
   key = inputs_or_targets + "_segmentation"
   if features and key in features:
-    return tf.minimum(features[key], 1.0)
+    return tf.minimum(tf.to_float(features[key]), 1.0)
   return None
 
 

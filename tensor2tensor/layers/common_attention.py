@@ -659,10 +659,14 @@ def add_positional_embedding(x, max_length, name, positions=None):
   """
   _, length, depth = common_layers.shape_list(x)
   var = tf.get_variable(name, [max_length, depth])
-  if positions is not None:
-    return x + tf.gather(var, tf.to_int32(positions))
+  if positions is None:
+    sliced = tf.cond(
+        tf.less(length, max_length),
+        lambda: tf.slice(var, [0, 0], [length, -1]),
+        lambda: tf.pad(var, [[0, length - max_length], [0, 0]]))
+    return x + tf.expand_dims(sliced, 0)
   else:
-    return x + tf.expand_dims(tf.slice(var, [0, 0], [length, -1]), 0)
+    return x + tf.gather(var, tf.to_int32(positions))
 
 
 @expert_utils.add_name_scope()
@@ -2683,7 +2687,7 @@ def compute_attention_component(antecedent,
                                 filter_width=1,
                                 padding="VALID",
                                 name="c",
-                                vars_3d_num_heads=None):
+                                vars_3d_num_heads=0):
   """Computes attention compoenent (query, key or value).
 
   Args:
@@ -2698,7 +2702,7 @@ def compute_attention_component(antecedent,
   Returns:
     c : [batch, length, depth] tensor
   """
-  if vars_3d_num_heads:
+  if vars_3d_num_heads > 0:
     assert filter_width == 1
     input_depth = antecedent.get_shape().as_list()[-1]
     depth_per_head = total_depth // vars_3d_num_heads
@@ -2728,7 +2732,7 @@ def compute_qkv(query_antecedent,
                 kv_filter_width=1,
                 q_padding="VALID",
                 kv_padding="VALID",
-                vars_3d_num_heads=None):
+                vars_3d_num_heads=0):
   """Computes query, key and value.
 
   Args:
@@ -2876,7 +2880,7 @@ def multihead_attention(query_antecedent,
   if total_value_depth % num_heads != 0:
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
-  vars_3d_num_heads = num_heads if vars_3d else None
+  vars_3d_num_heads = num_heads if vars_3d else 0
   with tf.variable_scope(name, default_name="multihead_attention",
                          values=[query_antecedent, memory_antecedent]):
 
@@ -2899,7 +2903,8 @@ def multihead_attention(query_antecedent,
       if memory_antecedent is not None:
         # Encoder-Decoder Attention Cache
         q = compute_attention_component(query_antecedent, total_key_depth,
-                                        q_filter_width, q_padding, "q")
+                                        q_filter_width, q_padding, "q",
+                                        vars_3d_num_heads=vars_3d_num_heads)
         k = cache["k_encdec"]
         v = cache["v_encdec"]
       else:
