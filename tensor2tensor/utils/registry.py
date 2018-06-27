@@ -560,7 +560,7 @@ Registry contents:
   Attack HParams:
 %s
 """
-  m, hp, rhp, mod, probs = [
+  m, hp, rhp, mod, probs, atks, ap = [
       display_list_by_prefix(entries, starting_spaces=4) for entries in [
           list_models(),
           list_hparams(),
@@ -571,4 +571,4 @@ Registry contents:
           list_attack_params()
       ]
   ]
-  return help_str % (m, hp, rhp, mod, probs)
+  return help_str % (m, hp, rhp, mod, probs, atks, ap)
