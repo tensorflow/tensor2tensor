@@ -24,7 +24,7 @@ jobs:
       - type: shell
         name: Setup Google Cloud Credentials
         workDir: ~/
-        command: &GCP_LOGIN mkdir -p ~/diseaseTools/gcloud/keys && echo $CIRCLCI_GCP_SERVICE_ACCOUNT_KEY | base64 --decode --ignore-garbage > ~/diseaseTools/gcloud/keys/google-auth.json
+        command: &GCP_LOGIN mkdir -p ~/diseaseTools/gcloud/keys && echo $CIRCLECI_GCP_SA_KEY_270618 | base64 --decode --ignore-garbage > ~/diseaseTools/gcloud/keys/google-auth.json
           
       - type: shell
         name: Docker pull images
