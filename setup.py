@@ -33,7 +33,6 @@ setup(
     ],
     install_requires=[
         'bz2file',
-        'cleverhans',
         'flask',
         'future',
         'gevent',

@@ -77,7 +77,8 @@ def main(argv):
   problem = registry.problem(FLAGS.problem + "_rev")
   input_fn = problem.make_estimator_input_fn(
       tf.estimator.ModeKeys.EVAL, hparams)
-  features, _ = input_fn(params, config).make_one_shot_iterator().get_next()
+  dataset = input_fn(params, config).repeat()
+  features, _ = dataset.make_one_shot_iterator().get_next()
   inputs, labels = features["targets"], features["inputs"]
   inputs = tf.to_float(inputs)
   labels = tf.squeeze(labels)
