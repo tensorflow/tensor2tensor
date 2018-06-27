@@ -38,6 +38,7 @@ MODULES = [
     "tensor2tensor.data_generators.gym_problems",
     "tensor2tensor.data_generators.ice_parsing",
     "tensor2tensor.data_generators.imagenet",
+    "tensor2tensor.data_generators.image_lsun",
     "tensor2tensor.data_generators.imdb",
     "tensor2tensor.data_generators.lambada",
     "tensor2tensor.data_generators.librispeech",
