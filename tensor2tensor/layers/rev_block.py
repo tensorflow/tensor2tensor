@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,26 +12,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Reversible Residual Block.
 
 From
 [The Reversible Residual Network: Backpropagation Without Storing
 Activations](https://arxiv.org/abs/1707.04585).
-
-Also contains the @recompute_grad decorator, which recomputes the forward
-function on the backwards pass.
 """
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
 import re
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
 import tensorflow as tf
@@ -121,7 +116,7 @@ def _rev_block_forward(x1,
                        gate_outputs=False):
   """Forward for a series of reversible layers."""
   out = (x1, x2)
-  for i in xrange(num_layers):
+  for i in range(num_layers):
     out = _rev_layer_forward(
         out, f[i], g[i], f_side_input, g_side_input, gate_outputs=gate_outputs)
 
@@ -220,7 +215,7 @@ class RevBlock(object):
     f.reverse()
     g.reverse()
 
-    for i in xrange(self.num_layers):
+    for i in range(self.num_layers):
       ys, grad_ys, f_ret, g_ret = _rev_layer_backward(
           ys, grad_ys, f[i], g[i], f_vars[i], self.f_side_input, g_vars[i],
           self.g_side_input)
@@ -290,7 +285,7 @@ class RevBlock(object):
     f.reverse()
     g.reverse()
 
-    for i in xrange(self.num_layers):
+    for i in range(self.num_layers):
       gy1 = g[i](y1, self.g_side_input) if self.g_side_input else g[i](y1)
       x2 = y2 - gy1
       fx2 = f[i](x2, self.f_side_input) if self.f_side_input else f[i](x2)
@@ -351,59 +346,3 @@ def rev_block(x1,
   """
   block = RevBlock(f, g, num_layers, f_side_input, g_side_input, is_training)
   return block.forward(x1, x2)
-
-
-def recompute_grad(fn):
-  """Decorator that recomputes the function on the backwards pass.
-
-  Args:
-    fn: a function that takes Tensors (all as positional arguments) and returns
-      a tuple of Tensors.
-
-  Returns:
-    A wrapped fn that is identical to fn when called, but its activations will
-    be discarded and recomputed on the backwards pass (i.e. on a call to
-    tf.gradients).
-  """
-
-  @functools.wraps(fn)
-  def wrapped(*args):
-    return _recompute_grad(fn, args)
-
-  return wrapped
-
-
-def _recompute_grad(fn, args):
-  """See recompute_grad."""
-
-  cached_vs = []
-  cached_arg_scope = []
-
-  def grad_fn(inputs, variables, outputs, output_grads):
-    """Recompute outputs for gradient computation."""
-    del outputs
-    # Recompute outputs
-    with tf.control_dependencies(output_grads):
-      with tf.contrib.framework.arg_scope(cached_arg_scope[0]):
-        with tf.variable_scope(cached_vs[0], reuse=True):
-          outputs = fn(*inputs)
-
-    if not (isinstance(outputs, list) or isinstance(outputs, tuple)):
-      outputs = [outputs]
-    outputs = list(outputs)
-    grads = tf.gradients(outputs, inputs + variables, output_grads)
-    grad_inputs = grads[:len(inputs)]
-    grad_vars = grads[len(inputs):]
-    return grad_inputs, grad_vars
-
-  @common_layers.fn_with_custom_grad(grad_fn)
-  def fn_with_recompute(*args):
-    cached_vs.append(tf.get_variable_scope())
-    # TODO(rsepassi): Rm conditional in TF 1.5
-    if hasattr(tf.contrib.framework, "current_arg_scope"):
-      cached_arg_scope.append(tf.contrib.framework.current_arg_scope())
-    else:
-      cached_arg_scope.append({})
-    return fn(*args)
-
-  return fn_with_recompute(*args)

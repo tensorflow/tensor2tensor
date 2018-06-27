@@ -1,0 +1,87 @@
+version: 2
+jobs:
+  build-test-tensor2tensor:
+    machine: true
+    workDir: ~/tensor2tensor
+    steps:
+      - type: checkout
+
+      - type: shell
+        name: DockerHub login
+        command: &DOCKER_LOGIN docker login -u _json_key -p "$(echo $GOOGLE_CLOUD_KEY | base64 --decode --ignore-garbage)" https://gcr.io
+
+      - type: shell
+        name: Checkout diseaseTools repo
+        command: |
+          DT_BRANCH='develop';
+          if [[ ${CIRCLE_BRANCH} != 'master' ]]; then
+            if [[ $(git ls-remote --heads git@github.com:medicode/diseaseTools.git -b ${CIRCLE_BRANCH}) ]]; then
+              DT_BRANCH=${CIRCLE_BRANCH};
+            fi;
+          fi;
+          git clone -b ${DT_BRANCH} git@github.com:medicode/diseaseTools.git ~/diseaseTools;
+
+      - type: shell
+        name: Setup Google Cloud Credentials
+        workDir: ~/
+        command: &GCP_LOGIN mkdir -p ~/diseaseTools/gcloud/keys && echo $CIRCLCI_GCP_SERVICE_ACCOUNT_KEY | base64 --decode --ignore-garbage > ~/diseaseTools/gcloud/keys/google-auth.json
+          
+      - type: shell
+        name: Docker pull images
+        command: docker pull gcr.io/fathom-containers/t2t_test
+
+      - type: shell
+        name: Running tests
+        command: ./run_all_tests.sh
+
+      - store_test_results:
+          path: ~/tensor2tensor/test_results
+
+      - store_artifacts:
+          path: ~/tensor2tensor/test_results
+
+      # TODO: build sphinx docs? or will we always use the upstream sphinx docs???
+
+  smoke-testinfra:
+    machine: true
+    workDir: ~
+    environment:
+      PYTHONPATH: ~/diseaseTools:.
+    steps:
+      - type: checkout
+      - type: shell
+        name: Checkout diseaseTools develop
+        command: git clone -b develop git@github.com:medicode/diseaseTools.git ~/diseaseTools;
+      - run: *DOCKER_LOGIN
+      - type: shell
+        name: Use Python 2
+        command: pyenv global 2.7.12
+      - type: shell
+        name: Install Fire
+        command: pip install git+git://github.com/google/python-fire.git@v0.1.1
+      - type: shell
+        name: Activate and get GCloud credentials
+        command: python ./gcloud/get_credentials.py run
+        workDir: ~/diseaseTools
+      - type: shell
+        name: Install kubectl
+        command: |
+          curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+          chmod +x ./kubectl
+          sudo mv ./kubectl /usr/local/bin/kubectl
+      - type: shell
+        name: Trigger smoke tests
+        # CI sets up the root directory to project, which is here the tensor2tensor repo
+        command: python ./fathomairflow/integration_tests/trigger_tests_on_testinfra.py trigger_smoke_tests ~/project
+        workDir: ~/diseaseTools
+workflows:
+  version: 2
+  build-test-deploy-tensor2tensor:
+    jobs:
+      - build-test-tensor2tensor
+      - smoke-testinfra:  # only smoke from master if tests pass
+          requires:
+            - build-test-tensor2tensor # require CI tests to pass
+          filters:
+            branches:
+              only: master

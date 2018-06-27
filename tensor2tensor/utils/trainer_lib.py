@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Library for training. See t2t_trainer.py."""
 
 from __future__ import absolute_import
@@ -44,17 +43,16 @@ from fathomt2t.problems.fprecord_text_problem import FPRecordTextProblem
 def create_session_config(log_device_placement=False,
                           enable_graph_rewriter=False,
                           gpu_mem_fraction=0.95,
-                          use_tpu=False):
+                          use_tpu=False,
+                          inter_op_parallelism_threads=0,
+                          intra_op_parallelism_threads=0):
   """The TensorFlow Session config to use."""
   if use_tpu:
     graph_options = tf.GraphOptions()
   else:
     if enable_graph_rewriter:
       rewrite_options = rewriter_config_pb2.RewriterConfig()
-      rewrite_options.optimizers.append("pruning")
-      rewrite_options.optimizers.append("constfold")
-      rewrite_options.optimizers.append("arithmetic")
-      rewrite_options.optimizers.append("layout")
+      rewrite_options.layout_optimizer = rewriter_config_pb2.RewriterConfig.ON
       graph_options = tf.GraphOptions(rewrite_options=rewrite_options)
     else:
       graph_options = tf.GraphOptions(
@@ -67,7 +65,9 @@ def create_session_config(log_device_placement=False,
       allow_soft_placement=True,
       graph_options=graph_options,
       gpu_options=gpu_options,
-      log_device_placement=log_device_placement)
+      log_device_placement=log_device_placement,
+      inter_op_parallelism_threads=inter_op_parallelism_threads,
+      intra_op_parallelism_threads=intra_op_parallelism_threads)
   return config
 
 
@@ -75,13 +75,17 @@ def create_hparams(hparams_set,
                    hparams_overrides_str="",
                    data_dir=None,
                    problem_name=None):
+  """Create HParams with data_dir and problem hparams, if kwargs provided."""
   hparams = registry.hparams(hparams_set)()
-  if hparams_overrides_str:
-    hparams = hparams.parse(hparams_overrides_str)
   if data_dir:
     hparams.add_hparam("data_dir", data_dir)
   if problem_name:
     add_problem_hparams(hparams, problem_name)
+  if hparams_overrides_str:
+    tf.logging.info("Overriding hparams in %s with %s",
+                    hparams_set,
+                    hparams_overrides_str)
+    hparams = hparams.parse(hparams_overrides_str)
   return hparams
 
 
@@ -91,6 +95,7 @@ def create_run_config(master="",
                       num_shards=8,
                       log_device_placement=False,
                       save_checkpoints_steps=1000,
+                      save_checkpoints_secs=None,
                       keep_checkpoint_max=20,
                       keep_checkpoint_every_n_hours=10000,
                       num_gpus=1,
@@ -110,17 +115,20 @@ def create_run_config(master="",
                       random_seed=None,
                       sync=False,
                       tpu_infeed_sleep_secs=None,
-                      use_tpu=False):
+                      use_tpu=False,
+                      inter_op_parallelism_threads=0,
+                      intra_op_parallelism_threads=0):
   """Create RunConfig, TPUConfig, and Parallelism object."""
   session_config = create_session_config(
       log_device_placement=log_device_placement,
       enable_graph_rewriter=enable_graph_rewriter,
       gpu_mem_fraction=gpu_mem_fraction,
-      use_tpu=use_tpu)
-  session_config = tf.ConfigProto(
-      allow_soft_placement=True, log_device_placement=log_device_placement)
+      use_tpu=use_tpu,
+      inter_op_parallelism_threads=inter_op_parallelism_threads,
+      intra_op_parallelism_threads=intra_op_parallelism_threads)
   run_config_args = {
       "master": master,
+      "evaluation_master": master,
       "model_dir": model_dir,
       "session_config": session_config,
       "save_summary_steps": 100,
@@ -129,6 +137,9 @@ def create_run_config(master="",
       "keep_checkpoint_every_n_hours": keep_checkpoint_every_n_hours,
       "tf_random_seed": random_seed,
   }
+  if save_checkpoints_secs:
+    del run_config_args["save_checkpoints_steps"]
+    run_config_args["save_checkpoints_secs"] = save_checkpoints_secs
   run_config_cls = tf.contrib.learn.RunConfig
 
   # If using TPU, use TPU RunConfig, add TPUConfig, and add additional args
@@ -137,7 +148,7 @@ def create_run_config(master="",
     tpu_config = tf.contrib.tpu.TPUConfig(
         iterations_per_loop=iterations_per_loop,
         num_shards=num_shards,
-        per_host_input_for_training=(num_shards <= 8),
+        per_host_input_for_training=True,
         initial_infeed_sleep_secs=tpu_infeed_sleep_secs)
     run_config_args["tpu_config"] = tpu_config
 
@@ -177,14 +188,19 @@ def create_estimator(model_name,
       model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
 
   if use_tpu:
-    batch_size = hparams.tpu_batch_size_per_shard
-    batch_size *= run_config.tpu_config.num_shards
+    problem = hparams.problem
+    batch_size = (problem.tpu_batch_size_per_shard(hparams) *
+                  run_config.tpu_config.num_shards)
+    predict_batch_size = batch_size
+    if decode_hparams and decode_hparams.batch_size:
+      predict_batch_size = decode_hparams.batch_size
     return tf.contrib.tpu.TPUEstimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
         train_batch_size=batch_size,
-        eval_batch_size=batch_size if "eval" in schedule else None)
+        eval_batch_size=batch_size if "eval" in schedule else None,
+        predict_batch_size=predict_batch_size)
   else:
     return tf.estimator.Estimator(
         model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
@@ -239,11 +255,13 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
   if use_dbgprofile:
     # Recorded traces can be visualized with chrome://tracing/
     # The memory/tensor lifetime is also profiled
+    tf.logging.info("Using ProfilerHook")
     defaults = dict(save_steps=10, show_dataflow=True, show_memory=True)
     defaults.update(dbgprofile_kwargs)
-    train_monitors.append(tf.contrib.hooks.ProfilerHook(**defaults))
+    train_monitors.append(tf.train.ProfilerHook(**defaults))
 
   if use_validation_monitor:
+    tf.logging.info("Using ValidationMonitor")
     # Fathom
     # continuous_train_and_eval breaks early stopping
     flags = tf.flags
@@ -255,6 +273,7 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
             hooks=eval_hooks, **validation_monitor_kwargs))
 
   if use_early_stopping:
+    tf.logging.info("Using EarlyStoppingHook")
     hook = metrics_hook.EarlyStoppingHook(**early_stopping_kwargs)
     # Adding to both training and eval so that eval aborts as well
     train_monitors.append(hook)
@@ -291,8 +310,10 @@ def create_experiment(run_config,
                       use_tpu=False):
   """Create Experiment."""
   # HParams
+  hparams.add_hparam("model_dir", run_config.model_dir)
   hparams.add_hparam("data_dir", data_dir)
   hparams.add_hparam("train_steps", train_steps)
+  hparams.add_hparam("eval_steps", eval_steps)
   add_problem_hparams(hparams, problem_name)
 
   # Estimator
@@ -305,7 +326,7 @@ def create_experiment(run_config,
       use_tpu=use_tpu)
 
   # Input fns from Problem
-  problem = hparams.problem_instances[0]
+  problem = hparams.problem
   train_input_fn = problem.make_estimator_input_fn(
       tf.estimator.ModeKeys.TRAIN, hparams)
   eval_input_fn = problem.make_estimator_input_fn(
@@ -344,10 +365,13 @@ def create_experiment(run_config,
         every_n_steps=min_eval_frequency)
 
     # In-process eval (and possible early stopping)
-    local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
+    if schedule == "continuous_train_and_eval" and min_eval_frequency:
+      tf.logging.warn("ValidationMonitor only works with "
+                      "--schedule=train_and_evaluate")
     use_validation_monitor = (
-        schedule in local_schedules and min_eval_frequency)
+        schedule == "train_and_evaluate" and min_eval_frequency)
     # Distributed early stopping
+    local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
     use_early_stopping = (
         schedule not in local_schedules and eval_early_stopping_steps)
     train_monitors, eval_hooks = create_hooks(
@@ -392,8 +416,8 @@ def add_problem_hparams(hparams, problem_name):
   problem = registry.problem(problem_name)
   p_hparams = problem.get_hparams(hparams)
 
-  hparams.problem_instances = [problem]
-  hparams.problems = [p_hparams]
+  hparams.problem = problem
+  hparams.problem_hparams = p_hparams
 
 
 def set_random_seed(seed):

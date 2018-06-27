@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,33 +12,26 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data generators for LM1B data-set."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import defaultdict
-
 import os
 import tarfile
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import tokenizer
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
-# End-of-sentence marker (should correspond to the position of EOS in the
-# RESERVED_TOKENS list in text_encoder.py)
-EOS = 1
 
 
 def _original_vocab(tmp_dir):
@@ -85,15 +78,15 @@ def _train_data_filenames(tmp_dir):
       os.path.join(tmp_dir,
                    "1-billion-word-language-modeling-benchmark-r13output",
                    "training-monolingual.tokenized.shuffled",
-                   "news.en-%05d-of-00100" % i) for i in xrange(1, 100)
+                   "news.en-%05d-of-00100" % i) for i in range(1, 100)
   ]
 
 
-def _dev_data_filename(tmp_dir):
-  return os.path.join(tmp_dir,
-                      "1-billion-word-language-modeling-benchmark-r13output",
-                      "heldout-monolingual.tokenized.shuffled",
-                      "news.en.heldout-00000-of-00050")
+def _dev_data_filenames(tmp_dir):
+  return [os.path.join(tmp_dir,
+                       "1-billion-word-language-modeling-benchmark-r13output",
+                       "heldout-monolingual.tokenized.shuffled",
+                       "news.en.heldout-00000-of-00050")]
 
 
 def _maybe_download_corpus(tmp_dir):
@@ -112,133 +105,48 @@ def _maybe_download_corpus(tmp_dir):
       corpus_tar.extractall(tmp_dir)
 
 
-def _get_or_build_subword_text_encoder(tmp_dir,
-                                       vocab_filepath,
-                                       target_size):
-  """Builds a SubwordTextEncoder based on the corpus.
-
-  Args:
-    tmp_dir: directory containing dataset.
-    vocab_filepath: path to store (or load) vocab.
-    target_size: an optional integer.
-
-  Returns:
-    a SubwordTextEncoder.
-  """
-  if tf.gfile.Exists(vocab_filepath):
-    return text_encoder.SubwordTextEncoder(vocab_filepath)
-  _maybe_download_corpus(tmp_dir)
-  original_vocab = _original_vocab(tmp_dir)
-  token_counts = defaultdict(int)
-  line_count = 0
-  max_lines = 63000
-  for line in tf.gfile.Open(_train_data_filenames(tmp_dir)[0]):
-    tokens = tokenizer.encode(
-        _replace_oov(original_vocab, text_encoder.native_to_unicode(line)))
-    for tok in tokens:
-      token_counts[tok] += 1
-    line_count += 1
-    if line_count >= max_lines:
-      break
-  if target_size == 2 ** 15:
-    # legacy behavior
-    ret = text_encoder.SubwordTextEncoder()
-    ret.build_from_token_counts(token_counts, min_count=5)
-  else:
-    ret = text_encoder.SubwordTextEncoder.build_to_target_size(
-        target_size, token_counts, 1, 1000)
-  ret.store_to_file(vocab_filepath)
-  return ret
-
-
 @registry.register_problem
-class LanguagemodelLm1b32k(problem.Text2TextProblem):
-  """A language model on the 1B words corpus."""
+class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
+  """A language model on the 1B words corpus.
+
+  Ratio of dev tokens (including eos) to dev words (including eos)
+  176884 / 159658 = 1.107893; multiply log_ppl by this to compare results.
+  """
 
   @property
-  def is_character_level(self):
-    return False
+  def vocab_filename(self):
+    return "vocab.lm1b.en.%d" % self.approx_vocab_size
 
   @property
-  def has_inputs(self):
-    return False
-
-  @property
-  def input_space_id(self):
-    # Ratio of dev tokens (including eos) to dev words (including eos)
-    # 176884 / 159658 = 1.107893; multiply ppx by this to compare results.
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def target_space_id(self):
-    return problem.SpaceID.EN_TOK
-
-  @property
-  def num_shards(self):
-    return 100
-
-  @property
-  def vocab_name(self):
-    return "vocab.lm1b.en"
-
-  @property
-  def use_subword_tokenizer(self):
-    return True
-
-  @property
-  def targeted_vocab_size(self):
+  def approx_vocab_size(self):
     return 2**15  # 32768
 
   @property
-  def use_train_shards_for_dev(self):
-    return False
+  def max_samples_for_vocab(self):
+    return 63000
 
-  def generator(self, data_dir, tmp_dir, is_training):
-    """Generator for lm1b sentences.
+  def is_generate_per_split(self):
+    return True
 
-    Args:
-      data_dir: data dir.
-      tmp_dir: tmp dir.
-      is_training: a boolean.
-
-    Yields:
-      A dictionary {"inputs": [0], "targets": [<subword ids>]}
-    """
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    del data_dir
+    split_files = {
+        problem.DatasetSplit.TRAIN: _train_data_filenames(tmp_dir),
+        problem.DatasetSplit.EVAL: _dev_data_filenames(tmp_dir),
+    }
     _maybe_download_corpus(tmp_dir)
     original_vocab = _original_vocab(tmp_dir)
-    files = (_train_data_filenames(tmp_dir)
-             if is_training else [_dev_data_filename(tmp_dir)])
-    if self.is_character_level:
-      encoder = text_encoder.ByteTextEncoder()
-    else:
-      vocab_filepath = os.path.join(data_dir, self.vocab_file)
-      encoder = _get_or_build_subword_text_encoder(
-          tmp_dir, vocab_filepath, self.targeted_vocab_size)
+    files = split_files[dataset_split]
     for filepath in files:
       tf.logging.info("filepath = %s", filepath)
       for line in tf.gfile.Open(filepath):
-        tokens = encoder.encode(
-            _replace_oov(original_vocab, text_encoder.native_to_unicode(line)))
-        tokens.append(EOS)
-        yield {"inputs": [0], "targets": tokens}
+        txt = _replace_oov(original_vocab, text_encoder.native_to_unicode(line))
+        yield {"targets": txt}
 
 
 @registry.register_problem
-class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32k):
-  """A language model on the 1B words corpus.
-
-  8k vocabualry.
-  Training/eval examples are concatenated to a maximum length of 256.
-
-  Happy TPU Training.
-
-  Ratio of dev tokens (including eos) to dev words (including eos)
-  207351 / 159658 = 1.29872; multiply ppx by this to compare results.
-  """
-
-  @property
-  def targeted_vocab_size(self):
-    return 2**13  # 8192
+class LanguagemodelLm1b32kPacked(LanguagemodelLm1b32k):
+  """Packed version for TPU training."""
 
   @property
   def packed_length(self):
@@ -246,9 +154,39 @@ class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32k):
 
 
 @registry.register_problem
-class LanguagemodelLm1bCharacters(LanguagemodelLm1b32k):
-  """A language model on the 1B words corpus, character level."""
+class LanguagemodelLm1b8kPacked(LanguagemodelLm1b32kPacked):
+  """Packed version, 8k vocabulary.
+
+  Ratio of dev tokens (including eos) to dev words (including eos)
+  207351 / 159658 = 1.29872; multiply log-ppl by this to compare results.
+  """
 
   @property
-  def is_character_level(self):
-    return True
+  def approx_vocab_size(self):
+    return 2**13  # 8192
+
+
+@registry.register_problem
+class LanguagemodelLm1bCharacters(LanguagemodelLm1b32k):
+  """A language model on the 1B words corpus, character level.
+
+  Ratio of dev chars (including eos) to dev words (including eos)
+  826189 / 159658 = 5.174742; multiply log-ppl by this to compare results.
+  """
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
+
+
+@registry.register_problem
+class LanguagemodelLm1bCharactersPacked(LanguagemodelLm1bCharacters):
+  """Packed version.
+
+  Ratio of dev chars (including eos) to dev words (including eos)
+  826189 / 159658 = 5.174742; multiply log-ppl by this to compare results.
+  """
+
+  @property
+  def packed_length(self):
+    return 1024

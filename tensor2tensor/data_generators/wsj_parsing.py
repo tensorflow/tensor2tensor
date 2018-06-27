@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Data generators for parsing data-sets."""
 
 import os
@@ -63,11 +62,11 @@ def token_generator(tree_path, source_token_vocab, target_token_vocab,
 
   This generator assumes the files at source_path and target_path have
   the same number of lines and yields dictionaries of "inputs" and "targets"
-  where inputs and targets are token ids from source and taret lines
+  where inputs and targets are token ids from source and target lines
   converted to integers using the token_map.
 
   Args:
-    tree_path: path to the file with wsj format trees, one per line.
+    tree_path: path to the file with WSJ format trees, one per line.
     source_token_vocab: GenericVocabulary object for source vocabulary.
     target_token_vocab: GenericVocabulary object for target vocabulary.
     eos: integer to append at the end of each sequence (default: None).
@@ -92,7 +91,7 @@ def parsing_token_generator(data_dir, tmp_dir, train, source_vocab_size,
   """Generator for parsing as a sequence-to-sequence task that uses tokens.
 
   This generator assumes the files parsing_{train,dev}.trees, which contain
-  trees in wsj format.
+  trees in WSJ format.
 
   Args:
     data_dir: path to the data directory.

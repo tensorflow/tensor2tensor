@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for common layers."""
 
 from __future__ import absolute_import
@@ -28,20 +27,6 @@ import tensorflow as tf
 
 
 class CommonLayersTest(tf.test.TestCase):
-
-  def testStandardizeImages(self):
-    x = np.random.rand(5, 7, 7, 3)
-    with self.test_session() as session:
-      y = common_layers.standardize_images(tf.constant(x))
-      res = session.run(y)
-    self.assertEqual(res.shape, (5, 7, 7, 3))
-
-  def testImageAugmentation(self):
-    x = np.random.rand(500, 500, 3)
-    with self.test_session() as session:
-      y = common_layers.image_augmentation(tf.constant(x))
-      res = session.run(y)
-    self.assertEqual(res.shape, (299, 299, 3))
 
   def testSaturatingSigmoid(self):
     x = np.array([-120.0, -100.0, 0.0, 100.0, 120.0], dtype=np.float32)
@@ -242,6 +227,14 @@ class CommonLayersTest(tf.test.TestCase):
     self.assertEqual(res1.shape, (5, 7, 3, 11))
     self.assertEqual(res2.shape, (5, 7, 3, 11))
 
+  def testSRU(self):
+    x = np.random.rand(5, 7, 3, 11)
+    with self.test_session() as session:
+      y = common_layers.sru(tf.constant(x, dtype=tf.float32))
+      session.run(tf.global_variables_initializer())
+      res = session.run(y)
+    self.assertEqual(res.shape, (5, 7, 3, 11))
+
   def testLayerNorm(self):
     x = np.random.rand(5, 7, 11)
     with self.test_session() as session:
@@ -249,6 +242,14 @@ class CommonLayersTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       res = session.run(y)
     self.assertEqual(res.shape, (5, 7, 11))
+
+  def testGroupNorm(self):
+    x = np.random.rand(5, 7, 3, 16)
+    with self.test_session() as session:
+      y = common_layers.group_norm(tf.constant(x, dtype=tf.float32))
+      session.run(tf.global_variables_initializer())
+      res = session.run(y)
+    self.assertEqual(res.shape, (5, 7, 3, 16))
 
   def testConvLSTM(self):
     x = np.random.rand(5, 7, 11, 13)
@@ -391,6 +392,20 @@ class CommonLayersTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       actual = session.run(layer)
     self.assertEqual(actual.shape, (5, 4, 32))
+
+  def testBReLU(self):
+    with self.test_session() as session:
+      x = np.random.rand(5, 2, 1, 12)
+      y = common_layers.brelu(tf.constant(x, dtype=tf.float32))
+      actual = session.run(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 12))
+
+  def testBELU(self):
+    with self.test_session() as session:
+      x = np.random.rand(5, 2, 1, 12)
+      y = common_layers.belu(tf.constant(x, dtype=tf.float32))
+      actual = session.run(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 12))
 
   def testPaddingCrossEntropyFactored(self):
     vocab_size = 19
@@ -586,6 +601,53 @@ class FnWithCustomGradTest(tf.test.TestCase):
       sess.run(tf.global_variables_initializer())
       g_val, eg_val = sess.run([grads, expected_grads])
       for g1, g2 in zip(g_val, eg_val):
+        self.assertAllClose(g1, g2)
+
+
+class RecomputeTest(tf.test.TestCase):
+
+  def testRecompute(self):
+
+    def layer(x, name=None):
+      with tf.variable_scope(name, default_name="layer"):
+        x = tf.contrib.layers.layer_norm(x)
+        x = tf.layers.conv1d(
+            x,
+            10,
+            1,
+            use_bias=False,
+            kernel_initializer=tf.constant_initializer(42.42))
+        x = tf.nn.relu(x)
+        return x
+
+    def fn(x):
+      out = x
+      for _ in range(3):
+        out = layer(out)
+      return out
+
+    @common_layers.recompute_grad
+    def fn_recompute(x):
+      return fn(x)
+
+    x = tf.random_uniform((3, 1, 3))
+    recompute_vars = None
+    with tf.variable_scope("recompute") as vs:
+      out1 = tf.reduce_sum(fn_recompute(x))
+      recompute_vars = vs.trainable_variables()
+    reg_vars = None
+    with tf.variable_scope("regular") as vs:
+      out2 = tf.reduce_sum(fn(x))
+      reg_vars = vs.trainable_variables()
+
+    grad1 = tf.gradients(out1, recompute_vars)
+    grad2 = tf.gradients(out2, reg_vars)
+
+    with self.test_session() as sess:
+      sess.run(tf.global_variables_initializer())
+      outs = sess.run([out1, out2, grad1, grad2])
+      self.assertAllClose(outs[0], outs[1])
+      for g1, g2 in zip(outs[2], outs[3]):
         self.assertAllClose(g1, g2)
 
 

@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Modalities define the bottom and top of the model (not the body)."""
 from __future__ import absolute_import
 from __future__ import division
@@ -20,7 +19,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils as eu
@@ -28,9 +27,6 @@ from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-
-from tensorflow.python.eager import context
-
 
 @registry.register_symbol_modality("default")
 class SymbolModality(modality.Modality):
@@ -59,7 +55,15 @@ class SymbolModality(modality.Modality):
     if hp and hp.prepend_mode != "none":
       assert (hp.prepend_mode == "prepend_inputs_masked_attention" or
               hp.prepend_mode == "prepend_inputs_full_attention")
-      weights_fn = common_layers.weights_prepend_inputs_to_targets
+
+      if (
+          # In masked attention mode, during training, the network try to
+          # autoregressively predicting the inputs portion, while the
+          # evaluation is only done on the output
+          hp.prepend_mode != "prepend_inputs_masked_attention" or
+          hp.mode != tf.estimator.ModeKeys.TRAIN
+      ):
+        weights_fn = common_layers.weights_prepend_inputs_to_targets
 
     return weights_fn
 
@@ -76,7 +80,7 @@ class SymbolModality(modality.Modality):
       hidden_dim = self._body_input_depth
     num_shards = self._model_hparams.symbol_modality_num_shards
     shards = []
-    for i in xrange(num_shards):
+    for i in range(num_shards):
       shard_size = (self._vocab_size // num_shards) + (
           1 if i < self._vocab_size % num_shards else 0)
       var_name = "weights_%d" % i
@@ -89,7 +93,7 @@ class SymbolModality(modality.Modality):
     else:
       ret = tf.concat(shards, 0)
     # Convert ret to tensor.
-    if not context.in_eager_mode():
+    if not tf.contrib.eager.in_eager_mode():
       ret = eu.convert_gradient_to_tensor(ret)
     return ret
 
@@ -203,13 +207,13 @@ class ImageModality(modality.Modality):
   def bottom(self, inputs):
     with tf.variable_scope(self.name):
       inputs = tf.to_float(inputs)
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("inputs", inputs, max_outputs=2)
       return inputs
 
   def targets_bottom(self, inputs):
     with tf.variable_scope(self.name):
-      if not context.in_eager_mode():
+      if not tf.contrib.eager.in_eager_mode():
         tf.summary.image("targets_bottom",
                          tf.cast(inputs, tf.uint8), max_outputs=1)
       inputs_shape = common_layers.shape_list(inputs)
@@ -232,7 +236,7 @@ class ImageModality(modality.Modality):
 
   def top(self, body_output, _):
     # TODO(lukaszkaiser): is this a universal enough way to get channels?
-    num_channels = self._model_hparams.problem_instances[0].num_channels
+    num_channels = self._model_hparams.problem.num_channels
     with tf.variable_scope("rgb_softmax"):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
@@ -250,8 +254,7 @@ class ImageModality(modality.Modality):
         logits,
         targets,
         self._model_hparams.label_smoothing,
-        weights_fn=self.targets_weights_fn,
-        gaussian=True)
+        weights_fn=self.targets_weights_fn)
 
 
 @registry.register_image_modality("image_channel_compress")
@@ -330,7 +333,7 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
     rgb_embedding_var = tf.identity(rgb_embedding_var)
     rgb_embedding_var *= float(hidden_size)**0.5
     channel_target_embs = []
-    for i in xrange(io_depth):
+    for i in range(io_depth):
       # Adding the channel offsets to get the right embedding since the
       # embedding tensor has shape 256 * io_depth, hidden_size
       target_ids = tf.squeeze(targets_split[i], axis=3) + i * 256
@@ -397,7 +400,7 @@ class AudioModality(modality.Modality):
 
       x = tf.to_float(inputs) / 255.
       x.set_shape([None, None, None, 1])
-      for i in xrange(self._model_hparams.audio_compression):
+      for i in range(self._model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
       return xnet_resblock(x, self._body_input_depth, False,
                            "compress_block_final")
@@ -441,10 +444,95 @@ class AudioSpectralModality(modality.Modality):
       # Bitcast back from int32
       x = tf.bitcast(inputs, tf.float32)
       x.set_shape([None, None, None, 1])
-      for i in xrange(self._model_hparams.audio_compression):
+      for i in range(self._model_hparams.audio_compression):
         x = xnet_resblock(x, 2**(i + 1), True, "compress_block_%d" % i)
       return xnet_resblock(x, self._body_input_depth, False,
                            "compress_block_final")
+
+
+@registry.register_video_modality("default")
+class VideoModality(modality.Modality):
+  """Modality for videos, i.e., time-sequences of frames."""
+  PIXEL_EMBEDDING_SIZE = 64
+
+  def bottom(self, inputs):
+    with tf.variable_scope(self.name):
+      inputs_shape = common_layers.shape_list(inputs)
+      if len(inputs_shape) != 5:
+        raise ValueError("Assuming videos given as tensors in the format "
+                         "[batch, time, height, width, channels] but got one "
+                         "of shape: %s" % str(inputs_shape))
+      if not tf.contrib.eager.in_eager_mode():
+        tf.summary.image("inputs", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
+                         max_outputs=1)
+      # Standardize frames.
+      inputs = tf.reshape(inputs, [-1] + inputs_shape[2:])
+      inputs = common_layers.standardize_images(inputs)
+      inputs = tf.reshape(inputs, inputs_shape)
+      # Concatenate the time dimension on channels for image models to work.
+      transposed = tf.transpose(inputs, [0, 2, 3, 1, 4])
+      return tf.reshape(
+          transposed,
+          [inputs_shape[0], inputs_shape[2], inputs_shape[3],
+           inputs_shape[1] * inputs_shape[4]])
+
+  def targets_bottom(self, inputs):
+    with tf.variable_scope(self.name):
+      inputs_shape = common_layers.shape_list(inputs)
+      if len(inputs_shape) != 5:
+        raise ValueError("Assuming videos given as tensors in the format "
+                         "[batch, time, height, width, channels] but got one "
+                         "of shape: %s" % str(inputs_shape))
+      if not tf.contrib.eager.in_eager_mode():
+        tf.summary.image(
+            "targets_bottom", tf.cast(inputs[:, -1, :, :, :], tf.uint8),
+            max_outputs=1)
+      # We embed each of 256=self.top_dimensionality possible pixel values.
+      embedding_var = tf.get_variable(
+          "pixel_embedding",
+          [self.top_dimensionality, self.PIXEL_EMBEDDING_SIZE])
+      hot_inputs = tf.one_hot(tf.to_int32(inputs), self.top_dimensionality)
+      hot_inputs = tf.reshape(hot_inputs, [-1, self.top_dimensionality])
+      embedded = tf.matmul(hot_inputs, embedding_var)
+      # Let's now merge all channels that were embedded into a single vector.
+      merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[4]
+      embedded = tf.reshape(embedded, inputs_shape[:4] + [merged_size])
+      # Put time dimension on channels and add a dense layer.
+      embedded = tf.transpose(embedded, [0, 2, 3, 1, 4])
+      embedded = tf.reshape(
+          embedded,
+          [inputs_shape[0], inputs_shape[2], inputs_shape[3],
+           inputs_shape[1] * merged_size])
+      merged = tf.layers.dense(embedded, self._body_input_depth,
+                               name="merge_pixel_embedded_frames")
+      return merged
+
+  def top(self, body_output, _):
+    num_channels = self._model_hparams.problem.num_channels
+    num_frames = self._model_hparams.problem.num_target_frames
+    with tf.variable_scope("rgb_softmax"):
+      body_output_shape = common_layers.shape_list(body_output)
+      reshape_shape = body_output_shape[:3]
+      reshape_shape.extend([num_channels, num_frames, self.top_dimensionality])
+      res = tf.layers.dense(
+          body_output, self.top_dimensionality * num_channels * num_frames)
+      res = tf.reshape(res, reshape_shape)
+      res = tf.transpose(res, [0, 4, 1, 2, 3, 5])
+      if not tf.get_variable_scope().reuse:
+        res_argmax = tf.cast(tf.argmax(res[:, -1, :, :, :, :], axis=-1),
+                             tf.uint8)
+        tf.summary.image("result", res_argmax, max_outputs=1)
+      return res
+
+  def loss(self, logits, targets):
+    """Compute loss numerator and denominator for one shard of output."""
+    logits = tf.reshape(logits, [-1] + common_layers.shape_list(logits)[2:])
+    targets = tf.reshape(targets, [-1] + common_layers.shape_list(targets)[2:])
+    return common_layers.padded_cross_entropy(
+        logits,
+        targets,
+        self._model_hparams.label_smoothing,
+        weights_fn=self.targets_weights_fn)
 
 
 @registry.register_class_label_modality("default")
@@ -491,6 +579,7 @@ class ClassLabelModality(modality.Modality):
 @registry.register_generic_modality("default")
 @registry.register_audio_modality("identity")
 @registry.register_image_modality("identity")
+@registry.register_video_modality("identity")
 @registry.register_class_label_modality("identity")
 @registry.register_real_modality("identity")
 class IdentityModality(modality.Modality):
@@ -581,8 +670,46 @@ class SigmoidClassLabelModality(ClassLabelModality):
                                                     self._body_input_depth)
 
   def loss(self, top_out, targets):
-    loss_scale = tf.nn.sigmoid_cross_entropy_with_logits(
-        labels=targets, logits=top_out, name="SigmoidCrossEntropy")
+    # Expect inputs of size [batch-size, timesteps, 1, num-classes], where the
+    # last dimension of num-classes represents logits for binary labels
+    loss_scale = tf.losses.sigmoid_cross_entropy(
+        multi_class_labels=targets, logits=top_out)
+    # Weigh all classes equally
+    weights = self.targets_weights_fn(targets)
+    loss_denom = tf.reduce_sum(weights)
+    return loss_scale, loss_denom
+
+
+@registry.register_class_label_modality("sigmoid_max_pooling")
+class SigmoidMaxPoolingClassLabelModality(ClassLabelModality):
+  """Sigmoid cross-entropy applied on max-pooling over timesteps."""
+
+  @property
+  def name(self):
+    return "sigmoid_max_pooling_class_symbol_modality_%d_%d" % (
+        self._vocab_size, self._body_input_depth)
+
+  def top(self, body_output, _):
+    """Transform inputs from model space to target space.
+    
+    Average over inner dims and a linear layer to logits.
+    
+    Args:
+      body_output: A Tensor with shape [batch, timesteps, 1, body_output_size].
+    
+    Returns:
+      a Tensors, each with shape [batch_size, 1, 1, vocab_size]
+    """
+    with tf.variable_scope(self.name):
+      x = body_output
+      x = tf.reduce_max(x, axis=1, keepdims=True)
+      return tf.layers.dense(x, self._vocab_size)
+
+  def loss(self, top_out, targets):
+    # Expect inputs of size [batch-size, 1, 1, num-classes], where the
+    # last dimension of num-classes represents binary labels for each class
+    loss_scale = tf.losses.sigmoid_cross_entropy(
+        multi_class_labels=targets, logits=top_out)
     # Weigh all classes equally
     weights = self.targets_weights_fn(targets)
     loss_denom = tf.reduce_sum(weights)

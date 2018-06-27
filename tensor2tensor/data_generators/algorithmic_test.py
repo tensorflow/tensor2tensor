@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Algorithmic generators test."""
 
 from __future__ import absolute_import
@@ -21,7 +20,7 @@ from __future__ import print_function
 
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import algorithmic
 
@@ -51,7 +50,7 @@ class AlgorithmicTest(tf.test.TestCase):
     # more probable/frequent that the second in rank, three times more prob/freq
     # that the third in rank and so on.
     d = algorithmic.zipf_distribution(10, 1.0001)
-    for i in xrange(len(d[1:])-1):
+    for i in range(len(d[1:])-1):
       self.assertEqual("%.4f" % (abs(d[i+1]-d[i+2])*(i+2)), "%.4f" % d[1])
 
   def testReverseGeneratorNlpLike(self):

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""Common classes for automatic speech recogntion (ASR) datasets.
+"""Common classes for automatic speech recognition (ASR) datasets.
 
 The audio import uses sox to generate normalized waveforms, please install
 it as appropriate (e.g. using apt-get or yum).
@@ -32,7 +31,9 @@ import scipy.signal
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
@@ -75,7 +76,7 @@ def compute_mel_filterbank_features(
     frame_length=25, frame_step=10, fft_length=None,
     window_fn=functools.partial(tf.contrib.signal.hann_window, periodic=True),
     lower_edge_hertz=80.0, upper_edge_hertz=7600.0, num_mel_bins=80,
-    log_noise_floor=1e-3):
+    log_noise_floor=1e-3, apply_mask=True):
   """Implement mel-filterbank extraction using tf ops.
 
   Args:
@@ -83,7 +84,7 @@ def compute_mel_filterbank_features(
     sample_rate: sampling rate of the waveform
     dither: stddev of Gaussian noise added to waveform to prevent quantization
       artefacts
-    preemphasis: waveform high-pass filtering costant
+    preemphasis: waveform high-pass filtering constant
     frame_length: frame length in ms
     frame_step: frame_Step in ms
     fft_length: number of fft bins
@@ -92,23 +93,32 @@ def compute_mel_filterbank_features(
     upper_edge_hertz: highest frequency of the filterbank
     num_mel_bins: filterbank size
     log_noise_floor: clip small values to prevent numeric overflow in log
+    apply_mask: When working on a batch of samples, set padding frames to zero
   Returns:
-    tuple of (filterbanks, filterbank_lens) where:
-      filterbanks are float32 tensor with shape [batch_size, len, num_bins, 1]
-      filterbank_lens are int64 tensor with shape [batch_size]
+    filterbanks: a float32 tensor with shape [batch_size, len, num_bins, 1]
   """
   # `stfts` is a complex64 Tensor representing the short-time Fourier
   # Transform of each signal in `signals`. Its shape is
   # [batch_size, ?, fft_unique_bins]
   # where fft_unique_bins = fft_length // 2 + 1
+
+  # Find the wave length: the largest index for which the value is !=0
+  # note that waveforms samples that are exactly 0.0 are quite common, so
+  # simply doing sum(waveforms != 0, axis=-1) will not work correctly.
+  wav_lens = tf.reduce_max(
+      tf.expand_dims(tf.range(tf.shape(waveforms)[1]), 0) *
+      tf.to_int32(tf.not_equal(waveforms, 0.0)),
+      axis=-1) + 1
   if dither > 0:
     waveforms += tf.random_normal(tf.shape(waveforms), stddev=dither)
   if preemphasis > 0:
     waveforms = waveforms[:, 1:] - preemphasis * waveforms[:, :-1]
+    wav_lens -= 1
   frame_length = int(frame_length * sample_rate / 1e3)
   frame_step = int(frame_step * sample_rate / 1e3)
   if fft_length is None:
     fft_length = int(2**(np.ceil(np.log2(frame_length))))
+
   stfts = tf.contrib.signal.stft(
       waveforms,
       frame_length=frame_length,
@@ -116,6 +126,11 @@ def compute_mel_filterbank_features(
       fft_length=fft_length,
       window_fn=window_fn,
       pad_end=True)
+
+  stft_lens = (wav_lens + (frame_step - 1)) // frame_step
+  masks = tf.to_float(tf.less_equal(
+      tf.expand_dims(tf.range(tf.shape(stfts)[1]), 0),
+      tf.expand_dims(stft_lens, 1)))
 
   # An energy spectrogram is the magnitude of the complex-valued STFT.
   # A float32 Tensor of shape [batch_size, ?, 257].
@@ -135,7 +150,10 @@ def compute_mel_filterbank_features(
 
   log_mel_sgram = tf.log(tf.maximum(log_noise_floor, mel_spectrograms))
 
-  return tf.expand_dims(log_mel_sgram, -1)
+  if apply_mask:
+    log_mel_sgram *= tf.expand_dims(tf.to_float(masks), -1)
+
+  return tf.expand_dims(log_mel_sgram, -1, name="mel_sgrams")
 
 
 #
@@ -163,7 +181,7 @@ class AudioEncoder(object):
     """
     # Make sure that the data is a single channel, 16bit, 16kHz wave.
     # TODO(chorowski): the directory may not be writable, this should fallback
-    # to a temp path, and provide instructions for instaling sox.
+    # to a temp path, and provide instructions for installing sox.
     if not s.endswith(".wav"):
       out_filepath = s + ".wav"
       if not os.path.exists(out_filepath):
@@ -208,12 +226,22 @@ class AudioEncoder(object):
     return 256
 
 
+class ByteTextEncoderWithEos(text_encoder.ByteTextEncoder):
+  """Encodes each byte to an id and appends the EOS token."""
+
+  def encode(self, s):
+    return super(ByteTextEncoderWithEos, self).encode(s) + [text_encoder.EOS_ID]
+
+
 class SpeechRecognitionProblem(problem.Problem):
   """Base class for speech recognition problems."""
 
   def hparams(self, defaults, model_hparams):
     p = model_hparams
-    # Filterbank extraction
+    # Filterbank extraction in bottom instead of preprocess_example is faster.
+    p.add_hparam("audio_preproc_in_bottom", False)
+    # The trainer seems to reserve memory for all members of the input dict
+    p.add_hparam("audio_keep_example_waveforms", False)
     p.add_hparam("audio_sample_rate", 16000)
     p.add_hparam("audio_preemphasis", 0.97)
     p.add_hparam("audio_dither", 1.0 / np.iinfo(np.int16).max)
@@ -243,8 +271,11 @@ class SpeechRecognitionProblem(problem.Problem):
 
   def feature_encoders(self, _):
     return {
+        "inputs": None,  # Put None to make sure that the logic in
+                         # decoding.py doesn't try to convert the floats
+                         # into text...
         "waveforms": AudioEncoder(),
-        "targets": text_encoder.ByteTextEncoder(),
+        "targets": ByteTextEncoderWithEos(),
     }
 
   def example_reading_spec(self):
@@ -259,27 +290,46 @@ class SpeechRecognitionProblem(problem.Problem):
 
   def preprocess_example(self, example, mode, hparams):
     p = hparams
-    waveforms = tf.expand_dims(example["waveforms"], 0)
-    mel_fbanks = compute_mel_filterbank_features(
-        waveforms,
-        sample_rate=p.audio_sample_rate,
-        dither=p.audio_dither,
-        preemphasis=p.audio_preemphasis,
-        frame_length=p.audio_frame_length,
-        frame_step=p.audio_frame_step,
-        lower_edge_hertz=p.audio_lower_edge_hertz,
-        upper_edge_hertz=p.audio_upper_edge_hertz,
-        num_mel_bins=p.audio_num_mel_bins)
-    if p.audio_add_delta_deltas:
-      mel_fbanks = add_delta_deltas(mel_fbanks)
-    fbank_size = common_layers.shape_list(mel_fbanks)
-    assert fbank_size[0] == 1
-    # Later models like to flatten the two spatial dims. Instead, we add a unit
-    # spatial dim and flatten the frequencies and channels.
-    example["inputs"] = tf.reshape(
-        mel_fbanks, [fbank_size[1], 1, fbank_size[2] * fbank_size[3]])
+    if p.audio_preproc_in_bottom:
+      example["inputs"] = tf.expand_dims(
+          tf.expand_dims(example["waveforms"], -1), -1)
+    else:
+      waveforms = tf.expand_dims(example["waveforms"], 0)
+      mel_fbanks = compute_mel_filterbank_features(
+          waveforms,
+          sample_rate=p.audio_sample_rate,
+          dither=p.audio_dither,
+          preemphasis=p.audio_preemphasis,
+          frame_length=p.audio_frame_length,
+          frame_step=p.audio_frame_step,
+          lower_edge_hertz=p.audio_lower_edge_hertz,
+          upper_edge_hertz=p.audio_upper_edge_hertz,
+          num_mel_bins=p.audio_num_mel_bins,
+          apply_mask=False)
+      if p.audio_add_delta_deltas:
+        mel_fbanks = add_delta_deltas(mel_fbanks)
+      fbank_size = common_layers.shape_list(mel_fbanks)
+      assert fbank_size[0] == 1
+
+      # This replaces CMVN estimation on data
+
+      mean = tf.reduce_mean(mel_fbanks, keepdims=True, axis=1)
+      variance = tf.reduce_mean((mel_fbanks-mean)**2, keepdims=True, axis=1)
+      mel_fbanks = (mel_fbanks - mean) / variance
+
+      # Later models like to flatten the two spatial dims. Instead, we add a
+      # unit spatial dim and flatten the frequencies and channels.
+      example["inputs"] = tf.reshape(
+          mel_fbanks, [fbank_size[1], fbank_size[2], fbank_size[3]])
+
+    if not p.audio_keep_example_waveforms:
+      del example["waveforms"]
     return super(SpeechRecognitionProblem, self
                 ).preprocess_example(example, mode, hparams)
+
+  def eval_metrics(self):
+    defaults = super(SpeechRecognitionProblem, self).eval_metrics()
+    return defaults + [metrics.Metrics.EDIT_DISTANCE]
 
 
 @registry.register_audio_modality
@@ -296,37 +346,67 @@ class SpeechRecognitionModality(modality.Modality):
       float32 tensor with shape [batch_size, shorter_len, 1, hidden_size]
     """
     p = self._model_hparams
-    training = p.mode == tf.estimator.ModeKeys.TRAIN
+
+    num_mel_bins = p.audio_num_mel_bins
+    num_channels = 3 if p.audio_add_delta_deltas else 1
 
     with tf.variable_scope(self.name):
-      x = inputs
-      num_mel_bins = p.audio_num_mel_bins
-      num_channels = 3 if p.audio_add_delta_deltas else 1
+      if p.audio_preproc_in_bottom:
+        # Compute filterbanks
+        with tf.variable_scope("fbanks"):
+          waveforms = tf.squeeze(inputs, [2, 3])
+          mel_fbanks = compute_mel_filterbank_features(
+              waveforms,
+              sample_rate=p.audio_sample_rate,
+              dither=p.audio_dither,
+              preemphasis=p.audio_preemphasis,
+              frame_length=p.audio_frame_length,
+              frame_step=p.audio_frame_step,
+              lower_edge_hertz=p.audio_lower_edge_hertz,
+              upper_edge_hertz=p.audio_upper_edge_hertz,
+              num_mel_bins=p.audio_num_mel_bins,
+              apply_mask=True)
+          if p.audio_add_delta_deltas:
+            mel_fbanks = add_delta_deltas(mel_fbanks)
+          x = tf.reshape(mel_fbanks,
+                         common_layers.shape_list(mel_fbanks)[:2] +
+                         [num_mel_bins, num_channels])
+
+          nonpadding_mask = 1. - common_attention.embedding_to_padding(x)
+          num_of_nonpadding_elements = tf.reduce_sum(
+              nonpadding_mask) * num_mel_bins * num_channels
+
+          # This replaces CMVN estimation on data
+          mean = tf.reduce_sum(
+              x, axis=[1], keepdims=True) / num_of_nonpadding_elements
+          variance = (num_of_nonpadding_elements * mean**2. -
+                      2. * mean * tf.reduce_sum(x, axis=[1], keepdims=True) +
+                      tf.reduce_sum(x**2, axis=[1], keepdims=True)
+                     ) / num_of_nonpadding_elements
+          x = (x - mean) / variance * tf.expand_dims(nonpadding_mask, -1)
+      else:
+        x = inputs
+
       # The convention is that the models are flattened along the spatial,
-      # dimensions, thus the speech preprocessor treats frequencies and channels
-      # as image colors (last axis)
-      x.set_shape([None, None, 1, num_mel_bins * num_channels])
-
-      # This replaces CMVN estimation on data
-      x = tf.layers.batch_normalization(
-          x, axis=3, center=False, scale=False, training=training)
-
-      xshape = common_layers.shape_list(x)
-      # restore batch_size x time x frequency x channel layout
-      x = tf.reshape(x, [xshape[0], xshape[1], num_mel_bins, num_channels])
+      # dimensions, thus the speech preprocessor treats frequencies and
+      # channels as image colors (last axis)
+      x.set_shape([None, None, num_mel_bins, num_channels])
 
       # TODO(chorowski): how to specify bottom's hparams and avoid hardcoding?
+      x = tf.pad(x, [[0, 0], [0, 8], [0, 0], [0, 0]])
       for _ in range(2):
         x = tf.layers.conv2d(
             x, 128, (3, 3), (2, 2), use_bias=False)
-        x = tf.layers.batch_normalization(x, axis=3, training=training)
+        x = common_layers.layer_norm(x)
         x = tf.nn.relu(x)
 
       xshape = common_layers.shape_list(x)
       # apply a conv that will remove all frequencies and at the same time
       # project the output into desired hidden_size
+      x = tf.pad(x, [[0, 0], [0, 2], [0, 0], [0, 0]])
       x = tf.layers.conv2d(x, p.hidden_size, (3, xshape[2]), use_bias=False)
+
       assert common_layers.shape_list(x)[2] == 1
-      x = tf.layers.batch_normalization(x, axis=3, training=training)
+      x = common_layers.layer_norm(x)
       x = tf.nn.relu(x)
     return x

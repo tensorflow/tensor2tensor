@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Encoders for DNA data.
 
 * DNAEncoder: ACTG strings to ints and back
@@ -26,7 +25,7 @@ from __future__ import print_function
 import itertools
 # Dependency imports
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import text_encoder
 
 
@@ -77,7 +76,7 @@ class DNAEncoder(text_encoder.TextEncoder):
     assert (len(bases) % self._chunk_size) == 0
     num_chunks = len(bases) // self._chunk_size
     ids = []
-    for chunk_idx in xrange(num_chunks):
+    for chunk_idx in range(num_chunks):
       start_idx = chunk_idx * self._chunk_size
       end_idx = start_idx + self._chunk_size
       chunk = tuple(bases[start_idx:end_idx])

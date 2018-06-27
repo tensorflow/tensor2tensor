@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,15 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utilities for data generators."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import defaultdict
 import gzip
+import multiprocessing as mp
 import os
 import random
 import stat
@@ -30,11 +29,10 @@ import tarfile
 
 import requests
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 import six.moves.urllib_request as urllib  # Imports urllib on Python2, urllib.request on Python3
 
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
 
@@ -83,8 +81,8 @@ def generate_files_distributed(generator,
     counter += 1
     if max_cases and counter > max_cases:
       break
-    sequence_example = to_example(case)
-    writer.write(sequence_example.SerializeToString())
+    example = to_example(case)
+    writer.write(example.SerializeToString())
 
   writer.close()
   return output_file
@@ -121,7 +119,7 @@ def sharded_name(base_name, shard, total_shards):
 
 def shard_filepath(fname, num_shards):
   return [
-      sharded_name(fname, shard, num_shards) for shard in xrange(num_shards)
+      sharded_name(fname, shard, num_shards) for shard in range(num_shards)
   ]
 
 
@@ -145,25 +143,32 @@ def generate_files(generator, output_filenames, max_cases=None, check_existing_f
       if None (default), we use the generator until StopIteration is raised.
   """
   # Fathom
-  if check_existing_files:
-    if outputs_exist(output_filenames):
-      tf.logging.info("Skipping generator because outputs files exist")
-      return
+  if outputs_exist(output_filenames) and check_existing_files:
+    tf.logging.info("Skipping generator because outputs files exist")
+    return
+  tmp_filenames = [fname + ".incomplete" for fname in output_filenames]
   num_shards = len(output_filenames)
-  writers = [tf.python_io.TFRecordWriter(fname) for fname in output_filenames]
+  writers = [tf.python_io.TFRecordWriter(fname) for fname in tmp_filenames]
   counter, shard = 0, 0
   for case in generator:
+    if case is None:
+      continue
     if counter > 0 and counter % 100000 == 0:
       tf.logging.info("Generating case %d." % counter)
     counter += 1
     if max_cases and counter > max_cases:
       break
-    sequence_example = to_example(case)
-    writers[shard].write(sequence_example.SerializeToString())
+    example = to_example(case)
+    writers[shard].write(example.SerializeToString())
     shard = (shard + 1) % num_shards
 
   for writer in writers:
     writer.close()
+
+  for tmp_name, final_name in zip(tmp_filenames, output_filenames):
+    tf.gfile.Rename(tmp_name, final_name, overwrite=True)
+
+  tf.logging.info("Generated %s Examples", counter)
 
 
 def download_report_hook(count, block_size, total_size):
@@ -178,29 +183,42 @@ def download_report_hook(count, block_size, total_size):
   print("\r%d%%" % percent + " completed", end="\r")
 
 
-def maybe_download(directory, filename, url):
-  """Download filename from url unless it's already in directory.
+def maybe_download(directory, filename, uri):
+  """Download filename from uri unless it's already in directory.
+
+  Copies a remote file to local if that local file does not already exist.  If
+  the local file pre-exists this function call, it does not check that the local
+  file is a copy of the remote.
+
+  Remote filenames can be filepaths, any URI readable by tensorflow.gfile, or a
+  URL.
 
   Args:
     directory: path to the directory that will be used.
     filename: name of the file to download to (do nothing if it already exists).
-    url: URL to download from.
+    uri: URI to copy (or download) from.
 
   Returns:
     The path to the downloaded file.
   """
   if not tf.gfile.Exists(directory):
     tf.logging.info("Creating directory %s" % directory)
-    os.mkdir(directory)
+    tf.gfile.MakeDirs(directory)
   filepath = os.path.join(directory, filename)
   if not tf.gfile.Exists(filepath):
-    tf.logging.info("Downloading %s to %s" % (url, filepath))
-    inprogress_filepath = filepath + ".incomplete"
-    inprogress_filepath, _ = urllib.urlretrieve(
-        url, inprogress_filepath, reporthook=download_report_hook)
-    # Print newline to clear the carriage return from the download progress
-    print()
-    tf.gfile.Rename(inprogress_filepath, filepath)
+    tf.logging.info("Downloading %s to %s" % (uri, filepath))
+    try:
+      tf.gfile.Copy(uri, filepath)
+    except tf.errors.UnimplementedError:
+      if uri.startswith("http"):
+        inprogress_filepath = filepath + ".incomplete"
+        inprogress_filepath, _ = urllib.urlretrieve(
+            uri, inprogress_filepath, reporthook=download_report_hook)
+        # Print newline to clear the carriage return from the download progress
+        print()
+        tf.gfile.Rename(inprogress_filepath, filepath)
+      else:
+        raise ValueError("Unrecognized URI: " + filepath)
     statinfo = os.stat(filepath)
     tf.logging.info("Successfully downloaded %s, %s bytes." %
                     (filename, statinfo.st_size))
@@ -210,7 +228,7 @@ def maybe_download(directory, filename, url):
 
 
 def maybe_download_from_drive(directory, filename, url):
-  """Download filename from google drive unless it's already in directory.
+  """Download filename from Google drive unless it's already in directory.
 
   Args:
     directory: path to the directory that will be used.
@@ -222,7 +240,7 @@ def maybe_download_from_drive(directory, filename, url):
   """
   if not tf.gfile.Exists(directory):
     tf.logging.info("Creating directory %s" % directory)
-    os.mkdir(directory)
+    tf.gfile.MakeDirs(directory)
   filepath = os.path.join(directory, filename)
   confirm_token = None
   if tf.gfile.Exists(filepath):
@@ -280,40 +298,42 @@ def gunzip_file(gz_path, new_path):
 
 
 def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
-                                generator):
+                                generator, max_subtoken_length=None,
+                                reserved_tokens=None):
   """Inner implementation for vocab generators.
 
   Args:
     data_dir: The base directory where data and vocab files are stored. If None,
-        then do not save the vocab even if it doesn't exist.
+      then do not save the vocab even if it doesn't exist.
     vocab_filename: relative filename where vocab file is stored
     vocab_size: target size of the vocabulary constructed by SubwordTextEncoder
     generator: a generator that produces tokens from the vocabulary
+    max_subtoken_length: an optional integer.  Set this to a finite value to
+      avoid quadratic costs during vocab building.
+    reserved_tokens: List of reserved tokens. `text_encoder.RESERVED_TOKENS`
+      should be a prefix of `reserved_tokens`. If `None`, defaults to
+      `RESERVED_TOKENS`.
 
   Returns:
     A SubwordTextEncoder vocabulary object.
   """
-  if data_dir is None:
-    vocab_filepath = None
-  else:
+  if data_dir and vocab_filename:
     vocab_filepath = os.path.join(data_dir, vocab_filename)
-
-  if vocab_filepath is not None and tf.gfile.Exists(vocab_filepath):
-    tf.logging.info("Found vocab file: %s", vocab_filepath)
-    vocab = text_encoder.SubwordTextEncoder(vocab_filepath)
-    return vocab
+    if tf.gfile.Exists(vocab_filepath):
+      tf.logging.info("Found vocab file: %s", vocab_filepath)
+      return text_encoder.SubwordTextEncoder(vocab_filepath)
+  else:
+    vocab_filepath = None
 
   tf.logging.info("Generating vocab file: %s", vocab_filepath)
-  token_counts = defaultdict(int)
-  for item in generator:
-    for tok in tokenizer.encode(text_encoder.native_to_unicode(item)):
-      token_counts[tok] += 1
+  vocab = text_encoder.SubwordTextEncoder.build_from_generator(
+      generator, vocab_size, max_subtoken_length=max_subtoken_length,
+      reserved_tokens=reserved_tokens)
 
-  vocab = text_encoder.SubwordTextEncoder.build_to_target_size(
-      vocab_size, token_counts, 1, 1e3)
-
-  if vocab_filepath is not None:
+  if vocab_filepath:
+    tf.gfile.MakeDirs(data_dir)
     vocab.store_to_file(vocab_filepath)
+
   return vocab
 
 
@@ -349,7 +369,6 @@ def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
             gunzip_file(filepath, new_filepath)
           filepath = new_filepath
 
-        # Use Tokenizer to count the word occurrences.
         with tf.gfile.GFile(filepath, mode="r") as source_file:
           file_byte_budget_ = file_byte_budget
           counter = 0
@@ -451,17 +470,24 @@ def generate_dataset_and_shuffle(train_gen,
     shuffle_dataset(train_paths + dev_paths)
 
 
+def _shuffle_single(fname):
+  records = read_records(fname)
+  random.shuffle(records)
+  out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
+  write_records(records, out_fname)
+  tf.gfile.Remove(fname)
+
+
 def shuffle_dataset(filenames):
   if outputs_exist(filenames):
     tf.logging.info("Skipping shuffle because output files exist")
     return
   tf.logging.info("Shuffling data...")
-  for fname in filenames:
-    records = read_records(fname)
-    random.shuffle(records)
-    out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
-    write_records(records, out_fname)
-    tf.gfile.Remove(fname)
+  if len(filenames) > 1:
+    pool = mp.Pool(min(len(filenames), 20))
+    pool.map(_shuffle_single, filenames)
+  else:
+    _shuffle_single(filenames[0])
 
 
 class SequencePacker(object):
@@ -474,14 +500,14 @@ class SequencePacker(object):
     self._spacing = spacing
     self._ids = first_sequence[:]
     self._segmentation = [1] * len(first_sequence)
-    self._position = range(len(first_sequence))
+    self._position = list(range(len(first_sequence)))
 
   def add(self, ids):
     padding = [0] * self._spacing
     self._ids.extend(padding + ids)
     next_segment_num = self._segmentation[-1] + 1 if self._segmentation else 1
     self._segmentation.extend(padding + [next_segment_num] * len(ids))
-    self._position.extend(padding + range(len(ids)))
+    self._position.extend(padding + list(range(len(ids))))
 
   def can_fit(self, ids, packed_length):
     return len(self._ids) + self._spacing + len(ids) <= packed_length
@@ -575,7 +601,7 @@ def pack_examples(examples,
     if chop_long_sequences and len(x) > packed_length:
       assert not has_inputs
       num_fragments = len(x) // packed_length
-      for i in xrange(num_fragments):
+      for i in range(num_fragments):
         yield packer(
             x[packed_length * i:packed_length * (i + 1)], spacing).to_dict()
       x = x[packed_length * num_fragments:]

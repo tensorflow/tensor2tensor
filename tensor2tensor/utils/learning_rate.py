@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Optimization."""
 from __future__ import absolute_import
 from __future__ import division
@@ -87,6 +86,7 @@ def _piecewise_learning_rate(step, boundaries, values):
     Scaled value for the learning rate.
   """
   values = [1.0] + values
+  boundaries = [float(x) for x in boundaries]
   return tf.train.piecewise_constant(
       step, boundaries, values, name="piecewise_lr")
 

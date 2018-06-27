@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Utils for metrics used in eval."""
 from __future__ import absolute_import
 from __future__ import division
@@ -23,6 +22,7 @@ import inspect
 # Dependency imports
 
 import numpy as np
+import six
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
@@ -50,9 +50,15 @@ class Metrics(object):
   ROUGE_2_F = "rouge_2_fscore"
   ROUGE_L_F = "rouge_L_fscore"
   EDIT_DISTANCE = "edit_distance"
-  SET_PRECISION = 'set_precision'
-  SET_RECALL = 'set_recall'
+  SET_PRECISION = "set_precision"
+  SET_RECALL = "set_recall"
+  SIGMOID_ACCURACY_ONE_HOT = "sigmoid_accuracy_one_hot"
+  SIGMOID_RECALL_ONE_HOT = "sigmoid_recall_one_hot"
+  SIGMOID_PRECISION_ONE_HOT = "sigmoid_precision_one_hot"
+  SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
+  ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
+  SET_AUC = 'set_auc'
 
   # fathom metrics
   SET_AUC = 'set_auc'  
@@ -226,8 +232,7 @@ def fathom_padded_accuracy(predictions,
     weights_fn=weights_fn)
 
 
-def set_precision(predictions,
-                  labels,
+def set_precision(predictions, labels,
                   weights_fn=common_layers.weights_nonzero):
   """Precision of set predictions.
 
@@ -271,23 +276,160 @@ def set_recall(predictions, labels, weights_fn=common_layers.weights_nonzero):
     labels = tf.cast(labels, tf.bool)
     return tf.to_float(tf.equal(labels, predictions)), weights
 
-  
-def image_summary(predictions, hparams):
+def image_summary(predictions, targets, hparams):
   """Reshapes predictions and passes it to tensorboard.
 
   Args:
-    predictions : A Tensor of scores of shape [batch, nlabels].
-    hparams: model_hparams
+    predictions : The predicted image (logits).
+    targets : The ground truth.
+    hparams: model hparams.
 
   Returns:
-    summary_proto: containing the summary image for predictions
-    weights: A Tensor of zeros of shape [batch, nlabels].
+    summary_proto: containing the summary images.
+    weights: A Tensor of zeros of the same shape as predictions.
   """
-  predictions_reshaped = tf.reshape(
-      predictions, [-1, hparams.height, hparams.width, hparams.colors])
-  return tf.summary.image(
-      "image_summary", predictions_reshaped,
-      max_outputs=1), tf.zeros_like(predictions)
+  del hparams
+  results = tf.cast(tf.argmax(predictions, axis=-1), tf.uint8)
+  gold = tf.cast(targets, tf.uint8)
+  summary1 = tf.summary.image("prediction", results, max_outputs=2)
+  summary2 = tf.summary.image("data", gold, max_outputs=2)
+  summary = tf.summary.merge([summary1, summary2])
+  return summary, tf.zeros_like(predictions)
+
+
+def sigmoid_accuracy_one_hot(logits, labels, weights_fn=None):
+  """Calculate accuracy for a set, given one-hot labels and logits.
+
+  Args:
+    logits: Tensor of size [batch-size, o=1, p=1, num-classes]
+    labels: Tensor of size [batch-size, o=1, p=1, num-classes]
+    weights_fn: Function that takes in labels and weighs examples (unused)
+  Returns:
+    accuracy (scalar), weights
+  """
+  with tf.variable_scope("sigmoid_accuracy_one_hot", values=[logits, labels]):
+    del weights_fn
+    predictions = tf.nn.sigmoid(logits)
+    labels = tf.argmax(labels, -1)
+    predictions = tf.argmax(predictions, -1)
+    _, accuracy = tf.metrics.accuracy(labels=labels, predictions=predictions)
+    return accuracy, tf.constant(1.0)
+
+
+def sigmoid_precision_one_hot(logits, labels, weights_fn=None):
+  """Calculate precision for a set, given one-hot labels and logits.
+
+  Predictions are converted to one-hot,
+  as predictions[example][arg-max(example)] = 1
+
+  Args:
+    logits: Tensor of size [batch-size, o=1, p=1, num-classes]
+    labels: Tensor of size [batch-size, o=1, p=1, num-classes]
+    weights_fn: Function that takes in labels and weighs examples (unused)
+  Returns:
+    precision (scalar), weights
+  """
+  with tf.variable_scope("sigmoid_precision_one_hot", values=[logits, labels]):
+    del weights_fn
+    num_classes = logits.shape[-1]
+    predictions = tf.nn.sigmoid(logits)
+    predictions = tf.argmax(predictions, -1)
+    predictions = tf.one_hot(predictions, num_classes)
+    _, precision = tf.metrics.precision(labels=labels, predictions=predictions)
+    return precision, tf.constant(1.0)
+
+
+def sigmoid_recall_one_hot(logits, labels, weights_fn=None):
+  """Calculate recall for a set, given one-hot labels and logits.
+
+  Predictions are converted to one-hot,
+  as predictions[example][arg-max(example)] = 1
+
+  Args:
+    logits: Tensor of size [batch-size, o=1, p=1, num-classes]
+    labels: Tensor of size [batch-size, o=1, p=1, num-classes]
+    weights_fn: Function that takes in labels and weighs examples (unused)
+  Returns:
+    recall (scalar), weights
+  """
+  with tf.variable_scope("sigmoid_recall_one_hot", values=[logits, labels]):
+    del weights_fn
+    num_classes = logits.shape[-1]
+    predictions = tf.nn.sigmoid(logits)
+    predictions = tf.argmax(predictions, -1)
+    predictions = tf.one_hot(predictions, num_classes)
+    _, recall = tf.metrics.recall(labels=labels, predictions=predictions)
+    return recall, tf.constant(1.0)
+
+
+def sigmoid_cross_entropy_one_hot(logits, labels, weights_fn=None):
+  """Calculate sigmoid cross entropy for one-hot lanels and logits.
+
+  Args:
+    logits: Tensor of size [batch-size, o=1, p=1, num-classes]
+    labels: Tensor of size [batch-size, o=1, p=1, num-classes]
+    weights_fn: Function that takes in labels and weighs examples (unused)
+  Returns:
+    cross_entropy (scalar), weights
+  """
+  with tf.variable_scope("sigmoid_cross_entropy_one_hot",
+                         values=[logits, labels]):
+    del weights_fn
+    cross_entropy = tf.losses.sigmoid_cross_entropy(
+        multi_class_labels=labels, logits=logits)
+    return cross_entropy, tf.constant(1.0)
+
+
+def roc_auc(logits, labels, weights_fn=None):
+  """Calculate ROC AUC.
+
+  Requires binary classes.
+
+  Args:
+    logits: Tensor of size [batch_size, 1, 1, num_classes]
+    labels: Tensor of size [batch_size, 1, 1, num_classes]
+    weights_fn: Function that takes in labels and weighs examples (unused)
+  Returns:
+    ROC AUC (scalar), weights
+  """
+  del weights_fn
+  with tf.variable_scope("roc_auc", values=[logits, labels]):
+    predictions = tf.argmax(logits, axis=-1)
+    _, auc = tf.metrics.auc(labels, predictions, curve="ROC")
+    return auc, tf.constant(1.0)
+
+
+def set_auc(predictions,
+            labels,
+            weights_fn=common_layers.weights_nonzero):
+  """AUC of set predictions.
+
+  Args:
+    predictions : A Tensor of scores of shape (batch, nlabels)
+    labels: A Tensor of int32s giving true set elements of shape (batch, seq_length)
+
+  Returns:
+    hits: A Tensor of shape (batch, nlabels)
+    weights: A Tensor of shape (batch, nlabels)
+  """
+  with tf.variable_scope("set_auc", values=[predictions, labels]):
+    labels = tf.squeeze(labels, [2, 3])
+    labels = tf.one_hot(labels, predictions.shape[-1] + 1)
+    labels = tf.reduce_max(labels, axis=1)
+    # gah this is so hacky, now we suppress empty sets...
+    weights = tf.reduce_max(labels[:, 1:], axis=1, keep_dims=True)
+    labels = tf.cast(labels, tf.bool)
+    labels = labels[:, 1:]
+    predictions = tf.nn.sigmoid(predictions)
+    auc, update_op = tf.metrics.auc(labels=labels,
+                                    predictions=predictions,
+                                    weights=weights,
+                                    curve='PR')
+
+    with tf.control_dependencies([update_op]):
+      auc = tf.identity(auc)
+
+    return auc, tf.constant(1.0)
 
 
 def create_evaluation_metrics(problems, model_hparams):
@@ -300,21 +442,28 @@ def create_evaluation_metrics(problems, model_hparams):
   Returns:
     dict<metric name, metric function>. The metric functions have signature
     (Tensor predictions, features) -> (metric Tensor, update op), where features
-    is a dict with keys {targets, problem_choice}.
+    is a dict with keys {targets}.
 
   Raises:
     ValueError: if the metrics specified by a problem are not recognized (i.e.
       are not defined in the Metrics enum.
   """
+  def reduce_dimensions(predictions, labels):
+    """Reduce dimensions for high-dimensional predictions and labels."""
+    # We will treat first dimensions as batch. One example are video frames.
+    if len(predictions.get_shape()) > 5:
+      predictions = tf.reshape(
+          predictions, [-1] + common_layers.shape_list(predictions)[-4:])
+    if len(labels.get_shape()) > 4:
+      labels = tf.reshape(
+          labels, [-1] + common_layers.shape_list(labels)[-3:])
+    return predictions, labels
 
-  def make_problem_specific_metric_fn(metric_fn, problem_idx, weights_fn):
-    """Create a metric fn conditioned on problem_idx."""
+  def make_problem_specific_metric_fn(metric_fn, weights_fn):
+    """Create a metric fn."""
 
-    def problem_metric_fn(predictions, features):
+    def problem_metric_fn(predictions, features, labels):
       """Metric fn."""
-      labels = features.get("targets", None)
-      problem_choice = features.get("problem_choice", 0)
-
       # Send along the entire features dict if the metric fn has the kwarg
       # "features".
       kwargs = {}
@@ -325,27 +474,24 @@ def create_evaluation_metrics(problems, model_hparams):
       # (epurdy/fathom) see comment in model_builder.py, function
       # combine_shards for discussion
       if isinstance(predictions, dict):
+        for k in predictions:
+          predictions[k], labels = reduce_dimensions(predictions[k], labels)
         args = args or []
         keywords = keywords or []
         if 'outputs' in args or 'outputs' in keywords:
           kwargs['outputs'] = predictions['outputs']
-        logits = predictions['logits']
+        predictions = predictions['logits']
       else:
-        logits = predictions  
-        
-      def wrapped_metric_fn():
-        return metric_fn(logits, labels, weights_fn=weights_fn, **kwargs)
+        predictions, labels = reduce_dimensions(predictions, labels)
 
-      (scores, weights) = tf.cond(
-          tf.equal(problem_idx, problem_choice), wrapped_metric_fn,
-          lambda: (tf.constant(0.0), tf.constant(0.0)))
-      # The tf.metrics.mean function assures correct aggregation.
+      scores, weights = metric_fn(predictions, labels,
+                                  weights_fn=weights_fn, **kwargs)
       return tf.metrics.mean(scores, weights)
 
     return problem_metric_fn
 
   eval_metrics = dict()
-  for problem_idx, problem_instance in enumerate(problems):
+  for problem_instance in problems:
     problem_name = problem_instance.name
     metrics = problem_instance.eval_metrics()
     if not all([m in METRICS_FNS for m in metrics]):
@@ -356,25 +502,44 @@ def create_evaluation_metrics(problems, model_hparams):
                                     list(METRICS_FNS.keys())))
 
     def image_wrapped_metric_fn(predictions,
+                                features,
                                 labels,
-                                weights_fn=common_layers.weights_nonzero):
-      _, _ = labels, weights_fn
-      return metric_fn(predictions, model_hparams)
+                                weights_fn=common_layers.weights_all):
+      del weights_fn
+      del features
+      predictions, labels = reduce_dimensions(predictions, labels)
+      return metric_fn(predictions, labels, model_hparams)
 
     tm = problem_instance.get_hparams().target_modality
-    if isinstance(tm, tuple):
-      tm = registry.create_modality(tm, model_hparams)
-    weights_fn = tm.targets_weights_fn
+    if isinstance(tm, dict):
+      for k, v in six.iteritems(tm):
+        if isinstance(v, tuple):
+          v = registry.create_modality(v, model_hparams)
+        weights_fn = v.targets_weights_fn
 
-    for metric in metrics:
-      metric_fn = METRICS_FNS[metric]
-      metric_name = "metrics-%s/%s" % (problem_name, metric)
-      if metric == Metrics.IMAGE_SUMMARY:
-        eval_metrics[metric_name] = image_wrapped_metric_fn
-      else:
-        problem_metric_fn = make_problem_specific_metric_fn(
-            metric_fn, problem_idx, weights_fn)
-        eval_metrics[metric_name] = problem_metric_fn
+        for metric in metrics:
+          metric_fn = METRICS_FNS[metric]
+          metric_name = "metrics-%s/%s/%s" % (problem_name, k, metric)
+          if metric == Metrics.IMAGE_SUMMARY:
+            eval_metrics[metric_name] = image_wrapped_metric_fn
+          else:
+            problem_metric_fn = make_problem_specific_metric_fn(
+                metric_fn, weights_fn)
+            eval_metrics[metric_name] = problem_metric_fn
+    else:
+      if isinstance(tm, tuple):
+        tm = registry.create_modality(tm, model_hparams)
+      weights_fn = tm.targets_weights_fn
+
+      for metric in metrics:
+        metric_fn = METRICS_FNS[metric]
+        metric_name = "metrics-%s/%s" % (problem_name, metric)
+        if metric == Metrics.IMAGE_SUMMARY:
+          eval_metrics[metric_name] = image_wrapped_metric_fn
+        else:
+          problem_metric_fn = make_problem_specific_metric_fn(
+              metric_fn, weights_fn)
+          eval_metrics[metric_name] = problem_metric_fn
 
   return eval_metrics
 
@@ -441,10 +606,14 @@ METRICS_FNS = {
     Metrics.ROUGE_2_F: rouge.rouge_2_fscore,
     Metrics.ROUGE_L_F: rouge.rouge_l_fscore,
     Metrics.EDIT_DISTANCE: sequence_edit_distance,
+    Metrics.SIGMOID_ACCURACY_ONE_HOT: sigmoid_accuracy_one_hot,
+    Metrics.SIGMOID_RECALL_ONE_HOT: sigmoid_recall_one_hot,
+    Metrics.SIGMOID_PRECISION_ONE_HOT: sigmoid_precision_one_hot,
+    Metrics.SIGMOID_CROSS_ENTROPY_ONE_HOT: sigmoid_cross_entropy_one_hot,
     Metrics.SET_PRECISION: set_precision,
     Metrics.SET_RECALL: set_recall,
+    Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
-
     # fathom metrics
     Metrics.SET_AUC: set_auc,
     Metrics.FATHOM_ACC: fathom_padded_accuracy,

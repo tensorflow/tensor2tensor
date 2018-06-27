@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2017 The Tensor2Tensor Authors.
+# Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for tensor2tensor.data_generators.text_encoder."""
 
 from __future__ import absolute_import
@@ -30,7 +29,7 @@ import string
 # Dependency imports
 import mock
 import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
@@ -193,7 +192,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     long_tokens = []
     for _ in range(num_tokens):
       long_token = "".join([random.choice(string.ascii_uppercase)
-                            for _ in xrange(token_length)])
+                            for _ in range(token_length)])
       long_tokens.append(long_token)
 
     corpus = " ".join(long_tokens)
@@ -339,6 +338,34 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     self.assertEqual(encoder._subtoken_string_to_id,
                      new_encoder._subtoken_string_to_id)
     self.assertEqual(encoder._max_subtoken_len, new_encoder._max_subtoken_len)
+
+  def test_build_from_generator(self):
+
+    corpus = "The quick brown fox jumps over the lazy dog"
+
+    def gen():
+      for _ in range(3):
+        yield corpus
+
+    start_symbol = "<S>"
+    end_symbol = "<E>"
+    reserved_tokens = text_encoder.RESERVED_TOKENS + [start_symbol,
+                                                      end_symbol]
+    encoder = text_encoder.SubwordTextEncoder.build_from_generator(
+        gen(), 10, reserved_tokens=reserved_tokens)
+
+    # Make sure that reserved tokens appear in the right places.
+    start_id = encoder._subtoken_string_to_id[start_symbol]
+    end_id = encoder._subtoken_string_to_id[end_symbol]
+    self.assertEqual(start_id, 2)
+    self.assertEqual(end_id, 3)
+
+    self.assertEqual("hi%s" % start_symbol,
+                     encoder.decode(encoder.encode("hi") + [2]))
+
+    # Make sure that we haven't messed up the ability to reconstruct.
+    reconstructed_corpus = encoder.decode(encoder.encode(corpus))
+    self.assertEqual(corpus, reconstructed_corpus)
 
 
 if __name__ == "__main__":
