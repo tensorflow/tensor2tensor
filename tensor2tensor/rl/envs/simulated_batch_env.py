@@ -99,6 +99,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
 
   def __init__(self, environment_spec, length, other_hparams):
     """Batch of environments inside the TensorFlow graph."""
+    del other_hparams
     self.length = length
     initial_frames_problem = environment_spec.initial_frames_problem
     self._min_reward = initial_frames_problem.min_reward

@@ -114,6 +114,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     with self._session as sess:
       self.restore_networks(sess)
       pieces_generated = 0
+      frame_counter = 0
       memory_index = 0
       memory = None
       while pieces_generated < self.num_steps:
@@ -122,19 +123,19 @@ class GymDiscreteProblem(video_utils.VideoProblem):
           memory_index = 0
         data = [memory[i][memory_index][0] for i in range(4)]
         memory_index += 1
-        observation, reward, _, action = data
+        observation, reward, done, action = data
         observation = observation.astype(np.uint8)
 
         debug_image = self.collect_statistics_and_generate_debug_image(
             pieces_generated, *data)
         ret_dict = {
             "frame": observation,
-            "frame_number": [int(pieces_generated)],
+            "frame_number": [int(frame_counter)],
             "image/format": ["png"],
             "image/height": [self.frame_height],
             "image/width": [self.frame_width],
             "action": [int(action)],
-            "done": [int(False)],
+            "done": [int(done)],
             "reward": [int(reward) - self.min_reward]
         }
 
@@ -143,6 +144,9 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
         yield ret_dict
         pieces_generated += 1
+        frame_counter += 1
+        if done:
+          frame_counter = 0
 
   def restore_networks(self, sess):
     if FLAGS.agent_policy_path:
@@ -202,7 +206,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
                                                   done,
                                                   action):
     """This generates extra statistics and debug images."""
-    raise NotImplementedError()
+    return None
 
   @property
   def frame_height(self):
