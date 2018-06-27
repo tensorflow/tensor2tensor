@@ -400,9 +400,6 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     for a in self._initial_action:
       stat.real_ob, _, _, _ = stat.real_env.step(a)
 
-    stat.episode_sim_reward = 0.0
-    stat.episode_real_reward = 0.0
-
   def collect_statistics_and_generate_debug_image(self, index,
                                                   observation,
                                                   reward, done, action):
@@ -422,9 +419,13 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
                 "mode for the code below to work properly.")
 
     if (index+1) % self._internal_memory_size == 0:
+
       if stat.episode_sim_reward == stat.episode_real_reward:
         stat.successful_episode_reward_predictions += 1
-        stat.number_of_dones += 1
+        stat.episode_sim_reward = 0.0
+        stat.episode_real_reward = 0.0
+
+      stat.number_of_dones += 1
       self._reset_real_env()
     else:
       stat.real_ob, real_reward, _, _ = stat.real_env.step(action)
