@@ -1057,6 +1057,6 @@ class RealEncoder(object):
 def strip_ids(ids, ids_to_strip):
   """Strip ids_to_strip from the end ids."""
   ids = list(ids)
-  while ids[-1] in ids_to_strip:
+  while ids and ids[-1] in ids_to_strip:
     ids.pop()
   return ids
