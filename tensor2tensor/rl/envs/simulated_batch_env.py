@@ -198,7 +198,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     with tf.control_dependencies([self.history_buffer.reset(indices)]):
       with tf.control_dependencies([self._observ.assign(
           self.history_buffer.get_all_elements()[:, -1, ...])]):
-        return tf.identity(self._observ.read_value())
+        return tf.gather(self._observ.read_value(), indices)
 
   @property
   def observ(self):
