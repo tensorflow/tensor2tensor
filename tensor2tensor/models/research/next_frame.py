@@ -223,19 +223,20 @@ class NextFrameStochastic(NextFrameBasic):
 
   def reward_prediction(self, inputs):
     """Builds a reward prediction network."""
-    conv_size = self.tinyify([32, 16])
+    conv_size = self.tinyify([32, 16, 1])
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
       x = inputs
+      x = slim.batch_norm(x, scope="reward_bn0")
       x = slim.conv2d(x, conv_size[0], [3, 3], scope="reward_conv1")
       x = slim.batch_norm(x, scope="reward_bn1")
       x = slim.conv2d(x, conv_size[1], [3, 3], scope="reward_conv2")
       x = slim.batch_norm(x, scope="reward_bn2")
-      x = slim.conv2d(x, 1, [3, 3], scope="reward_conv3", activation_fn=None)
+      x = slim.conv2d(x, conv_size[2], [3, 3], scope="reward_conv3")
     return x
 
-  def encode_to_shape(self, inputs, shape):
+  def encode_to_shape(self, inputs, shape, scope):
     """Encode the given tensor to given image shape."""
-    with tf.variable_scope("reward_enc", reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
       w, h = shape[1].value, shape[2].value
       x = inputs
       x = tf.contrib.layers.flatten(x)
@@ -243,9 +244,9 @@ class NextFrameStochastic(NextFrameBasic):
       x = tf.reshape(x, (-1, w, h, 1))
       return x
 
-  def decode_to_shape(self, inputs, shape):
+  def decode_to_shape(self, inputs, shape, scope):
     """Encode the given tensor to given image shape."""
-    with tf.variable_scope("reward_dec", reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
       x = inputs
       x = tf.contrib.layers.flatten(x)
       x = slim.fully_connected(x, shape[2].value, scope="decoding_full")
@@ -309,8 +310,9 @@ class NextFrameStochastic(NextFrameBasic):
           hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
 
       # Pass in reward and action.
-      emb_action = self.encode_to_shape(action, enc2.get_shape())
-      emb_reward = self.encode_to_shape(input_reward, enc2.get_shape())
+      emb_action = self.encode_to_shape(action, enc2.get_shape(), "action_enc")
+      emb_reward = self.encode_to_shape(
+          input_reward, enc2.get_shape(), "reward_enc")
       enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
 
       if latent is not None:
@@ -403,7 +405,8 @@ class NextFrameStochastic(NextFrameBasic):
         output += layer * mask
 
       p_reward = self.reward_prediction(hidden5)
-      p_reward = self.decode_to_shape(p_reward, input_reward.shape)
+      p_reward = self.decode_to_shape(
+          p_reward, input_reward.shape, "reward_dec")
 
       return output, p_reward, lstm_state
 
