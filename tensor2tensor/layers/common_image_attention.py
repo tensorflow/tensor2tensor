@@ -33,6 +33,7 @@ class AttentionType(object):
   MOE_LOCAL_1D = "moe_local1d"
   LOCAL_BLOCK = "local_block"
   NON_CAUSAL_1D = "local_1d_noncausal"
+  RELATIVE_LOCAL_1D = "rel_local_1d"
 
   @staticmethod
   def get_choices():
@@ -45,6 +46,7 @@ class AttentionType(object):
         AttentionType.LOCAL_BLOCK,
         AttentionType.DILATED,
         AttentionType.NON_CAUSAL_1D,
+        AttentionType.RELATIVE_LOCAL_1D,
     ]
 
 
@@ -126,6 +128,7 @@ def local_attention_1d(x,
         hparams.num_heads,
         hparams.attention_dropout,
         attention_type=attention_type,
+        shared_rel=hparams.shared_rel,
         block_width=hparams.block_width,
         block_length=hparams.block_length,
         q_padding=q_padding,
@@ -301,6 +304,11 @@ def transformer_decoder_layers(inputs,
         y = local_attention_1d(common_layers.layer_preprocess(x, hparams),
                                hparams,
                                attention_type="local_mask_right",
+                               q_padding="LEFT", kv_padding="LEFT")
+      elif attention_type == AttentionType.RELATIVE_LOCAL_1D:
+        y = local_attention_1d(common_layers.layer_preprocess(x, hparams),
+                               hparams,
+                               attention_type="rel_local_mask_right",
                                q_padding="LEFT", kv_padding="LEFT")
       elif attention_type == AttentionType.NON_CAUSAL_1D:
         y = local_attention_1d(common_layers.layer_preprocess(x, hparams),
@@ -608,7 +616,7 @@ def prepare_decoder(targets, hparams):
     x = tf.reshape(x, [targets_shape[0],
                        x_shape[1], x_shape[2], hparams.hidden_size])
     x = add_pos_signals(x, hparams, "dec_pos")
-  x = common_layers.cast_like(x, targets)
+  # x = common_layers.cast_like(x, targets)
   return x, x_shape[1], x_shape[2]
 
 

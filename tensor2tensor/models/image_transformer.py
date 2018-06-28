@@ -171,7 +171,7 @@ def image_transformer_base():
   """Set of hyperparameters."""
   hparams = common_hparams.basic_params1()
   hparams.hidden_size = 512
-  hparams.batch_size = 1
+  hparams.batch_size = 4
   hparams.max_length = 3075
   hparams.dropout = 0.0
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
@@ -236,12 +236,22 @@ def image_transformer_base():
   hparams.add_hparam("moe_overhead_eval", 2.0)
   hparams.moe_num_experts = 8
   hparams.moe_loss_coef = 1e-3
+
+  # These parameters are for relative attention
+  hparams.add_hparam("shared_rel", False)  # share relative embeddings
   return hparams
 
 
 @registry.register_hparams
 def imagetransformer_base():
   hparams = image_transformer_base()
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_base_rel():
+  hparams = imagetransformer_base()
+  hparams.dec_attention_type = cia.AttentionType.RELATIVE_LOCAL_1D
   return hparams
 
 
@@ -434,6 +444,21 @@ def imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_l():
 def imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_m():
   hparams = imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_k()
   hparams.batch_size = 8
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_m_rel():
+  hparams = imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_k()
+  hparams.batch_size = 8
+  hparams.dec_attention_type = cia.AttentionType.RELATIVE_LOCAL_1D
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_m_relsh():
+  hparams = imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_m_rel()
+  hparams.shared_rel = True
   return hparams
 
 

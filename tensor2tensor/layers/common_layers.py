@@ -220,7 +220,7 @@ def convert_rgb_to_symmetric_real(x):
     # Use the formula (value/127.5) - 1 to convert each channel value into a
     # real number in the range -1 to 1. We use 127.5 instead of 128 because
     # the intensities are in the range 0 to 255. This is used for dmol.
-    x = (x / 127.5) - 1
+    x = (x / 128) - 1
     return x
 
 
