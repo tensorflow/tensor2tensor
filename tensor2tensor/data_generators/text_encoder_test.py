@@ -44,6 +44,21 @@ class NativeToUnicodeTest(tf.test.TestCase):
     self.assertEqual(s_unicode, u"foo bar")
 
 
+class StripTest(tf.test.TestCase):
+
+  def test_simple_strip(self):
+    ids = [4, 5, 4, 5, 1, 1, 2, 2, 3, 2, 3, 1]
+    ids_to_strip = [1, 2, 3]
+    stripped_ids = text_encoder.strip_ids(ids, ids_to_strip)
+    self.assertEquals(stripped_ids, [4, 5, 4, 5])
+
+  def test_all_strip(self):
+    ids = [1, 1, 2, 2, 3, 3]
+    ids_to_strip = [1, 2, 3]
+    stripped_ids = text_encoder.strip_ids(ids, ids_to_strip)
+    self.assertEquals(stripped_ids, [])
+
+
 class EscapeUnescapeTokenTest(tf.test.TestCase):
 
   def test_escape_token(self):
