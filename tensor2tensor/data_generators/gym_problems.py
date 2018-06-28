@@ -28,7 +28,7 @@ from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-im
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
-from tensor2tensor.models.research import rl
+from tensor2tensor.models.research import rl, autoencoders
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.utils import metrics
@@ -148,7 +148,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
             "image/width": [self.frame_width],
             "action": [int(action)],
             "done": [int(done)],
-            "reward": [int(reward) - self.min_reward]
+            "reward": [int(reward - self.min_reward)]
         }
 
         if debug_image is not None:
@@ -273,10 +273,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     }
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
-
-
-class GymAEDiscreteProblem(GymDiscreteProblem):
-  pass
 
 
 class BasicStatistics(object):
@@ -604,7 +600,26 @@ class GymDiscreteProblemWithAgentOnWrappedLongPong(GymRealDiscreteProblem,
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
     GymDiscreteProblemWithAgentOnWrappedLongPong):
-  pass
+
+  #TODO(piotrmilos): do it better (ie. possibly do a superclass for all
+  #AE problems)
+  @property
+  def autoencoder_factor(self):
+    """By how much to divide sizes when using autoencoders."""
+    hparams = autoencoders.autoencoder_discrete_pong()
+    return 2**hparams.num_hidden_layers
+
+  @property
+  def frame_height(self):
+    height = self.env.observation_space.shape[0]
+    ae_height =  int(math.ceil(height / self.autoencoder_factor))
+    return ae_height
+
+  @property
+  def frame_width(self):
+    width = self.env.observation_space.shape[1]
+    return int(math.ceil(width / self.autoencoder_factor))
+
 
 
 @registry.register_problem
@@ -660,21 +675,17 @@ class GymDiscreteProblemWithAgentOnWrappedPong(GymRealDiscreteProblem,
 
   @property
   def frame_height(self):
-    if not FLAGS.autoencoder_path:
-      return 210
-    return int(math.ceil(210 / self.autoencoder_factor))
+    return 210
 
   @property
   def frame_width(self):
-    if not FLAGS.autoencoder_path:
-      return 160
-    return int(math.ceil(160 / self.autoencoder_factor))
-
+    return 160
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
     GymDiscreteProblemWithAgentOnWrappedPong):
-  pass
+
+    pass
 
 
 @registry.register_problem

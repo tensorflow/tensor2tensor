@@ -93,7 +93,7 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
   tf.gfile.MakeDirs(data_dir)
   with temporary_flags({
       "problem": problem_name,
-      "agent_policy_path": agent_policy_path,
+      "agent_policy_path": None,
       "autoencoder_path": autoencoder_path,
       "only_use_ae_for_policy": True,
   }):
@@ -250,13 +250,14 @@ def encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
       while True:
         try:
           pngs_np, examples_np = sess.run([pngs, examples])
-          rewards_np = [list(el) for el in examples_np["reward"]]
-          actions_np = [list(el) for el in examples_np["action"]]
-          pngs_np = [el for el in pngs_np]
-          for action, reward, png in zip(actions_np, rewards_np, pngs_np):
+          rewards = examples_np["reward"].tolist()
+          actions = examples_np["action"].tolist()
+          frame_numbers = examples_np["frame_number"].tolist()
+          for action, reward, frame_number, png in zip(actions, rewards, frame_numbers, pngs_np):
             yield {
                 "action": action,
                 "reward": reward,
+                "frame_number": frame_number,
                 "image/encoded": [png],
                 "image/format": ["png"],
                 "image/height": [encoded_frame_height],

@@ -243,7 +243,6 @@ class AutoencoderWrapper(WrapperBase):
           tf.zeros(observ_shape, tf.float32), trainable=False)
     self.setup_autoencoder()
 
-
   @property
   def autoencoder_factor(self):
     """By how much to divide sizes when using autoencoders."""
@@ -270,103 +269,9 @@ class AutoencoderWrapper(WrapperBase):
       with tf.control_dependencies([assign_op]):
         return tf.identity(self._observ.read_value())
 
-
-  # def autoencode_tensor(self, x, batch_size=1):
-  #   shape = [self.raw_frame_height, self.raw_frame_width, self.num_channels]
-  #   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-  #     self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
-  #     autoencoded = self.autoencoder_model.encode(
-  #         tf.reshape(x, [batch_size, 1] + shape))
-  #   autoencoded = tf.reshape(
-  #       autoencoded, [batch_size] + self.frame_shape + [8])  # 8-bit groups.
-  #   if batch_size == 1:
-  #     autoencoded = tf.squeeze(autoencoded, axis=0)
-  #   return discretization.bit_to_int(autoencoded, 8)
-
-
   def setup_autoencoder(self):
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
-      # autoencoder_hparams.data_dir = "unused"
-      # autoencoder_hparams.problem_hparams = self.get_hparams(
-      #     autoencoder_hparams)
-      # autoencoder_hparams.problem = self
       self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
           autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
       print("Autoencoder created")
-
-    #
-    # if FLAGS.autoencoder_path:
-    #   self.collect_hparams = rl.ppo_pong_ae_base()
-    #
-    #
-    # if FLAGS.autoencoder_path:
-    #   # TODO(lukaszkaiser): remove hard-coded autoencoder params.
-    #   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-    #     self.setup_autoencoder()
-    #     autoencoder_model = self.autoencoder_model
-    #     # Feeds for autoencoding.
-    #     shape = [self.raw_frame_height, self.raw_frame_width, self.num_channels]
-    #     self.autoencoder_feed = tf.placeholder(tf.int32, shape=shape)
-    #     self.autoencoder_result = self.autoencode_tensor(self.autoencoder_feed)
-    #     # Now for autodecoding.
-    #     shape = self.frame_shape
-    #     self.autodecoder_feed = tf.placeholder(tf.int32, shape=shape)
-    #     bottleneck = tf.reshape(
-    #         discretization.int_to_bit(self.autodecoder_feed, 8),
-    #         [1, 1, self.frame_height, self.frame_width, self.num_channels * 8])
-    #     autoencoder_model.set_mode(tf.estimator.ModeKeys.PREDICT)
-    #     self.autodecoder_result = autoencoder_model.decode(bottleneck)
-
-    # def preprocess_fn(x):
-    #   shape = [self.raw_frame_height, self.raw_frame_width, self.num_channels]
-    #   # TODO(lukaszkaiser): we assume x comes from StackAndSkipWrapper skip=4.
-    #   xs = [tf.reshape(t, [1] + shape) for t in tf.split(x, 4, axis=-1)]
-    #   autoencoded = self.autoencode_tensor(tf.concat(xs, axis=0), batch_size=4)
-    #   encs = [tf.squeeze(t, axis=[0]) for t in tf.split(autoencoded, 4, axis=0)]
-    #   res = tf.to_float(tf.concat(encs, axis=-1))
-    #   return tf.expand_dims(res, axis=0)
-    #
-    # # TODO(lukaszkaiser): x is from StackAndSkipWrapper thus 4*num_channels.
-    # shape = [1, self.frame_height, self.frame_width, 4 * self.num_channels]
-    # do_preprocess = (self.autoencoder_model is not None and
-    #                  not self.simulated_environment)
-    # preprocess = (preprocess_fn, shape) if do_preprocess else None
-
-  # def autoencode(self, image, sess):
-  #   return sess.run(self.autoencoder_result, {self.autoencoder_feed: image})
-  #
-  # def autodecode(self, encoded, sess):
-  #   res = sess.run(self.autodecoder_result, {self.autodecoder_feed: encoded})
-  #   return res[0, 0, :self.raw_frame_height, :self.raw_frame_width, :]
-
-  # @property
-  # def autoencoder_factor(self):
-  #   """By how much to divide sizes when using autoencoders."""
-  #   hparams = autoencoders.autoencoder_discrete_pong()
-  #   return 2**hparams.num_hidden_layers
-
-
-  # @property
-  # def frame_height(self):
-  #   if not FLAGS.autoencoder_path:
-  #     return 210
-  #   return int(math.ceil(210 / self.autoencoder_factor))
-  #
-  # @property
-  # def frame_width(self):
-  #   if not FLAGS.autoencoder_path:
-  #     return 160
-  #   return int(math.ceil(160 / self.autoencoder_factor))
-
-  # @property
-  # def frame_height(self):
-  #   if not FLAGS.autoencoder_path:
-  #     return 210
-  #   return int(math.ceil(210 / self.autoencoder_factor))
-  #
-  # @property
-  # def frame_width(self):
-  #   if not FLAGS.autoencoder_path:
-  #     return 160
-  #   return int(math.ceil(160 / self.autoencoder_factor))
