@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import operator
 import os
 import time
@@ -51,6 +52,9 @@ def decode_hparams(overrides=""):
       identity_output=False,
       num_samples=-1,
       delimiter="\n",
+      decode_to_file=None,
+      shards=1,
+      shard_id=0,
       force_decode_length=False)
   hp.parse(overrides)
   return hp
@@ -64,15 +68,32 @@ def log_decode_results(inputs,
                        targets_vocab,
                        targets=None,
                        save_images=False,
-                       model_dir=None,
+                       output_dir=None,
                        identity_output=False,
                        log_results=True):
   """Log inference results."""
+
+  # TODO(lukaszkaiser) refactor this into feature_encoder
+  is_video = "video" in problem_name
+  if is_video:
+    def fix_and_save_video(vid, prefix):
+      save_path_template = os.path.join(
+          output_dir,
+          "%s_%s_%d_{}.png" % (problem_name, prefix, prediction_idx))
+      # this is only required for predictions
+      if vid.shape[-1] == 1:
+        vid = np.squeeze(vid, axis=-1)
+      save_video(vid, save_path_template)
+    tf.logging.info("Saving video: {}".format(prediction_idx))
+    fix_and_save_video(inputs, "inputs")
+    fix_and_save_video(outputs, "outputs")
+    fix_and_save_video(targets, "targets")
+
   is_image = "image" in problem_name
   decoded_inputs = None
   if is_image and save_images:
     save_path = os.path.join(
-        model_dir, "%s_prediction_%d.jpg" % (problem_name, prediction_idx))
+        output_dir, "%s_prediction_%d.jpg" % (problem_name, prediction_idx))
     show_and_save_image(inputs / 255., save_path)
   elif inputs_vocab:
     if identity_output:
@@ -80,7 +101,7 @@ def log_decode_results(inputs,
     else:
       decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs, is_image))
 
-    if log_results:
+    if log_results and not is_video:
       tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
   decoded_targets = None
@@ -93,8 +114,9 @@ def log_decode_results(inputs,
     decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
     if targets is not None and log_results:
       decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
-  tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
-  if targets is not None and log_results:
+  if not is_video:
+    tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
+  if targets is not None and log_results and not is_video:
     tf.logging.info("Inference results TARGET: %s" % decoded_targets)
   return decoded_inputs, decoded_outputs, decoded_targets
 
@@ -110,6 +132,10 @@ def decode_from_dataset(estimator,
                   str(problem_name))
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
+
+  # Setup the decode output directory for any artifacts that may be written out
+  output_dir = os.path.join(estimator.model_dir, "decode")
+  tf.gfile.MakeDirs(output_dir)
 
   # If decode_hp.batch_size is specified, use a fixed batch size
   if decode_hp.batch_size:
@@ -131,6 +157,7 @@ def decode_from_dataset(estimator,
   predictions = estimator.predict(infer_input_fn)
 
   # Prepare output file writers if decode_to_file passed
+  decode_to_file = decode_to_file or decode_hp.decode_to_file
   if decode_to_file:
     if decode_hp.shards > 1:
       decode_filename = decode_to_file + ("%.2d" % decode_hp.shard_id)
@@ -179,7 +206,7 @@ def decode_from_dataset(estimator,
             inputs_vocab,
             targets_vocab,
             save_images=decode_hp.save_images,
-            model_dir=estimator.model_dir,
+            output_dir=output_dir,
             identity_output=decode_hp.identity_output,
             targets=targets,
             log_results=decode_hp.log_results)
@@ -195,7 +222,7 @@ def decode_from_dataset(estimator,
           inputs_vocab,
           targets_vocab,
           save_images=decode_hp.save_images,
-          model_dir=estimator.model_dir,
+          output_dir=output_dir,
           identity_output=decode_hp.identity_output,
           targets=targets,
           log_results=decode_hp.log_results)
@@ -219,6 +246,13 @@ def decode_from_dataset(estimator,
     output_file.close()
     target_file.close()
     input_file.close()
+
+  run_postdecode_hooks(DecodeHookArgs(
+      estimator=estimator,
+      problem=problem,
+      output_dir=output_dir,
+      hparams=hparams,
+      decode_hparams=decode_hp))
 
   tf.logging.info("Completed inference on %d samples." % num_predictions)  # pylint: disable=undefined-loop-variable
 
@@ -518,7 +552,24 @@ def _interactive_input_fn(hparams, decode_hp):
       yield features
 
 
+def save_video(video, save_path_template):
+  """Save frames of the videos into files."""
+  try:
+    from PIL import Image  # pylint: disable=g-import-not-at-top
+  except ImportError as e:
+    tf.logging.warning(
+        "Showing and saving an image requires PIL library to be "
+        "installed: %s", e)
+    raise NotImplementedError("Image display and save not implemented.")
+
+  for i, frame in enumerate(video):
+    save_path = save_path_template.format(i)
+    with tf.gfile.Open(save_path, "wb") as sp:
+      Image.fromarray(np.uint8(frame)).save(sp)
+
+
 def show_and_save_image(img, save_path):
+  """Shows an image using matplotlib and saves it."""
   try:
     import matplotlib.pyplot as plt  # pylint: disable=g-import-not-at-top
   except ImportError as e:
@@ -527,7 +578,8 @@ def show_and_save_image(img, save_path):
         "installed: %s", e)
     raise NotImplementedError("Image display and save not implemented.")
   plt.imshow(img)
-  plt.savefig(save_path)
+  with tf.gfile.Open(save_path, "wb") as sp:
+    plt.savefig(sp)
 
 
 def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
@@ -650,3 +702,41 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
       IMAGE_DECODE_LENGTH if input_is_image else tf.shape(x)[1] + 50)
   features["inputs"] = x
   return features
+
+
+def latest_checkpoint_step(ckpt_dir):
+  ckpt = tf.train.get_checkpoint_state(ckpt_dir)
+  if not ckpt:
+    return None
+  path = ckpt.model_checkpoint_path
+  step = int(path.split("-")[-1])
+  return step
+
+
+class DecodeHookArgs(collections.namedtuple(
+    "DecodeHookArgs",
+    ["estimator", "problem", "output_dir", "hparams", "decode_hparams"])):
+  pass
+
+
+def run_postdecode_hooks(decode_hook_args):
+  """Run hooks after decodes have run."""
+  hooks = decode_hook_args.problem.decode_hooks
+  if not hooks:
+    return
+  global_step = latest_checkpoint_step(decode_hook_args.estimator.model_dir)
+  if global_step is None:
+    tf.logging.info(
+        "Skipping decode hooks because no checkpoint yet available.")
+    return
+  tf.logging.info("Running decode hooks.")
+  summary_writer = tf.summary.FileWriter(decode_hook_args.output_dir)
+  for hook in hooks:
+    # Isolate each hook in case it creates TF ops
+    with tf.Graph().as_default():
+      summaries = hook(decode_hook_args)
+    if summaries:
+      summary = tf.Summary(value=list(summaries))
+      summary_writer.add_summary(summary, global_step)
+  summary_writer.close()
+  tf.logging.info("Decode hooks done.")

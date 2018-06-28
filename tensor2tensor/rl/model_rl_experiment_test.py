@@ -26,7 +26,7 @@ FLAGS = tf.flags.FLAGS
 
 class ModelRLExperimentTest(tf.test.TestCase):
 
-  def test_run(self):
+  def test_basic(self):
     FLAGS.output_dir = tf.test.get_temp_dir()
     FLAGS.loop_hparams_set = "rl_modelrl_tiny"
     FLAGS.loop_hparams = "generative_model_params=next_frame_tiny"

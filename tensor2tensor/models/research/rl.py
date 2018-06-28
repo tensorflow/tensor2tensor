@@ -59,14 +59,28 @@ def ppo_base_v1():
 @registry.register_hparams
 def ppo_continuous_action_base():
   hparams = ppo_base_v1()
-  hparams.add_hparam("network", feed_forward_gaussian_fun)
+  hparams.add_hparam("policy_network", feed_forward_gaussian_fun)
+  hparams.add_hparam("policy_network_params", "basic_policy_parameters")
   return hparams
+
+
+@registry.register_hparams
+def basic_policy_parameters():
+  wrappers = None
+  return tf.contrib.training.HParams(wrappers=wrappers)
 
 
 @registry.register_hparams
 def ppo_discrete_action_base():
   hparams = ppo_base_v1()
-  hparams.add_hparam("network", feed_forward_categorical_fun)
+  hparams.add_hparam("policy_network", feed_forward_categorical_fun)
+  return hparams
+
+
+@registry.register_hparams
+def discrete_random_action_base():
+  hparams = common_hparams.basic_params1()
+  hparams.add_hparam("policy_network", random_policy_fun)
   return hparams
 
 
@@ -74,7 +88,7 @@ def ppo_discrete_action_base():
 def ppo_atari_base():
   """Atari base parameters."""
   hparams = ppo_discrete_action_base()
-  hparams.learning_rate = 16e-5
+  hparams.learning_rate = 4e-4
   hparams.num_agents = 5
   hparams.epoch_length = 200
   hparams.gae_gamma = 0.985
@@ -92,7 +106,7 @@ def ppo_atari_base():
 def ppo_pong_base():
   """Pong base parameters."""
   hparams = ppo_discrete_action_base()
-  hparams.learning_rate = 8e-5
+  hparams.learning_rate = 2e-4
   hparams.num_agents = 8
   hparams.epoch_length = 200
   hparams.gae_gamma = 0.985
@@ -102,18 +116,33 @@ def ppo_pong_base():
   hparams.optimization_epochs = 2
   hparams.epochs_num = 1000
   hparams.num_eval_agents = 1
-  hparams.network = feed_forward_cnn_small_categorical_fun
+  hparams.policy_network = feed_forward_cnn_small_categorical_fun
   hparams.clipping_coef = 0.2
   hparams.optimization_batch_size = 4
   hparams.max_gradients_norm = 0.5
   return hparams
 
 
+def simple_gym_spec(env):
+  """Parameters of environment specification."""
+  standard_wrappers = None
+  env_lambda = None
+  if isinstance(env, str):
+    env_lambda = lambda: gym.make(env)
+  if callable(env):
+    env_lambda = env
+  assert env is not None, "Unknown specification of environment"
+
+  return tf.contrib.training.HParams(env_lambda=env_lambda,
+                                     wrappers=standard_wrappers,
+                                     simulated_env=False)
+
+
 @registry.register_hparams
 def ppo_pong_ae_base():
   """Pong autoencoder base parameters."""
   hparams = ppo_pong_base()
-  hparams.learning_rate = 4e-5
+  hparams.learning_rate = 2e-4
   hparams.network = dense_bitwise_categorical_fun
   return hparams
 

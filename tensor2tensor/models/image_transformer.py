@@ -119,7 +119,7 @@ class ImagetransformerPlus(t2t_model.T2TModel):
     logits, losses = self(features)  # pylint: disable=not-callable
 
     samples = common_layers.sample_from_discretized_mix_logistic(
-        logits, 10, seed=None)
+        logits, seed=None)
     return samples, logits, losses
 
 

@@ -645,6 +645,31 @@ def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
 
 
 @expert_utils.add_name_scope()
+def add_positional_embedding(x, max_length, name, positions=None):
+  """Add positional embedding.
+
+  Args:
+    x: a Tensor with shape [batch, length, depth]
+    max_length: an integer.  static maximum size of any dimension.
+    name: a name for this layer.
+    positions: an optional tensor with shape [batch, length]
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+  _, length, depth = common_layers.shape_list(x)
+  var = tf.get_variable(name, [max_length, depth])
+  if positions is None:
+    sliced = tf.cond(
+        tf.less(length, max_length),
+        lambda: tf.slice(var, [0, 0], [length, -1]),
+        lambda: tf.pad(var, [[0, length - max_length], [0, 0]]))
+    return x + tf.expand_dims(sliced, 0)
+  else:
+    return x + tf.gather(var, tf.to_int32(positions))
+
+
+@expert_utils.add_name_scope()
 def add_positional_embedding_nd(x, max_length, name):
   """Add n-dimensional positional embedding.
 
@@ -680,6 +705,41 @@ def add_positional_embedding_nd(x, max_length, name):
                                                                          0.5))
     x += tf.slice(var, start, size)
   return x
+
+
+@expert_utils.add_name_scope()
+def make_edge_vectors(adjacency_matrix, num_edge_types, depth, name=None):
+  """Gets edge vectors for the edge types in the adjacency matrix.
+
+  Args:
+    adjacency_matrix: A [batch, num_nodes, num_nodes] tensor of ints.
+    num_edge_types: Number of different edge types
+    depth: Number of channels
+    name: a string
+  Returns:
+    A [batch, num_nodes, num_nodes, depth] vector of tensors
+  """
+  with tf.variable_scope(name, default_name="edge_vectors"):
+    att_adj_vectors_shape = [num_edge_types, depth]
+    adjacency_matrix_shape = common_layers.shape_list(adjacency_matrix)
+    adj_vectors = (
+        tf.get_variable(
+            "adj_vectors",
+            att_adj_vectors_shape,
+            initializer=tf.random_normal_initializer(0, depth**-0.5)) *
+        (depth**0.5))
+    # Avoiding gathers so that it works on TPUs
+    # adjacency_matrix_one_hot has shape
+    # [batch, num_nodes, num_nodes, num_edge_types]
+
+    adjacency_matrix_one_hot = tf.one_hot(adjacency_matrix, num_edge_types)
+
+    att_adj_vectors = tf.matmul(
+        tf.reshape(tf.to_float(adjacency_matrix_one_hot), [-1, num_edge_types]),
+        adj_vectors)
+    return tf.reshape(att_adj_vectors,
+                      [adjacency_matrix_shape[0], adjacency_matrix_shape[1],
+                       adjacency_matrix_shape[2], depth])
 
 
 class LshGating(object):
@@ -775,6 +835,19 @@ def embedding_to_padding(emb):
   """
   emb_sum = tf.reduce_sum(tf.abs(emb), axis=-1)
   return tf.to_float(tf.equal(emb_sum, 0.0))
+
+
+@expert_utils.add_name_scope()
+def padding_to_length(padding):
+  """Calculate the length of mask based on padding.
+
+  Args:
+    padding: a Tensor with shape [..., length].
+  Returns:
+    a Tensor with shape [...].
+  """
+  non_padding = 1.0 - padding
+  return tf.to_int64(tf.reduce_sum(non_padding, axis=-1))
 
 
 @expert_utils.add_name_scope()
@@ -1408,7 +1481,6 @@ def dot_product_attention(q,
     dropout_broadcast_dims:  an optional list of integers less than 4
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
-
   Returns:
     A Tensor.
   """
@@ -2614,7 +2686,8 @@ def compute_attention_component(antecedent,
                                 total_depth,
                                 filter_width=1,
                                 padding="VALID",
-                                name="c"):
+                                name="c",
+                                vars_3d_num_heads=0):
   """Computes attention compoenent (query, key or value).
 
   Args:
@@ -2624,10 +2697,25 @@ def compute_attention_component(antecedent,
       component to be.
     padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     name: a string specifying scope name.
+    vars_3d_num_heads: an optional integer (if we want to use 3d variables)
 
   Returns:
     c : [batch, length, depth] tensor
   """
+  if vars_3d_num_heads > 0:
+    assert filter_width == 1
+    input_depth = antecedent.get_shape().as_list()[-1]
+    depth_per_head = total_depth // vars_3d_num_heads
+    initializer_stddev = input_depth ** -0.5
+    if "q" in name:
+      initializer_stddev *= depth_per_head ** -0.5
+    var = tf.get_variable(
+        name, [input_depth,
+               vars_3d_num_heads,
+               total_depth // vars_3d_num_heads],
+        initializer=tf.random_normal_initializer(stddev=initializer_stddev))
+    var = tf.reshape(var, [input_depth, total_depth])
+    return tf.tensordot(antecedent, var, axes=1)
   if filter_width == 1:
     return common_layers.dense(
         antecedent, total_depth, use_bias=False, name=name)
@@ -2643,7 +2731,8 @@ def compute_qkv(query_antecedent,
                 q_filter_width=1,
                 kv_filter_width=1,
                 q_padding="VALID",
-                kv_padding="VALID"):
+                kv_padding="VALID",
+                vars_3d_num_heads=0):
   """Computes query, key and value.
 
   Args:
@@ -2656,18 +2745,34 @@ def compute_qkv(query_antecedent,
     to be.
     q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+    vars_3d_num_heads: an optional (if we want to use 3d variables)
 
   Returns:
     q, k, v : [batch, length, depth] tensors
   """
   if memory_antecedent is None:
     memory_antecedent = query_antecedent
-  q = compute_attention_component(query_antecedent, total_key_depth,
-                                  q_filter_width, q_padding, "q")
-  k = compute_attention_component(memory_antecedent, total_key_depth,
-                                  kv_filter_width, kv_padding, "k")
-  v = compute_attention_component(memory_antecedent, total_value_depth,
-                                  kv_filter_width, kv_padding, "v")
+  q = compute_attention_component(
+      query_antecedent,
+      total_key_depth,
+      q_filter_width,
+      q_padding,
+      "q",
+      vars_3d_num_heads=vars_3d_num_heads)
+  k = compute_attention_component(
+      memory_antecedent,
+      total_key_depth,
+      kv_filter_width,
+      kv_padding,
+      "k",
+      vars_3d_num_heads=vars_3d_num_heads)
+  v = compute_attention_component(
+      memory_antecedent,
+      total_value_depth,
+      kv_filter_width,
+      kv_padding,
+      "v",
+      vars_3d_num_heads=vars_3d_num_heads)
   return q, k, v
 
 
@@ -2696,6 +2801,7 @@ def multihead_attention(query_antecedent,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
                         max_length=None,
+                        vars_3d=False,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -2715,8 +2821,8 @@ def multihead_attention(query_antecedent,
                   see comments for attention_image_summary()
     attention_type: a string, either "dot_product", "dot_product_relative",
                     "local_mask_right", "local_unmasked", "masked_dilated_1d",
-                    "unmasked_dilated_1d" or any attention function with the
-                    signature (query, key, value, **kwargs)
+                    "unmasked_dilated_1d", graph, or any attention function
+                    with the signature (query, key, value, **kwargs)
     block_length: an integer - relevant for "local_mask_right"
     block_width: an integer - relevant for "local_unmasked"
     q_filter_width: An integer specifying how wide you want the query to be.
@@ -2744,6 +2850,7 @@ def multihead_attention(query_antecedent,
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
     max_length: an integer - needed by relative attention
+    vars_3d: use 3-dimensional variables for input/output transformations
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -2773,13 +2880,15 @@ def multihead_attention(query_antecedent,
   if total_value_depth % num_heads != 0:
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
+  vars_3d_num_heads = num_heads if vars_3d else 0
   with tf.variable_scope(name, default_name="multihead_attention",
                          values=[query_antecedent, memory_antecedent]):
 
     if cache is None or memory_antecedent is None:
       q, k, v = compute_qkv(query_antecedent, memory_antecedent,
                             total_key_depth, total_value_depth, q_filter_width,
-                            kv_filter_width, q_padding, kv_padding)
+                            kv_filter_width, q_padding, kv_padding,
+                            vars_3d_num_heads=vars_3d_num_heads)
     if cache is not None:
       if attention_type != "dot_product":
         # TODO(petershaw): Support caching when using relative position
@@ -2794,14 +2903,31 @@ def multihead_attention(query_antecedent,
       if memory_antecedent is not None:
         # Encoder-Decoder Attention Cache
         q = compute_attention_component(query_antecedent, total_key_depth,
-                                        q_filter_width, q_padding, "q")
+                                        q_filter_width, q_padding, "q",
+                                        vars_3d_num_heads=vars_3d_num_heads)
         k = cache["k_encdec"]
         v = cache["v_encdec"]
       else:
         k = split_heads(k, num_heads)
         v = split_heads(v, num_heads)
-        k = cache["k"] = tf.concat([cache["k"], k], axis=2)
-        v = cache["v"] = tf.concat([cache["v"], v], axis=2)
+        decode_loop_step = kwargs.get("decode_loop_step")
+        if decode_loop_step is None:
+          k = cache["k"] = tf.concat([cache["k"], k], axis=2)
+          v = cache["v"] = tf.concat([cache["v"], v], axis=2)
+        else:
+          # Inplace update is required for inference on TPU.
+          # Inplace_ops only supports inplace_update on the first dimension.
+          # The performance of current implementation is better than updating
+          # the tensor by adding the result of matmul(one_hot,
+          # update_in_current_step)
+          tmp_k = tf.transpose(cache["k"], perm=[2, 0, 1, 3])
+          tmp_k = common_layers.tf_inplace_ops().alias_inplace_update(
+              tmp_k, decode_loop_step, tf.squeeze(k, axis=2))
+          k = cache["k"] = tf.transpose(tmp_k, perm=[1, 2, 0, 3])
+          tmp_v = tf.transpose(cache["v"], perm=[2, 0, 1, 3])
+          tmp_v = common_layers.tf_inplace_ops().alias_inplace_update(
+              tmp_v, decode_loop_step, tf.squeeze(v, axis=2))
+          v = cache["v"] = tf.transpose(tmp_v, perm=[1, 2, 0, 3])
 
     q = split_heads(q, num_heads)
     if cache is None:
@@ -2809,7 +2935,8 @@ def multihead_attention(query_antecedent,
       v = split_heads(v, num_heads)
 
     key_depth_per_head = total_key_depth // num_heads
-    q *= key_depth_per_head**-0.5
+    if not vars_3d:
+      q *= key_depth_per_head**-0.5
 
     additional_returned_value = None
     if callable(attention_type):  # Generic way to extend multihead_attention
@@ -2817,16 +2944,10 @@ def multihead_attention(query_antecedent,
       if isinstance(x, tuple):
         x, additional_returned_value = x  # Unpack
     elif attention_type == "dot_product":
-      x = dot_product_attention(
-          q,
-          k,
-          v,
-          bias,
-          dropout_rate,
-          image_shapes,
-          save_weights_to=save_weights_to,
-          make_image_summary=make_image_summary,
-          dropout_broadcast_dims=dropout_broadcast_dims)
+      x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
+                                save_weights_to=save_weights_to,
+                                make_image_summary=make_image_summary,
+                                dropout_broadcast_dims=dropout_broadcast_dims)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
           q,
@@ -2873,8 +2994,14 @@ def multihead_attention(query_antecedent,
     # Set last dim specifically.
     x.set_shape(x.shape.as_list()[:-1] + [total_value_depth])
 
-    x = common_layers.dense(
-        x, output_depth, use_bias=False, name="output_transform")
+    if vars_3d:
+      o_var = tf.get_variable(
+          "o", [num_heads, total_value_depth // num_heads, output_depth])
+      o_var = tf.reshape(o_var, [total_value_depth, output_depth])
+      x = tf.tensordot(x, o_var, axes=1)
+    else:
+      x = common_layers.dense(
+          x, output_depth, use_bias=False, name="output_transform")
     if additional_returned_value is not None:
       return x, additional_returned_value
     return x
@@ -2905,7 +3032,7 @@ def multihead_attention_2d(query_antecedent,
     name: an optional string
 
   Returns:
-    A Tensor of shape [batch, h, w, depth_k]
+    A Tensor of shape [batch, h, w, output_depth]
 
   Raises:
     ValueError: if the key depth or value depth are not divisible by the

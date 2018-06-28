@@ -126,6 +126,8 @@ def basic_params1():
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
       symbol_modality_num_shards=1,
+      # pad vocabularies so that this value divides the vocabulary size.
+      vocab_divisor=1,
       # During training, we drop sequences whose inputs and targets are shorter
       # than min_length
       min_length=0,
@@ -152,12 +154,15 @@ def basic_params1():
       # during eval
       eval_run_autoregressive=False,
       # TODO(lukaszkaiser): these parameters should probably be set elsewhere.
-      # in SymbolModality, share the output embeddings and the softmax
-      # variables.
-      # You can also share the input embeddings with the output embeddings
+      # (SymbolModality) - If this flag is on, we try to share all of the input
+      # embeddings, the target embeddings and the softmax weights.
+      shared_embedding_and_softmax_weights=False,
+      # (SymbolModality) - If this flag is on, we try to share the input
+      # embeddings and the target embeddings.
+      # You can also share the input embeddings with the target embeddings
       # by using a problem_hparams that uses the same modality object for
       # the input_modality and target_modality.
-      shared_embedding_and_softmax_weights=False,
+      shared_embedding=False,
       # In SymbolModality, skip the top layer, assume we're providing logits.
       symbol_modality_skip_top=False,
       # For each feature for which you want to override the default input

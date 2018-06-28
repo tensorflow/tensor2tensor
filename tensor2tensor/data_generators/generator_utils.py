@@ -145,7 +145,8 @@ def generate_files(generator, output_filenames,
       switching to the next shard; by default set to 1, switch every case.
   """
   if outputs_exist(output_filenames):
-    tf.logging.info("Skipping generator because outputs files exist")
+    tf.logging.info("Skipping generator because outputs files exists at {}"
+                    .format(output_filenames))
     return
   tmp_filenames = [fname + ".incomplete" for fname in output_filenames]
   num_shards = len(output_filenames)
@@ -481,6 +482,7 @@ def _shuffle_single(fname):
 
 
 def shuffle_dataset(filenames):
+  """Shuffles the dataset."""
   if outputs_exist(filenames):
     tf.logging.info("Skipping shuffle because output files exist")
     return
@@ -490,6 +492,7 @@ def shuffle_dataset(filenames):
     pool.map(_shuffle_single, filenames)
   else:
     _shuffle_single(filenames[0])
+  tf.logging.info("Data shuffled.")
 
 
 class SequencePacker(object):

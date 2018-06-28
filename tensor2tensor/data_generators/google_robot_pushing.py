@@ -27,7 +27,6 @@ from __future__ import print_function
 import io
 import os
 import numpy as np
-from PIL import Image
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -40,6 +39,12 @@ BASE_URL = "https://storage.googleapis.com/brain-robotics-data/push/"
 DATA_TRAIN = (264, "push_train/push_train.tfrecord-{:05d}-of-00264")
 DATA_TEST_SEEN = (5, "/push_testseen/push_testseen.tfrecord-{:05d}-of-00005")
 DATA_TEST_NOVEL = (5, "/push_testnovel/push_testnovel.tfrecord-{:05d}-of-00005")
+
+
+# Lazy load PIL.Image
+def PIL_Image():  # pylint: disable=invalid-name
+  from PIL import Image  # pylint: disable=g-import-not-at-top
+  return Image
 
 
 @registry.register_problem
@@ -90,10 +95,10 @@ class VideoGoogleRobotPushing(video_utils.VideoProblem):
         state_name = state_key.format(i)
 
         byte_str = x.features.feature[image_name].bytes_list.value[0]
-        img = Image.open(io.BytesIO(byte_str))
+        img = PIL_Image().open(io.BytesIO(byte_str))
         # The original images are much bigger than 64x64
         img = img.resize((self.frame_width, self.frame_height),
-                         resample=Image.BILINEAR)
+                         resample=PIL_Image().BILINEAR)
         arr = np.array(img.getdata())
         frame = arr.reshape(
             self.frame_width, self.frame_height, self.num_channels)

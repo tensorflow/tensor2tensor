@@ -17,13 +17,16 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+from absl.testing import parameterized
 import numpy as np
+
 from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
 
-class CommonLayersTest(tf.test.TestCase):
+class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   def testIndexLastDimWithIndices(self):
     x = np.array([[2., 3., 4., 5.],
@@ -483,6 +486,97 @@ class CommonLayersTest(tf.test.TestCase):
     self.assertEqual(actual_dw_factored.shape, (vocab_size, depth))
     self.assertAllClose(actual_df, actual_df_factored)
     self.assertAllClose(actual_dw, actual_dw_factored)
+
+  @parameterized.parameters(
+      (2, 4, 4, 5, True),
+      (2, 4, 4, 5, False),
+      (1, 16, 16, 1, True),
+      (1, 16, 16, 1, False),
+  )
+  def testDmlLoss(self, batch, height, width, num_mixtures, reduce_sum):
+    channels = 3
+    pred = tf.random_normal([batch, height, width, num_mixtures * 10])
+    labels = tf.random_uniform([batch, height, width, channels],
+                               minval=0, maxval=256, dtype=tf.int32)
+    actual_loss_num, actual_loss_den = common_layers.dml_loss(
+        pred=pred, labels=labels, reduce_sum=reduce_sum)
+    actual_loss = actual_loss_num / actual_loss_den
+
+    real_labels = common_layers.convert_rgb_to_symmetric_real(labels)
+    expected_loss = common_layers.discretized_mix_logistic_loss(
+        pred=pred, labels=real_labels) / channels
+    if reduce_sum:
+      expected_loss = tf.reduce_mean(expected_loss)
+
+    with self.test_session() as sess:
+      actual_loss_val, expected_loss_val = sess.run(
+          [actual_loss, expected_loss])
+    self.assertAllClose(actual_loss_val, expected_loss_val)
+
+  def testDiscretizedMixLogisticLoss(self):
+    batch = 2
+    height = 4
+    width = 4
+    channels = 3
+    num_mixtures = 5
+    logits = tf.concat(  # assign all probability mass to first component
+        [tf.ones([batch, height, width, 1]) * 1e8,
+         tf.zeros([batch, height, width, num_mixtures - 1])],
+        axis=-1)
+    locs = tf.random_uniform([batch, height, width, num_mixtures * 3],
+                             minval=-.9, maxval=.9)
+    log_scales = tf.random_uniform([batch, height, width, num_mixtures * 3],
+                                   minval=-1., maxval=1.)
+    coeffs = tf.atanh(tf.zeros([batch, height, width, num_mixtures * 3]))
+    pred = tf.concat([logits, locs, log_scales, coeffs], axis=-1)
+
+    # Test labels that don't satisfy edge cases where 8-bit value is 0 or 255.
+    labels = tf.random_uniform([batch, height, width, channels],
+                               minval=-.9, maxval=.9)
+    locs_0 = locs[..., :3]
+    log_scales_0 = log_scales[..., :3]
+    centered_labels = labels - locs_0
+    inv_stdv = tf.exp(-log_scales_0)
+    plus_in = inv_stdv * (centered_labels + 1. / 255.)
+    min_in = inv_stdv * (centered_labels - 1. / 255.)
+    cdf_plus = tf.nn.sigmoid(plus_in)
+    cdf_min = tf.nn.sigmoid(min_in)
+    expected_loss = -tf.reduce_sum(tf.log(cdf_plus - cdf_min), axis=-1)
+
+    actual_loss = common_layers.discretized_mix_logistic_loss(
+        pred=pred, labels=labels)
+    with self.test_session() as session:
+      actual_loss_val, expected_loss_val = session.run(
+          [actual_loss, expected_loss])
+    self.assertAllClose(actual_loss_val, expected_loss_val, rtol=1e-5)
+
+  def testSampleFromDiscretizedMixLogistic(self):
+    batch = 2
+    height = 4
+    width = 4
+    num_mixtures = 5
+    seed = 42
+    logits = tf.concat(  # assign all probability mass to first component
+        [tf.ones([batch, height, width, 1]) * 1e8,
+         tf.zeros([batch, height, width, num_mixtures - 1])],
+        axis=-1)
+    locs = tf.random_uniform([batch, height, width, num_mixtures * 3],
+                             minval=-.9, maxval=.9)
+    log_scales = tf.ones([batch, height, width, num_mixtures * 3]) * -1e8
+    coeffs = tf.atanh(tf.zeros([batch, height, width, num_mixtures * 3]))
+    pred = tf.concat([logits, locs, log_scales, coeffs], axis=-1)
+
+    locs_0 = locs[..., :3]
+    expected_sample = tf.clip_by_value(locs_0, -1., 1.)
+
+    actual_sample = common_layers.sample_from_discretized_mix_logistic(
+        pred, seed=seed)
+    with self.test_session() as session:
+      actual_sample_val, expected_sample_val = session.run(
+          [actual_sample, expected_sample])
+    # Use a low tolerance: samples numerically differ, as the actual
+    # implementation clips log-scales so they always contribute to sampling.
+    self.assertAllClose(actual_sample_val, expected_sample_val, atol=1e-2)
 
   def testFactoredTensorImplicitConversion(self):
     a = np.random.rand(3, 4, 5)

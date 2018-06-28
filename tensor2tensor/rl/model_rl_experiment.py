@@ -26,16 +26,16 @@ from __future__ import division
 from __future__ import print_function
 
 import contextlib
+import copy
 import datetime
 import math
 import os
 import time
+
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.rl.envs.tf_atari_wrappers import StackAndSkipWrapper
-from tensor2tensor.rl.envs.tf_atari_wrappers import TimeLimitWrapper
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
@@ -101,7 +101,8 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
     gym_problem.eval_phase = eval_phase
     gym_problem.generate_data(data_dir, tmp_dir)
-    mean_reward = gym_problem.sum_of_rewards / (1.0 + gym_problem.dones)
+    mean_reward = gym_problem.statistics.sum_of_rewards / \
+                  (1.0 + gym_problem.statistics.number_of_dones)
 
   return mean_reward
 
@@ -139,25 +140,24 @@ def train_agent(problem_name, agent_model_dir,
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
   ppo_epochs_num = hparams.ppo_epochs_num
   ppo_hparams.epochs_num = ppo_epochs_num
-  ppo_hparams.simulated_environment = True
-  ppo_hparams.simulation_random_starts = hparams.simulation_random_starts
-  ppo_hparams.intrinsic_reward_scale = hparams.intrinsic_reward_scale
   ppo_hparams.eval_every_epochs = 50
   ppo_hparams.save_models_every_epochs = ppo_epochs_num
   ppo_hparams.epoch_length = hparams.ppo_epoch_length
   ppo_hparams.num_agents = hparams.ppo_num_agents
-  ppo_hparams.problem = gym_problem
   ppo_hparams.world_model_dir = world_model_dir
+  ppo_hparams.add_hparam("force_beginning_resets", True)
   if hparams.ppo_learning_rate:
     ppo_hparams.learning_rate = hparams.ppo_learning_rate
-  # 4x for the StackAndSkipWrapper minus one to always finish for reporting.
-  ppo_time_limit = (ppo_hparams.epoch_length - 1) * 4
 
-  in_graph_wrappers = [
-      (TimeLimitWrapper, {"timelimit": ppo_time_limit}),
-      (StackAndSkipWrapper, {"skip": 4})]
-  in_graph_wrappers += gym_problem.in_graph_wrappers
-  ppo_hparams.add_hparam("in_graph_wrappers", in_graph_wrappers)
+  # Adding model hparams for model specific adjustments
+  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+  ppo_hparams.add_hparam("model_hparams", model_hparams)
+
+  environment_spec = copy.copy(gym_problem.environment_spec)
+  environment_spec.simulation_random_starts = hparams.simulation_random_starts
+  environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
+
+  ppo_hparams.add_hparam("environment_spec", environment_spec)
 
   with temporary_flags({
       "problem": problem_name,
@@ -167,8 +167,7 @@ def train_agent(problem_name, agent_model_dir,
       "data_dir": epoch_data_dir,
       "autoencoder_path": autoencoder_path,
   }):
-    rl_trainer_lib.train(ppo_hparams, gym_problem.env_name, event_dir,
-                         agent_model_dir, epoch=epoch)
+    rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=epoch)
 
 
 def evaluate_world_model(simulated_problem_name, problem_name, hparams,
@@ -176,12 +175,8 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
                          autoencoder_path=None):
   """Generate simulated environment data and return reward accuracy."""
   gym_simulated_problem = registry.problem(simulated_problem_name)
-  gym_problem = registry.problem(problem_name)
   sim_steps = hparams.simulated_env_generator_num_steps
   gym_simulated_problem.settable_num_steps = sim_steps
-  gym_simulated_problem.real_env_problem = gym_problem
-  gym_simulated_problem.simulation_random_starts = False
-  gym_simulated_problem.intrinsic_reward_scale = 0.
   with temporary_flags({
       "problem": problem_name,
       "model": hparams.generative_model,
@@ -191,9 +186,10 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
       "autoencoder_path": autoencoder_path,
   }):
     gym_simulated_problem.generate_data(epoch_data_dir, tmp_dir)
-  n = max(1., gym_simulated_problem.dones)
+  n = max(1., gym_simulated_problem.statistics.number_of_dones)
   model_reward_accuracy = (
-      gym_simulated_problem.successful_episode_reward_predictions / float(n))
+      gym_simulated_problem.statistics.successful_episode_reward_predictions
+      / float(n))
   return model_reward_accuracy
 
 
@@ -404,7 +400,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     ppo_model_dir = directories["ppo"]
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
-    train_agent(world_model_problem, ppo_model_dir,
+    train_agent(simulated_problem_name, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
                 hparams, autoencoder_path=autoencoder_model_dir, epoch=epoch)
 
@@ -428,8 +424,6 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   # Report the evaluation metrics from the final epoch
   return epoch_metrics[-1]
-
-
 
 
 def combine_training_data(problem, final_data_dir, old_data_dirs,
@@ -486,8 +480,17 @@ def rl_modelrl_base():
       game="wrapped_long_pong",
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
-      eval_world_model=False,
+      eval_world_model=True,
   )
+
+
+@registry.register_hparams
+def rl_modelrl_base_stochastic():
+  """Base setting with a stochastic next-frame model."""
+  hparams = rl_modelrl_base()
+  hparams.generative_model = "next_frame_stochastic"
+  hparams.generative_model_params = "next_frame_stochastic_cutoff"
+  return hparams
 
 
 @registry.register_hparams
@@ -530,6 +533,15 @@ def rl_modelrl_tiny():
           ppo_epoch_length=5,
           ppo_num_agents=2,
       ).values())
+
+
+@registry.register_hparams
+def rl_modelrl_tiny_stochastic():
+  """Tiny setting with a stochastic next-frame model."""
+  hparams = rl_modelrl_tiny()
+  hparams.generative_model = "next_frame_stochastic"
+  hparams.generative_model_params = "next_frame_stochastic_tiny"
+  return hparams
 
 
 @registry.register_hparams

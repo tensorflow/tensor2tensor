@@ -59,8 +59,7 @@ class SymbolModality(modality.Modality):
           # autoregressively predicting the inputs portion, while the
           # evaluation is only done on the output
           hp.prepend_mode != "prepend_inputs_masked_attention" or
-          hp.mode != tf.estimator.ModeKeys.TRAIN
-      ):
+          hp.mode != tf.estimator.ModeKeys.TRAIN):
         weights_fn = common_layers.weights_prepend_inputs_to_targets
 
     return weights_fn
@@ -114,12 +113,14 @@ class SymbolModality(modality.Modality):
 
   def bottom(self, x):
     self._bottom_was_called = True
-    if self._model_hparams.shared_embedding_and_softmax_weights:
+    if (self._model_hparams.shared_embedding_and_softmax_weights or
+        self._model_hparams.get("shared_embedding")):
       return self.bottom_simple(x, "shared", reuse=None)
     return self.bottom_simple(x, "input_emb", reuse=None)
 
   def targets_bottom(self, x):
-    if self._model_hparams.shared_embedding_and_softmax_weights:
+    if (self._model_hparams.shared_embedding_and_softmax_weights or
+        self._model_hparams.get("shared_embedding")):
       try:
         return self.bottom_simple(x, "shared", reuse=True)
       except ValueError:
@@ -163,8 +164,8 @@ class SymbolModality(modality.Modality):
           # TODO(noam): remove this once TPU is more forgiving of extra dims.
           return logits
         else:
-          return tf.reshape(
-              logits, body_output_shape[:-1] + [1, self._vocab_size])
+          return tf.reshape(logits,
+                            body_output_shape[:-1] + [1, self._vocab_size])
 
 
 @registry.register_symbol_modality("weights_all")
@@ -213,17 +214,19 @@ class ImageModality(modality.Modality):
 
   def bottom(self, x):
     with tf.variable_scope(self.name):
-      x = tf.to_float(x)
       if not tf.contrib.eager.in_eager_mode():
-        tf.summary.image("inputs", x, max_outputs=2)
-      return x
+        tf.summary.image(
+            "inputs", common_layers.tpu_safe_image_summary(x), max_outputs=2)
+      return tf.to_float(x)
 
   def targets_bottom(self, x):
     inputs = x
     with tf.variable_scope(self.name):
       if not tf.contrib.eager.in_eager_mode():
-        tf.summary.image("targets_bottom",
-                         tf.cast(inputs, tf.uint8), max_outputs=1)
+        tf.summary.image(
+            "targets_bottom",
+            common_layers.tpu_safe_image_summary(inputs),
+            max_outputs=1)
       inputs_shape = common_layers.shape_list(inputs)
       if len(inputs_shape) != 4:
         raise ValueError("Assuming images given as int tensors in the format "
@@ -238,8 +241,10 @@ class ImageModality(modality.Modality):
       # Let's now merge all channels that were embedded into a single vector.
       merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[3]
       embedded = tf.reshape(embedded, inputs_shape[:3] + [merged_size])
-      merged = tf.layers.dense(embedded, self._body_input_depth,
-                               name="merge_pixel_embedded_channels")
+      merged = tf.layers.dense(
+          embedded,
+          self._body_input_depth,
+          name="merge_pixel_embedded_channels")
       return merged
 
   def top(self, body_output, _):
@@ -252,8 +257,11 @@ class ImageModality(modality.Modality):
       res = tf.layers.dense(body_output, self.top_dimensionality * num_channels)
       res = tf.reshape(res, reshape_shape)
       if not tf.get_variable_scope().reuse:
-        res_argmax = tf.cast(tf.argmax(res, axis=-1), tf.uint8)
-        tf.summary.image("result", res_argmax, max_outputs=1)
+        res_argmax = tf.argmax(res, axis=-1)
+        tf.summary.image(
+            "result",
+            common_layers.tpu_safe_image_summary(res_argmax),
+            max_outputs=1)
       return res
 
   def loss(self, top_out, targets):
@@ -292,18 +300,22 @@ class ImageChannelCompressModality(modality.Modality):
       inputs = tf.to_float(inputs)
       hp = self._model_hparams
       if hp.mode != tf.estimator.ModeKeys.PREDICT:
-        tf.summary.image("inputs", inputs, max_outputs=2)
+        tf.summary.image(
+            "inputs",
+            common_layers.tpu_safe_image_summary(inputs),
+            max_outputs=2)
       inputs = common_layers.convert_rgb_to_symmetric_real(inputs)
       ishape = common_layers.shape_list(inputs)
       inputs = tf.reshape(inputs, [-1, ishape[1], ishape[2] * ishape[3], 1])
       inputs.set_shape([None, None, None, 1])
       # We compress RGB intensities for each pixel using a conv.
-      x = tf.layers.conv2d(inputs,
-                           self._body_input_depth, (1, self.num_channels),
-                           padding="VALID",
-                           strides=(1, self.num_channels),
-                           activation=tf.nn.relu,
-                           name="conv_input")
+      x = tf.layers.conv2d(
+          inputs,
+          self._body_input_depth, (1, self.num_channels),
+          padding="VALID",
+          strides=(1, self.num_channels),
+          activation=tf.nn.relu,
+          name="conv_input")
       x.set_shape([None, None, None, self._body_input_depth])
       return x
 
@@ -321,16 +333,15 @@ class ImageChannelCompressModality(modality.Modality):
       batch = common_layers.shape_list(body_output)[0]
       x = tf.layers.conv2d(
           body_output,
-          hidden_dim*channels, (1, 1),
+          hidden_dim * channels, (1, 1),
           strides=(1, 1),
           padding="VALID",
           activation=tf.nn.relu,
           name="decompress_conv")
       x = tf.reshape(x, [batch, img_len, img_len * channels, hidden_dim])
       x = common_layers.layer_preprocess(x, self._model_hparams)
-      x = tf.layers.dense(x, 256,
-                          use_bias=True, activation=None,
-                          name="output_conv")
+      x = tf.layers.dense(
+          x, 256, use_bias=True, activation=None, name="output_conv")
       x = tf.reshape(x,
                      [-1, img_len, img_len, channels, self.top_dimensionality])
       return x
@@ -347,7 +358,10 @@ class ImageChannelBottomIdentityModality(ImageChannelCompressModality):
 class ImageChannelEmbeddingsBottom(modality.Modality):
   """Modality for images using channel compression for generation."""
 
-  def get_channel_embeddings(self, io_depth, targets, hidden_size,
+  def get_channel_embeddings(self,
+                             io_depth,
+                             targets,
+                             hidden_size,
                              name="channel"):
     """Get separate embedding for each of the channels."""
     targets_split = tf.split(targets, io_depth, axis=3)
@@ -370,18 +384,17 @@ class ImageChannelEmbeddingsBottom(modality.Modality):
     io_depth = self._model_hparams.num_channels
     tshape = common_layers.shape_list(inputs)
     hidden_size = self._model_hparams.hidden_size
-    target_embeddings = self.get_channel_embeddings(
-        io_depth, inputs, hidden_size, "input_bottom")
+    target_embeddings = self.get_channel_embeddings(io_depth, inputs,
+                                                    hidden_size, "input_bottom")
     return tf.reshape(target_embeddings,
-                      [tshape[0], tshape[1], tshape[2]*io_depth, hidden_size])
+                      [tshape[0], tshape[1], tshape[2] * io_depth, hidden_size])
 
   def top(self, body_output, _):
     with tf.variable_scope(self.name):
       img_len = self._model_hparams.img_len
       channels = self._model_hparams.num_channels
-      x = tf.layers.dense(body_output, 256,
-                          use_bias=True, activation=None,
-                          name="output_conv")
+      x = tf.layers.dense(
+          body_output, 256, use_bias=True, activation=None, name="output_conv")
       x = tf.reshape(x,
                      [-1, img_len, img_len, channels, self.top_dimensionality])
       return x
@@ -494,10 +507,10 @@ class VideoModality(modality.Modality):
       inputs = tf.reshape(inputs, inputs_shape)
       # Concatenate the time dimension on channels for image models to work.
       transposed = tf.transpose(inputs, [0, 2, 3, 1, 4])
-      return tf.reshape(
-          transposed,
-          [inputs_shape[0], inputs_shape[2], inputs_shape[3],
-           inputs_shape[1] * inputs_shape[4]])
+      return tf.reshape(transposed, [
+          inputs_shape[0], inputs_shape[2], inputs_shape[3],
+          inputs_shape[1] * inputs_shape[4]
+      ])
 
   def targets_bottom(self, x, summary_prefix="targets_bottom"):  # pylint: disable=arguments-differ
     inputs = x
@@ -515,8 +528,10 @@ class VideoModality(modality.Modality):
       merged_size = self.PIXEL_EMBEDDING_SIZE * inputs_shape[4]
       embedded = tf.reshape(embedded, inputs_shape[:4] + [merged_size])
       transposed = common_layers.time_to_channels(embedded)
-      return tf.layers.dense(transposed, self._body_input_depth,
-                             name="merge_pixel_embedded_frames")
+      return tf.layers.dense(
+          transposed,
+          self._body_input_depth,
+          name="merge_pixel_embedded_frames")
 
   def top(self, body_output, _):
     num_channels = self._model_hparams.problem.num_channels
@@ -525,14 +540,16 @@ class VideoModality(modality.Modality):
       body_output_shape = common_layers.shape_list(body_output)
       reshape_shape = body_output_shape[:3]
       reshape_shape.extend([num_channels, num_frames, self.top_dimensionality])
-      res = tf.layers.dense(
-          body_output, self.top_dimensionality * num_channels * num_frames)
+      res = tf.layers.dense(body_output,
+                            self.top_dimensionality * num_channels * num_frames)
       res = tf.reshape(res, reshape_shape)
       res = tf.transpose(res, [0, 4, 1, 2, 3, 5])
       if not tf.get_variable_scope().reuse:
-        res_argmax = tf.cast(tf.argmax(res[:, -1, :, :, :, :], axis=-1),
-                             tf.uint8)
-        tf.summary.image("result", res_argmax, max_outputs=1)
+        res_argmax = tf.argmax(res[:, -1, :, :, :, :], axis=-1)
+        tf.summary.image(
+            "result",
+            common_layers.tpu_safe_image_summary(res_argmax),
+            max_outputs=1)
       return res
 
   def loss(self, top_out, targets):
@@ -547,31 +564,6 @@ class VideoModality(modality.Modality):
         self._model_hparams.label_smoothing,
         cutoff=cutoff,
         weights_fn=self.targets_weights_fn)
-
-
-@registry.register_video_modality("raw")
-class VideoModalityRaw(modality.Modality):
-  """Modality for raw videos, i.e., time-sequences of frames."""
-
-  def bottom(self, x):
-    common_layers.summarize_video(x, "inputs")
-    return common_layers.convert_rgb_to_real(x)
-
-  def targets_bottom(self, x):
-    common_layers.summarize_video(x, "targets_bottom")
-    return common_layers.convert_rgb_to_real(x)
-
-  def top(self, body_output, _):
-    frames = tf.stack(body_output, axis=1)
-    rgb_frames = common_layers.convert_real_to_rgb(frames)
-    common_layers.summarize_video(rgb_frames, "body_output")
-    # TODO(lukaszkaiser): remove the need for the last dimension of 1 in eval.
-    return tf.expand_dims(rgb_frames, axis=-1)
-
-  def loss(self, top_out, targets):
-    top_out = tf.squeeze(top_out, axis=[-1])
-    loss = tf.square(top_out - tf.to_float(targets))
-    return tf.reduce_sum(loss), tf.reduce_sum(tf.ones_like(loss))
 
 
 @registry.register_video_modality("embed")
@@ -593,12 +585,14 @@ class VideoModalityBitwise(VideoModality):
       common_layers.summarize_video(inputs, "bottom")
       # Embed bitwise.
       assert self.top_dimensionality == 256
-      embedded = discretization.int_to_bit_embed(
-          inputs, 8, self.PIXEL_EMBEDDING_SIZE)
+      embedded = discretization.int_to_bit_embed(inputs, 8,
+                                                 self.PIXEL_EMBEDDING_SIZE)
       # Transpose and project.
       transposed = common_layers.time_to_channels(embedded)
-      return tf.layers.dense(transposed, self._body_input_depth,
-                             name="merge_pixel_embedded_frames")
+      return tf.layers.dense(
+          transposed,
+          self._body_input_depth,
+          name="merge_pixel_embedded_frames")
 
   def targets_bottom(self, x):  # pylint: disable=arguments-differ
     inputs = x
@@ -606,12 +600,14 @@ class VideoModalityBitwise(VideoModality):
       common_layers.summarize_video(inputs, "targets_bottom")
       # Embed bitwise.
       assert self.top_dimensionality == 256
-      embedded = discretization.int_to_bit_embed(
-          inputs, 8, self.PIXEL_EMBEDDING_SIZE)
+      embedded = discretization.int_to_bit_embed(inputs, 8,
+                                                 self.PIXEL_EMBEDDING_SIZE)
       # Transpose and project.
       transposed = common_layers.time_to_channels(embedded)
-      return tf.layers.dense(transposed, self._body_input_depth,
-                             name="merge_pixel_embedded_frames")
+      return tf.layers.dense(
+          transposed,
+          self._body_input_depth,
+          name="merge_pixel_embedded_frames")
 
 
 @registry.register_video_modality("l1")
@@ -627,8 +623,11 @@ class VideoModalityL1(VideoModality):
       res = tf.reshape(res, body_output_shape[:3] + [num_channels, num_frames])
       res = tf.transpose(res, [0, 4, 1, 2, 3])  # Move frames next to batch.
       if not tf.get_variable_scope().reuse:
-        res_argmax = tf.cast(res[:, -1, :, :, :], tf.uint8)
-        tf.summary.image("result", res_argmax, max_outputs=1)
+        res_argmax = res[:, -1, :, :, :]
+        tf.summary.image(
+            "result",
+            common_layers.tpu_safe_image_summary(res_argmax),
+            max_outputs=1)
       return tf.expand_dims(res, axis=-1)  # Add an axis like in perplexity.
 
   @property
@@ -659,6 +658,33 @@ class VideoModalityL2(VideoModalityL1):
 
   def internal_loss(self, logits, targets):
     return tf.nn.relu((logits - targets)**2 - self.cutoff * self.cutoff)
+
+
+@registry.register_video_modality("l2raw")
+class VideoModalityL2Raw(VideoModalityL2):
+  """Modality with L2 loss and raw input (sequences of frames)."""
+
+  def bottom(self, x):
+    common_layers.summarize_video(x, "inputs")
+    return common_layers.convert_rgb_to_real(x)
+
+  def targets_bottom(self, x):  # pylint: disable=arguments-differ
+    common_layers.summarize_video(x, "targets_bottom")
+    return common_layers.convert_rgb_to_real(x)
+
+  def top(self, body_output, _):
+    frames = tf.stack(body_output, axis=1)
+    rgb_frames = common_layers.convert_real_to_rgb(frames)
+    common_layers.summarize_video(rgb_frames, "body_output")
+    return tf.expand_dims(rgb_frames, axis=-1)
+
+  def loss(self, top_out, targets):
+    prediction = top_out
+    prediction = tf.squeeze(prediction, axis=-1)
+    prediction = common_layers.convert_rgb_to_real(prediction)
+    groundtruth = common_layers.convert_rgb_to_real(targets)
+    loss = tf.losses.mean_squared_error(prediction, groundtruth)
+    return loss, tf.constant(1.0)
 
 
 @registry.register_class_label_modality("default")
@@ -700,6 +726,35 @@ class ClassLabelModality(modality.Modality):
       x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
       res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
+
+
+@registry.register_class_label_modality("multi_label")
+class MultiLabelModality(ClassLabelModality):
+  """Used for multi label task."""
+
+  def targets_weights_fn(self):
+    """Target weight function for multi label, defaults to nonzero labels."""
+    weights_fn = common_layers.weights_nonzero
+    return weights_fn
+
+  def loss(self, top_out, targets):
+    """Average loss over the labels."""
+    logits = top_out
+    num_labels = tf.shape(targets)[1]
+    logits = tf.tile(logits, [1, num_labels, 1, 1])
+
+    xent, weights = common_layers.padded_cross_entropy(
+        logits,
+        targets,
+        self._model_hparams.label_smoothing,
+        weights_fn=self.targets_weights_fn,
+    )
+    xent = tf.squeeze(xent, [2, 3])
+    weights = tf.squeeze(xent, [2, 3])
+    # average loss over all labels
+    loss = (
+        tf.reduce_sum(xent, axis=1) / (tf.reduce_sum(weights, axis=1) + 1e-8))
+    return tf.reduce_mean(loss)
 
 
 @registry.register_class_label_modality("onehot")
@@ -745,10 +800,14 @@ class RealModality(modality.Modality):
   * Top is a linear projection layer to vocab_size.
   """
 
+  @property
+  def top_is_pointwise(self):
+    return True
+
   def bottom(self, x):
     with tf.variable_scope("real"):
-      return tf.layers.dense(tf.to_float(x), self._body_input_depth,
-                             name="bottom")
+      return tf.layers.dense(
+          tf.to_float(x), self._body_input_depth, name="bottom")
 
   def top(self, body_output, _):
     with tf.variable_scope("real"):

@@ -72,8 +72,8 @@ def create_hparams():
 
 def create_decode_hparams():
   decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
-  decode_hp.add_hparam("shards", FLAGS.decode_shards)
-  decode_hp.add_hparam("shard_id", FLAGS.worker_id)
+  decode_hp.shards = FLAGS.decode_shards
+  decode_hp.shard_id = FLAGS.worker_id
   return decode_hp
 
 
