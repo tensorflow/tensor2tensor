@@ -138,16 +138,19 @@ def train_agent(problem_name, agent_model_dir,
   """Train the PPO agent in the simulated environment."""
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
+  ppo_params_names = ["epochs_num", "epoch_length",
+                      "learning_rate", "num_agents",
+                      "optimization_epochs"]
+
+  for param_name in ppo_params_names:
+    ppo_param_name = "ppo_"+ param_name
+    if ppo_param_name in hparams:
+      ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
+
   ppo_epochs_num = hparams.ppo_epochs_num
-  ppo_hparams.epochs_num = ppo_epochs_num
-  ppo_hparams.eval_every_epochs = 50
   ppo_hparams.save_models_every_epochs = ppo_epochs_num
-  ppo_hparams.epoch_length = hparams.ppo_epoch_length
-  ppo_hparams.num_agents = hparams.ppo_num_agents
   ppo_hparams.world_model_dir = world_model_dir
   ppo_hparams.add_hparam("force_beginning_resets", True)
-  if hparams.ppo_learning_rate:
-    ppo_hparams.learning_rate = hparams.ppo_learning_rate
 
   # Adding model hparams for model specific adjustments
   model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
@@ -190,6 +193,9 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
   model_reward_accuracy = (
       gym_simulated_problem.statistics.successful_episode_reward_predictions
       / float(n))
+  old_path = os.path.join(epoch_data_dir, "debug_frames_env")
+  new_path = os.path.join(epoch_data_dir, "debug_frames_env_eval")
+  tf.gfile.Rename(old_path, new_path)
   return model_reward_accuracy
 
 
@@ -473,7 +479,6 @@ def rl_modelrl_base():
       # though it is not necessary.
       ppo_epoch_length=60,
       ppo_num_agents=16,
-      ppo_learning_rate=0.,
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
       ppo_continue_training=True,
