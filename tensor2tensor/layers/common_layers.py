@@ -1938,30 +1938,44 @@ def padded_cross_entropy(logits,
     return tf.reduce_sum(xent * weights), tf.reduce_sum(weights)
 
 
-def dml_loss(
-    pred,
-    labels,
-    weights_fn=weights_nonzero,  # Unused
-    reduce_sum=True):
+def _weights_one_third(labels):
+  """Returns Tensor of shape [batch, height, width]. Each element is 1/3."""
+  return tf.ones(tf.shape(labels)[:-1]) / 3.
+
+
+def dml_loss(pred,
+             labels,
+             weights_fn=_weights_one_third,
+             reduce_sum=True):
   """Discretized mixture of logistics loss.
 
   Args:
-    pred: a tensor of shape [batch, height, width, 10*num_mixtures]
-    labels: a [batch, height, width, channels] tensor of real pixel intensities
-    weights_fn: weights function
-    reduce_sum: A boolean, to return scalar mean loss instead of per position
+    pred: A [batch, height, width, num_mixtures*10] tensor of floats
+      comprising one unconstrained mixture probability, three means
+      (one per channel), three standard deviations (one per channel),
+      and three coefficients which linearly parameterize dependence across
+      channels.
+    labels: A [batch, height, width, channels] tensor of 8-bit pixel
+      intensities. The computation assumes channels is 3.
+    weights_fn: A function of labels, returning a Tensor of shape
+      [batch, height, width] which weights each loss term. Default is to scale
+      each loss term by 1/3 so that they capture the average across channels.
+    reduce_sum: A boolean, to return scalar loss instead of per position.
 
   Returns:
-    a pair of tensors of loss/sum of losses, denominator
+    Tuple of loss tensors for numerator and denominator, each a scalar if
+    reduce_sum else of shape [batch, height, width]. The sum of their divisions
+    is the number of nats for each pixel in labels.
   """
-  del weights_fn  # Unused
   real_labels = convert_rgb_to_symmetric_real(labels)
-  dml_loss_value = discretized_mix_logistic_loss(
-      real_labels, pred, sum_all=reduce_sum)
+  dml_loss_value = discretized_mix_logistic_loss(pred=pred, labels=real_labels)
+  weights = weights_fn(labels)
+  loss_num = weights * dml_loss_value
+  loss_den = weights_nonzero(weights)
   if reduce_sum:
-    return dml_loss_value, tf.reduce_sum(tf.ones(tf.shape(labels), tf.float32))
-  else:
-    return dml_loss_value / 3., tf.ones(tf.shape(dml_loss_value), tf.float32)
+    loss_num = tf.reduce_sum(loss_num)
+    loss_den = tf.reduce_sum(loss_den)
+  return loss_num, loss_den
 
 
 def split_to_discretized_mix_logistic_params(inputs):
@@ -1997,7 +2011,7 @@ def split_to_discretized_mix_logistic_params(inputs):
   return logits, locs, log_scales, coeffs
 
 
-def discretized_mix_logistic_loss(labels, pred, sum_all=True):
+def discretized_mix_logistic_loss(pred, labels):
   """Computes negative log probability for the discretized mixture of logistics.
 
   The distribution of a whole pixel is a mixture of 3-dimensional discretized
@@ -2018,19 +2032,17 @@ def discretized_mix_logistic_loss(labels, pred, sum_all=True):
   8-bit inputs, this implementation assumes the events are rescaled to [-1, 1].
 
   Args:
-    labels: A [batch, height, width, channels] tensor of true pixel intensities
-      rescaled to [-1, 1]. The computation assumes channels is 3.
     pred: A [batch, height, width, num_mixtures*10] tensor of floats
       comprising one unconstrained mixture probability, three means
       (one per channel), three standard deviations (one per channel),
       and three coefficients which linearly parameterize dependence across
       channels.
-    sum_all: A boolean to return scalar mean loss or per position.
+    labels: A [batch, height, width, channels] tensor of true pixel intensities
+      rescaled to [-1, 1]. The computation assumes channels is 3.
 
   Returns:
     A [batch, height, width] tensor of the negative log conditional probability
-    of each pixel given all previous pixels if not sum_all else add all the
-    losses (for eval).
+    of each pixel given all previous pixels.
   """
 
   logits, locs, log_scales, coeffs = split_to_discretized_mix_logistic_params(
@@ -2079,12 +2091,8 @@ def discretized_mix_logistic_loss(labels, pred, sum_all=True):
 
   # Sum over channels and compute log-probability of each mixture.
   log_probs = tf.reduce_sum(log_probs, -1) + tf.nn.log_softmax(logits, axis=-1)
-  if sum_all:
-    output = -tf.reduce_sum(tf.reduce_logsumexp(log_probs, axis=-1))
-    return output
-  else:
-    output = -tf.reduce_logsumexp(log_probs, axis=-1)
-    return output
+  output = -tf.reduce_logsumexp(log_probs, axis=-1)
+  return output
 
 
 def sample_from_discretized_mix_logistic(pred, seed=None):

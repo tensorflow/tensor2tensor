@@ -17,13 +17,16 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+from absl.testing import parameterized
 import numpy as np
+
 from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
 
-class CommonLayersTest(tf.test.TestCase):
+class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
 
   def testIndexLastDimWithIndices(self):
     x = np.array([[2., 3., 4., 5.],
@@ -484,6 +487,32 @@ class CommonLayersTest(tf.test.TestCase):
     self.assertAllClose(actual_df, actual_df_factored)
     self.assertAllClose(actual_dw, actual_dw_factored)
 
+  @parameterized.parameters(
+      (2, 4, 4, 5, True),
+      (2, 4, 4, 5, False),
+      (1, 16, 16, 1, True),
+      (1, 16, 16, 1, False),
+  )
+  def testDmlLoss(self, batch, height, width, num_mixtures, reduce_sum):
+    channels = 3
+    pred = tf.random_normal([batch, height, width, num_mixtures * 10])
+    labels = tf.random_uniform([batch, height, width, channels],
+                               minval=0, maxval=256, dtype=tf.int32)
+    actual_loss_num, actual_loss_den = common_layers.dml_loss(
+        pred=pred, labels=labels, reduce_sum=reduce_sum)
+    actual_loss = actual_loss_num / actual_loss_den
+
+    real_labels = common_layers.convert_rgb_to_symmetric_real(labels)
+    expected_loss = common_layers.discretized_mix_logistic_loss(
+        pred=pred, labels=real_labels) / channels
+    if reduce_sum:
+      expected_loss = tf.reduce_mean(expected_loss)
+
+    with self.test_session() as sess:
+      actual_loss_val, expected_loss_val = sess.run(
+          [actual_loss, expected_loss])
+    self.assertAllClose(actual_loss_val, expected_loss_val)
+
   def testDiscretizedMixLogisticLoss(self):
     batch = 2
     height = 4
@@ -515,7 +544,7 @@ class CommonLayersTest(tf.test.TestCase):
     expected_loss = -tf.reduce_sum(tf.log(cdf_plus - cdf_min), axis=-1)
 
     actual_loss = common_layers.discretized_mix_logistic_loss(
-        labels, pred, sum_all=False)
+        pred=pred, labels=labels)
     with self.test_session() as session:
       actual_loss_val, expected_loss_val = session.run(
           [actual_loss, expected_loss])
