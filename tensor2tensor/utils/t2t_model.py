@@ -1535,7 +1535,9 @@ def _create_host_call(model_dir):
   gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
   summary_kwargs = collections.OrderedDict()
   for t in summaries:
-    if t.op.type not in ["ScalarSummary", "ImageSummary"]:
+    # TODO(aidangomez): enable ImageSummary support when we have a faster method
+    # see @shibow's comment in cl/202344570
+    if t.op.type not in ["ScalarSummary"]:
       tf.logging.warn("Ignoring unsupported tf.Summary type %s" % t.op.type)
       continue
 
