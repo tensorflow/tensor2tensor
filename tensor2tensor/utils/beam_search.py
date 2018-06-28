@@ -460,7 +460,7 @@ def beam_search(symbols_to_logits_fn,
             finished_flags, states)
 
   def _is_finished(i, unused_alive_seq, alive_log_probs, unused_finished_seq,
-                   finished_scores, finished_in_finished, unused_states):
+                   finished_scores, unused_finished_in_finished, unused_states):
     """Checking termination condition.
 
     We terminate when we decoded up to decode_length or the lowest scoring item
@@ -471,8 +471,6 @@ def beam_search(symbols_to_logits_fn,
       i: loop index
       alive_log_probs: probabilities of the beams. [batch_size, beam_size]
       finished_scores: scores for each of these sequences.
-        [batch_size, beam_size]
-      finished_in_finished: finished bools for each of these sequences.
         [batch_size, beam_size]
 
     Returns:
