@@ -37,14 +37,19 @@ class MultiProblem(problem.Problem):
       assert task.vocab_type == text_problems.VocabType.CHARACTER
       task.generate_data(data_dir, tmp_dir, task_id)
 
-  def add_task_id(self, task_id, serialized_example):
+  def add_task_id(self, task, example):
     """Convert example to code switching mode by adding a task id."""
-    serialized_example["targets"] = tf.concat(serialized_example["inputs"],
-                                              [task_id],
-                                              serialized_example["targets"], 0)
-    del serialized_example["inputs"]
+    if task.has_inputs:
+      inputs = example.pop("inputs")
+      concat_list = [inputs, [task.task_id], example["targets"]]
+    else:
+      concat_list = [[task.task_id], example["targets"]]
+
+    example["targets"] = tf.concat(concat_list, 0)
+    return example
 
   def filepattern(self, data_dir, mode, shard=None):
+    print("Generating multi problem filepattern")
     return [task.filepattern(data_dir, mode, shard) for task in self.task_list]
 
   def dataset(self,
@@ -70,21 +75,19 @@ class MultiProblem(problem.Problem):
                                   hparams, preprocess, dataset_split,
                                   shard, partition_id, num_partitions,
                                   max_records).repeat()
-      task_dataset = task_dataset.map(
-          # pylint: disable=cell-var-from-loop
-          lambda x: self.add_task_id(task.task_id, x),
-          num_parallel_threads=num_threads)
+      # pylint: disable=cell-var-from-loop
+      task_dataset = task_dataset.map(lambda x: self.add_task_id(task, x))
       datasets.append(task_dataset)
 
-    def flatten_zip(zipped):
-      flattened = tf.data.Dataset.from_tensors(zipped[0])
-      for ex in zipped[1:]:
-        flattened.concatenate(tf.data.Dataset.from_tensors(ex))
+    self._hparams = self.task_list[0].get_hparams()
 
-      return flattened
+    # TODO(urvashik): make this independent of the number of tasks
+    def flatten_zip(d0, d1):
+      return tf.data.Dataset.from_tensors(d0).concatenate(
+          tf.data.Dataset.from_tensors(d1))
 
     if is_training:
-      single_mtl_dataset = tf.data.Dataset.zip(datasets).flat_map(
+      single_mtl_dataset = tf.data.Dataset.zip(tuple(datasets)).flat_map(
           flatten_zip)
     else:
       single_mtl_dataset = datasets[0]
