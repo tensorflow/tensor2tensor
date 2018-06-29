@@ -290,15 +290,6 @@ def imagetransformer_sep_channels_8l_multipos3():
 
 
 @registry.register_hparams
-def imagetransformer_sep_output_channels_8l():
-  """separate rgb embeddings."""
-  hparams = imagetransformer_sep_channels_8l()
-  hparams.sep_rgb_embed = True
-  hparams.sampling_method = "random"
-  return hparams
-
-
-@registry.register_hparams
 def imagetransformer_base_8l_8h_big_cond_dr03_dan():
   """big 1d model for conditional image generation.2.99 on cifar10."""
   hparams = imagetransformer_sep_channels_8l()
@@ -626,14 +617,6 @@ def imagetransformer_base_14l_8h_big_uncond():
 
 
 @registry.register_hparams
-def imagetransformer_base_14l_8h_big_uncond_dr01():
-  """big 1d model for conditional image generation."""
-  hparams = imagetransformer_base_14l_8h_big_uncond()
-  hparams.layer_prepostprocess_dropout = 0.1
-  return hparams
-
-
-@registry.register_hparams
 def imagetransformer_sep_channels_12l_16h_imagenet_large():
   """separate rgb embeddings."""
   hparams = imagetransformer_sep_channels_8l_8h()
@@ -682,7 +665,7 @@ def imagetransformer_sep_output_channels_8l_local_and_global_att():
 @registry.register_hparams
 def imagetransformer_base_10l_16h_big_uncond_dr01_imgnet():
   """big 1d model for conditional image generation."""
-  hparams = imagetransformer_base_14l_8h_big_uncond_dr01()
+  hparams = imagetransformer_base_14l_8h_big_dr01()
   # num_hidden_layers
   hparams.num_decoder_layers = 10
   hparams.num_heads = 16
@@ -696,7 +679,7 @@ def imagetransformer_base_10l_16h_big_uncond_dr01_imgnet():
 @registry.register_hparams
 def imagetransformer_base_10l_16h_big_dr01_imgnet():
   """big 1d model for conditional image generation."""
-  hparams = imagetransformer_base_14l_8h_big_uncond_dr01()
+  hparams = imagetransformer_base_14l_8h_big_dr01()
   # num_hidden_layers
   hparams.num_decoder_layers = 10
   hparams.num_heads = 16
@@ -723,63 +706,6 @@ def imagetransformer_sep_channels_8l_8h():
 
 
 @registry.register_hparams
-def imagetransformer_sep_channels_10l_8h():
-  """separate rgb embeddings."""
-  hparams = imagetransformer_sep_channels_8l_8h()
-  hparams.num_hidden_layers = 8
-  hparams.learning_rate_warmup_steps = 16000
-  hparams.sampling_method = "random"
-  return hparams
-
-
-@registry.register_hparams
-def imagetransformer_sep_channels_12l_8h():
-  """separate rgb embeddings."""
-  hparams = imagetransformer_sep_channels_8l_8h()
-  hparams.num_hidden_layers = 12
-  hparams.batch_size = 2
-  hparams.learning_rate_warmup_steps = 16000
-  hparams.sampling_method = "random"
-  return hparams
-
-
-@registry.register_hparams
-def imagetransformer_sep_channels_12l_8h_nda():
-  """separate rgb embeddings."""
-  hparams = imagetransformer_sep_channels_8l_8h()
-  hparams.num_hidden_layers = 12
-  hparams.batch_size = 2
-  hparams.learning_rate_warmup_steps = 16000
-  hparams.sampling_method = "random"
-  hparams.layer_preprocess_sequence = "n"
-  hparams.layer_postprocess_sequence = "da"
-  return hparams
-
-
-@registry.register_hparams
-def imagetransformer_sep_channels_12l_8h_4k():
-  """separate rgb embeddings."""
-  hparams = imagetransformer_sep_channels_8l_8h()
-  hparams.num_hidden_layers = 12
-  hparams.batch_size = 2
-  hparams.learning_rate_warmup_steps = 4000
-  hparams.sampling_method = "random"
-  return hparams
-
-
-@registry.register_hparams
-def imagetransformer_sep_channels_12l_8h_sep_rgb():
-  """separate rgb embeddings."""
-  hparams = imagetransformer_sep_channels_8l_8h()
-  hparams.num_hidden_layers = 12
-  hparams.batch_size = 2
-  hparams.learning_rate_warmup_steps = 16000
-  hparams.sep_rgb_embed = True
-  hparams.sampling_method = "random"
-  return hparams
-
-
-@registry.register_hparams
 def imagetransformer_sep_channels_8l_8h_local_and_global_att():
   """separate rgb embeddings."""
   hparams = imagetransformer_sep_channels_8l_8h()
@@ -795,27 +721,9 @@ def imagetransformer_sep_channels_8l_8h_local_and_global_att():
 
 
 @registry.register_hparams
-def imagetransformer_sep_channels_8l_self_att_ffn():
-  """separate rgb embeddings."""
-  hparams = imagetransformer_sep_channels_8l()
-  hparams.num_parts = 4
-  hparams.ffn_layer = "self_attention_ffn"
-  hparams.share_kv = True
-  return hparams
-
-
-@registry.register_hparams
-def imagetransformer_sep_channels_8l_glu_ffn():
-  """separate rgb embeddings."""
-  hparams = imagetransformer_sep_channels_8l()
-  hparams.ffn_layer = "glu_ffn"
-  return hparams
-
-
-@registry.register_hparams
 def imagetransformer_bas8l_8h_big_uncond_dr03_imgnet():
   """big 1d model for conditional image generation."""
-  hparams = imagetransformer_base_14l_8h_big_uncond_dr01()
+  hparams = imagetransformer_base_14l_8h_big_dr01()
   # num_hidden_layers
   hparams.num_decoder_layers = 8
   hparams.num_heads = 8
@@ -836,7 +744,8 @@ def imagetransformer_tiny():
 
 @registry.register_hparams
 def imagetransformer_tiny_tpu():
-  hparams = imagetransformer_base()
+  hparams = imagetransformer_tiny()
+  update_hparams_for_tpu(hparams)
   hparams.num_hidden_layers = 2
   hparams.hidden_size = 16
   hparams.batch_size = 2
@@ -877,7 +786,6 @@ def imagetransformer_moe_tiny():
 
 
 def update_hparams_for_tpu(hparams):
-  hparams.use_pad_remover = False  # where op not supported
   hparams.optimizer = "TrueAdam"
   hparams.batch_size = 4
 
@@ -1002,6 +910,26 @@ def imagetransformer_b12l_4h_b256_uncond_dr03_tpu():
 
 
 @registry.register_hparams
+def imagetransformer_b12l_4h_b256_uncond_dr03_rel_tpu():
+  """works very well on 4x4."""
+  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  hparams.dec_attention_type = cia.RELATIVE_LOCAL_1D
+  return hparams
+
+
+@registry.register_ranged_hparams
+def imagetransformer_cifar_tpu_range(rhp):
+  """Range of hyperparameters for vizier."""
+  # After starting from base, set intervals for some parameters.
+  rhp.set_float("learning_rate", 0.01, 1.0, scale=rhp.LOG_SCALE)
+  rhp.set_discrete("num_decoder_layers", [8, 10, 12, 14, 16])
+  rhp.set_discrete("hidden_size", [256, 512, 1024])
+  rhp.set_discrete("block_length", [128, 256, 512])
+  rhp.set_categorical("dec_attention_type", [
+      cia.RELATIVE_LOCAL_1D, cia.LOCAL_1D])
+
+
+@registry.register_hparams
 def imagetransformer_b12l_4h_b128_h512_uncond_dr03_tpu():
   """TPU related big model."""
   hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
@@ -1023,33 +951,17 @@ def imagetransformer_b12l_4h_b128_h512_uncond_dr03_tpu():
 @registry.register_hparams
 def imagetransformer_b12l_4h_b128_h512_uncond_dr03_im():
   """TPU related imagenet model."""
-  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
+  hparams = imagetransformer_b12l_4h_b256_uncond_dr03_tpu()
   update_hparams_for_tpu(hparams)
   hparams.batch_size = 4
-  hparams.num_heads = 4   # heads are expensive on tpu
-  hparams.num_decoder_layers = 12
-  hparams.block_length = 128
-  hparams.hidden_size = 512
-  hparams.filter_size = 2048
-  hparams.learning_rate = 0.2
-  hparams.learning_rate_warmup_steps = 6000
-  hparams.layer_preprocess_sequence = "none"
-  hparams.layer_postprocess_sequence = "dan"
   hparams.layer_prepostprocess_dropout = 0.1
   return hparams
 
 
 @registry.register_hparams
-def imagetransformer_b12l_4h_small_uncond_dr03_tpu():
+def imagetransformer_b12l_4h_uncond_dr03_tpu():
   """TPU related small model."""
-  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
-  update_hparams_for_tpu(hparams)
-  hparams.batch_size = 4
-  hparams.num_heads = 4   # heads are expensive on tpu
-  hparams.num_decoder_layers = 8
-  hparams.block_length = 256
-  hparams.hidden_size = 512
-  hparams.filter_size = 2048
+  hparams = imagetransformer_b12l_4h_b256_uncond_dr03_tpu()
   hparams.learning_rate = 0.2
   hparams.learning_rate_warmup_steps = 4000
   hparams.layer_preprocess_sequence = "none"
@@ -1089,24 +1001,6 @@ def imagetransformer_b12l_8h_b256_uncond_dr03_tpu():
   hparams.layer_preprocess_sequence = "none"
   hparams.layer_postprocess_sequence = "dan"
   hparams.layer_prepostprocess_dropout = 0.3
-  return hparams
-
-
-@registry.register_hparams
-def imagetransformer_b12l_4h_b256_uncond_dr03_lr025_tpu():
-  hparams = imagetransformer_b12l_4h_b256_uncond_dr03_tpu()
-  update_hparams_for_tpu(hparams)
-  hparams.learning_rate = 0.25
-  hparams.learning_rate_warmup_steps = 10000
-  return hparams
-
-
-@registry.register_hparams
-def imagetransformer_b10l_4h_big_uncond_dr03_lr05_tpu():
-  hparams = imagetransformer_b10l_4h_big_uncond_dr03_lr025_tpu()
-  update_hparams_for_tpu(hparams)
-  hparams.learning_rate = 0.5
-  hparams.learning_rate_warmup_steps = 16000
   return hparams
 
 
