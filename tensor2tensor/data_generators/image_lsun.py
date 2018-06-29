@@ -44,7 +44,7 @@ def _get_lsun(directory, category, split_name):
 
 
 @registry.register_problem
-class LsunBedrooms(image_utils.ImageProblem):
+class ImageLsunBedrooms(image_utils.ImageProblem):
   """LSUN Bedrooms."""
 
   @property
