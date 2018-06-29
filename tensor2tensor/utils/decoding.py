@@ -79,7 +79,7 @@ def log_decode_results(inputs,
     def fix_and_save_video(vid, prefix):
       save_path_template = os.path.join(
           output_dir,
-          "%s_%s_%d_{}.png" % (problem_name, prefix, prediction_idx))
+          "%s_%s_%05d_{:05d}.png" % (problem_name, prefix, prediction_idx))
       # this is only required for predictions
       if vid.shape[-1] == 1:
         vid = np.squeeze(vid, axis=-1)
