@@ -19,6 +19,7 @@ from __future__ import print_function
 import numpy as np
 from tensor2tensor.utils import metrics
 
+
 import tensorflow as tf
 
 
@@ -217,6 +218,28 @@ class CommonLayersTest(tf.test.TestCase):
       session.run(tf.local_variables_initializer())
       s = session.run(score)
     self.assertAlmostEqual(s, 0.750, places=3)
+
+  def testMultilabelMatch3(self):
+    predictions = np.random.randint(1, 5, size=(100, 1, 1, 1))
+    targets = np.random.randint(1, 5, size=(100, 10, 1, 1))
+    weights = np.random.randint(0, 2, size=(100, 1, 1, 1))
+    targets *= weights
+
+    predictions_repeat = np.repeat(predictions, 10, axis=1)
+    expected = (predictions_repeat == targets).astype(float)
+    expected = np.sum(expected, axis=(1, 2, 3))
+    expected = np.minimum(expected / 3.0, 1.)
+    expected = np.sum(expected * weights[:, 0, 0, 0]) / np.sum(weights)
+    with self.test_session() as session:
+      scores, weights_ = metrics.multilabel_accuracy_match3(
+          tf.one_hot(predictions, depth=5, dtype=tf.float32),
+          tf.constant(targets, dtype=tf.int32))
+      a, a_op = tf.metrics.mean(scores, weights_)
+      session.run(tf.local_variables_initializer())
+      session.run(tf.global_variables_initializer())
+      _ = session.run(a_op)
+      actual = session.run(a)
+    self.assertAlmostEqual(actual, expected)
 
 
 if __name__ == '__main__':
