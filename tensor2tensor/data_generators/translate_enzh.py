@@ -36,23 +36,22 @@ EOS = text_encoder.EOS_ID
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
 
-# This is far from being the real WMT17 task - only toyset here
+# This is far from being the real WMT18 task - only toyset here
 # you need to register to get UN data and CWT data. Also, by convention,
 # this is EN to ZH - use translate_enzh_wmt8k_rev for ZH to EN task
 #
-# News Commentary, around 220k lines
-# This dataset is only a small fraction of full WMT17 task
+# News Commentary, around 252k lines
+# This dataset is only a small fraction of full WMT18 task
 _NC_TRAIN_DATASETS = [[
-    "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12"
-    ".tgz", [
-        "training/news-commentary-v12.zh-en.en",
-        "training/news-commentary-v12.zh-en.zh"
+    "http://data.statmt.org/wmt18/translation-task/training-parallel-nc-v13.tgz", [
+        "training/news-commentary-v13.zh-en.en",
+        "training/news-commentary-v13.zh-en.zh"
     ]
 ]]
 
 # Test set from News Commentary. 2000 lines
 _NC_TEST_DATASETS = [[
-    "http://data.statmt.org/wmt17/translation-task/dev.tgz",
+    "http://data.statmt.org/wmt18/translation-task/dev.tgz",
     ("dev/newsdev2017-enzh-src.en.sgm", "dev/newsdev2017-enzh-ref.zh.sgm")
 ]]
 

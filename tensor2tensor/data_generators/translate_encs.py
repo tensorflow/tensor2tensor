@@ -35,9 +35,9 @@ _ENCS_TRAIN_DATASETS = [
       "11234/1-1458/data-plaintext-format.tar"),
      ("tsv", 3, 2, "data.plaintext-format/*train.gz")],
     [
-        "http://data.statmt.org/wmt17/translation-task/training-parallel-nc-v12.tgz",  # pylint: disable=line-too-long
-        ("training/news-commentary-v12.cs-en.en",
-         "training/news-commentary-v12.cs-en.cs")
+        "http://data.statmt.org/wmt18/translation-task/training-parallel-nc-v13.tgz",  # pylint: disable=line-too-long
+        ("training/news-commentary-v13.cs-en.en",
+         "training/news-commentary-v13.cs-en.cs")
     ],
     [
         "http://www.statmt.org/wmt13/training-parallel-commoncrawl.tgz",
