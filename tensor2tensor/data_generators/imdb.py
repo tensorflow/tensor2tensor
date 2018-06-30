@@ -99,8 +99,12 @@ class SentimentIMDB(text_problems.Text2ClassProblem):
 
 @registry.register_problem
 class SentimentIMDBCharacters(SentimentIMDB):
-  """IMDB Sentiment classification, character level."""
+  """IMDB sentiment classification, character level."""
 
   @property
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
+
+  @property
+  def task_id(self):
+    return problem.SpaceID.EN_CHR_SENT

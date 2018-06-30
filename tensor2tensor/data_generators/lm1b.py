@@ -175,6 +175,10 @@ class LanguagemodelLm1bCharacters(LanguagemodelLm1b32k):
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
 
+  @property
+  def task_id(self):
+    return problem.SpaceID.EN_CHR
+
 
 @registry.register_problem
 class LanguagemodelLm1bCharactersPacked(LanguagemodelLm1bCharacters):

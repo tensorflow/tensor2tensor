@@ -179,7 +179,7 @@ class StackAndSkipWrapper(WrapperBase):
 
   def _reset_non_empty(self, indices):
     # pylint: disable=protected-access
-    new_values = tf.gather(self._batch_env._reset_non_empty(indices), indices)
+    new_values = self._batch_env._reset_non_empty(indices)
     # pylint: enable=protected-access
     inx = tf.concat(
         [
@@ -218,11 +218,11 @@ class TimeLimitWrapper(WrapperBase):
         self._time_elapsed, indices,
         tf.gather(tf.zeros((len(self),), tf.int32), indices))
     # pylint: disable=protected-access
-    new_values = tf.gather(self._batch_env._reset_non_empty(indices), indices)
+    new_values = self._batch_env._reset_non_empty(indices)
     # pylint: enable=protected-access
     assign_op = tf.scatter_update(self._observ, indices, new_values)
     with tf.control_dependencies([op_zero, assign_op]):
-      return tf.identity(self.observ)
+      return tf.gather(self.observ, indices)
 
 from tensor2tensor.models.research import autoencoders
 import math
@@ -267,7 +267,7 @@ class AutoencoderWrapper(WrapperBase):
       ret = self.autoencoder_model.encode(new_values)
       assign_op = tf.scatter_update(self._observ, indices, ret)
       with tf.control_dependencies([assign_op]):
-        return tf.identity(self._observ.read_value())
+        return tf.gather(self.observ, indices)
 
   def setup_autoencoder(self):
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):

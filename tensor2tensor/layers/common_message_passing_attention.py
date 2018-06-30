@@ -40,6 +40,7 @@ def multihead_graph_attention(query_antecedent,
                               dropout_broadcast_dims=None,
                               adjacency_matrix=None,
                               num_edge_types=5,
+                              ignore_zero=True,
                               vars_3d=False,
                               **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
@@ -70,6 +71,7 @@ def multihead_graph_attention(query_antecedent,
     adjacency_matrix: an optional tensor of shape [batch, len_q, len_q]
       containing edge vectors for attention
     num_edge_types: number of edge types, an int
+    ignore_zero: A flag that says that edge type 0 should be ignored.
     vars_3d: use 3-dimensional variables for input/output transformations
     **kwargs (dict): Parameters for the attention function
 
@@ -125,7 +127,8 @@ def multihead_graph_attention(query_antecedent,
           make_image_summary=make_image_summary,
           dropout_broadcast_dims=dropout_broadcast_dims,
           adjacency_matrix=adjacency_matrix,
-          num_edge_types=num_edge_types)
+          num_edge_types=num_edge_types,
+          ignore_zero=ignore_zero)
 
     x = common_attention.combine_heads(x)
 
@@ -146,13 +149,18 @@ def multihead_graph_attention(query_antecedent,
 
 
 @expert_utils.add_name_scope()
-def make_edge_vectors(adjacency_matrix, num_edge_types, depth, name=None):
+def make_edge_vectors(adjacency_matrix,
+                      num_edge_types,
+                      depth,
+                      ignore_zero,
+                      name=None):
   """Gets edge vectors for the edge types in the adjacency matrix.
 
   Args:
     adjacency_matrix: A [batch, num_nodes, num_nodes] tensor of ints.
     num_edge_types: Number of different edge types
     depth: Number of channels
+    ignore_zero: Whether to use zeros vector for edge type 0.
     name: a string
   Returns:
     A [batch, num_nodes, num_nodes, depth] vector of tensors
@@ -169,16 +177,22 @@ def make_edge_vectors(adjacency_matrix, num_edge_types, depth, name=None):
     # Avoiding gathers so that it works on TPUs
     # adjacency_matrix_one_hot has shape
     # [batch, num_nodes, num_nodes, num_edge_types]
-
     adjacency_matrix_one_hot = tf.one_hot(adjacency_matrix, num_edge_types)
 
     att_adj_vectors = tf.matmul(
         tf.reshape(tf.to_float(adjacency_matrix_one_hot), [-1, num_edge_types]),
         adj_vectors)
-    return tf.reshape(att_adj_vectors, [
+    # Reshape to be [batch, num_nodes, num_nodes, depth].
+    att_adj_vectors = tf.reshape(att_adj_vectors, [
         adjacency_matrix_shape[0], adjacency_matrix_shape[1],
         adjacency_matrix_shape[2], depth
     ])
+    if ignore_zero:
+      # Set vectors for edge type 0 to be all zeros.
+      mask = tf.not_equal(tf.expand_dims(adjacency_matrix, axis=-1), 0)
+      return att_adj_vectors * tf.to_float(mask)
+    else:
+      return att_adj_vectors
 
 
 def graph_attention(q,
@@ -192,7 +206,8 @@ def graph_attention(q,
                     save_weights_to=None,
                     dropout_broadcast_dims=None,
                     adjacency_matrix=None,
-                    num_edge_types=5):
+                    num_edge_types=5,
+                    ignore_zero=True):
   """graph attention.
 
   Args:
@@ -214,6 +229,7 @@ def graph_attention(q,
     adjacency_matrix: optional matrix of [batch, length, length] ids indicating
       edge type
     num_edge_types: an int indicating number of edge types
+    ignore_zero: A flag that says that edge type 0 should be ignored.
   Returns:
     A Tensor of shape [batch, length, depth(q)]
   """
@@ -223,11 +239,12 @@ def graph_attention(q,
     logits = tf.matmul(q, k, transpose_b=True)
     if adjacency_matrix is not None:
       key_head_depth = common_layers.shape_list(q)[-1]
-      adjacency_vectors = make_edge_vectors(adjacency_matrix, num_edge_types,
-                                            key_head_depth, name)
-      # zeroing out the vectors that have 0 entries in the adjacency
-      adjacency_vectors *= tf.to_float(
-          tf.expand_dims(adjacency_matrix, axis=-1))
+      adjacency_vectors = make_edge_vectors(
+          adjacency_matrix,
+          num_edge_types,
+          key_head_depth,
+          ignore_zero=ignore_zero,
+          name=name)
       # transposing q to be [batch, length_q, heads, depth_k]
       # to allow for matmul with [batch, length_q, length_q, depth_k]
       q_t = tf.transpose(q, [0, 2, 1, 3])
@@ -249,7 +266,7 @@ def graph_attention(q,
 def compute_mpnn_qkv(node_states,
                      total_key_depth,
                      total_value_depth,
-                     num_edge_types,
+                     num_transforms,
                      ignore_zero=True):
   """Computes query, key and value for edge matrices.
 
@@ -258,7 +275,7 @@ def compute_mpnn_qkv(node_states,
   Let D be the size of the node hidden states.
   Let K be the size of the attention keys/queries (total_key_depth).
   Let V be the size of the attention values (total_value_depth).
-  Let T be the total number of edge types (num_edge_types).
+  Let T be the total number of transforms (num_transforms).
 
   Computes the queries, keys, and values for attention.
   * For each node N_i in the graph, a query Q_i of size K is computed. This
@@ -275,7 +292,8 @@ def compute_mpnn_qkv(node_states,
     node_states: A Tensor with shape [B, N, D].
     total_key_depth: an integer (K).
     total_value_depth: an integer (V).
-    num_edge_types: a integer specifying number of edge types (T).
+    num_transforms: a integer specifying number of transforms (T). This is
+      typically the number of edge types.
     ignore_zero: If true, then edge type 0 will not be considered. Equivalent
       to having a linear transformation of all 0's for edge type 0. All queries,
       keys, and values for edge type 0 will be all 0's.
@@ -300,14 +318,14 @@ def compute_mpnn_qkv(node_states,
   q_shape = common_layers.shape_list(q)  # As above, q_shape = [B, N, K].
 
   # T (or T-1 if ignore_zero).
-  nonignored_edge_types = num_edge_types - int(ignore_zero)
+  nonignored_transforms = num_transforms - int(ignore_zero)
 
   # Creates the attention keys in a manner similar to the process of creating
   # the attention queries. One key is created for each type of outgoing edge the
   # corresponding node might have, meaning k will have shape [B, N, K*T].
   k = common_layers.dense(
       node_states,
-      total_key_depth * nonignored_edge_types,
+      total_key_depth * nonignored_transforms,
       use_bias=False,
       name="k_mpnn")
 
@@ -315,7 +333,7 @@ def compute_mpnn_qkv(node_states,
   # a manner largely identical to that of the keys.
   v = common_layers.dense(
       node_states,
-      total_value_depth * nonignored_edge_types,
+      total_value_depth * nonignored_transforms,
       use_bias=False,
       name="v_mpnn")
 
@@ -328,9 +346,9 @@ def compute_mpnn_qkv(node_states,
   #
   # This reshape is only necessary when ignore_zero is True (for the padding
   # step that follows).
-  k = tf.reshape(k, [batch, length, nonignored_edge_types, total_key_depth])
+  k = tf.reshape(k, [batch, length, nonignored_transforms, total_key_depth])
   v = tf.reshape(
-      v, [q_shape[0], q_shape[1], nonignored_edge_types, total_value_depth])
+      v, [q_shape[0], q_shape[1], nonignored_transforms, total_value_depth])
 
   # If we previously ignored edge type 0, then we need to pad the keys and
   # values to take this additional edge type into account. To do so, we
@@ -341,9 +359,9 @@ def compute_mpnn_qkv(node_states,
     v = tf.pad(v, [[0, 0], [0, 0], [1, 0], [0, 0]])
 
   # Flatten out the fourth dimension.
-  k = tf.reshape(k, [q_shape[0], q_shape[1] * num_edge_types, total_key_depth])
+  k = tf.reshape(k, [q_shape[0], q_shape[1] * num_transforms, total_key_depth])
   v = tf.reshape(v,
-                 [q_shape[0], q_shape[1] * num_edge_types, total_value_depth])
+                 [q_shape[0], q_shape[1] * num_transforms, total_value_depth])
   return q, k, v
 
 
@@ -354,6 +372,8 @@ def multihead_mpnn_attention(node_states,
                              num_heads,
                              adjacency_matrix=None,
                              num_edge_types=5,
+                             num_transforms=None,
+                             use_weighted_sum=False,
                              ignore_zero=True,
                              name="mpnn_attention"):
   """Multihead scaled-dot-product attention with input/output transformations.
@@ -365,7 +385,7 @@ def multihead_mpnn_attention(node_states,
   Let V be the size of the attention values (total_value_depth).
   Let O be the size of the attention output (output_depth).
   Let H be the number of heads (num_heads).
-  Let T be the total number of edge types (num_edge_types).
+  Let T be the total number of transforms (num_transforms).
 
   The key and value depths are split across all of the heads. For example, if
   the key depth is 6 and there are three heads, then the key for each head has
@@ -380,7 +400,11 @@ def multihead_mpnn_attention(node_states,
     adjacency_matrix: An Tensor of ints with shape [B, N, N]. If there is an
       edge from node j to node i in batch b, then adjacency_matrix[b, i, j]
       contains the type of that edge as an integer. Otherwise, it contains 0.
-    num_edge_types: An integer indicating number of edge types (T).
+    num_edge_types: An integer indicating number of edge types.
+    num_transforms: An integer indicating number of transforms (T). If None,
+      then num_transforms will be equal to num_edge_types.
+    use_weighted_sum: If False, will only use a single transform per edge type.
+      Otherwise, use a learned weighted sum of transforms per edge type.
     ignore_zero: A flag that says that edge type 0 should be ignored.
     name: A string.
 
@@ -399,13 +423,17 @@ def multihead_mpnn_attention(node_states,
                      "attention heads (%d)." % (total_value_depth, num_heads))
   with tf.variable_scope(
       name, default_name="multihead_mpnn_attention", values=[node_states]):
+    # If not explicitly set, use num_transforms set to num_edge_types.
+    num_transforms = (
+        num_edge_types if num_transforms is None else num_transforms)
+
     # Create the query for each node's incoming edges.
     # Create the keys/values for each node for each possible outgoing edge type.
     q, k, v = compute_mpnn_qkv(
         node_states,
         total_key_depth,
         total_value_depth,
-        num_edge_types,
+        num_transforms,
         ignore_zero=ignore_zero)
 
     q_shape = tf.shape(q)  # As above, q_shape is [B, N, K].
@@ -431,13 +459,13 @@ def multihead_mpnn_attention(node_states,
 
     # Split the keys and values into separate per-edge-type keys and values.
     k = tf.reshape(k, [
-        num_heads, q_shape[0], q_shape[1], num_edge_types,
+        num_heads, q_shape[0], q_shape[1], num_transforms,
         total_key_depth // num_heads
     ])  # Shape [H, B, N, T, K/H].
     k = tf.transpose(k, [0, 1, 3, 2, 4])  # Shape [H, B, T, N, K/H].
 
     v = tf.reshape(v, [
-        num_heads, q_shape[0], q_shape[1], num_edge_types,
+        num_heads, q_shape[0], q_shape[1], num_transforms,
         total_value_depth // num_heads
     ])  # Shape [H, B, N, T, V/H].
     v = tf.transpose(v, [0, 1, 3, 2, 4])  # Shape [H, B, T, N, V/H].
@@ -450,8 +478,14 @@ def multihead_mpnn_attention(node_states,
     # and adding those weighted values together.
     head_outputs = []
     for head_id in range(num_heads):
-      output = dot_product_mpnn_attention(q[head_id], k[head_id], v[head_id],
-                                          adjacency_matrix, num_edge_types)
+      output = dot_product_mpnn_attention(
+          q[head_id],
+          k[head_id],
+          v[head_id],
+          adjacency_matrix,
+          num_edge_types,
+          num_transforms=num_transforms,
+          use_weighted_sum=use_weighted_sum)
 
       # Store this result in the list of attention results for each head.
       # The call to expand_dims gives output shape [1, B, N, V/H], which will
@@ -477,6 +511,8 @@ def dot_product_mpnn_attention(q,
                                v,
                                adjacency_matrix,
                                num_edge_types,
+                               num_transforms=None,
+                               use_weighted_sum=False,
                                ignore_zero=True,
                                name=None):
   """Dot product attention with edge vectors.
@@ -485,7 +521,7 @@ def dot_product_mpnn_attention(q,
   Let N be the number of nodes in the graph.
   Let K be the size of the attention keys/queries.
   Let V be the size of the attention values.
-  Let T be the total number of edge types (num_edge_types).
+  Let T be the total number of transforms (num_transforms).
 
   Args:
     q: The query Tensor of shape [B, N, K].
@@ -493,7 +529,11 @@ def dot_product_mpnn_attention(q,
     v: The value Tensor of shape [B, T, N, V].
     adjacency_matrix: A Tensor of shape [B, N, N]. An entry at indices b, i, j
      is the integer edge type of the edge from node j to node i in batch b.
-    num_edge_types: An integer specifying number of edge types (T).
+    num_edge_types: An integer specifying number of edge types.
+    num_transforms: An integer indicating number of transforms (T). If None,
+      then num_transforms will be equal to num_edge_types.
+    use_weighted_sum: If False, will only use a single transform per edge type.
+      Otherwise, use a learned weighted sum of transforms per edge type.
     ignore_zero: A flag that says that edge type 0 should be ignored.
     name: A string.
 
@@ -501,6 +541,10 @@ def dot_product_mpnn_attention(q,
     A Tensor of shape [B, N, V] storing the result of computing attention
     weights using the queries and keys and combining the values according to
     those weights.
+
+  Raises:
+    ValueError: if num_transforms doesn't equal num_edge_types and not using
+      weighted sum.
   """
   # TODO(jfrankle): Consider ways to handle graphs that have multiple edges
   # between the same nodes (with only one edge of each type. adjacency_matrix
@@ -509,6 +553,14 @@ def dot_product_mpnn_attention(q,
       name,
       default_name="dot_product_mpnn_attention",
       values=[q, k, v, adjacency_matrix, num_edge_types]):
+    # If not explicitly set, use num_transforms set to num_edge_types.
+    num_transforms = (
+        num_edge_types if num_transforms is None else num_transforms)
+
+    if not use_weighted_sum and num_transforms != num_edge_types:
+      raise ValueError("num_transforms must equal num_edge_types unless "
+                       "use_weighted_sum is True")
+
     # Computes the raw dot-product attention values between each query and
     # the corresponding keys it needs to consider.
     #
@@ -528,22 +580,30 @@ def dot_product_mpnn_attention(q,
     # each pair of nodes. If such an edge exists, it contains the integer
     # type of that edge at position (i, j) of the adjacency matrix.
     #
-    # adjacency_matrix_one_hot has shape [B, N, N, T]. If there is an edge
-    # from node j to node i of type t, then index t of the last dimension is
-    # 1 for entry (i, j) of the second and third dimensions.
-    adjacency_matrix_one_hot = tf.one_hot(adjacency_matrix, num_edge_types)
+    # Construct edge_vectors of shape [B, N, N, T].
+    if use_weighted_sum:
+      # Use dense representation for edge vectors.
+      edge_vectors = make_edge_vectors(
+          adjacency_matrix,
+          num_edge_types,
+          num_transforms,
+          ignore_zero=ignore_zero)
+    else:
+      # Generate one-hot vectors based on edge types.
+      # If there is an edge from node j to node i of type t, then index t of the
+      # last dimension is 1 for entry (i, j) of the second and third dimensions.
+      edge_vectors = tf.one_hot(adjacency_matrix, num_transforms)
 
     # Rearranging the dimensions to match the shape of all_edge_logits.
-    adjacency_matrix_one_hot = tf.transpose(adjacency_matrix_one_hot,
-                                            [0, 3, 1, 2])
+    edge_vectors = tf.transpose(edge_vectors, [0, 3, 1, 2])
 
-    # Element-wise multiplies all_edge_logits and adjacency_matrix_one_hot.
+    # Element-wise multiplies all_edge_logits and edge_vectors.
     #
     # In other words: all_edge_logits contains N x N matrices of query-key
     # products. This element-wise multiplication zeroes out entries that do not
     # correspond to actual edges in the graph of the appropriate edge type.
     # all_edge_logits retains shape [B, T, N, N].
-    all_edge_logits *= adjacency_matrix_one_hot
+    all_edge_logits *= edge_vectors
 
     # Since there can only be one edge from node A to node B, we can collapse
     # the T different adjacency matrices containing key-query pairs into one
@@ -579,7 +639,7 @@ def dot_product_mpnn_attention(q,
 
     # Zeroes out the entries in edge_compatibility that do not correspond to
     # actual edges.
-    edge_compatibility *= adjacency_matrix_one_hot  # Shape [B, T, N, N].
+    edge_compatibility *= edge_vectors  # Shape [B, T, N, N].
 
     # Computes the incoming value vectors for each node by weighting them
     # according to the attention weights. These values are still segregated by

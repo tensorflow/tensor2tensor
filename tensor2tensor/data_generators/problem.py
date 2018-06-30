@@ -100,6 +100,8 @@ class SpaceID(object):
   STROKES = 29
   # Pickled Python
   PICKLED_PYTHON = 30
+  # English characters sentiment
+  EN_CHR_SENT = 31
 
 
 def default_model_hparams():

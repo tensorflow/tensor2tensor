@@ -145,7 +145,8 @@ def generate_files(generator, output_filenames,
       switching to the next shard; by default set to 1, switch every case.
   """
   if outputs_exist(output_filenames):
-    tf.logging.info("Skipping generator because outputs files exist")
+    tf.logging.info("Skipping generator because outputs files exists at {}"
+                    .format(output_filenames))
     return
   tmp_filenames = [fname + ".incomplete" for fname in output_filenames]
   num_shards = len(output_filenames)
