@@ -93,7 +93,7 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
   tf.gfile.MakeDirs(data_dir)
   with temporary_flags({
       "problem": problem_name,
-      "agent_policy_path": None,
+      "agent_policy_path": agent_policy_path,
       "autoencoder_path": autoencoder_path,
       "only_use_ae_for_policy": True,
   }):
@@ -159,6 +159,7 @@ def train_agent(problem_name, agent_model_dir,
   environment_spec = copy.copy(gym_problem.environment_spec)
   environment_spec.simulation_random_starts = hparams.simulation_random_starts
   environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
+  environment_spec.wrappers = []
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
@@ -391,15 +392,15 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                       use_autoencoder=using_autoencoder)
 
     # Evaluate world model
-    model_reward_accuracy = 0.
-    if hparams.eval_world_model:
-      log("Evaluating world model")
-      model_reward_accuracy = evaluate_world_model(
-          simulated_problem_name, world_model_problem, hparams,
-          directories["world_model"],
-          epoch_data_dir, directories["tmp"],
-          autoencoder_path=autoencoder_model_dir)
-      log("World model reward accuracy: %.4f", model_reward_accuracy)
+    # model_reward_accuracy = 0.
+    # if hparams.eval_world_model:
+    #   log("Evaluating world model")
+    #   model_reward_accuracy = evaluate_world_model(
+    #       simulated_problem_name, world_model_problem, hparams,
+    #       directories["world_model"],
+    #       epoch_data_dir, directories["tmp"],
+    #       autoencoder_path=autoencoder_model_dir)
+    #   log("World model reward accuracy: %.4f", model_reward_accuracy)
 
     # Train PPO
     log("Training PPO")
