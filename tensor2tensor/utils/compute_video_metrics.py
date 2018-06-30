@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 from tensor2tensor.bin import t2t_decoder
 from tensor2tensor.utils import video_metrics
 import tensorflow as tf
@@ -32,8 +34,15 @@ def main(_):
   frame_shape = [problem.frame_height,
                  problem.frame_width,
                  problem.num_channels]
+  decode_hp = t2t_decoder.create_decode_hparams()
+
+  output_dirs = [
+      os.path.join(FLAGS.output_dir, "decode_%05d" % decode_id)
+      for decode_id in range(decode_hp.num_decodes)
+  ]
+
   video_metrics.compute_and_save_video_metrics(
-      FLAGS.output_dir,
+      output_dirs,
       FLAGS.problem,
       hparams.video_num_target_frames,
       frame_shape)

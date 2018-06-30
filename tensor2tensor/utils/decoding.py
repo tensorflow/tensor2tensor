@@ -55,6 +55,7 @@ def decode_hparams(overrides=""):
       decode_to_file=None,
       shards=1,
       shard_id=0,
+      num_decodes=1,
       force_decode_length=False)
   hp.parse(overrides)
   return hp
@@ -74,7 +75,7 @@ def log_decode_results(inputs,
   """Log inference results."""
 
   # TODO(lukaszkaiser) refactor this into feature_encoder
-  is_video = "video" in problem_name
+  is_video = "video" in problem_name or "gym" in problem_name
   if is_video:
     def fix_and_save_video(vid, prefix):
       save_path_template = os.path.join(
@@ -133,7 +134,7 @@ def decode_from_dataset(estimator,
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
 
-  # Setup the decode output directory for any artifacts that may be written out
+  # Setup decode output directory for any artifacts that may be written out
   output_dir = os.path.join(estimator.model_dir, "decode")
   tf.gfile.MakeDirs(output_dir)
 
@@ -152,6 +153,39 @@ def decode_from_dataset(estimator,
   problem = hparams.problem
   infer_input_fn = problem.make_estimator_input_fn(
       tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
+
+  output_dirs = []
+  for decode_id in range(decode_hp.num_decodes):
+    tf.logging.info("Decoding {}".format(decode_id))
+
+    output_dir = os.path.join(estimator.model_dir, "decode_%05d" % decode_id)
+    tf.gfile.MakeDirs(output_dir)
+    output_dirs.append(output_dir)
+
+    decode_once(estimator,
+                problem_name,
+                hparams,
+                infer_input_fn,
+                decode_hp,
+                decode_to_file,
+                output_dir)
+
+  run_postdecode_hooks(DecodeHookArgs(
+      estimator=estimator,
+      problem=problem,
+      output_dirs=output_dirs,
+      hparams=hparams,
+      decode_hparams=decode_hp))
+
+
+def decode_once(estimator,
+                problem_name,
+                hparams,
+                infer_input_fn,
+                decode_hp,
+                decode_to_file,
+                output_dir):
+  """Decodes once."""
 
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn)
@@ -246,15 +280,6 @@ def decode_from_dataset(estimator,
     output_file.close()
     target_file.close()
     input_file.close()
-
-  run_postdecode_hooks(DecodeHookArgs(
-      estimator=estimator,
-      problem=problem,
-      output_dir=output_dir,
-      hparams=hparams,
-      decode_hparams=decode_hp))
-
-  tf.logging.info("Completed inference on %d samples." % num_predictions)  # pylint: disable=undefined-loop-variable
 
 
 def decode_from_file(estimator,
@@ -715,7 +740,7 @@ def latest_checkpoint_step(ckpt_dir):
 
 class DecodeHookArgs(collections.namedtuple(
     "DecodeHookArgs",
-    ["estimator", "problem", "output_dir", "hparams", "decode_hparams"])):
+    ["estimator", "problem", "output_dirs", "hparams", "decode_hparams"])):
   pass
 
 
@@ -730,7 +755,9 @@ def run_postdecode_hooks(decode_hook_args):
         "Skipping decode hooks because no checkpoint yet available.")
     return
   tf.logging.info("Running decode hooks.")
-  summary_writer = tf.summary.FileWriter(decode_hook_args.output_dir)
+  parent_dir = os.path.join(decode_hook_args.output_dirs[0], os.pardir)
+  final_dir = os.path.join(parent_dir, "decode")
+  summary_writer = tf.summary.FileWriter(final_dir)
   for hook in hooks:
     # Isolate each hook in case it creates TF ops
     with tf.Graph().as_default():

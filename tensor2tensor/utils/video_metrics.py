@@ -92,8 +92,9 @@ def compute_metrics(output_video, target_video):
   return {"PSNR": psnr, "SSIM": ssim}
 
 
-def compute_video_metrics(output_dir, problem_name, video_length, frame_shape):
-  """Computes the average of all the metric over the whole dataset.
+def compute_one_decoding_video_metrics(
+    output_dir, problem_name, video_length, frame_shape):
+  """Computes the average of all the metric for one decoding.
 
   This function assumes that all the predicted and target frames
   have been saved on the disk and sorting them by name will result
@@ -130,9 +131,39 @@ def compute_video_metrics(output_dir, problem_name, video_length, frame_shape):
     return results
 
 
-def compute_and_save_video_metrics(
-    output_dir, problem_name, video_length, frame_shape):
-  results = compute_video_metrics(
-      output_dir, problem_name, video_length, frame_shape)
-  save_results(results, output_dir, problem_name)
+def compute_all_metrics_statistics(all_results):
+  """Computes statistics of metrics across multiple decodings."""
+  statistics = {}
+  for key in all_results[0].keys():
+    values = [result[key] for result in all_results]
+    values = np.vstack(values)
+    statistics[key + "_MEAN"] = np.mean(values, axis=0)
+    statistics[key + "_STD"] = np.std(values, axis=0)
+    statistics[key + "_MIN"] = np.min(values, axis=0)
+    statistics[key + "_MAX"] = np.max(values, axis=0)
+  return statistics
 
+
+def compute_video_metrics(output_dirs, problem_name, video_length, frame_shape):
+  all_results = [
+      compute_one_decoding_video_metrics(
+          output_dir, problem_name, video_length, frame_shape)
+      for output_dir in output_dirs
+  ]
+  statistics = compute_all_metrics_statistics(all_results)
+  return statistics, all_results
+
+
+def compute_and_save_video_metrics(
+    output_dirs, problem_name, video_length, frame_shape):
+  """Compute and saves the video metrics."""
+  statistics, all_results = compute_video_metrics(
+      output_dirs, problem_name, video_length, frame_shape)
+  for results, output_dir in zip(all_results, output_dirs):
+    save_results(results, output_dir, problem_name)
+
+  parent_dir = os.path.join(output_dirs[0], os.pardir)
+  final_dir = os.path.join(parent_dir, "decode")
+  tf.gfile.MakeDirs(parent_dir)
+
+  save_results(statistics, final_dir, problem_name)
