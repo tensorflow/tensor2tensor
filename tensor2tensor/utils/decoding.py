@@ -29,6 +29,7 @@ from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import registry
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -70,7 +71,8 @@ def log_decode_results(inputs,
                        save_images=False,
                        output_dir=None,
                        identity_output=False,
-                       log_results=True):
+                       log_results=True,
+                       target_modality_is_symbol=True):
   """Log inference results."""
 
   # TODO(lukaszkaiser) refactor this into feature_encoder
@@ -111,9 +113,13 @@ def log_decode_results(inputs,
     if targets is not None:
       decoded_targets = " ".join(map(str, targets.flatten()))
   else:
-    decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
+    if target_modality_is_symbol:
+      outputs = _save_until_eos(outputs, is_image)
+    decoded_outputs = targets_vocab.decode(outputs)
     if targets is not None and log_results:
-      decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
+      if target_modality_is_symbol:
+        targets = _save_until_eos(targets, is_image)
+      decoded_targets = targets_vocab.decode(targets)
   if not is_video:
     tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None and log_results and not is_video:
@@ -152,6 +158,9 @@ def decode_from_dataset(estimator,
   problem = hparams.problem
   infer_input_fn = problem.make_estimator_input_fn(
       tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
+
+  target_modality_is_symbol = \
+    hparams.problem_hparams.target_modality[0] == registry.Modalities.SYMBOL
 
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn)
@@ -209,7 +218,8 @@ def decode_from_dataset(estimator,
             output_dir=output_dir,
             identity_output=decode_hp.identity_output,
             targets=targets,
-            log_results=decode_hp.log_results)
+            log_results=decode_hp.log_results,
+            target_modality_is_symbol=target_modality_is_symbol)
         decoded_outputs.append(decoded)
         if decode_hp.write_beam_scores:
           decoded_scores.append(score)
@@ -225,7 +235,8 @@ def decode_from_dataset(estimator,
           output_dir=output_dir,
           identity_output=decode_hp.identity_output,
           targets=targets,
-          log_results=decode_hp.log_results)
+          log_results=decode_hp.log_results,
+          target_modality_is_symbol=target_modality_is_symbol)
       decoded_outputs.append(decoded)
 
     # Write out predictions if decode_to_file passed
@@ -282,6 +293,9 @@ def decode_from_file(estimator,
                                                   decode_hp.delimiter)
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
 
+  target_modality_is_symbol = \
+    hparams.problem_hparams.target_modality[0] == registry.Modalities.SYMBOL
+
   def input_fn():
     input_gen = _decode_batch_input_fn(num_decode_batches, sorted_inputs,
                                        inputs_vocab, decode_hp.batch_size,
@@ -325,7 +339,8 @@ def decode_from_file(estimator,
             None,
             inputs_vocab,
             targets_vocab,
-            log_results=decode_hp.log_results)
+            log_results=decode_hp.log_results,
+            target_modality_is_symbol=target_modality_is_symbol)
         beam_decodes.append(decoded_outputs)
         if decode_hp.write_beam_scores:
           beam_scores.append(score)
@@ -344,7 +359,8 @@ def decode_from_file(estimator,
           None,
           inputs_vocab,
           targets_vocab,
-          log_results=decode_hp.log_results)
+          log_results=decode_hp.log_results,
+          target_modality_is_symbol=target_modality_is_symbol)
       decodes.append(decoded_outputs)
     total_time_per_step += elapsed_time
     total_cnt += result["outputs"].shape[-1]
@@ -414,6 +430,9 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
     example = _interactive_input_tensor_to_features_dict(example, hparams)
     return example
 
+  target_modality_is_symbol = \
+    hparams.problem_hparams.target_modality[0] == registry.Modalities.SYMBOL
+
   result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
   for result in result_iter:
     is_image = False  # TODO(lukaszkaiser): find out from problem id / class.
@@ -426,7 +445,9 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(beams):
         tf.logging.info("BEAM %d:" % k)
-        beam_string = targets_vocab.decode(_save_until_eos(beam, is_image))
+        if target_modality_is_symbol:
+          beam = _save_until_eos(beam, is_image)
+        beam_string = targets_vocab.decode(beam)
         if scores is not None:
           tf.logging.info("\"%s\"\tScore:%f" % (beam_string, scores[k]))
         else:
@@ -435,8 +456,10 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
       if decode_hp.identity_output:
         tf.logging.info(" ".join(map(str, result["outputs"].flatten())))
       else:
-        tf.logging.info(
-            targets_vocab.decode(_save_until_eos(result["outputs"], is_image)))
+        outputs = result["outputs"]
+        if target_modality_is_symbol:
+          outputs = _save_until_eos(outputs, is_image)
+        tf.logging.info(targets_vocab.decode(outputs))
 
 
 def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
