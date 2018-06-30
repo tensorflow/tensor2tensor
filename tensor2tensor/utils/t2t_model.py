@@ -434,6 +434,12 @@ class T2TModel(base.Layer):
       losses = {}
       for k, v in six.iteritems(logits):
         losses[k] = self._loss_single(v, target_modality[k], features[k])
+
+        n, d = losses[k]
+        tf.summary.scalar(k + "_loss", n / d)
+        tf.summary.scalar(k + "_loss_num", n)
+        tf.summary.scalar(k + "_loss_den", d)
+
       return tf.add_n([n / d for n, d in losses.values()])
     else:
       if self._problem_hparams:
