@@ -23,9 +23,6 @@ import os
 import gym
 import numpy as np
 
-# We need gym_utils for the game environments defined there.
-from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-import
-
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.models.research import rl, autoencoders
@@ -44,10 +41,6 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string("agent_policy_path", None, "File with model for agent.")
 flags.DEFINE_string("autoencoder_path", None,
                     "File with model for autoencoder.")
-flags.DEFINE_boolean(
-    "only_use_ae_for_policy", False,
-    "Whether to only use the autoencoder for the policy and "
-    "still write out full-resolution frames.")
 
 
 def standard_atari_env_spec(env):
@@ -77,6 +70,7 @@ def standard_atari_ae_env_spec(env):
   return tf.contrib.training.HParams(env_lambda=env_lambda,
                                      wrappers=standard_wrappers,
                                      simulated_env=False)
+
 
 class GymDiscreteProblem(video_utils.VideoProblem):
   """Gym environment with discrete actions and rewards."""
@@ -194,8 +188,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return data_fields, decoders
 
   def get_environment_spec(self):
-    # return standard_atari_env_spec(self.env_name)
-    return standard_atari_ae_env_spec(self.env_name)
+    return standard_atari_env_spec(self.env_name)
 
   @property
   def is_generate_per_split(self):
@@ -303,6 +296,36 @@ class GymRealDiscreteProblem(GymDiscreteProblem):
     debug_image = None
 
     return debug_image
+
+
+class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
+  def get_environment_spec(self):
+    return standard_atari_ae_env_spec(self.env_name)
+
+
+class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
+
+  def get_environment_spec(self):
+    return standard_atari_ae_env_spec(self.env_name)
+
+  @property
+  def autoencoder_factor(self):
+    """By how much to divide sizes when using autoencoders."""
+    hparams = autoencoders.autoencoder_discrete_pong()
+    return 2**hparams.num_hidden_layers
+
+  @property
+  def frame_height(self):
+    height = self.env.observation_space.shape[0]
+    ae_height = int(math.ceil(height / self.autoencoder_factor))
+    return ae_height
+
+  @property
+  def frame_width(self):
+    width = self.env.observation_space.shape[1]
+    return int(math.ceil(width / self.autoencoder_factor))
+
+
 
 
 class RewardPerSequenceStatistics(BasicStatistics):
@@ -455,196 +478,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     ckpt = ckpts.model_checkpoint_path
     env_model_loader.restore(sess, ckpt)
 
-
-@registry.register_problem
-class GymPongRandom(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  # Hard-coding num_actions, frame_height, frame_width to avoid loading
-  # libale.so file.
-  @property
-  def num_actions(self):
-    return 6
-
-  @property
-  def frame_height(self):
-    return 210
-
-  @property
-  def frame_width(self):
-    return 160
-
-  @property
-  def env_name(self):
-    return "PongDeterministic-v4"
-
-  @property
-  def min_reward(self):
-    return -1
-
-  @property
-  def num_rewards(self):
-    return 3
-
-
-@registry.register_problem
-class GymWrappedPongRandom(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  @property
-  def env_name(self):
-    return "T2TPongWarmUp20RewSkip200Steps-v1"
-
-  @property
-  def min_reward(self):
-    return -1
-
-  @property
-  def num_rewards(self):
-    return 3
-
-
-@registry.register_problem
-class GymWrappedLongPongRandom(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  @property
-  def env_name(self):
-    return "T2TPongWarmUp20RewSkip2000Steps-v1"
-
-  @property
-  def min_reward(self):
-    return -1
-
-  @property
-  def num_rewards(self):
-    return 3
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymWrappedBreakoutRandom(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  @property
-  def env_name(self):
-    return "T2TBreakoutWarmUp20RewSkip500Steps-v1"
-
-  @property
-  def min_reward(self):
-    return -1
-
-  @property
-  def num_rewards(self):
-    return 3
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnPong(GymSimulatedDiscreteProblem,
-                                                 GymPongRandom):
-  """Simulated pong."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_pong"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymFreewayRandom(GymDiscreteProblem):
-  """Freeway game, random actions."""
-
-  @property
-  def env_name(self):
-    return "FreewayDeterministic-v4"
-
-  @property
-  def min_reward(self):
-    return 0
-
-  @property
-  def num_rewards(self):
-    return 2
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnPong(GymRealDiscreteProblem, GymPongRandom):
-  pass
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
-    GymSimulatedDiscreteProblem, GymWrappedPongRandom):
-  """Similated pong."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_pong"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedLongPong(GymRealDiscreteProblem,
-                                                   GymWrappedLongPongRandom):
-  pass
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
-    GymDiscreteProblemWithAgentOnWrappedLongPong):
-
-  def get_environment_spec(self):
-    return standard_atari_ae_env_spec(self.env_name)
-
-  #TODO(piotrmilos): do it better (ie. possibly do a superclass for all
-  #AE problems)
-  @property
-  def autoencoder_factor(self):
-    """By how much to divide sizes when using autoencoders."""
-    hparams = autoencoders.autoencoder_discrete_pong()
-    return 2**hparams.num_hidden_layers
-
-  @property
-  def frame_height(self):
-    height = self.env.observation_space.shape[0]
-    ae_height = int(math.ceil(height / self.autoencoder_factor))
-    return ae_height
-
-  @property
-  def frame_width(self):
-    width = self.env.observation_space.shape[1]
-    return int(math.ceil(width / self.autoencoder_factor))
-
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
-    GymSimulatedDiscreteProblem, GymWrappedLongPongRandom):
-  """Similated pong."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_long_pong"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
-  GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong):
-
-
+class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
   def get_environment_spec(self):
     env_spec = standard_atari_env_spec(self.env_name)
     env_spec.wrappers = [[tf_atari_wrappers.IntToBitWrapper, {}]]
@@ -661,16 +495,6 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencod
     return env_spec
 
   @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_long_pong_ae"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-  #TODO(piotrmilos): do it better (ie. possibly do a superclass for all
-  #AE problems)
-  @property
   def autoencoder_factor(self):
     """By how much to divide sizes when using autoencoders."""
     hparams = autoencoders.autoencoder_discrete_pong()
@@ -686,98 +510,3 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencod
   def frame_width(self):
     width = self.env.observation_space.shape[1]
     return int(math.ceil(width / self.autoencoder_factor))
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedBreakout(GymRealDiscreteProblem,
-                                                   GymWrappedBreakoutRandom):
-  pass
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedBreakoutAe(
-    GymDiscreteProblemWithAgentOnWrappedBreakout):
-  pass
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
-    GymSimulatedDiscreteProblem, GymWrappedBreakoutRandom):
-  """Similated breakout."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_breakout"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedPong(GymRealDiscreteProblem,
-                                               GymWrappedPongRandom):
-  """GymDiscreteProblemWithAgentOnWrappedPong."""
-
-  # Hard-coding num_actions, frame_height, frame_width to avoid loading
-  # libale.so file.
-  @property
-  def num_actions(self):
-    return 6
-
-  @property
-  def frame_height(self):
-    return 210
-
-  @property
-  def frame_width(self):
-    return 160
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
-    GymDiscreteProblemWithAgentOnWrappedPong):
-  pass
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnFreeway(GymSimulatedDiscreteProblem,
-                                                    GymFreewayRandom):
-  """Similated freeway."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_freeway"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnFreeway(GymRealDiscreteProblem,
-                                           GymFreewayRandom):
-  """Freeway with agent."""
-
-  # Hard-coding num_actions, frame_height, frame_width to avoid loading
-  # libale.so file.
-  @property
-  def num_actions(self):
-    return 3
-
-  @property
-  def frame_height(self):
-    if not FLAGS.autoencoder_path:
-      return 210
-    return int(math.ceil(210 / self.autoencoder_factor))
-
-  @property
-  def frame_width(self):
-    if not FLAGS.autoencoder_path:
-      return 160
-    return int(math.ceil(160 / self.autoencoder_factor))
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnFreewayAe(  # with autoencoder
-    GymDiscreteProblemWithAgentOnFreeway):
-  pass

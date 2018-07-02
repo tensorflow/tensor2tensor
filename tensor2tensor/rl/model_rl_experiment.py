@@ -324,15 +324,14 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   directories = setup_directories(output_dir, subdirectories)
 
   # Problems
-  problem_name = "gym_discrete_problem_with_agent_on_%s" % hparams.game
-  ae_problem_name = problem_name + "_ae"
-  simulated_problem_name = (
-      "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
-  ae_simulated_problem_name = simulated_problem_name + "_ae"
-  world_model_problem = ae_problem_name if using_autoencoder else problem_name
-  simulated_problem_name = ae_simulated_problem_name if \
-    using_autoencoder else simulated_problem_name
-  check_problems([problem_name, world_model_problem, simulated_problem_name])
+  if using_autoencoder:
+    problem_name = "gym_discrete_problem_with_agent_on_%s_with_autoencoder" % hparams.game
+    world_model_problem = "gym_discrete_problem_with_agent_on_%s_autoencoded" % hparams.game
+    simulated_problem_name = "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded" % hparams.game
+  else:
+    problem_name = "gym_discrete_problem_with_agent_on_%s" % hparams.game
+    world_model_problem = problem_name
+    simulated_problem_name = "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game
 
   # Autoencoder model dir
   autoencoder_model_dir = (FLAGS.autoencoder_path or
