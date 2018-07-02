@@ -912,8 +912,9 @@ def imagetransformer_b12l_4h_b256_uncond_dr03_tpu():
 @registry.register_hparams
 def imagetransformer_b12l_4h_b256_uncond_dr03_rel_tpu():
   """works very well on 4x4."""
-  hparams = imagetransformer_bas8l_8h_big_uncond_dr03_imgnet()
-  hparams.dec_attention_type = cia.RELATIVE_LOCAL_1D
+  hparams = imagetransformer_b12l_4h_b256_uncond_dr03_tpu()
+  hparams.shared_rel = True
+  hparams.dec_attention_type = cia.AttentionType.RELATIVE_LOCAL_1D
   return hparams
 
 
@@ -926,7 +927,7 @@ def imagetransformer_cifar_tpu_range(rhp):
   rhp.set_discrete("hidden_size", [256, 512, 1024])
   rhp.set_discrete("block_length", [128, 256, 512])
   rhp.set_categorical("dec_attention_type", [
-      cia.RELATIVE_LOCAL_1D, cia.LOCAL_1D])
+      cia.AttentionType.RELATIVE_LOCAL_1D, cia.AttentionType.LOCAL_1D])
 
 
 @registry.register_hparams
