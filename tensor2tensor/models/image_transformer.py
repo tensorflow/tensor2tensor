@@ -35,14 +35,26 @@ import tensorflow as tf
 
 @registry.register_model
 class Imagetransformer(t2t_model.T2TModel):
-  """Conditional image generation with attention. See file docstring."""
+  """Conditional image generation with attention. See file docstring.
+
+  The model admits either a Categorical or discretized mixture of logistic
+  distributions (DMOL) as the likelihood. When using DMOL for training, double
+  check that the evaluation metrics also use it.
+  """
 
   def body(self, features):
     hparams = copy.copy(self._hparams)
     inputs = features["inputs"]
     targets = features["targets"]
-    if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.contrib.learn.ModeKeys.INFER):
+    if (hparams.likelihood == cia.DistributionType.DMOL and
+        (hparams.target_modality != "image:image_channel_bottom_identity" or
+         hparams.num_channels != 1)):
+      raise ValueError("When using DMOL for the likelihood, target_modality "
+                       "must be image:image_channel_bottom_identity and "
+                       "num_channels must be 1.")
+    if (not tf.get_variable_scope().reuse and
+        hparams.mode != tf.contrib.learn.ModeKeys.INFER and
+        hparams.target_modality != "image:image_channel_bottom_identity"):
       tf.summary.image("targets", tf.to_float(targets), max_outputs=1)
 
     # Extra losses list if we want to use moe.
@@ -69,41 +81,11 @@ class Imagetransformer(t2t_model.T2TModel):
     else:
       return output
 
-
-@registry.register_model
-class ImagetransformerPlus(t2t_model.T2TModel):
-  """Imagetransformer with discretized mixture of logistics loss."""
-
-  def body(self, features):
-    hparams = copy.copy(self._hparams)
-    inputs = features["inputs"]
-    targets = features["targets"]
-    # Prepare decoder inputs and bias.
-    decoder_input, _, _ = cia.prepare_decoder(targets, hparams)
-    # Add class label to decoder input.
-    if not hparams.unconditional:
-      decoder_input += tf.reshape(
-          inputs,
-          [common_layers.shape_list(targets)[0], 1, 1, hparams.hidden_size])
-    decoder_output = cia.transformer_decoder_layers(
-        decoder_input,
-        None,
-        hparams.num_decoder_layers or hparams.num_hidden_layers,
-        hparams,
-        attention_type=hparams.dec_attention_type,
-        name="decoder")
-    # reshape it into [batch, height, width, depth]
-    decoder_output = tf.reshape(decoder_output, tf.shape(targets))
-    # there are 10 sets of parameters that you need to produce, location, scale,
-    # and coefficient parameter for each
-    output = tf.layers.dense(decoder_output, hparams.num_mixtures*10,
-                             use_bias=False, activation=None,
-                             name="output_mixtures_conv")
-    # TODO(avaswani) Figure out if we need residuals or layer norm
-    return output
-
   def loss(self, logits, features):
-    return common_layers.dml_loss(logits, features["targets"])
+    if self._hparams.likelihood == cia.DistributionType.DMOL:
+      return common_layers.dml_loss(logits, features["targets"])
+
+    return super(Imagetransformer, self).loss(logits, features)
 
   def sample(self, features):
     """Run the model and extract samples.
@@ -116,11 +98,32 @@ class ImagetransformerPlus(t2t_model.T2TModel):
        logits: a list of `Tensor`s, one per datashard.
        losses: a dictionary: {loss-name (string): floating point `Scalar`}.
     """
-    logits, losses = self(features)  # pylint: disable=not-callable
+    if self._hparams.likelihood == cia.DistributionType.DMOL:
+      logits, losses = self(features)  # pylint: disable=not-callable
+      samples = common_layers.sample_from_discretized_mix_logistic(
+          logits, seed=None)
+      return samples, logits, losses
 
-    samples = common_layers.sample_from_discretized_mix_logistic(
-        logits, seed=None)
-    return samples, logits, losses
+    return super(Imagetransformer, self).sample(features)
+
+  def _slow_greedy_infer(self, features, decode_length):
+    """A slow greedy inference method.
+
+    Quadratic time in decode_length.
+
+    Args:
+      features: an map of string to `Tensor`
+      decode_length: an integer.  How many additional timesteps to decode.
+
+    Returns:
+       samples: an integer `Tensor`.
+       logits: `Tensor` of shape [batch_size, time, 1, 1, vocab_size].
+       losses: a dictionary: {loss-name (string): floating point `Scalar`}
+    """
+    if self._hparams.likelihood == cia.DistributionType.DMOL:
+      raise NotImplementedError("Decoding is not currently available for DMOL.")
+    return super(Imagetransformer, self)._slow_greedy_infer(features,
+                                                            decode_length)
 
 
 @registry.register_model
@@ -226,6 +229,7 @@ def image_transformer_base():
   hparams.add_hparam("q_filter_width", 1)
   hparams.add_hparam("kv_filter_width", 1)
 
+  hparams.add_hparam("likelihood", cia.DistributionType.CAT)
   hparams.add_hparam("unconditional", False)  # unconditional generation
 
   # parameters of discretized mixture of logistics loss from pixel cnn++
@@ -323,6 +327,9 @@ def imagetransformer_base_10l_8h_big_uncond_dr03_dan_64():
 def imagetransformerpp_sep_channels_8l_8h():
   """separate rgb embeddings."""
   hparams = imagetransformer_base()
+  hparams.likelihood = cia.DistributionType.DMOL
+  hparams.num_channels = 1
+  hparams.target_modality = "image:image_channel_bottom_identity"
   hparams.num_heads = 8
   hparams.batch_size = 4
   hparams.attention_key_channels = hparams.attention_value_channels = 0
@@ -332,7 +339,6 @@ def imagetransformerpp_sep_channels_8l_8h():
   hparams.sampling_method = "random"
   hparams.layer_preprocess_sequence = "n"
   hparams.layer_postprocess_sequence = "da"
-  hparams.target_modality = "image:image_channel_bottom_identity"
   hparams.summarize_grads = True
   hparams.learning_rate = 0.1
   return hparams
@@ -359,7 +365,6 @@ def imagetransformerpp_base_8l_8h_big_cond_dr03_dan():
 def imagetransformerpp_base_8l_8h_big_cond_dr03_dan_a():
   hparams = imagetransformerpp_base_8l_8h_big_cond_dr03_dan()
   hparams.learning_rate = 0.1
-  hparams.num_channels = 1
   return hparams
 
 
@@ -739,6 +744,15 @@ def imagetransformer_tiny():
   hparams.num_hidden_layers = 2
   hparams.hidden_size = 64
   hparams.batch_size = 1
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_tiny():
+  hparams = imagetransformer_base()
+  hparams.likelihood = cia.DistributionType.DMOL
+  hparams.num_channels = 1
+  hparams.target_modality = "image:image_channel_bottom_identity"
   return hparams
 
 
