@@ -194,7 +194,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return data_fields, decoders
 
   def get_environment_spec(self):
-    return standard_atari_env_spec(self.env_name)
+    # return standard_atari_env_spec(self.env_name)
+    return standard_atari_ae_env_spec(self.env_name)
 
   @property
   def is_generate_per_split(self):

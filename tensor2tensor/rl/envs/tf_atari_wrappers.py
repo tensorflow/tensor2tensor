@@ -292,8 +292,8 @@ class IntToBitWrapper(WrapperBase):
         trainable=False)
 
   def simulate(self, action):
+    action = tf.zeros_like(action) #Temporary hacked bugfix
     reward, done = self._batch_env.simulate(action)
-
     with tf.control_dependencies([reward, done]):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
         unpacked = discretization.int_to_bit(self._batch_env.observ, 8)
