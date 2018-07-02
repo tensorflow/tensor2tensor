@@ -257,7 +257,7 @@ class Problem(object):
     Returns:
       an integer
     """
-    if self.batch_size_means_tokens:
+    if self.batch_size_means_tokens and not model_hparams.use_fixed_batch_size:
       return model_hparams.batch_size // self.max_length(model_hparams)
     else:
       return model_hparams.batch_size
