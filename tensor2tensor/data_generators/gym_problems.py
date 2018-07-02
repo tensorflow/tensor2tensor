@@ -637,6 +637,54 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
 
 
 @registry.register_problem
+class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
+  GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong):
+
+
+  def get_environment_spec(self):
+    env_spec = standard_atari_env_spec(self.env_name)
+    env_spec.wrappers = [[tf_atari_wrappers.IntToBitWrapper, {}], ]
+    env_spec.simulated_env = True
+    env_spec.add_hparam("simulation_random_starts",
+                        self.simulation_random_starts)
+
+    env_spec.add_hparam("intrinsic_reward_scale", self.intrinsic_reward_scale)
+    initial_frames_problem = registry.problem(self.initial_frames_problem)
+    env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
+    env_spec.add_hparam("video_num_input_frames", self.num_input_frames)
+    env_spec.add_hparam("video_num_target_frames", self.video_num_target_frames)
+
+    return env_spec
+
+  @property
+  def initial_frames_problem(self):
+    return "gym_discrete_problem_with_agent_on_wrapped_long_pong_ae"
+
+  @property
+  def num_testing_steps(self):
+    return 100
+
+  #TODO(piotrmilos): do it better (ie. possibly do a superclass for all
+  #AE problems)
+  @property
+  def autoencoder_factor(self):
+    """By how much to divide sizes when using autoencoders."""
+    hparams = autoencoders.autoencoder_discrete_pong()
+    return 2**hparams.num_hidden_layers
+
+  @property
+  def frame_height(self):
+    height = self.env.observation_space.shape[0]
+    ae_height =  int(math.ceil(height / self.autoencoder_factor))
+    return ae_height
+
+  @property
+  def frame_width(self):
+    width = self.env.observation_space.shape[1]
+    return int(math.ceil(width / self.autoencoder_factor))
+
+
+@registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedBreakout(GymRealDiscreteProblem,
                                                    GymWrappedBreakoutRandom):
   pass

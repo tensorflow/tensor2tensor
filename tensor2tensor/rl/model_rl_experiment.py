@@ -88,14 +88,12 @@ def temporary_flags(flag_settings):
 
 
 def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
-                           tmp_dir, autoencoder_path=None, eval_phase=False):
+                           tmp_dir, eval_phase=False):
   """Run the agent against the real environment and return mean reward."""
   tf.gfile.MakeDirs(data_dir)
   with temporary_flags({
       "problem": problem_name,
       "agent_policy_path": agent_policy_path,
-      "autoencoder_path": autoencoder_path,
-      "only_use_ae_for_policy": True,
   }):
     gym_problem = registry.problem(problem_name)
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
@@ -133,8 +131,7 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
 
 
 def train_agent(problem_name, agent_model_dir,
-                event_dir, world_model_dir, epoch_data_dir, hparams,
-                autoencoder_path=None, epoch=0):
+                event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0):
   """Train the PPO agent in the simulated environment."""
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -159,7 +156,6 @@ def train_agent(problem_name, agent_model_dir,
   environment_spec = copy.copy(gym_problem.environment_spec)
   environment_spec.simulation_random_starts = hparams.simulation_random_starts
   environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
-  environment_spec.wrappers = []
 
   ppo_hparams.add_hparam("environment_spec", environment_spec)
 
@@ -169,14 +165,12 @@ def train_agent(problem_name, agent_model_dir,
       "hparams_set": hparams.generative_model_params,
       "output_dir": world_model_dir,
       "data_dir": epoch_data_dir,
-      "autoencoder_path": autoencoder_path,
   }):
     rl_trainer_lib.train(ppo_hparams, event_dir, agent_model_dir, epoch=epoch)
 
 
 def evaluate_world_model(simulated_problem_name, problem_name, hparams,
-                         world_model_dir, epoch_data_dir, tmp_dir,
-                         autoencoder_path=None):
+                         world_model_dir, epoch_data_dir, tmp_dir):
   """Generate simulated environment data and return reward accuracy."""
   gym_simulated_problem = registry.problem(simulated_problem_name)
   sim_steps = hparams.simulated_env_generator_num_steps
@@ -187,7 +181,6 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
       "hparams_set": hparams.generative_model_params,
       "data_dir": epoch_data_dir,
       "output_dir": world_model_dir,
-      "autoencoder_path": autoencoder_path,
   }):
     gym_simulated_problem.generate_data(epoch_data_dir, tmp_dir)
   n = max(1., gym_simulated_problem.statistics.number_of_dones)
@@ -212,9 +205,6 @@ def train_world_model(problem_name, data_dir, output_dir, hparams, epoch,
       "hparams_set": hparams.generative_model_params,
       "eval_steps": 100,
       "train_steps": train_steps,
-      # Hack: If training on autoencoded frames, autoencoder_path needs to be
-      # set so that the problem reports the right sizes for frames.
-      "autoencoder_path": "dummy" if use_autoencoder else None,
   }):
     t2t_trainer.main([])
 
@@ -338,7 +328,9 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   ae_problem_name = problem_name + "_ae"
   simulated_problem_name = (
       "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
+  ae_simulated_problem_name = simulated_problem_name + "_ae"
   world_model_problem = ae_problem_name if using_autoencoder else problem_name
+  simulated_problem_name = ae_simulated_problem_name if using_autoencoder else simulated_problem_name
   check_problems([problem_name, world_model_problem, simulated_problem_name])
 
   # Autoencoder model dir
@@ -392,15 +384,14 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                       use_autoencoder=using_autoencoder)
 
     # Evaluate world model
-    # model_reward_accuracy = 0.
-    # if hparams.eval_world_model:
-    #   log("Evaluating world model")
-    #   model_reward_accuracy = evaluate_world_model(
-    #       simulated_problem_name, world_model_problem, hparams,
-    #       directories["world_model"],
-    #       epoch_data_dir, directories["tmp"],
-    #       autoencoder_path=autoencoder_model_dir)
-    #   log("World model reward accuracy: %.4f", model_reward_accuracy)
+    model_reward_accuracy = 0.
+    if hparams.eval_world_model:
+      log("Evaluating world model")
+      model_reward_accuracy = evaluate_world_model(
+          simulated_problem_name, world_model_problem, hparams,
+          directories["world_model"],
+          epoch_data_dir, directories["tmp"])
+      log("World model reward accuracy: %.4f", model_reward_accuracy)
 
     # Train PPO
     log("Training PPO")
@@ -410,7 +401,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       ppo_model_dir = ppo_event_dir
     train_agent(simulated_problem_name, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
-                hparams, autoencoder_path=autoencoder_model_dir, epoch=epoch)
+                hparams, epoch=epoch)
 
     # Collect data from the real environment.
     log("Generating real environment data")
@@ -418,8 +409,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       epoch_data_dir = os.path.join(epoch_data_dir, "final_eval")
     mean_reward = generate_real_env_data(
         problem_name, ppo_model_dir, hparams, epoch_data_dir,
-        directories["tmp"], autoencoder_path=autoencoder_model_dir,
-        eval_phase=is_final_epoch)
+        directories["tmp"], eval_phase=is_final_epoch)
     log("Mean reward during generation: %.4f", mean_reward)
 
     # Report metrics.
@@ -674,6 +664,7 @@ def rl_modelrl_ae_tiny():
   hparams.ppo_params = "ppo_pong_ae_base"
   hparams.generative_model_params = "next_frame_ae"
   hparams.autoencoder_train_steps = 2
+  hparams.eval_world_model = False
   return hparams
 
 

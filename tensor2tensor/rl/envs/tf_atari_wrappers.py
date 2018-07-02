@@ -17,6 +17,8 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+from tensor2tensor.layers import discretization
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 
 import tensorflow as tf
@@ -236,8 +238,7 @@ class AutoencoderWrapper(WrapperBase):
     batch_size, height, width, _ = self._batch_env.observ.get_shape().as_list()
     ae_height = int(math.ceil(height / self.autoencoder_factor))
     ae_width = int(math.ceil(width / self.autoencoder_factor))
-    ae_channels = 24 # TODO (piotrmilos): can we get it somewhere?
-    #shouldn't these be bits?
+    ae_channels = 24
     observ_shape = (batch_size, ae_height, ae_width, ae_channels)
     self._observ = self._observ = tf.Variable(
           tf.zeros(observ_shape, tf.float32), trainable=False)
@@ -250,7 +251,6 @@ class AutoencoderWrapper(WrapperBase):
     return 2**hparams.num_hidden_layers
 
   def simulate(self, action):
-
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
@@ -275,3 +275,36 @@ class AutoencoderWrapper(WrapperBase):
       self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
           autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
       print("Autoencoder created")
+
+
+class IntToBitWrapper(WrapperBase):
+  """Unpacks the observations from integer values to bit values"""
+
+  def __init__(self, batch_env):
+    super(IntToBitWrapper, self).__init__(batch_env)
+    batch_size, height, width, channels = self._batch_env.observ.get_shape().as_list()
+    #We treat each channel as 8-bit integer to be expanded to 8 channels
+    self.observ_shape = (height, width, channels*8)
+    self._observ = self._observ = tf.Variable(
+          tf.zeros((batch_size,) + self.observ_shape, tf.float32), trainable=False)
+
+  def simulate(self, action):
+    reward, done = self._batch_env.simulate(action)
+    
+    with tf.control_dependencies([reward, done]):
+      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+        unpacked = discretization.int_to_bit(self._batch_env.observ, 8)
+        unpacked =  tf.reshape(unpacked, (-1, ) + self.observ_shape)
+        assign_op = self._observ.assign(unpacked)
+        with tf.control_dependencies([assign_op]):
+          return tf.identity(reward), tf.identity(done)
+
+  def _reset_non_empty(self, indices):
+    # pylint: disable=protected-access
+    new_values = self._batch_env._reset_non_empty(indices)
+    new_values_unpacked = discretization.int_to_bit(new_values, 8)
+    new_values_unpacked = tf.reshape(new_values_unpacked, (-1, ) + self.observ_shape)
+    # pylint: enable=protected-access
+    assign_op = tf.scatter_update(self._observ, indices, new_values_unpacked)
+    with tf.control_dependencies([assign_op]):
+      return tf.identity(new_values_unpacked)
