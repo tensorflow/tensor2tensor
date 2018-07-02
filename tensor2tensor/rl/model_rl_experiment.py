@@ -193,8 +193,7 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
   return model_reward_accuracy
 
 
-def train_world_model(problem_name, data_dir, output_dir, hparams, epoch,
-                      use_autoencoder=False):
+def train_world_model(problem_name, data_dir, output_dir, hparams, epoch):
   """Train the world model on problem_name."""
   train_steps = hparams.model_train_steps * (epoch + 2)
   with temporary_flags({
@@ -244,7 +243,8 @@ def encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
           rewards = examples_np["reward"].tolist()
           actions = examples_np["action"].tolist()
           frame_numbers = examples_np["frame_number"].tolist()
-          for action, reward, frame_number, png in zip(actions, rewards, frame_numbers, pngs_np):
+          for action, reward, frame_number, png in \
+                  zip(actions, rewards, frame_numbers, pngs_np):
             yield {
                 "action": action,
                 "reward": reward,
@@ -330,7 +330,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game)
   ae_simulated_problem_name = simulated_problem_name + "_ae"
   world_model_problem = ae_problem_name if using_autoencoder else problem_name
-  simulated_problem_name = ae_simulated_problem_name if using_autoencoder else simulated_problem_name
+  simulated_problem_name = ae_simulated_problem_name if \
+    using_autoencoder else simulated_problem_name
   check_problems([problem_name, world_model_problem, simulated_problem_name])
 
   # Autoencoder model dir
@@ -380,8 +381,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     # Train world model
     log("Training world model")
     train_world_model(world_model_problem, epoch_data_dir,
-                      directories["world_model"], hparams, epoch,
-                      use_autoencoder=using_autoencoder)
+                      directories["world_model"], hparams, epoch)
 
     # Evaluate world model
     model_reward_accuracy = 0.

@@ -194,7 +194,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     return data_fields, decoders
 
   def get_environment_spec(self):
-    return standard_atari_ae_env_spec(self.env_name)
+    return standard_atari_env_spec(self.env_name)
 
   @property
   def is_generate_per_split(self):
@@ -601,6 +601,9 @@ class GymDiscreteProblemWithAgentOnWrappedLongPong(GymRealDiscreteProblem,
 class GymDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
     GymDiscreteProblemWithAgentOnWrappedLongPong):
 
+  def get_environment_spec(self):
+    return standard_atari_ae_env_spec(self.env_name)
+
   #TODO(piotrmilos): do it better (ie. possibly do a superclass for all
   #AE problems)
   @property
@@ -612,7 +615,7 @@ class GymDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencoder
   @property
   def frame_height(self):
     height = self.env.observation_space.shape[0]
-    ae_height =  int(math.ceil(height / self.autoencoder_factor))
+    ae_height = int(math.ceil(height / self.autoencoder_factor))
     return ae_height
 
   @property
@@ -643,7 +646,7 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencod
 
   def get_environment_spec(self):
     env_spec = standard_atari_env_spec(self.env_name)
-    env_spec.wrappers = [[tf_atari_wrappers.IntToBitWrapper, {}], ]
+    env_spec.wrappers = [[tf_atari_wrappers.IntToBitWrapper, {}]]
     env_spec.simulated_env = True
     env_spec.add_hparam("simulation_random_starts",
                         self.simulation_random_starts)
@@ -675,7 +678,7 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPongAe(  # with autoencod
   @property
   def frame_height(self):
     height = self.env.observation_space.shape[0]
-    ae_height =  int(math.ceil(height / self.autoencoder_factor))
+    ae_height = int(math.ceil(height / self.autoencoder_factor))
     return ae_height
 
   @property
@@ -732,8 +735,7 @@ class GymDiscreteProblemWithAgentOnWrappedPong(GymRealDiscreteProblem,
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
     GymDiscreteProblemWithAgentOnWrappedPong):
-
-    pass
+  pass
 
 
 @registry.register_problem
