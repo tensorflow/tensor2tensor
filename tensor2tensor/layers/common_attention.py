@@ -658,7 +658,7 @@ def add_positional_embedding(x, max_length, name, positions=None):
     a Tensor the same shape as x.
   """
   _, length, depth = common_layers.shape_list(x)
-  var = tf.get_variable(name, [max_length, depth])
+  var = tf.cast(tf.get_variable(name, [max_length, depth]), x.dtype)
   if positions is None:
     sliced = tf.cond(
         tf.less(length, max_length),
@@ -2960,6 +2960,7 @@ def compute_attention_component(antecedent,
                vars_3d_num_heads,
                total_depth // vars_3d_num_heads],
         initializer=tf.random_normal_initializer(stddev=initializer_stddev))
+    var = tf.cast(var, antecedent.dtype)
     var = tf.reshape(var, [input_depth, total_depth])
     return tf.tensordot(antecedent, var, axes=1)
   if filter_width == 1:
@@ -3250,6 +3251,7 @@ def multihead_attention(query_antecedent,
     if vars_3d:
       o_var = tf.get_variable(
           "o", [num_heads, total_value_depth // num_heads, output_depth])
+      o_var = tf.cast(o_var, x.dtype)
       o_var = tf.reshape(o_var, [total_value_depth, output_depth])
       x = tf.tensordot(x, o_var, axes=1)
     else:
