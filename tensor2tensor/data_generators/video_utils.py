@@ -261,6 +261,9 @@ class VideoProblem(problem.Problem):
           if self.only_keep_videos_from_0th_frame:
             not_broken = tf.logical_and(not_broken,
                                         tf.equal(frame_numbers[0], 0))
+        else:
+          tf.logging.warning("use_not_breaking_batching is True but "
+                             "no frame_number is in the dataset.")
 
         features = {}
         for key in datasets[0].keys():
