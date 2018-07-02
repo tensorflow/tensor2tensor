@@ -20,6 +20,7 @@ from __future__ import print_function
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.layers import discretization
 import tensorflow as tf
 
 
@@ -39,6 +40,12 @@ class MultiProblem(problem.Problem):
 
   def add_task_id(self, task, example):
     """Convert example to code switching mode by adding a task id."""
+    if hasattr(task, "class_labels"):
+      # TODO(urvashik): handle the case where num_labels > 9
+      example["targets"] = tf.cast(discretization.int_to_bit(
+          example["targets"], 1, base=10) + 50, tf.int64)
+      example["targets"] = tf.squeeze(example["targets"], axis=[-1])
+
     if task.has_inputs:
       inputs = example.pop("inputs")
       concat_list = [inputs, [task.task_id], example["targets"]]
@@ -51,6 +58,14 @@ class MultiProblem(problem.Problem):
   def filepattern(self, data_dir, mode, shard=None):
     print("Generating multi problem filepattern")
     return [task.filepattern(data_dir, mode, shard) for task in self.task_list]
+
+  def get_hparams(self, model_hparams=None):
+    if self._hparams is not None:
+      return self._hparams
+
+    self._hparams = self.task_list[0].get_hparams()
+
+    return self._hparams
 
   def dataset(self,
               mode,
@@ -79,7 +94,7 @@ class MultiProblem(problem.Problem):
       task_dataset = task_dataset.map(lambda x: self.add_task_id(task, x))
       datasets.append(task_dataset)
 
-    self._hparams = self.task_list[0].get_hparams()
+    self.get_hparams()
 
     # TODO(urvashik): make this independent of the number of tasks
     def flatten_zip(d0, d1):
