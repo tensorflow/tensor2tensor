@@ -159,7 +159,8 @@ def create_run_config(master="",
         iterations_per_loop=iterations_per_loop,
         num_shards=num_shards,
         per_host_input_for_training=True,
-        initial_infeed_sleep_secs=tpu_infeed_sleep_secs)
+        initial_infeed_sleep_secs=tpu_infeed_sleep_secs,
+        computation_shape=[1, 1, 1] if no_data_parallelism else None)
     run_config_args["tpu_config"] = tpu_config
 
   config = run_config_cls(**run_config_args)
@@ -533,4 +534,3 @@ def restore_checkpoint(ckpt_dir, saver, sess, must_restore=False):
   saver.restore(sess, path)
   step = int(path.split("-")[-1])
   return step
-
