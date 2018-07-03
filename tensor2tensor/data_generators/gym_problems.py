@@ -99,10 +99,15 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     if not FLAGS.agent_policy_path:
       collect_hparams.policy_network = rl.random_policy_fun
 
+    policy_to_actions_lambda = None
+    if self.eval_phase:
+      policy_to_actions_lambda = lambda policy: policy.mode()
+
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       self.collect_memory, self.collect_trigger_op, collect_init \
         = collect.define_collect(collect_hparams, scope="gym_problems",
-                                 collect_level=0, eval_phase=self.eval_phase)
+                                 eval_phase=False, collect_level=0,
+                                 policy_to_actions_lambda=policy_to_actions_lambda)
 
     self._session = tf.Session()
     collect_init(self._session)
@@ -119,11 +124,12 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
     with self._session as sess:
       self.restore_networks(sess)
-      pieces_generated = 0
       frame_counter = 0
       memory_index = 0
       memory = None
-      while pieces_generated < self.num_steps:
+      pieces_generated = 0
+
+      while pieces_generated<self.num_steps or self.eval_phase:
         if memory is None or memory_index >= self._internal_memory_size:
           memory = sess.run(self.collect_memory)
           memory_index = 0
@@ -149,6 +155,10 @@ class GymDiscreteProblem(video_utils.VideoProblem):
           ret_dict["image/debug"] = debug_image
 
         yield ret_dict
+
+        if done and self.eval_phase:
+          return
+
         pieces_generated += 1
         frame_counter += 1
         if done:
@@ -275,8 +285,10 @@ class BasicStatistics(object):
   def __init__(self):
     self.sum_of_rewards = 0.0
     self.number_of_dones = 0
+    self.sum_of_rewards_current_episode = 0.0
 
 
+#TODO(piotrmilos): merge with the superclass
 class GymRealDiscreteProblem(GymDiscreteProblem):
   """Discrete problem."""
 
@@ -290,11 +302,14 @@ class GymRealDiscreteProblem(GymDiscreteProblem):
                                                   reward, done, action):
     """Collects info required to calculate mean reward."""
 
-    self.statistics.sum_of_rewards += reward
+    self.statistics.sum_of_rewards_current_episode += reward
     self.statistics.number_of_dones += int(done)
+    if done:
+      self.statistics.sum_of_rewards +=\
+        self.statistics.sum_of_rewards_current_episode
+      self.statistics.sum_of_rewards_current_episode = 0.0
 
     debug_image = None
-
     return debug_image
 
 

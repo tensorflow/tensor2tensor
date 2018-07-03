@@ -99,8 +99,10 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
     gym_problem.eval_phase = eval_phase
     gym_problem.generate_data(data_dir, tmp_dir)
-    mean_reward = gym_problem.statistics.sum_of_rewards / \
-                  (1.0 + gym_problem.statistics.number_of_dones)
+    mean_reward = None
+    if gym_problem.statistics.number_of_dones:
+      mean_reward = (gym_problem.statistics.sum_of_rewards /
+                    gym_problem.statistics.number_of_dones)
 
   return mean_reward
 
@@ -351,7 +353,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   tf.logging.info("Generating real environment data with random policy")
   mean_reward = generate_real_env_data(
       problem_name, None, hparams, data_dir, directories["tmp"])
-  tf.logging.info("Mean reward (random): %.4f", mean_reward)
+  tf.logging.info("Mean reward (random): {}".format(mean_reward))
 
   for epoch in range(hparams.epochs):
     is_final_epoch = (epoch + 1) == hparams.epochs
@@ -394,7 +396,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     # Train PPO
     log("Training PPO")
-    ppo_event_dir = os.path.join(directories["ppo"], str(epoch))
+    ppo_event_dir = os.path.join(directories["world_model"], "ppo", str(epoch))
     ppo_model_dir = directories["ppo"]
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
@@ -404,12 +406,17 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     # Collect data from the real environment.
     log("Generating real environment data")
-    if is_final_epoch:
-      epoch_data_dir = os.path.join(epoch_data_dir, "final_eval")
+    eval_data_dir = os.path.join(epoch_data_dir, "eval")
     mean_reward = generate_real_env_data(
-        problem_name, ppo_model_dir, hparams, epoch_data_dir,
-        directories["tmp"], eval_phase=is_final_epoch)
-    log("Mean reward during generation: %.4f", mean_reward)
+      problem_name, ppo_model_dir, hparams, eval_data_dir,
+      directories["tmp"], eval_phase=True)
+    log("Mean eval reward: {}".format(mean_reward))
+
+    if not is_final_epoch:
+      generation_mean_reward = generate_real_env_data(
+          problem_name, ppo_model_dir, hparams, epoch_data_dir,
+          directories["tmp"], eval_phase=False)
+      log("Mean reward during generation: {}".format(generation_mean_reward))
 
     # Report metrics.
     eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
