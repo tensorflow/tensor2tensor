@@ -849,7 +849,7 @@ def padding_to_length(padding):
     a Tensor with shape [...].
   """
   non_padding = 1.0 - padding
-  return tf.to_int64(tf.reduce_sum(non_padding, axis=-1))
+  return tf.to_int32(tf.reduce_sum(non_padding, axis=-1))
 
 
 @expert_utils.add_name_scope()
