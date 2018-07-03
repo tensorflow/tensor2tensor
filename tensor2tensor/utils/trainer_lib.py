@@ -127,7 +127,7 @@ def create_run_config(master="",
                       inter_op_parallelism_threads=0,
                       log_step_count_steps=100,
                       intra_op_parallelism_threads=0,
-                      computation_shape=None):
+                      tpu_config_extra_kwargs=None):
   """Create RunConfig, TPUConfig, and Parallelism object."""
   session_config = create_session_config(
       log_device_placement=log_device_placement,
@@ -155,13 +155,15 @@ def create_run_config(master="",
 
   # If using TPU, use TPU RunConfig, add TPUConfig, and add additional args
   if use_tpu:
+    if tpu_config_extra_kwargs is None:
+      tpu_config_extra_kwargs = {}
     run_config_cls = tf.contrib.tpu.RunConfig
     tpu_config = tf.contrib.tpu.TPUConfig(
         iterations_per_loop=iterations_per_loop,
         num_shards=num_shards,
         per_host_input_for_training=True,
         initial_infeed_sleep_secs=tpu_infeed_sleep_secs,
-        computation_shape=computation_shape)
+        **tpu_config_extra_kwargs)
     run_config_args["tpu_config"] = tpu_config
 
   config = run_config_cls(**run_config_args)
@@ -205,6 +207,8 @@ def create_estimator(model_name,
     batch_size = (
         problem.tpu_batch_size_per_shard(hparams) *
         run_config.tpu_config.num_shards)
+    if getattr(hparams, "mtf_mode", False):
+      batch_size = problem.tpu_batch_size_per_shard(hparams)
     predict_batch_size = batch_size
     if decode_hparams and decode_hparams.batch_size:
       predict_batch_size = decode_hparams.batch_size

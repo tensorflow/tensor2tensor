@@ -190,7 +190,7 @@ def create_run_config(hp):
   if save_ckpt_secs:
     save_ckpt_steps = None
   assert FLAGS.output_dir or FLAGS.checkpoint_path
-  computation_shape = None
+  tpu_config_extra_kwargs = {}
 
   # the various custom getters we have written do not play well together yet.
   # TODO(noam): ask rsepassi for help here.
@@ -229,7 +229,7 @@ def create_run_config(hp):
       inter_op_parallelism_threads=FLAGS.inter_op_parallelism_threads,
       log_step_count_steps=FLAGS.log_step_count_steps,
       intra_op_parallelism_threads=FLAGS.intra_op_parallelism_threads,
-      computation_shape=computation_shape)
+      tpu_config_extra_kwargs=tpu_config_extra_kwargs)
 
 
 def generate_data():
