@@ -355,6 +355,17 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       problem_name, None, hparams, data_dir, directories["tmp"])
   tf.logging.info("Mean reward (random): {}".format(mean_reward))
 
+
+  eval_metrics_event_dir = os.path.join(directories["world_model"],
+                                        "eval_metrics_event_dir")
+  eval_metrics_writer = tf.summary.FileWriter(eval_metrics_event_dir)
+  model_reward_accuracy_summary = tf.Summary()
+  model_reward_accuracy_summary.value.add(tag='model_reward_accuracy',
+                                          simple_value=None)
+  mean_reward_summary = tf.Summary()
+  mean_reward_summary.value.add(tag='mean_reward',
+                                          simple_value=None)
+
   for epoch in range(hparams.epochs):
     is_final_epoch = (epoch + 1) == hparams.epochs
     log = make_log_fn(epoch, log_relative_time)
@@ -421,6 +432,16 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     # Report metrics.
     eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
                     "mean_reward": mean_reward}
+
+    model_reward_accuracy_summary.value[0].simple_value \
+      = model_reward_accuracy
+
+    mean_reward_summary.value[0].simple_value \
+      = mean_reward
+
+    eval_metrics_writer.add_summary(model_reward_accuracy_summary, epoch)
+    eval_metrics_writer.add_summary(mean_reward_summary, epoch)
+
     epoch_metrics.append(eval_metrics)
     log("Eval metrics: %s", str(eval_metrics))
     if report_fn:
