@@ -190,6 +190,8 @@ def create_run_config(hp):
   if save_ckpt_secs:
     save_ckpt_steps = None
   assert FLAGS.output_dir or FLAGS.checkpoint_path
+  computation_shape = None
+
   # the various custom getters we have written do not play well together yet.
   # TODO(noam): ask rsepassi for help here.
   daisy_chain_variables = (
@@ -226,7 +228,8 @@ def create_run_config(hp):
       tpu_infeed_sleep_secs=FLAGS.tpu_infeed_sleep_secs,
       inter_op_parallelism_threads=FLAGS.inter_op_parallelism_threads,
       log_step_count_steps=FLAGS.log_step_count_steps,
-      intra_op_parallelism_threads=FLAGS.intra_op_parallelism_threads)
+      intra_op_parallelism_threads=FLAGS.intra_op_parallelism_threads,
+      computation_shape=computation_shape)
 
 
 def generate_data():

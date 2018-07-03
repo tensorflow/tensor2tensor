@@ -126,7 +126,8 @@ def create_run_config(master="",
                       use_tpu=False,
                       inter_op_parallelism_threads=0,
                       log_step_count_steps=100,
-                      intra_op_parallelism_threads=0):
+                      intra_op_parallelism_threads=0,
+                      computation_shape=None):
   """Create RunConfig, TPUConfig, and Parallelism object."""
   session_config = create_session_config(
       log_device_placement=log_device_placement,
@@ -160,7 +161,7 @@ def create_run_config(master="",
         num_shards=num_shards,
         per_host_input_for_training=True,
         initial_infeed_sleep_secs=tpu_infeed_sleep_secs,
-        computation_shape=[1, 1, 1] if no_data_parallelism else None)
+        computation_shape=computation_shape)
     run_config_args["tpu_config"] = tpu_config
 
   config = run_config_cls(**run_config_args)
