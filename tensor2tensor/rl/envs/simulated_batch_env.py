@@ -97,9 +97,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, environment_spec, length, other_hparams):
+  def __init__(self, environment_spec, length):
     """Batch of environments inside the TensorFlow graph."""
-    del other_hparams
+
     self.length = length
     initial_frames_problem = environment_spec.initial_frames_problem
     self._min_reward = initial_frames_problem.min_reward

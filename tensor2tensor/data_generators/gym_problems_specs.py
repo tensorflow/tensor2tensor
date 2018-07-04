@@ -185,7 +185,7 @@ class GymDiscreteProblemWithAgentOnWrappedLongPongAutoencoded(
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
     GymSimulatedDiscreteProblem, GymWrappedLongPongRandom):
-  """Similated pong."""
+  """Simulated pong."""
 
   @property
   def initial_frames_problem(self):

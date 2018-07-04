@@ -97,7 +97,7 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
   }):
     gym_problem = registry.problem(problem_name)
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
-    gym_problem.eval_phase = eval_phase
+    gym_problem.settable_eval_phase = eval_phase
     gym_problem.generate_data(data_dir, tmp_dir)
     mean_reward = None
     if gym_problem.statistics.number_of_dones:
@@ -336,9 +336,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     simulated_problem_name = "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game
 
   # Autoencoder model dir
-  autoencoder_model_dir = (FLAGS.autoencoder_path or
-                           directories.get("autoencoder"))
-  FLAGS.autoencoder_path = None
+  autoencoder_model_dir = directories.get("autoencoder")
 
   # Timing log function
   log_relative_time = make_relative_timing_fn()
@@ -407,7 +405,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     # Train PPO
     log("Training PPO")
-    ppo_event_dir = os.path.join(directories["world_model"], "ppo", str(epoch))
+    ppo_event_dir = os.path.join(directories["world_model"], "ppo_summaries", str(epoch))
     ppo_model_dir = directories["ppo"]
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir

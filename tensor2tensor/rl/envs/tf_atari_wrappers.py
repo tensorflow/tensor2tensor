@@ -162,11 +162,15 @@ class AutoencoderWrapper(WrapperBase):
     batch_size, height, width, _ = self._batch_env.observ.get_shape().as_list()
     ae_height = int(math.ceil(height / self.autoencoder_factor))
     ae_width = int(math.ceil(width / self.autoencoder_factor))
-    ae_channels = 24
+    ae_channels = 24 #TODO (piotrmilos): make it better
     observ_shape = (batch_size, ae_height, ae_width, ae_channels)
     self._observ = self._observ = tf.Variable(
         tf.zeros(observ_shape, tf.float32), trainable=False)
-    self.setup_autoencoder()
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
+      self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
+          autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
+    self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
 
   @property
   def autoencoder_factor(self):
@@ -178,7 +182,6 @@ class AutoencoderWrapper(WrapperBase):
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
       with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-        self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
         ret = self.autoencoder_model.encode(self._batch_env.observ)
         assign_op = self._observ.assign(ret)
         with tf.control_dependencies([assign_op]):
@@ -187,18 +190,10 @@ class AutoencoderWrapper(WrapperBase):
   def _reset_non_empty(self, indices):
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       new_values = self._batch_env._reset_non_empty(indices)
-      self.autoencoder_model.set_mode(tf.estimator.ModeKeys.EVAL)
       ret = self.autoencoder_model.encode(new_values)
       assign_op = tf.scatter_update(self._observ, indices, ret)
       with tf.control_dependencies([assign_op]):
         return tf.gather(self.observ, indices)
-
-  def setup_autoencoder(self):
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      autoencoder_hparams = autoencoders.autoencoder_discrete_pong()
-      self.autoencoder_model = autoencoders.AutoencoderOrderedDiscrete(
-          autoencoder_hparams, tf.estimator.ModeKeys.EVAL)
-      print("Autoencoder created")
 
 
 class IntToBitWrapper(WrapperBase):

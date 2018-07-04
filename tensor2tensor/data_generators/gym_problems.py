@@ -23,6 +23,7 @@ import os
 import gym
 import numpy as np
 
+import tensorflow as tf
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.models.research import rl, autoencoders
@@ -30,17 +31,12 @@ from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-
-import tensorflow as tf
-
 from tensorflow.contrib.training import HParams
 
 flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("agent_policy_path", None, "File with model for agent.")
-flags.DEFINE_string("autoencoder_path", None,
-                    "File with model for autoencoder.")
 
 
 def standard_atari_env_spec(env):
@@ -77,18 +73,21 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   def __init__(self, *args, **kwargs):
     super(GymDiscreteProblem, self).__init__(*args, **kwargs)
+    #TODO(piotrmilos): Check if self._env is used.
     self._env = None
     self.debug_dump_frames_path = "debug_frames_env"
     self.settable_num_steps = 5000
 
     self.environment_spec = self.get_environment_spec()
-    self.eval_phase = False
+    self.settable_eval_phase = False
 
     self._internal_memory_size = 20
     self._internal_memory_force_beginning_resets = False
     self._session = None
 
   def _setup(self):
+    #TODO(piotrmilos):this should be consistent with
+    # ppo_params in model_rl_experiment
     collect_hparams = rl.ppo_pong_base()
     collect_hparams.add_hparam("environment_spec", self.environment_spec)
     collect_hparams.add_hparam("force_beginning_resets",
@@ -100,7 +99,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       collect_hparams.policy_network = rl.random_policy_fun
 
     policy_to_actions_lambda = None
-    if self.eval_phase:
+    if self.settable_eval_phase:
       policy_to_actions_lambda = lambda policy: policy.mode()
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
@@ -111,6 +110,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
     self._session = tf.Session()
     collect_init(self._session)
+    self.restore_networks(self._session)
     self._session.run(tf.global_variables_initializer())
 
   @property
@@ -123,19 +123,21 @@ class GymDiscreteProblem(video_utils.VideoProblem):
                                                self.debug_dump_frames_path)
 
     with self._session as sess:
-      self.restore_networks(sess)
       frame_counter = 0
       memory_index = 0
       memory = None
       pieces_generated = 0
 
-      while pieces_generated<self.num_steps or self.eval_phase:
+      # TODO(piotrmilos): self.settable_eval_phase possibly violates sematics
+      # of VideoProblem
+      while pieces_generated<self.num_steps or self.settable_eval_phase:
         if memory is None or memory_index >= self._internal_memory_size:
           memory = sess.run(self.collect_memory)
           memory_index = 0
         data = [memory[i][memory_index][0] for i in range(4)]
         memory_index += 1
         observation, reward, done, action = data
+        #TODO(piotrmilos): cleanup types management
         observation = observation.astype(np.uint8)
 
         debug_image = self.collect_statistics_and_generate_debug_image(
@@ -156,7 +158,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
         yield ret_dict
 
-        if done and self.eval_phase:
+        if done and self.settable_eval_phase:
           return
 
         pieces_generated += 1
@@ -182,6 +184,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   @property
   def extra_reading_spec(self):
     """Additional data fields to store on disk and their decoders."""
+
+    #TODO(piotrmilos): shouldn't done be included here?
     data_fields = {
         "frame_number": tf.FixedLenFeature([1], tf.int64),
         "action": tf.FixedLenFeature([1], tf.int64),
@@ -212,6 +216,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   @property
   def env(self):
+    #TODO(piotrmilos): possibly remove
     if self._env is None:
       self._env = gym.make(self.env_name)
     return self._env
@@ -258,10 +263,6 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   @property
   def only_keep_videos_from_0th_frame(self):
     return False
-
-  def get_action(self, observation=None):
-    del observation
-    return self.env.action_space.sample()
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
@@ -318,7 +319,17 @@ class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
     return standard_atari_ae_env_spec(self.env_name)
 
 
+  def restore_networks(self, sess):
+    super(GymDiscreteProblemWithAutoencoder, self).restore_networks(sess)
+    # TODO (piotrmilos): restore
+    raise NotImplementedError("restore autoencoder parameters")
+
+
 class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
+
+  def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
+    raise RuntimeError("GymDiscreteProblemAutoencoded can be used only"
+                       " for reading encoded frames")
 
   def get_environment_spec(self):
     return standard_atari_ae_env_spec(self.env_name)
@@ -367,12 +378,9 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
   """Simulated gym environment with discrete actions and rewards."""
 
   def __init__(self, *args, **kwargs):
-    self.simulated_environment = True
-    self.debug_dump_frames_path = "debug_frames_sim"
-    self.intrinsic_reward_scale = 0.0
-    self.simulation_random_starts = False
-    self.statistics = RewardPerSequenceStatistics()
     super(GymSimulatedDiscreteProblem, self).__init__(*args, **kwargs)
+    self.statistics = RewardPerSequenceStatistics()
+    self.debug_dump_frames_path = "debug_frames_sim"
 
     # This is hackish way of introducing resets every
     # self.num_testing_steps. It cannot be done easily
@@ -404,7 +412,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     self._session.run(input_data_iterator.initializer)
 
     res = self._session.run(input_data_iterator.get_next())
-    self._initial_action = res[0, :, 0][:-1]
+    self._initial_actions = res[0, :, 0][:-1]
     self._reset_real_env()
 
   @property
@@ -432,10 +440,8 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
   def get_environment_spec(self):
     env_spec = standard_atari_env_spec(self.env_name)
     env_spec.simulated_env = True
-    env_spec.add_hparam("simulation_random_starts",
-                        self.simulation_random_starts)
-
-    env_spec.add_hparam("intrinsic_reward_scale", self.intrinsic_reward_scale)
+    env_spec.add_hparam("simulation_random_starts", False)
+    env_spec.add_hparam("intrinsic_reward_scale", 0.0)
     initial_frames_problem = registry.problem(self.initial_frames_problem)
     env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
     env_spec.add_hparam("video_num_input_frames", self.num_input_frames)
@@ -446,7 +452,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
   def _reset_real_env(self):
     stat = self.statistics
     stat.real_env.reset()
-    for a in self._initial_action:
+    for a in self._initial_actions:
       stat.real_ob, _, _, _ = stat.real_env.step(a)
 
   def collect_statistics_and_generate_debug_image(self, index,
@@ -454,6 +460,8 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
                                                   reward, done, action):
     stat = self.statistics
 
+    # TODO(piotrmilos): possibly make the same behaviour as
+    # in the BasicStatistics
     stat.sum_of_rewards += reward
     stat.episode_sim_reward += reward
 
@@ -492,6 +500,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
     ckpt = ckpts.model_checkpoint_path
     env_model_loader.restore(sess, ckpt)
+
 
 class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
   def get_environment_spec(self):
