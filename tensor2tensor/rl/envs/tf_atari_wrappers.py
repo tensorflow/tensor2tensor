@@ -58,66 +58,16 @@ class WrapperBase(InGraphBatchEnv):
       return tf.identity(new_values)
 
 
-class TransformWrapper(WrapperBase):
-  """Transform wrapper."""
-
-  def __init__(self, batch_env, transform_observation=None,
-               transform_reward=tf.identity, transform_done=tf.identity):
-    super(TransformWrapper, self).__init__(batch_env)
-    if transform_observation is not None:
-      _, observ_shape, observ_dtype = transform_observation  # pylint: disable=unpacking-non-sequence
-      self._observ = tf.Variable(
-          tf.zeros(len(self) + observ_shape, observ_dtype), trainable=False)
-    else:
-      self._observ = self._batch_env.observ
-
-    self.transform_observation = transform_observation
-    self.transform_reward = transform_reward
-    self.transform_done = transform_done
-
-  def simulate(self, action):
-    with tf.name_scope("environment/simulate"):  # Do we need this?
-      reward, done = self._batch_env.simulate(action)
-      with tf.control_dependencies([reward]):
-        if self.transform_observation:
-          observ = self.transform_observation[0](self._batch_env.observ)
-          assign_op = self._observ.assign(observ)
-        else:
-          assign_op = tf.no_op()  # TODO(lukaszkaiser): looks as if it's broken.
-        with tf.control_dependencies([assign_op]):
-          return self.transform_reward(reward), self.transform_done(done)
-
-
-class WarpFrameWrapper(TransformWrapper):
-  """Wrap frames."""
-
-  def __init__(self, batch_env):
-    """Warp frames to 84x84 as done in the Nature paper and later work."""
-
-    dims = [84, 84]
-    nature_transform = lambda o: tf.image.rgb_to_grayscale(  # pylint: disable=g-long-lambda
-        tf.image.resize_images(o, dims))
-
-    super(WarpFrameWrapper, self).__init__(batch_env, transform_observation=(
-        nature_transform, dims, tf.float32))
-
-
-class ShiftRewardWrapper(TransformWrapper):
-  """Shift the reward."""
-
-  def __init__(self, batch_env, add_value):
-    shift_reward = lambda r: tf.add(r, add_value)
-    super(ShiftRewardWrapper, self).__init__(
-        batch_env, transform_reward=shift_reward)
-
-
 class MaxAndSkipWrapper(WrapperBase):
-  """Max and skip wrapper."""
+  """Max and skip wrapper.
+
+  The wrapper works under assumptions that issuing an action 
+  to an environment with done=True has not effect.
+  """
 
   def __init__(self, batch_env, skip=4):
     super(MaxAndSkipWrapper, self).__init__(batch_env)
     self.skip = skip
-    self._observ = None
     observs_shape = batch_env.observ.shape
     observ_dtype = tf.float32
     self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
@@ -131,6 +81,7 @@ class MaxAndSkipWrapper(WrapperBase):
       def not_done_step(a, _):
         reward, done = self._batch_env.simulate(action)
         with tf.control_dependencies([reward, done]):
+          # TODO(piotrmilos): possibly ignore envs with done
           r0 = tf.maximum(a[0], self._batch_env.observ)
           r1 = tf.add(a[1], reward)
           r2 = tf.logical_or(a[2], done)
@@ -147,7 +98,11 @@ class MaxAndSkipWrapper(WrapperBase):
 
 
 class StackAndSkipWrapper(WrapperBase):
-  """Stack and skip wrapper."""
+  """Stack and skip wrapper.
+
+  The wrapper works under assumptions that issuing an action 
+  to an environment with done=True has not effect.
+  """
 
   def __init__(self, batch_env, skip=4):
     super(StackAndSkipWrapper, self).__init__(batch_env)
@@ -195,38 +150,6 @@ class StackAndSkipWrapper(WrapperBase):
     assign_op = tf.scatter_update(self._observ, indices, tf.tile(
         new_values, inx))
     with tf.control_dependencies([assign_op]):
-      return tf.gather(self.observ, indices)
-
-
-class TimeLimitWrapper(WrapperBase):
-  """Time limit wrapper."""
-
-  # TODO(lukaszkaiser): Check if TimeLimitWrapper does what it's supposed to do.
-  def __init__(self, batch_env, timelimit=100):
-    super(TimeLimitWrapper, self).__init__(batch_env)
-    self.timelimit = timelimit
-    self._time_elapsed = tf.Variable(tf.zeros((len(self),), tf.int32),
-                                     trainable=False)
-
-  def simulate(self, action):
-    with tf.name_scope("environment/simulate"):
-      reward, done = self._batch_env.simulate(action)
-      with tf.control_dependencies([reward, done]):
-        new_done = tf.logical_or(done, self._time_elapsed > self.timelimit)
-        inc = self._time_elapsed.assign_add(tf.ones_like(self._time_elapsed))
-
-        with tf.control_dependencies([inc]):
-          return tf.identity(reward), tf.identity(new_done)
-
-  def _reset_non_empty(self, indices):
-    op_zero = tf.scatter_update(
-        self._time_elapsed, indices,
-        tf.gather(tf.zeros((len(self),), tf.int32), indices))
-    # pylint: disable=protected-access
-    new_values = self._batch_env._reset_non_empty(indices)
-    # pylint: enable=protected-access
-    assign_op = tf.scatter_update(self._observ, indices, new_values)
-    with tf.control_dependencies([op_zero, assign_op]):
       return tf.gather(self.observ, indices)
 
 
