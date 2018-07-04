@@ -88,12 +88,13 @@ def temporary_flags(flag_settings):
 
 
 def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
-                           tmp_dir, eval_phase=False):
+                           tmp_dir, autoencoder_path=None, eval_phase=False):
   """Run the agent against the real environment and return mean reward."""
   tf.gfile.MakeDirs(data_dir)
   with temporary_flags({
       "problem": problem_name,
       "agent_policy_path": agent_policy_path,
+      "autoencoder_path": autoencoder_path,
   }):
     gym_problem = registry.problem(problem_name)
     gym_problem.settable_num_steps = hparams.true_env_generator_num_steps
@@ -189,8 +190,8 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
   model_reward_accuracy = (
       gym_simulated_problem.statistics.successful_episode_reward_predictions
       / float(n))
-  old_path = os.path.join(epoch_data_dir, "debug_frames_env")
-  new_path = os.path.join(epoch_data_dir, "debug_frames_env_eval")
+  old_path = os.path.join(epoch_data_dir, "debug_frames_sim")
+  new_path = os.path.join(epoch_data_dir, "debug_frames_sim_eval")
   tf.gfile.Rename(old_path, new_path)
   return model_reward_accuracy
 
@@ -418,13 +419,15 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     eval_data_dir = os.path.join(epoch_data_dir, "eval")
     mean_reward = generate_real_env_data(
       problem_name, ppo_model_dir, hparams, eval_data_dir,
-      directories["tmp"], eval_phase=True)
+      directories["tmp"], autoencoder_path=autoencoder_model_dir,
+      eval_phase=True)
     log("Mean eval reward: {}".format(mean_reward))
 
     if not is_final_epoch:
       generation_mean_reward = generate_real_env_data(
           problem_name, ppo_model_dir, hparams, epoch_data_dir,
-          directories["tmp"], eval_phase=False)
+          directories["tmp"], autoencoder_path=autoencoder_model_dir,
+        eval_phase=False)
       log("Mean reward during generation: {}".format(generation_mean_reward))
 
     # Report metrics.

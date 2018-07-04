@@ -38,6 +38,9 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string("agent_policy_path", None, "File with model for agent.")
 
+flags.DEFINE_string("autoencoder_path", None,
+                    "File with model for autoencoder.")
+
 
 def standard_atari_env_spec(env):
   """Parameters of environment specification."""
@@ -321,9 +324,12 @@ class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
 
   def restore_networks(self, sess):
     super(GymDiscreteProblemWithAutoencoder, self).restore_networks(sess)
-    # TODO (piotrmilos): restore
-    raise NotImplementedError("restore autoencoder parameters")
-
+    if FLAGS.autoencoder_path:
+      autoencoder_saver = tf.train.Saver(
+          tf.global_variables("autoencoder.*"))
+      ckpts = tf.train.get_checkpoint_state(FLAGS.autoencoder_path)
+      ckpt = ckpts.model_checkpoint_path
+      autoencoder_saver.restore(sess, ckpt)
 
 class GymDiscreteProblemAutoencoded(GymRealDiscreteProblem):
 
@@ -507,10 +513,9 @@ class GymSimulatedDiscreteProblemAutoencoded(GymSimulatedDiscreteProblem):
     env_spec = standard_atari_env_spec(self.env_name)
     env_spec.wrappers = [[tf_atari_wrappers.IntToBitWrapper, {}]]
     env_spec.simulated_env = True
-    env_spec.add_hparam("simulation_random_starts",
-                        self.simulation_random_starts)
+    env_spec.add_hparam("simulation_random_starts", False)
 
-    env_spec.add_hparam("intrinsic_reward_scale", self.intrinsic_reward_scale)
+    env_spec.add_hparam("intrinsic_reward_scale", 0.0)
     initial_frames_problem = registry.problem(self.initial_frames_problem)
     env_spec.add_hparam("initial_frames_problem", initial_frames_problem)
     env_spec.add_hparam("video_num_input_frames", self.num_input_frames)
