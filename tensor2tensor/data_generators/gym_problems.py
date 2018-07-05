@@ -290,6 +290,7 @@ class BasicStatistics(object):
     self.sum_of_rewards = 0.0
     self.number_of_dones = 0
     self.sum_of_rewards_current_episode = 0.0
+    self.last_done = False
 
 
 #TODO(piotrmilos): merge with the superclass
@@ -307,11 +308,14 @@ class GymRealDiscreteProblem(GymDiscreteProblem):
     """Collects info required to calculate mean reward."""
 
     self.statistics.sum_of_rewards_current_episode += reward
-    self.statistics.number_of_dones += int(done)
-    if done:
+    # we ignore consecutive dones as they are artefacts of skip wrappers
+    if done and not self.statistics.last_done:
+      self.statistics.number_of_dones += int(done)
       self.statistics.sum_of_rewards +=\
         self.statistics.sum_of_rewards_current_episode
       self.statistics.sum_of_rewards_current_episode = 0.0
+
+    self.statistics.last_done = done
 
     debug_image = None
     return debug_image
