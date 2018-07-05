@@ -200,6 +200,7 @@ def define_collect(hparams, scope, eval_phase,
 
         agent_indices_to_reset = tf.where(top_level_done)[:, 0]
       with tf.control_dependencies([cumulate_rewards_op]):
+        # TODO (piotrmilos): possibly we need cumulative_rewards.read_value()
         scores_sum_delta = tf.reduce_sum(
             tf.gather(cumulative_rewards, agent_indices_to_reset))
         scores_num_delta = tf.count_nonzero(done, dtype=tf.int32)

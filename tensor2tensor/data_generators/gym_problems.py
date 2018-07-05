@@ -113,8 +113,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
     self._session = tf.Session()
     collect_init(self._session)
-    self.restore_networks(self._session)
     self._session.run(tf.global_variables_initializer())
+    self.restore_networks(self._session)
 
   @property
   def random_skip(self):
@@ -505,8 +505,6 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     # TODO(blazej): adjust regexp for different models.
     # TODO(piotrmilos): move restoring networks to SimulatedBatchEnv.initialize
     env_model_loader = tf.train.Saver(tf.global_variables("next_frame*"))
-    sess = tf.get_default_session()
-
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
     ckpt = ckpts.model_checkpoint_path
     env_model_loader.restore(sess, ckpt)
