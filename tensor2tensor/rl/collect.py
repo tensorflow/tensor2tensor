@@ -132,13 +132,13 @@ def define_collect(hparams, scope, eval_phase,
     force_beginning_resets = hparams.force_beginning_resets
   else:
     force_beginning_resets = False
+  force_beginning_resets = tf.convert_to_tensor(force_beginning_resets)
 
   def group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
                     tf.assign(cumulative_rewards, zeros_tensor))
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var, tf.convert_to_tensor(
-          force_beginning_resets)),
+      tf.logical_or(should_reset_var, force_beginning_resets),
       group, tf.no_op)
 
   with tf.control_dependencies([reset_op]):
@@ -226,6 +226,19 @@ def define_collect(hparams, scope, eval_phase,
         init,
         parallel_iterations=1,
         back_prop=False)
+
+  # We handle force_beginning_resets differently. We assume that all envs are
+  # reseted at the end of episod (though it happens at the beginning of the
+  # next one
+  scores_num = tf.cond(force_beginning_resets,
+                       lambda: scores_num + len(batch_env),
+                       lambda: scores_num)
+
+  with tf.control_dependencies([scores_sum]):
+    scores_sum = tf.cond(force_beginning_resets,
+                         lambda : scores_sum + tf.reduce_sum(cumulative_rewards.read_value()),
+                         lambda : scores_sum)
+
   mean_score = tf.cond(tf.greater(scores_num, 0),
                        lambda: scores_sum / tf.cast(scores_num, tf.float32),
                        lambda: 0.)
