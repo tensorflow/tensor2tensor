@@ -27,6 +27,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import csv
 import os
 
 from tensor2tensor.data_generators import generator_utils
@@ -506,6 +507,14 @@ def txt_line_iterator(txt_path):
       yield line.strip()
 
 
+def csv_line_iterator(txt_path, quotechar=None):
+  """Iterate through lines of csv file."""
+  with tf.gfile.Open(txt_path) as f:
+    csv_reader = csv.reader(f, quotechar=quotechar)
+    for line in csv_reader:
+      yield line
+
+
 def text2text_txt_iterator(source_txt_path, target_txt_path):
   """Yield dicts for Text2TextProblem.generate_samples from lines of files."""
   for inputs, targets in zip(
@@ -567,6 +576,39 @@ def text2text_txt_tab_iterator(txt_path):
       parts = line.split("\t", 1)
       inputs, targets = parts[:2]
       yield {"inputs": inputs.strip(), "targets": targets.strip()}
+
+
+def text2class_csv_iterator(file_to_path, column_indices, label_index,
+                            skip_first_line=False, column_separator='',
+                            quotechar=None):
+  """Yield dicts for Text2ClassProblem.generate_samples from lines of csv file.
+
+  It is possible to join several relevant csv columns with predefined
+  column separator, for example:
+  'text from first column <COLUMN_SEPARATOR> text from second column'
+
+  Args:
+    file_to_path: a path to csv file with data.
+    column_indices: indices of columns with text data.
+    label_index: an index of column with label.
+    skip_first_line: if 'True' then skips header line of csv file.
+    column_separator: a string value that separates values joined from different columns.
+    quotechar: a one-character string used to quote fields containing special characters.
+
+  Yields:
+    {"inputs": inputs, "label": label}
+  """
+  if isinstance(column_indices, int):
+    column_indices = [column_indices]
+
+  for line in csv_line_iterator(file_to_path, quotechar):
+    if skip_first_line:
+      skip_first_line = not skip_first_line
+      continue
+    relevant_columns = [line[i] for i in column_indices]
+    inputs = column_separator.join(relevant_columns)
+    label = int(line[label_index])
+    yield {"inputs": inputs, "label": label}
 
 
 def text2text_generate_encoded(sample_generator,
