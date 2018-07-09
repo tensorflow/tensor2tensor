@@ -60,6 +60,10 @@ jobs:
         name: Install Fire
         command: pip install git+git://github.com/google/python-fire.git@v0.1.1
       - type: shell
+        name: Setup Google Cloud Credentials
+        workDir: ~/
+        command: &GCP_LOGIN mkdir -p ~/diseaseTools/gcloud/keys && echo $CIRCLECI_GCP_SA_KEY_270618 | base64 --decode --ignore-garbage > ~/diseaseTools/gcloud/keys/google-auth.json
+      - type: shell
         name: Activate and get GCloud credentials
         command: python ./gcloud/get_credentials.py run
         workDir: ~/diseaseTools
