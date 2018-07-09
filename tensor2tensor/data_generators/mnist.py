@@ -244,6 +244,12 @@ class ImageFashionMnist(image_utils.Image2ClassProblem):
   def train_shards(self):
     return 10
 
+  def preprocess_example(self, example, mode, unused_hparams):
+    image = example["inputs"]
+    image.set_shape([_MNIST_IMAGE_SIZE, _MNIST_IMAGE_SIZE, 1])
+    example["inputs"] = image
+    return example
+
   def generator(self, data_dir, tmp_dir, is_training):
     if is_training:
       return fashion_mnist_generator(tmp_dir, True, 60000)
