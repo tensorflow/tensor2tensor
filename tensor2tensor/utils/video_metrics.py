@@ -69,12 +69,14 @@ def get_target_and_output_filepatterns(output_dir, problem_name):
           file_pattern(output_dir, problem_name, "targets"))
 
 
-def get_zipped_dataset(output_files, target_files, video_length, frame_shape):
+def get_zipped_dataset_from_png_files(
+    output_files, target_files, video_length, frame_shape):
   outputs, len_ = load_videos(output_files, video_length, frame_shape)
   targets, len_ = load_videos(target_files, video_length, frame_shape)
   zipped_dataset = tf.data.Dataset.zip((outputs, targets))
   num_videos = len_ // video_length
-  return zipped_dataset, num_videos
+  iterator = zipped_dataset.make_one_shot_iterator()
+  return iterator, None, num_videos
 
 
 def save_results(results, output_dir, problem_name):
@@ -87,39 +89,58 @@ def save_results(results, output_dir, problem_name):
 
 def compute_metrics(output_video, target_video):
   max_pixel_value = 255.0
+  output_video = tf.to_float(output_video)
+  target_video = tf.to_float(target_video)
   psnr = tf.image.psnr(output_video, target_video, max_pixel_value)
   ssim = tf.image.ssim(output_video, target_video, max_pixel_value)
   return {"PSNR": psnr, "SSIM": ssim}
 
 
-def compute_one_decoding_video_metrics(
-    output_dir, problem_name, video_length, frame_shape):
+def stack_data_given_key(predictions, key):
+  x = [p[key] for p in predictions]
+  x = np.stack(x, axis=0)
+  return x
+
+
+def get_zipped_dataset_from_predictions(predictions):
+  """Creates dataset from in-memory predictions."""
+  targets = stack_data_given_key(predictions, "targets")
+  outputs = stack_data_given_key(predictions, "outputs")
+  num_videos = len(targets)
+
+  targets_placeholder = tf.placeholder(targets.dtype, targets.shape)
+  outputs_placeholder = tf.placeholder(outputs.dtype, outputs.shape)
+  dataset = tf.data.Dataset.from_tensor_slices(
+      (targets_placeholder, outputs_placeholder))
+  iterator = dataset.make_initializable_iterator()
+  feed_dict = {targets_placeholder: targets,
+               outputs_placeholder: outputs}
+
+  return iterator, feed_dict, num_videos
+
+
+def compute_one_decoding_video_metrics(iterator, feed_dict, num_videos):
   """Computes the average of all the metric for one decoding.
 
-  This function assumes that all the predicted and target frames
-  have been saved on the disk and sorting them by name will result
-  to consecutive frames saved in order.
-
   Args:
-    output_dir: directory with all the saved frames.
-    problem_name: prefix of the saved frames usually name of the problem.
-    video_length: length of the videos.
-    frame_shape: shape of each frame in HxWxC format.
+    iterator: dataset iterator.
+    feed_dict: feed dict to initialize iterator.
+    num_videos: number of videos.
 
   Returns:
     Dictionary which contains the average of each metric per frame.
   """
-  output_files, target_files = get_target_and_output_filepatterns(
-      output_dir, problem_name)
-  dataset, num_videos = get_zipped_dataset(
-      output_files, target_files, video_length, frame_shape)
-  output, target = dataset.make_one_shot_iterator().get_next()
+  output, target = iterator.get_next()
+
   metrics_dict = compute_metrics(output, target)
   metrics_names, metrics = zip(*six.iteritems(metrics_dict))
   means, update_ops = tf.metrics.mean_tensor(metrics)
 
   with tf.Session() as sess:
     sess.run(tf.local_variables_initializer())
+    initalizer = iterator._initializer  # pylint: disable=protected-access
+    if initalizer is not None:
+      sess.run(initalizer, feed_dict=feed_dict)
 
     # Compute mean over dataset
     for i in range(num_videos):
@@ -144,12 +165,39 @@ def compute_all_metrics_statistics(all_results):
   return statistics
 
 
-def compute_video_metrics(output_dirs, problem_name, video_length, frame_shape):
-  all_results = [
-      compute_one_decoding_video_metrics(
-          output_dir, problem_name, video_length, frame_shape)
-      for output_dir in output_dirs
-  ]
+def compute_video_metrics_from_predictions(predictions):
+  all_results = []
+  for prediction in predictions:
+    args = get_zipped_dataset_from_predictions(prediction)
+    all_results.append(compute_one_decoding_video_metrics(*args))
+  statistics = compute_all_metrics_statistics(all_results)
+  return statistics
+
+
+def compute_video_metrics_from_png_files(
+    output_dirs, problem_name, video_length, frame_shape):
+  """Computes the average of all the metric for one decoding.
+
+  This function assumes that all the predicted and target frames
+  have been saved on the disk and sorting them by name will result
+  to consecutive frames saved in order.
+
+  Args:
+    output_dirs: directory with all the saved frames.
+    problem_name: prefix of the saved frames usually name of the problem.
+    video_length: length of the videos.
+    frame_shape: shape of each frame in HxWxC format.
+
+  Returns:
+    Dictionary which contains the average of each metric per frame.
+  """
+  all_results = []
+  for output_dir in output_dirs:
+    output_files, target_files = get_target_and_output_filepatterns(
+        output_dir, problem_name)
+    args = get_zipped_dataset_from_png_files(
+        output_files, target_files, video_length, frame_shape)
+    all_results.append(compute_one_decoding_video_metrics(*args))
   statistics = compute_all_metrics_statistics(all_results)
   return statistics, all_results
 
@@ -157,7 +205,7 @@ def compute_video_metrics(output_dirs, problem_name, video_length, frame_shape):
 def compute_and_save_video_metrics(
     output_dirs, problem_name, video_length, frame_shape):
   """Compute and saves the video metrics."""
-  statistics, all_results = compute_video_metrics(
+  statistics, all_results = compute_video_metrics_from_png_files(
       output_dirs, problem_name, video_length, frame_shape)
   for results, output_dir in zip(all_results, output_dirs):
     save_results(results, output_dir, problem_name)
