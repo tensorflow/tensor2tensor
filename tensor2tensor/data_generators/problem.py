@@ -1118,3 +1118,4 @@ def skip_random_fraction(dataset, data_file):
   # replicas reading the same data in lock-step.
   num_skip = random.randint(0, _file_num_records_cached(data_file))
   return dataset.skip(num_skip)
+

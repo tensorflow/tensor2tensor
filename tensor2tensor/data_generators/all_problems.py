@@ -30,6 +30,7 @@ MODULES = [
     "tensor2tensor.data_generators.cifar",
     "tensor2tensor.data_generators.cipher",
     "tensor2tensor.data_generators.cnn_dailymail",
+    "tensor2tensor.data_generators.cola",
     "tensor2tensor.data_generators.common_voice",
     "tensor2tensor.data_generators.desc2code",
     "tensor2tensor.data_generators.fsns",
