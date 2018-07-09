@@ -71,6 +71,7 @@ MODULES = [
     "tensor2tensor.data_generators.wikisum.wikisum",
     "tensor2tensor.data_generators.wikitext103",
     "tensor2tensor.data_generators.wsj_parsing",
+    "tensor2tensor.data_generators.wnli",
 ]
 ALL_MODULES = list(MODULES)
 

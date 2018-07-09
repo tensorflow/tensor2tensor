@@ -499,6 +499,47 @@ class Text2ClassProblem(Text2TextProblem):
     return (data_fields, data_items_to_decoders)
 
 
+class TextConcat2ClassProblem(Text2ClassProblem):
+  """Base class for text classification problems with multiple inputs.
+
+  For problems where there are multiple input sentences and we wish to concat
+  these inputs with a special delimiter. See, for example, NLI tasks.
+  """
+
+  @property
+  def concat_token(self):
+    raise NotImplementedError()
+
+  @property
+  def concat_id(self):
+    raise NotImplementedError()
+
+  @property
+  def additional_reserved_tokens(self):
+    return [self.concat_token]
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    for i, sample in enumerate(
+        self.generate_samples(data_dir, tmp_dir, problem.DatasetSplit.TRAIN)):
+      for inp in sample["inputs"]:
+        yield inp
+        if self.max_samples_for_vocab and (i + 1) >= self.max_samples_for_vocab:
+          break
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
+    encoder = self.get_or_create_vocab(data_dir, tmp_dir)
+    for sample in generator:
+      inputs = []
+      for idx, inp in enumerate(sample["inputs"]):
+        inputs += encoder.encode(inp)
+        inputs.append(text_encoder.EOS_ID)
+        if idx < len(sample["inputs"])-1:
+          inputs.append(self.concat_id)
+      label = sample["label"]
+      yield {"inputs": inputs, "targets": [label]}
+
+
 def txt_line_iterator(txt_path):
   """Iterate through lines of file."""
   with tf.gfile.Open(txt_path) as f:

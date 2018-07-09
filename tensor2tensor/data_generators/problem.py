@@ -102,6 +102,12 @@ class SpaceID(object):
   PICKLED_PYTHON = 30
   # English characters sentiment
   EN_CHR_SENT = 31
+  # English Premise Hypothesis pair
+  EN_PR_HYP = 32
+  # English NLI
+  EN_NLI = 33
+  # COLA
+  COLA = 34
 
 
 def default_model_hparams():
