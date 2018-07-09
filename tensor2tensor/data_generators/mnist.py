@@ -229,6 +229,10 @@ class ImageFashionMnist(image_utils.Image2ClassProblem):
     return True
 
   @property
+  def num_channels(self):
+    return 1
+
+  @property
   def num_classes(self):
     return 10
 
