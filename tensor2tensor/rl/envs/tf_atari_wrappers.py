@@ -59,10 +59,9 @@ class WrapperBase(InGraphBatchEnv):
 
 
 class MaxAndSkipWrapper(WrapperBase):
-  """Max and skip wrapper.
-
-  The wrapper works under assumptions that issuing an action 
-  to an environment with done=True has not effect.
+  """ Max and skip wrapper.
+      The wrapper works under assumptions that issuing an action
+      to an environment with done=True has not effect.
   """
 
   def __init__(self, batch_env, skip=4):
@@ -98,10 +97,9 @@ class MaxAndSkipWrapper(WrapperBase):
 
 
 class StackAndSkipWrapper(WrapperBase):
-  """Stack and skip wrapper.
-
-  The wrapper works under assumptions that issuing an action 
-  to an environment with done=True has not effect.
+  """ Stack and skip wrapper.
+      The wrapper works under assumptions that issuing an action
+      to an environment with done=True has not effect.
   """
 
   def __init__(self, batch_env, skip=4):
@@ -154,8 +152,8 @@ class StackAndSkipWrapper(WrapperBase):
 
 
 class AutoencoderWrapper(WrapperBase):
-  """Transforms the observations taking the bottleneck 
-  state of an autoencoder"""
+  """ Transforms the observations taking the bottleneck
+      state of an autoencoder"""
 
   def __init__(self, batch_env):
     super(AutoencoderWrapper, self).__init__(batch_env)
