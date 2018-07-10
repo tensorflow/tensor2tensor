@@ -29,6 +29,8 @@ from six.moves import input  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import text_problems
+from tensor2tensor.utils import registry
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -91,6 +93,10 @@ def log_decode_results(inputs,
     fix_and_save_video(targets, "targets")
 
   is_image = "image" in problem_name
+  is_text2class = isinstance(registry.problem(problem_name),
+                             text_problems.Text2ClassProblem)
+  skip_eos_postprocess = is_image or is_text2class
+
   decoded_inputs = None
   if is_image and save_images:
     save_path = os.path.join(
@@ -100,7 +106,8 @@ def log_decode_results(inputs,
     if identity_output:
       decoded_inputs = " ".join(map(str, inputs.flatten()))
     else:
-      decoded_inputs = inputs_vocab.decode(_save_until_eos(inputs, is_image))
+      decoded_inputs = inputs_vocab.decode(_save_until_eos(
+          inputs, skip_eos_postprocess))
 
     if log_results and not is_video:
       tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
@@ -112,9 +119,11 @@ def log_decode_results(inputs,
     if targets is not None:
       decoded_targets = " ".join(map(str, targets.flatten()))
   else:
-    decoded_outputs = targets_vocab.decode(_save_until_eos(outputs, is_image))
+    decoded_outputs = targets_vocab.decode(_save_until_eos(
+        outputs, skip_eos_postprocess))
     if targets is not None and log_results:
-      decoded_targets = targets_vocab.decode(_save_until_eos(targets, is_image))
+      decoded_targets = targets_vocab.decode(_save_until_eos(
+          targets, skip_eos_postprocess))
   if not is_video:
     tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None and log_results and not is_video:
@@ -446,6 +455,11 @@ def make_input_fn_from_generator(gen):
 def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
   """Interactive decoding."""
 
+  is_image = "image" in hparams.problem.name
+  is_text2class = isinstance(hparams.problem,
+                             text_problems.Text2ClassProblem)
+  skip_eos_postprocess = is_image or is_text2class
+
   def input_fn():
     gen_fn = make_input_fn_from_generator(
         _interactive_input_fn(hparams, decode_hp))
@@ -455,7 +469,6 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
 
   result_iter = estimator.predict(input_fn, checkpoint_path=checkpoint_path)
   for result in result_iter:
-    is_image = False  # TODO(lukaszkaiser): find out from problem id / class.
     targets_vocab = hparams.problem_hparams.vocabulary["targets"]
 
     if decode_hp.return_beams:
@@ -465,7 +478,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(beams):
         tf.logging.info("BEAM %d:" % k)
-        beam_string = targets_vocab.decode(_save_until_eos(beam, is_image))
+        beam_string = targets_vocab.decode(_save_until_eos(
+            beam, skip_eos_postprocess))
         if scores is not None:
           tf.logging.info("\"%s\"\tScore:%f" % (beam_string, scores[k]))
         else:
@@ -475,7 +489,8 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
         tf.logging.info(" ".join(map(str, result["outputs"].flatten())))
       else:
         tf.logging.info(
-            targets_vocab.decode(_save_until_eos(result["outputs"], is_image)))
+            targets_vocab.decode(_save_until_eos(
+                result["outputs"], skip_eos_postprocess)))
 
 
 def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
@@ -659,17 +674,17 @@ def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
   return sorted_inputs, sorted_keys
 
 
-def _save_until_eos(hyp, is_image):
+def _save_until_eos(ids, skip=False):
   """Strips everything after the first <EOS> token, which is normally 1."""
-  hyp = hyp.flatten()
-  if is_image:
-    return hyp
+  ids = ids.flatten()
+  if skip:
+    return ids
   try:
-    index = list(hyp).index(text_encoder.EOS_ID)
-    return hyp[0:index]
+    index = list(ids).index(text_encoder.EOS_ID)
+    return ids[0:index]
   except ValueError:
     # No EOS_ID: return the array as-is.
-    return hyp
+    return ids
 
 
 def _interactive_input_tensor_to_features_dict(feature_map, hparams):
