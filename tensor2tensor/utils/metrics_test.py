@@ -16,14 +16,14 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import numpy as np
 from tensor2tensor.utils import metrics
-
 
 import tensorflow as tf
 
 
-class CommonLayersTest(tf.test.TestCase):
+class MetricsTest(tf.test.TestCase):
 
   def testAccuracyMetric(self):
     predictions = np.random.randint(1, 5, size=(12, 12, 12, 1))
@@ -239,7 +239,7 @@ class CommonLayersTest(tf.test.TestCase):
       session.run(tf.global_variables_initializer())
       _ = session.run(a_op)
       actual = session.run(a)
-    self.assertAlmostEqual(actual, expected)
+    self.assertAlmostEqual(actual, expected, places=6)
 
 
 if __name__ == '__main__':
