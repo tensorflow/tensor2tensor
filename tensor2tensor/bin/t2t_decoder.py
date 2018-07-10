@@ -60,6 +60,7 @@ flags.DEFINE_bool("decode_interactive", False,
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
+flags.DEFINE_bool("decode_in_memory", False, "Decode in memory.")
 
 
 def create_hparams():

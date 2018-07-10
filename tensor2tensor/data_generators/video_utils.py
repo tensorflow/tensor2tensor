@@ -46,14 +46,20 @@ def summarize_video_metrics(hook_args):
   current_problem = hook_args.problem
   hparams = hook_args.hparams
   output_dirs = hook_args.output_dirs
+  predictions = hook_args.predictions
   frame_shape = [
       current_problem.frame_height, current_problem.frame_width,
       current_problem.num_channels
   ]
   metrics_graph = tf.Graph()
   with metrics_graph.as_default():
-    metrics_results, _ = video_metrics.compute_video_metrics(
-        output_dirs, problem_name, hparams.video_num_target_frames, frame_shape)
+    if predictions:
+      metrics_results = video_metrics.compute_video_metrics_from_predictions(
+          predictions)
+    else:
+      metrics_results, _ = video_metrics.compute_video_metrics(
+          output_dirs, problem_name,
+          hparams.video_num_target_frames, frame_shape)
 
   summary_values = []
   for name, array in six.iteritems(metrics_results):
