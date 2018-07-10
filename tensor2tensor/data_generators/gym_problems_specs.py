@@ -21,8 +21,9 @@ from __future__ import print_function
 
 # We need gym_utils for the game environments defined there.
 from tensor2tensor.data_generators import gym_utils  # pylint: disable=unused-import
-from tensor2tensor.data_generators.gym_problems import GymDiscreteProblem, GymSimulatedDiscreteProblem, \
-  GymRealDiscreteProblem, GymDiscreteProblemWithAutoencoder, GymDiscreteProblemAutoencoded, \
+from tensor2tensor.data_generators.gym_problems import GymDiscreteProblem,\
+  GymSimulatedDiscreteProblem, GymRealDiscreteProblem, \
+  GymDiscreteProblemWithAutoencoder, GymDiscreteProblemAutoencoded, \
   GymSimulatedDiscreteProblemAutoencoded
 from tensor2tensor.utils import registry
 
@@ -172,13 +173,13 @@ class GymDiscreteProblemWithAgentOnWrappedLongPong(GymRealDiscreteProblem,
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedLongPongWithAutoencoder(
-  GymDiscreteProblemWithAutoencoder, GymWrappedLongPongRandom):
+    GymDiscreteProblemWithAutoencoder, GymWrappedLongPongRandom):
   pass
 
 
 @registry.register_problem
 class GymDiscreteProblemWithAgentOnWrappedLongPongAutoencoded(
-  GymDiscreteProblemAutoencoded, GymWrappedLongPongRandom):
+    GymDiscreteProblemAutoencoded, GymWrappedLongPongRandom):
   pass
 
 
@@ -198,7 +199,7 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
 
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPongAutoencoded(
-  GymSimulatedDiscreteProblemAutoencoded, GymWrappedLongPongRandom):
+    GymSimulatedDiscreteProblemAutoencoded, GymWrappedLongPongRandom):
 
   @property
   def initial_frames_problem(self):

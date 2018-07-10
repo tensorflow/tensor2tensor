@@ -24,6 +24,7 @@ import gym
 import numpy as np
 
 import tensorflow as tf
+from tensorflow.contrib.training import HParams
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.models.research import rl, autoencoders
@@ -31,7 +32,6 @@ from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-from tensorflow.contrib.training import HParams
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -109,7 +109,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       self.collect_memory, self.collect_trigger_op, collect_init \
         = collect.define_collect(collect_hparams, scope="gym_problems",
                                  eval_phase=False, collect_level=0,
-                                 policy_to_actions_lambda=policy_to_actions_lambda)
+                                 policy_to_actions_lambda
+                                 =policy_to_actions_lambda)
 
     self._session = tf.Session()
     collect_init(self._session)
@@ -133,7 +134,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
       # TODO(piotrmilos): self.settable_eval_phase possibly violates sematics
       # of VideoProblem
-      while pieces_generated<self.num_steps or self.settable_eval_phase:
+      while pieces_generated < self.num_steps or self.settable_eval_phase:
         if memory is None or memory_index >= self._internal_memory_size:
           memory = sess.run(self.collect_memory)
           memory_index = 0

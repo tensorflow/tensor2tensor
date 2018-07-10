@@ -103,7 +103,7 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
     mean_reward = None
     if gym_problem.statistics.number_of_dones:
       mean_reward = (gym_problem.statistics.sum_of_rewards /
-                    gym_problem.statistics.number_of_dones)
+                     gym_problem.statistics.number_of_dones)
 
   return mean_reward
 
@@ -328,13 +328,18 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   # Problems
   if using_autoencoder:
-    problem_name = "gym_discrete_problem_with_agent_on_%s_with_autoencoder" % hparams.game
-    world_model_problem = "gym_discrete_problem_with_agent_on_%s_autoencoded" % hparams.game
-    simulated_problem_name = "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded" % hparams.game
+    problem_name = \
+      "gym_discrete_problem_with_agent_on_%s_with_autoencoder" % hparams.game
+    world_model_problem = \
+      "gym_discrete_problem_with_agent_on_%s_autoencoded" % hparams.game
+    simulated_problem_name = \
+      "gym_simulated_discrete_problem_with_agent_on_%s_autoencoded" \
+      % hparams.game
   else:
     problem_name = "gym_discrete_problem_with_agent_on_%s" % hparams.game
     world_model_problem = problem_name
-    simulated_problem_name = "gym_simulated_discrete_problem_with_agent_on_%s" % hparams.game
+    simulated_problem_name = "gym_simulated_discrete_problem_with_agent_on_%s"\
+                             % hparams.game
 
   # Autoencoder model dir
   autoencoder_model_dir = directories.get("autoencoder")
@@ -363,7 +368,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
                                           simple_value=None)
   mean_reward_summary = tf.Summary()
   mean_reward_summary.value.add(tag='mean_reward',
-                                          simple_value=None)
+                                simple_value=None)
 
   for epoch in range(hparams.epochs):
     is_final_epoch = (epoch + 1) == hparams.epochs
@@ -406,7 +411,8 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     # Train PPO
     log("Training PPO")
-    ppo_event_dir = os.path.join(directories["world_model"], "ppo_summaries", str(epoch))
+    ppo_event_dir = os.path.join(directories["world_model"],
+                                 "ppo_summaries", str(epoch))
     ppo_model_dir = directories["ppo"]
     if not hparams.ppo_continue_training:
       ppo_model_dir = ppo_event_dir
@@ -418,16 +424,16 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     log("Generating real environment data")
     eval_data_dir = os.path.join(epoch_data_dir, "eval")
     mean_reward = generate_real_env_data(
-      problem_name, ppo_model_dir, hparams, eval_data_dir,
-      directories["tmp"], autoencoder_path=autoencoder_model_dir,
-      eval_phase=True)
+        problem_name, ppo_model_dir, hparams, eval_data_dir,
+        directories["tmp"], autoencoder_path=autoencoder_model_dir,
+        eval_phase=True)
     log("Mean eval reward: {}".format(mean_reward))
 
     if not is_final_epoch:
       generation_mean_reward = generate_real_env_data(
           problem_name, ppo_model_dir, hparams, epoch_data_dir,
           directories["tmp"], autoencoder_path=autoencoder_model_dir,
-        eval_phase=False)
+          eval_phase=False)
       log("Mean reward during generation: {}".format(generation_mean_reward))
 
     # Report metrics.
