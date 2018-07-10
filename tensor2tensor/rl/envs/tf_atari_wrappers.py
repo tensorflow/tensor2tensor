@@ -122,7 +122,7 @@ class StackAndSkipWrapper(WrapperBase):
       def not_done_step(a, _):
         reward, done = self._batch_env.simulate(action)
         with tf.control_dependencies([reward, done]):
-          r0 = self._batch_env.observ
+          r0 = self._batch_env.observ + 0
           r1 = tf.add(a[1], reward)
           r2 = tf.logical_or(a[2], done)
           return (r0, r1, r2)

@@ -203,4 +203,4 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   @property
   def observ(self):
     """Access the variable holding the current observation."""
-    return tf.identity(self._observ)
+    return self._observ.read_value()
