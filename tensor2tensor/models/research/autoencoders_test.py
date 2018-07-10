@@ -83,7 +83,7 @@ class AutoencoderTest(tf.test.TestCase):
 
   # TODO(lukaszkaiser): Re-enable test by conserving lost shape information
   # in autoencoder_stacked.
-  def x_testAutoencoderStacked(self):
+  def xtestAutoencoderStacked(self):
     res = self.get_mnist_random_output("autoencoder_stacked")
     self.assertEqual(res.shape, self.mnist_output_shape)
 
