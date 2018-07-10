@@ -30,6 +30,7 @@ MODULES = [
     "tensor2tensor.data_generators.cifar",
     "tensor2tensor.data_generators.cipher",
     "tensor2tensor.data_generators.cnn_dailymail",
+    "tensor2tensor.data_generators.cola",
     "tensor2tensor.data_generators.common_voice",
     "tensor2tensor.data_generators.desc2code",
     "tensor2tensor.data_generators.fsns",
@@ -54,6 +55,7 @@ MODULES = [
     "tensor2tensor.data_generators.snli",
     "tensor2tensor.data_generators.style_transfer",
     "tensor2tensor.data_generators.squad",
+    "tensor2tensor.data_generators.sst_binary",
     "tensor2tensor.data_generators.subject_verb_agreement",
     "tensor2tensor.data_generators.timeseries",
     "tensor2tensor.data_generators.translate_encs",
@@ -70,6 +72,7 @@ MODULES = [
     "tensor2tensor.data_generators.wikisum.wikisum",
     "tensor2tensor.data_generators.wikitext103",
     "tensor2tensor.data_generators.wsj_parsing",
+    "tensor2tensor.data_generators.wnli",
 ]
 ALL_MODULES = list(MODULES)
 

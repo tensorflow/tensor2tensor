@@ -102,6 +102,12 @@ class SpaceID(object):
   PICKLED_PYTHON = 30
   # English characters sentiment
   EN_CHR_SENT = 31
+  # English Premise Hypothesis pair
+  EN_PR_HYP = 32
+  # English NLI
+  EN_NLI = 33
+  # COLA
+  COLA = 34
 
 
 def default_model_hparams():
@@ -257,7 +263,7 @@ class Problem(object):
     Returns:
       an integer
     """
-    if self.batch_size_means_tokens:
+    if self.batch_size_means_tokens and not model_hparams.use_fixed_batch_size:
       return model_hparams.batch_size // self.max_length(model_hparams)
     else:
       return model_hparams.batch_size
@@ -1112,3 +1118,4 @@ def skip_random_fraction(dataset, data_file):
   # replicas reading the same data in lock-step.
   num_skip = random.randint(0, _file_num_records_cached(data_file))
   return dataset.skip(num_skip)
+

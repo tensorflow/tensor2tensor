@@ -294,8 +294,9 @@ def cumsum(x, axis=0, exclusive=False):
   length = x_shape[axis]
   my_range = tf.range(length)
   comparator = tf.less if exclusive else tf.less_equal
-  mask = tf.to_float(
-      comparator(tf.expand_dims(my_range, 1), tf.expand_dims(my_range, 0)))
+  mask = tf.cast(
+      comparator(tf.expand_dims(my_range, 1), tf.expand_dims(my_range, 0)),
+      x.dtype)
   ret = tf.tensordot(x, mask, axes=[[axis], [0]])
   if axis != rank - 1:
     ret = tf.transpose(

@@ -174,7 +174,7 @@ python -m tensor2tensor.data_generators.wikisum.parallel_launch \
   --name=wikisum-web-refs \
   --log_dir=$BUCKET/logs \
   --setup_command="pip3 install tensorflow tensor2tensor aiohttp cchardet aiodns bs4 -U -q --user" \
-  --command_prefix="python3 wikisum/get_references_web.py --out_dir=$BUCKET/wiki_references --shard_id"
+  --command_prefix="python3 -m tensor2tensor.data_generators.wikisum.get_references_web --out_dir=$BUCKET/wiki_references --shard_id"
 
 # Generate vocabulary file
 python -m tensor2tensor.data_generators.wikisum.generate_vocab \

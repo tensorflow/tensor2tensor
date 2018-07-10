@@ -60,6 +60,12 @@ class TimeseriesTest(tf.test.TestCase):
     self.assertNotEqual(
         list(examples[0]["inputs"][0, 0]), list(examples[1]["inputs"][0, 0]))
 
+  def testTimeseriesSyntheticData10Series100kSamples(self):
+    problem = timeseries.TimeseriesSyntheticDataSeries10Samples100k()
+    self.assertEqual(10, problem.num_series)
+    self.assertEqual(500, problem.num_input_timestamps)
+    self.assertEqual(100, problem.num_target_timestamps)
+
 
 if __name__ == "__main__":
   tf.test.main()

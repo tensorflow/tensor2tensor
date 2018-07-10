@@ -797,6 +797,18 @@ class IdentityModality(modality.Modality):
     return body_output
 
 
+@registry.register_generic_modality("l2_loss")
+class GenericL2LossModality(IdentityModality):
+  """Generic modality with L2 as Loss."""
+
+  def targets_bottom(self, x):
+    return tf.to_float(x)
+
+  def loss(self, body_output, targets):
+    loss = tf.square(body_output - tf.to_float(targets))
+    return tf.reduce_mean(loss), tf.constant(1.0)
+
+
 class RealModality(modality.Modality):
   """Base class for real (i.e. float) vectors.
 
