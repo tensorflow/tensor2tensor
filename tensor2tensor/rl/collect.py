@@ -32,7 +32,7 @@ def _rollout_metadata(batch_env):
   batch_env_shape = batch_env.observ.get_shape().as_list()
   batch_size = [batch_env_shape[0]]
   shapes_types_names = [
-    #TODO(piotrmilos): possibly retrive the observation type for batch_env
+      #TODO(piotrmilos): possibly retrive the observation type for batch_env
       (batch_size + batch_env_shape[1:], tf.float32, "observation"),
       (batch_size, tf.float32, "reward"),
       (batch_size, tf.bool, "done"),
@@ -83,13 +83,14 @@ class _MemoryWrapper(WrapperBase):
 def define_collect(hparams, scope, eval_phase,
                    collect_level=-1,
                    policy_to_actions_lambda=None):
-  """Collect trajectories.
-  
-  Returns memory (observtions, rewards, dones, actions, pdfs, values_functions)
-  containing a rollout of enviroment from collect_level of nested wrapper 
-   structure. Note that pdfs and values_functions are meaningful only if 
-   collect_level==-1.
+  """ Collect trajectories.
+      Returns memory (observtions, rewards, dones, actions,
+      pdfs, values_functions)
+      containing a rollout of enviroment from collect_level of nested wrapper
+      structure. Note that pdfs and values_functions are meaningful only if
+      collect_level==-1.
   """
+
   to_initialize = []
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     batch_env = batch_env_factory(hparams)
@@ -175,7 +176,8 @@ def define_collect(hparams, scope, eval_phase,
         done = tf.reshape(done, shape=(hparams.num_agents,))
 
         with tf.control_dependencies([reward, done]):
-          return tf.identity(pdf), tf.identity(value_function), tf.identity(done)
+          return tf.identity(pdf), tf.identity(value_function), \
+                 tf.identity(done)
 
       # TODO(piotrmilos): while_body is executed at most once,
       # thus should be replaced with tf.cond
@@ -237,8 +239,9 @@ def define_collect(hparams, scope, eval_phase,
 
   with tf.control_dependencies([scores_sum]):
     scores_sum = tf.cond(force_beginning_resets,
-                         lambda : scores_sum + tf.reduce_sum(cumulative_rewards.read_value()),
-                         lambda : scores_sum)
+                         lambda: scores_sum + tf.reduce_sum
+                         (cumulative_rewards.read_value()),
+                         lambda: scores_sum)
 
   mean_score = tf.cond(tf.greater(scores_num, 0),
                        lambda: scores_sum / tf.cast(scores_num, tf.float32),
