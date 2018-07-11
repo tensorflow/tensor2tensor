@@ -50,7 +50,6 @@ def ppo_base_v1():
   hparams.add_hparam("save_models_every_epochs", 30)
   hparams.add_hparam("optimization_batch_size", 50)
   hparams.add_hparam("max_gradients_norm", 0.5)
-  hparams.add_hparam("simulated_environment", False)
   hparams.add_hparam("simulation_random_starts", False)
   hparams.add_hparam("intrinsic_reward_scale", 0.)
   return hparams

@@ -32,6 +32,7 @@ def _rollout_metadata(batch_env):
   batch_env_shape = batch_env.observ.get_shape().as_list()
   batch_size = [batch_env_shape[0]]
   shapes_types_names = [
+      # TODO(piotrmilos): possibly retrieve the observation type for batch_env
       (batch_size + batch_env_shape[1:], tf.float32, "observation"),
       (batch_size, tf.float32, "reward"),
       (batch_size, tf.bool, "done"),
@@ -49,10 +50,13 @@ class _MemoryWrapper(WrapperBase):
     super(_MemoryWrapper, self).__init__(batch_env)
     infinity = 10000000
     meta_data = list(zip(*_rollout_metadata(batch_env)))
+    # In memory wrapper we do not collect pdfs neither value_function
+    # thus we only need the first 4 entries of meta_data
     shapes = meta_data[0][:4]
     dtypes = meta_data[1][:4]
     self.speculum = tf.FIFOQueue(infinity, shapes=shapes, dtypes=dtypes)
     observs_shape = batch_env.observ.shape
+    # TODO(piotrmilos): possibly retrieve the observation type for batch_env
     observ_dtype = tf.float32
     self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
                                trainable=False)
@@ -79,7 +83,23 @@ class _MemoryWrapper(WrapperBase):
 def define_collect(hparams, scope, eval_phase,
                    collect_level=-1,
                    policy_to_actions_lambda=None):
-  """Collect trajectories."""
+  """Collect trajectories.
+
+  Args:
+    hparams: HParams.
+    scope: var scope.
+    eval_phase: bool, is eval phase.
+    collect_level: int, which level to collect observations.
+    policy_to_actions_lambda: lambda.
+
+  Returns:
+    Returns memory (observtions, rewards, dones, actions,
+    pdfs, values_functions)
+    containing a rollout of environment from collect_level of nested wrapper
+    structure. Note that pdfs and values_functions are meaningful only if
+    collect_level==-1.
+  """
+
   to_initialize = []
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     batch_env = batch_env_factory(hparams)
@@ -122,14 +142,13 @@ def define_collect(hparams, scope, eval_phase,
     force_beginning_resets = hparams.force_beginning_resets
   else:
     force_beginning_resets = False
+  force_beginning_resets = tf.convert_to_tensor(force_beginning_resets)
 
   def group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
                     tf.assign(cumulative_rewards, zeros_tensor))
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var, tf.convert_to_tensor(
-          force_beginning_resets)),
-      group, tf.no_op)
+      tf.logical_or(should_reset_var, force_beginning_resets), group, tf.no_op)
 
   with tf.control_dependencies([reset_op]):
     reset_once_op = tf.assign(should_reset_var, False)
@@ -144,7 +163,7 @@ def define_collect(hparams, scope, eval_phase,
       # https://github.com/tensorflow/tensorflow/issues/11186
       obs_copy = batch_env.observ + 0
 
-      def env_step(arg1, arg2):  # pylint: disable=unused-argument
+      def env_step(arg1, arg2, arg3):  # pylint: disable=unused-argument
         """Step of the environment."""
         actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
         policy = actor_critic.policy
@@ -156,35 +175,44 @@ def define_collect(hparams, scope, eval_phase,
                            policy.sample)
 
         postprocessed_action = actor_critic.action_postprocessing(action)
-        simulate_output = batch_env.simulate(postprocessed_action[0, ...])
+        reward, done = batch_env.simulate(postprocessed_action[0, ...])
 
         pdf = policy.prob(action)[0]
         value_function = actor_critic.value[0]
         pdf = tf.reshape(pdf, shape=(hparams.num_agents,))
         value_function = tf.reshape(value_function, shape=(hparams.num_agents,))
+        done = tf.reshape(done, shape=(hparams.num_agents,))
 
-        with tf.control_dependencies(simulate_output):
-          return tf.identity(pdf), tf.identity(value_function)
+        with tf.control_dependencies([reward, done]):
+          return tf.identity(pdf), tf.identity(value_function), \
+                 tf.identity(done)
 
-      pdf, value_function = tf.while_loop(
-          lambda _1, _2: tf.equal(speculum.size(), 0),
+      # TODO(piotrmilos): while_body is executed at most once,
+      # thus should be replaced with tf.cond
+      pdf, value_function, top_level_done = tf.while_loop(
+          lambda _1, _2, _3: tf.equal(speculum.size(), 0),
           env_step,
-          [tf.constant(0.0, shape=(hparams.num_agents,)),
-           tf.constant(0.0, shape=(hparams.num_agents,))],
+          [
+              tf.constant(0.0, shape=(hparams.num_agents,)),
+              tf.constant(0.0, shape=(hparams.num_agents,)),
+              tf.constant(False, shape=(hparams.num_agents,))
+          ],
           parallel_iterations=1,
-          back_prop=False,)
+          back_prop=False,
+      )
 
       with tf.control_dependencies([pdf, value_function]):
         obs, reward, done, action = speculum.dequeue()
 
-        done = tf.reshape(done, (len(batch_env),))
         to_save = [obs, reward, done, action,
                    pdf, value_function]
         save_ops = [tf.scatter_update(memory_slot, index, value)
                     for memory_slot, value in zip(memory, to_save)]
         cumulate_rewards_op = cumulative_rewards.assign_add(reward)
-        agent_indices_to_reset = tf.where(done)[:, 0]
+
+        agent_indices_to_reset = tf.where(top_level_done)[:, 0]
       with tf.control_dependencies([cumulate_rewards_op]):
+        # TODO(piotrmilos): possibly we need cumulative_rewards.read_value()
         scores_sum_delta = tf.reduce_sum(
             tf.gather(cumulative_rewards, agent_indices_to_reset))
         scores_num_delta = tf.count_nonzero(done, dtype=tf.int32)
@@ -211,6 +239,19 @@ def define_collect(hparams, scope, eval_phase,
         init,
         parallel_iterations=1,
         back_prop=False)
+
+  # We handle force_beginning_resets differently. We assume that all envs are
+  # reseted at the end of episod (though it happens at the beginning of the
+  # next one
+  scores_num = tf.cond(force_beginning_resets,
+                       lambda: scores_num + len(batch_env), lambda: scores_num)
+
+  with tf.control_dependencies([scores_sum]):
+    scores_sum = tf.cond(
+        force_beginning_resets,
+        lambda: scores_sum + tf.reduce_sum(cumulative_rewards.read_value()),
+        lambda: scores_sum)
+
   mean_score = tf.cond(tf.greater(scores_num, 0),
                        lambda: scores_sum / tf.cast(scores_num, tf.float32),
                        lambda: 0.)
