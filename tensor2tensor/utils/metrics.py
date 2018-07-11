@@ -298,19 +298,18 @@ def multilabel_accuracy_matchk(predictions,
     weights_fn: weight function.
   Returns:
     scores: min(n/k, 1).
-    weights: 1 if labels contains non-zero label else 0.
+    weights: returns all ones.
 
   """
   predictions = tf.to_int32(tf.argmax(predictions, axis=-1))
-  length = tf.shape(labels)[1]
-  predictions = tf.tile(predictions, [1, length, 1, 1])
   scores = tf.to_float(tf.equal(predictions, labels))
+  # those label == 0 do not count
+  weights = weights_fn(labels)
+  scores *= weights
   scores = tf.reduce_sum(scores, axis=[1, 2, 3])
   scores = tf.minimum(scores / tf.to_float(k), 1)
-
-  weights = weights_fn(labels)
-  weights = tf.reduce_sum(weights, axis=[1, 2, 3])
-  weights = tf.to_float(tf.greater(weights, 0.))
+  # every sample count
+  weights = tf.ones(tf.shape(scores), dtype=tf.float32)
 
   return scores, weights
 

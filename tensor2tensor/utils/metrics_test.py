@@ -229,7 +229,7 @@ class MetricsTest(tf.test.TestCase):
     expected = (predictions_repeat == targets).astype(float)
     expected = np.sum(expected, axis=(1, 2, 3))
     expected = np.minimum(expected / 3.0, 1.)
-    expected = np.sum(expected * weights[:, 0, 0, 0]) / np.sum(weights)
+    expected = np.sum(expected * weights[:, 0, 0, 0]) / weights.shape[0]
     with self.test_session() as session:
       scores, weights_ = metrics.multilabel_accuracy_match3(
           tf.one_hot(predictions, depth=5, dtype=tf.float32),
