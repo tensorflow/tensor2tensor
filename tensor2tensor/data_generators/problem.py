@@ -108,6 +108,8 @@ class SpaceID(object):
   EN_NLI = 33
   # COLA
   COLA = 34
+  # Enligh Question Context pair
+  EN_Q_CONT = 35
   # 3 class NLI
   THREE_CL_NLI = 37
 

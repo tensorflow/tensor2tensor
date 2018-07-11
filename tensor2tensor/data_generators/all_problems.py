@@ -52,6 +52,7 @@ MODULES = [
     "tensor2tensor.data_generators.ocr",
     "tensor2tensor.data_generators.problem_hparams",
     "tensor2tensor.data_generators.ptb",
+    "tensor2tensor.data_generators.qnli",
     "tensor2tensor.data_generators.rte",
     "tensor2tensor.data_generators.snli",
     "tensor2tensor.data_generators.style_transfer",
