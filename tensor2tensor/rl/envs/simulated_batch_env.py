@@ -97,9 +97,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, environment_spec, length):
+  def __init__(self, environment_spec, length, other_hparams):
     """Batch of environments inside the TensorFlow graph."""
-
+    del other_hparams
     self.length = length
     initial_frames_problem = environment_spec.initial_frames_problem
     self._min_reward = initial_frames_problem.min_reward
@@ -203,4 +203,4 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   @property
   def observ(self):
     """Access the variable holding the current observation."""
-    return self._observ.read_value()
+    return tf.identity(self._observ)

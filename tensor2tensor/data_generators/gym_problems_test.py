@@ -21,7 +21,7 @@ from __future__ import print_function
 import os
 import shutil
 
-from tensor2tensor.data_generators import gym_problems_specs
+from tensor2tensor.data_generators import gym_problems
 
 import tensorflow as tf
 
@@ -35,7 +35,7 @@ class GymProblemsTest(tf.test.TestCase):
     os.mkdir(cls.tmp_dir)
 
   def testGymAtariBoots(self):
-    problem = gym_problems_specs.GymPongRandom()
+    problem = gym_problems.GymPongRandom()
     self.assertEqual(210, problem.frame_height)
 
 

@@ -50,15 +50,21 @@ class TrainTest(tf.test.TestCase):
     rl_trainer_lib.train(hparams)
 
   # This test should sucessfully train pong.
-  # It should get train mean_score around 0 after 200 epoch
-  # By default the test is disabled to avoid travis timeouts
+  # It should get train mean_score around 0 after 100 epoch
+  #
+  # This test should be run whenever ppo any bigger change
+  # is done on the ppo code
+  #
+  # To run the test change epochs_num=2 to epoch_num=200
+  # and epoch_length=4 to epoch_length=200
+  # (it is set like that to meet travis timeouts
   def test_train_pong(self):
     hparams = tf.contrib.training.\
-      HParams(epochs_num=300,
+      HParams(epochs_num=2,
               eval_every_epochs=10,
-              num_agents=10,
+              num_agents=20,
               optimization_epochs=3,
-              epoch_length=200,
+              epoch_length=4,
               entropy_loss_coef=0.003,
               learning_rate=8e-05,
               optimizer="Adam",

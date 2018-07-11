@@ -117,7 +117,7 @@ class PyFuncBatchEnv(InGraphBatchEnv):
   @property
   def observ(self):
     """Access the variable holding the current observation."""
-    return self._observ.read_value()
+    return self._observ
 
   def close(self):
     """Send close messages to the external process and join them."""

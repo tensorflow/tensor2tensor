@@ -89,8 +89,9 @@ def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
     broadcast_dims: an optional list of integers
       the dimensions along which to broadcast the keep/drop flags.
     **kwargs: keyword arguments to tf.nn.dropout other than "noise_shape".
+
   Returns:
-    A Tensor with the same size and shape as x.
+    Tensor of the same shape as x.
   """
   assert "noise_shape" not in kwargs
   if broadcast_dims:
@@ -284,8 +285,9 @@ def cumsum(x, axis=0, exclusive=False):
     x: a Tensor
     axis: an integer
     exclusive: a boolean
+
   Returns:
-    a Tensor with the same shape as x
+    Tensor of the same shape as x.
   """
   if not is_on_tpu():
     return tf.cumsum(x, axis=axis, exclusive=exclusive)
@@ -311,8 +313,9 @@ def dropout_no_scaling(x, keep_prob):
   Args:
     x: a Tensor
     keep_prob: a floating point number
+
   Returns:
-    a Tensor of the same size and shape as x
+    Tensor of the same shape as x.
   """
   if keep_prob == 1.0:
     return x
@@ -1456,7 +1459,7 @@ def maybe_zero_out_padding(inputs, kernel_size, nonpadding_mask):
     nonpadding_mask: a Tensor with shape [batch, length]
 
   Returns:
-    a Tensor with the same shape as inputs
+    Tensor of the same shape as inputs.
   """
   if (kernel_size != 1 and kernel_size != (1, 1) and
       nonpadding_mask is not None):
@@ -2152,8 +2155,8 @@ def smoothing_cross_entropy(logits,
   """Cross entropy with label smoothing to limit over-confidence.
 
   Args:
-    logits: Tensor of size [batch_size, ?, ?, ?, vocab_size]
-    labels: Tensor of size [batch_size, ?, ?, ?]
+    logits: Tensor of shape [batch_size, ?, ?, ?, vocab_size].
+    labels: Tensor of shape [batch_size, ?, ?, ?].
     vocab_size: Tensor representing the size of the vocabulary.
     confidence: Used to determine on and off values for label smoothing.
       If `gaussian` is true, `confidence` is the variance to the Gaussian
@@ -2161,7 +2164,7 @@ def smoothing_cross_entropy(logits,
     gaussian: Uses a Gaussian distribution for label smoothing
 
   Returns:
-
+    Tensor of shape [batch_size, ?, ?, ?].
   """
   with tf.name_scope("smoothing_cross_entropy", values=[logits, labels]):
     # Low confidence is given to all non-true labels, uniformly.
@@ -2200,15 +2203,15 @@ def global_pool_1d(inputs, pooling_type="MAX", mask=None):
   to get a representation of a set.
 
   Args:
-    inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+    inputs: A tensor of shape [batch_size, sequence_length, input_dims]
       containing the sequences of input vectors.
     pooling_type: the pooling type to use, MAX or AVR
-    mask: A tensor of dimensions batch_size x sequence_length containing a
+    mask: A tensor of shape [batch_size, sequence_length] containing a
       mask for the inputs with 1's for existing elements, and 0's elsewhere.
 
   Returns:
-    output: A tensor of dimensions batch_size x input_dims
-      dimension containing the sequences of transformed vectors.
+    A tensor of shape [batch_size, input_dims] containing the sequences of
+    transformed vectors.
   """
   with tf.name_scope("global_pool", values=[inputs]):
     if mask is not None:
@@ -2238,13 +2241,13 @@ def running_global_pool_1d(inputs, pooling_type="MAX"):
   Currently only supports maximum. Equivalent to using a lower triangle bias.
 
   Args:
-    inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+    inputs: A tensor of shape [batch_size, sequence_length, input_dims]
       containing the sequences of input vectors.
     pooling_type: Pooling type to use. Currently only supports 'MAX'.
 
   Returns:
-    output: A tensor of dimensions batch_size x sequence_length x input_dims
-      dimension containing the running 'totals'.
+    A tensor of shape [batch_size, sequence_length, input_dims] containing the
+    running 'totals'.
   """
   del pooling_type
   with tf.name_scope("running_global_pool", values=[inputs]):
@@ -2270,7 +2273,7 @@ def gated_linear_unit_layer(x, name=None):
     name: A string
 
   Returns:
-    x: A tensor
+    A tensor of the same shape as x.
   """
   with tf.variable_scope(name, default_name="glu_layer", values=[x]):
     depth = shape_list(x)[-1]
@@ -2447,17 +2450,17 @@ def linear_set_layer(layer_size,
 
   Args:
     layer_size: Dimension to transform the input vectors to.
-    inputs: A tensor of dimensions batch_size x sequence_length x input_dims
+    inputs: A tensor of shape [batch_size, sequence_length, input_dims]
       containing the sequences of input vectors.
-    context: A tensor of dimensions batch_size x context_dims
-      containing a global statistic about the set.
+    context: A tensor of shape [batch_size, context_dims] containing a global
+      statistic about the set.
     activation_fn: The activation function to use.
     dropout: Dropout probability.
     name: name.
 
   Returns:
-    output: A tensor of dimensions batch_size x sequence_length x output_dims
-      dimension containing the sequences of transformed vectors.
+    Tensor of shape [batch_size, sequence_length, output_dims] containing the
+    sequences of transformed vectors.
   """
   with tf.variable_scope(
       name, default_name="linear_set_layer", values=[inputs]):
@@ -2497,9 +2500,9 @@ def ravanbakhsh_set_layer(layer_size,
 
   Args:
     layer_size: Dimension to transform the input vectors to.
-    inputs: A tensor of dimensions batch_size x sequence_length x vector
+    inputs: A tensor of shape [batch_size, sequence_length, vector]
       containing the sequences of input vectors.
-    mask: A tensor of dimensions batch_size x sequence_length containing a
+    mask: A tensor of shape [batch_size, sequence_length] containing a
       mask for the inputs with 1's for existing elements, and 0's elsewhere.
     sequential: If true, will use a running global pool so each element will
       only depend on those before it. Set true if this layer is being used in
@@ -2509,8 +2512,8 @@ def ravanbakhsh_set_layer(layer_size,
     name: name.
 
   Returns:
-    output: A tensor of dimensions batch_size x sequence_length x vector
-      dimension containing the sequences of transformed vectors.
+    Tensor of shape [batch_size, sequence_length, vector] containing the
+    sequences of transformed vectors.
   """
   del dropout
   with tf.variable_scope(name, "ravanbakhsh_set_layer", [inputs]):
@@ -2587,7 +2590,7 @@ def underlying_variable(t):
     t: a Tensor
 
   Returns:
-    a tf.Varaible object.
+    tf.Variable.
   """
   t = underlying_variable_ref(t)
   assert t is not None
