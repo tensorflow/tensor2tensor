@@ -1337,7 +1337,7 @@ class T2TModel(base.Layer):
   def estimator_spec_predict(self, features, use_tpu=False):
     """Construct EstimatorSpec for PREDICT mode."""
     decode_hparams = self._decode_hparams
-    infer_out = self.infer(
+    predictions = self.infer(
         features,
         beam_size=decode_hparams.beam_size,
         top_beams=(decode_hparams.beam_size
@@ -1345,24 +1345,19 @@ class T2TModel(base.Layer):
         alpha=decode_hparams.alpha,
         decode_length=decode_hparams.extra_length,
         use_tpu=use_tpu)
-    if isinstance(infer_out, dict):
-      outputs = infer_out["outputs"]
-      scores = infer_out["scores"]
-    else:
-      outputs = infer_out
-      scores = None
+    if not isinstance(predictions, dict):
+      predictions = {"outputs": predictions}
 
     inputs = features.get("inputs")
     if inputs is None:
       inputs = features["targets"]
 
-    predictions = {
-        "outputs": outputs,
-        "scores": scores,
+    predictions.update({
         "inputs": inputs,
         "targets": features.get("infer_targets"),
         "batch_prediction_key": features.get("batch_prediction_key"),
-    }
+        })
+
     _del_dict_nones(predictions)
 
     export_out = {"outputs": predictions["outputs"]}
