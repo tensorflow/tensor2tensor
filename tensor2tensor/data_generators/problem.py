@@ -110,6 +110,8 @@ class SpaceID(object):
   COLA = 34
   # Enligh Question Context pair
   EN_Q_CONT = 35
+  # English similarity task
+  EN_SIM = 36
   # 3 class NLI
   THREE_CL_NLI = 37
 
