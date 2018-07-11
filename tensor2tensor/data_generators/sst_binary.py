@@ -57,7 +57,7 @@ class SentimentSSTBinary(text_problems.Text2ClassProblem):
 
   @property
   def approx_vocab_size(self):
-    return 2**13  # 8k vocab suffices for this small dataset.
+    return 2**14
 
   @property
   def vocab_filename(self):
