@@ -108,6 +108,8 @@ class SpaceID(object):
   EN_NLI = 33
   # COLA
   COLA = 34
+  # 3 class NLI
+  THREE_CL_NLI = 37
 
 
 def default_model_hparams():
