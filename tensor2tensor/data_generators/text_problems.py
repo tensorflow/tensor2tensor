@@ -652,6 +652,48 @@ class Text2textTmpdir(Text2TextProblem):
     return text2text_txt_iterator(inputs_file, targets_file)
 
 
+@registry.register_problem
+class Text2textTmpdirTokens(Text2textTmpdir):
+  """Allows training a token-based variant of Text2textTmpdir.
+
+  Put your training and evaluation data into the following files in tmp_dir,
+  with 1 record per line along with a vocabulary file with 1 token per line
+  (you can leave out PAD, EOS, and UNK as those will be automatically added)
+
+  * inputs.train.txt
+  * targets.train.txt
+  * inputs.eval.txt
+  * targets.eval.txt
+  * vocab.txt
+  """
+
+  @property
+  def vocab_type(self):
+    return VocabType.TOKEN
+
+  @property
+  def oov_token(self):
+    return "<UNK>"
+
+  def _generate_vocab(self, tmp_dir):
+    vocab_list = [self.oov_token]
+    user_vocab_file = os.path.join(tmp_dir, "vocab.txt")
+    with tf.gfile.GFile(user_vocab_file, "r") as vocab_file:
+      for line in vocab_file:
+        token = line.strip()
+        vocab_list.append(token)
+    token_encoder = text_encoder.TokenTextEncoder(None, vocab_list=vocab_list)
+    return token_encoder
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    vocab_filepath = os.path.join(data_dir, self.vocab_filename)
+    if not tf.gfile.Exists(vocab_filepath):
+      token_encoder = self._generate_vocab(tmp_dir)
+      token_encoder.store_to_file(vocab_filepath)
+    super(Text2textTmpdirTokens, self).generate_samples(data_dir, tmp_dir,
+                                                        dataset_split)
+
+
 class ChoppedTextProblem(Text2SelfProblem):
   """Tokenize and chop text files into fixed-length language-modeling examples.
 
