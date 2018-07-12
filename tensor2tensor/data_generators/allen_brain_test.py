@@ -32,8 +32,11 @@ class TestAllenBrain(tf.test.TestCase):
   def setUp(self):
 
     self.all_problems = [
-        allen_brain.Img2imgAllenBrain,
-        allen_brain.Img2imgAllenBrainDim48to64
+        #allen_brain.Img2imgAllenBrain,
+        #allen_brain.Img2imgAllenBrainDim48to64,
+        #allen_brain.Img2imgAllenBrainDim8to32,
+        #allen_brain.Img2imgAllenBrainDim16to32,
+        allen_brain.Img2imgAllenBrainDim16to16Paint1
     ]
 
   def test_generator_produces_examples(self):

@@ -17,7 +17,6 @@ import os
 
 import tensorflow as tf
 
-from tensor2tensor.data_generators.allen_brain_utils import maybe_download_image_datasets
 from tensor2tensor.data_generators.allen_brain_utils import mock_raw_data
 from tensor2tensor.data_generators.allen_brain_utils import mock_raw_image
 from tensor2tensor.data_generators.allen_brain_utils import TemporaryDirectory
@@ -78,30 +77,6 @@ class TestMockRawData(tf.test.TestCase):
     with TemporaryDirectory() as tmp_dir:
 
       mock_raw_data(tmp_dir, raw_dim=256, num_channels=3, num_images=40)
-
-      maybe_download_image_datasets(
-          data_root=tmp_dir, section_offset=0,
-          num_sections="all",
-          images_per_section="all")
-
-
-class TestDownloader(tf.test.TestCase):
-  """Tests of utilities for obtaining images from the Allen Brain Atlas API."""
-
-  def test_runs(self):
-    """Test that maybe_download_image_datasets runs."""
-
-    # By default, such as on the CI, don't run this test since tests that
-    # access the network aren't allowed. But retain the test as a
-    # development tool.
-    skip = True
-    if not skip:
-      with TemporaryDirectory() as tmp_dir:
-        num_sections = 1
-        img_per_section = 1
-        maybe_download_image_datasets(
-            data_root=tmp_dir, section_offset=0,
-            num_sections=num_sections, images_per_section=img_per_section)
 
 
 if __name__ == "__main__":
