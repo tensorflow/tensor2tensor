@@ -80,12 +80,11 @@ def _get_case_file_paths(tmp_dir, case, training_fraction=0.95):
     size: int, the size of sub-images to consider (`size`x`size`).
     case: bool, whether obtaining file paths for training (true) or eval
       (false).
-    training_fraction (float): The fraction of the sub-image path list to
+    training_fraction: float, the fraction of the sub-image path list to
       consider as the basis for training examples.
 
   Returns:
     list: A list of file paths.
-
   """
 
   paths = tf.gfile.Glob("%s/*.jpg" % tmp_dir)
@@ -116,8 +115,8 @@ def maybe_download_image_dataset(image_ids, target_dir):
   """Download a set of images from api.brain-map.org to `target_dir`.
 
   Args:
-      image_ids (list): A list of image ids.
-      target_dir (str): A directory to which to download the images.
+    image_ids: list, a list of image ids.
+    target_dir: str, a directory to which to download the images.
   """
 
   tf.gfile.MakeDirs(target_dir)
@@ -158,12 +157,12 @@ def random_square_mask(shape, fraction):
   """Create a numpy array with specified shape and masked fraction.
 
   Args:
-      shape: tuple, shape of the mask to create.
-      fraction: float, fraction of the mask area to populate with `mask_scalar`.
-      mask_scalar: float, the scalar to apply to the otherwise 1-valued mask.
+    shape: tuple, shape of the mask to create.
+    fraction: float, fraction of the mask area to populate with `mask_scalar`.
+    mask_scalar: float, the scalar to apply to the otherwise 1-valued mask.
 
   Returns:
-      np.Array: A numpy array storing the mask.
+    numpy.array: A numpy array storing the mask.
   """
 
   mask = np.ones(shape)
@@ -234,9 +233,9 @@ def _generator(tmp_dir, training, size=_BASE_EXAMPLE_IMAGE_SIZE,
         # pylint: disable=invalid-sequence-index
         subimage = np.uint8(img[h_offset:h_end, v_offset:v_end])
 
-        #if np.amax(subimage) < 230:
-          # Filter images that are likely background (not tissue).
-        #  continue
+        # Filter images that are likely background (not tissue).
+        if np.amax(subimage) < 230:
+          continue
 
         subimage = image_obj.fromarray(subimage)
         buff = BytesIO()
@@ -300,7 +299,7 @@ class Img2imgAllenBrain(problem.Problem):
   def preprocess_example(self, example, mode, hparams):
 
     # Crop to target shape instead of down-sampling target, leaving target
-    # of maximum available resolution (albeit smaller).
+    # of maximum available resolution.
     target_shape = (self.output_dim, self.output_dim, self.num_channels)
     example["targets"] = tf.random_crop(example["targets"], target_shape)
 
@@ -383,7 +382,7 @@ class Img2imgAllenBrain(problem.Problem):
 
 @registry.register_problem
 class Img2imgAllenBrainDim48to64(Img2imgAllenBrain):
-  """48x48px to 64x64px."""
+  """48px to 64px resolution up-sampling problem."""
 
   def dataset_filename(self):
     return "img2img_allen_brain"  # Reuse base problem data
@@ -399,7 +398,7 @@ class Img2imgAllenBrainDim48to64(Img2imgAllenBrain):
 
 @registry.register_problem
 class Img2imgAllenBrainDim8to32(Img2imgAllenBrain):
-  """8x8px to 32x32px."""
+  """8px to 32px resolution up-sampling problem."""
 
   def dataset_filename(self):
     return "img2img_allen_brain"  # Reuse base problem data
@@ -415,7 +414,7 @@ class Img2imgAllenBrainDim8to32(Img2imgAllenBrain):
 
 @registry.register_problem
 class Img2imgAllenBrainDim16to16Paint1(Img2imgAllenBrain):
-  """16x16px to 16x16px with 1% inpainting."""
+  """In-painting problem (1%) with no resolution upsampling."""
 
   def dataset_filename(self):
     return "img2img_allen_brain"  # Reuse base problem data
@@ -431,3 +430,4 @@ class Img2imgAllenBrainDim16to16Paint1(Img2imgAllenBrain):
   @property
   def inpaint_fraction(self):
     return 0.01
+
