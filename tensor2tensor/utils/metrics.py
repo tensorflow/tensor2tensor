@@ -37,6 +37,7 @@ class Metrics(object):
   ACC = "accuracy"
   ACC_TOP5 = "accuracy_top5"
   ACC_PER_SEQ = "accuracy_per_sequence"
+  ACC_MULTILABEL_MATCH3 = "accuracy_multilabel_match3"
   NEG_LOG_PERPLEXITY = "neg_log_perplexity"
   APPROX_BLEU = "approx_bleu_score"
   RMSE = "rmse"
@@ -55,6 +56,7 @@ class Metrics(object):
   ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
   DMOL_PERPLEXITY = "disc_mol_neg_log_perplexity"
+  ABS_ERR = "mean_absolute_error"
   IMAGE_RMSE = "image_rmse"
 
 
@@ -75,6 +77,15 @@ def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   error = tf.pow(predictions - labels, 2)
   error_sqrt = tf.sqrt(tf.reduce_sum(error * weights))
   return error_sqrt, tf.reduce_sum(weights)
+
+
+def abs_error(predictions, labels, weights_fn=None):
+  """Computes mean(abs(preds-target))."""
+  del weights_fn  # Unused
+  targets = tf.squeeze(labels, axis=[2, 3])
+  batch_abs_error = tf.abs(predictions - targets)
+  den = tf.ones(tf.shape(batch_abs_error), dtype=tf.float32)
+  return (batch_abs_error, den)
 
 
 def padded_log_poisson(predictions,
@@ -268,6 +279,44 @@ def padded_accuracy(predictions,
     outputs = tf.to_int32(tf.argmax(padded_predictions, axis=-1))
     padded_labels = tf.to_int32(padded_labels)
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
+
+
+def multilabel_accuracy_matchk(predictions,
+                               labels,
+                               k,
+                               weights_fn=common_layers.weights_nonzero):
+  """Used to evaluate the VQA accuracy.
+
+  Let n be the times that predictions appear in labels, then final score
+  is min(n/k, 1).
+  Refer to https://arxiv.org/pdf/1505.00468.pdf.
+
+  Args:
+    predictions: A tensor with shape [batch_size, 1, 1, 1, vocab_size].
+    labels: A tensor with shape [batch_size, length, 1, 1].
+    k: A tensor constant.
+    weights_fn: weight function.
+  Returns:
+    scores: min(n/k, 1).
+    weights: returns all ones.
+
+  """
+  predictions = tf.to_int32(tf.argmax(predictions, axis=-1))
+  scores = tf.to_float(tf.equal(predictions, labels))
+  # those label == 0 do not count
+  weights = weights_fn(labels)
+  scores *= weights
+  scores = tf.reduce_sum(scores, axis=[1, 2, 3])
+  scores = tf.minimum(scores / tf.to_float(k), 1)
+  # every sample count
+  weights = tf.ones(tf.shape(scores), dtype=tf.float32)
+
+  return scores, weights
+
+
+def multilabel_accuracy_match3(predictions, labels,
+                               weights_fn=common_layers.weights_nonzero):
+  return multilabel_accuracy_matchk(predictions, labels, 3, weights_fn)
 
 
 def set_precision(predictions, labels,
@@ -603,6 +652,7 @@ METRICS_FNS = {
     Metrics.ACC: padded_accuracy,
     Metrics.ACC_TOP5: padded_accuracy_top5,
     Metrics.ACC_PER_SEQ: padded_sequence_accuracy,
+    Metrics.ACC_MULTILABEL_MATCH3: multilabel_accuracy_match3,
     Metrics.NEG_LOG_PERPLEXITY: padded_neg_log_perplexity,
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
     Metrics.RMSE: padded_rmse,
@@ -621,5 +671,6 @@ METRICS_FNS = {
     Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
     Metrics.DMOL_PERPLEXITY: dmol_neg_log_perplexity,
+    Metrics.ABS_ERR: abs_error,
     Metrics.IMAGE_RMSE: image_rmse,
 }

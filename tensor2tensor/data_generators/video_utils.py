@@ -26,6 +26,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import video_metrics
 
 import tensorflow as tf
 
@@ -37,6 +38,35 @@ def resize_video_frames(images, size):
         tf.to_int64(tf.image.resize_images(
             image, [size, size], tf.image.ResizeMethod.BILINEAR)))
   return resized_images
+
+
+def summarize_video_metrics(hook_args):
+  """Computes video metrics summaries using the decoder output."""
+  problem_name = hook_args.problem.name
+  current_problem = hook_args.problem
+  hparams = hook_args.hparams
+  output_dirs = hook_args.output_dirs
+  predictions = hook_args.predictions
+  frame_shape = [
+      current_problem.frame_height, current_problem.frame_width,
+      current_problem.num_channels
+  ]
+  metrics_graph = tf.Graph()
+  with metrics_graph.as_default():
+    if predictions:
+      metrics_results = video_metrics.compute_video_metrics_from_predictions(
+          predictions)
+    else:
+      metrics_results, _ = video_metrics.compute_video_metrics(
+          output_dirs, problem_name,
+          hparams.video_num_target_frames, frame_shape)
+
+  summary_values = []
+  for name, array in six.iteritems(metrics_results):
+    for ind, val in enumerate(array):
+      tag = name + "_" + str(ind)
+      summary_values.append(tf.Summary.Value(tag=tag, simple_value=val))
+  return summary_values
 
 
 class VideoProblem(problem.Problem):
@@ -100,9 +130,21 @@ class VideoProblem(problem.Problem):
         "shards": 1,
     }]
 
+  @property
+  def only_keep_videos_from_0th_frame(self):
+    return True
+
+  @property
+  def use_not_breaking_batching(self):
+    return True
+
   def preprocess_example(self, example, mode, hparams):
     """Runtime preprocessing, e.g., resize example["frame"]."""
     return example
+
+  @property
+  def decode_hooks(self):
+    return [summarize_video_metrics]
 
   @property
   def is_generate_per_split(self):
@@ -192,6 +234,58 @@ class VideoProblem(problem.Problem):
     # Batch and construct features.
     def _preprocess(example):
       return self.preprocess_example(example, mode, hparams)
+
+    def avoid_break_batching(dataset):
+      """Smart preprocessing to avoid break between videos!
+
+      Simple batching of images into videos may result into broken videos
+      with two parts from two different videos. This preprocessing avoids
+      this using the frame number.
+
+      Args:
+        dataset: raw not-batched dataset.
+
+      Returns:
+        batched not-broken videos.
+
+      """
+      def check_integrity_and_batch(*datasets):
+        """Checks whether a sequence of frames are from the same video.
+
+        Args:
+          *datasets: datasets each skipping 1 frame from the previous one.
+
+        Returns:
+          batched data and the integrity flag.
+        """
+        not_broken = tf.constant(True)
+        if "frame_number" in datasets[0]:
+          frame_numbers = [dataset["frame_number"][0] for dataset in datasets]
+
+          not_broken = tf.equal(
+              frame_numbers[-1] - frame_numbers[0], num_frames-1)
+          if self.only_keep_videos_from_0th_frame:
+            not_broken = tf.logical_and(not_broken,
+                                        tf.equal(frame_numbers[0], 0))
+        else:
+          tf.logging.warning("use_not_breaking_batching is True but "
+                             "no frame_number is in the dataset.")
+
+        features = {}
+        for key in datasets[0].keys():
+          values = [dataset[key] for dataset in datasets]
+          batch = tf.stack(values)
+          features[key] = batch
+        return features, not_broken
+
+      ds = [dataset.skip(i) for i in range(num_frames)]
+      dataset = tf.data.Dataset.zip(tuple(ds))
+      dataset = dataset.map(check_integrity_and_batch)
+      dataset = dataset.filter(lambda _, not_broken: not_broken)
+      dataset = dataset.map(lambda features, _: features)
+
+      return dataset
+
     preprocessed_dataset = dataset.map(_preprocess)
     num_frames = (hparams.video_num_input_frames +
                   hparams.video_num_target_frames)
@@ -199,9 +293,12 @@ class VideoProblem(problem.Problem):
     if self.random_skip:
       random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
       preprocessed_dataset = preprocessed_dataset.skip(random_skip)
-    batch_dataset = preprocessed_dataset.apply(
-        tf.contrib.data.batch_and_drop_remainder(num_frames))
-    dataset = batch_dataset.map(features_from_batch).shuffle(8)
+    if self.use_not_breaking_batching:
+      batch_dataset = avoid_break_batching(preprocessed_dataset)
+    else:
+      batch_dataset = preprocessed_dataset.apply(
+          tf.contrib.data.batch_and_drop_remainder(num_frames))
+    dataset = batch_dataset.map(features_from_batch)  # shuffle(8)
     return dataset
 
   def eval_metrics(self):
@@ -277,7 +374,7 @@ class VideoProblem(problem.Problem):
             unencoded_debug = features.pop("image/debug")
             encoded_debug = sess.run(encoded_image_t, feed_dict={
                 image_t: unencoded_debug})
-            features["image/encoded_debug"] = encoded_debug
+            features["image/encoded_debug"] = [encoded_debug]
           yield features
 
   def generate_encoded_samples_debug(self, data_dir, tmp_dir, dataset_split):

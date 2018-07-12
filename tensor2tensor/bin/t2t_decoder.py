@@ -60,6 +60,7 @@ flags.DEFINE_bool("decode_interactive", False,
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
+flags.DEFINE_bool("decode_in_memory", False, "Decode in memory.")
 
 
 def create_hparams():
@@ -72,8 +73,8 @@ def create_hparams():
 
 def create_decode_hparams():
   decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
-  decode_hp.add_hparam("shards", FLAGS.decode_shards)
-  decode_hp.add_hparam("shard_id", FLAGS.worker_id)
+  decode_hp.shards = FLAGS.decode_shards
+  decode_hp.shard_id = FLAGS.worker_id
   return decode_hp
 
 

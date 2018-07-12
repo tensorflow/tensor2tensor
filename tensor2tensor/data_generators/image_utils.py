@@ -22,6 +22,7 @@ import os
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -37,7 +38,18 @@ def resize_by_area(img, size):
 def make_multiscale(image, resolutions,
                     resize_method=tf.image.ResizeMethod.BICUBIC,
                     num_channels=3):
-  """Returns list of scaled images, one for each resolution."""
+  """Returns list of scaled images, one for each resolution.
+
+  Args:
+    image: Tensor of shape [height, height, num_channels].
+    resolutions: List of heights that image's height is resized to.
+    resize_method: tf.image.ResizeMethod.
+    num_channels: Number of channels in image.
+
+  Returns:
+    List of Tensors, one for each resolution with shape given by
+    [resolutions[i], resolutions[i], num_channels].
+  """
   scaled_images = []
   for height in resolutions:
     scaled_image = tf.image.resize_images(
@@ -48,6 +60,35 @@ def make_multiscale(image, resolutions,
     scaled_image.set_shape([height, height, num_channels])
     scaled_images.append(scaled_image)
 
+  return scaled_images
+
+
+def make_multiscale_dilated(image, resolutions, num_channels=3):
+  """Returns list of scaled images, one for each resolution.
+
+  Resizes by skipping every nth pixel.
+
+  Args:
+    image: Tensor of shape [height, height, num_channels].
+    resolutions: List of heights that image's height is resized to. The function
+      assumes VALID padding, so the original image's height must be divisible
+      by each resolution's height to return the exact resolution size.
+    num_channels: Number of channels in image.
+
+  Returns:
+    List of Tensors, one for each resolution with shape given by
+    [resolutions[i], resolutions[i], num_channels] if resolutions properly
+    divide the original image's height; otherwise shape height and width is up
+    to valid skips.
+  """
+  image_height = common_layers.shape_list(image)[0]
+  scaled_images = []
+  for height in resolutions:
+    dilation_rate = image_height // height  # assuming height = width
+    scaled_image = image[::dilation_rate, ::dilation_rate]
+    scaled_image = tf.to_int64(scaled_image)
+    scaled_image.set_shape([None, None, num_channels])
+    scaled_images.append(scaled_image)
   return scaled_images
 
 

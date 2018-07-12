@@ -179,7 +179,14 @@ class AudioEncoder(object):
     # Make sure that the data is a single channel, 16bit, 16kHz wave.
     # TODO(chorowski): the directory may not be writable, this should fallback
     # to a temp path, and provide instructions for installing sox.
-    if not s.endswith(".wav"):
+    if s.endswith(".mp3"):
+      # TODO(dliebling) On Linux, check if libsox-fmt-mp3 is installed.
+      out_filepath = s[:-4] + ".wav"
+      call([
+          "sox", "--guard", s, "-r", "16k", "-b", "16", "-c", "1", out_filepath
+      ])
+      s = out_filepath
+    elif not s.endswith(".wav"):
       out_filepath = s + ".wav"
       if not os.path.exists(out_filepath):
         call(["sox", "-r", "16k", "-b", "16", "-c", "1", s, out_filepath])
@@ -310,10 +317,11 @@ class SpeechRecognitionProblem(problem.Problem):
       assert fbank_size[0] == 1
 
       # This replaces CMVN estimation on data
-
+      var_epsilon = 1e-09
       mean = tf.reduce_mean(mel_fbanks, keepdims=True, axis=1)
-      variance = tf.reduce_mean((mel_fbanks-mean)**2, keepdims=True, axis=1)
-      mel_fbanks = (mel_fbanks - mean) / variance
+      variance = tf.reduce_mean(tf.square(mel_fbanks - mean),
+                                keepdims=True, axis=1)
+      mel_fbanks = (mel_fbanks - mean) * tf.rsqrt(variance + var_epsilon)
 
       # Later models like to flatten the two spatial dims. Instead, we add a
       # unit spatial dim and flatten the frequencies and channels.
@@ -377,13 +385,15 @@ class SpeechRecognitionModality(modality.Modality):
               nonpadding_mask) * num_mel_bins * num_channels
 
           # This replaces CMVN estimation on data
+          var_epsilon = 1e-09
           mean = tf.reduce_sum(
               x, axis=[1], keepdims=True) / num_of_nonpadding_elements
           variance = (num_of_nonpadding_elements * mean**2. -
                       2. * mean * tf.reduce_sum(x, axis=[1], keepdims=True) +
                       tf.reduce_sum(x**2, axis=[1], keepdims=True)
                      ) / num_of_nonpadding_elements
-          x = (x - mean) / variance * tf.expand_dims(nonpadding_mask, -1)
+          x = (x - mean) * tf.rsqrt(variance + var_epsilon) * tf.expand_dims(
+              nonpadding_mask, -1)
       else:
         x = inputs
 

@@ -645,6 +645,31 @@ def add_timing_signal_nd(x, min_timescale=1.0, max_timescale=1.0e4):
 
 
 @expert_utils.add_name_scope()
+def add_positional_embedding(x, max_length, name, positions=None):
+  """Add positional embedding.
+
+  Args:
+    x: a Tensor with shape [batch, length, depth]
+    max_length: an integer.  static maximum size of any dimension.
+    name: a name for this layer.
+    positions: an optional tensor with shape [batch, length]
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+  _, length, depth = common_layers.shape_list(x)
+  var = tf.cast(tf.get_variable(name, [max_length, depth]), x.dtype)
+  if positions is None:
+    sliced = tf.cond(
+        tf.less(length, max_length),
+        lambda: tf.slice(var, [0, 0], [length, -1]),
+        lambda: tf.pad(var, [[0, length - max_length], [0, 0]]))
+    return x + tf.expand_dims(sliced, 0)
+  else:
+    return x + tf.gather(var, tf.to_int32(positions))
+
+
+@expert_utils.add_name_scope()
 def add_positional_embedding_nd(x, max_length, name):
   """Add n-dimensional positional embedding.
 
@@ -680,6 +705,41 @@ def add_positional_embedding_nd(x, max_length, name):
                                                                          0.5))
     x += tf.slice(var, start, size)
   return x
+
+
+@expert_utils.add_name_scope()
+def make_edge_vectors(adjacency_matrix, num_edge_types, depth, name=None):
+  """Gets edge vectors for the edge types in the adjacency matrix.
+
+  Args:
+    adjacency_matrix: A [batch, num_nodes, num_nodes] tensor of ints.
+    num_edge_types: Number of different edge types
+    depth: Number of channels
+    name: a string
+  Returns:
+    A [batch, num_nodes, num_nodes, depth] vector of tensors
+  """
+  with tf.variable_scope(name, default_name="edge_vectors"):
+    att_adj_vectors_shape = [num_edge_types, depth]
+    adjacency_matrix_shape = common_layers.shape_list(adjacency_matrix)
+    adj_vectors = (
+        tf.get_variable(
+            "adj_vectors",
+            att_adj_vectors_shape,
+            initializer=tf.random_normal_initializer(0, depth**-0.5)) *
+        (depth**0.5))
+    # Avoiding gathers so that it works on TPUs
+    # adjacency_matrix_one_hot has shape
+    # [batch, num_nodes, num_nodes, num_edge_types]
+
+    adjacency_matrix_one_hot = tf.one_hot(adjacency_matrix, num_edge_types)
+
+    att_adj_vectors = tf.matmul(
+        tf.reshape(tf.to_float(adjacency_matrix_one_hot), [-1, num_edge_types]),
+        adj_vectors)
+    return tf.reshape(att_adj_vectors,
+                      [adjacency_matrix_shape[0], adjacency_matrix_shape[1],
+                       adjacency_matrix_shape[2], depth])
 
 
 class LshGating(object):
@@ -770,11 +830,26 @@ def embedding_to_padding(emb):
 
   Args:
     emb: a Tensor with shape [..., depth].
+
   Returns:
-    a float Tensor with shape [...].
+    a float Tensor with shape [...]. Each element is 1 if its corresponding
+    embedding vector is all zero, and is 0 otherwise.
   """
   emb_sum = tf.reduce_sum(tf.abs(emb), axis=-1)
   return tf.to_float(tf.equal(emb_sum, 0.0))
+
+
+@expert_utils.add_name_scope()
+def padding_to_length(padding):
+  """Calculate the length of mask based on padding.
+
+  Args:
+    padding: a Tensor with shape [..., length].
+  Returns:
+    a Tensor with shape [...].
+  """
+  non_padding = 1.0 - padding
+  return tf.to_int32(tf.reduce_sum(non_padding, axis=-1))
 
 
 @expert_utils.add_name_scope()
@@ -921,39 +996,37 @@ def attention_bias_proximal(length):
 
 
 @expert_utils.add_name_scope()
-def attention_bias_batch(
-    batch_coordinates_q,
-    batch_coordinates_k=None,
-    condition_fn=None,
-):
+def attention_bias_batch(batch_coordinates_q,
+                         batch_coordinates_k=None,
+                         condition_fn=None):
   """Generate a mask to prevent the batch to attend to each others.
 
   Args:
-    batch_coordinates_q (tf.Tensor): int32 of shape [length_q, 1] containing the
+    batch_coordinates_q: Int-like Tensor of shape [length_q, 1] containing the
       coordinates of the batches
-    batch_coordinates_k (tf.Tensor): int32 of shape [length_k, 1] containing the
-      coordinates of the batches. If None, do self attention (q and k identical)
-    condition_fn (fct): A function defining which type of mask build
+    batch_coordinates_k: Int-like Tensor of shape [length_k, 1] containing the
+      coordinates of the batches. If None, do self-attention.
+    condition_fn: Callable defining the attention mask.
 
   Returns:
-    tf.Tensor: float32 mask of shape [length_q, length_k] containing either 0 or
-      -infinity (-1e9)
+    Float-like Tensor of shape [length_q, length_k] containing either 0 or
+    -infinity (-1e9).
   """
   if batch_coordinates_k is None:
     batch_coordinates_k = batch_coordinates_q
 
-  # Convert to float first because of b/25387198
+  # Convert to float first because of b/25387198.
   def to_float(bc):
     bc = tf.squeeze(bc, 1)
     bc = tf.to_float(bc)
     return bc
 
+  # Broadcast to create [length_q, length_k] mask.
   bc_v = tf.expand_dims(to_float(batch_coordinates_q), 1)
   bc_h = tf.expand_dims(to_float(batch_coordinates_k), 0)
-  bias_batch = bc_h - bc_v  # Broadcast to create [length_q, length_k] mask.
-  # Threshold non zeros to 1.0.
+  bias_batch = bc_h - bc_v
   bias_batch = condition_fn(bias_batch)
-  bias_batch *= -1e9  # Set non zeros to -infinity
+  bias_batch *= -1e9
   return bias_batch
 
 
@@ -1390,14 +1463,16 @@ def dot_product_attention(q,
                           make_image_summary=True,
                           save_weights_to=None,
                           dropout_broadcast_dims=None):
-  """dot-product attention.
+  """Dot-product attention.
 
   Args:
-    q: a Tensor with shape [batch, heads, length_q, depth_k]
-    k: a Tensor with shape [batch, heads, length_kv, depth_k]
-    v: a Tensor with shape [batch, heads, length_kv, depth_v]
+    q: Tensor with shape [..., length_q, depth_k].
+    k: Tensor with shape [..., length_kv, depth_k]. Leading dimensions must
+      match with q.
+    v: Tensor with shape [..., length_kv, depth_v] Leading dimensions must
+      match with q.
     bias: bias Tensor (see attention_bias())
-    dropout_rate: a floating point number
+    dropout_rate: a float.
     image_shapes: optional tuple of integer scalars.
       see comments for attention_image_summary()
     name: an optional string
@@ -1405,17 +1480,15 @@ def dot_product_attention(q,
     save_weights_to: an optional dictionary to capture attention weights
       for visualization; the weights tensor will be appended there under
       a string key created from the variable scope (including name).
-    dropout_broadcast_dims:  an optional list of integers less than 4
-      specifying in which dimensions to broadcast the dropout decisions.
-      saves memory.
+    dropout_broadcast_dims: an optional list of integers less than rank of q.
+      Specifies in which dimensions to broadcast the dropout decisions.
 
   Returns:
-    A Tensor.
+    Tensor with shape [..., length_q, depth_v].
   """
   with tf.variable_scope(
       name, default_name="dot_product_attention", values=[q, k, v]) as scope:
-    # [batch, num_heads, query_length, memory_length]
-    logits = tf.matmul(q, k, transpose_b=True)
+    logits = tf.matmul(q, k, transpose_b=True)  # [..., length_q, length_kv]
     if bias is not None:
       bias = common_layers.cast_like(bias, logits)
       logits += bias
@@ -1423,7 +1496,7 @@ def dot_product_attention(q,
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
       save_weights_to[scope.name + "/logits"] = logits
-    # dropping out the attention links for each of the heads
+    # Drop out attention links for each head.
     weights = common_layers.dropout_with_broadcast_dims(
         weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
     if common_layers.should_generate_summaries() and make_image_summary:
@@ -1691,9 +1764,9 @@ def dot_product_self_attention_relative_v2(q,
 def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
   """Attention to the source and a neighborhood to the left within a block.
 
-  The sequence is divided into blocks of length block_size.
-  Attention for a given query position can only see memory positions
-  less than or equal to the query position in the corresponding block
+  The sequence is divided into blocks of length block_length. Attention for a
+  given query position can only see memory positions less than or equal to the
+  query position in the corresponding block.
 
   Args:
     q: a Tensor with shape [batch, heads, length, depth_k]
@@ -1714,6 +1787,7 @@ def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
       if const is not None:
         block_length = int(const)
 
+    # Pad query, key, value to ensure multiple of block length.
     depth_k = common_layers.shape_list(k)[3]
     depth_v = common_layers.shape_list(v)[3]
     original_length = length
@@ -1723,23 +1797,56 @@ def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
     q = tf.pad(q, padding)
     k = tf.pad(k, padding)
     v = tf.pad(v, padding)
+
+    # Compute attention for all subsequent query blocks.
     num_blocks = tf.div(length, block_length)
-    # compute attention for all subsequent query blocks.
     q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
     k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
     v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
-    # attention shape: [batch, heads, num_blocks, block_length, block_length]
+    # [batch, heads, num_blocks, block_length, block_length]
     attention = tf.matmul(q, k, transpose_b=True)
     attention += tf.reshape(
         attention_bias_lower_triangle(block_length),
         [1, 1, 1, block_length, block_length])
     attention = tf.nn.softmax(attention)
-    # initial output shape: [batch, heads, num_blocks, block_length, depth_v]
+    # [batch, heads, num_blocks, block_length, depth_v]
     output = tf.matmul(attention, v)
     output = tf.reshape(output, [batch, heads, -1, depth_v])
+
+    # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
     output.set_shape(v_shape)
     return output
+
+
+def _local_unmasked_relative_to_absolute(x):
+  """Converts tensor from relative to aboslute indexing for local attention.
+
+  Args:
+    x: a Tensor of shape [batch (or batch*num_blocks), heads,
+                          length, 2 * length - 1]
+
+  Returns:
+    A Tensor of shape [batch (or batch*num_blocks), heads, length, length-1]
+  """
+  x_shape = common_layers.shape_list(x)
+  batch = x_shape[0]
+  heads = x_shape[1]
+  length = x_shape[2]
+  # Concat columns of pad to shift from relative to absolute indexing.
+  col_pad = tf.zeros((batch, heads, length, 1))
+  x = tf.concat([x, col_pad], axis=3)
+
+  # Concat extra elements so to add up to shape (len+1, 2*len-2).
+  flat_x = tf.reshape(x, [batch, heads, length * 2 * length])
+  flat_pad = tf.zeros((batch, heads, length-1))
+  flat_x_padded = tf.concat([flat_x, flat_pad], axis=2)
+
+  # Reshape and slice out the padded elements.
+  final_x = tf.reshape(flat_x_padded, [batch, heads, length+1, 2*length-1])
+  final_x = final_x[:, :, :, length-1:]
+  final_x = final_x[:, :, :length, :]
+  return final_x
 
 
 def masked_local_attention_1d(q,
@@ -1747,16 +1854,13 @@ def masked_local_attention_1d(q,
                               v,
                               block_length=128,
                               make_image_summary=False,
+                              dropout_rate=0.,
                               name=None):
   """Attention to the source position and a neighborhood to the left of it.
 
-  The sequence is divided into blocks of length block_size.
-  Attention for a given query position can only see memory positions
-  less than or equal to the query position, in the corresponding block
-  and the previous block.
-
-  If mask_right is True, then a target position cannot see greater source
-  positions.
+  The sequence is divided into blocks of length block_length. Attention for a
+  given query position can only see memory positions less than or equal to the
+  query position, in the corresponding block and the previous block.
 
   Args:
     q: a Tensor with shape [batch, heads, length, depth_k]
@@ -1764,6 +1868,7 @@ def masked_local_attention_1d(q,
     v: a Tensor with shape [batch, heads, length, depth_v]
     block_length: an integer
     make_image_summary: a boolean, whether to make an attention image summary.
+    dropout_rate: Dropout rate for attention dropout
     name: an optional string
 
   Returns:
@@ -1771,6 +1876,7 @@ def masked_local_attention_1d(q,
   """
   with tf.variable_scope(
       name, default_name="local_attention_1d", values=[q, k, v]):
+
     batch = common_layers.shape_list(q)[0]
     heads = common_layers.shape_list(q)[1]
     length = common_layers.shape_list(q)[2]
@@ -1778,13 +1884,14 @@ def masked_local_attention_1d(q,
       const = tf.contrib.util.constant_value(block_length)
       if const is not None:
         block_length = int(const)
-
     # If (length < 2 * block_length), then we use only one block.
     if isinstance(length, int) and isinstance(block_length, int):
       block_length = length if length < block_length * 2 else block_length
     else:
       block_length = tf.where(
           tf.less(length, block_length * 2), length, block_length)
+
+    # Pad query, key, value to ensure multiple of block length.
     depth_k = common_layers.shape_list(k)[3]
     depth_v = common_layers.shape_list(v)[3]
     original_length = length
@@ -1800,34 +1907,29 @@ def masked_local_attention_1d(q,
     else:
       num_blocks = tf.div(length, block_length)
 
-    # compute attention for the first query block.
+    # Compute attention for the first query block.
     first_q = tf.slice(q, [0, 0, 0, 0], [-1, -1, block_length, -1])
     first_k = tf.slice(k, [0, 0, 0, 0], [-1, -1, block_length, -1])
     first_v = tf.slice(v, [0, 0, 0, 0], [-1, -1, block_length, -1])
+
     first_output = dot_product_attention(
         first_q,
         first_k,
         first_v,
         attention_bias_lower_triangle(block_length),
+        dropout_rate=dropout_rate,
         make_image_summary=make_image_summary,
-        name="fist_block")
+        name="first_block")
 
-    # compute attention for all subsequent query blocks.
+    # Compute attention for all subsequent query blocks.
     q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
     k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
     v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
 
-    def local(x, depth):
-      """Create a local version of the keys or values."""
-      prev_block = tf.slice(x, [0, 0, 0, 0, 0],
-                            [-1, -1, num_blocks - 1, -1, -1])
-      cur_block = tf.slice(x, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
-      local_block = tf.concat([prev_block, cur_block], 3)
-      return tf.reshape(local_block,
-                        [batch, heads, num_blocks - 1, block_length * 2, depth])
-
-    local_k = local(k, depth_k)
-    local_v = local(v, depth_v)
+    local_k = _make_local_block(k, depth_k, batch, heads, num_blocks,
+                                block_length)
+    local_v = _make_local_block(v, depth_v, batch, heads, num_blocks,
+                                block_length)
     tail_q = tf.slice(q, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
     tail_q = tf.reshape(tail_q,
                         [batch, heads, num_blocks - 1, block_length, depth_k])
@@ -1837,16 +1939,206 @@ def masked_local_attention_1d(q,
     attention = tf.matmul(tail_q, local_k, transpose_b=True)
 
     # make sure source_pos <= target_pos
-    good_part = common_layers.ones_matrix_band_part(block_length, local_length,
+    good_part = common_layers.ones_matrix_band_part(block_length,
+                                                    local_length,
                                                     -1, block_length)
     mask = (1.0 - good_part) * -1e9
     mask = common_layers.cast_like(mask, attention)
     attention += tf.reshape(mask, [1, 1, 1, block_length, local_length])
     attention = tf.nn.softmax(attention)
+    attention = common_layers.dropout_with_broadcast_dims(
+        attention, 1.0 - dropout_rate,
+        broadcast_dims=None)
     # TODO(noam): figure out how to show a summary for the remaining blocks.
     # The naive way currently causes errors due to empty tensors.
     # output: [batch, heads, num_blocks-1, block_length, depth_v]
     output = tf.matmul(attention, local_v)
+    output = tf.reshape(
+        output, [batch, heads, (num_blocks - 1) * block_length, depth_v])
+    output = tf.concat([first_output, output], axis=2)
+
+    # Remove the padding if introduced.
+    output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
+    output = tf.reshape(output, [batch, heads, original_length, depth_v])
+    return output
+
+
+def _make_local_block(x, depth, batch, heads, num_blocks, block_length):
+  """Helper function to create a local version of the keys or values for 1d."""
+  prev_block = tf.slice(x, [0, 0, 0, 0, 0],
+                        [-1, -1, num_blocks - 1, -1, -1])
+  cur_block = tf.slice(x, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
+  local_block = tf.concat([prev_block, cur_block], 3)
+  return tf.reshape(local_block,
+                    [batch, heads, num_blocks - 1, block_length * 2, depth])
+
+
+def masked_rel_local_attention_1d(q,
+                                  k,
+                                  v,
+                                  block_length=128,
+                                  make_image_summary=False,
+                                  dropout_rate=0.,
+                                  share_rel_embed=False,
+                                  name=None):
+  """Masked local 1d attention with relative positions.
+
+  The sequence is divided into blocks of length block_size.
+  Attention for a given query position can only see memory positions
+  less than or equal to the query position, in the corresponding block
+  and the previous block.
+
+  If mask_right is True, then a target position cannot see greater source
+  positions.
+
+  Args:
+    q: a Tensor with shape [batch, heads, length, depth_k]
+    k: a Tensor with shape [batch, heads, length, depth_k]
+    v: a Tensor with shape [batch, heads, length, depth_v]
+    block_length: an integer
+    make_image_summary: a boolean, whether to make an attention image summary.
+    dropout_rate: Dropout rate for attention dropout
+    share_rel_embed: Boolean for sharing relative embeddings
+    name: an optional string
+
+  Returns:
+    a Tensor of shape [batch, heads, length, depth_v]
+  """
+  with tf.variable_scope(
+      name, default_name="local_attention_1d", values=[q, k, v]):
+
+    default_block_length = block_length
+    batch = common_layers.shape_list(q)[0]
+    heads = common_layers.shape_list(q)[1]
+    length = common_layers.shape_list(q)[2]
+    # If (length < 2 * block_length), then we use only one block.
+    block_length = length if length < block_length * 2 else block_length
+    depth_k = common_layers.shape_list(k)[3]
+    depth_v = common_layers.shape_list(v)[3]
+    original_length = length
+    padding_size = tf.mod(-length, block_length)
+    length += padding_size
+    padding = [[0, 0], [0, 0], [0, padding_size], [0, 0]]
+    q = tf.pad(q, padding)
+    k = tf.pad(k, padding)
+    v = tf.pad(v, padding)
+
+    num_blocks = length // block_length
+    # compute attention for the first query block.
+    first_q = tf.slice(q, [0, 0, 0, 0], [-1, -1, block_length, -1])
+    first_k = tf.slice(k, [0, 0, 0, 0], [-1, -1, block_length, -1])
+    first_v = tf.slice(v, [0, 0, 0, 0], [-1, -1, block_length, -1])
+    # Relative embeddings will be used later as well.
+    # TODO(avaswani,annahuang): check why 2*bl was breaking for music
+    # We only multiply with the needed embeddings as we slice them out.
+    rel_embed_length = 4 * default_block_length
+    # Relative embeddings can be shared or unshared
+    first_logits = tf.matmul(first_q, first_k, transpose_b=True)
+    if share_rel_embed:
+      relative_embeddings = (
+          tf.get_variable(name="relative_embeddings",
+                          shape=(rel_embed_length, depth_k)))
+      masked_relative_embeddings = tf.slice(
+          relative_embeddings,
+          [rel_embed_length - block_length, 0], [-1, -1])
+      first_relative_logits = tf.einsum(
+          "bhld,md->bhlm", first_q, masked_relative_embeddings)
+    else:
+      relative_embeddings = (
+          tf.get_variable(name="relative_embeddings",
+                          shape=(heads, rel_embed_length, depth_k)))
+      masked_relative_embeddings = tf.slice(
+          relative_embeddings,
+          [0, rel_embed_length - block_length, 0], [-1, -1, -1])
+      first_relative_logits = tf.einsum(
+          "bhld,hmd->bhlm", first_q, masked_relative_embeddings)
+    first_logits += (
+        _relative_position_to_absolute_position_masked(first_relative_logits))
+    # adding a mask
+    first_logits += (
+        common_layers.cast_like(attention_bias_lower_triangle(block_length),
+                                first_logits))
+    first_att = tf.nn.softmax(first_logits,
+                              name="first_attention_weights")
+    # dropping out the attention links for each of the heads
+    first_att = common_layers.dropout_with_broadcast_dims(
+        first_att, 1.0 - dropout_rate,
+        broadcast_dims=None)
+    # only call image summary for the first block
+    if common_layers.should_generate_summaries() and make_image_summary:
+      attention_image_summary(first_att, None)
+    first_output = tf.matmul(first_att, first_v)
+
+    # compute attention for all subsequent query blocks.
+    q = tf.reshape(q, [batch, heads, num_blocks, block_length, depth_k])
+    k = tf.reshape(k, [batch, heads, num_blocks, block_length, depth_k])
+    v = tf.reshape(v, [batch, heads, num_blocks, block_length, depth_v])
+    local_k = _make_local_block(k, depth_k, batch, heads, num_blocks,
+                                block_length)
+    local_v = _make_local_block(v, depth_v, batch, heads, num_blocks,
+                                block_length)
+    tail_q = tf.slice(q, [0, 0, 1, 0, 0], [-1, -1, -1, -1, -1])
+    tail_q = tf.reshape(tail_q,
+                        [batch, heads, num_blocks - 1, block_length, depth_k])
+    local_length = common_layers.shape_list(local_k)[3]
+
+    # collapsing num blocks and batch size so that we can reuse
+    # functions
+    def _reshape_for_relative(x):
+      x_shape = common_layers.shape_list(x)
+      # [batch, num_blocks, heads, length, depth]
+      x = tf.transpose(x, [0, 2, 1, 3, 4])
+      x = tf.reshape(x, [batch*x_shape[2], heads, x_shape[3],
+                         x_shape[4]])
+      return x
+    rel_tail_q = _reshape_for_relative(tail_q)
+    rel_k = _reshape_for_relative(local_k)
+    rel_v = _reshape_for_relative(local_v)
+    # Computing relative logits separately for the masked and unmasked parts
+    # because the reshaping logic is different for both
+    if share_rel_embed:
+      used_relative_embeddings = tf.slice(
+          relative_embeddings,
+          [rel_embed_length - 2*block_length, 0], [-1, -1])
+      rel_logits = tf.einsum(
+          "bhld,md->bhlm", rel_tail_q, used_relative_embeddings)
+      masked_rel_logits = tf.slice(rel_logits, [0, 0, 0, block_length],
+                                   [-1, -1, -1, -1])
+    else:
+      used_relative_embeddings = tf.slice(
+          relative_embeddings,
+          [0, rel_embed_length - 2*block_length, 0], [-1, -1, -1])
+      rel_logits = tf.einsum(
+          "bhld,hmd->bhlm", rel_tail_q, used_relative_embeddings)
+      masked_rel_logits = tf.slice(rel_logits, [0, 0, 0, block_length],
+                                   [-1, -1, -1, -1])
+    masked_rel_logits = _relative_position_to_absolute_position_masked(
+        masked_rel_logits)
+    unmasked_rel_logits = tf.slice(rel_logits, [0, 0, 0, 0],
+                                   [-1, -1, -1, 2*block_length-1])
+    unmasked_rel_logits = _local_unmasked_relative_to_absolute(
+        unmasked_rel_logits)
+    all_rel_logits = tf.concat([unmasked_rel_logits, masked_rel_logits],
+                               axis=3)
+    all_logits = (
+        tf.matmul(rel_tail_q, rel_k, transpose_b=True) + all_rel_logits)
+    # make sure source_pos <= target_pos
+    good_part = common_layers.ones_matrix_band_part(block_length,
+                                                    local_length,
+                                                    -1, block_length)
+    mask = (1.0 - good_part) * -1e9
+    mask = common_layers.cast_like(mask, all_logits)
+    all_logits += tf.reshape(mask, [1, 1, block_length, local_length])
+    attention = tf.nn.softmax(all_logits)
+    attention = common_layers.dropout_with_broadcast_dims(
+        attention, 1.0 - dropout_rate,
+        broadcast_dims=None)
+    output = tf.matmul(attention, rel_v)
+    # bring to [batch, heads, num_blocks-1, block_length, depth]
+    output = tf.reshape(output,
+                        [batch, num_blocks-1, heads, block_length, depth_v])
+    output = tf.transpose(output, [0, 2, 1, 3, 4])
+
     output = tf.reshape(
         output, [batch, heads, (num_blocks - 1) * block_length, depth_v])
     output = tf.concat([first_output, output], axis=2)
@@ -1856,7 +2148,11 @@ def masked_local_attention_1d(q,
 
 
 def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
-  """strided block local self-attention.
+  """Strided block local self-attention.
+
+  The sequence is divided into blocks of length block_length. Attention for a
+  given query position can see all memory positions in the corresponding block
+  and filter_width many positions to the left of the block.
 
   Args:
     q: a Tensor with shape [batch, heads, length, depth_k]
@@ -1877,7 +2173,7 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
     num_heads = common_layers.shape_list(q)[1]
     original_length = common_layers.shape_list(q)[2]
 
-    # making sure q is a multiple of d
+    # Pad query, key, value to ensure multiple of corresponding lengths.
     def pad_to_multiple(x, pad_length):
       x_length = common_layers.shape_list(x)[2]
       return tf.pad(x, [[0, 0], [0, 0], [0, -x_length % pad_length], [0, 0]])
@@ -1889,24 +2185,21 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
     k = pad_to_multiple(k, block_length)
     v = pad_to_multiple(v, block_length)
 
-    # Setting up q blocks
+    # Set up query blocks.
     new_q_shape = common_layers.shape_list(q)
-    # Setting up q blocks
     q = tf.reshape(q, [
         new_q_shape[0], new_q_shape[1], new_q_shape[2] // block_length,
         block_length, new_q_shape[3]
     ])
 
-    # Setting up k and v values
+    # Set up key and value blocks.
+    # Get gather indices.
     k = pad_l_and_r(k, filter_width)
     v = pad_l_and_r(v, filter_width)
-
     length = common_layers.shape_list(k)[2]
     full_filter_width = block_length + 2 * filter_width
-    # getting gather indices
     indices = tf.range(0, length, delta=1, name="index_range")
-    # making indices [1, length, 1] to appy convs
-    indices = tf.reshape(indices, [1, -1, 1])
+    indices = tf.reshape(indices, [1, -1, 1])  # [1, length, 1] for convs
     kernel = tf.expand_dims(tf.eye(full_filter_width), axis=1)
     gather_indices = tf.nn.conv1d(
         tf.cast(indices, tf.float32),
@@ -1917,11 +2210,10 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
 
     gather_indices = tf.squeeze(tf.cast(gather_indices, tf.int32), axis=0)
 
-    # [length, batch, heads, dim]
+    # Reshape keys and values to [length, batch, heads, dim] for gather. Then
+    # reshape to [batch, heads, blocks, block_length + filter_width, dim].
     k_t = tf.transpose(k, [2, 0, 1, 3])
     k_new = tf.gather(k_t, gather_indices)
-
-    # [batch, heads, blocks, block_length, dim]
     k_new = tf.transpose(k_new, [2, 3, 0, 1, 4])
 
     attention_bias = tf.expand_dims(embedding_to_padding(k_new) * -1e9, axis=-2)
@@ -1939,13 +2231,25 @@ def local_attention_1d(q, k, v, block_length=128, filter_width=100, name=None):
         name="local_1d",
         make_image_summary=False)
     output = tf.reshape(output, [batch_size, num_heads, -1, depth_v])
-    # Remove the padding if introduced
+
+    # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
     output.set_shape(v_shape)
     return output
 
 
 def reshape_by_blocks(x, x_shape, memory_block_size):
+  """Reshapes input by splitting its length over blocks of memory_block_size.
+
+  Args:
+    x: a Tensor with shape [batch, heads, length, depth]
+    x_shape: tf.TensorShape of x.
+    memory_block_size: Integer which divides length.
+
+  Returns:
+    Tensor with shape
+    [batch, heads, length // memory_block_size, memory_block_size, depth].
+  """
   x = tf.reshape(x, [
       x_shape[0], x_shape[1], x_shape[2] // memory_block_size,
       memory_block_size, x_shape[3]
@@ -1961,7 +2265,7 @@ def dilated_self_attention_1d(q,
                               gap_size=2,
                               num_memory_blocks=2,
                               name=None):
-  """dilated self-attention.
+  """Dilated self-attention.
 
   Args:
     q: a Tensor with shape [batch, heads, length, depth_k]
@@ -1986,7 +2290,7 @@ def dilated_self_attention_1d(q,
     num_heads = v_shape[1]
     original_length = common_layers.shape_list(q)[2]
 
-    # making sure q is a multiple of query block size
+    # Pad query, key, value to ensure multiple of corresponding lengths.
     def pad_to_multiple(x, pad_length):
       x_length = common_layers.shape_list(x)[2]
       return tf.pad(x, [[0, 0], [0, 0], [0, -x_length % pad_length], [0, 0]])
@@ -1997,26 +2301,25 @@ def dilated_self_attention_1d(q,
     q = pad_to_multiple(q, query_block_size)
     v = pad_to_multiple(v, query_block_size)
     k = pad_to_multiple(k, query_block_size)
-
     q.set_shape(v_list_shape)
     v.set_shape(v_list_shape)
     k.set_shape(v_list_shape)
-    # Setting up q blocks
+
+    # Set up query blocks.
     new_q_shape = common_layers.shape_list(q)
-    # Setting up q blocks
     q = reshape_by_blocks(q, new_q_shape, query_block_size)
     self_k_part = reshape_by_blocks(k, new_q_shape, query_block_size)
     self_v_part = reshape_by_blocks(v, new_q_shape, query_block_size)
 
-    # Setting up k and v windows
+    # Set up key and value windows.
     k_v_padding = (gap_size + memory_block_size) * num_memory_blocks
     k = pad_l_and_r(k, k_v_padding)
     v = pad_l_and_r(v, k_v_padding)
-    # getting gather indices
+
+    # Get gather indices.
     index_length = (new_q_shape[2] - query_block_size + memory_block_size)
     indices = tf.range(0, index_length, delta=1, name="index_range")
-    # making indices [1, length, 1] to appy convs
-    indices = tf.reshape(indices, [1, -1, 1])
+    indices = tf.reshape(indices, [1, -1, 1])  # [1, length, 1] for convs
     kernel = tf.expand_dims(tf.eye(memory_block_size), axis=1)
     gather_indices = tf.nn.conv1d(
         tf.cast(indices, tf.float32),
@@ -2027,7 +2330,7 @@ def dilated_self_attention_1d(q,
 
     gather_indices = tf.squeeze(tf.cast(gather_indices, tf.int32), axis=0)
 
-    # get left and right memory blocks for each query
+    # Get left and right memory blocks for each query.
     # [length, batch, heads, dim]
     k_t = tf.transpose(k, [2, 0, 1, 3])
     v_t = tf.transpose(v, [2, 0, 1, 3])
@@ -2069,7 +2372,8 @@ def dilated_self_attention_1d(q,
         name="dilated_1d",
         make_image_summary=False)
     output = tf.reshape(output, [batch_size, num_heads, -1, depth_v])
-    # Remove the padding if introduced
+
+    # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
     output.set_shape(v_list_shape)
     return output
@@ -2085,18 +2389,18 @@ def gather_dilated_memory_blocks(x,
   """Gathers blocks with gaps in between.
 
   Args:
-    x: A tensor of shape [length, batch, heads, depth]
-    num_memory_blocks:     num_memory_blocks: how many memory blocks to look
-      in "direction". Each will be separated by gap_size.
+    x: Tensor of shape [length, batch, heads, depth]
+    num_memory_blocks: how many memory blocks to look in "direction". Each will
+      be separated by gap_size.
     gap_size: an integer indicating the gap size
     query_block_size: an integer indicating size of query block
     memory_block_size: an integer indicating the size of a memory block.
     gather_indices: The indices to gather from.
     direction: left or right
-  Returns:
-    a tensor of shape [batch, heads, blocks, block_length, depth]
-  """
 
+  Returns:
+    Tensor of shape [batch, heads, blocks, block_length, depth]
+  """
   gathered_blocks = []
   # gathering memory blocks
   for block_id in range(num_memory_blocks):
@@ -2127,7 +2431,7 @@ def masked_dilated_self_attention_1d(q,
                                      gap_size=2,
                                      num_memory_blocks=2,
                                      name=None):
-  """dilated self-attention. TODO(avaswani): Try it and write a paper on it.
+  """Dilated self-attention. TODO(avaswani): Try it and write a paper on it.
 
   Args:
     q: a Tensor with shape [batch, heads, length, depth_k]
@@ -2152,7 +2456,7 @@ def masked_dilated_self_attention_1d(q,
     num_heads = v_shape[1]
     original_length = common_layers.shape_list(q)[2]
 
-    # making sure q is a multiple of query block size
+    # Pad query, key, value to ensure multiple of corresponding lengths.
     def pad_to_multiple(x, pad_length):
       x_length = common_layers.shape_list(x)[2]
       return tf.pad(x, [[0, 0], [0, 0], [0, -x_length % pad_length], [0, 0]])
@@ -2166,23 +2470,23 @@ def masked_dilated_self_attention_1d(q,
     q.set_shape(v_list_shape)
     v.set_shape(v_list_shape)
     k.set_shape(v_list_shape)
-    # Setting up q blocks
-    new_q_shape = common_layers.shape_list(q)
 
-    # Setting up q blocks
+    # Set up query blocks.
+    new_q_shape = common_layers.shape_list(q)
     q = reshape_by_blocks(q, new_q_shape, query_block_size)
+
+    # Set up key and value windows.
     self_k_part = reshape_by_blocks(k, new_q_shape, query_block_size)
     self_v_part = reshape_by_blocks(v, new_q_shape, query_block_size)
-    # Setting up k and v windows
     k_v_padding = (gap_size + memory_block_size) * num_memory_blocks
     k = pad_l(k, k_v_padding)
     v = pad_l(v, k_v_padding)
-    # getting gather indices
+
+    # Get gather indices.
     index_length = (new_q_shape[2] - query_block_size + memory_block_size)
 
     indices = tf.range(0, index_length, delta=1, name="index_range")
-    # making indices [1, length, 1] to appy convs
-    indices = tf.reshape(indices, [1, -1, 1])
+    indices = tf.reshape(indices, [1, -1, 1])  # [1, length, 1] for convs
     kernel = tf.expand_dims(tf.eye(memory_block_size), axis=1)
     gather_indices = tf.nn.conv1d(
         tf.cast(indices, tf.float32),
@@ -2192,7 +2496,7 @@ def masked_dilated_self_attention_1d(q,
         name="gather_conv")
     gather_indices = tf.squeeze(tf.cast(gather_indices, tf.int32), axis=0)
 
-    # get left and right memory blocks for each query
+    # Get left and right memory blocks for each query.
     # [length, batch, heads, dim]
     k_t = tf.transpose(k, [2, 0, 1, 3])
     v_t = tf.transpose(v, [2, 0, 1, 3])
@@ -2204,7 +2508,7 @@ def masked_dilated_self_attention_1d(q,
         v_t, num_memory_blocks, gap_size, query_block_size, memory_block_size,
         gather_indices)
 
-    # combine memory windows
+    # Combine memory windows.
     block_q_shape = common_layers.shape_list(q)
     masked_attention_bias = tf.tile(
         tf.expand_dims(attention_bias_lower_triangle(query_block_size), axis=0),
@@ -2227,7 +2531,8 @@ def masked_dilated_self_attention_1d(q,
         name="dilated_1d",
         make_image_summary=False)
     output = tf.reshape(output, [batch_size, num_heads, -1, depth_v])
-    # Remove the padding if introduced
+
+    # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0], [-1, -1, original_length, -1])
     output.set_shape(v_list_shape)
     return output
@@ -2239,7 +2544,13 @@ def local_attention_2d(q,
                        query_shape=(8, 16),
                        memory_flange=(8, 16),
                        name=None):
-  """strided block local self-attention.
+  """Strided block local self-attention.
+
+  The 2-D sequence is divided into 2-D blocks of shape query_shape. Attention
+  for a given query position can only see memory positions less than or equal to
+  the query position. The memory positions are the corresponding block with
+  memory_flange many positions to add to the height and width of the block
+  (namely, left, top, and right).
 
   Args:
     q: a Tensor with shape [batch, heads, h, w, depth_k]
@@ -2258,21 +2569,21 @@ def local_attention_2d(q,
     q_shape = q.get_shape().as_list()
     v_shape = common_layers.shape_list(v)
 
+    # Pad query, key, value to ensure multiple of corresponding lengths.
     q = pad_to_multiple_2d(q, query_shape)
     k = pad_to_multiple_2d(k, query_shape)
     v = pad_to_multiple_2d(v, query_shape)
     padded_q_shape = common_layers.shape_list(q)
-    # Setting up k and v values
     paddings = [[0, 0], [0, 0], [memory_flange[0], memory_flange[1]],
                 [memory_flange[0], memory_flange[1]], [0, 0]]
     k = tf.pad(k, paddings)
     v = tf.pad(v, paddings)
 
-    # Setting up q blocks
+    # Set up query blocks.
     q_indices = gather_indices_2d(q, query_shape, query_shape)
     q_new = gather_blocks_2d(q, q_indices)
 
-    # Setting up k and v blocks
+    # Set up key and value blocks.
     memory_shape = (query_shape[0] + 2 * memory_flange[0],
                     query_shape[1] + 2 * memory_flange[1])
     k_and_v_indices = gather_indices_2d(k, memory_shape, query_shape)
@@ -2290,9 +2601,10 @@ def local_attention_2d(q,
         dropout_rate=0.,
         name="local_2d",
         make_image_summary=False)
-    # putting the representations back in the right place
+    # Put representations back into original shapes.
     output = scatter_blocks_2d(output, q_indices, padded_q_shape)
-    # Remove the padding if introduced
+
+    # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0, 0],
                       [-1, -1, v_shape[2], v_shape[3], -1])
     output.set_shape(q_shape)
@@ -2406,7 +2718,7 @@ def make_2d_block_raster_mask(query_shape, memory_flange):
           tf.concat(mask_pieces, axis=1)
       ],
       axis=1)
-  # 0. is visible location, 1.0 is masked.
+  # 0.0 is visible location, 1.0 is masked.
   return 1. - final_mask
 
 
@@ -2527,7 +2839,7 @@ def masked_local_attention_2d(q,
                               query_shape=(8, 16),
                               memory_flange=(8, 16),
                               name=None):
-  """strided block local self-attention.
+  """Strided block local self-attention.
 
     Each position in a query block can attend to all the generated queries in
     the query block, which are generated in raster scan, and positions that are
@@ -2555,12 +2867,15 @@ def masked_local_attention_2d(q,
     q_shape = q.get_shape().as_list()
     v_shape = common_layers.shape_list(v)
 
+    # Pad query to ensure multiple of corresponding lengths.
     q = pad_to_multiple_2d(q, query_shape)
     padded_q_shape = common_layers.shape_list(q)
-    # Setting up q blocks
+
+    # Set up query blocks.
     q_indices = gather_indices_2d(q, query_shape, query_shape)
     q_new = gather_blocks_2d(q, q_indices)
-    # Setting up k and v blocks
+
+    # Set up key and value blocks.
     k_flange, k_center = get_memory_region(k, query_shape, memory_flange,
                                            q_indices)
     v_flange, v_center = get_memory_region(v, query_shape, memory_flange,
@@ -2571,7 +2886,8 @@ def masked_local_attention_2d(q,
     else:
       k_new = k_center
       v_new = v_center
-    # Getting the masks ready
+
+    # Set up the masks.
     query_elements = np.prod(query_shape)
     padding_mask = None
     if k_flange is not None:
@@ -2588,7 +2904,7 @@ def masked_local_attention_2d(q,
         center_attention_bias,
         [v_center_shape[0], v_center_shape[1], v_center_shape[2], 1, 1])
     if padding_mask is not None:
-      # Combining the mask for padding and visible region
+      # Combine the mask for padding and visible region.
       attention_bias = tf.concat([padding_mask, center_attention_bias], axis=4)
     else:
       attention_bias = center_attention_bias
@@ -2601,9 +2917,11 @@ def masked_local_attention_2d(q,
         dropout_rate=0.,
         name="masked_local_2d",
         make_image_summary=False)
-    # putting the representations back in the right place
+
+    # Put representations back into original shapes.
     output = scatter_blocks_2d(output, q_indices, padded_q_shape)
-    # Remove the padding if introduced
+
+    # Remove the padding if introduced.
     output = tf.slice(output, [0, 0, 0, 0, 0],
                       [-1, -1, v_shape[2], v_shape[3], -1])
     output.set_shape(q_shape)
@@ -2614,7 +2932,8 @@ def compute_attention_component(antecedent,
                                 total_depth,
                                 filter_width=1,
                                 padding="VALID",
-                                name="c"):
+                                name="c",
+                                vars_3d_num_heads=0):
   """Computes attention compoenent (query, key or value).
 
   Args:
@@ -2624,10 +2943,26 @@ def compute_attention_component(antecedent,
       component to be.
     padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     name: a string specifying scope name.
+    vars_3d_num_heads: an optional integer (if we want to use 3d variables)
 
   Returns:
     c : [batch, length, depth] tensor
   """
+  if vars_3d_num_heads > 0:
+    assert filter_width == 1
+    input_depth = antecedent.get_shape().as_list()[-1]
+    depth_per_head = total_depth // vars_3d_num_heads
+    initializer_stddev = input_depth ** -0.5
+    if "q" in name:
+      initializer_stddev *= depth_per_head ** -0.5
+    var = tf.get_variable(
+        name, [input_depth,
+               vars_3d_num_heads,
+               total_depth // vars_3d_num_heads],
+        initializer=tf.random_normal_initializer(stddev=initializer_stddev))
+    var = tf.cast(var, antecedent.dtype)
+    var = tf.reshape(var, [input_depth, total_depth])
+    return tf.tensordot(antecedent, var, axes=1)
   if filter_width == 1:
     return common_layers.dense(
         antecedent, total_depth, use_bias=False, name=name)
@@ -2643,7 +2978,8 @@ def compute_qkv(query_antecedent,
                 q_filter_width=1,
                 kv_filter_width=1,
                 q_padding="VALID",
-                kv_padding="VALID"):
+                kv_padding="VALID",
+                vars_3d_num_heads=0):
   """Computes query, key and value.
 
   Args:
@@ -2656,18 +2992,34 @@ def compute_qkv(query_antecedent,
     to be.
     q_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
     kv_padding: One of "VALID", "SAME" or "LEFT". Default is VALID: No padding.
+    vars_3d_num_heads: an optional (if we want to use 3d variables)
 
   Returns:
     q, k, v : [batch, length, depth] tensors
   """
   if memory_antecedent is None:
     memory_antecedent = query_antecedent
-  q = compute_attention_component(query_antecedent, total_key_depth,
-                                  q_filter_width, q_padding, "q")
-  k = compute_attention_component(memory_antecedent, total_key_depth,
-                                  kv_filter_width, kv_padding, "k")
-  v = compute_attention_component(memory_antecedent, total_value_depth,
-                                  kv_filter_width, kv_padding, "v")
+  q = compute_attention_component(
+      query_antecedent,
+      total_key_depth,
+      q_filter_width,
+      q_padding,
+      "q",
+      vars_3d_num_heads=vars_3d_num_heads)
+  k = compute_attention_component(
+      memory_antecedent,
+      total_key_depth,
+      kv_filter_width,
+      kv_padding,
+      "k",
+      vars_3d_num_heads=vars_3d_num_heads)
+  v = compute_attention_component(
+      memory_antecedent,
+      total_value_depth,
+      kv_filter_width,
+      kv_padding,
+      "v",
+      vars_3d_num_heads=vars_3d_num_heads)
   return q, k, v
 
 
@@ -2679,6 +3031,7 @@ def multihead_attention(query_antecedent,
                         output_depth,
                         num_heads,
                         dropout_rate,
+                        shared_rel=False,
                         max_relative_position=None,
                         image_shapes=None,
                         attention_type="dot_product",
@@ -2696,6 +3049,7 @@ def multihead_attention(query_antecedent,
                         make_image_summary=True,
                         dropout_broadcast_dims=None,
                         max_length=None,
+                        vars_3d=False,
                         **kwargs):
   """Multihead scaled-dot-product attention with input/output transformations.
 
@@ -2708,6 +3062,7 @@ def multihead_attention(query_antecedent,
     output_depth: an integer
     num_heads: an integer dividing total_key_depth and total_value_depth
     dropout_rate: a floating point number
+    shared_rel: boolean to share relative embeddings
     max_relative_position: Maximum distance between inputs to generate
                            unique relation embeddings for. Only relevant
                            when using "dot_product_relative" attention.
@@ -2715,8 +3070,8 @@ def multihead_attention(query_antecedent,
                   see comments for attention_image_summary()
     attention_type: a string, either "dot_product", "dot_product_relative",
                     "local_mask_right", "local_unmasked", "masked_dilated_1d",
-                    "unmasked_dilated_1d" or any attention function with the
-                    signature (query, key, value, **kwargs)
+                    "unmasked_dilated_1d", graph, or any attention function
+                    with the signature (query, key, value, **kwargs)
     block_length: an integer - relevant for "local_mask_right"
     block_width: an integer - relevant for "local_unmasked"
     q_filter_width: An integer specifying how wide you want the query to be.
@@ -2744,6 +3099,7 @@ def multihead_attention(query_antecedent,
       specifying in which dimensions to broadcast the dropout decisions.
       saves memory.
     max_length: an integer - needed by relative attention
+    vars_3d: use 3-dimensional variables for input/output transformations
     **kwargs (dict): Parameters for the attention function
 
   Caching:
@@ -2753,7 +3109,7 @@ def multihead_attention(query_antecedent,
     The caching works by saving all the previous key and value values so that
     you are able to send just the last query location to this attention
     function. I.e. if the cache dict is provided it assumes the query is of the
-    shape [batch_size, 1, hiddem_dim] rather than the full memory.
+    shape [batch_size, 1, hidden_dim] rather than the full memory.
 
   Returns:
     The result of the attention transformation. The output shape is
@@ -2773,13 +3129,15 @@ def multihead_attention(query_antecedent,
   if total_value_depth % num_heads != 0:
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
+  vars_3d_num_heads = num_heads if vars_3d else 0
   with tf.variable_scope(name, default_name="multihead_attention",
                          values=[query_antecedent, memory_antecedent]):
 
     if cache is None or memory_antecedent is None:
       q, k, v = compute_qkv(query_antecedent, memory_antecedent,
                             total_key_depth, total_value_depth, q_filter_width,
-                            kv_filter_width, q_padding, kv_padding)
+                            kv_filter_width, q_padding, kv_padding,
+                            vars_3d_num_heads=vars_3d_num_heads)
     if cache is not None:
       if attention_type != "dot_product":
         # TODO(petershaw): Support caching when using relative position
@@ -2794,14 +3152,31 @@ def multihead_attention(query_antecedent,
       if memory_antecedent is not None:
         # Encoder-Decoder Attention Cache
         q = compute_attention_component(query_antecedent, total_key_depth,
-                                        q_filter_width, q_padding, "q")
+                                        q_filter_width, q_padding, "q",
+                                        vars_3d_num_heads=vars_3d_num_heads)
         k = cache["k_encdec"]
         v = cache["v_encdec"]
       else:
         k = split_heads(k, num_heads)
         v = split_heads(v, num_heads)
-        k = cache["k"] = tf.concat([cache["k"], k], axis=2)
-        v = cache["v"] = tf.concat([cache["v"], v], axis=2)
+        decode_loop_step = kwargs.get("decode_loop_step")
+        if decode_loop_step is None:
+          k = cache["k"] = tf.concat([cache["k"], k], axis=2)
+          v = cache["v"] = tf.concat([cache["v"], v], axis=2)
+        else:
+          # Inplace update is required for inference on TPU.
+          # Inplace_ops only supports inplace_update on the first dimension.
+          # The performance of current implementation is better than updating
+          # the tensor by adding the result of matmul(one_hot,
+          # update_in_current_step)
+          tmp_k = tf.transpose(cache["k"], perm=[2, 0, 1, 3])
+          tmp_k = common_layers.tf_inplace_ops().alias_inplace_update(
+              tmp_k, decode_loop_step, tf.squeeze(k, axis=2))
+          k = cache["k"] = tf.transpose(tmp_k, perm=[1, 2, 0, 3])
+          tmp_v = tf.transpose(cache["v"], perm=[2, 0, 1, 3])
+          tmp_v = common_layers.tf_inplace_ops().alias_inplace_update(
+              tmp_v, decode_loop_step, tf.squeeze(v, axis=2))
+          v = cache["v"] = tf.transpose(tmp_v, perm=[1, 2, 0, 3])
 
     q = split_heads(q, num_heads)
     if cache is None:
@@ -2809,7 +3184,8 @@ def multihead_attention(query_antecedent,
       v = split_heads(v, num_heads)
 
     key_depth_per_head = total_key_depth // num_heads
-    q *= key_depth_per_head**-0.5
+    if not vars_3d:
+      q *= key_depth_per_head**-0.5
 
     additional_returned_value = None
     if callable(attention_type):  # Generic way to extend multihead_attention
@@ -2817,16 +3193,10 @@ def multihead_attention(query_antecedent,
       if isinstance(x, tuple):
         x, additional_returned_value = x  # Unpack
     elif attention_type == "dot_product":
-      x = dot_product_attention(
-          q,
-          k,
-          v,
-          bias,
-          dropout_rate,
-          image_shapes,
-          save_weights_to=save_weights_to,
-          make_image_summary=make_image_summary,
-          dropout_broadcast_dims=dropout_broadcast_dims)
+      x = dot_product_attention(q, k, v, bias, dropout_rate, image_shapes,
+                                save_weights_to=save_weights_to,
+                                make_image_summary=make_image_summary,
+                                dropout_broadcast_dims=dropout_broadcast_dims)
     elif attention_type == "dot_product_relative":
       x = dot_product_attention_relative(
           q,
@@ -2851,6 +3221,11 @@ def multihead_attention(query_antecedent,
     elif attention_type == "local_within_block_mask_right":
       x = masked_within_block_local_attention_1d(
           q, k, v, block_length=block_length)
+    elif attention_type == "rel_local_mask_right":
+      x = masked_rel_local_attention_1d(q, k, v, block_length=block_length,
+                                        make_image_summary=make_image_summary,
+                                        dropout_rate=dropout_rate,
+                                        share_rel_embed=shared_rel)
     elif attention_type == "local_mask_right":
       x = masked_local_attention_1d(
           q,
@@ -2873,8 +3248,15 @@ def multihead_attention(query_antecedent,
     # Set last dim specifically.
     x.set_shape(x.shape.as_list()[:-1] + [total_value_depth])
 
-    x = common_layers.dense(
-        x, output_depth, use_bias=False, name="output_transform")
+    if vars_3d:
+      o_var = tf.get_variable(
+          "o", [num_heads, total_value_depth // num_heads, output_depth])
+      o_var = tf.cast(o_var, x.dtype)
+      o_var = tf.reshape(o_var, [total_value_depth, output_depth])
+      x = tf.tensordot(x, o_var, axes=1)
+    else:
+      x = common_layers.dense(
+          x, output_depth, use_bias=False, name="output_transform")
     if additional_returned_value is not None:
       return x, additional_returned_value
     return x
@@ -2905,7 +3287,7 @@ def multihead_attention_2d(query_antecedent,
     name: an optional string
 
   Returns:
-    A Tensor of shape [batch, h, w, depth_k]
+    A Tensor of shape [batch, h, w, output_depth]
 
   Raises:
     ValueError: if the key depth or value depth are not divisible by the
@@ -2954,10 +3336,9 @@ def ffn_self_attention_layer(x,
   We use self-attention to do feedforward computations. We apply this function
   positionwise where for each position, we linearly transform the output to have
   depth filter_depth, and break up the result depth-wise into num_parts
-  contiguous parts.  The parts self-attend, we concatenate the results
-  depth-wise, and we linearly transform to a depth of output_depth. The
-  goal is to get multiplicative interactions between components of a
-  representation.
+  contiguous parts. The parts self-attend, we concatenate the results
+  depth-wise, and we linearly transform to a depth of output_depth. The goal is
+  to get multiplicative interactions between components of a representation.
 
   Args:
     x: a Tensor with shape [batch, length, channels]
@@ -2969,9 +3350,8 @@ def ffn_self_attention_layer(x,
     name: an optional string
 
   Returns:
-    A Tensor.
+    A Tensor with shape [batch, length, output_depth].
   """
-
   with tf.variable_scope(
       name, default_name="feedforward_self_attention", values=[x]):
     x_shape = common_layers.shape_list(x)
@@ -3020,8 +3400,8 @@ def parameter_attention(x,
   """Attention over parameters.
 
   We use the same multi-headed attention as in the other layers, but the memory
-  keys and values are model parameters.  There are no linear transformation
-  on the keys or values.
+  keys and values are model parameters. There are no linear transformation on
+  the keys or values.
 
   We are also a bit more careful about memory usage, since the number of
   memory positions may be very large.
@@ -3037,7 +3417,7 @@ def parameter_attention(x,
     name: an optional string
 
   Returns:
-    A Tensor.
+    A Tensor with shape [batch, length_q, output_depth].
   """
   with tf.variable_scope(name, default_name="parameter_attention", values=[x]):
     head_size_k = total_key_depth // num_heads
@@ -3102,15 +3482,13 @@ def coordinate_tensor(shape, axis):
   return tf.zeros(shape, dtype=tf.int32) + tf.reshape(r, r_shape)
 
 
-def self_attention_expert(
-    x,
-    batch_coordinate,
-    mask_right=True,
-    split_batch=False,
-    attention_num_head=1,
-    attention_kq_size=None,
-    attention_v_size=None,
-):
+def self_attention_expert(x,
+                          batch_coordinate,
+                          mask_right=True,
+                          split_batch=False,
+                          attention_num_head=1,
+                          attention_kq_size=None,
+                          attention_v_size=None):
   """Implementing attention that runs inside each expert.
 
   Args:
@@ -3934,7 +4312,7 @@ def multihead_self_attention_reduced(
 
 
 def scaled_dot_product_attention_simple(q, k, v, bias, name=None):
-  """scaled dot-product attention.  One head.  One spatial dimension.
+  """Scaled dot-product attention. One head. One spatial dimension.
 
   Args:
     q: a Tensor with shape [batch, length_q, depth_k]

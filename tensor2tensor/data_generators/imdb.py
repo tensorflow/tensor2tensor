@@ -95,3 +95,16 @@ class SentimentIMDB(text_problems.Text2ClassProblem):
           "inputs": doc,
           "label": int(label),
       }
+
+
+@registry.register_problem
+class SentimentIMDBCharacters(SentimentIMDB):
+  """IMDB sentiment classification, character level."""
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
+
+  @property
+  def task_id(self):
+    return problem.SpaceID.EN_CHR_SENT

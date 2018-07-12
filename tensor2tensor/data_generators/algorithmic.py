@@ -23,6 +23,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils as utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 
@@ -453,7 +454,7 @@ class AlgorithmicSortProblem(AlgorithmicProblem):
 
   @property
   def num_symbols(self):
-    return 10
+    return max(self.train_length, self.dev_length)
 
   @property
   def train_length(self):
@@ -461,14 +462,19 @@ class AlgorithmicSortProblem(AlgorithmicProblem):
 
   @property
   def dev_length(self):
-    return 10
+    return self.train_length * 2
+
+  @property
+  def unique(self):
+    """Unique numbers wo/ replacement or w/ replacement in sorting task."""
+    return False
 
   def generator(self, nbr_symbols, max_length, nbr_cases):
     """Generating for sorting task on sequence of symbols.
 
     The length of the sequence is drawn uniformly at random from [1, max_length]
-    and then symbols are drawn uniformly at random from [0, nbr_symbols) until
-    nbr_cases sequences have been produced.
+    and then symbols are drawn (uniquely w/ or w/o replacement) uniformly at
+    random from [0, nbr_symbols) until nbr_cases sequences have been produced.
 
     Args:
       nbr_symbols: number of symbols to use in each sequence.
@@ -480,6 +486,25 @@ class AlgorithmicSortProblem(AlgorithmicProblem):
       target-list is input-list sorted.
     """
     for _ in range(nbr_cases):
-      l = np.random.randint(max_length) + 1
-      inputs = list(np.random.randint(nbr_symbols, size=l))
-      yield {"inputs": inputs, "targets": list(sorted(inputs))}
+      # Sample the sequence length.
+      length = np.random.randint(max_length) + 1
+
+      if self.unique:
+        # Sample our inputs w/o replacement.
+        inputs = np.arange(nbr_symbols)
+        np.random.shuffle(inputs)
+
+        # Truncate to the desired length.
+        inputs = inputs[:length]
+        inputs = list(inputs)
+      else:
+        inputs = list(np.random.randint(nbr_symbols, size=length))
+
+      # Targets are simply the sorted inputs.
+      targets = list(sorted(inputs))
+
+      yield {"inputs": inputs, "targets": targets}
+
+  def eval_metrics(self):
+    defaults = super(AlgorithmicSortProblem, self).eval_metrics()
+    return defaults + [metrics.Metrics.EDIT_DISTANCE]

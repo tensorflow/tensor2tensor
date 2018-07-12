@@ -234,5 +234,7 @@ def get_variable_initializer(hparams):
   elif hparams.initializer == "uniform_unit_scaling":
     return tf.variance_scaling_initializer(
         hparams.initializer_gain, mode="fan_avg", distribution="uniform")
+  elif hparams.initializer == "xavier":
+    return tf.contrib.layers.xavier_initializer()
   else:
     raise ValueError("Unrecognized initializer: %s" % hparams.initializer)

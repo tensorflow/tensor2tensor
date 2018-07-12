@@ -59,45 +59,35 @@ class NextFrameTest(tf.test.TestCase):
     expected_shape = y.shape + (expected_last_dim,)
     self.assertEqual(res.shape, expected_shape)
 
-  def TestBasicModel(self, in_frames, out_frames):
-    self.TestVideoModel(
-        in_frames,
-        out_frames,
+  def TestOnVariousInputOutputSizes(self, hparams, model, expected_last_dim):
+    self.TestVideoModel(1, 1, hparams, model, expected_last_dim)
+    self.TestVideoModel(1, 6, hparams, model, expected_last_dim)
+    self.TestVideoModel(4, 1, hparams, model, expected_last_dim)
+    self.TestVideoModel(7, 5, hparams, model, expected_last_dim)
+
+  def testBasic(self):
+    self.TestOnVariousInputOutputSizes(
         next_frame.next_frame(),
         next_frame.NextFrameBasic,
         256)
 
-  def testBasicModelSingleInputFrameSingleOutputFrames(self):
-    self.TestBasicModel(1, 1)
-
-  def testBasicModelSingleInputFrameMultiOutputFrames(self):
-    self.TestBasicModel(1, 6)
-
-  def testBasicModelMultiInputFrameSingleOutputFrames(self):
-    self.TestBasicModel(4, 1)
-
-  def testBasicModelMultiInputFrameMultiOutputFrames(self):
-    self.TestBasicModel(7, 5)
-
-  def TestStochasticModel(self, in_frames, out_frames):
-    self.TestVideoModel(
-        in_frames,
-        out_frames,
+  def testStochastic(self):
+    self.TestOnVariousInputOutputSizes(
         next_frame.next_frame_stochastic(),
         next_frame.NextFrameStochastic,
         1)
 
-  def testStochasticModelSingleInputFrameSingleOutputFrames(self):
-    self.TestStochasticModel(1, 1)
+  def testStochasticTwoFrames(self):
+    self.TestOnVariousInputOutputSizes(
+        next_frame.next_frame_stochastic(),
+        next_frame.NextFrameStochasticTwoFrames,
+        1)
 
-  def testStochasticModelSingleInputFrameMultiOutputFrames(self):
-    self.TestStochasticModel(1, 6)
-
-  def testStochasticModelMultiInputFrameSingleOutputFrames(self):
-    self.TestStochasticModel(4, 1)
-
-  def testStochasticModelMultiInputFrameMultiOutputFrames(self):
-    self.TestStochasticModel(7, 5)
+  def testStochasticEmily(self):
+    self.TestOnVariousInputOutputSizes(
+        next_frame.next_frame_stochastic_emily(),
+        next_frame.NextFrameStochasticEmily,
+        1)
 
 
 if __name__ == "__main__":

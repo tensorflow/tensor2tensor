@@ -12,23 +12,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for Tensor2Tensor's all_problems.py."""
-
+"""tensor2tensor.problems test."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.data_generators import all_problems
+from tensor2tensor import problems
 
 import tensorflow as tf
 
 
-class AllProblemsTest(tf.test.TestCase):
+class ProblemsTest(tf.test.TestCase):
 
   def testImport(self):
-    """Make sure that importing all_problems doesn't break."""
-    self.assertIsNotNone(all_problems)
+    self.assertIsNotNone(problems)
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
   tf.test.main()

@@ -28,6 +28,9 @@ def learning_rate_factor(name, step_num, hparams):
     return hparams.learning_rate_constant
   elif name == "linear_warmup":
     return tf.minimum(1.0, step_num / hparams.learning_rate_warmup_steps)
+  elif name == "linear_decay":
+    ret = (hparams.train_steps - step_num) / hparams.learning_rate_decay_steps
+    return tf.minimum(1.0, tf.maximum(0.0, ret))
   elif name == "rsqrt_decay":
     return tf.rsqrt(tf.maximum(step_num, hparams.learning_rate_warmup_steps))
   elif name == "rsqrt_hidden_size":

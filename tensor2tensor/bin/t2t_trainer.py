@@ -62,7 +62,7 @@ flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "See TensorFlow config.proto for details.")
 
 # To maintain compatibility with some internal libs, we guard against these flag
-# definitions possibly erring. Apologies for the ugliness.
+# definitions possibly erroring. Apologies for the ugliness.
 try:
   flags.DEFINE_string("master", "", "Address of TensorFlow master.")
   flags.DEFINE_string("output_dir", "", "Base output directory for run.")
@@ -154,7 +154,7 @@ def create_hparams():
   return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
 
-def create_experiment_fn():
+def create_experiment_fn(**kwargs):
   return trainer_lib.create_experiment_fn(
       model_name=FLAGS.model,
       problem_name=FLAGS.problem,
@@ -163,6 +163,7 @@ def create_experiment_fn():
       eval_steps=FLAGS.eval_steps,
       min_eval_frequency=FLAGS.local_eval_frequency,
       schedule=FLAGS.schedule,
+      eval_throttle_seconds=FLAGS.eval_throttle_seconds,
       export=FLAGS.export_saved_model,
       decode_hparams=decoding.decode_hparams(FLAGS.decode_hparams),
       use_tfdbg=FLAGS.tfdbg,
@@ -172,7 +173,8 @@ def create_experiment_fn():
       eval_early_stopping_metric_delta=FLAGS.eval_early_stopping_metric_delta,
       eval_early_stopping_metric_minimize=FLAGS.
       eval_early_stopping_metric_minimize,
-      use_tpu=FLAGS.use_tpu)
+      use_tpu=FLAGS.use_tpu,
+      **kwargs)
 
 
 def create_run_config(hp):
@@ -188,6 +190,8 @@ def create_run_config(hp):
   if save_ckpt_secs:
     save_ckpt_steps = None
   assert FLAGS.output_dir or FLAGS.checkpoint_path
+  tpu_config_extra_kwargs = {}
+
   # the various custom getters we have written do not play well together yet.
   # TODO(noam): ask rsepassi for help here.
   daisy_chain_variables = (
@@ -224,7 +228,8 @@ def create_run_config(hp):
       tpu_infeed_sleep_secs=FLAGS.tpu_infeed_sleep_secs,
       inter_op_parallelism_threads=FLAGS.inter_op_parallelism_threads,
       log_step_count_steps=FLAGS.log_step_count_steps,
-      intra_op_parallelism_threads=FLAGS.intra_op_parallelism_threads)
+      intra_op_parallelism_threads=FLAGS.intra_op_parallelism_threads,
+      tpu_config_extra_kwargs=tpu_config_extra_kwargs)
 
 
 def generate_data():

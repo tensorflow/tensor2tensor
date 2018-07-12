@@ -489,7 +489,7 @@ class SubwordTextEncoder(TextEncoder):
     self.filename = filename
     if filename is not None:
       self._load_from_file(filename)
-    super(SubwordTextEncoder, self).__init__(num_reserved_ids=None)
+    super(SubwordTextEncoder, self).__init__()
 
   def encode(self, s):
     """Converts a native string to a list of subtoken ids.
@@ -1057,6 +1057,6 @@ class RealEncoder(object):
 def strip_ids(ids, ids_to_strip):
   """Strip ids_to_strip from the end ids."""
   ids = list(ids)
-  while ids[-1] in ids_to_strip:
+  while ids and ids[-1] in ids_to_strip:
     ids.pop()
   return ids

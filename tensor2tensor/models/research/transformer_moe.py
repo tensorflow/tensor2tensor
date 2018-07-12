@@ -295,6 +295,7 @@ def transformer_moe_base():
   # Hparams used by transformer_prepare_decoder() function
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("proximity_bias", False)
+  hparams.add_hparam("causal_decoder_self_attention", True)
 
   hparams = common_attention.add_standard_attention_hparams(hparams)
 

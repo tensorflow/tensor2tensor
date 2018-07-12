@@ -226,7 +226,8 @@ class Text2TextProblem(problem.Problem):
       encoder = text_encoder.TokenTextEncoder(vocab_filename,
                                               replace_oov=self.oov_token)
     else:
-      raise ValueError("Unrecognized VocabType")
+      raise ValueError(
+          "Unrecognized VocabType: %s" % str(self.vocab_type))
     return encoder
 
   def _maybe_pack_examples(self, generator):
@@ -498,6 +499,47 @@ class Text2ClassProblem(Text2TextProblem):
     return (data_fields, data_items_to_decoders)
 
 
+class TextConcat2ClassProblem(Text2ClassProblem):
+  """Base class for text classification problems with multiple inputs.
+
+  For problems where there are multiple input sentences and we wish to concat
+  these inputs with a special delimiter. See, for example, NLI tasks.
+  """
+
+  @property
+  def concat_token(self):
+    raise NotImplementedError()
+
+  @property
+  def concat_id(self):
+    raise NotImplementedError()
+
+  @property
+  def additional_reserved_tokens(self):
+    return [self.concat_token]
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    for i, sample in enumerate(
+        self.generate_samples(data_dir, tmp_dir, problem.DatasetSplit.TRAIN)):
+      for inp in sample["inputs"]:
+        yield inp
+        if self.max_samples_for_vocab and (i + 1) >= self.max_samples_for_vocab:
+          break
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
+    encoder = self.get_or_create_vocab(data_dir, tmp_dir)
+    for sample in generator:
+      inputs = []
+      for idx, inp in enumerate(sample["inputs"]):
+        inputs += encoder.encode(inp)
+        inputs.append(text_encoder.EOS_ID)
+        if idx < len(sample["inputs"])-1:
+          inputs.append(self.concat_id)
+      label = sample["label"]
+      yield {"inputs": inputs, "targets": [label]}
+
+
 def txt_line_iterator(txt_path):
   """Iterate through lines of file."""
   with tf.gfile.Open(txt_path) as f:
@@ -608,6 +650,48 @@ class Text2textTmpdir(Text2TextProblem):
     files = [os.path.join(tmp_dir, f) for f in files]
     inputs_file, targets_file = files
     return text2text_txt_iterator(inputs_file, targets_file)
+
+
+@registry.register_problem
+class Text2textTmpdirTokens(Text2textTmpdir):
+  """Allows training a token-based variant of Text2textTmpdir.
+
+  Put your training and evaluation data into the following files in tmp_dir,
+  with 1 record per line along with a vocabulary file with 1 token per line
+  (you can leave out PAD, EOS, and UNK as those will be automatically added)
+
+  * inputs.train.txt
+  * targets.train.txt
+  * inputs.eval.txt
+  * targets.eval.txt
+  * vocab.txt
+  """
+
+  @property
+  def vocab_type(self):
+    return VocabType.TOKEN
+
+  @property
+  def oov_token(self):
+    return "<UNK>"
+
+  def _generate_vocab(self, tmp_dir):
+    vocab_list = [self.oov_token]
+    user_vocab_file = os.path.join(tmp_dir, "vocab.txt")
+    with tf.gfile.GFile(user_vocab_file, "r") as vocab_file:
+      for line in vocab_file:
+        token = line.strip()
+        vocab_list.append(token)
+    token_encoder = text_encoder.TokenTextEncoder(None, vocab_list=vocab_list)
+    return token_encoder
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    vocab_filepath = os.path.join(data_dir, self.vocab_filename)
+    if not tf.gfile.Exists(vocab_filepath):
+      token_encoder = self._generate_vocab(tmp_dir)
+      token_encoder.store_to_file(vocab_filepath)
+    super(Text2textTmpdirTokens, self).generate_samples(data_dir, tmp_dir,
+                                                        dataset_split)
 
 
 class ChoppedTextProblem(Text2SelfProblem):

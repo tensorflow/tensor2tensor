@@ -52,6 +52,8 @@ class Modality(object):
 
   def __init__(self, model_hparams, vocab_size=None):
     self._model_hparams = model_hparams
+    if vocab_size is not None and hasattr(model_hparams, "vocab_divisor"):
+      vocab_size += (0 - vocab_size) % model_hparams.vocab_divisor
     self._vocab_size = vocab_size
 
   @property

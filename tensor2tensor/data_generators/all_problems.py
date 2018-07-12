@@ -20,7 +20,7 @@ from __future__ import print_function
 import importlib
 import six
 
-modules = [
+MODULES = [
     "tensor2tensor.data_generators.algorithmic",
     "tensor2tensor.data_generators.algorithmic_math",
     "tensor2tensor.data_generators.allen_brain",
@@ -31,17 +31,21 @@ modules = [
     "tensor2tensor.data_generators.cifar",
     "tensor2tensor.data_generators.cipher",
     "tensor2tensor.data_generators.cnn_dailymail",
+    "tensor2tensor.data_generators.cola",
+    "tensor2tensor.data_generators.common_voice",
     "tensor2tensor.data_generators.desc2code",
     "tensor2tensor.data_generators.fsns",
     "tensor2tensor.data_generators.gene_expression",
     "tensor2tensor.data_generators.google_robot_pushing",
-    "tensor2tensor.data_generators.gym_problems",
+    "tensor2tensor.data_generators.gym_problems_specs",
     "tensor2tensor.data_generators.ice_parsing",
     "tensor2tensor.data_generators.imagenet",
+    "tensor2tensor.data_generators.image_lsun",
     "tensor2tensor.data_generators.imdb",
     "tensor2tensor.data_generators.lambada",
     "tensor2tensor.data_generators.librispeech",
     "tensor2tensor.data_generators.lm1b",
+    "tensor2tensor.data_generators.lm1b_imdb",
     "tensor2tensor.data_generators.mnist",
     "tensor2tensor.data_generators.mscoco",
     "tensor2tensor.data_generators.multinli",
@@ -49,8 +53,13 @@ modules = [
     "tensor2tensor.data_generators.ocr",
     "tensor2tensor.data_generators.problem_hparams",
     "tensor2tensor.data_generators.ptb",
+    "tensor2tensor.data_generators.qnli",
+    "tensor2tensor.data_generators.quora_qpairs",
+    "tensor2tensor.data_generators.rte",
     "tensor2tensor.data_generators.snli",
+    "tensor2tensor.data_generators.style_transfer",
     "tensor2tensor.data_generators.squad",
+    "tensor2tensor.data_generators.sst_binary",
     "tensor2tensor.data_generators.subject_verb_agreement",
     "tensor2tensor.data_generators.timeseries",
     "tensor2tensor.data_generators.translate_encs",
@@ -67,7 +76,9 @@ modules = [
     "tensor2tensor.data_generators.wikisum.wikisum",
     "tensor2tensor.data_generators.wikitext103",
     "tensor2tensor.data_generators.wsj_parsing",
+    "tensor2tensor.data_generators.wnli",
 ]
+ALL_MODULES = list(MODULES)
 
 
 
@@ -95,10 +106,11 @@ def _handle_errors(errors):
       print("Did not import module: %s; Cause: %s" % (module, err_str))
 
 
-_errors = []
-for _module in modules:
-  try:
-    importlib.import_module(_module)
-  except ImportError as error:
-    _errors.append((_module, error))
-_handle_errors(_errors)
+def import_modules(modules):
+  errors = []
+  for module in modules:
+    try:
+      importlib.import_module(module)
+    except ImportError as error:
+      errors.append((module, error))
+  _handle_errors(errors)

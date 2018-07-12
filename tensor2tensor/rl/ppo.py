@@ -19,6 +19,7 @@ Based on: https://arxiv.org/abs/1707.06347
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+from tensor2tensor.rl.envs.utils import get_policy
 
 import tensorflow as tf
 
@@ -29,25 +30,25 @@ def get_optimiser(config):
   return config.optimizer(learning_rate=config.learning_rate)
 
 
-def define_ppo_step(data_points, policy_factory, optimizer, config):
+def define_ppo_step(data_points, optimizer, hparams):
   """Define ppo step."""
   observation, action, discounted_reward, norm_advantage, old_pdf = data_points
-  new_policy_dist, new_value, _ = policy_factory(observation)
+  new_policy_dist, new_value, _ = get_policy(observation, hparams)
   new_pdf = new_policy_dist.prob(action)
 
   ratio = new_pdf / old_pdf
-  clipped_ratio = tf.clip_by_value(ratio, 1 - config.clipping_coef,
-                                   1 + config.clipping_coef)
+  clipped_ratio = tf.clip_by_value(ratio, 1 - hparams.clipping_coef,
+                                   1 + hparams.clipping_coef)
 
   surrogate_objective = tf.minimum(clipped_ratio * norm_advantage,
                                    ratio * norm_advantage)
   policy_loss = -tf.reduce_mean(surrogate_objective)
 
   value_error = new_value - discounted_reward
-  value_loss = config.value_loss_coef * tf.reduce_mean(value_error ** 2)
+  value_loss = hparams.value_loss_coef * tf.reduce_mean(value_error ** 2)
 
   entropy = new_policy_dist.entropy()
-  entropy_loss = -config.entropy_loss_coef * tf.reduce_mean(entropy)
+  entropy_loss = -hparams.entropy_loss_coef * tf.reduce_mean(entropy)
 
   losses = [policy_loss, value_loss, entropy_loss]
 
@@ -59,9 +60,9 @@ def define_ppo_step(data_points, policy_factory, optimizer, config):
   gradients_flat = sum([gradient[0] for gradient in gradients], ())
   gradients_variables_flat = sum([gradient[1] for gradient in gradients], ())
 
-  if config.max_gradients_norm:
+  if hparams.max_gradients_norm:
     gradients_flat, _ = tf.clip_by_global_norm(gradients_flat,
-                                               config.max_gradients_norm)
+                                               hparams.max_gradients_norm)
 
   optimize_op = optimizer.apply_gradients(zip(gradients_flat,
                                               gradients_variables_flat))
@@ -70,7 +71,7 @@ def define_ppo_step(data_points, policy_factory, optimizer, config):
     return [tf.identity(x) for x in losses + gradients_norms]
 
 
-def define_ppo_epoch(memory, policy_factory, config):
+def define_ppo_epoch(memory, hparams):
   """PPO epoch."""
   observation, reward, done, action, old_pdf, value = memory
 
@@ -78,14 +79,14 @@ def define_ppo_epoch(memory, policy_factory, config):
   observation = tf.stop_gradient(observation)
   action = tf.stop_gradient(action)
   reward = tf.stop_gradient(reward)
-  if hasattr(config, "rewards_preprocessing_fun"):
-    reward = config.rewards_preprocessing_fun(reward)
+  if hasattr(hparams, "rewards_preprocessing_fun"):
+    reward = hparams.rewards_preprocessing_fun(reward)
   done = tf.stop_gradient(done)
   value = tf.stop_gradient(value)
   old_pdf = tf.stop_gradient(old_pdf)
 
   advantage = calculate_generalized_advantage_estimator(
-      reward, value, done, config.gae_gamma, config.gae_lambda)
+      reward, value, done, hparams.gae_gamma, hparams.gae_lambda)
 
   discounted_reward = tf.stop_gradient(advantage + value)
 
@@ -96,23 +97,22 @@ def define_ppo_epoch(memory, policy_factory, config):
 
   add_lists_elementwise = lambda l1, l2: [x + y for x, y in zip(l1, l2)]
 
-  number_of_batches = (config.epoch_length * config.optimization_epochs
-                       / config.optimization_batch_size)
+  number_of_batches = (hparams.epoch_length * hparams.optimization_epochs
+                       / hparams.optimization_batch_size)
 
   dataset = tf.data.Dataset.from_tensor_slices(
       (observation, action, discounted_reward, advantage_normalized, old_pdf))
-  dataset = dataset.shuffle(buffer_size=config.epoch_length,
+  dataset = dataset.shuffle(buffer_size=hparams.epoch_length,
                             reshuffle_each_iteration=True)
-  dataset = dataset.repeat(config.optimization_epochs)
-  dataset = dataset.batch(config.optimization_batch_size)
+  dataset = dataset.repeat(hparams.optimization_epochs)
+  dataset = dataset.batch(hparams.optimization_batch_size)
   iterator = dataset.make_initializable_iterator()
-  optimizer = get_optimiser(config)
+  optimizer = get_optimiser(hparams)
 
   with tf.control_dependencies([iterator.initializer]):
     ppo_step_rets = tf.scan(
         lambda a, i: add_lists_elementwise(  # pylint: disable=g-long-lambda
-            a, define_ppo_step(iterator.get_next(), policy_factory, optimizer,
-                               config)),
+            a, define_ppo_step(iterator.get_next(), optimizer, hparams)),
         tf.range(number_of_batches),
         [0., 0., 0., 0., 0., 0.],
         parallel_iterations=1)

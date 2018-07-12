@@ -43,9 +43,9 @@ class ProgramSearchAlgolisp(text_problems.Text2TextProblem):
   DROPBOX = "https://www.dropbox.com"
   DATA_URLS = {
       problem.DatasetSplit.TRAIN: (
-          DROPBOX + "/s/wep81pcrar5fttl/metaset3.train.jsonl.gz?dl=1"),
+          DROPBOX + "/s/qhun6kml9yb2ui9/metaset3.train.jsonl.gz?dl=1"),
       problem.DatasetSplit.EVAL: (
-          DROPBOX + "/s/h3mn0abeiqy6foz/metaset3.dev.jsonl.gz?dl=1"),
+          DROPBOX + "/s/aajkw83j2ps8bzx/metaset3.dev.jsonl.gz?dl=1"),
       problem.DatasetSplit.TEST: (
           DROPBOX + "/s/f1x9ybkjpf371cp/metaset3.test.jsonl.gz?dl=1"),
   }
