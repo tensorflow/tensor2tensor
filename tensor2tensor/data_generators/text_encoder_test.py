@@ -222,10 +222,8 @@ class SubwordTextEncoderTest(tf.test.TestCase):
         10, token_counts, 2, 10, reserved_tokens=reserved_tokens)
 
     # Make sure that reserved tokens appear in the right places.
-    start_id = encoder._subtoken_string_to_id[start_symbol]
-    end_id = encoder._subtoken_string_to_id[end_symbol]
-    self.assertEqual(start_id, 2)
-    self.assertEqual(end_id, 3)
+    self.assertEqual(encoder.decode([2]), start_symbol)
+    self.assertEqual(encoder.decode([3]), end_symbol)
 
     # Make sure that we haven't messed up the ability to reconstruct.
     reconstructed_corpus = encoder.decode(encoder.encode(corpus))
@@ -354,10 +352,8 @@ class SubwordTextEncoderTest(tf.test.TestCase):
         gen(), 10, reserved_tokens=reserved_tokens)
 
     # Make sure that reserved tokens appear in the right places.
-    start_id = encoder._subtoken_string_to_id[start_symbol]
-    end_id = encoder._subtoken_string_to_id[end_symbol]
-    self.assertEqual(start_id, 2)
-    self.assertEqual(end_id, 3)
+    self.assertEqual(encoder.decode([2]), start_symbol)
+    self.assertEqual(encoder.decode([3]), end_symbol)
 
     self.assertEqual("hi%s" % start_symbol,
                      encoder.decode(encoder.encode("hi") + [2]))
