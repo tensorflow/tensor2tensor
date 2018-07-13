@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import math
 import os
 import gym
@@ -91,6 +92,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     self._internal_memory_size = 20
     self._internal_memory_force_beginning_resets = False
     self._session = None
+    self.statistics = BasicStatistics()
 
   def _setup(self):
     # TODO(piotrmilos):this should be consistent with
@@ -110,11 +112,13 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       policy_to_actions_lambda = lambda policy: policy.mode()
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-      self.collect_memory, self.collect_trigger_op, collect_init \
-        = collect.define_collect(collect_hparams, scope="gym_problems",
-                                 eval_phase=False, collect_level=0,
-                                 policy_to_actions_lambda
-                                 =policy_to_actions_lambda)
+      self.collect_memory, self.collect_trigger_op, collect_init = (
+          collect.define_collect(
+              collect_hparams,
+              scope="gym_problems",
+              eval_phase=False,
+              collect_level=0,
+              policy_to_actions_lambda=policy_to_actions_lambda))
 
     self._session = tf.Session()
     collect_init(self._session)
@@ -287,6 +291,16 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
 
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    super(GymDiscreteProblem, self).generate_data(data_dir, tmp_dir, task_id)
+    # Save stats to file, or restore if data was already generated.
+    stats_file = os.path.join(data_dir,
+                              "%s.stats.json" % self.dataset_filename())
+    if tf.gfile.Exists(stats_file):
+      self.statistics.update_from_file(stats_file)
+    else:
+      self.statistics.save_to_file(stats_file)
+
 
 class BasicStatistics(object):
   """Keeps basic statistics to calculate mean reward """
@@ -296,6 +310,35 @@ class BasicStatistics(object):
     self.number_of_dones = 0
     self.sum_of_rewards_current_episode = 0.0
     self.last_done = False
+
+  def update_from_dict(self, stats_dict):
+    keys = set(self.to_dict().keys())
+    for k, v in stats_dict.items():
+      if k not in keys:
+        raise ValueError("Key %s not a property of %s" %
+                         (k, type(self).__name__))
+      setattr(self, k, v)
+    return self
+
+  def to_dict(self):
+    # Cast the values to base types as some are numpy types.
+    keys_and_types = [
+        ("sum_of_rewards", float),
+        ("number_of_dones", int),
+        ("sum_of_rewards_current_episode", float),
+        ("last_done", bool),
+    ]
+    stats_dict = dict([(k, t(getattr(self, k))) for k, t in keys_and_types])
+    return stats_dict
+
+  def save_to_file(self, fname):
+    with tf.gfile.Open(fname, "w") as f:
+      f.write(json.dumps(self.to_dict()))
+
+  def update_from_file(self, fname):
+    with tf.gfile.Open(fname) as f:
+      self.update_from_dict(json.loads(f.read()))
+      return self
 
 
 # TODO(piotrmilos): merge with the superclass
@@ -316,8 +359,8 @@ class GymRealDiscreteProblem(GymDiscreteProblem):
     # we ignore consecutive dones as they are artefacts of skip wrappers
     if done and not self.statistics.last_done:
       self.statistics.number_of_dones += int(done)
-      self.statistics.sum_of_rewards +=\
-        self.statistics.sum_of_rewards_current_episode
+      self.statistics.sum_of_rewards += (
+          self.statistics.sum_of_rewards_current_episode)
       self.statistics.sum_of_rewards_current_episode = 0.0
 
     self.statistics.last_done = done
@@ -389,13 +432,24 @@ class RewardPerSequenceStatistics(BasicStatistics):
     self.real_env = None
     self.real_ob = None
 
+  def to_dict(self):
+    stats_dict = super(RewardPerSequenceStatistics, self).to_dict()
+    keys_and_types = [
+        ("episode_sim_reward", float),
+        ("episode_real_reward", float),
+        ("successful_episode_reward_predictions", int),
+        ("report_reward_statistics_every", int),
+    ]
+    additional = dict([(k, t(getattr(self, k))) for k, t in keys_and_types])
+    stats_dict.update(additional)
+    return stats_dict
+
 
 class GymSimulatedDiscreteProblem(GymDiscreteProblem):
   """Simulated gym environment with discrete actions and rewards."""
 
   def __init__(self, *args, **kwargs):
     super(GymSimulatedDiscreteProblem, self).__init__(*args, **kwargs)
-    self.statistics = RewardPerSequenceStatistics()
     self.debug_dump_frames_path = "debug_frames_sim"
 
     # This is hackish way of introducing resets every
@@ -406,6 +460,8 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     self._internal_memory_force_beginning_resets = True
     env_spec = standard_atari_env_spec(self.env_name)
     real_env = env_spec.env_lambda()
+
+    self.statistics = RewardPerSequenceStatistics()
     self.statistics.real_env = real_env
 
   def _setup(self):

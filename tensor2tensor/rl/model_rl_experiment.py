@@ -436,25 +436,23 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
           eval_phase=False)
       log("Mean reward during generation: {}".format(generation_mean_reward))
 
-    # Report metrics.
-    eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
-                    "mean_reward": mean_reward}
-
-    model_reward_accuracy_summary.value[0].simple_value \
-      = model_reward_accuracy
-
-    mean_reward_summary.value[0].simple_value \
-      = mean_reward
-
+    # Summarize metrics
+    assert model_reward_accuracy is not None
+    assert mean_reward is not None
+    model_reward_accuracy_summary.value[0].simple_value = model_reward_accuracy
+    mean_reward_summary.value[0].simple_value = mean_reward
     eval_metrics_writer.add_summary(model_reward_accuracy_summary, epoch)
     eval_metrics_writer.add_summary(mean_reward_summary, epoch)
 
+    # Report metrics
+    eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
+                    "mean_reward": mean_reward}
     epoch_metrics.append(eval_metrics)
     log("Eval metrics: %s", str(eval_metrics))
     if report_fn:
       report_fn(eval_metrics[report_metric], epoch)
 
-  # Report the evaluation metrics from the final epoch
+  # Return the evaluation metrics from the final epoch
   return epoch_metrics[-1]
 
 
