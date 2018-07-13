@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Data generators for MultiNLI."""
+"""Data generators for the Quora Question Pairs dataset."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -32,14 +32,14 @@ EOS = text_encoder.EOS
 
 
 @registry.register_problem
-class MultiNLI(text_problems.TextConcat2ClassProblem):
-  """MultiNLI classification problems."""
+class QuoraQuestionPairs(text_problems.TextConcat2ClassProblem):
+  """Quora duplicate question pairs binary classification problems."""
 
   # Link to data from GLUE: https://gluebenchmark.com/tasks
-  _MNLI_URL = ("https://firebasestorage.googleapis.com/v0/b/"
-               "mtl-sentence-representations.appspot.com/o/"
-               "data%2FMNLI.zip?alt=media&token=50329ea1-e339-"
-               "40e2-809c-10c40afff3ce")
+  _QQP_URL = ("https://firebasestorage.googleapis.com/v0/b/"
+              "mtl-sentence-representations.appspot.com/o/"
+              "data%2FQQP.zip?alt=media&token=700c6acf-160d-"
+              "4d89-81d1-de4191d02cb5")
 
   @property
   def is_generate_per_split(self):
@@ -61,41 +61,40 @@ class MultiNLI(text_problems.TextConcat2ClassProblem):
 
   @property
   def vocab_filename(self):
-    return "vocab.mnli.%d" % self.approx_vocab_size
+    return "vocab.qqp.%d" % self.approx_vocab_size
 
   @property
   def num_classes(self):
-    return 3
+    return 2
 
   @property
   def concat_token(self):
-    return "<EN-PR-HYP>"
+    return "<SENT_SEP>"
 
   @property
   def concat_id(self):
     if self.vocab_type == text_problems.VocabType.CHARACTER:
-      return problem.SpaceID.EN_PR_HYP
+      return problem.SpaceID.EN_CHR
     return 2
 
   def class_labels(self, data_dir):
     del data_dir
-    # Note this binary classification is different from usual MNLI.
-    return ["contradiction", "entailment", "neutral"]
+    return ["not_duplicate", "duplicate"]
 
   def _maybe_download_corpora(self, tmp_dir):
-    mnli_filename = "MNLI.zip"
-    mnli_finalpath = os.path.join(tmp_dir, "MNLI")
-    if not tf.gfile.Exists(mnli_finalpath):
+    qqp_filename = "QQP.zip"
+    qqp_finalpath = os.path.join(tmp_dir, "QQP")
+    if not tf.gfile.Exists(qqp_finalpath):
       zip_filepath = generator_utils.maybe_download(
-          tmp_dir, mnli_filename, self._MNLI_URL)
+          tmp_dir, qqp_filename, self._QQP_URL)
       zip_ref = zipfile.ZipFile(zip_filepath, "r")
       zip_ref.extractall(tmp_dir)
       zip_ref.close()
 
-    return mnli_finalpath
+    return qqp_finalpath
 
   def example_generator(self, filename):
-    label_list = self.class_labels(data_dir=None)
+    skipped = 0
     for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
       if idx == 0: continue  # skip header
       if six.PY2:
@@ -103,31 +102,35 @@ class MultiNLI(text_problems.TextConcat2ClassProblem):
       else:
         line = line.strip().decode("utf-8")
       split_line = line.split("\t")
-      # Works for both splits even though dev has some extra human labels.
-      s1, s2 = split_line[8:10]
-      l = label_list.index(split_line[-1])
-      inputs = [s1, s2]
-      yield {
-          "inputs": inputs,
-          "label": l
-      }
+      if len(split_line) < 6:
+        skipped += 1
+        tf.logging.info("Skipping %d" % skipped)
+        continue
+      s1, s2, l = split_line[3:]
+      # A neat data augmentation trick from Radford et al. (2018)
+      # https://blog.openai.com/language-unsupervised/
+      inputs = [[s1, s2], [s2, s1]]
+      for inp in inputs:
+        yield {
+            "inputs": inp,
+            "label": int(l)
+        }
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
-    mnli_dir = self._maybe_download_corpora(tmp_dir)
+    qqp_dir = self._maybe_download_corpora(tmp_dir)
     if dataset_split == problem.DatasetSplit.TRAIN:
-      filesplit = ["train.tsv"]
+      filesplit = "train.tsv"
     else:
-      filesplit = ["dev_matched.tsv", "dev_mismatched.tsv"]
+      filesplit = "dev.tsv"
 
-    for fs in filesplit:
-      filename = os.path.join(mnli_dir, fs)
-      for example in self.example_generator(filename):
-        yield example
+    filename = os.path.join(qqp_dir, filesplit)
+    for example in self.example_generator(filename):
+      yield example
 
 
 @registry.register_problem
-class MultiNLICharacters(MultiNLI):
-  """MultiNLI classification problems, character level"""
+class QuoraQuestionPairsCharacters(QuoraQuestionPairs):
+  """Quora duplicate question pairs classification problems, character level"""
 
   @property
   def vocab_type(self):
@@ -135,4 +138,4 @@ class MultiNLICharacters(MultiNLI):
 
   @property
   def task_id(self):
-    return problem.SpaceID.THREE_CL_NLI
+    return problem.SpaceID.EN_SIM

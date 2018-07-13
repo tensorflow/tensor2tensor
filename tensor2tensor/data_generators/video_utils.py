@@ -45,15 +45,21 @@ def summarize_video_metrics(hook_args):
   problem_name = hook_args.problem.name
   current_problem = hook_args.problem
   hparams = hook_args.hparams
-  output_dir = hook_args.output_dir
+  output_dirs = hook_args.output_dirs
+  predictions = hook_args.predictions
   frame_shape = [
       current_problem.frame_height, current_problem.frame_width,
       current_problem.num_channels
   ]
   metrics_graph = tf.Graph()
   with metrics_graph.as_default():
-    metrics_results = video_metrics.compute_video_metrics(
-        output_dir, problem_name, hparams.video_num_target_frames, frame_shape)
+    if predictions:
+      metrics_results = video_metrics.compute_video_metrics_from_predictions(
+          predictions)
+    else:
+      metrics_results, _ = video_metrics.compute_video_metrics(
+          output_dirs, problem_name,
+          hparams.video_num_target_frames, frame_shape)
 
   summary_values = []
   for name, array in six.iteritems(metrics_results):
@@ -261,6 +267,9 @@ class VideoProblem(problem.Problem):
           if self.only_keep_videos_from_0th_frame:
             not_broken = tf.logical_and(not_broken,
                                         tf.equal(frame_numbers[0], 0))
+        else:
+          tf.logging.warning("use_not_breaking_batching is True but "
+                             "no frame_number is in the dataset.")
 
         features = {}
         for key in datasets[0].keys():

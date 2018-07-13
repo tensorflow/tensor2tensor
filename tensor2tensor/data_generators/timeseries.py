@@ -21,6 +21,7 @@ import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.data_generators import timeseries_data_generator
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -203,3 +204,121 @@ class TimeseriesToyProblem(TimeseriesProblem):
     series = [[float(i + n) for n in range(self.num_series)] for i in range(10)]
 
     return np.array(series)
+
+
+@registry.register_problem
+class TimeseriesSyntheticDataSeries10Samples100k(TimeseriesProblem):
+  """10 synthetic timeseries with 100K samples/timestamps."""
+
+  @property
+  def num_train_shards(self):
+    """Number of training shards."""
+    return 9
+
+  @property
+  def num_eval_shards(self):
+    """Number of eval shards."""
+    return 1
+
+  @property
+  def num_series(self):
+    """Number of timeseries."""
+    return 10
+
+  @property
+  def num_input_timestamps(self):
+    """Number of timestamps to include in the input."""
+    return 500
+
+  @property
+  def num_target_timestamps(self):
+    """Number of timestamps to include in the target."""
+    return 100
+
+  @property
+  def normalizing_constant(self):
+    return 0.01
+
+  @property
+  def timeseries_params(self):
+    """Parameters for each timeseries."""
+    timeseries_params = [{
+        "m": 0.006,
+        "b": 300.0,
+        "A": 50.0,
+        "freqcoeff": 1500.0,
+        "rndA": 15.0,
+        "fn": np.sin
+    }, {
+        "m": 0.000,
+        "b": 500.0,
+        "A": 35.0,
+        "freqcoeff": 3500.0,
+        "rndA": 25.0,
+        "fn": np.cos
+    }, {
+        "m": -0.003,
+        "b": 800.0,
+        "A": 65.0,
+        "freqcoeff": 2500.0,
+        "rndA": 5.0,
+        "fn": np.sin
+    }, {
+        "m": 0.009,
+        "b": 600.0,
+        "A": 20.0,
+        "freqcoeff": 1000.0,
+        "rndA": 1.0,
+        "fn": np.cos
+    }, {
+        "m": 0.002,
+        "b": 700.0,
+        "A": 40.0,
+        "freqcoeff": 2000.0,
+        "rndA": 35.0,
+        "fn": np.sin
+    }, {
+        "m": -0.008,
+        "b": 1000.0,
+        "A": 70.0,
+        "freqcoeff": 3000.0,
+        "rndA": 25.0,
+        "fn": np.cos
+    }, {
+        "m": 0.000,
+        "b": 100.0,
+        "A": 25.0,
+        "freqcoeff": 1500.0,
+        "rndA": 10.0,
+        "fn": np.sin
+    }, {
+        "m": 0.004,
+        "b": 1500.0,
+        "A": 54.0,
+        "freqcoeff": 900.0,
+        "rndA": 55.0,
+        "fn": np.cos
+    }, {
+        "m": 0.005,
+        "b": 2000.0,
+        "A": 32.0,
+        "freqcoeff": 1100.0,
+        "rndA": 43.0,
+        "fn": np.sin
+    }, {
+        "m": 0.010,
+        "b": 2500.0,
+        "A": 43.0,
+        "freqcoeff": 1900.0,
+        "rndA": 53.0,
+        "fn": np.cos
+    }]
+
+    return timeseries_params
+
+  def timeseries_dataset(self):
+    series = np.array(
+        timeseries_data_generator.generate_data(100000, self.timeseries_params))
+
+    series = series.transpose()
+    return series

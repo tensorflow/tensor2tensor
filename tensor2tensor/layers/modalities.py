@@ -723,7 +723,7 @@ class ClassLabelModality(modality.Modality):
     """
     with tf.variable_scope(self.name):
       x = body_output
-      x = tf.reduce_mean(x, axis=[1, 2], keep_dims=True)
+      x = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
       res = tf.layers.dense(x, self._vocab_size)
       return tf.expand_dims(res, 3)
 
@@ -732,29 +732,33 @@ class ClassLabelModality(modality.Modality):
 class MultiLabelModality(ClassLabelModality):
   """Used for multi label task."""
 
+  @property
   def targets_weights_fn(self):
     """Target weight function for multi label, defaults to nonzero labels."""
-    weights_fn = common_layers.weights_nonzero
-    return weights_fn
+    return common_layers.weights_nonzero
 
   def loss(self, top_out, targets):
     """Average loss over the labels."""
     logits = top_out
     num_labels = tf.shape(targets)[1]
-    logits = tf.tile(logits, [1, num_labels, 1, 1])
+    logits = tf.tile(logits, [1, num_labels, 1, 1, 1])
 
     xent, weights = common_layers.padded_cross_entropy(
         logits,
         targets,
         self._model_hparams.label_smoothing,
         weights_fn=self.targets_weights_fn,
+        reduce_sum=False,
     )
     xent = tf.squeeze(xent, [2, 3])
-    weights = tf.squeeze(xent, [2, 3])
+    weights = tf.squeeze(weights, [2, 3])
     # average loss over all labels
-    loss = (
-        tf.reduce_sum(xent, axis=1) / (tf.reduce_sum(weights, axis=1) + 1e-8))
-    return tf.reduce_mean(loss)
+    loss = tf.reduce_sum(xent, axis=1)
+    weights = tf.reduce_sum(weights, axis=1)
+    loss /= (weights + 1e-8)
+    weights = tf.to_float(tf.greater(weights, 0.))
+
+    return tf.reduce_sum(loss*weights), tf.reduce_sum(weights)
 
 
 @registry.register_class_label_modality("onehot")
@@ -791,6 +795,18 @@ class IdentityModality(modality.Modality):
 
   def top(self, body_output, _):
     return body_output
+
+
+@registry.register_generic_modality("l2_loss")
+class GenericL2LossModality(IdentityModality):
+  """Generic modality with L2 as Loss."""
+
+  def targets_bottom(self, x):
+    return tf.to_float(x)
+
+  def loss(self, body_output, targets):
+    loss = tf.square(body_output - tf.to_float(targets))
+    return tf.reduce_mean(loss), tf.constant(1.0)
 
 
 class RealModality(modality.Modality):

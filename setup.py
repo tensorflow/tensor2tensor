@@ -49,8 +49,8 @@ setup(
         'tqdm',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.5.0'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.5.0'],
+        'tensorflow': ['tensorflow>=1.6.0'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.6.0'],
         'tests': [
             'absl-py', 'pytest', 'mock', 'pylint', 'jupyter', 'gsutil'
             # Need atari extras for Travis tests, but because gym is already in

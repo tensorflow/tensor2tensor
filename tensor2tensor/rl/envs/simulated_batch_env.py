@@ -97,9 +97,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
   flags are held in according variables.
   """
 
-  def __init__(self, environment_spec, length, other_hparams):
+  def __init__(self, environment_spec, length):
     """Batch of environments inside the TensorFlow graph."""
-    del other_hparams
+
     self.length = length
     initial_frames_problem = environment_spec.initial_frames_problem
     self._min_reward = initial_frames_problem.min_reward
@@ -198,9 +198,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     with tf.control_dependencies([self.history_buffer.reset(indices)]):
       with tf.control_dependencies([self._observ.assign(
           self.history_buffer.get_all_elements()[:, -1, ...])]):
-        return tf.identity(self._observ.read_value())
+        return tf.gather(self._observ.read_value(), indices)
 
   @property
   def observ(self):
     """Access the variable holding the current observation."""
-    return tf.identity(self._observ)
+    return self._observ.read_value()

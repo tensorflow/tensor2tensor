@@ -413,20 +413,6 @@ class Transformer(t2t_model.T2TModel):
       bias = tf.slice(decoder_self_attention_bias, [0, 0, i, 0],
                       [bias_shape[0], bias_shape[1], 1, bias_shape[3]])
 
-      bias_padding = tf.fill([bias_shape[0], bias_shape[1], 1], -1e9)
-      tmp_bias = tf.transpose(bias, perm=[3, 0, 1, 2])
-      bias_index = i + 1
-      while_condition = lambda bias_index, _: tf.less(bias_index, decode_length)
-
-      def while_body(bias_index, tmp_bias):
-        tmp_bias = common_layers.tf_inplace_ops().alias_inplace_update(
-            tmp_bias, bias_index, bias_padding)
-        return bias_index + 1, tmp_bias
-
-      _, tmp_bias = tf.while_loop(
-          while_condition, while_body, (bias_index, tmp_bias))
-      bias = tf.transpose(tmp_bias, perm=[1, 2, 3, 0])
-
       with tf.variable_scope("body"):
         body_outputs = dp(
             self.decode,

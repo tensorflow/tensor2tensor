@@ -187,6 +187,40 @@ class ImageImagenet32(ImageImagenetRescaled):
 
 
 @registry.register_problem
+class ImageImagenet32Gen(ImageImagenet):
+  """Imagenet 32 from the pixen cnn paper"""
+
+  @property
+  def train_shards(self):
+    return 1024
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    generator_utils.generate_dataset_and_shuffle(
+        self.generator(data_dir, tmp_dir, True),
+        self.training_filepaths(data_dir, self.train_shards, shuffled=True),
+        self.generator(data_dir, tmp_dir, False),
+        self.dev_filepaths(data_dir, self.dev_shards, shuffled=True))
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return imagenet_pixelrnn_generator(
+          tmp_dir, int(True), size=_IMAGENET_SMALL_IMAGE_SIZE)
+    else:
+      return imagenet_pixelrnn_generator(
+          tmp_dir, int(is_training), size=_IMAGENET_SMALL_IMAGE_SIZE)
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_IMAGENET_SMALL_IMAGE_SIZE,
+                                 _IMAGENET_SMALL_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    return example
+
+
+@registry.register_problem
 class ImageImagenet64Gen(ImageImagenet):
   """Imagenet 64 from the pixen cnn paper"""
 

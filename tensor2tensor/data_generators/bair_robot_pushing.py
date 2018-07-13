@@ -67,8 +67,43 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
 
   @property
   def total_number_of_frames(self):
-    # TODO(mbz): correct this number to be the real total number of frames.
-    return 30 * 10 * 1000
+    return 1305600
+
+  @property
+  def random_skip(self):
+    return False
+
+  def eval_metrics(self):
+    return []
+
+  @property
+  def only_keep_videos_from_0th_frame(self):
+    return True
+
+  @property
+  def use_not_breaking_batching(self):
+    return True
+
+  @property
+  def extra_reading_spec(self):
+    """Additional data fields to store on disk and their decoders."""
+    data_fields = {
+        "frame_number": tf.FixedLenFeature([1], tf.int64),
+    }
+    decoders = {
+        "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
+            tensor_key="frame_number"),
+    }
+    return data_fields, decoders
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    p.input_modality = {
+        "inputs": ("video", 256),
+    }
+    p.target_modality = {
+        "targets": ("video", 256),
+    }
 
   def parse_frames(self, filenames):
     image_key = "{}/image_aux1/encoded"
@@ -122,13 +157,3 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
           "state": state,
           "action": action,
       }
-
-  def hparams(self, defaults, unused_model_hparams):
-    p = defaults
-    p.input_modality = {
-        # Pixels are in 0..255 range.
-        "inputs": ("video", 256),
-    }
-    p.target_modality = {
-        "targets": ("video", 256),
-    }

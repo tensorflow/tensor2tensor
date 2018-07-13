@@ -28,9 +28,8 @@ from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
 
 
-def define_train(hparams, event_dir):
+def define_train(hparams):
   """Define the training setup."""
-  del event_dir
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     memory, collect_summary, initialization\
       = collect.define_collect(
@@ -45,7 +44,7 @@ def train(hparams, event_dir=None, model_dir=None,
           restore_agent=True, epoch=0):
   """Train."""
   with tf.name_scope("rl_train"):
-    train_summary_op, _, initialization = define_train(hparams, event_dir)
+    train_summary_op, _, initialization = define_train(hparams)
     if event_dir:
       summary_writer = tf.summary.FileWriter(
           event_dir, graph=tf.get_default_graph(), flush_secs=60)
