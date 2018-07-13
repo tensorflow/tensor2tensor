@@ -74,7 +74,7 @@ class WinogradNLI(text_problems.TextConcat2ClassProblem):
   @property
   def concat_id(self):
     if self.vocab_type == text_problems.VocabType.CHARACTER:
-      return problem.SpaceID.EN_PR_HYP
+      return problem.TaskID.EN_PR_HYP
     return 2
 
   def class_labels(self, data_dir):
@@ -130,4 +130,4 @@ class WinogradNLICharacters(WinogradNLI):
 
   @property
   def task_id(self):
-    return problem.SpaceID.EN_NLI
+    return problem.TaskID.EN_NLI

@@ -67,6 +67,13 @@ class MultiProblem(problem.Problem):
 
     return self._hparams
 
+  def flatten_zip(self, *args):
+    flattened = tf.data.Dataset.from_tensors(args[0])
+    for ex in args[1:]:
+      flattened.concatenate(tf.data.Dataset.from_tensors(ex))
+
+    return flattened
+
   def dataset(self,
               mode,
               data_dir=None,
@@ -96,14 +103,9 @@ class MultiProblem(problem.Problem):
 
     self.get_hparams()
 
-    # TODO(urvashik): make this independent of the number of tasks
-    def flatten_zip(d0, d1):
-      return tf.data.Dataset.from_tensors(d0).concatenate(
-          tf.data.Dataset.from_tensors(d1))
-
     if is_training:
       single_mtl_dataset = tf.data.Dataset.zip(tuple(datasets)).flat_map(
-          flatten_zip)
+          self.flatten_zip)
     else:
       single_mtl_dataset = datasets[0]
       for data in datasets[1:]:

@@ -100,20 +100,28 @@ class SpaceID(object):
   STROKES = 29
   # Pickled Python
   PICKLED_PYTHON = 30
+
+
+class TaskID(object):
+  """Problem specific task ids. Add more as needed."""
+  # English characters
+  EN_CHR = 0
   # English characters sentiment
-  EN_CHR_SENT = 31
+  EN_CHR_SENT = 1
   # English Premise Hypothesis pair
-  EN_PR_HYP = 32
+  EN_PR_HYP = 2
   # English NLI
-  EN_NLI = 33
+  EN_NLI = 3
   # COLA
-  COLA = 34
+  COLA = 4
   # Enligh Question Context pair
-  EN_Q_CONT = 35
+  EN_Q_CONT = 5
   # English similarity task
-  EN_SIM = 36
+  EN_SIM = 6
+  # English sentence pair
+  EN_SENT_PAIR = 7
   # 3 class NLI
-  THREE_CL_NLI = 37
+  THREE_CL_NLI = 8
 
 
 def default_model_hparams():

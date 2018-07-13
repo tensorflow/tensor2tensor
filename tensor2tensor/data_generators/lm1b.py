@@ -177,7 +177,7 @@ class LanguagemodelLm1bCharacters(LanguagemodelLm1b32k):
 
   @property
   def task_id(self):
-    return problem.SpaceID.EN_CHR
+    return problem.TaskID.EN_CHR
 
 
 @registry.register_problem

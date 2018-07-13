@@ -118,4 +118,4 @@ class ColaCharacters(Cola):
 
   @property
   def task_id(self):
-    return problem.SpaceID.EN_COLA
+    return problem.TaskID.COLA

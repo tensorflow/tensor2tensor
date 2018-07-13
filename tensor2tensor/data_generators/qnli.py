@@ -74,7 +74,7 @@ class QuestionNLI(text_problems.TextConcat2ClassProblem):
   @property
   def concat_id(self):
     if self.vocab_type == text_problems.VocabType.CHARACTER:
-      return problem.SpaceID.EN_Q_CONT
+      return problem.TaskID.EN_Q_CONT
     return 2
 
   def class_labels(self, data_dir):
@@ -132,4 +132,4 @@ class QuestionNLICharacters(QuestionNLI):
 
   @property
   def task_id(self):
-    return problem.SpaceID.EN_NLI
+    return problem.TaskID.EN_NLI

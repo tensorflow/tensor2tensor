@@ -107,4 +107,4 @@ class SentimentIMDBCharacters(SentimentIMDB):
 
   @property
   def task_id(self):
-    return problem.SpaceID.EN_CHR_SENT
+    return problem.TaskID.EN_CHR_SENT
