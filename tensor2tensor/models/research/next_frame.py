@@ -221,18 +221,102 @@ class NextFrameStochastic(NextFrameBasic):
 
       return mean, std
 
-  def reward_prediction(self, inputs):
+  def bottom_part_tower(self, input_image, input_reward, action, latent,
+                        lstm_state, lstm_size, conv_size):
+    """The bottom part of predictive towers.
+
+    With the current (early) design, the main prediction tower and
+    the reward prediction tower share the same arcitecture. TF Scope can be
+    adjusted as required to either share or not share the weights between
+    the two towers.
+
+    Args:
+      input_image: the current image.
+      input_reward: the current reward.
+      action: the action taken by the agent.
+      latent: the latent vector.
+      lstm_state: the current internal states of conv lstms.
+      lstm_size: the size of lstms.
+      conv_size: the size of convolutions.
+
+    Returns:
+      - the output of the partial network.
+      - intermidate outputs for skip connections.
+    """
+    layer_norm = tf.contrib.layers.layer_norm
+    lstm_func = self.conv_lstm_2d
+
+    input_image = common_layers.make_even_size(input_image)
+    enc0 = slim.layers.conv2d(
+        input_image,
+        conv_size[0], [5, 5],
+        stride=2,
+        scope="scale1_conv1",
+        normalizer_fn=layer_norm,
+        normalizer_params={"scope": "layer_norm1"})
+
+    hidden1, lstm_state[0] = lstm_func(
+        enc0, lstm_state[0], lstm_size[0], scope="state1")
+    hidden1 = layer_norm(hidden1, scope="layer_norm2")
+    hidden2, lstm_state[1] = lstm_func(
+        hidden1, lstm_state[1], lstm_size[1], scope="state2")
+    hidden2 = layer_norm(hidden2, scope="layer_norm3")
+    hidden2 = common_layers.make_even_size(hidden2)
+    enc1 = slim.layers.conv2d(
+        hidden2, hidden2.get_shape()[3], [3, 3], stride=2, scope="conv2")
+
+    hidden3, lstm_state[2] = lstm_func(
+        enc1, lstm_state[2], lstm_size[2], scope="state3")
+    hidden3 = layer_norm(hidden3, scope="layer_norm4")
+    hidden4, lstm_state[3] = lstm_func(
+        hidden3, lstm_state[3], lstm_size[3], scope="state4")
+    hidden4 = layer_norm(hidden4, scope="layer_norm5")
+    hidden4 = common_layers.make_even_size(hidden4)
+    enc2 = slim.layers.conv2d(
+        hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
+
+    # Pass in reward and action.
+    emb_action = self.encode_to_shape(action, enc2.get_shape(), "action_enc")
+    emb_reward = self.encode_to_shape(
+        input_reward, enc2.get_shape(), "reward_enc")
+    enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
+
+    if latent is not None:
+      with tf.control_dependencies([latent]):
+        enc2 = tf.concat([enc2, latent], 3)
+
+    enc3 = slim.layers.conv2d(
+        enc2, hidden4.get_shape()[3], [1, 1], stride=1, scope="conv4")
+
+    hidden5, lstm_state[4] = lstm_func(
+        enc3, lstm_state[4], lstm_size[4], scope="state5")  # last 8x8
+    hidden5 = layer_norm(hidden5, scope="layer_norm6")
+
+    return hidden5, (enc0, enc1)
+
+  def reward_prediction(
+      self, input_image, input_reward, action, lstm_state, latent):
     """Builds a reward prediction network."""
-    conv_size = self.tinyify([32, 16, 1])
+    conv_size = self.tinyify([32, 32, 16, 4])
+    lstm_size = self.tinyify([32, 64, 128, 64, 32])
+
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
-      x = inputs
+      hidden5, _ = self.bottom_part_tower(
+          input_image, input_reward, action, latent,
+          lstm_state, lstm_size, conv_size)
+
+      x = hidden5
       x = slim.batch_norm(x, scope="reward_bn0")
-      x = slim.conv2d(x, conv_size[0], [3, 3], scope="reward_conv1")
+      x = slim.conv2d(x, conv_size[1], [3, 3], scope="reward_conv1")
       x = slim.batch_norm(x, scope="reward_bn1")
-      x = slim.conv2d(x, conv_size[1], [3, 3], scope="reward_conv2")
+      x = slim.conv2d(x, conv_size[2], [3, 3], scope="reward_conv2")
       x = slim.batch_norm(x, scope="reward_bn2")
-      x = slim.conv2d(x, conv_size[2], [3, 3], scope="reward_conv3")
-    return x
+      x = slim.conv2d(x, conv_size[3], [3, 3], scope="reward_conv3")
+
+      pred_reward = self.decode_to_shape(
+          x, input_reward.shape, "reward_dec")
+
+      return pred_reward, lstm_state
 
   def encode_to_shape(self, inputs, shape, scope):
     """Encode the given tensor to given image shape."""
@@ -280,51 +364,11 @@ class NextFrameStochastic(NextFrameBasic):
     img_height, img_width, color_channels = self.hparams.problem.frame_shape
 
     with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
-      input_image = common_layers.make_even_size(input_image)
-      enc0 = slim.layers.conv2d(
-          input_image,
-          conv_size[0], [5, 5],
-          stride=2,
-          scope="scale1_conv1",
-          normalizer_fn=layer_norm,
-          normalizer_params={"scope": "layer_norm1"})
+      hidden5, skips = self.bottom_part_tower(
+          input_image, input_reward, action, latent,
+          lstm_state, lstm_size, conv_size)
+      enc0, enc1 = skips
 
-      hidden1, lstm_state[0] = lstm_func(
-          enc0, lstm_state[0], lstm_size[0], scope="state1")
-      hidden1 = layer_norm(hidden1, scope="layer_norm2")
-      hidden2, lstm_state[1] = lstm_func(
-          hidden1, lstm_state[1], lstm_size[1], scope="state2")
-      hidden2 = layer_norm(hidden2, scope="layer_norm3")
-      hidden2 = common_layers.make_even_size(hidden2)
-      enc1 = slim.layers.conv2d(
-          hidden2, hidden2.get_shape()[3], [3, 3], stride=2, scope="conv2")
-
-      hidden3, lstm_state[2] = lstm_func(
-          enc1, lstm_state[2], lstm_size[2], scope="state3")
-      hidden3 = layer_norm(hidden3, scope="layer_norm4")
-      hidden4, lstm_state[3] = lstm_func(
-          hidden3, lstm_state[3], lstm_size[3], scope="state4")
-      hidden4 = layer_norm(hidden4, scope="layer_norm5")
-      hidden4 = common_layers.make_even_size(hidden4)
-      enc2 = slim.layers.conv2d(
-          hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
-
-      # Pass in reward and action.
-      emb_action = self.encode_to_shape(action, enc2.get_shape(), "action_enc")
-      emb_reward = self.encode_to_shape(
-          input_reward, enc2.get_shape(), "reward_enc")
-      enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
-
-      if latent is not None:
-        with tf.control_dependencies([latent]):
-          enc2 = tf.concat([enc2, latent], 3)
-
-      enc3 = slim.layers.conv2d(
-          enc2, hidden4.get_shape()[3], [1, 1], stride=1, scope="conv4")
-
-      hidden5, lstm_state[4] = lstm_func(
-          enc3, lstm_state[4], lstm_size[4], scope="state5")  # last 8x8
-      hidden5 = layer_norm(hidden5, scope="layer_norm6")
       enc4 = slim.layers.conv2d_transpose(
           hidden5, hidden5.get_shape()[3], 3, stride=2, scope="convt1")
 
@@ -404,11 +448,7 @@ class NextFrameStochastic(NextFrameBasic):
       for layer, mask in zip(transformed, mask_list[1:]):
         output += layer * mask
 
-      p_reward = self.reward_prediction(hidden5)
-      p_reward = self.decode_to_shape(
-          p_reward, input_reward.shape, "reward_dec")
-
-      return output, p_reward, lstm_state
+      return output, lstm_state
 
   def get_guassian_latent(self, latent_mean, latent_std):
     latent = tf.random_normal(tf.shape(latent_mean), 0, 1, dtype=tf.float32)
@@ -445,6 +485,7 @@ class NextFrameStochastic(NextFrameBasic):
 
     # LSTM states.
     lstm_state = [None] * 7
+    reward_lstm_state = [None] * 5
 
     # Latent tower
     if self.hparams.stochastic_model:
@@ -466,8 +507,15 @@ class NextFrameStochastic(NextFrameBasic):
           latent = self.get_guassian_latent(latent_mean, latent_std)
 
       # Prediction
-      pred_image, pred_reward, lstm_state = self.construct_predictive_tower(
+      pred_image, lstm_state = self.construct_predictive_tower(
           input_image, input_reward, action, lstm_state, latent)
+
+      if self.hparams.reward_prediction:
+        pred_reward, reward_lstm_state = self.reward_prediction(
+            input_image, input_reward, action, reward_lstm_state, latent)
+      else:
+        pred_reward = input_reward
+
       gen_images.append(pred_image)
       gen_rewards.append(pred_reward)
 
@@ -733,6 +781,7 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
 
     # LSTM states.
     lstm_state = [None] * 7
+    reward_lstm_state = [None] * 5
 
     pred_image, pred_reward, latent = None, None, None
     for timestep, image, action, reward in zip(
@@ -753,8 +802,15 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
       latent_stds.append(latent_std)
 
       # Prediction
-      pred_image, pred_reward, lstm_state = self.construct_predictive_tower(
+      pred_image, lstm_state = self.construct_predictive_tower(
           input_image, input_reward, action, lstm_state, latent)
+
+      if self.hparams.reward_prediction:
+        pred_reward, reward_lstm_state = self.reward_prediction(
+            input_image, input_reward, action, reward_lstm_state, latent)
+      else:
+        pred_reward = input_reward
+
       gen_images.append(pred_image)
       gen_rewards.append(pred_reward)
 
@@ -1064,6 +1120,7 @@ def next_frame_stochastic():
   hparams.input_modalities = "inputs:video:l2raw"
   hparams.video_modality_loss_cutoff = 0.0
   hparams.add_hparam("stochastic_model", True)
+  hparams.add_hparam("reward_prediction", True)
   hparams.add_hparam("model_options", "CDNA")
   hparams.add_hparam("num_masks", 10)
   hparams.add_hparam("latent_channels", 1)
