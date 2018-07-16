@@ -53,14 +53,12 @@ class TranslateProblem(text_problems.Text2TextProblem):
     tag = "train" if dataset_split == problem.DatasetSplit.TRAIN else "dev"
     data_path = compile_data(tmp_dir, datasets, "%s-compiled-%s" % (self.name,
                                                                     tag))
-
-    if self.vocab_type == text_problems.VocabType.SUBWORD:
-      generator_utils.get_or_generate_vocab(
-          data_dir, tmp_dir, self.vocab_filename, self.approx_vocab_size,
-          self.vocab_data_files())
-
     return text_problems.text2text_txt_iterator(data_path + ".lang1",
                                                 data_path + ".lang2")
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    return generator_utils.generate_lines_for_vocab(tmp_dir,
+                                                    self.vocab_data_files())
 
 
 def _preprocess_sgm(line, is_sgm):
