@@ -185,7 +185,8 @@ class VideoProblem(problem.Problem):
 
     return data_fields, data_items_to_decoders
 
-  def preprocess(self, dataset, mode, hparams):
+  def preprocess(self, dataset, mode, hparams, interleave=True):
+    del interleave
     def split_on_batch(x):
       """Split x on batch dimension into x[:size, ...] and x[size:, ...]."""
       length = len(x.get_shape())

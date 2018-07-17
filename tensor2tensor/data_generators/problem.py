@@ -345,7 +345,7 @@ class Problem(object):
   # END SUBCLASS INTERFACE
   # ============================================================================
 
-  def preprocess(self, dataset, mode, hparams):
+  def preprocess(self, dataset, mode, hparams, interleave=True):
     """Runtime preprocessing on the whole dataset.
 
     Return a tf.data.Datset -- the preprocessed version of the given one.
@@ -355,6 +355,9 @@ class Problem(object):
       dataset: the Dataset of already decoded but not yet preprocessed features.
       mode: tf.estimator.ModeKeys
       hparams: HParams, model hyperparameters
+      interleave: bool, whether to use parallel_interleave, which is faster
+        but will alter the order of samples non-deterministically, or flat_map,
+        which is slower but will preserve the sample order.
 
     Returns:
       a Dataset
@@ -365,10 +368,12 @@ class Problem(object):
         examples = tf.data.Dataset.from_tensors(examples)
       return examples
 
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
-    dataset = dataset.apply(
-        tf.contrib.data.parallel_interleave(
-            _preprocess, sloppy=is_training, cycle_length=8))
+    if interleave:
+      dataset = dataset.apply(
+          tf.contrib.data.parallel_interleave(
+              _preprocess, sloppy=True, cycle_length=8))
+    else:
+      dataset = dataset.flat_map(_preprocess)
 
     return dataset
 
@@ -568,6 +573,7 @@ class Problem(object):
     # Functions used in dataset transforms below. `filenames` can be either a
     # `tf.string` tensor or `tf.data.Dataset` containing one or more filenames.
     def _load_records_and_preprocess(filenames):
+      """Reads files from a string tensor or a dataset of filenames."""
       # Load records from file(s) with an 8MiB read buffer.
       dataset = tf.data.TFRecordDataset(filenames, buffer_size=8 * 1024 * 1024)
       # Decode.
@@ -575,7 +581,8 @@ class Problem(object):
       # Preprocess if requested.
       # Note that preprocessing should happen per-file as order may matter.
       if preprocess:
-        dataset = self.preprocess(dataset, mode, hparams)
+        dataset = self.preprocess(dataset, mode, hparams,
+                                  interleave=shuffle_files)
       return dataset
 
     if len(data_files) < num_partitions:
@@ -1140,4 +1147,3 @@ def skip_random_fraction(dataset, data_file):
   # replicas reading the same data in lock-step.
   num_skip = random.randint(0, _file_num_records_cached(data_file))
   return dataset.skip(num_skip)
-
