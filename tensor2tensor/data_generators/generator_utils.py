@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import csv
 import gzip
 import multiprocessing as mp
 import os
@@ -443,6 +444,48 @@ def get_or_generate_txt_vocab(data_dir, vocab_filename, vocab_size,
 
   return get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
                                      generate())
+
+
+def get_or_generate_vocab_from_csv(data_dir, vocab_filename, vocab_size,
+                                   path_to_file, column_indices,
+                                   skip_first_line=False, column_separator='',
+                                   quotechar=None):
+  """Generate a vocabulary from csv file.
+
+  It is possible to join several relevant csv columns with predefined
+  column separator, for example:
+  'text from first column <COLUMN_SEPARATOR> text from second column'
+
+  Args:
+    data_dir: a directory where vocabulary will be stored.
+    vocab_filename: a vocabulary filename.
+    vocab_size: a vocabulary size.
+    path_to_file: a path to csv file with data.
+    column_indices: indices of columns with text data.
+    skip_first_line: if 'True' then skips header line of csv file.
+    column_separator: a string value that separates values joined from different columns.
+    quotechar: a one-character string used to quote fields containing special characters.
+  Yields:
+    vacabulary
+  """
+
+  if isinstance(column_indices, int):
+    column_indices = [column_indices]
+
+  def generate(skip_first_line):
+    tf.logging.info("Generating vocab from %s", path_to_file)
+    with tf.gfile.GFile(path_to_file, mode="r") as source_file:
+      csv_reader = csv.reader(source_file, quotechar=quotechar)
+      for i, line in enumerate(csv_reader):
+        if skip_first_line:
+          skip_first_line = not skip_first_line
+          continue
+        relevant_columns = [line[i] for i in column_indices]
+        line_concat = column_separator.join(relevant_columns)
+        yield line_concat
+
+  return get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
+                                     generate(skip_first_line))
 
 
 def read_records(filename):
