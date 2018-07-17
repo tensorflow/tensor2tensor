@@ -66,6 +66,12 @@ flags.DEFINE_bool("decode_interactive", False,
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
+# Fathom
+# TODO: define this in one place 
+tf.flags.DEFINE_string(
+    'dataset_split',
+    None,
+    "Data set split to predict over.")
 
 
 # Fathom
@@ -113,7 +119,7 @@ def decode(estimator, hparams, decode_hp):
         hparams,
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
-        dataset_split="test" if FLAGS.eval_use_test_set else None,
+        dataset_split=FLAGS.dataset_split,
         return_generator=FLAGS.fathom_output_predictions)
 
     # Fathom
