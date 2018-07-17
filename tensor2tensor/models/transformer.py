@@ -53,8 +53,8 @@ class Transformer(t2t_model.T2TModel):
     """Encode transformer inputs.
 
     Args:
-      inputs: Transformer inputs [batch_size, input_length, input_height,
-        hidden_dim] which will be flattened along the two spatial dimensions.
+      inputs: Transformer inputs [batch_size, input_length, 1, hidden_dim] which
+        will be flattened along the two spatial dimensions.
       target_space: scalar, target space ID.
       hparams: hyperparameters for model.
       features: optionally pass the entire features dictionary as well.
@@ -148,9 +148,10 @@ class Transformer(t2t_model.T2TModel):
 
     Args:
       features: Map of features to the model. Should contain the following:
-          "inputs": Transformer inputs [batch_size, input_length, hidden_dim]
+          "inputs": Transformer inputs.
+              [batch_size, input_length, 1, hidden_dim].
           "targets": Target decoder outputs.
-              [batch_size, decoder_length, hidden_dim]
+              [batch_size, decoder_length, 1, hidden_dim]
           "target_space_id": A scalar int from data_generators.problem.SpaceID.
 
     Returns:
