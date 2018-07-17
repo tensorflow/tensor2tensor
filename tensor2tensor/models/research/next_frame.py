@@ -27,7 +27,8 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
-slim = tf.contrib.slim
+tfl = tf.layers
+tfcl = tf.contrib.layers
 
 
 @registry.register_model
@@ -169,6 +170,10 @@ class NextFrameStochastic(NextFrameBasic):
   https://arxiv.org/abs/1710.11252
   """
 
+  @property
+  def is_training(self):
+    return self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+
   def tinyify(self, array):
     if self.hparams.tiny_mode:
       return [1 for _ in array]
@@ -201,18 +206,25 @@ class NextFrameStochastic(NextFrameBasic):
 
       x = images
       x = common_layers.make_even_size(x)
-      x = slim.conv2d(x, conv_size[0], [3, 3], stride=2, scope="latent_conv1")
-      x = slim.batch_norm(x, scope="latent_bn1")
+      x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="latent_conv1")
+      x = tfl.batch_normalization(x,
+                                  training=self.is_training, name="latent_bn1")
       x = common_layers.make_even_size(x)
-      x = slim.conv2d(x, conv_size[1], [3, 3], stride=2, scope="latent_conv2")
-      x = slim.batch_norm(x, scope="latent_bn2")
-      x = slim.conv2d(x, conv_size[2], [3, 3], stride=1, scope="latent_conv3")
-      x = slim.batch_norm(x, scope="latent_bn3")
+      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="latent_conv2")
+      x = tfl.batch_normalization(x,
+                                  training=self.is_training, name="latent_bn2")
+      x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
+                     padding="SAME", activation=tf.nn.relu, name="latent_conv3")
+      x = tfl.batch_normalization(x,
+                                  training=self.is_training, name="latent_bn3")
 
       nc = self.hparams.latent_channels
-      mean = slim.conv2d(
-          x, nc, [3, 3], stride=2, activation_fn=None, scope="latent_mean")
-      std = slim.conv2d(x, nc, [3, 3], stride=2, scope="latent_std")
+      mean = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+                        padding="SAME", activation=None, name="latent_mean")
+      std = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+                       padding="SAME", activation=tf.nn.relu, name="latent_std")
       std += self.hparams.latent_std_min
 
       # No latent tower at inference time, just standard gaussian.
@@ -243,37 +255,37 @@ class NextFrameStochastic(NextFrameBasic):
       - the output of the partial network.
       - intermidate outputs for skip connections.
     """
-    layer_norm = tf.contrib.layers.layer_norm
     lstm_func = self.conv_lstm_2d
 
     input_image = common_layers.make_even_size(input_image)
-    enc0 = slim.layers.conv2d(
+    enc0 = tfl.conv2d(
         input_image,
         conv_size[0], [5, 5],
-        stride=2,
-        scope="scale1_conv1",
-        normalizer_fn=layer_norm,
-        normalizer_params={"scope": "layer_norm1"})
+        strides=(2, 2),
+        activation=tf.nn.relu,
+        padding="SAME",
+        name="scale1_conv1")
+    enc0 = tfcl.layer_norm(enc0, scope="layer_norm1")
 
     hidden1, lstm_state[0] = lstm_func(
-        enc0, lstm_state[0], lstm_size[0], scope="state1")
-    hidden1 = layer_norm(hidden1, scope="layer_norm2")
+        enc0, lstm_state[0], lstm_size[0], name="state1")
+    hidden1 = tfcl.layer_norm(hidden1, scope="layer_norm2")
     hidden2, lstm_state[1] = lstm_func(
-        hidden1, lstm_state[1], lstm_size[1], scope="state2")
-    hidden2 = layer_norm(hidden2, scope="layer_norm3")
+        hidden1, lstm_state[1], lstm_size[1], name="state2")
+    hidden2 = tfcl.layer_norm(hidden2, scope="layer_norm3")
     hidden2 = common_layers.make_even_size(hidden2)
-    enc1 = slim.layers.conv2d(
-        hidden2, hidden2.get_shape()[3], [3, 3], stride=2, scope="conv2")
+    enc1 = tfl.conv2d(hidden2, hidden2.get_shape()[3], [3, 3], strides=(2, 2),
+                      padding="SAME", activation=tf.nn.relu, name="conv2")
 
     hidden3, lstm_state[2] = lstm_func(
-        enc1, lstm_state[2], lstm_size[2], scope="state3")
-    hidden3 = layer_norm(hidden3, scope="layer_norm4")
+        enc1, lstm_state[2], lstm_size[2], name="state3")
+    hidden3 = tfcl.layer_norm(hidden3, scope="layer_norm4")
     hidden4, lstm_state[3] = lstm_func(
-        hidden3, lstm_state[3], lstm_size[3], scope="state4")
-    hidden4 = layer_norm(hidden4, scope="layer_norm5")
+        hidden3, lstm_state[3], lstm_size[3], name="state4")
+    hidden4 = tfcl.layer_norm(hidden4, scope="layer_norm5")
     hidden4 = common_layers.make_even_size(hidden4)
-    enc2 = slim.layers.conv2d(
-        hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
+    enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
+                      padding="SAME", activation=tf.nn.relu, name="conv3")
 
     # Pass in reward and action.
     emb_action = self.encode_to_shape(action, enc2.get_shape(), "action_enc")
@@ -285,12 +297,12 @@ class NextFrameStochastic(NextFrameBasic):
       with tf.control_dependencies([latent]):
         enc2 = tf.concat([enc2, latent], 3)
 
-    enc3 = slim.layers.conv2d(
-        enc2, hidden4.get_shape()[3], [1, 1], stride=1, scope="conv4")
+    enc3 = tfl.conv2d(enc2, hidden4.get_shape()[3], [1, 1], strides=(1, 1),
+                      padding="SAME", activation=tf.nn.relu, name="conv4")
 
     hidden5, lstm_state[4] = lstm_func(
-        enc3, lstm_state[4], lstm_size[4], scope="state5")  # last 8x8
-    hidden5 = layer_norm(hidden5, scope="layer_norm6")
+        enc3, lstm_state[4], lstm_size[4], name="state5")  # last 8x8
+    hidden5 = tfcl.layer_norm(hidden5, scope="layer_norm6")
 
     return hidden5, (enc0, enc1)
 
@@ -306,12 +318,18 @@ class NextFrameStochastic(NextFrameBasic):
           lstm_state, lstm_size, conv_size)
 
       x = hidden5
-      x = slim.batch_norm(x, scope="reward_bn0")
-      x = slim.conv2d(x, conv_size[1], [3, 3], scope="reward_conv1")
-      x = slim.batch_norm(x, scope="reward_bn1")
-      x = slim.conv2d(x, conv_size[2], [3, 3], scope="reward_conv2")
-      x = slim.batch_norm(x, scope="reward_bn2")
-      x = slim.conv2d(x, conv_size[3], [3, 3], scope="reward_conv3")
+      x = tfl.batch_normalization(x,
+                                  training=self.is_training, name="reward_bn0")
+      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="reward_conv1")
+      x = tfl.batch_normalization(x,
+                                  training=self.is_training, name="reward_bn1")
+      x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="reward_conv2")
+      x = tfl.batch_normalization(x,
+                                  training=self.is_training, name="reward_bn2")
+      x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="reward_conv3")
 
       pred_reward = self.decode_to_shape(
           x, input_reward.shape, "reward_dec")
@@ -323,8 +341,8 @@ class NextFrameStochastic(NextFrameBasic):
     with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
       w, h = shape[1].value, shape[2].value
       x = inputs
-      x = tf.contrib.layers.flatten(x)
-      x = slim.fully_connected(x, w * h, scope="encoding_full")
+      x = tfcl.flatten(x)
+      x = tfl.dense(x, w * h, activation=tf.nn.relu, name="enc_dense")
       x = tf.reshape(x, (-1, w, h, 1))
       return x
 
@@ -332,17 +350,17 @@ class NextFrameStochastic(NextFrameBasic):
     """Encode the given tensor to given image shape."""
     with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
       x = inputs
-      x = tf.contrib.layers.flatten(x)
-      x = slim.fully_connected(x, shape[2].value, scope="decoding_full")
+      x = tfcl.flatten(x)
+      x = tfl.dense(x, shape[2].value, activation=tf.nn.relu, name="dec_dense")
       x = tf.expand_dims(x, axis=1)
       return x
 
   def conv_lstm_2d(self, inputs, state, output_channels,
-                   kernel_size=5, scope=None):
+                   kernel_size=5, name=None):
     input_shape = common_layers.shape_list(inputs)
     cell = tf.contrib.rnn.ConvLSTMCell(
         2, input_shape[1:], output_channels,
-        [kernel_size, kernel_size], name=scope)
+        [kernel_size, kernel_size], name=name)
     if state is None:
       state = cell.zero_state(input_shape[0], tf.float32)
     outputs, new_state = cell(inputs, state)
@@ -351,7 +369,6 @@ class NextFrameStochastic(NextFrameBasic):
   def construct_predictive_tower(
       self, input_image, input_reward, action, lstm_state, latent):
     # Main tower
-    layer_norm = tf.contrib.layers.layer_norm
     lstm_func = self.conv_lstm_2d
     batch_size = common_layers.shape_list(input_image)[0]
     # the number of different pixel motion predictions
@@ -369,63 +386,66 @@ class NextFrameStochastic(NextFrameBasic):
           lstm_state, lstm_size, conv_size)
       enc0, enc1 = skips
 
-      enc4 = slim.layers.conv2d_transpose(
-          hidden5, hidden5.get_shape()[3], 3, stride=2, scope="convt1")
+      enc4 = tfl.conv2d_transpose(
+          hidden5, hidden5.get_shape()[3], 3, strides=2, name="convt1")
 
       enc1_shape = common_layers.shape_list(enc1)
       enc4 = enc4[:, :enc1_shape[1], :enc1_shape[2], :]  # Cut to shape.
       hidden6, lstm_state[5] = lstm_func(
-          enc4, lstm_state[5], lstm_size[5], scope="state6")  # 16x16
-      hidden6 = layer_norm(hidden6, scope="layer_norm7")
+          enc4, lstm_state[5], lstm_size[5], name="state6")  # 16x16
+      hidden6 = tfcl.layer_norm(hidden6, scope="layer_norm7")
       # Skip connection.
       hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
 
-      enc5 = slim.layers.conv2d_transpose(
-          hidden6, hidden6.get_shape()[3], 3, stride=2, scope="convt2")
+      enc5 = tfl.conv2d_transpose(
+          hidden6, hidden6.get_shape()[3], [3, 3], strides=(2, 2),
+          padding="SAME", activation=tf.nn.relu, name="convt2")
       enc0_shape = common_layers.shape_list(enc0)
       enc5 = enc5[:, :enc0_shape[1], :enc0_shape[2], :]  # Cut to shape.
       hidden7, lstm_state[6] = lstm_func(
-          enc5, lstm_state[6], lstm_size[6], scope="state7")  # 32x32
-      hidden7 = layer_norm(hidden7, scope="layer_norm8")
+          enc5, lstm_state[6], lstm_size[6], name="state7")  # 32x32
+      hidden7 = tfcl.layer_norm(hidden7, scope="layer_norm8")
 
       # Skip connection.
       hidden7 = tf.concat(axis=3, values=[hidden7, enc0])  # both 32x32
 
-      enc6 = slim.layers.conv2d_transpose(
+      enc6 = tfl.conv2d_transpose(
           hidden7,
           hidden7.get_shape()[3],
-          3,
-          stride=2,
-          scope="convt3",
-          activation_fn=None,
-          normalizer_fn=layer_norm,
-          normalizer_params={"scope": "layer_norm9"})
+          [3, 3],
+          strides=(2, 2),
+          padding="SAME",
+          name="convt3",
+          activation=None)
+      enc6 = tfcl.layer_norm(enc6, scope="layer_norm9")
 
       if self.hparams.model_options == "DNA":
         # Using largest hidden state for predicting untied conv kernels.
-        enc7 = slim.layers.conv2d_transpose(
+        enc7 = tfl.conv2d_transpose(
             enc6,
             self.hparams.dna_kernel_size**2,
-            1,
-            stride=1,
-            scope="convt4",
-            activation_fn=None)
+            [1, 1],
+            strides=(1, 1),
+            padding="SAME",
+            name="convt4",
+            activation=None)
       else:
         # Using largest hidden state for predicting a new image layer.
-        enc7 = slim.layers.conv2d_transpose(
+        enc7 = tfl.conv2d_transpose(
             enc6,
             color_channels,
-            1,
-            stride=1,
-            scope="convt4",
-            activation_fn=None)
+            [1, 1],
+            strides=(1, 1),
+            padding="SAME",
+            name="convt4",
+            activation=None)
         # This allows the network to also generate one image from scratch,
         # which is useful when regions of the image become unoccluded.
         transformed = [tf.nn.sigmoid(enc7)]
 
       if self.hparams.model_options == "CDNA":
         # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
-        cdna_input = tf.contrib.layers.flatten(hidden5)
+        cdna_input = tfcl.flatten(hidden5)
         transformed += self.cdna_transformation(
             input_image, cdna_input, num_masks, int(color_channels))
       elif self.hparams.model_options == "DNA":
@@ -434,9 +454,9 @@ class NextFrameStochastic(NextFrameBasic):
           raise ValueError("Only one mask is supported for DNA model.")
         transformed = [self.dna_transformation(input_image, enc7)]
 
-      masks = slim.layers.conv2d_transpose(
-          enc6, num_masks + 1, 1,
-          stride=1, scope="convt7", activation_fn=None)
+      masks = tfl.conv2d_transpose(
+          enc6, num_masks + 1, [1, 1], strides=(1, 1),
+          name="convt7", padding="SAME", activation=None)
       masks = tf.reshape(
           tf.nn.softmax(tf.reshape(masks, [-1, num_masks + 1])),
           [batch_size,
@@ -541,12 +561,12 @@ class NextFrameStochastic(NextFrameBasic):
     width = int(prev_image.get_shape()[2])
 
     # Predict kernels using linear function of last hidden layer.
-    cdna_kerns = slim.layers.fully_connected(
+    cdna_kerns = tfl.dense(
         cdna_input,
         self.hparams.dna_kernel_size *
         self.hparams.dna_kernel_size * num_masks,
-        scope="cdna_params",
-        activation_fn=None)
+        name="cdna_params",
+        activation=None)
 
     # Reshape and normalize.
     cdna_kerns = tf.reshape(
@@ -725,7 +745,6 @@ class NextFrameStochastic(NextFrameBasic):
     # NOT sure if this is required at all. Doesn"t hurt though! :)
     all_frames = [tf.identity(frame) for frame in all_frames]
 
-    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
     gen_images, gen_rewards, latent_means, latent_stds = self.construct_model(
         images=all_frames,
         actions=all_actions,
@@ -741,7 +760,7 @@ class NextFrameStochastic(NextFrameBasic):
                    lambda: 0.0)
 
     kl_loss = 0.0
-    if is_training:
+    if self.is_training:
       for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
         kl_loss += self.kl_divergence(mean, std)
         tf.summary.histogram("posterior_mean_%d" % i, mean)
@@ -836,7 +855,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
                 kernel_size=3,
                 activation=tf.nn.leaky_relu,
                 padding="SAME",
-                scope=""):
+                scope=None):
     """A layer of VGG network with batch norm.
 
     Args:
@@ -845,19 +864,21 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       kernel_size: size of the kernel
       activation: activation function
       padding: padding of the image
-      scope: slim scope of the op
+      scope: variable scope of the op
     Returns:
       net: output of layer
     """
-    net = slim.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
-                      activation_fn=activation, scope=scope+"_conv")
-    net = slim.batch_norm(net, scope=scope+"_bn")
-    net = activation(net)
+    with tf.variable_scope(scope):
+      net = tfl.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
+                       activation=None, name="conv")
+      net = tfl.batch_normalization(net,
+                                    training=self.is_training, name="bn")
+      net = activation(net)
     return net
 
-  def basic_lstm(self, inputs, state, num_units, scope=None):
+  def basic_lstm(self, inputs, state, num_units, name=None):
     input_shape = common_layers.shape_list(inputs)
-    cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=scope)
+    cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=name)
     if state is None:
       state = cell.zero_state(input_shape[0], tf.float32)
     outputs, new_state = cell(inputs, state)
@@ -876,19 +897,19 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     vgg_layer = self.vgg_layer
     net01 = inputs
     # h1
-    net11 = slim.repeat(net01, 2, vgg_layer, 64, scope="h1")
-    net12 = slim.max_pool2d(net11, [2, 2], scope="h1_pool")
+    net11 = tfcl.repeat(net01, 2, vgg_layer, 64, scope="h1")
+    net12 = tfl.max_pooling2d(net11, [2, 2], strides=(2, 2), name="h1_pool")
     # h2
-    net21 = slim.repeat(net12, 2, vgg_layer, 128, scope="h2")
-    net22 = slim.max_pool2d(net21, [2, 2], scope="h2_pool")
+    net21 = tfcl.repeat(net12, 2, vgg_layer, 128, scope="h2")
+    net22 = tfl.max_pooling2d(net21, [2, 2], strides=(2, 2), name="h2_pool")
     # h3
-    net31 = slim.repeat(net22, 3, vgg_layer, 256, scope="h3")
-    net32 = slim.max_pool2d(net31, [2, 2], scope="h3_pool")
+    net31 = tfcl.repeat(net22, 3, vgg_layer, 256, scope="h3")
+    net32 = tfl.max_pooling2d(net31, [2, 2], strides=(2, 2), name="h3_pool")
     # h4
-    net41 = slim.repeat(net32, 3, vgg_layer, 512, scope="h4")
-    net42 = slim.max_pool2d(net41, [2, 2], scope="h4_pool")
+    net41 = tfcl.repeat(net32, 3, vgg_layer, 512, scope="h4")
+    net42 = tfl.max_pooling2d(net41, [2, 2], strides=(2, 2), name="h4_pool")
     # h5
-    net51 = slim.repeat(net42, 1, vgg_layer, nout, kernel_size=4,
+    net51 = tfcl.repeat(net42, 1, vgg_layer, nout, kernel_size=4,
                         padding="VALID", activation=tf.tanh, scope="h5")
     skips = [net11, net21, net31, net41]
     return net51, skips
@@ -907,31 +928,31 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     vgg_layer = self.vgg_layer
     net = inputs
     # d1
-    net = slim.conv2d_transpose(net, 512, kernel_size=4, padding="VALID",
-                                scope="d1_deconv", activation_fn=None)
-    net = slim.batch_norm(net, scope="d1_bn")
+    net = tfl.conv2d_transpose(net, 512, kernel_size=4, padding="VALID",
+                               name="d1_deconv", activation=None)
+    net = tfl.batch_normalization(net, training=self.is_training, name="d1_bn")
     net = tf.nn.leaky_relu(net)
     net = common_layers.upscale(net, 2)
     # d2
     net = tf.concat([net, skips[3]], axis=3)
-    net = slim.repeat(net, 2, vgg_layer, 512, scope="d2a")
-    net = slim.repeat(net, 1, vgg_layer, 256, scope="d2b")
+    net = tfcl.repeat(net, 2, vgg_layer, 512, scope="d2a")
+    net = tfcl.repeat(net, 1, vgg_layer, 256, scope="d2b")
     net = common_layers.upscale(net, 2)
     # d3
     net = tf.concat([net, skips[2]], axis=3)
-    net = slim.repeat(net, 2, vgg_layer, 256, scope="d3a")
-    net = slim.repeat(net, 1, vgg_layer, 128, scope="d3b")
+    net = tfcl.repeat(net, 2, vgg_layer, 256, scope="d3a")
+    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d3b")
     net = common_layers.upscale(net, 2)
     # d4
     net = tf.concat([net, skips[1]], axis=3)
-    net = slim.repeat(net, 1, vgg_layer, 128, scope="d4a")
-    net = slim.repeat(net, 1, vgg_layer, 64, scope="d4b")
+    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d4a")
+    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d4b")
     net = common_layers.upscale(net, 2)
     # d5
     net = tf.concat([net, skips[0]], axis=3)
-    net = slim.repeat(net, 1, vgg_layer, 64, scope="d5")
-    net = slim.conv2d_transpose(net, nout, kernel_size=3, padding="SAME",
-                                scope="d6_deconv", activation_fn=tf.sigmoid)
+    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d5")
+    net = tfl.conv2d_transpose(net, nout, kernel_size=3, padding="SAME",
+                               name="d6_deconv", activation=tf.sigmoid)
     return net
 
   def stacked_lstm(self, inputs, states, hidden_size, output_size, nlayers):
@@ -948,13 +969,13 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       skips: a list of updated lstm states for each layer
     """
     net = inputs
-    net = slim.layers.fully_connected(
-        net, hidden_size, activation_fn=None, scope="af1")
+    net = tfl.dense(
+        net, hidden_size, activation=None, name="af1")
     for i in range(nlayers):
       net, states[i] = self.basic_lstm(
-          net, states[i], hidden_size, scope="alstm%d"%i)
-    net = slim.layers.fully_connected(
-        net, output_size, activation_fn=tf.tanh, scope="af2")
+          net, states[i], hidden_size, name="alstm%d"%i)
+    net = tfl.dense(
+        net, output_size, activation=tf.nn.tanh, name="af2")
     return net, states
 
   def lstm_gaussian(self, inputs, states, hidden_size, output_size, nlayers):
@@ -972,15 +993,12 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       skips: a list of updated lstm states for each layer
     """
     net = inputs
-    net = slim.layers.fully_connected(net, hidden_size,
-                                      activation_fn=None, scope="bf1")
+    net = tfl.dense(net, hidden_size, activation=None, name="bf1")
     for i in range(nlayers):
       net, states[i] = self.basic_lstm(
-          net, states[i], hidden_size, scope="blstm%d"%i)
-    mu = slim.layers.fully_connected(
-        net, output_size, activation_fn=None, scope="bf2mu")
-    logvar = slim.layers.fully_connected(
-        net, output_size, activation_fn=None, scope="bf2log")
+          net, states[i], hidden_size, name="blstm%d"%i)
+    mu = tfl.dense(net, output_size, activation=None, name="bf2mu")
+    logvar = tfl.dense(net, output_size, activation=None, name="bf2log")
     return mu, logvar, states
 
   def construct_model(self, images, actions, rewards):
@@ -1030,7 +1048,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     for i, image in enumerate(images):
       with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
         enc, skips = self.encoder(image, rnn_size)
-        enc = tf.contrib.layers.flatten(enc)
+        enc = tfcl.flatten(enc)
         enc_images.append(enc)
         enc_skips.append(skips)
 
