@@ -45,14 +45,16 @@ class TimeseriesProblem(problem.Problem):
 
   @property
   def dataset_splits(self):
-    """Splits of data to produce and number of output shards for each."""
-    # 10% evaluation data
+    """Splits of data to produce and number the output shards for each."""
     return [{
         "split": problem.DatasetSplit.TRAIN,
         "shards": self.num_train_shards,
     }, {
         "split": problem.DatasetSplit.EVAL,
         "shards": self.num_eval_shards,
+    }, {
+        "split": problem.DatasetSplit.TEST,
+        "shards": self.num_test_shards,
     }]
 
   @property
@@ -63,6 +65,11 @@ class TimeseriesProblem(problem.Problem):
   @property
   def num_eval_shards(self):
     """Number of eval shards."""
+    return 1
+
+  @property
+  def num_test_shards(self):
+    """Number of test shards."""
     return 1
 
   @property
@@ -184,6 +191,11 @@ class TimeseriesToyProblem(TimeseriesProblem):
   def num_eval_shards(self):
     """Number of eval shards."""
     return 1
+
+  @property
+  def num_test_shards(self):
+    """Number of eval shards."""
+    return 0
 
   @property
   def num_series(self):
