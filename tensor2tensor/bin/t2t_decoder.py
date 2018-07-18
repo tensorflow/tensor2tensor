@@ -35,7 +35,7 @@ import os
 
 # Fathom
 import fathomt2t
-from fathomt2t.common_flags import setup_datset_flag, dataset_to_t2t_mode
+from fathomt2t.common_flags import setup_dataset_flag, dataset_to_t2t_mode
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 
 # Dependency imports
