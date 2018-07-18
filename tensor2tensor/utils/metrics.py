@@ -75,7 +75,7 @@ def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   predictions, labels = common_layers.pad_with_zeros(predictions, labels)
   weights = weights_fn(labels)
   error = tf.pow(predictions - labels, 2)
-  error_sqrt = tf.sqrt(tf.reduce_sum(error * weights))
+  error_sqrt = tf.sqrt(tf.reduce_mean(error * weights))
   return error_sqrt, tf.reduce_sum(weights)
 
 
