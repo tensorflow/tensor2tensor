@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 import collections
 import functools
+import multiprocessing
 import os
 import random
 
@@ -168,6 +169,12 @@ def _file_num_records_cached(filename):
 
 
 _file_num_records_cache = {}
+
+
+def cpu_count():
+  """Return the number of available cores."""
+  num_available_cores = multiprocessing.cpu_count()
+  return num_available_cores
 
 
 class Problem(object):
@@ -785,7 +792,7 @@ class Problem(object):
     if config and config.use_tpu:
       num_threads = 64
     else:
-      num_threads = 4 if is_training else 1
+      num_threads = cpu_count() if is_training else 1
 
     max_length = self.max_length(hparams)
 
