@@ -341,7 +341,7 @@ def _tokens_to_score(tokens):
   return {t for t in tokens if re.search("[a-z0-9]", t)}
 
 
-def _rank_reference_paragraphs(wiki_title, references_content):
+def rank_reference_paragraphs(wiki_title, references_content):
   """Rank and return reference paragraphs by tf-idf score on title tokens."""
   title_tokens = _tokens_to_score(set(
       tokenizer.encode(text_encoder.native_to_unicode(wiki_title))))
@@ -428,8 +428,8 @@ def produce_examples(shard_ids, wikis_dir, refs_dir, urls_dir, vocab_path,
 
         # Rank reference paragraphs with TFIDF
         wiki_title = _normalize_text(wiki.title)
-        ranked_paragraphs = _rank_reference_paragraphs(wiki_title,
-                                                       wiki_ref_content)
+        ranked_paragraphs = rank_reference_paragraphs(wiki_title,
+                                                      wiki_ref_content)
 
         # Construct inputs from Wiki title and references
         inputs = []
