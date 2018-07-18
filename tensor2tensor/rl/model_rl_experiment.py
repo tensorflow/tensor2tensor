@@ -503,6 +503,7 @@ def rl_modelrl_base():
       # though it is not necessary.
       ppo_epoch_length=60,
       ppo_num_agents=16,
+      ppo_learning_rate=0.,  # Will be changed, just so it exists.
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
       ppo_continue_training=True,

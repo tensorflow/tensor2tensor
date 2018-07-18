@@ -85,5 +85,6 @@ class SimilarityTransformer(t2t_model.T2TModel):
     return encoder_output
 
   def infer(self, features=None, **kwargs):
+    del kwargs
     predictions, _ = self(features)
     return predictions
