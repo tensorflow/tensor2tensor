@@ -529,7 +529,7 @@ class TinyAlgo(AlgorithmicIdentityBinary40):
         self.dev_filepaths(data_dir, 1, shuffled=True), 100)
 
   @classmethod
-  def setUpForTest(cls):
+  def setup_for_test(cls):
     """Setup directories and files required to run the problem."""
 
     tmp_dir = tf.test.get_temp_dir()

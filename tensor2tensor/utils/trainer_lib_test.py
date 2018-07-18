@@ -30,7 +30,7 @@ class TrainerLibTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
-    algorithmic.TinyAlgo.setUpForTest()
+    algorithmic.TinyAlgo.setup_for_test()
 
   def testExperiment(self):
     exp_fn = trainer_lib.create_experiment_fn(

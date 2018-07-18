@@ -21,11 +21,11 @@ from tensor2tensor.utils import registry
 
 
 # There are 10 splits of the data as CSV files.
-_DATA_BASE_URL = 'https://storage.googleapis.com/kubeflow-examples/t2t-code-search/data'
+_DATA_BASE_URL = "https://storage.googleapis.com/kubeflow-examples/t2t-code-search/data"
 _GITHUB_FUNCTION_DOCSTRING_FILES = [
     [
-        '{}/pairs-0000{}-of-00010.csv'.format(_DATA_BASE_URL, i),
-        'pairs-0000{}-of-00010.csv'.format(i),
+        "{}/pairs-0000{}-of-00010.csv".format(_DATA_BASE_URL, i),
+        "pairs-0000{}-of-00010.csv".format(i),
     ]
     for i in range(10)
 ]
@@ -44,11 +44,11 @@ class GithubFunctionDocstring(translate.TranslateProblem):
   def approx_vocab_size(self):
     return 2**13
 
-  def source_data_files(self, dataset_split):  # pylint: disable=no-self-use,unused-argument
+  def source_data_files(self, dataset_split):
     # TODO(sanyamkapoor): separate train/eval data set.
     return _GITHUB_FUNCTION_DOCSTRING_FILES
 
-  def generate_samples(self, data_dir, tmp_dir, dataset_split):  # pylint: disable=no-self-use,unused-argument
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
     """Returns a generator to return {"inputs": [text], "targets": [text]}."""
 
     pair_csv_files = [
@@ -57,13 +57,18 @@ class GithubFunctionDocstring(translate.TranslateProblem):
     ]
 
     for pairs_file in pair_csv_files:
-      with open(pairs_file, 'r') as csv_file:
+      with open(pairs_file, "r") as csv_file:
         pairs_reader = csv.reader(csv_file)
         for row in pairs_reader:
           function_tokens, docstring_tokens = row[-2:]
-          yield {'inputs': docstring_tokens, 'targets': function_tokens}
+          yield {"inputs": docstring_tokens, "targets": function_tokens}
 
-  def eval_metrics(self):  # pylint: disable=no-self-use
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    for sample in self.generate_samples(data_dir, tmp_dir, None):
+      yield sample["inputs"]
+      yield sample["targets"]
+
+  def eval_metrics(self):
     return [
         metrics.Metrics.ACC
     ]

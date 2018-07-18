@@ -43,7 +43,7 @@ class ProblemTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
-    algorithmic.TinyAlgo.setUpForTest()
+    algorithmic.TinyAlgo.setup_for_test()
 
   def testNoShuffleDeterministic(self):
     problem = algorithmic.TinyAlgo()
