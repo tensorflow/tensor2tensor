@@ -28,7 +28,7 @@ import tensorflow as tf
 class Distillation(t2t_model.T2TModel):
   """Distillation from a teacher to student network.
 
-  First, a teacher is train on a task; Second, a student is trained to perform
+  First, a teacher is trained on a task; Second, a student is trained to perform
   the task while matching the teacher's softened outputs. For more details, see
   the paper below.
 
