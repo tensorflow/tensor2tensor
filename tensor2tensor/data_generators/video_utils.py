@@ -57,7 +57,7 @@ def summarize_video_metrics(hook_args):
       metrics_results = video_metrics.compute_video_metrics_from_predictions(
           predictions)
     else:
-      metrics_results, _ = video_metrics.compute_video_metrics(
+      metrics_results, _ = video_metrics.compute_video_metrics_from_png_files(
           output_dirs, problem_name,
           hparams.video_num_target_frames, frame_shape)
 
