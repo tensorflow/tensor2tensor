@@ -35,6 +35,7 @@ import os
 
 # Fathom
 import fathomt2t
+from fathomt2t.common_flags import setup_datset_flag, dataset_to_t2t_mode
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 
 # Dependency imports
@@ -67,14 +68,7 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
 # Fathom
-# TODO: define this in one place 
-tf.flags.DEFINE_string(
-    'dataset_split',
-    None,
-    "Data set split to predict over.")
-
-
-# Fathom
+setup_dataset_flag()
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 flags.DEFINE_bool("use_original_input", False,
                   "Use the input that was used for validation during training?")
@@ -112,16 +106,6 @@ def decode(estimator, hparams, decode_hp):
       os.utime(FLAGS.decode_to_file, (ckpt_time, ckpt_time))
   else:
 
-    # TODO: this is redundant with fathomt2t/tasks/predict.py
-    # NOTE: refer to filepattern rules here
-    # https://github.com/medicode/tensor2tensor/blob/01a6a520b1ee180811842600f42372f58419291a/tensor2tensor/data_generators/problem.py#L331
-    DATASET_SPLIT = {
-        'train': tf.estimator.ModeKeys.TRAIN,
-        'dev': tf.estimator.ModeKeys.EVAL,
-        'test': 'test'
-    }
-    assert FLAGS.dataset_split in DATASET_SPLIT.keys()
-
     # Fathom
     predictions = decoding.decode_from_dataset(
         estimator,
@@ -129,7 +113,7 @@ def decode(estimator, hparams, decode_hp):
         hparams,
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
-        dataset_split=DATASET_SPLIT[FLAGS.dataset_split],
+        dataset_split=dataset_to_t2t_mode(FLAGS.dataset_split),
         return_generator=FLAGS.fathom_output_predictions)
 
     # Fathom
