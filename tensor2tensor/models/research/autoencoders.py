@@ -180,30 +180,46 @@ class AutoencoderBasic(t2t_model.T2TModel):
       return x, {"bottleneck_loss": 0.0}
     # Cut to the right size and mix before returning.
     res = x[:, :shape[1], :shape[2], :]
+
+    num_channels = self.hparams.problem.num_channels
+    reconstr = tf.layers.dense(res, num_channels)
+    reconstr = tf.nn.sigmoid(reconstr)
+    reconstr = 256. * reconstr - 0.5
     # Add GAN loss if requested.
     gan_loss = 0.0
     if hparams.gan_loss_factor != 0.0:
       # Split back if we added a purely sampled batch.
-      res_gan, res = tf.split(res, 2, axis=0)
-      num_channels = self.hparams.problem.num_channels
-      res_rgb = common_layers.convert_real_to_rgb(
-          tf.nn.sigmoid(tf.layers.dense(res_gan, num_channels, name="gan_rgb")))
+      reconstr_gan, reconstr = tf.split(reconstr, 2, axis=0)
       tf.summary.image(
-          "gan", common_layers.tpu_safe_image_summary(res_rgb), max_outputs=1)
+          "gan",
+          common_layers.tpu_safe_image_summary(reconstr_gan),
+          max_outputs=1)
       orig_rgb = tf.to_float(features["targets_raw"])
 
       def discriminate(x):
         return self.discriminator(x, is_training=is_training)
 
       gan_loss = common_layers.sliced_gan_loss(orig_rgb,
-                                               reverse_gradient(res_rgb),
+                                               reverse_gradient(reconstr_gan),
                                                discriminate,
                                                self.hparams.num_sliced_vecs)
       gan_loss *= hparams.gan_loss_factor
-    # Mix the final result and return.
-    res = common_layers.mix(res, features["targets"],
-                            hparams.bottleneck_warmup_steps // 2, is_training)
-    return res, {"bottleneck_loss": b_loss, "gan_loss": -gan_loss}
+
+    tf.summary.image(
+        "ae", common_layers.tpu_safe_image_summary(reconstr), max_outputs=1)
+
+    # Project to correct vocab_size/channels
+    training = tf.reduce_mean(
+        tf.square(tf.to_float(features["targets_raw"]) - reconstr))
+
+    outputs = tf.round(reconstr)
+    outputs = tf.one_hot(tf.to_int32(outputs), 256)
+
+    return outputs, {
+        "training": training,
+        "b_loss": b_loss,
+        "gan_loss": -gan_loss
+    }
 
   def sample(self, features=None, shape=None):
     del features, shape
