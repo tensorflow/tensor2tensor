@@ -155,15 +155,17 @@ def create_run_config(master="",
 
   # If using TPU, use TPU RunConfig, add TPUConfig, and add additional args
   if use_tpu:
-    if tpu_config_extra_kwargs is None:
-      tpu_config_extra_kwargs = {}
+    tpu_config_kwargs = {
+        "iterations_per_loop": iterations_per_loop,
+        "num_shards": num_shards,
+        "per_host_input_for_training": True,
+        "initial_infeed_sleep_secs": tpu_infeed_sleep_secs,
+    }
+    if tpu_config_extra_kwargs is not None:
+      tpu_config_kwargs.update(tpu_config_extra_kwargs)
     run_config_cls = tf.contrib.tpu.RunConfig
     tpu_config = tf.contrib.tpu.TPUConfig(
-        iterations_per_loop=iterations_per_loop,
-        num_shards=num_shards,
-        per_host_input_for_training=True,
-        initial_infeed_sleep_secs=tpu_infeed_sleep_secs,
-        **tpu_config_extra_kwargs)
+        **tpu_config_kwargs)
     run_config_args["tpu_config"] = tpu_config
 
   config = run_config_cls(**run_config_args)

@@ -27,6 +27,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 import tensorflow as tf
+from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 
 
@@ -738,15 +739,14 @@ class Problem(object):
       # Reset in the case when using TPU but alternating TRAIN and EVAL.
       self._next_partition_id = 0
       return 0, 1
+    phift = config.tpu_config.per_host_input_for_training
     # BEGIN GOOGLE-INTERNAL
-    # make mesh-tensorflow on TPU work with patch CL/202825176
-    # TODO(ylc): fix this once TPU estimator changes are checked in.
-    if getattr(config.tpu_config, "symmetric_sharding_enabled", False):
-      tf.logging.info("symmetric_sharding_enabled")
-      self._next_partition_id = 0
+    # This is the mesh-tensorflow case.  Still requires patch of cl/204685944
+    if (hasattr(tpu_config.InputPipelineConfig, "BROADCAST") and
+        phift == tpu_config.InputPipelineConfig.BROADCAST):
       return 0, 1
     # END GOOOGLE-INTERNAL
-    if config.tpu_config.per_host_input_for_training:
+    if phift:
       num_partitions = max(config.tpu_config.num_shards // 8, 1)
     else:
       num_partitions = config.tpu_config.num_shards
