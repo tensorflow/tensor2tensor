@@ -51,6 +51,7 @@ MODULES = [
     "tensor2tensor.data_generators.multinli",
     "tensor2tensor.data_generators.program_search",
     "tensor2tensor.data_generators.ocr",
+    "tensor2tensor.data_generators.pointer_generator_word",
     "tensor2tensor.data_generators.problem_hparams",
     "tensor2tensor.data_generators.ptb",
     "tensor2tensor.data_generators.qnli",
