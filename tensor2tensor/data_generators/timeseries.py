@@ -240,7 +240,7 @@ class TimeseriesSyntheticDataSeries10Samples100k(TimeseriesProblem):
   @property
   def num_input_timestamps(self):
     """Number of timestamps to include in the input."""
-    return 500
+    return 250
 
   @property
   def num_target_timestamps(self):

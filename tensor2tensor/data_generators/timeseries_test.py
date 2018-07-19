@@ -63,7 +63,7 @@ class TimeseriesTest(tf.test.TestCase):
   def testTimeseriesSyntheticData10Series100kSamples(self):
     problem = timeseries.TimeseriesSyntheticDataSeries10Samples100k()
     self.assertEqual(10, problem.num_series)
-    self.assertEqual(500, problem.num_input_timestamps)
+    self.assertEqual(250, problem.num_input_timestamps)
     self.assertEqual(100, problem.num_target_timestamps)
 
 
