@@ -19,6 +19,7 @@ from __future__ import print_function
 
 from functools import partial
 
+from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
@@ -51,15 +52,16 @@ def slice_hidden(x, hidden_size, num_blocks):
   """Slice encoder hidden state into block_dim.
 
   Args:
-    x: Encoder hidden state of shape [-1, hidden_size].
+    x: Encoder hidden state of shape [..., 1, hidden_size].
     hidden_size: Dimension of the latent space.
     num_blocks: Number of blocks in DVQ.
 
   Returns:
-    Sliced states of shape [-1, num_blocks, block_dim].
+    Sliced states of shape [..., num_blocks, block_dim].
   """
-  block_dim = int(hidden_size // num_blocks)
-  x_sliced = tf.reshape(x, shape=[-1, num_blocks, block_dim])
+  block_dim = hidden_size // num_blocks
+  x_shape = common_layers.shape_list(x)
+  x_sliced = tf.reshape(x, shape=(x_shape[:-2] + [num_blocks, block_dim]))
   return x_sliced
 
 
@@ -68,22 +70,25 @@ def nearest_neighbor(x,
                      block_v_size,
                      random_top_k=1,
                      soft_em=False,
-                     num_samples=1):
+                     num_samples=1,
+                     summary=True):
   """Find the nearest element in means to elements in x.
 
   Args:
     x: Batch of encoder continuous latent states sliced/projected into shape
-      [-1, num_blocks, block_dim].
-    means: Embedding table of shpae [num_blocks, block_v_size, block_dim].
+      [batch_size, latent_dim, num_blocks, block_dim].
+    means: Embedding table of shape [num_blocks, block_v_size, block_dim].
     block_v_size: Number of table entries per block.
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
     num_samples: Number of samples to take in soft EM (Default: 1).
+    summary: If True then record summary histogram of entropies (Default: True).
 
   Returns:
     Tensor with nearest element in mean encoded in one-hot notation
     and distances.
   """
+  x = tf.reshape(x, [-1] + common_layers.shape_list(x)[2:])
   x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keep_dims=True)
   means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keep_dims=True)
   scalar_prod = tf.matmul(
@@ -102,8 +107,14 @@ def nearest_neighbor(x,
         ],
         axis=1)
     nearest_hot = tf.one_hot(nearest_idx, depth=block_v_size)
+    neg_q_entropy = tf.reduce_sum(
+        nearest_hot * tf.expand_dims(tf.nn.log_softmax(-dist), 2), axis=2)
+    neg_q_entropy = tf.reduce_mean(neg_q_entropy)
     nearest_hot = tf.reduce_mean(nearest_hot, axis=-2)
+    if summary:
+      tf.summary.histogram("neg_q_entropy", tf.reshape(neg_q_entropy, [-1]))
   else:
+    neg_q_entropy = 0.
     if random_top_k > 1:
       _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
       nearest_idx = tf.gather(
@@ -114,45 +125,74 @@ def nearest_neighbor(x,
     else:
       nearest_idx = tf.argmax(-dist, axis=-1)
     nearest_hot = tf.one_hot(nearest_idx, block_v_size)
-  return nearest_hot
+  return nearest_hot, neg_q_entropy
 
 
 def embedding_lookup(x,
                      means,
                      num_blocks,
                      block_v_size,
+                     bottleneck_kind="dvq",
                      random_top_k=1,
                      soft_em=False,
-                     num_samples=1):
+                     num_samples=1,
+                     do_hard_gumbel_softmax=False,
+                     do_iaf=False,
+                     approximate_gs_entropy=False):
   """Compute nearest neighbors and loss for training the embeddings via DVQ.
 
   Args:
     x: Batch of encoder continuous latent states sliced/projected into shape
-      [-1, num_blocks, block_dim].
+      [batch_size, latent_dim, num_blocks, block_dim].
     means: Embedding table of shape [num_blocks, block_v_size, block_dim].
     num_blocks: Number of blocks in DVQ.
     block_v_size: Number of table entries per block.
+    bottleneck_kind: Discrete bottleneck type (Default: "dvq").
     random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
     soft_em: If True then use soft EM rather than hard EM (Default: False).
     num_samples: Number of samples to use for soft EM (Default: 1).
+    do_hard_gumbel_softmax: Boolean determining whether we take hard or soft
+      Gumbel-Softmax samples for gumbel-softmax-dvq bottleneck (Default: False).
+    do_iaf: Boolean determining whether we use inverse autoregressive flows for
+      gumbel-softmax-dvq bottleneck (Default: False).
+    approximate_gs_entropy: If True, use the categorical density instead of the
+      Gumbel-Softmax density when calculating the sample entropy (Default:
+      False).
 
   Returns:
-    The nearest neighbor in one hot form, the nearest neighbor itself, the
-    commitment loss, embedding training loss and distances.
+    x_means_hot: The nearest neighbor in one hot form, with shape
+      [batch_size * latent_dim, num_blocks, block_v_size].
+    x_means: The nearest neighbor itself, with shape [batch_size * latent_dim,
+      num_blocks, block_dim].
+    q_loss: Commitment loss.
+    e_loss: Embedding training loss.
+    neg_q_entropy: Negative entropy of variational approximation (0 if q is
+      deterministic).
   """
-  x_means_hot = nearest_neighbor(
-      x,
-      means,
-      block_v_size,
-      random_top_k,
-      soft_em=soft_em,
-      num_samples=num_samples)
+  if bottleneck_kind == "gumbel-softmax-dvq":
+    x_means_hot, neg_q_entropy = gumbel_softmax_nearest_neighbor_dvq(
+        x,
+        means,
+        block_v_size,
+        hard=do_hard_gumbel_softmax,
+        num_samples=num_samples,
+        do_iaf=do_iaf,
+        approximate_gs_entropy=approximate_gs_entropy)
+  else:
+    x_means_hot, neg_q_entropy = nearest_neighbor(
+        x,
+        means,
+        block_v_size,
+        random_top_k,
+        soft_em=soft_em,
+        num_samples=num_samples)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
   x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
   x_means = tf.transpose(x_means, [1, 0, 2])
+  x = tf.reshape(x, [-1] + common_layers.shape_list(x)[2:])
   q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
   e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
-  return x_means_hot, x_means, q_loss, e_loss
+  return x_means_hot, x_means, q_loss, e_loss, neg_q_entropy
 
 
 def bit_to_int(x_bit, num_bits, base=2):
@@ -249,7 +289,7 @@ def embed(x,
     elif bottleneck_kind == "gumbel-softmax":
       hot = tf.one_hot(x, 2**z_size)
       h1 = tf.layers.dense(hot, hidden_size, name="dae_dense")
-    elif bottleneck_kind == "dvq":
+    elif bottleneck_kind in ["dvq", "gumbel-softmax-dvq"]:
       if block_v_size is None:
         raise ValueError("Bottleneck kind is dvq but block_v_size is None.")
 
@@ -439,7 +479,10 @@ def discrete_bottleneck(x,
                         ema=True,
                         ema_count=None,
                         ema_means=None,
-                        summary=True):
+                        summary=True,
+                        do_hard_gumbel_softmax=False,
+                        do_iaf=False,
+                        approximate_gs_entropy=False):
   """Discretization bottleneck for latent variables.
 
   Args:
@@ -454,7 +497,7 @@ def discrete_bottleneck(x,
     startup_steps: Number of steps after which latent predictor is trained
       (Default: 50000).
     bottleneck_kind: Kind of discretization bottleneck to use; one of dvq,
-      semhash, gumbel-softmax (Default: dvq).
+      semhash, gumbel-softmax, gumbel-softmax-dvq (Default: dvq).
     num_blocks: Number of blocks to use for decomposed vector
       quantization (Default: 2).
     num_residuals: Number of residual units used to compute nearest
@@ -480,6 +523,13 @@ def discrete_bottleneck(x,
       examples in a batch it was the closest to (Default: None).
     ema_means: Exponentially averaged version of the embeddings (Default: None).
     summary: If True, then write summaries (Default: True).
+    do_hard_gumbel_softmax: Boolean determining hard or soft Gumbel-Softmax
+      samples (Default: False).
+    do_iaf: Boolean determining whether we do inverse autoregresive flows for
+      Gumbel-Softmax DVQ bottleneck (Default: False).
+    approximate_gs_entropy: If true, we approximate the Gumbel-Softmax density
+      as a categorical distribution when calculating the sample entropy
+      (Default: False).
 
   Returns:
     Embedding to pass to the decoder, discrete latent, loss, and the embedding
@@ -490,7 +540,7 @@ def discrete_bottleneck(x,
     ema_count or ema_means is None if we are using ema, or unknown args.
   """
   block_v_size = None
-  if bottleneck_kind == "dvq":
+  if bottleneck_kind in ["dvq", "gumbel-softmax-dvq"]:
     # Define the dvq parameters
     assert means is not None
 
@@ -509,7 +559,7 @@ def discrete_bottleneck(x,
     block_v_size = 2**(z_size_per_residual / num_blocks)
     block_v_size = int(block_v_size)
 
-    # Set the reshape method corresponding to projections or slices
+    # Set the reshape method corresponding to projections or slices.
     if reshape_method == "slice":
       reshape_fn = partial(
           slice_hidden, hidden_size=hidden_size, num_blocks=num_blocks)
@@ -525,7 +575,7 @@ def discrete_bottleneck(x,
     else:
       raise ValueError("Unknown reshape_method")
 
-    # Check if the ema settings make sense
+    # Check if the ema settings make sense.
     if ema:
       if ema_count is None:
         raise ValueError("ema_count is None but ema is True")
@@ -534,6 +584,7 @@ def discrete_bottleneck(x,
 
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     l = tf.constant(0.0)
+    neg_q_entropy = tf.constant(0.0)
     if bottleneck_kind == "dense":
       c = tf.layers.dense(x, z_size, name="vcc")
       h1 = tf.layers.dense(c, filter_size, name="vch1")
@@ -569,16 +620,20 @@ def discrete_bottleneck(x,
                                  kl_warmup_steps, summary)
       c = tf.argmax(hot, axis=-1)
       h1 = tf.layers.dense(hot, hidden_size, name="dae_dense")
-    elif bottleneck_kind == "dvq":
+    elif bottleneck_kind in ["dvq", "gumbel-softmax-dvq"]:
       x_reshaped = reshape_fn(x)
-      x_res = x_reshaped
+      x_res = tf.reshape(x_reshaped,
+                         [-1] + common_layers.shape_list(x_reshaped)[2:])
       x_means_hot = []
       x_means = 0
       l = 0
       for i in range(num_residuals):
-        x_means_hot_res, x_means_res, q_loss_res, e_loss_res = embedding_lookup(
-            x_res, means[i], num_blocks, block_v_size, random_top_k, soft_em,
-            num_samples)
+        x_means_hot_res, x_means_res, q_loss_res, e_loss_res, neg_q_entropy = (
+            embedding_lookup(x_reshaped, means[i], num_blocks, block_v_size,
+                             bottleneck_kind, random_top_k, soft_em,
+                             num_samples, do_hard_gumbel_softmax,
+                             do_iaf=do_iaf,
+                             approximate_gs_entropy=approximate_gs_entropy))
         # Update the ema variables
         if ema:
           tf.logging.info("Using EMA with beta = {}".format(beta))
@@ -663,7 +718,7 @@ def discrete_bottleneck(x,
         num_residuals=num_residuals,
         block_v_size=block_v_size,
         means=means)
-    return res, c, l, embed_fn
+    return res, c, l, embed_fn, neg_q_entropy
 
 
 # New API for discretization bottlenecks:
@@ -764,6 +819,191 @@ def vq_discrete_unbottleneck(x, hidden_size):
   means, _, _ = get_vq_bottleneck(bottleneck_size, hidden_size)
   result = tf.matmul(tf.reshape(x, [-1, x_shape[-1]]), means)
   return tf.reshape(result, x_shape[:-1] + [hidden_size])
+
+
+def gumbel_softmax_nearest_neighbor_dvq(x,
+                                        means,
+                                        block_v_size,
+                                        hard=False,
+                                        temperature_init=1.2,
+                                        num_samples=1,
+                                        startup_steps=15000,
+                                        summary=True,
+                                        do_iaf=False,
+                                        approximate_gs_entropy=False):
+  """Sample from Gumbel-Softmax and compute neighbors and losses.
+
+  Args:
+    x: A `float`-like `Tensor` of shape [batch_size, latent_dim, num_blocks,
+      block_dim] containing the latent vectors to be compared to the codebook.
+    means: Embedding table of shape [num_blocks, block_v_size, block_dim].
+    block_v_size: Number of discrete codes per block.
+    hard: Determines whether we take hard or soft Gumbel-Softmax samples
+      (Default: False).
+    temperature_init: Initial temperature used for Gumbel-Softmax samples,
+      after it which it decays to 0 (Default: 1.2).
+    num_samples: Number of samples drawn for each latent (Default: 1).
+    startup_steps: Number of steps it takes to decay temperature to 0 (Default:
+      15000).
+    summary: When `True`, we save histogram summaries of the KL term (Default:
+      True).
+    do_iaf: When `True`, we perform inverse autoregressive flow with
+      Gumbel-Softmax sample (Default: False).
+    approximate_gs_entropy: When `True`, we approximate Gumbel-Softmax
+      density as categorical when calculating sample entropy (Default: False).
+
+  Returns:
+    x_means_assignments: A `float`-like `Tensor` containing the codebook
+      assignments, averaged over samples, with shape [batch_size * latent_dim,
+      num_blocks, block_v_size].
+    neg_q_entropy: The negative entropy of the variational distribution,
+      averaged over samples.
+  """
+  batch_size, latent_dim, num_blocks, block_dim = common_layers.shape_list(x)
+
+  # Combine latent_dim and batch_size for computing distances.
+  x = tf.reshape(x, [-1, num_blocks, block_dim])
+
+  # Compute distances using (x - means)**2 = x**2 + means**2 - 2*x*means.
+  x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keepdims=True)
+  means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True)
+  means_norm_sq = tf.transpose(means_norm_sq, perm=[2, 0, 1])
+  scalar_prod = tf.matmul(
+      tf.transpose(x, perm=[1, 0, 2]), tf.transpose(means, perm=[0, 2, 1]))
+  scalar_prod = tf.transpose(scalar_prod, perm=[1, 0, 2])
+  dist = x_norm_sq + means_norm_sq - 2 * scalar_prod
+
+  # IAF requires latents to have their own dimension, so reshape dist from
+  # [batch_size * latent_dim, num_blocks, block_v_size] to
+  # [batch_size * num_blocks, latent_dim, block_v_size].
+  dist = tf.reshape(dist, [batch_size, latent_dim, num_blocks, -1])
+  dist = tf.reshape(tf.transpose(dist, perm=[0, 2, 1, 3]),
+                    [-1, latent_dim, block_v_size])
+  log_class_probs = tf.nn.log_softmax(-dist)
+
+  sample_shape = [num_samples] + common_layers.shape_list(dist)
+  gumbel_samples = gumbel_sample(sample_shape)
+
+  # Temperature decays linearly.
+  temperature = temperature_init - common_layers.inverse_lin_decay(
+      startup_steps)
+
+  # 10% of the time keep reasonably high temperature to keep learning.
+  temperature = tf.cond(
+      tf.less(tf.random_uniform([]), 0.9), lambda: temperature,
+      lambda: tf.random_uniform([], minval=0.5, maxval=1.0))
+
+  gumbel_softmax_samples = tf.nn.softmax(
+      (tf.expand_dims(log_class_probs, 0) + gumbel_samples) / temperature)
+  q_samples = tf.clip_by_value(gumbel_softmax_samples, 1e-6, 1-1e-6)
+
+  if approximate_gs_entropy:
+    q_dist = tf.contrib.distributions.Multinomial(total_count=1.0, logits=-dist)
+  else:
+    q_dist = tf.contrib.distributions.RelaxedOneHotCategorical(
+        temperature, logits=-dist)
+
+  # Take mean over samples to approximate entropy.
+  neg_q_entropy = tf.reduce_mean(q_dist.log_prob(q_samples), 0)
+
+  if summary:
+    tf.summary.histogram("neg_q_entropy", tf.reshape(neg_q_entropy, [-1]))
+  neg_q_entropy = tf.reduce_mean(neg_q_entropy)
+
+  if do_iaf:
+    q_samples = tf.reshape(q_samples, [-1, latent_dim, block_v_size])
+
+    # Shift samples so log_pi[:, i, :] is only a function of
+    # q_samples[:, :i, :]. We do this by adding a first row of zeros to the
+    # latents, shifting the other rows down by one, and removing the last row.
+
+    top_latent = tf.zeros([batch_size * num_blocks, 1, block_v_size])
+    shifted_samples = tf.concat([top_latent, q_samples[:, :-1, :]], axis=1)
+
+    d_k = 64
+    d_v = 64
+    query_projection = tf.get_variable(
+        "query_projection", [block_v_size, d_k], dtype=tf.float32)
+    keys_projection = tf.get_variable(
+        "keys_projection", [block_v_size, d_k], dtype=tf.float32)
+    values_projection = tf.get_variable(
+        "values_projection", [block_v_size, d_v], dtype=tf.float32)
+    query = tf.reduce_sum(tf.expand_dims(shifted_samples, -1) *
+                          tf.reshape(query_projection,
+                                     [1, 1, block_v_size, d_k]), 2)
+    keys = tf.reduce_sum(tf.expand_dims(shifted_samples, -1) *
+                         tf.reshape(keys_projection,
+                                    [1, 1, block_v_size, d_k]), 2)
+    values = tf.reduce_sum(tf.expand_dims(shifted_samples, -1) *
+                           tf.reshape(values_projection,
+                                      [1, 1, block_v_size, d_v]), 2)
+
+    # Masked self-attention with a single head.
+    # TODO(vafa): Add support for multiple heads
+    attention_output = common_attention.masked_local_attention_1d(
+        q=tf.expand_dims(query, 1),
+        k=tf.expand_dims(keys, 1),
+        v=tf.expand_dims(values, 1),
+        block_length=1)
+    attention_output = tf.reshape(
+        attention_output, [-1] + common_layers.shape_list(attention_output)[2:])
+
+    ffn_output = common_layers.conv_relu_conv(
+        attention_output,
+        filter_size=64,
+        output_size=block_v_size,
+        first_kernel_size=3,
+        second_kernel_size=1,
+        padding="LEFT",
+        nonpadding_mask=None,
+        dropout=0.,
+        cache=None,
+        decode_loop_step=None)
+
+    log_pi = tf.nn.log_softmax(ffn_output)
+
+    # Flow 1: Adding log_pi to q_samples and dividing by the temperature.
+    # Note that we drop last dimension of q_samples for centered-softmax, which
+    # we can do without recalculating probabilities because the last dimension
+    # of log_pi and q_samples are deterministic given the other dimensions.
+    # Flow 2: Centered-softmax.
+
+    chained_bijectors = tf.contrib.distributions.bijectors.Chain(
+        [tf.contrib.distributions.bijectors.SoftmaxCentered(),
+         tf.contrib.distributions.bijectors.Affine(
+             shift=log_pi[:, :, :-1],
+             scale_identity_multiplier=1./temperature)])
+    q_samples = chained_bijectors.forward(q_samples[:, :, :-1])
+    neg_q_entropy += tf.reduce_mean(
+        chained_bijectors.inverse_log_det_jacobian(q_samples, event_ndims=1))
+
+    q_samples = tf.reshape(
+        q_samples,
+        [num_samples, batch_size * num_blocks, latent_dim, block_v_size])
+
+  if hard:
+    x_means_idx = tf.argmax(q_samples, -1)
+
+    # Take average of one-hot vectors over samples.
+    x_means_hot = tf.reduce_mean(tf.one_hot(x_means_idx, block_v_size), 0)
+    x_means_assignments = (tf.reduce_mean(q_samples, 0) +
+                           tf.stop_gradient(x_means_hot - tf.reduce_mean(
+                               q_samples, 0)))
+  else:
+    x_means_assignments = tf.reduce_mean(gumbel_softmax_samples, 0)
+
+  # Reshape assignments to [batch_size * latent_dim, num_blocks,
+  # block_v_size]. We have to transpose between reshapes to make sure the
+  # dimensions have the correct interpretation.
+  x_means_assignments = tf.reshape(
+      x_means_assignments,
+      [batch_size, num_blocks, latent_dim, block_v_size])
+  x_means_assignments = tf.transpose(x_means_assignments, [0, 2, 1, 3])
+  x_means_assignments = tf.reshape(
+      x_means_assignments,
+      [batch_size * latent_dim, num_blocks, block_v_size])
+
+  return x_means_assignments, neg_q_entropy
 
 
 def gumbel_softmax_discrete_bottleneck(x,

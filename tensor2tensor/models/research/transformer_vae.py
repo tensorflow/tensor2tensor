@@ -346,7 +346,8 @@ def ae_transformer_internal(inputs,
     ed, inputs_ex, ed_ex = None, None, None
 
   # Autoencoding.
-  losses = {"extra": tf.constant(0.0), "latent_pred": tf.constant(0.0)}
+  losses = {"extra": tf.constant(0.0), "latent_pred": tf.constant(0.0),
+            "neg_q_entropy": tf.constant(0.0)}
   if hparams.do_ae:
     # flatten here
     original_targets_shape = tf.shape(targets)
@@ -370,11 +371,12 @@ def ae_transformer_internal(inputs,
     targets_c = compress(targets_noisy, inputs, False, hparams, "compress")
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
-      latents_dense, latents_discrete, extra_loss, embed = hparams.bottleneck(
-          x=targets_c,
-          filter_size=hparams.compress_filter_size,
-          name="vc",
-          mode=hparams.mode)
+      latents_dense, latents_discrete, extra_loss, embed, neg_q_entropy = (
+          hparams.bottleneck(
+              x=targets_c,
+              filter_size=hparams.compress_filter_size,
+              name="vc",
+              mode=hparams.mode))
       if _DO_SUMMARIES:
         tf.summary.histogram("b0", tf.reshape(latents_discrete[:, 0, :], [-1]))
       pc = common_layers.inverse_exp_decay(hparams.startup_steps)
@@ -392,7 +394,8 @@ def ae_transformer_internal(inputs,
         _, latent_pred_loss = ae_latent_softmax(
             latents_pred, tf.stop_gradient(latents_discrete), hparams)
         losses["latent_pred"] = tf.reduce_mean(
-            latent_pred_loss * tf.to_float(cond))
+            latent_pred_loss * tf.to_float(cond)) * hparams.prior_scale
+        losses["neg_q_entropy"] = neg_q_entropy * hparams.entropy_scale
       else:
         inputs_c = decode_transformer(inputs, ed, targets_c, hparams, "dec_c")
         losses["latent_pred"] = tf.reduce_mean((inputs_c - targets_c)**2) * 20
@@ -513,9 +516,12 @@ class TransformerAE(t2t_model.T2TModel):
         softmax_k=self._hparams.softmax_k,
         kl_warmup_steps=self._hparams.kl_warmup_steps,
         ema=self._hparams.ema,
-        summary=_DO_SUMMARIES)
+        summary=_DO_SUMMARIES,
+        do_hard_gumbel_softmax=self._hparams.do_hard_gumbel_softmax,
+        do_iaf=self._hparams.do_iaf,
+        approximate_gs_entropy=self._hparams.approximate_gs_entropy)
     # Set the discretization bottleneck specific things here
-    if self._hparams.bottleneck_kind == "dvq":
+    if self._hparams.bottleneck_kind in ["dvq", "gumbel-softmax-dvq"]:
       z_size_per_residual = self._hparams.z_size / self._hparams.num_residuals
       block_dim = int(self._hparams.hidden_size // self._hparams.num_blocks)
       block_v_size = 2**(z_size_per_residual / self._hparams.num_blocks)
@@ -714,6 +720,11 @@ def transformer_ae_small():
   hparams.add_hparam("soft_em", False)
   hparams.add_hparam("num_samples", 10)
   hparams.add_hparam("inv_temp", 1.0)
+  hparams.add_hparam("entropy_scale", 0.0)
+  hparams.add_hparam("prior_scale", 1.0)
+  hparams.add_hparam("do_hard_gumbel_softmax", False)
+  hparams.add_hparam("do_iaf", False)
+  hparams.add_hparam("approximate_gs_entropy", False)
   hparams.kl_warmup_steps = 150000
   hparams.force_full_predict = True
 
@@ -839,4 +850,66 @@ def transformer_ae_base_tpu():
   hparams = transformer_ae_base()
   transformer.update_hparams_for_tpu(hparams)
   hparams.batch_size = 512
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_noatt():
+  """Set of hyperparameters."""
+  hparams = transformer_ae_base()
+  hparams.reshape_method = "slice"
+  hparams.bottleneck_kind = "dvq"
+  hparams.hidden_size = 512
+  hparams.num_blocks = 1
+  hparams.num_decode_blocks = 1
+  hparams.z_size = 12
+  hparams.do_attend_decompress = False
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_ablation_1():
+  hparams = transformer_ae_base_noatt()
+  hparams.soft_em = True
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_ablation_2():
+  hparams = transformer_ae_base_ablation_1()
+  hparams.entropy_scale = 0.1
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_ablation_3():
+  hparams = transformer_ae_base_ablation_2()
+  hparams.prior_scale = 0.1
+  hparams.entropy_scale = 0.1
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_ablation_4():
+  hparams = transformer_ae_base_ablation_3()
+  hparams.entropy_scale = 0.0
+  hparams.prior_scale = 1.0
+  hparams.bottleneck_kind = "gumbel-softmax-dvq"
+  hparams.do_hard_gumbel_softmax = True
+  hparams.approximate_gs_entropy = True
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_ablation_5():
+  hparams = transformer_ae_base_ablation_4()
+  hparams.do_hard_gumbel_softmax = False
+  return hparams
+
+
+@registry.register_hparams
+def transformer_ae_base_iaf():
+  hparams = transformer_ae_base_ablation_5()
+  hparams.do_iaf = True
+  hparams.num_samples = 1
   return hparams
