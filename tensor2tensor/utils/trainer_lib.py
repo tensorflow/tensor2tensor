@@ -314,8 +314,7 @@ class T2TExperiment(object):
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
-        hooks=self._eval_spec.hooks,
-        name="eval")
+        hooks=self._eval_spec.hooks)
 
   def evaluate_on_train_data(self):
     self._estimator.evaluate(
