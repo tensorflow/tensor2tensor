@@ -44,7 +44,6 @@ class Imagetransformer(t2t_model.T2TModel):
 
   def body(self, features):
     hparams = copy.copy(self._hparams)
-    inputs = features["inputs"]
     targets = features["targets"]
     if (hparams.likelihood == cia.DistributionType.DMOL and
         (hparams.target_modality != "image:image_channel_bottom_identity" or
@@ -63,6 +62,7 @@ class Imagetransformer(t2t_model.T2TModel):
     decoder_input, rows, cols = cia.prepare_decoder(targets, hparams)
     # Add class label to decoder input.
     if not hparams.unconditional:
+      inputs = features["inputs"]
       decoder_input += tf.reshape(
           inputs,
           [common_layers.shape_list(targets)[0], 1, 1, hparams.hidden_size])
@@ -395,20 +395,6 @@ def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_b():
 
 
 @registry.register_hparams
-def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_e():
-  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_b()
-  hparams.learning_rate_warmup_steps = 16000
-  return hparams
-
-
-@registry.register_hparams
-def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_f():
-  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_b()
-  hparams.num_mixtures = 5
-  return hparams
-
-
-@registry.register_hparams
 def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_g():
   hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_b()
   hparams.filter_size = 512
@@ -424,7 +410,6 @@ def imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_g():
 def imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_k():
   hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_g()
   hparams.num_decoder_layers = 12
-  hparams.clip_grad_norm = 0.
   return hparams
 
 
@@ -465,6 +450,60 @@ def imagetransformerpp_base_14l_8h_big_uncond_dr03_dan_p():
   hparams.num_decoder_layers = 14
   hparams.batch_size = 8
   hparams.layer_prepostprocess_dropout = 0.2
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_m_bs1():
+  """For 128x128."""
+  # TODO(trandustin): why are these running? max_length and img_len not set
+  # 256x256 was also training without setting max_length
+  hparams = imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_m()
+  hparams.batch_size = 1
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_14l_8h_big_uncond_dr03_dan_p_bs1():
+  """For 128x128."""
+  hparams = imagetransformerpp_base_14l_8h_big_uncond_dr03_dan_p()
+  hparams.batch_size = 1
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_5l_8h_big_uncond_dr00_dan_g_bs1():
+  """For 256x256."""
+  hparams = imagetransformerpp_base_10l_8h_big_uncond_dr03_dan_g()
+  # TODO(trandustin): I forgot to set this in the runs! Maybe it's not used in
+  # image transformer training implementation?
+  # hparams.img_len = 256
+  hparams.max_length = 66000  # allow for 256x256
+  hparams.batch_size = 1
+  hparams.num_decoder_layers = 5
+  hparams.hidden_size = 128
+  hparams.filter_size = 128
+  hparams.attention_key_channels = 64
+  hparams.attention_value_channels = 64
+  hparams.layer_prepostprocess_dropout = 0.0
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_5l_8h_dr00_dan_g_bs1_adafactor():
+  """For 256x256."""
+  hparams = imagetransformerpp_base_5l_8h_big_uncond_dr00_dan_g_bs1()
+  # Use Adafactor which uses less memory than Adam, and its recommendations.
+  hparams.optimizer = "Adafactor"
+  hparams.learning_rate_schedule = "rsqrt_decay"
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformerpp_base_6l_8h_dr00_dan_g_bs1_adafactor():
+  """For 256x256."""
+  hparams = imagetransformerpp_base_5l_8h_dr00_dan_g_bs1_adafactor()
+  hparams.num_decoder_layers = 6
   return hparams
 
 
@@ -741,15 +780,17 @@ def imagetransformer_bas8l_8h_big_uncond_dr03_imgnet():
 @registry.register_hparams
 def imagetransformer_tiny():
   hparams = imagetransformer_base()
-  hparams.num_hidden_layers = 2
+  hparams.num_decoder_layers = 2
   hparams.hidden_size = 64
   hparams.batch_size = 1
+  hparams.unconditional = True
+  hparams.max_length = 66000  # allow for 256x256
   return hparams
 
 
 @registry.register_hparams
 def imagetransformerpp_tiny():
-  hparams = imagetransformer_base()
+  hparams = imagetransformer_tiny()
   hparams.likelihood = cia.DistributionType.DMOL
   hparams.num_channels = 1
   hparams.target_modality = "image:image_channel_bottom_identity"

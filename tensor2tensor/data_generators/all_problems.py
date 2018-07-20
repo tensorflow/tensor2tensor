@@ -27,6 +27,7 @@ MODULES = [
     "tensor2tensor.data_generators.babi_qa",
     "tensor2tensor.data_generators.bair_robot_pushing",
     "tensor2tensor.data_generators.celeba",
+    "tensor2tensor.data_generators.celebahq",
     "tensor2tensor.data_generators.cifar",
     "tensor2tensor.data_generators.cipher",
     "tensor2tensor.data_generators.cnn_dailymail",

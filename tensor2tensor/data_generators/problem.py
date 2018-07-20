@@ -487,18 +487,24 @@ class Problem(object):
     """Reverse features between inputs and targets if the problem is '_rev'."""
     if not self._was_reversed:
       return
-    inputs, targets = feature_map["inputs"], feature_map["targets"]
-    feature_map["inputs"], feature_map["targets"] = targets, inputs
-    if "inputs_segmentation" in feature_map:
-      inputs_seg = feature_map["inputs_segmentation"]
-      targets_seg = feature_map["targets_segmentation"]
-      feature_map["inputs_segmentation"] = targets_seg
+    inputs = feature_map.pop("inputs", None)
+    targets = feature_map.pop("targets", None)
+    inputs_seg = feature_map.pop("inputs_segmentation", None)
+    targets_seg = feature_map.pop("targets_segmentation", None)
+    inputs_pos = feature_map.pop("inputs_position", None)
+    targets_pos = feature_map.pop("targets_position", None)
+    if inputs is not None:
+      feature_map["targets"] = inputs
+    if targets is not None:
+      feature_map["inputs"] = targets
+    if inputs_seg is not None:
       feature_map["targets_segmentation"] = inputs_seg
-    if "inputs_position" in feature_map:
-      inputs_pos = feature_map["inputs_position"]
-      targets_pos = feature_map["targets_position"]
-      feature_map["inputs_position"] = targets_pos
+    if targets_seg is not None:
+      feature_map["inputs_segmentation"] = targets_seg
+    if inputs_pos is not None:
       feature_map["targets_position"] = inputs_pos
+    if targets_pos is not None:
+      feature_map["inputs_position"] = targets_pos
 
   def maybe_copy_features(self, feature_map):
     if not self._was_copy:
@@ -1009,22 +1015,33 @@ def _reverse_problem_hparams(p_hparams):
   p = p_hparams
 
   # Swap modalities.
-  input_modality = p.input_modality["inputs"]
+  input_modality = p.input_modality.get("inputs")
   target_modality = p.target_modality
-  p.input_modality["inputs"] = target_modality
   p.target_modality = input_modality
+  if target_modality is not None:
+    p.input_modality["inputs"] = target_modality
+  else:
+    p.input_modality = {}
 
   # Swap vocabularies.
-  input_vocabulary = p.vocabulary["inputs"]
-  target_vocabulary = p.vocabulary["targets"]
-  p.vocabulary["inputs"] = target_vocabulary
-  p.vocabulary["targets"] = input_vocabulary
+  input_vocabulary = p.vocabulary.pop("inputs", None)
+  target_vocabulary = p.vocabulary.pop("targets", None)
+  if input_vocabulary is not None:
+    p.vocabulary["targets"] = input_vocabulary
+  if target_vocabulary is not None:
+    p.vocabulary["inputs"] = target_vocabulary
 
   # Swap input/target space ids.
   input_space_id = p.input_space_id
   target_space_id = p.target_space_id
-  p.input_space_id = target_space_id
-  p.target_space_id = input_space_id
+  if input_space_id is not None:
+    p.target_space_id = input_space_id
+  else:
+    p.target_space_id = SpaceID.GENERIC
+  if target_space_id is not None:
+    p.input_space_id = target_space_id
+  else:
+    p.input_space_id = SpaceID.GENERIC
 
   # Mark that p was reversed.
   p.was_reversed = True
