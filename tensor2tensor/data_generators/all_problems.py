@@ -86,7 +86,11 @@ ALL_MODULES = list(MODULES)
 
 def _py_err_msg(module):
   if six.PY2:
-    msg = "No module named %s" % module.split(".")[-1]
+    # Py2 error will reference the module relative to the current module
+    shared_module = "data_generators."
+    start_idx = module.index(shared_module) + len(shared_module)
+    err_name = module[start_idx:]
+    msg = "No module named %s" % err_name
   else:
     msg = "No module named '%s'" % module
   return msg
