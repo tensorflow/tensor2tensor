@@ -37,7 +37,7 @@ class Text2textCopyableTokens(text_problems.Text2textTmpdirTokens):
 
   def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
     vocab_filename = os.path.join(data_dir, self.vocab_filename)
-    encoder = text_encoder.TokenTextEncoderOov(
+    encoder = TokenTextEncoderOov(
         vocab_filename, replace_oov=self.oov_token)
     return encoder
 
