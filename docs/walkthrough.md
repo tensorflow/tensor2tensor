@@ -402,5 +402,6 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
 * [Self-Attention with Relative Position Representations](https://arxiv.org/abs/1803.02155)
 * [Fast Decoding in Sequence Models using Discrete Latent Variables](https://arxiv.org/abs/1803.03382)
 * [Adafactor: Adaptive Learning Rates with Sublinear Memory Cost](https://arxiv.org/abs/1804.04235)
+* [Universal Transformers](https://arxiv.org/abs/1807.03819)
 
 *Note: This is not an official Google product.*
