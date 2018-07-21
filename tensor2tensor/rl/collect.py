@@ -55,11 +55,6 @@ class _MemoryWrapper(WrapperBase):
     shapes = meta_data[0][:4]
     dtypes = meta_data[1][:4]
     self.speculum = tf.FIFOQueue(infinity, shapes=shapes, dtypes=dtypes)
-    observs_shape = batch_env.observ.shape
-    # TODO(piotrmilos): possibly retrieve the observation type for batch_env
-    observ_dtype = tf.float32
-    self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
-                               trainable=False)
 
   def simulate(self, action):
 
@@ -71,12 +66,9 @@ class _MemoryWrapper(WrapperBase):
 
     with tf.control_dependencies([reward, done]):
       enqueue_op = self.speculum.enqueue(
-          [self._observ.read_value(), reward, done, action])
+          [self._batch_env.observ, reward, done, action])
 
     with tf.control_dependencies([enqueue_op]):
-      assign = self._observ.assign(self._batch_env.observ)
-
-    with tf.control_dependencies([assign]):
       return tf.identity(reward), tf.identity(done)
 
 
