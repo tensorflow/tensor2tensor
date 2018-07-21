@@ -677,6 +677,7 @@ class NextFrameStochastic(NextFrameBasic):
             tf.round(
                 tf.to_float(batch_size) *
                 (k / (k + tf.exp(tf.to_float(iter_num) / tf.to_float(k))))))
+        tf.summary.scalar("num_ground_truth", num_ground_truth)
 
       if feedself and done_warm_start:
         # Feed in generated stuff.
