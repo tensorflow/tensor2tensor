@@ -190,10 +190,10 @@ def decode_transformer(encoder_output,
             [common_layers.shape_list(targets)[0], 1, 1, hparams.hidden_size])
       decoder_output = cia.transformer_decoder_layers(
           decoder_input,
-          None,
-          bias,
-          hparams.num_decoder_layers or hparams.num_hidden_layers,
-          hparams,
+          encoder_output=None,
+          num_layers=hparams.num_decoder_layers or hparams.num_hidden_layers,
+          hparams=hparams,
+          self_attention_bias=bias,
           attention_type=hparams.dec_attention_type,
           name="decoder")
     decoder_output_shape = common_layers.shape_list(decoder_output)
@@ -573,7 +573,10 @@ class TransformerAE(t2t_model.T2TModel):
           for i in range(self._hparams.num_residuals):
             ema_means_i = tf.get_variable(
                 "ema_means_{}".format(i),
-                initializer=means.initialized_value()[i],
+                [self._hparams.num_blocks, block_v_size, block_dim],
+                initializer=(lambda shape, dtype=None, partition_info=None,  # pylint: disable=g-long-lambda
+                                    verify_shape=None:
+                             means.initialized_value()[i]),
                 trainable=False)
             ema_means.append(ema_means_i)
 
@@ -770,6 +773,9 @@ def imagetransformer_ae_cifar():
   hparams.pos = "timing"  # timing, none
   hparams.nbr_decoder_problems = 1
   hparams.num_output_layers = 3
+  # TODO(trandustin): semhash doesn't work if filter_size != hidden_size. For
+  # now, set default to dvq.
+  hparams.bottleneck_kind = "dvq"
   hparams.add_hparam("block_size", 1)
 
   # dilated attention based flags
@@ -789,6 +795,7 @@ def imagetransformer_ae_cifar():
   hparams.sep_rgb_embed = False
   hparams.add_hparam("dec_attention_type", cia.AttentionType.LOCAL_1D)
   hparams.add_hparam("block_raster_scan", False)
+  hparams.add_hparam("shared_rel", False)
 
   # multipos attention params
   hparams.add_hparam("q_filter_width", 1)
