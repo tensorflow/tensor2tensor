@@ -177,6 +177,26 @@ class SymbolModalityWeightsAll(SymbolModality):
     return common_layers.weights_all
 
 
+@registry.register_symbol_modality("one_hot")
+class SymbolModalityOneHot(SymbolModality):
+  """Simple SymbolModality with one hot as embeddings."""
+
+  def bottom(self, x):
+    return tf.one_hot(x, self._vocab_size)
+
+  def targets_bottom(self, x):
+    return tf.one_hot(x, self._vocab_size)
+
+  def top(self, body_output, _):
+    return body_output
+
+  def loss(self, top_out, targets):
+    labels = tf.one_hot(targets, self._vocab_size)
+    loss = tf.nn.softmax_cross_entropy_with_logits(
+        logits=top_out, labels=labels)
+    return tf.reduce_mean(loss), tf.constant(1.0)
+
+
 @registry.register_symbol_modality("ctc")
 class CTCSymbolModality(SymbolModality):
   """SymbolModality that uses CTC loss."""
