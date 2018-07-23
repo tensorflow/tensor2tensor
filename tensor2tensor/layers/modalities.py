@@ -684,6 +684,13 @@ class VideoModalityL2(VideoModalityL1):
 class VideoModalityL2Raw(VideoModalityL2):
   """Modality with L2 loss and raw input (sequences of frames)."""
 
+  def convert_rgb_to_real(self, prediction, targets):
+    """Convert prediction and target from rgb to real."""
+    prediction = tf.squeeze(prediction, axis=-1)
+    prediction = common_layers.convert_rgb_to_real(prediction)
+    targets = common_layers.convert_rgb_to_real(targets)
+    return prediction, targets
+
   def bottom(self, x):
     common_layers.summarize_video(x, "inputs")
     return common_layers.convert_rgb_to_real(x)
@@ -699,11 +706,18 @@ class VideoModalityL2Raw(VideoModalityL2):
     return tf.expand_dims(rgb_frames, axis=-1)
 
   def loss(self, top_out, targets):
-    prediction = top_out
-    prediction = tf.squeeze(prediction, axis=-1)
-    prediction = common_layers.convert_rgb_to_real(prediction)
-    groundtruth = common_layers.convert_rgb_to_real(targets)
+    prediction, groundtruth = self.convert_rgb_to_real(top_out, targets)
     loss = tf.losses.mean_squared_error(prediction, groundtruth)
+    return loss, tf.constant(1.0)
+
+
+@registry.register_video_modality("l1raw")
+class VideoModalityL1Raw(VideoModalityL2Raw):
+  """Modality with L1 loss and raw input (sequences of frames)."""
+
+  def loss(self, top_out, targets):
+    prediction, groundtruth = self.convert_rgb_to_real(top_out, targets)
+    loss = tf.losses.absolute_difference(prediction, groundtruth)
     return loss, tf.constant(1.0)
 
 

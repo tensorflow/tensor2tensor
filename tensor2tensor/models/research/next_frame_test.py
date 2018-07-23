@@ -33,14 +33,15 @@ class NextFrameTest(tf.test.TestCase):
                      out_frames,
                      hparams,
                      model,
-                     expected_last_dim):
+                     expected_last_dim,
+                     upsample_method="conv2d_transpose"):
 
     x = np.random.random_integers(0, high=255, size=(8, in_frames, 64, 64, 3))
     y = np.random.random_integers(0, high=255, size=(8, out_frames, 64, 64, 3))
 
     hparams.video_num_input_frames = in_frames
     hparams.video_num_target_frames = out_frames
-
+    hparams.upsample_method = upsample_method
     problem = registry.problem("video_stochastic_shapes10k")
     p_hparams = problem.get_hparams(hparams)
     hparams.problem = problem
@@ -64,6 +65,12 @@ class NextFrameTest(tf.test.TestCase):
     self.TestVideoModel(1, 6, hparams, model, expected_last_dim)
     self.TestVideoModel(4, 1, hparams, model, expected_last_dim)
     self.TestVideoModel(7, 5, hparams, model, expected_last_dim)
+
+  def TestOnVariousUpSampleLayers(self, hparams, model, expected_last_dim):
+    self.TestVideoModel(4, 1, hparams, model, expected_last_dim,
+                        upsample_method="bilinear_upsample_conv")
+    self.TestVideoModel(4, 1, hparams, model, expected_last_dim,
+                        upsample_method="nn_upsample_conv")
 
   def testBasic(self):
     self.TestOnVariousInputOutputSizes(
@@ -89,6 +96,15 @@ class NextFrameTest(tf.test.TestCase):
         next_frame.NextFrameStochasticEmily,
         1)
 
+  def testStochasticSavp(self):
+    self.TestOnVariousInputOutputSizes(
+        next_frame.next_frame_savp(),
+        next_frame.NextFrameSavp,
+        1)
+    self.TestOnVariousUpSampleLayers(
+        next_frame.next_frame_savp(),
+        next_frame.NextFrameSavp,
+        1)
 
 if __name__ == "__main__":
   tf.test.main()
