@@ -372,11 +372,10 @@ def ae_transformer_internal(inputs,
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
       latents_dense, latents_discrete, extra_loss, embed, neg_q_entropy = (
-          hparams.bottleneck(
-              x=targets_c,
-              filter_size=hparams.compress_filter_size,
-              name="vc",
-              mode=hparams.mode))
+          hparams.bottleneck(inputs=targets_c,
+                             filter_size=hparams.compress_filter_size,
+                             mode=hparams.mode,
+                             name="vc"))
       if _DO_SUMMARIES:
         tf.summary.histogram("b0", tf.reshape(latents_discrete[:, 0, :], [-1]))
       pc = common_layers.inverse_exp_decay(hparams.startup_steps)
@@ -401,11 +400,11 @@ def ae_transformer_internal(inputs,
         losses["latent_pred"] = tf.reduce_mean((inputs_c - targets_c)**2) * 20
         def bn_inputs():
           with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-            bn, _, _, _ = hparams.bottleneck(
-                x=inputs_c,
+            bn, _, _, _, _ = hparams.bottleneck(
+                inputs=inputs_c,
                 filter_size=hparams.compress_filter_size,
-                name="vc",
-                mode=hparams.mode)
+                mode=hparams.mode,
+                name="vc")
           return bn
         inputs_c = bn_inputs
         ptc = 1.0 - common_layers.inverse_lin_decay(200000) * 0.5
@@ -415,15 +414,17 @@ def ae_transformer_internal(inputs,
     else:
       if hparams.bottleneck_kind in ["dense", "vae"]:
         inputs_c = decode_transformer(inputs, ed, targets_c, hparams, "dec_c")
-        latents_dense, _, _, _ = hparams.bottleneck(
-            x=inputs_c,
+        latents_dense, _, _, _, _ = hparams.bottleneck(
+            inputs=inputs_c,
             filter_size=hparams.compress_filter_size,
-            name="vc",
-            mode=hparams.mode)
+            mode=hparams.mode,
+            name="vc")
       else:
         latent_len = common_layers.shape_list(targets_c)[1]
-        _, _, _, embed = hparams.bottleneck(
-            x=targets_c, filter_size=hparams.compress_filter_size, name="vc")
+        _, _, _, embed, _ = hparams.bottleneck(
+            inputs=targets_c,
+            filter_size=hparams.compress_filter_size,
+            name="vc")
         latents_dense = tf.zeros_like(targets_c[:, :latent_len, :, :])
         if cache is None:
           cache = ae_latent_sample(
@@ -502,26 +503,26 @@ class TransformerAE(t2t_model.T2TModel):
         hidden_size=self._hparams.hidden_size,
         z_size=self._hparams.z_size,
         filter_size=self._hparams.filter_size,
-        startup_steps=self.hparams.startup_steps,
         bottleneck_kind=self._hparams.bottleneck_kind,
         num_blocks=self._hparams.num_blocks,
         num_residuals=self.hparams.num_residuals,
         reshape_method=self._hparams.reshape_method,
         beta=self._hparams.beta,
-        noise_dev=self._hparams.noise_dev,
+        ema=self._hparams.ema,
+        epsilon=self._hparams.epsilon,
         decay=self._hparams.decay,
-        discrete_mix=self._hparams.d_mix,
         random_top_k=self._hparams.random_top_k,
         soft_em=self.hparams.soft_em,
         num_samples=self.hparams.num_samples,
-        epsilon=self._hparams.epsilon,
         softmax_k=self._hparams.softmax_k,
-        kl_warmup_steps=self._hparams.kl_warmup_steps,
-        ema=self._hparams.ema,
-        summary=_DO_SUMMARIES,
+        temperature_warmup_steps=self._hparams.temperature_warmup_steps,
         do_hard_gumbel_softmax=self._hparams.do_hard_gumbel_softmax,
         do_iaf=self._hparams.do_iaf,
-        approximate_gs_entropy=self._hparams.approximate_gs_entropy)
+        approximate_gs_entropy=self._hparams.approximate_gs_entropy,
+        discrete_mix=self._hparams.d_mix,
+        noise_dev=self._hparams.noise_dev,
+        startup_steps=self.hparams.startup_steps,
+        summary=_DO_SUMMARIES)
     # Set the discretization bottleneck specific things here
     if self._hparams.bottleneck_kind in ["dvq", "gumbel-softmax-dvq"]:
       z_size_per_residual = self._hparams.z_size / self._hparams.num_residuals
@@ -730,7 +731,7 @@ def transformer_ae_small():
   hparams.add_hparam("do_hard_gumbel_softmax", False)
   hparams.add_hparam("do_iaf", False)
   hparams.add_hparam("approximate_gs_entropy", False)
-  hparams.kl_warmup_steps = 150000
+  hparams.add_hparam("temperature_warmup_steps", 150000)
   hparams.force_full_predict = True
 
   # task params
