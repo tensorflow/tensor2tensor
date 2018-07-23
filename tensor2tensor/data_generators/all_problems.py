@@ -18,7 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import importlib
-import six
+import re
 
 MODULES = [
     "tensor2tensor.data_generators.algorithmic",
@@ -84,16 +84,9 @@ ALL_MODULES = list(MODULES)
 
 
 
-def _py_err_msg(module):
-  if six.PY2:
-    # Py2 error will reference the module relative to the current module
-    shared_module = "data_generators."
-    start_idx = module.index(shared_module) + len(shared_module)
-    err_name = module[start_idx:]
-    msg = "No module named %s" % err_name
-  else:
-    msg = "No module named '%s'" % module
-  return msg
+def _is_import_err_msg(err_str, module):
+  module_pattern = "(.)?".join(["(%s)?" % m for m in module.split(".")])
+  return re.match("^No module named (')?%s(')?$" % module_pattern, err_str)
 
 
 def _handle_errors(errors):
@@ -105,7 +98,7 @@ def _handle_errors(errors):
   print(err_msg.format(num_missing=len(errors)))
   for module, err in errors:
     err_str = str(err)
-    if err_str != _py_err_msg(module):
+    if not _is_import_err_msg(err_str, module):
       print("From module %s" % module)
       raise err
     if log_all:
