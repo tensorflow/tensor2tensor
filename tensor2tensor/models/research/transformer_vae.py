@@ -431,8 +431,10 @@ def ae_transformer_internal(inputs,
         latents_dense = embed(cache)
     # Postprocess.
     d = latents_dense
-    pos = tf.get_variable("pos", [1, 1000, 1, hparams.hidden_size])
-    pos = pos[:, :common_layers.shape_list(latents_dense)[1] + 1, :, :]
+    latent_len = common_layers.shape_list(latents_dense)[1]
+    if isinstance(latent_len, tf.Tensor):
+      latent_len = hparams.max_length
+    pos = tf.get_variable("pos", [1, latent_len + 1, 1, hparams.hidden_size])
     latents_dense = tf.pad(latents_dense,
                            [[0, 0], [1, 0], [0, 0], [0, 0]]) + pos
 
@@ -807,6 +809,18 @@ def imagetransformer_ae_cifar():
   hparams.drop_inputs = True
   hparams.do_attend_compress = False
   hparams.do_attend_decompress = False
+  return hparams
+
+
+def imagetransformer_ae_imagenet():
+  """For 64x64 ImageNet. ~56M trainable variables."""
+  hparams = imagetransformer_ae_cifar()
+  hparams.max_length = int(64 * 64 * 3)
+  hparams.img_len = 64
+  hparams.num_heads = 4  # Heads are expensive on TPUs.
+  # Reduce architecture from 32x32 CIFAR-10 in order to fit in memory.
+  hparams.num_decoder_layers = 8
+  hparams.num_compress_steps = 2
   return hparams
 
 
