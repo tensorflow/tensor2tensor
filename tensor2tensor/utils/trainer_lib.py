@@ -143,6 +143,7 @@ def create_run_config(master="",
       "session_config": session_config,
       "save_summary_steps": 100,
       "save_checkpoints_steps": save_checkpoints_steps,
+      "save_checkpoints_secs": save_checkpoints_secs,
       "keep_checkpoint_max": keep_checkpoint_max,
       "keep_checkpoint_every_n_hours": keep_checkpoint_every_n_hours,
       "tf_random_seed": random_seed,
@@ -150,7 +151,6 @@ def create_run_config(master="",
   }
   if save_checkpoints_secs:
     del run_config_args["save_checkpoints_steps"]
-    run_config_args["save_checkpoints_secs"] = save_checkpoints_secs
   run_config_cls = tf.contrib.learn.RunConfig
 
   # If using TPU, use TPU RunConfig, add TPUConfig, and add additional args
