@@ -33,6 +33,8 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
   log_variable_sizes(verbose=hparams.summarize_vars)
+  if hparams.summarize_vars:
+    summarize_variables()
   diet_vars = [
       v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
   ]
@@ -214,6 +216,24 @@ def log_variable_sizes(var_list=None, tag=None, verbose=False):
                       str(v.shape).ljust(20), v_size)
     total_size += v_size
   tf.logging.info("%s Total size: %d", tag, total_size)
+
+
+def summarize_variables(var_list=None, tag=None):
+  """Summarize the variables.
+
+  Args:
+    var_list: a list of variables; defaults to trainable_variables.
+    tag: name scope of the summary; defaults to training_variables/.
+  """
+  if var_list is None:
+    var_list = tf.trainable_variables()
+  if tag is None:
+    tag = "training_variables/"
+
+  name_to_var = {v.name: v for v in var_list}
+  for v_name in list(name_to_var):
+    v = name_to_var[v_name]
+    tf.summary.histogram(tag + v_name, v)
 
 
 def get_variable_initializer(hparams):
