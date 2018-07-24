@@ -695,6 +695,23 @@ def noam_norm(x, epsilon=1.0, name=None):
         tf.to_float(shape[-1])))
 
 
+def l2_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
+  """Layer normalization with l2 norm."""
+  if filters is None:
+    filters = shape_list(x)[-1]
+  with tf.variable_scope(
+      name, default_name="l2_norm", values=[x], reuse=reuse):
+    scale = tf.get_variable(
+        "l2_norm_scale", [filters], initializer=tf.ones_initializer())
+    bias = tf.get_variable(
+        "l2_norm_bias", [filters], initializer=tf.zeros_initializer())
+    epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
+    mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
+    l2norm = tf.reduce_sum(tf.square(x - mean), axis=[-1], keepdims=True)
+    norm_x = (x - mean) * tf.rsqrt(l2norm + epsilon)
+    return norm_x * scale + bias
+
+
 def apply_norm(x, norm_type, depth, epsilon):
   """Apply Normalization."""
   if norm_type == "layer":
@@ -705,10 +722,21 @@ def apply_norm(x, norm_type, depth, epsilon):
     return tf.layers.batch_normalization(x, epsilon=epsilon)
   if norm_type == "noam":
     return noam_norm(x, epsilon)
+  if norm_type == "l2":
+    return l2_norm(x, filters=depth, epsilon=epsilon)
   if norm_type == "none":
     return x
   raise ValueError("Parameter normalizer_fn must be one of: 'layer', 'batch',"
-                   "'noam', 'none'.")
+                   "'noam', 'lr', 'none'.")
+
+
+def zero_add(previous_value, x, name=None, reuse=False):
+  """Resnet connection with zero initialization."""
+  with tf.name_scope(
+      name, default_name="zero_add", values=[previous_value, x], reuse=reuse):
+    gamma = tf.get_variable(
+        "gamma", [None], initializer=tf.zeros_initializer())
+    return previous_value + gamma*x
 
 
 def layer_prepostprocess(previous_value,
@@ -728,6 +756,7 @@ def layer_prepostprocess(previous_value,
     a: add previous_value
     n: apply normalization
     d: apply dropout
+    z: zero add
 
   For example, if sequence=="dna", then the output is
     previous_value + normalize(dropout(x))
@@ -755,6 +784,8 @@ def layer_prepostprocess(previous_value,
     for c in sequence:
       if c == "a":
         x += previous_value
+      elif c == "z":
+        x = zero_add(previous_value, x)
       elif c == "n":
         x = apply_norm(x, norm_type, depth, epsilon)
       else:
@@ -786,6 +817,8 @@ def layer_preprocess(layer_input, hparams):
     a Tensor
   """
   assert "a" not in hparams.layer_preprocess_sequence, (
+      "No residual connections allowed in hparams.layer_preprocess_sequence")
+  assert "z" not in hparams.layer_preprocess_sequence, (
       "No residual connections allowed in hparams.layer_preprocess_sequence")
   return layer_prepostprocess(
       None,
