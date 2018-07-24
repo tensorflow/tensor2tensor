@@ -48,6 +48,7 @@ MODULES = [
     "tensor2tensor.data_generators.lm1b",
     "tensor2tensor.data_generators.lm1b_imdb",
     "tensor2tensor.data_generators.mnist",
+    "tensor2tensor.data_generators.mrpc",
     "tensor2tensor.data_generators.mscoco",
     "tensor2tensor.data_generators.multinli",
     "tensor2tensor.data_generators.program_search",
