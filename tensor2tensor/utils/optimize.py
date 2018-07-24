@@ -80,7 +80,7 @@ class ConditionalOptimizer(tf.train.Optimizer):
     tf.logging.info("Using optimizer %s", optimizer_name)
 
     if optimizer_name == "Adam":
-      # We change the default epsilon for Adam and re-scale lr.
+      # We change the default epsilon for Adam.
       # Using LazyAdam as it's much faster for large vocabulary embeddings.
       self._opt = tf.contrib.opt.LazyAdamOptimizer(
           lr,
