@@ -194,16 +194,25 @@ class NextFrameStochastic(NextFrameBasic):
       return [1 for _ in array]
     return array
 
-  def tile_and_concat(self, image, latent, concat_latent=True):
-    """Tile latent and concatenate to image across depth."""
+  @staticmethod
+  def tile_and_concat(image, latent, concat_latent=True):
+    """Tile latent and concatenate to image across depth.
+
+    Args:
+      image: 4-D Tensor, (batch_size X height X width X channels)
+      latent: 2-D Tensor, (batch_size X latent_dims)
+      concat_latent: If set to False, the image is returned as is.
+
+    Returns:
+      concat_latent: 4-D Tensor, (batch_size X height X width X channels+1)
+        latent tiled and concatenated to the image across the channels.
+    """
     if not concat_latent:
       return image
-    height, width = image.shape[1:3].as_list()
-    tf.logging.info("Height")
-    tf.logging.info(height)
-    tf.logging.info("Width")
-    tf.logging.info(width)
-    _, latent_dims = latent.shape.as_list()
+    image_shape = common_layers.shape_list(image)
+    latent_shape = common_layers.shape_list(latent)
+    height, width = image_shape[1], image_shape[2]
+    latent_dims = latent_shape[1]
 
     height_multiples = height // latent_dims
     pad = height - (height_multiples * latent_dims)
@@ -397,13 +406,19 @@ class NextFrameStochastic(NextFrameBasic):
       return x
 
   def conv_lstm_2d(self, inputs, state, output_channels,
-                   kernel_size=5, name=None):
+                   kernel_size=5, name=None, spatial_dims=None):
     input_shape = common_layers.shape_list(inputs)
+    batch_size, input_channels = input_shape[0], input_shape[-1]
+    if spatial_dims is None:
+      input_shape = input_shape[1:]
+    else:
+      input_shape = spatial_dims + [input_channels]
+
     cell = tf.contrib.rnn.ConvLSTMCell(
-        2, input_shape[1:], output_channels,
+        2, input_shape, output_channels,
         [kernel_size, kernel_size], name=name)
     if state is None:
-      state = cell.zero_state(input_shape[0], tf.float32)
+      state = cell.zero_state(batch_size, tf.float32)
     outputs, new_state = cell(inputs, state)
     return outputs, new_state
 
@@ -439,7 +454,8 @@ class NextFrameStochastic(NextFrameBasic):
       enc4 = self.tile_and_concat(enc4, latent, concat_latent=concat_latent)
 
       hidden6, lstm_state[5] = lstm_func(
-          enc4, lstm_state[5], lstm_size[5], name="state6")  # 16x16
+          enc4, lstm_state[5], lstm_size[5], name="state6",
+          spatial_dims=enc1_shape[1:-1])  # 16x16
       hidden6 = self.tile_and_concat(
           hidden6, latent, concat_latent=concat_latent)
       hidden6 = tfcl.layer_norm(hidden6, scope="layer_norm7")
@@ -456,7 +472,8 @@ class NextFrameStochastic(NextFrameBasic):
       enc5 = self.tile_and_concat(enc5, latent, concat_latent=concat_latent)
 
       hidden7, lstm_state[6] = lstm_func(
-          enc5, lstm_state[6], lstm_size[6], name="state7")  # 32x32
+          enc5, lstm_state[6], lstm_size[6], name="state7",
+          spatial_dims=enc0_shape[1:-1])  # 32x32
       hidden7 = tfcl.layer_norm(hidden7, scope="layer_norm8")
 
       # Skip connection.
