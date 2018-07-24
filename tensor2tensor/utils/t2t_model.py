@@ -1363,7 +1363,8 @@ class T2TModel(base.Layer):
         "targets": features.get("infer_targets"),
         "batch_prediction_key": features.get("batch_prediction_key"),
     }
-    _del_dict_nones(predictions)
+
+    _del_dict_non_tensors(predictions)
 
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
@@ -1595,9 +1596,9 @@ def _create_host_call(model_dir):
   return (host_call_fn, summary_kwargs)
 
 
-def _del_dict_nones(d):
+def _del_dict_non_tensors(d):
   for k in list(d.keys()):
-    if d[k] is None:
+    if not isinstance(d[k], tf.Tensor):
       del d[k]
 
 
