@@ -27,7 +27,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
-from tensorflow_models.slim.nets.cyclegan import cyclegan_upsample
+
 tfl = tf.layers
 tfcl = tf.contrib.layers
 
