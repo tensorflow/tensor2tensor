@@ -31,7 +31,6 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 import tensorflow as tf
-from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 
 flags = tf.flags

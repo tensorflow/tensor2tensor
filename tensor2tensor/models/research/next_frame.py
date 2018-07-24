@@ -27,7 +27,12 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
-from tensorflow_models.slim.nets.cyclegan import cyclegan_upsample
+
+try:
+  from tensorflow_models.slim.nets.cyclegan import cyclegan_upsample  # pylint: disable=g-import-not-at-top
+except ImportError:
+  pass
+
 tfl = tf.layers
 tfcl = tf.contrib.layers
 

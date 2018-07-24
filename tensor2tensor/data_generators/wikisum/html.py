@@ -22,7 +22,7 @@ def get_text_from_html(html):
 
   try:
     soup = bs4.BeautifulSoup(html, "html.parser")
-  except:
+  except:  # pylint: disable=bare-except
     # Some docs don't parse
     return ""
   # Remove script and style tags
@@ -32,6 +32,7 @@ def get_text_from_html(html):
 
 
 def _soup_strings(soup):
+  """Return text strings in soup."""
   paragraph_tags = set([
       "caption", "details", "h1", "h2", "h3", "h4", "h5", "h6", "li", "p", "td",
       "div", "span"
@@ -43,8 +44,8 @@ def _soup_strings(soup):
     # children (see below).
     if skip_children is not None:
       try:
-        in_skip = descendant in skip_children
-      except RecursionError:
+        in_skip = descendant in skip_children  # pylint: disable=unsupported-membership-test
+      except RecursionError:  # pylint: disable=undefined-variable
         # Possible for this check to hit a nasty infinite recursion because of
         # BeautifulSoup __eq__ checks.
         in_skip = True
