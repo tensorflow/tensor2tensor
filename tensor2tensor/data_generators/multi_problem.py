@@ -109,6 +109,6 @@ class MultiProblem(problem.Problem):
     else:
       single_mtl_dataset = datasets[0]
       for data in datasets[1:]:
-        single_mtl_dataset.concatenate(data)
+        single_mtl_dataset = single_mtl_dataset.concatenate(data)
 
     return single_mtl_dataset
