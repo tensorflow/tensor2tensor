@@ -490,7 +490,7 @@ def rl_modelrl_base():
       generative_model_params="next_frame",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
-      model_train_steps=50000,
+      model_train_steps=100000,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
       intrinsic_reward_scale=0.,
@@ -503,7 +503,7 @@ def rl_modelrl_base():
       # though it is not necessary.
       ppo_epoch_length=60,
       ppo_num_agents=16,
-      ppo_learning_rate=0.,  # Will be changed, just so it exists.
+      ppo_learning_rate=2e-4,  # Will be changed, just so it exists.
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
       ppo_continue_training=True,
