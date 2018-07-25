@@ -28,11 +28,6 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
-try:
-  from tensorflow_models.slim.nets.cyclegan import cyclegan_upsample  # pylint: disable=g-import-not-at-top
-except ImportError:
-  pass
-
 tfl = tf.layers
 tfcl = tf.contrib.layers
 
@@ -445,7 +440,7 @@ class NextFrameStochastic(NextFrameBasic):
       enc0, enc1 = skips
 
       with tf.variable_scope("upsample1", reuse=tf.AUTO_REUSE):
-        enc4 = cyclegan_upsample(
+        enc4 = common_layers.cyclegan_upsample(
             hidden5, num_outputs=hidden5.shape.as_list()[-1],
             stride=[2, 2], method=upsample_method)
 
@@ -463,7 +458,7 @@ class NextFrameStochastic(NextFrameBasic):
       hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
 
       with tf.variable_scope("upsample2", reuse=tf.AUTO_REUSE):
-        enc5 = cyclegan_upsample(
+        enc5 = common_layers.cyclegan_upsample(
             hidden6, num_outputs=hidden6.shape.as_list()[-1],
             stride=[2, 2], method=upsample_method)
 
@@ -480,7 +475,7 @@ class NextFrameStochastic(NextFrameBasic):
       hidden7 = tf.concat(axis=3, values=[hidden7, enc0])  # both 32x32
 
       with tf.variable_scope("upsample3", reuse=tf.AUTO_REUSE):
-        enc6 = cyclegan_upsample(
+        enc6 = common_layers.cyclegan_upsample(
             hidden7, num_outputs=hidden7.shape.as_list()[-1],
             stride=[2, 2], method=upsample_method)
       enc6 = tfcl.layer_norm(enc6, scope="layer_norm9")
