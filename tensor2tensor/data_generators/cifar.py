@@ -21,6 +21,7 @@ from __future__ import print_function
 import os
 import tarfile
 import numpy as np
+import six
 
 from six.moves import cPickle
 
@@ -92,7 +93,10 @@ def cifar_generator(cifar_version, tmp_dir, training, how_many, start_from=0):
   for filename in data_files:
     path = os.path.join(tmp_dir, prefix, filename)
     with tf.gfile.Open(path, "rb") as f:
-      data = cPickle.load(f, encoding='latin1')
+      if six.PY2:
+        data = cPickle.load(f)
+      else:
+        data = cPickle.load(f, encoding="latin1")
     images = data["data"]
     num_images = images.shape[0]
     images = images.reshape((num_images, 3, image_size, image_size))
