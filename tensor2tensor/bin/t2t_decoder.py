@@ -35,6 +35,7 @@ import os
 
 # Fathom
 import fathomt2t
+from fathomt2t.common_flags import setup_dataset_flag, dataset_to_t2t_mode
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 
 # Dependency imports
@@ -66,9 +67,8 @@ flags.DEFINE_bool("decode_interactive", False,
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
-
-
 # Fathom
+setup_dataset_flag()
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 flags.DEFINE_bool("use_original_input", False,
                   "Use the input that was used for validation during training?")
@@ -113,7 +113,7 @@ def decode(estimator, hparams, decode_hp):
         hparams,
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
-        dataset_split="test" if FLAGS.eval_use_test_set else None,
+        dataset_split=dataset_to_t2t_mode(FLAGS.dataset_split),
         return_generator=FLAGS.fathom_output_predictions)
 
     # Fathom
@@ -227,7 +227,7 @@ def main(_):
   # Decode, predict, and evaluate code should
   # converge to use the same fathom_t2t_model_setup.
   echo_yaml_for_xcom_ingest({'output-dir': os.path.dirname(checkpoint_path),
-                             'decode_output_file': FLAGS.decode_output_file})
+                             'output-file': FLAGS.decode_output_file})
 
 
 if __name__ == "__main__":
