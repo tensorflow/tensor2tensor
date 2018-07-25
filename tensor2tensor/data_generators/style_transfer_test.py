@@ -24,7 +24,7 @@ from tensor2tensor.data_generators import problem
 import tensorflow as tf
 
 
-class StyleTransferTest(tf.test.TestCase):
+class StyleTransferProblemShakespeareTest(tf.test.TestCase):
 
   def testSourceAndTargetPathsTrainModern2Shakespeare(self):
     tmp_dir = 'tmp_dir'

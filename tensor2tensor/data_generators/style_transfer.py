@@ -57,7 +57,7 @@ _DEV_SHARDS = 1
 _SUBWORD_VOCAB_SIZE = 8000
 
 
-class StyleTransferProblem(text_problems.Text2TextProblem):
+class StyleTransferProblemShakespeare(text_problems.Text2TextProblem):
   """Base class for transferring styles problems"""
 
   @property
@@ -126,7 +126,7 @@ class StyleTransferProblem(text_problems.Text2TextProblem):
 
 
 @registry.register_problem
-class StyleTransferShakespeareToModern(StyleTransferProblem):
+class StyleTransferShakespeareToModern(StyleTransferProblemShakespeare):
   """Transferring style from Shakespeare original English to modern one"""
 
   @property
@@ -139,7 +139,7 @@ class StyleTransferShakespeareToModern(StyleTransferProblem):
 
 
 @registry.register_problem
-class StyleTransferModernToShakespeare(StyleTransferProblem):
+class StyleTransferModernToShakespeare(StyleTransferProblemShakespeare):
   """Transferring style from modern English to Shakespeare original English"""
 
   @property
