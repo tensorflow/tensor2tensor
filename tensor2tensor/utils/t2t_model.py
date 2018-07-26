@@ -1362,10 +1362,15 @@ class T2TModel(base.Layer):
         "inputs": inputs,
         "targets": features.get("infer_targets"),
     }
-    if decode_hparams.pass_through_features:
-      for k in features:
-        if k not in list(predictions.keys()) + ["infer_targets"]:
-          predictions[k] = features[k]
+
+    # Pass through remaining features
+    for name, feature in features.items():
+      if name not in list(predictions.keys()) + ["infer_targets"]:
+        if not feature.shape.as_list():
+          # All features must have a batch dimension
+          batch_size = common_layers.shape_list(outputs)[0]
+          feature = tf.tile(tf.expand_dims(feature, 0), [batch_size])
+        predictions[name] = feature
 
     _del_dict_non_tensors(predictions)
 
