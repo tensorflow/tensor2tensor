@@ -152,7 +152,8 @@ class StyleTransferModernToShakespeare(StyleTransferProblemShakespeare):
 
 
 @registry.register_problem
-class StyleTransferShakespeareToModernCharacters(StyleTransferShakespeareToModern):
+class StyleTransferShakespeareToModernCharacters(
+    StyleTransferShakespeareToModern):
 
   @property
   def vocab_type(self):
@@ -160,7 +161,8 @@ class StyleTransferShakespeareToModernCharacters(StyleTransferShakespeareToModer
 
 
 @registry.register_problem
-class StyleTransferModernToShakespeareCharacters(StyleTransferModernToShakespeare):
+class StyleTransferModernToShakespeareCharacters(
+    StyleTransferModernToShakespeare):
 
   @property
   def vocab_type(self):
