@@ -1361,8 +1361,11 @@ class T2TModel(base.Layer):
         "scores": scores,
         "inputs": inputs,
         "targets": features.get("infer_targets"),
-        "batch_prediction_key": features.get("batch_prediction_key"),
     }
+    if decode_hparams.pass_through_features:
+      for k in features:
+        if k not in list(predictions.keys()) + ["infer_targets"]:
+          predictions[k] = features[k]
 
     _del_dict_non_tensors(predictions)
 
