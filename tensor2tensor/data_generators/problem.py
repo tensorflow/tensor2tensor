@@ -139,14 +139,14 @@ def preprocess_example_common(example, hparams, mode):
   """Preprocessing steps common to all models."""
   if hparams.max_input_seq_length > 0:
     example["inputs"] = example["inputs"][:hparams.max_input_seq_length]
-  if hparams.max_target_seq_length > 0:
-    example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.prepend_mode != "none":
     if mode == tf.estimator.ModeKeys.PREDICT:
       example["partial_targets"] = tf.concat([example["inputs"], [0]], 0)
     else:
       example["targets"] = tf.concat(
           [example["inputs"], [0], example["targets"]], 0)
+  if hparams.max_target_seq_length > 0:
+    example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.split_to_length:
     example["targets"] = tf.reshape(example["targets"],
                                     [-1, hparams.split_to_length, 1, 1])
