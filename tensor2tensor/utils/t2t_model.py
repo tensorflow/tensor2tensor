@@ -1305,7 +1305,11 @@ class T2TModel(base.Layer):
             eval_metrics=(eval_metrics_fn, [logits, labels]),
             loss=loss)
     else:
-      eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
+      task_list = [problem]
+      if hasattr(problem, "task_list"):
+        task_list = problem.task_list
+
+      eval_metrics_fns = metrics.create_evaluation_metrics(task_list, hparams)
       eval_metrics = {}
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
         if isinstance(logits, dict):

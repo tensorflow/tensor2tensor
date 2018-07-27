@@ -107,23 +107,23 @@ class SpaceID(object):
 class TaskID(object):
   """Problem specific task ids. Add more as needed."""
   # English characters
-  EN_CHR = 0
+  EN_CHR = 2
   # English characters sentiment
-  EN_CHR_SENT = 1
+  EN_CHR_SENT = 3
   # English Premise Hypothesis pair
-  EN_PR_HYP = 2
+  EN_PR_HYP = 4
   # English NLI
-  EN_NLI = 3
+  EN_NLI = 5
   # COLA
-  COLA = 4
+  COLA = 6
   # Enligh Question Context pair
-  EN_Q_CONT = 5
+  EN_Q_CONT = 7
   # English similarity task
-  EN_SIM = 6
+  EN_SIM = 8
   # English sentence pair
-  EN_SENT_PAIR = 7
+  EN_SENT_PAIR = 9
   # 3 class NLI
-  THREE_CL_NLI = 8
+  THREE_CL_NLI = 10
 
 
 def default_model_hparams():

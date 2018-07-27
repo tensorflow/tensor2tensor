@@ -1890,6 +1890,31 @@ def weights_prepend_inputs_to_targets(labels):
   return tf.to_float(tf.not_equal(past_first_zero * nonzero, 0))
 
 
+def weights_multi_problem(labels, taskid=-1):
+  """Assign weight 1.0 to only the "targets" portion of the labels.
+
+  Weight 1.0 is assigned to all labels past the taskid.
+
+  Args:
+    labels: A Tensor of int32s.
+    taskid: an int32 representing the task id for a problem.
+
+  Returns:
+    A Tensor of floats.
+
+  Raises:
+    ValueError: The Task ID must be valid.
+  """
+  if taskid < 0:
+    raise ValueError("Task ID must be non-negative.")
+
+  past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
+  # Additionally zero out the task id location
+  past_taskid *= tf.to_float(tf.not_equal(labels, taskid))
+  non_taskid = tf.to_float(labels)
+  return tf.to_float(tf.not_equal(past_taskid * non_taskid, 0))
+
+
 def weights_all(labels):
   """Assign weight 1.0 to all labels."""
   return tf.ones_like(labels, dtype=tf.float32)

@@ -21,6 +21,7 @@ from __future__ import print_function
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.layers import discretization
+from tensor2tensor.utils import metrics
 import tensorflow as tf
 
 
@@ -63,14 +64,14 @@ class MultiProblem(problem.Problem):
     if self._hparams is not None:
       return self._hparams
 
-    self._hparams = self.task_list[0].get_hparams()
+    self._hparams = self.task_list[0].get_hparams(model_hparams)
 
     return self._hparams
 
   def flatten_zip(self, *args):
     flattened = tf.data.Dataset.from_tensors(args[0])
     for ex in args[1:]:
-      flattened.concatenate(tf.data.Dataset.from_tensors(ex))
+      flattened = flattened.concatenate(tf.data.Dataset.from_tensors(ex))
 
     return flattened
 
@@ -96,7 +97,9 @@ class MultiProblem(problem.Problem):
                                   output_buffer_size, shuffle_files,
                                   hparams, preprocess, dataset_split,
                                   shard, partition_id, num_partitions,
-                                  max_records).repeat()
+                                  max_records)
+      if is_training:
+        task_dataset = task_dataset.repeat()
       # pylint: disable=cell-var-from-loop
       task_dataset = task_dataset.map(lambda x: self.add_task_id(task, x))
       datasets.append(task_dataset)
@@ -108,7 +111,12 @@ class MultiProblem(problem.Problem):
           self.flatten_zip)
     else:
       single_mtl_dataset = datasets[0]
-      for data in datasets[1:]:
+      for data in datasets[0:]:
         single_mtl_dataset = single_mtl_dataset.concatenate(data)
 
     return single_mtl_dataset
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.NEG_LOG_PERPLEXITY
+    ]

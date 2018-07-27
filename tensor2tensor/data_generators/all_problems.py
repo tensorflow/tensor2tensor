@@ -47,6 +47,7 @@ MODULES = [
     "tensor2tensor.data_generators.librispeech",
     "tensor2tensor.data_generators.lm1b",
     "tensor2tensor.data_generators.lm1b_imdb",
+    "tensor2tensor.data_generators.lm1b_mnli",
     "tensor2tensor.data_generators.mnist",
     "tensor2tensor.data_generators.mrpc",
     "tensor2tensor.data_generators.mscoco",

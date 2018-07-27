@@ -566,10 +566,15 @@ def create_evaluation_metrics(problems, model_hparams):
 
     return image_wrapped_metric_fn
 
+  def weights_fn_for_mp(problem_task_id):
+    return lambda x: common_layers.weights_multi_problem(x, problem_task_id)
+
   eval_metrics = dict()
   for problem_instance in problems:
     problem_name = problem_instance.name
     metrics = problem_instance.eval_metrics()
+    if hasattr(model_hparams.problem, "task_list"):
+      metrics = model_hparams.problem.eval_metrics()
     if not all([m in METRICS_FNS for m in metrics]):
       error_str = ("Unrecognized metric. Problem %s specified metrics "
                    "%s. Recognized metrics are %s.")
@@ -585,6 +590,9 @@ def create_evaluation_metrics(problems, model_hparams):
       if isinstance(modality, tuple):
         modality = registry.create_modality(modality, model_hparams)
       weights_fn = modality.targets_weights_fn
+      if hasattr(model_hparams.problem, "task_list"):
+        ptid = problem_instance.task_id  # pylint: disable=cell-var-from-loop
+        weights_fn = weights_fn_for_mp(ptid)
 
       for metric in metrics:
         metric_fn = METRICS_FNS[metric]
