@@ -766,10 +766,9 @@ class NextFrameStochastic(NextFrameBasic):
     Returns:
       the KL loss.
     """
-    # TODO(mechcoder): Sum across all but the first dimension.
-    return -.5 * tf.reduce_sum(
-        1. + log_sigma - tf.square(mu) - tf.exp(log_sigma),
-        axis=1)
+    batch_size = common_layers.shape_list(mu)[0]
+    kl = -.5 * tf.reduce_sum(1. + log_sigma - tf.square(mu) - tf.exp(log_sigma))
+    return kl / tf.to_float(batch_size)
 
   def get_input_if_exists(self, features, key, batch_size, num_frames):
     if key in features:
