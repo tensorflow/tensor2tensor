@@ -299,7 +299,8 @@ class VideoProblem(problem.Problem):
     else:
       batch_dataset = preprocessed_dataset.apply(
           tf.contrib.data.batch_and_drop_remainder(num_frames))
-    dataset = batch_dataset.map(features_from_batch)  # shuffle(8)
+    dataset = batch_dataset.map(features_from_batch)
+    dataset = dataset.shuffle(256)
     return dataset
 
   def eval_metrics(self):
