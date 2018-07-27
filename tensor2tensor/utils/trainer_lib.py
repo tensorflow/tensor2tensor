@@ -199,10 +199,12 @@ def create_estimator(model_name,
                      run_config,
                      schedule="train_and_evaluate",
                      decode_hparams=None,
-                     use_tpu=False):
+                     use_tpu=False,
+                     xla_compile=False):
   """Create a T2T Estimator."""
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-      model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
+      model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu,
+      xla_compile=xla_compile)
 
   if use_tpu:
     problem = hparams.problem
@@ -399,7 +401,8 @@ def create_experiment(
     eval_early_stopping_metric_delta=None,
     eval_early_stopping_metric_minimize=True,
     autotune=False,
-    use_tpu=False):
+    use_tpu=False,
+    xla_compile=False):
   """Create Experiment."""
   # HParams
   hparams.add_hparam("model_dir", run_config.model_dir)
@@ -416,7 +419,8 @@ def create_experiment(
       run_config,
       schedule=schedule,
       decode_hparams=decode_hparams,
-      use_tpu=use_tpu)
+      use_tpu=use_tpu,
+      xla_compile=xla_compile)
 
   # Input fns from Problem
   problem = hparams.problem

@@ -194,7 +194,8 @@ class T2TModel(base.Layer):
 
   def model_fn_sharded(self, sharded_features):
     dp = self._data_parallelism
-    summarize_features(sharded_features, num_shards=dp.n)
+    if common_layers.should_generate_summaries():
+      summarize_features(sharded_features, num_shards=dp.n)
     datashard_to_features = self._to_features_per_datashard(sharded_features)
     if self.use_body_sharded:
       # MoE models override body_sharded
@@ -436,9 +437,10 @@ class T2TModel(base.Layer):
         losses[k] = self._loss_single(v, target_modality[k], features[k])
 
         n, d = losses[k]
-        tf.summary.scalar(k + "_loss", n / d)
-        tf.summary.scalar(k + "_loss_num", n)
-        tf.summary.scalar(k + "_loss_den", d)
+        if common_layers.should_generate_summaries():
+          tf.summary.scalar(k + "_loss", n / d)
+          tf.summary.scalar(k + "_loss_num", n)
+          tf.summary.scalar(k + "_loss_den", d)
 
       return tf.add_n([n / d for n, d in losses.values()])
     else:
@@ -453,15 +455,14 @@ class T2TModel(base.Layer):
         target_modality = target_modality["targets"]
       return self._loss_single(logits, target_modality, features["targets"])
 
-  def optimize(self, loss, num_async_replicas=1):
+  def optimize(self, loss, num_async_replicas=1, use_tpu=False):
     """Return a training op minimizing loss."""
     lr = learning_rate.learning_rate_schedule(self.hparams)
     if num_async_replicas > 1:
       log_info("Dividing learning rate by num_async_replicas: %d",
                num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(
-        loss, lr, self.hparams, use_tpu=common_layers.is_on_tpu())
+    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
     return train_op
 
   def set_mode(self, mode):
@@ -1148,7 +1149,8 @@ class T2TModel(base.Layer):
   def make_estimator_model_fn(model_name,
                               hparams,
                               decode_hparams=None,
-                              use_tpu=False):
+                              use_tpu=False,
+                              xla_compile=False):
     model_cls = registry.model(model_name)
 
     def wrapping_model_fn(features, labels, mode, params=None, config=None):
@@ -1160,7 +1162,8 @@ class T2TModel(base.Layer):
           config=config,
           params=params,
           decode_hparams=decode_hparams,
-          use_tpu=use_tpu)
+          use_tpu=use_tpu,
+          xla_compile=xla_compile)
 
     return wrapping_model_fn
 
@@ -1173,7 +1176,8 @@ class T2TModel(base.Layer):
                          config=None,
                          params=None,
                          decode_hparams=None,
-                         use_tpu=False):
+                         use_tpu=False,
+                         xla_compile=False):
     """Model fn for Estimator.
 
     Args:
@@ -1185,6 +1189,7 @@ class T2TModel(base.Layer):
       params: dict, may include batch_size
       decode_hparams: HParams, used when mode == PREDICT.
       use_tpu: bool, whether using TPU
+      xla_compile: bool, whether to use XLA to compile graph, unimplemented.
 
     Returns:
       TPUEstimatorSpec if use tpu else EstimatorSpec
@@ -1216,7 +1221,7 @@ class T2TModel(base.Layer):
       logits, losses_dict = model(features)  # pylint: disable=not-callable
 
     # Set known shapes
-    if use_tpu:
+    if use_tpu or xla_compile:
       if isinstance(logits, dict):
         for k, v in sorted(six.iteritems(logits)):
           if "scalar/" in k:
@@ -1243,9 +1248,10 @@ class T2TModel(base.Layer):
       return logits
 
     # Summarize losses
-    with tf.name_scope("losses"):
-      for loss_name, loss_val in sorted(losses_dict.items()):
-        tf.summary.scalar(loss_name, loss_val)
+    if common_layers.should_generate_summaries():
+      with tf.name_scope("losses"):
+        for loss_name, loss_val in sorted(losses_dict.items()):
+          tf.summary.scalar(loss_name, loss_val)
 
     # Accumulate losses
     loss = sum(losses_dict[key] for key in sorted(losses_dict.keys()))
@@ -1260,11 +1266,14 @@ class T2TModel(base.Layer):
     num_async_replicas = (1 if (use_tpu or not config) else
                           config.t2t_device_info["num_async_replicas"])
     return model.estimator_spec_train(
-        loss, num_async_replicas=num_async_replicas)
+        loss,
+        num_async_replicas=num_async_replicas,
+        use_tpu=use_tpu and not xla_compile)
 
-  def estimator_spec_train(self, loss, num_async_replicas=1):
+  def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
     """Construct EstimatorSpec for TRAIN mode."""
-    train_op = self.optimize(loss, num_async_replicas=num_async_replicas)
+    train_op = self.optimize(
+        loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
 
     if common_layers.is_on_tpu():
       host_call = _create_host_call(self.hparams.model_dir)
