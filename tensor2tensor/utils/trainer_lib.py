@@ -99,6 +99,7 @@ def create_hparams(hparams_set,
 
 def create_run_config(master="",
                       model_dir=None,
+                      warm_start_from=None,
                       iterations_per_loop=1000,
                       num_shards=8,
                       log_device_placement=False,
@@ -169,6 +170,7 @@ def create_run_config(master="",
     run_config_args["tpu_config"] = tpu_config
 
   config = run_config_cls(**run_config_args)
+  config.warm_start_from = warm_start_from
 
   # If not using TPU, add device info for data_parallelism
   config.use_tpu = use_tpu
@@ -225,7 +227,11 @@ def create_estimator(model_name,
         predict_batch_size=predict_batch_size)
   else:
     estimator = tf.estimator.Estimator(
-        model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
+        model_fn=model_fn,
+        model_dir=run_config.model_dir,
+        config=run_config,
+        warm_start_from=run_config.warm_start_from
+    )
   return estimator
 
 
