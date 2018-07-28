@@ -1275,6 +1275,22 @@ class T2TModel(base.Layer):
     train_op = self.optimize(
         loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
 
+    # TODO(mitchellstern): Add support for partitioned variables?
+    if (tf.train.latest_checkpoint(self._hparams.model_dir) is None and
+        self._hparams.pretrained_model_dir):
+      pretrained_model_dir = self._hparams.pretrained_model_dir
+      reader = tf.contrib.framework.load_checkpoint(pretrained_model_dir)
+      variable_map = {}
+      for var in tf.contrib.framework.get_trainable_variables():
+        var_name = var.name.split(":")[0]
+        if reader.has_tensor(var_name):
+          tf.logging.info("Loading variable from checkpoint: %s", var_name)
+          variable_map[var_name] = var
+        else:
+          tf.logging.info(
+              "Cannot find variable in checkpoint, skipping: %s", var_name)
+      tf.train.init_from_checkpoint(pretrained_model_dir, variable_map)
+
     if common_layers.is_on_tpu():
       host_call = _create_host_call(self.hparams.model_dir)
       _remove_summaries()

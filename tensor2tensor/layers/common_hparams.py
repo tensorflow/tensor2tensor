@@ -248,6 +248,11 @@ def basic_params1():
       #   roundoff.  Initial experiments show that model quality is similar
       #   to baseline for about 3M training steps, but worse thereafter.
       weight_dtype="float32",
+      # Directory containing a checkpoint for a pretrained model. This will only
+      # be used if a new run is being started. Parameters not found in the
+      # pretrained model will be randomly initialized. Superfluous parameters in
+      # the pretrained model will be ignored.
+      pretrained_model_dir="",
   )
 
 
