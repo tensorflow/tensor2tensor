@@ -665,6 +665,7 @@ def fast_decode_tpu(encoder_output,
                     hparams,
                     decode_length,
                     beam_size=1,
+                    sos_id=0,
                     eos_id=beam_search.EOS_ID,
                     batch_size=None,
                     force_decode_length=False):
@@ -681,6 +682,7 @@ def fast_decode_tpu(encoder_output,
     hparams: Run hyperparameters.
     decode_length: An integer, how many additional timesteps to decode.
     beam_size: An integer, number of beams.
+    sos_id: Start-of-sequence symbol.
     eos_id: End-of-sequence symbol.
     batch_size: An integer, must be passed if there is no input.
     force_decode_length: A bool, whether to force the full decode length, or if
@@ -768,7 +770,7 @@ def fast_decode_tpu(encoder_output,
 
   decoded_ids = tf.zeros([batch_size, decode_length], dtype=tf.int64)
   hit_eos = tf.fill([batch_size], False)
-  next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
+  next_id = sos_id * tf.ones([batch_size, 1], dtype=tf.int64)
   initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
 
   def compute_cache_shape_invariants(tensor):
@@ -802,6 +804,7 @@ def fast_decode(encoder_output,
                 beam_size=1,
                 top_beams=1,
                 alpha=1.0,
+                sos_id=0,
                 eos_id=beam_search.EOS_ID,
                 batch_size=None,
                 force_decode_length=False):
@@ -823,6 +826,7 @@ def fast_decode(encoder_output,
     top_beams: an integer. How many of the beams to return.
     alpha: Float that controls the length penalty. larger the alpha, stronger
       the preference for longer translations.
+    sos_id: End-of-sequence symbol in beam search.
     eos_id: End-of-sequence symbol in beam search.
     batch_size: an integer scalar - must be passed if there is no input
     force_decode_length: bool, whether to force the full decode length, or if
@@ -882,7 +886,7 @@ def fast_decode(encoder_output,
     cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
 
   if beam_size > 1:  # Beam Search
-    initial_ids = tf.zeros([batch_size], dtype=tf.int32)
+    initial_ids = sos_id * tf.ones([batch_size], dtype=tf.int32)
     decoded_ids, scores = beam_search.beam_search(
         symbols_to_logits_fn,
         initial_ids,
@@ -927,7 +931,7 @@ def fast_decode(encoder_output,
 
     decoded_ids = tf.zeros([batch_size, 0], dtype=tf.int64)
     hit_eos = tf.fill([batch_size], False)
-    next_id = tf.zeros([batch_size, 1], dtype=tf.int64)
+    next_id = sos_id * tf.ones([batch_size, 1], dtype=tf.int64)
     initial_log_prob = tf.zeros([batch_size], dtype=tf.float32)
     _, _, _, decoded_ids, _, log_prob = tf.while_loop(
         is_not_finished,
