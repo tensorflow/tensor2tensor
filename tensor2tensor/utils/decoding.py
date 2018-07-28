@@ -48,6 +48,7 @@ def decode_hparams(overrides=""):
       batch_size=0,
       beam_size=4,
       alpha=0.6,
+      eos_penalty=0.0,
       return_beams=False,
       write_beam_scores=False,
       max_input_size=-1,
