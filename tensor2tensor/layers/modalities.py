@@ -700,9 +700,7 @@ class VideoModalityL2Raw(VideoModalityL2):
     return common_layers.convert_rgb_to_real(x)
 
   def top(self, body_output, _):
-    frames = body_output
-    if isinstance(body_output, list):
-      frames = tf.stack(body_output, axis=1)
+    frames = tf.stack(body_output, axis=1)
     rgb_frames = common_layers.convert_real_to_rgb(frames)
     common_layers.summarize_video(rgb_frames, "body_output")
     return tf.expand_dims(rgb_frames, axis=-1)
