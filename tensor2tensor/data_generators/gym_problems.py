@@ -131,8 +131,18 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   def generate_samples(self, data_dir, tmp_dir, unused_dataset_split):
     self._setup()
-    self.debug_dump_frames_path = os.path.join(data_dir,
-                                               self.debug_dump_frames_path)
+
+    # We only want to save frames for eval and simulated experience, not the
+    # frames used for world model training.
+    base_dir = os.path.basename(os.path.dirname(data_dir + "/"))
+    if (base_dir == "eval" or self.debug_dump_frames_path in [
+        "debug_frames_sim_eval", "debug_frames_sim"
+    ]):
+      self.debug_dump_frames_path = os.path.join(data_dir,
+                                                 self.debug_dump_frames_path)
+    else:
+      # Disable frame saving
+      self.debug_dump_frames_path = ""
 
     with self._session as sess:
       frame_counter = 0

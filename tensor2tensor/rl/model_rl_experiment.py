@@ -34,6 +34,7 @@ import time
 
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.utils import registry
@@ -341,6 +342,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     world_model_problem = problem_name
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
                               % hparams.game)
+    if problem_name not in registry.list_problems():
+      tf.logging.info("Game Problem %s not found; dynamically registering",
+                      problem_name)
+      gym_problems_specs.dynamically_create_gym_clipped_reward_problem(
+          hparams.game)
 
   # Autoencoder model dir
   autoencoder_model_dir = directories.get("autoencoder")
@@ -494,14 +500,14 @@ def rl_modelrl_base():
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=200,  # This should be enough to see something
+      ppo_epochs_num=400,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
       ppo_time_limit=200,  # TODO(blazej): this param is unused
       # It makes sense to have ppo_time_limit=ppo_epoch_length,
       # though it is not necessary.
-      ppo_epoch_length=60,
+      ppo_epoch_length=30,
       ppo_num_agents=16,
       ppo_learning_rate=2e-4,  # Will be changed, just so it exists.
       # Whether the PPO agent should be restored from the previous iteration, or
