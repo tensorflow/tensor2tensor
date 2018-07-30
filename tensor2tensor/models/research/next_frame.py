@@ -245,17 +245,17 @@ class NextFrameStochastic(NextFrameBasic):
       x = common_layers.make_even_size(x)
       x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
                      padding="SAME", activation=tf.nn.relu, name="latent_conv1")
-      x = tfl.batch_normalization(x,
-                                  training=self.is_training, name="latent_bn1")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="latent_bn1")
       x = common_layers.make_even_size(x)
       x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
                      padding="SAME", activation=tf.nn.relu, name="latent_conv2")
-      x = tfl.batch_normalization(x,
-                                  training=self.is_training, name="latent_bn2")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="latent_bn2")
       x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
                      padding="SAME", activation=tf.nn.relu, name="latent_conv3")
-      x = tfl.batch_normalization(x,
-                                  training=self.is_training, name="latent_bn3")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="latent_bn3")
 
       nc = self.hparams.latent_channels
       mean = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
@@ -363,16 +363,16 @@ class NextFrameStochastic(NextFrameBasic):
           lstm_state, lstm_size, conv_size)
 
       x = hidden5
-      x = tfl.batch_normalization(x,
-                                  training=self.is_training, name="reward_bn0")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="reward_bn0")
       x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
                      padding="SAME", activation=tf.nn.relu, name="reward_conv1")
-      x = tfl.batch_normalization(x,
-                                  training=self.is_training, name="reward_bn1")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="reward_bn1")
       x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(2, 2),
                      padding="SAME", activation=tf.nn.relu, name="reward_conv2")
-      x = tfl.batch_normalization(x,
-                                  training=self.is_training, name="reward_bn2")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="reward_bn2")
       x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
                      padding="SAME", activation=tf.nn.relu, name="reward_conv3")
 
@@ -1104,7 +1104,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       pred_logvar: predicted log(var) of posterior
     """
     # model does not support action conditioned and reward prediction
-    fakr_reward_prediction = rewards
+    fake_reward_prediction = rewards
     del actions, rewards
 
     z_dim = self.hparams.z_dim
@@ -1175,7 +1175,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
         gen_images.append(x_pred)
 
     tf.logging.info(">>>> Done")
-    return gen_images, fakr_reward_prediction, pred_mu, pred_logvar
+    return gen_images, fake_reward_prediction, pred_mu, pred_logvar
 
 
 @registry.register_hparams
