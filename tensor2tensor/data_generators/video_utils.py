@@ -64,7 +64,7 @@ def summarize_video_metrics(hook_args):
   summary_values = []
   for name, array in six.iteritems(metrics_results):
     for ind, val in enumerate(array):
-      tag = name + "_" + str(ind)
+      tag = "metric_{}/{}".format(name, ind)
       summary_values.append(tf.Summary.Value(tag=tag, simple_value=val))
   return summary_values
 
