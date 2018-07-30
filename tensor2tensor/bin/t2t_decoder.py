@@ -125,7 +125,8 @@ def decode(estimator, hparams, decode_hp):
       print('Assuming only one problem...')
       assert '-' not in FLAGS.problems
       problem = registry.problem(FLAGS.problems)
-      problem.output_predictions(predictions=predictions, max_docs=FLAGS.num_examples)
+      problem.output_predictions(
+          predictions=predictions, max_num_examples=FLAGS.num_examples)
 
 
 def score_file(filename):
