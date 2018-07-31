@@ -86,7 +86,8 @@ class TranslateEnfrWmtSmall8k(translate.TranslateProblem):
 
   @property
   def vocab_filename(self):
-    return "vocab.enfr.%d" % self.approx_vocab_size
+    return "vocab.enfr.%s.%d" % (
+        "small" if self.use_small_dataset else "large", self.approx_vocab_size)
 
   @property
   def use_small_dataset(self):
@@ -101,7 +102,8 @@ class TranslateEnfrWmtSmall8k(translate.TranslateProblem):
     return datasets
 
   def vocab_data_files(self):
-    return _ENFR_TRAIN_SMALL_DATA
+    return (_ENFR_TRAIN_SMALL_DATA if self.use_small_dataset
+            else _ENFR_TRAIN_LARGE_DATA)
 
 
 @registry.register_problem

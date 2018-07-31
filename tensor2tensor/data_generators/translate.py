@@ -87,6 +87,7 @@ def compile_data(tmp_dir, datasets, filename):
   if tf.gfile.Exists(lang1_fname) and tf.gfile.Exists(lang2_fname):
     tf.logging.info("Skipping compile data, found files:\n%s\n%s", lang1_fname,
                     lang2_fname)
+    return filename
   with tf.gfile.GFile(lang1_fname, mode="w") as lang1_resfile:
     with tf.gfile.GFile(lang2_fname, mode="w") as lang2_resfile:
       for dataset in datasets:
