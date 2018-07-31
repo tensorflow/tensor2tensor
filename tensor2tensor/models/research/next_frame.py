@@ -77,7 +77,10 @@ class NextFrameBasic(t2t_model.T2TModel):
       action_mask = tf.layers.dense(action, filters, name="action_mask")
       zeros_mask = tf.zeros(common_layers.shape_list(x)[:-1] + [filters],
                             dtype=tf.float32)
-      x *= action_mask + zeros_mask
+      if hparams.concatenate_actions:
+        x = tf.concat([x, action_mask + zeros_mask], axis=-1)
+      else:
+        x *= action_mask + zeros_mask
 
     # Run a stack of convolutions.
     for i in range(hparams.num_hidden_layers):

@@ -135,7 +135,8 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
 
 
 def train_agent(problem_name, agent_model_dir,
-                event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0):
+                event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
+                is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -149,6 +150,8 @@ def train_agent(problem_name, agent_model_dir,
       ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
 
   ppo_epochs_num = hparams.ppo_epochs_num
+  if is_final_epoch:
+    ppo_epochs_num *= 2
   ppo_hparams.save_models_every_epochs = ppo_epochs_num
   ppo_hparams.world_model_dir = world_model_dir
   ppo_hparams.add_hparam("force_beginning_resets", True)
@@ -424,7 +427,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       ppo_model_dir = ppo_event_dir
     train_agent(simulated_problem_name, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
-                hparams, epoch=epoch)
+                hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
     # Collect data from the real environment.
     log("Generating real environment data")
@@ -513,7 +516,7 @@ def rl_modelrl_base():
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
       ppo_continue_training=True,
-      game="wrapped_long_pong",
+      game="wrapped_full_pong",
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
       eval_world_model=True,

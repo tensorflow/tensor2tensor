@@ -99,12 +99,12 @@ class GymWrappedPongRandom(GymDiscreteProblem):
 
 
 @registry.register_problem
-class GymWrappedLongPongRandom(GymDiscreteProblem):
+class GymWrappedFullPongRandom(GymDiscreteProblem):
   """Pong game, random actions."""
 
   @property
   def env_name(self):
-    return "T2TPongWarmUp20RewSkip2000Steps-v1"
+    return "T2TPongWarmUp20RewSkipFull-v1"
 
   @property
   def min_reward(self):
@@ -181,7 +181,7 @@ class GymDiscreteProblemWithAgentOnFreeway(GymRealDiscreteProblem,
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
     GymSimulatedDiscreteProblem, GymWrappedPongRandom):
-  """Similated pong."""
+  """Simulated pong."""
 
   @property
   def initial_frames_problem(self):
@@ -193,31 +193,31 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedLongPong(GymRealDiscreteProblem,
-                                                   GymWrappedLongPongRandom):
+class GymDiscreteProblemWithAgentOnWrappedFullPong(GymRealDiscreteProblem,
+                                                   GymWrappedFullPongRandom):
   pass
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedLongPongWithAutoencoder(
-    GymDiscreteProblemWithAutoencoder, GymWrappedLongPongRandom):
+class GymDiscreteProblemWithAgentOnWrappedFullPongWithAutoencoder(
+    GymDiscreteProblemWithAutoencoder, GymWrappedFullPongRandom):
   pass
 
 
 @registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedLongPongAutoencoded(
-    GymDiscreteProblemAutoencoded, GymWrappedLongPongRandom):
+class GymDiscreteProblemWithAgentOnWrappedFullPongAutoencoded(
+    GymDiscreteProblemAutoencoded, GymWrappedFullPongRandom):
   pass
 
 
 @registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
-    GymSimulatedDiscreteProblem, GymWrappedLongPongRandom):
+class GymSimulatedDiscreteProblemWithAgentOnWrappedFullPong(
+    GymSimulatedDiscreteProblem, GymWrappedFullPongRandom):
   """Simulated pong."""
 
   @property
   def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_long_pong"
+    return "gym_discrete_problem_with_agent_on_wrapped_full_pong"
 
   @property
   def num_testing_steps(self):
@@ -225,13 +225,13 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPong(
 
 
 @registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedLongPongAutoencoded(
-    GymSimulatedDiscreteProblemAutoencoded, GymWrappedLongPongRandom):
-  """GymSimulatedDiscreteProblemWithAgentOnWrappedLongPongAutoencoded."""
+class GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded(
+    GymSimulatedDiscreteProblemAutoencoded, GymWrappedFullPongRandom):
+  """GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded."""
 
   @property
   def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_long_pong_autoencoded"
+    return "gym_discrete_problem_with_agent_on_wrapped_full_pong_autoencoded"
 
   @property
   def num_testing_steps(self):
@@ -253,7 +253,7 @@ class GymDiscreteProblemWithAgentOnWrappedBreakoutAe(
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
     GymSimulatedDiscreteProblem, GymWrappedBreakoutRandom):
-  """Similated breakout."""
+  """Simulated breakout."""
 
   @property
   def initial_frames_problem(self):
@@ -293,7 +293,7 @@ class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
 @registry.register_problem
 class GymSimulatedDiscreteProblemWithAgentOnFreeway(GymSimulatedDiscreteProblem,
                                                     GymFreewayRandom):
-  """Similated freeway."""
+  """Simulated freeway."""
 
   @property
   def initial_frames_problem(self):

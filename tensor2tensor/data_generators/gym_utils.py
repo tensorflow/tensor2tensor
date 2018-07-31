@@ -126,10 +126,9 @@ gym.envs.register(id="T2TPongWarmUp20RewSkip200Steps-v1",
                   max_episode_steps=200)
 
 
-gym.envs.register(id="T2TPongWarmUp20RewSkip2000Steps-v1",
+gym.envs.register(id="T2TPongWarmUp20RewSkipFull-v1",
                   entry_point=lambda: wrapped_pong_factory(  # pylint: disable=g-long-lambda
-                      warm_up_examples=20, reward_skip_steps=15),
-                  max_episode_steps=2000)
+                      warm_up_examples=20, reward_skip_steps=15))
 
 
 class BreakoutWrapper(WarmupWrapper):
