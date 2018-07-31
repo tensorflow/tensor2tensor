@@ -668,7 +668,8 @@ def fast_decode_tpu(encoder_output,
                     sos_id=0,
                     eos_id=beam_search.EOS_ID,
                     batch_size=None,
-                    force_decode_length=False):
+                    force_decode_length=False,
+                    scope_prefix="body/"):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements only greedy decoding for TPU.
@@ -687,6 +688,7 @@ def fast_decode_tpu(encoder_output,
     batch_size: An integer, must be passed if there is no input.
     force_decode_length: A bool, whether to force the full decode length, or if
         False, stop when all beams hit eos_id.
+    scope_prefix: str, prefix for decoder layer variable scopes.
 
   Returns:
       A dict of decoding results {
@@ -725,7 +727,8 @@ def fast_decode_tpu(encoder_output,
     for layer in range(num_layers):
       layer_name = "layer_%d" % layer
       with tf.variable_scope(
-          "body/decoder/%s/encdec_attention/multihead_attention" % layer_name):
+          "%sdecoder/%s/encdec_attention/multihead_attention" % (scope_prefix,
+                                                                 layer_name)):
         k_encdec = common_attention.compute_attention_component(
             encoder_output, key_channels, name="k")
         k_encdec = common_attention.split_heads(k_encdec, hparams.num_heads)
@@ -807,7 +810,8 @@ def fast_decode(encoder_output,
                 sos_id=0,
                 eos_id=beam_search.EOS_ID,
                 batch_size=None,
-                force_decode_length=False):
+                force_decode_length=False,
+                scope_prefix="body/"):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding, uses beam search iff
@@ -831,6 +835,7 @@ def fast_decode(encoder_output,
     batch_size: an integer scalar - must be passed if there is no input
     force_decode_length: bool, whether to force the full decode length, or if
       False, stop when all beams hit eos_id.
+    scope_prefix: str, prefix for decoder layer variable scopes.
 
   Returns:
       A dict of decoding results {
@@ -870,7 +875,8 @@ def fast_decode(encoder_output,
     for layer in range(num_layers):
       layer_name = "layer_%d" % layer
       with tf.variable_scope(
-          "body/decoder/%s/encdec_attention/multihead_attention" % layer_name):
+          "%sdecoder/%s/encdec_attention/multihead_attention" % (scope_prefix,
+                                                                 layer_name)):
         k_encdec = common_attention.compute_attention_component(
             encoder_output, key_channels, name="k",
             vars_3d_num_heads=vars_3d_num_heads)
