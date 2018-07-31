@@ -695,6 +695,23 @@ def noam_norm(x, epsilon=1.0, name=None):
         tf.to_float(shape[-1])))
 
 
+def l2_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
+  """Layer normalization with l2 norm."""
+  if filters is None:
+    filters = shape_list(x)[-1]
+  with tf.variable_scope(
+      name, default_name="l2_norm", values=[x], reuse=reuse):
+    scale = tf.get_variable(
+        "l2_norm_scale", [filters], initializer=tf.ones_initializer())
+    bias = tf.get_variable(
+        "l2_norm_bias", [filters], initializer=tf.zeros_initializer())
+    epsilon, scale, bias = [cast_like(t, x) for t in [epsilon, scale, bias]]
+    mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
+    l2norm = tf.reduce_sum(tf.square(x - mean), axis=[-1], keepdims=True)
+    norm_x = (x - mean) * tf.rsqrt(l2norm + epsilon)
+    return norm_x * scale + bias
+
+
 def apply_norm(x, norm_type, depth, epsilon):
   """Apply Normalization."""
   if norm_type == "layer":
@@ -705,10 +722,36 @@ def apply_norm(x, norm_type, depth, epsilon):
     return tf.layers.batch_normalization(x, epsilon=epsilon)
   if norm_type == "noam":
     return noam_norm(x, epsilon)
+  if norm_type == "l2":
+    return l2_norm(x, filters=depth, epsilon=epsilon)
   if norm_type == "none":
     return x
   raise ValueError("Parameter normalizer_fn must be one of: 'layer', 'batch',"
-                   "'noam', 'none'.")
+                   "'noam', 'lr', 'none'.")
+
+
+def zero_add(previous_value, x, name=None, reuse=None):
+  """Resnet connection with zero initialization.
+
+  Another type of resnet connection which returns previous_value + gamma * x.
+  gamma is a trainable scalar and initialized with zero. It is useful when a
+  module is plugged into a trained model and we want to make sure it matches the
+  original model's performance.
+
+  Args:
+    previous_value:  A tensor.
+    x: A tensor.
+    name: name of variable scope; defaults to zero_add.
+    reuse: reuse scope.
+
+  Returns:
+    previous_value + gamma * x.
+  """
+  with tf.variable_scope(
+      name, default_name="zero_add", reuse=reuse):
+    gamma = tf.get_variable(
+        "gamma", (), initializer=tf.zeros_initializer())
+    return previous_value + gamma*x
 
 
 def layer_prepostprocess(previous_value,
@@ -728,6 +771,7 @@ def layer_prepostprocess(previous_value,
     a: add previous_value
     n: apply normalization
     d: apply dropout
+    z: zero add
 
   For example, if sequence=="dna", then the output is
     previous_value + normalize(dropout(x))
@@ -755,6 +799,8 @@ def layer_prepostprocess(previous_value,
     for c in sequence:
       if c == "a":
         x += previous_value
+      elif c == "z":
+        x = zero_add(previous_value, x)
       elif c == "n":
         x = apply_norm(x, norm_type, depth, epsilon)
       else:
@@ -786,6 +832,8 @@ def layer_preprocess(layer_input, hparams):
     a Tensor
   """
   assert "a" not in hparams.layer_preprocess_sequence, (
+      "No residual connections allowed in hparams.layer_preprocess_sequence")
+  assert "z" not in hparams.layer_preprocess_sequence, (
       "No residual connections allowed in hparams.layer_preprocess_sequence")
   return layer_prepostprocess(
       None,
@@ -1840,6 +1888,31 @@ def weights_prepend_inputs_to_targets(labels):
   past_first_zero = tf.cumsum(tf.to_float(tf.equal(labels, 0)), axis=1)
   nonzero = tf.to_float(labels)
   return tf.to_float(tf.not_equal(past_first_zero * nonzero, 0))
+
+
+def weights_multi_problem(labels, taskid=-1):
+  """Assign weight 1.0 to only the "targets" portion of the labels.
+
+  Weight 1.0 is assigned to all labels past the taskid.
+
+  Args:
+    labels: A Tensor of int32s.
+    taskid: an int32 representing the task id for a problem.
+
+  Returns:
+    A Tensor of floats.
+
+  Raises:
+    ValueError: The Task ID must be valid.
+  """
+  if taskid < 0:
+    raise ValueError("Task ID must be non-negative.")
+
+  past_taskid = tf.cumsum(tf.to_float(tf.equal(labels, taskid)), axis=1)
+  # Additionally zero out the task id location
+  past_taskid *= tf.to_float(tf.not_equal(labels, taskid))
+  non_taskid = tf.to_float(labels)
+  return tf.to_float(tf.not_equal(past_taskid * non_taskid, 0))
 
 
 def weights_all(labels):
@@ -3339,6 +3412,9 @@ def should_generate_summaries():
   Returns:
     a boolean
   """
+  if is_on_tpu():
+    # Summaries don't work well with TPU and XLA.
+    return False
   if "while/" in tf.contrib.framework.get_name_scope():
     # Summaries don't work well within tf.while_loop()
     return False
@@ -3515,3 +3591,68 @@ def tpu_safe_image_summary(image):
   else:
     image = tf.cast(image, tf.uint8)
   return image
+
+
+# This has been (shamefully) copied from
+# GitHub tensorflow/models/blob/master/research/slim/nets/cyclegan.py
+#
+# tensorflow/models cannot be pip installed, and even if it were we don't want
+# to depend on all the models in it.
+#
+# Therefore copying and forgoing any more bugfixes into it is the most
+# expedient way to use this function.
+def cyclegan_upsample(net, num_outputs, stride, method="conv2d_transpose"):
+  """Upsamples the given inputs.
+
+  Args:
+    net: A Tensor of size [batch_size, height, width, filters].
+    num_outputs: The number of output filters.
+    stride: A list of 2 scalars or a 1x2 Tensor indicating the scale,
+      relative to the inputs, of the output dimensions. For example, if kernel
+      size is [2, 3], then the output height and width will be twice and three
+      times the input size.
+    method: The upsampling method: 'nn_upsample_conv',
+      'bilinear_upsample_conv', or 'conv2d_transpose'.
+
+  Returns:
+    A Tensor which was upsampled using the specified method.
+
+  Raises:
+    ValueError: if `method` is not recognized.
+  """
+
+  with tf.variable_scope("upconv"):
+    net_shape = tf.shape(net)
+    height = net_shape[1]
+    width = net_shape[2]
+
+    # Reflection pad by 1 in spatial dimensions (axes 1, 2 = h, w) to make a
+    # 3x3 "valid" convolution produce an output with the same dimension as the
+    # input.
+    spatial_pad_1 = np.array([[0, 0], [1, 1], [1, 1], [0, 0]])
+
+    if method == "nn_upsample_conv":
+      net = tf.image.resize_nearest_neighbor(
+          net, [stride[0] * height, stride[1] * width])
+      net = tf.pad(net, spatial_pad_1, "REFLECT")
+      net = tf.contrib.layers.conv2d(net, num_outputs, kernel_size=[3, 3],
+                                     padding="valid")
+    elif method == "bilinear_upsample_conv":
+      net = tf.image.resize_bilinear(
+          net, [stride[0] * height, stride[1] * width])
+      net = tf.pad(net, spatial_pad_1, "REFLECT")
+      net = tf.contrib.layers.conv2d(net, num_outputs, kernel_size=[3, 3],
+                                     padding="valid")
+    elif method == "conv2d_transpose":
+      # This corrects 1 pixel offset for images with even width and height.
+      # conv2d is left aligned and conv2d_transpose is right aligned for even
+      # sized images (while doing "SAME" padding).
+      # Note: This doesn"t reflect actual model in paper.
+      net = tf.contrib.layers.conv2d_transpose(
+          net, num_outputs, kernel_size=[3, 3], stride=stride,
+          padding="valid")
+      net = net[:, 1:, 1:, :]
+    else:
+      raise ValueError("Unknown method: [%s]" % method)
+
+    return net

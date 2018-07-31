@@ -690,8 +690,9 @@ class Text2textTmpdirTokens(Text2textTmpdir):
     if not tf.gfile.Exists(vocab_filepath):
       token_encoder = self._generate_vocab(tmp_dir)
       token_encoder.store_to_file(vocab_filepath)
-    super(Text2textTmpdirTokens, self).generate_samples(data_dir, tmp_dir,
-                                                        dataset_split)
+    return super(Text2textTmpdirTokens, self).generate_samples(data_dir,
+                                                               tmp_dir,
+                                                               dataset_split)
 
 
 class ChoppedTextProblem(Text2SelfProblem):

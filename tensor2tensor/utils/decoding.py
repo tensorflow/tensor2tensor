@@ -48,6 +48,10 @@ def decode_hparams(overrides=""):
       batch_size=0,
       beam_size=4,
       alpha=0.6,
+      eos_penalty=0.0,
+      block_size=0,
+      guess_and_check_top_k=0,
+      guess_and_check_epsilon=-1,
       return_beams=False,
       write_beam_scores=False,
       max_input_size=-1,
@@ -55,6 +59,7 @@ def decode_hparams(overrides=""):
       num_samples=-1,
       delimiter="\n",
       decode_to_file=None,
+      decode_in_memory=False,
       shards=1,
       shard_id=0,
       num_decodes=1,
@@ -168,7 +173,7 @@ def decode_from_dataset(estimator,
     tf.logging.info("Decoding {}".format(decode_id))
 
     # Create decode directory if not in-memory decoding.
-    if not FLAGS.decode_in_memory:
+    if not decode_hp.decode_in_memory:
       output_dir = os.path.join(estimator.model_dir, "decode_%05d" % decode_id)
       tf.gfile.MakeDirs(output_dir)
       output_dirs.append(output_dir)
@@ -180,9 +185,9 @@ def decode_from_dataset(estimator,
                          decode_hp,
                          decode_to_file,
                          output_dir,
-                         log_results=not FLAGS.decode_in_memory)
+                         log_results=not decode_hp.decode_in_memory)
 
-    if FLAGS.decode_in_memory:
+    if decode_hp.decode_in_memory:
       output_dirs = [output_dir]
       predictions.append(result)
 

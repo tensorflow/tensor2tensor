@@ -33,14 +33,15 @@ class NextFrameTest(tf.test.TestCase):
                      out_frames,
                      hparams,
                      model,
-                     expected_last_dim):
+                     expected_last_dim,
+                     upsample_method="conv2d_transpose"):
 
     x = np.random.random_integers(0, high=255, size=(8, in_frames, 64, 64, 3))
     y = np.random.random_integers(0, high=255, size=(8, out_frames, 64, 64, 3))
 
     hparams.video_num_input_frames = in_frames
     hparams.video_num_target_frames = out_frames
-
+    hparams.upsample_method = upsample_method
     problem = registry.problem("video_stochastic_shapes10k")
     p_hparams = problem.get_hparams(hparams)
     hparams.problem = problem
@@ -65,6 +66,12 @@ class NextFrameTest(tf.test.TestCase):
     self.TestVideoModel(4, 1, hparams, model, expected_last_dim)
     self.TestVideoModel(7, 5, hparams, model, expected_last_dim)
 
+  def TestOnVariousUpSampleLayers(self, hparams, model, expected_last_dim):
+    self.TestVideoModel(4, 1, hparams, model, expected_last_dim,
+                        upsample_method="bilinear_upsample_conv")
+    self.TestVideoModel(4, 1, hparams, model, expected_last_dim,
+                        upsample_method="nn_upsample_conv")
+
   def testBasic(self):
     self.TestOnVariousInputOutputSizes(
         next_frame.next_frame(),
@@ -88,6 +95,45 @@ class NextFrameTest(tf.test.TestCase):
         next_frame.next_frame_stochastic_emily(),
         next_frame.NextFrameStochasticEmily,
         1)
+
+  def testStochasticSavp(self):
+    self.TestOnVariousInputOutputSizes(
+        next_frame.next_frame_savp(),
+        next_frame.NextFrameSavp,
+        1)
+    self.TestOnVariousUpSampleLayers(
+        next_frame.next_frame_savp(),
+        next_frame.NextFrameSavp,
+        1)
+
+  def testDynamicTileAndConcat(self):
+    with tf.Graph().as_default():
+      # image = (1 X 4 X 4 X 1)
+      image = [[1, 2, 3, 4],
+               [2, 4, 5, 6],
+               [7, 8, 9, 10],
+               [7, 9, 10, 1]]
+      image = tf.expand_dims(tf.expand_dims(image, axis=0), axis=-1)
+      image_t = tf.cast(tf.convert_to_tensor(image), dtype=tf.float32)
+
+      # latent = (1 X 2)
+      latent = np.array([[90, 100]])
+      latent_t = tf.cast(tf.convert_to_tensor(latent), dtype=tf.float32)
+
+      with tf.Session() as session:
+        tiled = next_frame.NextFrameStochastic.tile_and_concat(
+            image_t, latent_t)
+        tiled_np = session.run(tiled)
+        tiled_latent = tiled_np[0, :, :, -1]
+        self.assertAllEqual(tiled_np.shape, (1, 4, 4, 2))
+
+        self.assertAllEqual(tiled_np[:, :, :, :1], image)
+        self.assertAllEqual(
+            tiled_latent,
+            [[90, 90, 90, 90],
+             [100, 100, 100, 100],
+             [90, 90, 90, 90],
+             [100, 100, 100, 100]])
 
 
 if __name__ == "__main__":

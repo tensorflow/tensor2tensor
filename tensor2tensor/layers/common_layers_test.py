@@ -627,6 +627,68 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(dnorm_bias, dnorm_bias_f)
     self.assertAllClose(dx, dx_f)
 
+  def testCycleGANUpsampleNnUpsampleConv(self):
+    batch = 8
+    height = 32
+    width = 32
+    num_channels = 3
+    output_filters = 10
+    stride = [2, 3]  # we want height to be x2 and width to be x3
+    random_input = np.random.rand(batch, height, width, num_channels)
+
+    # nn_upsample_conv gives exactly the shapes we'd expect.
+    upsampled_output = common_layers.cyclegan_upsample(
+        random_input, output_filters, stride, "nn_upsample_conv")
+    upsampled_output_shape = tf.shape(upsampled_output)
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      self.assertAllEqual(
+          [batch, height * stride[0], width * stride[1], output_filters],
+          session.run(upsampled_output_shape))
+
+  def testCycleGANUpsampleBilinearUpsampleConv(self):
+    batch = 8
+    height = 32
+    width = 32
+    num_channels = 3
+    output_filters = 10
+    stride = [2, 3]  # we want height to be x2 and width to be x3
+    random_input = np.random.rand(batch, height, width, num_channels)
+
+    # bilinear_upsample_conv gives exactly the shapes we'd expect.
+    upsampled_output = common_layers.cyclegan_upsample(
+        random_input, output_filters, stride, "bilinear_upsample_conv")
+    upsampled_output_shape = tf.shape(upsampled_output)
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      self.assertAllEqual(
+          [batch, height * stride[0], width * stride[1], output_filters],
+          session.run(upsampled_output_shape))
+
+  def testCycleGANUpsampleConv2dTranspose(self):
+    batch = 8
+    height = 32
+    width = 32
+    num_channels = 3
+    output_filters = 10
+    stride = [2, 3]  # we want height to be x2 and width to be x3
+    random_input = np.random.rand(batch, height, width, num_channels)
+
+    # conv2d_transpose is a little tricky.
+    # height_new = (height_old - 1) * stride + kernel - 2*padding - correction
+    # here kernel = 3, padding = 0, correction = 1
+    upsampled_height = (height - 1) * stride[0] + 3 - 2*0 - 1
+    upsampled_width = (width - 1) * stride[1] + 3 - 2*0 - 1
+    upsampled_output = common_layers.cyclegan_upsample(random_input,
+                                                       output_filters, stride,
+                                                       "conv2d_transpose")
+    upsampled_output_shape = tf.shape(upsampled_output)
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      self.assertAllEqual(
+          [batch, upsampled_height, upsampled_width, output_filters],
+          session.run(upsampled_output_shape))
+
 
 class FnWithCustomGradTest(tf.test.TestCase):
 

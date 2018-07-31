@@ -99,6 +99,7 @@ def create_hparams(hparams_set,
 
 def create_run_config(master="",
                       model_dir=None,
+                      warm_start_from=None,
                       iterations_per_loop=1000,
                       num_shards=8,
                       log_device_placement=False,
@@ -143,6 +144,7 @@ def create_run_config(master="",
       "session_config": session_config,
       "save_summary_steps": 100,
       "save_checkpoints_steps": save_checkpoints_steps,
+      "save_checkpoints_secs": save_checkpoints_secs,
       "keep_checkpoint_max": keep_checkpoint_max,
       "keep_checkpoint_every_n_hours": keep_checkpoint_every_n_hours,
       "tf_random_seed": random_seed,
@@ -150,23 +152,25 @@ def create_run_config(master="",
   }
   if save_checkpoints_secs:
     del run_config_args["save_checkpoints_steps"]
-    run_config_args["save_checkpoints_secs"] = save_checkpoints_secs
   run_config_cls = tf.contrib.learn.RunConfig
 
   # If using TPU, use TPU RunConfig, add TPUConfig, and add additional args
   if use_tpu:
-    if tpu_config_extra_kwargs is None:
-      tpu_config_extra_kwargs = {}
+    tpu_config_kwargs = {
+        "iterations_per_loop": iterations_per_loop,
+        "num_shards": num_shards,
+        "per_host_input_for_training": True,
+        "initial_infeed_sleep_secs": tpu_infeed_sleep_secs,
+    }
+    if tpu_config_extra_kwargs is not None:
+      tpu_config_kwargs.update(tpu_config_extra_kwargs)
     run_config_cls = tf.contrib.tpu.RunConfig
     tpu_config = tf.contrib.tpu.TPUConfig(
-        iterations_per_loop=iterations_per_loop,
-        num_shards=num_shards,
-        per_host_input_for_training=True,
-        initial_infeed_sleep_secs=tpu_infeed_sleep_secs,
-        **tpu_config_extra_kwargs)
+        **tpu_config_kwargs)
     run_config_args["tpu_config"] = tpu_config
 
   config = run_config_cls(**run_config_args)
+  config.warm_start_from = warm_start_from
 
   # If not using TPU, add device info for data_parallelism
   config.use_tpu = use_tpu
@@ -197,10 +201,12 @@ def create_estimator(model_name,
                      run_config,
                      schedule="train_and_evaluate",
                      decode_hparams=None,
-                     use_tpu=False):
+                     use_tpu=False,
+                     xla_compile=False):
   """Create a T2T Estimator."""
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-      model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
+      model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu,
+      xla_compile=xla_compile)
 
   if use_tpu:
     problem = hparams.problem
@@ -221,7 +227,11 @@ def create_estimator(model_name,
         predict_batch_size=predict_batch_size)
   else:
     estimator = tf.estimator.Estimator(
-        model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
+        model_fn=model_fn,
+        model_dir=run_config.model_dir,
+        config=run_config,
+        warm_start_from=run_config.warm_start_from
+    )
   return estimator
 
 
@@ -312,8 +322,7 @@ class T2TExperiment(object):
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
-        hooks=self._eval_spec.hooks,
-        name="eval")
+        hooks=self._eval_spec.hooks)
 
   def evaluate_on_train_data(self):
     self._estimator.evaluate(
@@ -398,7 +407,8 @@ def create_experiment(
     eval_early_stopping_metric_delta=None,
     eval_early_stopping_metric_minimize=True,
     autotune=False,
-    use_tpu=False):
+    use_tpu=False,
+    xla_compile=False):
   """Create Experiment."""
   # HParams
   hparams.add_hparam("model_dir", run_config.model_dir)
@@ -415,7 +425,8 @@ def create_experiment(
       run_config,
       schedule=schedule,
       decode_hparams=decode_hparams,
-      use_tpu=use_tpu)
+      use_tpu=use_tpu,
+      xla_compile=xla_compile)
 
   # Input fns from Problem
   problem = hparams.problem

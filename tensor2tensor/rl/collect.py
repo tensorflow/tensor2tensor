@@ -48,6 +48,7 @@ class _MemoryWrapper(WrapperBase):
 
   def __init__(self, batch_env):
     super(_MemoryWrapper, self).__init__(batch_env)
+    self._is_simple = False  # TODO(lukaszkaiser): why do we need it? mbz?
     infinity = 10000000
     meta_data = list(zip(*_rollout_metadata(batch_env)))
     # In memory wrapper we do not collect pdfs neither value_function
@@ -69,12 +70,17 @@ class _MemoryWrapper(WrapperBase):
 
     reward, done = self._batch_env.simulate(action)
 
-    with tf.control_dependencies([reward, done]):
-      enqueue_op = self.speculum.enqueue(
-          [self._observ.read_value(), reward, done, action])
+    if self._is_simple:
+      with tf.control_dependencies([reward, done]):
+        enqueue_op = self.speculum.enqueue(
+            [self._batch_env.observ, reward, done, action])
+    else:
+      with tf.control_dependencies([reward, done]):
+        enqueue_op = self.speculum.enqueue(
+            [self._observ.read_value(), reward, done, action])
 
-    with tf.control_dependencies([enqueue_op]):
-      assign = self._observ.assign(self._batch_env.observ)
+      with tf.control_dependencies([enqueue_op]):
+        assign = self._observ.assign(self._batch_env.observ)
 
     with tf.control_dependencies([assign]):
       return tf.identity(reward), tf.identity(done)

@@ -343,52 +343,54 @@ def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
                           sources, file_byte_budget=1e6):
   """Generate a vocabulary from the datasets in sources."""
 
-  def generate():
-    """Generate lines for vocabulary generation."""
-    tf.logging.info("Generating vocab from: %s", str(sources))
-    for source in sources:
-      url = source[0]
-      filename = os.path.basename(url)
-      compressed_file = maybe_download(tmp_dir, filename, url)
-
-      for lang_file in source[1]:
-        tf.logging.info("Reading file: %s" % lang_file)
-        filepath = os.path.join(tmp_dir, lang_file)
-
-        # Extract from tar if needed.
-        if not tf.gfile.Exists(filepath):
-          read_type = "r:gz" if filename.endswith("tgz") else "r"
-          with tarfile.open(compressed_file, read_type) as corpus_tar:
-            corpus_tar.extractall(tmp_dir)
-
-        # For some datasets a second extraction is necessary.
-        if lang_file.endswith(".gz"):
-          new_filepath = os.path.join(tmp_dir, lang_file[:-3])
-          if tf.gfile.Exists(new_filepath):
-            tf.logging.info(
-                "Subdirectory %s already exists, skipping unpacking" % filepath)
-          else:
-            tf.logging.info("Unpacking subdirectory %s" % filepath)
-            gunzip_file(filepath, new_filepath)
-          filepath = new_filepath
-
-        with tf.gfile.GFile(filepath, mode="r") as source_file:
-          file_byte_budget_ = file_byte_budget
-          counter = 0
-          countermax = int(source_file.size() / file_byte_budget_ / 2)
-          for line in source_file:
-            if counter < countermax:
-              counter += 1
-            else:
-              if file_byte_budget_ <= 0:
-                break
-              line = line.strip()
-              file_byte_budget_ -= len(line)
-              counter = 0
-              yield line
-
+  vocab_generator = generate_lines_for_vocab(tmp_dir, sources, file_byte_budget)
   return get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
-                                     generate())
+                                     vocab_generator)
+
+
+def generate_lines_for_vocab(tmp_dir, sources, file_byte_budget=1e6):
+  """Generate lines for vocabulary generation."""
+  tf.logging.info("Generating vocab from: %s", str(sources))
+  for source in sources:
+    url = source[0]
+    filename = os.path.basename(url)
+    compressed_file = maybe_download(tmp_dir, filename, url)
+
+    for lang_file in source[1]:
+      tf.logging.info("Reading file: %s" % lang_file)
+      filepath = os.path.join(tmp_dir, lang_file)
+
+      # Extract from tar if needed.
+      if not tf.gfile.Exists(filepath):
+        read_type = "r:gz" if filename.endswith("tgz") else "r"
+        with tarfile.open(compressed_file, read_type) as corpus_tar:
+          corpus_tar.extractall(tmp_dir)
+
+      # For some datasets a second extraction is necessary.
+      if lang_file.endswith(".gz"):
+        new_filepath = os.path.join(tmp_dir, lang_file[:-3])
+        if tf.gfile.Exists(new_filepath):
+          tf.logging.info(
+              "Subdirectory %s already exists, skipping unpacking" % filepath)
+        else:
+          tf.logging.info("Unpacking subdirectory %s" % filepath)
+          gunzip_file(filepath, new_filepath)
+        filepath = new_filepath
+
+      with tf.gfile.GFile(filepath, mode="r") as source_file:
+        file_byte_budget_ = file_byte_budget
+        counter = 0
+        countermax = int(source_file.size() / file_byte_budget_ / 2)
+        for line in source_file:
+          if counter < countermax:
+            counter += 1
+          else:
+            if file_byte_budget_ <= 0:
+              break
+            line = line.strip()
+            file_byte_budget_ -= len(line)
+            counter = 0
+            yield line
 
 
 def get_or_generate_tabbed_vocab(data_dir, tmp_dir, source_filename,

@@ -114,7 +114,7 @@ class ImageCeleba(image_utils.ImageProblem):
     img_landmarks, _ = process_landmarks(landmarks_raw)
     img_attrs, _ = process_attrs(attr_raw)
 
-    image_files = tf.gfile.Glob(unzipped_folder + "/*.jpg")
+    image_files = list(sorted(tf.gfile.Glob(unzipped_folder + "/*.jpg")))
     for filename in image_files[start_from:start_from + how_many]:
       img_name = os.path.basename(filename)
       landmarks = img_landmarks[img_name]
@@ -137,12 +137,25 @@ class ImageCeleba(image_utils.ImageProblem):
   def dev_shards(self):
     return 10
 
+  @property
+  def test_shards(self):
+    return 10
+
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    generator_utils.generate_dataset_and_shuffle(
-        self.generator(tmp_dir, 162770),  # train
-        self.training_filepaths(data_dir, self.train_shards, shuffled=False),
-        self.generator(tmp_dir, 19867, 162770),  # dev
-        self.dev_filepaths(data_dir, self.dev_shards, shuffled=False))
+    train_gen = self.generator(tmp_dir, 162770)
+    train_paths = self.training_filepaths(
+        data_dir, self.train_shards, shuffled=False)
+    generator_utils.generate_files(train_gen, train_paths)
+
+    dev_gen = self.generator(tmp_dir, 19867, 162770)
+    dev_paths = self.dev_filepaths(data_dir, self.dev_shards, shuffled=False)
+    generator_utils.generate_files(dev_gen, dev_paths)
+
+    test_gen = self.generator(tmp_dir, 19962, 162770+19867)
+    test_paths = self.test_filepaths(data_dir, self.test_shards, shuffled=False)
+    generator_utils.generate_files(test_gen, test_paths)
+
+    generator_utils.shuffle_dataset(train_paths + dev_paths + test_paths)
 
 
 @registry.register_problem

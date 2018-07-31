@@ -19,8 +19,10 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.layers import discretization
+from tensor2tensor.utils import metrics
 import tensorflow as tf
 
 
@@ -63,9 +65,16 @@ class MultiProblem(problem.Problem):
     if self._hparams is not None:
       return self._hparams
 
-    self._hparams = self.task_list[0].get_hparams()
+    self._hparams = self.task_list[0].get_hparams(model_hparams)
 
     return self._hparams
+
+  def flatten_zip(self, *args):
+    flattened = tf.data.Dataset.from_tensors(args[0])
+    for ex in args[1:]:
+      flattened = flattened.concatenate(tf.data.Dataset.from_tensors(ex))
+
+    return flattened
 
   def dataset(self,
               mode,
@@ -84,29 +93,51 @@ class MultiProblem(problem.Problem):
     datasets = []
     is_training = mode == tf.estimator.ModeKeys.TRAIN
 
-    for task in self.task_list:
+    for idx, task in enumerate(self.task_list):
       task_dataset = task.dataset(mode, data_dir, num_threads,
                                   output_buffer_size, shuffle_files,
                                   hparams, preprocess, dataset_split,
                                   shard, partition_id, num_partitions,
-                                  max_records).repeat()
+                                  max_records)
+      if idx == 0:
+        self.update_task_ids(data_dir)
+
+      if is_training:
+        task_dataset = task_dataset.repeat()
       # pylint: disable=cell-var-from-loop
       task_dataset = task_dataset.map(lambda x: self.add_task_id(task, x))
       datasets.append(task_dataset)
 
     self.get_hparams()
 
-    # TODO(urvashik): make this independent of the number of tasks
-    def flatten_zip(d0, d1):
-      return tf.data.Dataset.from_tensors(d0).concatenate(
-          tf.data.Dataset.from_tensors(d1))
-
     if is_training:
       single_mtl_dataset = tf.data.Dataset.zip(tuple(datasets)).flat_map(
-          flatten_zip)
+          self.flatten_zip)
     else:
       single_mtl_dataset = datasets[0]
       for data in datasets[1:]:
-        single_mtl_dataset.concatenate(data)
+        single_mtl_dataset = single_mtl_dataset.concatenate(data)
 
     return single_mtl_dataset
+
+  def eval_metrics(self):
+    return [
+        metrics.Metrics.ACC, metrics.Metrics.NEG_LOG_PERPLEXITY
+    ]
+
+  def update_task_ids(self, data_dir):
+    primary_task = self.task_list[0]
+    if primary_task.has_inputs:
+      raise ValueError("Only support language models as primary problem which "
+                       "supplies the vocabulary and the hparams.")
+
+    encoder = primary_task.feature_encoders(data_dir=data_dir)["targets"]
+
+    id_offset = encoder.vocab_size + text_encoder.NUM_RESERVED_TOKENS
+    if hasattr(primary_task, "additional_reserved_tokens"):
+      id_offset += len(primary_task.additional_reserved_tokens)
+
+    for idx, _ in enumerate(self.task_list):
+      # protect against the ord mapping of chars with the 2x multiplier.
+      self.task_list[idx].set_task_id(idx + 2 * id_offset)
+      print(self.task_list[idx].task_id)

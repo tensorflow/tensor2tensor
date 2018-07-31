@@ -90,7 +90,7 @@ class DiscretizationTest(tf.test.TestCase):
     with self.test_session() as sess:
       tf.global_variables_initializer().run()
       x_sliced_eval = sess.run(x_sliced)
-      self.assertEqual(np.shape(x_sliced_eval), (1, num_blocks, block_dim))
+      self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
       self.assertTrue(np.all(x_sliced_eval == 0))
 
   def testSliceHiddenOnes(self):
@@ -102,16 +102,16 @@ class DiscretizationTest(tf.test.TestCase):
     with self.test_session() as sess:
       tf.global_variables_initializer().run()
       x_sliced_eval = sess.run(x_sliced)
-      self.assertEqual(np.shape(x_sliced_eval), (1, num_blocks, block_dim))
+      self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
       self.assertTrue(np.all(x_sliced_eval == 1))
 
   def testNearestNeighbors(self):
     x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
-    x = tf.expand_dims(x, axis=0)
+    x = tf.reshape(x, [1, 1, 2, 3])
     means = tf.constant(
         [[1, 0, 0], [0, 1, 0], [0, 0, 1], [9, 9, 9]], dtype=tf.float32)
     means = tf.stack([means, means], axis=0)
-    x_means_hot = discretization.nearest_neighbor(x, means, block_v_size=4)
+    x_means_hot, _ = discretization.nearest_neighbor(x, means, block_v_size=4)
     x_means_hot_test = np.array([[0, 1, 0, 0], [1, 0, 0, 0]])
     x_means_hot_test = np.expand_dims(x_means_hot_test, axis=0)
     with self.test_session() as sess:
@@ -163,7 +163,7 @@ class DiscretizationTest(tf.test.TestCase):
       x_means_eval = sess.run(x_means)
       self.assertEqual(np.shape(x_means_eval), (2, 3))
 
-  def testGumbleSoftmaxDiscreteBottleneck(self):
+  def testGumbelSoftmaxDiscreteBottleneck(self):
     x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
     tf.add_to_collection(tf.GraphKeys.GLOBAL_STEP, tf.constant(1))
     x_means_hot, _ = discretization.gumbel_softmax_discrete_bottleneck(

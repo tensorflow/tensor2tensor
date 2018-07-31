@@ -850,7 +850,11 @@ class SubwordTextEncoder(TextEncoder):
       # Reinitialize to the candidate vocabulary.
       new_subtoken_strings = [subtoken for _, subtoken in new_subtoken_strings]
       if reserved_tokens:
-        new_subtoken_strings = reserved_tokens + new_subtoken_strings
+        escaped_reserved_tokens = [
+            _escape_token(native_to_unicode(t), self._alphabet)
+            for t in reserved_tokens
+        ]
+        new_subtoken_strings = escaped_reserved_tokens + new_subtoken_strings
 
       self._init_subtokens_from_list(new_subtoken_strings)
       tf.logging.info("vocab_size = %d" % self.vocab_size)

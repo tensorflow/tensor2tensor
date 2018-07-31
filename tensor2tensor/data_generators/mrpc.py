@@ -12,14 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Data generators for the Quora Question Pairs dataset."""
+"""Data generators for the MSR Paraphrase Corpus."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import os
-import zipfile
 import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -32,14 +31,19 @@ EOS = text_encoder.EOS
 
 
 @registry.register_problem
-class QuoraQuestionPairs(text_problems.TextConcat2ClassProblem):
-  """Quora duplicate question pairs binary classification problems."""
+class MSRParaphraseCorpus(text_problems.TextConcat2ClassProblem):
+  """MSR Paraphrase Identification problems."""
 
   # Link to data from GLUE: https://gluebenchmark.com/tasks
-  _QQP_URL = ("https://firebasestorage.googleapis.com/v0/b/"
-              "mtl-sentence-representations.appspot.com/o/"
-              "data%2FQQP.zip?alt=media&token=700c6acf-160d-"
-              "4d89-81d1-de4191d02cb5")
+  DEV_IDS = ("https://firebasestorage.googleapis.com/v0/b/"
+             "mtl-sentence-representations.appspot.com/o/"
+             "data%2FWNLI.zip?alt=media&token=068ad0a0-ded7-"
+             "4bd7-99a5-5e00222e0faf")
+  MRPC_TRAIN = ("https://s3.amazonaws.com/senteval/senteval_data/"
+                "msr_paraphrase_train.txt")
+  MRPC_TEST = ("https://s3.amazonaws.com/senteval/senteval_data/"
+               "msr_paraphrase_test.txt")
+  DATA_DIR = "MRPC"
 
   @property
   def is_generate_per_split(self):
@@ -49,7 +53,7 @@ class QuoraQuestionPairs(text_problems.TextConcat2ClassProblem):
   def dataset_splits(self):
     return [{
         "split": problem.DatasetSplit.TRAIN,
-        "shards": 100,
+        "shards": 10,
     }, {
         "split": problem.DatasetSplit.EVAL,
         "shards": 1,
@@ -57,11 +61,11 @@ class QuoraQuestionPairs(text_problems.TextConcat2ClassProblem):
 
   @property
   def approx_vocab_size(self):
-    return 2**15
+    return 2**13  # 8k vocab suffices for this small dataset.
 
   @property
   def vocab_filename(self):
-    return "vocab.qqp.%d" % self.approx_vocab_size
+    return "vocab.mrpc.%d" % self.approx_vocab_size
 
   @property
   def num_classes(self):
@@ -79,36 +83,35 @@ class QuoraQuestionPairs(text_problems.TextConcat2ClassProblem):
 
   def class_labels(self, data_dir):
     del data_dir
-    return ["not_duplicate", "duplicate"]
+    return ["not_paraphrase", "paraphrase"]
 
   def _maybe_download_corpora(self, tmp_dir):
-    qqp_filename = "QQP.zip"
-    qqp_finalpath = os.path.join(tmp_dir, "QQP")
-    if not tf.gfile.Exists(qqp_finalpath):
-      zip_filepath = generator_utils.maybe_download(
-          tmp_dir, qqp_filename, self._QQP_URL)
-      zip_ref = zipfile.ZipFile(zip_filepath, "r")
-      zip_ref.extractall(tmp_dir)
-      zip_ref.close()
+    mrpc_dir = os.path.join(tmp_dir, self.DATA_DIR)
+    tf.gfile.MakeDirs(mrpc_dir)
+    mrpc_train_finalpath = os.path.join(mrpc_dir, "msr_paraphrase_train.txt")
+    mrpc_test_finalpath = os.path.join(mrpc_dir, "msr_paraphrase_test.txt")
+    mrpc_dev_ids_finalpath = os.path.join(mrpc_dir, "dev_ids.tsv")
 
-    return qqp_finalpath
+    def download_file(tdir, filepath, url):
+      if not tf.gfile.Exists(filepath):
+        generator_utils.maybe_download(tdir, filepath, url)
 
-  def example_generator(self, filename):
-    skipped = 0
+    download_file(mrpc_dir, mrpc_train_finalpath, self.MRPC_TRAIN)
+    download_file(mrpc_dir, mrpc_test_finalpath, self.MRPC_TEST)
+    download_file(mrpc_dir, mrpc_dev_ids_finalpath, self.DEV_IDS)
+
+    return mrpc_dir
+
+  def example_generator(self, filename, dev_ids):
     for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
       if idx == 0: continue  # skip header
       if six.PY2:
         line = unicode(line.strip(), "utf-8")
       else:
         line = line.strip().decode("utf-8")
-      split_line = line.split("\t")
-      if len(split_line) < 6:
-        skipped += 1
-        tf.logging.info("Skipping %d" % skipped)
+      l, id1, id2, s1, s2 = line.split("\t")
+      if dev_ids and [id1, id2] not in dev_ids:
         continue
-      s1, s2, l = split_line[3:]
-      # A neat data augmentation trick from Radford et al. (2018)
-      # https://blog.openai.com/language-unsupervised/
       inputs = [[s1, s2], [s2, s1]]
       for inp in inputs:
         yield {
@@ -117,20 +120,21 @@ class QuoraQuestionPairs(text_problems.TextConcat2ClassProblem):
         }
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
-    qqp_dir = self._maybe_download_corpora(tmp_dir)
-    if dataset_split == problem.DatasetSplit.TRAIN:
-      filesplit = "train.tsv"
-    else:
-      filesplit = "dev.tsv"
+    mrpc_dir = self._maybe_download_corpora(tmp_dir)
+    filesplit = "msr_paraphrase_train.txt"
+    dev_ids = []
+    if dataset_split != problem.DatasetSplit.TRAIN:
+      for row in tf.gfile.Open(os.path.join(mrpc_dir, "dev_ids.tsv")):
+        dev_ids.append(row.strip().split("\t"))
 
-    filename = os.path.join(qqp_dir, filesplit)
-    for example in self.example_generator(filename):
+    filename = os.path.join(mrpc_dir, filesplit)
+    for example in self.example_generator(filename, dev_ids):
       yield example
 
 
 @registry.register_problem
-class QuoraQuestionPairsCharacters(QuoraQuestionPairs):
-  """Quora duplicate question pairs classification problems, character level"""
+class MSRParaphraseCorpusCharacters(MSRParaphraseCorpus):
+  """MSR Paraphrase Identification problems, character level"""
 
   @property
   def vocab_type(self):

@@ -30,9 +30,9 @@ import random
 
 import asyncio
 import aiohttp
-import bs4
 import tensorflow as tf
 
+from tensor2tensor.data_generators.wikisum import html
 from tensor2tensor.data_generators.wikisum import utils
 
 
@@ -101,63 +101,8 @@ def shard(items, num_shards):
   return sharded
 
 
-def soup_strings(soup):
-  paragraph_tags = set(["caption", "details", "h1", "h2", "h3", "h4", "h5",
-                        "h6", "li", "p", "td", "div", "span"])
-
-  skip_children = None
-  for descendant in soup.descendants:
-    # If we've treated a tag as a contiguous paragraph, don't re-emit the
-    # children (see below).
-    if skip_children is not None:
-      try:
-        in_skip = descendant in skip_children
-      except RecursionError:
-        # Possible for this check to hit a nasty infinite recursion because of
-        # BeautifulSoup __eq__ checks.
-        in_skip = True
-      if in_skip:
-        continue
-      else:
-        skip_children = None
-
-    # Treat some tags as contigous paragraphs, regardless of other tags nested
-    # inside (like <a> or <b>).
-    if isinstance(descendant, bs4.Tag):
-      if descendant.name in paragraph_tags:
-        if descendant.find_all(paragraph_tags):
-          # If there are nested paragraph tags, don't treat it as a single
-          # contiguous tag.
-          continue
-        skip_children = list(descendant.descendants)
-        text = " ".join(descendant.get_text(" ", strip=True).split())
-        if text:
-          yield text
-        continue
-
-    if (isinstance(descendant, bs4.Comment) or
-        not isinstance(descendant, bs4.NavigableString)):
-      continue
-
-    text = " ".join(descendant.strip().split())
-    if text:
-      yield text
-
-
 def mp_get_text(url, html):
-  return url, get_text_from_html(html)
-
-
-def get_text_from_html(html):
-  try:
-    soup = bs4.BeautifulSoup(html, 'html.parser')
-  except:
-    # Some docs don't parse
-    return ""
-  # Remove script and style tags
-  for s in soup(["script", "style"]):
-    s.decompose()
-  return "\n".join([s for s in soup_strings(soup)])
+  return url, html.get_text_from_html(html)
 
 
 def encode(s):

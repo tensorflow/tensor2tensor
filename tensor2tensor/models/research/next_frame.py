@@ -21,13 +21,24 @@ from __future__ import print_function
 import six
 
 from tensor2tensor.layers import common_attention
-from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.models.research import next_frame_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
-slim = tf.contrib.slim
+
+tfl = tf.layers
+tfcl = tf.contrib.layers
+
+
+def basic_lstm(inputs, state, num_units, name=None):
+  input_shape = common_layers.shape_list(inputs)
+  cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=name)
+  if state is None:
+    state = cell.zero_state(input_shape[0], tf.float32)
+  outputs, new_state = cell(inputs, state)
+  return outputs, new_state
 
 
 @registry.register_model
@@ -66,7 +77,10 @@ class NextFrameBasic(t2t_model.T2TModel):
       action_mask = tf.layers.dense(action, filters, name="action_mask")
       zeros_mask = tf.zeros(common_layers.shape_list(x)[:-1] + [filters],
                             dtype=tf.float32)
-      x *= action_mask + zeros_mask
+      if hparams.concatenate_actions:
+        x = tf.concat([x, action_mask + zeros_mask], axis=-1)
+      else:
+        x *= action_mask + zeros_mask
 
     # Run a stack of convolutions.
     for i in range(hparams.num_hidden_layers):
@@ -169,10 +183,41 @@ class NextFrameStochastic(NextFrameBasic):
   https://arxiv.org/abs/1710.11252
   """
 
+  @property
+  def is_training(self):
+    return self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+
   def tinyify(self, array):
     if self.hparams.tiny_mode:
       return [1 for _ in array]
     return array
+
+  @staticmethod
+  def tile_and_concat(image, latent, concat_latent=True):
+    """Tile latent and concatenate to image across depth.
+
+    Args:
+      image: 4-D Tensor, (batch_size X height X width X channels)
+      latent: 2-D Tensor, (batch_size X latent_dims)
+      concat_latent: If set to False, the image is returned as is.
+
+    Returns:
+      concat_latent: 4-D Tensor, (batch_size X height X width X channels+1)
+        latent tiled and concatenated to the image across the channels.
+    """
+    if not concat_latent:
+      return image
+    image_shape = common_layers.shape_list(image)
+    latent_shape = common_layers.shape_list(latent)
+    height, width = image_shape[1], image_shape[2]
+    latent_dims = latent_shape[1]
+
+    height_multiples = height // latent_dims
+    pad = height - (height_multiples * latent_dims)
+    latent = tf.reshape(latent, (-1, latent_dims, 1, 1))
+    latent = tf.tile(latent, (1, height_multiples, width, 1))
+    latent = tf.pad(latent, [[0, 0], [pad // 2, pad // 2], [0, 0], [0, 0]])
+    return tf.concat([image, latent], axis=-1)
 
   def construct_latent_tower(self, images):
     """Builds convolutional latent tower for stochastic model.
@@ -201,18 +246,25 @@ class NextFrameStochastic(NextFrameBasic):
 
       x = images
       x = common_layers.make_even_size(x)
-      x = slim.conv2d(x, conv_size[0], [3, 3], stride=2, scope="latent_conv1")
-      x = slim.batch_norm(x, scope="latent_bn1")
+      x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="latent_conv1")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="latent_bn1")
       x = common_layers.make_even_size(x)
-      x = slim.conv2d(x, conv_size[1], [3, 3], stride=2, scope="latent_conv2")
-      x = slim.batch_norm(x, scope="latent_bn2")
-      x = slim.conv2d(x, conv_size[2], [3, 3], stride=1, scope="latent_conv3")
-      x = slim.batch_norm(x, scope="latent_bn3")
+      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="latent_conv2")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="latent_bn2")
+      x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
+                     padding="SAME", activation=tf.nn.relu, name="latent_conv3")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="latent_bn3")
 
       nc = self.hparams.latent_channels
-      mean = slim.conv2d(
-          x, nc, [3, 3], stride=2, activation_fn=None, scope="latent_mean")
-      std = slim.conv2d(x, nc, [3, 3], stride=2, scope="latent_std")
+      mean = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+                        padding="SAME", activation=None, name="latent_mean")
+      std = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+                       padding="SAME", activation=tf.nn.relu, name="latent_std")
       std += self.hparams.latent_std_min
 
       # No latent tower at inference time, just standard gaussian.
@@ -221,26 +273,124 @@ class NextFrameStochastic(NextFrameBasic):
 
       return mean, std
 
-  def reward_prediction(self, inputs):
+  def bottom_part_tower(self, input_image, input_reward, action, latent,
+                        lstm_state, lstm_size, conv_size, concat_latent=False):
+    """The bottom part of predictive towers.
+
+    With the current (early) design, the main prediction tower and
+    the reward prediction tower share the same arcitecture. TF Scope can be
+    adjusted as required to either share or not share the weights between
+    the two towers.
+
+    Args:
+      input_image: the current image.
+      input_reward: the current reward.
+      action: the action taken by the agent.
+      latent: the latent vector.
+      lstm_state: the current internal states of conv lstms.
+      lstm_size: the size of lstms.
+      conv_size: the size of convolutions.
+      concat_latent: whether or not to concatenate the latent at every step.
+
+    Returns:
+      - the output of the partial network.
+      - intermidate outputs for skip connections.
+    """
+    lstm_func = self.conv_lstm_2d
+
+    input_image = common_layers.make_even_size(input_image)
+    concat_input_image = self.tile_and_concat(
+        input_image, latent, concat_latent=concat_latent)
+
+    enc0 = tfl.conv2d(
+        concat_input_image,
+        conv_size[0], [5, 5],
+        strides=(2, 2),
+        activation=tf.nn.relu,
+        padding="SAME",
+        name="scale1_conv1")
+    enc0 = tfcl.layer_norm(enc0, scope="layer_norm1")
+
+    hidden1, lstm_state[0] = lstm_func(
+        enc0, lstm_state[0], lstm_size[0], name="state1")
+    hidden1 = self.tile_and_concat(hidden1, latent, concat_latent=concat_latent)
+    hidden1 = tfcl.layer_norm(hidden1, scope="layer_norm2")
+    hidden2, lstm_state[1] = lstm_func(
+        hidden1, lstm_state[1], lstm_size[1], name="state2")
+    hidden2 = tfcl.layer_norm(hidden2, scope="layer_norm3")
+    hidden2 = common_layers.make_even_size(hidden2)
+    enc1 = tfl.conv2d(hidden2, hidden2.get_shape()[3], [3, 3], strides=(2, 2),
+                      padding="SAME", activation=tf.nn.relu, name="conv2")
+    enc1 = self.tile_and_concat(enc1, latent, concat_latent=concat_latent)
+
+    hidden3, lstm_state[2] = lstm_func(
+        enc1, lstm_state[2], lstm_size[2], name="state3")
+    hidden3 = self.tile_and_concat(hidden3, latent, concat_latent=concat_latent)
+    hidden3 = tfcl.layer_norm(hidden3, scope="layer_norm4")
+    hidden4, lstm_state[3] = lstm_func(
+        hidden3, lstm_state[3], lstm_size[3], name="state4")
+    hidden4 = self.tile_and_concat(hidden4, latent, concat_latent=concat_latent)
+    hidden4 = tfcl.layer_norm(hidden4, scope="layer_norm5")
+    hidden4 = common_layers.make_even_size(hidden4)
+    enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
+                      padding="SAME", activation=tf.nn.relu, name="conv3")
+
+    # Pass in reward and action.
+    emb_action = self.encode_to_shape(action, enc2.get_shape(), "action_enc")
+    emb_reward = self.encode_to_shape(
+        input_reward, enc2.get_shape(), "reward_enc")
+    enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
+
+    if latent is not None and not concat_latent:
+      with tf.control_dependencies([latent]):
+        enc2 = tf.concat([enc2, latent], 3)
+
+    enc3 = tfl.conv2d(enc2, hidden4.get_shape()[3], [1, 1], strides=(1, 1),
+                      padding="SAME", activation=tf.nn.relu, name="conv4")
+
+    hidden5, lstm_state[4] = lstm_func(
+        enc3, lstm_state[4], lstm_size[4], name="state5")  # last 8x8
+    hidden5 = tfcl.layer_norm(hidden5, scope="layer_norm6")
+    hidden5 = self.tile_and_concat(hidden5, latent, concat_latent=concat_latent)
+    return hidden5, (enc0, enc1)
+
+  def reward_prediction(
+      self, input_image, input_reward, action, lstm_state, latent):
     """Builds a reward prediction network."""
-    conv_size = self.tinyify([32, 16, 1])
+    conv_size = self.tinyify([32, 32, 16, 4])
+    lstm_size = self.tinyify([32, 64, 128, 64, 32])
+
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
-      x = inputs
-      x = slim.batch_norm(x, scope="reward_bn0")
-      x = slim.conv2d(x, conv_size[0], [3, 3], scope="reward_conv1")
-      x = slim.batch_norm(x, scope="reward_bn1")
-      x = slim.conv2d(x, conv_size[1], [3, 3], scope="reward_conv2")
-      x = slim.batch_norm(x, scope="reward_bn2")
-      x = slim.conv2d(x, conv_size[2], [3, 3], scope="reward_conv3")
-    return x
+      hidden5, _ = self.bottom_part_tower(
+          input_image, input_reward, action, latent,
+          lstm_state, lstm_size, conv_size)
+
+      x = hidden5
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="reward_bn0")
+      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="reward_conv1")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="reward_bn1")
+      x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="reward_conv2")
+      x = tfcl.batch_norm(x, updates_collections=None,
+                          is_training=self.is_training, scope="reward_bn2")
+      x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
+                     padding="SAME", activation=tf.nn.relu, name="reward_conv3")
+
+      pred_reward = self.decode_to_shape(
+          x, input_reward.shape, "reward_dec")
+
+      return pred_reward, lstm_state
 
   def encode_to_shape(self, inputs, shape, scope):
     """Encode the given tensor to given image shape."""
     with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
       w, h = shape[1].value, shape[2].value
       x = inputs
-      x = tf.contrib.layers.flatten(x)
-      x = slim.fully_connected(x, w * h, scope="encoding_full")
+      x = tfcl.flatten(x)
+      x = tfl.dense(x, w * h, activation=tf.nn.relu, name="enc_dense")
       x = tf.reshape(x, (-1, w, h, 1))
       return x
 
@@ -248,31 +398,38 @@ class NextFrameStochastic(NextFrameBasic):
     """Encode the given tensor to given image shape."""
     with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
       x = inputs
-      x = tf.contrib.layers.flatten(x)
-      x = slim.fully_connected(x, shape[2].value, scope="decoding_full")
+      x = tfcl.flatten(x)
+      x = tfl.dense(x, shape[2].value, activation=tf.nn.relu, name="dec_dense")
       x = tf.expand_dims(x, axis=1)
       return x
 
   def conv_lstm_2d(self, inputs, state, output_channels,
-                   kernel_size=5, scope=None):
+                   kernel_size=5, name=None, spatial_dims=None):
     input_shape = common_layers.shape_list(inputs)
+    batch_size, input_channels = input_shape[0], input_shape[-1]
+    if spatial_dims is None:
+      input_shape = input_shape[1:]
+    else:
+      input_shape = spatial_dims + [input_channels]
+
     cell = tf.contrib.rnn.ConvLSTMCell(
-        2, input_shape[1:], output_channels,
-        [kernel_size, kernel_size], name=scope)
+        2, input_shape, output_channels,
+        [kernel_size, kernel_size], name=name)
     if state is None:
-      state = cell.zero_state(input_shape[0], tf.float32)
+      state = cell.zero_state(batch_size, tf.float32)
     outputs, new_state = cell(inputs, state)
     return outputs, new_state
 
   def construct_predictive_tower(
-      self, input_image, input_reward, action, lstm_state, latent):
+      self, input_image, input_reward, action, lstm_state, latent,
+      concat_latent=False):
     # Main tower
-    layer_norm = tf.contrib.layers.layer_norm
     lstm_func = self.conv_lstm_2d
     batch_size = common_layers.shape_list(input_image)[0]
     # the number of different pixel motion predictions
     # and the number of masks for each of those predictions
     num_masks = self.hparams.num_masks
+    upsample_method = self.hparams.upsample_method
 
     lstm_size = self.tinyify([32, 32, 64, 64, 128, 64, 32])
     conv_size = self.tinyify([32])
@@ -280,108 +437,80 @@ class NextFrameStochastic(NextFrameBasic):
     img_height, img_width, color_channels = self.hparams.problem.frame_shape
 
     with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
-      input_image = common_layers.make_even_size(input_image)
-      enc0 = slim.layers.conv2d(
-          input_image,
-          conv_size[0], [5, 5],
-          stride=2,
-          scope="scale1_conv1",
-          normalizer_fn=layer_norm,
-          normalizer_params={"scope": "layer_norm1"})
+      hidden5, skips = self.bottom_part_tower(
+          input_image, input_reward, action, latent,
+          lstm_state, lstm_size, conv_size, concat_latent=concat_latent)
+      enc0, enc1 = skips
 
-      hidden1, lstm_state[0] = lstm_func(
-          enc0, lstm_state[0], lstm_size[0], scope="state1")
-      hidden1 = layer_norm(hidden1, scope="layer_norm2")
-      hidden2, lstm_state[1] = lstm_func(
-          hidden1, lstm_state[1], lstm_size[1], scope="state2")
-      hidden2 = layer_norm(hidden2, scope="layer_norm3")
-      hidden2 = common_layers.make_even_size(hidden2)
-      enc1 = slim.layers.conv2d(
-          hidden2, hidden2.get_shape()[3], [3, 3], stride=2, scope="conv2")
-
-      hidden3, lstm_state[2] = lstm_func(
-          enc1, lstm_state[2], lstm_size[2], scope="state3")
-      hidden3 = layer_norm(hidden3, scope="layer_norm4")
-      hidden4, lstm_state[3] = lstm_func(
-          hidden3, lstm_state[3], lstm_size[3], scope="state4")
-      hidden4 = layer_norm(hidden4, scope="layer_norm5")
-      hidden4 = common_layers.make_even_size(hidden4)
-      enc2 = slim.layers.conv2d(
-          hidden4, hidden4.get_shape()[3], [3, 3], stride=2, scope="conv3")
-
-      # Pass in reward and action.
-      emb_action = self.encode_to_shape(action, enc2.get_shape(), "action_enc")
-      emb_reward = self.encode_to_shape(
-          input_reward, enc2.get_shape(), "reward_enc")
-      enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
-
-      if latent is not None:
-        with tf.control_dependencies([latent]):
-          enc2 = tf.concat([enc2, latent], 3)
-
-      enc3 = slim.layers.conv2d(
-          enc2, hidden4.get_shape()[3], [1, 1], stride=1, scope="conv4")
-
-      hidden5, lstm_state[4] = lstm_func(
-          enc3, lstm_state[4], lstm_size[4], scope="state5")  # last 8x8
-      hidden5 = layer_norm(hidden5, scope="layer_norm6")
-      enc4 = slim.layers.conv2d_transpose(
-          hidden5, hidden5.get_shape()[3], 3, stride=2, scope="convt1")
+      with tf.variable_scope("upsample1", reuse=tf.AUTO_REUSE):
+        enc4 = common_layers.cyclegan_upsample(
+            hidden5, num_outputs=hidden5.shape.as_list()[-1],
+            stride=[2, 2], method=upsample_method)
 
       enc1_shape = common_layers.shape_list(enc1)
       enc4 = enc4[:, :enc1_shape[1], :enc1_shape[2], :]  # Cut to shape.
+      enc4 = self.tile_and_concat(enc4, latent, concat_latent=concat_latent)
+
       hidden6, lstm_state[5] = lstm_func(
-          enc4, lstm_state[5], lstm_size[5], scope="state6")  # 16x16
-      hidden6 = layer_norm(hidden6, scope="layer_norm7")
+          enc4, lstm_state[5], lstm_size[5], name="state6",
+          spatial_dims=enc1_shape[1:-1])  # 16x16
+      hidden6 = self.tile_and_concat(
+          hidden6, latent, concat_latent=concat_latent)
+      hidden6 = tfcl.layer_norm(hidden6, scope="layer_norm7")
       # Skip connection.
       hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
 
-      enc5 = slim.layers.conv2d_transpose(
-          hidden6, hidden6.get_shape()[3], 3, stride=2, scope="convt2")
+      with tf.variable_scope("upsample2", reuse=tf.AUTO_REUSE):
+        enc5 = common_layers.cyclegan_upsample(
+            hidden6, num_outputs=hidden6.shape.as_list()[-1],
+            stride=[2, 2], method=upsample_method)
+
       enc0_shape = common_layers.shape_list(enc0)
       enc5 = enc5[:, :enc0_shape[1], :enc0_shape[2], :]  # Cut to shape.
+      enc5 = self.tile_and_concat(enc5, latent, concat_latent=concat_latent)
+
       hidden7, lstm_state[6] = lstm_func(
-          enc5, lstm_state[6], lstm_size[6], scope="state7")  # 32x32
-      hidden7 = layer_norm(hidden7, scope="layer_norm8")
+          enc5, lstm_state[6], lstm_size[6], name="state7",
+          spatial_dims=enc0_shape[1:-1])  # 32x32
+      hidden7 = tfcl.layer_norm(hidden7, scope="layer_norm8")
 
       # Skip connection.
       hidden7 = tf.concat(axis=3, values=[hidden7, enc0])  # both 32x32
 
-      enc6 = slim.layers.conv2d_transpose(
-          hidden7,
-          hidden7.get_shape()[3],
-          3,
-          stride=2,
-          scope="convt3",
-          activation_fn=None,
-          normalizer_fn=layer_norm,
-          normalizer_params={"scope": "layer_norm9"})
+      with tf.variable_scope("upsample3", reuse=tf.AUTO_REUSE):
+        enc6 = common_layers.cyclegan_upsample(
+            hidden7, num_outputs=hidden7.shape.as_list()[-1],
+            stride=[2, 2], method=upsample_method)
+      enc6 = tfcl.layer_norm(enc6, scope="layer_norm9")
+      enc6 = self.tile_and_concat(enc6, latent, concat_latent=concat_latent)
 
       if self.hparams.model_options == "DNA":
         # Using largest hidden state for predicting untied conv kernels.
-        enc7 = slim.layers.conv2d_transpose(
+        enc7 = tfl.conv2d_transpose(
             enc6,
             self.hparams.dna_kernel_size**2,
-            1,
-            stride=1,
-            scope="convt4",
-            activation_fn=None)
+            [1, 1],
+            strides=(1, 1),
+            padding="SAME",
+            name="convt4",
+            activation=None)
       else:
         # Using largest hidden state for predicting a new image layer.
-        enc7 = slim.layers.conv2d_transpose(
+        enc7 = tfl.conv2d_transpose(
             enc6,
             color_channels,
-            1,
-            stride=1,
-            scope="convt4",
-            activation_fn=None)
+            [1, 1],
+            strides=(1, 1),
+            padding="SAME",
+            name="convt4",
+            activation=None)
         # This allows the network to also generate one image from scratch,
         # which is useful when regions of the image become unoccluded.
         transformed = [tf.nn.sigmoid(enc7)]
 
       if self.hparams.model_options == "CDNA":
         # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
-        cdna_input = tf.contrib.layers.flatten(hidden5)
+        cdna_input = tfcl.flatten(hidden5)
         transformed += self.cdna_transformation(
             input_image, cdna_input, num_masks, int(color_channels))
       elif self.hparams.model_options == "DNA":
@@ -390,9 +519,9 @@ class NextFrameStochastic(NextFrameBasic):
           raise ValueError("Only one mask is supported for DNA model.")
         transformed = [self.dna_transformation(input_image, enc7)]
 
-      masks = slim.layers.conv2d_transpose(
-          enc6, num_masks + 1, 1,
-          stride=1, scope="convt7", activation_fn=None)
+      masks = tfl.conv2d(
+          enc6, filters=num_masks + 1, kernel_size=[1, 1],
+          strides=(1, 1), name="convt7", padding="SAME")
       masks = tf.reshape(
           tf.nn.softmax(tf.reshape(masks, [-1, num_masks + 1])),
           [batch_size,
@@ -404,13 +533,9 @@ class NextFrameStochastic(NextFrameBasic):
       for layer, mask in zip(transformed, mask_list[1:]):
         output += layer * mask
 
-      p_reward = self.reward_prediction(hidden5)
-      p_reward = self.decode_to_shape(
-          p_reward, input_reward.shape, "reward_dec")
+      return output, lstm_state
 
-      return output, p_reward, lstm_state
-
-  def get_guassian_latent(self, latent_mean, latent_std):
+  def get_gaussian_latent(self, latent_mean, latent_std):
     latent = tf.random_normal(tf.shape(latent_mean), 0, 1, dtype=tf.float32)
     latent = latent_mean + tf.exp(latent_std / 2.0) * latent
     return latent
@@ -445,6 +570,7 @@ class NextFrameStochastic(NextFrameBasic):
 
     # LSTM states.
     lstm_state = [None] * 7
+    reward_lstm_state = [None] * 5
 
     # Latent tower
     if self.hparams.stochastic_model:
@@ -463,11 +589,18 @@ class NextFrameStochastic(NextFrameBasic):
       # Latent
       if self.hparams.stochastic_model:
         if timestep == 0 or self.hparams.multi_latent:
-          latent = self.get_guassian_latent(latent_mean, latent_std)
+          latent = self.get_gaussian_latent(latent_mean, latent_std)
 
       # Prediction
-      pred_image, pred_reward, lstm_state = self.construct_predictive_tower(
+      pred_image, lstm_state = self.construct_predictive_tower(
           input_image, input_reward, action, lstm_state, latent)
+
+      if self.hparams.reward_prediction:
+        pred_reward, reward_lstm_state = self.reward_prediction(
+            input_image, input_reward, action, reward_lstm_state, latent)
+      else:
+        pred_reward = input_reward
+
       gen_images.append(pred_image)
       gen_rewards.append(pred_reward)
 
@@ -493,12 +626,12 @@ class NextFrameStochastic(NextFrameBasic):
     width = int(prev_image.get_shape()[2])
 
     # Predict kernels using linear function of last hidden layer.
-    cdna_kerns = slim.layers.fully_connected(
+    cdna_kerns = tfl.dense(
         cdna_input,
         self.hparams.dna_kernel_size *
         self.hparams.dna_kernel_size * num_masks,
-        scope="cdna_params",
-        activation_fn=None)
+        name="cdna_params",
+        activation=None)
 
     # Reshape and normalize.
     cdna_kerns = tf.reshape(
@@ -609,6 +742,7 @@ class NextFrameStochastic(NextFrameBasic):
             tf.round(
                 tf.to_float(batch_size) *
                 (k / (k + tf.exp(tf.to_float(iter_num) / tf.to_float(k))))))
+        tf.summary.scalar("num_ground_truth", num_ground_truth)
 
       if feedself and done_warm_start:
         # Feed in generated stuff.
@@ -635,10 +769,9 @@ class NextFrameStochastic(NextFrameBasic):
     Returns:
       the KL loss.
     """
-
-    return -.5 * tf.reduce_sum(
-        1. + log_sigma - tf.square(mu) - tf.exp(log_sigma),
-        axis=1)
+    batch_size = common_layers.shape_list(mu)[0]
+    kl = -.5 * tf.reduce_sum(1. + log_sigma - tf.square(mu) - tf.exp(log_sigma))
+    return kl / tf.to_float(batch_size)
 
   def get_input_if_exists(self, features, key, batch_size, num_frames):
     if key in features:
@@ -677,7 +810,6 @@ class NextFrameStochastic(NextFrameBasic):
     # NOT sure if this is required at all. Doesn"t hurt though! :)
     all_frames = [tf.identity(frame) for frame in all_frames]
 
-    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
     gen_images, gen_rewards, latent_means, latent_stds = self.construct_model(
         images=all_frames,
         actions=all_actions,
@@ -688,12 +820,38 @@ class NextFrameStochastic(NextFrameBasic):
     # TODO(mbz): what should it be if it"s undefined?
     if step_num is None:
       step_num = _LARGE_STEP_NUMBER
-    beta = tf.cond(tf.greater(step_num, self.hparams.num_iterations_2nd_stage),
-                   lambda: self.hparams.latent_loss_multiplier,
-                   lambda: 0.0)
+
+    schedule = self.hparams.latent_loss_multiplier_schedule
+    second_stage = self.hparams.num_iterations_2nd_stage
+    # TODO(mechcoder): Add log_annealing schedule.
+    if schedule == "constant":
+      beta = tf.cond(tf.greater(step_num, second_stage),
+                     lambda: self.hparams.latent_loss_multiplier,
+                     lambda: 0.0)
+    elif schedule == "linear_anneal":
+      # Linearly anneal beta from 0.0 to self.hparams.latent_loss_multiplier.
+      # between self.hparams.num_iterations_2nd_stage to anneal_end.
+      # beta = latent_loss * (1 - (global_step - 2nd_stage) / (anneal_end - 2nd_stage))  # pylint:disable=line-too-long
+      anneal_end = self.hparams.anneal_end
+      latent_multiplier = self.hparams.latent_loss_multiplier
+      if anneal_end < second_stage:
+        raise ValueError("Expected hparams.num_iterations_2nd_stage < "
+                         "hparams.anneal_end %d, got %d." %
+                         (second_stage, anneal_end))
+
+      def anneal_loss(step_num):
+        step_num = tf.cast(step_num, dtype=tf.float32)
+        fraction = (float(anneal_end) - step_num) / (anneal_end - second_stage)
+        return self.hparams.latent_loss_multiplier * (1 - fraction)
+
+      beta = tf.case(
+          pred_fn_pairs={
+              tf.less(step_num, second_stage): lambda: 0.0,
+              tf.greater(step_num, anneal_end): lambda: latent_multiplier},
+          default=lambda: anneal_loss(step_num))
 
     kl_loss = 0.0
-    if is_training:
+    if self.is_training:
       for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
         kl_loss += self.kl_divergence(mean, std)
         tf.summary.histogram("posterior_mean_%d" % i, mean)
@@ -702,8 +860,7 @@ class NextFrameStochastic(NextFrameBasic):
       tf.summary.scalar("beta", beta)
       tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
 
-    extra_loss = beta * kl_loss
-
+    extra_loss = beta * tf.reduce_mean(kl_loss)
     predictions = gen_images[hparams.video_num_input_frames-1:]
     reward_pred = tf.stack(
         gen_rewards[hparams.video_num_input_frames-1:], axis=1)
@@ -733,6 +890,7 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
 
     # LSTM states.
     lstm_state = [None] * 7
+    reward_lstm_state = [None] * 5
 
     pred_image, pred_reward, latent = None, None, None
     for timestep, image, action, reward in zip(
@@ -748,13 +906,20 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
       # TODO(mbz): should we use input_image iunstead of image?
       latent_images = [image, images[timestep+1]]
       latent_mean, latent_std = self.construct_latent_tower(latent_images)
-      latent = self.get_guassian_latent(latent_mean, latent_std)
+      latent = self.get_gaussian_latent(latent_mean, latent_std)
       latent_means.append(latent_mean)
       latent_stds.append(latent_std)
 
       # Prediction
-      pred_image, pred_reward, lstm_state = self.construct_predictive_tower(
+      pred_image, lstm_state = self.construct_predictive_tower(
           input_image, input_reward, action, lstm_state, latent)
+
+      if self.hparams.reward_prediction:
+        pred_reward, reward_lstm_state = self.reward_prediction(
+            input_image, input_reward, action, reward_lstm_state, latent)
+      else:
+        pred_reward = input_reward
+
       gen_images.append(pred_image)
       gen_rewards.append(pred_reward)
 
@@ -780,7 +945,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
                 kernel_size=3,
                 activation=tf.nn.leaky_relu,
                 padding="SAME",
-                scope=""):
+                scope=None):
     """A layer of VGG network with batch norm.
 
     Args:
@@ -789,23 +954,17 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       kernel_size: size of the kernel
       activation: activation function
       padding: padding of the image
-      scope: slim scope of the op
+      scope: variable scope of the op
     Returns:
       net: output of layer
     """
-    net = slim.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
-                      activation_fn=activation, scope=scope+"_conv")
-    net = slim.batch_norm(net, scope=scope+"_bn")
-    net = activation(net)
+    with tf.variable_scope(scope):
+      net = tfl.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
+                       activation=None, name="conv")
+      net = tfl.batch_normalization(net,
+                                    training=self.is_training, name="bn")
+      net = activation(net)
     return net
-
-  def basic_lstm(self, inputs, state, num_units, scope=None):
-    input_shape = common_layers.shape_list(inputs)
-    cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=scope)
-    if state is None:
-      state = cell.zero_state(input_shape[0], tf.float32)
-    outputs, new_state = cell(inputs, state)
-    return outputs, new_state
 
   def encoder(self, inputs, nout):
     """VGG based image encoder.
@@ -820,19 +979,19 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     vgg_layer = self.vgg_layer
     net01 = inputs
     # h1
-    net11 = slim.repeat(net01, 2, vgg_layer, 64, scope="h1")
-    net12 = slim.max_pool2d(net11, [2, 2], scope="h1_pool")
+    net11 = tfcl.repeat(net01, 2, vgg_layer, 64, scope="h1")
+    net12 = tfl.max_pooling2d(net11, [2, 2], strides=(2, 2), name="h1_pool")
     # h2
-    net21 = slim.repeat(net12, 2, vgg_layer, 128, scope="h2")
-    net22 = slim.max_pool2d(net21, [2, 2], scope="h2_pool")
+    net21 = tfcl.repeat(net12, 2, vgg_layer, 128, scope="h2")
+    net22 = tfl.max_pooling2d(net21, [2, 2], strides=(2, 2), name="h2_pool")
     # h3
-    net31 = slim.repeat(net22, 3, vgg_layer, 256, scope="h3")
-    net32 = slim.max_pool2d(net31, [2, 2], scope="h3_pool")
+    net31 = tfcl.repeat(net22, 3, vgg_layer, 256, scope="h3")
+    net32 = tfl.max_pooling2d(net31, [2, 2], strides=(2, 2), name="h3_pool")
     # h4
-    net41 = slim.repeat(net32, 3, vgg_layer, 512, scope="h4")
-    net42 = slim.max_pool2d(net41, [2, 2], scope="h4_pool")
+    net41 = tfcl.repeat(net32, 3, vgg_layer, 512, scope="h4")
+    net42 = tfl.max_pooling2d(net41, [2, 2], strides=(2, 2), name="h4_pool")
     # h5
-    net51 = slim.repeat(net42, 1, vgg_layer, nout, kernel_size=4,
+    net51 = tfcl.repeat(net42, 1, vgg_layer, nout, kernel_size=4,
                         padding="VALID", activation=tf.tanh, scope="h5")
     skips = [net11, net21, net31, net41]
     return net51, skips
@@ -851,31 +1010,31 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     vgg_layer = self.vgg_layer
     net = inputs
     # d1
-    net = slim.conv2d_transpose(net, 512, kernel_size=4, padding="VALID",
-                                scope="d1_deconv", activation_fn=None)
-    net = slim.batch_norm(net, scope="d1_bn")
+    net = tfl.conv2d_transpose(net, 512, kernel_size=4, padding="VALID",
+                               name="d1_deconv", activation=None)
+    net = tfl.batch_normalization(net, training=self.is_training, name="d1_bn")
     net = tf.nn.leaky_relu(net)
     net = common_layers.upscale(net, 2)
     # d2
     net = tf.concat([net, skips[3]], axis=3)
-    net = slim.repeat(net, 2, vgg_layer, 512, scope="d2a")
-    net = slim.repeat(net, 1, vgg_layer, 256, scope="d2b")
+    net = tfcl.repeat(net, 2, vgg_layer, 512, scope="d2a")
+    net = tfcl.repeat(net, 1, vgg_layer, 256, scope="d2b")
     net = common_layers.upscale(net, 2)
     # d3
     net = tf.concat([net, skips[2]], axis=3)
-    net = slim.repeat(net, 2, vgg_layer, 256, scope="d3a")
-    net = slim.repeat(net, 1, vgg_layer, 128, scope="d3b")
+    net = tfcl.repeat(net, 2, vgg_layer, 256, scope="d3a")
+    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d3b")
     net = common_layers.upscale(net, 2)
     # d4
     net = tf.concat([net, skips[1]], axis=3)
-    net = slim.repeat(net, 1, vgg_layer, 128, scope="d4a")
-    net = slim.repeat(net, 1, vgg_layer, 64, scope="d4b")
+    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d4a")
+    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d4b")
     net = common_layers.upscale(net, 2)
     # d5
     net = tf.concat([net, skips[0]], axis=3)
-    net = slim.repeat(net, 1, vgg_layer, 64, scope="d5")
-    net = slim.conv2d_transpose(net, nout, kernel_size=3, padding="SAME",
-                                scope="d6_deconv", activation_fn=tf.sigmoid)
+    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d5")
+    net = tfl.conv2d_transpose(net, nout, kernel_size=3, padding="SAME",
+                               name="d6_deconv", activation=tf.sigmoid)
     return net
 
   def stacked_lstm(self, inputs, states, hidden_size, output_size, nlayers):
@@ -892,13 +1051,13 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       skips: a list of updated lstm states for each layer
     """
     net = inputs
-    net = slim.layers.fully_connected(
-        net, hidden_size, activation_fn=None, scope="af1")
+    net = tfl.dense(
+        net, hidden_size, activation=None, name="af1")
     for i in range(nlayers):
-      net, states[i] = self.basic_lstm(
-          net, states[i], hidden_size, scope="alstm%d"%i)
-    net = slim.layers.fully_connected(
-        net, output_size, activation_fn=tf.tanh, scope="af2")
+      net, states[i] = basic_lstm(
+          net, states[i], hidden_size, name="alstm%d"%i)
+    net = tfl.dense(
+        net, output_size, activation=tf.nn.tanh, name="af2")
     return net, states
 
   def lstm_gaussian(self, inputs, states, hidden_size, output_size, nlayers):
@@ -916,15 +1075,12 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       skips: a list of updated lstm states for each layer
     """
     net = inputs
-    net = slim.layers.fully_connected(net, hidden_size,
-                                      activation_fn=None, scope="bf1")
+    net = tfl.dense(net, hidden_size, activation=None, name="bf1")
     for i in range(nlayers):
-      net, states[i] = self.basic_lstm(
-          net, states[i], hidden_size, scope="blstm%d"%i)
-    mu = slim.layers.fully_connected(
-        net, output_size, activation_fn=None, scope="bf2mu")
-    logvar = slim.layers.fully_connected(
-        net, output_size, activation_fn=None, scope="bf2log")
+      net, states[i] = basic_lstm(
+          net, states[i], hidden_size, name="blstm%d"%i)
+    mu = tfl.dense(net, output_size, activation=None, name="bf2mu")
+    logvar = tfl.dense(net, output_size, activation=None, name="bf2log")
     return mu, logvar, states
 
   def construct_model(self, images, actions, rewards):
@@ -951,7 +1107,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       pred_logvar: predicted log(var) of posterior
     """
     # model does not support action conditioned and reward prediction
-    fakr_reward_prediction = rewards
+    fake_reward_prediction = rewards
     del actions, rewards
 
     z_dim = self.hparams.z_dim
@@ -974,7 +1130,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     for i, image in enumerate(images):
       with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
         enc, skips = self.encoder(image, rnn_size)
-        enc = tf.contrib.layers.flatten(enc)
+        enc = tfcl.flatten(enc)
         enc_images.append(enc)
         enc_skips.append(skips)
 
@@ -1022,198 +1178,173 @@ class NextFrameStochasticEmily(NextFrameStochastic):
         gen_images.append(x_pred)
 
     tf.logging.info(">>>> Done")
-    return gen_images, fakr_reward_prediction, pred_mu, pred_logvar
+    return gen_images, fake_reward_prediction, pred_mu, pred_logvar
 
 
-@registry.register_hparams
-def next_frame():
-  """Basic 2-frame conv model."""
-  hparams = common_hparams.basic_params1()
-  hparams.video_num_input_frames = 4
-  hparams.video_num_target_frames = 1
-  hparams.hidden_size = 64
-  hparams.batch_size = 4
-  hparams.num_hidden_layers = 2
-  hparams.optimizer = "Adafactor"
-  hparams.learning_rate_constant = 1.5
-  hparams.learning_rate_warmup_steps = 1500
-  hparams.learning_rate_schedule = "linear_warmup * constant * rsqrt_decay"
-  hparams.label_smoothing = 0.0
-  hparams.initializer = "uniform_unit_scaling"
-  hparams.initializer_gain = 1.3
-  hparams.weight_decay = 0.0
-  hparams.clip_grad_norm = 1.0
-  hparams.dropout = 0.5
-  hparams.add_hparam("num_compress_steps", 6)
-  hparams.add_hparam("filter_double_steps", 2)
-  hparams.add_hparam("video_modality_loss_cutoff", 0.02)
-  return hparams
+@registry.register_model
+class NextFrameSavp(NextFrameStochastic):
+  """Stochastic Adversarial Video Prediction."""
 
+  def encoder(self, inputs, n_layers=3):
+    """COnvnet that encodes inputs into mean and std of a gaussian.
 
-@registry.register_hparams
-def next_frame_stochastic():
-  """SV2P model."""
-  hparams = next_frame()
-  hparams.optimizer = "TrueAdam"
-  hparams.learning_rate_schedule = "constant"
-  hparams.learning_rate_constant = 1e-3
-  hparams.video_num_input_frames = 1
-  hparams.video_num_target_frames = 3
-  hparams.batch_size = 16
-  hparams.target_modality = "video:l2raw"
-  hparams.input_modalities = "inputs:video:l2raw"
-  hparams.video_modality_loss_cutoff = 0.0
-  hparams.add_hparam("stochastic_model", True)
-  hparams.add_hparam("model_options", "CDNA")
-  hparams.add_hparam("num_masks", 10)
-  hparams.add_hparam("latent_channels", 1)
-  hparams.add_hparam("latent_std_min", -5.0)
-  hparams.add_hparam("num_iterations_2nd_stage", 10000)
-  hparams.add_hparam("latent_loss_multiplier", 1e-3)
-  hparams.add_hparam("multi_latent", False)
-  hparams.add_hparam("relu_shift", 1e-12)
-  hparams.add_hparam("dna_kernel_size", 5)
-  hparams.add_hparam("scheduled_sampling_k", 900.0)
-  hparams.add_hparam(
-      "latent_num_frames",  # use all frames by default.
-      hparams.video_num_input_frames + hparams.video_num_target_frames)
-  hparams.add_hparam("tiny_mode", False)
-  return hparams
+    Args:
+     inputs: 5-D Tensor, shape (batch_size, num_frames, width, height, channels)
+     n_layers: Number of layers.
 
+    Returns:
+     z_mu: Mean of the latent gaussians.
+     z_log_var: log(var) of the latent gaussians.
 
-@registry.register_hparams
-def next_frame_stochastic_emily():
-  """Emily's model."""
-  hparams = next_frame_stochastic()
-  hparams.latent_loss_multiplier = 1e-4
-  hparams.learning_rate_constant = 0.002
-  hparams.add_hparam("z_dim", 10)
-  hparams.add_hparam("g_dim", 128)
-  hparams.add_hparam("rnn_size", 256)
-  hparams.add_hparam("posterior_rnn_layers", 1)
-  hparams.add_hparam("predictor_rnn_layers", 2)
-  return hparams
+    Raises:
+      ValueError: If inputs is not a 5-D tensor or not float32.
+    """
+    latent_dims = self.hparams.z_dim
 
+    shape_as_list = inputs.shape.as_list()
+    if len(shape_as_list) != 5:
+      raise ValueError("Expected inputs to be a 5-D, got %d" %
+                       len(shape_as_list))
+    if inputs.dtype != tf.float32:
+      raise ValueError("Expected dtype tf.float32, got %s" % inputs.dtype)
 
-@registry.register_hparams
-def next_frame_stochastic_cutoff():
-  """SV2P model with additional cutoff in L2 loss for environments like pong."""
-  hparams = next_frame_stochastic()
-  hparams.video_modality_loss_cutoff = 0.4
-  hparams.video_num_input_frames = 4
-  hparams.video_num_target_frames = 1
-  return hparams
+    # Flatten (N,T,W,H,C) into (NT,W,H,C)
+    batch_size, _ = shape_as_list[:2]
+    inputs = tf.reshape(inputs, [-1] + list(inputs.shape)[2:])
+    n_filters = 64
+    rectified = None
 
+    # Applies 3 layer conv-net with padding, instance normalization
+    # and leaky relu as per the encoder in
+    # https://github.com/alexlee-gk/video_prediction
+    padding = [[0, 0], [1, 1], [1, 1], [0, 0]]
+    for i in range(n_layers):
+      with tf.variable_scope("layer_%d" % (i + 1)):
+        n_filters *= 2**i
+        if i:
+          padded = tf.pad(rectified, padding)
+        else:
+          padded = tf.pad(inputs, padding)
+        convolved = tf.layers.conv2d(padded, filters=n_filters, kernel_size=4,
+                                     strides=2, padding="VALID")
+        normalized = tf.contrib.layers.instance_norm(convolved)
+        rectified = tf.nn.leaky_relu(normalized, alpha=0.2)
 
-@registry.register_hparams
-def next_frame_stochastic_tiny():
-  """SV2P model with additional cutoff in L2 loss for environments like pong."""
-  hparams = next_frame_stochastic()
-  hparams.tiny_mode = True
-  hparams.num_masks = 1
-  hparams.video_modality_loss_cutoff = 0.4
-  hparams.video_num_input_frames = 4
-  hparams.video_num_target_frames = 1
-  return hparams
+    # Mean pooling across all spatial dimensions.
+    pooled = tf.nn.avg_pool(
+        rectified, [1] + rectified.shape[1:3].as_list() + [1],
+        strides=[1, 1, 1, 1], padding="VALID")
+    squeezed = tf.squeeze(pooled, [1, 2])
 
+    # Down-project and output the mean and log of the standard deviation of
+    # the latents.
+    with tf.variable_scope("z_mu"):
+      z_mu = tf.layers.dense(squeezed, latent_dims)
+    with tf.variable_scope("z_log_sigma_sq"):
+      z_log_var = tf.layers.dense(squeezed, latent_dims)
+      z_log_var = tf.clip_by_value(z_log_var, -10, 10)
 
-@registry.register_hparams
-def next_frame_tpu():
-  hparams = next_frame()
-  hparams.batch_size = 1
-  return hparams
+    # Reshape to (batch_size X num_frames X latent_dims)
+    z_mu = tf.reshape(z_mu, (batch_size, -1, latent_dims))
+    z_log_var = tf.reshape(
+        z_log_var, (batch_size, -1, latent_dims))
+    return z_mu, z_log_var
 
+  def construct_model(self, images, actions, rewards):
+    """Model that takes in images and returns predictions.
 
-@registry.register_hparams
-def next_frame_ae():
-  """Conv autoencoder."""
-  hparams = next_frame()
-  hparams.input_modalities = "inputs:video:bitwise"
-  hparams.hidden_size = 256
-  hparams.batch_size = 8
-  hparams.num_hidden_layers = 4
-  hparams.num_compress_steps = 4
-  hparams.dropout = 0.4
-  return hparams
+    Args:
+      images: list of 4-D Tensors indexed by time.
+              (batch_size, width, height, channels)
+      actions: list of action tensors
+               each action should be in the shape ?x1xZ
+      rewards: list of reward tensors
+               each reward should be in the shape ?x1xZ
 
+    Returns:
+      video: list of 4-D predicted frames.
+      all_rewards: predicted rewards.
+      latent_means: list of gaussian means conditioned on the input at
+                    every frame.
+      latent_stds: list of gaussian stds conditioned on the input at
+                   every frame.
+    """
+    latent_dims = self.hparams.z_dim
+    context_frames = self.hparams.video_num_input_frames
+    seq_len = len(images)
+    input_shape = common_layers.shape_list(images[0])
+    batch_size = input_shape[0]
 
-@registry.register_hparams
-def next_frame_small():
-  """Small conv model."""
-  hparams = next_frame()
-  hparams.hidden_size = 32
-  return hparams
+    # Model does not support reward-conditioned frame generation.
+    fake_rewards = rewards[:-1]
 
+    # Concatenate x_{t-1} and x_{t} along depth and encode it to
+    # produce the mean and standard deviation of z_{t-1}
+    image_pairs = tf.concat([images[:seq_len - 1],
+                             images[1:seq_len]], axis=-1)
 
-@registry.register_hparams
-def next_frame_tiny():
-  """Tiny for testing."""
-  hparams = next_frame()
-  hparams.hidden_size = 32
-  hparams.num_hidden_layers = 1
-  hparams.num_compress_steps = 2
-  hparams.filter_double_steps = 1
-  return hparams
+    z_mu, z_log_sigma_sq = self.encoder(image_pairs)
+    # Unstack z_mu and z_log_sigma_sq along the time dimension.
+    z_mu = tf.unstack(z_mu, axis=0)
+    z_log_sigma_sq = tf.unstack(z_log_sigma_sq, axis=0)
+    iterable = zip(images[:-1], actions[:-1], fake_rewards,
+                   z_mu, z_log_sigma_sq)
 
+    # Initialize LSTM State
+    lstm_state = [None] * 7
+    gen_cond_video, gen_prior_video, all_rewards, latent_means, latent_stds = \
+      [], [], [], [], []
+    pred_image, prior_latent_state, cond_latent_state = None, None, None
+    train_mode = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
 
-@registry.register_hparams
-def next_frame_l1():
-  """Basic conv model with L1 modality."""
-  hparams = next_frame()
-  hparams.target_modality = "video:l1"
-  hparams.video_modality_loss_cutoff = 2.4
-  return hparams
+    with tf.variable_scope("prediction", reuse=tf.AUTO_REUSE):
 
+      for step, (image, action, reward, mu, log_sigma_sq) in enumerate(iterable):  # pylint:disable=line-too-long
+        # Sample latents using a gaussian centered at conditional mu and std.
+        latent = self.get_gaussian_latent(mu, log_sigma_sq)
 
-@registry.register_hparams
-def next_frame_l2():
-  """Basic conv model with L2 modality."""
-  hparams = next_frame()
-  hparams.target_modality = "video:l2"
-  hparams.video_modality_loss_cutoff = 2.4
-  return hparams
+        # Sample prior latents from isotropic normal distribution.
+        prior_latent = tf.random_normal(tf.shape(latent), dtype=tf.float32)
 
+        # LSTM that encodes correlations between conditional latents.
+        # Pg 22 in https://arxiv.org/pdf/1804.01523.pdf
+        enc_cond_latent, cond_latent_state = basic_lstm(
+            latent, cond_latent_state, latent_dims, name="cond_latent")
 
-@registry.register_ranged_hparams
-def next_frame_base_range(rhp):
-  """Basic tuning grid."""
-  rhp.set_float("dropout", 0.2, 0.6)
-  rhp.set_discrete("hidden_size", [64, 128, 256])
-  rhp.set_int("num_compress_steps", 5, 8)
-  rhp.set_discrete("batch_size", [4, 8, 16, 32])
-  rhp.set_int("num_hidden_layers", 1, 3)
-  rhp.set_int("filter_double_steps", 1, 6)
-  rhp.set_float("learning_rate_constant", 1., 4.)
-  rhp.set_int("learning_rate_warmup_steps", 500, 3000)
-  rhp.set_float("initializer_gain", 0.8, 1.8)
+        # LSTM that encodes correlations between prior latents.
+        enc_prior_latent, prior_latent_state = basic_lstm(
+            prior_latent, prior_latent_state, latent_dims, name="prior_latent")
 
+        # Scheduled Sampling
+        done_warm_start = step > context_frames - 1
+        groundtruth_items = [image]
+        generated_items = [pred_image]
+        input_image = self.get_scheduled_sample_inputs(
+            done_warm_start, groundtruth_items, generated_items, batch_size)[0]
 
-@registry.register_ranged_hparams
-def next_frame_doubling_range(rhp):
-  """Filter doubling and dropout tuning grid."""
-  rhp.set_float("dropout", 0.2, 0.6)
-  rhp.set_int("filter_double_steps", 2, 5)
+        all_latents = tf.concat([enc_cond_latent, enc_prior_latent], axis=0)
+        all_image = tf.concat([input_image, input_image], axis=0)
+        all_action = tf.concat([action, action], axis=0)
+        all_rewards = tf.concat([reward, reward], axis=0)
 
+        all_pred_images, lstm_state = self.construct_predictive_tower(
+            all_image, all_rewards, all_action, lstm_state, all_latents,
+            concat_latent=True)
 
-@registry.register_ranged_hparams
-def next_frame_clipgrad_range(rhp):
-  """Filter doubling and dropout tuning grid."""
-  rhp.set_float("dropout", 0.3, 0.4)
-  rhp.set_float("clip_grad_norm", 0.5, 10.0)
+        cond_pred_images, prior_pred_images = \
+          all_pred_images[:batch_size], all_pred_images[batch_size:]
 
+        if train_mode:
+          pred_image = cond_pred_images
+        else:
+          pred_image = prior_pred_images
 
-@registry.register_ranged_hparams
-def next_frame_xent_cutoff_range(rhp):
-  """Cross-entropy tuning grid."""
-  rhp.set_float("video_modality_loss_cutoff", 0.005, 0.05)
+        gen_cond_video.append(cond_pred_images)
+        gen_prior_video.append(prior_pred_images)
+        latent_means.append(mu)
+        latent_stds.append(log_sigma_sq)
 
-
-@registry.register_ranged_hparams
-def next_frame_ae_range(rhp):
-  """Autoencoder world model tuning grid."""
-  rhp.set_float("dropout", 0.3, 0.5)
-  rhp.set_int("num_compress_steps", 1, 3)
-  rhp.set_int("num_hidden_layers", 2, 6)
-  rhp.set_float("learning_rate_constant", 1., 2.)
-  rhp.set_float("initializer_gain", 0.8, 1.5)
-  rhp.set_int("filter_double_steps", 2, 3)
+    if train_mode:
+      return gen_cond_video, fake_rewards, latent_means, latent_stds
+    else:
+      return gen_prior_video, fake_rewards, latent_means, latent_stds
