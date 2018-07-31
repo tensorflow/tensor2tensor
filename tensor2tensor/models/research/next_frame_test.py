@@ -21,6 +21,7 @@ import numpy as np
 
 from tensor2tensor.data_generators import video_generated  # pylint: disable=unused-import
 from tensor2tensor.models.research import next_frame
+from tensor2tensor.models.research import next_frame_params
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -74,35 +75,35 @@ class NextFrameTest(tf.test.TestCase):
 
   def testBasic(self):
     self.TestOnVariousInputOutputSizes(
-        next_frame.next_frame(),
+        next_frame_params.next_frame(),
         next_frame.NextFrameBasic,
         256)
 
   def testStochastic(self):
     self.TestOnVariousInputOutputSizes(
-        next_frame.next_frame_stochastic(),
+        next_frame_params.next_frame_stochastic(),
         next_frame.NextFrameStochastic,
         1)
 
   def testStochasticTwoFrames(self):
     self.TestOnVariousInputOutputSizes(
-        next_frame.next_frame_stochastic(),
+        next_frame_params.next_frame_stochastic(),
         next_frame.NextFrameStochasticTwoFrames,
         1)
 
   def testStochasticEmily(self):
     self.TestOnVariousInputOutputSizes(
-        next_frame.next_frame_stochastic_emily(),
+        next_frame_params.next_frame_stochastic_emily(),
         next_frame.NextFrameStochasticEmily,
         1)
 
   def testStochasticSavp(self):
     self.TestOnVariousInputOutputSizes(
-        next_frame.next_frame_savp(),
+        next_frame_params.next_frame_savp(),
         next_frame.NextFrameSavp,
         1)
     self.TestOnVariousUpSampleLayers(
-        next_frame.next_frame_savp(),
+        next_frame_params.next_frame_savp(),
         next_frame.NextFrameSavp,
         1)
 
