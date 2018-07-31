@@ -241,7 +241,12 @@ class NextFrameStochastic(NextFrameBasic):
     conv_size = self.tinyify([32, 64, 64])
     with tf.variable_scope("latent", reuse=tf.AUTO_REUSE):
       # this allows more predicted frames at inference time
-      latent_images = images[:self.hparams.latent_num_frames]
+      latent_num_frames = self.hparams.latent_num_frames
+      if latent_num_frames == 0:  # use all frames by default.
+        latent_num_frames = (self.hparams.video_num_input_frames +
+                             self.hparams.video_num_target_frames)
+      tf.logging.info("Creating latent tower with %d frames."%latent_num_frames)
+      latent_images = images[:latent_num_frames]
       images = tf.concat(latent_images, 3)
 
       x = images
