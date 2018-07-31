@@ -392,6 +392,15 @@ def ae_transformer_internal(inputs,
             task="translate")
         _, latent_pred_loss = ae_latent_softmax(
             latents_pred, tf.stop_gradient(latents_discrete), hparams)
+
+        # Scale by latent dimension for summary so we can compare across
+        # batches.
+        if _DO_SUMMARIES:
+          tf.summary.scalar("latent_pred_loss_mean",
+                            tf.reduce_mean(latent_pred_loss))
+        if hparams.sum_over_latents:
+          latent_pred_loss = tf.reduce_sum(latent_pred_loss, [1, 2])
+
         losses["latent_pred"] = tf.reduce_mean(
             latent_pred_loss * tf.to_float(cond)) * hparams.prior_scale
         losses["neg_q_entropy"] = neg_q_entropy * hparams.entropy_scale
@@ -594,6 +603,22 @@ class TransformerAE(t2t_model.T2TModel):
   def has_input(self):
     return self._problem_hparams.input_modality
 
+  def loss(self, logits, features):
+    """Computes cross-entropy loss and scales by 1/batch_size."""
+    labels = features["targets"]
+    logits_shape = common_layers.shape_list(logits)
+    vocab_size = logits_shape[-1]
+    with tf.name_scope("padded_cross_entropy", values=[logits, labels]):
+      logits, labels = common_layers.pad_with_zeros(logits, labels)
+      logits = tf.reshape(
+          logits,
+          common_layers.shape_list(labels) + [vocab_size],
+          name="padded_cross_entropy_size_check")
+      logits = tf.cast(logits, tf.float32)
+      xent = common_layers.smoothing_cross_entropy(
+          logits, labels, vocab_size, confidence=1.0, gaussian=False)
+      return tf.reduce_sum(xent) / tf.cast(logits_shape[0], tf.float32)
+
   def body(self, features):
     inputs = features["inputs"] if "inputs" in features else None
     if self._hparams.drop_inputs:
@@ -732,6 +757,7 @@ def transformer_ae_small():
   hparams.add_hparam("do_iaf", False)
   hparams.add_hparam("approximate_gs_entropy", False)
   hparams.add_hparam("temperature_warmup_steps", 150000)
+  hparams.add_hparam("sum_over_latents", False)
   hparams.force_full_predict = True
 
   # task params

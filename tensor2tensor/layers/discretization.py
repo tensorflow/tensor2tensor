@@ -71,6 +71,7 @@ def nearest_neighbor(x,
                      random_top_k=1,
                      soft_em=False,
                      num_samples=1,
+                     sum_over_latents=False,
                      summary=True):
   """Find the nearest element in means to elements in x.
 
@@ -79,10 +80,12 @@ def nearest_neighbor(x,
       block_dim].
     means: Embedding table of shape [num_blocks, block_v_size, block_dim].
     block_v_size: Number of table entries per block.
-    random_top_k: Noisy top-k if this is bigger than 1 (Default: 1).
-    soft_em: If True then use soft EM rather than hard EM (Default: False).
-    num_samples: Number of samples to take in soft EM (Default: 1).
-    summary: If True then record summary histogram of entropies (Default: True).
+    random_top_k: Noisy top-k if this is bigger than 1.
+    soft_em: If True then use soft EM rather than hard EM.
+    num_samples: Number of samples to take in soft EM.
+    sum_over_latents: Whether to sum over non-batch dimensions when calculating
+      negative entropy loss. Used only when doing soft EM.
+    summary: If True then record summary histogram of entropies.
 
   Returns:
     Tensor with nearest element in mean encoded in one-hot notation
@@ -109,7 +112,9 @@ def nearest_neighbor(x,
     nearest_hot = tf.one_hot(nearest_idx, depth=block_v_size)
     neg_q_entropy = tf.reduce_sum(
         nearest_hot * tf.expand_dims(tf.nn.log_softmax(-dist), 2), axis=2)
-    neg_q_entropy = tf.reduce_mean(neg_q_entropy)
+    if sum_over_latents:
+      neg_q_entropy = tf.reduce_sum(neg_q_entropy, [1, 2])
+    neg_q_entropy = tf.reduce_mean(neg_q_entropy, axis=0)
     nearest_hot = tf.reduce_mean(nearest_hot, axis=-2)
     if summary:
       tf.summary.histogram("neg_q_entropy", tf.reshape(neg_q_entropy, [-1]))
@@ -139,7 +144,8 @@ def embedding_lookup(x,
                      do_hard_gumbel_softmax=False,
                      temperature_warmup_steps=150000,
                      do_iaf=False,
-                     approximate_gs_entropy=False):
+                     approximate_gs_entropy=False,
+                     sum_over_latents=False):
   """Compute nearest neighbors and loss for training the embeddings via DVQ.
 
   Args:
@@ -161,6 +167,9 @@ def embedding_lookup(x,
     approximate_gs_entropy: Whether to approximate the Gumbel-Softmax density
       as a categorical distribution when calculating the sample entropy. Used
       only if bottleneck_kind is gumbel-softmax-dvq.
+    sum_over_latents: Whether to sum over non-batch dimensions when calculating
+      negative entropy loss. Used only if soft EM or when bottleneck_kind is
+      gumbel-softmax-dvq.
 
   Returns:
     x_means_hot: The nearest neighbor in one hot form, with shape
@@ -181,7 +190,8 @@ def embedding_lookup(x,
         num_samples=num_samples,
         temperature_warmup_steps=temperature_warmup_steps,
         do_iaf=do_iaf,
-        approximate_gs_entropy=approximate_gs_entropy)
+        approximate_gs_entropy=approximate_gs_entropy,
+        sum_over_latents=sum_over_latents)
   else:
     x_means_hot, neg_q_entropy = nearest_neighbor(
         x,
@@ -189,11 +199,15 @@ def embedding_lookup(x,
         block_v_size,
         random_top_k,
         soft_em=soft_em,
-        num_samples=num_samples)
+        num_samples=num_samples,
+        sum_over_latents=sum_over_latents)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, num_blocks, block_v_size])
   x_means = tf.matmul(tf.transpose(x_means_hot_flat, perm=[1, 0, 2]), means)
   x_means = tf.transpose(x_means, [1, 0, 2])
   x = tf.reshape(x, [-1] + common_layers.shape_list(x)[2:])
+
+  # Currently, we use the mean scaling for the commitment loss, as opposed to
+  # summing across all non-batch dimensions.
   q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
   e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
   return x_means_hot, x_means, q_loss, e_loss, neg_q_entropy
@@ -480,6 +494,7 @@ def discrete_bottleneck(inputs,
                         do_hard_gumbel_softmax=False,
                         do_iaf=False,
                         approximate_gs_entropy=False,
+                        sum_over_latents=False,
                         discrete_mix=0.5,
                         noise_dev=1.,
                         startup_steps=50000,
@@ -530,6 +545,9 @@ def discrete_bottleneck(inputs,
     approximate_gs_entropy: Whether to approximate the Gumbel-Softmax density
       as a categorical distribution when calculating the sample entropy. Used
       only if bottleneck_kind is gumbel-softmax-dvq.
+    sum_over_latents: Whether to sum over all non-batch dimensions before
+      taking mean of entropy loss term. Used only if bottleneck kind is DVQ
+      or gumbel-softmax-dvq.
     discrete_mix: Factor for mixing discrete and non-discrete input. Used only
       if bottleneck_kind is semhash.
     noise_dev: Noise stddev. Used only if bottleneck_kind is semhash.
@@ -634,7 +652,8 @@ def discrete_bottleneck(inputs,
                              temperature_warmup_steps=temperature_warmup_steps,
                              do_hard_gumbel_softmax=do_hard_gumbel_softmax,
                              do_iaf=do_iaf,
-                             approximate_gs_entropy=approximate_gs_entropy))
+                             approximate_gs_entropy=approximate_gs_entropy,
+                             sum_over_latents=sum_over_latents))
         # Update the EMA variables.
         if ema:
           tf.logging.info("Using EMA with beta = {}".format(beta))
@@ -870,7 +889,8 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
                                         temperature_warmup_steps=150000,
                                         summary=True,
                                         do_iaf=False,
-                                        approximate_gs_entropy=False):
+                                        approximate_gs_entropy=False,
+                                        sum_over_latents=False):
   """Sample from Gumbel-Softmax and compute neighbors and losses.
 
   Args:
@@ -891,6 +911,8 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
       Gumbel-Softmax sample (Default: False).
     approximate_gs_entropy: When `True`, we approximate Gumbel-Softmax
       density as categorical when calculating sample entropy (Default: False).
+    sum_over_latents: Whether to sum over non-batch dimensions when calculating
+      negative entropy loss.
 
   Returns:
     x_means_assignments: A `float`-like `Tensor` containing the codebook
@@ -945,9 +967,12 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
 
   # Take mean over samples to approximate entropy.
   neg_q_entropy = tf.reduce_mean(q_dist.log_prob(q_samples), 0)
-
   if summary:
     tf.summary.histogram("neg_q_entropy", tf.reshape(neg_q_entropy, [-1]))
+  if sum_over_latents:
+    neg_q_entropy = tf.reshape(neg_q_entropy,
+                               [batch_size, num_blocks, latent_dim])
+    neg_q_entropy = tf.reduce_sum(neg_q_entropy, [1, 2])
   neg_q_entropy = tf.reduce_mean(neg_q_entropy)
 
   if do_iaf:
@@ -1014,8 +1039,13 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
              shift=log_pi[:, :, :-1],
              scale_identity_multiplier=1./temperature)])
     q_samples = chained_bijectors.forward(q_samples[:, :, :-1])
-    neg_q_entropy += tf.reduce_mean(
-        chained_bijectors.inverse_log_det_jacobian(q_samples, event_ndims=1))
+    log_det = chained_bijectors.inverse_log_det_jacobian(
+        q_samples, event_ndims=1)
+    log_det = tf.reshape(log_det,
+                         [num_samples, batch_size, num_blocks, latent_dim])
+    if sum_over_latents:
+      log_det = tf.reduce_sum(log_det, axis=[2, 3])
+    neg_q_entropy += tf.reduce_mean(log_det)
 
     q_samples = tf.reshape(
         q_samples,
