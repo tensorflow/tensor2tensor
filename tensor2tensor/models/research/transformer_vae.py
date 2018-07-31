@@ -443,8 +443,10 @@ def ae_transformer_internal(inputs,
     d = latents_dense
     latent_len = common_layers.shape_list(latents_dense)[1]
     if isinstance(latent_len, tf.Tensor):
-      latent_len = hparams.max_length
+      # TODO(trandustin): Fix this in a better manner.
+      latent_len = max(1000, hparams.max_length)
     pos = tf.get_variable("pos", [1, latent_len + 1, 1, hparams.hidden_size])
+    pos = pos[:, :common_layers.shape_list(latents_dense)[1] + 1, :, :]
     latents_dense = tf.pad(latents_dense,
                            [[0, 0], [1, 0], [0, 0], [0, 0]]) + pos
 
