@@ -349,6 +349,15 @@ class Problem(object):
         metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY
     ]
 
+  @property
+  def task_id(self):
+    if self._task_id == -1 and hasattr(self, "global_task_id"):
+      self._task_id = self.global_task_id()
+    return self._task_id
+
+  def set_task_id(self, new_task_id):
+    self._task_id = new_task_id
+
   # ============================================================================
   # END SUBCLASS INTERFACE
   # ============================================================================
@@ -449,6 +458,7 @@ class Problem(object):
     self._encoders = None
     self._hparams = None
     self._feature_info = None
+    self._task_id = -1
 
   def get_feature_encoders(self, data_dir=None):
     if self._encoders is None:

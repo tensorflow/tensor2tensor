@@ -116,6 +116,5 @@ class ColaCharacters(Cola):
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
 
-  @property
-  def task_id(self):
+  def global_task_id(self):
     return problem.TaskID.COLA

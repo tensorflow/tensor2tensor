@@ -133,6 +133,5 @@ class MultiNLICharacters(MultiNLI):
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
 
-  @property
-  def task_id(self):
+  def global_task_id(self):
     return problem.TaskID.THREE_CL_NLI
