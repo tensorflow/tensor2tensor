@@ -23,23 +23,25 @@ import tensorflow as tf
 
 @registry.register_model
 class SimilarityTransformer(t2t_model.T2TModel):
-  """
-  This class defines the model to compute similarity scores between functions
-  and docstrings
+  """Transformer Model for Similarity between two strings.
+
+  This model defines the architecture using two transformer
+  networks, each of which embed a string and the loss is
+  calculated as a Binary Cross-Entropy loss. Normalized
+  Dot Product is used as the distance measure between two
+  string embeddings.
   """
 
-  def top(self, body_output, features):
+  def top(self, body_output, _):
     return body_output
 
   def body(self, features):
-    """Body of the Similarity Transformer Network."""
+    with tf.variable_scope('string_embedding'):
+      string_embedding = self.encode(features, 'inputs')
 
-    with tf.variable_scope("string_embedding"):
-      string_embedding = self.encode(features, "inputs")
-
-    if "targets" in features:
-      with tf.variable_scope("code_embedding"):
-        code_embedding = self.encode(features, "targets")
+    if 'targets' in features:
+      with tf.variable_scope('code_embedding'):
+        code_embedding = self.encode(features, 'targets')
 
       string_embedding_norm = tf.nn.l2_normalize(string_embedding, axis=1)
       code_embedding_norm = tf.nn.l2_normalize(code_embedding, axis=1)
@@ -59,7 +61,7 @@ class SimilarityTransformer(t2t_model.T2TModel):
       loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=labels,
                                                      logits=logits)
 
-      return string_embedding, {"training": loss}
+      return string_embedding, {'training': loss}
 
     return string_embedding
 
@@ -69,18 +71,17 @@ class SimilarityTransformer(t2t_model.T2TModel):
 
     (encoder_input, encoder_self_attention_bias, _) = (
         transformer.transformer_prepare_encoder(inputs, problem.SpaceID.EN_TOK,
-                                                self._hparams))
+                                                hparams))
 
     encoder_input = tf.nn.dropout(encoder_input,
                                   1.0 - hparams.layer_prepostprocess_dropout)
     encoder_output = transformer.transformer_encoder(
         encoder_input,
         encoder_self_attention_bias,
-        self._hparams,
+        hparams,
         nonpadding=transformer.features_to_nonpadding(features, input_key))
-    encoder_output = tf.expand_dims(encoder_output, 2)
 
-    encoder_output = tf.reduce_mean(tf.squeeze(encoder_output, axis=2), axis=1)
+    encoder_output = tf.reduce_mean(encoder_output, axis=1)
 
     return encoder_output
 

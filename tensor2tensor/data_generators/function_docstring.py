@@ -14,27 +14,42 @@
 # limitations under the License.
 """Github function/text similatrity problems."""
 import csv
+import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
+import tensorflow as tf
 
-
-# There are 10 splits of the data as CSV files.
-_DATA_BASE_URL = "https://storage.googleapis.com/kubeflow-examples/t2t-code-search/data"
-_GITHUB_FUNCTION_DOCSTRING_FILES = [
-    [
-        "{}/pairs-0000{}-of-00010.csv".format(_DATA_BASE_URL, i),
-        "pairs-0000{}-of-00010.csv".format(i),
-    ]
-    for i in range(10)
-]
+# pylint: disable=g-import-not-at-top
+if six.PY2:
+  from StringIO import StringIO
+else:
+  from io import StringIO
+# pylint: enable=g-import-not-at-top
 
 
 @registry.register_problem
 class GithubFunctionDocstring(translate.TranslateProblem):
-  """This class defines the problem of finding similarity between Python
-  function and docstring"""
+  """Function and Docstring similarity Problem.
+
+  This problem contains the data consisting of function
+  and docstring pairs as CSV files. The files are structured
+  such that they contain two columns without headers containing
+  the docstring tokens and function tokens. The delimiter is
+  ",".
+  """
+
+  @property
+  def base_url(self):
+    return "gs://kubeflow-examples/t2t-code-search/raw_data"
+
+  @property
+  def pair_files_list(self):
+    return [
+        "func-doc-pairs-000{:02}-of-00100.csv".format(i)
+        for i in range(100)
+    ]
 
   @property
   def is_generate_per_split(self):
@@ -44,29 +59,45 @@ class GithubFunctionDocstring(translate.TranslateProblem):
   def approx_vocab_size(self):
     return 2**13
 
-  def source_data_files(self, dataset_split):
-    # TODO(sanyamkapoor): separate train/eval data set.
-    return _GITHUB_FUNCTION_DOCSTRING_FILES
+  def source_data_files(self, _):
+    # TODO(sanyamkapoor): Manually separate train/eval data set.
+    return self.pair_files_list
+
+  @property
+  def max_samples_for_vocab(self):
+    # FIXME(sanyamkapoor): This exists to handle memory explosion.
+    return int(3.5e5)
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
-    """Returns a generator to return {"inputs": [text], "targets": [text]}."""
+    """A generator to return data samples.Returns the data generator to return.
 
-    pair_csv_files = [
-        generator_utils.maybe_download(data_dir, filename, uri)
-        for uri, filename in self.source_data_files(dataset_split)
+
+    Args:
+      data_dir: A string representing the data directory.
+      tmp_dir: A string representing the temporary directory and is
+              used to download files if not already available.
+      dataset_split: Train, Test or Eval.
+
+    Yields:
+      Each element yielded is of a Python dict of the form
+        {"inputs": "STRING", "targets": "STRING"}
+    """
+
+    csv_file_names = self.source_data_files(dataset_split)
+    csv_files = [
+        generator_utils.maybe_download(tmp_dir, filename,
+                                       "{}/{}".format(self.base_url,
+                                                      filename))
+        for filename in csv_file_names
     ]
 
-    for pairs_file in pair_csv_files:
+    for pairs_file in csv_files:
+      tf.logging.debug("Reading {}".format(pairs_file))
       with open(pairs_file, "r") as csv_file:
-        pairs_reader = csv.reader(csv_file)
-        for row in pairs_reader:
-          function_tokens, docstring_tokens = row[-2:]
-          yield {"inputs": docstring_tokens, "targets": function_tokens}
-
-  def generate_text_for_vocab(self, data_dir, tmp_dir):
-    for sample in self.generate_samples(data_dir, tmp_dir, None):
-      yield sample["inputs"]
-      yield sample["targets"]
+        for line in csv_file:
+          reader = csv.reader(StringIO(line))
+          for docstring_tokens, function_tokens in reader:
+            yield {"inputs": docstring_tokens, "targets": function_tokens}
 
   def eval_metrics(self):
     return [
