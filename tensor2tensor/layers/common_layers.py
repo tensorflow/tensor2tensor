@@ -699,8 +699,7 @@ def l2_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
   """Layer normalization with l2 norm."""
   if filters is None:
     filters = shape_list(x)[-1]
-  with tf.variable_scope(
-      name, default_name="l2_norm", values=[x], reuse=reuse):
+  with tf.variable_scope(name, default_name="l2_norm", values=[x], reuse=reuse):
     scale = tf.get_variable(
         "l2_norm_scale", [filters], initializer=tf.ones_initializer())
     bias = tf.get_variable(
@@ -747,11 +746,9 @@ def zero_add(previous_value, x, name=None, reuse=None):
   Returns:
     previous_value + gamma * x.
   """
-  with tf.variable_scope(
-      name, default_name="zero_add", reuse=reuse):
-    gamma = tf.get_variable(
-        "gamma", (), initializer=tf.zeros_initializer())
-    return previous_value + gamma*x
+  with tf.variable_scope(name, default_name="zero_add", reuse=reuse):
+    gamma = tf.get_variable("gamma", (), initializer=tf.zeros_initializer())
+    return previous_value + gamma * x
 
 
 def layer_prepostprocess(previous_value,
@@ -2019,10 +2016,7 @@ def _weights_one_third(labels):
   return tf.ones(tf.shape(labels)[:-1]) / 3.
 
 
-def dml_loss(pred,
-             labels,
-             weights_fn=_weights_one_third,
-             reduce_sum=True):
+def dml_loss(pred, labels, weights_fn=_weights_one_third, reduce_sum=True):
   """Discretized mixture of logistics loss.
 
   Args:
@@ -3635,24 +3629,66 @@ def cyclegan_upsample(net, num_outputs, stride, method="conv2d_transpose"):
       net = tf.image.resize_nearest_neighbor(
           net, [stride[0] * height, stride[1] * width])
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.contrib.layers.conv2d(net, num_outputs, kernel_size=[3, 3],
-                                     padding="valid")
+      net = tf.contrib.layers.conv2d(
+          net, num_outputs, kernel_size=[3, 3], padding="valid")
     elif method == "bilinear_upsample_conv":
-      net = tf.image.resize_bilinear(
-          net, [stride[0] * height, stride[1] * width])
+      net = tf.image.resize_bilinear(net,
+                                     [stride[0] * height, stride[1] * width])
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.contrib.layers.conv2d(net, num_outputs, kernel_size=[3, 3],
-                                     padding="valid")
+      net = tf.contrib.layers.conv2d(
+          net, num_outputs, kernel_size=[3, 3], padding="valid")
     elif method == "conv2d_transpose":
       # This corrects 1 pixel offset for images with even width and height.
       # conv2d is left aligned and conv2d_transpose is right aligned for even
       # sized images (while doing "SAME" padding).
       # Note: This doesn"t reflect actual model in paper.
       net = tf.contrib.layers.conv2d_transpose(
-          net, num_outputs, kernel_size=[3, 3], stride=stride,
-          padding="valid")
+          net, num_outputs, kernel_size=[3, 3], stride=stride, padding="valid")
       net = net[:, 1:, 1:, :]
     else:
       raise ValueError("Unknown method: [%s]" % method)
 
     return net
+
+
+def targeted_dropout(inputs,
+                     k,
+                     keep_prob,
+                     targeting_fn,
+                     is_training,
+                     do_prune=False):
+  """Applies targeted dropout.
+
+  Applies dropout at a rate of `1 - keep_prob` to only those elements of `x`
+  marked by `targeting_fn`. See below and paper for more detail:
+
+  "Targeted Dropout for Posthoc Pruning" Aidan N. Gomez, Ivan Zhang,
+    Kevin Swersky, Yarin Gal, and Geoffrey E. Hinton.
+
+  Args:
+    inputs: Tensor, inputs to apply targeted dropout to.
+    k: Scalar Tensor or python scalar, sets the number of elements to target in
+      `inputs`. Must be within `[0, tf.shape(x)[-1]]` and compatible with
+      second argument of `targeting_fn`.
+    keep_prob: Scalar Tensor, passed as `tf.nn.dropout`'s `keep_prob` argument.
+    targeting_fn: callable `fn(inputs, k) -> Boolean Tensor`, produces a
+      boolean mask the same shape as `inputs` where True indicates an element
+      will be dropped, and False not.
+    is_training: bool, indicates whether currently training.
+    do_prune: bool, indicates whether to prune the `k * (1 - keep_prob)`
+      elements of `inputs` expected to be dropped each forwards pass.
+  Returns:
+    Tensor, same shape and dtype as `inputs`.
+  """
+  if not is_training and do_prune:
+    k = tf.round(k * (1 - keep_prob))
+
+  mask = targeting_fn(inputs, k)
+  mask = tf.cast(mask, inputs.dtype)
+
+  if is_training:
+    return inputs * (1 - mask) + tf.nn.dropout(inputs, keep_prob) * mask
+  elif do_prune:
+    return inputs * (1 - mask)
+  else:
+    return inputs
