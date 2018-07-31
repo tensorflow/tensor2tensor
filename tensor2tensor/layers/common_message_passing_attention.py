@@ -263,6 +263,71 @@ def graph_attention(q,
     return tf.matmul(weights, v)
 
 
+def _compute_edge_transforms(node_states,
+                             depth,
+                             num_transforms,
+                             ignore_zero=True,
+                             name="transform"):
+  """Helper function that computes transformation for keys and values.
+
+  Let B be the number of batches.
+  Let N be the number of nodes in the graph.
+  Let D be the size of the node hidden states.
+  Let K be the size of the attention keys/queries (total_key_depth).
+  Let V be the size of the attention values (total_value_depth).
+  Let T be the total number of transforms (num_transforms).
+
+  Computes the transforms for keys or values for attention.
+  * For each node N_j and edge type t, a key K_jt of size K is computed. When an
+    edge of type t goes from node N_j to any other node, K_jt is the key that is
+    in the attention process.
+  * For each node N_j and edge type t, a value V_jt of size V is computed. When
+    an edge of type t goes from node N_j to node N_i, Attention(Q_i, K_jt)
+    produces a weight w_ijt. The message sent along this edge is w_ijt * V_jt.
+
+  Args:
+    node_states: A tensor of shape [B, L, D]
+    depth: An integer (K or V)
+    num_transforms: An integer (T),
+    ignore_zero: A boolean to ignore 0 edge
+    name: A name for the function
+
+  Returns:
+    x: A The attention keys or values for each node and edge type
+      (shape [B, N*T, K or V])
+  """
+  node_shapes = common_layers.shape_list(node_states)
+  nonignored_transforms = num_transforms - int(ignore_zero)
+  x = common_layers.dense(
+      node_states,
+      depth * nonignored_transforms,
+      use_bias=False,
+      name=name)
+
+  batch = node_shapes[0]  # B.
+  length = node_shapes[1]  # N.
+
+  # Making the fourth dimension explicit by separating the vectors of size
+  # K*T (in k) and V*T (in v) into two-dimensional matrices with shape [K, T]
+  # (in k) and [V, T] in v.
+  #
+  # This reshape is only necessary when ignore_zero is True (for the padding
+  # step that follows).
+  x = tf.reshape(x, [batch, length, nonignored_transforms, depth])
+
+  # If we previously ignored edge type 0, then we need to pad the keys and
+  # values to take this additional edge type into account. To do so, we
+  # pad the third dimension of k and v (which has size T-1 if ignore_zero is
+  # True) to size T with zeroes.
+  if ignore_zero:
+    x = tf.pad(x, [[0, 0], [0, 0], [1, 0], [0, 0]])
+
+  # Flatten out the fourth dimension.
+  x = tf.reshape(x, [batch, length * num_transforms, depth])
+
+  return x
+
+
 def compute_mpnn_qkv(node_states,
                      total_key_depth,
                      total_value_depth,
@@ -315,53 +380,20 @@ def compute_mpnn_qkv(node_states,
   q = common_layers.dense(
       node_states, total_key_depth, use_bias=False, name="q_mpnn")
 
-  q_shape = common_layers.shape_list(q)  # As above, q_shape = [B, N, K].
-
-  # T (or T-1 if ignore_zero).
-  nonignored_transforms = num_transforms - int(ignore_zero)
-
   # Creates the attention keys in a manner similar to the process of creating
   # the attention queries. One key is created for each type of outgoing edge the
   # corresponding node might have, meaning k will have shape [B, N, K*T].
-  k = common_layers.dense(
-      node_states,
-      total_key_depth * nonignored_transforms,
-      use_bias=False,
-      name="k_mpnn")
+  k = _compute_edge_transforms(node_states,
+                               total_key_depth,
+                               num_transforms,
+                               ignore_zero=ignore_zero,
+                               name="k_mpnn")
+  v = _compute_edge_transforms(node_states,
+                               total_value_depth,
+                               num_transforms,
+                               ignore_zero=ignore_zero,
+                               name="v_mpnn")
 
-  # The values over which self-attention is performed. They are created in
-  # a manner largely identical to that of the keys.
-  v = common_layers.dense(
-      node_states,
-      total_value_depth * nonignored_transforms,
-      use_bias=False,
-      name="v_mpnn")
-
-  batch = q_shape[0]  # B.
-  length = q_shape[1]  # N.
-
-  # Making the fourth dimension explicit by separating the vectors of size
-  # K*T (in k) and V*T (in v) into two-dimensional matrices with shape [K, T]
-  # (in k) and [V, T] in v.
-  #
-  # This reshape is only necessary when ignore_zero is True (for the padding
-  # step that follows).
-  k = tf.reshape(k, [batch, length, nonignored_transforms, total_key_depth])
-  v = tf.reshape(
-      v, [q_shape[0], q_shape[1], nonignored_transforms, total_value_depth])
-
-  # If we previously ignored edge type 0, then we need to pad the keys and
-  # values to take this additional edge type into account. To do so, we
-  # pad the third dimension of k and v (which has size T-1 if ignore_zero is
-  # True) to size T with zeroes.
-  if ignore_zero:
-    k = tf.pad(k, [[0, 0], [0, 0], [1, 0], [0, 0]])
-    v = tf.pad(v, [[0, 0], [0, 0], [1, 0], [0, 0]])
-
-  # Flatten out the fourth dimension.
-  k = tf.reshape(k, [q_shape[0], q_shape[1] * num_transforms, total_key_depth])
-  v = tf.reshape(v,
-                 [q_shape[0], q_shape[1] * num_transforms, total_value_depth])
   return q, k, v
 
 
@@ -641,13 +673,86 @@ def dot_product_mpnn_attention(q,
     # actual edges.
     edge_compatibility *= edge_vectors  # Shape [B, T, N, N].
 
-    # Computes the incoming value vectors for each node by weighting them
-    # according to the attention weights. These values are still segregated by
-    # edge type.
-    all_edge_values = tf.matmul(edge_compatibility, v)  # Shape = [B, T, N, V].
-
-    # Combines the weighted value vectors together across edge types into a
-    # single N x V matrix for each batch.
-    output = tf.reduce_sum(all_edge_values, axis=1)  # Shape [B, N, V].
-
+    output = compute_values(edge_compatibility, v)
     return output
+
+
+def ggnn_fast_dense(node_states,
+                    adjacency_matrix,
+                    num_edge_types,
+                    total_value_depth,
+                    ignore_zero=True,
+                    name=None):
+  """ggnn version of the MPNN from Gilmer et al.
+
+  Let B be the number of batches.
+  Let D be the size of the node hidden states.
+  Let K be the size of the attention keys/queries.
+  Let V be the size of the output of the ggnn
+
+  Args:
+    node_states: The value Tensor of shape [B, T, N, D].
+    adjacency_matrix: A Tensor of shape [B, N, N]. An entry at indices b, i, j
+     is the integer edge type of the edge from node j to node i in batch b.
+    num_edge_types: An integer specifying number of edge types.
+    total_value_depth: An integer (V)
+    ignore_zero: A boolean to ignore edge type 0.
+    name: A string.
+
+  Returns:
+    A Tensor of shape [B, N, V] storing the result of computing attention
+    weights using the queries and keys and combining the values according to
+    those weights.
+
+  Raises:
+    ValueError: if num_transforms doesn't equal num_edge_types and not using
+      weighted sum.
+  """
+  # between the same nodes (with only one edge of each type. adjacency_matrix
+  # will need to be converted to shape [B, T, N, N].
+  with tf.variable_scope(
+      name,
+      default_name="ggnn_fast_dense",
+      values=[node_states, adjacency_matrix, num_edge_types]):
+    nodes_shape = common_layers.shape_list(node_states)
+    v = _compute_edge_transforms(node_states,
+                                 total_value_depth,
+                                 num_edge_types,
+                                 ignore_zero=ignore_zero,
+                                 name="v_mpnn")
+    v = tf.reshape(v, [nodes_shape[0], nodes_shape[1], num_edge_types,
+                       total_value_depth
+                      ])  # Shape [B, N, T, V].
+    v = tf.transpose(v, [0, 2, 1, 3])  # Shape [B, T, N, V].
+
+    # Generate one-hot vectors based on edge types.
+    # If there is an edge from node j to node i of type t, then index t of the
+    # last dimension is 1 for entry (i, j) of the second and third dimensions.
+    edge_vectors = tf.one_hot(adjacency_matrix, num_edge_types)
+
+    # Rearranging the dimensions to match the shape of all_edge_logits.
+    edge_vectors = tf.transpose(edge_vectors, [0, 3, 1, 2])
+    output = compute_values(edge_vectors, v)
+    return output
+
+
+def compute_values(edge_compatibility, v):
+  """Compute values. If edge compatibilities is just adjacency, we get ggnn.
+
+  Args:
+    edge_compatibility: A tensor of shape [batch, num_transforms, length, depth]
+    v: A tensor of shape [batch, num_transforms, length, depth]
+
+  Returns:
+    output: A [batch, length, depth] tensor
+  """
+
+  # Computes the incoming value vectors for each node by weighting them
+  # according to the attention weights. These values are still segregated by
+  # edge type.
+  all_edge_values = tf.matmul(edge_compatibility, v)  # Shape = [B, T, N, V].
+
+  # Combines the weighted value vectors together across edge types into a
+  # single N x V matrix for each batch.
+  output = tf.reduce_sum(all_edge_values, axis=1)  # Shape [B, N, V].
+  return output
