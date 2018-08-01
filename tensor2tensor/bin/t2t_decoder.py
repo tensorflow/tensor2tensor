@@ -38,7 +38,6 @@ import fathomt2t
 from fathomt2t.common_flags import (
     setup_dataset_flag,
     setup_num_examples_flag,
-    setup_max_docs_flag,
     dataset_to_t2t_mode)
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 
@@ -73,7 +72,6 @@ flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
 # Fathom
 setup_num_examples_flag()
-setup_max_docs_flag()
 setup_dataset_flag()
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 flags.DEFINE_bool("use_original_input", False,
@@ -131,8 +129,7 @@ def decode(estimator, hparams, decode_hp):
       problem = registry.problem(FLAGS.problems)
       problem.output_predictions(
           predictions=predictions,
-          max_num_examples=FLAGS.num_examples,
-          max_docs=FLAGS.max_docs)
+          max_num_examples=FLAGS.num_examples)
 
 
 def score_file(filename):
