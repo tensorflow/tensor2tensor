@@ -37,6 +37,7 @@ import os
 import fathomt2t
 from fathomt2t.common_flags import (
     setup_decoder_flags,
+    decode_num_examples,
     dataset_to_t2t_mode)
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 
