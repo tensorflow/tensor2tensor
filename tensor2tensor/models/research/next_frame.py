@@ -246,7 +246,7 @@ class NextFrameStochastic(NextFrameBasic):
         latent_num_frames = (self.hparams.video_num_input_frames +
                              self.hparams.video_num_target_frames)
       tf.logging.info("Creating latent tower with %d frames."%latent_num_frames)
-      latent_images = images[:latent_num_frames]
+      latent_images = tf.unstack(images[:latent_num_frames], axis=0)
       images = tf.concat(latent_images, 3)
 
       x = images
@@ -567,47 +567,61 @@ class NextFrameStochastic(NextFrameBasic):
     Raises:
       ValueError: if more than 1 mask specified for DNA model.
     """
-    batch_size = common_layers.shape_list(images[0])[0]
     context_frames = self.hparams.video_num_input_frames
 
-    # Predicted images and rewards.
-    gen_rewards, gen_images = [], []
+    def process_single_frame(prev_outputs, inputs):
+      """Process a single frame of the video."""
+      cur_image, cur_reward, action = inputs
+      time_step, prev_image, prev_reward, lstm_states = prev_outputs[:4]
 
-    # LSTM states.
-    lstm_state = [None] * 7
-    reward_lstm_state = [None] * 5
-
-    # Latent tower
-    if self.hparams.stochastic_model:
-      latent_mean, latent_std = self.construct_latent_tower(images)
-
-    pred_image, pred_reward, latent = None, None, None
-    for timestep, image, action, reward in zip(
-        range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
-      # Scheduled Sampling
-      done_warm_start = timestep > context_frames - 1
-      groundtruth_items = [image, reward]
-      generated_items = [pred_image, pred_reward]
-      input_image, input_reward = self.get_scheduled_sample_inputs(
-          done_warm_start, groundtruth_items, generated_items, batch_size)
-
-      # Latent
-      if self.hparams.stochastic_model:
-        if timestep == 0 or self.hparams.multi_latent:
-          latent = self.get_gaussian_latent(latent_mean, latent_std)
+      # TODO(mbz): No scheduled sampling for now!
+      input_image, input_reward = tf.cond(
+          tf.greater(time_step, context_frames),
+          lambda: (prev_image, prev_reward),
+          lambda: (cur_image, cur_reward))
 
       # Prediction
-      pred_image, lstm_state = self.construct_predictive_tower(
-          input_image, input_reward, action, lstm_state, latent)
+      pred_image, lstm_states = self.construct_predictive_tower(
+          input_image, input_reward, action, lstm_states, latent)
 
       if self.hparams.reward_prediction:
-        pred_reward, reward_lstm_state = self.reward_prediction(
-            input_image, input_reward, action, reward_lstm_state, latent)
+        reward_lstm_states = prev_outputs[4]
+        pred_reward, reward_lstm_states = self.reward_prediction(
+            input_image, input_reward, action, reward_lstm_states, latent)
       else:
         pred_reward = input_reward
 
-      gen_images.append(pred_image)
-      gen_rewards.append(pred_reward)
+      time_step += 1
+      outputs = (time_step, pred_image, pred_reward, lstm_states)
+      if self.hparams.reward_prediction:
+        outputs += (reward_lstm_states,)
+
+      return outputs
+
+    # Latent tower
+    latent = None
+    if self.hparams.stochastic_model:
+      latent_mean, latent_std = self.construct_latent_tower(images)
+      latent = self.get_gaussian_latent(latent_mean, latent_std)
+
+    # HACK: Do first step outside to initialize all the variables
+    lstm_states, reward_lstm_states = [None] * 7, [None] * 5
+    inputs = images[0], rewards[0], actions[0]
+    prev_outputs = (tf.constant(0), images[0], rewards[0], lstm_states)
+    if self.hparams.reward_prediction:
+      prev_outputs += (reward_lstm_states,)
+
+    initializers = process_single_frame(prev_outputs, inputs)
+    first_gen_images = tf.expand_dims(initializers[1], axis=0)
+    first_gen_rewards = tf.expand_dims(initializers[2], axis=0)
+
+    inputs = (images[1:-1], actions[1:-1], rewards[1:-1])
+
+    outputs = tf.scan(process_single_frame, inputs, initializers)
+    gen_images, gen_rewards = outputs[1:3]
+
+    gen_images = tf.concat((first_gen_images, gen_images), axis=0)
+    gen_rewards = tf.concat((first_gen_rewards, gen_rewards), axis=0)
 
     return gen_images, gen_rewards, [latent_mean], [latent_std]
 
@@ -783,15 +797,19 @@ class NextFrameStochastic(NextFrameBasic):
       x = features[key]
     else:
       x = tf.zeros((batch_size, num_frames, 1, self.hparams.hidden_size))
-    return tf.unstack(x, axis=1)
+    return self.swap_time_and_batch_axes(x)
+
+  def swap_time_and_batch_axes(self, x):
+    transposed_axes = tf.concat([[1, 0], tf.range(2, tf.rank(x))], axis=0)
+    return tf.transpose(x, transposed_axes)
 
   def body(self, features):
     hparams = self.hparams
     batch_size = common_layers.shape_list(features["inputs"])[0]
 
-    # Split inputs and targets time-wise into a list of frames.
-    input_frames = tf.unstack(features["inputs"], axis=1)
-    target_frames = tf.unstack(features["targets"], axis=1)
+    # Swap time and batch axes.
+    input_frames = self.swap_time_and_batch_axes(features["inputs"])
+    target_frames = self.swap_time_and_batch_axes(features["targets"])
 
     # Get actions if exist otherwise use zeros
     input_actions = self.get_input_if_exists(
@@ -805,15 +823,15 @@ class NextFrameStochastic(NextFrameBasic):
     target_rewards = self.get_input_if_exists(
         features, "target_reward", batch_size, hparams.video_num_target_frames)
 
-    all_actions = input_actions + target_actions
-    all_rewards = input_rewards + target_rewards
-    all_frames = input_frames + target_frames
+    all_actions = tf.concat([input_actions, target_actions], axis=0)
+    all_rewards = tf.concat([input_rewards, target_rewards], axis=0)
+    all_frames = tf.concat([input_frames, target_frames], axis=0)
 
     # Each image is being used twice, in latent tower and main tower.
     # This is to make sure we are using the *same* image for both, ...
     # ... given how TF queues work.
     # NOT sure if this is required at all. Doesn"t hurt though! :)
-    all_frames = [tf.identity(frame) for frame in all_frames]
+    all_frames = tf.identity(all_frames)
 
     gen_images, gen_rewards, latent_means, latent_stds = self.construct_model(
         images=all_frames,
@@ -865,15 +883,29 @@ class NextFrameStochastic(NextFrameBasic):
       tf.summary.scalar("beta", beta)
       tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
 
-    extra_loss = beta * tf.reduce_mean(kl_loss)
+    extra_loss = beta * kl_loss
+
+    # Ignore the predictions from the input frames.
+    # This is NOT the same as original paper/implementation.
     predictions = gen_images[hparams.video_num_input_frames-1:]
-    reward_pred = tf.stack(
-        gen_rewards[hparams.video_num_input_frames-1:], axis=1)
+    reward_pred = gen_rewards[hparams.video_num_input_frames-1:]
     reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove undeeded dimension.
 
-    frames_gt = tf.concat(all_frames[hparams.video_num_input_frames:], axis=1)
-    frames_pd = tf.concat(predictions, axis=1)
-    tf.summary.image("full_video", tf.concat([frames_gt, frames_pd], axis=2))
+    # TODO(mbz): clean this up!
+    def fix_video_dims_and_concat_on_x_axis(x):
+      x = tf.transpose(x, [1, 3, 4, 0, 2])
+      x = tf.reshape(x, [batch_size, 64, 3, -1])
+      x = tf.transpose(x, [0, 3, 1, 2])
+      return x
+
+    frames_gd = fix_video_dims_and_concat_on_x_axis(target_frames)
+    frames_pd = fix_video_dims_and_concat_on_x_axis(predictions)
+    side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
+    tf.summary.image("full_video", side_by_side_video)
+
+    # Swap back time and batch axes.
+    predictions = self.swap_time_and_batch_axes(predictions)
+    reward_pred = self.swap_time_and_batch_axes(reward_pred)
 
     return_targets = predictions
     if "target_reward" in features:
@@ -887,6 +919,10 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
   """Stochastic next-frame model with 2 frames posterior."""
 
   def construct_model(self, images, actions, rewards):
+    images = tf.unstack(images, axis=0)
+    actions = tf.unstack(actions, axis=0)
+    rewards = tf.unstack(rewards, axis=0)
+
     batch_size = common_layers.shape_list(images[0])[0]
     context_frames = self.hparams.video_num_input_frames
 
@@ -927,6 +963,9 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
 
       gen_images.append(pred_image)
       gen_rewards.append(pred_reward)
+
+    gen_images = tf.stack(gen_images, axis=0)
+    gen_rewards = tf.stack(gen_rewards, axis=0)
 
     return gen_images, gen_rewards, latent_means, latent_stds
 
@@ -1122,8 +1161,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     predictor_rnn_layers = self.hparams.predictor_rnn_layers
     context_frames = self.hparams.video_num_input_frames
 
-    seq_len = len(images)
-    batch_size, _, _, color_channels = common_layers.shape_list(images[0])
+    seq_len, batch_size, _, _, color_channels = common_layers.shape_list(images)
 
     # LSTM initial sizesstates.
     predictor_states = [None] * predictor_rnn_layers
@@ -1132,6 +1170,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     tf.logging.info(">>>> Encoding")
     # Encoding:
     enc_images, enc_skips = [], []
+    images = tf.unstack(images, axis=0)
     for i, image in enumerate(images):
       with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
         enc, skips = self.encoder(image, rnn_size)
@@ -1183,6 +1222,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
         gen_images.append(x_pred)
 
     tf.logging.info(">>>> Done")
+    gen_images = tf.stack(gen_images, axis=0)
     return gen_images, fake_reward_prediction, pred_mu, pred_logvar
 
 
@@ -1274,6 +1314,10 @@ class NextFrameSavp(NextFrameStochastic):
       latent_stds: list of gaussian stds conditioned on the input at
                    every frame.
     """
+    images = tf.unstack(images, axis=0)
+    actions = tf.unstack(actions, axis=0)
+    rewards = tf.unstack(rewards, axis=0)
+
     latent_dims = self.hparams.z_dim
     context_frames = self.hparams.video_num_input_frames
     seq_len = len(images)
@@ -1348,6 +1392,10 @@ class NextFrameSavp(NextFrameStochastic):
         gen_prior_video.append(prior_pred_images)
         latent_means.append(mu)
         latent_stds.append(log_sigma_sq)
+
+    gen_cond_video = tf.stack(gen_cond_video, axis=0)
+    gen_prior_video = tf.stack(gen_prior_video, axis=0)
+    fake_rewards = tf.stack(fake_rewards, axis=0)
 
     if train_mode:
       return gen_cond_video, fake_rewards, latent_means, latent_stds
