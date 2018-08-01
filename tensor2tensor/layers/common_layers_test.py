@@ -634,7 +634,8 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     num_channels = 3
     output_filters = 10
     stride = [2, 3]  # we want height to be x2 and width to be x3
-    random_input = np.random.rand(batch, height, width, num_channels)
+    random_input = np.random.rand(batch, height, width, num_channels).astype(
+        np.float32)
 
     # nn_upsample_conv gives exactly the shapes we'd expect.
     upsampled_output = common_layers.cyclegan_upsample(
@@ -653,7 +654,8 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     num_channels = 3
     output_filters = 10
     stride = [2, 3]  # we want height to be x2 and width to be x3
-    random_input = np.random.rand(batch, height, width, num_channels)
+    random_input = np.random.rand(batch, height, width, num_channels).astype(
+        np.float32)
 
     # bilinear_upsample_conv gives exactly the shapes we'd expect.
     upsampled_output = common_layers.cyclegan_upsample(
@@ -672,7 +674,8 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     num_channels = 3
     output_filters = 10
     stride = [2, 3]  # we want height to be x2 and width to be x3
-    random_input = np.random.rand(batch, height, width, num_channels)
+    random_input = np.random.rand(batch, height, width, num_channels).astype(
+        np.float32)
 
     # conv2d_transpose is a little tricky.
     # height_new = (height_old - 1) * stride + kernel - 2*padding - correction
