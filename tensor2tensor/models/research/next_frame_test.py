@@ -107,6 +107,49 @@ class NextFrameTest(tf.test.TestCase):
         next_frame.NextFrameSavp,
         1)
 
+  @staticmethod
+  def run_scheduled_sample_func(func, var, batch_size):
+    ground_truth_x = list(range(1, batch_size+1))
+    generated_x = [-x for x in ground_truth_x]
+    ground_truth_x = tf.convert_to_tensor(ground_truth_x)
+    generated_x = tf.convert_to_tensor(generated_x)
+    ss_out = func(ground_truth_x, generated_x, batch_size, var)
+    with tf.Session() as session:
+      output = session.run([ground_truth_x, generated_x, ss_out])
+    return output
+
+  def testScheduledSampleProbStart(self):
+    ground_truth_x, _, ss_out = NextFrameTest.run_scheduled_sample_func(
+        next_frame.NextFrameStochastic.scheduled_sample_prob, 1.0, 10)
+    self.assertAllEqual(ground_truth_x, ss_out)
+
+  def testScheduledSampleProbMid(self):
+    _, _, ss_out = NextFrameTest.run_scheduled_sample_func(
+        next_frame.NextFrameStochastic.scheduled_sample_prob, 0.5, 1000)
+    positive_count = np.sum(ss_out > 0)
+    self.assertAlmostEqual(positive_count / 1000.0, 0.5, places=2)
+
+  def testScheduledSampleProbEnd(self):
+    _, generated_x, ss_out = NextFrameTest.run_scheduled_sample_func(
+        next_frame.NextFrameStochastic.scheduled_sample_prob, 0.0, 10)
+    self.assertAllEqual(generated_x, ss_out)
+
+  def testScheduledSampleCountStart(self):
+    ground_truth_x, _, ss_out = NextFrameTest.run_scheduled_sample_func(
+        next_frame.NextFrameStochastic.scheduled_sample_count, 10, 10)
+    self.assertAllEqual(ground_truth_x, ss_out)
+
+  def testScheduledSampleCountMid(self):
+    _, _, ss_out = NextFrameTest.run_scheduled_sample_func(
+        next_frame.NextFrameStochastic.scheduled_sample_count, 5, 10)
+    positive_count = np.sum(ss_out > 0)
+    self.assertEqual(positive_count, 5)
+
+  def testScheduledSampleCountEnd(self):
+    _, generated_x, ss_out = NextFrameTest.run_scheduled_sample_func(
+        next_frame.NextFrameStochastic.scheduled_sample_count, 0, 10)
+    self.assertAllEqual(generated_x, ss_out)
+
   def testDynamicTileAndConcat(self):
     with tf.Graph().as_default():
       # image = (1 X 4 X 4 X 1)

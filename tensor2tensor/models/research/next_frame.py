@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from functools import partial
 import six
 
 from tensor2tensor.layers import common_attention
@@ -569,16 +570,19 @@ class NextFrameStochastic(NextFrameBasic):
     """
     context_frames = self.hparams.video_num_input_frames
 
+    batch_size = common_layers.shape_list(images)[1]
+    ss_func = self.get_scheduled_sample_func(batch_size)
+
     def process_single_frame(prev_outputs, inputs):
       """Process a single frame of the video."""
       cur_image, cur_reward, action = inputs
       time_step, prev_image, prev_reward, lstm_states = prev_outputs[:4]
 
-      # TODO(mbz): No scheduled sampling for now!
-      input_image, input_reward = tf.cond(
-          tf.greater(time_step, context_frames),
-          lambda: (prev_image, prev_reward),
-          lambda: (cur_image, cur_reward))
+      generated_items = [prev_image, prev_reward]
+      groundtruth_items = [cur_image, cur_reward]
+      done_warm_start = tf.greater(time_step, context_frames - 1)
+      input_image, input_reward = self.get_scheduled_sample_inputs(
+          done_warm_start, groundtruth_items, generated_items, ss_func)
 
       # Prediction
       pred_image, lstm_states = self.construct_predictive_tower(
@@ -717,22 +721,23 @@ class NextFrameStochastic(NextFrameBasic):
                             [4])
     return tf.reduce_sum(kernel * inputs, [3], keep_dims=False)
 
-  def scheduled_sample(self,
-                       ground_truth_x,
-                       generated_x,
-                       batch_size,
-                       num_ground_truth):
+  @staticmethod
+  def scheduled_sample_count(ground_truth_x,
+                             generated_x,
+                             batch_size,
+                             scheduled_sample_var):
     """Sample batch with specified mix of groundtruth and generated data points.
 
     Args:
       ground_truth_x: tensor of ground-truth data points.
       generated_x: tensor of generated data points.
       batch_size: batch size
-      num_ground_truth: number of ground-truth examples to include in batch.
+      scheduled_sample_var: number of ground-truth examples to include in batch.
     Returns:
       New batch with num_ground_truth sampled from ground_truth_x and the rest
       from generated_x.
     """
+    num_ground_truth = scheduled_sample_var
     idx = tf.random_shuffle(tf.range(batch_size))
     ground_truth_idx = tf.gather(idx, tf.range(num_ground_truth))
     generated_idx = tf.gather(idx, tf.range(num_ground_truth, batch_size))
@@ -742,41 +747,91 @@ class NextFrameStochastic(NextFrameBasic):
     return tf.dynamic_stitch([ground_truth_idx, generated_idx],
                              [ground_truth_examps, generated_examps])
 
-  def get_scheduled_sample_inputs(
-      self, done_warm_start, groundtruth_items, generated_items, batch_size):
+  @staticmethod
+  def scheduled_sample_prob(ground_truth_x,
+                            generated_x,
+                            batch_size,
+                            scheduled_sample_var):
+    """Probability based scheduled sampling.
 
-    with tf.variable_scope("scheduled_sampling", reuse=tf.AUTO_REUSE):
-      if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
-        feedself = True
+    Args:
+      ground_truth_x: tensor of ground-truth data points.
+      generated_x: tensor of generated data points.
+      batch_size: batch size
+      scheduled_sample_var: probability of choosing from ground_truth.
+    Returns:
+      New batch with randomly selected data points.
+    """
+    probability_threshold = scheduled_sample_var
+    probability_of_generated = tf.random_uniform([batch_size])
+    array_ind = tf.to_int32(probability_of_generated > probability_threshold)
+    indices = tf.range(batch_size) + array_ind * batch_size
+    xy = tf.concat([ground_truth_x, generated_x], axis=0)
+    output = tf.gather(xy, indices)
+    return output
+
+  def get_scheduled_sample_func(self, batch_size):
+    """Creates a function for scheduled sampling based on given hparams."""
+    with tf.variable_scope("scheduled_sampling_func", reuse=False):
+      iter_num = tf.train.get_global_step()
+      # TODO(lukaszkaiser): figure out why iter_num can be None.
+      if iter_num is None:
+        iter_num = _LARGE_STEP_NUMBER
+
+      if self.hparams.scheduled_sampling_mode == "prob":
+        decay_steps = self.hparams.scheduled_sampling_decay_steps
+        probability = tf.train.polynomial_decay(
+            1.0, iter_num, decay_steps, 0.0)
+        scheduled_sampling_func = NextFrameStochastic.scheduled_sample_prob
+        scheduled_sampling_func_var = probability
       else:
-        # Scheduled sampling:
         # Calculate number of ground-truth frames to pass in.
-        feedself = False
-        iter_num = tf.train.get_global_step()
-        # TODO(mbz): what should it be if it's undefined?
-        if iter_num is None:
-          iter_num = _LARGE_STEP_NUMBER
         k = self.hparams.scheduled_sampling_k
         num_ground_truth = tf.to_int32(
             tf.round(
                 tf.to_float(batch_size) *
                 (k / (k + tf.exp(tf.to_float(iter_num) / tf.to_float(k))))))
-        tf.summary.scalar("num_ground_truth", num_ground_truth)
+        scheduled_sampling_func = NextFrameStochastic.scheduled_sample_count
+        scheduled_sampling_func_var = num_ground_truth
 
-      if feedself and done_warm_start:
-        # Feed in generated stuff.
-        output_items = generated_items
-      elif done_warm_start:
+      tf.summary.scalar("scheduled_sampling_var", scheduled_sampling_func_var)
+      partial_func = partial(scheduled_sampling_func,
+                             batch_size=batch_size,
+                             scheduled_sample_var=scheduled_sampling_func_var)
+      return partial_func
+
+  def get_scheduled_sample_inputs(self,
+                                  done_warm_start,
+                                  groundtruth_items,
+                                  generated_items,
+                                  scheduled_sampling_func):
+    """Scheduled sampling.
+
+    Args:
+      done_warm_start: whether we are done with warm start or not.
+      groundtruth_items: list of ground truth items.
+      generated_items: list of generated items.
+      scheduled_sampling_func: scheduled sampling function to choose between
+        groundtruth items and generated items.
+
+    Returns:
+      A mix list of ground truth and generated items.
+    """
+    def sample():
+      """Calculate the scheduled sampling params based on iteration number."""
+      with tf.variable_scope("scheduled_sampling", reuse=tf.AUTO_REUSE):
         output_items = []
         for item_gt, item_gen in zip(groundtruth_items, generated_items):
-          # Scheduled sampling
-          output_items.append(self.scheduled_sample(
-              item_gt, item_gen, batch_size, num_ground_truth))
-      else:
-        # Feed in ground_truth
-        output_items = groundtruth_items
+          output_items.append(scheduled_sampling_func(item_gt, item_gen))
+        return output_items
 
-      return output_items
+    cases = {
+        tf.logical_not(self.is_training): lambda: generated_items,
+        tf.logical_not(done_warm_start): lambda: groundtruth_items,
+    }
+    output_items = tf.case(cases, default=sample)
+
+    return output_items
 
   # TODO(mbz): use tf.distributions.kl_divergence instead.
   def kl_divergence(self, mu, log_sigma):
@@ -933,6 +988,9 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
     lstm_state = [None] * 7
     reward_lstm_state = [None] * 5
 
+    # Create scheduled sampling function
+    ss_func = self.get_scheduled_sample_func(batch_size)
+
     pred_image, pred_reward, latent = None, None, None
     for timestep, image, action, reward in zip(
         range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
@@ -941,7 +999,7 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
       groundtruth_items = [image, reward]
       generated_items = [pred_image, pred_reward]
       input_image, input_reward = self.get_scheduled_sample_inputs(
-          done_warm_start, groundtruth_items, generated_items, batch_size)
+          done_warm_start, groundtruth_items, generated_items, ss_func)
 
       # Latent
       # TODO(mbz): should we use input_image iunstead of image?
@@ -1346,6 +1404,9 @@ class NextFrameSavp(NextFrameStochastic):
     pred_image, prior_latent_state, cond_latent_state = None, None, None
     train_mode = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
 
+    # Create scheduled sampling function
+    ss_func = self.get_scheduled_sample_func(batch_size)
+
     with tf.variable_scope("prediction", reuse=tf.AUTO_REUSE):
 
       for step, (image, action, reward, mu, log_sigma_sq) in enumerate(iterable):  # pylint:disable=line-too-long
@@ -1369,7 +1430,7 @@ class NextFrameSavp(NextFrameStochastic):
         groundtruth_items = [image]
         generated_items = [pred_image]
         input_image = self.get_scheduled_sample_inputs(
-            done_warm_start, groundtruth_items, generated_items, batch_size)[0]
+            done_warm_start, groundtruth_items, generated_items, ss_func)[0]
 
         all_latents = tf.concat([enc_cond_latent, enc_prior_latent], axis=0)
         all_image = tf.concat([input_image, input_image], axis=0)
