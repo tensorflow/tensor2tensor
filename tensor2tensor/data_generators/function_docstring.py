@@ -14,19 +14,12 @@
 # limitations under the License.
 """Github function/text similatrity problems."""
 import csv
-import six
+from six import StringIO
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 import tensorflow as tf
-
-# pylint: disable=g-import-not-at-top
-if six.PY2:
-  from StringIO import StringIO
-else:
-  from io import StringIO
-# pylint: enable=g-import-not-at-top
 
 
 @registry.register_problem
@@ -47,7 +40,10 @@ class GithubFunctionDocstring(text_problems.Text2TextProblem):
   @property
   def pair_files_list(self):
     return [
-        "func-doc-pairs-000{:02}-of-00100.csv".format(i)
+        [
+            "{}/func-doc-pairs-000{:02}-of-00100.csv".format(self.base_url, i),
+            ("func-doc-pairs-000{:02}-of-00100.csv".format(i),)
+        ]
         for i in range(100)
     ]
 
@@ -82,10 +78,8 @@ class GithubFunctionDocstring(text_problems.Text2TextProblem):
     # TODO(sanyamkapoor): Manually separate train/eval data set.
     csv_file_names = self.pair_files_list
     csv_files = [
-        generator_utils.maybe_download(tmp_dir, filename,
-                                       "{}/{}".format(self.base_url,
-                                                      filename))
-        for filename in csv_file_names
+        generator_utils.maybe_download(tmp_dir, file_list[0], uri)
+        for uri, file_list in csv_file_names
     ]
 
     for pairs_file in csv_files:
