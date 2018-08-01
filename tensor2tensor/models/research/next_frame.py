@@ -23,6 +23,7 @@ import six
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import next_frame_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -31,15 +32,6 @@ import tensorflow as tf
 
 tfl = tf.layers
 tfcl = tf.contrib.layers
-
-
-def basic_lstm(inputs, state, num_units, name=None):
-  input_shape = common_layers.shape_list(inputs)
-  cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=name)
-  if state is None:
-    state = cell.zero_state(input_shape[0], tf.float32)
-  outputs, new_state = cell(inputs, state)
-  return outputs, new_state
 
 
 @registry.register_model
@@ -193,33 +185,6 @@ class NextFrameStochastic(NextFrameBasic):
       return [1 for _ in array]
     return array
 
-  @staticmethod
-  def tile_and_concat(image, latent, concat_latent=True):
-    """Tile latent and concatenate to image across depth.
-
-    Args:
-      image: 4-D Tensor, (batch_size X height X width X channels)
-      latent: 2-D Tensor, (batch_size X latent_dims)
-      concat_latent: If set to False, the image is returned as is.
-
-    Returns:
-      concat_latent: 4-D Tensor, (batch_size X height X width X channels+1)
-        latent tiled and concatenated to the image across the channels.
-    """
-    if not concat_latent:
-      return image
-    image_shape = common_layers.shape_list(image)
-    latent_shape = common_layers.shape_list(latent)
-    height, width = image_shape[1], image_shape[2]
-    latent_dims = latent_shape[1]
-
-    height_multiples = height // latent_dims
-    pad = height - (height_multiples * latent_dims)
-    latent = tf.reshape(latent, (-1, latent_dims, 1, 1))
-    latent = tf.tile(latent, (1, height_multiples, width, 1))
-    latent = tf.pad(latent, [[0, 0], [pad // 2, pad // 2], [0, 0], [0, 0]])
-    return tf.concat([image, latent], axis=-1)
-
   def construct_latent_tower(self, images):
     """Builds convolutional latent tower for stochastic model.
 
@@ -302,10 +267,11 @@ class NextFrameStochastic(NextFrameBasic):
       - the output of the partial network.
       - intermidate outputs for skip connections.
     """
-    lstm_func = self.conv_lstm_2d
+    lstm_func = common_video.conv_lstm_2d
+    tile_and_concat = common_video.tile_and_concat
 
     input_image = common_layers.make_even_size(input_image)
-    concat_input_image = self.tile_and_concat(
+    concat_input_image = tile_and_concat(
         input_image, latent, concat_latent=concat_latent)
 
     enc0 = tfl.conv2d(
@@ -319,7 +285,7 @@ class NextFrameStochastic(NextFrameBasic):
 
     hidden1, lstm_state[0] = lstm_func(
         enc0, lstm_state[0], lstm_size[0], name="state1")
-    hidden1 = self.tile_and_concat(hidden1, latent, concat_latent=concat_latent)
+    hidden1 = tile_and_concat(hidden1, latent, concat_latent=concat_latent)
     hidden1 = tfcl.layer_norm(hidden1, scope="layer_norm2")
     hidden2, lstm_state[1] = lstm_func(
         hidden1, lstm_state[1], lstm_size[1], name="state2")
@@ -327,23 +293,24 @@ class NextFrameStochastic(NextFrameBasic):
     hidden2 = common_layers.make_even_size(hidden2)
     enc1 = tfl.conv2d(hidden2, hidden2.get_shape()[3], [3, 3], strides=(2, 2),
                       padding="SAME", activation=tf.nn.relu, name="conv2")
-    enc1 = self.tile_and_concat(enc1, latent, concat_latent=concat_latent)
+    enc1 = tile_and_concat(enc1, latent, concat_latent=concat_latent)
 
     hidden3, lstm_state[2] = lstm_func(
         enc1, lstm_state[2], lstm_size[2], name="state3")
-    hidden3 = self.tile_and_concat(hidden3, latent, concat_latent=concat_latent)
+    hidden3 = tile_and_concat(hidden3, latent, concat_latent=concat_latent)
     hidden3 = tfcl.layer_norm(hidden3, scope="layer_norm4")
     hidden4, lstm_state[3] = lstm_func(
         hidden3, lstm_state[3], lstm_size[3], name="state4")
-    hidden4 = self.tile_and_concat(hidden4, latent, concat_latent=concat_latent)
+    hidden4 = tile_and_concat(hidden4, latent, concat_latent=concat_latent)
     hidden4 = tfcl.layer_norm(hidden4, scope="layer_norm5")
     hidden4 = common_layers.make_even_size(hidden4)
     enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
                       padding="SAME", activation=tf.nn.relu, name="conv3")
 
     # Pass in reward and action.
-    emb_action = self.encode_to_shape(action, enc2.get_shape(), "action_enc")
-    emb_reward = self.encode_to_shape(
+    emb_action = common_video.encode_to_shape(
+        action, enc2.get_shape(), "action_enc")
+    emb_reward = common_video.encode_to_shape(
         input_reward, enc2.get_shape(), "reward_enc")
     enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
 
@@ -357,7 +324,7 @@ class NextFrameStochastic(NextFrameBasic):
     hidden5, lstm_state[4] = lstm_func(
         enc3, lstm_state[4], lstm_size[4], name="state5")  # last 8x8
     hidden5 = tfcl.layer_norm(hidden5, scope="layer_norm6")
-    hidden5 = self.tile_and_concat(hidden5, latent, concat_latent=concat_latent)
+    hidden5 = tile_and_concat(hidden5, latent, concat_latent=concat_latent)
     return hidden5, (enc0, enc1)
 
   def reward_prediction(
@@ -385,57 +352,22 @@ class NextFrameStochastic(NextFrameBasic):
       x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
                      padding="SAME", activation=tf.nn.relu, name="reward_conv3")
 
-      pred_reward = self.decode_to_shape(
+      pred_reward = common_video.decode_to_shape(
           x, input_reward.shape, "reward_dec")
 
       return pred_reward, lstm_state
-
-  def encode_to_shape(self, inputs, shape, scope):
-    """Encode the given tensor to given image shape."""
-    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-      w, h = shape[1].value, shape[2].value
-      x = inputs
-      x = tfcl.flatten(x)
-      x = tfl.dense(x, w * h, activation=tf.nn.relu, name="enc_dense")
-      x = tf.reshape(x, (-1, w, h, 1))
-      return x
-
-  def decode_to_shape(self, inputs, shape, scope):
-    """Encode the given tensor to given image shape."""
-    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-      x = inputs
-      x = tfcl.flatten(x)
-      x = tfl.dense(x, shape[2].value, activation=tf.nn.relu, name="dec_dense")
-      x = tf.expand_dims(x, axis=1)
-      return x
-
-  def conv_lstm_2d(self, inputs, state, output_channels,
-                   kernel_size=5, name=None, spatial_dims=None):
-    input_shape = common_layers.shape_list(inputs)
-    batch_size, input_channels = input_shape[0], input_shape[-1]
-    if spatial_dims is None:
-      input_shape = input_shape[1:]
-    else:
-      input_shape = spatial_dims + [input_channels]
-
-    cell = tf.contrib.rnn.ConvLSTMCell(
-        2, input_shape, output_channels,
-        [kernel_size, kernel_size], name=name)
-    if state is None:
-      state = cell.zero_state(batch_size, tf.float32)
-    outputs, new_state = cell(inputs, state)
-    return outputs, new_state
 
   def construct_predictive_tower(
       self, input_image, input_reward, action, lstm_state, latent,
       concat_latent=False):
     # Main tower
-    lstm_func = self.conv_lstm_2d
+    lstm_func = common_video.conv_lstm_2d
     batch_size = common_layers.shape_list(input_image)[0]
     # the number of different pixel motion predictions
     # and the number of masks for each of those predictions
     num_masks = self.hparams.num_masks
     upsample_method = self.hparams.upsample_method
+    tile_and_concat = common_video.tile_and_concat
 
     lstm_size = self.tinyify([32, 32, 64, 64, 128, 64, 32])
     conv_size = self.tinyify([32])
@@ -455,13 +387,12 @@ class NextFrameStochastic(NextFrameBasic):
 
       enc1_shape = common_layers.shape_list(enc1)
       enc4 = enc4[:, :enc1_shape[1], :enc1_shape[2], :]  # Cut to shape.
-      enc4 = self.tile_and_concat(enc4, latent, concat_latent=concat_latent)
+      enc4 = tile_and_concat(enc4, latent, concat_latent=concat_latent)
 
       hidden6, lstm_state[5] = lstm_func(
           enc4, lstm_state[5], lstm_size[5], name="state6",
           spatial_dims=enc1_shape[1:-1])  # 16x16
-      hidden6 = self.tile_and_concat(
-          hidden6, latent, concat_latent=concat_latent)
+      hidden6 = tile_and_concat(hidden6, latent, concat_latent=concat_latent)
       hidden6 = tfcl.layer_norm(hidden6, scope="layer_norm7")
       # Skip connection.
       hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
@@ -473,7 +404,7 @@ class NextFrameStochastic(NextFrameBasic):
 
       enc0_shape = common_layers.shape_list(enc0)
       enc5 = enc5[:, :enc0_shape[1], :enc0_shape[2], :]  # Cut to shape.
-      enc5 = self.tile_and_concat(enc5, latent, concat_latent=concat_latent)
+      enc5 = tile_and_concat(enc5, latent, concat_latent=concat_latent)
 
       hidden7, lstm_state[6] = lstm_func(
           enc5, lstm_state[6], lstm_size[6], name="state7",
@@ -488,7 +419,7 @@ class NextFrameStochastic(NextFrameBasic):
             hidden7, num_outputs=hidden7.shape.as_list()[-1],
             stride=[2, 2], method=upsample_method)
       enc6 = tfcl.layer_norm(enc6, scope="layer_norm9")
-      enc6 = self.tile_and_concat(enc6, latent, concat_latent=concat_latent)
+      enc6 = tile_and_concat(enc6, latent, concat_latent=concat_latent)
 
       if self.hparams.model_options == "DNA":
         # Using largest hidden state for predicting untied conv kernels.
@@ -517,13 +448,17 @@ class NextFrameStochastic(NextFrameBasic):
       if self.hparams.model_options == "CDNA":
         # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
         cdna_input = tfcl.flatten(hidden5)
-        transformed += self.cdna_transformation(
-            input_image, cdna_input, num_masks, int(color_channels))
+        transformed += common_video.cdna_transformation(
+            input_image, cdna_input, num_masks, int(color_channels),
+            self.hparams.dna_kernel_size, self.hparams.relu_shift)
       elif self.hparams.model_options == "DNA":
         # Only one mask is supported (more should be unnecessary).
         if num_masks != 1:
           raise ValueError("Only one mask is supported for DNA model.")
-        transformed = [self.dna_transformation(input_image, enc7)]
+        transformed = [
+            common_video.dna_transformation(
+                input_image, enc7,
+                self.hparams.dna_kernel_size, self.hparams.relu_shift)]
 
       masks = tfl.conv2d(
           enc6, filters=num_masks + 1, kernel_size=[1, 1],
@@ -629,147 +564,6 @@ class NextFrameStochastic(NextFrameBasic):
 
     return gen_images, gen_rewards, [latent_mean], [latent_std]
 
-  def cdna_transformation(self,
-                          prev_image,
-                          cdna_input,
-                          num_masks,
-                          color_channels):
-    """Apply convolutional dynamic neural advection to previous image.
-
-    Args:
-      prev_image: previous image to be transformed.
-      cdna_input: hidden lyaer to be used for computing CDNA kernels.
-      num_masks: number of masks and hence the number of CDNA transformations.
-      color_channels: the number of color channels in the images.
-    Returns:
-      List of images transformed by the predicted CDNA kernels.
-    """
-    batch_size = tf.shape(cdna_input)[0]
-    height = int(prev_image.get_shape()[1])
-    width = int(prev_image.get_shape()[2])
-
-    # Predict kernels using linear function of last hidden layer.
-    cdna_kerns = tfl.dense(
-        cdna_input,
-        self.hparams.dna_kernel_size *
-        self.hparams.dna_kernel_size * num_masks,
-        name="cdna_params",
-        activation=None)
-
-    # Reshape and normalize.
-    cdna_kerns = tf.reshape(
-        cdna_kerns, [batch_size, self.hparams.dna_kernel_size,
-                     self.hparams.dna_kernel_size, 1, num_masks])
-    cdna_kerns = (tf.nn.relu(cdna_kerns - self.hparams.relu_shift)
-                  + self.hparams.relu_shift)
-    norm_factor = tf.reduce_sum(cdna_kerns, [1, 2, 3], keep_dims=True)
-    cdna_kerns /= norm_factor
-
-    # Treat the color channel dimension as the batch dimension since the same
-    # transformation is applied to each color channel.
-    # Treat the batch dimension as the channel dimension so that
-    # depthwise_conv2d can apply a different transformation to each sample.
-    cdna_kerns = tf.transpose(cdna_kerns, [1, 2, 0, 4, 3])
-    cdna_kerns = tf.reshape(cdna_kerns,
-                            [self.hparams.dna_kernel_size,
-                             self.hparams.dna_kernel_size,
-                             batch_size,
-                             num_masks])
-    # Swap the batch and channel dimensions.
-    prev_image = tf.transpose(prev_image, [3, 1, 2, 0])
-
-    # Transform image.
-    transformed = tf.nn.depthwise_conv2d(prev_image, cdna_kerns, [1, 1, 1, 1],
-                                         "SAME")
-
-    # Transpose the dimensions to where they belong.
-    transformed = tf.reshape(
-        transformed, [color_channels, height, width, batch_size, num_masks])
-    transformed = tf.transpose(transformed, [3, 1, 2, 0, 4])
-    transformed = tf.unstack(transformed, axis=-1)
-    return transformed
-
-  def dna_transformation(self,
-                         prev_image,
-                         dna_input):
-    """Apply dynamic neural advection to previous image.
-
-    Args:
-      prev_image: previous image to be transformed.
-      dna_input: hidden lyaer to be used for computing DNA transformation.
-    Returns:
-      List of images transformed by the predicted CDNA kernels.
-    """
-    # Construct translated images.
-    prev_image_pad = tf.pad(prev_image, [[0, 0], [2, 2], [2, 2], [0, 0]])
-    image_height = int(prev_image.get_shape()[1])
-    image_width = int(prev_image.get_shape()[2])
-
-    inputs = []
-    for xkern in range(self.hparams.dna_kernel_size):
-      for ykern in range(self.hparams.dna_kernel_size):
-        inputs.append(
-            tf.expand_dims(
-                tf.slice(prev_image_pad, [0, xkern, ykern, 0],
-                         [-1, image_height, image_width, -1]), [3]))
-    inputs = tf.concat(axis=3, values=inputs)
-
-    # Normalize channels to 1.
-    kernel = (tf.nn.relu(dna_input -self.hparams.relu_shift)
-              + self.hparams.relu_shift)
-    kernel = tf.expand_dims(kernel / tf.reduce_sum(kernel, [3], keep_dims=True),
-                            [4])
-    return tf.reduce_sum(kernel * inputs, [3], keep_dims=False)
-
-  @staticmethod
-  def scheduled_sample_count(ground_truth_x,
-                             generated_x,
-                             batch_size,
-                             scheduled_sample_var):
-    """Sample batch with specified mix of groundtruth and generated data points.
-
-    Args:
-      ground_truth_x: tensor of ground-truth data points.
-      generated_x: tensor of generated data points.
-      batch_size: batch size
-      scheduled_sample_var: number of ground-truth examples to include in batch.
-    Returns:
-      New batch with num_ground_truth sampled from ground_truth_x and the rest
-      from generated_x.
-    """
-    num_ground_truth = scheduled_sample_var
-    idx = tf.random_shuffle(tf.range(batch_size))
-    ground_truth_idx = tf.gather(idx, tf.range(num_ground_truth))
-    generated_idx = tf.gather(idx, tf.range(num_ground_truth, batch_size))
-
-    ground_truth_examps = tf.gather(ground_truth_x, ground_truth_idx)
-    generated_examps = tf.gather(generated_x, generated_idx)
-    return tf.dynamic_stitch([ground_truth_idx, generated_idx],
-                             [ground_truth_examps, generated_examps])
-
-  @staticmethod
-  def scheduled_sample_prob(ground_truth_x,
-                            generated_x,
-                            batch_size,
-                            scheduled_sample_var):
-    """Probability based scheduled sampling.
-
-    Args:
-      ground_truth_x: tensor of ground-truth data points.
-      generated_x: tensor of generated data points.
-      batch_size: batch size
-      scheduled_sample_var: probability of choosing from ground_truth.
-    Returns:
-      New batch with randomly selected data points.
-    """
-    probability_threshold = scheduled_sample_var
-    probability_of_generated = tf.random_uniform([batch_size])
-    array_ind = tf.to_int32(probability_of_generated > probability_threshold)
-    indices = tf.range(batch_size) + array_ind * batch_size
-    xy = tf.concat([ground_truth_x, generated_x], axis=0)
-    output = tf.gather(xy, indices)
-    return output
-
   def get_scheduled_sample_func(self, batch_size):
     """Creates a function for scheduled sampling based on given hparams."""
     with tf.variable_scope("scheduled_sampling_func", reuse=False):
@@ -782,7 +576,7 @@ class NextFrameStochastic(NextFrameBasic):
         decay_steps = self.hparams.scheduled_sampling_decay_steps
         probability = tf.train.polynomial_decay(
             1.0, iter_num, decay_steps, 0.0)
-        scheduled_sampling_func = NextFrameStochastic.scheduled_sample_prob
+        scheduled_sampling_func = common_video.scheduled_sample_prob
         scheduled_sampling_func_var = probability
       else:
         # Calculate number of ground-truth frames to pass in.
@@ -791,7 +585,7 @@ class NextFrameStochastic(NextFrameBasic):
             tf.round(
                 tf.to_float(batch_size) *
                 (k / (k + tf.exp(tf.to_float(iter_num) / tf.to_float(k))))))
-        scheduled_sampling_func = NextFrameStochastic.scheduled_sample_count
+        scheduled_sampling_func = common_video.scheduled_sample_count
         scheduled_sampling_func_var = num_ground_truth
 
       tf.summary.scalar("scheduled_sampling_var", scheduled_sampling_func_var)
@@ -826,26 +620,12 @@ class NextFrameStochastic(NextFrameBasic):
         return output_items
 
     cases = {
-        tf.logical_not(self.is_training): lambda: generated_items,
         tf.logical_not(done_warm_start): lambda: groundtruth_items,
+        tf.logical_not(self.is_training): lambda: generated_items,
     }
-    output_items = tf.case(cases, default=sample)
+    output_items = tf.case(cases, default=sample, strict=True)
 
     return output_items
-
-  # TODO(mbz): use tf.distributions.kl_divergence instead.
-  def kl_divergence(self, mu, log_sigma):
-    """KL divergence of diagonal gaussian N(mu,exp(log_sigma)) and N(0,1).
-
-    Args:
-      mu: mu parameter of the distribution.
-      log_sigma: log(sigma) parameter of the distribution.
-    Returns:
-      the KL loss.
-    """
-    batch_size = common_layers.shape_list(mu)[0]
-    kl = -.5 * tf.reduce_sum(1. + log_sigma - tf.square(mu) - tf.exp(log_sigma))
-    return kl / tf.to_float(batch_size)
 
   def get_input_if_exists(self, features, key, batch_size, num_frames):
     if key in features:
@@ -931,7 +711,7 @@ class NextFrameStochastic(NextFrameBasic):
     kl_loss = 0.0
     if self.is_training:
       for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
-        kl_loss += self.kl_divergence(mean, std)
+        kl_loss += common_layers.kl_divergence(mean, std)
         tf.summary.histogram("posterior_mean_%d" % i, mean)
         tf.summary.histogram("posterior_std_%d" % i, std)
 
@@ -991,7 +771,7 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
     # Create scheduled sampling function
     ss_func = self.get_scheduled_sample_func(batch_size)
 
-    pred_image, pred_reward, latent = None, None, None
+    pred_image, pred_reward, latent = images[0], rewards[0], None
     for timestep, image, action, reward in zip(
         range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
       # Scheduled Sampling
@@ -1041,33 +821,6 @@ class NextFrameStochasticEmily(NextFrameStochastic):
      https://github.com/edenton/svg
   """
 
-  def vgg_layer(self,
-                inputs,
-                nout,
-                kernel_size=3,
-                activation=tf.nn.leaky_relu,
-                padding="SAME",
-                scope=None):
-    """A layer of VGG network with batch norm.
-
-    Args:
-      inputs: image tensor
-      nout: number of output channels
-      kernel_size: size of the kernel
-      activation: activation function
-      padding: padding of the image
-      scope: variable scope of the op
-    Returns:
-      net: output of layer
-    """
-    with tf.variable_scope(scope):
-      net = tfl.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
-                       activation=None, name="conv")
-      net = tfl.batch_normalization(net,
-                                    training=self.is_training, name="bn")
-      net = activation(net)
-    return net
-
   def encoder(self, inputs, nout):
     """VGG based image encoder.
 
@@ -1078,23 +831,28 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       net: encoded image with size BSxNout
       skips: skip connection after each layer
     """
-    vgg_layer = self.vgg_layer
+    vgg_layer = common_video.vgg_layer
     net01 = inputs
     # h1
-    net11 = tfcl.repeat(net01, 2, vgg_layer, 64, scope="h1")
+    net11 = tfcl.repeat(net01, 2, vgg_layer, 64,
+                        scope="h1", is_training=self.is_training)
     net12 = tfl.max_pooling2d(net11, [2, 2], strides=(2, 2), name="h1_pool")
     # h2
-    net21 = tfcl.repeat(net12, 2, vgg_layer, 128, scope="h2")
+    net21 = tfcl.repeat(net12, 2, vgg_layer, 128,
+                        scope="h2", is_training=self.is_training)
     net22 = tfl.max_pooling2d(net21, [2, 2], strides=(2, 2), name="h2_pool")
     # h3
-    net31 = tfcl.repeat(net22, 3, vgg_layer, 256, scope="h3")
+    net31 = tfcl.repeat(net22, 3, vgg_layer, 256,
+                        scope="h3", is_training=self.is_training)
     net32 = tfl.max_pooling2d(net31, [2, 2], strides=(2, 2), name="h3_pool")
     # h4
-    net41 = tfcl.repeat(net32, 3, vgg_layer, 512, scope="h4")
+    net41 = tfcl.repeat(net32, 3, vgg_layer, 512,
+                        scope="h4", is_training=self.is_training)
     net42 = tfl.max_pooling2d(net41, [2, 2], strides=(2, 2), name="h4_pool")
     # h5
-    net51 = tfcl.repeat(net42, 1, vgg_layer, nout, kernel_size=4,
-                        padding="VALID", activation=tf.tanh, scope="h5")
+    net51 = tfcl.repeat(net42, 1, vgg_layer, nout,
+                        kernel_size=4, padding="VALID", activation=tf.tanh,
+                        scope="h5", is_training=self.is_training)
     skips = [net11, net21, net31, net41]
     return net51, skips
 
@@ -1109,7 +867,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
       net: decoded image with size BSx64x64xNout
       skips: skip connection after each layer
     """
-    vgg_layer = self.vgg_layer
+    vgg_layer = common_video.vgg_layer
     net = inputs
     # d1
     net = tfl.conv2d_transpose(net, 512, kernel_size=4, padding="VALID",
@@ -1156,7 +914,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     net = tfl.dense(
         net, hidden_size, activation=None, name="af1")
     for i in range(nlayers):
-      net, states[i] = basic_lstm(
+      net, states[i] = common_video.basic_lstm(
           net, states[i], hidden_size, name="alstm%d"%i)
     net = tfl.dense(
         net, output_size, activation=tf.nn.tanh, name="af2")
@@ -1179,7 +937,7 @@ class NextFrameStochasticEmily(NextFrameStochastic):
     net = inputs
     net = tfl.dense(net, hidden_size, activation=None, name="bf1")
     for i in range(nlayers):
-      net, states[i] = basic_lstm(
+      net, states[i] = common_video.basic_lstm(
           net, states[i], hidden_size, name="blstm%d"%i)
     mu = tfl.dense(net, output_size, activation=None, name="bf2mu")
     logvar = tfl.dense(net, output_size, activation=None, name="bf2log")

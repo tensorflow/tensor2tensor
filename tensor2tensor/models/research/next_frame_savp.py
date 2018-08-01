@@ -22,6 +22,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import next_frame
 from tensor2tensor.models.research import next_frame_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
@@ -163,11 +164,11 @@ class NextFrameSAVP(next_frame.NextFrameStochastic):
 
         # LSTM that encodes correlations between conditional latents.
         # Pg 22 in https://arxiv.org/pdf/1804.01523.pdf
-        enc_cond_latent, cond_latent_state = next_frame.basic_lstm(
+        enc_cond_latent, cond_latent_state = common_video.basic_lstm(
             latent, cond_latent_state, latent_dims, name="cond_latent")
 
         # LSTM that encodes correlations between prior latents.
-        enc_prior_latent, prior_latent_state = next_frame.basic_lstm(
+        enc_prior_latent, prior_latent_state = common_video.basic_lstm(
             prior_latent, prior_latent_state, latent_dims, name="prior_latent")
 
         # Scheduled Sampling

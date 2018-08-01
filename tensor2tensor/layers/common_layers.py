@@ -3692,3 +3692,20 @@ def targeted_dropout(inputs,
     return inputs * (1 - mask)
   else:
     return inputs
+
+
+# TODO(mbz): use tf.distributions.kl_divergence instead.
+def kl_divergence(mu, log_sigma):
+  """KL divergence of diagonal gaussian N(mu,exp(log_sigma)) and N(0,1).
+
+  Args:
+    mu: mu parameter of the distribution.
+    log_sigma: log(sigma) parameter of the distribution.
+  Returns:
+    the KL loss.
+  """
+  batch_size = shape_list(mu)[0]
+  kl = -.5 * tf.reduce_sum(1. + log_sigma - tf.square(mu) - tf.exp(log_sigma))
+  return kl / tf.to_float(batch_size)
+
+

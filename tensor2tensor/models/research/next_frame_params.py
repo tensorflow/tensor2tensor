@@ -73,7 +73,7 @@ def next_frame_stochastic():
   hparams.add_hparam("relu_shift", 1e-12)
   hparams.add_hparam("dna_kernel_size", 5)
   # Scheduled sampling method. Choose between prob or count.
-  hparams.add_hparam("scheduled_sampling_mode", "prob")
+  hparams.add_hparam("scheduled_sampling_mode", "count")
   hparams.add_hparam("scheduled_sampling_decay_steps", 10000)
   hparams.add_hparam("scheduled_sampling_k", 900.0)
   hparams.add_hparam("latent_num_frames", 0)  # 0 means use all frames.
