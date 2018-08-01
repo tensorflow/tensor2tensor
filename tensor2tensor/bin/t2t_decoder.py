@@ -36,8 +36,7 @@ import os
 # Fathom
 import fathomt2t
 from fathomt2t.common_flags import (
-    setup_dataset_flag,
-    setup_num_examples_flag,
+    setup_decoder_flags,
     dataset_to_t2t_mode)
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 
@@ -71,8 +70,7 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
 # Fathom
-setup_num_examples_flag()
-setup_dataset_flag()
+setup_decoder_flags()
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 flags.DEFINE_bool("use_original_input", False,
                   "Use the input that was used for validation during training?")
@@ -91,9 +89,7 @@ def create_decode_hparams():
   decode_hp.add_hparam("shards", FLAGS.decode_shards)
   decode_hp.add_hparam("shard_id", FLAGS.worker_id)
   # Fathom
-  # num_samples needs to be its default of -1 for all data to be consumed
-  if FLAGS.num_examples is not None:
-      decode_hp.num_samples = FLAGS.num_examples
+  decode_hp = decode_num_examples(decode_hp=decode_hp)
   return decode_hp
 
 
