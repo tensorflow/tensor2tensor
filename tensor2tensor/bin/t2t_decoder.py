@@ -129,7 +129,7 @@ def decode(estimator, hparams, decode_hp):
       problem = registry.problem(FLAGS.problems)
       problem.output_predictions(
           predictions=predictions,
-          max_num_examples=FLAGS.num_examples)
+          num_examples=FLAGS.num_examples)
 
 
 def score_file(filename):
