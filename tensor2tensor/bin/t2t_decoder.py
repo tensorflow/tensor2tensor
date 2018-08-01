@@ -91,7 +91,9 @@ def create_decode_hparams():
   decode_hp.add_hparam("shards", FLAGS.decode_shards)
   decode_hp.add_hparam("shard_id", FLAGS.worker_id)
   # Fathom
-  decode_hp.num_samples = FLAGS.num_examples
+  # num_samples needs to be its default of -1 for all data to be consumed
+  if FLAGS.num_examples is not None:
+      decode_hp.num_samples = FLAGS.num_examples
   return decode_hp
 
 
