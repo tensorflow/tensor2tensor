@@ -35,7 +35,10 @@ import os
 
 # Fathom
 import fathomt2t
-from fathomt2t.common_flags import setup_dataset_flag, dataset_to_t2t_mode
+from fathomt2t.common_flags import (
+    setup_decoder_flags,
+    decode_num_examples,
+    dataset_to_t2t_mode)
 from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xcom_ingest
 
 # Dependency imports
@@ -68,7 +71,7 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
 # Fathom
-setup_dataset_flag()
+setup_decoder_flags()
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 flags.DEFINE_bool("use_original_input", False,
                   "Use the input that was used for validation during training?")
@@ -86,6 +89,8 @@ def create_decode_hparams():
   decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
   decode_hp.add_hparam("shards", FLAGS.decode_shards)
   decode_hp.add_hparam("shard_id", FLAGS.worker_id)
+  # Fathom
+  decode_hp = decode_num_examples(decode_hp=decode_hp)
   return decode_hp
 
 
@@ -121,7 +126,9 @@ def decode(estimator, hparams, decode_hp):
       print('Assuming only one problem...')
       assert '-' not in FLAGS.problems
       problem = registry.problem(FLAGS.problems)
-      problem.output_predictions(predictions)
+      problem.output_predictions(
+          predictions=predictions,
+          num_examples=FLAGS.num_examples)
 
 
 def score_file(filename):
