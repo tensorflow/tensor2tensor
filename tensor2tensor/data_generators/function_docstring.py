@@ -16,7 +16,7 @@
 import csv
 import six
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import translate
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 import tensorflow as tf
@@ -30,7 +30,7 @@ else:
 
 
 @registry.register_problem
-class GithubFunctionDocstring(translate.TranslateProblem):
+class GithubFunctionDocstring(text_problems.Text2TextProblem):
   """Function and Docstring similarity Problem.
 
   This problem contains the data consisting of function
@@ -59,10 +59,6 @@ class GithubFunctionDocstring(translate.TranslateProblem):
   def approx_vocab_size(self):
     return 2**13
 
-  def source_data_files(self, _):
-    # TODO(sanyamkapoor): Manually separate train/eval data set.
-    return self.pair_files_list
-
   @property
   def max_samples_for_vocab(self):
     # FIXME(sanyamkapoor): This exists to handle memory explosion.
@@ -83,7 +79,8 @@ class GithubFunctionDocstring(translate.TranslateProblem):
         {"inputs": "STRING", "targets": "STRING"}
     """
 
-    csv_file_names = self.source_data_files(dataset_split)
+    # TODO(sanyamkapoor): Manually separate train/eval data set.
+    csv_file_names = self.pair_files_list
     csv_files = [
         generator_utils.maybe_download(tmp_dir, filename,
                                        "{}/{}".format(self.base_url,
