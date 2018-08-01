@@ -99,7 +99,7 @@ def next_frame_stochastic_emily():
 
 @registry.register_hparams
 def next_frame_savp():
-  """SVAP model."""
+  """SAVP model."""
   hparams = next_frame_stochastic()
   hparams.add_hparam("z_dim", 8)
   hparams.target_modality = "video:l1raw"

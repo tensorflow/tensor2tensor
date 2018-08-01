@@ -67,12 +67,6 @@ class NextFrameTest(tf.test.TestCase):
     self.TestVideoModel(4, 1, hparams, model, expected_last_dim)
     self.TestVideoModel(7, 5, hparams, model, expected_last_dim)
 
-  def TestOnVariousUpSampleLayers(self, hparams, model, expected_last_dim):
-    self.TestVideoModel(4, 1, hparams, model, expected_last_dim,
-                        upsample_method="bilinear_upsample_conv")
-    self.TestVideoModel(4, 1, hparams, model, expected_last_dim,
-                        upsample_method="nn_upsample_conv")
-
   def testBasic(self):
     self.TestOnVariousInputOutputSizes(
         next_frame_params.next_frame(),
@@ -95,16 +89,6 @@ class NextFrameTest(tf.test.TestCase):
     self.TestOnVariousInputOutputSizes(
         next_frame_params.next_frame_stochastic_emily(),
         next_frame.NextFrameStochasticEmily,
-        1)
-
-  def testStochasticSavp(self):
-    self.TestOnVariousInputOutputSizes(
-        next_frame_params.next_frame_savp(),
-        next_frame.NextFrameSavp,
-        1)
-    self.TestOnVariousUpSampleLayers(
-        next_frame_params.next_frame_savp(),
-        next_frame.NextFrameSavp,
         1)
 
   @staticmethod
