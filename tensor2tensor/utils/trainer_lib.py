@@ -408,7 +408,9 @@ def create_experiment(
     eval_early_stopping_metric_minimize=True,
     autotune=False,
     use_tpu=False,
-    xla_compile=False):
+    xla_compile=False,
+    additional_train_hooks=None,
+    additional_eval_hooks=None):
   """Create Experiment."""
   # HParams
   hparams.add_hparam("model_dir", run_config.model_dir)
@@ -477,6 +479,10 @@ def create_experiment(
       early_stopping_kwargs=early_stopping_kwargs)
   train_hooks += t2t_model.T2TModel.get_train_hooks(model_name)
   eval_hooks += t2t_model.T2TModel.get_eval_hooks(model_name)
+  if additional_train_hooks:
+    train_hooks += additional_train_hooks
+  if additional_eval_hooks:
+    eval_hooks += additional_eval_hooks
 
   train_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
       train_hooks, estimator)
