@@ -483,7 +483,10 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     # HACK: Do first step outside to initialize all the variables
     lstm_states, reward_lstm_states = [None] * 7, [None] * 5
     inputs = images[0], rewards[0], actions[0]
-    prev_outputs = (tf.constant(0), images[0], rewards[0], lstm_states)
+    prev_outputs = (tf.constant(0),
+                    tf.zeros_like(images[0]),
+                    tf.zeros_like(rewards[0]),
+                    lstm_states)
     if self.hparams.reward_prediction:
       prev_outputs += (reward_lstm_states,)
 
@@ -634,7 +637,9 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
     # Create scheduled sampling function
     ss_func = self.get_scheduled_sample_func(batch_size)
 
-    pred_image, pred_reward, latent = images[0], rewards[0], None
+    pred_image = tf.zeros_like(images[0])
+    pred_reward = tf.zeros_like(rewards[0])
+    latent = None
     for timestep, image, action, reward in zip(
         range(len(images)-1), images[:-1], actions[:-1], rewards[:-1]):
       # Scheduled Sampling
