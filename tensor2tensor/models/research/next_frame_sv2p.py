@@ -228,16 +228,21 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
                       padding="SAME", activation=tf.nn.relu, name="conv3")
 
-    # Pass in reward and action.
-    emb_action = common_video.encode_to_shape(
-        action, enc2.get_shape(), "action_enc")
-    emb_reward = common_video.encode_to_shape(
-        input_reward, enc2.get_shape(), "reward_enc")
-    enc2 = tf.concat(axis=3, values=[enc2, emb_action, emb_reward])
+    # Pass in action if exists.
+    if action is not None:
+      emb_action = common_video.encode_to_shape(
+          action, enc2.get_shape(), "action_enc")
+      enc2 = tf.concat(values=[enc2, emb_action], axis=3)
+
+    # Pass in reward if exists.
+    if input_reward is not None:
+      emb_reward = common_video.encode_to_shape(
+          input_reward, enc2.get_shape(), "reward_enc")
+      enc2 = tf.concat(values=[enc2, emb_reward], axis=3)
 
     if latent is not None and not concat_latent:
       with tf.control_dependencies([latent]):
-        enc2 = tf.concat([enc2, latent], 3)
+        enc2 = tf.concat([enc2, latent], axis=3)
 
     enc3 = tfl.conv2d(enc2, hidden4.get_shape()[3], [1, 1], strides=(1, 1),
                       padding="SAME", activation=tf.nn.relu, name="conv4")
@@ -307,18 +312,12 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
 
       return mean, std
 
-  def reward_prediction(
-      self, input_image, input_reward, action, lstm_state, latent):
+  def reward_prediction(self, input_image, input_reward, action, latent):
     """Builds a reward prediction network."""
     conv_size = self.tinyify([32, 32, 16, 4])
-    lstm_size = self.tinyify([32, 64, 128, 64, 32])
 
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
-      hidden5, _ = self.bottom_part_tower(
-          input_image, input_reward, action, latent,
-          lstm_state, lstm_size, conv_size)
-
-      x = hidden5
+      x = input_image
       x = tfcl.batch_norm(x, updates_collections=None,
                           is_training=self.is_training, scope="reward_bn0")
       x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
@@ -335,7 +334,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
       pred_reward = common_video.decode_to_shape(
           x, input_reward.shape, "reward_dec")
 
-      return pred_reward, lstm_state
+      return pred_reward
 
   def construct_predictive_tower(
       self, input_image, input_reward, action, lstm_state, latent,
@@ -486,7 +485,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     def process_single_frame(prev_outputs, inputs):
       """Process a single frame of the video."""
       cur_image, cur_reward, action = inputs
-      time_step, prev_image, prev_reward, lstm_states = prev_outputs[:4]
+      time_step, prev_image, prev_reward, lstm_states = prev_outputs
 
       generated_items = [prev_image, prev_reward]
       groundtruth_items = [cur_image, cur_reward]
@@ -499,16 +498,16 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
           input_image, input_reward, action, lstm_states, latent)
 
       if self.hparams.reward_prediction:
-        reward_lstm_states = prev_outputs[4]
-        pred_reward, reward_lstm_states = self.reward_prediction(
-            input_image, input_reward, action, reward_lstm_states, latent)
+        reward_input_image = pred_image
+        if self.hparams.reward_prediction_stop_gradient:
+          reward_input_image = tf.stop_gradient(reward_input_image)
+        pred_reward = self.reward_prediction(
+            reward_input_image, input_reward, action, latent)
       else:
         pred_reward = input_reward
 
       time_step += 1
       outputs = (time_step, pred_image, pred_reward, lstm_states)
-      if self.hparams.reward_prediction:
-        outputs += (reward_lstm_states,)
 
       return outputs
 
@@ -519,14 +518,12 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
       latent = self.get_gaussian_latent(latent_mean, latent_std)
 
     # HACK: Do first step outside to initialize all the variables
-    lstm_states, reward_lstm_states = [None] * 7, [None] * 5
+    lstm_states = [None] * 7
     inputs = images[0], rewards[0], actions[0]
     prev_outputs = (tf.constant(0),
                     tf.zeros_like(images[0]),
                     tf.zeros_like(rewards[0]),
                     lstm_states)
-    if self.hparams.reward_prediction:
-      prev_outputs += (reward_lstm_states,)
 
     initializers = process_single_frame(prev_outputs, inputs)
     first_gen_images = tf.expand_dims(initializers[1], axis=0)
@@ -637,7 +634,6 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
 
     # LSTM states.
     lstm_state = [None] * 7
-    reward_lstm_state = [None] * 5
 
     # Create scheduled sampling function
     ss_func = self.get_scheduled_sample_func(batch_size)
@@ -667,8 +663,8 @@ class NextFrameStochasticTwoFrames(NextFrameStochastic):
           input_image, input_reward, action, lstm_state, latent)
 
       if self.hparams.reward_prediction:
-        pred_reward, reward_lstm_state = self.reward_prediction(
-            input_image, input_reward, action, reward_lstm_state, latent)
+        pred_reward = self.reward_prediction(
+            pred_image, input_reward, action, latent)
       else:
         pred_reward = input_reward
 

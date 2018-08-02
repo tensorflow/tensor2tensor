@@ -63,6 +63,7 @@ def next_frame_stochastic():
   hparams.video_modality_loss_cutoff = 0.0
   hparams.add_hparam("stochastic_model", True)
   hparams.add_hparam("reward_prediction", True)
+  hparams.add_hparam("reward_prediction_stop_gradient", False)
   hparams.add_hparam("model_options", "CDNA")
   hparams.add_hparam("num_masks", 10)
   hparams.add_hparam("latent_channels", 1)

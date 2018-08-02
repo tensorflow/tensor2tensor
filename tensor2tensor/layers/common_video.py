@@ -35,7 +35,7 @@ def encode_to_shape(inputs, shape, scope):
     w, h = shape[1].value, shape[2].value
     x = inputs
     x = tf.contrib.layers.flatten(x)
-    x = tfl.dense(x, w * h, activation=tf.nn.relu, name="enc_dense")
+    x = tfl.dense(x, w * h, activation=None, name="enc_dense")
     x = tf.reshape(x, (-1, w, h, 1))
     return x
 
@@ -45,7 +45,7 @@ def decode_to_shape(inputs, shape, scope):
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
     x = inputs
     x = tf.contrib.layers.flatten(x)
-    x = tfl.dense(x, shape[2].value, activation=tf.nn.relu, name="dec_dense")
+    x = tfl.dense(x, shape[2].value, activation=None, name="dec_dense")
     x = tf.expand_dims(x, axis=1)
     return x
 
