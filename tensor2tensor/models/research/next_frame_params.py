@@ -44,6 +44,7 @@ def next_frame():
   hparams.add_hparam("filter_double_steps", 2)
   hparams.add_hparam("video_modality_loss_cutoff", 0.02)
   hparams.add_hparam("concatenate_actions", True)
+  hparams.add_hparam("tiny_mode", False)
   return hparams
 
 
@@ -77,7 +78,6 @@ def next_frame_stochastic():
   hparams.add_hparam("scheduled_sampling_decay_steps", 10000)
   hparams.add_hparam("scheduled_sampling_k", 900.0)
   hparams.add_hparam("latent_num_frames", 0)  # 0 means use all frames.
-  hparams.add_hparam("tiny_mode", False)
   hparams.add_hparam("anneal_end", 100000)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
   return hparams

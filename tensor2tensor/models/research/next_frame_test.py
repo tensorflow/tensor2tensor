@@ -37,6 +37,7 @@ def fill_hparams(hparams, in_frames, out_frames):
   p_hparams = problem.get_hparams(hparams)
   hparams.problem = problem
   hparams.problem_hparams = p_hparams
+  hparams.tiny_mode = True
   return hparams
 
 
