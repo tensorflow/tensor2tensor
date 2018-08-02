@@ -344,7 +344,8 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
       concat_latent=False):
     # Main tower
     lstm_func = common_video.conv_lstm_2d
-    batch_size = common_layers.shape_list(input_image)[0]
+    frame_shape = common_layers.shape_list(input_image)
+    batch_size, img_height, img_width, color_channels = frame_shape
     # the number of different pixel motion predictions
     # and the number of masks for each of those predictions
     num_masks = self.hparams.num_masks
@@ -353,8 +354,6 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
 
     lstm_size = self.tinyify([32, 32, 64, 64, 128, 64, 32])
     conv_size = self.tinyify([32])
-
-    img_height, img_width, color_channels = self.hparams.problem.frame_shape
 
     with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
       hidden5, skips = self.bottom_part_tower(

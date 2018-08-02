@@ -140,6 +140,11 @@ class VideoProblem(problem.Problem):
 
   def preprocess_example(self, example, mode, hparams):
     """Runtime preprocessing, e.g., resize example["frame"]."""
+    if hparams.preprocess_resize_frames is not None:
+      example["frame"] = tf.image.resize_images(
+          example["frame"],
+          hparams.preprocess_resize_frames,
+          tf.image.ResizeMethod.BILINEAR)
     return example
 
   @property
@@ -219,11 +224,6 @@ class VideoProblem(problem.Problem):
       for k, v in six.iteritems(batched_prefeatures):
         if k == "frame":  # We rename past frames to inputs and targets.
           s1, s2 = split_on_batch(v)
-          # Reshape just to make sure shapes are right and set.
-          s1 = tf.reshape(
-              s1, [hparams.video_num_input_frames] + self.frame_shape)
-          s2 = tf.reshape(
-              s2, [hparams.video_num_target_frames] + self.frame_shape)
           features["inputs"] = s1
           features["targets"] = s2
         else:
