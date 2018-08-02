@@ -23,6 +23,12 @@ import tensorflow as tf
 tfl = tf.layers
 
 
+def swap_time_and_batch_axes(inputs):
+  """Swaps time and batch axis (the first two axis)."""
+  transposed_axes = tf.concat([[1, 0], tf.range(2, tf.rank(inputs))], axis=0)
+  return tf.transpose(inputs, transposed_axes)
+
+
 def encode_to_shape(inputs, shape, scope):
   """Encode the given tensor to given image shape."""
   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):

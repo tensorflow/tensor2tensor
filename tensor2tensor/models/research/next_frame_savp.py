@@ -23,14 +23,14 @@ from __future__ import print_function
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.research import next_frame
 from tensor2tensor.models.research import next_frame_params  # pylint: disable=unused-import
+from tensor2tensor.models.research import next_frame_sv2p
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
 @registry.register_model
-class NextFrameSAVP(next_frame.NextFrameStochastic):
+class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
   """Stochastic Adversarial Video Prediction."""
 
   def encoder(self, inputs, n_layers=3):

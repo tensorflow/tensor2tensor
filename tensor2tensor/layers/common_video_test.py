@@ -37,34 +37,34 @@ class CommonVideoTest(tf.test.TestCase):
 
   def testScheduledSampleProbStart(self):
     ground_truth_x, _, ss_out = CommonVideoTest.runScheduledSampleFunc(
-        common_video.NextFrameStochastic.scheduled_sample_prob, 1.0, 10)
+        common_video.scheduled_sample_prob, 1.0, 10)
     self.assertAllEqual(ground_truth_x, ss_out)
 
   def testScheduledSampleProbMid(self):
     _, _, ss_out = CommonVideoTest.runScheduledSampleFunc(
-        common_video.NextFrameStochastic.scheduled_sample_prob, 0.5, 1000)
+        common_video.scheduled_sample_prob, 0.5, 1000)
     positive_count = np.sum(ss_out > 0)
     self.assertAlmostEqual(positive_count / 1000.0, 0.5, places=2)
 
   def testScheduledSampleProbEnd(self):
     _, generated_x, ss_out = CommonVideoTest.runScheduledSampleFunc(
-        common_video.NextFrameStochastic.scheduled_sample_prob, 0.0, 10)
+        common_video.scheduled_sample_prob, 0.0, 10)
     self.assertAllEqual(generated_x, ss_out)
 
   def testScheduledSampleCountStart(self):
     ground_truth_x, _, ss_out = CommonVideoTest.runScheduledSampleFunc(
-        common_video.NextFrameStochastic.scheduled_sample_count, 10, 10)
+        common_video.scheduled_sample_count, 10, 10)
     self.assertAllEqual(ground_truth_x, ss_out)
 
   def testScheduledSampleCountMid(self):
     _, _, ss_out = CommonVideoTest.runScheduledSampleFunc(
-        common_video.NextFrameStochastic.scheduled_sample_count, 5, 10)
+        common_video.scheduled_sample_count, 5, 10)
     positive_count = np.sum(ss_out > 0)
     self.assertEqual(positive_count, 5)
 
   def testScheduledSampleCountEnd(self):
     _, generated_x, ss_out = CommonVideoTest.runScheduledSampleFunc(
-        common_video.NextFrameStochastic.scheduled_sample_count, 0, 10)
+        common_video.scheduled_sample_count, 0, 10)
     self.assertAllEqual(generated_x, ss_out)
 
   def testDynamicTileAndConcat(self):
@@ -95,3 +95,7 @@ class CommonVideoTest(tf.test.TestCase):
              [100, 100, 100, 100],
              [90, 90, 90, 90],
              [100, 100, 100, 100]])
+
+
+if __name__ == "__main__":
+  tf.test.main()

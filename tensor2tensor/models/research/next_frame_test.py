@@ -21,7 +21,10 @@ import numpy as np
 
 from tensor2tensor.data_generators import video_generated  # pylint: disable=unused-import
 from tensor2tensor.models.research import next_frame
+from tensor2tensor.models.research import next_frame_emily
 from tensor2tensor.models.research import next_frame_params
+from tensor2tensor.models.research import next_frame_savp
+from tensor2tensor.models.research import next_frame_sv2p
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -67,6 +70,12 @@ class NextFrameTest(tf.test.TestCase):
     self.TestVideoModel(4, 1, hparams, model, expected_last_dim)
     self.TestVideoModel(7, 5, hparams, model, expected_last_dim)
 
+  def TestOnVariousUpSampleLayers(self, hparams, model, expected_last_dim):
+    self.TestVideoModel(4, 1, hparams, model, expected_last_dim,
+                        upsample_method="bilinear_upsample_conv")
+    self.TestVideoModel(4, 1, hparams, model, expected_last_dim,
+                        upsample_method="nn_upsample_conv")
+
   def testBasic(self):
     self.TestOnVariousInputOutputSizes(
         next_frame_params.next_frame(),
@@ -76,19 +85,29 @@ class NextFrameTest(tf.test.TestCase):
   def testStochastic(self):
     self.TestOnVariousInputOutputSizes(
         next_frame_params.next_frame_stochastic(),
-        next_frame.NextFrameStochastic,
+        next_frame_sv2p.NextFrameStochastic,
         1)
 
   def testStochasticTwoFrames(self):
     self.TestOnVariousInputOutputSizes(
         next_frame_params.next_frame_stochastic(),
-        next_frame.NextFrameStochasticTwoFrames,
+        next_frame_sv2p.NextFrameStochasticTwoFrames,
         1)
 
   def testStochasticEmily(self):
     self.TestOnVariousInputOutputSizes(
         next_frame_params.next_frame_stochastic_emily(),
-        next_frame.NextFrameStochasticEmily,
+        next_frame_emily.NextFrameStochasticEmily,
+        1)
+
+  def testStochasticSavp(self):
+    self.TestOnVariousInputOutputSizes(
+        next_frame_params.next_frame_savp(),
+        next_frame_savp.NextFrameSAVP,
+        1)
+    self.TestOnVariousUpSampleLayers(
+        next_frame_params.next_frame_savp(),
+        next_frame_savp.NextFrameSAVP,
         1)
 
 
