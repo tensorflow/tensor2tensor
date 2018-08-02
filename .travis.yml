@@ -94,9 +94,14 @@ script:
   - t2t-decoder --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
 
   # Do some things only on Python 2 and the latest TF version
+  # Each should be in a separate block to get proper errors on Travis.
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
         pylint -j 2 tensor2tensor;
+    fi
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
         pytest tensor2tensor/rl/model_rl_experiment_test.py;
+    fi
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
         jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb;
     fi
 
