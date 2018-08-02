@@ -40,6 +40,18 @@ def fill_hparams(hparams, in_frames, out_frames):
   return hparams
 
 
+def action_modalities(hparams):
+  hparams.problem_hparams.input_modality = {
+      "inputs": ("video:l2raw", 256),
+      "input_action": ("symbol:one_hot", 5)
+  }
+  hparams.problem_hparams.target_modality = {
+      "targets": ("video:l2raw", 256),
+      "target_action": ("symbol:one_hot", 5),
+  }
+  return hparams
+
+
 def full_modalities(hparams):
   hparams.problem_hparams.input_modality = {
       "inputs": ("video:l2raw", 256),
@@ -64,12 +76,17 @@ def create_basic_features(in_frames, out_frames):
   return features
 
 
-def create_full_features(in_frames, out_frames):
+def create_action_features(in_frames, out_frames):
   features = create_basic_features(in_frames, out_frames)
   x = np.random.randint(0, 5, size=(8, in_frames, 1))
   y = np.random.randint(0, 5, size=(8, out_frames, 1))
   features["input_action"] = tf.constant(x, dtype=tf.int32)
   features["target_action"] = tf.constant(y, dtype=tf.int32)
+  return features
+
+
+def create_full_features(in_frames, out_frames):
+  features = create_basic_features(in_frames, out_frames)
   x = np.random.randint(0, 5, size=(8, in_frames, 1))
   y = np.random.randint(0, 5, size=(8, out_frames, 1))
   features["input_reward"] = tf.constant(x, dtype=tf.int32)
@@ -109,6 +126,23 @@ class NextFrameTest(tf.test.TestCase):
     expected_shape = get_tensor_shape(targets) + (expected_last_dim,)
     self.assertEqual(output.shape, expected_shape)
 
+  def TestVideoModelWithActions(self,
+                                in_frames,
+                                out_frames,
+                                hparams,
+                                model,
+                                expected_last_dim):
+    hparams = fill_hparams(hparams, in_frames, out_frames)
+    hparams = action_modalities(hparams)
+    hparams.reward_prediction = False
+
+    features = create_action_features(in_frames, out_frames)
+    output = self.RunModel(model, hparams, features)
+
+    targets = features["targets"]
+    expected_shape = get_tensor_shape(targets) + (expected_last_dim,)
+    self.assertEqual(output.shape, expected_shape)
+
   def TestVideoModelWithActionAndRewards(self,
                                          in_frames,
                                          out_frames,
@@ -135,6 +169,13 @@ class NextFrameTest(tf.test.TestCase):
     self.TestVideoModel(1, 6, hparams, model, expected_last_dim)
     self.TestVideoModel(4, 1, hparams, model, expected_last_dim)
     self.TestVideoModel(7, 5, hparams, model, expected_last_dim)
+
+  def TestWithActions(self, hparams, model, expected_last_dim):
+    test_func = self.TestVideoModelWithActionAndRewards
+    test_func(1, 1, hparams, model, expected_last_dim)
+    test_func(1, 6, hparams, model, expected_last_dim)
+    test_func(4, 1, hparams, model, expected_last_dim)
+    test_func(7, 5, hparams, model, expected_last_dim)
 
   def TestWithActionAndRewards(self, hparams, model, expected_last_dim):
     test_func = self.TestVideoModelWithActionAndRewards
