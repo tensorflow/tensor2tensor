@@ -314,6 +314,9 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
 
   def reward_prediction(self, input_image, input_reward, action, latent):
     """Builds a reward prediction network."""
+    del action
+    del latent
+
     conv_size = self.tinyify([32, 32, 16, 4])
 
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
