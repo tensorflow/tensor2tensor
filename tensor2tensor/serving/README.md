@@ -82,7 +82,6 @@ This step only needs to be performed once.
 VERSION=v0
 gcloud ml-engine versions create $VERSION \
   --model $MODEL_NAME \
-  --runtime-version 1.6 \
   --origin $ORIGIN
 ```
 

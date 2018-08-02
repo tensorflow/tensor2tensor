@@ -11,21 +11,18 @@ env:
     # This is necessary to have gsutil work with Python 2.7
     - BOTO_CONFIG=/dev/null
   matrix:
-    # We test against the last 4 versions of TensorFlow
+    # We test against recent versions of TensorFlow and tf-nightly.
     # If updating, also update TF_LATEST above
-    - TF_VERSION="1.6.*"
-    - TF_VERSION="1.7.*"
     - TF_VERSION="1.8.*"
     - TF_VERSION="1.9.*"
+    - TF_VERSION="tf-nightly"
 matrix:
   exclude:
     # We test against all versions in Python 2 but only the latest in Python 3
     - python: "3.6"
-      env: TF_VERSION="1.6.*"
-    - python: "3.6"
-      env: TF_VERSION="1.7.*"
-    - python: "3.6"
       env: TF_VERSION="1.8.*"
+    - python: "3.6"
+      env: TF_VERSION="tf-nightly"
 before_install:
   # Disabled TensorFlow Serving install until bug fixed. See "Export and query"
   # section below.
@@ -36,6 +33,12 @@ before_install:
   # - sudo apt-get install -qq tensorflow-model-server
 install:
   - pip install -q "tensorflow==$TF_VERSION"
+  - if [[ "$TF_VERSION" == "tf-nightly"  ]];
+    then
+      pip install tf-nightly;
+    else
+      pip install -q "tensorflow==$TF_VERSION";
+    fi
   # First ensure that the base dependencies are sufficient for a full import
   - pip install -q .
   - t2t-trainer --registry_help
@@ -58,6 +61,7 @@ script:
   #   * visualization_test
   #   * model_rl_experiment_test
   #   * model_rl_experiment_stochastic_test
+  #   * models/research
   # algorithmic_math_test: flaky
   # universal_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
   - pytest
@@ -69,9 +73,14 @@ script:
     --ignore=tensor2tensor/models/research/universal_transformer_test.py
     --ignore=tensor2tensor/rl/model_rl_experiment_test.py
     --ignore=tensor2tensor/rl/model_rl_experiment_stochastic_test.py
+    --ignore=tensor2tensor/models/research
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
   - pytest tensor2tensor/visualization/visualization_test.py
+  - if [[ "$TF_VERSION" == "$TF_LATEST"  ]] || [[ "$TF_VERSION" == "tf-nightly"  ]];
+    then
+      pytest tensor2tensor/models/research;
+    fi
 
   # Run installed scripts
   - t2t-datagen 2>&1 | grep translate && echo passed
@@ -88,11 +97,7 @@ script:
   # Do some things only on Python 2 and the latest TF version
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
         pylint -j 2 tensor2tensor;
-    fi
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
         pytest tensor2tensor/rl/model_rl_experiment_test.py;
-    fi
-  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
         jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb;
     fi
 
