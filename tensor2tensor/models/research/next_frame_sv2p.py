@@ -112,10 +112,10 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
           output_items.append(scheduled_sampling_func(item_gt, item_gen))
         return output_items
 
-    cases = {
-        tf.logical_not(done_warm_start): lambda: groundtruth_items,
-        tf.logical_not(self.is_training): lambda: generated_items,
-    }
+    cases = [
+        (tf.logical_not(done_warm_start), lambda: groundtruth_items),
+        (tf.logical_not(self.is_training), lambda: generated_items),
+    ]
     output_items = tf.case(cases, default=sample, strict=True)
 
     return output_items
