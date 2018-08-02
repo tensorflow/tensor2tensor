@@ -32,7 +32,6 @@ before_install:
   - sudo apt-get install -qq libhdf5-dev
   # - sudo apt-get install -qq tensorflow-model-server
 install:
-  - pip install -q "tensorflow==$TF_VERSION"
   - if [[ "$TF_VERSION" == "tf-nightly"  ]];
     then
       pip install tf-nightly;
