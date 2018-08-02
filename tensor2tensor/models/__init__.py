@@ -44,7 +44,9 @@ from tensor2tensor.models.research import gene_expression
 from tensor2tensor.models.research import lm_experiments
 from tensor2tensor.models.research import multimodel
 from tensor2tensor.models.research import next_frame
+from tensor2tensor.models.research import next_frame_emily
 from tensor2tensor.models.research import next_frame_savp
+from tensor2tensor.models.research import next_frame_sv2p
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import similarity_transformer
 from tensor2tensor.models.research import super_lm
