@@ -175,7 +175,7 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
         done_warm_start = step > context_frames - 1
         groundtruth_items = [image]
         generated_items = [pred_image]
-        input_image = self.get_scheduled_sample_inputs(
+        input_image, = self.get_scheduled_sample_inputs(
             done_warm_start, groundtruth_items, generated_items, ss_func)
 
         all_latents = tf.concat([enc_cond_latent, enc_prior_latent], axis=0)
