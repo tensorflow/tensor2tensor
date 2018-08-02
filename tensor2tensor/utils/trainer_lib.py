@@ -168,6 +168,12 @@ def create_run_config(master="",
     tpu_config = tf.contrib.tpu.TPUConfig(
         **tpu_config_kwargs)
     run_config_args["tpu_config"] = tpu_config
+    if not master and "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS" in os.environ:
+      # If running on TPU but no master is set and the KUBE env var is present
+      # then we're running on ML Engine. Set the master.
+      run_config_args["master"] = os.environ[
+          "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS"]
+      run_config_args["evaluation_master"] = run_config_args["master"]
 
   config = run_config_cls(**run_config_args)
   config.warm_start_from = warm_start_from
