@@ -3406,9 +3406,6 @@ def should_generate_summaries():
   Returns:
     a boolean
   """
-  if is_on_tpu():
-    # Summaries don't work well with TPU and XLA.
-    return False
   if "while/" in tf.contrib.framework.get_name_scope():
     # Summaries don't work well within tf.while_loop()
     return False
