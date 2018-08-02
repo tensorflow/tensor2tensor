@@ -494,7 +494,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     first_gen_images = tf.expand_dims(initializers[1], axis=0)
     first_gen_rewards = tf.expand_dims(initializers[2], axis=0)
 
-    inputs = (images[1:-1], actions[1:-1], rewards[1:-1])
+    inputs = (images[1:-1], rewards[1:-1], actions[1:-1])
 
     outputs = tf.scan(process_single_frame, inputs, initializers)
     gen_images, gen_rewards = outputs[1:3]
