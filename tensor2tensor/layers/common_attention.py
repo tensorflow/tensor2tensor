@@ -1855,7 +1855,7 @@ def dot_product_unmasked_self_attention_relative_v2(
                                                 length-max_length),
                                              0],
                                             [2*length -1, -1])
-    unmasked_rel_logits = tf.einsum("bhld, md -> bhlm", q,
+    unmasked_rel_logits = tf.einsum("bhld,md->bhlm", q,
                                     used_key_relative_embeddings)
     unmasked_rel_logits = _relative_position_to_absolute_position_unmasked(
         unmasked_rel_logits)
@@ -1896,7 +1896,7 @@ def dot_product_unmasked_self_attention_relative_v2(
                                                0],
                                               [2*length -1, -1])
 
-    ret += tf.einsum("bhlm, md -> bhld", relative_weights,
+    ret += tf.einsum("bhlm,md->bhld", relative_weights,
                      used_value_relative_embeddings)
     return ret
 
