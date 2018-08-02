@@ -57,14 +57,52 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     latent = latent_mean + tf.exp(latent_std / 2.0) * latent
     return latent
 
+  def get_iteration_num(self):
+    step_num = tf.train.get_global_step()
+    # TODO(lukaszkaiser): what should it be if it"s undefined?
+    if step_num is None:
+      step_num = 1000000
+    return step_num
+
+  def get_beta(self):
+    """Get KL multiplier (beta) based on the schedule."""
+    step_num = self.get_iteration_num()
+    schedule = self.hparams.latent_loss_multiplier_schedule
+    second_stage = self.hparams.num_iterations_2nd_stage
+    # TODO(mechcoder): Add log_annealing schedule.
+    if schedule == "constant":
+      beta = tf.cond(tf.greater(step_num, second_stage),
+                     lambda: self.hparams.latent_loss_multiplier,
+                     lambda: 0.0)
+    elif schedule == "linear_anneal":
+      # Linearly anneal beta from 0.0 to self.hparams.latent_loss_multiplier.
+      # between self.hparams.num_iterations_2nd_stage to anneal_end.
+      # beta = latent_loss * (1 - (global_step - 2nd_stage) / (anneal_end - 2nd_stage))  # pylint:disable=line-too-long
+      anneal_end = self.hparams.anneal_end
+      latent_multiplier = self.hparams.latent_loss_multiplier
+      if anneal_end < second_stage:
+        raise ValueError("Expected hparams.num_iterations_2nd_stage < "
+                         "hparams.anneal_end %d, got %d." %
+                         (second_stage, anneal_end))
+
+      def anneal_loss(step_num):
+        step_num = tf.cast(step_num, dtype=tf.float32)
+        fraction = (float(anneal_end) - step_num) / (anneal_end - second_stage)
+        return self.hparams.latent_loss_multiplier * (1 - fraction)
+
+      beta = tf.case(
+          pred_fn_pairs={
+              tf.less(step_num, second_stage): lambda: 0.0,
+              tf.greater(step_num, anneal_end): lambda: latent_multiplier},
+          default=lambda: anneal_loss(step_num))
+    else:
+      raise ValueError("Unknown beta schedule.")
+    return beta
+
   def get_scheduled_sample_func(self, batch_size):
     """Creates a function for scheduled sampling based on given hparams."""
     with tf.variable_scope("scheduled_sampling_func", reuse=False):
-      iter_num = tf.train.get_global_step()
-      # TODO(lukaszkaiser): figure out why iter_num can be None.
-      if iter_num is None:
-        iter_num = _LARGE_STEP_NUMBER
-
+      iter_num = self.get_iteration_num()
       if self.hparams.scheduled_sampling_mode == "prob":
         decay_steps = self.hparams.scheduled_sampling_decay_steps
         probability = tf.train.polynomial_decay(
@@ -540,40 +578,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
         rewards=all_rewards,
     )
 
-    step_num = tf.train.get_global_step()
-    # TODO(mbz): what should it be if it"s undefined?
-    if step_num is None:
-      step_num = _LARGE_STEP_NUMBER
-
-    schedule = self.hparams.latent_loss_multiplier_schedule
-    second_stage = self.hparams.num_iterations_2nd_stage
-    # TODO(mechcoder): Add log_annealing schedule.
-    if schedule == "constant":
-      beta = tf.cond(tf.greater(step_num, second_stage),
-                     lambda: self.hparams.latent_loss_multiplier,
-                     lambda: 0.0)
-    elif schedule == "linear_anneal":
-      # Linearly anneal beta from 0.0 to self.hparams.latent_loss_multiplier.
-      # between self.hparams.num_iterations_2nd_stage to anneal_end.
-      # beta = latent_loss * (1 - (global_step - 2nd_stage) / (anneal_end - 2nd_stage))  # pylint:disable=line-too-long
-      anneal_end = self.hparams.anneal_end
-      latent_multiplier = self.hparams.latent_loss_multiplier
-      if anneal_end < second_stage:
-        raise ValueError("Expected hparams.num_iterations_2nd_stage < "
-                         "hparams.anneal_end %d, got %d." %
-                         (second_stage, anneal_end))
-
-      def anneal_loss(step_num):
-        step_num = tf.cast(step_num, dtype=tf.float32)
-        fraction = (float(anneal_end) - step_num) / (anneal_end - second_stage)
-        return self.hparams.latent_loss_multiplier * (1 - fraction)
-
-      beta = tf.case(
-          pred_fn_pairs={
-              tf.less(step_num, second_stage): lambda: 0.0,
-              tf.greater(step_num, anneal_end): lambda: latent_multiplier},
-          default=lambda: anneal_loss(step_num))
-
+    beta = self.get_beta()
     kl_loss = 0.0
     if self.is_training:
       for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
