@@ -438,16 +438,6 @@ class T2TModel(base.Layer):
           logits, target_modality, features['targets'])
       else:
         target_modality = {k: None for k in logits.keys()}
-<<<<<<< HEAD
-
-        assert set(logits.keys()) == set(target_modality.keys()), (
-            "The keys of model_body's returned logits dict must match the keys "
-            "of problem_hparams.target_modality's dict.")
-        losses = {}
-        for k, v in six.iteritems(logits):
-          losses[k] = self._loss_single(v, target_modality[k], features[k])
-        return tf.add_n([n / d for n, d in losses.values()])
-=======
       for k in logits.keys():
         assert k in target_modality.keys(), (
             "The key %s of model_body's returned logits dict must be in "
@@ -462,7 +452,6 @@ class T2TModel(base.Layer):
         tf.summary.scalar(k + "_loss_den", d)
 
       return tf.add_n([n / d for n, d in losses.values()])
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
     else:
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
@@ -477,13 +466,10 @@ class T2TModel(base.Layer):
 
   def optimize(self, loss, num_async_replicas=1):
     """Return a training op minimizing loss."""
-<<<<<<< HEAD
     log_info("Base learning rate: %f", 
         self.hparams.learning_rate if 
             self.hparams.learning_rate_schedule == 'legacy'
         else self.hparams.learning_rate_constant)
-=======
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
     lr = learning_rate.learning_rate_schedule(self.hparams)
     if num_async_replicas > 1:
       log_info("Dividing learning rate by num_async_replicas: %d",
@@ -1361,13 +1347,18 @@ class T2TModel(base.Layer):
       eval_metrics = {}
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
         parts = metric_name.split("/")
-        if isinstance(logits, dict) and len(parts) >= 2 and parts[1] in logits:
-          k = parts[1]
+        k = parts[1]
+        # FATHOM
+        # TODO: why would parts not be >= 2 ?
+        # ...presumably some metric w/o '/'...but what is different about
+        # our code base which causes this?
+        if isinstance(logits, dict) and len(parts) >= 2 and k in logits:
+          # Fathom
+          # NOTE: the next line is redundant, plus only the 
+          # first if-then can trigger.  Leaving this in place
+          # to maintain as much parity as possible w/ upstream codebase.
+        
           # the key is located in the center of metric_name: "metrics-%s/%s/%s"
-<<<<<<< HEAD
-          eval_metrics[metric_name] = metric_fn(
-              logits[k], features, features[k])
-=======
           k = metric_name.split("/")[1]
           if k in logits:
             eval_metrics[metric_name] = metric_fn(logits[k], features,
@@ -1379,8 +1370,10 @@ class T2TModel(base.Layer):
             # problem even if another model is also predicting other things,
             # like actions or rewards.
             tf.logging.warning("No key %s in logits for evaluation." % k)
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
         else:
+          # FATHOM
+          # NOTE: right now the tf.logging.warning will not trigger.
+          # ...consider if we should add
           eval_metrics[metric_name] = metric_fn(logits, features,
                                                 features["targets"])
       if isinstance(logits, dict):
