@@ -1,3 +1,8 @@
+# Runs t2t unit tests.
+# Intended strictly to run on circleci--will not work locally.
+#
+# TODO: converge w/ _local.sh unit test script.
+
 #!/usr/bin/env bash
 T2T=tensor2tensor
 DT=diseaseTools
