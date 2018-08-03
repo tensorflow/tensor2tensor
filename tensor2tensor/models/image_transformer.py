@@ -253,7 +253,63 @@ def imagetransformer_base():
 
 
 @registry.register_hparams
+def imagetransformer_cifar10_base():
+  """Best config for 2.90 bits/dim on CIFAR10 using cross entropy."""
+  hparams = image_transformer_base()
+  hparams.batch_size = 4
+  hparams.num_heads = 4
+  hparams.num_decoder_layers = 12
+  hparams.block_length = 256
+  hparams.hidden_size = 512
+  hparams.filter_size = 2048
+  hparams.learning_rate = 0.5
+  hparams.learning_rate_warmup_steps = 4000
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.layer_prepostprocess_dropout = 0.3
+  hparams.unconditional = True
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_cifar10_base_dmol():
+  """Best config for 2.90 bits/dim on CIFAR10 using DMOL."""
+  hparams = image_transformer_base()
+  hparams.likelihood = cia.DistributionType.DMOL
+  hparams.num_channels = 1
+  hparams.target_modality = "image:image_channel_bottom_identity"
+  hparams.num_heads = 8
+  hparams.batch_size = 8
+  hparams.sampling_method = "random"
+  hparams.layer_preprocess_sequence = "n"
+  hparams.layer_postprocess_sequence = "da"
+  hparams.summarize_grads = True
+  hparams.hidden_size = 256
+  hparams.filter_size = 512
+  hparams.attention_key_channels = 512
+  hparams.attention_value_channels = 512
+  hparams.num_decoder_layers = 12
+  hparams.layer_prepostprocess_dropout = 0.1
+  hparams.learning_rate = 0.1
+  hparams.layer_preprocess_sequence = "none"
+  hparams.layer_postprocess_sequence = "dan"
+  hparams.pos = "emb"
+  hparams.unconditional = True
+  return hparams
+
+
+@registry.register_hparams
+def imagetransformer_imagenet32_base():
+  """Best config for ImageNet-32 with 3.77 bits/dim using cross entropy."""
+  hparams = imagetransformer_cifar10_base()
+  hparams.batch_size = 4
+  hparams.layer_prepostprocess_dropout = 0.1
+  return hparams
+
+
+@registry.register_hparams
 def imagetransformer_base_rel():
+  """Base with relative attention."""
   hparams = imagetransformer_base()
   hparams.dec_attention_type = cia.AttentionType.RELATIVE_LOCAL_1D
   return hparams
@@ -880,7 +936,7 @@ def imagetransformer_b10l_4h_big_uncond_dr03_tpu():
   hparams.num_heads = 4   # heads are expensive on tpu
   hparams.num_decoder_layers = 10
   hparams.block_length = 128
-  hparams.hidden_size = 256
+  hparams.hidden_size = 512
   hparams.filter_size = 1024
   hparams.learning_rate = 0.2
   hparams.layer_preprocess_sequence = "none"
