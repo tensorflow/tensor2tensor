@@ -69,6 +69,18 @@ class MetricsTest(tf.test.TestCase):
       actual = session.run(a)
     self.assertEqual(actual, expected)
 
+  def testRMSEMetric(self):
+    predictions = np.full((10, 1), 1)  # All 1's
+    targets = np.full((10, 1), 3)  # All 3's
+    expected = np.sqrt(np.mean((predictions - targets)**2))  # RMSE = 2.0
+    with self.test_session() as session:
+      rmse, _ = metrics.padded_rmse(
+          tf.constant(predictions, dtype=tf.int32),
+          tf.constant(targets, dtype=tf.int32))
+      session.run(tf.global_variables_initializer())
+      actual = session.run(rmse)
+    self.assertEqual(actual, expected)
+
   def testSequenceEditDistanceMetric(self):
     predictions = np.array([[3, 4, 5, 1, 0, 0],
                             [2, 1, 3, 4, 0, 0],

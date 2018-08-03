@@ -341,23 +341,25 @@ def _tokens_to_score(tokens):
   return {t for t in tokens if re.search("[a-z0-9]", t)}
 
 
-def _rank_reference_paragraphs(wiki_title, references_content):
+def rank_reference_paragraphs(wiki_title, references_content, normalize=True):
   """Rank and return reference paragraphs by tf-idf score on title tokens."""
-  title_tokens = _tokens_to_score(set(
-      tokenizer.encode(text_encoder.native_to_unicode(wiki_title))))
+  normalized_title = _normalize_text(wiki_title)
+  title_tokens = _tokens_to_score(
+      set(tokenizer.encode(text_encoder.native_to_unicode(normalized_title))))
   ref_paragraph_info = []
   doc_counts = collections.defaultdict(int)
   for ref in references_content:
     for paragraph in ref.split("\n"):
-      paragraph = _normalize_text(paragraph)
-      if cc_utils.filter_paragraph(paragraph):
+      normalized_paragraph = _normalize_text(paragraph)
+      if cc_utils.filter_paragraph(normalized_paragraph):
         # Skip paragraph
         continue
-      counts = _token_counts(paragraph, title_tokens)
+      counts = _token_counts(normalized_paragraph, title_tokens)
       for token in title_tokens:
         if counts[token]:
           doc_counts[token] += 1
-      info = {"content": paragraph, "counts": counts}
+      content = normalized_paragraph if normalize else paragraph
+      info = {"content": content, "counts": counts}
       ref_paragraph_info.append(info)
 
   for info in ref_paragraph_info:
@@ -428,8 +430,8 @@ def produce_examples(shard_ids, wikis_dir, refs_dir, urls_dir, vocab_path,
 
         # Rank reference paragraphs with TFIDF
         wiki_title = _normalize_text(wiki.title)
-        ranked_paragraphs = _rank_reference_paragraphs(wiki_title,
-                                                       wiki_ref_content)
+        ranked_paragraphs = rank_reference_paragraphs(wiki_title,
+                                                      wiki_ref_content)
 
         # Construct inputs from Wiki title and references
         inputs = []

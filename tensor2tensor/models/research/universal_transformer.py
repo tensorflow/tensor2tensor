@@ -14,6 +14,7 @@
 # limitations under the License.
 """Universal Transformers.
 
+Universal Transformer is described in https://arxiv.org/abs/1807.03819.
 
 Universal Transformer is recurrent in depth while employing self-attention
 to combine information from different parts of sequences.

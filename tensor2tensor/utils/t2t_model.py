@@ -472,7 +472,7 @@ class T2TModel(base.Layer):
     # When not in training mode, set all forms of dropout to zero.
     if mode != tf.estimator.ModeKeys.TRAIN:
       for key in hparams.values():
-        if key.endswith("dropout"):
+        if key.endswith("dropout") or key == "label_smoothing":
           log_info("Setting hparams.%s to 0.0", key)
           setattr(hparams, key, 0.0)
     self._hparams = hparams
@@ -1266,6 +1266,22 @@ class T2TModel(base.Layer):
     """Construct EstimatorSpec for TRAIN mode."""
     train_op = self.optimize(loss, num_async_replicas=num_async_replicas)
 
+    # TODO(mitchellstern): Add support for partitioned variables?
+    if (tf.train.latest_checkpoint(self._hparams.model_dir) is None and
+        self._hparams.pretrained_model_dir):
+      pretrained_model_dir = self._hparams.pretrained_model_dir
+      reader = tf.contrib.framework.load_checkpoint(pretrained_model_dir)
+      variable_map = {}
+      for var in tf.contrib.framework.get_trainable_variables():
+        var_name = var.name.split(":")[0]
+        if reader.has_tensor(var_name):
+          tf.logging.info("Loading variable from checkpoint: %s", var_name)
+          variable_map[var_name] = var
+        else:
+          tf.logging.info(
+              "Cannot find variable in checkpoint, skipping: %s", var_name)
+      tf.train.init_from_checkpoint(pretrained_model_dir, variable_map)
+
     if common_layers.is_on_tpu():
       host_call = _create_host_call(self.hparams.model_dir)
       _remove_summaries()
@@ -1305,7 +1321,11 @@ class T2TModel(base.Layer):
             eval_metrics=(eval_metrics_fn, [logits, labels]),
             loss=loss)
     else:
-      eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
+      task_list = [problem]
+      if hasattr(problem, "task_list"):
+        task_list = problem.task_list
+
+      eval_metrics_fns = metrics.create_evaluation_metrics(task_list, hparams)
       eval_metrics = {}
       for metric_name, metric_fn in six.iteritems(eval_metrics_fns):
         if isinstance(logits, dict):
@@ -1337,7 +1357,7 @@ class T2TModel(base.Layer):
   def estimator_spec_predict(self, features, use_tpu=False):
     """Construct EstimatorSpec for PREDICT mode."""
     decode_hparams = self._decode_hparams
-    predictions = self.infer(
+    infer_out = self.infer(
         features,
         beam_size=decode_hparams.beam_size,
         top_beams=(decode_hparams.beam_size
@@ -1345,20 +1365,34 @@ class T2TModel(base.Layer):
         alpha=decode_hparams.alpha,
         decode_length=decode_hparams.extra_length,
         use_tpu=use_tpu)
-    if not isinstance(predictions, dict):
-      predictions = {"outputs": predictions}
+    if isinstance(infer_out, dict):
+      outputs = infer_out["outputs"]
+      scores = infer_out["scores"]
+    else:
+      outputs = infer_out
+      scores = None
 
     inputs = features.get("inputs")
     if inputs is None:
       inputs = features["targets"]
 
-    predictions.update({
+    predictions = {
+        "outputs": outputs,
+        "scores": scores,
         "inputs": inputs,
         "targets": features.get("infer_targets"),
-        "batch_prediction_key": features.get("batch_prediction_key"),
-        })
+    }
 
-    _del_dict_nones(predictions)
+    # Pass through remaining features
+    for name, feature in features.items():
+      if name not in list(predictions.keys()) + ["infer_targets"]:
+        if not feature.shape.as_list():
+          # All features must have a batch dimension
+          batch_size = common_layers.shape_list(outputs)[0]
+          feature = tf.tile(tf.expand_dims(feature, 0), [batch_size])
+        predictions[name] = feature
+
+    _del_dict_non_tensors(predictions)
 
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
@@ -1590,9 +1624,9 @@ def _create_host_call(model_dir):
   return (host_call_fn, summary_kwargs)
 
 
-def _del_dict_nones(d):
+def _del_dict_non_tensors(d):
   for k in list(d.keys()):
-    if d[k] is None:
+    if not isinstance(d[k], tf.Tensor):
       del d[k]
 
 

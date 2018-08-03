@@ -14,9 +14,14 @@
 # limitations under the License.
 """Data generators for parsing data-sets."""
 
-# import os
-# from tensor2tensor.data_generators import generator_utils
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
+import os
+from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_problems
+from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
@@ -24,6 +29,43 @@ tf.flags.DEFINE_string("parsing_path", "", "Path to parsing files in tmp_dir.")
 
 
 FLAGS = tf.flags.FLAGS
+
+
+@registry.register_problem
+class WsjParsing(text_problems.Text2textTmpdir):
+  """Generate vocabulary and training data for parsing.
+  """
+
+  # These files are used for vocab generation
+  TRAIN_FILES = ("wsj.train.text.txt", "wsj.train.tags.txt")
+
+  # These files are used for generating encoded samples
+  TRAIN_FILES_TREE = "wsjTrain.trees"
+  EVAL_FILES_TREE = "wsjEval.trees"
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    del data_dir
+    is_training = dataset_split == problem.DatasetSplit.TRAIN
+    tree_file = self.TRAIN_FILES_TREE if is_training else self.EVAL_FILES_TREE
+    tree_file_path = os.path.join(tmp_dir, tree_file)
+    with tf.gfile.GFile(tree_file_path, mode="r") as cur_tree_file:
+      for line in cur_tree_file:
+        (words, tags) = words_and_tags_from_wsj_tree(line)
+        yield {"inputs": words, "targets": tags}
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
+    encoder = self.get_or_create_vocab(data_dir, tmp_dir)
+    return text_problems.text2text_generate_encoded(generator, encoder,
+                                                    has_inputs=self.has_inputs)
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    files = [os.path.join(tmp_dir, f) for f in self.TRAIN_FILES]
+    inputs_file, targets_file = files
+    for sample in text_problems.text2text_txt_iterator(inputs_file,
+                                                       targets_file):
+      yield sample["inputs"]
+      yield sample["targets"]
 
 
 def words_and_tags_from_wsj_tree(tree_string):

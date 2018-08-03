@@ -18,7 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import importlib
-import six
+import re
 
 MODULES = [
     "tensor2tensor.data_generators.algorithmic",
@@ -28,6 +28,7 @@ MODULES = [
     "tensor2tensor.data_generators.babi_qa",
     "tensor2tensor.data_generators.bair_robot_pushing",
     "tensor2tensor.data_generators.celeba",
+    "tensor2tensor.data_generators.celebahq",
     "tensor2tensor.data_generators.cifar",
     "tensor2tensor.data_generators.cipher",
     "tensor2tensor.data_generators.cnn_dailymail",
@@ -35,6 +36,7 @@ MODULES = [
     "tensor2tensor.data_generators.common_voice",
     "tensor2tensor.data_generators.desc2code",
     "tensor2tensor.data_generators.fsns",
+    "tensor2tensor.data_generators.function_docstring",
     "tensor2tensor.data_generators.gene_expression",
     "tensor2tensor.data_generators.google_robot_pushing",
     "tensor2tensor.data_generators.gym_problems_specs",
@@ -46,11 +48,14 @@ MODULES = [
     "tensor2tensor.data_generators.librispeech",
     "tensor2tensor.data_generators.lm1b",
     "tensor2tensor.data_generators.lm1b_imdb",
+    "tensor2tensor.data_generators.lm1b_mnli",
     "tensor2tensor.data_generators.mnist",
+    "tensor2tensor.data_generators.mrpc",
     "tensor2tensor.data_generators.mscoco",
     "tensor2tensor.data_generators.multinli",
     "tensor2tensor.data_generators.program_search",
     "tensor2tensor.data_generators.ocr",
+    "tensor2tensor.data_generators.pointer_generator_word",
     "tensor2tensor.data_generators.problem_hparams",
     "tensor2tensor.data_generators.ptb",
     "tensor2tensor.data_generators.qnli",
@@ -82,12 +87,9 @@ ALL_MODULES = list(MODULES)
 
 
 
-def _py_err_msg(module):
-  if six.PY2:
-    msg = "No module named %s" % module.split(".")[-1]
-  else:
-    msg = "No module named '%s'" % module
-  return msg
+def _is_import_err_msg(err_str, module):
+  module_pattern = "(.)?".join(["(%s)?" % m for m in module.split(".")])
+  return re.match("^No module named (')?%s(')?$" % module_pattern, err_str)
 
 
 def _handle_errors(errors):
@@ -99,7 +101,7 @@ def _handle_errors(errors):
   print(err_msg.format(num_missing=len(errors)))
   for module, err in errors:
     err_str = str(err)
-    if err_str != _py_err_msg(module):
+    if not _is_import_err_msg(err_str, module):
       print("From module %s" % module)
       raise err
     if log_all:

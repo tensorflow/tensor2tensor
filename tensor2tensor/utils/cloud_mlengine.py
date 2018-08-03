@@ -91,10 +91,8 @@ def flags_as_args():
   return args
 
 
-def get_default_master_type(num_gpus=1, use_tpu=False):
+def get_default_master_type(num_gpus=1):
   """Returns master_type for trainingInput."""
-  if use_tpu:
-    return "cloud_tpu"
   gpus_to_master_map = {
       0: "standard",
       1: "standard_p100",
@@ -120,9 +118,13 @@ def configure_job():
       "jobDir": FLAGS.output_dir,
       "scaleTier": "CUSTOM",
       "masterType": FLAGS.cloud_mlengine_master_type or get_default_master_type(
-          num_gpus=FLAGS.worker_gpu,
-          use_tpu=FLAGS.use_tpu)
+          num_gpus=FLAGS.worker_gpu)
   }
+  if FLAGS.use_tpu:
+    training_input["masterType"] = (FLAGS.cloud_mlengine_master_type or
+                                    "standard")
+    training_input["workerType"] = "cloud_tpu"
+    training_input["workerCount"] = 1
   if FLAGS.hparams_range:
     tf.logging.info("Configuring hyperparameter tuning.")
     training_input["hyperparameters"] = configure_autotune(
@@ -277,9 +279,7 @@ def validate_flags():
   if FLAGS.worker_gpu:
     assert FLAGS.worker_gpu in [1, 4, 8]
   if FLAGS.cloud_mlengine_master_type:
-    if FLAGS.use_tpu:
-      assert FLAGS.cloud_mlengine_master_type == "cloud_tpu"
-    elif FLAGS.worker_gpu:
+    if FLAGS.worker_gpu:
       if FLAGS.worker_gpu == 1:
         assert FLAGS.cloud_mlengine_master_type in ["standard_gpu",
                                                     "standard_p100"]

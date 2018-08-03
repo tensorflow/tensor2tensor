@@ -74,7 +74,7 @@ class QuoraQuestionPairs(text_problems.TextConcat2ClassProblem):
   @property
   def concat_id(self):
     if self.vocab_type == text_problems.VocabType.CHARACTER:
-      return problem.SpaceID.EN_CHR
+      return problem.TaskID.EN_SENT_PAIR
     return 2
 
   def class_labels(self, data_dir):
@@ -136,6 +136,5 @@ class QuoraQuestionPairsCharacters(QuoraQuestionPairs):
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
 
-  @property
-  def task_id(self):
-    return problem.SpaceID.EN_SIM
+  def global_task_id(self):
+    return problem.TaskID.EN_SIM

@@ -172,6 +172,15 @@ class Text2TextProblem(problem.Problem):
     """
     return None
 
+  @property
+  def packed_spacing(self):
+    """If this is a packed dataset, how much padding to insert between examples.
+
+    Returns:
+      int
+    """
+    return 0
+
   # END: Subclass interface
 
   @property
@@ -238,6 +247,7 @@ class Text2TextProblem(problem.Problem):
         generator,
         self.has_inputs,
         self.packed_length,
+        spacing=self.packed_spacing,
         chop_long_sequences=not self.has_inputs)
 
   def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
@@ -690,8 +700,9 @@ class Text2textTmpdirTokens(Text2textTmpdir):
     if not tf.gfile.Exists(vocab_filepath):
       token_encoder = self._generate_vocab(tmp_dir)
       token_encoder.store_to_file(vocab_filepath)
-    super(Text2textTmpdirTokens, self).generate_samples(data_dir, tmp_dir,
-                                                        dataset_split)
+    return super(Text2textTmpdirTokens, self).generate_samples(data_dir,
+                                                               tmp_dir,
+                                                               dataset_split)
 
 
 class ChoppedTextProblem(Text2SelfProblem):

@@ -34,6 +34,7 @@ import time
 
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import generator_utils
+from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.layers import discretization
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.utils import registry
@@ -134,7 +135,8 @@ def train_autoencoder(problem_name, data_dir, output_dir, hparams, epoch):
 
 
 def train_agent(problem_name, agent_model_dir,
-                event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0):
+                event_dir, world_model_dir, epoch_data_dir, hparams, epoch=0,
+                is_final_epoch=False):
   """Train the PPO agent in the simulated environment."""
   gym_problem = registry.problem(problem_name)
   ppo_hparams = trainer_lib.create_hparams(hparams.ppo_params)
@@ -148,6 +150,8 @@ def train_agent(problem_name, agent_model_dir,
       ppo_hparams.set_hparam(param_name, hparams.get(ppo_param_name))
 
   ppo_epochs_num = hparams.ppo_epochs_num
+  if is_final_epoch:
+    ppo_epochs_num *= 2
   ppo_hparams.save_models_every_epochs = ppo_epochs_num
   ppo_hparams.world_model_dir = world_model_dir
   ppo_hparams.add_hparam("force_beginning_resets", True)
@@ -341,6 +345,11 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
     world_model_problem = problem_name
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
                               % hparams.game)
+    if problem_name not in registry.list_problems():
+      tf.logging.info("Game Problem %s not found; dynamically registering",
+                      problem_name)
+      gym_problems_specs.dynamically_create_gym_clipped_reward_problem(
+          hparams.game)
 
   # Autoencoder model dir
   autoencoder_model_dir = directories.get("autoencoder")
@@ -418,7 +427,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       ppo_model_dir = ppo_event_dir
     train_agent(simulated_problem_name, ppo_model_dir,
                 ppo_event_dir, directories["world_model"], epoch_data_dir,
-                hparams, epoch=epoch)
+                hparams, epoch=epoch, is_final_epoch=is_final_epoch)
 
     # Collect data from the real environment.
     log("Generating real environment data")
@@ -436,25 +445,23 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
           eval_phase=False)
       log("Mean reward during generation: {}".format(generation_mean_reward))
 
-    # Report metrics.
-    eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
-                    "mean_reward": mean_reward}
-
-    model_reward_accuracy_summary.value[0].simple_value \
-      = model_reward_accuracy
-
-    mean_reward_summary.value[0].simple_value \
-      = mean_reward
-
+    # Summarize metrics
+    assert model_reward_accuracy is not None
+    assert mean_reward is not None
+    model_reward_accuracy_summary.value[0].simple_value = model_reward_accuracy
+    mean_reward_summary.value[0].simple_value = mean_reward
     eval_metrics_writer.add_summary(model_reward_accuracy_summary, epoch)
     eval_metrics_writer.add_summary(mean_reward_summary, epoch)
 
+    # Report metrics
+    eval_metrics = {"model_reward_accuracy": model_reward_accuracy,
+                    "mean_reward": mean_reward}
     epoch_metrics.append(eval_metrics)
     log("Eval metrics: %s", str(eval_metrics))
     if report_fn:
       report_fn(eval_metrics[report_metric], epoch)
 
-  # Report the evaluation metrics from the final epoch
+  # Return the evaluation metrics from the final epoch
   return epoch_metrics[-1]
 
 
@@ -492,23 +499,24 @@ def rl_modelrl_base():
       generative_model_params="next_frame",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
-      model_train_steps=50000,
+      model_train_steps=100000,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=200,  # This should be enough to see something
+      ppo_epochs_num=400,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.
       ppo_time_limit=200,  # TODO(blazej): this param is unused
       # It makes sense to have ppo_time_limit=ppo_epoch_length,
       # though it is not necessary.
-      ppo_epoch_length=60,
+      ppo_epoch_length=30,
       ppo_num_agents=16,
+      ppo_learning_rate=2e-4,  # Will be changed, just so it exists.
       # Whether the PPO agent should be restored from the previous iteration, or
       # should start fresh each time.
       ppo_continue_training=True,
-      game="wrapped_long_pong",
+      game="wrapped_full_pong",
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
       eval_world_model=True,

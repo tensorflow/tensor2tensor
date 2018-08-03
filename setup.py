@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.6.6',
+    version='1.7.0',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -49,8 +49,8 @@ setup(
         'tqdm',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.6.0'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.6.0'],
+        'tensorflow': ['tensorflow>=1.8.0'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.8.0'],
         'tests': [
             'absl-py', 'pytest', 'mock', 'pylint', 'jupyter', 'gsutil'
             # Need atari extras for Travis tests, but because gym is already in

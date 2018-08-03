@@ -37,7 +37,7 @@ msg-template={msg_id}:{line:3} {obj}: {msg} [{symbol}]
 enable=indexing-exception,old-raise-syntax
 
 # List of checkers and warnings to disable.
-disable=design,similarities,no-self-use,attribute-defined-outside-init,locally-disabled,star-args,pointless-except,bad-option-value,global-statement,fixme,suppressed-message,useless-suppression,locally-enabled,file-ignored,multiple-imports,c-extension-no-member,trailing-newlines,unsubscriptable-object,misplaced-comparison-constant,no-member,abstract-method,no-else-return,missing-docstring,wrong-import-order,protected-access,inconsistent-return-statements,invalid-unary-operand-type,import-error,no-name-in-module,arguments-differ
+disable=design,similarities,no-self-use,attribute-defined-outside-init,locally-disabled,star-args,pointless-except,bad-option-value,global-statement,fixme,suppressed-message,useless-suppression,locally-enabled,file-ignored,multiple-imports,c-extension-no-member,trailing-newlines,unsubscriptable-object,misplaced-comparison-constant,no-member,abstract-method,no-else-return,missing-docstring,wrong-import-order,protected-access,inconsistent-return-statements,invalid-unary-operand-type,import-error,no-name-in-module,arguments-differ,not-context-manager
 
 [BASIC]
 
