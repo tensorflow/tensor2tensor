@@ -619,7 +619,11 @@ class TransformerAE(t2t_model.T2TModel):
       logits = tf.cast(logits, tf.float32)
       xent = common_layers.smoothing_cross_entropy(
           logits, labels, vocab_size, confidence=1.0, gaussian=False)
-      return tf.reduce_sum(xent) / tf.cast(logits_shape[0], tf.float32)
+      if self._hparams.sum_over_latents:
+        recon_loss = tf.reduce_sum(xent) / tf.cast(logits_shape[0], tf.float32)
+      else:
+        recon_loss = tf.reduce_mean(xent)
+      return recon_loss
 
   def body(self, features):
     inputs = features["inputs"] if "inputs" in features else None
