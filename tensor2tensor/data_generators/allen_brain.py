@@ -1,16 +1,17 @@
 # coding=utf-8
+# Copyright 2018 The Tensor2Tensor Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Problem definitions for Allen Brain Atlas problems.
 
 Notes:
@@ -28,18 +29,17 @@ from __future__ import print_function
 
 from io import BytesIO
 import math
-import numpy as np
 import os
+
+import numpy as np
 import requests
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.utils import registry
 from tensor2tensor.utils import metrics
-
-from tensor2tensor.data_generators.allen_brain_utils import try_importing_pil_image
+from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
@@ -52,23 +52,28 @@ _BASE_EXAMPLE_IMAGE_SIZE = 64
 # the steps described here: http://help.brain-map.org/display/api,
 # e.g. https://gist.github.com/cwbeitel/5dffe90eb561637e35cdf6aa4ee3e704
 _IMAGE_IDS = [
-    '74887117', '71894997', '69443979', '79853548', '101371232', '77857182',
-    '70446772', '68994990', '69141561', '70942310', '70942316', '68298378',
-    '69690156', '74364867', '77874134', '75925043', '73854431', '69206601',
-    '71771457', '101311379', '74777533', '70960269', '71604493', '102216720',
-    '74776437', '75488723', '79815814', '77857132', '77857138', '74952778',
-    '69068486', '648167', '75703410', '74486118', '77857098', '637407',
-    '67849516', '69785503', '71547630', '69068504', '69184074', '74853078',
-    '74890694', '74890698', '75488687', '71138602', '71652378', '68079764',
-    '70619061', '68280153', '73527042', '69764608', '68399025', '244297',
-    '69902658', '68234159', '71495521', '74488395', '73923026', '68280155',
-    '75488747', '69589140', '71342189', '75119214', '79455452', '71774294',
-    '74364957', '68031779', '71389422', '67937572', '69912671', '73854471',
-    '75008183', '101371376', '75703290', '69533924', '79853544', '77343882',
-    '74887133', '332587', '69758622', '69618413', '77929999', '244293',
-    '334792', '75825136', '75008103', '70196678', '71883965', '74486130',
-    '74693566', '76107119', '76043858', '70252433', '68928364', '74806345',
-    '67848661', '75900326', '71773690', '75008171']
+    "74887117", "71894997", "69443979", "79853548", "101371232", "77857182",
+    "70446772", "68994990", "69141561", "70942310", "70942316", "68298378",
+    "69690156", "74364867", "77874134", "75925043", "73854431", "69206601",
+    "71771457", "101311379", "74777533", "70960269", "71604493", "102216720",
+    "74776437", "75488723", "79815814", "77857132", "77857138", "74952778",
+    "69068486", "648167", "75703410", "74486118", "77857098", "637407",
+    "67849516", "69785503", "71547630", "69068504", "69184074", "74853078",
+    "74890694", "74890698", "75488687", "71138602", "71652378", "68079764",
+    "70619061", "68280153", "73527042", "69764608", "68399025", "244297",
+    "69902658", "68234159", "71495521", "74488395", "73923026", "68280155",
+    "75488747", "69589140", "71342189", "75119214", "79455452", "71774294",
+    "74364957", "68031779", "71389422", "67937572", "69912671", "73854471",
+    "75008183", "101371376", "75703290", "69533924", "79853544", "77343882",
+    "74887133", "332587", "69758622", "69618413", "77929999", "244293",
+    "334792", "75825136", "75008103", "70196678", "71883965", "74486130",
+    "74693566", "76107119", "76043858", "70252433", "68928364", "74806345",
+    "67848661", "75900326", "71773690", "75008171"]
+
+
+def PIL_Image():  # pylint: disable=invalid-name
+  from PIL import Image  # pylint: disable=g-import-not-at-top
+  return Image
 
 
 def _get_case_file_paths(tmp_dir, case, training_fraction=0.95):
@@ -77,7 +82,6 @@ def _get_case_file_paths(tmp_dir, case, training_fraction=0.95):
   Args:
     tmp_dir: str, the root path to which raw images were written, at the
       top level having meta/ and raw/ subdirs.
-    size: int, the size of sub-images to consider (`size`x`size`).
     case: bool, whether obtaining file paths for training (true) or eval
       (false).
     training_fraction: float, the fraction of the sub-image path list to
@@ -85,6 +89,10 @@ def _get_case_file_paths(tmp_dir, case, training_fraction=0.95):
 
   Returns:
     list: A list of file paths.
+
+  Raises:
+    ValueError: if images not found in tmp_dir, or if training_fraction would
+      leave no examples for eval.
   """
 
   paths = tf.gfile.Glob("%s/*.jpg" % tmp_dir)
@@ -146,7 +154,7 @@ def maybe_download_image_dataset(image_ids, target_dir):
 
     response.raise_for_status()
 
-    with open(tmp_destination, "w") as f:
+    with tf.gfile.Open(tmp_destination, "w") as f:
       for block in response.iter_content(1024):
         f.write(block)
 
@@ -159,7 +167,6 @@ def random_square_mask(shape, fraction):
   Args:
     shape: tuple, shape of the mask to create.
     fraction: float, fraction of the mask area to populate with `mask_scalar`.
-    mask_scalar: float, the scalar to apply to the otherwise 1-valued mask.
 
   Returns:
     numpy.array: A numpy array storing the mask.
@@ -191,6 +198,8 @@ def _generator(tmp_dir, training, size=_BASE_EXAMPLE_IMAGE_SIZE,
       alternatively, evaluation), determining whether examples in tmp_dir
       prefixed with train or dev will be used.
     size: int, the image size to add to the example annotation.
+    training_fraction: float, the fraction of the sub-image path list to
+      consider as the basis for training examples.
 
   Yields:
     A dictionary representing the images with the following fields:
@@ -207,7 +216,7 @@ def _generator(tmp_dir, training, size=_BASE_EXAMPLE_IMAGE_SIZE,
                                      case=training,
                                      training_fraction=training_fraction)
 
-  image_obj = try_importing_pil_image()
+  image_obj = PIL_Image()
 
   tf.logging.info("Loaded case file paths (n=%s)" % len(image_files))
   height = size
@@ -230,8 +239,7 @@ def _generator(tmp_dir, training, size=_BASE_EXAMPLE_IMAGE_SIZE,
         v_end = v_offset + size - 1
 
         # Extract a sub-image tile.
-        # pylint: disable=invalid-sequence-index
-        subimage = np.uint8(img[h_offset:h_end, v_offset:v_end])
+        subimage = np.uint8(img[h_offset:h_end, v_offset:v_end])  # pylint: disable=invalid-sequence-index
 
         # Filter images that are likely background (not tissue).
         if np.amax(subimage) < 230:

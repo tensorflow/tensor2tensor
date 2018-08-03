@@ -1,29 +1,103 @@
 # coding=utf-8
+# Copyright 2018 The Tensor2Tensor Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests of the Allen Brain Atlas problems."""
 
-import tensorflow as tf
-from tensorflow.contrib.eager.python import tfe
+import os
+import shutil
+import tempfile
+
+import numpy as np
 
 from tensor2tensor.data_generators import allen_brain
-from tensor2tensor.data_generators.allen_brain import _generator
-from tensor2tensor.data_generators.allen_brain_utils import mock_raw_data
-from tensor2tensor.data_generators.allen_brain_utils import TemporaryDirectory
 from tensor2tensor.models import image_transformer_2d
 
+import tensorflow as tf
+
+tfe = tf.contrib.eager
 tfe.enable_eager_execution()
-Modes = tf.estimator.ModeKeys
+Modes = tf.estimator.ModeKeys  # pylint: disable=invalid-name
+
+
+def mock_raw_image(x_dim=1024, y_dim=1024, num_channels=3,
+                   output_path=None, write_image=True):
+  """Generate random `x_dim` by `y_dim`, optionally to `output_path`.
+
+  Args:
+    x_dim: int, the x dimension of generated raw image.
+    y_dim: int, the x dimension of generated raw image.
+    num_channels: int, number of channels in image.
+    output_path: str, path to which to write image.
+    write_image: bool, whether to write the image to output_path.
+
+  Returns:
+    numpy.array: The random `x_dim` by `y_dim` image (i.e. array).
+  """
+
+  rand_shape = (x_dim, y_dim, num_channels)
+
+  if num_channels != 3:
+    raise NotImplementedError("mock_raw_image for channels != 3 not yet "
+                              "implemented.")
+
+  img = np.random.random(rand_shape)
+  img = np.uint8(img*255)
+
+  if write_image:
+    image_obj = allen_brain.PIL_Image()
+    pil_img = image_obj.fromarray(img, mode="RGB")
+    with tf.gfile.Open(output_path, "w") as f:
+      pil_img.save(f, "jpeg")
+
+  return img
+
+
+def mock_raw_data(tmp_dir, raw_dim=1024, num_channels=3, num_images=1):
+  """Mock a raw data download directory with meta and raw subdirs.
+
+  Notes:
+
+    * This utility is shared by tests in both allen_brain_utils and
+      allen_brain so kept here instead of in one of *_test.
+
+  Args:
+    tmp_dir: str, temporary dir in which to mock data.
+    raw_dim: int, the x and y dimension of generated raw imgs.
+    num_channels: int, number of channels in image.
+    num_images: int, number of images to mock.
+  """
+
+  tf.gfile.MakeDirs(tmp_dir)
+
+  for image_id in range(num_images):
+
+    raw_image_path = os.path.join(tmp_dir, "%s.jpg" % image_id)
+
+    mock_raw_image(x_dim=raw_dim, y_dim=raw_dim,
+                   num_channels=num_channels,
+                   output_path=raw_image_path)
+
+
+class TemporaryDirectory(object):
+  """For py2 support of `with tempfile.TemporaryDirectory() as name:`"""
+
+  def __enter__(self):
+    self.name = tempfile.mkdtemp()
+    return self.name
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    shutil.rmtree(self.name)
 
 
 class TestAllenBrain(tf.test.TestCase):
@@ -32,10 +106,6 @@ class TestAllenBrain(tf.test.TestCase):
   def setUp(self):
 
     self.all_problems = [
-        #allen_brain.Img2imgAllenBrain,
-        #allen_brain.Img2imgAllenBrainDim48to64,
-        #allen_brain.Img2imgAllenBrainDim8to32,
-        #allen_brain.Img2imgAllenBrainDim16to32,
         allen_brain.Img2imgAllenBrainDim16to16Paint1
     ]
 
@@ -45,7 +115,7 @@ class TestAllenBrain(tf.test.TestCase):
     for is_training in [True, False]:
       with TemporaryDirectory() as tmp_dir:
         mock_raw_data(tmp_dir, raw_dim=256, num_images=100)
-        for example in _generator(tmp_dir, is_training):
+        for example in allen_brain._generator(tmp_dir, is_training):
           for key in ["image/encoded", "image/format",
                       "image/height", "image/width"]:
             self.assertTrue(key in example.keys())
@@ -168,6 +238,49 @@ class TestAllenBrain(tf.test.TestCase):
                           target_xy_dim,
                           num_channels,
                           256))
+
+
+class TestImageMock(tf.test.TestCase):
+  """Tests of image mocking utility."""
+
+  def test_image_mock_produces_expected_shape(self):
+    """Test that the image mocking utility produces expected shape output."""
+
+    with TemporaryDirectory() as tmp_dir:
+
+      cases = [
+          {
+              "x_dim": 8,
+              "y_dim": 8,
+              "num_channels": 3,
+              "output_path": "/foo",
+              "write_image": True
+          }
+      ]
+
+      for cid, case in enumerate(cases):
+        output_path = os.path.join(tmp_dir, "dummy%s.jpg" % cid)
+        img = mock_raw_image(x_dim=case["x_dim"],
+                             y_dim=case["y_dim"],
+                             num_channels=case["num_channels"],
+                             output_path=output_path,
+                             write_image=case["write_image"])
+
+        self.assertEqual(img.shape, (case["x_dim"], case["y_dim"],
+                                     case["num_channels"]))
+        if case["write_image"]:
+          self.assertTrue(tf.gfile.Exists(output_path))
+
+
+class TestMockRawData(tf.test.TestCase):
+  """Tests of raw data mocking utility."""
+
+  def test_runs(self):
+    """Test that data mocking utility runs for cases expected to succeed."""
+
+    with TemporaryDirectory() as tmp_dir:
+
+      mock_raw_data(tmp_dir, raw_dim=256, num_channels=3, num_images=40)
 
 
 if __name__ == "__main__":
