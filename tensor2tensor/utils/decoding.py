@@ -179,6 +179,21 @@ def decode_from_dataset(estimator,
   problem = hparams.problem
   infer_input_fn = problem.make_estimator_input_fn(
       tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
+  
+  ##############
+  # BEGIN FATHOM
+  ##############
+
+  # Get the predictions as an iterable
+  predictions = estimator.predict(infer_input_fn)
+
+  # Just return the generator directly if requested
+  if return_generator:
+    return predictions
+  
+  ##############
+  # END FATHOM
+  ##############
 
   predictions, output_dirs = [], []
   for decode_id in range(decode_hp.num_decodes):
@@ -226,12 +241,6 @@ def decode_once(estimator,
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn)
 
-<<<<<<< HEAD
-  # Just return the generator directly if requested
-  if return_generator:
-    return predictions
-    
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
   if not log_results:
     return list(predictions)
 
@@ -257,13 +266,8 @@ def decode_once(estimator,
   inputs_vocab_key = "inputs" if has_input else "targets"
   inputs_vocab = problem_hparams.vocabulary[inputs_vocab_key]
   targets_vocab = problem_hparams.vocabulary["targets"]
-<<<<<<< HEAD
-  predictions_out = []
-=======
-
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
+  
   for num_predictions, prediction in enumerate(predictions):
-    predictions_out.append(prediction)
     num_predictions += 1
     inputs = prediction["inputs"]
     targets = prediction["targets"]
@@ -276,18 +280,6 @@ def decode_once(estimator,
       for i, beam in enumerate(output_beams):
         tf.logging.info("BEAM %d:" % i)
         decoded = log_decode_results(
-<<<<<<< HEAD
-          inputs,
-          beam,
-          problem_name,
-          num_predictions,
-          inputs_vocab,
-          targets_vocab,
-          save_images=decode_hp.save_images,
-          model_dir=estimator.model_dir,
-          identity_output=decode_hp.identity_output,
-          targets=targets)
-=======
             inputs,
             beam,
             problem_name,
@@ -299,7 +291,6 @@ def decode_once(estimator,
             identity_output=decode_hp.identity_output,
             targets=targets,
             log_results=decode_hp.log_results)
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
         decoded_outputs.append(decoded)
     else:
       decoded = log_decode_results(
@@ -329,13 +320,8 @@ def decode_once(estimator,
           output_dir=output_dir,
           identity_output=decode_hp.identity_output,
           targets=targets,
-<<<<<<< HEAD
-          log_targets=decode_hp.log_targets)
-        decoded_outputs.append(decoded)
-=======
           log_results=decode_hp.log_results)
       decoded_outputs.append(decoded)
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
 
     # Write out predictions if decode_to_file passed
     if decode_to_file:
@@ -356,12 +342,6 @@ def decode_once(estimator,
     target_file.close()
     input_file.close()
 
-<<<<<<< HEAD
-  tf.logging.info("Completed inference on %d samples." % num_predictions)  # pylint: disable=undefined-loop-variable
-
-  return predictions_out
-=======
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
 
 def decode_from_file(estimator,
                      filename,
