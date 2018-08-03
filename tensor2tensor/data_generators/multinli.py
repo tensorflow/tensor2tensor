@@ -67,16 +67,6 @@ class MultiNLI(text_problems.TextConcat2ClassProblem):
   def num_classes(self):
     return 3
 
-  @property
-  def concat_token(self):
-    return "<EN-PR-HYP>"
-
-  @property
-  def concat_id(self):
-    if self.vocab_type == text_problems.VocabType.CHARACTER:
-      return problem.TaskID.EN_PR_HYP
-    return 2
-
   def class_labels(self, data_dir):
     del data_dir
     # Note this binary classification is different from usual MNLI.
@@ -135,3 +125,12 @@ class MultiNLICharacters(MultiNLI):
 
   def global_task_id(self):
     return problem.TaskID.THREE_CL_NLI
+
+
+@registry.register_problem
+class MultiNLISharedVocab(MultiNLI):
+  """MultiNLI classification problems with the LM1b vocabulary"""
+
+  @property
+  def vocab_filename(self):
+    return "vocab.lm1b.en.%d" % 2**15

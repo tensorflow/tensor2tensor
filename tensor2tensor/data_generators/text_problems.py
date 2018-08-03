@@ -515,18 +515,7 @@ class TextConcat2ClassProblem(Text2ClassProblem):
   For problems where there are multiple input sentences and we wish to concat
   these inputs with a special delimiter. See, for example, NLI tasks.
   """
-
-  @property
-  def concat_token(self):
-    raise NotImplementedError()
-
-  @property
-  def concat_id(self):
-    raise NotImplementedError()
-
-  @property
-  def additional_reserved_tokens(self):
-    return [self.concat_token]
+  CONCAT_TOKEN = "$"
 
   def generate_text_for_vocab(self, data_dir, tmp_dir):
     for i, sample in enumerate(
@@ -545,7 +534,7 @@ class TextConcat2ClassProblem(Text2ClassProblem):
         inputs += encoder.encode(inp)
         inputs.append(text_encoder.EOS_ID)
         if idx < len(sample["inputs"])-1:
-          inputs.append(self.concat_id)
+          inputs.append(encoder.encode(self.CONCAT_TOKEN)[0])
       label = sample["label"]
       yield {"inputs": inputs, "targets": [label]}
 
