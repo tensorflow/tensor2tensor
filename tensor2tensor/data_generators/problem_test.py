@@ -73,18 +73,6 @@ class ProblemTest(tf.test.TestCase):
     with tf.Session() as sess:
       self.assertTrue(assert_tensors_equal(sess, tensor1, tensor2, 20))
 
-  def testNoShuffleFail(self):
-    problem = algorithmic.TinyAlgo()
-    dataset = problem.dataset(mode=tf.estimator.ModeKeys.TRAIN,
-                              data_dir=algorithmic.TinyAlgo.data_dir,
-                              shuffle_files=True)
-
-    tensor1 = dataset.make_one_shot_iterator().get_next()["targets"]
-    tensor2 = dataset.make_one_shot_iterator().get_next()["targets"]
-
-    with tf.Session() as sess:
-      self.assertFalse(assert_tensors_equal(sess, tensor1, tensor2, 20))
-
 
 if __name__ == "__main__":
   tf.test.main()
