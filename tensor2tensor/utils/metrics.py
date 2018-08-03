@@ -58,6 +58,7 @@ class Metrics(object):
   ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
   SET_AUC = 'set_auc'
+  FATHOM_ACC = "fathom_accuracy"
   DMOL_PERPLEXITY = "disc_mol_neg_log_perplexity"
   ABS_ERR = "mean_absolute_error"
   IMAGE_RMSE = "image_rmse"
@@ -70,11 +71,6 @@ def image_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   else:
     predictions = tf.argmax(predictions, axis=-1)
   return padded_rmse(predictions, labels, weights_fn)
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
-
-  # fathom metrics
-  SET_AUC = 'set_auc'  
-  FATHOM_ACC = "fathom_accuracy"
 
 def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   predictions = tf.to_float(predictions)
