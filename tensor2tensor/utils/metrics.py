@@ -57,9 +57,7 @@ class Metrics(object):
   SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
   ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
-<<<<<<< HEAD
   SET_AUC = 'set_auc'
-=======
   DMOL_PERPLEXITY = "disc_mol_neg_log_perplexity"
   ABS_ERR = "mean_absolute_error"
   IMAGE_RMSE = "image_rmse"
@@ -289,8 +287,6 @@ def padded_accuracy(predictions,
     padded_labels = tf.to_int32(padded_labels)
     return tf.to_float(tf.equal(outputs, padded_labels)), weights
 
-
-<<<<<<< HEAD
 def fathom_padded_accuracy(predictions,
                             labels,
                             weights_fn=common_layers.weights_nonzero,
@@ -312,7 +308,8 @@ def fathom_padded_accuracy(predictions,
     predictions=tf.one_hot(outputs, depth=tf.shape(predictions)[-1]),
     labels=labels,
     weights_fn=weights_fn)
-=======
+
+
 def multilabel_accuracy_matchk(predictions,
                                labels,
                                k,
@@ -349,7 +346,6 @@ def multilabel_accuracy_matchk(predictions,
 def multilabel_accuracy_match3(predictions, labels,
                                weights_fn=common_layers.weights_nonzero):
   return multilabel_accuracy_matchk(predictions, labels, 3, weights_fn)
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
 
 
 def set_precision(predictions, labels,
@@ -721,13 +717,10 @@ METRICS_FNS = {
     Metrics.SET_RECALL: set_recall,
     Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
-<<<<<<< HEAD
     # fathom metrics
     Metrics.SET_AUC: set_auc,
     Metrics.FATHOM_ACC: fathom_padded_accuracy,
-=======
     Metrics.DMOL_PERPLEXITY: dmol_neg_log_perplexity,
     Metrics.ABS_ERR: abs_error,
     Metrics.IMAGE_RMSE: image_rmse,
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
 }

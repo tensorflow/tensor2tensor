@@ -231,11 +231,10 @@ def decode_once(estimator,
   if return_generator:
     return predictions
     
-=======
+>>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
   if not log_results:
     return list(predictions)
 
->>>>>>> e7d5e6c111ca4d5b97bae366218a4f229819d489
   # Prepare output file writers if decode_to_file passed
   decode_to_file = decode_to_file or decode_hp.decode_to_file
   if decode_to_file:
