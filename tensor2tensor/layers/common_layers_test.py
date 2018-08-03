@@ -692,6 +692,25 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
           [batch, upsampled_height, upsampled_width, output_filters],
           session.run(upsampled_output_shape))
 
+  def testSpectralNorm(self):
+    # Test that after 20 calls to apply_spectral_norm, the spectral
+    # norm of the normalized matrix is close to 1.0
+    with tf.Graph().as_default():
+      weights = tf.get_variable("w", dtype=tf.float32, shape=[2, 3, 50, 100])
+      weights = tf.multiply(weights, 10.0)
+      normed_weight, assign_op = common_layers.apply_spectral_norm(weights)
+
+      with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+
+        for _ in range(20):
+          sess.run(assign_op)
+          normed_weight, assign_op = common_layers.apply_spectral_norm(
+              weights)
+        normed_weight = sess.run(normed_weight).reshape(-1, 100)
+        _, s, _ = np.linalg.svd(normed_weight)
+        self.assertTrue(np.allclose(s[0], 1.0, rtol=0.1))
+
 
 class FnWithCustomGradTest(tf.test.TestCase):
 

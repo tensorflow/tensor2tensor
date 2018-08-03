@@ -20,13 +20,17 @@ Reference: https://arxiv.org/abs/1804.01523
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+import numbers
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import next_frame_params  # pylint: disable=unused-import
 from tensor2tensor.models.research import next_frame_sv2p
 from tensor2tensor.utils import registry
+from tensor2tensor.utils import update_ops_hook
 import tensorflow as tf
+
+gan_losses = tf.contrib.gan.losses.wargs
 
 
 @registry.register_model
@@ -98,6 +102,195 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
         z_log_var, (batch_size, -1, latent_dims))
     return z_mu, z_log_var
 
+  def discriminator(self, frames):
+    """3-D SNGAN discriminator.
+
+    Args:
+      frames: a list of batch-major tensors indexed by time.
+
+    Returns:
+      logits: 1-D Tensor with shape=batch_size.
+              Positive logits imply that the discriminator thinks that it
+              belongs to the true class.
+    """
+    ndf = self.hparams.num_discriminator_filters
+    frames = tf.stack(frames)
+
+    # Switch from time-major axis to batch-major axis.
+    frames = common_video.swap_time_and_batch_axes(frames)
+
+    # 3-D Conv-net mapping inputs to activations.
+    num_outputs = [ndf, ndf*2, ndf*2, ndf*4, ndf*4, ndf*8, ndf*8]
+    kernel_sizes = [3, 4, 3, 4, 3, 4, 3]
+    strides = [1, [1, 2, 2], 1, [1, 2, 2], 1, 2, 1]
+    names = ["video_sn_conv0_0", "video_sn_conv0_1", "video_sn_conv1_0",
+             "video_sn_conv1_1", "video_sn_conv2_0", "video_sn_conv2_1",
+             "video_sn_conv3_0"]
+    iterable = zip(num_outputs, kernel_sizes, strides, names)
+    activations = frames
+    for num_filters, kernel_size, stride, name in iterable:
+      activations = self.pad_conv3d_lrelu(activations, num_filters, kernel_size,
+                                          stride, name)
+
+    # Flatten and apply fully-connected layer.
+    num_fc_dimensions = tf.reduce_prod(
+        common_layers.shape_list(activations)[1:])
+    activations = tf.reshape(activations, (-1, num_fc_dimensions))
+    return tf.squeeze(tf.layers.dense(activations, 1))
+
+  def d_step(self, true_frames, gen_frames):
+    """Performs the discriminator step in computing the GAN loss.
+
+    Applies stop-gradient to the generated frames while computing the
+    discriminator loss to make sure that the gradients are not back-propagated
+    to the generator. This makes sure that only the discriminator is updated.
+
+    Args:
+      true_frames: True outputs
+      gen_frames: Generated frames.
+    Returns:
+      d_loss: Loss component due to the discriminator.
+    """
+    hparam_to_disc_loss = {
+        "least_squares": gan_losses.least_squares_discriminator_loss,
+        "cross_entropy": gan_losses.modified_discriminator_loss,
+        "wasserstein": gan_losses.wasserstein_discriminator_loss}
+
+    # Concat across batch-axis.
+    _, batch_size, _, _, _ = common_layers.shape_list(true_frames)
+    all_frames = tf.concat(
+        [true_frames, tf.stop_gradient(gen_frames)], axis=1)
+
+    all_logits = self.discriminator(all_frames)
+    true_logits, fake_logits_stop = \
+      all_logits[:batch_size], all_logits[batch_size:]
+    mean_true_logits = tf.reduce_mean(true_logits)
+    tf.summary.scalar("mean_true_logits", mean_true_logits)
+
+    mean_fake_logits_stop = tf.reduce_mean(fake_logits_stop)
+    tf.summary.scalar("mean_fake_logits_stop", mean_fake_logits_stop)
+
+    discriminator_loss_func = hparam_to_disc_loss[self.hparams.gan_loss]
+    gan_d_loss = discriminator_loss_func(
+        discriminator_real_outputs=true_logits,
+        discriminator_gen_outputs=fake_logits_stop,
+        add_summaries=True)
+    return gan_d_loss, true_logits, fake_logits_stop
+
+  def g_step(self, gen_frames, fake_logits_stop):
+    """Performs the generator step in computing the GAN loss.
+
+    Args:
+      gen_frames: Generated frames
+      fake_logits_stop: Logits corresponding to the generated frames as per
+                        the discriminator. Assumed to have a stop-gradient term.
+    Returns:
+      gan_g_loss_pos_d: Loss.
+      gan_g_loss_neg_d: -gan_g_loss_pos_d but with a stop gradient on generator.
+    """
+    hparam_to_gen_loss = {
+        "least_squares": gan_losses.least_squares_generator_loss,
+        "cross_entropy": gan_losses.modified_generator_loss,
+        "wasserstein": gan_losses.wasserstein_generator_loss
+    }
+
+    fake_logits = self.discriminator(gen_frames)
+    mean_fake_logits = tf.reduce_mean(fake_logits)
+    tf.summary.scalar("mean_fake_logits", mean_fake_logits)
+
+    # Generator loss.
+    # Using gan_g_loss_pos_d updates the discriminator as well.
+    # To avoid this add gan_g_loss_neg_d = -gan_g_loss_pos_d
+    # but with stop gradient on the generator.
+    # This makes sure that the net gradient on the discriminator is zero and
+    # net-gradient on the generator is just due to the gan_g_loss_pos_d.
+    generator_loss_func = hparam_to_gen_loss[self.hparams.gan_loss]
+    gan_g_loss_pos_d = generator_loss_func(
+        discriminator_gen_outputs=fake_logits, add_summaries=True)
+    gan_g_loss_neg_d = -generator_loss_func(
+        discriminator_gen_outputs=fake_logits_stop, add_summaries=True)
+    return gan_g_loss_pos_d, gan_g_loss_neg_d
+
+  def get_gan_loss(self, true_frames, gen_frames):
+    """Get the discriminator + generator loss at every step.
+
+    This performs an 1:1 update of the discriminator and generator at every
+    step.
+
+    Args:
+      true_frames: 5-D Tensor of shape (num_steps, batch_size, H, W, C)
+                   Assumed to be ground truth.
+      gen_frames: 5-D Tensor of shape (num_steps, batch_size, H, W, C)
+                  Assumed to be fake.
+    Returns:
+      loss: 0-D Tensor, with d_loss + g_loss
+    """
+    # D - STEP
+    with tf.variable_scope("gan_discriminator", reuse=tf.AUTO_REUSE):
+      gan_d_loss, _, fake_logits_stop = self.d_step(
+          true_frames, gen_frames)
+
+    # G - STEP
+    with tf.variable_scope("gan_discriminator", reuse=True):
+      gan_g_loss_pos_d, gan_g_loss_neg_d = self.g_step(
+          gen_frames, fake_logits_stop)
+    gan_g_loss = gan_g_loss_pos_d + gan_g_loss_neg_d
+    gan_loss = gan_g_loss + gan_d_loss
+    tf.summary.scalar("gan_loss", gan_g_loss_pos_d + gan_d_loss)
+    return self.hparams.gan_loss_multiplier * gan_loss
+
+  def get_extra_loss(self, latent_means=None, latent_stds=None,
+                     true_frames=None, gen_frames=None, beta=1.0):
+    if not self.is_training:
+      return 0.0
+    if self.hparams.use_vae:
+      return super(NextFrameSAVP, self).get_extra_loss(
+          latent_means=latent_means, latent_stds=latent_stds, beta=beta)
+    elif self.hparams.use_gan:
+      # Strip out the first context_frames for the true_frames
+      # Strip out the first context_frames - 1 for the gen_frames
+      context_frames = self.hparams.video_num_input_frames
+      true_frames = tf.stack(
+          tf.unstack(true_frames, axis=0)[context_frames:])
+      gen_frames = tf.stack(
+          tf.unstack(gen_frames, axis=0)[context_frames-1:])
+      return self.get_gan_loss(true_frames, gen_frames)
+
+  def pad_conv3d_lrelu(self, activations, n_filters, kernel_size, strides,
+                       scope):
+    """Pad, apply 3-D convolution and leaky relu."""
+    padding = [[0, 0], [1, 1], [1, 1], [1, 1], [0, 0]]
+
+    # tf.nn.conv3d accepts a list of 5 values for strides
+    # with first and last value equal to 1
+    if isinstance(strides, numbers.Integral):
+      strides = [strides] * 3
+    strides = [1] + strides + [1]
+
+    # Filter_shape = [K, K, K, num_input, num_output]
+    filter_shape = (
+        [kernel_size]*3 + activations.shape[-1:].as_list() + [n_filters])
+
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+      conv_filter = tf.get_variable(
+          "conv_filter", shape=filter_shape,
+          initializer=tf.truncated_normal_initializer(stddev=0.02))
+
+      if self.hparams.use_spectral_norm:
+        conv_filter, assign_op = common_layers.apply_spectral_norm(conv_filter)
+        if self.is_training:
+          tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, assign_op)
+
+      padded = tf.pad(activations, padding)
+      convolved = tf.nn.conv3d(
+          padded, conv_filter, strides=strides, padding="VALID")
+      rectified = tf.nn.leaky_relu(convolved, alpha=0.2)
+    return rectified
+
+  @staticmethod
+  def train_hooks():
+    return [update_ops_hook.UpdateOpsHook()]
+
   def construct_model(self, images, actions, rewards):
     """Model that takes in images and returns predictions.
 
@@ -116,7 +309,16 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
                     every frame.
       latent_stds: list of gaussian stds conditioned on the input at
                    every frame.
+
+    Raises:
+      ValueError: If not exactly one of self.hparams.vae or self.hparams.gan
+                  is set to True.
     """
+    if self.hparams.use_vae and self.hparams.use_gan:
+      raise ValueError("VAE + GAN variant not implemented")
+    if not self.hparams.use_vae and not self.hparams.use_gan:
+      raise ValueError("Set at least one of use_vae or use_gan to be True")
+
     images = tf.unstack(images, axis=0)
     actions = tf.unstack(actions, axis=0)
     rewards = tf.unstack(rewards, axis=0)
