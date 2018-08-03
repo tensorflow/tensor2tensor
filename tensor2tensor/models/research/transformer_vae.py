@@ -528,7 +528,7 @@ class TransformerAE(t2t_model.T2TModel):
         softmax_k=self._hparams.softmax_k,
         temperature_warmup_steps=self._hparams.temperature_warmup_steps,
         do_hard_gumbel_softmax=self._hparams.do_hard_gumbel_softmax,
-        do_iaf=self._hparams.do_iaf,
+        num_flows=self._hparams.num_flows,
         approximate_gs_entropy=self._hparams.approximate_gs_entropy,
         discrete_mix=self._hparams.d_mix,
         noise_dev=self._hparams.noise_dev,
@@ -760,7 +760,7 @@ def transformer_ae_small():
   hparams.add_hparam("entropy_scale", 0.0)
   hparams.add_hparam("prior_scale", 1.0)
   hparams.add_hparam("do_hard_gumbel_softmax", False)
-  hparams.add_hparam("do_iaf", False)
+  hparams.add_hparam("num_flows", 0)
   hparams.add_hparam("approximate_gs_entropy", False)
   hparams.add_hparam("temperature_warmup_steps", 150000)
   hparams.add_hparam("sum_over_latents", False)
@@ -964,6 +964,6 @@ def transformer_ae_base_ablation_5():
 @registry.register_hparams
 def transformer_ae_base_iaf():
   hparams = transformer_ae_base_ablation_5()
-  hparams.do_iaf = True
+  hparams.num_flows = 1
   hparams.num_samples = 1
   return hparams
