@@ -42,7 +42,7 @@ install:
   - pip install -q .
   - t2t-trainer --registry_help
   # Then install the test dependencies
-  - pip install -q .[tests]
+  - pip install -q .[tests,allen]
   # Make sure to install the atari extras for gym
   - pip install "gym[atari]"
   # Make sure we have the latest version of numpy - avoid problems we were
@@ -59,6 +59,8 @@ script:
   #   * trainer_lib_test
   #   * visualization_test
   #   * model_rl_experiment_test
+  #   * allen_brain_test
+  #   * allen_brain_utils_test
   #   * model_rl_experiment_stochastic_test
   #   * models/research
   # algorithmic_math_test: flaky
@@ -71,11 +73,15 @@ script:
     --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
     --ignore=tensor2tensor/models/research/universal_transformer_test.py
     --ignore=tensor2tensor/rl/model_rl_experiment_test.py
+    --ignore=tensor2tensor/data_generators/allen_brain_test.py
+    --ignore=tensor2tensor/data_generators/allen_brain_utils_test.py
     --ignore=tensor2tensor/rl/model_rl_experiment_stochastic_test.py
     --ignore=tensor2tensor/models/research
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
   - pytest tensor2tensor/visualization/visualization_test.py
+  - pytest tensor2tensor/data_generators/allen_brain_test.py
+  - pytest tensor2tensor/data_generators/allen_brain_utils_test.py
   - if [[ "$TF_VERSION" == "$TF_LATEST"  ]] || [[ "$TF_VERSION" == "tf-nightly"  ]];
     then
       pytest tensor2tensor/models/research;
