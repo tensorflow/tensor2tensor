@@ -20,11 +20,9 @@ from __future__ import print_function
 
 import os
 import random
-
-# Dependency imports
-
 import numpy as np
 
+from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import metrics_hook
 from tensor2tensor.utils import registry
@@ -38,6 +36,21 @@ from tensorflow.python import debug
 
 # Fathom imports
 from fathomt2t.problems.fprecord_text_problem import FPRecordTextProblem
+
+
+def next_checkpoint(model_dir, timeout_mins=120):
+  """Yields successive checkpoints from model_dir."""
+  last_ckpt = None
+  while True:
+    last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
+        model_dir, last_ckpt, seconds_to_sleep=60, timeout=60 * timeout_mins)
+
+    if last_ckpt is None:
+      tf.logging.info(
+          "Eval timeout: no new checkpoints within %dm" % timeout_mins)
+      break
+
+    yield last_ckpt
 
 
 def create_session_config(log_device_placement=False,
@@ -76,14 +89,13 @@ def create_hparams(hparams_set,
                    data_dir=None,
                    problem_name=None):
   """Create HParams with data_dir and problem hparams, if kwargs provided."""
-  hparams = registry.hparams(hparams_set)()
+  hparams = registry.hparams(hparams_set)
   if data_dir:
     hparams.add_hparam("data_dir", data_dir)
   if problem_name:
     add_problem_hparams(hparams, problem_name)
   if hparams_overrides_str:
-    tf.logging.info("Overriding hparams in %s with %s",
-                    hparams_set,
+    tf.logging.info("Overriding hparams in %s with %s", hparams_set,
                     hparams_overrides_str)
     hparams = hparams.parse(hparams_overrides_str)
   return hparams
@@ -91,6 +103,7 @@ def create_hparams(hparams_set,
 
 def create_run_config(master="",
                       model_dir=None,
+                      warm_start_from=None,
                       iterations_per_loop=1000,
                       num_shards=8,
                       log_device_placement=False,
@@ -117,7 +130,9 @@ def create_run_config(master="",
                       tpu_infeed_sleep_secs=None,
                       use_tpu=False,
                       inter_op_parallelism_threads=0,
-                      intra_op_parallelism_threads=0):
+                      log_step_count_steps=100,
+                      intra_op_parallelism_threads=0,
+                      tpu_config_extra_kwargs=None):
   """Create RunConfig, TPUConfig, and Parallelism object."""
   session_config = create_session_config(
       log_device_placement=log_device_placement,
@@ -133,26 +148,39 @@ def create_run_config(master="",
       "session_config": session_config,
       "save_summary_steps": 100,
       "save_checkpoints_steps": save_checkpoints_steps,
+      "save_checkpoints_secs": save_checkpoints_secs,
       "keep_checkpoint_max": keep_checkpoint_max,
       "keep_checkpoint_every_n_hours": keep_checkpoint_every_n_hours,
       "tf_random_seed": random_seed,
+      "log_step_count_steps": log_step_count_steps
   }
   if save_checkpoints_secs:
     del run_config_args["save_checkpoints_steps"]
-    run_config_args["save_checkpoints_secs"] = save_checkpoints_secs
   run_config_cls = tf.contrib.learn.RunConfig
 
   # If using TPU, use TPU RunConfig, add TPUConfig, and add additional args
   if use_tpu:
+    tpu_config_kwargs = {
+        "iterations_per_loop": iterations_per_loop,
+        "num_shards": num_shards,
+        "per_host_input_for_training": True,
+        "initial_infeed_sleep_secs": tpu_infeed_sleep_secs,
+    }
+    if tpu_config_extra_kwargs is not None:
+      tpu_config_kwargs.update(tpu_config_extra_kwargs)
     run_config_cls = tf.contrib.tpu.RunConfig
     tpu_config = tf.contrib.tpu.TPUConfig(
-        iterations_per_loop=iterations_per_loop,
-        num_shards=num_shards,
-        per_host_input_for_training=True,
-        initial_infeed_sleep_secs=tpu_infeed_sleep_secs)
+        **tpu_config_kwargs)
     run_config_args["tpu_config"] = tpu_config
+    if not master and "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS" in os.environ:
+      # If running on TPU but no master is set and the KUBE env var is present
+      # then we're running on ML Engine. Set the master.
+      run_config_args["master"] = os.environ[
+          "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS"]
+      run_config_args["evaluation_master"] = run_config_args["master"]
 
   config = run_config_cls(**run_config_args)
+  config.warm_start_from = warm_start_from
 
   # If not using TPU, add device info for data_parallelism
   config.use_tpu = use_tpu
@@ -184,17 +212,21 @@ def create_estimator(model_name,
                      schedule="train_and_evaluate",
                      decode_hparams=None,
                      use_tpu=False):
+  """Create a T2T Estimator."""
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
       model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
 
   if use_tpu:
     problem = hparams.problem
-    batch_size = (problem.tpu_batch_size_per_shard(hparams) *
-                  run_config.tpu_config.num_shards)
+    batch_size = (
+        problem.tpu_batch_size_per_shard(hparams) *
+        run_config.tpu_config.num_shards)
+    if getattr(hparams, "mtf_mode", False):
+      batch_size = problem.tpu_batch_size_per_shard(hparams)
     predict_batch_size = batch_size
     if decode_hparams and decode_hparams.batch_size:
       predict_batch_size = decode_hparams.batch_size
-    return tf.contrib.tpu.TPUEstimator(
+    estimator = tf.contrib.tpu.TPUEstimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
@@ -202,8 +234,13 @@ def create_estimator(model_name,
         eval_batch_size=batch_size if "eval" in schedule else None,
         predict_batch_size=predict_batch_size)
   else:
-    return tf.estimator.Estimator(
-        model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn,
+        model_dir=run_config.model_dir,
+        config=run_config,
+        warm_start_from=run_config.warm_start_from
+    )
+  return estimator
 
 class MemoryReportingHook(SessionRunHook):
     """
@@ -240,16 +277,20 @@ class MemoryReportingHook(SessionRunHook):
 
         return session_args
 
-def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
-                 use_validation_monitor=False, validation_monitor_kwargs=None,
-                 use_early_stopping=False, early_stopping_kwargs=None):
+def create_hooks(use_tfdbg=False,
+                 use_dbgprofile=False,
+                 dbgprofile_kwargs=None,
+                 use_validation_monitor=False,
+                 validation_monitor_kwargs=None,
+                 use_early_stopping=False,
+                 early_stopping_kwargs=None):
   """Create train and eval hooks for Experiment."""
-  train_monitors = []
+  train_hooks = []
   eval_hooks = []
 
   if use_tfdbg:
     hook = debug.LocalCLIDebugHook()
-    train_monitors.append(hook)
+    train_hooks.append(hook)
     eval_hooks.append(hook)
 
   if use_dbgprofile:
@@ -258,7 +299,7 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     tf.logging.info("Using ProfilerHook")
     defaults = dict(save_steps=10, show_dataflow=True, show_memory=True)
     defaults.update(dbgprofile_kwargs)
-    train_monitors.append(tf.train.ProfilerHook(**defaults))
+    train_hooks.append(tf.train.ProfilerHook(**defaults))
 
   if use_validation_monitor:
     tf.logging.info("Using ValidationMonitor")
@@ -268,7 +309,7 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     FLAGS = flags.FLAGS
     assert FLAGS.schedule != 'continuous_train_and_eval'
     
-    train_monitors.append(
+    train_hooks.append(
         tf.contrib.learn.monitors.ValidationMonitor(
             hooks=eval_hooks, **validation_monitor_kwargs))
 
@@ -276,7 +317,7 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
     tf.logging.info("Using EarlyStoppingHook")
     hook = metrics_hook.EarlyStoppingHook(**early_stopping_kwargs)
     # Adding to both training and eval so that eval aborts as well
-    train_monitors.append(hook)
+    train_hooks.append(hook)
     eval_hooks.append(hook)
   
   # NOTE:
@@ -287,33 +328,151 @@ def create_hooks(use_tfdbg=False, use_dbgprofile=False, dbgprofile_kwargs=None,
   #eval_hooks.append(MemoryReportingHook())
 
 
-  return train_monitors, eval_hooks
+  return train_hooks, eval_hooks
 
 
-def create_experiment(run_config,
-                      hparams,
-                      model_name,
-                      problem_name,
-                      data_dir,
-                      train_steps,
-                      eval_steps,
-                      min_eval_frequency=2000,
-                      schedule="train_and_evaluate",
-                      export=False,
-                      decode_hparams=None,
-                      use_tfdbg=False,
-                      use_dbgprofile=False,
-                      eval_early_stopping_steps=None,
-                      eval_early_stopping_metric=None,
-                      eval_early_stopping_metric_delta=None,
-                      eval_early_stopping_metric_minimize=True,
-                      use_tpu=False):
+class T2TExperiment(object):
+  """Custom Experiment class for running distributed experiments."""
+
+  def __init__(self, estimator, hparams, train_spec, eval_spec,
+               use_validation_monitor, decode_hparams=None):
+    self._train_spec = train_spec
+    self._eval_spec = eval_spec
+    self._hparams = hparams
+    self._decode_hparams = decode_hparams
+    self._estimator = estimator
+    self._use_validation_monitor = use_validation_monitor
+
+  @property
+  def estimator(self):
+    return self._estimator
+
+  @property
+  def train_steps(self):
+    return self._train_spec.max_steps
+
+  @property
+  def eval_steps(self):
+    return self._eval_spec.steps
+
+  def continuous_train_and_eval(self, continuous_eval_predicate_fn=None):
+    del continuous_eval_predicate_fn
+    tf.estimator.train_and_evaluate(self._estimator, self._train_spec,
+                                    self._eval_spec)
+    return self.evaluate()
+
+  def train_and_evaluate(self):
+    if self._use_validation_monitor:
+      tf.logging.warning("EvalSpec not provided. Estimator will not manage "
+                         "model evaluation. Assuming ValidationMonitor present "
+                         "in train_hooks.")
+      self.train()
+
+  def train(self):
+    self._estimator.train(
+        self._train_spec.input_fn,
+        hooks=self._train_spec.hooks,
+        max_steps=self._train_spec.max_steps)
+
+  def evaluate(self):
+    return self._estimator.evaluate(
+        self._eval_spec.input_fn,
+        steps=self._eval_spec.steps,
+        hooks=self._eval_spec.hooks)
+
+  def evaluate_on_train_data(self):
+    self._estimator.evaluate(
+        self._train_spec.input_fn,
+        steps=self._eval_spec.steps,
+        hooks=self._eval_spec.hooks,
+        name="eval_train")
+
+  def continuous_eval(self):
+    """Evaluate until checkpoints stop being produced."""
+    for _ in next_checkpoint(self._hparams.model_dir):
+      self.evaluate()
+
+  def continuous_eval_on_train_data(self):
+    """Evaluate on train data until checkpoints stop being produced."""
+    for _ in next_checkpoint(self._hparams.model_dir):
+      self.evaluate_on_train_data()
+
+  def test(self):
+    """Perform 1 step of train and 2 step of eval."""
+    if self._use_validation_monitor:
+      return self.train_and_evaluate()
+
+    self._estimator.train(
+        self._train_spec.input_fn, hooks=self._train_spec.hooks, max_steps=1)
+
+    self._estimator.evaluate(
+        self._eval_spec.input_fn, steps=1, hooks=self._eval_spec.hooks)
+
+  def run_std_server(self):
+    """Starts a TensorFlow server and joins the serving thread.
+
+    Typically used for parameter servers.
+
+    Raises:
+      ValueError: if not enough information is available in the estimator's
+        config to create a server.
+    """
+    config = self._estimator.config
+    if (not config.cluster_spec or not config.task_type or not config.master or
+        config.task_id is None):
+      raise ValueError("Could not start server; be sure to specify "
+                       "cluster_spec, task_type, master, and task in "
+                       "RunConfig or set the TF_CONFIG environment variable.")
+    server = tf.train.Server(
+        config.cluster_spec,
+        job_name=config.task_type,
+        task_index=config.task_id,
+        config=config.tf_config,
+        start=False)
+    server.start()
+    server.join()
+
+  def decode(self):
+    """Decodes from dataset."""
+    decoding.decode_from_dataset(self._estimator, self._hparams.problem.name,
+                                 self._hparams, self._decode_hparams)
+
+  def continuous_decode(self):
+    """Decode from dataset on new checkpoint."""
+    for _ in next_checkpoint(self._hparams.model_dir):
+      self.decode()
+
+
+def create_experiment(
+    run_config,
+    hparams,
+    model_name,
+    problem_name,
+    data_dir,
+    train_steps,
+    eval_steps,
+    min_eval_frequency=2000,
+    eval_throttle_seconds=600,
+    schedule="train_and_evaluate",
+    export=False,
+    decode_hparams=None,
+    use_tfdbg=False,
+    use_dbgprofile=False,
+    eval_early_stopping_steps=None,
+    eval_early_stopping_metric=None,
+    eval_early_stopping_metric_delta=None,
+    eval_early_stopping_metric_minimize=True,
+    autotune=False,
+    use_tpu=False,
+    additional_train_hooks=None,
+    additional_eval_hooks=None):
   """Create Experiment."""
   # HParams
   hparams.add_hparam("model_dir", run_config.model_dir)
   hparams.add_hparam("data_dir", data_dir)
   hparams.add_hparam("train_steps", train_steps)
   hparams.add_hparam("eval_steps", eval_steps)
+  hparams.add_hparam("schedule", schedule)
   add_problem_hparams(hparams, problem_name)
 
   # Estimator
@@ -327,10 +486,10 @@ def create_experiment(run_config,
 
   # Input fns from Problem
   problem = hparams.problem
-  train_input_fn = problem.make_estimator_input_fn(
-      tf.estimator.ModeKeys.TRAIN, hparams)
-  eval_input_fn = problem.make_estimator_input_fn(
-      tf.estimator.ModeKeys.EVAL, hparams)
+  train_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.TRAIN,
+                                                   hparams)
+  eval_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.EVAL,
+                                                  hparams)
 
   # Fathom
   if isinstance(problem, FPRecordTextProblem):
@@ -346,55 +505,75 @@ def create_experiment(run_config,
                     "See serving/export.py.")
 
   # Hooks
-  hooks_kwargs = {}
-  if not use_tpu:
-    dbgprofile_kwargs = {"output_dir": run_config.model_dir}
-    validation_monitor_kwargs = dict(
-        input_fn=eval_input_fn,
-        eval_steps=eval_steps,
-        every_n_steps=min_eval_frequency,
-        early_stopping_rounds=eval_early_stopping_steps,
-        early_stopping_metric=eval_early_stopping_metric,
-        early_stopping_metric_minimize=eval_early_stopping_metric_minimize)
-    early_stopping_kwargs = dict(
-        events_dir=os.path.join(run_config.model_dir, "eval_continuous"),
-        tag=eval_early_stopping_metric,
-        num_plateau_steps=eval_early_stopping_steps,
-        plateau_decrease=eval_early_stopping_metric_minimize,
-        plateau_delta=eval_early_stopping_metric_delta,
-        every_n_steps=min_eval_frequency)
-
-    # In-process eval (and possible early stopping)
-    if schedule == "continuous_train_and_eval" and min_eval_frequency:
-      tf.logging.warn("ValidationMonitor only works with "
-                      "--schedule=train_and_evaluate")
-    use_validation_monitor = (
-        schedule == "train_and_evaluate" and min_eval_frequency)
-    # Distributed early stopping
-    local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
-    use_early_stopping = (
-        schedule not in local_schedules and eval_early_stopping_steps)
-    train_monitors, eval_hooks = create_hooks(
-        use_tfdbg=use_tfdbg,
-        use_dbgprofile=use_dbgprofile,
-        dbgprofile_kwargs=dbgprofile_kwargs,
-        use_validation_monitor=use_validation_monitor,
-        use_early_stopping=use_early_stopping,
-        validation_monitor_kwargs=validation_monitor_kwargs,
-        early_stopping_kwargs=early_stopping_kwargs)
-    hooks_kwargs = {"train_monitors": train_monitors, "eval_hooks": eval_hooks}
-
-  # Experiment
-  return tf.contrib.learn.Experiment(
-      estimator=estimator,
-      train_input_fn=train_input_fn,
-      eval_input_fn=eval_input_fn,
-      train_steps=train_steps,
+  validation_monitor_kwargs = dict(
+      input_fn=eval_input_fn,
       eval_steps=eval_steps,
-      min_eval_frequency=min_eval_frequency,
-      train_steps_per_iteration=min(min_eval_frequency, train_steps),
-      eval_delay_secs=0 if schedule == "evaluate" else 120,
-      **hooks_kwargs)
+      every_n_steps=min_eval_frequency,
+      early_stopping_rounds=eval_early_stopping_steps,
+      early_stopping_metric=eval_early_stopping_metric,
+      early_stopping_metric_minimize=eval_early_stopping_metric_minimize)
+  dbgprofile_kwargs = {"output_dir": run_config.model_dir}
+  early_stopping_kwargs = dict(
+      events_dir=os.path.join(run_config.model_dir, "eval_continuous"),
+      tag=eval_early_stopping_metric,
+      num_plateau_steps=eval_early_stopping_steps,
+      plateau_decrease=eval_early_stopping_metric_minimize,
+      plateau_delta=eval_early_stopping_metric_delta,
+      every_n_steps=min_eval_frequency)
+
+  # In-process eval (and possible early stopping)
+  if schedule == "continuous_train_and_eval" and min_eval_frequency:
+    tf.logging.warn("ValidationMonitor only works with "
+                    "--schedule=train_and_evaluate")
+  use_validation_monitor = (
+      schedule == "train_and_evaluate" and min_eval_frequency)
+  # Distributed early stopping
+  local_schedules = ["train_and_evaluate", "continuous_train_and_eval"]
+  use_early_stopping = (
+      schedule not in local_schedules and eval_early_stopping_steps)
+  train_hooks, eval_hooks = create_hooks(
+      use_tfdbg=use_tfdbg,
+      use_dbgprofile=use_dbgprofile,
+      dbgprofile_kwargs=dbgprofile_kwargs,
+      use_validation_monitor=use_validation_monitor,
+      validation_monitor_kwargs=validation_monitor_kwargs,
+      use_early_stopping=use_early_stopping,
+      early_stopping_kwargs=early_stopping_kwargs)
+  train_hooks += t2t_model.T2TModel.get_train_hooks(model_name)
+  eval_hooks += t2t_model.T2TModel.get_eval_hooks(model_name)
+  if additional_train_hooks:
+    train_hooks += additional_train_hooks
+  if additional_eval_hooks:
+    eval_hooks += additional_eval_hooks
+
+  train_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
+      train_hooks, estimator)
+  eval_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
+      eval_hooks, estimator)
+
+  train_spec = tf.estimator.TrainSpec(
+      train_input_fn, max_steps=train_steps, hooks=train_hooks)
+  eval_spec = tf.estimator.EvalSpec(
+      eval_input_fn,
+      steps=eval_steps,
+      hooks=eval_hooks,
+      start_delay_secs=0 if hparams.schedule == "evaluate" else 120,
+      throttle_secs=eval_throttle_seconds)
+
+  if autotune:
+    hooks_kwargs = {"train_monitors": train_hooks, "eval_hooks": eval_hooks}
+    return tf.contrib.learn.Experiment(
+        estimator=estimator,
+        train_input_fn=train_input_fn,
+        eval_input_fn=eval_input_fn,
+        train_steps=train_steps,
+        eval_steps=eval_steps,
+        min_eval_frequency=min_eval_frequency,
+        train_steps_per_iteration=min(min_eval_frequency, train_steps),
+        eval_delay_secs=0 if schedule == "evaluate" else 120,
+        **hooks_kwargs if not use_tpu else {})
+  return T2TExperiment(estimator, hparams, train_spec, eval_spec,
+                       use_validation_monitor, decode_hparams)
 
 
 def create_experiment_fn(*args, **kwargs):
@@ -424,3 +603,18 @@ def set_random_seed(seed):
   tf.set_random_seed(seed)
   random.seed(seed)
   np.random.seed(seed)
+
+
+def restore_checkpoint(ckpt_dir, saver, sess, must_restore=False):
+  """Restore from a checkpoint."""
+  ckpt = tf.train.get_checkpoint_state(ckpt_dir)
+  if must_restore and not ckpt:
+    raise ValueError("No checkpoint found in %s" % ckpt_dir)
+  if not ckpt:
+    return 0
+
+  path = ckpt.model_checkpoint_path
+  tf.logging.info("Restoring checkpoint %s", path)
+  saver.restore(sess, path)
+  step = int(path.split("-")[-1])
+  return step

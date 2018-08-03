@@ -14,12 +14,14 @@
 # limitations under the License.
 """Data generators for parsing data-sets."""
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import os
-
-# Dependency imports
-
-from tensor2tensor.data_generators import generator_utils
-
+from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_problems
+from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
@@ -27,6 +29,43 @@ tf.flags.DEFINE_string("parsing_path", "", "Path to parsing files in tmp_dir.")
 
 
 FLAGS = tf.flags.FLAGS
+
+
+@registry.register_problem
+class WsjParsing(text_problems.Text2textTmpdir):
+  """Generate vocabulary and training data for parsing.
+  """
+
+  # These files are used for vocab generation
+  TRAIN_FILES = ("wsj.train.text.txt", "wsj.train.tags.txt")
+
+  # These files are used for generating encoded samples
+  TRAIN_FILES_TREE = "wsjTrain.trees"
+  EVAL_FILES_TREE = "wsjEval.trees"
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    del data_dir
+    is_training = dataset_split == problem.DatasetSplit.TRAIN
+    tree_file = self.TRAIN_FILES_TREE if is_training else self.EVAL_FILES_TREE
+    tree_file_path = os.path.join(tmp_dir, tree_file)
+    with tf.gfile.GFile(tree_file_path, mode="r") as cur_tree_file:
+      for line in cur_tree_file:
+        (words, tags) = words_and_tags_from_wsj_tree(line)
+        yield {"inputs": words, "targets": tags}
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
+    encoder = self.get_or_create_vocab(data_dir, tmp_dir)
+    return text_problems.text2text_generate_encoded(generator, encoder,
+                                                    has_inputs=self.has_inputs)
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    files = [os.path.join(tmp_dir, f) for f in self.TRAIN_FILES]
+    inputs_file, targets_file = files
+    for sample in text_problems.text2text_txt_iterator(inputs_file,
+                                                       targets_file):
+      yield sample["inputs"]
+      yield sample["targets"]
 
 
 def words_and_tags_from_wsj_tree(tree_string):
@@ -103,13 +142,17 @@ def parsing_token_generator(data_dir, tmp_dir, train, source_vocab_size,
   Returns:
     A generator to a dictionary of inputs and outputs.
   """
-  source_symbolizer_vocab = generator_utils.get_or_generate_vocab(
-      data_dir, tmp_dir, "wsj_source.vocab.%d" % source_vocab_size,
-      source_vocab_size)
-  target_symbolizer_vocab = generator_utils.get_or_generate_vocab(
-      data_dir, tmp_dir, "wsj_target.vocab.%d" % target_vocab_size,
-      target_vocab_size)
-  filename = "%s_%s.trees" % (FLAGS.parsing_path, "train" if train else "dev")
-  tree_filepath = os.path.join(tmp_dir, filename)
-  return token_generator(tree_filepath, source_symbolizer_vocab,
-                         target_symbolizer_vocab, 1)
+  # TODO(lukaszkaiser): Correct these calls to generate vocabularies. No data
+  # sources are being passed.
+  del (data_dir, tmp_dir, train, source_vocab_size, target_vocab_size)
+  assert False, "Vocabulary generation not implemented"
+  # source_symbolizer_vocab = generator_utils.get_or_generate_vocab(
+  #     data_dir, tmp_dir, "wsj_source.vocab.%d" % source_vocab_size,
+  #     source_vocab_size)
+  # target_symbolizer_vocab = generator_utils.get_or_generate_vocab(
+  #     data_dir, tmp_dir, "wsj_target.vocab.%d" % target_vocab_size,
+  #     target_vocab_size)
+  # filename = "%s_%s.trees" % (FLAGS.parsing_path, "train" if train else "dev")
+  # tree_filepath = os.path.join(tmp_dir, filename)
+  # return token_generator(tree_filepath, source_symbolizer_vocab,
+  #                        target_symbolizer_vocab, 1)

@@ -28,9 +28,6 @@ from itertools import chain
 import math
 import re
 import tempfile
-
-# Dependency imports
-
 import numpy as np
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -118,17 +115,21 @@ class TextEncoder(object):
     """
     return [int(w) + self._num_reserved_ids for w in s.split()]
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
     """Transform a sequence of int ids into a human-readable string.
 
     EOS is not expected in ids.
 
     Args:
       ids: list of integers to be converted.
+      strip_extraneous: bool, whether to strip off extraneous tokens
+        (EOS and PAD).
 
     Returns:
       s: human-readable string.
     """
+    if strip_extraneous:
+      ids = strip_ids(ids, list(range(self._num_reserved_ids or 0)))
     return " ".join(self.decode_list(ids))
 
   def decode_list(self, ids):
@@ -169,7 +170,9 @@ class ByteTextEncoder(TextEncoder):
     # Python3: explicitly convert to UTF-8
     return [c + numres for c in s.encode("utf-8")]
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
+    if strip_extraneous:
+      ids = strip_ids(ids, list(range(self._num_reserved_ids or 0)))
     numres = self._num_reserved_ids
     decoded_ids = []
     int2byte = six.int2byte
@@ -215,10 +218,13 @@ class ClassLabelEncoder(TextEncoder):
 
     self._class_labels = class_labels
 
-  def encode(self, label_str):
+  def encode(self, s):
+    label_str = s
     return self._class_labels.index(label_str)
 
-  def decode(self, label_id):
+  def decode(self, ids, strip_extraneous=False):
+    del strip_extraneous
+    label_id = ids
     if isinstance(label_id, list):
       assert len(label_id) == 1
       label_id, = label_id
@@ -248,14 +254,16 @@ class OneHotClassLabelEncoder(TextEncoder):
 
     self._class_labels = class_labels
 
-  def encode(self, label_str, on_value=1, off_value=0):
+  def encode(self, label_str, on_value=1, off_value=0):  # pylint: disable=arguments-differ
     e = np.zeros(self.vocab_size, dtype=np.int32)
     if off_value != 0:
       e.fill(off_value)
     e[self._class_labels.index(label_str)] = on_value
     return e.tolist()
 
-  def decode(self, label_id):
+  def decode(self, ids, strip_extraneous=False):
+    del strip_extraneous
+    label_id = ids
     if isinstance(label_id, np.ndarray):
       label_id = np.squeeze(label_id).astype(np.int8).tolist()
     assert isinstance(label_id, list)
@@ -303,8 +311,9 @@ class TokenTextEncoder(TextEncoder):
       assert vocab_list is not None
       self._init_vocab_from_list(vocab_list)
 
-  def encode(self, sentence):
+  def encode(self, s):
     """Converts a space-separated string of tokens to a list of ids."""
+    sentence = s
     tokens = sentence.strip().split()
     if self._replace_oov is not None:
       tokens = [t if t in self._token_to_id else self._replace_oov
@@ -312,7 +321,7 @@ class TokenTextEncoder(TextEncoder):
     ret = [self._token_to_id[tok] for tok in tokens]
     return ret[::-1] if self._reverse else ret
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
     return " ".join(self.decode_list(ids))
 
   def decode_list(self, ids):
@@ -480,18 +489,18 @@ class SubwordTextEncoder(TextEncoder):
     self.filename = filename
     if filename is not None:
       self._load_from_file(filename)
-    super(SubwordTextEncoder, self).__init__(num_reserved_ids=None)
+    super(SubwordTextEncoder, self).__init__()
 
-  def encode(self, raw_text):
+  def encode(self, s):
     """Converts a native string to a list of subtoken ids.
 
     Args:
-      raw_text: a native string.
+      s: a native string.
     Returns:
       a list of integers in the range [0, vocab_size)
     """
     return self._tokens_to_subtoken_ids(
-        tokenizer.encode(native_to_unicode(raw_text)))
+        tokenizer.encode(native_to_unicode(s)))
 
   def encode_without_tokenizing(self, token_text):
     """Converts string to list of subtoken ids without calling tokenizer.
@@ -510,19 +519,24 @@ class SubwordTextEncoder(TextEncoder):
     """
     return self._tokens_to_subtoken_ids([native_to_unicode(token_text)])
 
-  def decode(self, subtokens):
+  def decode(self, ids, strip_extraneous=False):
     """Converts a sequence of subtoken ids to a native string.
 
     Args:
-      subtokens: a list of integers in the range [0, vocab_size)
+      ids: a list of integers in the range [0, vocab_size)
+      strip_extraneous: bool, whether to strip off extraneous tokens
+        (EOS and PAD).
+
     Returns:
       a native string
     """
+    if strip_extraneous:
+      ids = strip_ids(ids, list(range(self._num_reserved_ids or 0)))
     return unicode_to_native(
-        tokenizer.decode(self._subtoken_ids_to_tokens(subtokens)))
+        tokenizer.decode(self._subtoken_ids_to_tokens(ids)))
 
-  def decode_list(self, subtokens):
-    return [self._subtoken_id_to_subtoken_string(s) for s in subtokens]
+  def decode_list(self, ids):
+    return [self._subtoken_id_to_subtoken_string(s) for s in ids]
 
   @property
   def vocab_size(self):
@@ -836,7 +850,11 @@ class SubwordTextEncoder(TextEncoder):
       # Reinitialize to the candidate vocabulary.
       new_subtoken_strings = [subtoken for _, subtoken in new_subtoken_strings]
       if reserved_tokens:
-        new_subtoken_strings = reserved_tokens + new_subtoken_strings
+        escaped_reserved_tokens = [
+            _escape_token(native_to_unicode(t), self._alphabet)
+            for t in reserved_tokens
+        ]
+        new_subtoken_strings = escaped_reserved_tokens + new_subtoken_strings
 
       self._init_subtokens_from_list(new_subtoken_strings)
       tf.logging.info("vocab_size = %d" % self.vocab_size)
@@ -955,11 +973,12 @@ class ImageEncoder(object):
       raise NotImplementedError("Image reading not implemented.")
     return im.imread(s)
 
-  def decode(self, ids):
+  def decode(self, ids, strip_extraneous=False):
     """Transform a sequence of int ids into an image file.
 
     Args:
       ids: list of integers to be converted.
+      strip_extraneous: unused
 
     Returns:
       Path to the temporary file where the image was saved.
@@ -967,6 +986,7 @@ class ImageEncoder(object):
     Raises:
       ValueError: if the ids are not of the appropriate size.
     """
+    del strip_extraneous
     _, tmp_file_path = tempfile.mkstemp("_decode.png")
     if self._height is None or self._width is None:
       size = int(math.sqrt(len(ids) / self._channels))
@@ -1005,3 +1025,42 @@ class ImageEncoder(object):
   @property
   def vocab_size(self):
     return 256
+
+
+class RealEncoder(object):
+  """Encoder class for saving and loading float values."""
+
+  def encode(self, s):
+    """Transform a string (space separated float values) into a float array.
+
+    Args:
+      s: space separated float values.
+
+    Returns:
+      Array of float values.
+    """
+    return [float(w) for w in s.split()]
+
+  def decode(self, ids, strip_extraneous=False):
+    """Transform sequence of float values into string (float values).
+
+    Args:
+      ids: array of floats to be converted.
+      strip_extraneous: unused
+
+    Returns:
+      String having space separated float values.
+
+    Raises:
+      ValueError: if the ids are not of the appropriate size.
+    """
+    del strip_extraneous
+    return " ".join([str(i) for i in ids])
+
+
+def strip_ids(ids, ids_to_strip):
+  """Strip ids_to_strip from the end ids."""
+  ids = list(ids)
+  while ids and ids[-1] in ids_to_strip:
+    ids.pop()
+  return ids

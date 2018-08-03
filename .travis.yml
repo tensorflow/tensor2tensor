@@ -7,25 +7,44 @@ env:
     - T2T_PROBLEM=algorithmic_reverse_binary40_test
     - T2T_DATA_DIR=/tmp/t2t-data
     - T2T_TRAIN_DIR=/tmp/t2t-train
+    - TF_LATEST="1.9.*"
+    # This is necessary to have gsutil work with Python 2.7
+    - BOTO_CONFIG=/dev/null
   matrix:
-    - TF_VERSION="1.5.*"
-    - TF_VERSION="1.6.*"
-    - TF_VERSION="1.7.*"
+    # We test against recent versions of TensorFlow and tf-nightly.
+    # If updating, also update TF_LATEST above
+    - TF_VERSION="1.8.*"
+    - TF_VERSION="1.9.*"
+    - TF_VERSION="tf-nightly"
 matrix:
   exclude:
+    # We test against all versions in Python 2 but only the latest in Python 3
     - python: "3.6"
-      env: TF_VERSION="1.5.*"
+      env: TF_VERSION="1.8.*"
     - python: "3.6"
-      env: TF_VERSION="1.6.*"
+      env: TF_VERSION="tf-nightly"
 before_install:
-  - echo "deb [arch=amd64] http://storage.googleapis.com/tensorflow-serving-apt stable tensorflow-model-server tensorflow-model-server-universal" | sudo tee /etc/apt/sources.list.d/tensorflow-serving.list
-  - curl https://storage.googleapis.com/tensorflow-serving-apt/tensorflow-serving.release.pub.gpg | sudo apt-key add -
+  # Disabled TensorFlow Serving install until bug fixed. See "Export and query"
+  # section below.
+  # - echo "deb [arch=amd64] http://storage.googleapis.com/tensorflow-serving-apt stable tensorflow-model-server tensorflow-model-server-universal" | sudo tee /etc/apt/sources.list.d/tensorflow-serving.list
+  # - curl https://storage.googleapis.com/tensorflow-serving-apt/tensorflow-serving.release.pub.gpg | sudo apt-key add -
   - sudo apt-get update -qq
   - sudo apt-get install -qq libhdf5-dev
-  - sudo apt-get install -qq tensorflow-model-server
+  # - sudo apt-get install -qq tensorflow-model-server
 install:
-  - pip install -q "tensorflow==$TF_VERSION"
+  - if [[ "$TF_VERSION" == "tf-nightly"  ]];
+    then
+      pip install tf-nightly;
+    else
+      pip install -q "tensorflow==$TF_VERSION";
+    fi
+  # First ensure that the base dependencies are sufficient for a full import
+  - pip install -q .
+  - t2t-trainer --registry_help
+  # Then install the test dependencies
   - pip install -q .[tests]
+  # Make sure to install the atari extras for gym
+  - pip install "gym[atari]"
   # Make sure we have the latest version of numpy - avoid problems we were
   # seeing with Python 3
   - pip install -q -U numpy
@@ -34,17 +53,33 @@ script:
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
 
   # Run tests
+  # Ignores:
+  # Tested separately:
+  #   * registry_test
+  #   * trainer_lib_test
+  #   * visualization_test
+  #   * model_rl_experiment_test
+  #   * model_rl_experiment_stochastic_test
+  #   * models/research
+  # algorithmic_math_test: flaky
+  # universal_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
   - pytest
     --ignore=tensor2tensor/utils/registry_test.py
     --ignore=tensor2tensor/utils/trainer_lib_test.py
     --ignore=tensor2tensor/visualization/visualization_test.py
-    --ignore=tensor2tensor/problems_test.py
     --ignore=tensor2tensor/bin/t2t_trainer_test.py
     --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
-    --ignore=tensor2tensor/models/research/r_transformer_test.py  # Requires new feature in tf.foldl (rm with TF 1.9)
+    --ignore=tensor2tensor/models/research/universal_transformer_test.py
+    --ignore=tensor2tensor/rl/model_rl_experiment_test.py
+    --ignore=tensor2tensor/rl/model_rl_experiment_stochastic_test.py
+    --ignore=tensor2tensor/models/research
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
   - pytest tensor2tensor/visualization/visualization_test.py
+  - if [[ "$TF_VERSION" == "$TF_LATEST"  ]] || [[ "$TF_VERSION" == "tf-nightly"  ]];
+    then
+      pytest tensor2tensor/models/research;
+    fi
 
   # Run installed scripts
   - t2t-datagen 2>&1 | grep translate && echo passed
@@ -57,6 +92,18 @@ script:
   - t2t-datagen --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR
   - t2t-trainer --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --train_steps=5 --eval_steps=5 --output_dir=$T2T_TRAIN_DIR
   - t2t-decoder --problem=$T2T_PROBLEM --data_dir=$T2T_DATA_DIR --model=transformer --hparams_set=transformer_tiny --output_dir=$T2T_TRAIN_DIR --decode_hparams='num_samples=10'
+
+  # Do some things only on Python 2 and the latest TF version
+  # Each should be in a separate block to get proper errors on Travis.
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
+        pylint -j 2 tensor2tensor;
+    fi
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
+        pytest tensor2tensor/rl/model_rl_experiment_test.py;
+    fi
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
+        jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb;
+    fi
 
   # Export and query (on Python 2 only)
   # Bug: https://github.com/tensorflow/serving/issues/819

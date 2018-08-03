@@ -18,9 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -315,7 +312,8 @@ def resnet_v2(inputs,
               layers,
               filters,
               data_format="channels_first",
-              is_training=False):
+              is_training=False,
+              is_cifar=False):
   """Resnet model.
 
   Args:
@@ -330,27 +328,11 @@ def resnet_v2(inputs,
     data_format: `str`, "channels_first" `[batch, channels, height,
         width]` or "channels_last" `[batch, height, width, channels]`.
     is_training: bool, build in training mode or not.
+    is_cifar: bool, whether the data is CIFAR or not.
 
   Returns:
     Pre-logit activations.
   """
-  inputs = conv2d_fixed_padding(
-      inputs=inputs,
-      filters=filters[0],
-      kernel_size=7,
-      strides=2,
-      data_format=data_format)
-  inputs = tf.identity(inputs, "initial_conv")
-  inputs = batch_norm_relu(inputs, is_training, data_format=data_format)
-
-  inputs = tf.layers.max_pooling2d(
-      inputs=inputs,
-      pool_size=3,
-      strides=2,
-      padding="SAME",
-      data_format=data_format)
-  inputs = tf.identity(inputs, "initial_max_pool")
-
   inputs = block_layer(
       inputs=inputs,
       filters=filters[1],
@@ -378,7 +360,7 @@ def resnet_v2(inputs,
       is_training=is_training,
       name="block_layer3",
       data_format=data_format)
-  if filters[4]:
+  if not is_cifar:
     inputs = block_layer(
         inputs=inputs,
         filters=filters[4],
@@ -403,6 +385,7 @@ class Resnet(t2t_model.T2TModel):
         "bottleneck": bottleneck_block,
     }
     assert hp.block_fn in block_fns
+    is_training = hp.mode == tf.estimator.ModeKeys.TRAIN
 
     inputs = features["inputs"]
 
@@ -413,13 +396,32 @@ class Resnet(t2t_model.T2TModel):
       inputs = tf.transpose(inputs, [0, 3, 1, 2])
       data_format = "channels_first"
 
+    inputs = conv2d_fixed_padding(
+        inputs=inputs,
+        filters=hp.filter_sizes[0],
+        kernel_size=7,
+        strides=1 if hp.is_cifar else 2,
+        data_format=data_format)
+    inputs = tf.identity(inputs, "initial_conv")
+    inputs = batch_norm_relu(inputs, is_training, data_format=data_format)
+
+    if not hp.is_cifar:
+      inputs = tf.layers.max_pooling2d(
+          inputs=inputs,
+          pool_size=3,
+          strides=2,
+          padding="SAME",
+          data_format=data_format)
+      inputs = tf.identity(inputs, "initial_max_pool")
+
     out = resnet_v2(
         inputs,
         block_fns[hp.block_fn],
         hp.layer_sizes,
         hp.filter_sizes,
         data_format,
-        is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
+        is_training=is_training,
+        is_cifar=hp.is_cifar)
 
     if hp.use_nchw:
       out = tf.transpose(out, [0, 2, 3, 1])
@@ -461,6 +463,7 @@ def resnet_base():
   hparams.add_hparam("filter_sizes", [64, 64, 128, 256, 512])
   hparams.add_hparam("block_fn", "bottleneck")
   hparams.add_hparam("use_nchw", True)
+  hparams.add_hparam("is_cifar", False)
 
   # Variable init
   hparams.initializer = "normal_unit_scaling"
@@ -519,13 +522,9 @@ def resnet_cifar_15():
   """Set of hyperparameters."""
   hp = resnet_base()
   hp.block_fn = "residual"
+  hp.is_cifar = True
   hp.layer_sizes = [2, 2, 2]
-  hp.filter_sizes = [16, 16, 32, 64, None]
-
-  hp.learning_rate = 0.1 * 128. * 8. / 256.
-  hp.learning_rate_decay_scheme = "piecewise"
-  hp.add_hparam("learning_rate_boundaries", [40000, 60000, 80000])
-  hp.add_hparam("learning_rate_multiples", [0.1, 0.01, 0.001])
+  hp.filter_sizes = [16, 32, 64, 128]
 
   return hp
 

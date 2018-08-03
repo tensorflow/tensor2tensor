@@ -24,9 +24,6 @@ import re
 import sys
 import time
 import unicodedata
-
-# Dependency imports
-
 import numpy as np
 import six
 # pylint: disable=redefined-builtin
@@ -117,8 +114,16 @@ def compute_bleu(reference_corpus,
     geo_mean = math.exp(p_log_sum/max_order)
 
   if use_bp:
-    ratio = translation_length / reference_length
-    bp = math.exp(1 - 1. / ratio) if ratio < 1.0 else 1.0
+    if not reference_length:
+      bp = 1.0
+    else:
+      ratio = translation_length / reference_length
+      if ratio <= 0.0:
+        bp = 0.0
+      elif ratio >= 1.0:
+        bp = 1.0
+      else:
+        bp = math.exp(1 - 1. / ratio)
   bleu = geo_mean * bp
   return np.float32(bleu)
 
@@ -242,7 +247,7 @@ def _read_stepfiles_list(path_prefix, path_suffix=".index", min_steps=0):
   """Return list of StepFiles sorted by step from files at path_prefix."""
   stepfiles = []
   for filename in _try_twice_tf_glob(path_prefix + "*-[0-9]*" + path_suffix):
-    basename = filename[:-len(path_suffix)] if len(path_suffix) else filename
+    basename = filename[:-len(path_suffix)] if path_suffix else filename
     try:
       steps = int(basename.rsplit("-")[-1])
     except ValueError:  # The -[0-9]* part is not an integer.

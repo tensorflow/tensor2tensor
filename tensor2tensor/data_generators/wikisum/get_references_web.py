@@ -49,10 +49,11 @@ import tensorflow as tf
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("command",
-                    "python3 wikisum/get_references_web_single_group.py",
-                    "Command to run get_references_web_single_group, without "
-                    "flags.")
+flags.DEFINE_string(
+    "command",
+    "python3 -m "
+    "tensor2tensor.data_generators.wikisum.get_references_web_single_group",
+    "Command to run get_references_web_single_group, without flags.")
 
 
 def main(_):

@@ -7,7 +7,10 @@ you can easily launch Tensor2Tensor on it, including for hyperparameter tuning.
 # Launch
 
 It's the same `t2t-trainer` you know and love with the addition of the
-`--cloud_mlengine` flag, which by default will launch on a 1-GPU machine.
+`--cloud_mlengine` flag, which by default will launch on a 1-GPU machine
+in the default compute region. See the [docs for `gcloud compute`]
+(https://cloud.google.com/compute/docs/gcloud-compute/#set_default_zone_and_region_in_your_local_client)
+to learn how to set the default compute region.
 
 ```
 # Note that both the data dir and output dir have to be on GCS
@@ -41,6 +44,7 @@ correct value for `--worker_gpu` (for non-GPU machines, you should pass
 possibly with multiple GPUs. Multi-machine setups are not yet supported out of
 the box with the `--cloud_mlengine` flag, though multi-machine should in
 principle work just fine. Contributions/testers welcome.
+
 
 ## `--t2t_usr_dir`
 

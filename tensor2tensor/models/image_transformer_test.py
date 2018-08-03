@@ -18,23 +18,30 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-
+from absl.testing import parameterized
 import numpy as np
 
 from tensor2tensor.data_generators import problem_hparams
+from tensor2tensor.layers import common_image_attention
 from tensor2tensor.models import image_transformer
 
 import tensorflow as tf
 
 
-class ImagetransformerTest(tf.test.TestCase):
+class ImagetransformerTest(parameterized.TestCase, tf.test.TestCase):
 
-  def _testImagetransformer(self, net):
+  @parameterized.named_parameters(
+      ("ImageTransformerCat",
+       image_transformer.Imagetransformer,
+       image_transformer.imagetransformer_tiny()),
+      ("ImageTransformerDmol",
+       image_transformer.Imagetransformer,
+       image_transformer.imagetransformerpp_tiny()),
+  )
+  def testImagetransformer(self, net, hparams):
     batch_size = 3
     size = 7
     vocab_size = 256
-    hparams = image_transformer.imagetransformer_base()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
     inputs = -1 + np.random.random_integers(
         vocab_size, size=(batch_size, 1, 1, 1))
@@ -50,11 +57,11 @@ class ImagetransformerTest(tf.test.TestCase):
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
-    self.assertEqual(res.shape, (batch_size, size, size, 3, vocab_size))
-
-  def testImagetransformer(self):
-    self._testImagetransformer(image_transformer.Imagetransformer)
-
+    if hparams.likelihood == common_image_attention.DistributionType.CAT:
+      expected = (batch_size, size, size, 3, vocab_size)
+    else:
+      expected = (batch_size, size, size, hparams.num_mixtures * 10)
+    self.assertEqual(res.shape, expected)
 
 if __name__ == "__main__":
   tf.test.main()

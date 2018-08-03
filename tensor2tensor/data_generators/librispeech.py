@@ -16,9 +16,6 @@
 
 import os
 import tarfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
@@ -119,6 +116,7 @@ class Librispeech(speech_recognition.SpeechRecognitionProblem):
 
   def generator(self, data_dir, tmp_dir, datasets,
                 eos_list=None, start_from=0, how_many=0):
+    del eos_list
     i = 0
     for url, subdir in datasets:
       filename = os.path.basename(url)
@@ -185,13 +183,13 @@ class LibrispeechTrainFullTestClean(Librispeech):
   """Problem to train on full 960h, but evaluate on clean data only."""
 
   def training_filepaths(self, data_dir, num_shards, shuffled):
-    return Librispeech.training_filepaths(data_dir, num_shards, shuffled)
+    return Librispeech.training_filepaths(self, data_dir, num_shards, shuffled)
 
   def dev_filepaths(self, data_dir, num_shards, shuffled):
-    return LibrispeechClean.dev_filepaths(data_dir, num_shards, shuffled)
+    return LibrispeechClean.dev_filepaths(self, data_dir, num_shards, shuffled)
 
   def test_filepaths(self, data_dir, num_shards, shuffled):
-    return LibrispeechClean.test_filepaths(data_dir, num_shards, shuffled)
+    return LibrispeechClean.test_filepaths(self, data_dir, num_shards, shuffled)
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     raise Exception("Generate librispeech and librispeech_clean data.")

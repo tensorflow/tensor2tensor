@@ -19,9 +19,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
@@ -243,8 +240,8 @@ class TransformerMoe(t2t_model.T2TModel):
 
     # Extend the blocks and fill them with the default values if not specified
     final_layers = ([], [])
-    for i, blocks_str in enumerate(layer_types):
-      for blocks_str in blocks_str.split(SEP_LAYER):
+    for i, blocks_str_joined in enumerate(layer_types):
+      for blocks_str in blocks_str_joined.split(SEP_LAYER):
         if not blocks_str:
           continue
         blocks_list = blocks_str.split(SEP_FF)
@@ -298,6 +295,7 @@ def transformer_moe_base():
   # Hparams used by transformer_prepare_decoder() function
   hparams.add_hparam("pos", "timing")  # timing, none
   hparams.add_hparam("proximity_bias", False)
+  hparams.add_hparam("causal_decoder_self_attention", True)
 
   hparams = common_attention.add_standard_attention_hparams(hparams)
 

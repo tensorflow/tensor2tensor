@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import tarfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
@@ -98,3 +95,15 @@ class SentimentIMDB(text_problems.Text2ClassProblem):
           "inputs": doc,
           "label": int(label),
       }
+
+
+@registry.register_problem
+class SentimentIMDBCharacters(SentimentIMDB):
+  """IMDB sentiment classification, character level."""
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.CHARACTER
+
+  def global_task_id(self):
+    return problem.TaskID.EN_CHR_SENT

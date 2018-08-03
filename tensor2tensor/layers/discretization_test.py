@@ -17,13 +17,14 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-# Dependency imports
+
 import numpy as np
 from tensor2tensor.layers import discretization
 import tensorflow as tf
 
 
 class DiscretizationTest(tf.test.TestCase):
+  """Tests for discretization layers."""
 
   def setUp(self):
     tf.set_random_seed(1234)
@@ -89,7 +90,7 @@ class DiscretizationTest(tf.test.TestCase):
     with self.test_session() as sess:
       tf.global_variables_initializer().run()
       x_sliced_eval = sess.run(x_sliced)
-      self.assertEqual(np.shape(x_sliced_eval), (1, num_blocks, block_dim))
+      self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
       self.assertTrue(np.all(x_sliced_eval == 0))
 
   def testSliceHiddenOnes(self):
@@ -101,16 +102,16 @@ class DiscretizationTest(tf.test.TestCase):
     with self.test_session() as sess:
       tf.global_variables_initializer().run()
       x_sliced_eval = sess.run(x_sliced)
-      self.assertEqual(np.shape(x_sliced_eval), (1, num_blocks, block_dim))
+      self.assertEqual(np.shape(x_sliced_eval), (num_blocks, block_dim))
       self.assertTrue(np.all(x_sliced_eval == 1))
 
   def testNearestNeighbors(self):
     x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
-    x = tf.expand_dims(x, axis=0)
+    x = tf.reshape(x, [1, 1, 2, 3])
     means = tf.constant(
         [[1, 0, 0], [0, 1, 0], [0, 0, 1], [9, 9, 9]], dtype=tf.float32)
     means = tf.stack([means, means], axis=0)
-    x_means_hot = discretization.nearest_neighbor(x, means, block_v_size=4)
+    x_means_hot, _ = discretization.nearest_neighbor(x, means, block_v_size=4)
     x_means_hot_test = np.array([[0, 1, 0, 0], [1, 0, 0, 0]])
     x_means_hot_test = np.expand_dims(x_means_hot_test, axis=0)
     with self.test_session() as sess:
@@ -118,6 +119,59 @@ class DiscretizationTest(tf.test.TestCase):
       x_means_hot_eval = sess.run(x_means_hot)
       self.assertEqual(np.shape(x_means_hot_eval), (1, 2, 4))
       self.assertTrue(np.all(x_means_hot_eval == x_means_hot_test))
+
+  def testGetVQBottleneck(self):
+    bottleneck_bits = 2
+    bottleneck_size = 2**bottleneck_bits
+    hidden_size = 3
+    means, _, ema_count = discretization.get_vq_bottleneck(bottleneck_size,
+                                                           hidden_size)
+    assign_op = means.assign(tf.zeros(shape=[bottleneck_size, hidden_size]))
+    means_new, _, _ = discretization.get_vq_bottleneck(bottleneck_size,
+                                                       hidden_size)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      sess.run(assign_op)
+      self.assertTrue(np.all(sess.run(means_new) == 0))
+      self.assertTrue(np.all(sess.run(ema_count) == 0))
+
+  def testVQNearestNeighbors(self):
+    x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
+    means = tf.constant(
+        [[1, 0, 0], [0, 1, 0], [0, 0, 1], [9, 9, 9]], dtype=tf.float32)
+    x_means_hot, _ = discretization.vq_nearest_neighbor(x, means)
+    x_means_hot_test = np.array([[0, 1, 0, 0], [1, 0, 0, 0]])
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
+      self.assertTrue(np.all(x_means_hot_eval == x_means_hot_test))
+
+  def testVQDiscreteBottleneck(self):
+    x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
+    x_means_hot, _ = discretization.vq_discrete_bottleneck(x, bottleneck_bits=2)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
+
+  def testVQDiscreteUnbottlenck(self):
+    x = tf.constant([[1, 0, 0, 0], [0, 0, 1, 0]], dtype=tf.int32)
+    x_means = discretization.vq_discrete_unbottleneck(x, hidden_size=3)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_eval = sess.run(x_means)
+      self.assertEqual(np.shape(x_means_eval), (2, 3))
+
+  def testGumbelSoftmaxDiscreteBottleneck(self):
+    x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
+    tf.add_to_collection(tf.GraphKeys.GLOBAL_STEP, tf.constant(1))
+    x_means_hot, _ = discretization.gumbel_softmax_discrete_bottleneck(
+        x, bottleneck_bits=2)
+    with self.test_session() as sess:
+      tf.global_variables_initializer().run()
+      x_means_hot_eval = sess.run(x_means_hot)
+      self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
 
 
 if __name__ == '__main__':

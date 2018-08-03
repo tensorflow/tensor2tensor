@@ -55,6 +55,7 @@ from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
 
+
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -175,7 +176,7 @@ def main(_):
     problems = [p for p in problems if "timit" not in p]
   # Remove parsing if paths are not given.
   if not FLAGS.parsing_path:
-    problems = [p for p in problems if "parsing" not in p]
+    problems = [p for p in problems if "parsing_english_ptb" not in p]
 
   if not problems:
     problems_str = "\n  * ".join(
@@ -234,6 +235,7 @@ def generate_data_in_process(arg):
 
 
 def generate_data_for_registered_problem(problem_name):
+  """Generate data for a registered problem."""
   tf.logging.info("Generating data for %s.", problem_name)
   if FLAGS.num_shards:
     raise ValueError("--num_shards should not be set for registered Problem.")
@@ -258,4 +260,5 @@ def generate_data_for_registered_problem(problem_name):
     problem.generate_data(data_dir, tmp_dir, task_id)
 
 if __name__ == "__main__":
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()

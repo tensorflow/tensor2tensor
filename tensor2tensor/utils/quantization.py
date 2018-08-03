@@ -16,9 +16,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import tensorflow as tf
 
 from tensorflow.python.framework import function
@@ -88,7 +85,7 @@ def simulated_quantize(x, num_bits, noise):
   shape = x.get_shape().as_list()
   if not (len(shape) >= 2 and shape[-1] > 1):
     return x
-  max_abs = tf.reduce_max(tf.abs(x), -1, keep_dims=True) + 1e-9
+  max_abs = tf.reduce_max(tf.abs(x), -1, keepdims=True) + 1e-9
   max_int = 2 ** (num_bits - 1) - 1
   scale = max_abs / max_int
   x /= scale

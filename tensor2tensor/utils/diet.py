@@ -24,7 +24,7 @@ by using the fn_with_diet_vars decorator.
 from collections import defaultdict
 import copy
 import math
-# Dependency imports
+
 from tensor2tensor.layers import common_layers
 import tensorflow as tf
 
@@ -192,10 +192,10 @@ class DietAdamOptimizer(DietVariableOptimizer):
     beta2_pow = tf.pow(params.beta2, global_step)
     if params.factored_second_moment_accumulator and len(var.shape) == 2:
       vr_update = tf.assign(slots["adam_vr"], slots["adam_vr"] * params.beta2 +
-                            tf.reduce_mean(grad_squared, 1, keep_dims=True) *
+                            tf.reduce_mean(grad_squared, 1, keepdims=True) *
                             (1.0 - params.beta2))
       vc_update = tf.assign(slots["adam_vc"], slots["adam_vc"] * params.beta2 +
-                            tf.reduce_mean(grad_squared, 0, keep_dims=True) *
+                            tf.reduce_mean(grad_squared, 0, keepdims=True) *
                             (1.0 - params.beta2))
       with tf.control_dependencies([vr_update, vc_update]):
         vr = tf.sqrt(slots["adam_vr"] / (1.0 - beta2_pow)) + params.epsilon
@@ -259,6 +259,7 @@ def make_diet_var_getter(params):
   """Create a custom variable getter for diet variables according to params."""
 
   def diet_var_initializer(shape, dtype, partition_info=None):
+    """Initializer for a diet variable."""
     del dtype
     del partition_info
 
@@ -296,6 +297,7 @@ def _fn_with_diet_vars(fn, args, params):
   vs_ctr = []
 
   def grad_fn(inputs, variables, outputs, output_grads):
+    """Custom gradient function."""
     del outputs  # recomputing below
     with common_layers.fn_device_dependency("diet_grad",
                                             output_grads[0].device) as out_dep:

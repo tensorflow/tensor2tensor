@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 from tensor2tensor.data_generators import image_utils
 
@@ -72,6 +69,48 @@ class ImageTest(tf.test.TestCase):
       self.assertEqual(len(encoded_img2), 1)
       decoded2 = sess.run(decoded_png_t, feed_dict={image_t: encoded_img2[0]})
       self.assertAllClose(decoded2, image2)
+
+  def testMakeMultiscaleDivisible(self):
+    image = tf.random_normal([256, 256, 3])
+    resolutions = [8, 16, 64, 256]
+    scaled_images = image_utils.make_multiscale(image, resolutions)
+    self.assertEqual(scaled_images[0].shape, (8, 8, 3))
+    self.assertEqual(scaled_images[1].shape, (16, 16, 3))
+    self.assertEqual(scaled_images[2].shape, (64, 64, 3))
+    self.assertEqual(scaled_images[3].shape, (256, 256, 3))
+
+  def testMakeMultiscaleIndivisible(self):
+    image = tf.random_normal([256, 256, 3])
+    resolutions = [255]
+    scaled_images = image_utils.make_multiscale(image, resolutions)
+    self.assertEqual(scaled_images[0].shape, (255, 255, 3))
+
+  def testMakeMultiscaleLarger(self):
+    image = tf.random_normal([256, 256, 3])
+    resolutions = [257]
+    scaled_images = image_utils.make_multiscale(image, resolutions)
+    self.assertEqual(scaled_images[0].shape, (257, 257, 3))
+
+  def testMakeMultiscaleDilatedDivisible(self):
+    image = tf.random_normal([256, 256, 3])
+    resolutions = [8, 16, 64, 256]
+    scaled_images = image_utils.make_multiscale_dilated(image, resolutions)
+    self.assertEqual(scaled_images[0].shape, (8, 8, 3))
+    self.assertEqual(scaled_images[1].shape, (16, 16, 3))
+    self.assertEqual(scaled_images[2].shape, (64, 64, 3))
+    self.assertEqual(scaled_images[3].shape, (256, 256, 3))
+
+  def testMakeMultiscaleDilatedIndivisible(self):
+    image = tf.random_normal([256, 256, 3])
+    resolutions = [255]
+    scaled_images = image_utils.make_multiscale_dilated(image, resolutions)
+    self.assertEqual(scaled_images[0].shape, (256, 256, 3))
+
+  def testMakeMultiscaleDilatedLarger(self):
+    image = tf.random_normal([256, 256, 3])
+    resolutions = [257]
+    with self.assertRaisesRegexp(ValueError, "strides.* must be non-zero"):
+      _ = image_utils.make_multiscale_dilated(image, resolutions)
 
 
 if __name__ == "__main__":

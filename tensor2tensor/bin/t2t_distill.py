@@ -22,9 +22,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-
-# Dependency imports
-
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.bin import t2t_trainer
@@ -43,10 +40,11 @@ def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  t2t_trainer.log_registry()
+  t2t_trainer.maybe_log_registry_and_exit()
 
   if FLAGS.cloud_mlengine:
-    return cloud_mlengine.launch()
+    cloud_mlengine.launch()
+    return
 
   if FLAGS.generate_data:
     t2t_trainer.generate_data()
@@ -96,7 +94,7 @@ def create_teacher_experiment(run_config, hparams, argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  t2t_trainer.log_registry()
+  t2t_trainer.maybe_log_registry_and_exit()
 
   if FLAGS.cloud_mlengine:
     return cloud_mlengine.launch()
@@ -123,7 +121,7 @@ def create_student_experiment(run_config, hparams, argv):
   tf.logging.set_verbosity(tf.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  t2t_trainer.log_registry()
+  t2t_trainer.maybe_log_registry_and_exit()
 
   if FLAGS.cloud_mlengine:
     return cloud_mlengine.launch()
