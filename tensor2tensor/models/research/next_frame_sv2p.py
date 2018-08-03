@@ -541,6 +541,18 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
 
     return gen_images, gen_rewards, [latent_mean], [latent_std]
 
+  def get_extra_loss(self, latent_means=None, latent_stds=None,
+                     true_frames=None, gen_frames=None, beta=1.0):
+    """Losses in addition to the default modality losses."""
+    kl_loss = 0.0
+    if self.is_training:
+      for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
+        kl_loss += common_layers.kl_divergence(mean, std)
+        tf.summary.histogram("posterior_mean_%d" % i, mean)
+        tf.summary.histogram("posterior_std_%d" % i, std)
+      tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
+    return beta * kl_loss
+
   def body(self, features):
     hparams = self.hparams
     batch_size = common_layers.shape_list(features["inputs"])[0]
@@ -578,17 +590,10 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     )
 
     beta = self.get_beta()
-    kl_loss = 0.0
-    if self.is_training:
-      for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
-        kl_loss += common_layers.kl_divergence(mean, std)
-        tf.summary.histogram("posterior_mean_%d" % i, mean)
-        tf.summary.histogram("posterior_std_%d" % i, std)
-
-      tf.summary.scalar("beta", beta)
-      tf.summary.scalar("kl_raw", tf.reduce_mean(kl_loss))
-
-    extra_loss = beta * kl_loss
+    extra_loss = self.get_extra_loss(
+        latent_means=latent_means,
+        latent_stds=latent_stds, beta=beta, true_frames=all_frames,
+        gen_frames=gen_images)
 
     # Ignore the predictions from the input frames.
     # This is NOT the same as original paper/implementation.

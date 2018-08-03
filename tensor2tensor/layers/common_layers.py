@@ -711,6 +711,46 @@ def l2_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
     return norm_x * scale + bias
 
 
+def apply_spectral_norm(x):
+  """Normalizes x using the spectral norm.
+
+  The implementation follows Algorithm 1 of
+  https://arxiv.org/abs/1802.05957. If x is not a 2-D Tensor, then it is
+  reshaped such that the number of channels (last-dimension) is the same.
+
+  Args:
+    x: Tensor with the last dimension equal to the number of filters.
+
+  Returns:
+    x: Tensor with the same shape as x normalized by the spectral norm.
+    assign_op: Op to be run after every step to update the vector "u".
+  """
+  weights_shape = shape_list(x)
+  other, num_filters = tf.reduce_prod(weights_shape[:-1]), weights_shape[-1]
+
+  # Reshape into a 2-D matrix with outer size num_filters.
+  weights_2d = tf.reshape(x, (other, num_filters))
+
+  # v = Wu / ||W u||
+  with tf.variable_scope("u", reuse=tf.AUTO_REUSE):
+    u = tf.get_variable(
+        "u", [num_filters, 1], initializer=tf.truncated_normal_initializer(),
+        trainable=False)
+  v = tf.nn.l2_normalize(tf.matmul(weights_2d, u))
+
+  # u_new = vW / ||v W||
+  u_new = tf.nn.l2_normalize(tf.matmul(tf.transpose(v), weights_2d))
+
+  # s = v*W*u
+  spectral_norm = tf.squeeze(tf.matmul(
+      tf.transpose(v),
+      tf.matmul(weights_2d, tf.transpose(u_new))))
+
+  # set u equal to u_new in the next iteration.
+  assign_op = tf.assign(u, tf.transpose(u_new))
+  return tf.divide(x, spectral_norm), assign_op
+
+
 def apply_norm(x, norm_type, depth, epsilon):
   """Apply Normalization."""
   if norm_type == "layer":
@@ -3505,7 +3545,8 @@ def sliced_gan_loss(input1,
                     discriminator,
                     num_vecs,
                     do_random_vecs=True,
-                    do_tanh=True):
+                    do_tanh=True,
+                    return_logits=False):
   """Loss inspired by the sliced WGAN paper: https://arxiv.org/abs/1804.01947.
 
   Puts input1 and input2 through the provided discriminator to get logits.
@@ -3520,6 +3561,7 @@ def sliced_gan_loss(input1,
     num_vecs: how many random vectors to use for projections.
     do_random_vecs: whether to use random vectors or just tanh of the logits.
     do_tanh: if true (default) we'll also just use tanh of the logits.
+    return_logits: Whether or not to return the logits.
 
   Returns:
     The generator loss, i.e., the sliced approximation of the distance between
@@ -3565,7 +3607,10 @@ def sliced_gan_loss(input1,
 
     proj1 = get_sorted_projections(logits1)
     proj2 = get_sorted_projections(logits2)
-    return tf.reduce_mean(tf.square(proj1 - proj2))
+    dist = tf.reduce_mean(tf.square(proj1 - proj2))
+    if return_logits:
+      return dist, logits1, logits2
+    return dist
 
 
 def upscale(inputs, f, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR):

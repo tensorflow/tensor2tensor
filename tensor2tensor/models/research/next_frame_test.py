@@ -231,6 +231,20 @@ class NextFrameTest(tf.test.TestCase):
         next_frame_savp.NextFrameSAVP,
         1)
 
+  def testStochasticSavpGAN(self):
+    hparams = next_frame_params.next_frame_savp()
+    hparams.use_gan = True
+    hparams.use_vae = False
+    self.TestVideoModel(7, 5, hparams, next_frame_savp.NextFrameSAVP, 1)
+
+  def testStochasticInvalidVAEGANCombinations(self):
+    hparams = next_frame_params.next_frame_savp()
+    for use_vae, use_gan in [[True, True], [False, False]]:
+      hparams.use_gan = use_gan
+      hparams.use_vae = use_vae
+      self.assertRaises(ValueError, self.TestVideoModel,
+                        7, 5, hparams, next_frame_savp.NextFrameSAVP, 1)
+
 
 if __name__ == "__main__":
   tf.test.main()

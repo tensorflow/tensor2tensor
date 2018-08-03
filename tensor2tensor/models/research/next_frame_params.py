@@ -104,6 +104,12 @@ def next_frame_savp():
   """SAVP model."""
   hparams = next_frame_stochastic()
   hparams.add_hparam("z_dim", 8)
+  hparams.add_hparam("num_discriminator_filters", 32)
+  hparams.add_hparam("use_vae", True)
+  hparams.add_hparam("use_gan", False)
+  hparams.add_hparam("use_spectral_norm", True)
+  hparams.add_hparam("gan_loss", "cross_entropy")
+  hparams.add_hparam("gan_loss_multiplier", 0.01)
   hparams.target_modality = "video:l1raw"
   hparams.input_modalities = "inputs:video:l1raw"
   hparams.latent_loss_multiplier_schedule = "linear_anneal"
