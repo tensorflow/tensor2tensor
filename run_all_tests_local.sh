@@ -22,4 +22,5 @@ dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        --ignore=/usr/src/t2t/tensor2tensor/data_generators/algorithmic_math_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/utils/checkpoint_compatibility_test.py \
        --junitxml=/usr/src/t2t/test_results/pytest/unittests.xml \
-       /usr/src/t2t/tensor2tensor
+       /usr/src/t2t/tensor2tensor/models/research/
+#       --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
