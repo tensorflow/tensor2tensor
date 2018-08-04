@@ -152,6 +152,7 @@ def train_agent(problem_name, agent_model_dir,
   ppo_epochs_num = hparams.ppo_epochs_num
   if is_final_epoch:
     ppo_epochs_num *= 2
+    ppo_hparams.epoch_length *= 2
   ppo_hparams.save_models_every_epochs = ppo_epochs_num
   ppo_hparams.world_model_dir = world_model_dir
   ppo_hparams.add_hparam("force_beginning_resets", True)
