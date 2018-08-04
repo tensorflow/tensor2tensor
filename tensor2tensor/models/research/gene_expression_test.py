@@ -16,9 +16,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 import numpy as np
 
 from tensor2tensor.data_generators import gene_expression as gene_data
@@ -37,7 +34,7 @@ def gene_expression_conv_test():
 
 class GeneExpressionModelsTest(tf.test.TestCase):
 
-  def _testModel(self, hparams, model_cls):
+  def _test_model(self, hparams, model_cls):
     batch_size = 3
     target_length = 6
     target_out = 10  # GeneExpressionProblem.num_output_predictions
@@ -70,7 +67,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
       hparams.add_hparam("data_dir", None)
       p_hparams = gene_data.GenomicsExpressionCage10().get_hparams(hparams)
       hparams.problem_hparams = p_hparams
-      self._testModel(hparams, model_cls)
+      self._test_model(hparams, model_cls)
 
 
 if __name__ == "__main__":

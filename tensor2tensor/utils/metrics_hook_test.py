@@ -21,9 +21,6 @@ from __future__ import print_function
 import contextlib
 import os
 import shutil
-
-# Dependency imports
-
 from tensor2tensor.utils import metrics_hook
 
 import tensorflow as tf

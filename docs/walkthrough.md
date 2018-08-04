@@ -26,10 +26,10 @@ You can chat with us on
 
 ### Quick Start
 
-[This iPython notebook](https://goo.gl/wkHexj) explains T2T and runs in your
-browser using a free VM from Google, no installation needed.
-Alternatively, here is a one-command version that installs T2T, downloads MNIST,
-trains a model and evaluates it:
+[This iPython notebook](https://colab.research.google.com/github/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/hello_t2t.ipynb)
+explains T2T and runs in your browser using a free VM from Google,
+no installation needed. Alternatively, here is a one-command version that
+installs T2T, downloads MNIST, trains a model and evaluates it:
 
 ```
 pip install tensor2tensor && t2t-trainer \
@@ -47,6 +47,7 @@ pip install tensor2tensor && t2t-trainer \
 
 * [Suggested Datasets and Models](#suggested-datasets-and-models)
   * [Image Classification](#image-classification)
+  * [Image Generation](#image-generation)
   * [Language Modeling](#language-modeling)
   * [Sentiment Analysis](#sentiment-analysis)
   * [Speech Recognition](#speech-recognition)
@@ -78,6 +79,7 @@ to modify the hyperparameters if you run on a different setup.
 ### Image Classification
 
 For image classification, we have a number of standard data-sets:
+
 * ImageNet (a large data-set): `--problem=image_imagenet`, or one
    of the re-scaled versions (`image_imagenet224`, `image_imagenet64`,
    `image_imagenet32`)
@@ -96,9 +98,29 @@ For CIFAR and MNIST, we suggest to try the shake-shake model:
 This setting trained for `--train_steps=700000` should yield
 close to 97% accuracy on CIFAR-10.
 
+### Image Generation
+
+For (un)conditional image generation, we have a number of standard data-sets:
+
+* CelebA: `--problem=img2img_celeba` for image-to-image translation, namely,
+    superresolution from 8x8 to 32x32.
+* CelebA-HQ: `--problem=image_celeba256_rev` for a downsampled 256x256.
+* CIFAR-10: `--problem=image_cifar10_plain_gen_rev` for class-conditional
+    32x32 generation.
+* LSUN Bedrooms: `--problem=image_lsun_bedrooms_rev`
+* MS-COCO: `--problem=image_text_ms_coco_rev` for text-to-image generation.
+* Small ImageNet (a large data-set): `--problem=image_imagenet32_gen_rev` for
+    32x32 or `--problem=image_imagenet64_gen_rev` for 64x64.
+
+We suggest to use the Image Transformer, i.e., `--model=imagetransformer`, or
+variational auto-encoder, i.e., `--model=transformer_ae`. For CIFAR-10, using
+`--hparams_set=imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_m` yields 2.90
+bits per dimension.
+
 ### Language Modeling
 
 For language modeling, we have these data-sets in T2T:
+
 * PTB (a small data-set): `--problem=languagemodel_ptb10k` for
     word-level modeling and `--problem=languagemodel_ptb_characters`
     for character-level modeling.
@@ -113,6 +135,7 @@ We suggest to start with `--model=transformer` on this task and use
 ### Sentiment Analysis
 
 For the task of recognizing the sentiment of a sentence, use
+
 * the IMDB data-set: `--problem=sentiment_imdb`
 
 We suggest to use `--model=transformer_encoder` here and since it is
@@ -122,13 +145,18 @@ few steps (e.g., `--train_steps=2000`).
 ### Speech Recognition
 
 For speech-to-text, we have these data-sets in T2T:
-* Librispeech (English speech to text): `--problem=librispeech` for
+
+* Librispeech (US English): `--problem=librispeech` for
     the whole set and `--problem=librispeech_clean` for a smaller
     but nicely filtered part.
+
+* Mozilla Common Voice (US English): `--problem=common_voice` for the whole set
+    `--problem=common_voice_clean` for a quality-checked subset.
 
 ### Summarization
 
 For summarizing longer text into shorter one we have these data-sets:
+
 * CNN/DailyMail articles summarized into a few sentences:
   `--problem=summarize_cnn_dailymail32k`
 
@@ -139,6 +167,7 @@ This yields good ROUGE scores.
 ### Translation
 
 There are a number of translation data-sets in T2T:
+
 * English-German: `--problem=translate_ende_wmt32k`
 * English-French: `--problem=translate_enfr_wmt32k`
 * English-Czech: `--problem=translate_encs_wmt32k`
@@ -147,7 +176,9 @@ There are a number of translation data-sets in T2T:
 
 You can get translations in the other direction by appending `_rev` to
 the problem name, e.g., for German-English use
-`--problem=translate_ende_wmt32k_rev`.
+`--problem=translate_ende_wmt32k_rev`
+(note that you still need to download the original data with t2t-datagen
+`--problem=translate_ende_wmt32k`).
 
 For all translation problems, we suggest to try the Transformer model:
 `--model=transformer`. At first it is best to try the base setting,
@@ -391,5 +422,6 @@ T2T](https://research.googleblog.com/2017/06/accelerating-deep-learning-research
 * [Self-Attention with Relative Position Representations](https://arxiv.org/abs/1803.02155)
 * [Fast Decoding in Sequence Models using Discrete Latent Variables](https://arxiv.org/abs/1803.03382)
 * [Adafactor: Adaptive Learning Rates with Sublinear Memory Cost](https://arxiv.org/abs/1804.04235)
+* [Universal Transformers](https://arxiv.org/abs/1807.03819)
 
 *Note: This is not an official Google product.*

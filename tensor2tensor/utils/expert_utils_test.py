@@ -13,12 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Tests for tensor2tensor.utils.expert_utils."""
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
 from tensor2tensor.layers import common_attention
 from tensor2tensor.utils import expert_utils
 import tensorflow as tf

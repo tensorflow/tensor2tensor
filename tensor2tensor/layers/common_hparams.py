@@ -17,9 +17,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import registry
 
@@ -67,6 +64,8 @@ def basic_params1():
       optimizer_adafactor_memory_exponent=0.8,
       optimizer_adafactor_clipping_threshold=1.0,
       optimizer_adafactor_multiply_by_parameter_scale=True,
+      # Number of accumulating steps for multi step optimizers.
+      optimizer_multistep_accumulate_steps=None,
       weight_decay=1e-6,
       weight_noise=0.0,
       # Defines the learning rate as a product of named functions.
@@ -127,6 +126,8 @@ def basic_params1():
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
       symbol_modality_num_shards=1,
+      # pad vocabularies so that this value divides the vocabulary size.
+      vocab_divisor=1,
       # During training, we drop sequences whose inputs and targets are shorter
       # than min_length
       min_length=0,
@@ -153,12 +154,15 @@ def basic_params1():
       # during eval
       eval_run_autoregressive=False,
       # TODO(lukaszkaiser): these parameters should probably be set elsewhere.
-      # in SymbolModality, share the output embeddings and the softmax
-      # variables.
-      # You can also share the input embeddings with the output embeddings
+      # (SymbolModality) - If this flag is on, we try to share all of the input
+      # embeddings, the target embeddings and the softmax weights.
+      shared_embedding_and_softmax_weights=False,
+      # (SymbolModality) - If this flag is on, we try to share the input
+      # embeddings and the target embeddings.
+      # You can also share the input embeddings with the target embeddings
       # by using a problem_hparams that uses the same modality object for
       # the input_modality and target_modality.
-      shared_embedding_and_softmax_weights=False,
+      shared_embedding=False,
       # In SymbolModality, skip the top layer, assume we're providing logits.
       symbol_modality_skip_top=False,
       # For each feature for which you want to override the default input
@@ -186,6 +190,9 @@ def basic_params1():
       # examples.  e.g.  The examples may be written with length 65536, but we
       # want to split each example into 64 examples of length 1024.
       split_to_length=0,
+      # Video settings: how many frames to batch on input and targets.
+      video_num_input_frames=1,
+      video_num_target_frames=1,
       # This flag allows us to optionally treat a seq-to-seq problem
       # as a language model.  Legal values are:
       #
@@ -241,6 +248,11 @@ def basic_params1():
       #   roundoff.  Initial experiments show that model quality is similar
       #   to baseline for about 3M training steps, but worse thereafter.
       weight_dtype="float32",
+      # Directory containing a checkpoint for a pretrained model. This will only
+      # be used if a new run is being started. Parameters not found in the
+      # pretrained model will be randomly initialized. Superfluous parameters in
+      # the pretrained model will be ignored.
+      pretrained_model_dir="",
   )
 
 
@@ -388,3 +400,9 @@ def basic_range1(ranged_hparams):
   rhp.set_categorical(
       "optimizer",
       ["Adam", "Adagrad", "Momentum", "RMSProp", "SGD", "YellowFin"])
+
+
+@registry.register_ranged_hparams
+def basic_moe_range(rhp):
+  """Moe range; when this parameter is unused, it allows us to see variance."""
+  rhp.set_float("moe_loss_coef", 0.01, 0.02)

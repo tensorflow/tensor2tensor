@@ -14,18 +14,23 @@ docker pull $IMAGE
 
 docker run -it \
        -v $HOME/$DT:/usr/src/diseaseTools \
-       -v $HOME/$T2T:/usr/src/tensor2tensor \
-       -w /usr/src/tensor2tensor \
-       --env PYTHONPATH=/usr/src/tensor2tensor:/usr/src/diseaseTools \
+       -v $HOME/$T2T:/usr/src/t2t \
+       -w /usr/src/t2t \
+       --env PYTHONPATH=/usr/src/t2t:/usr/src/diseaseTools \
        --env $GCS_KEY_NAME=$GCS_KEY_PATH \
        $IMAGE \
        python3 -m pytest -vv \
-       --ignore=tensor2tensor/utils/registry_test.py \
-       --ignore=tensor2tensor/utils/trainer_lib_test.py \
-       --ignore=tensor2tensor/visualization/visualization_test.py \
-       --ignore=tensor2tensor/problems_test.py \
-       --ignore=tensor2tensor/bin/t2t_trainer_test.py \
-       --ignore=tensor2tensor/data_generators/algorithmic_math_test.py \
-       --ignore=tensor2tensor/models/research/r_transformer_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/utils/registry_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/utils/trainer_lib_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/visualization/visualization_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/bin/t2t_trainer_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/algorithmic_math_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/rl/ \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/allen_brain_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/problems_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/gym_problems_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/utils/checkpoint_compatibility_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
        --junitxml=/usr/src/t2t/test_results/pytest/unittests.xml \
-       /usr/src/tensor2tensor/tensor2tensor
+       /usr/src/t2t/tensor2tensor/
+

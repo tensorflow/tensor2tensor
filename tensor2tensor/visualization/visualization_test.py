@@ -43,7 +43,7 @@ def get_data_dir():
 
 problem_name = 'translate_ende_wmt32k'
 model_name = 'transformer'
-hparams_set = 'transformer_base_single_gpu'
+hparams_set = 'transformer_tiny'
 
 
 class VisualizationTest(tf.test.TestCase):

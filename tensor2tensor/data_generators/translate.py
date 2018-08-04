@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import tarfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -56,14 +53,12 @@ class TranslateProblem(text_problems.Text2TextProblem):
     tag = "train" if dataset_split == problem.DatasetSplit.TRAIN else "dev"
     data_path = compile_data(tmp_dir, datasets, "%s-compiled-%s" % (self.name,
                                                                     tag))
-
-    if self.vocab_type == text_problems.VocabType.SUBWORD:
-      generator_utils.get_or_generate_vocab(
-          data_dir, tmp_dir, self.vocab_filename, self.approx_vocab_size,
-          self.vocab_data_files())
-
     return text_problems.text2text_txt_iterator(data_path + ".lang1",
                                                 data_path + ".lang2")
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    return generator_utils.generate_lines_for_vocab(tmp_dir,
+                                                    self.vocab_data_files())
 
 
 def _preprocess_sgm(line, is_sgm):
@@ -92,6 +87,7 @@ def compile_data(tmp_dir, datasets, filename):
   if tf.gfile.Exists(lang1_fname) and tf.gfile.Exists(lang2_fname):
     tf.logging.info("Skipping compile data, found files:\n%s\n%s", lang1_fname,
                     lang2_fname)
+    return filename
   with tf.gfile.GFile(lang1_fname, mode="w") as lang1_resfile:
     with tf.gfile.GFile(lang2_fname, mode="w") as lang2_resfile:
       for dataset in datasets:
@@ -166,6 +162,20 @@ class TranslateDistillProblem(TranslateProblem):
 
   def is_generate_per_split(self):
     return True
+
+  def example_reading_spec(self):
+    data_fields = {"dist_targets": tf.VarLenFeature(tf.int64)}
+
+    if self.has_inputs:
+      data_fields["inputs"] = tf.VarLenFeature(tf.int64)
+
+    # hack: ignoring true targets and putting dist_targets in targets
+    data_items_to_decoders = {
+        "inputs": tf.contrib.slim.tfexample_decoder.Tensor("inputs"),
+        "targets": tf.contrib.slim.tfexample_decoder.Tensor("dist_targets"),
+    }
+
+    return (data_fields, data_items_to_decoders)
 
   def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
     """Get vocab for distill problems."""

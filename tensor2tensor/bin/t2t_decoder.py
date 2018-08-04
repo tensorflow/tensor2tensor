@@ -44,6 +44,7 @@ from fathomairflow.dags.dag_management.xcom_manipulation import echo_yaml_for_xc
 # Dependency imports
 
 from tensor2tensor.bin import t2t_trainer
+from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import registry
@@ -76,6 +77,8 @@ flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based 
 flags.DEFINE_bool("use_original_input", False,
                   "Use the input that was used for validation during training?")
 from fathomtf.services.model_management import fathom_t2t_model_setup
+flags.DEFINE_bool("decode_in_memory", False, "Decode in memory.")
+
 
 def create_hparams():
   return trainer_lib.create_hparams(
@@ -87,14 +90,17 @@ def create_hparams():
 
 def create_decode_hparams():
   decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
-  decode_hp.add_hparam("shards", FLAGS.decode_shards)
-  decode_hp.add_hparam("shard_id", FLAGS.worker_id)
-  # Fathom
+  decode_hp.shards = FLAGS.decode_shards
+  decode_hp.shard_id = FLAGS.worker_id
+  decode_hp.decode_in_memory = FLAGS.decode_in_memory
+
+  # TODO: rllin fix
   decode_hp = decode_num_examples(decode_hp=decode_hp)
   return decode_hp
 
 
 def decode(estimator, hparams, decode_hp):
+  """Decode from estimator. Interactive, from file, or from dataset."""
   if FLAGS.decode_interactive:
     if estimator.config.use_tpu:
       raise ValueError("TPU can only decode from dataset.")
@@ -202,6 +208,7 @@ def main(_):
   checkpoint_path = fathom_t2t_model_setup()
 
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
+
 
   if FLAGS.score_file:
     filename = os.path.expanduser(FLAGS.score_file)

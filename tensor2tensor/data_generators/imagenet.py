@@ -19,7 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-# Dependency imports
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
@@ -126,8 +125,8 @@ class ImageImagenet(image_utils.Image2ClassProblem):
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     # TODO(lukaszkaiser): find a better way than printing this.
     print("To generate the ImageNet dataset in the proper format, follow "
-          "instructions at https://github.com/tensorflow/models/blob/master"
-          "/inception/README.md#getting-started")
+          "instructions at https://github.com/tensorflow/models/tree/master"
+          "/research/inception/README.md#getting-started")
 
   def preprocess_example(self, example, mode, _):
     return imagenet_preprocess_example(example, mode)
@@ -188,8 +187,42 @@ class ImageImagenet32(ImageImagenetRescaled):
 
 
 @registry.register_problem
+class ImageImagenet32Gen(ImageImagenet):
+  """Imagenet 32 from the pixen cnn paper"""
+
+  @property
+  def train_shards(self):
+    return 1024
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def generate_data(self, data_dir, tmp_dir, task_id=-1):
+    generator_utils.generate_dataset_and_shuffle(
+        self.generator(data_dir, tmp_dir, True),
+        self.training_filepaths(data_dir, self.train_shards, shuffled=True),
+        self.generator(data_dir, tmp_dir, False),
+        self.dev_filepaths(data_dir, self.dev_shards, shuffled=True))
+
+  def generator(self, data_dir, tmp_dir, is_training):
+    if is_training:
+      return imagenet_pixelrnn_generator(
+          tmp_dir, int(True), size=_IMAGENET_SMALL_IMAGE_SIZE)
+    else:
+      return imagenet_pixelrnn_generator(
+          tmp_dir, int(is_training), size=_IMAGENET_SMALL_IMAGE_SIZE)
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_IMAGENET_SMALL_IMAGE_SIZE,
+                                 _IMAGENET_SMALL_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    return example
+
+
+@registry.register_problem
 class ImageImagenet64Gen(ImageImagenet):
-  """Cifar-10 Tune."""
+  """Imagenet 64 from the pixen cnn paper"""
 
   @property
   def train_shards(self):
@@ -241,26 +274,56 @@ class ImageImagenetMultiResolutionGen(ImageImagenet64Gen):
 
   def preprocess_example(self, example, mode, hparams):
     image = example["inputs"]
+    # Get resize method. Include a default if not specified, or if it's not in
+    # TensorFlow's collection of pre-implemented resize methods.
+    resize_method = getattr(hparams, "resize_method", "BICUBIC")
+    resize_method = getattr(tf.image.ResizeMethod, resize_method, resize_method)
 
-    if hasattr(hparams, "resize_method"):
-      method = getattr(tf.image.ResizeMethod, hparams.resize_method)
-    else:  # default
-      method = tf.image.ResizeMethod.BICUBIC
+    if resize_method == "DILATED":
+      scaled_images = image_utils.make_multiscale_dilated(
+          image, hparams.resolutions, num_channels=self.num_channels)
+    else:
+      scaled_images = image_utils.make_multiscale(
+          image, hparams.resolutions,
+          resize_method=resize_method, num_channels=self.num_channels)
 
-    scaled_images = image_utils.make_multiscale(
-        image, hparams.resolutions,
-        resize_method=method, num_channels=self.num_channels)
-
-    highest_res = hparams.resolutions[-1]
     # Pack tuple of scaled images into one tensor. We do this by enforcing the
     # columns to match for every resolution.
     # TODO(avaswani, trandustin): We should create tuples because this will not
     # work if height*width of low res < width of high res
+    highest_res = hparams.resolutions[-1]
     example["inputs"] = tf.concat([
         tf.reshape(scaled_image,
                    [res**2 // highest_res, highest_res, self.num_channels])
         for scaled_image, res in zip(scaled_images, hparams.resolutions)],
                                   axis=0)
+    return example
+
+
+@registry.register_problem
+class ImageImagenet32Small(ImageImagenet):
+  """Imagenet small from the pixel cnn paper"""
+
+  @property
+  def is_small(self):
+    return False  # Modalities like for CIFAR.
+
+  @property
+  def num_classes(self):
+    return 1000
+
+  @property
+  def train_shards(self):
+    return 1024
+
+  @property
+  def dev_shards(self):
+    return 10
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_IMAGENET_SMALL_IMAGE_SIZE,
+                                 _IMAGENET_SMALL_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
     return example
 
 

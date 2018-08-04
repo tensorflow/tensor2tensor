@@ -243,44 +243,14 @@ def _references_files_by_shard(refs_dir):
 
 def _references_content(ref_files):
   """Returns dict<str ref_url, str ref_content>."""
-  with tf.Graph().as_default():
-    dataset = tf.data.Dataset.from_tensor_slices(ref_files)
-
-    def _load_records(filename):
-      return tf.data.TFRecordDataset(
-          filename,
-          compression_type=tf.constant("GZIP"),
-          buffer_size=16 * 1000 * 1000)
-
-    dataset = dataset.flat_map(_load_records)
-
-    def _parse_example(ex_ser):
-      features = {
-          "url": tf.VarLenFeature(tf.string),
-          "content": tf.VarLenFeature(tf.string),
-      }
-      ex = tf.parse_single_example(ex_ser, features)
-      for k in ex.keys():
-        ex[k] = ex[k].values[0]
-      return ex
-
-    dataset = dataset.map(_parse_example, num_parallel_calls=32)
-    dataset = dataset.prefetch(100)
-    record_it = dataset.make_one_shot_iterator().get_next()
-
-    data = {}
-
-    with tf.Session() as sess:
-      i = 0
-      while True:
-        try:
-          ex = sess.run(record_it)
-        except tf.errors.OutOfRangeError:
-          break
-
-        data[ex["url"]] = ex["content"]
-        i += 1
-
+  example_spec = {
+      "url": tf.FixedLenFeature([], tf.string),
+      "content": tf.FixedLenFeature([], tf.string),
+  }
+  data = {}
+  for ex in generator_utils.tfrecord_iterator(
+      ref_files, gzipped=True, example_spec=example_spec):
+    data[ex["url"]] = text_encoder.to_unicode(ex["content"])
   return data
 
 
@@ -339,11 +309,14 @@ def _wiki_articles(shard_id, wikis_dir=None):
           break
 
         sections = [
-            WikipediaSection(title=title, text=text)
+            WikipediaSection(title=text_encoder.to_unicode(title),
+                             text=text_encoder.to_unicode(text))
             for title, text in zip(ex["section_titles"], ex["section_texts"])
         ]
         yield WikipediaArticle(
-            url=ex["url"], title=ex["title"], sections=sections)
+            url=text_encoder.to_unicode(ex["url"]),
+            title=text_encoder.to_unicode(ex["title"]),
+            sections=sections)
 
 
 def _token_counts(text, token_set=None):
@@ -368,23 +341,25 @@ def _tokens_to_score(tokens):
   return {t for t in tokens if re.search("[a-z0-9]", t)}
 
 
-def _rank_reference_paragraphs(wiki_title, references_content):
+def rank_reference_paragraphs(wiki_title, references_content, normalize=True):
   """Rank and return reference paragraphs by tf-idf score on title tokens."""
-  title_tokens = _tokens_to_score(set(
-      tokenizer.encode(text_encoder.native_to_unicode(wiki_title))))
+  normalized_title = _normalize_text(wiki_title)
+  title_tokens = _tokens_to_score(
+      set(tokenizer.encode(text_encoder.native_to_unicode(normalized_title))))
   ref_paragraph_info = []
   doc_counts = collections.defaultdict(int)
   for ref in references_content:
     for paragraph in ref.split("\n"):
-      paragraph = _normalize_text(paragraph)
-      if cc_utils.filter_paragraph(paragraph):
+      normalized_paragraph = _normalize_text(paragraph)
+      if cc_utils.filter_paragraph(normalized_paragraph):
         # Skip paragraph
         continue
-      counts = _token_counts(paragraph, title_tokens)
+      counts = _token_counts(normalized_paragraph, title_tokens)
       for token in title_tokens:
         if counts[token]:
           doc_counts[token] += 1
-      info = {"content": paragraph, "counts": counts}
+      content = normalized_paragraph if normalize else paragraph
+      info = {"content": content, "counts": counts}
       ref_paragraph_info.append(info)
 
   for info in ref_paragraph_info:
@@ -455,8 +430,8 @@ def produce_examples(shard_ids, wikis_dir, refs_dir, urls_dir, vocab_path,
 
         # Rank reference paragraphs with TFIDF
         wiki_title = _normalize_text(wiki.title)
-        ranked_paragraphs = _rank_reference_paragraphs(wiki_title,
-                                                       wiki_ref_content)
+        ranked_paragraphs = rank_reference_paragraphs(wiki_title,
+                                                      wiki_ref_content)
 
         # Construct inputs from Wiki title and references
         inputs = []

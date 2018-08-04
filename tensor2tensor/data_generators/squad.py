@@ -21,9 +21,6 @@ from __future__ import print_function
 
 import json
 import os
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
@@ -143,5 +140,5 @@ class SquadConcatPositioned(SquadConcat):
     for sample in samples:
       sample['targets'] = self.generate_targets(sample['targets'],
                                                 sample['context'])
-      if not sample['targets']:
+      if sample['targets']:
         yield sample

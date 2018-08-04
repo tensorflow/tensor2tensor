@@ -20,9 +20,6 @@ from __future__ import print_function
 
 import os
 import zipfile
-
-# Dependency imports
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import tokenizer
@@ -149,6 +146,7 @@ def _get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
 
 
 def snli_token_generator(tmp_dir, train, vocab_size):
+  """Generate example dicts."""
   _download_and_parse_dataset(tmp_dir, train)
 
   symbolizer_vocab = _get_or_generate_vocab(

@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
+from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import quantization
 
 import tensorflow as tf
@@ -34,7 +34,9 @@ class AdafactorOptimizer(tf.train.Optimizer):
      parameters to maintain the second-moment estimator, instead of AB.
      This is advantageous on memory-limited systems.  In addition, beta1
      (momentum) is set to zero by default, saving an additional auxiliary
-     parameter per weight.
+     parameter per weight.  Variables with >=3 dimensions are treated as
+     collections of two-dimensional matrices - factorization is over the final
+     two dimensions.
 
   2. Adafactor incorporates "update-clipping" - a scale-invariant analog of
      gradient clipping.  This adds stability
@@ -52,7 +54,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
 
     absolute_update_scale := relative_update_scale * parameter_scale
     relative_update_scale := min((step_num + 1)**-0.5, 1e-2)
-    parameter_scale := max(rms(var)), 1e-3)
+    parameter_scale := max(rms(var)), epsilon2)
     clip(x) := x / max(1.0, rms(x))
     grad_scale := tf.sqrt(v)   (v is the second-moment estimator)
 
@@ -62,21 +64,24 @@ class AdafactorOptimizer(tf.train.Optimizer):
   if var is 2-dimensional:
     v_r <- zeros([num_rows])
     v_c <- zeros([num_cols])
-  else:
+  if var is 0-dimensional or 1-dimensional:
     v <- zeros(shape(var))
   ```
 
   The update rule is as follows:
   ```
   decay_rate = 1 - (step_num + 1) ^ -0.8
-  grad_squared = tf.square(grad) + epsilon
+  grad_squared = tf.square(grad) + epsilon1
   if var is 2-dimensional:
     v_r <- decay_rate * v_r + (1 - decay_rate) * reduce_mean(grad_squared, 1)
     v_c <- decay_rate * v_c + (1 - decay_rate) * reduce_mean(grad_squared, 0)
     v = outer_prod(v_r, v_c) / reduce_mean(v_r)
-  else:
+  if var is 0-dimensional or 1-dimensional:
     v <- decay_rate * v + (1 - decay_rate) * grad_squared
   ```
+
+  For variables with >=3 dimensions, we factorize the second-moment accumulator
+  over the final 2 dimensions.  See the code for details.
 
 
   Several parts of this algorithm are configurable from the initializer.
@@ -95,8 +100,6 @@ class AdafactorOptimizer(tf.train.Optimizer):
     factored: whether to factor the second-moment estimator.  True means
       less memory usage.
 
-  TODO(noam): we should also apply the 2d logic to the two final dimensions.
-    of >2d convolutional kernels.
   """
 
   def __init__(self,
@@ -109,7 +112,9 @@ class AdafactorOptimizer(tf.train.Optimizer):
                simulated_quantize_bits=None,
                parameter_encoding=None,
                use_locking=False,
-               name="Adafactor"):
+               name="Adafactor",
+               epsilon1=1e-30,
+               epsilon2=1e-3):
     """Construct a new Adafactor optimizer.
 
     See class comment.
@@ -129,6 +134,8 @@ class AdafactorOptimizer(tf.train.Optimizer):
       use_locking: If True use locks for update operations.
       name: Optional name for the operations created when applying gradients.
         Defaults to "AdafactorOptimizer".
+      epsilon1: Regularization constant for squared gradient.
+      epsilon2: Regularization constant for parameter scale.
 
     Raises:
       ValueError: if absolute_update_scale and relative_update_scale_fn are both
@@ -148,6 +155,8 @@ class AdafactorOptimizer(tf.train.Optimizer):
     self._simulated_quantize_bits = simulated_quantize_bits
     self._parameter_encoding = parameter_encoding
     self._quantization_noise = quantization.noise_from_step_num()
+    self._epsilon1 = epsilon1
+    self._epsilon2 = epsilon2
 
   def _should_use_factored_second_moment_estimate(self, shape):
     """Should we use a factored second moment estimator.
@@ -159,7 +168,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
     Returns:
       a boolean
     """
-    return self._factored and len(shape) == 2
+    return self._factored and len(shape) >= 2
 
   def _create_slots(self, var_list):
     for var in var_list:
@@ -167,8 +176,8 @@ class AdafactorOptimizer(tf.train.Optimizer):
       if self._beta1:
         self._zeros_slot(var, "m", self._name)
       if self._should_use_factored_second_moment_estimate(shape):
-        r_val = tf.zeros([shape[0]], dtype=tf.float32)
-        c_val = tf.zeros([shape[1]], dtype=tf.float32)
+        r_val = tf.zeros(shape[:-1], dtype=tf.float32)
+        c_val = tf.zeros(shape[:-2] + shape[-1:], dtype=tf.float32)
         self._get_or_make_slot(var, r_val, "vr", self._name)
         self._get_or_make_slot(var, c_val, "vc", self._name)
       else:
@@ -195,11 +204,12 @@ class AdafactorOptimizer(tf.train.Optimizer):
     Returns:
       a Scalar
     """
-    return tf.maximum(reduce_rms(var), 0.001)
+    return tf.maximum(reduce_rms(var), self._epsilon2)
 
-  def _resource_apply_dense(self, grad, var):
+  def _resource_apply_dense(self, grad, handle):
+    var = handle
     grad = tf.to_float(grad)
-    grad_squared = tf.square(grad) + 1e-30
+    grad_squared = tf.square(grad) + self._epsilon1
     grad_squared_mean = tf.reduce_mean(grad_squared)
     decay_rate = self._decay_rate
     update_scale = self._learning_rate
@@ -219,8 +229,8 @@ class AdafactorOptimizer(tf.train.Optimizer):
     shape = var.get_shape().as_list()
     updates = []
     if self._should_use_factored_second_moment_estimate(shape):
-      grad_squared_row_mean = tf.reduce_mean(grad_squared, 1)
-      grad_squared_col_mean = tf.reduce_mean(grad_squared, 0)
+      grad_squared_row_mean = tf.reduce_mean(grad_squared, -1)
+      grad_squared_col_mean = tf.reduce_mean(grad_squared, -2)
       vr = self.get_slot(var, "vr")
       new_vr = (decay_rate * vr + mixing_rate * grad_squared_row_mean)
       vc = self.get_slot(var, "vc")
@@ -228,10 +238,10 @@ class AdafactorOptimizer(tf.train.Optimizer):
       vr_update = tf.assign(vr, new_vr, use_locking=self._use_locking)
       vc_update = tf.assign(vc, new_vc, use_locking=self._use_locking)
       updates = [vr_update, vc_update]
-      long_term_mean = tf.reduce_mean(new_vr)
+      long_term_mean = tf.reduce_mean(new_vr, -1, keepdims=True)
       r_factor = tf.rsqrt(new_vr / long_term_mean)
       c_factor = tf.rsqrt(new_vc)
-      x = grad * tf.expand_dims(r_factor, 1) * tf.expand_dims(c_factor, 0)
+      x = grad * tf.expand_dims(r_factor, -1) * tf.expand_dims(c_factor, -2)
     else:
       v = self.get_slot(var, "v")
       new_v = decay_rate * v + mixing_rate * grad_squared
@@ -246,7 +256,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       m = self.get_slot(var, "m")
       new_m = self._beta1 * tf.to_float(m) + (1.0 - self._beta1) * subtrahend
       subtrahend = new_m
-      new_m = tf.cast(new_m, var.dtype)
+      new_m = common_layers.cast_like(new_m, var)
       updates.append(tf.assign(m, new_m, use_locking=self._use_locking))
     new_val = tf.to_float(old_val) - subtrahend
     if var.dtype.base_dtype == tf.bfloat16:

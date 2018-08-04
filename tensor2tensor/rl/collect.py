@@ -13,38 +13,148 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Collect trajectories from interactions of agent with environment."""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+
+import copy
+
+from tensor2tensor.rl.envs.batch_env_factory import batch_env_factory
+from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
+from tensor2tensor.rl.envs.utils import get_policy
 
 import tensorflow as tf
 
 
-def define_collect(policy_factory, batch_env, hparams,
-                   eval_phase, policy_to_actions_lambda=None, scope=""):
-  """Collect trajectories."""
-  eval_phase = tf.convert_to_tensor(eval_phase)
-  memory_shape = [hparams.epoch_length] + [batch_env.observ.shape.as_list()[0]]
-  memories_shapes_and_types = [
-      # observation
-      (memory_shape + batch_env.observ.shape.as_list()[1:], tf.float32),
-      (memory_shape, tf.float32),      # reward
-      (memory_shape, tf.bool),         # done
-      # action
-      (memory_shape + batch_env.action_shape, batch_env.action_dtype),
-      (memory_shape, tf.float32),      # pdf
-      (memory_shape, tf.float32),      # value function
+def _rollout_metadata(batch_env):
+  """Metadata for rollouts."""
+  batch_env_shape = batch_env.observ.get_shape().as_list()
+  batch_size = [batch_env_shape[0]]
+  shapes_types_names = [
+      # TODO(piotrmilos): possibly retrieve the observation type for batch_env
+      (batch_size + batch_env_shape[1:], tf.float32, "observation"),
+      (batch_size, tf.float32, "reward"),
+      (batch_size, tf.bool, "done"),
+      (batch_size + batch_env.action_shape, batch_env.action_dtype, "action"),
+      (batch_size, tf.float32, "pdf"),
+      (batch_size, tf.float32, "value_function"),
   ]
-  memory = [tf.Variable(tf.zeros(shape, dtype), trainable=False)
-            for (shape, dtype) in memories_shapes_and_types]
-  with tf.variable_scope(scope):
+  return shapes_types_names
+
+
+class _MemoryWrapper(WrapperBase):
+  """Memory wrapper."""
+
+  def __init__(self, batch_env):
+    super(_MemoryWrapper, self).__init__(batch_env)
+    self._is_simple = False  # TODO(lukaszkaiser): why do we need it? mbz?
+    infinity = 10000000
+    meta_data = list(zip(*_rollout_metadata(batch_env)))
+    # In memory wrapper we do not collect pdfs neither value_function
+    # thus we only need the first 4 entries of meta_data
+    shapes = meta_data[0][:4]
+    dtypes = meta_data[1][:4]
+    self.speculum = tf.FIFOQueue(infinity, shapes=shapes, dtypes=dtypes)
+    observs_shape = batch_env.observ.shape
+    # TODO(piotrmilos): possibly retrieve the observation type for batch_env
+    observ_dtype = tf.float32
+    self._observ = tf.Variable(tf.zeros(observs_shape, observ_dtype),
+                               trainable=False)
+
+  def simulate(self, action):
+
+    # There is subtlety here. We need to collect data
+    # obs, action = policy(obs), done, reward = env(abs, action)
+    # Thus we need to enqueue data before assigning new observation
+
+    reward, done = self._batch_env.simulate(action)
+
+    if self._is_simple:
+      with tf.control_dependencies([reward, done]):
+        enqueue_op = self.speculum.enqueue(
+            [self._batch_env.observ, reward, done, action])
+    else:
+      with tf.control_dependencies([reward, done]):
+        enqueue_op = self.speculum.enqueue(
+            [self._observ.read_value(), reward, done, action])
+
+      with tf.control_dependencies([enqueue_op]):
+        assign = self._observ.assign(self._batch_env.observ)
+
+    with tf.control_dependencies([assign]):
+      return tf.identity(reward), tf.identity(done)
+
+
+def define_collect(hparams, scope, eval_phase,
+                   collect_level=-1,
+                   policy_to_actions_lambda=None):
+  """Collect trajectories.
+
+  Args:
+    hparams: HParams.
+    scope: var scope.
+    eval_phase: bool, is eval phase.
+    collect_level: int, which level to collect observations.
+    policy_to_actions_lambda: lambda.
+
+  Returns:
+    Returns memory (observtions, rewards, dones, actions,
+    pdfs, values_functions)
+    containing a rollout of environment from collect_level of nested wrapper
+    structure. Note that pdfs and values_functions are meaningful only if
+    collect_level==-1.
+  """
+
+  to_initialize = []
+  with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+    batch_env = batch_env_factory(hparams)
+    to_initialize.append(batch_env)
+    environment_wrappers = hparams.environment_spec.wrappers
+    wrappers = copy.copy(environment_wrappers) if environment_wrappers else []
+    # Put memory wrapper at the level you want to gather observations at.
+    # Negative indices need to be shifted for insert to work correctly.
+    collect_level = collect_level if \
+      collect_level >= 0 else len(wrappers) + collect_level + 1
+    wrappers.insert(collect_level, [_MemoryWrapper, {}])
+    rollout_metadata = None
+    speculum = None
+    for w in wrappers:
+      batch_env = w[0](batch_env, **w[1])
+      to_initialize.append(batch_env)
+      if w[0] == _MemoryWrapper:
+        rollout_metadata = _rollout_metadata(batch_env)
+        speculum = batch_env.speculum
+
+    def initialization_lambda(sess):
+      for batch_env in to_initialize:
+        batch_env.initialize(sess)
+
+    memory = [tf.get_variable("collect_memory_{}".format(name),
+                              shape=[hparams.epoch_length]+shape,
+                              dtype=dtype,
+                              initializer=tf.zeros_initializer(),
+                              trainable=False)
+              for (shape, dtype, name) in rollout_metadata]
+
     cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
                                          trainable=False)
 
-  should_reset_var = tf.Variable(True, trainable=False)
+    eval_phase = tf.convert_to_tensor(eval_phase)
+    should_reset_var = tf.Variable(True, trainable=False)
+    zeros_tensor = tf.zeros(len(batch_env))
+
+  if "force_beginning_resets" in hparams:
+    force_beginning_resets = hparams.force_beginning_resets
+  else:
+    force_beginning_resets = False
+  force_beginning_resets = tf.convert_to_tensor(force_beginning_resets)
 
   def group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
-                    tf.assign(cumulative_rewards, tf.zeros(len(batch_env))))
+                    tf.assign(cumulative_rewards, zeros_tensor))
   reset_op = tf.cond(
-      tf.logical_or(should_reset_var, eval_phase), group, tf.no_op)
+      tf.logical_or(should_reset_var, force_beginning_resets), group, tf.no_op)
 
   with tf.control_dependencies([reset_op]):
     reset_once_op = tf.assign(should_reset_var, False)
@@ -58,27 +168,57 @@ def define_collect(policy_factory, batch_env, hparams,
       # operation. We are waiting for tf.copy:
       # https://github.com/tensorflow/tensorflow/issues/11186
       obs_copy = batch_env.observ + 0
-      actor_critic = policy_factory(tf.expand_dims(obs_copy, 0))
-      policy = actor_critic.policy
-      if policy_to_actions_lambda:
-        action = policy_to_actions_lambda(policy)
-      else:
-        action = tf.cond(eval_phase,
-                         policy.mode,
-                         policy.sample)
-      postprocessed_action = actor_critic.action_postprocessing(action)
-      simulate_output = batch_env.simulate(postprocessed_action[0, ...])
-      pdf = policy.prob(action)[0]
-      with tf.control_dependencies(simulate_output):
-        reward, done = simulate_output
-        done = tf.reshape(done, (len(batch_env),))
-        to_save = [obs_copy, reward, done, action[0, ...], pdf,
-                   actor_critic.value[0]]
+
+      def env_step(arg1, arg2, arg3):  # pylint: disable=unused-argument
+        """Step of the environment."""
+        actor_critic = get_policy(tf.expand_dims(obs_copy, 0), hparams)
+        policy = actor_critic.policy
+        if policy_to_actions_lambda:
+          action = policy_to_actions_lambda(policy)
+        else:
+          action = tf.cond(eval_phase,
+                           policy.mode,
+                           policy.sample)
+
+        postprocessed_action = actor_critic.action_postprocessing(action)
+        reward, done = batch_env.simulate(postprocessed_action[0, ...])
+
+        pdf = policy.prob(action)[0]
+        value_function = actor_critic.value[0]
+        pdf = tf.reshape(pdf, shape=(hparams.num_agents,))
+        value_function = tf.reshape(value_function, shape=(hparams.num_agents,))
+        done = tf.reshape(done, shape=(hparams.num_agents,))
+
+        with tf.control_dependencies([reward, done]):
+          return tf.identity(pdf), tf.identity(value_function), \
+                 tf.identity(done)
+
+      # TODO(piotrmilos): while_body is executed at most once,
+      # thus should be replaced with tf.cond
+      pdf, value_function, top_level_done = tf.while_loop(
+          lambda _1, _2, _3: tf.equal(speculum.size(), 0),
+          env_step,
+          [
+              tf.constant(0.0, shape=(hparams.num_agents,)),
+              tf.constant(0.0, shape=(hparams.num_agents,)),
+              tf.constant(False, shape=(hparams.num_agents,))
+          ],
+          parallel_iterations=1,
+          back_prop=False,
+      )
+
+      with tf.control_dependencies([pdf, value_function]):
+        obs, reward, done, action = speculum.dequeue()
+
+        to_save = [obs, reward, done, action,
+                   pdf, value_function]
         save_ops = [tf.scatter_update(memory_slot, index, value)
                     for memory_slot, value in zip(memory, to_save)]
         cumulate_rewards_op = cumulative_rewards.assign_add(reward)
-        agent_indices_to_reset = tf.where(done)[:, 0]
+
+        agent_indices_to_reset = tf.where(top_level_done)[:, 0]
       with tf.control_dependencies([cumulate_rewards_op]):
+        # TODO(piotrmilos): possibly we need cumulative_rewards.read_value()
         scores_sum_delta = tf.reduce_sum(
             tf.gather(cumulative_rewards, agent_indices_to_reset))
         scores_num_delta = tf.count_nonzero(done, dtype=tf.int32)
@@ -87,7 +227,7 @@ def define_collect(policy_factory, batch_env, hparams,
         reset_env_op = batch_env.reset(agent_indices_to_reset)
         reset_cumulative_rewards_op = tf.scatter_update(
             cumulative_rewards, agent_indices_to_reset,
-            tf.zeros(tf.shape(agent_indices_to_reset)))
+            tf.gather(zeros_tensor, agent_indices_to_reset))
       with tf.control_dependencies([reset_env_op,
                                     reset_cumulative_rewards_op]):
         return [index + 1, scores_sum + scores_sum_delta,
@@ -105,6 +245,19 @@ def define_collect(policy_factory, batch_env, hparams,
         init,
         parallel_iterations=1,
         back_prop=False)
+
+  # We handle force_beginning_resets differently. We assume that all envs are
+  # reseted at the end of episod (though it happens at the beginning of the
+  # next one
+  scores_num = tf.cond(force_beginning_resets,
+                       lambda: scores_num + len(batch_env), lambda: scores_num)
+
+  with tf.control_dependencies([scores_sum]):
+    scores_sum = tf.cond(
+        force_beginning_resets,
+        lambda: scores_sum + tf.reduce_sum(cumulative_rewards.read_value()),
+        lambda: scores_sum)
+
   mean_score = tf.cond(tf.greater(scores_num, 0),
                        lambda: scores_sum / tf.cast(scores_num, tf.float32),
                        lambda: 0.)
@@ -118,4 +271,4 @@ def define_collect(policy_factory, batch_env, hparams,
     summaries = tf.summary.merge(
         [mean_score_summary,
          tf.summary.scalar("episodes_finished_this_iter", scores_num)])
-    return memory, summaries
+    return memory, summaries, initialization_lambda

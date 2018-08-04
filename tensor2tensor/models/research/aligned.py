@@ -25,9 +25,6 @@ A good problem for this model is languagemodel_wiki_scramble1k50 .
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-# Dependency imports
-
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
@@ -229,7 +226,7 @@ class Aligned(t2t_model.T2TModel):
               expert_utils.ffn_expert_fn(hparams.hidden_size, ffn_hidden_sizes,
                                          hparams.hidden_size),
               dp(expert_utils.flatten_all_but_last, x))
-          y = dp(expert_utils.reshape_like, y, x)
+          y = dp(common_layers.reshape_like, y, x)
         elif layer_type == "conv":
           y = dp(
               common_layers.conv1d,

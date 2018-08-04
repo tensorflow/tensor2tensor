@@ -12,24 +12,32 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for Tensor2Tensor's all_problems.py."""
+"""Gym generators tests."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# Dependency imports
-from tensor2tensor.data_generators import all_problems
+import os
+import shutil
+
+from tensor2tensor.data_generators import gym_problems_specs
 
 import tensorflow as tf
 
 
-class AllProblemsTest(tf.test.TestCase):
+class GymProblemsTest(tf.test.TestCase):
 
-  def testImport(self):
-    """Make sure that importing all_problems doesn't break."""
-    self.assertIsNotNone(all_problems)
+  @classmethod
+  def setUpClass(cls):
+    cls.tmp_dir = tf.test.get_temp_dir()
+    shutil.rmtree(cls.tmp_dir)
+    os.mkdir(cls.tmp_dir)
+
+  def testGymAtariBoots(self):
+    problem = gym_problems_specs.GymPongRandom()
+    self.assertEqual(210, problem.frame_height)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   tf.test.main()

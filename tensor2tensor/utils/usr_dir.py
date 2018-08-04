@@ -20,9 +20,6 @@ from __future__ import print_function
 import importlib
 import os
 import sys
-
-# Dependency imports
-
 import tensorflow as tf
 
 INTERNAL_USR_DIR_PACKAGE = "t2t_usr_dir_internal"

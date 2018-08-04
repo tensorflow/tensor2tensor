@@ -9,13 +9,59 @@
 shopt -s expand_aliases
 source ~/diseaseTools/scripts/vm_setup/dev_config/.bashrc_aliases_fathom
 
+# Base line tests (inc. what to skip) derived from t2t's travis):
+# https://github.com/tensorflow/tensor2tensor/blob/master/.travis.yml#L55
+
+# FROM t2t travis (20180803):
+#
+# Run tests
+# Ignores:
+# Tested separately:
+#   * registry_test
+#   * trainer_lib_test
+#   * visualization_test
+#   * model_rl_experiment_test
+#   * allen_brain_test
+#   * model_rl_experiment_stochastic_test
+#   * models/research
+# algorithmic_math_test: flaky
+# universal_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
+
+# Our changes:
+# * ignore all of /rl, since we aren't using this (and don't have gym in our Docker image)
+# * skip problems_test.py (??why??)
+# * skip gym_problems (gym not in our image)
+# * skip checkpoint_compatibility_test.py (no tqdm; undo this at some point and just install tqdm in image)
+# * skip tensor2tensor/models/research/next_frame_test.py b/c not working but clearly experimental on t2t side
+
 dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        --ignore=/usr/src/t2t/tensor2tensor/utils/registry_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/utils/trainer_lib_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/visualization/visualization_test.py \
-       --ignore=/usr/src/t2t/tensor2tensor/problems_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/bin/t2t_trainer_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/data_generators/algorithmic_math_test.py \
-       --ignore=/usr/src/t2t/tensor2tensor/models/research/r_transformer_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/rl/ \
+	   --ignore=/usr/src/t2t/tensor2tensor/data_generators/allen_brain_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/problems_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/data_generators/gym_problems_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/utils/checkpoint_compatibility_test.py \
+       --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
        --junitxml=/usr/src/t2t/test_results/pytest/unittests.xml \
-       /usr/src/t2t/tensor2tensor
+       /usr/src/t2t/tensor2tensor/
+
+#       /usr/src/t2t/tensor2tensor/models/research/universal_transformer_test.py
+#       --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
+
+dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
+       /usr/src/t2t/tensor2tensor/utils/registry_test.py
+
+# cdb: I believe we break this because of some minor custom changes; should re-visit
+# and verify this at some point.
+#dki gcr.io/fathom-containers/t2t_test python3 -m pytest \
+#       /usr/src/t2t/tensor2tensor/utils/trainer_lib_test.py
+
+# As-is, requires tqdm.  Commenting out for now; we could consider dropping into docker imag.
+#dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
+#       /usr/src/t2t/tensor2tensor/visualization/visualization_test.py
+
+# TODO: add allen_brain_test.py once we update t2t
