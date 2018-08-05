@@ -51,7 +51,12 @@ install:
 before_script:
   # stop the build if there are Python syntax errors or undefined names
   if [[ "$TF_VERSION" == "1.9.*" ]]; then
-    pip install flake8; flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics;
+    # * F821: undefined name `name`
+    # * F822: undefined name `name` in `__all__`
+    # * F823: local variable `name` referenced before assignment
+    # * E901: SyntaxError or IndentationError
+    # * E999: SyntaxError -- failed to compile a file into an Abstract Syntax Tree
+    flake8 . --count --select=F821,F822,F823,E901,E999 --show-source --statistics;
   fi
 script:
   # Check import
