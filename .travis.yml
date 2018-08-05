@@ -48,6 +48,11 @@ install:
   # Make sure we have the latest version of numpy - avoid problems we were
   # seeing with Python 3
   - pip install -q -U numpy
+before_script:
+  # stop the build if there are Python syntax errors or undefined names
+  if [[ "$TF_VERSION" == "1.9.*" ]]; then
+    pip install flake8; flake8 . --count --select=E901,E999,F821,F822,F823 --show-source --statistics;
+  fi
 script:
   # Check import
   - python -c "from tensor2tensor.models import transformer; print(transformer.Transformer.__name__)"
