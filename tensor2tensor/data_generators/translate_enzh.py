@@ -33,9 +33,6 @@ FLAGS = tf.flags.FLAGS
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
 
-# End-of-sentence marker.
-EOS = text_encoder.EOS_ID
-
 # This is far from being the real WMT18 task - only toyset here
 # you need to register to get UN data and CWT data. Also, by convention,
 # this is EN to ZH - use translate_enzh_wmt8k_rev for ZH to EN task
