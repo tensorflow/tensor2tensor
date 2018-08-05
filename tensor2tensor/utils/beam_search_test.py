@@ -37,7 +37,7 @@ class BeamSearchTest(tf.test.TestCase):
       # Just return random logits
       return tf.random_uniform((batch_size * beam_size, vocab_size))
 
-    final_ids, final_probs = beam_search.beam_search(
+    final_ids, final_probs, _ = beam_search.beam_search(
         symbols_to_logits, initial_ids, beam_size, decode_length, vocab_size,
         0.)
 
@@ -113,7 +113,7 @@ class BeamSearchTest(tf.test.TestCase):
       logits = tf.to_float(tf.log(probabilities[pos - 1, :]))
       return logits
 
-    final_ids, final_probs = beam_search.beam_search(
+    final_ids, final_probs, _ = beam_search.beam_search(
         symbols_to_logits,
         initial_ids,
         beam_size,
@@ -144,7 +144,7 @@ class BeamSearchTest(tf.test.TestCase):
       logits = tf.to_float(tf.log(probabilities[pos - 1, :]))
       return logits
 
-    final_ids, final_probs = beam_search.beam_search(
+    final_ids, final_probs, _ = beam_search.beam_search(
         symbols_to_logits,
         initial_ids,
         beam_size,
@@ -173,7 +173,7 @@ class BeamSearchTest(tf.test.TestCase):
       logits = tf.to_float(tf.log(probabilities[pos - 1, :]))
       return logits
 
-    final_ids, final_probs = beam_search.beam_search(
+    final_ids, final_probs, _ = beam_search.beam_search(
         symbols_to_logits,
         initial_ids,
         beam_size,
@@ -213,7 +213,7 @@ class BeamSearchTest(tf.test.TestCase):
       logits = tf.to_float(tf.log(probabilities[pos - 1, :]))
       return logits
 
-    final_ids, final_scores = beam_search.beam_search(
+    final_ids, final_scores, _ = beam_search.beam_search(
         symbols_to_logits,
         initial_ids,
         beam_size,
@@ -256,7 +256,7 @@ class BeamSearchTest(tf.test.TestCase):
       return logits
 
     # Disable early stopping
-    final_ids, final_scores = beam_search.beam_search(
+    final_ids, final_scores, _ = beam_search.beam_search(
         symbols_to_logits,
         initial_ids,
         beam_size,
@@ -302,7 +302,7 @@ class BeamSearchTest(tf.test.TestCase):
     states["state"] = tf.placeholder_with_default(
         states["state"], shape=(None, 1))
 
-    final_ids, _ = beam_search.beam_search(
+    final_ids, _, _ = beam_search.beam_search(
         symbols_to_logits,
         initial_ids,
         beam_size,
@@ -318,6 +318,41 @@ class BeamSearchTest(tf.test.TestCase):
         sess.run(final_ids)
       except tf.errors.InvalidArgumentError as e:
         raise AssertionError(e.message)
+
+  def testStatesAfterLoop(self):
+    batch_size = 1
+    beam_size = 1
+    vocab_size = 2
+    decode_length = 3
+
+    initial_ids = tf.constant([0] * batch_size)  # GO
+    probabilities = tf.constant([[[0.7, 0.3]], [[0.4, 0.6]], [[0.5, 0.5]]])
+
+    def symbols_to_logits(ids, _, states):
+      pos = tf.shape(ids)[1] - 1
+      logits = tf.to_float(tf.log(probabilities[pos, :]))
+      states["state"] += 1
+      return logits, states
+
+    states = {
+        "state": tf.zeros((batch_size, 1)),
+    }
+    states["state"] = tf.placeholder_with_default(
+        states["state"], shape=(None, 1))
+
+    _, _, final_states = beam_search.beam_search(
+        symbols_to_logits,
+        initial_ids,
+        beam_size,
+        decode_length,
+        vocab_size,
+        0.0,
+        eos_id=1,
+        states=states)
+    
+    with self.test_session() as sess:
+      final_states = sess.run(final_states)
+    self.assertAllEqual([[1]], final_states["state"])
 
   def testStateBeamTwo(self):
     batch_size = 1
@@ -352,7 +387,7 @@ class BeamSearchTest(tf.test.TestCase):
     states["state"] = tf.placeholder_with_default(
         states["state"], shape=(None, 1))
 
-    final_ids, _ = beam_search.beam_search(
+    final_ids, _, _ = beam_search.beam_search(
         symbols_to_logits,
         initial_ids,
         beam_size,
