@@ -1433,7 +1433,7 @@ class T2TModel(base.Layer):
     SKIP_FEATURES = ['inputs', 'targets', 'infer_targets', 'outputs', 'scores', 'problem_choice']
     for k in infer_out:
       if k in SKIP_FEATURES: continue
-      assert k not in predictions
+      assert k not in predictions, (f'{k} should not be in {predictions.keys()}')
       predictions[k] = infer_out[k]
 
     
