@@ -49,6 +49,25 @@ ATARI_GAMES = [
 # * defender
 # * kaboom
 
+# Subset of games with promissing results on model based training.
+ATARI_WHITELIST_GAMES = [
+    "amidar",
+    "bank_heist",
+    "berzerk",
+    "boxing",
+    "breakout",
+    "crazy_climber",
+    "freeway",
+    "frostbite",
+    "gopher",
+    "hero",
+    "kung_fu_master",
+    "pong",
+    "road_runner",
+    "seaquest",
+    "wrapped_full_pong",  # TODO(blazej): check if we get equally good results
+]                         # on vanilla pong.
+
 
 @registry.register_problem
 class GymPongRandom(GymDiscreteProblem):

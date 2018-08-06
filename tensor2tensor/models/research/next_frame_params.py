@@ -43,7 +43,9 @@ def next_frame():
   hparams.add_hparam("num_compress_steps", 6)
   hparams.add_hparam("filter_double_steps", 2)
   hparams.add_hparam("video_modality_loss_cutoff", 0.02)
+  hparams.add_hparam("preprocess_resize_frames", None)
   hparams.add_hparam("concatenate_actions", True)
+  hparams.add_hparam("tiny_mode", False)
   return hparams
 
 
@@ -62,6 +64,7 @@ def next_frame_stochastic():
   hparams.video_modality_loss_cutoff = 0.0
   hparams.add_hparam("stochastic_model", True)
   hparams.add_hparam("reward_prediction", True)
+  hparams.add_hparam("reward_prediction_stop_gradient", False)
   hparams.add_hparam("model_options", "CDNA")
   hparams.add_hparam("num_masks", 10)
   hparams.add_hparam("latent_channels", 1)
@@ -73,11 +76,10 @@ def next_frame_stochastic():
   hparams.add_hparam("relu_shift", 1e-12)
   hparams.add_hparam("dna_kernel_size", 5)
   # Scheduled sampling method. Choose between prob or count.
-  hparams.add_hparam("scheduled_sampling_mode", "prob")
+  hparams.add_hparam("scheduled_sampling_mode", "count")
   hparams.add_hparam("scheduled_sampling_decay_steps", 10000)
   hparams.add_hparam("scheduled_sampling_k", 900.0)
   hparams.add_hparam("latent_num_frames", 0)  # 0 means use all frames.
-  hparams.add_hparam("tiny_mode", False)
   hparams.add_hparam("anneal_end", 100000)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
   return hparams
@@ -99,9 +101,15 @@ def next_frame_stochastic_emily():
 
 @registry.register_hparams
 def next_frame_savp():
-  """SVAP model."""
+  """SAVP model."""
   hparams = next_frame_stochastic()
   hparams.add_hparam("z_dim", 8)
+  hparams.add_hparam("num_discriminator_filters", 32)
+  hparams.add_hparam("use_vae", True)
+  hparams.add_hparam("use_gan", False)
+  hparams.add_hparam("use_spectral_norm", True)
+  hparams.add_hparam("gan_loss", "cross_entropy")
+  hparams.add_hparam("gan_loss_multiplier", 0.01)
   hparams.target_modality = "video:l1raw"
   hparams.input_modalities = "inputs:video:l1raw"
   hparams.latent_loss_multiplier_schedule = "linear_anneal"

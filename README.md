@@ -113,9 +113,13 @@ For (un)conditional image generation, we have a number of standard data-sets:
     32x32 or `--problem=image_imagenet64_gen_rev` for 64x64.
 
 We suggest to use the Image Transformer, i.e., `--model=imagetransformer`, or
-variational auto-encoder, i.e., `--model=transformer_ae`. For CIFAR-10, using
-`--hparams_set=imagetransformerpp_base_12l_8h_big_uncond_dr03_dan_m` yields 2.90
-bits per dimension.
+the Image Transformer Plus, i.e., `--model=imagetransformerpp` that uses
+discretized mixture of logistics, or variational auto-encoder, i.e.,
+`--model=transformer_ae`.
+For CIFAR-10, using `--hparams_set=imagetransformer_cifar10_base` or
+`--hparams_set=imagetransformer_cifar10_base_dmol` yields 2.90 bits per
+dimension. For Imagenet-32, using
+`--hparams_set=imagetransformer_imagenet32_base` yields 3.77 bits per dimension.
 
 ### Language Modeling
 

@@ -48,10 +48,6 @@ flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
-flags.DEFINE_bool("xla_compile", False, "Whether to use XLA to compile. When "
-                  "this is set to True, computation will be constructed to "
-                  "optimize for XLA as if use_tpu=True but run on CPU/GPU "
-                  "instead of TPU.")
 flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
                      "How long to sleep the infeed thread.")
 flags.DEFINE_bool("generate_data", False, "Generate data before training?")
@@ -178,7 +174,6 @@ def create_experiment_fn(**kwargs):
       eval_early_stopping_metric_minimize=FLAGS.
       eval_early_stopping_metric_minimize,
       use_tpu=FLAGS.use_tpu,
-      xla_compile=FLAGS.xla_compile,
       **kwargs)
 
 

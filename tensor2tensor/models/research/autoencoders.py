@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from tensor2tensor.data_generators import image_utils
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
@@ -145,6 +147,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       x = features["targets"]
+      labels = features["targets_raw"]
       shape = common_layers.shape_list(x)
       is1d = shape[2] == 1
       self.is1d = is1d
@@ -181,42 +184,62 @@ class AutoencoderBasic(t2t_model.T2TModel):
     # Cut to the right size and mix before returning.
     res = x[:, :shape[1], :shape[2], :]
 
-    num_channels = self.hparams.problem.num_channels
-    reconstr = tf.layers.dense(res, num_channels)
-    reconstr = tf.nn.sigmoid(reconstr)
-    reconstr = 256. * reconstr - 0.5
+    is_image = isinstance(self.hparams.problem, image_utils.ImageProblem)
+    if is_image:
+      vocab_size = self.hparams.problem.vocab_size
+
+      res = tf.layers.dense(
+          res, self.hparams.problem.num_channels * self.hparams.hidden_size)
+      output_shape = common_layers.shape_list(res)[:-1] + [
+          self.hparams.problem.num_channels, self.hparams.hidden_size
+      ]
+      res = tf.reshape(res, output_shape)
+    elif isinstance(self.hparams.problem, text_problems.Text2TextProblem):
+      vocab_size = self._problem_hparams.target_modality.top_dimensionality
+      res = tf.layers.dense(res, self.hparams.hidden_size)
+    else:
+      raise Exception("Unsupported problem type: %s" % self.hparams.problem)
+
+    one_hot_labels = tf.one_hot(labels, vocab_size)
+    code_loss_gan = 0.0
+    if hparams.gan_loss_factor != 0.0:
+      res_gan, res = tf.split(res, 2, axis=0)
+      with tf.variable_scope("vq"):
+        reconstr_gan, _, code_loss_gan, _ = discretization.vq_loss(
+            res, one_hot_labels, vocab_size)
+
+    with tf.variable_scope("vq", reuse=tf.AUTO_REUSE):
+      reconstr, target_codes, code_loss, targets_loss = discretization.vq_loss(
+          res, one_hot_labels, vocab_size)
+
     # Add GAN loss if requested.
     gan_loss = 0.0
     if hparams.gan_loss_factor != 0.0:
-      # Split back if we added a purely sampled batch.
-      reconstr_gan, reconstr = tf.split(reconstr, 2, axis=0)
-      tf.summary.image(
-          "gan",
-          common_layers.tpu_safe_image_summary(reconstr_gan),
-          max_outputs=1)
-      orig_rgb = tf.to_float(features["targets_raw"])
+      if is_image:
+        tf.summary.image(
+            "gan",
+            common_layers.tpu_safe_image_summary(tf.argmax(reconstr_gan, -1)),
+            max_outputs=1)
 
       def discriminate(x):
         return self.discriminator(x, is_training=is_training)
 
-      gan_loss = common_layers.sliced_gan_loss(orig_rgb,
-                                               reverse_gradient(reconstr_gan),
+      gan_loss = common_layers.sliced_gan_loss(target_codes,
+                                               reverse_gradient(res_gan),
                                                discriminate,
                                                self.hparams.num_sliced_vecs)
       gan_loss *= hparams.gan_loss_factor
 
-    tf.summary.image(
-        "ae", common_layers.tpu_safe_image_summary(reconstr), max_outputs=1)
+    if is_image:
+      tf.summary.image(
+          "ae",
+          common_layers.tpu_safe_image_summary(tf.argmax(reconstr, -1)),
+          max_outputs=1)
 
-    # Project to correct vocab_size/channels
-    training = tf.reduce_mean(
-        tf.square(tf.to_float(features["targets_raw"]) - reconstr))
-
-    outputs = tf.round(reconstr)
-    outputs = tf.one_hot(tf.to_int32(outputs), 256)
-
-    return outputs, {
-        "training": training,
+    return reconstr, {
+        "training": targets_loss,
+        "code_loss": code_loss,
+        "code_loss_gan": code_loss_gan,
         "b_loss": b_loss,
         "gan_loss": -gan_loss
     }
@@ -318,6 +341,7 @@ class AutoencoderAutoregressive(AutoencoderBasic):
         basic1d = hparams.sampled_basic1d_tensor
       else:
         hparams.sampled_basic1d_tensor = basic1d
+    print(common_layers.shape_list(features["targets"]))
     # Prepare inputs for autoregressive modes.
     if common_layers.shape_list(features["targets"])[1] == 1:
       # This happens on the first step of predicitions.
@@ -868,6 +892,8 @@ def autoencoder_ordered_text():
   hparams.max_hidden_size = 4096
   hparams.bottleneck_warmup_steps = 10000
   hparams.discretize_warmup_steps = 15000
+  hparams.target_modality = "symbol:identity"
+  hparams.input_modalities = "symbol:identity"
   return hparams
 
 

@@ -23,6 +23,7 @@ import re
 MODULES = [
     "tensor2tensor.data_generators.algorithmic",
     "tensor2tensor.data_generators.algorithmic_math",
+    "tensor2tensor.data_generators.allen_brain",
     "tensor2tensor.data_generators.audio",
     "tensor2tensor.data_generators.babi_qa",
     "tensor2tensor.data_generators.bair_robot_pushing",
