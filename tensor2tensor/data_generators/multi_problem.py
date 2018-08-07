@@ -30,6 +30,8 @@ import tensorflow as tf
 class MultiProblem(problem.Problem):
   """MultiProblem base class."""
 
+  _ADDED_EVAL_COUNT = 20000
+
   def __init__(self, was_reversed=False, was_copy=False):
     super(MultiProblem, self).__init__(was_reversed, was_copy)
     self.task_list = []
@@ -138,15 +140,43 @@ class MultiProblem(problem.Problem):
 
       if is_training:
         task_dataset = task_dataset.repeat()
+
       # pylint: disable=cell-var-from-loop
       task_dataset = task_dataset.map(lambda x: self.add_task_id(task, x, enc))
+
+      if not is_training:
+        pad_data = tf.data.Dataset.from_tensor_slices({
+            "targets": tf.zeros([self._ADDED_EVAL_COUNT, 1], dtype=tf.int64),
+            "batch_prediction_key": tf.zeros(
+                [self._ADDED_EVAL_COUNT, 1], dtype=tf.int64),
+        })
+        task_dataset = task_dataset.concatenate(pad_data)
+
       datasets.append(task_dataset)
 
     # Setup the problem hparams by setting them to the LM task hparams.
     self.get_hparams()
 
-    single_mtl_dataset = tf.data.Dataset.zip(tuple(datasets)).flat_map(
-        self.flatten_zip)
+    if is_training:
+      dataset_iterators = [d.make_one_shot_iterator() for d in datasets]
+
+      def get_next_from_dataset(dataset_iter):
+        return dataset_iter.get_next()
+
+      def mix_data(example):
+        del example
+        return tf.data.Dataset.from_tensors(tf.cond(
+            tf.less(tf.random_uniform([]), 0.5),
+            lambda d=dataset_iterators[0]: get_next_from_dataset(d),
+            lambda d=dataset_iterators[1]: get_next_from_dataset(d)
+        ))
+
+      single_mtl_dataset = tf.data.Dataset.from_tensors(tf.zeros([1])).repeat()
+      single_mtl_dataset = single_mtl_dataset.flat_map(mix_data)
+
+    else:
+      single_mtl_dataset = tf.data.Dataset.zip(tuple(datasets)).flat_map(
+          self.flatten_zip)
 
     return single_mtl_dataset
 
