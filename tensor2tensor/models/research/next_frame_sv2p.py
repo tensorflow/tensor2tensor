@@ -591,12 +591,6 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
         rewards=all_rewards,
     )
 
-    tf.summary.histogram("input_action", tf.argmax(input_actions, axis=3))
-    tf.summary.histogram("target_action", tf.argmax(target_actions, axis=3))
-    tf.summary.histogram("input_reward", tf.argmax(input_rewards, axis=3))
-    tf.summary.histogram("target_reward", tf.argmax(target_rewards, axis=3))
-    tf.summary.histogram("gen_rewards", tf.argmax(gen_rewards, axis=3))
-
     beta = self.get_beta()
     extra_loss = self.get_extra_loss(
         latent_means=latent_means,
