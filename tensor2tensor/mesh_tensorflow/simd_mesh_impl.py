@@ -18,8 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import google3
-
 from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
 from tensor2tensor.mesh_tensorflow import mtf_utils
 from tensor2tensor.mesh_tensorflow import tpu_variables

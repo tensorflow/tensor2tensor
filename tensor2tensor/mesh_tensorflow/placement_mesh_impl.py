@@ -18,7 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
-import google3
 from past.builtins import xrange
 
 from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf

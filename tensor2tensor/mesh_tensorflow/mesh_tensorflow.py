@@ -21,7 +21,6 @@ import collections
 from functools import reduce  # pylint: disable=redefined-builtin; for py3
 from operator import mul
 import re
-import google3
 from past.builtins import xrange
 import six
 
