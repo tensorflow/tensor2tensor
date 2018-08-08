@@ -52,6 +52,10 @@ class PlacementMeshImpl(mtf.MeshImpl):
     def all_slices(self):
       return self._tensor_list
 
+    @property
+    def slice_shape(self):
+      return self.tensor_list[0].shape.as_list()
+
     def to_laid_out_tensor(self):
       return self
 

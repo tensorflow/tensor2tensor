@@ -74,6 +74,10 @@ class SimdMeshImpl(mtf.MeshImpl):
     def all_slices(self):
       return self._tensor_list
 
+    @property
+    def slice_shape(self):
+      return self.one_slice.shape.as_list()
+
     def to_laid_out_tensor(self):
       return self
 

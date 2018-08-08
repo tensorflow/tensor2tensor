@@ -378,9 +378,6 @@ class Lowering(object):
     return tf.group(
         [v.copy_slices_to_master for _, v in six.iteritems(self.variables)])
 
-  # def tensor_layout(self, t):
-  #   return self.mesh_impl(t).tensor_layout(t)
-
   def add_counter(self, key, value):
     assert isinstance(value, int)
     self._counters.append((key, value))
@@ -399,6 +396,19 @@ class Lowering(object):
       an integer
     """
     return self.mesh_impl(tensor).laid_out_size(tensor.shape)
+
+  def set_tensor_lowering(self, tensor, laid_out_tensor):
+    self.verify_slice_shapes(tensor, laid_out_tensor)
+    self.tensors[tensor] = laid_out_tensor
+
+  def verify_slice_shapes(self, tensor, laid_out_tensor):
+    mesh_impl = self.mesh_impl(tensor)
+    correct_shape = mesh_impl.slice_shape(tensor.shape)
+    actual_shape = laid_out_tensor.slice_shape
+    if actual_shape != correct_shape:
+      raise ValueError(
+          "Wrong slice shape: correct_shape = %s actual shape = %s"
+          % (correct_shape, actual_shape))
 
 
 class Mesh(object):
@@ -818,6 +828,10 @@ class LazyAllreduceSum(object):
       return self.mesh_impl.slicewise(
           tf.add, self.to_laid_out_tensor(), other.to_laid_out_tensor())
 
+  @property
+  def slice_shape(self):
+    return self.laid_out_input.slice_shape
+
 
 def convert_args_to_laid_out_tensors(xs):
   """Convert list elements to laid-out-tensors when possible.
@@ -1043,8 +1057,10 @@ class SlicewiseOperation(Operation):
       for d, mesh_axis in zip(t.shape.dims, layout.tensor_axis_to_mesh_axis):
         if (mesh_axis is not None and d not in self._splittable_dims):
           raise ValueError("dimension %s is not declared as splittable" % d)
-    lowering.tensors[self.outputs[0]] = mesh_impl.slicewise(
-        self._tf_fn, *[lowering.tensors[x] for x in self.inputs])
+    lowering.set_tensor_lowering(
+        self.outputs[0],
+        mesh_impl.slicewise(
+            self._tf_fn, *[lowering.tensors[x] for x in self.inputs]))
 
 
 def slicewise(tf_fn,
@@ -1205,7 +1221,8 @@ class GenericGradOperation(Operation):
                    ys, xs, grad_ys in zip(all_ys, all_xs, all_grad_ys)]
     grad_xs = transpose_list_of_lists(all_grad_xs)
     for out, grad_x in zip(self.outputs, grad_xs):
-      lowering.tensors[out] = (
+      lowering.set_tensor_lowering(
+          out,
           lowering.mesh_impl(self).LaidOutTensor.from_tensor_list(grad_x))
 
 
@@ -1223,8 +1240,10 @@ class ScalarMultiplyOperation(Operation):
     return [dy * self._scalar]
 
   def lower(self, lowering):
-    lowering.tensors[self.outputs[0]] = lowering.mesh_impl(self).slicewise(
-        lambda x: x * self._scalar, lowering.tensors[self.inputs[0]])
+    lowering.set_tensor_lowering(
+        self.outputs[0],
+        lowering.mesh_impl(self).slicewise(
+            lambda x: x * self._scalar, lowering.tensors[self.inputs[0]]))
 
 
 class ScalarAddOperation(Operation):
@@ -1239,8 +1258,10 @@ class ScalarAddOperation(Operation):
     return grad_ys
 
   def lower(self, lowering):
-    lowering.tensors[self.outputs[0]] = lowering.mesh_impl(self).slicewise(
-        lambda x: x + self._scalar, lowering.tensors[self.inputs[0]])
+    lowering.set_tensor_lowering(
+        self.outputs[0],
+        lowering.mesh_impl(self).slicewise(
+            lambda x: x + self._scalar, lowering.tensors[self.inputs[0]]))
 
 
 class BinaryOpWithBroadcasting(Operation):
@@ -1269,8 +1290,10 @@ class BinaryOpWithBroadcasting(Operation):
     if x2.shape != output.shape:
       laid_out_x2 = mesh_impl.slicewise(
           _expand_dims, laid_out_x2, x2.shape, output.shape)
-    lowering.tensors[self.outputs[0]] = mesh_impl.slicewise(
-        self._tf_fn, laid_out_x1, laid_out_x2)
+    lowering.set_tensor_lowering(
+        self.outputs[0],
+        mesh_impl.slicewise(
+            self._tf_fn, laid_out_x1, laid_out_x2))
 
 
 def binary_arguments_to_tensors(x1, x2):
@@ -1391,7 +1414,7 @@ class BroadcastOperation(Operation):
     ret = lowering.mesh_impl(self).broadcast_impl(
         lowering.tensors[self.inputs[0]], self.inputs[0].shape,
         self.outputs[0].shape)
-    lowering.tensors[self.outputs[0]] = ret
+    lowering.set_tensor_lowering(self.outputs[0], ret)
 
 
 def broadcast(x, new_shape):
@@ -1465,7 +1488,7 @@ class ReduceOperation(Operation):
         y = mesh_impl.allreduce(
             y, reduced_mesh_axes, self._reduction_fn_string)
         add_counter_fn()
-    lowering.tensors[self.outputs[0]] = y
+    lowering.set_tensor_lowering(self.outputs[0], y)
 
 
 class ConcatOperation(Operation):
@@ -1509,7 +1532,7 @@ class ConcatOperation(Operation):
       return tf.concat(args, axis=self._axis, name="concat")
     y = mesh_impl.slicewise(
         slicewise_fn, *[lowering.tensors[x] for x in self._inputs])
-    lowering.tensors[self.outputs[0]] = y
+    lowering.set_tensor_lowering(self.outputs[0], y)
 
 
 def concat(xs, concat_dim_name, name=None):
@@ -1572,7 +1595,7 @@ class SplitOperation(Operation):
     values = mesh_impl.slicewise(
         slicewise_fn, lowering.tensors[self.inputs[0]])
     for t, v in zip(self._outputs, values):
-      lowering.tensors[t] = v
+      lowering.set_tensor_lowering(t, v)
 
 
 def split(x, split_dim, num_or_size_splits, name=None):
@@ -1617,7 +1640,7 @@ class StackOperation(Operation):
     def slicewise_fn(*args):
       return tf.stack(args, axis=self._axis)
     ret = mesh_impl.slicewise(slicewise_fn, *inputs)
-    lowering.tensors[self.outputs[0]] = ret
+    lowering.set_tensor_lowering(self.outputs[0], ret)
 
 
 def stack(xs, dim_name, axis, name=None):
@@ -1659,7 +1682,7 @@ class UnstackOperation(Operation):
     output_values = mesh_impl.slicewise(
         slicewise_fn, lowering.tensors[self._inputs[0]])
     for t, v in zip(self.outputs, list(output_values)):
-      lowering.tensors[t] = v
+      lowering.set_tensor_lowering(t, v)
 
 
 def unstack(x, dim, name=None):
@@ -1766,7 +1789,7 @@ class EinsumOperation(Operation):
     # broadcast from intersection_shape to output_shape
     if intersection_shape != output_shape:
       y = mesh_impl.broadcast_impl(y, intersection_shape, output_shape)
-    lowering.tensors[self.outputs[0]] = y
+    lowering.set_tensor_lowering(self.outputs[0], y)
     computation_shape = Shape(list(input_shape_set))
     lowering.add_counter("einsum", mesh_impl.laid_out_size(computation_shape))
     lowering.add_counter("einsum_unique", computation_shape.size)
@@ -1811,7 +1834,7 @@ class SliceOperation(Operation):
       return tf.slice(x, begin, size, name="slice")
     y = mesh_impl.slicewise(
         slicewise_fn, lowering.tensors[inputs], begin, size)
-    lowering.tensors[self.outputs[0]] = y
+    lowering.set_tensor_lowering(self.outputs[0], y)
 
 
 class PadOperation(Operation):
@@ -1857,7 +1880,7 @@ class PadOperation(Operation):
       return tf.pad(x, paddings, name="pad")
     y = mesh_impl.slicewise(
         slicewise_fn, lowering.tensors[inputs], paddings)
-    lowering.tensors[self.outputs[0]] = y
+    lowering.set_tensor_lowering(self.outputs[0], y)
 
 
 class OneHotOperation(Operation):
@@ -1897,7 +1920,7 @@ class OneHotOperation(Operation):
                         dtype=self._dtype)
     y = mesh_impl.slicewise(
         slicewise_fn, lowering.tensors[indices], offset)
-    lowering.tensors[self.outputs[0]] = y
+    lowering.set_tensor_lowering(self.outputs[0], y)
 
 
 class ImportOperation(Operation):
@@ -1910,8 +1933,9 @@ class ImportOperation(Operation):
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
-    lowering.tensors[self.outputs[0]] = mesh_impl.import_tf_tensor(
-        self.outputs[0], self._tf_tensor)
+    lowering.set_tensor_lowering(
+        self.outputs[0],
+        mesh_impl.import_tf_tensor(self.outputs[0], self._tf_tensor))
 
 
 def anonymous_shape(shape):
@@ -1960,7 +1984,7 @@ class Variable(Operation):
     with mtf_utils.outside_all_rewrites():
       sv = mesh_impl.LaidOutVariable(self, mesh_impl)
     lowering.variables[self] = sv
-    lowering.tensors[self.outputs[0]] = sv.laid_out_tensor
+    lowering.set_tensor_lowering(self.outputs[0], sv.laid_out_tensor)
     if self._trainable:
       lowering.add_counter("variables/trainable", self.outputs[0].size)
     else:
@@ -2038,9 +2062,10 @@ class Depend(Operation):
       raise ValueError("Mesh does not suppport control dependencies.")
     with tf.control_dependencies(
         [lowering.operations[d] for d in self._dependencies]):
-      lowering.tensors[self.outputs[0]] = mesh_impl.slicewise(
-          tf.identity,
-          lowering.tensors[self.inputs[0]])
+      lowering.set_tensor_lowering(
+          self.outputs[0],
+          mesh_impl.slicewise(tf.identity,
+                              lowering.tensors[self.inputs[0]]))
 
   def gradient(self, grad_ys):
     return grad_ys
@@ -2073,7 +2098,7 @@ class Constant(Operation):
       return tf.constant(value=self._value,
                          dtype=self.outputs[0].dtype,
                          shape=slice_shape)
-    lowering.tensors[self.outputs[0]] = mesh_impl.slicewise(tf_fn)
+    lowering.set_tensor_lowering(self.outputs[0], mesh_impl.slicewise(tf_fn))
 
 
 def constant(mesh, value, shape=None, dtype=tf.float32):
@@ -2100,7 +2125,8 @@ class StopGradient(Operation):
     self._outputs = [Tensor(self, x.shape, x.dtype)]
 
   def lower(self, lowering):
-    lowering.tensors[self.outputs[0]] = lowering.tensors[self.inputs[0]]
+    lowering.set_tensor_lowering(self.outputs[0],
+                                 lowering.tensors[self.inputs[0]])
 
   @property
   def has_gradient(self):
@@ -2123,10 +2149,12 @@ class PrintOperation(Operation):
     self._kwargs = kwargs
 
   def lower(self, lowering):
-    lowering.tensors[self.outputs[0]] = lowering.mesh_impl(self).Print(
-        lowering.tensors[self.inputs[0]],
-        [lowering.tensors[d] for d in self._data], self._message,
-        **self._kwargs)
+    lowering.set_tensor_lowering(
+        self.outputs[0],
+        lowering.mesh_impl(self).Print(
+            lowering.tensors[self.inputs[0]],
+            [lowering.tensors[d] for d in self._data], self._message,
+            **self._kwargs))
 
   def gradient(self, grad_ys):
     return grad_ys
@@ -2232,7 +2260,7 @@ class ReshapeOperation(Operation):
       def reshape_fn(x):
         return tf.reshape(x, new_slice_shape)
       slices = mesh_impl.slicewise(reshape_fn, slices)
-    lowering.tensors[self.outputs[0]] = slices
+    lowering.set_tensor_lowering(self.outputs[0], slices)
 
   def gradient(self, grad_ys):
     return [reshape(grad_ys[0], self.inputs[0].shape)]
@@ -3111,8 +3139,8 @@ class RandomOperation(Operation):
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
     output_shape = self.outputs[0].shape
-    lowering.tensors[self.outputs[0]] = (
-        mesh_impl.random(output_shape, self._tf_fn, self._kwargs))
+    lowering.set_tensor_lowering(self.outputs[0], (
+        mesh_impl.random(output_shape, self._tf_fn, self._kwargs)))
 
 
 def random_uniform(mesh, shape, **kwargs):
@@ -3254,7 +3282,7 @@ class WhileLoopOperation(Operation):
                             back_prop=False,
                             **self._tf_kwargs)
     for tf_out, mtf_out in zip(tf_outs, self._outputs):
-      lowering.tensors[mtf_out] = mesh_impl.LaidOutTensor(tf_out)
+      lowering.set_tensor_lowering(mtf_out, mesh_impl.LaidOutTensor(tf_out))
 
 
 def while_loop(cond_fn, body_fn, inputs, num_loop_vars=None, **kwargs):
