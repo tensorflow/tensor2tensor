@@ -27,59 +27,6 @@ EOS_ID = 1
 INF = 1. * 1e7
 
 
-def _concat_equal_sizes(xs, dim, new_dim_name):
-  axis = xs[0].shape.dims.index(dim)
-  ret = mtf.stack(xs, "tmp_concat", axis)
-  new_shape = mtf.TensorShape(
-      xs[0].shape.dims[:axis]
-      + [mtf.Dimension(new_dim_name, dim.size * len(xs))]
-      + xs[0].shape.dims[axis + 1:])
-  return mtf.reshape(ret, new_shape)
-
-
-def _expand_to_beam_size(tensor, beam_size):
-  """Tiles a given tensor by beam_size.
-
-  Args:
-    tensor: tensor to tile [batch_size, ...]
-    beam_size: How much to tile the tensor by.
-
-  Returns:
-    Tiled tensor [batch_size, beam_size, ...]
-  """
-  tensor = tf.expand_dims(tensor, axis=1)
-  tile_dims = [1] * tensor.shape.ndims
-  tile_dims[1] = beam_size
-
-  return tf.tile(tensor, tile_dims)
-
-
-def get_state_shape_invariants(tensor):
-  """Returns the shape of the tensor but sets middle dims to None."""
-  shape = tensor.shape.as_list()
-  for i in range(1, len(shape) - 1):
-    shape[i] = None
-  return tf.TensorShape(shape)
-
-
-def compute_batch_indices(batch_size, beam_size):
-  """Computes the i'th coordinate that contains the batch index for gathers.
-
-  Batch pos is a tensor like [[0,0,0,0,],[1,1,1,1],..]. It says which
-  batch the beam item is in. This will create the i of the i,j coordinate
-  needed for the gather.
-
-  Args:
-    batch_size: Batch size
-    beam_size: Size of the beam.
-  Returns:
-    batch_pos: [batch_size, beam_size] tensor of ids
-  """
-  batch_pos = tf.range(batch_size * beam_size) // beam_size
-  batch_pos = tf.reshape(batch_pos, [batch_size, beam_size])
-  return batch_pos
-
-
 def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
                                 beam_dim, prefix="default",
                                 states=None):
@@ -126,7 +73,7 @@ def compute_topk_scores_and_seq(sequences, scores, scores_to_gather, flags,
   # Clients can capture these tensors by watching these node names.
   def gather(tensor, name):
     with tf.name_scope(prefix + name):
-      output_shape = mtf.TensorShape(
+      output_shape = mtf.Shape(
           [beam_dim if d == old_beam_dim else d for d in tensor.shape.dims])
       return mtf.gather(
           tensor, topk_indices, old_beam_dim, output_shape=output_shape)
@@ -196,7 +143,7 @@ def beam_search(logits_fn,
   batch_dim, beam_dim, length_dim = initial_ids.shape.dims
   mesh = initial_ids.mesh
 
-  batch_by_beam = mtf.TensorShape([batch_dim, beam_dim])
+  batch_by_beam = mtf.Shape([batch_dim, beam_dim])
   initial_log_probs = mtf.broadcast(
       mtf.one_hot(
           mtf.constant(mesh, 0, dtype=tf.int32),
@@ -332,7 +279,7 @@ def beam_search(logits_fn,
     # scores have shape [batch, beam, vocab]
     beam_and_vocab_dim = mtf.Dimension(
         "beam_and_vocab", beam_dim.size * vocab_dim.size)
-    flat_shape = mtf.TensorShape([batch_dim, beam_and_vocab_dim])
+    flat_shape = mtf.Shape([batch_dim, beam_and_vocab_dim])
     double_beam = mtf.Dimension("double_beam", beam_dim.size * 2)
     # Flatten out (beam_size, vocab_size) probs in to a list of possibilities
     flat_curr_scores = mtf.reshape(curr_scores, flat_shape)
@@ -350,7 +297,7 @@ def beam_search(logits_fn,
     def my_gather(tensor):
       return mtf.gather(
           tensor, top_beam_index, beam_dim,
-          output_shape=mtf.TensorShape(
+          output_shape=mtf.Shape(
               [double_beam if d == beam_dim else d for d in tensor.shape.dims]))
 
     # Gather up the most probable 2*beams both for the ids and finished_in_alive

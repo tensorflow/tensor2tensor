@@ -201,7 +201,7 @@ class SimdMeshImpl(mtf.MeshImpl):
     coord = self.laid_out_pcoord(mesh_axis)
     t = x.one_slice
     old_shape = t.shape.as_list()
-    num_parts = self.shape[mesh_axis]
+    num_parts = self.shape[mesh_axis].size
     t = tf.expand_dims(t, concat_axis)
     t *= tf.reshape(
         tf.one_hot(coord.one_slice, num_parts, dtype=t.dtype),
@@ -282,7 +282,7 @@ class SimdMeshImpl(mtf.MeshImpl):
     """Call a random tf operation (e.g. random_uniform).
 
     Args:
-      shape: a TensorShape
+      shape: a Shape
       tf_fn: a function such as tf.random_uniform
       kwargs: kwargs to pass to tf_fn, except for seed
 
@@ -308,7 +308,7 @@ class SimdMeshImpl(mtf.MeshImpl):
     x = self.allreduce(x, mesh_axes, "SUM")
     return x
 
-  def outfeed(self, x, laid_out_x):
+  def export_to_tf_tensor(self, x, laid_out_x):
     """Turn a Tensor into a tf.Tensor.
 
     Args:
@@ -320,12 +320,14 @@ class SimdMeshImpl(mtf.MeshImpl):
     tensor_layout = self.tensor_layout(x.shape)
     if not tensor_layout.is_fully_replicated:
       raise NotImplementedError(
-          "SimdMeshImpl only supports outfeed of fully-replicated Tensors."
-          " Try reshaping to new dimension names.")
+          "SimdMeshImpl only supports export_to_tf_tensor of fully-replicated "
+          "Tensors.  Try reshaping to new dimension names. "
+          " x.shape = %s tensor_layout=%s"
+          % (x.shape, tensor_layout))
     return laid_out_x.one_slice
 
-  def infeed(self, x, tf_x):
-    """Infeed a tf.Tensor, producing a LaidOutTensor.
+  def import_tf_tensor(self, x, tf_x):
+    """Import a tf.Tensor, producing a LaidOutTensor.
 
     Args:
       x: a Tensor

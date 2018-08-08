@@ -45,17 +45,17 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
     channels_dim = mtf.Dimension("channels", channels)
     depth_dim = mtf.Dimension("depth", units)
 
-    mtf_inputs = mtf.infeed(mesh, inputs,
-                            shape=mtf.TensorShape([batch_dim, channels_dim]))
+    mtf_inputs = mtf.import_tf_tensor(
+        mesh, inputs, shape=mtf.Shape([batch_dim, channels_dim]))
     mtf_outputs = mtf_layers.dense(mtf_inputs,
                                    output_dim=depth_dim,
                                    reduced_dims=[channels_dim],
                                    activation=mtf.relu,
                                    use_bias=use_bias)
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-        shape=[1], layout={}, devices=[""])
+        shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-    actual_outputs = lowering.outfeed(mtf_outputs)
+    actual_outputs = lowering.export_to_tf_tensor(mtf_outputs)
 
     expected_outputs = tf.keras.layers.Dense(units=units,
                                              activation=tf.nn.relu,
@@ -79,14 +79,14 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
     batch_dim = mtf.Dimension("batch", batch)
     channels_dim = mtf.Dimension("channels", channels)
 
-    mtf_inputs = mtf.infeed(mesh, inputs,
-                            shape=mtf.TensorShape([batch_dim, channels_dim]))
+    mtf_inputs = mtf.import_tf_tensor(
+        mesh, inputs, shape=mtf.Shape([batch_dim, channels_dim]))
     mtf_outputs = mtf_layers.layer_norm(mtf_inputs,
                                         dim=channels_dim)
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-        shape=[1], layout={}, devices=[""])
+        shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-    actual_outputs = lowering.outfeed(mtf_outputs)
+    actual_outputs = lowering.export_to_tf_tensor(mtf_outputs)
 
     expected_outputs = common_layers.layer_norm(inputs)
     tf_group = lowering.copy_masters_to_slices()
@@ -106,13 +106,13 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
     batch_dim = mtf.Dimension("batch", inputs.shape.as_list()[0])
     channels_dim = mtf.Dimension("channels", inputs.shape.as_list()[1])
 
-    mtf_inputs = mtf.infeed(mesh, inputs,
-                            shape=mtf.TensorShape([batch_dim, channels_dim]))
+    mtf_inputs = mtf.import_tf_tensor(
+        mesh, inputs, shape=mtf.Shape([batch_dim, channels_dim]))
     mtf_outputs = mtf_layers.weights_nonzero(mtf_inputs)
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-        shape=[1], layout={}, devices=[""])
+        shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-    actual_outputs = lowering.outfeed(mtf_outputs)
+    actual_outputs = lowering.export_to_tf_tensor(mtf_outputs)
 
     expected_outputs = common_layers.weights_nonzero(inputs)
     tf_group = lowering.copy_masters_to_slices()
@@ -134,14 +134,14 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
     channels_dim = mtf.Dimension("channels", channels)
     hidden_dim = mtf.Dimension("hidden", hidden)
 
-    mtf_inputs = mtf.infeed(mesh, inputs,
-                            shape=mtf.TensorShape([batch_dim, channels_dim]))
+    mtf_inputs = mtf.import_tf_tensor(
+        mesh, inputs, shape=mtf.Shape([batch_dim, channels_dim]))
     mtf_outputs = mtf_layers.dense_relu_dense(mtf_inputs,
                                               hidden_channels=hidden_dim)
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-        shape=[1], layout={}, devices=[""])
+        shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-    actual_outputs = lowering.outfeed(mtf_outputs)
+    actual_outputs = lowering.export_to_tf_tensor(mtf_outputs)
 
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()
@@ -172,12 +172,12 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
     kv_channels_dim = mtf.Dimension("kv_channels", kv_channels)
     heads_dim = mtf.Dimension("heads", heads)
 
-    mtf_query = mtf.infeed(
+    mtf_query = mtf.import_tf_tensor(
         mesh, query,
-        shape=mtf.TensorShape([batch_dim, length_q_dim, channels_dim]))
-    mtf_memory = mtf.infeed(
+        shape=mtf.Shape([batch_dim, length_q_dim, channels_dim]))
+    mtf_memory = mtf.import_tf_tensor(
         mesh, memory,
-        shape=mtf.TensorShape([batch_dim, length_m_dim, channels_dim]))
+        shape=mtf.Shape([batch_dim, length_m_dim, channels_dim]))
     mtf_outputs = mtf_layers.masked_local_attention_1d(
         mtf_query,
         mtf_memory,
@@ -185,9 +185,9 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
         heads=heads_dim,
         block_length=2)
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-        shape=[1], layout={}, devices=[""])
+        shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-    actual_outputs = lowering.outfeed(mtf_outputs)
+    actual_outputs = lowering.export_to_tf_tensor(mtf_outputs)
 
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()
@@ -216,17 +216,17 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
     depth_k_dim = mtf.Dimension("depth_k", depth_k)
     depth_v_dim = mtf.Dimension("depth_v", depth_v)
 
-    mtf_query = mtf.infeed(
+    mtf_query = mtf.import_tf_tensor(
         mesh, query,
-        shape=mtf.TensorShape(
+        shape=mtf.Shape(
             [batch_dim, heads_dim, length_q_dim, depth_k_dim]))
-    mtf_key = mtf.infeed(
+    mtf_key = mtf.import_tf_tensor(
         mesh, key,
-        shape=mtf.TensorShape(
+        shape=mtf.Shape(
             [batch_dim, heads_dim, length_kv_dim, depth_k_dim]))
-    mtf_value = mtf.infeed(
+    mtf_value = mtf.import_tf_tensor(
         mesh, value,
-        shape=mtf.TensorShape(
+        shape=mtf.Shape(
             [batch_dim, heads_dim, length_kv_dim, depth_v_dim]))
     mtf_outputs = mtf_layers.dot_product_attention(
         mtf_query,
@@ -234,9 +234,9 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
         mtf_value,
         mask=None)
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-        shape=[1], layout={}, devices=[""])
+        shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-    actual_outputs = lowering.outfeed(mtf_outputs)
+    actual_outputs = lowering.export_to_tf_tensor(mtf_outputs)
 
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()
@@ -265,9 +265,9 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
     kv_channels_dim = mtf.Dimension("kv_channels", kv_channels)
     heads_dim = mtf.Dimension("heads", heads)
 
-    mtf_query = mtf.infeed(
+    mtf_query = mtf.import_tf_tensor(
         mesh, query,
-        shape=mtf.TensorShape([batch_dim, length_dim, channels_dim]))
+        shape=mtf.Shape([batch_dim, length_dim, channels_dim]))
     mtf_outputs = mtf_layers.multihead_attention(
         mtf_query,
         memory_antecedent=None,
@@ -275,9 +275,9 @@ class MtfLayersTest(parameterized.TestCase, tf.test.TestCase):
         kv_channels=kv_channels_dim,
         heads=heads_dim)
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-        shape=[1], layout={}, devices=[""])
+        shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-    actual_outputs = lowering.outfeed(mtf_outputs)
+    actual_outputs = lowering.export_to_tf_tensor(mtf_outputs)
 
     tf_group = lowering.copy_masters_to_slices()
     init = tf.global_variables_initializer()

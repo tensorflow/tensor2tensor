@@ -89,16 +89,16 @@ class MtfTransformer(mtf_model.MtfModel):
           "unknown hparams.activation_dtype %s"
           % self._hparams.activation_dtype)
 
-  def _infeed_to_batch_by_length(self, x, name, mesh, hparams):
+  def _import_to_batch_by_length(self, x, name, mesh, hparams):
     x = tf.reshape(x, [self.batch_dim.size, self.length_dim.size])
-    return mtf.infeed_fully_replicated(
-        mesh, x, mtf.TensorShape([self.batch_dim, self.length_dim]), name=name)
+    return mtf.import_fully_replicated(
+        mesh, x, mtf.Shape([self.batch_dim, self.length_dim]), name=name)
 
   def _embedding_and_softmax_vars(self, mesh):
     hparams = self._hparams
     targets_embedding_var = mtf.get_variable(
         mesh, "targets_embedding",
-        mtf.TensorShape([self.targets_vocab_dim, self.model_dim]),
+        mtf.Shape([self.targets_vocab_dim, self.model_dim]),
         initializer=tf.random_normal_initializer(),
         activation_dtype=self.activation_dtype)
     if self.has_input:
@@ -107,7 +107,7 @@ class MtfTransformer(mtf_model.MtfModel):
       else:
         inputs_embedding_var = mtf.get_variable(
             mesh, "inputs_embedding",
-            mtf.TensorShape([self.inputs_vocab_dim, self.model_dim]),
+            mtf.Shape([self.inputs_vocab_dim, self.model_dim]),
             initializer=tf.random_normal_initializer(),
             activation_dtype=self.activation_dtype)
     else:
@@ -118,13 +118,13 @@ class MtfTransformer(mtf_model.MtfModel):
       softmax_var = mtf.get_variable(
           mesh,
           "softmax",
-          mtf.TensorShape([self.targets_vocab_dim, self.model_dim]),
+          mtf.Shape([self.targets_vocab_dim, self.model_dim]),
           initializer=tf.random_normal_initializer(
               stddev=self.model_dim.size**-0.5),
           activation_dtype=self.activation_dtype)
     positional_embedding_var = mtf.get_variable(
         mesh, "positional_embedding",
-        mtf.TensorShape([self.max_length_dim, self.model_dim]),
+        mtf.Shape([self.max_length_dim, self.model_dim]),
         initializer=tf.random_normal_initializer(),
         activation_dtype=self.activation_dtype)
     return (inputs_embedding_var, targets_embedding_var,
@@ -150,16 +150,16 @@ class MtfTransformer(mtf_model.MtfModel):
         features[key] = pad_to_max_length(features[key])
     shifted_targets = common_layers.shift_right_2d(targets)
 
-    targets = self._infeed_to_batch_by_length(targets, "targets", mesh, hparams)
-    shifted_targets = self._infeed_to_batch_by_length(
+    targets = self._import_to_batch_by_length(targets, "targets", mesh, hparams)
+    shifted_targets = self._import_to_batch_by_length(
         shifted_targets, "shifted_targets", mesh, hparams)
 
     if "targets_segmentation" in features:
       # "Packed" dataset - keep the examples from seeing each other.
-      targets_segmentation = self._infeed_to_batch_by_length(
+      targets_segmentation = self._import_to_batch_by_length(
           features["targets_segmentation"], "targets_segmentation",
           mesh, hparams)
-      targets_position = self._infeed_to_batch_by_length(
+      targets_position = self._import_to_batch_by_length(
           features["targets_position"], "targets_position",
           mesh, hparams)
       decoder_self_attention_mask = (
@@ -175,7 +175,7 @@ class MtfTransformer(mtf_model.MtfModel):
     def layer_prepostprocess_dropout(x):
       return mtf.dropout(
           x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
-          noise_shape=mtf.TensorShape([self.batch_dim, self.model_dim]))
+          noise_shape=mtf.Shape([self.batch_dim, self.model_dim]))
 
     extra_losses = []
     (inputs_embedding_var,
@@ -185,13 +185,13 @@ class MtfTransformer(mtf_model.MtfModel):
     if self.has_input:
       inputs = tf.squeeze(tf.to_int32(features["inputs"]), [2, 3])
       inputs = pad_to_max_length(inputs)
-      inputs = self._infeed_to_batch_by_length(inputs, "inputs", mesh, hparams)
+      inputs = self._import_to_batch_by_length(inputs, "inputs", mesh, hparams)
       if "inputs_segmentation" in features:
         # "Packed" dataset - keep the examples from seeing each other.
-        inputs_segmentation = self._infeed_to_batch_by_length(
+        inputs_segmentation = self._import_to_batch_by_length(
             features["inputs_segmentation"], "inputs_segmentation",
             mesh, hparams)
-        inputs_position = self._infeed_to_batch_by_length(
+        inputs_position = self._import_to_batch_by_length(
             features["inputs_position"], "inputs_position",
             mesh, hparams)
         encoder_self_attention_mask = (
@@ -338,13 +338,13 @@ class MtfTransformer(mtf_model.MtfModel):
     def layer_prepostprocess_dropout(x):
       return mtf.dropout(
           x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
-          noise_shape=mtf.TensorShape([self.batch_dim, self.model_dim]))
+          noise_shape=mtf.Shape([self.batch_dim, self.model_dim]))
     num_layer_norms = num_layers * (2 if encoder_output is None else 3) + 1
     layer_norms_dim = mtf.Dimension("layer_norms", num_layer_norms)
     layer_norm_combined_var = mtf.get_variable(
         x.mesh,
         "layer_norm_scale",
-        mtf.TensorShape([layer_norms_dim, self.model_dim]),
+        mtf.Shape([layer_norms_dim, self.model_dim]),
         initializer=tf.ones_initializer(),
         activation_dtype=x.dtype)
     layer_norm_vars = mtf.unstack(layer_norm_combined_var, layer_norms_dim)
@@ -375,7 +375,7 @@ class MtfTransformer(mtf_model.MtfModel):
         # ffn layer
         x += layer_prepostprocess_dropout(
             self._feedforward_layer(normalize(x), losses=losses))
-    x = normalize(x)
+    x = layer_prepostprocess_dropout(normalize(x))
     assert not layer_norm_vars
     return x
 
@@ -398,11 +398,11 @@ class MtfTransformer(mtf_model.MtfModel):
       inputs = tf.pad(
           inputs, [[0, hparams.batch_size - actual_batch_size],
                    [0, hparams.max_length - actual_length]])
-      inputs = self._infeed_to_batch_by_length(
+      inputs = self._import_to_batch_by_length(
           inputs, "inputs", mesh, hparams)
       x = (mtf.gather(inputs_embedding_var, inputs, self.inputs_vocab_dim) +
            mtf.reshape(positional_embedding_var,
-                       mtf.TensorShape([self.length_dim, self.model_dim])))
+                       mtf.Shape([self.length_dim, self.model_dim])))
       encoder_attention_mask = (
           mtf_layers.attention_mask_ignore_padding(
               inputs, dtype=self.activation_dtype))
@@ -420,12 +420,12 @@ class MtfTransformer(mtf_model.MtfModel):
               self.kv_dim, self.activation_dtype)
           k = mtf.einsum(
               [encoder_output, k_var],
-              mtf.TensorShape(
+              mtf.Shape(
                   [self.batch_dim, self.heads_dim,
                    self.memory_length_dim, self.kv_dim]))
           v = mtf.einsum(
               [encoder_output, v_var],
-              mtf.TensorShape(
+              mtf.Shape(
                   [self.batch_dim, self.heads_dim,
                    self.memory_length_dim, self.kv_dim]))
         encdec_tensors.append((q_var, o_var, k, v))
@@ -448,18 +448,18 @@ class MtfTransformer(mtf_model.MtfModel):
         partial_targets = tf.pad(
             partial_targets, [[0, hparams.batch_size - partial_targets_batch],
                               [0, hparams.max_length - partial_targets_length]])
-        partial_targets = self._infeed_to_batch_by_length(
+        partial_targets = self._import_to_batch_by_length(
             partial_targets, "partial_targets", mesh, hparams)
 
     if hparams.beam_size == 1:
-      ids_shape = mtf.TensorShape([self.batch_dim, self.length_dim])
-      kv_shape = mtf.TensorShape([self.batch_dim, self.heads_dim,
-                                  self.memory_length_dim, self.kv_dim])
+      ids_shape = mtf.Shape([self.batch_dim, self.length_dim])
+      kv_shape = mtf.Shape([self.batch_dim, self.heads_dim,
+                            self.memory_length_dim, self.kv_dim])
     else:
       beam_dim = mtf.Dimension("beam", hparams.beam_size)
-      ids_shape = mtf.TensorShape([self.batch_dim, beam_dim, self.length_dim])
-      kv_shape = mtf.TensorShape([self.batch_dim, beam_dim, self.heads_dim,
-                                  self.memory_length_dim, self.kv_dim])
+      ids_shape = mtf.Shape([self.batch_dim, beam_dim, self.length_dim])
+      kv_shape = mtf.Shape([self.batch_dim, beam_dim, self.heads_dim,
+                            self.memory_length_dim, self.kv_dim])
 
     initial_ids = mtf.constant(mesh, 0, ids_shape, dtype=tf.int32)
     initial_kv_states = (
@@ -563,7 +563,7 @@ class MtfTransformer(mtf_model.MtfModel):
     layer_norm_combined_var = mtf.get_variable(
         x.mesh,
         "layer_norm_scale",
-        mtf.TensorShape([layer_norms_dim, self.model_dim]),
+        mtf.Shape([layer_norms_dim, self.model_dim]),
         initializer=tf.ones_initializer(),
         activation_dtype=x.dtype)
     layer_norm_vars = mtf.unstack(layer_norm_combined_var, layer_norms_dim)
@@ -614,8 +614,8 @@ def mtf_transformer_base():
   hparams.add_hparam("d_kv", 128)
   hparams.label_smoothing = 0.1
   # 8-way model-parallelism
-  hparams.add_hparam("mesh_shape", "8")
-  hparams.add_hparam("layout", "vocab:0;d_ff:0;heads:0")
+  hparams.add_hparam("mesh_shape", "model:8")
+  hparams.add_hparam("layout", "batch:batch;vocab:model;d_ff:model;heads:model")
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("d_ff", 2048)
   hparams.add_hparam("num_encoder_layers", 6)
@@ -639,7 +639,7 @@ def mtf_transformer_base():
   # Reuse targets_embedding_var as inputs_embedding_var
   hparams.shared_embedding = True
   hparams.optimizer = "Adafactor"
-  hparams.learning_rate_schedule = "rsqrt_decay*linear_decay"
+  hparams.learning_rate_schedule = "linear_warmup*rsqrt_decay*linear_decay"
   hparams.learning_rate_warmup_steps = 10000
   hparams.activation_dtype = "float32"
 
@@ -660,22 +660,6 @@ def mtf_transformer_base():
 
 
 @registry.register_hparams
-def mtf_transformer_shared_embedding():
-  hparams = mtf_transformer_base()
-  hparams.shared_embedding_and_softmax_weights = False
-  hparams.shared_embedding = True
-  return hparams
-
-
-@registry.register_hparams
-def mtf_transformer_no_share():
-  hparams = mtf_transformer_base()
-  hparams.shared_embedding_and_softmax_weights = False
-  hparams.shared_embedding = False
-  return hparams
-
-
-@registry.register_hparams
 def mtf_transformer_tiny():
   """Catch bugs locally..."""
   hparams = mtf_transformer_base()
@@ -686,8 +670,7 @@ def mtf_transformer_tiny():
   hparams.num_decoder_layers = 2
   hparams.num_heads = 4
   # data parallelism and model-parallelism
-  hparams.mesh_shape = "2.2"
-  hparams.layout = "batch:0;vocab:1;d_ff:1;heads:1"
+  hparams.mesh_shape = "batch:2;model:2"
   return hparams
 
 
@@ -695,15 +678,14 @@ def mtf_transformer_tiny():
 def mtf_transformer_single():
   hparams = mtf_transformer_tiny()
   hparams.mesh_shape = ""
-  hparams.layout = ""
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_tiny_moe():
   hparams = mtf_transformer_tiny()
-  hparams.mesh_shape = "4"
-  hparams.layout = "batch:0,experts:0"
+  hparams.mesh_shape = "all:4"
+  hparams.layout = "batch:all;experts:all"
   hparams.feedforward_layer = "moe"
   return hparams
 
@@ -711,24 +693,7 @@ def mtf_transformer_tiny_moe():
 @registry.register_hparams
 def mtf_transformer_tiny_8gpu():
   hparams = mtf_transformer_tiny()
-  hparams.mesh_shape = "8"
-  hparams.layout = "vocab:0;d_ff:0;heads:0"
-  return hparams
-
-
-@registry.register_hparams
-def mtf_transformer_length_sharded():
-  hparams = mtf_transformer_tiny()
-  hparams.mesh_shape = "2"
-  hparams.layout = "length:0"
-  return hparams
-
-
-@registry.register_hparams
-def mtf_transformer_lm():
-  """Set of hyperparameters."""
-  hparams = mtf_transformer_base()
-  hparams.label_smoothing = 0.0
+  hparams.mesh_shape = "model:8"
   return hparams
 
 
@@ -737,85 +702,68 @@ def mtf_transformer_paper_lm(sz):
   n = 2 ** sz
   hparams = mtf_transformer_base()
   hparams.label_smoothing = 0.0
-  hparams.batch_size = 128
+  hparams.batch_size = 256
   hparams.d_model = 1024
   hparams.d_ff = int(8192 * n)
+  hparams.d_kv = 256
   hparams.num_heads = int(8 * n)
   hparams.shared_embedding_and_softmax_weights = False
-  hparams.learning_rate_decay_steps = 27300  # one epoch for lm1b
+  # one epoch for languagemodel_lm1b32k_packed = 13600 steps
+  hparams.learning_rate_decay_steps = 13600
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_lm_m1():
   hparams = mtf_transformer_paper_lm(-1)
-  hparams.mesh_shape = "32"
-  hparams.layout = "batch:0"
+  hparams.mesh_shape = "batch:32"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_lm_0():
   hparams = mtf_transformer_paper_lm(0)
-  hparams.mesh_shape = "32"
-  hparams.layout = "batch:0"
+  hparams.mesh_shape = "batch:32"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_lm_1():
   hparams = mtf_transformer_paper_lm(1)
-  hparams.mesh_shape = "4;8"
-  hparams.layout = "batch:1;vocab:0;d_ff:0;heads:0"
+  hparams.mesh_shape = "model:4;batch:8"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_lm_2():
   hparams = mtf_transformer_paper_lm(2)
-  hparams.mesh_shape = "4;8"
-  hparams.layout = "batch:1;vocab:0;d_ff:0;heads:0"
+  hparams.mesh_shape = "model:4;batch:8"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_lm_3():
   hparams = mtf_transformer_paper_lm(3)
-  hparams.mesh_shape = "8;16"
-  hparams.layout = "batch:1;vocab:0;d_ff:0;heads:0"
+  hparams.mesh_shape = "model:8;batch:16"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_lm_4():
   hparams = mtf_transformer_paper_lm(4)
-  hparams.mesh_shape = "8;16"
-  hparams.layout = "batch:1;vocab:0;d_ff:0;heads:0"
+  hparams.mesh_shape = "batch:16;model:32"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_lm_5():
   hparams = mtf_transformer_paper_lm(5)
-  hparams.mesh_shape = "8;16"
-  hparams.layout = "batch:1;vocab:0;d_ff:0;heads:0"
+  hparams.mesh_shape = "batch:16;model:32"
   return hparams
 
 
 def mtf_transformer_paper_tr(sz):
-  """Config for translation experiments.
-
-  translate_enfr_wmt32k_packed - tokens=2.385e9
-  batch:128 * length:256 = 32768 tokens/step
-  steps/epoch = 72800
-  Let's run for 3 epochs (218K steps)
-  Leaerning-rate-decay for last epoch
-
-  Args:
-    sz: an integer
-  Returns:
-    hyperparameters
-  """
+  """Config for translation experiments."""
   n = 2 ** sz
   hparams = mtf_transformer_base()
   hparams.label_smoothing = 0.1
@@ -824,58 +772,51 @@ def mtf_transformer_paper_tr(sz):
   hparams.d_ff = int(4096 * n)
   hparams.num_heads = int(8 * n)
   hparams.shared_embedding_and_softmax_weights = False
-  hparams.learning_rate_decay_steps = 51400  # one epoch for enfr
+  # one epoch for translate_enfr_wmt32k_packed = 51400 steps
+  hparams.learning_rate_decay_steps = 51400
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_tr_m1():
   hparams = mtf_transformer_paper_tr(-1)
-  hparams.mesh_shape = "32"
-  hparams.layout = "batch:0"
+  hparams.mesh_shape = "batch:32"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_tr_0():
   hparams = mtf_transformer_paper_tr(0)
-  hparams.mesh_shape = "32"
-  hparams.layout = "batch:0"
+  hparams.mesh_shape = "batch:32"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_tr_1():
   hparams = mtf_transformer_paper_tr(1)
-  hparams.mesh_shape = "4;8"
-  hparams.layout = "batch:1;vocab:0;d_ff:0;heads:0"
+  hparams.mesh_shape = "model:4;batch:8"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_tr_2():
   hparams = mtf_transformer_paper_tr(2)
-  hparams.mesh_shape = "4;8"
-  hparams.layout = "batch:1;vocab:0;d_ff:0;heads:0"
+  hparams.mesh_shape = "model:4;batch:8"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_tr_3():
   hparams = mtf_transformer_paper_tr(3)
-  hparams.mesh_shape = "8;16"
-  hparams.layout = "batch:1;vocab:0;d_ff:0;heads:0"
+  hparams.mesh_shape = "model:8;batch:16"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_tr_4():
-  return mtf_transformer_paper_tr(4)
-
-
-@registry.register_hparams
-def mtf_transformer_paper_tr_5():
-  return mtf_transformer_paper_tr(5)
+  hparams = mtf_transformer_paper_tr(4)
+  hparams.mesh_shape = "model:8;batch:16"
+  return hparams
 
 
 @registry.register_hparams
@@ -890,6 +831,7 @@ def mtf_transformer_lm_moe():
   hparams.attention_value_channels = 1024
   hparams.shared_embedding_and_softmax_weights = False
   hparams.num_heads = 8
-  hparams.layout = "batch:0,experts:0"
+  hparams.mesh_shape = "all:8"
+  hparams.layout = "batch:all;experts:all"
   hparams.feedforward_layer = "moe"
   return hparams

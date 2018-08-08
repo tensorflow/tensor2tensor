@@ -76,21 +76,21 @@ class MtfModel(t2t_model.T2TModel):
     graph = mtf.Graph()
     mesh = mtf.Mesh(graph, "my_mesh")
 
-    mesh_shape = mtf.parse_mesh_shape(hparams.mesh_shape)
-    mesh_size = mtf.list_product(mesh_shape)
+    mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
+    computation_layout = mtf.ComputationLayout(hparams.layout)
     if use_tpu:
-      mesh_devices = [""] * mesh_size
+      mesh_devices = [""] * mesh_shape.size
       mesh_impl = simd_mesh_impl.SimdMeshImpl(
-          mesh_shape, mtf.parse_layout(hparams.layout), mesh_devices,
+          mesh_shape, computation_layout, mesh_devices,
           params["context"].device_assignment)
     else:
       if len(data_parallelism.ps_devices) == 1:
-        mesh_devices = [""] * mesh_size
+        mesh_devices = [""] * mesh_shape.size
       else:
-        assert len(data_parallelism.ps_devices) == mesh_size
+        assert len(data_parallelism.ps_devices) == mesh_shape.size
         mesh_devices = data_parallelism.ps_devices
       mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-          mesh_shape, mtf.parse_layout(hparams.layout), mesh_devices)
+          mesh_shape, computation_layout, mesh_devices)
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:
@@ -105,8 +105,8 @@ class MtfModel(t2t_model.T2TModel):
       var_grads = mtf.gradients(
           [loss], [v.outputs[0] for v in graph.trainable_variables])
       lr = learning_rate.learning_rate_schedule(hparams)
-      mtf_lr = mtf.infeed(
-          mesh, tf.convert_to_tensor(lr, dtype=tf.float32), mtf.TensorShape([]))
+      mtf_lr = mtf.import_tf_tensor(
+          mesh, tf.convert_to_tensor(lr, dtype=tf.float32), mtf.Shape([]))
       optimizer = mtf_optimize.make_optimizer(hparams, mtf_lr)
       update_ops = []
       for grad, var in zip(var_grads, graph.trainable_variables):
@@ -114,10 +114,10 @@ class MtfModel(t2t_model.T2TModel):
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
-    tf_loss = lowering.outfeed(loss)
+    tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.to_float(tf_loss)
     if logits and mode != tf.estimator.ModeKeys.TRAIN:
-      tf_logits = lowering.outfeed(logits)
+      tf_logits = lowering.export_to_tf_tensor(logits)
 
     if mode == tf.estimator.ModeKeys.TRAIN:
       tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
@@ -145,7 +145,7 @@ class MtfModel(t2t_model.T2TModel):
 
     # EVAL mode
     if mode == tf.estimator.ModeKeys.EVAL:
-      tf_logits = lowering.outfeed(logits)
+      tf_logits = lowering.export_to_tf_tensor(logits)
       return model.estimator_spec_eval(features, tf_logits, labels, tf_loss,
                                        restore_hook, use_tpu)
 
@@ -201,7 +201,7 @@ class MtfModel(t2t_model.T2TModel):
   def estimator_spec_predict(self, features, mesh, mesh_impl, use_tpu):
     mtf_samples = self.sample(features, mesh)
     lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
-    outputs = lowering.outfeed(mtf_samples)
+    outputs = lowering.export_to_tf_tensor(mtf_samples)
     if self.has_input:
       ndims = len(outputs.shape.as_list())
       actual_batch_size = tf.shape(features["inputs"])[0]

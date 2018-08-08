@@ -73,17 +73,17 @@ class MtfImageTransformer(mtf_model.MtfModel):
     kv_channels = mtf.Dimension("kv_channels", hparams.d_kv)
     heads = mtf.Dimension("heads", hparams.num_heads)
 
-    def infeed_to_batch_by_length(x, name):
-      return mtf.infeed(
-          mesh, x, mtf.TensorShape([batch_dim, length_dim]), name=name)
+    def import_to_batch_by_length(x, name):
+      return mtf.import_tf_tensor(
+          mesh, x, mtf.Shape([batch_dim, length_dim]), name=name)
 
     def layer_prepostprocess_dropout(x):
       return mtf.dropout(
           x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
-          noise_shape=mtf.TensorShape([batch_dim, model_dim]))
+          noise_shape=mtf.Shape([batch_dim, model_dim]))
 
-    targets = infeed_to_batch_by_length(targets, "targets")
-    shifted_targets = infeed_to_batch_by_length(
+    targets = import_to_batch_by_length(targets, "targets")
+    shifted_targets = import_to_batch_by_length(
         shifted_targets, "shifted_targets")
 
     extra_losses = []
@@ -93,7 +93,7 @@ class MtfImageTransformer(mtf_model.MtfModel):
       vocab_size = hparams.num_classes
       inputs_vocab_dim = mtf.Dimension("vocab", vocab_size)
       inputs = tf.squeeze(tf.to_int32(features["inputs"]), [2, 3])
-      inputs = infeed_to_batch_by_length(inputs, "inputs")
+      inputs = import_to_batch_by_length(inputs, "inputs")
 
       # Input embeddings
       inputs, _ = mtf_layers.embedding(
@@ -110,13 +110,13 @@ class MtfImageTransformer(mtf_model.MtfModel):
     # Create embedding var for targets and positions and do a gather.
     targets_embedding_var = mtf.get_variable(
         mesh, "targets_embedding",
-        mtf.TensorShape([targets_vocab_dim, model_dim]),
+        mtf.Shape([targets_vocab_dim, model_dim]),
         initializer=tf.random_normal_initializer(),
         activation_dtype=activation_dtype)
 
     positional_embedding_var = mtf.get_variable(
         mesh, "positional_embedding",
-        mtf.TensorShape([targets_vocab_dim, model_dim]),
+        mtf.Shape([targets_vocab_dim, model_dim]),
         initializer=tf.random_normal_initializer(),
         activation_dtype=activation_dtype)
     x = (mtf.gather(targets_embedding_var, shifted_targets, targets_vocab_dim) +

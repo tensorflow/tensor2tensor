@@ -229,7 +229,7 @@ class PlacementMeshImpl(mtf.MeshImpl):
     """Call a random tf operation (e.g. random_uniform).
 
     Args:
-      shape: a TensorShape
+      shape: a Shape
       tf_fn: a function such as tf.random_uniform
       kwargs: kwargs to pass to tf_fn, except for seed
 
@@ -253,7 +253,7 @@ class PlacementMeshImpl(mtf.MeshImpl):
   def devices(self):
     return self._devices
 
-  def outfeed(self, x, laid_out_x):
+  def export_to_tf_tensor(self, x, laid_out_x):
     """Turn a Tensor into a tf.Tensor.
 
     Args:
@@ -264,8 +264,8 @@ class PlacementMeshImpl(mtf.MeshImpl):
     """
     return self.combine_slices(laid_out_x.all_slices, x.shape)
 
-  def infeed(self, x, tf_x):
-    """Infeed a tf.Tensor, producing a LaidOutTensor.
+  def import_tf_tensor(self, x, tf_x):
+    """Import a tf.Tensor, producing a LaidOutTensor.
 
     Args:
       x: a Tensor

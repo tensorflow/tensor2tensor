@@ -60,12 +60,11 @@ def get_model(hparams=None,
 def get_placement_mesh(hparams):
   graph = mtf.Graph()
   mesh = mtf.Mesh(graph, "my_mesh")
-  mesh_shape = mtf.parse_mesh_shape(hparams.mesh_shape)
-  mesh_size = mtf.list_product(mesh_shape)
+  mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
 
-  mesh_devices = [""] * mesh_size
+  mesh_devices = [""] * mesh_shape.size
   mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-      mesh_shape, mtf.parse_layout(hparams.layout), mesh_devices)
+      mesh_shape, hparams.layout, mesh_devices)
   return mesh, mesh_impl
 
 
@@ -82,7 +81,7 @@ class MtfImageTransformerTest(tf.test.TestCase):
     logits, _ = model.mtf_model_fn(features, mesh)
     lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
     tf_group = lowering.copy_masters_to_slices()
-    tf_logits = lowering.outfeed(logits)
+    tf_logits = lowering.export_to_tf_tensor(logits)
 
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())

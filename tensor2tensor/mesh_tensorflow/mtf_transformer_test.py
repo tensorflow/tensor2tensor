@@ -63,12 +63,11 @@ def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
 def get_placement_mesh(hparams):
   graph = mtf.Graph()
   mesh = mtf.Mesh(graph, "my_mesh")
-  mesh_shape = mtf.parse_mesh_shape(hparams.mesh_shape)
-  mesh_size = mtf.list_product(mesh_shape)
+  mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
 
-  mesh_devices = [""] * mesh_size
+  mesh_devices = [""] * mesh_shape.size
   mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-      mesh_shape, mtf.parse_layout(hparams.layout), mesh_devices)
+      mesh_shape, hparams.layout, mesh_devices)
   return mesh, mesh_impl
 
 
@@ -85,7 +84,7 @@ class MtfTransformerTest(tf.test.TestCase):
     logits, _ = model.mtf_model_fn(features, mesh)
     lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
     tf_group = lowering.copy_masters_to_slices()
-    tf_logits = lowering.outfeed(logits)
+    tf_logits = lowering.export_to_tf_tensor(logits)
 
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
@@ -97,14 +96,14 @@ class MtfTransformerTest(tf.test.TestCase):
     hparams = mtf_transformer.mtf_transformer_single()
 
     model, features, hparams = get_model(hparams)
-    hparams.mesh_shape = "2"
-    hparams.layout = "batch:0"
+    hparams.mesh_shape = "all:2"
+    hparams.layout = "batch:all"
     mesh, mesh_impl = get_placement_mesh(hparams)
 
     logits, _ = model.mtf_model_fn(features, mesh)
     lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
     tf_group = lowering.copy_masters_to_slices()
-    tf_logits = lowering.outfeed(logits)
+    tf_logits = lowering.export_to_tf_tensor(logits)
 
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
@@ -116,14 +115,14 @@ class MtfTransformerTest(tf.test.TestCase):
     hparams = mtf_transformer.mtf_transformer_single()
 
     model, features, hparams = get_model(hparams)
-    hparams.mesh_shape = "2"
-    hparams.layout = "length:0"
+    hparams.mesh_shape = "all:2"
+    hparams.layout = "length:all"
     mesh, mesh_impl = get_placement_mesh(hparams)
 
     logits, _ = model.mtf_model_fn(features, mesh)
     lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
     tf_group = lowering.copy_masters_to_slices()
-    tf_logits = lowering.outfeed(logits)
+    tf_logits = lowering.export_to_tf_tensor(logits)
 
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
@@ -135,14 +134,14 @@ class MtfTransformerTest(tf.test.TestCase):
     hparams = mtf_transformer.mtf_transformer_single()
 
     model, features, hparams = get_model(hparams)
-    hparams.mesh_shape = "2.2"
-    hparams.layout = "batch:0;vocab:1;d_ff:1;heads:1"
+    hparams.mesh_shape = "batch:2;model:2"
+    hparams.layout = "batch:batch;vocab:model;d_ff:model;heads:model"
     mesh, mesh_impl = get_placement_mesh(hparams)
 
     logits, _ = model.mtf_model_fn(features, mesh)
     lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
     tf_group = lowering.copy_masters_to_slices()
-    tf_logits = lowering.outfeed(logits)
+    tf_logits = lowering.export_to_tf_tensor(logits)
 
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())

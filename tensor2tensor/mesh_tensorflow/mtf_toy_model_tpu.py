@@ -40,13 +40,12 @@ FLAGS = flags.FLAGS
 tf.flags.DEFINE_integer('batch_size', 64, 'Training batch size.')
 tf.flags.DEFINE_integer('io_size', 2, 'Number of channels per feature.')
 tf.flags.DEFINE_integer('hidden_size', 2, 'Size of each hidden layer.')
-tf.flags.DEFINE_string('mesh_shape', '2;1', 'mesh shape')
-tf.flags.DEFINE_string('layout', 'batch:0', 'computation layout')
+tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
+tf.flags.DEFINE_string('layout', 'hidden:all', 'computation layout')
 tf.flags.DEFINE_integer('iterations', 100,
                         'Number of iterations per training loop.')
 tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
 tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
-tf.flags.DEFINE_integer('num_shards', 2, 'Number of shards.')
 tf.flags.DEFINE_string('master', 'local',
                        'BNS name of the TensorFlow master to use.')
 tf.flags.DEFINE_string('evaluation_master', 'local',
@@ -92,7 +91,7 @@ def toy_model(features, mesh):
   hidden_dim = mtf.Dimension('hidden', FLAGS.hidden_size)
   io_dim = mtf.Dimension('io', FLAGS.io_size)
 
-  x = mtf.infeed(mesh, features, mtf.TensorShape([batch_dim, io_dim]))
+  x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, io_dim]))
   h = mtf_layers.dense(x, hidden_dim, name='layer1', use_bias=False)
   y = mtf_layers.dense(h, io_dim, name='layer2', use_bias=False)
 
@@ -106,11 +105,11 @@ def model_fn(features, labels, mode, params):
   global_step = tf.train.get_global_step()
   graph = mtf.Graph()
   mesh = mtf.Mesh(graph, 'my_mesh')
-  mesh_shape = mtf.parse_mesh_shape(FLAGS.mesh_shape)
-  mesh_size = mtf.list_product(mesh_shape)
-  mesh_devices = [''] * mesh_size
-  mesh_impl = SimdMeshImpl(mesh_shape, mtf.parse_layout(FLAGS.layout),
-                           mesh_devices, params['context'].device_assignment)
+  mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
+  mesh_devices = [''] * mesh_shape.size
+  mesh_impl = SimdMeshImpl(
+      mesh_shape, mtf.convert_to_computation_layout(FLAGS.layout),
+      mesh_devices, params['context'].device_assignment)
   with mtf_utils.outside_all_rewrites():
     logits, loss = toy_model(features, mesh)
 
@@ -122,17 +121,21 @@ def model_fn(features, labels, mode, params):
     update_ops = []
     for grad, var in zip(var_grads, graph.trainable_variables):
       update_ops.extend(optimizer.apply_grad(grad, var))
+  else:
+    # for now, we can only export fully-replicated tensors.
+    fully_replicated_logits = mtf.anonymize(logits)
 
   lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
-  tf_loss = lowering.outfeed(loss)
-  tf_logits = lowering.outfeed(logits)
+  tf_loss = lowering.export_to_tf_tensor(loss)
 
   if mode == tf.estimator.ModeKeys.TRAIN:
     tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
     tf_update_ops.append(tf.assign_add(global_step, 1))
     tf.logging.info('tf_update_ops: {}'.format(tf_update_ops))
     train_op = tf.group(tf_update_ops)
+  else:
+    tf_logits = lowering.export_to_tf_tensor(fully_replicated_logits)
 
   with mtf_utils.outside_all_rewrites():
     # Copy master variables to slices. Must be called first.
@@ -176,6 +179,7 @@ def model_fn(features, labels, mode, params):
 def run_toy_model_tpu():
   """Run a toy model on TPU."""
   iterations_per_loop = FLAGS.iterations
+  mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
   config = tpu_config.RunConfig(
       master=FLAGS.master,
       evaluation_master=FLAGS.evaluation_master,
@@ -184,7 +188,7 @@ def run_toy_model_tpu():
       save_checkpoints_secs=None,  # Disable the default saver
       log_step_count_steps=iterations_per_loop,
       tpu_config=tpu_config.TPUConfig(
-          num_shards=FLAGS.num_shards,
+          num_shards=mesh_shape.size,
           iterations_per_loop=iterations_per_loop,
           num_cores_per_replica=1,
           per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))

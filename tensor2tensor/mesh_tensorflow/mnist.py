@@ -39,8 +39,9 @@ tf.flags.DEFINE_integer("epochs_between_evals", 1,
 tf.flags.DEFINE_integer("eval_steps", 0,
                         "Total number of evaluation steps. If `0`, evaluation "
                         "after training is skipped.")
-tf.flags.DEFINE_string("mesh_shape", "2;2", "mesh shape")
-tf.flags.DEFINE_string("layout", "batch:0;hidden1:1", "computation layout")
+tf.flags.DEFINE_string("mesh_shape", "rows:2;cols:2", "mesh shape")
+tf.flags.DEFINE_string("layout", "batch:rows;hidden1:cols",
+                       "computation layout")
 
 FLAGS = tf.flags.FLAGS
 
@@ -64,8 +65,8 @@ def mnist_model(image, labels, mesh):
   hidden_dim1 = mtf.Dimension("hidden1", FLAGS.hidden_size)
   hidden_dim2 = mtf.Dimension("hidden2", FLAGS.hidden_size)
 
-  x = mtf.infeed(mesh, tf.reshape(image, [-1, 28, 28]),
-                 mtf.TensorShape([batch_dim, rows_dim, cols_dim]))
+  x = mtf.import_tf_tensor(mesh, tf.reshape(image, [-1, 28, 28]),
+                           mtf.Shape([batch_dim, rows_dim, cols_dim]))
   h1 = mtf_layers.dense(
       x, hidden_dim1, reduced_dims=[rows_dim, cols_dim],
       activation=mtf.relu, name="hidden1")
@@ -75,7 +76,7 @@ def mnist_model(image, labels, mesh):
   if labels is None:
     loss = None
   else:
-    labels = mtf.infeed(mesh, labels, mtf.TensorShape([batch_dim]))
+    labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim]))
     loss = mtf_layers.softmax_cross_entropy_with_logits(
         logits, mtf.one_hot(labels, classes_dim), classes_dim)
     loss = mtf.reduce_mean(loss)
@@ -90,11 +91,12 @@ def model_fn(features, labels, mode, params):
   graph = mtf.Graph()
   mesh = mtf.Mesh(graph, "my_mesh")
   logits, loss = mnist_model(features, labels, mesh)
-  mesh_shape = mtf.parse_mesh_shape(FLAGS.mesh_shape)
-  mesh_size = mtf.list_product(mesh_shape)
+  mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
+  computation_layout = mtf.ComputationLayout(FLAGS.layout)
+  mesh_size = mesh_shape.size
   mesh_devices = [""] * mesh_size
   mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-      mesh_shape, mtf.parse_layout(FLAGS.layout), mesh_devices)
+      mesh_shape, computation_layout, mesh_devices)
 
   if mode == tf.estimator.ModeKeys.TRAIN:
     var_grads = mtf.gradients(
@@ -107,9 +109,9 @@ def model_fn(features, labels, mode, params):
   lowering = mtf.Lowering(graph, {mesh: mesh_impl})
   restore_hook = mtf.MtfRestoreHook(lowering)
 
-  tf_logits = lowering.outfeed(logits)
+  tf_logits = lowering.export_to_tf_tensor(logits)
   if mode != tf.estimator.ModeKeys.PREDICT:
-    tf_loss = lowering.outfeed(loss)
+    tf_loss = lowering.export_to_tf_tensor(loss)
     tf.summary.scalar("loss", tf_loss)
 
   if mode == tf.estimator.ModeKeys.TRAIN:

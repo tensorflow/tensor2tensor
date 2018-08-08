@@ -106,7 +106,7 @@ class AdafactorOptimizer(Optimizer):
     If there are not two dimensions of size >=128, then we do not factor.
 
     Args:
-      shape: a TensorShape
+      shape: a Shape
     Returns:
       either a list of 2 Dimensions or None
     """

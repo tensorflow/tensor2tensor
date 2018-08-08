@@ -45,21 +45,20 @@ def convert_to_dimension(d):
     return None
   if isinstance(d, Dimension):
     return d
-  tf.logging.info("d = %s" % d)
   name, size = d
   if isinstance(name, str) and isinstance(size, int):
     return Dimension(name, size)
   else:
-    raise ValueError("could not convert %s to Dimension" % d)
+    raise ValueError("could not convert %s to Dimension" % (d,))
 
 
-class TensorShape(object):
+class Shape(object):
   """Shape of a Tensor."""
 
   def __init__(self, dims):
     self._dims = tuple(dims)
     # verify no repeated dims
-    if len(set([d.name for d in dims])) != len(dims):
+    if len(set(dims)) != len(dims):
       raise ValueError("Shape must not have repeated dimensions %s" % dims)
 
   @property
@@ -80,20 +79,20 @@ class TensorShape(object):
     return self.dims != other.dims
 
   def __add__(self, other):
-    if isinstance(other, TensorShape):
+    if isinstance(other, Shape):
       other = other.dims
     if isinstance(other, Dimension):
       other = [other]
-    return TensorShape(self.dims + other)
+    return Shape(self.dims + other)
 
   def __sub__(self, other):
     if other is None:
       return self
-    if isinstance(other, TensorShape):
+    if isinstance(other, Shape):
       other = other.dims
     if isinstance(other, Dimension):
       other = [other]
-    return TensorShape([d for d in self.dims if d not in other])
+    return Shape([d for d in self.dims if d not in other])
 
   def __len__(self):
     return len(self._dims)
@@ -105,22 +104,22 @@ class TensorShape(object):
     return iter(self._dims)
 
   @property
-  def to_tf_shape(self):
+  def to_integer_list(self):
     return [d.size for d in self.dims]
 
   @property
   def size(self):
-    return list_product(self.to_tf_shape)
+    return list_product(self.to_integer_list)
 
   @property
   def to_string(self):
-    return "TensorShape[%s]" % ", ".join(
+    return "Shape[%s]" % ", ".join(
         ["%s=%d" % (d.name, d.size) for d in self.dims])
 
   @property
   def cumprod(self):
     """cumulative product (exclusive) of dimension sizes."""
-    return _cumprod(self.to_tf_shape)[::-1]
+    return _cumprod(self.to_integer_list)[::-1]
 
   def cumprod_to_tensor_axis(self, cumprod):
     """Tensor axis i such that self.cumprod[i] == cumprod, or None."""
@@ -138,7 +137,7 @@ class TensorShape(object):
     if old_name not in self.dimension_names:
       raise ValueError("Shape %s does not have dimension named %s"
                        % (self, old_name))
-    return TensorShape(
+    return Shape(
         [Dimension(new_name, d.size) if d.name == old_name else d
          for d in self.dims])
 
@@ -147,30 +146,100 @@ class TensorShape(object):
     if name not in self.dimension_names:
       raise ValueError("Shape %s does not have dimension named %s"
                        % (self, name))
-    return TensorShape(
+    return Shape(
         [Dimension(name, new_size) if d.name == name else d
          for d in self.dims])
 
 
-def convert_to_tensor_shape(x):
+def convert_to_shape(x):
   if x is None:
     return None
-  if isinstance(x, TensorShape):
+  if isinstance(x, Shape):
     return x
-  return TensorShape([convert_to_dimension(d) for d in x])
+  if isinstance(x, str):
+    x = _parse_string_to_list_of_pairs(x, seconds_to_int=True)
+  return Shape([convert_to_dimension(d) for d in x])
+
+
+class ComputationLayout(object):
+  """Represents layout of a computation.
+
+  Consists of a set of pairs of strings (tensor_dim_name, mesh_dim_name)
+  """
+
+  def __init__(self, pairs):
+    if isinstance(pairs, str):
+      pairs = _parse_string_to_list_of_pairs(pairs)
+    self._pairs = set(pairs)
+
+  def __repr__(self):
+    return "ComputationLayout%s" % self._pairs
+
+  def tensor_dimension_to_mesh_axis(self, tensor_dimension, mesh_shape):
+    """Mesh axis associated with tensor dimension (or None).
+
+    Args:
+      tensor_dimension: a Dimension
+      mesh_shape: a Shape
+    Returns:
+      an integer or None
+    Raises:
+      ValueError: if one Tensor dimension maps to two mesh dimensions.
+    """
+    val = [i for i, mesh_dimension in enumerate(mesh_shape)
+           if (tensor_dimension.name, mesh_dimension.name) in self._pairs]
+    if len(val) > 1:
+      raise ValueError(
+          "Tensor dimension maps to multiple mesh dimensions"
+          " tensor_dimension=%s mesh_shape=%s layout=%s"
+          % (tensor_dimension, mesh_shape, self._pairs))
+    return val[0] if val else None
+
+  def tensor_layout(self, tensor_shape, mesh_shape):
+    """Compute TensorLayout given a tensor shape and a mesh shape.
+
+    Args:
+      tensor_shape: a Shape
+      mesh_shape: a Shape
+    Returns:
+      a TensorLayout
+    Raises:
+      ValueError: if two tensor dimensions map to the same mesh dimension.
+    """
+    ret = [self.tensor_dimension_to_mesh_axis(d, mesh_shape)
+           for d in tensor_shape]
+    not_nones = [a for a in ret if a is not None]
+    if len(not_nones) != len(set(not_nones)):
+      raise ValueError(
+          "Two tensor dimensions may not map to the same mesh dimesnsion:"
+          " layout=%s tensor_shape=%s mesh_shape=%s " %
+          (self, tensor_shape, mesh_shape))
+    return TensorLayout(ret)
+
+
+def convert_to_computation_layout(x):
+  if isinstance(x, ComputationLayout):
+    return x
+  else:
+    return ComputationLayout(x)
 
 
 class TensorLayout(object):
   """Mapping from tensor dimension to mesh dimension.
 
-  Represented as a list of optional integers with length tensor.ndims.
-  Each item is either a unique integer inicating the mesh dimension over
+  Represented as a tuple of optional integers with length tensor.ndims.
+  Each item is either a unique integer inicating the mesh axis over
   which that tensor dimension is split, or None, indicating that this
   tensor dimension is not split.
   """
 
   def __init__(self, tensor_axis_to_mesh_axis):
-    self._tensor_axis_to_mesh_axis = tensor_axis_to_mesh_axis
+    """Create a TensorLayout.
+
+    Args:
+      tensor_axis_to_mesh_axis: a sequence of optional integers.
+    """
+    self._tensor_axis_to_mesh_axis = tuple(tensor_axis_to_mesh_axis)
 
   def __eq__(self, other):
     return self.tensor_axis_to_mesh_axis == other.tensor_axis_to_mesh_axis
@@ -179,16 +248,40 @@ class TensorLayout(object):
     return self.tensor_axis_to_mesh_axis != other.tensor_axis_to_mesh_axis
 
   def __repr__(self):
-    return "TensorLayout%s" % self.tensor_axis_to_mesh_axis
+    return "TensorLayout%s" % (self.tensor_axis_to_mesh_axis,)
+
+  def __len__(self):
+    return len(self._tensor_axis_to_mesh_axis)
+
+  def __getitem__(self, key):
+    return self._tensor_axis_to_mesh_axis[key]
+
+  def __iter__(self):
+    return iter(self._tensor_axis_to_mesh_axis)
 
   @property
   def tensor_axis_to_mesh_axis(self):
+    """Convert to a tuple of optional integers."""
     return self._tensor_axis_to_mesh_axis
 
   @property
   def is_fully_replicated(self):
-    return (self.tensor_axis_to_mesh_axis ==
-            [None] * len(self.tensor_axis_to_mesh_axis))
+    """Do all tensor dimensions map to None."""
+    return self.tensor_axis_to_mesh_axis == (None,) * len(self)
+
+  def mesh_axis_to_tensor_axis(self, mesh_ndims):
+    """For each mesh axis, which Tensor axis maps to it.
+
+    Args:
+      mesh_ndims: an integer
+
+    Returns:
+      a tuple of optional integers, with length mesh_ndims
+    """
+    return tuple(
+        [self._tensor_axis_to_mesh_axis.index(mesh_axis)
+         if mesh_axis in self._tensor_axis_to_mesh_axis else None
+         for mesh_axis in xrange(mesh_ndims)])
 
 
 class Graph(object):
@@ -262,7 +355,7 @@ class Lowering(object):
       m = m.mesh
     return self.mesh_to_impl[m]
 
-  def outfeed(self, x):
+  def export_to_tf_tensor(self, x):
     """Turn a Tensor into a tf.Tensor.
 
     Args:
@@ -271,7 +364,8 @@ class Lowering(object):
       a tf.Tensor
     """
     mesh_impl = self.mesh_impl(x)
-    return mesh_impl.outfeed(x, self.tensors[x].to_laid_out_tensor())
+    return mesh_impl.export_to_tf_tensor(
+        x, self.tensors[x].to_laid_out_tensor())
 
   def lowered_operation(self, op):
     return self.operations[op]
@@ -284,8 +378,8 @@ class Lowering(object):
     return tf.group(
         [v.copy_slices_to_master for _, v in six.iteritems(self.variables)])
 
-  def tensor_layout(self, t):
-    return self.mesh_impl(t).tensor_layout(t)
+  # def tensor_layout(self, t):
+  #   return self.mesh_impl(t).tensor_layout(t)
 
   def add_counter(self, key, value):
     assert isinstance(value, int)
@@ -339,10 +433,10 @@ class MeshImpl(object):
 
     Args:
       shape: a list of ints
-      layout: dict from string to int
+      layout: a ComputationLayout
     """
-    self._shape = shape
-    self._layout = layout
+    self._shape = convert_to_shape(shape)
+    self._layout = convert_to_computation_layout(layout)
 
   @property
   def shape(self):
@@ -358,7 +452,7 @@ class MeshImpl(object):
 
   @property
   def size(self):
-    return list_product(self._shape)
+    return self.shape.size
 
   def tensor_dimension_to_mesh_axis(self, tensor_dimension):
     """Mesh axis associated with tensor dimension (or None).
@@ -368,44 +462,31 @@ class MeshImpl(object):
     Returns:
       an integer or None
     """
-    return self.layout.get(tensor_dimension.name)
+    return self.layout.tensor_dimension_to_mesh_axis(
+        tensor_dimension, self.shape)
 
   def tensor_layout(self, arg):
-    """Compute TensorLayout given a mesh and a TensorShape.
+    """Compute TensorLayout for a Tensor or a Shape.
 
     Args:
-      arg: a Tensor or TensorShape
+      arg: a Tensor or Shape
     Returns:
       a TensorLayout
     """
     if isinstance(arg, Tensor):
       arg = arg.shape
-    return TensorLayout(
-        [self.tensor_dimension_to_mesh_axis(d) for d in arg.dims])
-
-  def mesh_axis_to_tensor_axis(self, tensor_shape):
-    """Reverse-mapping of a tensor layout.
-
-    Args:
-      tensor_shape: a TensorShape
-    Returns:
-      a list of length self.ndims, where each element is either an integer
-        index of a tensor axis, or None
-    """
-    layout = self.tensor_layout(tensor_shape)
-    return [layout.tensor_axis_to_mesh_axis.index(mesh_axis)
-            if mesh_axis in layout.tensor_axis_to_mesh_axis else None
-            for mesh_axis in xrange(self.ndims)]
+    return self.layout.tensor_layout(arg, self.shape)
 
   def mesh_axis_to_cumprod(self, tensor_shape):
     """For each mesh axis, give the product of previous tensor axes.
 
     Args:
-      tensor_shape: a TensorShape
+      tensor_shape: a Shape
     Returns:
       a list with length self.ndims where each element is an integer or None.
     """
-    ma2ta = self.mesh_axis_to_tensor_axis(tensor_shape)
+    tensor_layout = self.tensor_layout(tensor_shape)
+    ma2ta = tensor_layout.mesh_axis_to_tensor_axis(self.ndims)
     ta2cumprod = tensor_shape.cumprod
     return [None if ta is None else ta2cumprod[ta] for ta in ma2ta]
 
@@ -413,7 +494,7 @@ class MeshImpl(object):
     """Shape of each slice of the tensor.
 
     Args:
-      tensor_shape: a TensorShape
+      tensor_shape: a Shape
     Returns:
       a list of integers with length tensor_shape.ndims
     Raises:
@@ -422,24 +503,25 @@ class MeshImpl(object):
     """
     tensor_layout = self.tensor_layout(tensor_shape)
     ret = []
-    for dim_size, mesh_dim in zip(
-        tensor_shape.to_tf_shape, tensor_layout.tensor_axis_to_mesh_axis):
-      if mesh_dim is None:
-        ret.append(dim_size)
+    for tensor_dim, mesh_axis in zip(
+        tensor_shape, tensor_layout.tensor_axis_to_mesh_axis):
+      if mesh_axis is None:
+        ret.append(tensor_dim.size)
       else:
-        if dim_size % self.shape[mesh_dim] != 0:
+        mesh_dim = self.shape[mesh_axis]
+        if tensor_dim.size % mesh_dim.size != 0:
           raise ValueError(
               "Tensor dimension size not divisible by mesh dimension size:"
               " tensor_shape=%s tensor_layout=%s"
               % (tensor_shape, tensor_layout))
-        ret.append(dim_size // self.shape[mesh_dim])
+        ret.append(tensor_dim.size // mesh_dim.size)
     return ret
 
   def slice_begin(self, tensor_shape, pnum):
     """Begin position for the tensor slice for the given processor.
 
     Args:
-      tensor_shape: a TensorShape
+      tensor_shape: a Shape
       pnum: an integer <= self.size
     Returns:
       a list of integers with length tensor_shape.ndims
@@ -448,18 +530,19 @@ class MeshImpl(object):
     coordinates = pnum_to_processor_coordinates(self.shape, pnum)
     ret = []
     for dim_size, mesh_axis in zip(
-        tensor_shape.to_tf_shape, tensor_layout.tensor_axis_to_mesh_axis):
+        tensor_shape.to_integer_list, tensor_layout.tensor_axis_to_mesh_axis):
       if mesh_axis is None:
         ret.append(0)
       else:
-        ret.append(dim_size // self.shape[mesh_axis] * coordinates[mesh_axis])
+        ret.append(
+            dim_size // self.shape[mesh_axis].size * coordinates[mesh_axis])
     return ret
 
   def laid_out_size(self, tensor_shape):
     """Total size of all slices.
 
     Args:
-      tensor_shape: a TensorShape
+      tensor_shape: a Shape
 
     Returns:
       an integer
@@ -518,7 +601,7 @@ class MeshImpl(object):
     Returns:
       a LaidOutTensor
     """
-    num_splits = self.shape[mesh_axis]
+    num_splits = self.shape[mesh_axis].size
     def my_fn(x, coordinate):
       slice_begin = [
           dimsize // num_splits * coordinate if i == split_axis
@@ -570,8 +653,8 @@ class MeshImpl(object):
     Returns:
       a LaidOutTensor where each slice is an integer scalar
     """
-    divisor = list_product(self.shape[mesh_axis + 1:])
-    modulus = self.shape[mesh_axis]
+    divisor = list_product(self.shape.to_integer_list[mesh_axis + 1:])
+    modulus = self.shape[mesh_axis].size
     def my_fn(pnum):
       return (pnum // divisor) % modulus
     return self.slicewise(my_fn, self.laid_out_pnum())
@@ -581,8 +664,8 @@ class MeshImpl(object):
 
     Args:
       old_slices: a LaidOutTensor
-      old_shape: a TensorShape
-      new_shape: a TensorShape
+      old_shape: a Shape
+      new_shape: a Shape
     Returns:
       a LaidOutTensor
     """
@@ -597,7 +680,7 @@ class MeshImpl(object):
 
     Args:
       tf_tensor: a tf.Tensor
-      tensor_shape: a TensorShape
+      tensor_shape: a Shape
 
     Returns:
       a list of tf.tensor with length self.size
@@ -619,7 +702,7 @@ class MeshImpl(object):
 
     Args:
       slices: a list of tf.Tensor with length self.size
-      tensor_shape: a TensorShape
+      tensor_shape: a Shape
       device: an optional device string.
         if absent, we use the devices of the slices.
 
@@ -630,9 +713,10 @@ class MeshImpl(object):
       return slices[0]
 
     ret = slices[:]
-    for unused_mesh_axis, (mesh_axis_size, tensor_axis) in enumerate(
-        zip(self.shape, self.mesh_axis_to_tensor_axis(tensor_shape))):
-      slice_size = len(ret) // mesh_axis_size
+    tensor_layout = self.tensor_layout(tensor_shape)
+    for mesh_dim, tensor_axis in zip(
+        self.shape, tensor_layout.mesh_axis_to_tensor_axis(self.ndims)):
+      slice_size = len(ret) // mesh_dim.size
       if tensor_axis is None:
         ret = ret[:slice_size]
       else:
@@ -641,7 +725,7 @@ class MeshImpl(object):
         else:
           devices = [ret[i].device for i in xrange(slice_size)]
         concat_inputs = [[ret[i + slice_size * j]
-                          for j in xrange(mesh_axis_size)]
+                          for j in xrange(mesh_dim.size)]
                          for i in xrange(slice_size)]
         ret = parallel(
             devices, tf.concat, concat_inputs,
@@ -649,7 +733,7 @@ class MeshImpl(object):
     assert len(ret) == 1
     return ret[0]
 
-  def outfeed(self, x, laid_out_x):
+  def export_to_tf_tensor(self, x, laid_out_x):
     """Turn a Tensor into a tf.Tensor.
 
     Args:
@@ -658,10 +742,10 @@ class MeshImpl(object):
     Returns:
       a tf.Tensor
     """
-    raise NotImplementedError("Outfeed not implemented")
+    raise NotImplementedError("export_to_tf_tensor not implemented")
 
-  def infeed(self, x, tf_x):
-    """Infeed a tf.Tensor, producing a LaidOutTensor.
+  def import_tf_tensor(self, x, tf_x):
+    """Import a tf.Tensor, producing a LaidOutTensor.
 
     Args:
       x: a Tensor
@@ -669,7 +753,7 @@ class MeshImpl(object):
     Returns:
       a LaidOutTensor
     """
-    raise NotImplementedError("Infeed not implemented")
+    raise NotImplementedError("Import not implemented")
 
   @property
   def supports_control_dependencies(self):
@@ -756,8 +840,8 @@ class Tensor(object):
   """A Distributed Tensor."""
 
   def __init__(self, operation, shape, dtype, name=None):
-    if not isinstance(shape, TensorShape):
-      raise ValueError("shape must be a TensorShape got %s" % shape.to_string)
+    if not isinstance(shape, Shape):
+      raise ValueError("shape must be a Shape got %s" % shape.to_string)
     if not isinstance(dtype, tf.DType):
       raise ValueError("dtype must be a tf.DType got %s" % dtype)
     self._mesh = operation.mesh
@@ -934,7 +1018,7 @@ class SlicewiseOperation(Operation):
     Args:
       tf_fn: a function taking n tf.Tensors and returning a tf.Tensor
       inputs: a list of n Tensors
-      output_shape: a TensorShape
+      output_shape: a Shape
       output_dtype: a dtype
       splittable_dims: a list of Dimensions which are ok to split
       grad_function: an optional python function
@@ -953,12 +1037,13 @@ class SlicewiseOperation(Operation):
 
   def lower(self, lowering):
     # Check that only splittable dims are split
+    mesh_impl = lowering.mesh_impl(self)
     for t in self.inputs + self.outputs:
-      layout = lowering.tensor_layout(t)
+      layout = mesh_impl.tensor_layout(t)
       for d, mesh_axis in zip(t.shape.dims, layout.tensor_axis_to_mesh_axis):
         if (mesh_axis is not None and d not in self._splittable_dims):
           raise ValueError("dimension %s is not declared as splittable" % d)
-    lowering.tensors[self.outputs[0]] = lowering.mesh_impl(self).slicewise(
+    lowering.tensors[self.outputs[0]] = mesh_impl.slicewise(
         self._tf_fn, *[lowering.tensors[x] for x in self.inputs])
 
 
@@ -978,7 +1063,7 @@ def slicewise(tf_fn,
   Args:
     tf_fn: a function taking n tf.Tensors and returning a tf.Tensor
     xs: a list of n Tensors
-    output_shape: a TensorShape
+    output_shape: a Shape
     output_dtype: a dtype
     splittable_dims: a list of Dimensions which are ok to split
     grad_function: an optional gradients function
@@ -990,7 +1075,7 @@ def slicewise(tf_fn,
   return SlicewiseOperation(
       tf_fn,
       xs,
-      convert_to_tensor_shape(output_shape) or xs[0].shape,
+      convert_to_shape(output_shape) or xs[0].shape,
       output_dtype or xs[0].dtype,
       splittable_dims,
       grad_function,
@@ -1207,11 +1292,11 @@ def binary_arguments_to_tensors(x1, x2):
   elif isinstance(x1, Tensor) and isinstance(x2, Tensor):
     return x1, x2
   elif isinstance(x1, Tensor):
-    return x1, infeed(x1.mesh, tf.convert_to_tensor(x2, dtype=x1.dtype),
-                      TensorShape([]))
+    return x1, import_tf_tensor(
+        x1.mesh, tf.convert_to_tensor(x2, dtype=x1.dtype), Shape([]))
   else:
-    return infeed(x2.mesh, tf.convert_to_tensor(x1, dtype=x2.dtype),
-                  TensorShape([])), x2
+    return import_tf_tensor(x2.mesh, tf.convert_to_tensor(x1, dtype=x2.dtype),
+                            Shape([])), x2
 
 
 def binary_op_with_broadcasting(
@@ -1221,7 +1306,7 @@ def binary_op_with_broadcasting(
   output_dtype = output_dtype or x1.dtype
   assert isinstance(output_dtype, tf.DType)
   return BinaryOpWithBroadcasting(
-      tf_fn, x1, x2, convert_to_tensor_shape(output_shape),
+      tf_fn, x1, x2, convert_to_shape(output_shape),
       output_dtype).outputs[0]
 
 
@@ -1315,14 +1400,14 @@ def broadcast(x, new_shape):
 
 def _reduce_helper(input_shape,
                    output_shape,
-                   mesh_layout,
+                   input_tensor_layout,
                    reduction_fn_string="SUM"):
   """Returns slicewise function and reduced mesh dimensions.
 
   Args:
-    input_shape: a TensorShape
-    output_shape: a TensorShape
-    mesh_layout: a dict (string -> int)
+    input_shape: a Shape
+    output_shape: a Shape
+    input_tensor_layout: a TensorLayout
     reduction_fn_string: "SUM" or "MAX"
   Returns:
     reduce_slice_fn: a function from tf.Tensor to tf.Tensor
@@ -1330,7 +1415,7 @@ def _reduce_helper(input_shape,
   """
   reduce_dims_indices = [
       i for i, d in enumerate(input_shape.dims) if d not in output_shape.dims]
-  reduced_input_shape = TensorShape([
+  reduced_input_shape = Shape([
       d for d in input_shape.dims if d in output_shape.dims])
   perm = [reduced_input_shape.dims.index(d) for d in output_shape.dims]
   def reduce_slice_fn(xslice):
@@ -1342,7 +1427,7 @@ def _reduce_helper(input_shape,
     return ret
   reduced_mesh_axes = []
   for i in reduce_dims_indices:
-    mesh_axis = mesh_layout.get(input_shape.dims[i].name, None)
+    mesh_axis = input_tensor_layout[i]
     if mesh_axis is not None:
       reduced_mesh_axes.append(mesh_axis)
   return reduce_slice_fn, reduced_mesh_axes
@@ -1366,7 +1451,8 @@ class ReduceOperation(Operation):
     mesh_impl = lowering.mesh_impl(self)
     slicewise_fn, reduced_mesh_axes = _reduce_helper(
         self.inputs[0].shape, self.outputs[0].shape,
-        mesh_impl.layout, self._reduction_fn_string)
+        mesh_impl.tensor_layout(self.inputs[0]),
+        self._reduction_fn_string)
     y = mesh_impl.slicewise(slicewise_fn, lowering.tensors[self.inputs[0]])
     if reduced_mesh_axes:
       def add_counter_fn():
@@ -1416,7 +1502,8 @@ class ConcatOperation(Operation):
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
-    if self._concat_dim_name in mesh_impl.layout:
+    if mesh_impl.tensor_dimension_to_mesh_axis(
+        Dimension(self._concat_dim_name, 0)) is not None:
       raise ValueError("can't concat along split axis")
     def slicewise_fn(*args):
       return tf.concat(args, axis=self._axis, name="concat")
@@ -1476,7 +1563,7 @@ class SplitOperation(Operation):
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
-    if self._split_dim.name in mesh_impl.layout:
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._split_dim) is not None:
       raise ValueError("can't split along split axis")
     def slicewise_fn(x):
       # Since we return a tuple of tf.Tensor, slicewise will collate the
@@ -1515,7 +1602,7 @@ class StackOperation(Operation):
       if x.shape != xs[0].shape:
         raise ValueError(
             "inputs to stack must have the same shape, got %s" % xs)
-    output_shape = TensorShape(
+    output_shape = Shape(
         input_shape.dims[:axis] + [self._new_dim]+ input_shape.dims[axis:])
     self._outputs = [Tensor(self, output_shape, xs[0].dtype)]
 
@@ -1524,7 +1611,7 @@ class StackOperation(Operation):
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
-    if self._new_dim in mesh_impl.layout:
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._new_dim) is not None:
       raise ValueError("can't stack along split axis")
     inputs = [lowering.tensors[t] for t in self._inputs]
     def slicewise_fn(*args):
@@ -1565,7 +1652,7 @@ class UnstackOperation(Operation):
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
-    if self._dim in mesh_impl.layout:
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._dim) is not None:
       raise ValueError("can't unstack along split axis")
     def slicewise_fn(x):
       return tuple(tf.unstack(x, num=self._dim.size, axis=self._axis))
@@ -1589,15 +1676,15 @@ def unstack(x, dim, name=None):
   return UnstackOperation(x, dim, name).outputs
 
 
-def _einsum_helper(input_shapes, output_shape, mesh_layout):
+def _einsum_helper(input_shapes, output_shape, mesh_impl):
   """Returns slicewise function and reduced mesh dimensions.
 
   Assumes the output shape contains no new dimensions.
 
   Args:
-    input_shapes: a list of TensorShapes
-    output_shape: a TensorShape
-    mesh_layout: a dict (string -> int)
+    input_shapes: a list of Shapes
+    output_shape: a Shape
+    mesh_impl: a MeshImpl
   Returns:
     einsum_slice_fn: a function from tf.Tensors to tf.Tensor
     reduced_mesh_axes: a list of integers
@@ -1608,9 +1695,9 @@ def _einsum_helper(input_shapes, output_shape, mesh_layout):
   full_shapes = [
       s for s in input_shapes + [output_shape] if s.ndims == total_num_dims]
   full_shape = (
-      full_shapes[0] if full_shapes else TensorShape(list(input_shape_set)))
+      full_shapes[0] if full_shapes else Shape(list(input_shape_set)))
   reduce_slice_fn, reduced_mesh_axes = _reduce_helper(
-      full_shape, output_shape, mesh_layout)
+      full_shape, output_shape, mesh_impl.tensor_layout(full_shape))
   def einsum_slice_fn_naive(*slices):
     # naive einsum implementation where we broadcst all inputs to the full
     # shape, multiply componentwise, then reduce.
@@ -1663,10 +1750,10 @@ class EinsumOperation(Operation):
     xs = self.inputs
     input_shape_set = set(sum([x.shape.dims for x in xs], []))
     output_shape = self.outputs[0].shape
-    intersection_shape = TensorShape(
+    intersection_shape = Shape(
         [d for d in output_shape.dims if d in input_shape_set])
     einsum_slice_fn, reduced_mesh_axes = _einsum_helper(
-        [x.shape for x in self.inputs], intersection_shape, mesh_impl.layout)
+        [x.shape for x in self.inputs], intersection_shape, mesh_impl)
     y = mesh_impl.slicewise(
         einsum_slice_fn, *[lowering.tensors[x] for x in self.inputs])
     if reduced_mesh_axes:
@@ -1680,7 +1767,7 @@ class EinsumOperation(Operation):
     if intersection_shape != output_shape:
       y = mesh_impl.broadcast_impl(y, intersection_shape, output_shape)
     lowering.tensors[self.outputs[0]] = y
-    computation_shape = TensorShape(list(input_shape_set))
+    computation_shape = Shape(list(input_shape_set))
     lowering.add_counter("einsum", mesh_impl.laid_out_size(computation_shape))
     lowering.add_counter("einsum_unique", computation_shape.size)
 
@@ -1699,7 +1786,7 @@ class SliceOperation(Operation):
     self._begin = begin
     self._slice_dim = Dimension(slice_dim_name, size)
     input_shape = self._inputs[0].shape
-    output_shape = TensorShape(
+    output_shape = Shape(
         input_shape.dims[:axis] + [self._slice_dim] + input_shape.dims[axis+1:])
     self._outputs = [Tensor(self, output_shape, x.dtype)]
 
@@ -1712,13 +1799,13 @@ class SliceOperation(Operation):
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
-    if self._slice_dim in mesh_impl.layout:
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._slice_dim) is not None:
       raise ValueError("can't slice along split axis")
     inputs = self._inputs[0]
     ndims = self._inputs[0].shape.ndims
     axis = self._axis
     begin = [0] * axis + [self._begin] + [0] * (ndims - axis - 1)
-    size = self._outputs[0].shape.to_tf_shape
+    size = self._outputs[0].shape.to_integer_list
 
     def slicewise_fn(x, begin, size):
       return tf.slice(x, begin, size, name="slice")
@@ -1746,7 +1833,7 @@ class PadOperation(Operation):
     self._axis = axis = dim_names.index(pad_dim_name)
     output_size = input_shape.dims[axis].size + sum(paddings)
     self._output_dim = Dimension(pad_dim_name, output_size)
-    output_shape = TensorShape(
+    output_shape = Shape(
         input_shape.dims[:axis] +
         [self._output_dim] + input_shape.dims[axis+1:])
     self._outputs = [Tensor(self, output_shape, x.dtype)]
@@ -1759,7 +1846,7 @@ class PadOperation(Operation):
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
-    if self._output_dim in mesh_impl.layout:
+    if mesh_impl.tensor_dimension_to_mesh_axis(self._output_dim) is not None:
       raise ValueError("can't pad along split axis")
     inputs = self._inputs[0]
     ndims = self._inputs[0].shape.ndims
@@ -1786,7 +1873,7 @@ class OneHotOperation(Operation):
     self._on_value = on_value
     self._off_value = off_value
     self._dtype = dtype
-    output_shape = TensorShape(indices.shape.dims + [output_dim])
+    output_shape = Shape(indices.shape.dims + [output_dim])
     self._outputs = [Tensor(self, output_shape, dtype)]
 
   def lower(self, lowering):
@@ -1813,41 +1900,42 @@ class OneHotOperation(Operation):
     lowering.tensors[self.outputs[0]] = y
 
 
-class InfeedOperation(Operation):
-  """Infeed a tf.Tensor onto a mesh."""
+class ImportOperation(Operation):
+  """Import a tf.Tensor onto a mesh."""
 
   def __init__(self, mesh, tf_tensor, shape, name=None):
-    super(InfeedOperation, self).__init__([], mesh=mesh, name=name or "infeed")
+    super(ImportOperation, self).__init__([], mesh=mesh, name=name or "import")
     self._outputs = [Tensor(self, shape, tf_tensor.dtype)]
     self._tf_tensor = tf_tensor
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
-    lowering.tensors[self.outputs[0]] = mesh_impl.infeed(
+    lowering.tensors[self.outputs[0]] = mesh_impl.import_tf_tensor(
         self.outputs[0], self._tf_tensor)
 
 
 def anonymous_shape(shape):
-  shape = convert_to_tensor_shape(shape)
-  return TensorShape([Dimension("_anonymous_%i" % i, d.size)
-                      for i, d in enumerate(shape)])
+  shape = convert_to_shape(shape)
+  return Shape([Dimension("_anonymous_%i" % i, d.size)
+                for i, d in enumerate(shape)])
 
 
 def anonymize(x):
   return reshape(x, anonymous_shape(x.shape))
 
 
-def infeed(mesh, tf_tensor, shape=None, name=None):
+def import_tf_tensor(mesh, tf_tensor, shape=None, name=None):
   tf_tensor = tf.convert_to_tensor(tf_tensor)
   if shape is None:
-    shape = TensorShape([])
+    shape = Shape([])
     assert not tf_tensor.shape.as_list()
-  return InfeedOperation(
-      mesh, tf_tensor, convert_to_tensor_shape(shape), name=name).outputs[0]
+  return ImportOperation(
+      mesh, tf_tensor, convert_to_shape(shape), name=name).outputs[0]
 
 
-def infeed_fully_replicated(mesh, tf_tensor, shape, name=None):
-  return reshape(infeed(mesh, tf_tensor, anonymous_shape(shape), name), shape)
+def import_fully_replicated(mesh, tf_tensor, shape, name=None):
+  return reshape(import_tf_tensor(
+      mesh, tf_tensor, anonymous_shape(shape), name), shape)
 
 
 class Variable(Operation):
@@ -1859,7 +1947,7 @@ class Variable(Operation):
     self._trainable = trainable
     with tf.device("cpu:0"), mtf_utils.outside_all_rewrites():
       self.master = tf.get_variable(
-          name, shape.to_tf_shape, dtype=dtype, initializer=initializer,
+          name, shape.to_integer_list, dtype=dtype, initializer=initializer,
           **kwargs)
     self._name = self.master.name[:self.master.name.find(":")]
     self._outputs = [Tensor(self, shape, dtype)]
@@ -1895,7 +1983,7 @@ def get_variable(mesh, name, shape, dtype=tf.float32,
                  initializer=None, trainable=True,
                  activation_dtype=None, **kwargs):
   ret = Variable(
-      mesh, name, convert_to_tensor_shape(shape), dtype, initializer,
+      mesh, name, convert_to_shape(shape), dtype, initializer,
       trainable, **kwargs).outputs[0]
   if activation_dtype and activation_dtype != dtype:
     ret = cast(ret, activation_dtype)
@@ -1989,14 +2077,14 @@ class Constant(Operation):
 
 
 def constant(mesh, value, shape=None, dtype=tf.float32):
-  shape = convert_to_tensor_shape(shape)
+  shape = convert_to_shape(shape)
   return Constant(mesh, value,
-                  shape if shape is not None else TensorShape([]),
+                  shape if shape is not None else Shape([]),
                   dtype).outputs[0]
 
 
 def zeros(mesh, shape, dtype=tf.float32):
-  return constant(mesh, 0, shape=convert_to_tensor_shape(shape), dtype=dtype)
+  return constant(mesh, 0, shape=convert_to_shape(shape), dtype=dtype)
 
 
 def zeros_like(t):
@@ -2112,7 +2200,7 @@ class ReshapeOperation(Operation):
             "Try first reshaping to insert a new tf dimension,"
             " then changing layout.")
       slices = mesh_impl.allsplit(slices, mesh_axis, tensor_axis)
-      laid_out_size //= mesh_impl.shape[mesh_axis]
+      laid_out_size //= mesh_impl.shape[mesh_axis].size
     for mesh_axis in mesh_axes_alltoall:
       split_tensor_axis = old_shape.cumprod_to_tensor_axis(
           mesh_axis_to_cumprod_new[mesh_axis])
@@ -2134,7 +2222,7 @@ class ReshapeOperation(Operation):
           mesh_axis_to_cumprod_old[mesh_axis])
       assert tensor_axis is not None
       slices = mesh_impl.allconcat(slices, mesh_axis, tensor_axis)
-      laid_out_size *= mesh_impl.shape[mesh_axis]
+      laid_out_size *= mesh_impl.shape[mesh_axis].size
       lowering.add_counter(
           "allconcat/%s/reshape_op" % mesh_axis, laid_out_size)
     # now reshape the slices
@@ -2151,7 +2239,7 @@ class ReshapeOperation(Operation):
 
 
 def reshape(x, new_shape):
-  return ReshapeOperation(x, convert_to_tensor_shape(new_shape)).outputs[0]
+  return ReshapeOperation(x, convert_to_shape(new_shape)).outputs[0]
 
 
 def rename_dimension(x, old_name, new_name):
@@ -2177,17 +2265,17 @@ def einsum(xs, output_shape=None, name=None):
 
   Args:
     xs: a list of Tensors
-    output_shape: an optional TensorShape.
+    output_shape: an optional Shape.
     name: an optional string
   Returns:
     a Tensor
   Raises:
     ValueError: if the output shape cannot be inferred
   """
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   if output_shape is None:
     if len(xs) == 2:
-      output_shape = TensorShape(
+      output_shape = Shape(
           [d for d in xs[0].shape.dims if d not in xs[1].shape.dims] +
           [d for d in xs[1].shape.dims if d not in xs[0].shape.dims])
     else:
@@ -2204,7 +2292,7 @@ def _reduction_output_shape(x, output_shape, reduced_dim):
   """Helper function to reduce_sum, etc."""
   if output_shape is None:
     if reduced_dim is None:
-      return TensorShape([])
+      return Shape([])
     else:
       if reduced_dim not in x.shape.dims:
         raise ValueError(
@@ -2231,13 +2319,13 @@ def reduce_sum(x,
   Args:
     x: a Tensor
     disable_positional_args: None
-    output_shape: an optional TensorShape.  Must be a subsequence of x.shape.
+    output_shape: an optional Shape.  Must be a subsequence of x.shape.
     reduced_dim: a mtf.Dimension
     name: an optional string
   Returns:
     a Tensor
   """
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   reduced_dim = convert_to_dimension(reduced_dim)
   assert disable_positional_args is None
   output_shape = _reduction_output_shape(x, output_shape, reduced_dim)
@@ -2261,14 +2349,14 @@ def reduce_mean(x,
   Args:
     x: a Tensor
     disable_positional_args: None
-    output_shape: an optional TensorShape. Must be a subsequence of x.shape.
+    output_shape: an optional Shape. Must be a subsequence of x.shape.
     reduced_dim: a mtf.Dimension
     name: an optional string
 
   Returns:
     a Tensor
   """
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   reduced_dim = convert_to_dimension(reduced_dim)
   assert disable_positional_args is None
   output_shape = _reduction_output_shape(x, output_shape, reduced_dim)
@@ -2289,18 +2377,18 @@ def reduce_max(x,
   Args:
     x: a Tensor
     disable_positional_args: None
-    output_shape: an optional TensorShape.  Must be a subsequence of x.shape.
+    output_shape: an optional Shape.  Must be a subsequence of x.shape.
     reduced_dim: an optional Dimension
     name: an optional string
   Returns:
     a Tensor
   """
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   reduced_dim = convert_to_dimension(reduced_dim)
   assert disable_positional_args is None
   output_shape = _reduction_output_shape(x, output_shape, reduced_dim)
   if output_shape is None:
-    output_shape = TensorShape([])
+    output_shape = Shape([])
   if output_shape == x.shape:
     return x
   return ReduceOperation(
@@ -2317,18 +2405,18 @@ def reduce_min(x,
   Args:
     x: a Tensor
     disable_positional_args: None
-    output_shape: an optional TensorShape.  Must be a subsequence of x.shape.
+    output_shape: an optional Shape.  Must be a subsequence of x.shape.
     reduced_dim: an optional Dimension
     name: an optional string
   Returns:
     a Tensor
   """
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   reduced_dim = convert_to_dimension(reduced_dim)
   assert disable_positional_args is None
   output_shape = _reduction_output_shape(x, output_shape, reduced_dim)
   if output_shape is None:
-    output_shape = TensorShape([])
+    output_shape = Shape([])
   if output_shape == x.shape:
     return x
   return ReduceOperation(
@@ -2340,7 +2428,7 @@ def reduce_all(x,
                output_shape=None,
                reduced_dim=None,
                name=None):
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   reduced_dim = convert_to_dimension(reduced_dim)
   return cast(reduce_min(to_float(x),
                          disable_positional_args=disable_positional_args,
@@ -2354,7 +2442,7 @@ def reduce_any(x,
                output_shape=None,
                reduced_dim=None,
                name=None):
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   reduced_dim = convert_to_dimension(reduced_dim)
   return cast(reduce_max(to_float(x),
                          disable_positional_args=disable_positional_args,
@@ -2439,12 +2527,12 @@ def add(x1, x2, output_shape=None, name=None):
   Args:
     x1: a Tensor
     x2: a Tensor
-    output_shape: an optional TensorShape
+    output_shape: an optional Shape
     name: an optional string
   Returns:
     a Tensor
   """
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   if not isinstance(x2, Tensor):
     return ScalarAddOperation(x1, x2).outputs[0]
   with tf.name_scope(name, default_name="add"):
@@ -2460,12 +2548,12 @@ def sub(x1, x2, output_shape=None, name=None):
   Args:
     x1: a Tensor
     x2: a Tensor
-    output_shape: an optional TensorShape
+    output_shape: an optional Shape
     name: an optional string
   Returns:
     a Tensor
   """
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   if not isinstance(x2, Tensor):
     return ScalarAddOperation(x1, -x2).outputs[0]
   with tf.name_scope(name, default_name="sub"):
@@ -2479,7 +2567,7 @@ def multiply(x1, x2, output_shape=None, name=None):
   Args:
     x1: a Tensor
     x2: a Tensor
-    output_shape: an optional TensorShape
+    output_shape: an optional Shape
     name: an optional string
   Returns:
     a Tensor
@@ -2500,12 +2588,12 @@ def divide(x1, x2, output_shape=None, name=None):
   Args:
     x1: a Tensor
     x2: a Tensor
-    output_shape: an optional TensorShape
+    output_shape: an optional Shape
     name: an optional string
   Returns:
     a Tensor
   """
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   if not isinstance(x2, Tensor):
     return ScalarMultiplyOperation(x1, 1.0 / x2).outputs[0]
   with tf.name_scope(name, default_name="divide"):
@@ -2569,12 +2657,12 @@ def gather(weights, indices, dim, output_shape=None):
     weights: a Tensor
     indices: a Tensor with integer type
     dim: a Dimension
-    output_shape: an optional mtf.TensorShape
+    output_shape: an optional mtf.Shape
   Returns:
     a Tensor
   """
   dim = convert_to_dimension(dim)
-  output_shape = convert_to_tensor_shape(output_shape)
+  output_shape = convert_to_shape(output_shape)
   if weights.dtype == tf.bool:
     return cast(gather(to_float(weights), indices, dim, output_shape), tf.bool)
   return einsum([one_hot(indices, dim, dtype=weights.dtype), weights],
@@ -2625,22 +2713,22 @@ def _infer_binary_broadcast_shape(shape1, shape2, given_output_shape=None):
   of shape1, followed by all new dimensions in shape2.
 
   Args:
-    shape1: a TensorShape
-    shape2: a TensorShape
-    given_output_shape: an optional TensorShape
+    shape1: a Shape
+    shape2: a Shape
+    given_output_shape: an optional Shape
   Returns:
-    a TensorShape
+    a Shape
   """
-  shape1 = convert_to_tensor_shape(shape1)
-  shape2 = convert_to_tensor_shape(shape2)
-  given_output_shape = convert_to_tensor_shape(given_output_shape)
+  shape1 = convert_to_shape(shape1)
+  shape2 = convert_to_shape(shape2)
+  given_output_shape = convert_to_shape(given_output_shape)
   if given_output_shape is not None:
     return given_output_shape
   if is_subsequence(shape1.dims, shape2.dims):
     return shape2
   if is_subsequence(shape2.dims, shape1.dims):
     return shape1
-  return TensorShape(
+  return Shape(
       shape1.dims + [d for d in shape2.dims if d not in shape1.dims])
 
 
@@ -2649,8 +2737,8 @@ def _expand_dims(x, input_shape, output_shape):
 
   Args:
     x: a tf.Tensor
-    input_shape: a TensorShape
-    output_shape: a TensorShape whose dimensions are a superset of
+    input_shape: a Shape
+    output_shape: a Shape whose dimensions are a superset of
       those in input_shape
 
   Returns:
@@ -2674,8 +2762,8 @@ def _einsum_equation(input_shapes, output_shape):
   e.g. "ij,jk->ik"
 
   Args:
-    input_shapes: a list of TensorShapes
-    output_shape: a TensorShape
+    input_shapes: a list of Shapes
+    output_shape: a Shape
   Returns:
     a string
   """
@@ -2715,8 +2803,8 @@ def verify_no_new_dims(input_shapes, output_shape):
   """Verifies that all dimensions in the output are in at least one input.
 
   Args:
-    input_shapes: a list of TensorShapes
-    output_shape: a TensorShape
+    input_shapes: a list of Shapes
+    output_shape: a Shape
   Raises:
     ValueError: if there are new dimensions in the output.
   """
@@ -2733,14 +2821,14 @@ def pnum_to_processor_coordinates(mesh_shape, pnum):
   """Coordinates of a processor in the mesh.
 
   Args:
-    mesh_shape: a list of integers
+    mesh_shape: a Shape
     pnum: an integer less than len(mesh_shape)
 
   Returns:
     a list of integers with length len(mesh_shape)
   """
   ret = []
-  for dimsize in mesh_shape[::-1]:
+  for dimsize in mesh_shape.to_integer_list[::-1]:
     ret.append(pnum % dimsize)
     pnum //= dimsize
   return ret[::-1]
@@ -2750,7 +2838,7 @@ def processor_coordinates_to_pnum(mesh_shape, coord):
   """Inverse of pnum_to_processor_coordinates.
 
   Args:
-    mesh_shape: a list of integers
+    mesh_shape: a Shape
     coord: a list of integers with length len(mesh_shape)
 
   Returns:
@@ -2758,7 +2846,7 @@ def processor_coordinates_to_pnum(mesh_shape, coord):
   """
   ret = 0
   multiplier = 1
-  for c, d in zip(coord[::-1], mesh_shape[::-1]):
+  for c, d in zip(coord[::-1], mesh_shape.to_integer_list[::-1]):
     ret += multiplier * c
     multiplier *= d
   return ret
@@ -2768,7 +2856,7 @@ def pnum_to_group(mesh_shape, group_dims, pnum):
   """Group number for grouped allreduce.
 
   Args:
-    mesh_shape: a list of integers
+    mesh_shape: a Shape
     group_dims: a list of integers (the dimensions reduced over)
     pnum: an integer
 
@@ -2776,7 +2864,8 @@ def pnum_to_group(mesh_shape, group_dims, pnum):
     an integer
   """
   coord = pnum_to_processor_coordinates(mesh_shape, pnum)
-  remaining_shape = [d for i, d in enumerate(mesh_shape) if i not in group_dims]
+  remaining_shape = Shape(
+      [d for i, d in enumerate(mesh_shape) if i not in group_dims])
   remaining_coord = [d for i, d in enumerate(coord) if i not in group_dims]
   return processor_coordinates_to_pnum(remaining_shape, remaining_coord)
 
@@ -2785,7 +2874,7 @@ def processor_groups(mesh_shape, group_dims):
   """Groups of processors which differ only in the given dimensions.
 
   Args:
-    mesh_shape: a list of integers
+    mesh_shape: a Shape
     group_dims: a list of integers
 
   Returns:
@@ -2793,7 +2882,7 @@ def processor_groups(mesh_shape, group_dims):
   """
   group_numbers = [
       pnum_to_group(mesh_shape, group_dims, pnum)
-      for pnum in xrange(list_product(mesh_shape))]
+      for pnum in xrange(mesh_shape.size)]
   ret = []
   for pnum, g in enumerate(group_numbers):
     while len(ret) <= g:
@@ -2847,8 +2936,8 @@ def range(mesh, dim, dtype, name=None):  # pylint: disable=redefined-builtin
   """
   dim = convert_to_dimension(dim)
   with tf.variable_scope(name, default_name="range"):
-    return infeed(
-        mesh, tf.range(dim.size, dtype=dtype), shape=TensorShape([dim]))
+    return import_tf_tensor(
+        mesh, tf.range(dim.size, dtype=dtype), shape=Shape([dim]))
 
 
 def pretty_print_counters(counters):
@@ -2876,41 +2965,33 @@ def pretty_print_counters(counters):
   return "\n".join(parts)
 
 
-def parse_mesh_shape(mesh_shape):
-  """Parase a string to a list of integers.
+def _parse_string_to_list_of_pairs(s, seconds_to_int=False):
+  r"""Parase a string into a list of pairs.
 
-  All non-digits are taken as delimeters
+  If seconds_to_int, then the second elements are integers, otherwise, they
+  are strings.
 
-  Args:
-    mesh_shape: a string or a list of integers
-  Returns:
-    a list of integers
-  """
-  if isinstance(mesh_shape, list):
-    return mesh_shape
-  return [int(x) for x in re.sub("[^0-9]", " ", mesh_shape).split()]
+  In the input string, each pair is separated by a colon, and the delimeters
+  between paris are any of " ,.;"
 
-
-def parse_layout(layout_string):
-  r"""Parase a string specifying a layout.
-
-  The layout_string is a list of name, integer pairs.
-  Each pair is separated by a colon, and the delimeters between paris are any
-  of " ,.;"
-
-  e.g. "batch:0 vocab:1 filter_size:1 heads:1"
+  e.g. "rows:32,cols:32"
 
   Args:
-    layout_string: a string or a dictionary
+    s: a string
+    seconds_to_int: a boolean
   Returns:
-    a dictionary from string to int
+    a list of pairs
+  Raises:
+    ValueError: on badly formatted string
   """
-  if isinstance(layout_string, dict):
-    return layout_string
-  ret = {}
-  for s in re.sub("[,.;]", " ", layout_string).split():
-    dim_name, mesh_axis = s.split(":")
-    ret[dim_name] = int(mesh_axis)
+  ret = []
+  for p in [s.split(":") for s in re.sub("[,.;]", " ", s).split()]:
+    if len(p) != 2:
+      raise ValueError("bad input to _parse_string_to_list_of_pairs %s" % s)
+    if seconds_to_int:
+      ret.append((p[0], int(p[1])))
+    else:
+      ret.append(tuple(p))
   return ret
 
 
@@ -3039,13 +3120,13 @@ def random_uniform(mesh, shape, **kwargs):
 
   Args:
     mesh: a Mesh
-    shape: a TensorShape
+    shape: a Shape
     **kwargs: keyword args for tf.random_uniform, except seed
 
   Returns:
     a Tensor
   """
-  shape = convert_to_tensor_shape(shape)
+  shape = convert_to_shape(shape)
   return RandomOperation(mesh, shape, tf.random_uniform, **kwargs).outputs[0]
 
 
@@ -3055,13 +3136,13 @@ def dropout(x, keep_prob, noise_shape=None, name=None):
   Args:
     x: a Tensor
     keep_prob: a float between 0.0 and 1.0
-    noise_shape: an optional TensorShape (a subset of x.shape)
+    noise_shape: an optional Shape (a subset of x.shape)
     name: an optional string
 
   Returns:
     a Tensor
   """
-  noise_shape = convert_to_tensor_shape(noise_shape)
+  noise_shape = convert_to_shape(noise_shape)
   if noise_shape is None:
     noise_shape = x.shape
   with tf.variable_scope(name, default_name="dropout"):
