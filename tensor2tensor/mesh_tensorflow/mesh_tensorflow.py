@@ -161,7 +161,7 @@ def convert_to_shape(x):
   return Shape([convert_to_dimension(d) for d in x])
 
 
-class ComputationLayout(object):
+class LayoutRules(object):
   """Represents layout of a computation.
 
   Consists of a set of pairs of strings (tensor_dim_name, mesh_dim_name)
@@ -173,7 +173,7 @@ class ComputationLayout(object):
     self._pairs = set(pairs)
 
   def __repr__(self):
-    return "ComputationLayout%s" % self._pairs
+    return "LayoutRules%s" % self._pairs
 
   def tensor_dimension_to_mesh_axis(self, tensor_dimension, mesh_shape):
     """Mesh axis associated with tensor dimension (or None).
@@ -217,11 +217,11 @@ class ComputationLayout(object):
     return TensorLayout(ret)
 
 
-def convert_to_computation_layout(x):
-  if isinstance(x, ComputationLayout):
+def convert_to_layout_rules(x):
+  if isinstance(x, LayoutRules):
     return x
   else:
-    return ComputationLayout(x)
+    return LayoutRules(x)
 
 
 class TensorLayout(object):
@@ -428,15 +428,15 @@ class MeshImpl(object):
   Subclasses will include PlacementMeshImpl and SimdMeshImpl
   """
 
-  def __init__(self, shape, layout):
+  def __init__(self, shape, layout_rules):
     """Create a mesh.
 
     Args:
       shape: a list of ints
-      layout: a ComputationLayout
+      layout_rules: a LayoutRules
     """
     self._shape = convert_to_shape(shape)
-    self._layout = convert_to_computation_layout(layout)
+    self._layout_rules = convert_to_layout_rules(layout_rules)
 
   @property
   def shape(self):
@@ -447,8 +447,8 @@ class MeshImpl(object):
     return len(self._shape)
 
   @property
-  def layout(self):
-    return self._layout
+  def layout_rules(self):
+    return self._layout_rules
 
   @property
   def size(self):
@@ -462,7 +462,7 @@ class MeshImpl(object):
     Returns:
       an integer or None
     """
-    return self.layout.tensor_dimension_to_mesh_axis(
+    return self.layout_rules.tensor_dimension_to_mesh_axis(
         tensor_dimension, self.shape)
 
   def tensor_layout(self, arg):
@@ -475,7 +475,7 @@ class MeshImpl(object):
     """
     if isinstance(arg, Tensor):
       arg = arg.shape
-    return self.layout.tensor_layout(arg, self.shape)
+    return self.layout_rules.tensor_layout(arg, self.shape)
 
   def mesh_axis_to_cumprod(self, tensor_shape):
     """For each mesh axis, give the product of previous tensor axes.

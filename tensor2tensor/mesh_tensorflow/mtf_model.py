@@ -77,11 +77,11 @@ class MtfModel(t2t_model.T2TModel):
     mesh = mtf.Mesh(graph, "my_mesh")
 
     mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
-    computation_layout = mtf.ComputationLayout(hparams.layout)
+    layout_rules = mtf.LayoutRules(hparams.layout)
     if use_tpu:
       mesh_devices = [""] * mesh_shape.size
       mesh_impl = simd_mesh_impl.SimdMeshImpl(
-          mesh_shape, computation_layout, mesh_devices,
+          mesh_shape, layout_rules, mesh_devices,
           params["context"].device_assignment)
     else:
       if len(data_parallelism.ps_devices) == 1:
@@ -90,7 +90,7 @@ class MtfModel(t2t_model.T2TModel):
         assert len(data_parallelism.ps_devices) == mesh_shape.size
         mesh_devices = data_parallelism.ps_devices
       mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-          mesh_shape, computation_layout, mesh_devices)
+          mesh_shape, layout_rules, mesh_devices)
 
     # PREDICT mode
     if mode == tf.estimator.ModeKeys.PREDICT:

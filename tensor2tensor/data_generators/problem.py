@@ -753,12 +753,10 @@ class Problem(object):
       self._next_partition_id = 0
       return 0, 1
     phift = config.tpu_config.per_host_input_for_training
-    # BEGIN GOOGLE-INTERNAL
-    # This is the mesh-tensorflow case.  Still requires patch of cl/204685944
+    # This is the mesh-tensorflow case.
     if (hasattr(tpu_config.InputPipelineConfig, "BROADCAST") and
         phift == tpu_config.InputPipelineConfig.BROADCAST):
       return 0, 1
-    # END GOOOGLE-INTERNAL
     if phift:
       num_partitions = max(config.tpu_config.num_shards // 8, 1)
     else:

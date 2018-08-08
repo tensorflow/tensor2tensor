@@ -41,7 +41,7 @@ tf.flags.DEFINE_integer("eval_steps", 0,
                         "after training is skipped.")
 tf.flags.DEFINE_string("mesh_shape", "rows:2;cols:2", "mesh shape")
 tf.flags.DEFINE_string("layout", "batch:rows;hidden1:cols",
-                       "computation layout")
+                       "layout rules")
 
 FLAGS = tf.flags.FLAGS
 
@@ -92,11 +92,11 @@ def model_fn(features, labels, mode, params):
   mesh = mtf.Mesh(graph, "my_mesh")
   logits, loss = mnist_model(features, labels, mesh)
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
-  computation_layout = mtf.ComputationLayout(FLAGS.layout)
+  layout_rules = mtf.LayoutRules(FLAGS.layout)
   mesh_size = mesh_shape.size
   mesh_devices = [""] * mesh_size
   mesh_impl = placement_mesh_impl.PlacementMeshImpl(
-      mesh_shape, computation_layout, mesh_devices)
+      mesh_shape, layout_rules, mesh_devices)
 
   if mode == tf.estimator.ModeKeys.TRAIN:
     var_grads = mtf.gradients(
@@ -175,14 +175,7 @@ def run_mnist():
   """Run MNIST training and eval loop."""
   mnist_classifier = tf.estimator.Estimator(
       model_fn=model_fn,
-      model_dir=FLAGS.model_dir,
-      params={
-          "model_dir": FLAGS.model_dir,
-          "mesh_shape": "2.2",
-          "layout": "batch.0;hidden1.1",
-          "batch_size": FLAGS.batch_size,
-          "hidden_size": 512,
-      })
+      model_dir=FLAGS.model_dir)
 
   # Set up training and evaluation input functions.
   def train_input_fn():

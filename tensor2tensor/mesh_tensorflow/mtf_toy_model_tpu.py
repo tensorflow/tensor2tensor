@@ -41,7 +41,7 @@ tf.flags.DEFINE_integer('batch_size', 64, 'Training batch size.')
 tf.flags.DEFINE_integer('io_size', 2, 'Number of channels per feature.')
 tf.flags.DEFINE_integer('hidden_size', 2, 'Size of each hidden layer.')
 tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
-tf.flags.DEFINE_string('layout', 'hidden:all', 'computation layout')
+tf.flags.DEFINE_string('layout', 'hidden:all', 'layout rules')
 tf.flags.DEFINE_integer('iterations', 100,
                         'Number of iterations per training loop.')
 tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
@@ -106,7 +106,7 @@ def model_fn(features, labels, mode, params):
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
   mesh_devices = [''] * mesh_shape.size
   mesh_impl = SimdMeshImpl(
-      mesh_shape, mtf.convert_to_computation_layout(FLAGS.layout),
+      mesh_shape, mtf.convert_to_layout_rules(FLAGS.layout),
       mesh_devices, params['context'].device_assignment)
   with mtf_utils.outside_all_rewrites():
     logits, loss = toy_model(features, mesh)
