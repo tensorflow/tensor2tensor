@@ -256,6 +256,7 @@ class T2TModel(base.Layer):
     return sharded_logits, losses
 
   def model_fn(self, features):
+    print('!!!!!!! use_resource=False')
     with tf.variable_scope(tf.get_variable_scope(), use_resource=False):
       transformed_features = self.bottom(features)
 

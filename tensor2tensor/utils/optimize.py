@@ -122,16 +122,16 @@ class ConditionalOptimizer(tf.train.Optimizer):
       (word embedding slowdown problems)
 
       can delete this block if runs OK
+      """
       if v is None or g is None:
         return (g, v)
       # Fathom: Ryan Sepassi said this would help
       if v.dtype.base_dtype == g.dtype.base_dtype:
         return (g, v)
       return (tf.cast(g, v.dtype), v)
-      """
-      if v is not None and g is not None:
-        g = common_layers.cast_like(g, v)
-      return (g, v)
+      #if v is not None and g is not None:
+        #g = common_layers.cast_like(g, v)
+      #return (g, v)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
     # return self._opt.compute_gradients(loss, var_list, **kwargs)
