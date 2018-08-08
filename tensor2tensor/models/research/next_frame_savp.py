@@ -392,7 +392,7 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
         cond_pred_images, prior_pred_images = \
           all_pred_images[:batch_size], all_pred_images[batch_size:]
 
-        if train_mode:
+        if train_mode and self.hparams.use_vae:
           pred_image = cond_pred_images
         else:
           pred_image = prior_pred_images
@@ -406,7 +406,7 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
     gen_prior_video = tf.stack(gen_prior_video, axis=0)
     fake_rewards = tf.stack(fake_rewards, axis=0)
 
-    if train_mode:
+    if train_mode and self.hparams.use_vae:
       return gen_cond_video, fake_rewards, latent_means, latent_stds
     else:
       return gen_prior_video, fake_rewards, latent_means, latent_stds
