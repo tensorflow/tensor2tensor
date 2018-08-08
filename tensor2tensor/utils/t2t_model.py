@@ -256,7 +256,14 @@ class T2TModel(base.Layer):
     return sharded_logits, losses
 
   def model_fn(self, features):
-    with tf.variable_scope(tf.get_variable_scope(), use_resource=True):
+    # Fathom
+    # Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
+    # We need `use_resource=False` here
+    # and the old version of cast_grad in utils/optimize.py
+    # Without both of these changes, we are very slow with
+    # large word embeddings on the CPU.
+    #with tf.variable_scope(tf.get_variable_scope(), use_resource=True):
+    with tf.variable_scope(tf.get_variable_scope(), use_resource=False):
       transformed_features = self.bottom(features)
 
       if self.hparams.activation_dtype == "bfloat16":

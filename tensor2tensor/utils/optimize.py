@@ -122,16 +122,24 @@ class ConditionalOptimizer(tf.train.Optimizer):
       (word embedding slowdown problems)
 
       can delete this block if runs OK
+
+      August 7 2018: We still need the code block below instead
+          Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
+          We need `use_resource=False` in model_fn in utils/t2t_model.py
+          and the old version of cast_grad here.
+          Without both of these changes, we are very slow with
+          large word embeddings on the CPU.
+
+      """
       if v is None or g is None:
         return (g, v)
       # Fathom: Ryan Sepassi said this would help
       if v.dtype.base_dtype == g.dtype.base_dtype:
         return (g, v)
       return (tf.cast(g, v.dtype), v)
-      """
-      if v is not None and g is not None:
-        g = common_layers.cast_like(g, v)
-      return (g, v)
+      #if v is not None and g is not None:
+        #g = common_layers.cast_like(g, v)
+      #return (g, v)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
     # return self._opt.compute_gradients(loss, var_list, **kwargs)
