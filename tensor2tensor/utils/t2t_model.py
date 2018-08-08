@@ -257,6 +257,7 @@ class T2TModel(base.Layer):
 
   def model_fn(self, features):
     print('!!!!!!! use_resource=False')
+    print('!!!!!!! read_value')
     with tf.variable_scope(tf.get_variable_scope(), use_resource=False):
       transformed_features = self.bottom(features)
 
