@@ -46,7 +46,7 @@ def prep_data(decode_dir, target_dir):
         write_to_file(os.path.join(decode_dir, "rouge.%06d.txt" % (i+1)), d)
         write_to_file(os.path.join(target_dir, "rouge.A.%06d.txt" % (i+1)), t)
         if (i+1 % 1000) == 0:
-          tf.logging.into("Written %d examples to file" % i)
+          tf.logging.info("Written %d examples to file" % i)
 
 
 def main(_):
