@@ -9,7 +9,6 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 [![Gitter](https://img.shields.io/gitter/room/nwjs/nw.js.svg)](https://gitter.im/tensor2tensor/Lobby)
 [![License](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Travis](https://img.shields.io/travis/tensorflow/tensor2tensor.svg)](https://travis-ci.org/tensorflow/tensor2tensor)
-[![Run on FH](https://static.floydhub.com/button/button-small.svg)](https://floydhub.com/run)
 
 [Tensor2Tensor](https://github.com/tensorflow/tensor2tensor), or
 [T2T](https://github.com/tensorflow/tensor2tensor) for short, is a library
@@ -67,7 +66,6 @@ pip install tensor2tensor && t2t-trainer \
 * [Adding your own components](#adding-your-own-components)
 * [Adding a dataset](#adding-a-dataset)
 * [Papers](#papers)
-* [Run on FloydHub](#run-on-floydhub)
 
 ## Suggested Datasets and Models
 
@@ -409,29 +407,6 @@ paper](https://arxiv.org/abs/1803.07416).
   url       = {http://arxiv.org/abs/1803.07416},
 }
 ```
-
-## Run on FloydHub
-
-[![Run on FloydHub](https://static.floydhub.com/button/button.svg)](https://floydhub.com/run)
-
-Click this button to open a [Workspace](https://blog.floydhub.com/workspaces/) on [FloydHub](https://www.floydhub.com/?utm_medium=readme&utm_source=tensor2tensor&utm_campaign=jul_2018). You can use the workspace to develop and test your code on a fully configured cloud GPU machine.
-
-Tensor2Tensor comes preinstalled in the environment, you can simply open a [Terminal](https://docs.floydhub.com/guides/workspace/#using-terminal) and run your code.
-
-```bash
-# Test the quick-start on a Workspace's Terminal with this command
-t2t-trainer \
-  --generate_data \
-  --data_dir=./t2t_data \
-  --output_dir=./t2t_train/mnist \
-  --problem=image_mnist \
-  --model=shake_shake \
-  --hparams_set=shake_shake_quick \
-  --train_steps=1000 \
-  --eval_steps=100
-```
-
-Note: Ensure compliance with the FloydHub [Terms of Service](https://www.floydhub.com/about/terms).
 
 Tensor2Tensor was used to develop a number of state-of-the-art models
 and deep learning methods. Here we list some papers that were based on T2T
