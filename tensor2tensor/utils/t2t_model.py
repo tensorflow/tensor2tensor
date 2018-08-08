@@ -257,9 +257,9 @@ class T2TModel(base.Layer):
 
   def model_fn(self, features):
     # Fathom
-    # Refer to https://github.com/tensorflow/tensor2tensor/issues/979
-    # and the old version of cast_grad that we are currently using in
-    # utils/optimize.py
+    # Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
+    # We need `use_resource=False` here
+    # and the old version of cast_grad in utils/optimize.py
     # without both of these changes, we are very slow.
     with tf.variable_scope(tf.get_variable_scope(), use_resource=False):
     #with tf.variable_scope(tf.get_variable_scope(), use_resource=True):

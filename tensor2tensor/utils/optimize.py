@@ -124,10 +124,11 @@ class ConditionalOptimizer(tf.train.Optimizer):
       can delete this block if runs OK
 
       August 7 2018: We still need the code block below instead
-      in conjunction with `use_resource=False` in model_fn in utils/t2t_model.py
-      When https://github.com/tensorflow/tensor2tensor/issues/979 is fixed
-      in upstream t2t, we can reconsider.
-      without both of these changes, we are very slow.
+          Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
+          We need `use_resource=False` in model_fn in utils/t2t_model.py
+          and the old version of cast_grad here.
+          Without both of these changes, we are very slow.
+          Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
 
       """
       if v is None or g is None:
