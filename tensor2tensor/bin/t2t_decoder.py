@@ -125,7 +125,11 @@ def decode(estimator, hparams, decode_hp):
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
         dataset_split=dataset_to_t2t_mode(FLAGS.dataset_split),
-        return_generator=FLAGS.fathom_output_predictions)
+        return_generator=FLAGS.fathom_output_predictions,
+        # save logs/summaries to a directory with the same name as decode_output_file
+        # in situations where we are calling decode without write permissions
+        # to the model directory
+        output_dir=os.path.splitext(FLAGS.decode_output_file)[0])
 
     # Fathom
     if FLAGS.fathom_output_predictions:
