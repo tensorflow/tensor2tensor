@@ -130,12 +130,13 @@ def define_collect(hparams, scope, eval_phase,
       for batch_env in to_initialize:
         batch_env.initialize(sess)
 
-    memory = [tf.get_variable("collect_memory_{}".format(name),
-                              shape=[hparams.epoch_length]+shape,
-                              dtype=dtype,
-                              initializer=tf.zeros_initializer(),
-                              trainable=False)
-              for (shape, dtype, name) in rollout_metadata]
+    memory = [
+        tf.get_variable("collect_memory_%d_%s" % (hparams.epoch_length, name),
+                        shape=[hparams.epoch_length] + shape,
+                        dtype=dtype,
+                        initializer=tf.zeros_initializer(),
+                        trainable=False)
+        for (shape, dtype, name) in rollout_metadata]
 
     cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
                                          trainable=False)

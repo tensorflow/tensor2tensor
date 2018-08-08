@@ -64,7 +64,7 @@ def summarize_video_metrics(hook_args):
   summary_values = []
   for name, array in six.iteritems(metrics_results):
     for ind, val in enumerate(array):
-      tag = name + "_" + str(ind)
+      tag = "metric_{}/{}".format(name, ind)
       summary_values.append(tf.Summary.Value(tag=tag, simple_value=val))
   return summary_values
 
@@ -140,6 +140,11 @@ class VideoProblem(problem.Problem):
 
   def preprocess_example(self, example, mode, hparams):
     """Runtime preprocessing, e.g., resize example["frame"]."""
+    if getattr(hparams, "preprocess_resize_frames", None) is not None:
+      example["frame"] = tf.image.resize_images(
+          example["frame"],
+          hparams.preprocess_resize_frames,
+          tf.image.ResizeMethod.BILINEAR)
     return example
 
   @property
@@ -219,11 +224,6 @@ class VideoProblem(problem.Problem):
       for k, v in six.iteritems(batched_prefeatures):
         if k == "frame":  # We rename past frames to inputs and targets.
           s1, s2 = split_on_batch(v)
-          # Reshape just to make sure shapes are right and set.
-          s1 = tf.reshape(
-              s1, [hparams.video_num_input_frames] + self.frame_shape)
-          s2 = tf.reshape(
-              s2, [hparams.video_num_target_frames] + self.frame_shape)
           features["inputs"] = s1
           features["targets"] = s2
         else:
@@ -299,7 +299,8 @@ class VideoProblem(problem.Problem):
     else:
       batch_dataset = preprocessed_dataset.apply(
           tf.contrib.data.batch_and_drop_remainder(num_frames))
-    dataset = batch_dataset.map(features_from_batch)  # shuffle(8)
+    dataset = batch_dataset.map(features_from_batch)
+    dataset = dataset.shuffle(256)
     return dataset
 
   def eval_metrics(self):

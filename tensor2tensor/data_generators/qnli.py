@@ -67,16 +67,6 @@ class QuestionNLI(text_problems.TextConcat2ClassProblem):
   def num_classes(self):
     return 2
 
-  @property
-  def concat_token(self):
-    return "<EN-Q-CONT>"
-
-  @property
-  def concat_id(self):
-    if self.vocab_type == text_problems.VocabType.CHARACTER:
-      return problem.TaskID.EN_Q_CONT
-    return 2
-
   def class_labels(self, data_dir):
     del data_dir
     # Note this binary classification is different from usual MNLI.
@@ -130,6 +120,5 @@ class QuestionNLICharacters(QuestionNLI):
   def vocab_type(self):
     return text_problems.VocabType.CHARACTER
 
-  @property
-  def task_id(self):
+  def global_task_id(self):
     return problem.TaskID.EN_NLI

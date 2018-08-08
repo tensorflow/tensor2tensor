@@ -82,6 +82,7 @@ flags.DEFINE_integer("save_checkpoints_secs", 0,
                      "is max(iterations_per_loop, local_eval_frequency).")
 flags.DEFINE_bool("log_device_placement", False,
                   "Whether to log device placement.")
+flags.DEFINE_string("warm_start_from", None, "Warm start from checkpoint.")
 
 # Distributed training flags
 flags.DEFINE_integer("local_eval_frequency", 1000,

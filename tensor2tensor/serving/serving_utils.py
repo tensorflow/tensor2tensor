@@ -20,14 +20,14 @@ from __future__ import print_function
 
 import base64
 from googleapiclient import discovery
-from grpc.beta import implementations
+import grpc
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import cloud_tpu as cloud
 import tensorflow as tf
 from tensorflow_serving.apis import predict_pb2
-from tensorflow_serving.apis import prediction_service_pb2
+from tensorflow_serving.apis import prediction_service_pb2_grpc
 
 
 
@@ -40,10 +40,8 @@ def _make_example(input_ids, feature_name="inputs"):
 
 
 def _create_stub(server):
-  host, port = server.split(":")
-  channel = implementations.insecure_channel(host, int(port))
-  # TODO(bgb): Migrate to GA API.
-  return prediction_service_pb2.beta_create_PredictionService_stub(channel)
+  channel = grpc.insecure_channel(server)
+  return prediction_service_pb2_grpc.PredictionServiceStub(channel)
 
 
 def _encode(inputs, encoder, add_eos=True):

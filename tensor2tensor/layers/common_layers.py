@@ -699,8 +699,7 @@ def l2_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
   """Layer normalization with l2 norm."""
   if filters is None:
     filters = shape_list(x)[-1]
-  with tf.variable_scope(
-      name, default_name="l2_norm", values=[x], reuse=reuse):
+  with tf.variable_scope(name, default_name="l2_norm", values=[x], reuse=reuse):
     scale = tf.get_variable(
         "l2_norm_scale", [filters], initializer=tf.ones_initializer())
     bias = tf.get_variable(
@@ -710,6 +709,46 @@ def l2_norm(x, filters=None, epsilon=1e-6, name=None, reuse=None):
     l2norm = tf.reduce_sum(tf.square(x - mean), axis=[-1], keepdims=True)
     norm_x = (x - mean) * tf.rsqrt(l2norm + epsilon)
     return norm_x * scale + bias
+
+
+def apply_spectral_norm(x):
+  """Normalizes x using the spectral norm.
+
+  The implementation follows Algorithm 1 of
+  https://arxiv.org/abs/1802.05957. If x is not a 2-D Tensor, then it is
+  reshaped such that the number of channels (last-dimension) is the same.
+
+  Args:
+    x: Tensor with the last dimension equal to the number of filters.
+
+  Returns:
+    x: Tensor with the same shape as x normalized by the spectral norm.
+    assign_op: Op to be run after every step to update the vector "u".
+  """
+  weights_shape = shape_list(x)
+  other, num_filters = tf.reduce_prod(weights_shape[:-1]), weights_shape[-1]
+
+  # Reshape into a 2-D matrix with outer size num_filters.
+  weights_2d = tf.reshape(x, (other, num_filters))
+
+  # v = Wu / ||W u||
+  with tf.variable_scope("u", reuse=tf.AUTO_REUSE):
+    u = tf.get_variable(
+        "u", [num_filters, 1], initializer=tf.truncated_normal_initializer(),
+        trainable=False)
+  v = tf.nn.l2_normalize(tf.matmul(weights_2d, u))
+
+  # u_new = vW / ||v W||
+  u_new = tf.nn.l2_normalize(tf.matmul(tf.transpose(v), weights_2d))
+
+  # s = v*W*u
+  spectral_norm = tf.squeeze(tf.matmul(
+      tf.transpose(v),
+      tf.matmul(weights_2d, tf.transpose(u_new))))
+
+  # set u equal to u_new in the next iteration.
+  assign_op = tf.assign(u, tf.transpose(u_new))
+  return tf.divide(x, spectral_norm), assign_op
 
 
 def apply_norm(x, norm_type, depth, epsilon):
@@ -747,11 +786,9 @@ def zero_add(previous_value, x, name=None, reuse=None):
   Returns:
     previous_value + gamma * x.
   """
-  with tf.variable_scope(
-      name, default_name="zero_add", reuse=reuse):
-    gamma = tf.get_variable(
-        "gamma", (), initializer=tf.zeros_initializer())
-    return previous_value + gamma*x
+  with tf.variable_scope(name, default_name="zero_add", reuse=reuse):
+    gamma = tf.get_variable("gamma", (), initializer=tf.zeros_initializer())
+    return previous_value + gamma * x
 
 
 def layer_prepostprocess(previous_value,
@@ -2019,10 +2056,7 @@ def _weights_one_third(labels):
   return tf.ones(tf.shape(labels)[:-1]) / 3.
 
 
-def dml_loss(pred,
-             labels,
-             weights_fn=_weights_one_third,
-             reduce_sum=True):
+def dml_loss(pred, labels, weights_fn=_weights_one_third, reduce_sum=True):
   """Discretized mixture of logistics loss.
 
   Args:
@@ -3511,7 +3545,8 @@ def sliced_gan_loss(input1,
                     discriminator,
                     num_vecs,
                     do_random_vecs=True,
-                    do_tanh=True):
+                    do_tanh=True,
+                    return_logits=False):
   """Loss inspired by the sliced WGAN paper: https://arxiv.org/abs/1804.01947.
 
   Puts input1 and input2 through the provided discriminator to get logits.
@@ -3526,6 +3561,7 @@ def sliced_gan_loss(input1,
     num_vecs: how many random vectors to use for projections.
     do_random_vecs: whether to use random vectors or just tanh of the logits.
     do_tanh: if true (default) we'll also just use tanh of the logits.
+    return_logits: Whether or not to return the logits.
 
   Returns:
     The generator loss, i.e., the sliced approximation of the distance between
@@ -3571,7 +3607,10 @@ def sliced_gan_loss(input1,
 
     proj1 = get_sorted_projections(logits1)
     proj2 = get_sorted_projections(logits2)
-    return tf.reduce_mean(tf.square(proj1 - proj2))
+    dist = tf.reduce_mean(tf.square(proj1 - proj2))
+    if return_logits:
+      return dist, logits1, logits2
+    return dist
 
 
 def upscale(inputs, f, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR):
@@ -3632,24 +3671,83 @@ def cyclegan_upsample(net, num_outputs, stride, method="conv2d_transpose"):
       net = tf.image.resize_nearest_neighbor(
           net, [stride[0] * height, stride[1] * width])
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.contrib.layers.conv2d(net, num_outputs, kernel_size=[3, 3],
-                                     padding="valid")
+      net = tf.contrib.layers.conv2d(
+          net, num_outputs, kernel_size=[3, 3], padding="valid")
     elif method == "bilinear_upsample_conv":
-      net = tf.image.resize_bilinear(
-          net, [stride[0] * height, stride[1] * width])
+      net = tf.image.resize_bilinear(net,
+                                     [stride[0] * height, stride[1] * width])
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.contrib.layers.conv2d(net, num_outputs, kernel_size=[3, 3],
-                                     padding="valid")
+      net = tf.contrib.layers.conv2d(
+          net, num_outputs, kernel_size=[3, 3], padding="valid")
     elif method == "conv2d_transpose":
       # This corrects 1 pixel offset for images with even width and height.
       # conv2d is left aligned and conv2d_transpose is right aligned for even
       # sized images (while doing "SAME" padding).
       # Note: This doesn"t reflect actual model in paper.
       net = tf.contrib.layers.conv2d_transpose(
-          net, num_outputs, kernel_size=[3, 3], stride=stride,
-          padding="valid")
+          net, num_outputs, kernel_size=[3, 3], stride=stride, padding="valid")
       net = net[:, 1:, 1:, :]
     else:
       raise ValueError("Unknown method: [%s]" % method)
 
     return net
+
+
+def targeted_dropout(inputs,
+                     k,
+                     keep_prob,
+                     targeting_fn,
+                     is_training,
+                     do_prune=False):
+  """Applies targeted dropout.
+
+  Applies dropout at a rate of `1 - keep_prob` to only those elements of `x`
+  marked by `targeting_fn`. See below and paper for more detail:
+
+  "Targeted Dropout for Posthoc Pruning" Aidan N. Gomez, Ivan Zhang,
+    Kevin Swersky, Yarin Gal, and Geoffrey E. Hinton.
+
+  Args:
+    inputs: Tensor, inputs to apply targeted dropout to.
+    k: Scalar Tensor or python scalar, sets the number of elements to target in
+      `inputs`. Must be within `[0, tf.shape(x)[-1]]` and compatible with
+      second argument of `targeting_fn`.
+    keep_prob: Scalar Tensor, passed as `tf.nn.dropout`'s `keep_prob` argument.
+    targeting_fn: callable `fn(inputs, k) -> Boolean Tensor`, produces a
+      boolean mask the same shape as `inputs` where True indicates an element
+      will be dropped, and False not.
+    is_training: bool, indicates whether currently training.
+    do_prune: bool, indicates whether to prune the `k * (1 - keep_prob)`
+      elements of `inputs` expected to be dropped each forwards pass.
+  Returns:
+    Tensor, same shape and dtype as `inputs`.
+  """
+  if not is_training and do_prune:
+    k = tf.round(k * (1 - keep_prob))
+
+  mask = targeting_fn(inputs, k)
+  mask = tf.cast(mask, inputs.dtype)
+
+  if is_training:
+    return inputs * (1 - mask) + tf.nn.dropout(inputs, keep_prob) * mask
+  elif do_prune:
+    return inputs * (1 - mask)
+  else:
+    return inputs
+
+
+# TODO(mbz): use tf.distributions.kl_divergence instead.
+def kl_divergence(mu, log_sigma):
+  """KL divergence of diagonal gaussian N(mu,exp(log_sigma)) and N(0,1).
+
+  Args:
+    mu: mu parameter of the distribution.
+    log_sigma: log(sigma) parameter of the distribution.
+  Returns:
+    the KL loss.
+  """
+  batch_size = shape_list(mu)[0]
+  kl = -.5 * tf.reduce_sum(1. + log_sigma - tf.square(mu) - tf.exp(log_sigma))
+  return kl / tf.to_float(batch_size)
+
+

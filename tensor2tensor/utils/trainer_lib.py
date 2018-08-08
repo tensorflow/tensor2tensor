@@ -99,6 +99,7 @@ def create_hparams(hparams_set,
 
 def create_run_config(master="",
                       model_dir=None,
+                      warm_start_from=None,
                       iterations_per_loop=1000,
                       num_shards=8,
                       log_device_placement=False,
@@ -167,8 +168,15 @@ def create_run_config(master="",
     tpu_config = tf.contrib.tpu.TPUConfig(
         **tpu_config_kwargs)
     run_config_args["tpu_config"] = tpu_config
+    if not master and "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS" in os.environ:
+      # If running on TPU but no master is set and the KUBE env var is present
+      # then we're running on ML Engine. Set the master.
+      run_config_args["master"] = os.environ[
+          "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS"]
+      run_config_args["evaluation_master"] = run_config_args["master"]
 
   config = run_config_cls(**run_config_args)
+  config.warm_start_from = warm_start_from
 
   # If not using TPU, add device info for data_parallelism
   config.use_tpu = use_tpu
@@ -223,7 +231,11 @@ def create_estimator(model_name,
         predict_batch_size=predict_batch_size)
   else:
     estimator = tf.estimator.Estimator(
-        model_fn=model_fn, model_dir=run_config.model_dir, config=run_config)
+        model_fn=model_fn,
+        model_dir=run_config.model_dir,
+        config=run_config,
+        warm_start_from=run_config.warm_start_from
+    )
   return estimator
 
 
@@ -399,7 +411,9 @@ def create_experiment(
     eval_early_stopping_metric_delta=None,
     eval_early_stopping_metric_minimize=True,
     autotune=False,
-    use_tpu=False):
+    use_tpu=False,
+    additional_train_hooks=None,
+    additional_eval_hooks=None):
   """Create Experiment."""
   # HParams
   hparams.add_hparam("model_dir", run_config.model_dir)
@@ -467,6 +481,10 @@ def create_experiment(
       early_stopping_kwargs=early_stopping_kwargs)
   train_hooks += t2t_model.T2TModel.get_train_hooks(model_name)
   eval_hooks += t2t_model.T2TModel.get_eval_hooks(model_name)
+  if additional_train_hooks:
+    train_hooks += additional_train_hooks
+  if additional_eval_hooks:
+    eval_hooks += additional_eval_hooks
 
   train_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
       train_hooks, estimator)

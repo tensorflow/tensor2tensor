@@ -100,6 +100,11 @@ class ImageProblem(problem.Problem):
     """Number of color channels."""
     return 3
 
+  @property
+  def vocab_size(self):
+    """Number of pixel values."""
+    return 256
+
   def example_reading_spec(self):
     data_fields = {
         "image/encoded": tf.FixedLenFeature((), tf.string),

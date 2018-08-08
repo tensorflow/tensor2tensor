@@ -19,7 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 import gzip
-import multiprocessing as mp
 import os
 import random
 import stat
@@ -489,11 +488,8 @@ def shuffle_dataset(filenames):
     tf.logging.info("Skipping shuffle because output files exist")
     return
   tf.logging.info("Shuffling data...")
-  if len(filenames) > 1:
-    pool = mp.Pool(min(len(filenames), 20))
-    pool.map(_shuffle_single, filenames)
-  else:
-    _shuffle_single(filenames[0])
+  for filename in filenames:
+    _shuffle_single(filename)
   tf.logging.info("Data shuffled.")
 
 

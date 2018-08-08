@@ -36,15 +36,21 @@ import tempfile
 import numpy as np
 
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
-from tensor2tensor.data_generators import algorithmic_math
-from tensor2tensor.data_generators import audio
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import snli
-from tensor2tensor.data_generators import wsj_parsing
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
+
+try:
+  # pylint: disable=g-import-not-at-top
+  from tensor2tensor.data_generators import algorithmic_math
+  from tensor2tensor.data_generators import audio
+  from tensor2tensor.data_generators import snli
+  from tensor2tensor.data_generators import wsj_parsing
+  # pylint: enable=g-import-not-at-top
+except ImportError:
+  pass
 
 
 flags = tf.flags
@@ -145,10 +151,10 @@ def main(_):
     problems = []
 
   # Remove TIMIT if paths are not given.
-  if not FLAGS.timit_paths:
+  if getattr(FLAGS, "timit_paths", None):
     problems = [p for p in problems if "timit" not in p]
   # Remove parsing if paths are not given.
-  if not FLAGS.parsing_path:
+  if getattr(FLAGS, "parsing_path", None):
     problems = [p for p in problems if "parsing_english_ptb" not in p]
 
   if not problems:

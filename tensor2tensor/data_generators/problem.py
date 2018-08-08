@@ -349,6 +349,15 @@ class Problem(object):
         metrics.Metrics.ACC_PER_SEQ, metrics.Metrics.NEG_LOG_PERPLEXITY
     ]
 
+  @property
+  def task_id(self):
+    if self._task_id == -1 and hasattr(self, "global_task_id"):
+      self._task_id = self.global_task_id()
+    return self._task_id
+
+  def set_task_id(self, new_task_id):
+    self._task_id = new_task_id
+
   # ============================================================================
   # END SUBCLASS INTERFACE
   # ============================================================================
@@ -449,6 +458,7 @@ class Problem(object):
     self._encoders = None
     self._hparams = None
     self._feature_info = None
+    self._task_id = -1
 
   def get_feature_encoders(self, data_dir=None):
     if self._encoders is None:
@@ -617,17 +627,7 @@ class Problem(object):
           tf.contrib.data.parallel_interleave(
               _load_records_and_preprocess, sloppy=True, cycle_length=8))
     else:
-      # TFRecordDataset can get filenames as dataset in TF 1.7+.
-      # TODO(lukaszkaiser): remove when we require TF 1.7+ in general.
-      major, minor = [int(el) for el in tf.__version__.split(".")[:2]]
-      filename_dataset_ok = major > 1 or (major == 1 and minor >= 7)
-      if filename_dataset_ok:  # We can just pass a Dataset of filenames.
-        dataset = _load_records_and_preprocess(dataset)
-      else:  # Go file-by-file (can be very slow).
-        dataset = None
-        for f in data_files:
-          f_data = _load_records_and_preprocess(f)
-          dataset = f_data if dataset is None else dataset.concatenate(f_data)
+      dataset = _load_records_and_preprocess(dataset)
 
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)

@@ -26,6 +26,21 @@ from tensor2tensor.utils import registry
 
 
 @registry.register_problem
+class LanguagemodelLm1bMultiNLISubwords(multi_problem.MultiProblem):
+  """LM1b and MNLI mixed problem class for multitask learning."""
+
+  def __init__(self, was_reversed=False, was_copy=False):
+    super(LanguagemodelLm1bMultiNLISubwords, self).__init__(
+        was_reversed, was_copy)
+    self.task_list.append(lm1b.LanguagemodelLm1b32k())
+    self.task_list.append(multinli.MultiNLISharedVocab())
+
+  @property
+  def vocab_type(self):
+    return text_problems.VocabType.SUBWORD
+
+
+@registry.register_problem
 class LanguagemodelLm1bMultiNLI(multi_problem.MultiProblem):
   """LM1b and MNLI mixed problem class for multitask learning."""
 

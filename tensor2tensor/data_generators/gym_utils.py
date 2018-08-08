@@ -126,10 +126,9 @@ gym.envs.register(id="T2TPongWarmUp20RewSkip200Steps-v1",
                   max_episode_steps=200)
 
 
-gym.envs.register(id="T2TPongWarmUp20RewSkip2000Steps-v1",
+gym.envs.register(id="T2TPongWarmUp20RewSkipFull-v1",
                   entry_point=lambda: wrapped_pong_factory(  # pylint: disable=g-long-lambda
-                      warm_up_examples=20, reward_skip_steps=15),
-                  max_episode_steps=2000)
+                      warm_up_examples=20, reward_skip_steps=15))
 
 
 class BreakoutWrapper(WarmupWrapper):
@@ -300,3 +299,26 @@ gym.envs.register(id="T2TFreewayWarmUp20RewSkip500Steps-v1",
                       easy_freeway=False
                   ),
                   max_episode_steps=500)
+
+
+class DefaultGymWrapper(gym.Wrapper):
+  """Warmup wrapper."""
+
+  def __init__(self, env, reward_clipping=True):
+    super(DefaultGymWrapper, self).__init__(env)
+    self.reward_clipping = reward_clipping
+
+  def step(self, action):
+    ob, rew, done, info = self.env.step(action)
+
+    if self.reward_clipping:
+      rew = np.sign(rew)
+
+    return ob, rew, done, info
+
+
+def wrapped_factory(env, reward_clipping):
+  """Wrapped games."""
+  env = gym.make(env)
+  env = DefaultGymWrapper(env, reward_clipping)
+  return env
