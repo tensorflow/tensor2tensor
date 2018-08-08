@@ -36,8 +36,6 @@ import tensorflow as tf
 tfl = tf.layers
 tfcl = tf.contrib.layers
 
-_LARGE_STEP_NUMBER = 100000
-
 
 @registry.register_model
 class NextFrameStochastic(next_frame.NextFrameBasic):
