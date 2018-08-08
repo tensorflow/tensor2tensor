@@ -48,8 +48,6 @@ tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
 tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
 tf.flags.DEFINE_string('master', 'local',
                        'BNS name of the TensorFlow master to use.')
-tf.flags.DEFINE_string('evaluation_master', 'local',
-                       'BNS name of the TensorFlow master to use.')
 tf.flags.DEFINE_string(
     'model_dir',
     default='',
@@ -182,7 +180,7 @@ def run_toy_model_tpu():
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
   config = tpu_config.RunConfig(
       master=FLAGS.master,
-      evaluation_master=FLAGS.evaluation_master,
+      evaluation_master=FLAGS.master,
       model_dir=FLAGS.model_dir,
       save_checkpoints_steps=None,  # Disable the default saver
       save_checkpoints_secs=None,  # Disable the default saver
