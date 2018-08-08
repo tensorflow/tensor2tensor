@@ -544,6 +544,8 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
   def get_extra_loss(self, latent_means=None, latent_stds=None,
                      true_frames=None, gen_frames=None, beta=1.0):
     """Losses in addition to the default modality losses."""
+    del true_frames
+    del gen_frames
     kl_loss = 0.0
     if self.is_training:
       for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
