@@ -142,7 +142,12 @@ def decode_from_dataset(estimator,
                         decode_hp,
                         decode_to_file=None,
                         dataset_split=None,
-                        return_generator=False):
+                        return_generator=False,
+                        # Fathom
+                        # otherwise decoding summary and logs are dumped
+                        # to the model directory whenever decoding happens.
+                        # should only be unspecified for eval.
+                        output_dir=None):
   """Decode from a dataset.
 
   Args:
@@ -161,7 +166,11 @@ def decode_from_dataset(estimator,
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
 
   # Setup decode output directory for any artifacts that may be written out
-  output_dir = os.path.join(estimator.model_dir, "decode")
+  # Fathom
+  # use passed in output_dir for writing decode summaries and logs
+  #output_dir = os.path.join(estimator.model_dir, "decode")
+  if not output_dir:
+    output_dir = os.path.join(estimator.model_dir, "decode")
   tf.gfile.MakeDirs(output_dir)
 
   # If decode_hp.batch_size is specified, use a fixed batch size
