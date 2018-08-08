@@ -127,7 +127,8 @@ class ConditionalOptimizer(tf.train.Optimizer):
           Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
           We need `use_resource=False` in model_fn in utils/t2t_model.py
           and the old version of cast_grad here.
-          Without both of these changes, we are very slow.
+          Without both of these changes, we are very slow with
+          large word embeddings on the CPU.
 
       """
       if v is None or g is None:

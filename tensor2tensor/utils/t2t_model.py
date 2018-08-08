@@ -260,7 +260,8 @@ class T2TModel(base.Layer):
     # Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
     # We need `use_resource=False` here
     # and the old version of cast_grad in utils/optimize.py
-    # without both of these changes, we are very slow.
+    # Without both of these changes, we are very slow with
+    # large word embeddings on the CPU.
     with tf.variable_scope(tf.get_variable_scope(), use_resource=False):
     #with tf.variable_scope(tf.get_variable_scope(), use_resource=True):
       transformed_features = self.bottom(features)
