@@ -77,7 +77,7 @@ class MtfModel(t2t_model.T2TModel):
     mesh = mtf.Mesh(graph, "my_mesh")
 
     mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
-    layout_rules = mtf.LayoutRules(hparams.layout)
+    layout_rules = mtf.convert_to_layout_rules(hparams.layout)
     if use_tpu:
       mesh_devices = [""] * mesh_shape.size
       mesh_impl = simd_mesh_impl.SimdMeshImpl(

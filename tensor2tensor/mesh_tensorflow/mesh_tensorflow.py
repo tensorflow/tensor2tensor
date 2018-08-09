@@ -32,14 +32,16 @@ Dimension = collections.namedtuple("Dimension", ["name", "size"])
 
 
 def convert_to_dimension(d):
-  """Convert something to a Dimension.
+  """Converts input to a Dimension.
 
   Args:
-    d: either a Dimension or a pair of (string, int) or None
+    d: Dimension, tuple (string, int), or None.
+
   Returns:
-    a Dimension, or None
+    Dimension or None.
+
   Raises:
-    ValueError: if d cannot be converted to a Dimension
+    ValueError: If d cannot be converted to a Dimension.
   """
   if d is None:
     return None
@@ -53,11 +55,18 @@ def convert_to_dimension(d):
 
 
 class Shape(object):
-  """Shape of a Tensor."""
+  """Shape of a Tensor or Mesh."""
 
   def __init__(self, dims):
-    self._dims = tuple(dims)
-    # verify no repeated dims
+    """Constructs a shape for a Tensor or Mesh.
+
+    Args:
+      dims: List-like of Dimensions.
+
+    Raises:
+      ValueError: If Dimensions are repeated.
+    """
+    self._dims = [convert_to_dimension(d) for d in tuple(dims)]
     if len(set(dims)) != len(dims):
       raise ValueError("Shape must not have repeated dimensions %s" % dims)
 
@@ -118,7 +127,7 @@ class Shape(object):
 
   @property
   def cumprod(self):
-    """cumulative product (exclusive) of dimension sizes."""
+    """Cumulative product (exclusive) of Dimension sizes."""
     return _cumprod(self.to_integer_list)[::-1]
 
   def cumprod_to_tensor_axis(self, cumprod):
@@ -152,24 +161,35 @@ class Shape(object):
 
 
 def convert_to_shape(x):
+  """Converts input to a Shape.
+
+  Args:
+    x: Shape, str, or None.
+
+  Returns:
+    Shape or None.
+
+  Raises:
+    ValueError: If x cannot be converted to a Shape.
+  """
   if x is None:
     return None
   if isinstance(x, Shape):
     return x
   if isinstance(x, str):
     x = _parse_string_to_list_of_pairs(x, seconds_to_int=True)
-  return Shape([convert_to_dimension(d) for d in x])
+  return Shape(x)
 
 
 class LayoutRules(object):
-  """Represents layout of a computation.
-
-  Consists of a set of pairs of strings (tensor_dim_name, mesh_dim_name)
-  """
+  """Represents layout of a computation."""
 
   def __init__(self, pairs):
-    if isinstance(pairs, str):
-      pairs = _parse_string_to_list_of_pairs(pairs)
+    """Constructs a layout.
+
+    Args:
+      pairs: Set-like of string pairs (tensor_dim_name, mesh_dim_name).
+    """
     self._pairs = set(pairs)
 
   def __repr__(self):
@@ -179,12 +199,14 @@ class LayoutRules(object):
     """Mesh axis associated with tensor dimension (or None).
 
     Args:
-      tensor_dimension: a Dimension
-      mesh_shape: a Shape
+      tensor_dimension: Dimension.
+      mesh_shape: Shape.
+
     Returns:
-      an integer or None
+      Integer or None.
+
     Raises:
-      ValueError: if one Tensor dimension maps to two mesh dimensions.
+      ValueError: If one Tensor dimension maps to two mesh dimensions.
     """
     val = [i for i, mesh_dimension in enumerate(mesh_shape)
            if (tensor_dimension.name, mesh_dimension.name) in self._pairs]
@@ -196,15 +218,17 @@ class LayoutRules(object):
     return val[0] if val else None
 
   def tensor_layout(self, tensor_shape, mesh_shape):
-    """Compute TensorLayout given a tensor shape and a mesh shape.
+    """Computes TensorLayout given a tensor shape and a mesh shape.
 
     Args:
-      tensor_shape: a Shape
-      mesh_shape: a Shape
+      tensor_shape: Shape.
+      mesh_shape: Shape.
+
     Returns:
-      a TensorLayout
+      TensorLayout.
+
     Raises:
-      ValueError: if two tensor dimensions map to the same mesh dimension.
+      ValueError: If two tensor dimensions map to the same mesh dimension.
     """
     ret = [self.tensor_dimension_to_mesh_axis(d, mesh_shape)
            for d in tensor_shape]
@@ -218,10 +242,19 @@ class LayoutRules(object):
 
 
 def convert_to_layout_rules(x):
+  """Converts input to a LayoutRules.
+
+  Args:
+    x: LayoutRules, str, or set-like of string pairs.
+
+  Returns:
+    LayoutRules.
+  """
   if isinstance(x, LayoutRules):
     return x
-  else:
-    return LayoutRules(x)
+  if isinstance(x, str):
+    x = _parse_string_to_list_of_pairs(x)
+  return LayoutRules(x)
 
 
 class TensorLayout(object):
@@ -2994,23 +3027,23 @@ def pretty_print_counters(counters):
 
 
 def _parse_string_to_list_of_pairs(s, seconds_to_int=False):
-  r"""Parase a string into a list of pairs.
+  r"""Parses a string into a list of pairs.
 
-  If seconds_to_int, then the second elements are integers, otherwise, they
-  are strings.
-
-  In the input string, each pair is separated by a colon, and the delimeters
-  between paris are any of " ,.;"
+  In the input string, each pair is separated by a colon, and the delimiters
+  between pairs are any of " ,.;".
 
   e.g. "rows:32,cols:32"
 
   Args:
-    s: a string
-    seconds_to_int: a boolean
+    s: str to parse.
+    seconds_to_int: Boolean. If True, then the second elements are returned
+      as integers;  otherwise they are strings.
+
   Returns:
-    a list of pairs
+    List of tuple pairs.
+
   Raises:
-    ValueError: on badly formatted string
+    ValueError: Badly formatted string.
   """
   ret = []
   for p in [s.split(":") for s in re.sub("[,.;]", " ", s).split()]:

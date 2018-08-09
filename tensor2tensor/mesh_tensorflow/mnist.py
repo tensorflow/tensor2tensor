@@ -92,7 +92,7 @@ def model_fn(features, labels, mode, params):
   mesh = mtf.Mesh(graph, "my_mesh")
   logits, loss = mnist_model(features, labels, mesh)
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
-  layout_rules = mtf.LayoutRules(FLAGS.layout)
+  layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
   mesh_size = mesh_shape.size
   mesh_devices = [""] * mesh_size
   mesh_impl = placement_mesh_impl.PlacementMeshImpl(
