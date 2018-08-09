@@ -21,6 +21,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import numbers
+import numpy as np
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
@@ -102,6 +103,19 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
         z_log_var, (batch_size, -1, latent_dims))
     return z_mu, z_log_var
 
+  def expected_output_shape(self, input_shape, stride, padding, kernel_size):
+    return (input_shape + 2*padding - kernel_size) // stride + 1
+
+  def get_fc_dimensions(self, strides, kernel_sizes):
+    """Get expected fully connected shape after a series of convolutions."""
+    output_height, output_width, _ = self.hparams.problem.frame_shape
+    output_steps = self.hparams.video_num_target_frames
+    output_shape = np.array([output_steps, output_height, output_width])
+    for curr_stride, kernel_size in zip(strides, kernel_sizes):
+      output_shape = self.expected_output_shape(
+          output_shape, np.array(curr_stride), 1, kernel_size)
+    return np.prod(output_shape) * self.hparams.num_discriminator_filters * 8
+
   def discriminator(self, frames):
     """3-D SNGAN discriminator.
 
@@ -122,7 +136,9 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
     # 3-D Conv-net mapping inputs to activations.
     num_outputs = [ndf, ndf*2, ndf*2, ndf*4, ndf*4, ndf*8, ndf*8]
     kernel_sizes = [3, 4, 3, 4, 3, 4, 3]
-    strides = [1, [1, 2, 2], 1, [1, 2, 2], 1, 2, 1]
+    strides = [[1, 1, 1], [1, 2, 2], [1, 1, 1], [1, 2, 2], [1, 1, 1],
+               [2, 2, 2], [1, 1, 1]]
+
     names = ["video_sn_conv0_0", "video_sn_conv0_1", "video_sn_conv1_0",
              "video_sn_conv1_1", "video_sn_conv2_0", "video_sn_conv2_1",
              "video_sn_conv3_0"]
@@ -131,10 +147,7 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
     for num_filters, kernel_size, stride, name in iterable:
       activations = self.pad_conv3d_lrelu(activations, num_filters, kernel_size,
                                           stride, name)
-
-    # Flatten and apply fully-connected layer.
-    num_fc_dimensions = tf.reduce_prod(
-        common_layers.shape_list(activations)[1:])
+    num_fc_dimensions = self.get_fc_dimensions(strides, kernel_sizes)
     activations = tf.reshape(activations, (-1, num_fc_dimensions))
     return tf.squeeze(tf.layers.dense(activations, 1))
 
