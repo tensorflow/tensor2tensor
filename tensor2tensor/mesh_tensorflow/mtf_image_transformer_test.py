@@ -89,6 +89,44 @@ class MtfImageTransformerTest(tf.test.TestCase):
       res = session.run(tf_logits)
     self.assertEqual(res.shape, (BATCH_SIZE, IMG_LENGTH*IMG_LENGTH, VOCAB_SIZE))
 
+  def testMtfImageTransformerDataParallel(self):
+    hparams = mtf_image_transformer.mtf_image_transformer_single()
+
+    model, features, hparams = get_model(hparams)
+    hparams.mesh_shape = "all:2"
+    hparams.layout = "batch:all"
+    mesh, mesh_impl = get_placement_mesh(hparams)
+
+    logits, _ = model.mtf_model_fn(features, mesh)
+    lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
+    tf_group = lowering.copy_masters_to_slices()
+    tf_logits = lowering.export_to_tf_tensor(logits)
+
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      session.run(tf_group)
+      res = session.run(tf_logits)
+    self.assertEqual(res.shape, (BATCH_SIZE, IMG_LENGTH*IMG_LENGTH, VOCAB_SIZE))
+
+  def testMtfImageTransformerModelParallel(self):
+    hparams = mtf_image_transformer.mtf_image_transformer_single()
+
+    model, features, hparams = get_model(hparams)
+    hparams.mesh_shape = "all:2"
+    hparams.layout = "length:all"
+    mesh, mesh_impl = get_placement_mesh(hparams)
+
+    logits, _ = model.mtf_model_fn(features, mesh)
+    lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
+    tf_group = lowering.copy_masters_to_slices()
+    tf_logits = lowering.export_to_tf_tensor(logits)
+
+    with self.test_session() as session:
+      session.run(tf.global_variables_initializer())
+      session.run(tf_group)
+      res = session.run(tf_logits)
+    self.assertEqual(res.shape, (BATCH_SIZE, IMG_LENGTH*IMG_LENGTH, VOCAB_SIZE))
+
 
 if __name__ == "__main__":
   tf.test.main()

@@ -1828,7 +1828,7 @@ class SliceOperation(Operation):
     ndims = self._inputs[0].shape.ndims
     axis = self._axis
     begin = [0] * axis + [self._begin] + [0] * (ndims - axis - 1)
-    size = self._outputs[0].shape.to_integer_list
+    size = [-1] * axis + [self._slice_dim[1]] + [-1] * (ndims - axis - 1)
 
     def slicewise_fn(x, begin, size):
       return tf.slice(x, begin, size, name="slice")

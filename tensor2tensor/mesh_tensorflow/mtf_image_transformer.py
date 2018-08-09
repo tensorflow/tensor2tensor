@@ -135,6 +135,7 @@ class MtfImageTransformer(mtf_model.MtfModel):
                 None,
                 kv_channels,
                 heads,
+                block_length=hparams.block_length,
                 name="self_att"))
         # ffn layer
         x += layer_prepostprocess_dropout(mtf_layers.dense_relu_dense(
@@ -231,6 +232,7 @@ def mtf_image_transformer_single():
   hparams.num_heads = 2
   hparams.attention_key_size = 32
   hparams.attention_value_size = 32
+  hparams.block_length = 16
   return hparams
 
 
