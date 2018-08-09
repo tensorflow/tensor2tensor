@@ -90,6 +90,7 @@ class MtfTransformer(mtf_model.MtfModel):
           % self._hparams.activation_dtype)
 
   def _import_to_batch_by_length(self, x, name, mesh, hparams):
+    del hparams
     x = tf.reshape(x, [self.batch_dim.size, self.length_dim.size])
     return mtf.import_fully_replicated(
         mesh, x, mtf.Shape([self.batch_dim, self.length_dim]), name=name)
