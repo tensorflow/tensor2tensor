@@ -103,10 +103,10 @@ class T2TModel(base.Layer):
     # Setup hparams
     # If vocabularies differ, unset shared_embedding_and_softmax_weights.
     hparams = copy.copy(hparams)
-    target_modality = self._problem_hparams.target_modality
-    if isinstance(target_modality, dict):
-      target_modality = target_modality["targets"]
     if self._problem_hparams and hparams.shared_embedding_and_softmax_weights:
+      target_modality = self._problem_hparams.target_modality
+      if isinstance(target_modality, dict):
+        target_modality = target_modality["targets"]
       same_vocab_sizes = True
       if "inputs" in self._problem_hparams.input_modality:
         if self._problem_hparams.input_modality["inputs"] != target_modality:
