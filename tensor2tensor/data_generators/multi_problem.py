@@ -27,6 +27,12 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 
+class MixingSchedule(object):
+  """Available schedules for mixing datasets."""
+  EXPONENTIAL = "exponential"
+  CONSTANT = "constant"
+
+
 class MultiProblem(problem.Problem):
   """MultiProblem base class."""
 
@@ -81,6 +87,10 @@ class MultiProblem(problem.Problem):
                                      vocab_size + vocab_size_inc)
 
     return self._hparams
+
+  @property
+  def mixing_schedule(self):
+    return MixingSchedule.EXPONENTIAL
 
   def flatten_zip(self, *args):
     """A list of examples to a dataset containing mixed examples.
@@ -158,15 +168,37 @@ class MultiProblem(problem.Problem):
     self.get_hparams()
 
     if is_training:
+      problem_step = tf.get_variable("problem_step",
+                                     shape=[],
+                                     dtype=tf.float32,
+                                     initializer=tf.zeros_initializer(),
+                                     trainable=False,
+                                     use_resource=True)
       dataset_iterators = [d.make_one_shot_iterator() for d in datasets]
 
       def get_next_from_dataset(dataset_iter):
         return dataset_iter.get_next()
 
+      def get_exp_sched_prob():
+        with tf.control_dependencies([problem_step.assign_add(1)]):
+          # TODO(urvashik): Make 5e-8 a parameter.
+          # In the current setup, with about 100 examples per batch on average,
+          # the model converges to 50-50 mixing by ~140k problem steps.
+          return tf.minimum(1. - tf.exp(-5e-8 * problem_step), 0.5)
+
+      def get_const_sched_prob():
+        return 0.5
+
       def mix_data(example):
         del example
+        if self.mixing_schedule == MixingSchedule.EXPONENTIAL:
+          prob = get_exp_sched_prob()
+        elif self.mixing_schedule == MixingSchedule.CONSTANT:
+          prob = get_const_sched_prob()
+        else:
+          raise ValueError("Unknown schedule %s" % str(self.mixing_schedule))
         return tf.data.Dataset.from_tensors(tf.cond(
-            tf.less(tf.random_uniform([]), 0.5),
+            tf.greater(tf.random_uniform([]), prob),
             lambda d=dataset_iterators[0]: get_next_from_dataset(d),
             lambda d=dataset_iterators[1]: get_next_from_dataset(d)
         ))
