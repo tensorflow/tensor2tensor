@@ -630,6 +630,29 @@ class VideoModalityBitwise(VideoModality):
           name="merge_pixel_embedded_frames")
 
 
+@registry.register_video_modality("pixel_noise")
+class VideoModalityPixelNoise(VideoModality):
+  """Video modality that introduces pixel noise on input during training."""
+
+  def bottom(self, x):
+    inputs = x
+    if self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      background = tf.contrib.distributions.percentile(inputs, 50.,
+                                                       axis=[0, 1, 2, 3])
+      input_shape = common_layers.shape_list(inputs)
+      input_size = tf.reduce_prod(input_shape[:-1])
+      input_mask = tf.multinomial(
+          tf.log([[self.input_noise, 1.-self.input_noise]]), input_size)
+      input_mask = tf.reshape(tf.cast(input_mask, tf.int32),
+                              input_shape[:-1]+[1])
+      inputs = inputs * input_mask + background * (1 - input_mask)
+    return super(VideoModalityPixelNoise, self).bottom(inputs)
+
+  @property
+  def input_noise(self):
+    return getattr(self._model_hparams, "video_modality_input_noise", 0.25)
+
+
 @registry.register_video_modality("l1")
 class VideoModalityL1(VideoModality):
   """Video modality that predicts a scalar per channel with an L1 loss."""

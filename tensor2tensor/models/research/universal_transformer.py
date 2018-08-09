@@ -477,7 +477,6 @@ def universal_transformer_tiny():
 @registry.register_hparams
 def transformer_teeny():
   hparams = transformer.transformer_base()
-  hparams.num_rec_steps = 2
   hparams.hidden_size = 128
   hparams.filter_size = 128
   hparams.num_heads = 2

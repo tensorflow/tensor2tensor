@@ -3114,7 +3114,7 @@ def compute_attention_component(antecedent,
         antecedent, total_depth, use_bias=False, name=name)
   else:
     return common_layers.conv1d(
-        antecedent, total_depth, filter_width, padding, name=name)
+        antecedent, total_depth, filter_width, padding=padding, name=name)
 
 
 def compute_qkv(query_antecedent,

@@ -50,6 +50,15 @@ def next_frame():
 
 
 @registry.register_hparams
+def next_frame_pixel_noise():
+  """Basic 2-frame conv model with pixel noise."""
+  hparams = next_frame()
+  hparams.add_hparam("video_modality_input_noise", 0.25)
+  hparams.input_modalities = "inputs:video:pixel_noise"
+  return hparams
+
+
+@registry.register_hparams
 def next_frame_stochastic():
   """SV2P model."""
   hparams = next_frame()

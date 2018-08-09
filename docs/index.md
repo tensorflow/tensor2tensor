@@ -33,7 +33,7 @@ research](https://research.googleblog.com/2017/06/accelerating-deep-learning-res
 * [Training on Google Cloud ML](cloud_mlengine.md)
 * [Training on Google Cloud TPUs](cloud_tpu.md)
 * [Distributed Training](distributed_training.md)
-# [Automatic Speech Recognition (ASR) with Transformer](tutorials/asr_with_transformer.md)
+* [Automatic Speech Recognition (ASR) with Transformer](tutorials/asr_with_transformer.md)
 
 ## Solving your task
 

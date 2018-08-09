@@ -36,8 +36,6 @@ import tensorflow as tf
 tfl = tf.layers
 tfcl = tf.contrib.layers
 
-_LARGE_STEP_NUMBER = 100000
-
 
 @registry.register_model
 class NextFrameStochastic(next_frame.NextFrameBasic):
@@ -97,6 +95,8 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
           default=lambda: anneal_loss(step_num))
     else:
       raise ValueError("Unknown beta schedule.")
+
+    tf.summary.scalar("beta", beta)
     return beta
 
   def get_scheduled_sample_func(self, batch_size):
@@ -544,6 +544,8 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
   def get_extra_loss(self, latent_means=None, latent_stds=None,
                      true_frames=None, gen_frames=None, beta=1.0):
     """Losses in addition to the default modality losses."""
+    del true_frames
+    del gen_frames
     kl_loss = 0.0
     if self.is_training:
       for i, (mean, std) in enumerate(zip(latent_means, latent_stds)):
