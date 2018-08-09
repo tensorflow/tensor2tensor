@@ -18,6 +18,12 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import os
+import tempfile
+import six
+
+from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import bleu_hook
 
 import tensorflow as tf
@@ -57,6 +63,43 @@ class BleuHookTest(tf.test.TestCase):
   def testBleuTokenize(self):
     self.assertEqual(bleu_hook.bleu_tokenize(u"hi, “there”"),
                      [u"hi", u",", u"“", u"there", u"”"])
+
+  def _generate_test_data(self, name, hyps, refs):
+    """Writes test data to temporary files.
+
+    Args:
+      name: str, used for making temp files unique across tests
+      hyps: list of unicode strings serving as translation hypotheses
+      refs: list of unicode strings serving as references
+
+    Returns:
+      hyp_file: path to temporary file containing the hypotheses
+      refs_file: path to temporary file containing the references
+    """
+    assert len(hyps) == len(refs)
+    hyp_file = os.path.join(tempfile.gettempdir(), "{}.hyps".format(name))
+    refs_file = os.path.join(tempfile.gettempdir(), "{}.refs".format(name))
+    for filename, items in zip([hyp_file, refs_file], [hyps, refs]):
+      with (open(filename, "wb")
+            if six.PY2 else open(filename, "w", encoding="utf-8")) as out:
+        content = text_encoder.unicode_to_native(u"\n".join(items))
+        out.write(content)
+    return hyp_file, refs_file
+
+  def testBleuWrapper(self):
+    hyp_filename, ref_filename = self._generate_test_data(
+        "standard", [u"a b a c", u"e f g d"], [u"a b a z", u"y f g d k l m"])
+    bleu = bleu_hook.bleu_wrapper(ref_filename, hyp_filename)
+    actual_bleu = 0.3436
+    self.assertAllClose(bleu, actual_bleu, atol=1e-03)
+
+  def testBleuWrapperWithUnicodeLineSeparator(self):
+    hyp_filename, ref_filename = self._generate_test_data(
+        "unicode-linesep", [u"a b a c", u"e f \u2028 d"],
+        [u"a b a z", u"y f g d k l m"])
+    bleu = bleu_hook.bleu_wrapper(ref_filename, hyp_filename)
+    actual_bleu = 0.2638
+    self.assertAllClose(bleu, actual_bleu, atol=1e-03)
 
 
 if __name__ == "__main__":
