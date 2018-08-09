@@ -19,7 +19,6 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.data_generators import problem
-from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.layers import discretization
 from tensor2tensor.utils import metrics
@@ -58,8 +57,7 @@ class MultiProblem(problem.Problem):
         example["targets"] = tf.squeeze(example["targets"], axis=[-1])
       elif self.vocab_type == text_problems.VocabType.SUBWORD:
         offset = encoder.vocab_size + len(self.task_list)
-        # An additional +1 because of 0-indexing
-        example["targets"] = offset + example["targets"] + 1
+        example["targets"] = offset + example["targets"]
 
     if task.has_inputs:
       inputs = example.pop("inputs")
@@ -83,6 +81,8 @@ class MultiProblem(problem.Problem):
     vocab_size_inc = len(self.task_list)
     vocab_size_inc += self.get_max_num_classes()
     vocab_size = self._hparams.vocabulary["targets"].vocab_size
+    tf.logging.info("Old vocabulary size: %d" % vocab_size)
+    tf.logging.info("New vocabulary size: %d" % (vocab_size + vocab_size_inc))
     self._hparams.target_modality = (registry.Modalities.SYMBOL,
                                      vocab_size + vocab_size_inc)
 
@@ -190,6 +190,7 @@ class MultiProblem(problem.Problem):
         return 0.5
 
       def mix_data(example):
+        """Function to mix the different datasets according to a schedule."""
         del example
         if self.mixing_schedule == MixingSchedule.EXPONENTIAL:
           prob = get_exp_sched_prob()
@@ -197,6 +198,9 @@ class MultiProblem(problem.Problem):
           prob = get_const_sched_prob()
         else:
           raise ValueError("Unknown schedule %s" % str(self.mixing_schedule))
+        tf.logging.info("Using the %s schedule to "
+                        "train the MultiProblem." % str(self.mixing_schedule))
+
         return tf.data.Dataset.from_tensors(tf.cond(
             tf.greater(tf.random_uniform([]), prob),
             lambda d=dataset_iterators[0]: get_next_from_dataset(d),
@@ -226,14 +230,10 @@ class MultiProblem(problem.Problem):
       encoder: this provides the size of the vocab which is used to compute
         the index offset.
     """
-    primary_task = self.task_list[0]
-    id_offset = encoder.vocab_size + text_encoder.NUM_RESERVED_TOKENS
-    if hasattr(primary_task, "additional_reserved_tokens"):
-      id_offset += len(primary_task.additional_reserved_tokens)
+    offset = encoder.vocab_size
 
     for idx, _ in enumerate(self.task_list):
-      # Subtract one to get actual indices in the context of 0-indexing
-      self.task_list[idx].set_task_id(idx + id_offset - 1)
+      self.task_list[idx].set_task_id(idx + offset)
       print(self.task_list[idx].task_id)
 
   def get_max_num_classes(self):
