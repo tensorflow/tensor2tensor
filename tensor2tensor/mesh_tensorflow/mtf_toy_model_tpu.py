@@ -53,6 +53,25 @@ tf.flags.DEFINE_string(
     default='',
     help='The directory where the model will be stored.')
 
+# Cloud TPU Cluster Resolvers
+tf.flags.DEFINE_string(
+    'tpu',
+    default=None,
+    help='The Cloud TPU to use for training. This should be either the name '
+    'used when creating the Cloud TPU, or a grpc://ip.address.of.tpu:8470 url.')
+
+tf.flags.DEFINE_string(
+    'gcp_project',
+    default=None,
+    help='Project name for the Cloud TPU-enabled project. If not specified, we '
+    'will attempt to automatically detect the GCE project from metadata.')
+
+tf.flags.DEFINE_string(
+    'tpu_zone',
+    default=None,
+    help='GCE zone where the Cloud TPU is located in. If not specified, we '
+    'will attempt to automatically detect the GCE project from metadata.')
+
 
 class ToyModelInput(object):
   """Wrapper class that acts as the input_fn to TPUEstimator."""
@@ -176,11 +195,13 @@ def model_fn(features, labels, mode, params):
 
 def run_toy_model_tpu():
   """Run a toy model on TPU."""
+  tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
+      FLAGS.tpu, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
+
   iterations_per_loop = FLAGS.iterations
   mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
   config = tpu_config.RunConfig(
-      master=FLAGS.master,
-      evaluation_master=FLAGS.master,
+      cluster=tpu_cluster_resolver,
       model_dir=FLAGS.model_dir,
       save_checkpoints_steps=None,  # Disable the default saver
       save_checkpoints_secs=None,  # Disable the default saver
@@ -204,7 +225,7 @@ def run_toy_model_tpu():
     classifier.train(input_fn=ToyModelInput(), max_steps=next_checkpoint)
     current_step = next_checkpoint
 
-    tf.logging.info('Starting to evaluate.')
+    logging.info('Starting to evaluate.')
     eval_results = classifier.evaluate(
         input_fn=ToyModelInput(),
         steps=156)  # since we have 10000 examples and batch_size = 64 per host
@@ -217,4 +238,5 @@ def main(_):
 
 
 if __name__ == '__main__':
+  tf.logging.set_verbosity(tf.logging.INFO)
   tf.app.run()
