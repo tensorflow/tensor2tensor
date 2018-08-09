@@ -820,6 +820,51 @@ def mtf_transformer_paper_tr_4():
 
 
 @registry.register_hparams
+def mtf_transformer_paper_tr_0_mesh_8():
+  hparams = mtf_transformer_paper_tr(0)
+  hparams.mesh_shape = "batch:8"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_paper_tr_4_mesh_16_8():
+  hparams = mtf_transformer_paper_tr(4)
+  hparams.mesh_shape = "model:16;batch:8"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_paper_tr_6_mesh_64_8():
+  hparams = mtf_transformer_paper_tr(6)
+  hparams.mesh_shape = "model:64;batch:8"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_paper_tr_0_mesh_8_v2():
+  hparams = mtf_transformer_paper_tr(0)
+  hparams.batch_size = int(hparams.batch_size / 4)
+  hparams.mesh_shape = "batch:8"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_paper_tr_0_mesh_128():
+  hparams = mtf_transformer_paper_tr(0)
+  hparams.batch_size = int(hparams.batch_size * 4)
+  hparams.mesh_shape = "batch:128"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_paper_tr_0_mesh_512():
+  hparams = mtf_transformer_paper_tr(0)
+  hparams.batch_size = int(hparams.batch_size * 16)
+  hparams.mesh_shape = "batch:512"
+  return hparams
+
+
+@registry.register_hparams
 def mtf_transformer_lm_moe():
   """Mixture of experts language model."""
   hparams = mtf_transformer_base()

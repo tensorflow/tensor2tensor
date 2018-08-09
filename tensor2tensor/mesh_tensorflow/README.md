@@ -1,5 +1,9 @@
 # Mesh TensorFlow - Model Parallelism Made Easier
 
+Transformer for EN-FR WMT with model splitting |  Transformer for EN-FR WMT with data splitting
+:-------------------------:|:-------------------------:
+![model_splitting](./mtf_transformer_model_splitting.png) | ![data_splitting](./mtf_transformer_data_splitting.png)
+
 # Introduction
 
 Mesh TensorFlow (mtf) is a language for distributed deep
@@ -53,7 +57,12 @@ convolutions
 ## Example Models
 
 This directory contains code for running several well-known models across
-different tasks. We outline an example below.
+different tasks.
+
+We outline an example below. In the above figures, Mesh-TensorFlow scales
+linearly as the number of TPU shards increases. For model splitting, we varied
+the number of hidden units in the feedforward layer and the number of heads; for
+data splitting, we varied the batch size.
 
 ### Example Network (MNIST)
 
