@@ -48,6 +48,8 @@ flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
+flags.DEFINE_bool("use_tpu_estimator", False, "Whether to use TPUEstimator. "
+                  "This is always enabled when use_tpu is True.")
 flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
                      "How long to sleep the infeed thread.")
 flags.DEFINE_bool("generate_data", False, "Generate data before training?")
@@ -174,6 +176,7 @@ def create_experiment_fn(**kwargs):
       eval_early_stopping_metric_minimize=FLAGS.
       eval_early_stopping_metric_minimize,
       use_tpu=FLAGS.use_tpu,
+      use_tpu_estimator=FLAGS.use_tpu_estimator,
       **kwargs)
 
 
@@ -216,6 +219,7 @@ def create_run_config(hp):
       gpu_mem_fraction=FLAGS.worker_gpu_memory_fraction,
       enable_graph_rewriter=FLAGS.enable_graph_rewriter,
       use_tpu=FLAGS.use_tpu,
+      use_tpu_estimator=FLAGS.use_tpu_estimator,
       schedule=FLAGS.schedule,
       no_data_parallelism=hp.no_data_parallelism,
       daisy_chain_variables=daisy_chain_variables,
@@ -339,7 +343,6 @@ def main(argv):
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   maybe_log_registry_and_exit()
-
 
   if FLAGS.cloud_mlengine:
     cloud_mlengine.launch()

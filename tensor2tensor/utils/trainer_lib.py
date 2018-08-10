@@ -125,6 +125,7 @@ def create_run_config(master="",
                       sync=False,
                       tpu_infeed_sleep_secs=None,
                       use_tpu=False,
+                      use_tpu_estimator=False,
                       inter_op_parallelism_threads=0,
                       log_step_count_steps=100,
                       intra_op_parallelism_threads=0,
@@ -154,8 +155,9 @@ def create_run_config(master="",
     del run_config_args["save_checkpoints_steps"]
   run_config_cls = tf.contrib.learn.RunConfig
 
-  # If using TPU, use TPU RunConfig, add TPUConfig, and add additional args
-  if use_tpu:
+  # If using TPUEstimator, use TPU RunConfig, add TPUConfig, and add additional
+  # args.
+  if use_tpu or use_tpu_estimator:
     tpu_config_kwargs = {
         "iterations_per_loop": iterations_per_loop,
         "num_shards": num_shards,
@@ -207,12 +209,13 @@ def create_estimator(model_name,
                      run_config,
                      schedule="train_and_evaluate",
                      decode_hparams=None,
-                     use_tpu=False):
+                     use_tpu=False,
+                     use_tpu_estimator=False):
   """Create a T2T Estimator."""
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-      model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
+      model_name, hparams, decode_hparams=decode_hparams)
 
-  if use_tpu:
+  if use_tpu or use_tpu_estimator:
     problem = hparams.problem
     batch_size = (
         problem.tpu_batch_size_per_shard(hparams) *
@@ -226,6 +229,7 @@ def create_estimator(model_name,
         model_fn=model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
+        use_tpu=use_tpu,
         train_batch_size=batch_size,
         eval_batch_size=batch_size if "eval" in schedule else None,
         predict_batch_size=predict_batch_size)
@@ -412,6 +416,7 @@ def create_experiment(
     eval_early_stopping_metric_minimize=True,
     autotune=False,
     use_tpu=False,
+    use_tpu_estimator=False,
     additional_train_hooks=None,
     additional_eval_hooks=None):
   """Create Experiment."""
@@ -430,7 +435,8 @@ def create_experiment(
       run_config,
       schedule=schedule,
       decode_hparams=decode_hparams,
-      use_tpu=use_tpu)
+      use_tpu=use_tpu,
+      use_tpu_estimator=use_tpu_estimator)
 
   # Input fns from Problem
   problem = hparams.problem

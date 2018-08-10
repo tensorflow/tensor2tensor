@@ -71,7 +71,10 @@ def main(argv):
   attack_params.add_hparam("eps", 0.0)
 
   config = t2t_trainer.create_run_config(hparams)
-  params = {"batch_size": hparams.batch_size}
+  params = {
+      "batch_size": hparams.batch_size,
+      "use_tpu": FLAGS.use_tpu,
+  }
 
   # add "_rev" as a hack to avoid image standardization
   problem = registry.problem(FLAGS.problem + "_rev")
@@ -85,8 +88,7 @@ def main(argv):
 
   sess = tf.Session()
 
-  model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-      FLAGS.model, hparams, use_tpu=FLAGS.use_tpu)
+  model_fn = t2t_model.T2TModel.make_estimator_model_fn(FLAGS.model, hparams)
   ch_model = adv_attack_utils.T2TAttackModel(model_fn, params, config)
 
   acc_mask = None

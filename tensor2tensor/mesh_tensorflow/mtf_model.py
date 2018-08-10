@@ -49,11 +49,9 @@ class MtfModel(t2t_model.T2TModel):
                          mode,
                          config=None,
                          params=None,
-                         decode_hparams=None,
-                         use_tpu=False,
-                         xla_compile=False):
-    del xla_compile
+                         decode_hparams=None):
     hparams = copy.deepcopy(hparams)
+    use_tpu = params and params.get("use_tpu", False)
     hparams.use_tpu = use_tpu
     # merge decode_hparams into hparams if present
     if mode == tf.estimator.ModeKeys.PREDICT and decode_hparams is not None:

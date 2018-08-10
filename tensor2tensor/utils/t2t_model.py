@@ -448,15 +448,14 @@ class T2TModel(base.Layer):
         target_modality = target_modality["targets"]
       return self._loss_single(logits, target_modality, features["targets"])
 
-  def optimize(self, loss, num_async_replicas=1):
+  def optimize(self, loss, num_async_replicas=1, use_tpu=False):
     """Return a training op minimizing loss."""
     lr = learning_rate.learning_rate_schedule(self.hparams)
     if num_async_replicas > 1:
       log_info("Dividing learning rate by num_async_replicas: %d",
                num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(
-        loss, lr, self.hparams, use_tpu=common_layers.is_xla_compiled())
+    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
     return train_op
 
   def set_mode(self, mode):
@@ -1144,8 +1143,7 @@ class T2TModel(base.Layer):
   @staticmethod
   def make_estimator_model_fn(model_name,
                               hparams,
-                              decode_hparams=None,
-                              use_tpu=False):
+                              decode_hparams=None):
     model_cls = registry.model(model_name)
 
     def wrapping_model_fn(features, labels, mode, params=None, config=None):
@@ -1156,8 +1154,7 @@ class T2TModel(base.Layer):
           mode,
           config=config,
           params=params,
-          decode_hparams=decode_hparams,
-          use_tpu=use_tpu)
+          decode_hparams=decode_hparams)
 
     return wrapping_model_fn
 
@@ -1169,8 +1166,7 @@ class T2TModel(base.Layer):
                          mode,
                          config=None,
                          params=None,
-                         decode_hparams=None,
-                         use_tpu=False):
+                         decode_hparams=None):
     """Model fn for Estimator.
 
     Args:
@@ -1179,9 +1175,8 @@ class T2TModel(base.Layer):
       labels: Tensor
       mode: tf.estimator.ModeKeys
       config: RunConfig, possibly with data_parallelism attribute
-      params: dict, may include batch_size
+      params: dict, may include batch_size, use_tpu
       decode_hparams: HParams, used when mode == PREDICT.
-      use_tpu: bool, whether using TPU
 
     Returns:
       TPUEstimatorSpec if use tpu else EstimatorSpec
@@ -1190,6 +1185,7 @@ class T2TModel(base.Layer):
       _create_dummy_vars()
     hparams = copy.deepcopy(hparams)
 
+    use_tpu = params and params.get("use_tpu", False)
     # Instantiate model
     data_parallelism = None
     if not use_tpu and config:
@@ -1213,7 +1209,7 @@ class T2TModel(base.Layer):
       logits, losses_dict = model(features)  # pylint: disable=not-callable
 
     # Set known shapes
-    if use_tpu:
+    if common_layers.is_xla_compiled():
       if isinstance(logits, dict):
         for k, v in sorted(six.iteritems(logits)):
           if "scalar/" in k:
@@ -1257,11 +1253,12 @@ class T2TModel(base.Layer):
     num_async_replicas = (1 if (use_tpu or not config) else
                           config.t2t_device_info["num_async_replicas"])
     return model.estimator_spec_train(
-        loss, num_async_replicas=num_async_replicas)
+        loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
 
-  def estimator_spec_train(self, loss, num_async_replicas=1):
+  def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
     """Construct EstimatorSpec for TRAIN mode."""
-    train_op = self.optimize(loss, num_async_replicas=num_async_replicas)
+    train_op = self.optimize(loss, num_async_replicas=num_async_replicas,
+                             use_tpu=use_tpu)
 
     # TODO(mitchellstern): Add support for partitioned variables?
     if (tf.train.latest_checkpoint(self._hparams.model_dir) is None and
@@ -1279,7 +1276,7 @@ class T2TModel(base.Layer):
               "Cannot find variable in checkpoint, skipping: %s", var_name)
       tf.train.init_from_checkpoint(pretrained_model_dir, variable_map)
 
-    if common_layers.is_xla_compiled():
+    if use_tpu:
       host_call = _create_host_call(self.hparams.model_dir)
       _remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(
