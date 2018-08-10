@@ -23,10 +23,11 @@ from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
-# pylint: disable=unused-import
+
 from tensorflow.contrib import slim
 from tensorflow.contrib.slim.python.slim.nets.resnet_v1 import resnet_v1_152
-from tensorflow.contrib.slim.python.slim.nets.resnet_v2 import resnet_v2_152
+from tensorflow.contrib.slim.python.slim.nets.resnet_v2 import resnet_v2_152  # pylint: disable=unused-import
+from tensorflow.python.ops import inplace_ops
 
 
 def summarize_tensors(tensor_dict, tag=None):
@@ -249,11 +250,11 @@ def multihead_attention(query_antecedent,
           # the tensor by adding the result of matmul(one_hot,
           # update_in_current_step)
           tmp_k = tf.transpose(cache["k"], perm=[2, 0, 1, 3])
-          tmp_k = common_layers.tf_inplace_ops().alias_inplace_update(
+          tmp_k = inplace_ops.alias_inplace_update(
               tmp_k, decode_loop_step, tf.squeeze(k, axis=2))
           k = cache["k"] = tf.transpose(tmp_k, perm=[1, 2, 0, 3])
           tmp_v = tf.transpose(cache["v"], perm=[2, 0, 1, 3])
-          tmp_v = common_layers.tf_inplace_ops().alias_inplace_update(
+          tmp_v = inplace_ops.alias_inplace_update(
               tmp_v, decode_loop_step, tf.squeeze(v, axis=2))
           v = cache["v"] = tf.transpose(tmp_v, perm=[1, 2, 0, 3])
 

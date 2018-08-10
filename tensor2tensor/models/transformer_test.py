@@ -31,12 +31,6 @@ TARGET_LENGTH = 7
 VOCAB_SIZE = 10
 
 
-def tf_version_has_inplace_ops():
-  # Available in TF 1.8+
-  major, minor = [int(el) for el in tf.__version__.split(".")[:2]]
-  return major > 1 or (major == 1 and minor >= 8)
-
-
 def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
               has_input=True, model_cls=transformer.Transformer):
   if hparams is None:
@@ -273,9 +267,6 @@ class TransformerTest(tf.test.TestCase):
     return model, features
 
   def testGreedySlowTPUVsNonTPU(self):
-    if not tf_version_has_inplace_ops():
-      return
-
     decode_length = 3
 
     model, features = self._create_greedy_infer_model()
@@ -298,9 +289,6 @@ class TransformerTest(tf.test.TestCase):
     self.assertAllClose(slow_tpu_res, slow_non_tpu_res)
 
   def testGreedyFastTPUVsNonTPU(self):
-    if not tf_version_has_inplace_ops():
-      return
-
     decode_length = 3
 
     model, features = self._create_greedy_infer_model()
@@ -321,9 +309,6 @@ class TransformerTest(tf.test.TestCase):
     self.assertAllClose(fast_tpu_res, fast_non_tpu_res)
 
   def testGreedyTPUSlowVsFast(self):
-    if not tf_version_has_inplace_ops():
-      return
-
     decode_length = 3
 
     model, features = self._create_greedy_infer_model()

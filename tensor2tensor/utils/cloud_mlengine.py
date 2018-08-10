@@ -33,7 +33,7 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 CONSOLE_URL = "https://console.cloud.google.com/mlengine/jobs/"
-RUNTIME_VERSION = "1.8"
+RUNTIME_VERSION = "1.9"
 
 # TODO(rsepassi):
 # * Enable multi-machine sync/async training

@@ -31,15 +31,11 @@ import tensorflow as tf
 
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops
+from tensorflow.python.ops import control_flow_util
+from tensorflow.python.ops import inplace_ops
 
 # This is a global setting. When turned off, no @function.Defun is used.
 allow_defun = False
-
-
-# Lazy load inplace_ops
-def tf_inplace_ops():
-  from tensorflow.python.ops import inplace_ops  # pylint: disable=g-import-not-at-top
-  return inplace_ops
 
 
 @function.Defun(
@@ -66,13 +62,8 @@ def convert_gradient_to_tensor(x):
 
 
 def is_on_tpu():
-  # Support TF versions 1.5+
-  try:
-    from tensorflow.python.ops import control_flow_util  # pylint: disable=g-import-not-at-top
-    ctxt = tf.get_default_graph()._get_control_flow_context()  # pylint: disable=protected-access
-    return control_flow_util.GetContainingXLAContext(ctxt) is not None
-  except (ImportError, AttributeError):
-    return tf.contrib.framework.get_name_scope().startswith("TPUReplicate")
+  ctxt = tf.get_default_graph()._get_control_flow_context()  # pylint: disable=protected-access
+  return control_flow_util.GetContainingXLAContext(ctxt) is not None
 
 
 def dropout_with_broadcast_dims(x, keep_prob, broadcast_dims=None, **kwargs):
@@ -1644,7 +1635,7 @@ def conv_relu_conv(inputs,
         # the tensor by adding the result of matmul(one_hot,
         # update_in_current_step)
         tmp_f = tf.transpose(cache["f"], perm=[1, 0, 2])
-        tmp_f = tf_inplace_ops().alias_inplace_update(
+        tmp_f = inplace_ops.alias_inplace_update(
             tmp_f,
             decode_loop_step * tf.shape(inputs)[1],
             tf.transpose(inputs, perm=[1, 0, 2]))

@@ -41,6 +41,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 from tensorflow.python.layers import base
+from tensorflow.python.ops import inplace_ops
 from tensorflow.python.ops import variable_scope
 
 _no_problem_err_str = (
@@ -50,12 +51,6 @@ _no_problem_err_str = (
     "override %s.")
 _no_problem_err = (
     lambda method_name: _no_problem_err_str % (method_name, method_name))
-
-
-# Lazy load inplace_ops because moudle is only available in TF 1.8+
-def tf_inplace_ops():
-  from tensorflow.python.ops import inplace_ops  # pylint: disable=g-import-not-at-top
-  return inplace_ops
 
 
 class T2TModel(base.Layer):
@@ -792,15 +787,15 @@ class T2TModel(base.Layer):
       else:
         cur_sample = samples[:, i, :, :]
       samples = tf.transpose(recent_output, perm=[1, 0, 2, 3])
-      samples = tf_inplace_ops().alias_inplace_update(samples, i,
-                                                      tf.to_int64(cur_sample))
+      samples = inplace_ops.alias_inplace_update(samples, i,
+                                                 tf.to_int64(cur_sample))
       samples = tf.transpose(samples, perm=[1, 0, 2, 3])
       if not tf.contrib.eager.in_eager_mode():
         samples.set_shape([None, None, None, 1])
 
       # Assuming we have one shard for logits.
       recent_logits = tf.transpose(recent_logits, perm=[1, 0, 2, 3, 4])
-      recent_logits = tf_inplace_ops().alias_inplace_update(
+      recent_logits = inplace_ops.alias_inplace_update(
           recent_logits, i, tf.squeeze(logits[:, -1:], axis=1))
       logits = tf.transpose(recent_logits, perm=[1, 0, 2, 3, 4])
       loss = sum([l for l in losses.values() if l is not None])

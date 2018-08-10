@@ -38,6 +38,7 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
+from tensorflow.python.ops import inplace_ops
 from tensorflow.python.util import nest
 
 
@@ -760,7 +761,7 @@ def fast_decode_tpu(encoder_output,
 
     next_id = tf.expand_dims(next_id, axis=1)
     decoded_ids = tf.transpose(decoded_ids)
-    decoded_ids = common_layers.tf_inplace_ops().alias_inplace_update(
+    decoded_ids = inplace_ops.alias_inplace_update(
         decoded_ids, i, tf.squeeze(next_id, axis=1))
     decoded_ids = tf.transpose(decoded_ids)
     return i + 1, hit_eos, next_id, decoded_ids, cache, log_prob
