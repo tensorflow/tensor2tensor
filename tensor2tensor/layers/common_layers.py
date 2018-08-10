@@ -61,7 +61,18 @@ def convert_gradient_to_tensor(x):
   return x
 
 
-def is_on_tpu():
+def is_xla_compiled():
+  """Whether we are building graph that will be compiled by XLA.
+
+  This checks whether the code is executing within an XLA context.
+
+  If True, model authors should ensure the graph they build is compilable by
+  XLA. Specifically, they should ensure that all ops have XLA implementations
+  and that all shapes are statically known.
+
+  Returns:
+    bool, whether the current graph will be compiled for XLA.
+  """
   ctxt = tf.get_default_graph()._get_control_flow_context()  # pylint: disable=protected-access
   return control_flow_util.GetContainingXLAContext(ctxt) is not None
 
@@ -256,7 +267,7 @@ def flatten4d3d(x):
 # TODO(noam): remove this function after TPUs do gather faster.
 def gather(params, indices, dtype=tf.float32):
   """Version of tf.gather that works faster on tpu."""
-  if not is_on_tpu():
+  if not is_xla_compiled():
     return tf.gather(params, indices)
   vocab_size = params.get_shape().as_list()[0]
   indices_flat = tf.reshape(indices, [-1])
@@ -280,7 +291,7 @@ def cumsum(x, axis=0, exclusive=False):
   Returns:
     Tensor of the same shape as x.
   """
-  if not is_on_tpu():
+  if not is_xla_compiled():
     return tf.cumsum(x, axis=axis, exclusive=exclusive)
   x_shape = shape_list(x)
   rank = len(x_shape)
@@ -2497,7 +2508,7 @@ def sru(x,
   """
   if num_layers < 1:
     raise ValueError("Number of layers must be positive: %d" % num_layers)
-  if is_on_tpu():  # On TPU the XLA does a good job with while.
+  if is_xla_compiled():  # On TPU the XLA does a good job with while.
     return sru_with_scan(x, num_layers, activation, initial_state, name, reuse)
   try:
     from tensorflow.contrib.recurrent.python.ops import functional_rnn  # pylint: disable=g-import-not-at-top
@@ -3322,7 +3333,7 @@ def mix(x1,
       return get_res()
 
     # Prevent sampling after steps is passed to speed it up.
-    if is_on_tpu():
+    if is_xla_compiled():
       return get_res()
     else:
       return tf.cond(
@@ -3582,7 +3593,7 @@ def sliced_gan_loss(input1,
         proj = tf.tanh(x)
       proj = tf.transpose(proj, [1, 0])  # [num_vecs, batch] after this.
 
-      if is_on_tpu():
+      if is_xla_compiled():
         proj_dtype = proj.dtype
         proj = tf.cast(proj, tf.bfloat16)
 
@@ -3611,7 +3622,7 @@ def upscale(inputs, f, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR):
 
 
 def tpu_safe_image_summary(image):
-  if is_on_tpu():
+  if is_xla_compiled():
     # We only support float32 images at the moment due to casting complications.
     if image.dtype != tf.float32:
       image = tf.to_float(image)

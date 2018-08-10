@@ -104,7 +104,7 @@ def universal_transformer_encoder(encoder_input,
           encoder_self_attention_bias)
       nonpadding = 1.0 - padding
     pad_remover = None
-    if hparams.use_pad_remover and not common_layers.is_on_tpu():
+    if hparams.use_pad_remover and not common_layers.is_xla_compiled():
       pad_remover = expert_utils.PadRemover(padding)
 
     ffn_unit = functools.partial(

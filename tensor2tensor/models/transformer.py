@@ -135,7 +135,7 @@ class Transformer(t2t_model.T2TModel):
         save_weights_to=self.attention_weights,
         losses=losses)
 
-    if (common_layers.is_on_tpu() and
+    if (common_layers.is_xla_compiled() and
         hparams.mode == tf.estimator.ModeKeys.TRAIN):
       # TPU does not react kindly to extra dimensions.
       # TODO(noam): remove this once TPU is more forgiving of extra dims.
@@ -1208,7 +1208,7 @@ def transformer_encoder(encoder_input,
           encoder_self_attention_bias)
       nonpadding = 1.0 - padding
     pad_remover = None
-    if hparams.use_pad_remover and not common_layers.is_on_tpu():
+    if hparams.use_pad_remover and not common_layers.is_xla_compiled():
       pad_remover = expert_utils.PadRemover(padding)
     for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):

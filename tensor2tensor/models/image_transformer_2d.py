@@ -104,7 +104,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
 
   def body(self, features):
     assert self._hparams.block_size > 0
-    assert not common_layers.is_on_tpu()
+    assert not common_layers.is_xla_compiled()
 
     hparams = copy.copy(self._hparams)
     targets = features["targets"]

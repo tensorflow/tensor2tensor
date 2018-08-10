@@ -456,7 +456,7 @@ class T2TModel(base.Layer):
                num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
     train_op = optimize.optimize(
-        loss, lr, self.hparams, use_tpu=common_layers.is_on_tpu())
+        loss, lr, self.hparams, use_tpu=common_layers.is_xla_compiled())
     return train_op
 
   def set_mode(self, mode):
@@ -1279,7 +1279,7 @@ class T2TModel(base.Layer):
               "Cannot find variable in checkpoint, skipping: %s", var_name)
       tf.train.init_from_checkpoint(pretrained_model_dir, variable_map)
 
-    if common_layers.is_on_tpu():
+    if common_layers.is_xla_compiled():
       host_call = _create_host_call(self.hparams.model_dir)
       _remove_summaries()
       return tf.contrib.tpu.TPUEstimatorSpec(
@@ -1300,7 +1300,7 @@ class T2TModel(base.Layer):
       raise NotImplementedError(_no_problem_err("estimator_spec_eval"))
 
     problem = hparams.problem
-    if common_layers.is_on_tpu():
+    if common_layers.is_xla_compiled():
       _remove_summaries()
       if isinstance(logits, dict):
         eval_metrics_fn = _create_tpu_eval_metrics_fn(problem, hparams)
