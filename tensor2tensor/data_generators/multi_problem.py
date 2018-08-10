@@ -90,7 +90,7 @@ class MultiProblem(problem.Problem):
 
   @property
   def mixing_schedule(self):
-    return MixingSchedule.EXPONENTIAL
+    return MixingSchedule.CONSTANT
 
   def flatten_zip(self, *args):
     """A list of examples to a dataset containing mixed examples.
@@ -201,11 +201,41 @@ class MultiProblem(problem.Problem):
         tf.logging.info("Using the %s schedule to "
                         "train the MultiProblem." % str(self.mixing_schedule))
 
-        return tf.data.Dataset.from_tensors(tf.cond(
-            tf.greater(tf.random_uniform([]), prob),
-            lambda d=dataset_iterators[0]: get_next_from_dataset(d),
-            lambda d=dataset_iterators[1]: get_next_from_dataset(d)
-        ))
+        def sample_task(curr_task, num_tasks_left):
+          """A recursive function to sample a task.
+
+          This function treats the probability as the threshold for the primary
+          task and divides the remaining probability mass across the other
+          tasks.
+
+          Args:
+            curr_task: The index of the task being considered for sampling.
+            num_tasks_left: Number of tasks remaining to possibly sample from.
+
+          Returns:
+            A Tensor representing an example from the task that was sampled
+            from.
+          """
+
+          if num_tasks_left == 0:
+            return get_next_from_dataset(dataset_iterators[curr_task])
+          elif curr_task == 0:
+            # primary task
+            return tf.cond(
+                tf.greater(tf.random_uniform([]), prob),
+                lambda d=dataset_iterators[0]: get_next_from_dataset(d),
+                lambda c=curr_task+1, n=num_tasks_left-1: sample_task(c, n)
+            )
+          # divide the probability mass across all the secondary tasks equally.
+          new_prob = prob - curr_task * prob / (len(self.task_list)-1)
+          return tf.cond(
+              tf.greater(tf.random_uniform([]), new_prob),
+              lambda d=dataset_iterators[curr_task]: get_next_from_dataset(d),
+              lambda c=curr_task+1, n=num_tasks_left-1: sample_task(c, n)
+          )
+
+        return tf.data.Dataset.from_tensors(
+            sample_task(0, len(self.task_list)-1))
 
       single_mtl_dataset = tf.data.Dataset.from_tensors(tf.zeros([1])).repeat()
       single_mtl_dataset = single_mtl_dataset.flat_map(mix_data)
