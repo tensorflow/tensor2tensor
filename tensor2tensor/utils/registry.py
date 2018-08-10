@@ -48,12 +48,14 @@ import re
 import six
 import tensorflow as tf
 
-_MODELS = {}
-_HPARAMS = {}
-_RANGED_HPARAMS = {}
 _ATTACKS = {}
 _ATTACK_PARAMS = {}
+_HPARAMS = {}
+_MODELS = {}
 _PROBLEMS = {}
+_PRUNING_PARAMS = {}
+_PRUNING_STRATEGY = {}
+_RANGED_HPARAMS = {}
 
 
 class Modalities(object):
@@ -361,6 +363,84 @@ def list_attack_params(prefix=None):
   return list(_ATTACK_PARAMS)
 
 
+def register_pruning_params(name=None):
+  """Register an pruning HParams set. Same behaviour as register_hparams."""
+
+  def decorator(pp_fn, registration_name=None):
+    """Registers & returns pp_fn with registration_name or default name."""
+    pp_name = registration_name or default_name(pp_fn)
+    if pp_name in _PRUNING_PARAMS and not tf.contrib.eager.in_eager_mode():
+      raise LookupError("Pruning HParams set %s already registered." % pp_name)
+    _PRUNING_PARAMS[pp_name] = pp_fn
+    return pp_fn
+
+  # Handle if decorator was used without parens
+  if callable(name):
+    pp_fn = name
+    return decorator(pp_fn, registration_name=default_name(pp_fn))
+
+  return lambda pp_fn: decorator(pp_fn, name)
+
+
+def pruning_params(name):
+  """Retrieve registered pruning params by name."""
+  if name not in _PRUNING_PARAMS:
+    error_msg = "Pruning HParams set %s never registered. Sets registered:\n%s"
+    raise LookupError(error_msg % (
+        name, display_list_by_prefix(list_pruning_params(), starting_spaces=4)))
+  pp = _PRUNING_PARAMS[name]()
+  if pp is None:
+    raise TypeError("Pruning HParams %s is None. Make sure the registered "
+                    "function returns the HParams object." % name)
+  return pp
+
+
+def list_pruning_params(prefix=None):
+  if prefix:
+    return [name for name in _PRUNING_PARAMS if name.startswith(prefix)]
+  return list(_PRUNING_PARAMS)
+
+
+def register_pruning_strategy(name=None):
+  """Register an pruning strategy. Same behaviour as register_hparams."""
+
+  def decorator(ps_fn, registration_name=None):
+    """Registers & returns ps_fn with registration_name or default name."""
+    ps_name = registration_name or default_name(ps_fn)
+    if ps_name in _PRUNING_STRATEGY and not tf.contrib.eager.in_eager_mode():
+      raise LookupError("Pruning strategy %s already registered." % ps_name)
+    _PRUNING_STRATEGY[ps_name] = ps_fn
+    return ps_fn
+
+  # Handle if decorator was used without parens
+  if callable(name):
+    ps_fn = name
+    return decorator(ps_fn, registration_name=default_name(ps_fn))
+
+  return lambda ps_fn: decorator(ps_fn, name)
+
+
+def pruning_strategies(name):
+  """Retrieve registered pruning strategies by name."""
+  if name not in _PRUNING_STRATEGY:
+    error_msg = "Pruning strategy set %s never registered. Sets registered:\n%s"
+    raise LookupError(
+        error_msg % (name,
+                     display_list_by_prefix(
+                         list_pruning_strategies(), starting_spaces=4)))
+  ps = _PRUNING_STRATEGY[name]
+  if ps is None:
+    raise TypeError("Pruning strategy %s is None. Make sure to register the "
+                    "function." % name)
+  return ps
+
+
+def list_pruning_strategies(prefix=None):
+  if prefix:
+    return [name for name in _PRUNING_STRATEGY if name.startswith(prefix)]
+  return list(_PRUNING_STRATEGY)
+
+
 def _internal_get_modality(name, mod_collection, collection_str):
   if name is None:
     name = "default"
@@ -559,6 +639,12 @@ Registry contents:
 
   Attack HParams:
 %s
+
+  Pruning HParams:
+%s
+
+  Pruning Strategies:
+%s
 """
   m, hp, rhp, mod, probs, atks, ap = [
       display_list_by_prefix(entries, starting_spaces=4) for entries in [
@@ -568,7 +654,9 @@ Registry contents:
           list_modalities(),
           list_problems(),
           list_attacks(),
-          list_attack_params()
+          list_attack_params(),
+          list_pruning_params(),
+          list_pruning_strategies(),
       ]
   ]
   return help_str % (m, hp, rhp, mod, probs, atks, ap)

@@ -562,3 +562,20 @@ def resnet_200():
   hp = resnet_base()
   hp.layer_sizes = [3, 24, 36, 3]
   return hp
+
+
+@registry.register_pruning_params
+def resnet_weight():
+  hp = tf.contrib.training.HParams()
+  hp.add_hparam("strategy", "weight")
+  hp.add_hparam("black_list", ["logits", "bias"])
+  hp.add_hparam("white_list", None)
+  hp.add_hparam("sparsities", [0.1*i for i in range(10)])
+  return hp
+
+
+@registry.register_pruning_params
+def resnet_unit():
+  hp = resnet_weight()
+  hp.strategy = "unit"
+  return hp
