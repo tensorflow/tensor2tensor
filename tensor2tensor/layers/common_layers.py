@@ -3742,3 +3742,41 @@ def kl_divergence(mu, log_sigma):
   return kl / tf.to_float(batch_size)
 
 
+def sparse_equals_constant(constant, tensor):
+  return tf.SparseTensor(
+      indices=tensor.indices,
+      dense_shape=tensor.dense_shape,
+      values=tf.equal(tensor.values, constant))
+
+
+def sparse_expand_dims(tensor, current_num_dims, axis=0):
+  if axis == -1:
+    axis = current_num_dims
+
+  new_col = tf.zeros([tf.shape(tensor.indices)[0]], dtype=tf.int64)
+  cols = tf.unstack(tensor.indices, axis=1, num=current_num_dims)
+  shape = tf.unstack(tensor.dense_shape, num=current_num_dims)
+  new_indices = tf.stack(cols[:axis] + [new_col] + cols[axis:], axis=1)
+  return tf.SparseTensor(
+      indices=new_indices,
+      values=tensor.values,
+      dense_shape=tf.stack(shape[:axis] + [1] + shape[axis:]))
+
+
+def sparse_add_constant(constant, tensor):
+  return tf.SparseTensor(
+      indices=tensor.indices,
+      values=constant + tensor.values,
+      dense_shape=tensor.dense_shape)
+
+
+def sparse_eye(size):
+  indices = tf.cast(tf.stack([tf.range(size), tf.range(size)]), tf.int64)
+  values = tf.ones(size)
+  dense_shape = [tf.cast(size, tf.int64), tf.cast(size, tf.int64)]
+
+  return tf.SparseTensor(
+      indices=indices,
+      values=values,
+      dense_shape=dense_shape
+  )

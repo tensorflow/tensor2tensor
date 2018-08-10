@@ -153,7 +153,7 @@ def make_edge_vectors(adjacency_matrix,
   """Gets edge vectors for the edge types in the adjacency matrix.
 
   Args:
-    adjacency_matrix: A [batch, num_nodes, num_nodes] tensor of ints.
+    adjacency_matrix: A [batch, num_nodes, num_nodes, num_edge_types] tensor.
     num_edge_types: Number of different edge types
     depth: Number of channels
     name: A optional string name for scoping
@@ -363,6 +363,123 @@ def compute_mpnn_qkv(node_states,
   return q, k, v
 
 
+def sparse_message_pass_batched(node_states,
+                                adjacency_matrices,
+                                num_edge_types,
+                                hidden_size,
+                                name="sparse_ggnn_batched"):
+  """Identical to sparse_ggnn except that each input has a batch dimension.
+
+  B = The batch size.
+  N = The number of nodes in each batch.
+  H = The size of the hidden states.
+  T = The number of edge types.
+
+  Args:
+    node_states: Initial states of each node in the graph. Shape: [B, N, H]
+    adjacency_matrices: Adjacency matrices of directed edges for each edge
+      type and batch. Shape: [B, N, N, T] (sparse).
+    num_edge_types: The number of edge types. T.
+    hidden_size: The size of the hidden layer. H.
+    name: (optional) The scope within which tf variables should be created.
+
+  Returns:
+    The result of one round of message-passing of shape [B, N, H].
+  """
+
+  b, n = tf.shape(node_states)[0], tf.shape(node_states)[1]
+
+  # Flatten the batch dimension of the node states.
+  node_states = tf.reshape(node_states, [b*n, hidden_size])
+
+  # Flatten the batch dimension of the adjacency matrices.
+  indices = adjacency_matrices.indices
+  new_index2 = indices[:, 3]  # The edge type dimension.
+
+  # Offset N x N adjacency matrix by the batch number in which it appears.
+  new_index0 = indices[:, 1] + indices[:, 0] * tf.cast(n, tf.int64)
+  new_index1 = indices[:, 2] + indices[:, 0] * tf.cast(n, tf.int64)
+
+  # Combine these indices as triples.
+  new_indices = tf.stack([new_index0, new_index1, new_index2], axis=1)
+
+  # Build the new sparse matrix.
+  new_shape = [tf.cast(b*n, tf.int64), tf.cast(b*n, tf.int64), num_edge_types]
+  adjacency_matrices = tf.SparseTensor(indices=new_indices,
+                                       values=adjacency_matrices.values,
+                                       dense_shape=new_shape)
+
+  # Run a message-passing step and return the result with the batch dimension.
+  node_states = sparse_message_pass(node_states, adjacency_matrices,
+                                    num_edge_types, hidden_size, name)
+  return tf.reshape(node_states, [b, n, hidden_size])
+
+
+def sparse_message_pass(node_states,
+                        adjacency_matrices,
+                        num_edge_types,
+                        hidden_size,
+                        name="sparse_ggnn"):
+  """One message-passing step for a GNN with a sparse adjacency matrix.
+
+  Implements equation 2 (the message passing step) in
+  [Li et al. 2015](https://arxiv.org/abs/1511.05493).
+
+  N = The number of nodes in each batch.
+  H = The size of the hidden states.
+  T = The number of edge types.
+
+  Args:
+    node_states: Initial states of each node in the graph. Shape is [N, H].
+    adjacency_matrices: Adjacency matrix of directed edges for each edge
+      type. Shape is [N, N, T] (sparse tensor).
+    num_edge_types: The number of edge types. T.
+    hidden_size: The size of the hidden state. H.
+    name: (optional) The scope within which tf variables should be created.
+
+  Returns:
+    The result of one step of Gated Graph Neural Network (GGNN) message passing.
+    Shape: [N, H]
+  """
+  n = tf.shape(node_states)[0]
+  t = num_edge_types
+
+  # Convert the adjacency matrix into shape [T, N, N] - one [N, N] adjacency
+  # matrix for each edge type. Since sparse tensor multiplication only supports
+  # two-dimensional tensors, we actually convert the adjacency matrix into a
+  # [T * N, N] tensor.
+  adjacency_matrices = tf.sparse_transpose(adjacency_matrices, [2, 0, 1])
+  adjacency_matrices = tf.sparse_reshape(adjacency_matrices, [t * n, n])
+
+  # Multiply the adjacency matrix by the node states, producing a [T * N, H]
+  # tensor. For each (edge type, node) pair, this tensor stores the sum of
+  # the hidden states of the node's neighbors over incoming edges of that type.
+  messages = tf.sparse_tensor_dense_matmul(adjacency_matrices, node_states)
+
+  # Rearrange this tensor to have shape [N, T * H]. The incoming states of each
+  # nodes neighbors are summed by edge type and then concatenated together into
+  # a single T * H vector.
+  messages = tf.reshape(messages, [t, n, hidden_size])
+  messages = tf.transpose(messages, [1, 0, 2])
+  messages = tf.reshape(messages, [n, t * hidden_size])
+
+  # Run each of those T * H vectors through a linear layer that produces
+  # a vector of size H. This process is equivalent to running each H-sized
+  # vector through a separate linear layer for each edge type and then adding
+  # the results together.
+  #
+  # Note that, earlier on, we added together all of the states of neighbors
+  # that were connected by edges of the same edge type. Since addition and
+  # multiplying by a linear layer are commutative, this process was equivalent
+  # to running each incoming edge through a linear layer separately and then
+  # adding everything at the end.
+  with tf.variable_scope(name, default_name="sparse_ggnn"):
+    final_node_states = common_layers.dense(
+        messages, hidden_size, use_bias=True)
+
+  return final_node_states
+
+
 def multihead_mpnn_attention(node_states,
                              total_key_depth,
                              total_value_depth,
@@ -541,9 +658,6 @@ def dot_product_mpnn_attention(q,
     ValueError: if num_transforms doesn't equal num_edge_types and not using
       weighted sum.
   """
-  # TODO(jfrankle): Consider ways to handle graphs that have multiple edges
-  # between the same nodes (with only one edge of each type. adjacency_matrix
-  # will need to be converted to shape [B, T, N, N].
   with tf.variable_scope(
       name,
       default_name="dot_product_mpnn_attention",
