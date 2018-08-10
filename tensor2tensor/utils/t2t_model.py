@@ -1591,6 +1591,11 @@ def _create_host_call(model_dir):
         continue
       # tensor = tf.to_float(tensor)
       summary_kwargs["ImageSummary" + name] = tensor
+  # When no supported summaries are found, don't create host_call. Otherwise,
+  # TPU outfeed queue would enqueue global_step while host_call doesn't dequeue
+  # it, eventually causing hang.
+  if not summary_kwargs:
+    return None
   summary_kwargs["global_step"] = gs_t
 
   def host_call_fn(**kwargs):
