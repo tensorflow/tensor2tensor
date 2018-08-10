@@ -102,7 +102,7 @@ def get_tensor_shape(tensor):
 class NextFrameTest(tf.test.TestCase):
 
   def RunModel(self, model, hparams, features):
-    with self.Session() as session:
+    with tf.Session() as session:
       model = model(
           hparams, tf.estimator.ModeKeys.TRAIN)
       logits, _ = model(features)
@@ -235,6 +235,9 @@ class NextFrameTest(tf.test.TestCase):
     hparams = next_frame_params.next_frame_savp()
     hparams.use_gan = True
     hparams.use_vae = False
+    self.TestVideoModel(7, 5, hparams, next_frame_savp.NextFrameSAVP, 1)
+
+    hparams.gan_optimization = "sequential"
     self.TestVideoModel(7, 5, hparams, next_frame_savp.NextFrameSAVP, 1)
 
   def testStochasticInvalidVAEGANCombinations(self):

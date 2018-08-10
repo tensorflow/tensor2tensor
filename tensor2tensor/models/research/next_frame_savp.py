@@ -248,8 +248,15 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
       gan_g_loss_pos_d, gan_g_loss_neg_d = self.g_step(
           gen_frames, fake_logits_stop)
     gan_g_loss = gan_g_loss_pos_d + gan_g_loss_neg_d
-    gan_loss = gan_g_loss + gan_d_loss
     tf.summary.scalar("gan_loss", gan_g_loss_pos_d + gan_d_loss)
+
+    if self.hparams.gan_optimization == "joint":
+      gan_loss = gan_g_loss + gan_d_loss
+    else:
+      curr_step = tf.train.get_or_create_global_step()
+      gan_loss = tf.cond(
+          tf.logical_not(curr_step % 2 == 0), lambda: gan_g_loss,
+          lambda: gan_d_loss)
     return self.hparams.gan_loss_multiplier * gan_loss
 
   def get_extra_loss(self, latent_means=None, latent_stds=None,
@@ -331,6 +338,9 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
       raise ValueError("VAE + GAN variant not implemented")
     if not self.hparams.use_vae and not self.hparams.use_gan:
       raise ValueError("Set at least one of use_vae or use_gan to be True")
+    if self.hparams.gan_optimization not in ["joint", "sequential"]:
+      raise ValueError("self.hparams.gan_optimization should be either joint "
+                       "or sequential got %s" % self.hparams.gan_optimization)
 
     images = tf.unstack(images, axis=0)
     actions = tf.unstack(actions, axis=0)

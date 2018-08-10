@@ -120,6 +120,7 @@ def next_frame_savp():
   hparams.add_hparam("use_spectral_norm", True)
   hparams.add_hparam("gan_loss", "cross_entropy")
   hparams.add_hparam("gan_loss_multiplier", 0.01)
+  hparams.add_hparam("gan_optimization", "joint")
   hparams.target_modality = "video:l1raw"
   hparams.input_modalities = "inputs:video:l1raw"
   hparams.latent_loss_multiplier_schedule = "linear_anneal"
