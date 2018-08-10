@@ -557,7 +557,8 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
 
   def body(self, features):
     hparams = self.hparams
-    batch_size = common_layers.shape_list(features["inputs"])[0]
+    input_shape = common_layers.shape_list(features["inputs"])
+    batch_size, _, _, frame_height, frame_channels = input_shape
 
     # Swap time and batch axes.
     input_frames = common_video.swap_time_and_batch_axes(features["inputs"])
@@ -606,7 +607,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     # TODO(mbz): clean this up!
     def fix_video_dims_and_concat_on_x_axis(x):
       x = tf.transpose(x, [1, 3, 4, 0, 2])
-      x = tf.reshape(x, [batch_size, 64, 3, -1])
+      x = tf.reshape(x, [batch_size, frame_height, frame_channels, -1])
       x = tf.transpose(x, [0, 3, 1, 2])
       return x
 
