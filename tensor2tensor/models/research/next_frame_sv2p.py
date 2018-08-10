@@ -66,7 +66,8 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     """Get KL multiplier (beta) based on the schedule."""
     step_num = self.get_iteration_num()
     schedule = self.hparams.latent_loss_multiplier_schedule
-    second_stage = self.hparams.num_iterations_2nd_stage
+    second_stage = (self.hparams.num_iterations_1st_stage +
+                    self.hparams.num_iterations_2nd_stage)
     # TODO(mechcoder): Add log_annealing schedule.
     if schedule == "constant":
       beta = tf.cond(tf.greater(step_num, second_stage),
@@ -307,10 +308,17 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
       std += self.hparams.latent_std_min
 
       # No latent tower at inference time, just standard gaussian.
-      if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+      if not self.is_training:
         return tf.zeros_like(mean), tf.zeros_like(std)
 
-      return mean, std
+      # No latent in the first phase
+      iter_num = self.get_iteration_num()
+      ret_mean, ret_std = tf.cond(
+          iter_num < self.hparams.num_iterations_1st_stage,
+          lambda: (tf.zeros_like(mean), tf.zeros_like(std)),
+          lambda: (mean, std))
+
+      return ret_mean, ret_std
 
   def reward_prediction(self, input_image, input_reward, action, latent):
     """Builds a reward prediction network."""

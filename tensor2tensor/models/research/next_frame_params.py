@@ -78,6 +78,7 @@ def next_frame_stochastic():
   hparams.add_hparam("num_masks", 10)
   hparams.add_hparam("latent_channels", 1)
   hparams.add_hparam("latent_std_min", -5.0)
+  hparams.add_hparam("num_iterations_1st_stage", 10000)
   hparams.add_hparam("num_iterations_2nd_stage", 10000)
   hparams.add_hparam("latent_loss_multiplier", 1e-3)
   hparams.add_hparam("latent_loss_multiplier_schedule", "constant")
