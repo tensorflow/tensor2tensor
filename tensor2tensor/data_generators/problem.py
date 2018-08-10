@@ -894,9 +894,10 @@ class Problem(object):
           # Here  batch_size really means examples per datashard.
           batching_scheme["batch_sizes"] = [hparams.batch_size]
           batching_scheme["boundaries"] = []
-        dataset = data_reader.bucket_by_sequence_length(
-            dataset, data_reader.example_length, batching_scheme["boundaries"],
-            batching_scheme["batch_sizes"])
+        dataset = dataset.apply(
+            tf.contrib.data.bucket_by_sequence_length(
+                data_reader.example_length, batching_scheme["boundaries"],
+                batching_scheme["batch_sizes"]))
 
         if not is_training:
           batch_multiple = shard_multiplier
