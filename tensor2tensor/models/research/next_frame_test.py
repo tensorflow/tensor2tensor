@@ -102,7 +102,7 @@ def get_tensor_shape(tensor):
 class NextFrameTest(tf.test.TestCase):
 
   def RunModel(self, model, hparams, features):
-    with self.test_session() as session:
+    with self.Session() as session:
       model = model(
           hparams, tf.estimator.ModeKeys.TRAIN)
       logits, _ = model(features)
