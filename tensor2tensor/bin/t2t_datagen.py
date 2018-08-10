@@ -40,8 +40,6 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
 
-import tensorflow as tf
-
 try:
   # pylint: disable=g-import-not-at-top
   from tensor2tensor.data_generators import algorithmic_math
@@ -51,6 +49,10 @@ try:
   # pylint: enable=g-import-not-at-top
 except ImportError:
   pass
+
+# Improrting here to prevent pylint from ungrouped-imports warning.
+import tensorflow as tf  # pylint: disable=g-import-not-at-top
+
 
 
 flags = tf.flags
