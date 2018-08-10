@@ -55,7 +55,15 @@ def convert_to_dimension(d):
 
 
 class Shape(object):
-  """Shape of a Tensor or Mesh."""
+  """Shape of a Tensor or Mesh.
+
+  #### Examples
+
+  ```python
+  # Create shape [4, 8] with names "x" and "y" respectively.
+  shape = mtf.Shape([mtf.Dimension("x", 4), mtf.Dimension("y", 8)])
+  ```
+  """
 
   def __init__(self, dims):
     """Constructs a shape for a Tensor or Mesh.
@@ -182,7 +190,15 @@ def convert_to_shape(x):
 
 
 class LayoutRules(object):
-  """Represents layout of a computation."""
+  """Represents layout of a computation.
+
+  #### Examples
+
+  ```python
+  # Map "d_ff" and "heads" Tensor Dimensions to the "model" Mesh Dimension.
+  layout_rules = mtf.LayoutRules([("d_ff", "model"), ("heads", "model")])
+  ```
+  """
 
   def __init__(self, pairs):
     """Constructs a layout.
@@ -218,7 +234,7 @@ class LayoutRules(object):
     return val[0] if val else None
 
   def tensor_layout(self, tensor_shape, mesh_shape):
-    """Computes TensorLayout given a tensor shape and a mesh shape.
+    """Computes TensorLayout given a Tensor Shape and a Mesh Shape.
 
     Args:
       tensor_shape: Shape.
@@ -228,14 +244,14 @@ class LayoutRules(object):
       TensorLayout.
 
     Raises:
-      ValueError: If two tensor dimensions map to the same mesh dimension.
+      ValueError: If two Tensor Dimensions map to the same Mesh Dimensions.
     """
     ret = [self.tensor_dimension_to_mesh_axis(d, mesh_shape)
            for d in tensor_shape]
     not_nones = [a for a in ret if a is not None]
     if len(not_nones) != len(set(not_nones)):
       raise ValueError(
-          "Two tensor dimensions may not map to the same mesh dimesnsion:"
+          "Two Tensor Dimensions may not map to the same Mesh Dimension:"
           " layout=%s tensor_shape=%s mesh_shape=%s " %
           (self, tensor_shape, mesh_shape))
     return TensorLayout(ret)
@@ -258,19 +274,26 @@ def convert_to_layout_rules(x):
 
 
 class TensorLayout(object):
-  """Mapping from tensor dimension to mesh dimension.
+  """Injective partial map between Tensor axes and Mesh axes.
 
-  Represented as a tuple of optional integers with length tensor.ndims.
-  Each item is either a unique integer inicating the mesh axis over
-  which that tensor dimension is split, or None, indicating that this
-  tensor dimension is not split.
+  TensorLayout is a tuple of optional integers with length tensor.ndims. Each
+  item is either a unique integer indicating the mesh axis over which that
+  tensor dimension is split or None, indicating that this tensor dimension is
+  not split.
+
+  #### Examples
+
+  ```python
+  # Split first and last Tensor dimensions according to mesh axes 0 and 1.
+  tensor_layout = mtf.TensorLayout([0, None, 1])
+  ```
   """
 
   def __init__(self, tensor_axis_to_mesh_axis):
-    """Create a TensorLayout.
+    """Creates a TensorLayout.
 
     Args:
-      tensor_axis_to_mesh_axis: a sequence of optional integers.
+      tensor_axis_to_mesh_axis: List-like where each element is an int or None.
     """
     self._tensor_axis_to_mesh_axis = tuple(tensor_axis_to_mesh_axis)
 
@@ -294,22 +317,22 @@ class TensorLayout(object):
 
   @property
   def tensor_axis_to_mesh_axis(self):
-    """Convert to a tuple of optional integers."""
+    """Converts to a tuple of optional integers."""
     return self._tensor_axis_to_mesh_axis
 
   @property
   def is_fully_replicated(self):
-    """Do all tensor dimensions map to None."""
+    """Whether all tensor dimensions map to None."""
     return self.tensor_axis_to_mesh_axis == (None,) * len(self)
 
   def mesh_axis_to_tensor_axis(self, mesh_ndims):
     """For each mesh axis, which Tensor axis maps to it.
 
     Args:
-      mesh_ndims: an integer
+      mesh_ndims: int.
 
     Returns:
-      a tuple of optional integers, with length mesh_ndims
+      Tuple of optional integers, with length mesh_ndims.
     """
     return tuple(
         [self._tensor_axis_to_mesh_axis.index(mesh_axis)
@@ -318,7 +341,7 @@ class TensorLayout(object):
 
 
 class Graph(object):
-  """Distributed-TF graph."""
+  """Mesh-TensorFlow graph."""
 
   def __init__(self):
     self._operations = []
@@ -351,18 +374,37 @@ class Graph(object):
 
 
 class Lowering(object):
-  """Lowering of a Graph from mesh-tensorflow to tensorflow."""
+  """Lowering of a Graph from Mesh-TensorFlow to TensorFlow.
+
+  #### Examples
+
+  Below we form a Graph with one Tensor and lower it to recover the original
+  tf.Tensor.
+
+  ```python
+  from tensor2tensor.mesh_tensorflow import placement_mesh_impl
+
+  graph = mtf.Graph()
+  mesh = mtf.Mesh(graph, "my_mesh")
+  inputs = tf.constant(0.)
+  mtf_inputs = mtf.import_tf_tensor(mesh,
+                                    inputs=inputs,
+                                    shape=mtf.Shape([]))
+  mesh_impl = placement_mesh_impl.PlacementMeshImpl(
+      shape=[], layout={}, devices=[""])
+  lowering = mtf.Lowering(graph, {mesh: mesh_impl})
+  outputs = lowering.export_to_tf_tensor(mtf_inputs)  # tf.constant(0.)
+  ```
+  """
 
   def __init__(self, graph, mesh_to_impl):
-    """Create a Lowering of a graph.
-
-    layout is a dictionary whose keys are the meshes in the graph
-    and whose values are themselves dictionaries mapping tensor-dimension
-    names to mesh dimensions (integers).
+    """Creates a Lowering of a Graph.
 
     Args:
-      graph: a Graph
-      mesh_to_impl: {Mesh: MeshImpl}
+      graph: Graph.
+      mesh_to_impl: {Mesh: MeshImpl}. Keys are the Mesh's in the graph and
+        their values are MeshImpl's, which map Tensor Dimension names to
+        Mesh Dimension names.
     """
     # tf.logging.info("LOWERING GRAPH:\n%s" % graph.to_string)
     self.mesh_to_impl = mesh_to_impl   # {Mesh: MeshImpl}
@@ -392,9 +434,10 @@ class Lowering(object):
     """Turn a Tensor into a tf.Tensor.
 
     Args:
-      x: a Tensor
+      x: Tensor.
+
     Returns:
-      a tf.Tensor
+      tf.Tensor.
     """
     mesh_impl = self.mesh_impl(x)
     return mesh_impl.export_to_tf_tensor(
@@ -405,11 +448,11 @@ class Lowering(object):
 
   def copy_masters_to_slices(self):
     return tf.group(
-        [v.copy_master_to_slices for _, v in six.iteritems(self.variables)])
+        [v.copy_master_to_slices for v in six.itervalues(self.variables)])
 
   def copy_slices_to_masters(self):
     return tf.group(
-        [v.copy_slices_to_master for _, v in six.iteritems(self.variables)])
+        [v.copy_slices_to_master for v in six.itervalues(self.variables)])
 
   def add_counter(self, key, value):
     assert isinstance(value, int)
@@ -423,10 +466,10 @@ class Lowering(object):
     """Total size of all slices.
 
     Args:
-      tensor: a Tensor
+      tensor: Tensor.
 
     Returns:
-      an integer
+      int.
     """
     return self.mesh_impl(tensor).laid_out_size(tensor.shape)
 
@@ -447,10 +490,10 @@ class Lowering(object):
 class Mesh(object):
   """A placeholder with no functionality.
 
-  A Graph is built with each tensor assigned to a mesh.  The mesh does not
+  A Graph is built with each Tensor assigned to a Mesh. The Mesh does not
   know its shape or its implementation.
 
-  A Lowering asssigns a MeshImpl to each mesh.
+  A Lowering assigns each Mesh to a MeshImpl.
   """
 
   def __init__(self, graph, name):
@@ -463,20 +506,29 @@ class Mesh(object):
 
 
 class MeshImpl(object):
-  """Implementation of a mesh.
+  """Implementation of a Mesh.
 
-  Knows its shape, its underlying devices, and its layout
-  (mapping from TensorDim to mesh-dimension).
+  Unlike Mesh, MeshImpl carries Shape and LayoutRules. Subclasses of MeshImpl
+  also carry devices.
 
-  Subclasses will include PlacementMeshImpl and SimdMeshImpl
+  #### Examples
+
+  ```python
+  shape = mtf.Shape([mtf.Dimension("batch", 4),
+                     mtf.Dimension("model", 8)])
+  layout_rules = mtf.LayoutRules([("batch", "batch"),
+                                  ("d_ff", "model"),
+                                  ("heads", "model")])
+  mesh_impl = mtf.MeshImpl(shape=shape, layout_rules=layout_rules)
+  ```
   """
 
   def __init__(self, shape, layout_rules):
-    """Create a mesh.
+    """Creates a mesh implementation.
 
     Args:
-      shape: a list of ints
-      layout_rules: a LayoutRules
+      shape: Shape.
+      layout_rules: LayoutRules.
     """
     self._shape = convert_to_shape(shape)
     self._layout_rules = convert_to_layout_rules(layout_rules)
@@ -497,13 +549,18 @@ class MeshImpl(object):
   def size(self):
     return self.shape.size
 
+  @property
+  def supports_control_dependencies(self):
+    return True
+
   def tensor_dimension_to_mesh_axis(self, tensor_dimension):
     """Mesh axis associated with tensor dimension (or None).
 
     Args:
-      tensor_dimension: a Dimension
+      tensor_dimension: Dimension.
+
     Returns:
-      an integer or None
+      int or None.
     """
     return self.layout_rules.tensor_dimension_to_mesh_axis(
         tensor_dimension, self.shape)
@@ -512,9 +569,10 @@ class MeshImpl(object):
     """Compute TensorLayout for a Tensor or a Shape.
 
     Args:
-      arg: a Tensor or Shape
+      arg: Tensor or Shape.
+
     Returns:
-      a TensorLayout
+      TensorLayout.
     """
     if isinstance(arg, Tensor):
       arg = arg.shape
@@ -524,9 +582,10 @@ class MeshImpl(object):
     """For each mesh axis, give the product of previous tensor axes.
 
     Args:
-      tensor_shape: a Shape
+      tensor_shape: Shape.
+
     Returns:
-      a list with length self.ndims where each element is an integer or None.
+      list with length self.ndims where each element is an integer or None.
     """
     tensor_layout = self.tensor_layout(tensor_shape)
     ma2ta = tensor_layout.mesh_axis_to_tensor_axis(self.ndims)
@@ -534,15 +593,17 @@ class MeshImpl(object):
     return [None if ta is None else ta2cumprod[ta] for ta in ma2ta]
 
   def slice_shape(self, tensor_shape):
-    """Shape of each slice of the tensor.
+    """Shape of each slice of the Tensor.
 
     Args:
-      tensor_shape: a Shape
+      tensor_shape: Shape.
+
     Returns:
-      a list of integers with length tensor_shape.ndims
+      list of integers with length tensor_shape.ndims.
+
     Raises:
-      ValueError: if a tensor dimension is not divisible by the corresponding
-        mesh dimension.
+      ValueError: If a Tensor dimension is not divisible by the corresponding
+        Mesh dimension.
     """
     tensor_layout = self.tensor_layout(tensor_shape)
     ret = []
@@ -564,10 +625,11 @@ class MeshImpl(object):
     """Begin position for the tensor slice for the given processor.
 
     Args:
-      tensor_shape: a Shape
-      pnum: an integer <= self.size
+      tensor_shape: Shape.
+      pnum: int <= self.size.
+
     Returns:
-      a list of integers with length tensor_shape.ndims
+      list of integers with length tensor_shape.ndims.
     """
     tensor_layout = self.tensor_layout(tensor_shape)
     coordinates = pnum_to_processor_coordinates(self.shape, pnum)
@@ -585,35 +647,37 @@ class MeshImpl(object):
     """Total size of all slices.
 
     Args:
-      tensor_shape: a Shape
+      tensor_shape: Shape.
 
     Returns:
-      an integer
+      int.
     """
     return list_product(self.slice_shape(tensor_shape)) * self.size
 
   def slicewise(self, fn, *inputs):
-    """Execute a function in parallel on all slices.
+    """Executes a function in parallel on all slices.
 
     Args:
-      fn: a function from tf.Tensors to tf.Tensor or a tuple of tf.Tensors.
-      *inputs: a list of inputs.  Each input is either a LaidOutTensor or
+      fn: function from tf.Tensors to tf.Tensor or a tuple of tf.Tensors.
+      *inputs: list of inputs.  Each input is either a LaidOutTensor or
         is convertible to a tf.Tensor.
+
     Returns:
-      a LaidOutTensor, or a tuple of LaidOutTensors if fn returns a tuple.
+      LaidOutTensor, or a tuple of LaidOutTensors if fn returns a tuple.
     """
     raise NotImplementedError("Slicewise not implemented")
 
   def Print(self, x, data, message, **kwargs):  # pylint: disable=invalid-name
-    """call tf.Print.
+    """Calls tf.Print.
 
     Args:
-      x: a LaidOutTensor
-      data: a list of LaidOutTensor
-      message: a string
-      **kwargs: keyword arguments to tf.print
+      x: LaidOutTensor.
+      data: list of LaidOutTensor.
+      message: str.
+      **kwargs: keyword arguments to tf.print.
+
     Returns:
-      a LaidOutTensor
+      LaidOutTensor.
     """
     del data, message, kwargs
     tf.logging.warning("Warning - mtf.Print not implemented for this mesh type")
@@ -623,11 +687,12 @@ class MeshImpl(object):
     """Grouped allreduce, (summed across the given dimensions).
 
     Args:
-      x: a LaidOutTensor
-      mesh_axes: a list of integers - the mesh dimensions to be reduced
-      reduction_fn_string: "SUM" or "MAX"
+      x: LaidOutTensor.
+      mesh_axes: list of integers, the mesh dimensions to be reduced.
+      reduction_fn_string: "SUM" or "MAX".
+
     Returns:
-      a LaidOutTensor
+      LaidOutTensor.
     """
     raise NotImplementedError("Allreduce not implemented")
 
@@ -635,14 +700,15 @@ class MeshImpl(object):
     """Inverse of allconcat - split each slice and keep only one piece of it.
 
     The number of ways to split is the number of processors in the group.
-    The part that is kept corrseponds to the processor's index in the group.
+    The part that is kept corresponds to the processor's index in the group.
 
     Args:
-      x: a LaidOutTensor
-      mesh_axis: an integer the mesh axis along which to split
-      split_axis: an integer (the Tensor axis along which to split)
+      x: LaidOutTensor.
+      mesh_axis: int, the mesh axis along which to split.
+      split_axis: int, the Tensor axis along which to split.
+
     Returns:
-      a LaidOutTensor
+      LaidOutTensor.
     """
     num_splits = self.shape[mesh_axis].size
     def my_fn(x, coordinate):
@@ -659,11 +725,12 @@ class MeshImpl(object):
     """Grouped allconcat (like MPI allgather followed by concat).
 
     Args:
-      x: a LaidOutTensor
-      mesh_axis: an integer - the mesh axis along which to group
-      concat_axis: an integer (the Tensor axis along which to concatenate)
+      x: LaidOutTensor.
+      mesh_axis: int, the mesh axis along which to group.
+      concat_axis: int, the Tensor axis along which to concatenate.
+
     Returns:
-      a LaidOutTensor
+      LaidOutTensor.
     """
     raise NotImplementedError("Allconcat not implemented")
 
@@ -671,12 +738,13 @@ class MeshImpl(object):
     """Grouped alltoall (like MPI alltoall with splitting and concatenation).
 
     Args:
-      x: a LaidOutTensor
-      mesh_axis: an integer the mesh axis along which to group
-      split_axis: an integer (the Tensor axis along which to split)
-      concat_axis: an integer (the Tensor axis along which to concatenate)
+      x: LaidOutTensor.
+      mesh_axis: int, the mesh axis along which to group.
+      split_axis: int, the Tensor axis along which to split.
+      concat_axis: int, the Tensor axis along which to concatenate.
+
     Returns:
-      a LaidOutTensor
+      LaidOutTensor.
     """
     raise NotImplementedError("Alltoall not implemented")
 
@@ -684,7 +752,7 @@ class MeshImpl(object):
     """Returns a LaidOutTensor containing the processor number.
 
     Returns:
-      a LaidOutTensor where each slice is an integer scalar
+      LaidOutTensor where each slice is an integer scalar.
     """
     raise NotImplementedError("laid_out_pnum not implemented")
 
@@ -692,9 +760,10 @@ class MeshImpl(object):
     """Returns a LaidOutTensor containing the processor coordinate.
 
     Args:
-      mesh_axis: an integer
+      mesh_axis: int.
+
     Returns:
-      a LaidOutTensor where each slice is an integer scalar
+      LaidOutTensor where each slice is an integer scalar.
     """
     divisor = list_product(self.shape.to_integer_list[mesh_axis + 1:])
     modulus = self.shape[mesh_axis].size
@@ -706,11 +775,12 @@ class MeshImpl(object):
     """Implementation of a broadcast operation.
 
     Args:
-      old_slices: a LaidOutTensor
-      old_shape: a Shape
-      new_shape: a Shape
+      old_slices: LaidOutTensor.
+      old_shape: Shape.
+      new_shape: Shape.
+
     Returns:
-      a LaidOutTensor
+      LaidOutTensor.
     """
     new_slice_shape = self.slice_shape(new_shape)
     def tf_fn(x):
@@ -719,14 +789,14 @@ class MeshImpl(object):
     return self.slicewise(tf_fn, old_slices)
 
   def make_slices(self, tf_tensor, tensor_shape):
-    """Turn a single tf.Tensor into a list of slices, one for each processor.
+    """Turns a single tf.Tensor into a list of slices, one for each processor.
 
     Args:
-      tf_tensor: a tf.Tensor
-      tensor_shape: a Shape
+      tf_tensor: tf.Tensor.
+      tensor_shape: Shape.
 
     Returns:
-      a list of tf.tensor with length self.size
+      list of tf.tensor with length self.size.
     """
     tensor_layout = self.tensor_layout(tensor_shape)
     slice_shape = self.slice_shape(tensor_shape)
@@ -741,16 +811,15 @@ class MeshImpl(object):
                     list(xrange(self.size)))
 
   def combine_slices(self, slices, tensor_shape, device=None):
-    """Turn a set of slices into a single tensor.
+    """Turns a set of slices into a single tensor.
 
     Args:
-      slices: a list of tf.Tensor with length self.size
-      tensor_shape: a Shape
-      device: an optional device string.
-        if absent, we use the devices of the slices.
+      slices: list of tf.Tensor with length self.size.
+      tensor_shape: Shape.
+      device: optional str. If absent, we use the devices of the slices.
 
     Returns:
-      a tf.Tensor
+      tf.Tensor.
     """
     if tensor_shape.ndims == 0:
       return slices[0]
@@ -777,30 +846,28 @@ class MeshImpl(object):
     return ret[0]
 
   def export_to_tf_tensor(self, x, laid_out_x):
-    """Turn a Tensor into a tf.Tensor.
+    """Turns a Tensor into a tf.Tensor.
 
     Args:
-      x: a Tensor
-      laid_out_x: a LaidOutTensor
+      x: Tensor.
+      laid_out_x: LaidOutTensor.
+
     Returns:
-      a tf.Tensor
+      tf.Tensor.
     """
     raise NotImplementedError("export_to_tf_tensor not implemented")
 
   def import_tf_tensor(self, x, tf_x):
-    """Import a tf.Tensor, producing a LaidOutTensor.
+    """Imports a tf.Tensor, producing a LaidOutTensor.
 
     Args:
-      x: a Tensor
-      tf_x: a tf.Tensor
+      x: Tensor.
+      tf_x: tf.Tensor.
+
     Returns:
-      a LaidOutTensor
+      LaidOutTensor.
     """
     raise NotImplementedError("Import not implemented")
-
-  @property
-  def supports_control_dependencies(self):
-    return True
 
 
 class LazyAllreduceSum(object):
