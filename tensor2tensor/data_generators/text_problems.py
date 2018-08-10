@@ -260,13 +260,13 @@ class Text2TextProblem(problem.Problem):
   def max_subtoken_length(self):
     """Maximum subtoken length when generating vocab.
 
-    Override with a finite integer (e.g. 100) to avoid quadratic-time vocab
-    building.
+    SubwordTextEncoder vocabulary building is quadratic-time wrt this variable,
+    setting it to None uses the length of the longest token in the corpus.
 
     Returns:
       an integer or None
     """
-    return None
+    return 200
 
   @property
   def batch_size_means_tokens(self):

@@ -28,6 +28,7 @@ from itertools import chain
 import math
 import re
 import tempfile
+import time
 import numpy as np
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
@@ -798,6 +799,7 @@ class SubwordTextEncoder(TextEncoder):
       # subtoken boundaries.
       subtoken_counts = collections.defaultdict(int)
       for token, count in six.iteritems(token_counts):
+        iter_start_time = time.time()
         escaped_token = _escape_token(token, self._alphabet)
         subtokens = self._escaped_token_to_subtoken_strings(escaped_token)
         start = 0
@@ -810,6 +812,11 @@ class SubwordTextEncoder(TextEncoder):
             new_subtoken = escaped_token[start:end]
             subtoken_counts[new_subtoken] += count
           start += len(subtoken)
+        iter_time_secs = time.time() - iter_start_time
+        if iter_time_secs > 0.1:
+          tf.logging.info("Processing token [{0}] took {1} seconds, consider "
+                          "setting Text2TextProblem.max_subtoken_length to a "
+                          "smaller value.".format(token, iter_time_secs))
 
       # Array of sets of candidate subtoken strings, by length.
       len_to_subtoken_strings = []
