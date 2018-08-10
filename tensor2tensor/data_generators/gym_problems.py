@@ -149,6 +149,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       memory_index = 0
       memory = None
       pieces_generated = 0
+      prev_reward = 0
+      prev_done = False
 
       # TODO(piotrmilos): self.settable_eval_phase possibly violates sematics
       # of VideoProblem
@@ -171,8 +173,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
             "image/height": [self.frame_height],
             "image/width": [self.frame_width],
             "action": [int(action)],
-            "done": [int(done)],
-            "reward": [int(reward - self.min_reward)]
+            "done": [int(prev_done)],
+            "reward": [int(prev_reward - self.min_reward)]
         }
 
         if debug_image is not None:
@@ -182,6 +184,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
         if done and self.settable_eval_phase:
           return
+
+        prev_done, prev_reward = done, reward
 
         pieces_generated += 1
         frame_counter += 1
