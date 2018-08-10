@@ -91,14 +91,11 @@ class ToyModelInput(object):
     batch_size = params['batch_size']
     logging.info('call ToyModelInput() with batch size {}'.format(batch_size))
 
-    dataset = Dataset.from_tensor_slices((self._images, self._labels))
-    dataset = dataset.repeat()
+    ds = Dataset.from_tensor_slices((self._images, self._labels)).repeat()
 
-    dataset = dataset.prefetch(batch_size)
-    dataset = dataset.apply(
-        tf.contrib.data.batch_and_drop_remainder(batch_size))
+    dataset = ds.apply(
+        tf.contrib.data.batch_and_drop_remainder(batch_size)).prefetch(2)
 
-    dataset = dataset.prefetch(2)  # Prefetch overlaps in-feed with training
     return dataset
 
 

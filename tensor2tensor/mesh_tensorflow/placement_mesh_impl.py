@@ -18,7 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
-from past.builtins import xrange
+from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
 import tensorflow as tf
@@ -251,7 +251,7 @@ class PlacementMeshImpl(mtf.MeshImpl):
 
   def laid_out_pnum(self):
     """Returns a LaidOutTensor containing the processor number."""
-    return self.LaidOutTensor(list(range(self.size)))
+    return self.LaidOutTensor(list(xrange(self.size)))
 
   @property
   def devices(self):

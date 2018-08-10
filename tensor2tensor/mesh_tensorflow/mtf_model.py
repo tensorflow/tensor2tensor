@@ -52,6 +52,7 @@ class MtfModel(t2t_model.T2TModel):
                          decode_hparams=None,
                          use_tpu=False,
                          xla_compile=False):
+    del xla_compile
     hparams = copy.deepcopy(hparams)
     hparams.use_tpu = use_tpu
     # merge decode_hparams into hparams if present

@@ -21,8 +21,8 @@ import collections
 from functools import reduce  # pylint: disable=redefined-builtin; for py3
 from operator import mul
 import re
-from past.builtins import xrange
 import six
+from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensor2tensor.mesh_tensorflow import mtf_utils
 import tensorflow as tf
@@ -1088,7 +1088,7 @@ class SlicewiseOperation(Operation):
     for t in self.inputs + self.outputs:
       layout = mesh_impl.tensor_layout(t)
       for d, mesh_axis in zip(t.shape.dims, layout.tensor_axis_to_mesh_axis):
-        if (mesh_axis is not None and d not in self._splittable_dims):
+        if mesh_axis is not None and d not in self._splittable_dims:
           raise ValueError("dimension %s is not declared as splittable" % d)
     lowering.set_tensor_lowering(
         self.outputs[0],
@@ -2528,7 +2528,7 @@ def top_1(x, reduced_dim, dtype=tf.int32, name=None):
   with tf.name_scope(name, default_name="top_1"):
     max_val = reduce_max(x, reduced_dim=reduced_dim)
     is_max = to_float(equal(x, max_val))
-    pos = range(x.mesh, reduced_dim, tf.float32)
+    pos = xrange(x.mesh, reduced_dim, tf.float32)
     ret = reduce_max(is_max * pos, reduced_dim=reduced_dim)
     ret = cast(ret, dtype)
     return ret, max_val
@@ -2841,8 +2841,8 @@ def _einsum_equation(input_shapes, output_shape):
         dim_to_letter[d] = chr(next_letter)
         next_letter += 1
       ret.append(dim_to_letter[d])
-  ret = "".join(ret)
-  return ret
+
+  return "".join(ret)
 
 
 def is_subsequence(short_seq, long_seq):

@@ -185,11 +185,11 @@ def run_mnist():
     # randomness, while smaller sizes use less memory. MNIST is a small
     # enough dataset that we can easily shuffle the full epoch.
     ds = dataset.train(FLAGS.data_dir)
-    ds = ds.cache().shuffle(buffer_size=50000).batch(FLAGS.batch_size)
+    ds_batched = ds.cache().shuffle(buffer_size=50000).batch(FLAGS.batch_size)
 
     # Iterate through the dataset a set number (`epochs_between_evals`) of times
     # during each training session.
-    ds = ds.repeat(FLAGS.epochs_between_evals)
+    ds = ds_batched.repeat(FLAGS.epochs_between_evals)
     return ds
 
   def eval_input_fn():
@@ -197,7 +197,7 @@ def run_mnist():
         FLAGS.batch_size).make_one_shot_iterator().get_next()
 
   # Train and evaluate model.
-  for _ in range(FLAGS.train_epochs // FLAGS.epochs_between_evals):
+  for _ in xrange(FLAGS.train_epochs // FLAGS.epochs_between_evals):
     mnist_classifier.train(input_fn=train_input_fn, hooks=None)
     eval_results = mnist_classifier.evaluate(input_fn=eval_input_fn)
     print("\nEvaluation results:\n\t%s\n" % eval_results)
