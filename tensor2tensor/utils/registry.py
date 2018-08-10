@@ -646,7 +646,7 @@ Registry contents:
   Pruning Strategies:
 %s
 """
-  m, hp, rhp, mod, probs, atks, ap = [
+  m, hp, rhp, mod, probs, atks, ap, pp, ps = [
       display_list_by_prefix(entries, starting_spaces=4) for entries in [
           list_models(),
           list_hparams(),
@@ -659,4 +659,4 @@ Registry contents:
           list_pruning_strategies(),
       ]
   ]
-  return help_str % (m, hp, rhp, mod, probs, atks, ap)
+  return help_str % (m, hp, rhp, mod, probs, atks, ap, pp, ps)

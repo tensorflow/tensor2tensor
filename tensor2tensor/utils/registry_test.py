@@ -273,5 +273,13 @@ class ModalityRegistryTest(tf.test.TestCase):
     self.assertSetEqual(set(registry.list_modalities()), set(expected))
 
 
+class RegistryTest(tf.test.TestCase):
+  """ Test class for common functions."""
+
+  def testRegistryHelp(self):
+    help_str = registry.help_string()
+    self.assertIsNotNone(help_str)
+    self.assertGreater(len(help_str), 0)
+
 if __name__ == "__main__":
   tf.test.main()
