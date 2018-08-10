@@ -197,7 +197,7 @@ def run_mnist():
         FLAGS.batch_size).make_one_shot_iterator().get_next()
 
   # Train and evaluate model.
-  for _ in xrange(FLAGS.train_epochs // FLAGS.epochs_between_evals):
+  for _ in range(FLAGS.train_epochs // FLAGS.epochs_between_evals):
     mnist_classifier.train(input_fn=train_input_fn, hooks=None)
     eval_results = mnist_classifier.evaluate(input_fn=eval_input_fn)
     print("\nEvaluation results:\n\t%s\n" % eval_results)

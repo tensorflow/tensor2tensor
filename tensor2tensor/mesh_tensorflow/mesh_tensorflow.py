@@ -2528,7 +2528,7 @@ def top_1(x, reduced_dim, dtype=tf.int32, name=None):
   with tf.name_scope(name, default_name="top_1"):
     max_val = reduce_max(x, reduced_dim=reduced_dim)
     is_max = to_float(equal(x, max_val))
-    pos = xrange(x.mesh, reduced_dim, tf.float32)
+    pos = range(x.mesh, reduced_dim, tf.float32)
     ret = reduce_max(is_max * pos, reduced_dim=reduced_dim)
     ret = cast(ret, dtype)
     return ret, max_val
