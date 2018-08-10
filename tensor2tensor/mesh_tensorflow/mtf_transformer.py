@@ -866,17 +866,33 @@ def mtf_transformer_paper_tr_0_mesh_512():
 
 
 @registry.register_hparams
-def mtf_transformer_lm_moe():
-  """Mixture of experts language model."""
-  hparams = mtf_transformer_base()
-  hparams.label_smoothing = 0.0
+def mtf_transformer_lm_baseline():
+  """Small language model to run on 1 TPU.
+
+  Run this on 2x2 on languagemodel_lm1b32k_packed for 272000 steps (10 epochs)
+  140M params
+
+  Returns:
+    a hparams
+  """
+  hparams = mtf_transformer_paper_lm(-1)
   hparams.batch_size = 128
-  hparams.d_model = 1024
-  hparams.d_ff = 4096
-  hparams.attention_key_channels = 1024
-  hparams.attention_value_channels = 1024
-  hparams.shared_embedding_and_softmax_weights = False
-  hparams.num_heads = 8
+  hparams.learning_rate_decay_steps = 27200  # one epoch on lm1b
+  hparams.mesh_shape = "batch:8"
+  return hparams
+
+
+@registry.register_hparams
+def mtf_transformer_lm_moe():
+  """Mixture of experts language model.
+
+  Run this on 2x2 on languagemodel_lm1b32k_packed for 272000 steps (10 epochs)
+  900M params.
+
+  Returns:
+    a hparams
+  """
+  hparams = mtf_transformer_lm_baseline()
   hparams.mesh_shape = "all:8"
   hparams.layout = "batch:all;experts:all"
   hparams.feedforward_layer = "moe"
