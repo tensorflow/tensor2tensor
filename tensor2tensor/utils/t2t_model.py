@@ -431,9 +431,10 @@ class T2TModel(base.Layer):
         losses[k] = self._loss_single(v, target_modality[k], features[k])
 
         n, d = losses[k]
-        tf.summary.scalar(k + "_loss", n / d)
-        tf.summary.scalar(k + "_loss_num", n)
-        tf.summary.scalar(k + "_loss_den", d)
+        if common_layers.should_generate_summaries():
+          tf.summary.scalar(k + "_loss", n / d)
+          tf.summary.scalar(k + "_loss_num", n)
+          tf.summary.scalar(k + "_loss_den", d)
 
       return tf.add_n([n / d for n, d in losses.values()])
     else:
@@ -1236,9 +1237,10 @@ class T2TModel(base.Layer):
       return logits
 
     # Summarize losses
-    with tf.name_scope("losses"):
-      for loss_name, loss_val in sorted(losses_dict.items()):
-        tf.summary.scalar(loss_name, loss_val)
+    if common_layers.should_generate_summaries():
+      with tf.name_scope("losses"):
+        for loss_name, loss_val in sorted(losses_dict.items()):
+          tf.summary.scalar(loss_name, loss_val)
 
     # Accumulate losses
     loss = sum(losses_dict[key] for key in sorted(losses_dict.keys()))
@@ -1722,6 +1724,10 @@ def average_sharded_losses(sharded_losses):
 
 
 def summarize_features(features, num_shards=1):
+  """Generate summaries for features."""
+  if not common_layers.should_generate_summaries():
+    return
+
   with tf.name_scope("input_stats"):
     for (k, v) in sorted(six.iteritems(features)):
       if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1:

@@ -3448,13 +3448,14 @@ def should_generate_summaries():
   Returns:
     a boolean
   """
-  if "while/" in tf.contrib.framework.get_name_scope():
+  name_scope = tf.contrib.framework.get_name_scope()
+  if name_scope and "while/" in name_scope:
     # Summaries don't work well within tf.while_loop()
     return False
   if tf.get_variable_scope().reuse:
     # Avoid generating separate summaries for different data shards
     return False
-  return True
+  return getattr(tf.flags.FLAGS, "enable_summaries", True)
 
 
 def reshape_like(a, b):
