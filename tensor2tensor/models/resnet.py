@@ -18,6 +18,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
@@ -386,6 +387,8 @@ class Resnet(t2t_model.T2TModel):
     }
     assert hp.block_fn in block_fns
     is_training = hp.mode == tf.estimator.ModeKeys.TRAIN
+    if is_training:
+      targets = features["targets_raw"]
 
     inputs = features["inputs"]
 
@@ -426,7 +429,21 @@ class Resnet(t2t_model.T2TModel):
     if hp.use_nchw:
       out = tf.transpose(out, [0, 2, 3, 1])
 
-    return out
+    out = tf.reduce_mean(out, [1, 2])
+    num_classes = self._problem_hparams.target_modality.top_dimensionality
+    logits = tf.layers.dense(out, num_classes)
+
+    losses = {"training": 0.0}
+    if is_training:
+      loss = tf.losses.sparse_softmax_cross_entropy(
+          labels=tf.squeeze(targets), logits=logits)
+      loss = tf.reduce_mean(loss)
+
+      losses = {"training": loss}
+
+    logits = tf.reshape(logits, [-1, 1, 1, 1, logits.shape[1]])
+
+    return logits, losses
 
   def infer(self,
             features=None,
@@ -564,6 +581,7 @@ def resnet_200():
   return hp
 
 
+# Pruning parameters
 @registry.register_pruning_params
 def resnet_weight():
   hp = tf.contrib.training.HParams()
@@ -579,3 +597,34 @@ def resnet_unit():
   hp = resnet_weight()
   hp.strategy = "unit"
   return hp
+
+
+# Adversarial attack parameters
+@registry.register_attack_params
+def resnet_fgsm():
+  aparams = tf.contrib.training.HParams()
+  aparams.attack = "fgsm"
+  aparams.epsilon_name = "eps"
+  aparams.attack_epsilons = [i * 0.8 for i in range(20)]
+  aparams.add_hparam("clip_min", 0.0)
+  aparams.add_hparam("clip_max", 255.0)
+  return aparams
+
+
+@registry.register_attack_params
+def resnet_madry():
+  aparams = resnet_fgsm()
+  aparams.attack = "madry"
+  aparams.add_hparam("nb_iter", 40)
+  aparams.add_hparam("eps_iter", 1.0)
+  return aparams
+
+
+@registry.register_attack_params
+def resnet_random():
+  aparams = resnet_fgsm()
+  aparams.attack = "random"
+  aparams.epsilon_name = "eps"
+  aparams.add_hparam("num_samples", 10)
+  aparams.add_hparam("num_batches", 100)
+  return aparams

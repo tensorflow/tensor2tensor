@@ -720,6 +720,7 @@ class Problem(object):
                               mode,
                               hparams,
                               data_dir=None,
+                              force_repeat=False,
                               dataset_kwargs=None):
     """Return input_fn wrapped for Estimator."""
 
@@ -730,6 +731,7 @@ class Problem(object):
           data_dir=data_dir,
           params=params,
           config=config,
+          force_repeat=force_repeat,
           dataset_kwargs=dataset_kwargs)
 
     return estimator_input_fn
@@ -774,6 +776,7 @@ class Problem(object):
                data_dir=None,
                params=None,
                config=None,
+               force_repeat=False,
                dataset_kwargs=None):
     """Builds input pipeline for problem.
 
@@ -784,6 +787,7 @@ class Problem(object):
       params: dict, may include "batch_size"
       config: RunConfig; should have the data_parallelism attribute if not using
         TPU
+      force_repeat: bool, whether to repeat the data even if not training
       dataset_kwargs: dict, if passed, will pass as kwargs to self.dataset
         method when called
 
@@ -828,9 +832,11 @@ class Problem(object):
     })
 
     dataset = self.dataset(**dataset_kwargs)
-    if is_training:
+    if force_repeat or is_training:
       # Repeat and skip a random number of records
       dataset = dataset.repeat()
+
+    if is_training:
       data_files = tf.contrib.slim.parallel_reader.get_data_files(
           self.filepattern(data_dir, mode))
       #  In continuous_train_and_eval when switching between train and

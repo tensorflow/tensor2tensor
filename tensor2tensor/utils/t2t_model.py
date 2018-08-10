@@ -1611,11 +1611,11 @@ def _create_host_call(model_dir):
         # We need to use tf.contrib.summary in order to feed the `step`.
         for name, value in sorted(six.iteritems(kwargs)):
           if name.startswith("ScalarSummary"):
-            name = name.strip("ScalarSummary")
+            name = name[len("ScalarSummary"):]
             tf.contrib.summary.scalar(
                 name, tf.reduce_mean(tf.to_float(value)), step=gs)
           elif name.startswith("ImageSummary"):
-            name = name.strip("ImageSummary")
+            name = name[len("ImageSummary"):]
             tf.contrib.summary.image(name, value, step=gs)
 
         return tf.contrib.summary.all_summary_ops()
