@@ -595,9 +595,8 @@ def discrete_bottleneck(inputs,
   else:
     block_v_size = None
 
-  with tf.variable_scope(name,
-                         default_name="discrete_bottleneck",
-                         reuse=tf.AUTO_REUSE):
+  with tf.variable_scope(
+      name, default_name="discrete_bottleneck", reuse=tf.AUTO_REUSE):
     embed_fn = partial(
         embed,
         hidden_size=hidden_size,
@@ -614,24 +613,23 @@ def discrete_bottleneck(inputs,
     if bottleneck_kind == "dense":
       # Note discrete output is continuous here.
       outputs_discrete = tf.layers.dense(inputs, z_size, name="vcc")
-      outputs_dense = tf.layers.dense(outputs_discrete,
-                                      filter_size,
-                                      name="vch1")
+      outputs_dense = tf.layers.dense(
+          outputs_discrete, filter_size, name="vch1")
       extra_loss = tf.constant(0.0)
       neg_q_entropy = tf.constant(0.0)
     elif bottleneck_kind in ["dvq", "gumbel-softmax-dvq"]:
       if reshape_method == "slice":
-        x_reshaped = slice_hidden(inputs,
-                                  hidden_size=hidden_size,
-                                  num_blocks=num_blocks)
+        x_reshaped = slice_hidden(
+            inputs, hidden_size=hidden_size, num_blocks=num_blocks)
       elif reshape_method == "project":
         if projection_tensors is None:
           raise ValueError(
               "Projection tensors is None for reshape_method project")
-        x_reshaped = project_hidden(inputs,
-                                    projection_tensors=projection_tensors,
-                                    hidden_size=hidden_size,
-                                    num_blocks=num_blocks)
+        x_reshaped = project_hidden(
+            inputs,
+            projection_tensors=projection_tensors,
+            hidden_size=hidden_size,
+            num_blocks=num_blocks)
       else:
         raise ValueError("Unknown reshape_method")
 
@@ -642,19 +640,20 @@ def discrete_bottleneck(inputs,
       extra_loss = 0
       for i in range(num_residuals):
         x_means_hot_res, x_means_res, q_loss_res, e_loss_res, neg_q_entropy = (
-            embedding_lookup(x_reshaped,
-                             means=means[i],
-                             num_blocks=num_blocks,
-                             block_v_size=block_v_size,
-                             bottleneck_kind=bottleneck_kind,
-                             random_top_k=random_top_k,
-                             soft_em=soft_em,
-                             num_samples=num_samples,
-                             temperature_warmup_steps=temperature_warmup_steps,
-                             do_hard_gumbel_softmax=do_hard_gumbel_softmax,
-                             num_flows=num_flows,
-                             approximate_gs_entropy=approximate_gs_entropy,
-                             sum_over_latents=sum_over_latents))
+            embedding_lookup(
+                x_reshaped,
+                means=means[i],
+                num_blocks=num_blocks,
+                block_v_size=block_v_size,
+                bottleneck_kind=bottleneck_kind,
+                random_top_k=random_top_k,
+                soft_em=soft_em,
+                num_samples=num_samples,
+                temperature_warmup_steps=temperature_warmup_steps,
+                do_hard_gumbel_softmax=do_hard_gumbel_softmax,
+                num_flows=num_flows,
+                approximate_gs_entropy=approximate_gs_entropy,
+                sum_over_latents=sum_over_latents))
         # Update the EMA variables.
         if ema:
           tf.logging.info("Using EMA with beta = {}".format(beta))
@@ -667,8 +666,9 @@ def discrete_bottleneck(inputs,
               decay,
               zero_debias=False)
 
-          dw = tf.matmul(tf.transpose(x_means_hot_res, perm=[1, 2, 0]),
-                         tf.transpose(x_res, perm=[1, 0, 2]))
+          dw = tf.matmul(
+              tf.transpose(x_means_hot_res, perm=[1, 2, 0]),
+              tf.transpose(x_res, perm=[1, 0, 2]))
 
           updated_ema_means_res = moving_averages.assign_moving_average(
               ema_means[i], dw, decay, zero_debias=False)
@@ -705,9 +705,8 @@ def discrete_bottleneck(inputs,
       new_shape = shape[:-2]
       new_shape[-1] = z_size
       x_means_bits = tf.reshape(x_means_bits, shape=new_shape)
-      outputs_discrete = bit_to_int(tf.to_int32(x_means_bits),
-                                    num_bits=z_size,
-                                    base=2)
+      outputs_discrete = bit_to_int(
+          tf.to_int32(x_means_bits), num_bits=z_size, base=2)
 
       # Adjust shape of discrete outputs.
       inputs_shape = common_layers.shape_list(inputs)
@@ -732,9 +731,8 @@ def discrete_bottleneck(inputs,
           summary=summary,
           name=name)
       outputs_discrete = tf.argmax(outputs_hot, axis=-1)
-      outputs_dense = tf.layers.dense(outputs_hot,
-                                      hidden_size,
-                                      name="dae_dense")
+      outputs_dense = tf.layers.dense(
+          outputs_hot, hidden_size, name="dae_dense")
       neg_q_entropy = tf.constant(0.0)
     elif bottleneck_kind == "semhash":
       outputs_discrete = tf.layers.dense(inputs, z_size, name="vcc")
@@ -742,9 +740,10 @@ def discrete_bottleneck(inputs,
       if summary:
         tf.summary.histogram("y_clean", tf.reshape(y_clean, [-1]))
       if noise_dev > 0 and mode == tf.estimator.ModeKeys.TRAIN:
-        noise = tf.truncated_normal(common_layers.shape_list(outputs_discrete),
-                                    mean=0.0,
-                                    stddev=noise_dev)
+        noise = tf.truncated_normal(
+            common_layers.shape_list(outputs_discrete),
+            mean=0.0,
+            stddev=noise_dev)
         y = common_layers.saturating_sigmoid(outputs_discrete + noise)
       else:
         y = y_clean
@@ -756,24 +755,17 @@ def discrete_bottleneck(inputs,
       c = tf.where(
           tf.less(tf.random_uniform([common_layers.shape_list(y)[0]]), pd),
           y_discrete, y)
-      outputs_dense_a = tf.layers.dense(c,
-                                        filter_size,
-                                        name="vch1a")
-      outputs_dense_b = tf.layers.dense(1.0 - c,
-                                        filter_size,
-                                        name="vch1b")
+      outputs_dense_a = tf.layers.dense(c, filter_size, name="vch1a")
+      outputs_dense_b = tf.layers.dense(1.0 - c, filter_size, name="vch1b")
       outputs_dense = outputs_dense_a + outputs_dense_b
       dx = tf.to_int32(tf.stop_gradient(d))
       outputs_discrete = bit_to_int(dx, z_size)
       extra_loss = tf.constant(0.0)
       neg_q_entropy = tf.constant(0.0)
     elif bottleneck_kind == "vae":
-      outputs_discrete, extra_loss, _, _ = vae(inputs,
-                                               z_size,
-                                               name="vae")
-      outputs_dense = tf.layers.dense(outputs_discrete,
-                                      filter_size,
-                                      name="vch1")
+      outputs_discrete, extra_loss, _, _ = vae(inputs, z_size, name="vae")
+      outputs_dense = tf.layers.dense(
+          outputs_discrete, filter_size, name="vch1")
       neg_q_entropy = tf.constant(0.0)
     else:
       raise ValueError("Unknown discretization method.")
@@ -828,7 +820,7 @@ def vq_nearest_neighbor(x, means, soft_em=False, num_samples=10):
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, bottleneck_size])
   x_means = tf.matmul(x_means_hot_flat, means)
   e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
-  return x_means_hot, e_loss
+  return x_means_hot, e_loss, dist
 
 
 def vq_discrete_bottleneck(x,
@@ -840,7 +832,7 @@ def vq_discrete_bottleneck(x,
                            num_samples=10):
   """Simple vector quantized discrete bottleneck."""
   bottleneck_size = 2**bottleneck_bits
-  return vq_body(
+  x_means_hot, e_loss, _ = vq_body(
       x,
       bottleneck_size,
       beta=beta,
@@ -848,6 +840,7 @@ def vq_discrete_bottleneck(x,
       epsilon=epsilon,
       soft_em=soft_em,
       num_samples=num_samples)
+  return x_means_hot, e_loss
 
 
 def vq_body(x,
@@ -862,7 +855,7 @@ def vq_body(x,
   hidden_size = x_shape[-1]
   means, ema_means, ema_count = get_vq_codebook(codebook_size, hidden_size)
   x = tf.reshape(x, [-1, hidden_size])
-  x_means_hot, e_loss = vq_nearest_neighbor(
+  x_means_hot, e_loss, distances = vq_nearest_neighbor(
       x, means, soft_em=soft_em, num_samples=num_samples)
 
   # Update the ema variables
@@ -886,30 +879,49 @@ def vq_body(x,
       loss = beta * e_loss
 
   d = tf.reshape(x_means_hot, x_shape[:-1] + [codebook_size])
-  return d, loss
+  return d, loss, distances
 
 
 def vq_loss(x,
-            one_hot_targets,
+            targets,
             codebook_size,
             beta=0.25,
             decay=0.999,
             epsilon=1e-5,
             soft_em=False,
             num_samples=10):
-  """Simple vector quantized discrete bottleneck."""
+  """Compute the loss of large vocab tensors using a VQAE codebook.
+
+  Args:
+    x: Tensor of inputs to be quantized to nearest code
+    targets: Tensor of target indices to target codes
+    codebook_size: Size of quantization codebook
+    beta: scalar float for moving averages
+    decay: scalar float for moving averages
+    epsilon: scalar float for moving averages
+    soft_em: boolean, whether to apply a soft sampling procedure
+    num_samples: if soft_em, number of samples to take
+
+  Returns:
+    discrete_x: one-hot Tensor indicating which codebook element is closest to x
+    x_means: Tensor, on the forward pass: closest codebook element to x, on the
+      backwards pass: soft convex-combination of codebook elements by proximity
+      to x
+    target_means: the codebook elements corresponding to the targets
+    code_loss: loss driving x closer to its nearest codebook element
+    targets_loss: cross-entropy loss driving x closer to code corresponding to
+      target
+  """
   x_shape = common_layers.shape_list(x)
-  target_shape = common_layers.shape_list(one_hot_targets)
+  target_shape = common_layers.shape_list(targets)
   hidden_size = x_shape[-1]
   means, _, _ = get_vq_codebook(codebook_size, hidden_size)
   x = tf.reshape(x, [-1, hidden_size])
-
-  one_hot_targets = tf.reshape(one_hot_targets, [-1, target_shape[-1]])
+  targets = tf.reshape(targets, [-1])
+  one_hot_targets = tf.one_hot(targets, codebook_size)
   target_means = tf.matmul(one_hot_targets, means)
-  targets_loss = tf.reduce_sum((x - target_means)**2, -1)
-  targets_loss = tf.reduce_mean(targets_loss)
 
-  discrete_x, code_loss = vq_body(
+  discrete_x, code_loss, distances = vq_body(
       x,
       codebook_size,
       beta=beta,
@@ -918,9 +930,17 @@ def vq_loss(x,
       soft_em=soft_em,
       num_samples=num_samples)
 
+  logits = -distances
+  targets_loss = tf.losses.sparse_softmax_cross_entropy(
+      logits=logits, labels=targets)
+  targets_loss = tf.reduce_mean(targets_loss)
+
+  x_means = tf.matmul(discrete_x, means)
+  x_means = x + tf.stop_gradient(x_means - x)
+
   discrete_x = tf.reshape(discrete_x, x_shape[:-1] + [codebook_size])
-  target_means = tf.reshape(target_means, target_shape[:-1] + [hidden_size])
-  return discrete_x, target_means, code_loss, targets_loss
+  target_means = tf.reshape(target_means, target_shape + [hidden_size])
+  return discrete_x, x_means, target_means, code_loss, targets_loss
 
 
 def vq_discrete_unbottleneck(x, hidden_size):
@@ -992,8 +1012,8 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
   # [batch_size * latent_dim, num_blocks, block_v_size] to
   # [batch_size * num_blocks, latent_dim, block_v_size].
   dist = tf.reshape(dist, [batch_size, latent_dim, num_blocks, -1])
-  dist = tf.reshape(tf.transpose(dist, perm=[0, 2, 1, 3]),
-                    [-1, latent_dim, block_v_size])
+  dist = tf.reshape(
+      tf.transpose(dist, perm=[0, 2, 1, 3]), [-1, latent_dim, block_v_size])
   log_class_probs = tf.nn.log_softmax(-dist)
 
   sample_shape = [num_samples] + common_layers.shape_list(dist)
@@ -1010,7 +1030,7 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
 
   gumbel_softmax_samples = tf.nn.softmax(
       (tf.expand_dims(log_class_probs, 0) + gumbel_samples) / temperature)
-  q_samples = tf.clip_by_value(gumbel_softmax_samples, 1e-6, 1-1e-6)
+  q_samples = tf.clip_by_value(gumbel_softmax_samples, 1e-6, 1 - 1e-6)
 
   if approximate_gs_entropy:
     q_dist = tf.contrib.distributions.Multinomial(total_count=1.0, logits=-dist)
@@ -1036,8 +1056,8 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
 
       # Project samples from  [batch_size, latent_size, block_v_size] to
       # [batch_size, latent_size, hidden_size].
-      shifted_samples = common_layers.dense(
-          shifted_samples, hparams.hidden_size)
+      shifted_samples = common_layers.dense(shifted_samples,
+                                            hparams.hidden_size)
       # TODO(vafa): Include masking as a flag.
       mask = True
       if mask:
@@ -1061,11 +1081,12 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
       # which we can do without recalculating probabilities because the last
       # dimension of log_pi and q_samples are deterministic given the others.
       # Flow 2: Centered-softmax.
-      chained_bijectors = tf.contrib.distributions.bijectors.Chain(
-          [tf.contrib.distributions.bijectors.SoftmaxCentered(),
-           tf.contrib.distributions.bijectors.Affine(
-               shift=log_pi[:, :, :-1],
-               scale_identity_multiplier=1./temperature)])
+      chained_bijectors = tf.contrib.distributions.bijectors.Chain([
+          tf.contrib.distributions.bijectors.SoftmaxCentered(),
+          tf.contrib.distributions.bijectors.Affine(
+              shift=log_pi[:, :, :-1],
+              scale_identity_multiplier=1. / temperature)
+      ])
       q_samples = chained_bijectors.forward(q_samples[:, :, :-1])
       log_det = chained_bijectors.inverse_log_det_jacobian(
           q_samples, event_ndims=1)
@@ -1084,9 +1105,9 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
 
     # Take average of one-hot vectors over samples.
     x_means_hot = tf.reduce_mean(tf.one_hot(x_means_idx, block_v_size), 0)
-    x_means_assignments = (tf.reduce_mean(q_samples, 0) +
-                           tf.stop_gradient(x_means_hot - tf.reduce_mean(
-                               q_samples, 0)))
+    x_means_assignments = (
+        tf.reduce_mean(q_samples, 0) +
+        tf.stop_gradient(x_means_hot - tf.reduce_mean(q_samples, 0)))
   else:
     x_means_assignments = tf.reduce_mean(gumbel_softmax_samples, 0)
 
@@ -1094,12 +1115,10 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
   # block_v_size]. We have to transpose between reshapes to make sure the
   # dimensions have the correct interpretation.
   x_means_assignments = tf.reshape(
-      x_means_assignments,
-      [batch_size, num_blocks, latent_dim, block_v_size])
+      x_means_assignments, [batch_size, num_blocks, latent_dim, block_v_size])
   x_means_assignments = tf.transpose(x_means_assignments, [0, 2, 1, 3])
   x_means_assignments = tf.reshape(
-      x_means_assignments,
-      [batch_size * latent_dim, num_blocks, block_v_size])
+      x_means_assignments, [batch_size * latent_dim, num_blocks, block_v_size])
 
   return x_means_assignments, neg_q_entropy
 
@@ -1309,14 +1328,15 @@ def parametrized_bottleneck(x, hparams):
         soft_em=True,
         num_samples=hparams.vq_num_samples)
   if hparams.bottleneck_kind == "gumbel_softmax":
-    return gumbel_softmax_discrete_bottleneck(x,
-                                              hparams.bottleneck_bits,
-                                              hparams.vq_beta,
-                                              hparams.vq_decay,
-                                              hparams.vq_epsilon,
-                                              hparams.temperature_warmup_steps,
-                                              hard=False,
-                                              summary=True)
+    return gumbel_softmax_discrete_bottleneck(
+        x,
+        hparams.bottleneck_bits,
+        hparams.vq_beta,
+        hparams.vq_decay,
+        hparams.vq_epsilon,
+        hparams.temperature_warmup_steps,
+        hard=False,
+        summary=True)
 
   raise ValueError(
       "Unsupported hparams.bottleneck_kind %s" % hparams.bottleneck_kind)

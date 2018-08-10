@@ -200,17 +200,20 @@ class AutoencoderBasic(t2t_model.T2TModel):
     else:
       raise Exception("Unsupported problem type: %s" % self.hparams.problem)
 
-    one_hot_labels = tf.one_hot(labels, vocab_size)
-    code_loss_gan = 0.0
+    losses = {}
     if hparams.gan_loss_factor != 0.0:
       res_gan, res = tf.split(res, 2, axis=0)
       with tf.variable_scope("vq"):
-        reconstr_gan, _, code_loss_gan, _ = discretization.vq_loss(
-            res, one_hot_labels, vocab_size)
+        reconstr_gan, gan_codes, _, code_loss_gan, _ = discretization.vq_loss(
+            res_gan, labels, vocab_size)
+        losses["code_loss_gan"] = code_loss_gan
 
     with tf.variable_scope("vq", reuse=tf.AUTO_REUSE):
-      reconstr, target_codes, code_loss, targets_loss = discretization.vq_loss(
-          res, one_hot_labels, vocab_size)
+      (reconstr, _, target_codes, code_loss,
+       targets_loss) = discretization.vq_loss(res, labels, vocab_size)
+
+    losses["code_loss"] = code_loss
+    losses["training"] = targets_loss
 
     # Add GAN loss if requested.
     gan_loss = 0.0
@@ -224,8 +227,14 @@ class AutoencoderBasic(t2t_model.T2TModel):
       def discriminate(x):
         return self.discriminator(x, is_training=is_training)
 
+      tc_shape = common_layers.shape_list(target_codes)
+      if len(tc_shape) > 4:
+        target_codes = tf.reshape(target_codes,
+                                  tc_shape[:-2] + [tc_shape[-1] * tc_shape[-2]])
+        gan_codes = tf.reshape(gan_codes,
+                               tc_shape[:-2] + [tc_shape[-1] * tc_shape[-2]])
       gan_loss = common_layers.sliced_gan_loss(target_codes,
-                                               reverse_gradient(res_gan),
+                                               reverse_gradient(gan_codes),
                                                discriminate,
                                                self.hparams.num_sliced_vecs)
       gan_loss *= hparams.gan_loss_factor
@@ -236,13 +245,11 @@ class AutoencoderBasic(t2t_model.T2TModel):
           common_layers.tpu_safe_image_summary(tf.argmax(reconstr, -1)),
           max_outputs=1)
 
-    return reconstr, {
-        "training": targets_loss,
-        "code_loss": code_loss,
-        "code_loss_gan": code_loss_gan,
-        "b_loss": b_loss,
-        "gan_loss": -gan_loss
-    }
+    losses["b_loss"] = b_loss
+    losses["gan_loss"] = -gan_loss
+
+    logits = reconstr
+    return logits, losses
 
   def sample(self, features=None, shape=None):
     del features, shape
@@ -787,6 +794,7 @@ def autoencoder_basic():
   hparams.add_hparam("discriminator_batchnorm", True)
   hparams.add_hparam("num_sliced_vecs", 4096)
   hparams.add_hparam("gan_loss_factor", 0.0)
+  hparams.add_hparam("use_vqloss", False)
   return hparams
 
 
@@ -875,7 +883,26 @@ def autoencoder_ordered_discrete():
   hparams.gan_loss_factor = 0.0
   hparams.dropout = 0.1
   hparams.residual_dropout = 0.3
+  hparams.use_vqloss = True
   hparams.add_hparam("unordered", False)
+
+  return hparams
+
+
+@registry.register_hparams
+def autoencoder_ordered_discrete_novq():
+  """Ordered discrete autoencoder model."""
+  hparams = autoencoder_ordered_discrete()
+  hparams.use_vqloss = False
+
+  return hparams
+
+
+@registry.register_hparams
+def autoencoder_ordered_discrete_hs256():
+  """Ordered discrete autoencoder model."""
+  hparams = autoencoder_ordered_discrete()
+  hparams.hidden_size = 256
   return hparams
 
 
