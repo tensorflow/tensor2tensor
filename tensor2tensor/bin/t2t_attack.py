@@ -192,7 +192,7 @@ def main(argv):
 
   if FLAGS.surrogate_attack:
     sur_model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-        FLAGS.surrogate_model, sur_hparams, use_tpu=FLAGS.use_tpu)
+        FLAGS.surrogate_model, sur_hparams)
     sur_ch_model = adv_attack_utils.T2TAttackModel(
         sur_model_fn, features, params, sur_config, scope="surrogate")
     # Dummy call to construct graph
@@ -206,7 +206,7 @@ def main(argv):
   other_vars = set(tf.global_variables())
 
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-      FLAGS.model, hparams, use_tpu=FLAGS.use_tpu)
+      FLAGS.model, hparams)
   ch_model = adv_attack_utils.T2TAttackModel(model_fn, features, params, config)
 
   acc_mask = None

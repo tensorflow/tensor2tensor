@@ -216,6 +216,7 @@ def create_estimator(model_name,
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
       model_name, hparams, decode_hparams=decode_hparams)
 
+  del use_xla
   if use_tpu or use_tpu_estimator:
     problem = hparams.problem
     batch_size = (

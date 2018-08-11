@@ -86,7 +86,7 @@ def main(argv):
   sess = tf.Session()
 
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
-      FLAGS.model, hparams, use_tpu=FLAGS.use_tpu)
+      FLAGS.model, hparams)
   spec = model_fn(
       features,
       labels,
