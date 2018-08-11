@@ -3455,7 +3455,10 @@ def should_generate_summaries():
   if tf.get_variable_scope().reuse:
     # Avoid generating separate summaries for different data shards
     return False
-  return getattr(tf.flags.FLAGS, "enable_summaries", True)
+  # TODO(rsepassi): Figure out a way to re-enable this line. Breaks all tests
+  # on Travis.
+  # return getattr(tf.flags.FLAGS, "enable_summaries", True)
+  return True
 
 
 def reshape_like(a, b):
