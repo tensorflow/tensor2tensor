@@ -830,12 +830,13 @@ def mtf_transformer_paper_tr_0_mesh_8():
 @registry.register_hparams
 def mtf_transformer_paper_tr_4_mesh_16_8():
   hparams = mtf_transformer_paper_tr(4)
-  hparams.mesh_shape = "model:16;batch:8"
+  hparams.mesh_shape = "batch:8;model:16"
   return hparams
 
 
 @registry.register_hparams
 def mtf_transformer_paper_tr_6_mesh_64_8():
+  # Note: This mesh shape does align well with physical [16, 16, 2] topology.
   hparams = mtf_transformer_paper_tr(6)
   hparams.mesh_shape = "model:64;batch:8"
   return hparams
