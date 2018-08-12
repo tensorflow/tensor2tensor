@@ -220,6 +220,9 @@ class SimdMeshImpl(mtf.MeshImpl):
   def alltoall(self, x, mesh_axis, split_axis, concat_axis):
     """Grouped alltoall (like MPI alltoall with splitting and concatenation).
 
+    TODO(noam): this is a terribly inefficient implementation using allreduce.
+    Replace this with a native xla alltoall once it is ready.
+
     Args:
       x: a LaidOutTensor
       mesh_axis: an integer the mesh axis along which to group

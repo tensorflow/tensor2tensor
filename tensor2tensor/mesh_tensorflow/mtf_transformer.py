@@ -698,9 +698,33 @@ def mtf_transformer_tiny_8gpu():
   return hparams
 
 
-def mtf_transformer_paper_lm(sz):
-  """Config for language-model experiments."""
-  n = 2 ** sz
+def mtf_transformer_paper_lm(size):
+  """Config for language-model experiments.
+
+  Train these on languagemodel_lm1b32k_packed for 136000 steps (10 epochs)
+
+  The size parameter is an integer that controls the number of heads and the
+  size of the size of the feedforward hidden layers.  Increasing size by 1
+  doubles each of these.
+
+  Results:
+  size   params/10^9  log-ppl(per-token)
+  -1     0.14         3.209
+  0      0.22         3.119
+  1      0.37         3.037
+  2      0.67         2.969
+  3      1.28         2.912
+  4      2.48         2.874
+  5      4.90         2.871
+
+  (to get word-level log-ppl, multiply by 1.1078)
+
+  Args:
+    size: an integer
+  Returns:
+    a hparams object
+  """
+  n = 2 ** size
   hparams = mtf_transformer_base()
   hparams.label_smoothing = 0.0
   hparams.batch_size = 256
@@ -763,9 +787,21 @@ def mtf_transformer_paper_lm_5():
   return hparams
 
 
-def mtf_transformer_paper_tr(sz):
-  """Config for translation experiments."""
-  n = 2 ** sz
+def mtf_transformer_paper_tr(size):
+  """Config for translation experiments.
+
+  Train these on translate_enfr_wmt32k_packed for 154000 steps (3 epochs)
+
+  The size parameter is an integer that controls the number of heads and the
+  size of the size of the feedforward hidden layers.  Increasing size by 1
+  doubles each of these.
+
+  Args:
+    size: an integer
+  Returns:
+    a hparams object
+  """
+  n = 2 ** size
   hparams = mtf_transformer_base()
   hparams.label_smoothing = 0.1
   hparams.batch_size = 128
@@ -871,7 +907,9 @@ def mtf_transformer_lm_baseline():
   """Small language model to run on 1 TPU.
 
   Run this on 2x2 on languagemodel_lm1b32k_packed for 272000 steps (10 epochs)
-  140M params
+  Results:
+         params/10^9  log-ppl(per-token)
+         0.14         3.202
 
   Returns:
     a hparams
@@ -890,6 +928,10 @@ def mtf_transformer_lm_moe():
   Run this on 2x2 on languagemodel_lm1b32k_packed for 272000 steps (10 epochs)
   900M params.
 
+  Results on LM1B:
+         params/10^9  log-ppl(per-token)
+         0.90         3.002
+
   Returns:
     a hparams
   """
@@ -898,3 +940,5 @@ def mtf_transformer_lm_moe():
   hparams.layout = "batch:all;experts:all"
   hparams.feedforward_layer = "moe"
   return hparams
+
+
