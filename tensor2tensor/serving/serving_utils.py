@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import base64
+import functools
 from googleapiclient import discovery
 import grpc
 
@@ -31,11 +32,51 @@ from tensorflow_serving.apis import prediction_service_pb2_grpc
 
 
 
-def _make_example(input_ids, feature_name="inputs"):
+def _make_example(input_ids, problem, input_feature_name="inputs"):
+  """Make a tf.train.Example for the problem.
+
+  features[input_feature_name] = input_ids
+
+  Also fills in any other required features with dummy values.
+
+  Args:
+    input_ids: list<int>.
+    problem: Problem.
+    input_feature_name: name of feature for input_ids.
+
+  Returns:
+    tf.train.Example
+  """
   features = {
-      feature_name:
+      input_feature_name:
           tf.train.Feature(int64_list=tf.train.Int64List(value=input_ids))
   }
+
+  # Fill in dummy values for any other required features that presumably
+  # will not actually be used for prediction.
+  data_fields, _ = problem.example_reading_spec()
+  for fname, ftype in data_fields.items():
+    if fname == input_feature_name:
+      continue
+    if not isinstance(ftype, tf.FixedLenFeature):
+      # Only FixedLenFeatures are required
+      continue
+    if ftype.default_value is not None:
+      # If there's a default value, no need to fill it in
+      continue
+    num_elements = functools.reduce(lambda acc, el: acc * el, ftype.shape, 1)
+    if ftype.dtype in [tf.int32, tf.int64]:
+      value = tf.train.Feature(
+          int64_list=tf.train.Int64List(value=[0] * num_elements))
+    if ftype.dtype in [tf.float32, tf.float64]:
+      value = tf.train.Feature(
+          float_list=tf.train.FloatList(value=[0.] * num_elements))
+    if ftype.dtype == tf.bytes:
+      value = tf.train.Feature(
+          bytes_list=tf.train.BytesList(value=[""] * num_elements))
+    tf.logging.info("Adding dummy value for feature %s as it is required by "
+                    "the Problem.", fname)
+    features[fname] = value
   return tf.train.Example(features=tf.train.Features(feature=features))
 
 
@@ -110,7 +151,8 @@ def predict(inputs_list, problem, request_fn):
       _encode(inputs, input_encoder, add_eos=problem.has_inputs)
       for inputs in inputs_list
   ]
-  examples = [_make_example(input_ids, fname) for input_ids in input_ids_list]
+  examples = [_make_example(input_ids, problem, fname)
+              for input_ids in input_ids_list]
   predictions = request_fn(examples)
   output_decoder = problem.feature_info["targets"].encoder
   outputs = [
