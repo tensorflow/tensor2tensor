@@ -1119,7 +1119,6 @@ class SlicewiseOperation(Operation):
                output_shape,
                output_dtype,
                splittable_dims,
-               has_gradient=True,
                grad_function=None,
                name=None):
     """Create a SlicewiseOperation.
@@ -1136,7 +1135,6 @@ class SlicewiseOperation(Operation):
       output_shape: a Shape
       output_dtype: a dtype
       splittable_dims: a list of Dimensions which are ok to split
-      has_gradient: a boolean
       grad_function: an optional python function. Default to using tf.gradients
       name: an optional string
     """
@@ -1144,12 +1142,7 @@ class SlicewiseOperation(Operation):
     self._tf_fn = tf_fn
     self._outputs = [Tensor(self, output_shape, output_dtype)]
     self._splittable_dims = splittable_dims
-    self._has_gradient = has_gradient
     self._grad_function = grad_function
-
-  @property
-  def has_gradient(self):
-    return self._has_gradient
 
   def gradient(self, grad_ys):
     if self._grad_function is not None:
@@ -1175,7 +1168,6 @@ def slicewise(tf_fn,
               output_shape=None,
               output_dtype=None,
               splittable_dims=None,
-              has_gradient=True,
               grad_function=None,
               name=None):
   """Slice-wise call to any tensorflow function.
@@ -1190,7 +1182,6 @@ def slicewise(tf_fn,
     output_shape: a Shape
     output_dtype: a dtype
     splittable_dims: a list of Dimensions which are ok to split
-    has_gradient: a boolean
     grad_function: an optional gradients function.  If None, use tf gradient.
     name: an optional string
 
@@ -1203,7 +1194,6 @@ def slicewise(tf_fn,
       convert_to_shape(output_shape) or xs[0].shape,
       output_dtype or xs[0].dtype,
       splittable_dims,
-      has_gradient,
       grad_function,
       name=name).outputs[0]
 
