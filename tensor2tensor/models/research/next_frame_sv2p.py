@@ -55,9 +55,16 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     latent = latent_mean + tf.exp(latent_std / 2.0) * latent
     return latent
 
+  def get_iteration_num(self):
+    step_num = tf.train.get_global_step()
+    # TODO(lukaszkaiser): what should it be if it"s undefined?
+    if step_num is None:
+      step_num = 1000000
+    return step_num
+
   def get_beta(self):
     """Get KL multiplier (beta) based on the schedule."""
-    step_num = tf.train.get_or_create_global_step()
+    step_num = self.get_iteration_num()
     schedule = self.hparams.latent_loss_multiplier_schedule
     second_stage = (self.hparams.num_iterations_1st_stage +
                     self.hparams.num_iterations_2nd_stage)
@@ -96,7 +103,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
   def get_scheduled_sample_func(self, batch_size):
     """Creates a function for scheduled sampling based on given hparams."""
     with tf.variable_scope("scheduled_sampling_func", reuse=False):
-      iter_num = tf.train.get_or_create_global_step()
+      iter_num = self.get_iteration_num()
       if self.hparams.scheduled_sampling_mode == "prob":
         decay_steps = self.hparams.scheduled_sampling_decay_steps
         probability = tf.train.polynomial_decay(
@@ -305,7 +312,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
         return tf.zeros_like(mean), tf.zeros_like(std)
 
       # No latent in the first phase
-      iter_num = tf.train.get_or_create_global_step()
+      iter_num = self.get_iteration_num()
       ret_mean, ret_std = tf.cond(
           iter_num < self.hparams.num_iterations_1st_stage,
           lambda: (tf.zeros_like(mean), tf.zeros_like(std)),
