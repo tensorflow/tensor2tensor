@@ -205,12 +205,22 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
 def train_world_model(problem_name, data_dir, output_dir, hparams, epoch):
   """Train the world model on problem_name."""
   train_steps = hparams.model_train_steps * (epoch + 2)
+  model_hparams = trainer_lib.create_hparams(hparams.generative_model_params)
+  learning_rate = model_hparams.learning_rate_constant
+  # Bump learning rate after first epoch by 3x.
+  # We picked 3x because our default learning rate schedule decreases with
+  # 1/square root of the time step; 1/sqrt(10k) = 0.01 and 1/sqrt(100k) ~ 0.0032
+  # so by bumping it up 3x we about "go back" from 100k steps to 10k, which is
+  # approximately as much as "going back 1 epoch" would be in default schedule.
+  # In your experiments, you may want to optimize this rate to your schedule.
+  if epoch > 0: learning_rate *= 3
   with temporary_flags({
       "data_dir": data_dir,
       "output_dir": output_dir,
       "problem": problem_name,
       "model": hparams.generative_model,
       "hparams_set": hparams.generative_model_params,
+      "hparams": "learning_rate_constant=%.6f" % learning_rate,
       "eval_steps": 100,
       "train_steps": train_steps,
   }):
@@ -490,21 +500,22 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
 @registry.register_hparams
 def rl_modelrl_base():
   return tf.contrib.training.HParams(
-      epochs=3,
+      epochs=6,
       # Total frames used for training =
       # steps * (1 - 1/11) * epochs
-      # 1/11 steps are used for evaluation data
-      # 100k frames for training = 36666
-      true_env_generator_num_steps=36666,
+      # 1/11 steps are used for evaluation data.
+      # So to use N frames set steps = N / (epochs * (1 - 1/11)).
+      # We set it to use 100k frames for training.
+      true_env_generator_num_steps=int(100000 / (6 * (1.0 - 1.0/11.0))),
       generative_model="next_frame_basic",
-      generative_model_params="next_frame",
+      generative_model_params="next_frame_pixel_noise",
       ppo_params="ppo_pong_base",
       autoencoder_train_steps=0,
-      model_train_steps=100000,
+      model_train_steps=50000,
       simulated_env_generator_num_steps=2000,
       simulation_random_starts=True,
       intrinsic_reward_scale=0.,
-      ppo_epochs_num=400,  # This should be enough to see something
+      ppo_epochs_num=200,  # This should be enough to see something
       # Our simulated envs do not know how to reset.
       # You should set ppo_time_limit to the value you believe that
       # the simulated env produces a reasonable output.

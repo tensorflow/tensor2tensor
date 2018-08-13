@@ -53,7 +53,7 @@ def next_frame():
 def next_frame_pixel_noise():
   """Basic 2-frame conv model with pixel noise."""
   hparams = next_frame()
-  hparams.add_hparam("video_modality_input_noise", 0.25)
+  hparams.add_hparam("video_modality_input_noise", 0.05)
   hparams.input_modalities = "inputs:video:pixel_noise"
   return hparams
 
@@ -252,4 +252,3 @@ def next_frame_ae_range(rhp):
   rhp.set_float("learning_rate_constant", 1., 2.)
   rhp.set_float("initializer_gain", 0.8, 1.5)
   rhp.set_int("filter_double_steps", 2, 3)
-
