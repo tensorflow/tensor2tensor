@@ -314,7 +314,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
       # No latent in the first phase
       iter_num = self.get_iteration_num()
       ret_mean, ret_std = tf.cond(
-          iter_num < self.hparams.num_iterations_1st_stage,
+          tf.less(iter_num, self.hparams.num_iterations_1st_stage),
           lambda: (tf.zeros_like(mean), tf.zeros_like(std)),
           lambda: (mean, std))
 
