@@ -605,26 +605,6 @@ class TransformerAE(t2t_model.T2TModel):
   def has_input(self):
     return self._problem_hparams.input_modality
 
-  def loss(self, logits, features):
-    """Computes cross-entropy loss and scales by 1/batch_size."""
-    labels = features["targets"]
-    logits_shape = common_layers.shape_list(logits)
-    vocab_size = logits_shape[-1]
-    with tf.name_scope("padded_cross_entropy", values=[logits, labels]):
-      logits, labels = common_layers.pad_with_zeros(logits, labels)
-      logits = tf.reshape(
-          logits,
-          common_layers.shape_list(labels) + [vocab_size],
-          name="padded_cross_entropy_size_check")
-      logits = tf.cast(logits, tf.float32)
-      xent = common_layers.smoothing_cross_entropy(
-          logits, labels, vocab_size, confidence=1.0, gaussian=False)
-      if self._hparams.sum_over_latents:
-        recon_loss = tf.reduce_sum(xent) / tf.cast(logits_shape[0], tf.float32)
-      else:
-        recon_loss = tf.reduce_mean(xent)
-      return recon_loss
-
   def body(self, features):
     inputs = features["inputs"] if "inputs" in features else None
     if self._hparams.drop_inputs:
