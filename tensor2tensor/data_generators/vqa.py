@@ -32,7 +32,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.google.data_generators import vqa_utils
+from tensor2tensor.data_generators import vqa_utils
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
