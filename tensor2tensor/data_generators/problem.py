@@ -866,7 +866,7 @@ class Problem(object):
         # on TPU, we use params["batch_size"], which specifies the number of
         # examples across all datashards
         batch_size = params["batch_size"]
-        dataset = dataset.batch(batch_size, drop_remainder=True)
+        dataset = dataset.batch(batch_size)
       else:
         num_shards = config.data_parallelism.n if config else 1
         batch_size = hparams.batch_size * num_shards
