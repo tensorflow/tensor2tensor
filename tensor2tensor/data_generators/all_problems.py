@@ -77,6 +77,7 @@ MODULES = [
     "tensor2tensor.data_generators.translate_enzh",
     "tensor2tensor.data_generators.twentybn",
     "tensor2tensor.data_generators.video_generated",
+    "tensor2tensor.data_generators.vqa",
     "tensor2tensor.data_generators.wiki",
     "tensor2tensor.data_generators.wikisum.wikisum",
     "tensor2tensor.data_generators.wikitext103",
