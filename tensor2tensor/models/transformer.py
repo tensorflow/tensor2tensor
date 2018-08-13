@@ -1953,6 +1953,13 @@ def transformer_tpu():
   update_hparams_for_tpu(hparams)
   return hparams
 
+@registry.register_hparams
+def transformer_timeseries_tpu():
+  """HParams for running Transformer model on timeseries on TPU."""
+  hparams = transformer_timeseries()
+  update_hparams_for_tpu(hparams)
+  hparams.batch_size = 256 # revert to value set in transformer_timeseries
+  return hparams
 
 @registry.register_hparams
 def transformer_tpu_bf16_activation():
