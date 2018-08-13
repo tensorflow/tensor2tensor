@@ -17,14 +17,44 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+from absl.testing import parameterized
 import numpy as np
+
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
 
-class CommonAttentionTest(tf.test.TestCase):
+class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
+
+  def testAddPositionalEmbedding(self):
+    x = np.random.rand(5, 3, 12)
+    with self.test_session() as session:
+      y = common_attention.add_positional_embedding(
+          tf.constant(x, dtype=tf.float32),
+          max_length=4,
+          name="pos_embedding")
+      session.run(tf.global_variables_initializer())
+      res = session.run(y)
+    self.assertEqual(res.shape, (5, 3, 12))
+
+  @parameterized.parameters(
+      ((5, 3, 12),),
+      ((5, 5, 5, 12),),
+      ((5, 3, 3, 3, 12),),
+  )
+  def testAddPositionalEmbeddingNd(self, input_shape):
+    x = np.random.rand(*input_shape)
+    with self.test_session() as session:
+      y = common_attention.add_positional_embedding_nd(
+          tf.constant(x, dtype=tf.float32),
+          max_length=5,
+          name="pos_embedding")
+      session.run(tf.global_variables_initializer())
+      res = session.run(y)
+    self.assertEqual(res.shape, input_shape)
 
   def testDotProductAttention(self):
     x = np.random.rand(5, 7, 12, 32)
