@@ -236,7 +236,8 @@ def create_run_config(hp):
       inter_op_parallelism_threads=FLAGS.inter_op_parallelism_threads,
       log_step_count_steps=FLAGS.log_step_count_steps,
       intra_op_parallelism_threads=FLAGS.intra_op_parallelism_threads,
-      tpu_config_extra_kwargs=tpu_config_extra_kwargs)
+      tpu_config_extra_kwargs=tpu_config_extra_kwargs,
+      cloud_tpu_name=FLAGS.cloud_tpu_name)
 
 
 def generate_data():

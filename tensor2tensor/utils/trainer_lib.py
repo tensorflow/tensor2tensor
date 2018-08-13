@@ -129,7 +129,8 @@ def create_run_config(master="",
                       inter_op_parallelism_threads=0,
                       log_step_count_steps=100,
                       intra_op_parallelism_threads=0,
-                      tpu_config_extra_kwargs=None):
+                      tpu_config_extra_kwargs=None,
+                      cloud_tpu_name=""):
   """Create RunConfig, TPUConfig, and Parallelism object."""
   session_config = create_session_config(
       log_device_placement=log_device_placement,
@@ -176,6 +177,14 @@ def create_run_config(master="",
       run_config_args["master"] = os.environ[
           "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS"]
       run_config_args["evaluation_master"] = run_config_args["master"]
+    elif not master and cloud_tpu_name:
+      # Update run_config to use cluster instead of master/evaluation_master
+      # as we need the cluster spec to use Cloud Pods
+      tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
+          cloud_tpu_name)
+      run_config_args["cluster"] = tpu_cluster_resolver
+      del run_config_args["master"]
+      del run_config_args["evaluation_master"]
 
   config = run_config_cls(**run_config_args)
   config.warm_start_from = warm_start_from
@@ -470,6 +479,10 @@ def create_experiment(
       plateau_decrease=eval_early_stopping_metric_minimize,
       plateau_delta=eval_early_stopping_metric_delta,
       every_n_steps=min_eval_frequency)
+
+  # Eval on TPU Pods is not supported yet
+  if use_tpu and run_config.tpu_config.num_shards > 8 and "eval" in schedule:
+    raise ValueError("Eval is not currently supported on a TPU Pod")
 
   # In-process eval (and possible early stopping)
   if schedule == "continuous_train_and_eval" and min_eval_frequency:
