@@ -46,6 +46,7 @@ def next_frame():
   hparams.add_hparam("preprocess_resize_frames", None)
   hparams.add_hparam("concatenate_actions", True)
   hparams.add_hparam("tiny_mode", False)
+  hparams.add_hparam("shuffle_buffer_size", 128)
   return hparams
 
 
