@@ -224,7 +224,7 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
         discriminator_gen_outputs=fake_logits_stop, add_summaries=True)
     return gan_g_loss_pos_d, gan_g_loss_neg_d
 
-  def get_gan_loss(self, true_frames, gen_frames):
+  def get_gan_loss(self, true_frames, gen_frames, name):
     """Get the discriminator + generator loss at every step.
 
     This performs an 1:1 update of the discriminator and generator at every
@@ -235,20 +235,21 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
                    Assumed to be ground truth.
       gen_frames: 5-D Tensor of shape (num_steps, batch_size, H, W, C)
                   Assumed to be fake.
+      name: discriminator scope.
     Returns:
       loss: 0-D Tensor, with d_loss + g_loss
     """
     # D - STEP
-    with tf.variable_scope("gan_discriminator", reuse=tf.AUTO_REUSE):
+    with tf.variable_scope("%s_discriminator" % name, reuse=tf.AUTO_REUSE):
       gan_d_loss, _, fake_logits_stop = self.d_step(
           true_frames, gen_frames)
 
     # G - STEP
-    with tf.variable_scope("gan_discriminator", reuse=True):
+    with tf.variable_scope("%s_discriminator" % name, reuse=True):
       gan_g_loss_pos_d, gan_g_loss_neg_d = self.g_step(
           gen_frames, fake_logits_stop)
     gan_g_loss = gan_g_loss_pos_d + gan_g_loss_neg_d
-    tf.summary.scalar("gan_loss", gan_g_loss_pos_d + gan_d_loss)
+    tf.summary.scalar("gan_loss_%s" % name, gan_g_loss_pos_d + gan_d_loss)
 
     if self.hparams.gan_optimization == "joint":
       gan_loss = gan_g_loss + gan_d_loss
@@ -257,24 +258,40 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
       gan_loss = tf.cond(
           tf.logical_not(curr_step % 2 == 0), lambda: gan_g_loss,
           lambda: gan_d_loss)
-    return self.hparams.gan_loss_multiplier * gan_loss
+    return gan_loss
 
   def get_extra_loss(self, latent_means=None, latent_stds=None,
                      true_frames=None, gen_frames=None, beta=1.0):
     if not self.is_training:
       return 0.0
+
+    vae_loss, d_vae_loss, d_gan_loss = 0.0, 0.0, 0.0
+    # Use next_frame_sv2p's KL divergence computation.
     if self.hparams.use_vae:
-      return super(NextFrameSAVP, self).get_extra_loss(
+      vae_loss = super(NextFrameSAVP, self).get_extra_loss(
           latent_means=latent_means, latent_stds=latent_stds, beta=beta)
-    elif self.hparams.use_gan:
+
+    if self.hparams.use_gan:
       # Strip out the first context_frames for the true_frames
       # Strip out the first context_frames - 1 for the gen_frames
       context_frames = self.hparams.video_num_input_frames
       true_frames = tf.stack(
           tf.unstack(true_frames, axis=0)[context_frames:])
-      gen_frames = tf.stack(
-          tf.unstack(gen_frames, axis=0)[context_frames-1:])
-      return self.get_gan_loss(true_frames, gen_frames)
+
+      # discriminator for VAE.
+      if self.hparams.use_vae:
+        gen_enc_frames = tf.stack(
+            tf.unstack(gen_frames, axis=0)[context_frames-1:])
+        d_vae_loss = self.get_gan_loss(true_frames, gen_enc_frames, name="vae")
+
+      # discriminator for GAN.
+      gen_prior_frames = tf.stack(
+          tf.unstack(self.gen_prior_video, axis=0)[context_frames-1:])
+      d_gan_loss = self.get_gan_loss(true_frames, gen_prior_frames, name="gan")
+
+    return (
+        vae_loss + self.hparams.gan_loss_multiplier * d_gan_loss +
+        self.hparams.gan_vae_loss_multiplier * d_vae_loss)
 
   def pad_conv3d_lrelu(self, activations, n_filters, kernel_size, strides,
                        scope):
@@ -334,8 +351,6 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
       ValueError: If not exactly one of self.hparams.vae or self.hparams.gan
                   is set to True.
     """
-    if self.hparams.use_vae and self.hparams.use_gan:
-      raise ValueError("VAE + GAN variant not implemented")
     if not self.hparams.use_vae and not self.hparams.use_gan:
       raise ValueError("Set at least one of use_vae or use_gan to be True")
     if self.hparams.gan_optimization not in ["joint", "sequential"]:
@@ -426,10 +441,10 @@ class NextFrameSAVP(next_frame_sv2p.NextFrameStochastic):
         latent_stds.append(log_sigma_sq)
 
     gen_cond_video = tf.stack(gen_cond_video, axis=0)
-    gen_prior_video = tf.stack(gen_prior_video, axis=0)
+    self.gen_prior_video = tf.stack(gen_prior_video, axis=0)
     fake_rewards = tf.stack(fake_rewards, axis=0)
 
     if train_mode and self.hparams.use_vae:
       return gen_cond_video, fake_rewards, latent_means, latent_stds
     else:
-      return gen_prior_video, fake_rewards, latent_means, latent_stds
+      return self.gen_prior_video, fake_rewards, latent_means, latent_stds

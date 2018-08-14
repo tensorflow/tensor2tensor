@@ -221,15 +221,14 @@ class NextFrameTest(tf.test.TestCase):
         next_frame_emily.NextFrameStochasticEmily,
         1)
 
-  def testStochasticSavp(self):
+  def testStochasticSavpVAE(self):
+    savp_hparams = next_frame_params.next_frame_savp()
+    savp_hparams.use_vae = True
+    savp_hparams.use_gan = False
     self.TestOnVariousInputOutputSizes(
-        next_frame_params.next_frame_savp(),
-        next_frame_savp.NextFrameSAVP,
-        1)
+        savp_hparams, next_frame_savp.NextFrameSAVP, 1)
     self.TestOnVariousUpSampleLayers(
-        next_frame_params.next_frame_savp(),
-        next_frame_savp.NextFrameSAVP,
-        1)
+        savp_hparams, next_frame_savp.NextFrameSAVP, 1)
 
   def testStochasticSavpGAN(self):
     hparams = next_frame_params.next_frame_savp()
@@ -240,14 +239,18 @@ class NextFrameTest(tf.test.TestCase):
     hparams.gan_optimization = "sequential"
     self.TestVideoModel(7, 5, hparams, next_frame_savp.NextFrameSAVP, 1)
 
+  def testStochasticSavpGANVAE(self):
+    hparams = next_frame_params.next_frame_savp()
+    hparams.use_vae = True
+    hparams.use_gan = True
+    self.TestVideoModel(7, 5, hparams, next_frame_savp.NextFrameSAVP, 1)
+
   def testStochasticInvalidVAEGANCombinations(self):
     hparams = next_frame_params.next_frame_savp()
-    for use_vae, use_gan in [[True, True], [False, False]]:
-      hparams.use_gan = use_gan
-      hparams.use_vae = use_vae
-      self.assertRaises(ValueError, self.TestVideoModel,
-                        7, 5, hparams, next_frame_savp.NextFrameSAVP, 1)
-
+    hparams.use_gan = False
+    hparams.use_vae = False
+    self.assertRaises(ValueError, self.TestVideoModel,
+                      7, 5, hparams, next_frame_savp.NextFrameSAVP, 1)
 
 if __name__ == "__main__":
   tf.test.main()
