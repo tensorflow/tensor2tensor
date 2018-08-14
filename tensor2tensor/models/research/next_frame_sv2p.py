@@ -606,12 +606,6 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
         latent_stds=latent_stds, beta=beta, true_frames=all_frames,
         gen_frames=gen_images)
 
-    # Ignore the predictions from the input frames.
-    # This is NOT the same as original paper/implementation.
-    predictions = gen_images[hparams.video_num_input_frames-1:]
-    reward_pred = gen_rewards[hparams.video_num_input_frames-1:]
-    reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove undeeded dimension.
-
     # TODO(mbz): clean this up!
     def fix_video_dims_and_concat_on_x_axis(x):
       x = tf.transpose(x, [1, 3, 4, 0, 2])
@@ -619,10 +613,16 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
       x = tf.transpose(x, [0, 3, 1, 2])
       return x
 
-    frames_gd = fix_video_dims_and_concat_on_x_axis(target_frames)
-    frames_pd = fix_video_dims_and_concat_on_x_axis(predictions)
+    frames_gd = fix_video_dims_and_concat_on_x_axis(all_frames[1:])
+    frames_pd = fix_video_dims_and_concat_on_x_axis(gen_images)
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
     tf.summary.image("full_video", side_by_side_video)
+
+    # Ignore the predictions from the input frames.
+    # This is NOT the same as original paper/implementation.
+    predictions = gen_images[hparams.video_num_input_frames-1:]
+    reward_pred = gen_rewards[hparams.video_num_input_frames-1:]
+    reward_pred = tf.squeeze(reward_pred, axis=2)  # Remove undeeded dimension.
 
     # Swap back time and batch axes.
     predictions = common_video.swap_time_and_batch_axes(predictions)
