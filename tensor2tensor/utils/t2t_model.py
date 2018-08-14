@@ -118,6 +118,19 @@ class T2TModel(base.Layer):
     self._eager_var_store = create_eager_var_store()
     if self._problem_hparams:
       self._create_modalities(self._problem_hparams, self._hparams)
+    if not common_layers.is_xla_compiled():
+      self.summarize_hparams()
+
+  def summarize_hparams(self):
+    def create_hparams_summary(hparams, name):
+      hparams_strs = [tf.convert_to_tensor([k, str(v)])
+                      for k, v in hparams.values().items()]
+      tf.summary.text(name, tf.stack(hparams_strs))
+
+    create_hparams_summary(self._hparams, "%s_hparams" % self.name)
+    if self._problem_hparams:
+      create_hparams_summary(self._problem_hparams,
+                             "%s_problem_hparams" % self.name)
 
   # Replace the two methods below in order to add custom SessionRunHooks to
   # the training procedure.
