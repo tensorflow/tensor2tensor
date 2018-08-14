@@ -78,6 +78,9 @@ try:
                        "dataset once in full, whichever comes first, so this "
                        "can be a very large number.")
 except:  # pylint: disable=bare-except
+  # Fathom start
+  raise Exception('There was an issue defining t2t-trainer CLI flags')
+  # Fathom end
   pass
 
 # Google Cloud TPUs
