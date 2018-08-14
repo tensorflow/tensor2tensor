@@ -34,34 +34,36 @@ class ParaphraseGenerationProblemTest(tf.test.TestCase):
     self.assertEqual(actual_combination, expected_combination)
 
   @mock.patch("tensor2tensor.data_generators"
-              ".paraphrase_mscoco.ParaphraseGenerationProblem.prepare_data",
+              ".paraphrase_ms_coco.ParaphraseGenerationProblem.prepare_data",
               return_value=[("sentence1", "sentence2")])
   @mock.patch("tensor2tensor.data_generators"
-              ".paraphrase_mscoco.ParaphraseGenerationProblem.bidirectional")
+              ".paraphrase_ms_coco.ParaphraseGenerationProblem.bidirectional")
   def testBidirectionalTrue(self, data, bidirectional):
     paraphrase_problem = paraphrase_ms_coco.ParaphraseGenerationProblem()
     paraphrase_problem.bidirectional = True
 
     expected_generated_data = [{"inputs": "sentence1", "targets": "sentence2"},
                                {"inputs": "sentence2", "targets": "sentence1"}]
-    actual_generated_data = list(paraphrase_problem.generate_samples("data_dir",
-                                                                     "tmp_dir",
-                                                                     "dataset_split"))
+    actual_generated_data = list(paraphrase_problem
+                                 .generate_samples("data_dir",
+                                                   "tmp_dir",
+                                                   "dataset_split"))
     self.assertEqual(actual_generated_data, expected_generated_data)
 
   @mock.patch("tensor2tensor.data_generators"
-              ".paraphrase_mscoco.ParaphraseGenerationProblem.prepare_data",
+              ".paraphrase_ms_coco.ParaphraseGenerationProblem.prepare_data",
               return_value=[("sentence1", "sentence2")])
   @mock.patch("tensor2tensor.data_generators"
-              ".paraphrase_mscoco.ParaphraseGenerationProblem.bidirectional")
+              ".paraphrase_ms_coco.ParaphraseGenerationProblem.bidirectional")
   def testBidirectionalFalse(self, data, bidirectional):
     paraphrase_problem = paraphrase_ms_coco.ParaphraseGenerationProblem()
     paraphrase_problem.bidirectional = False
 
     expected_generated_data = [{"inputs": "sentence1", "targets": "sentence2"}]
-    actual_generated_data = list(paraphrase_problem.generate_samples("data_dir",
-                                                                     "tmp_dir",
-                                                                     "dataset_split"))
+    actual_generated_data = list(paraphrase_problem
+                                 .generate_samples("data_dir",
+                                                   "tmp_dir",
+                                                   "dataset_split"))
     self.assertEqual(actual_generated_data, expected_generated_data)
 
 
