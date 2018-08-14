@@ -20,6 +20,7 @@ from __future__ import print_function
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
@@ -87,10 +88,6 @@ class MultiProblem(problem.Problem):
                                      vocab_size + vocab_size_inc)
 
     return self._hparams
-
-  @property
-  def mixing_schedule(self):
-    return MixingSchedule.CONSTANT
 
   def flatten_zip(self, *args):
     """A list of examples to a dataset containing mixed examples.
@@ -180,26 +177,32 @@ class MultiProblem(problem.Problem):
         return dataset_iter.get_next()
 
       def get_exp_sched_prob():
+        """Inverse decay exponential to mix datasets."""
         with tf.control_dependencies([problem_step.assign_add(1)]):
-          # TODO(urvashik): Make 5e-8 a parameter.
-          # In the current setup, with about 100 examples per batch on average,
-          # the model converges to 50-50 mixing by ~140k problem steps.
-          return tf.minimum(1. - tf.exp(-5e-8 * problem_step), 0.5)
+          inv_exp_decay = common_layers.inverse_exp_decay(
+              max_step=hparams.multiproblem_schedule_max_examples,
+              min_value=1e-4,
+              step=problem_step
+          )
+          # inv_exp_decay is bounded above by 1.0
+          return inv_exp_decay * hparams.multiproblem_schedule_threshold
 
       def get_const_sched_prob():
-        return 0.5
+        return hparams.multiproblem_schedule_threshold
 
       def mix_data(example):
         """Function to mix the different datasets according to a schedule."""
         del example
-        if self.mixing_schedule == MixingSchedule.EXPONENTIAL:
+        if hparams.multiproblem_mixing_schedule == MixingSchedule.EXPONENTIAL:
           prob = get_exp_sched_prob()
-        elif self.mixing_schedule == MixingSchedule.CONSTANT:
+        elif hparams.multiproblem_mixing_schedule == MixingSchedule.CONSTANT:
           prob = get_const_sched_prob()
         else:
-          raise ValueError("Unknown schedule %s" % str(self.mixing_schedule))
+          raise ValueError("Unknown schedule %s" % str(
+              hparams.multiproblem_mixing_schedule))
         tf.logging.info("Using the %s schedule to "
-                        "train the MultiProblem." % str(self.mixing_schedule))
+                        "train the MultiProblem." % str(
+                            hparams.multiproblem_mixing_schedule))
 
         def sample_task(curr_task, num_tasks_left):
           """A recursive function to sample a task.

@@ -253,6 +253,20 @@ def basic_params1():
       # pretrained model will be randomly initialized. Superfluous parameters in
       # the pretrained model will be ignored.
       pretrained_model_dir="",
+      # Threshold used for two cases: the primary task probability for the
+      # constant mixing schedule, and the exponential schedule limit for when
+      # mixing should stop (eg: 0.5 means stop at 50-50 mixing, 0.8 means stop
+      # at 20-80 mixing for the primary-others mixing case.)
+      multiproblem_schedule_threshold=0.5,
+      # The number of examples at which the proportion of the mixed in datasets
+      # is multiproblem_schedule_threshold
+      multiproblem_schedule_max_examples=1e7,
+      # When training multiproblems, we can mix the data according to different
+      # schedules. Example: a constant schedule mixing 20-80 between the primary
+      # and other tasks.
+      # A list of supported schedules can be found in
+      # `data_generators.multi_problem.py`.
+      multiproblem_mixing_schedule="constant"
   )
 
 
