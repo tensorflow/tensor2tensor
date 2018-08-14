@@ -75,7 +75,7 @@ def multihead_graph_attention(query_antecedent,
 
   Returns:
     The result of the attention transformation. The output shape is
-        [batch_size, length_q, hidden_dim]
+        [batch_size, length_q, output_depth]
 
   Raises:
     ValueError: if the key depth or value depth are not divisible by the
@@ -827,3 +827,78 @@ def compute_values(edge_compatibility, v):
   # single N x V matrix for each batch.
   output = tf.reduce_sum(all_edge_values, axis=1)  # Shape [B, N, V].
   return output
+
+
+def precompute_edge_matrices(adjacency, hparams):
+  """Precompute the a_in and a_out tensors.
+
+  (we don't want to add to the graph everytime _fprop is called)
+  Args:
+    adjacency: placeholder of real valued vectors of shape [B, L, L, E]
+    hparams: tf.HParams object
+  Returns:
+    edge_matrices: [batch, L * D, L * D] the dense matrix for message passing
+    viewed as a block matrix (L,L) blocks of size (D,D). Each plot is a function
+    of the edge vector of the adjacency matrix at that spot.
+  """
+  batch_size, num_nodes, _, edge_dim = common_layers.shape_list(adjacency)
+
+  # build the edge_network for incoming edges
+  with tf.variable_scope("edge_network"):
+    x = tf.reshape(
+        adjacency, [batch_size * num_nodes * num_nodes, edge_dim],
+        name="adj_reshape_in")
+
+    for ip_layer in range(hparams.edge_network_layers):
+      name = "edge_network_layer_%d"%ip_layer
+      x = tf.layers.dense(common_layers.layer_preprocess(x, hparams),
+                          hparams.edge_network_hidden_size,
+                          activation=tf.nn.relu,
+                          name=name)
+    x = tf.layers.dense(common_layers.layer_preprocess(x, hparams),
+                        hparams.hidden_size**2,
+                        activation=None,
+                        name="edge_network_output")
+
+  # x = [batch * l * l, d *d]
+  edge_matrices_flat = tf.reshape(x, [batch_size, num_nodes,
+                                      num_nodes, hparams.hidden_size,
+                                      hparams.hidden_size])
+
+  # reshape to [batch, l * d, l *d]
+  edge_matrices = tf.reshape(
+      tf.transpose(edge_matrices_flat, [0, 1, 3, 2, 4]), [
+          -1, num_nodes * hparams.hidden_size,
+          num_nodes * hparams.hidden_size
+      ],
+      name="edge_matrices")
+
+  return edge_matrices
+
+
+def dense_message_pass(node_states, edge_matrices):
+  """Computes a_t from h_{t-1}, see bottom of page 3 in the paper.
+
+  Args:
+    node_states: [B, L, D] tensor (h_{t-1})
+    edge_matrices (tf.float32): [B, L*D, L*D]
+
+  Returns:
+    messages (tf.float32): [B, L, D] For each pair
+      of nodes in the graph a message is sent along both the incoming and
+      outgoing edge.
+  """
+  batch_size, num_nodes, node_dim = common_layers.shape_list(node_states)
+
+  # Stack the nodes as a big column vector.
+  h_flat = tf.reshape(
+      node_states, [batch_size, num_nodes * node_dim, 1], name="h_flat")
+
+  messages = tf.reshape(
+      tf.matmul(edge_matrices, h_flat), [batch_size * num_nodes, node_dim],
+      name="messages_matmul")
+
+  message_bias = tf.get_variable("message_bias", shape=node_dim)
+  messages = messages + message_bias
+  messages = tf.reshape(messages, [batch_size, num_nodes, node_dim])
+  return messages
