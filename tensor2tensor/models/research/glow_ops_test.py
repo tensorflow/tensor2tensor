@@ -46,18 +46,23 @@ class GlowOpsTest(tf.test.TestCase):
         self.assertTrue(np.allclose(channel_mean, 0.0, atol=1e-3))
         self.assertTrue(np.allclose(channel_var, 1.0, atol=1e-3))
 
-  def test_invertible_conv(self):
+  def check_invertibility(self, op, name):
     with tf.Graph().as_default():
-      x_t = tf.random_uniform(shape=(16, 32, 32, 3))
-      activation, _ = glow_ops.invertible_1x1_conv("inv", x_t, reverse=False)
-      inv_activation, _ = glow_ops.invertible_1x1_conv(
-          "inv", activation, reverse=True)
+      x = tf.random_uniform(shape=(16, 32, 32, 4))
+
+      x_inv, _ = op(name, x, reverse=False)
+      x_inv_inv, _ = op(name, x_inv, reverse=True)
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
-        diff = session.run(x_t - inv_activation)
-
-        # Test reversibility.
+        diff = session.run(x - x_inv_inv)
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-5))
+
+  def test_invertibility(self):
+    rev_ops = [glow_ops.invertible_1x1_conv, glow_ops.affine_coupling,
+               glow_ops.actnorm]
+    names = ["inv_1X1_conv", "affine_coupling", "actnorm"]
+    for rev_op, name in zip(rev_ops, names):
+      self.check_invertibility(rev_op, name)
 
   def test_add_edge_bias(self):
     with tf.Graph().as_default():
@@ -107,20 +112,64 @@ class GlowOpsTest(tf.test.TestCase):
         # Initialized with zeros.
         self.assertTrue(np.allclose(nn_np, 0.0))
 
-  def test_affine_coupling(self):
-    """Test affine coupling reversibility."""
+  def test_split_prior(self):
     with tf.Graph().as_default():
-      rng = np.random.RandomState(0)
-      x = np.asarray(rng.rand(16, 3, 3, 32), dtype=np.float32)
-      x_t = tf.convert_to_tensor(x)
-      x_inv, _ = glow_ops.affine_coupling("affine", x_t, 512)
-      x_inv_inv, _ = glow_ops.affine_coupling(
-          "affine", x_inv, 512, reverse=True)
+      x = tf.random_uniform(shape=(16, 5, 5, 32))
+      x_prior = glow_ops.split_prior("split_prior", x)
+      mean_t, scale_t = x_prior.loc, x_prior.scale
+      with tf.Session() as session:
+        session.run(tf.global_variables_initializer())
+        mean, scale = session.run([mean_t, scale_t])
+        self.assertTrue(np.allclose(mean, 0.0))
+        self.assertTrue(np.allclose(scale, 1.0))
+
+  def test_split(self):
+    with tf.Graph().as_default():
+      x = tf.random_uniform(shape=(16, 5, 5, 32))
+      x_inv, _, eps = glow_ops.split("split", x)
+      x_inv_inv = glow_ops.split("split", x_inv, reverse=True, eps=eps)
+      with tf.Session() as session:
+        session.run(tf.global_variables_initializer())
+        x_inv_np, diff = session.run([x_inv, x - x_inv_inv])
+        self.assertEqual(x_inv_np.shape, (16, 5, 5, 16))
+        self.assertTrue(np.allclose(diff, 0.0, atol=1e-5))
+
+  def check_revnet_reversibility(self, op, name):
+    with tf.Graph().as_default():
+      hparams = glow_ops.glow_hparams()
+      hparams.depth = 2
+      x = tf.random_uniform(shape=(16, 32, 32, 4), seed=0)
+      x_inv, _ = op(name, x, hparams, reverse=False)
+      x_inv_inv, _ = op(name, x_inv, hparams, reverse=True)
+      with tf.Session() as session:
+        session.run(tf.global_variables_initializer())
+        diff = session.run(x - x_inv_inv)
+        self.assertTrue(np.allclose(diff, 0.0, atol=1e-3))
+
+  def test_revnet_reversibility(self):
+    ops = [glow_ops.revnet_step, glow_ops.revnet]
+    names = ["revnet_step", "revnet"]
+    for op, name in zip(ops, names):
+      self.check_revnet_reversibility(op, name)
+
+  def test_encoder_decoder(self):
+    with tf.Graph().as_default():
+      hparams = glow_ops.glow_hparams()
+      hparams.n_levels = 2
+      hparams.depth = 2
+
+      x = tf.random_uniform(shape=(16, 64, 64, 4), seed=0)
+      x_inv, _, eps = glow_ops.encoder_decoder(
+          "encoder_decoder", x, hparams, reverse=False)
+      x_inv_inv, _ = glow_ops.encoder_decoder(
+          "encoder_decoder", x_inv, hparams, eps=eps, reverse=True)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
-        diff = tf.reduce_max(tf.abs(x - x_inv_inv))
-        self.assertTrue(np.allclose(session.run(diff), 0.0, atol=1e-5))
+        diff, x_inv_np = session.run([x - x_inv_inv, x_inv])
+        self.assertTrue(x_inv_np.shape, (16, 8, 8, 64))
+        self.assertTrue(np.allclose(diff, 0.0, atol=1e-2))
+
 
 if __name__ == "__main__":
   tf.test.main()

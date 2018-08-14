@@ -18,17 +18,42 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from functools import partial
 import numpy as np
 import scipy
+from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import registry
 import tensorflow as tf
 
 arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope
 
 
+@registry.register_hparams
+def glow_hparams():
+  """Glow Hparams."""
+  hparams = common_hparams.basic_params1()
+  hparams.add_hparam("n_levels", 3)
+  hparams.add_hparam("n_bits_x", 8)
+  hparams.add_hparam("depth", 32)
+  hparams.add_hparam("affine_coupling_width", 512)
+  hparams.add_hparam("learn_prior", True)
+  return hparams
+
+
 def default_initializer(std=0.05):
   return tf.random_normal_initializer(0., std)
+
+
+def get_eps(dist, x):
+  """Z = (X - mu) / sigma."""
+  return (x - dist.loc) / dist.scale
+
+
+def set_eps(dist, eps):
+  """Z = eps * sigma + mu."""
+  return eps * dist.scale + dist.loc
 
 
 @add_arg_scope
@@ -66,7 +91,7 @@ def actnorm(name, x, logscale_factor=3., reverse=False, init=False,
     objective: log(sum(s))
   """
   var_arg_scope = arg_scope([get_variable_ddi], trainable=trainable)
-  var_scope = tf.variable_scope(name)
+  var_scope = tf.variable_scope(name, reuse=tf.AUTO_REUSE)
   with var_scope, var_arg_scope:
     if not reverse:
       x = actnorm_center(name + "_center", x, reverse, init=init)
@@ -98,7 +123,7 @@ def actnorm_center(name, x, reverse=False, init=False):
     x_center: (x + b), if reverse is True and (x - b) otherwise.
   """
   shape = common_layers.shape_list(x)
-  with tf.variable_scope(name):
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     assert len(shape) == 2 or len(shape) == 4
     if len(shape) == 2:
       x_mean = tf.reduce_mean(x, [0], keepdims=True)
@@ -338,7 +363,7 @@ def nn(name, x, mid_channels, output_channels):
 
 
 @add_arg_scope
-def affine_coupling(name, x, mid_channels, reverse=False):
+def affine_coupling(name, x, mid_channels=512, reverse=False):
   """Reversible affine coupling layer.
 
   Args:
@@ -372,3 +397,179 @@ def affine_coupling(name, x, mid_channels, reverse=False):
     if reverse:
       objective *= -1
     return tf.concat([z1, z2], axis=3), objective
+
+
+@add_arg_scope
+def squeeze(name, x, factor=2, reverse=True):
+  """Block-wise spatial squeezing of x to increase the number of channels.
+
+  Args:
+    name: Used for variable scoping.
+    x: 4-D Tensor of shape (batch_size X H X W X C)
+    factor: Factor by which the spatial dimensions should be squeezed.
+    reverse: Squueze or unsqueeze operation.
+
+  Returns:
+    x: 4-D Tensor of shape (batch_size X (H//factor) X (W//factor) X
+       (cXfactor^2). If reverse is True, then it is factor = (1 / factor)
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    shape = common_layers.shape_list(x)
+    if factor == 1:
+      return x
+    height = int(shape[1])
+    width = int(shape[2])
+    n_channels = int(shape[3])
+    assert height % factor == 0 and width % factor == 0
+    if not reverse:
+      x = tf.reshape(x, [-1, height//factor, factor,
+                         width//factor, factor, n_channels])
+      x = tf.transpose(x, [0, 1, 3, 5, 2, 4])
+      x = tf.reshape(x, [-1, height//factor, width //
+                         factor, n_channels*factor*factor])
+    else:
+      x = tf.reshape(
+          x, (-1, height, width, int(n_channels/factor**2), factor, factor))
+      x = tf.transpose(x, [0, 1, 4, 2, 5, 3])
+      x = tf.reshape(x, (-1, int(height*factor),
+                         int(width*factor), int(n_channels/factor**2)))
+    return x
+
+
+@add_arg_scope
+def split_prior(name, x):
+  """Map x to the mean and log-scale of a Gaussian distribution."""
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    x_shape = common_layers.shape_list(x)
+    mean_log_scale = conv2d("conv2d", x, output_channels=2*x_shape[-1],
+                            apply_actnorm=False, conv_init="zeros")
+    mean = mean_log_scale[:, :, :, 0::2]
+    log_scale = mean_log_scale[:, :, :, 1::2]
+    return tf.distributions.Normal(mean, tf.exp(log_scale))
+
+
+@add_arg_scope
+def split(name, x, reverse=False, eps=None, eps_std=None):
+  """Splits / concatenates x into x1 and x2 across number of channels.
+
+  For the forward pass, x2 is assumed be gaussian,
+  i.e P(x2 | x1) ~ N(mu(x1), sigma(x1)) where mu and sigma are the outputs of
+  a network. For the reverse pass, x2 is determined from mu(x1) and sigma(x1).
+  This is deterministic/stochastic depending on whether eps is provided.
+
+  Args:
+    name:
+    x:
+    reverse: Forward or reverse pass.
+    eps: If eps is provided, x2
+    eps_std: Sample x2
+
+  Returns:
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    if not reverse:
+      x1, x2 = tf.split(x, num_or_size_splits=2, axis=-1)
+
+      # objective: P(x2|x1) ~N(x2 ; NN(x1))
+      x1_dist = split_prior("split_prior", x1)
+      logpb = tf.reduce_sum(x1_dist.log_prob(x2), axis=[1, 2, 3])
+
+      eps = get_eps(x1_dist, x2)
+      return x1, logpb, eps
+    else:
+      x1_dist = split_prior("split_prior", x)
+      if eps is not None:
+        x2 = set_eps(x1_dist, eps)
+      elif eps_std is not None:
+        x2 = eps_std * tf.random_normal(common_layers.shape_list(x))
+      else:
+        x2 = x1_dist.sample()
+      return tf.concat([x, x2], 3)
+
+
+@add_arg_scope
+def revnet_step(name, x, hparams, reverse=True):
+  """One step of glow generative flow.
+
+  Actnorm + invertible 1X1 conv + affine_coupling.
+
+  Args:
+    name: used for variable scope.
+    x: input
+    hparams: affine_coupling_width is the only hparam that is being used in
+             this function.
+    reverse: forward or reverse pass.
+  Returns:
+    z: Output of one step of reversible flow.
+  """
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    ops = [
+        partial(actnorm, name="actnorm", reverse=reverse),
+        partial(invertible_1x1_conv, name="invertible", reverse=reverse),
+        partial(affine_coupling, name="affine", reverse=reverse,
+                mid_channels=hparams.affine_coupling_width)]
+
+    if reverse:
+      ops = ops[::-1]
+
+    objective = 0.0
+    for op in ops:
+      x, curr_obj = op(x=x)
+      objective += curr_obj
+    return x, objective
+
+
+def revnet(name, x, hparams, reverse=True):
+  """'hparams.depth' steps of generative flow."""
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    steps = np.arange(hparams.depth)
+    if reverse:
+      steps = steps[::-1]
+
+    objective = 0.0
+    for step in steps:
+      x, curr_obj = revnet_step(
+          "revnet_%d" % step, x, hparams, reverse=reverse)
+      objective += curr_obj
+    return x, objective
+
+
+def encoder_decoder(name, x, hparams, eps=None, reverse=False):
+  """Glow encoder-decoder. n_levels of (Squeeze + Flow + Split.) operations."""
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+
+    objective = 0.0
+    all_eps = []
+
+    if not reverse:
+      # Squeeze + Flow + Split
+      for level in range(hparams.n_levels):
+        x = squeeze("squeeze_%d" % level, x, factor=2, reverse=False)
+
+        x, obj = revnet("revnet_%d" % level, x, hparams, reverse=False)
+        objective += obj
+
+        if level < hparams.n_levels - 1:
+          x, obj, eps = split("split_%d" % level, x, reverse=False)
+          objective += obj
+          all_eps.append(eps)
+      return x, objective, all_eps
+
+    else:
+      if eps and len(eps) != hparams.n_levels - 1:
+        raise ValueError("Expected length of eps to be %d, got %d" %
+                         (hparams.n_levels - 1, len(eps)))
+
+      for level in reversed(range(hparams.n_levels)):
+        if level < hparams.n_levels - 1:
+
+          curr_eps = None
+          if eps:
+            curr_eps = eps[level]
+          x = split("split_%d" % level, x, eps=curr_eps, reverse=True)
+
+        x, obj = revnet(
+            "revnet_%d" % level, x, hparams=hparams, reverse=True)
+        objective += obj
+        x = squeeze("squeeze_%d" % level, x, reverse=True)
+      return x, objective
