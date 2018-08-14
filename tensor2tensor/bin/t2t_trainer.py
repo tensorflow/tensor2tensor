@@ -32,6 +32,7 @@ from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 import tensorflow as tf
 
+from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -196,6 +197,14 @@ def create_run_config(hp):
     save_ckpt_steps = None
   assert FLAGS.output_dir or FLAGS.checkpoint_path
   tpu_config_extra_kwargs = {}
+
+  if getattr(hp, "mtf_mode", False):
+    save_ckpt_steps = None  # Disable the default saver
+    save_ckpt_secs = None  # Disable the default saver
+    tpu_config_extra_kwargs = {
+        "num_cores_per_replica": 1,
+        "per_host_input_for_training": tpu_config.InputPipelineConfig.BROADCAST,
+    }
 
   # the various custom getters we have written do not play well together yet.
   # TODO(noam): ask rsepassi for help here.
