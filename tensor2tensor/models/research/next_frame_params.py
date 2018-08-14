@@ -93,6 +93,7 @@ def next_frame_stochastic():
   hparams.add_hparam("latent_num_frames", 0)  # 0 means use all frames.
   hparams.add_hparam("anneal_end", 100000)
   hparams.add_hparam("upsample_method", "conv2d_transpose")
+  hparams.add_hparam("internal_loss", False)
   return hparams
 
 

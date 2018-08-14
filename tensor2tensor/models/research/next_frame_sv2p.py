@@ -632,6 +632,10 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
     if "target_reward" in features:
       return_targets = {"targets": predictions, "target_reward": reward_pred}
 
+    if hparams.internal_loss:
+      loss = tf.losses.mean_squared_error(all_frames[1:], gen_images)
+      extra_loss = {"training": loss + extra_loss}
+
     return return_targets, extra_loss
 
 
