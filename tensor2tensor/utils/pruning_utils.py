@@ -27,31 +27,18 @@ def weight(w, sparsity):
   """Weight-level magnitude pruning."""
   w_shape = common_layers.shape_list(w)
   k = int(np.prod(w_shape[:-1]))
-  w = tf.reshape(w, [k, w_shape[-1]])
-
-  idx = int(k * sparsity)
-  thres = tf.contrib.framework.sort(tf.abs(w), axis=0)[idx]
-  mask = tf.to_float(thres[None, :] < tf.abs(w))
-
-  w = mask * w
-  return tf.reshape(w, w_shape)
+  count = tf.to_int32(k * sparsity)
+  mask = common_layers.weight_targeting(w, count)
+  return (1 - mask) * w
 
 
 @registry.register_pruning_strategy
 def unit(w, sparsity):
   """Unit-level magnitude pruning."""
   w_shape = common_layers.shape_list(w)
-  k = int(np.prod(w_shape[:-1]))
-  w = tf.reshape(w, [k, w_shape[-1]])
-  idx = int(w_shape[-1] * sparsity)
-
-  norm = tf.norm(w, axis=0)
-  thres = tf.contrib.framework.sort(norm, axis=0)[idx]
-  mask = tf.to_float(thres < norm)[None, :]
-  mask = tf.tile(mask, [k, 1])
-
-  w = mask * w
-  return tf.reshape(w, w_shape)
+  count = tf.to_int32(w_shape[-1] * sparsity)
+  mask = common_layers.unit_targeting(w, count)
+  return (1 - mask) * w
 
 
 def sparsify(sess, eval_model, pruning_strategy, pruning_params):
@@ -72,6 +59,7 @@ def sparsify(sess, eval_model, pruning_strategy, pruning_params):
     return True
 
   weights = [w for w in weights if should_prune(w.name)]
+  tf.logging.info("Pruning weights: %s" % weights)
   unpruned_weights = sess.run(weights)
 
   reset_op = tf.no_op()

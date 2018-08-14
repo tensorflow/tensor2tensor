@@ -738,7 +738,8 @@ def apply_spectral_norm(x):
   # v = Wu / ||W u||
   with tf.variable_scope("u", reuse=tf.AUTO_REUSE):
     u = tf.get_variable(
-        "u", [num_filters, 1], initializer=tf.truncated_normal_initializer(),
+        "u", [num_filters, 1],
+        initializer=tf.truncated_normal_initializer(),
         trainable=False)
   v = tf.nn.l2_normalize(tf.matmul(weights_2d, u))
 
@@ -746,9 +747,8 @@ def apply_spectral_norm(x):
   u_new = tf.nn.l2_normalize(tf.matmul(tf.transpose(v), weights_2d))
 
   # s = v*W*u
-  spectral_norm = tf.squeeze(tf.matmul(
-      tf.transpose(v),
-      tf.matmul(weights_2d, tf.transpose(u_new))))
+  spectral_norm = tf.squeeze(
+      tf.matmul(tf.transpose(v), tf.matmul(weights_2d, tf.transpose(u_new))))
 
   # set u equal to u_new in the next iteration.
   assign_op = tf.assign(u, tf.transpose(u_new))
@@ -3701,6 +3701,103 @@ def cyclegan_upsample(net, num_outputs, stride, method="conv2d_transpose"):
     return net
 
 
+def weight_targeting(w, k):
+  """Weight-level magnitude pruning."""
+  k = tf.to_int32(k)
+  w_shape = shape_list(w)
+  size = tf.to_int32(tf.reduce_prod(w_shape[:-1]))
+  w = tf.reshape(w, [size, w_shape[-1]])
+
+  transpose_w = tf.transpose(w)
+  thres = tf.contrib.framework.sort(tf.abs(transpose_w), axis=1)[:, k]
+  mask = tf.to_float(thres[None, :] >= tf.abs(w))
+
+  return tf.reshape(mask, w_shape)
+
+
+def unit_targeting(w, k):
+  """Unit-level magnitude pruning."""
+  k = tf.to_int32(k)
+  w_shape = shape_list(w)
+  size = tf.to_int32(tf.reduce_prod(w_shape[:-1]))
+  w = tf.reshape(w, [size, w_shape[-1]])
+
+  norm = tf.norm(w, axis=0)
+  thres = tf.contrib.framework.sort(norm, axis=0)[k]
+  mask = tf.to_float(thres >= norm)[None, :]
+  mask = tf.tile(mask, [size, 1])
+
+  return tf.reshape(mask, w_shape)
+
+
+def td_conv(inputs,
+            filters,
+            kernel_size,
+            targeting_count,
+            targeting_fn,
+            keep_prob,
+            is_training,
+            do_prune=True,
+            strides=(1, 1),
+            padding="valid",
+            data_format="channels_last",
+            dilation_rate=(1, 1),
+            activation=None,
+            use_bias=True,
+            kernel_initializer=None,
+            bias_initializer=tf.zeros_initializer(),
+            name=None,
+            reuse=None):
+  """Apply targeted dropout to the weights of a convolution."""
+  with tf.variable_scope(name, default_name="td_conv", reuse=reuse):
+    nhwc = data_format == "channels_last"
+    in_dim = shape_list(inputs)[-1] if nhwc else shape_list(inputs)[1]
+
+    kernel_shape = [kernel_size, kernel_size, in_dim, filters]
+    w = tf.get_variable(
+        "DW", shape=kernel_shape, initializer=kernel_initializer)
+    if use_bias:
+      b = tf.get_variable("b", shape=[filters], initializer=bias_initializer)
+
+    if keep_prob < 1.0:
+      w = targeted_dropout(
+          w,
+          targeting_count,
+          keep_prob,
+          targeting_fn,
+          is_training,
+          do_prune=do_prune)
+
+    if isinstance(strides, int):
+      strides = [strides, strides]
+    if isinstance(dilation_rate, int):
+      dilation_rate = [dilation_rate, dilation_rate]
+
+    if nhwc:
+      strides = [1, strides[0], strides[1], 1]
+      dilation_rate = [1, dilation_rate[0], dilation_rate[1], 1]
+    else:
+      strides = [1, 1, strides[0], strides[1]]
+      dilation_rate = [1, 1, dilation_rate[0], dilation_rate[1]]
+
+    y = tf.nn.conv2d(
+        inputs,
+        w,
+        strides,
+        padding,
+        data_format="NHWC" if nhwc else "NCHW",
+        dilations=dilation_rate,
+        name=None)
+
+    if use_bias:
+      y += b
+
+    if activation:
+      y = activation(y)
+
+    return y
+
+
 def targeted_dropout(inputs,
                      k,
                      keep_prob,
@@ -3709,8 +3806,8 @@ def targeted_dropout(inputs,
                      do_prune=False):
   """Applies targeted dropout.
 
-  Applies dropout at a rate of `1 - keep_prob` to only those elements of `x`
-  marked by `targeting_fn`. See below and paper for more detail:
+  Applies dropout at a rate of `1 - keep_prob` to only those elements of
+  `inputs` marked by `targeting_fn`. See below and paper for more detail:
 
   "Targeted Dropout for Posthoc Pruning" Aidan N. Gomez, Ivan Zhang,
     Kevin Swersky, Yarin Gal, and Geoffrey E. Hinton.
@@ -3727,11 +3824,12 @@ def targeted_dropout(inputs,
     is_training: bool, indicates whether currently training.
     do_prune: bool, indicates whether to prune the `k * (1 - keep_prob)`
       elements of `inputs` expected to be dropped each forwards pass.
+
   Returns:
     Tensor, same shape and dtype as `inputs`.
   """
   if not is_training and do_prune:
-    k = tf.round(k * (1 - keep_prob))
+    k = tf.round(tf.to_float(k) * tf.to_float(1. - keep_prob))
 
   mask = targeting_fn(inputs, k)
   mask = tf.cast(mask, inputs.dtype)
@@ -3793,10 +3891,7 @@ def sparse_eye(size):
   dense_shape = [tf.cast(size, tf.int64), tf.cast(size, tf.int64)]
 
   return tf.SparseTensor(
-      indices=indices,
-      values=values,
-      dense_shape=dense_shape
-  )
+      indices=indices, values=values, dense_shape=dense_shape)
 
 
 # modification from https://github.com/tensorflow/tensorflow/pull/21276
