@@ -18,6 +18,8 @@ import collections
 import functools
 import operator
 import gym
+
+from tensor2tensor.data_generators.gym_problems import standard_atari_env_spec
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
@@ -60,6 +62,7 @@ def ppo_continuous_action_base():
   hparams = ppo_base_v1()
   hparams.add_hparam("policy_network", feed_forward_gaussian_fun)
   hparams.add_hparam("policy_network_params", "basic_policy_parameters")
+  hparams.add_hparam("environment_spec", simple_gym_spec("Pendulum-v0"))
   return hparams
 
 
@@ -73,6 +76,9 @@ def basic_policy_parameters():
 def ppo_discrete_action_base():
   hparams = ppo_base_v1()
   hparams.add_hparam("policy_network", feed_forward_categorical_fun)
+  hparams.add_hparam("environment_spec",
+                     standard_atari_env_spec("CartPole-v0"))
+
   return hparams
 
 
@@ -119,6 +125,8 @@ def ppo_pong_base():
   hparams.clipping_coef = 0.2
   hparams.optimization_batch_size = 4
   hparams.max_gradients_norm = 0.5
+  hparams.environment_spec = standard_atari_env_spec("PongNoFrameskip-v4")
+
   return hparams
 
 

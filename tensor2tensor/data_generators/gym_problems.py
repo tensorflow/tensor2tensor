@@ -98,7 +98,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     # TODO(piotrmilos):this should be consistent with
     # ppo_params in model_rl_experiment
     collect_hparams = rl.ppo_pong_base()
-    collect_hparams.add_hparam("environment_spec", self.environment_spec)
+    collect_hparams.environment_spec = self.environment_spec
     collect_hparams.add_hparam("force_beginning_resets",
                                self._internal_memory_force_beginning_resets)
     collect_hparams.epoch_length = self._internal_memory_size
@@ -485,7 +485,8 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     hparams = HParams(
         video_num_input_frames=environment_spec.video_num_input_frames,
         video_num_target_frames=environment_spec.video_num_target_frames,
-        environment_spec=environment_spec)
+        environment_spec=environment_spec,
+        shuffle_buffer_size=100)
 
     initial_frames_problem = environment_spec.initial_frames_problem
     dataset = initial_frames_problem.dataset(
