@@ -267,3 +267,4 @@ def tile_and_concat(image, latent, concat_latent=True):
   latent = tf.pad(latent, [[0, 0], [pad // 2, pad // 2], [0, 0], [0, 0]])
   return tf.concat([image, latent], axis=-1)
 
+
