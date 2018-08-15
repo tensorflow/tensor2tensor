@@ -193,6 +193,9 @@ class MultiProblem(problem.Problem):
       def mix_data(example):
         """Function to mix the different datasets according to a schedule."""
         del example
+        # This block computes the probability of mixing the primary task with
+        # the secondary tasks. 0 = only the primary task, 1 = only the secondary
+        # tasks.
         if hparams.multiproblem_mixing_schedule == MixingSchedule.EXPONENTIAL:
           prob = get_exp_sched_prob()
         elif hparams.multiproblem_mixing_schedule == MixingSchedule.CONSTANT:
@@ -203,8 +206,10 @@ class MultiProblem(problem.Problem):
         tf.logging.info("Using the %s schedule to "
                         "train the MultiProblem." % str(
                             hparams.multiproblem_mixing_schedule))
+        tf.logging.info("Schedule mixing threshold "
+                        "%.2f" % hparams.multiproblem_schedule_threshold)
 
-        def sample_task(curr_task, num_tasks_left):
+        def sample_task(curr_task, num_tasks_left, randnum):
           """A recursive function to sample a task.
 
           This function treats the probability as the threshold for the primary
@@ -214,6 +219,7 @@ class MultiProblem(problem.Problem):
           Args:
             curr_task: The index of the task being considered for sampling.
             num_tasks_left: Number of tasks remaining to possibly sample from.
+            randnum: The random number used to select the dataset.
 
           Returns:
             A Tensor representing an example from the task that was sampled
@@ -222,23 +228,21 @@ class MultiProblem(problem.Problem):
 
           if num_tasks_left == 0:
             return get_next_from_dataset(dataset_iterators[curr_task])
-          elif curr_task == 0:
-            # primary task
-            return tf.cond(
-                tf.greater(tf.random_uniform([]), prob),
-                lambda d=dataset_iterators[0]: get_next_from_dataset(d),
-                lambda c=curr_task+1, n=num_tasks_left-1: sample_task(c, n)
-            )
-          # divide the probability mass across all the secondary tasks equally.
-          new_prob = prob - curr_task * prob / (len(self.task_list)-1)
+
+          # When curr_task is 0, the primary task, the new prob is the same as
+          # the original probability. `tf.greater` indicates that the primary
+          # task receives (1-prob) of the probability mass.
+          # Otherwise, `prob` is divided equally amongst all the secondary
+          # tasks.
+          new_prob = prob - (curr_task * prob / (len(self.task_list)-1))
           return tf.cond(
-              tf.greater(tf.random_uniform([]), new_prob),
-              lambda d=dataset_iterators[curr_task]: get_next_from_dataset(d),
-              lambda c=curr_task+1, n=num_tasks_left-1: sample_task(c, n)
+              tf.greater(randnum, new_prob),
+              lambda: get_next_from_dataset(dataset_iterators[curr_task]),
+              lambda: sample_task(curr_task+1, num_tasks_left-1, randnum)
           )
 
         return tf.data.Dataset.from_tensors(
-            sample_task(0, len(self.task_list)-1))
+            sample_task(0, len(self.task_list)-1, tf.random_uniform([])))
 
       single_mtl_dataset = tf.data.Dataset.from_tensors(tf.zeros([1])).repeat()
       single_mtl_dataset = single_mtl_dataset.flat_map(mix_data)
