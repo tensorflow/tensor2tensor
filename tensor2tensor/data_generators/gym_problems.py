@@ -28,6 +28,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
+from tensor2tensor.models.research.rl import standard_atari_env_spec
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.utils import metrics
@@ -44,20 +45,6 @@ flags.DEFINE_string("agent_policy_path", None, "File with model for agent.")
 
 flags.DEFINE_string("autoencoder_path", None,
                     "File with model for autoencoder.")
-
-
-def standard_atari_env_spec(env):
-  """Parameters of environment specification."""
-  standard_wrappers = [[tf_atari_wrappers.StackAndSkipWrapper, {"skip": 4}]]
-  env_lambda = None
-  if isinstance(env, str):
-    env_lambda = lambda: gym.make(env)
-  if callable(env):
-    env_lambda = env
-  assert env is not None, "Unknown specification of environment"
-
-  return tf.contrib.training.HParams(
-      env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
 
 
 def standard_atari_ae_env_spec(env):

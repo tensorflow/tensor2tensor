@@ -19,13 +19,27 @@ import functools
 import operator
 import gym
 
-from tensor2tensor.data_generators.gym_problems import standard_atari_env_spec
+
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
+from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
+def standard_atari_env_spec(env):
+  """Parameters of environment specification."""
+  standard_wrappers = [[tf_atari_wrappers.StackAndSkipWrapper, {"skip": 4}]]
+  env_lambda = None
+  if isinstance(env, str):
+    env_lambda = lambda: gym.make(env)
+  if callable(env):
+    env_lambda = env
+  assert env is not None, "Unknown specification of environment"
+
+  return tf.contrib.training.HParams(
+      env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
 
 
 @registry.register_hparams
