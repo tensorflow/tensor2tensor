@@ -165,7 +165,7 @@ def train_agent(problem_name, agent_model_dir,
   environment_spec.simulation_random_starts = hparams.simulation_random_starts
   environment_spec.intrinsic_reward_scale = hparams.intrinsic_reward_scale
 
-  ppo_hparams.add_hparam("environment_spec", environment_spec)
+  ppo_hparams.environment_spec = environment_spec
 
   with temporary_flags({
       "problem": problem_name,
@@ -531,7 +531,7 @@ def rl_modelrl_base():
       game="wrapped_full_pong",
       # Whether to evaluate the world model in each iteration of the loop to get
       # the model_reward_accuracy metric.
-      eval_world_model=True,
+      eval_world_model=True
   )
 
 

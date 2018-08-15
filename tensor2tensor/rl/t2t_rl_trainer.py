@@ -16,6 +16,9 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import gym
+
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
@@ -35,7 +38,13 @@ except:  # pylint: disable=bare-except
 
 def main(_):
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
-  rl_trainer_lib.train(hparams, FLAGS.problem, FLAGS.output_dir)
+  if "environment" in FLAGS:
+      env_lambda = lambda: gym.make(FLAGS.environment)
+      hparams.environment_spec.env_lambda = env_lambda
+
+  model_dir = FLAGS.model_dir if "model_dir" in FLAGS else None
+
+  rl_trainer_lib.train(hparams, FLAGS.output_dir, model_dir)
 
 
 if __name__ == "__main__":

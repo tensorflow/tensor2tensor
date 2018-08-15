@@ -28,6 +28,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import rl
+from tensor2tensor.models.research.rl import standard_atari_env_spec
 from tensor2tensor.rl import collect
 from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.utils import metrics
@@ -44,20 +45,6 @@ flags.DEFINE_string("agent_policy_path", None, "File with model for agent.")
 
 flags.DEFINE_string("autoencoder_path", None,
                     "File with model for autoencoder.")
-
-
-def standard_atari_env_spec(env):
-  """Parameters of environment specification."""
-  standard_wrappers = [[tf_atari_wrappers.StackAndSkipWrapper, {"skip": 4}]]
-  env_lambda = None
-  if isinstance(env, str):
-    env_lambda = lambda: gym.make(env)
-  if callable(env):
-    env_lambda = env
-  assert env is not None, "Unknown specification of environment"
-
-  return tf.contrib.training.HParams(
-      env_lambda=env_lambda, wrappers=standard_wrappers, simulated_env=False)
 
 
 def standard_atari_ae_env_spec(env):
@@ -98,7 +85,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     # TODO(piotrmilos):this should be consistent with
     # ppo_params in model_rl_experiment
     collect_hparams = rl.ppo_pong_base()
-    collect_hparams.add_hparam("environment_spec", self.environment_spec)
+    collect_hparams.environment_spec = self.environment_spec
     collect_hparams.add_hparam("force_beginning_resets",
                                self._internal_memory_force_beginning_resets)
     collect_hparams.epoch_length = self._internal_memory_size
@@ -485,7 +472,8 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     hparams = HParams(
         video_num_input_frames=environment_spec.video_num_input_frames,
         video_num_target_frames=environment_spec.video_num_target_frames,
-        environment_spec=environment_spec)
+        environment_spec=environment_spec,
+        shuffle_buffer_size=100)
 
     initial_frames_problem = environment_spec.initial_frames_problem
     dataset = initial_frames_problem.dataset(

@@ -118,7 +118,9 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
                       environment_spec.video_num_input_frames,
                       video_num_target_frames=
                       environment_spec.video_num_target_frames,
-                      environment_spec=environment_spec)
+                      environment_spec=environment_spec,
+                      shuffle_buffer_size = 100
+    )
 
     if environment_spec.simulation_random_starts:
       dataset = initial_frames_problem.dataset(tf.estimator.ModeKeys.TRAIN,
