@@ -17,8 +17,8 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import functools
-from tensor2tensor.layers import common_layers
+
+
 from tensor2tensor.mesh_tensorflow import mesh_tensorflow as mtf
 import tensorflow as tf
 
@@ -676,16 +676,8 @@ def moe_v0(inputs,
   # shape = [batch_dim, length_dim, experts_dim_unsplit]
   gates = mtf.softmax(dense(inputs, experts_dim_unsplit), experts_dim_unsplit)
 
-  assignment_shape = mtf.Shape(
-      [batch_dim, length_dim, experts_dim_unsplit, expert_capacity_dim])
-
-  backward_assignment = mtf.slicewise(
-      functools.partial(
-          _truncated_top_2_gating, expert_capacity=expert_capacity),
-      [gates],
-      output_shape=assignment_shape,
-      splittable_dims=[batch_dim],
-      name="backward_assignment")
+  backward_assignment = _truncated_top_2_gating_mtf(
+      gates, length_dim, experts_dim_unsplit, expert_capacity_dim)
 
   forward_assignment = mtf.cast(
       mtf.cast(backward_assignment, tf.bool), inputs.dtype)
@@ -734,7 +726,8 @@ def cv_squared(x):
   return variance / (mtf.square(mean) + epsilon)
 
 
-def _truncated_top_2_gating(gates, expert_capacity, show_summaries=False):
+def _truncated_top_2_gating_mtf(
+    gates, group_dim, experts_dim, expert_capacity_dim):
   """Compute gating for mixture-of-experts in TensorFlow.
 
   gates is usually the output of a softmax function.
@@ -746,108 +739,88 @@ def _truncated_top_2_gating(gates, expert_capacity, show_summaries=False):
   call it from both places.
 
   Args:
-    gates: a Tensor with shape [batch, length, num_experts]
-    expert_capacity: an integer
-    show_summaries: a boolean
+    gates: a Tensor
+    group_dim: one dimension of gates
+    experts_dim: one dimension of gates
+    expert_capacity_dim: a Dimension not in gates
 
   Returns:
-    a Tensor with shape [batch, length, num_experts, expert_capacity]
+    a Tensor with shape gates.shape + expert_capacity_dim
+
+  Raises:
+    ValueError: if group_dim has size >256
   """
-  def _to_float(x):
-    return tf.cast(x, gates.dtype)
-  batch = tf.shape(gates)[0]
-  length = tf.shape(gates)[1]
-  num_experts = tf.shape(gates)[2]
-  expert_capacity_f = _to_float(expert_capacity)
-  # Find the top expert for each position.
-  gate_1, index_1 = common_layers.top_1_tpu(gates)
-  # [batch, length, num_experts]
-  mask_1 = tf.one_hot(index_1, num_experts, dtype=gates.dtype)
-  # [batch, length, num_experts]
+  gates = mtf.to_float(gates)
+  expert_capacity_f = float(expert_capacity_dim.size)
+  # Find the top expert for each position. shape=[batch, group]
+  index_1, gate_1 = mtf.top_1(gates, experts_dim)
+  # [batch, group, experts]
+  mask_1 = mtf.one_hot(index_1, experts_dim, dtype=gates.dtype)
+
+  if expert_capacity_dim.size > 256:
+    # using mtf.cumsum (implemented on TPU as bfloat16 matmul) to compute
+    # position in the mini-batch sent to the expert.  This will cause
+    # very bad things to happen if expert_capacity_dim > 256.
+    raise ValueError(
+        "expert_capacity_dim.size must be <=256 to avoid roundoff errors in"
+        " indices - got %s" % (expert_capacity_dim,))
+  # [batch, group, experts]
   # This is the position within the expert's mini-batch for this sequence
-  position_in_expert_1 = common_layers.cumsum(
-      mask_1, axis=1, exclusive=True) * mask_1
-  # Remove the elements that don't fit.
-  mask_1 *= _to_float(tf.less(position_in_expert_1, expert_capacity_f))
-  # [batch, 1, num_experts]
+  position_in_expert_1 = mtf.cumsum(mask_1, group_dim, exclusive=True) * mask_1
+  # Remove the elements that don't fit. [batch, group, experts]
+  mask_1 *= mtf.to_float(mtf.less(position_in_expert_1, expert_capacity_f))
+  # [batch, experts]
   # How many examples in this sequence go to this expert
-  mask_1_count = tf.reduce_sum(mask_1, axis=1, keepdims=True)
-  # [batch, length] - mostly ones, but zeros where something didn't fit
-  mask_1_flat = tf.reduce_sum(mask_1, axis=2)
-  position_in_expert_1 = tf.reduce_sum(position_in_expert_1, axis=2)
-  # Weight assigned to first expert.
+  mask_1_count = mtf.reduce_sum(mask_1, reduced_dim=group_dim)
+  # [batch, group] - mostly ones, but zeros where something didn't fit
+  mask_1_flat = mtf.reduce_sum(mask_1, reduced_dim=experts_dim)
+  # [batch, group]
+  position_in_expert_1 = mtf.reduce_sum(
+      position_in_expert_1, reduced_dim=experts_dim)
+  # Weight assigned to first expert.  [batch, group]
   gate_1 *= mask_1_flat
 
   # Pick a second-place expert for each position.
   # We first mask out the experts that we expect to be over-capacity
+  # [batch, experts]
   space_remaining = expert_capacity_f - mask_1_count
-  use_rate = (mask_1_count + 1.0) / _to_float(length)
+  use_rate = (mask_1_count + 1.0) / float(group_dim.size)
   # At what point in the sequence do we expect the expert to be full.
+  # [batch, experts]
   expected_exhaustion_pos = space_remaining / use_rate
-  # A Tensor with shape [batch, length, num_experts] representing a boolean
+  # A Tensor with shape [batch, group, experts] representing a boolean
   #   - whether we expect that the expert will already be full.
-  expected_exhausted = _to_float(tf.greater(
-      tf.reshape(_to_float(tf.range(length)), [1, length, 1]),
-      expected_exhaustion_pos))
+  expected_exhausted = mtf.to_float(mtf.greater(
+      mtf.range(gates.mesh, group_dim, tf.float32), expected_exhaustion_pos))
   masked_gates = gates - mask_1 - expected_exhausted
   # This section is similar to the section above.
-  gate_2, index_2 = common_layers.top_1_tpu(masked_gates)
-  # [batch, length, num_experts]
-  mask_2 = tf.one_hot(index_2, num_experts, dtype=gates.dtype)
+  # [batch, group]
+  index_2, gate_2 = mtf.top_1(masked_gates, experts_dim)
+  # [batch, group, experts]
+  mask_2 = mtf.one_hot(index_2, experts_dim, dtype=gates.dtype)
+  # [batch, group, experts]
   position_in_expert_2 = (
-      common_layers.cumsum(mask_2, axis=1, exclusive=True) + mask_1_count)
+      mtf.cumsum(mask_2, group_dim, exclusive=True) + mask_1_count)
   position_in_expert_2 *= mask_2
-  mask_2 *= _to_float(tf.less(position_in_expert_2, expert_capacity_f))
-  mask_2_count = tf.reduce_sum(mask_2, axis=1, keepdims=True)
-  mask_2_flat = tf.reduce_sum(mask_2, axis=2)
-  position_in_expert_2 = tf.reduce_sum(position_in_expert_2, axis=2)
+  mask_2 *= mtf.to_float(mtf.less(position_in_expert_2, expert_capacity_f))
+  # mask_2_count = mtf.reduce_sum(mask_2, reduced_dim=experts_dim)
+  mask_2_flat = mtf.reduce_sum(mask_2, reduced_dim=experts_dim)
+  position_in_expert_2 = mtf.reduce_sum(
+      position_in_expert_2, reduced_dim=experts_dim)
   gate_2 *= mask_2_flat
-
-  # What fraction didn't fit - show summaries
-  if show_summaries:
-    miss_rate_1 = (
-        1.0 - tf.reduce_sum(mask_1_count) / _to_float(batch * length))
-    miss_rate_2 = (
-        1.0 - tf.reduce_sum(mask_2_count) / _to_float(batch * length))
-    tf.summary.scalar("miss_rate_1", miss_rate_1)
-    tf.summary.scalar("miss_rate_2", miss_rate_2)
 
   # renormalize the two gate values to add up to 1
   denom = gate_1 + gate_2 + 1e-9
   gate_1 /= denom
   gate_2 /= denom
 
-  # inputs: [batch, length, input_size]
-  # forward_assignment: [batch, length, num_experts * expert_capacity]
-  # expert_inputs: [batch, num_experts * expert_capacity, input_size]
-
-  segment_ids_forward_1 = (
-      (index_1 * expert_capacity) +
-      tf.to_int32(position_in_expert_1) +
-      tf.to_int32(1.0 - mask_1_flat) * (num_experts * expert_capacity))
-
-  segment_ids_forward_2 = (
-      (index_2 * expert_capacity) +
-      tf.to_int32(position_in_expert_2) +
-      tf.to_int32(1.0 - mask_2_flat) * (num_experts * expert_capacity))
-
-  # Gather and scatter are painfully slow on TPU.
-  # We will use one_hot and matmul instead.
-
-  # [batch, length, num_experts * expert_capacity]
-  one_hot_1 = tf.one_hot(
-      segment_ids_forward_1, num_experts * expert_capacity, dtype=gates.dtype)
-  one_hot_2 = tf.one_hot(
-      segment_ids_forward_2, num_experts * expert_capacity, dtype=gates.dtype)
-
-  # expert_output: [batch, num_experts * expert_capacity, output_size]
-  # backward_assignment: [batch, length, num_experts * expert_capacity]
-  # output: [batch, length, output_size]
+  # [batch, group, experts, expert_capacity]
   assignment = (
-      one_hot_1 * tf.cast(tf.expand_dims(gate_1, 2), gates.dtype) +
-      one_hot_2 * tf.cast(tf.expand_dims(gate_2, 2), gates.dtype))
-
-  assignment = tf.reshape(
-      assignment, [batch, length, num_experts, expert_capacity])
+      gate_1 * mask_1_flat
+      * mtf.one_hot(index_1, experts_dim)
+      * mtf.one_hot(mtf.to_int32(position_in_expert_1), expert_capacity_dim) +
+      gate_2 * mask_2_flat
+      * mtf.one_hot(index_2, experts_dim)
+      * mtf.one_hot(mtf.to_int32(position_in_expert_2), expert_capacity_dim))
 
   return assignment

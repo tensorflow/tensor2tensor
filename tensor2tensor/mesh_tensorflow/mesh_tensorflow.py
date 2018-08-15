@@ -1453,6 +1453,16 @@ def greater(x1, x2, output_shape=None):
       tf.greater, x1, x2, output_dtype=tf.bool, output_shape=output_shape)
 
 
+def less_equal(x1, x2, output_shape=None):
+  return binary_op_with_broadcasting(
+      tf.less_equal, x1, x2, output_dtype=tf.bool, output_shape=output_shape)
+
+
+def greater_equal(x1, x2, output_shape=None):
+  return binary_op_with_broadcasting(
+      tf.greater_equal, x1, x2, output_dtype=tf.bool, output_shape=output_shape)
+
+
 def equal(x1, x2, output_shape=None):
   return binary_op_with_broadcasting(
       tf.equal, x1, x2, output_dtype=tf.bool, output_shape=output_shape)
@@ -1567,6 +1577,10 @@ class ReduceOperation(Operation):
   def gradient(self, grad_ys):
     if self._reduction_fn_string == "SUM":
       return [broadcast(grad_ys[0], self.inputs[0].shape)]
+    elif (self._reduction_fn_string == "MAX" or
+          self._reduction_fn_string == "MIN"):
+      return [cast(equal(self.inputs[0], self.outputs[0]), self.inputs[0].dtype)
+              * grad_ys[0]]
     else:
       raise ValueError("Gradients to other reductions not implemented")
 
@@ -1797,6 +1811,28 @@ def unstack(x, dim, name=None):
     a list of dim.size Tensors, each with shape (x.shape - dim)
   """
   return UnstackOperation(x, dim, name).outputs
+
+
+def cumsum(x, dim, exclusive=False):
+  """Cumulative sum.
+
+  Args:
+    x: a Tensor
+    dim: a Dimension
+    exclusive: a boolean
+
+  Returns:
+    a Tensor with the same shape as x.
+  """
+  new_name = "tmp_dim_cumsum"
+  new_dim = Dimension(new_name, dim.size)
+  new_shape = x.shape.rename_dimension(dim.name, new_name)
+  comparator = less if exclusive else less_equal
+  m = cast(
+      comparator(range(x.mesh, dim, dtype=tf.float32),
+                 range(x.mesh, new_dim, dtype=tf.float32)), x.dtype)
+  ret = einsum([x, m], output_shape=new_shape)
+  return reshape(ret, x.shape)
 
 
 def _einsum_helper(input_shapes, output_shape, mesh_impl):
