@@ -35,7 +35,7 @@ class GymProblemsTest(tf.test.TestCase):
     os.mkdir(cls.tmp_dir)
 
   def testGymAtariBoots(self):
-    problem = gym_problems_specs.GymPongRandom()
+    problem = gym_problems_specs.create_problems_for_game("pong")["base"]()
     self.assertEqual(210, problem.frame_height)
 
 

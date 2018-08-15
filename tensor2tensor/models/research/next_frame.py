@@ -28,9 +28,6 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
-tfl = tf.layers
-tfcl = tf.contrib.layers
-
 
 @registry.register_model
 class NextFrameBasic(t2t_model.T2TModel):
@@ -161,5 +158,3 @@ class NextFrameBasic(t2t_model.T2TModel):
 
     # Return results.
     return results
-
-

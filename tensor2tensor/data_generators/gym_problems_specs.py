@@ -30,6 +30,11 @@ from tensor2tensor.data_generators.gym_problems import GymDiscreteProblem,\
 # pylint: enable=g-multiple-import
 from tensor2tensor.utils import registry
 
+# Game list from our list of ROMs
+# Removed because XDeterministic-v4 did not exist:
+# * adventure
+# * defender
+# * kaboom
 ATARI_GAMES = [
     "air_raid", "alien", "amidar", "assault", "asterix", "asteroids",
     "atlantis", "bank_heist", "battle_zone", "beam_rider", "berzerk", "bowling",
@@ -44,10 +49,6 @@ ATARI_GAMES = [
     "up_n_down", "venture", "video_pinball", "wizard_of_wor", "yars_revenge",
     "zaxxon"
 ]
-# Removed because XDeterministic-v4 did not exist:
-# * adventure
-# * defender
-# * kaboom
 
 # Subset of games with promissing results on model based training.
 ATARI_WHITELIST_GAMES = [
@@ -65,56 +66,9 @@ ATARI_WHITELIST_GAMES = [
     "pong",
     "road_runner",
     "seaquest",
-    "wrapped_full_pong",  # TODO(blazej): check if we get equally good results
-]                         # on vanilla pong.
-
-
-@registry.register_problem
-class GymPongRandom(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  # Hard-coding num_actions, frame_height, frame_width to avoid loading
-  # libale.so file.
-  @property
-  def num_actions(self):
-    return 6
-
-  @property
-  def frame_height(self):
-    return 210
-
-  @property
-  def frame_width(self):
-    return 160
-
-  @property
-  def env_name(self):
-    return "PongDeterministic-v4"
-
-  @property
-  def min_reward(self):
-    return -1
-
-  @property
-  def num_rewards(self):
-    return 3
-
-
-@registry.register_problem
-class GymWrappedPongRandom(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  @property
-  def env_name(self):
-    return "T2TPongWarmUp20RewSkip200Steps-v1"
-
-  @property
-  def min_reward(self):
-    return -1
-
-  @property
-  def num_rewards(self):
-    return 3
+    # TODO(blazej): check if we get equally good results on vanilla pong.
+    "wrapped_full_pong",
+]
 
 
 @registry.register_problem
@@ -132,79 +86,6 @@ class GymWrappedFullPongRandom(GymDiscreteProblem):
   @property
   def num_rewards(self):
     return 3
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymWrappedBreakoutRandom(GymDiscreteProblem):
-  """Pong game, random actions."""
-
-  @property
-  def env_name(self):
-    return "T2TBreakoutWarmUp20RewSkip500Steps-v1"
-
-  @property
-  def min_reward(self):
-    return -1
-
-  @property
-  def num_rewards(self):
-    return 3
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnPong(GymSimulatedDiscreteProblem,
-                                                 GymPongRandom):
-  """Simulated pong."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_pong"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymFreewayRandom(GymDiscreteProblem):
-  """Freeway game, random actions."""
-
-  @property
-  def env_name(self):
-    return "FreewayDeterministic-v4"
-
-  @property
-  def min_reward(self):
-    return 0
-
-  @property
-  def num_rewards(self):
-    return 2
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnPong(GymRealDiscreteProblem, GymPongRandom):
-  pass
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnFreeway(GymRealDiscreteProblem,
-                                           GymFreewayRandom):
-  pass
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedPong(
-    GymSimulatedDiscreteProblem, GymWrappedPongRandom):
-  """Simulated pong."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_pong"
 
   @property
   def num_testing_steps(self):
@@ -257,74 +138,8 @@ class GymSimulatedDiscreteProblemWithAgentOnWrappedFullPongAutoencoded(
     return 100
 
 
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedBreakout(GymRealDiscreteProblem,
-                                                   GymWrappedBreakoutRandom):
-  pass
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedBreakoutAe(
-    GymDiscreteProblemWithAgentOnWrappedBreakout):
-  pass
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnWrappedBreakout(
-    GymSimulatedDiscreteProblem, GymWrappedBreakoutRandom):
-  """Simulated breakout."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_wrapped_breakout"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedPong(GymRealDiscreteProblem,
-                                               GymWrappedPongRandom):
-  """GymDiscreteProblemWithAgentOnWrappedPong."""
-
-  # Hard-coding num_actions, frame_height, frame_width to avoid loading
-  # libale.so file.
-  @property
-  def num_actions(self):
-    return 6
-
-  @property
-  def frame_height(self):
-    return 210
-
-  @property
-  def frame_width(self):
-    return 160
-
-
-@registry.register_problem
-class GymDiscreteProblemWithAgentOnWrappedPongAe(  # With autoencoder.
-    GymDiscreteProblemWithAgentOnWrappedPong):
-  pass
-
-
-@registry.register_problem
-class GymSimulatedDiscreteProblemWithAgentOnFreeway(GymSimulatedDiscreteProblem,
-                                                    GymFreewayRandom):
-  """Simulated freeway."""
-
-  @property
-  def initial_frames_problem(self):
-    return "gym_discrete_problem_with_agent_on_freeway"
-
-  @property
-  def num_testing_steps(self):
-    return 100
-
-
 class GymClippedRewardRandom(GymDiscreteProblem):
-  """Base class for clipped reward games."""
+  """Abstract base class for clipped reward games."""
 
   @property
   def env_name(self):
@@ -339,10 +154,25 @@ class GymClippedRewardRandom(GymDiscreteProblem):
     return 3
 
 
-def dynamically_create_gym_clipped_reward_problem(game_name):
-  """Dynamically create env wrapper and Problems for game."""
-  # e.g. game_name == bank_heist
-  assert game_name in ATARI_GAMES
+def create_problems_for_game(game_name, clipped_reward=True):
+  """Create and register problems for game_name.
+
+  Args:
+    game_name: str, one of the games in ATARI_GAMES, e.g. "bank_heist".
+    clipped_reward: bool, whether the rewards should be clipped. False is not
+      yet supported.
+
+  Returns:
+    dict of problems with keys ("base", "agent", "simulated").
+
+  Raises:
+    ValueError: if clipped_reward=False or game_name not in ATARI_GAMES.
+  """
+  if not clipped_reward:
+    raise ValueError("Creating problems without clipped reward is not "
+                     "yet supported.")
+  if game_name not in ATARI_GAMES:
+    raise ValueError("Game %s not in ATARI_GAMES" % game_name)
   camel_game_name = "".join(
       [w[0].upper() + w[1:] for w in game_name.split("_")])
   env_name = "%sDeterministic-v4" % camel_game_name
@@ -355,7 +185,8 @@ def dynamically_create_gym_clipped_reward_problem(game_name):
           env=env_name, reward_clipping=True))
 
   # Create and register the Random and WithAgent Problem classes
-  problem_cls = type(camel_game_name + "Random", (GymClippedRewardRandom,),
+  problem_cls = type("Gym%sRandom" % camel_game_name,
+                     (GymClippedRewardRandom,),
                      {"env_name": wrapped_env_name})
   with_agent_cls = type("GymDiscreteProblemWithAgentOn%s" % camel_game_name,
                         (GymRealDiscreteProblem, problem_cls), {})
@@ -369,3 +200,9 @@ def dynamically_create_gym_clipped_reward_problem(game_name):
           "num_testing_steps": 100
       })
   registry.register_problem(simulated_cls)
+
+  return {
+      "base": problem_cls,
+      "agent": with_agent_cls,
+      "simulated": simulated_cls,
+  }

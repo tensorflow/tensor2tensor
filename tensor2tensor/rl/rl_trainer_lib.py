@@ -43,7 +43,7 @@ def define_train(hparams):
 def train(hparams, event_dir=None, model_dir=None,
           restore_agent=True, epoch=0):
   """Train."""
-  with tf.name_scope("rl_train"):
+  with tf.Graph().as_default():
     train_summary_op, _, initialization = define_train(hparams)
     if event_dir:
       summary_writer = tf.summary.FileWriter(
@@ -68,7 +68,8 @@ def train(hparams, event_dir=None, model_dir=None,
       initialization(sess)
       if env_model_loader:
         trainer_lib.restore_checkpoint(
-            hparams.world_model_dir, env_model_loader, sess, must_restore=True)
+            hparams.world_model_dir, env_model_loader, sess,
+            must_restore=True)
       start_step = 0
       if model_saver and restore_agent:
         start_step = trainer_lib.restore_checkpoint(

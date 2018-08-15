@@ -300,7 +300,7 @@ class VideoProblem(problem.Problem):
       batch_dataset = preprocessed_dataset.apply(
           tf.contrib.data.batch_and_drop_remainder(num_frames))
     dataset = batch_dataset.map(features_from_batch)
-    dataset = dataset.shuffle(hparams.shuffle_buffer_size)
+    dataset = dataset.shuffle(hparams.get("shuffle_buffer_size", 128))
     return dataset
 
   def eval_metrics(self):

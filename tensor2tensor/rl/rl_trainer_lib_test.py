@@ -17,11 +17,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.data_generators.gym_problems import standard_atari_env_spec
-from tensor2tensor.models.research.rl import feed_forward_cnn_small_categorical_fun
-from tensor2tensor.models.research.rl import simple_gym_spec
+from tensor2tensor.data_generators import gym_problems
+from tensor2tensor.models.research import rl as rl_models
 from tensor2tensor.rl import rl_trainer_lib
-from tensor2tensor.utils import registry  # pylint: disable=unused-import
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
@@ -37,7 +35,8 @@ class TrainTest(tf.test.TestCase):
         "ppo_continuous_action_base",
         TrainTest.test_config)
 
-    hparams.add_hparam("environment_spec", simple_gym_spec("Pendulum-v0"))
+    hparams.add_hparam(
+        "environment_spec", rl_models.simple_gym_spec("Pendulum-v0"))
     rl_trainer_lib.train(hparams)
 
   def test_no_crash_cartpole(self):
@@ -45,35 +44,36 @@ class TrainTest(tf.test.TestCase):
         "ppo_discrete_action_base",
         TrainTest.test_config)
 
-    hparams.add_hparam("environment_spec",
-                       standard_atari_env_spec("CartPole-v0"))
+    hparams.add_hparam(
+        "environment_spec", gym_problems.standard_atari_env_spec("CartPole-v0"))
     rl_trainer_lib.train(hparams)
 
   # This test should successfully train pong.
   # It should get train mean_score around 0 after 200 epoch
   # By default the test is disabled to avoid travis timeouts
   def test_train_pong(self):
-    hparams = tf.contrib.training.\
-      HParams(epochs_num=300,
-              eval_every_epochs=10,
-              num_agents=10,
-              optimization_epochs=3,
-              epoch_length=200,
-              entropy_loss_coef=0.003,
-              learning_rate=8e-05,
-              optimizer="Adam",
-              policy_network=feed_forward_cnn_small_categorical_fun,
-              gae_lambda=0.985,
-              num_eval_agents=1,
-              max_gradients_norm=0.5,
-              gae_gamma=0.985,
-              optimization_batch_size=4,
-              clipping_coef=0.2,
-              value_loss_coef=1,
-              save_models_every_epochs=False)
+    hparams = tf.contrib.training.HParams(
+        epochs_num=300,
+        eval_every_epochs=10,
+        num_agents=10,
+        optimization_epochs=3,
+        epoch_length=200,
+        entropy_loss_coef=0.003,
+        learning_rate=8e-05,
+        optimizer="Adam",
+        policy_network=rl_models.feed_forward_cnn_small_categorical_fun,
+        gae_lambda=0.985,
+        num_eval_agents=1,
+        max_gradients_norm=0.5,
+        gae_gamma=0.985,
+        optimization_batch_size=4,
+        clipping_coef=0.2,
+        value_loss_coef=1,
+        save_models_every_epochs=False)
 
-    hparams.add_hparam("environment_spec",
-                       standard_atari_env_spec("PongNoFrameskip-v4"))
+    hparams.add_hparam(
+        "environment_spec",
+        gym_problems.standard_atari_env_spec("PongNoFrameskip-v4"))
     # TODO(lukaszkaiser): enable tests with Atari.
     # rl_trainer_lib.train(hparams)
 
