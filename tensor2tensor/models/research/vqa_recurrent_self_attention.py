@@ -27,7 +27,7 @@ from tensor2tensor.models.research import universal_transformer
 from tensor2tensor.models.research import universal_transformer_util
 from tensor2tensor.models.research import vqa_attention
 from tensor2tensor.utils import registry
-from tensor2tensor.utils import restore_hook
+# from tensor2tensor.utils import restore_hook
 
 import tensorflow as tf
 
@@ -38,15 +38,15 @@ from tensorflow.contrib.layers.python.layers import utils
 class VqaRecurrentSelfAttention(vqa_attention.VqaAttentionBaseline):
   """Recurrent Self attention both on image and question."""
 
-  @staticmethod
-  def train_hooks():
-    restore_resnet_hook = restore_hook.RestoreHook(
-        # TODO(zichaoy): hard code the path given static function.
-        checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
-        new_model_scope="vqa_recurrent_self_attention/body/",
-        old_model_scope="resnet_v1_152/",
-    )
-    return [restore_resnet_hook]
+  # @staticmethod
+  # def train_hooks():
+  #   restore_resnet_hook = restore_hook.RestoreHook(
+  #       # TODO(zichaoy): hard code the path given static function.
+  #       checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
+  #       new_model_scope="vqa_recurrent_self_attention/body/",
+  #       old_model_scope="resnet_v1_152/",
+  #   )
+  #   return [restore_resnet_hook]
 
   def body(self, features):
     hp = self.hparams

@@ -23,7 +23,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import vqa_layers
 from tensor2tensor.utils import registry
-from tensor2tensor.utils import restore_hook
+# from tensor2tensor.utils import restore_hook
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
@@ -38,15 +38,15 @@ from tensorflow.contrib.slim.python.slim.nets.resnet_v2 import resnet_v2_152
 class VqaAttentionBaseline(t2t_model.T2TModel):
   """Attention baseline model for VQA."""
 
-  @staticmethod
-  def train_hooks():
-    restore_resnet_hook = restore_hook.RestoreHook(
-        # TODO(zichaoy): hard code the path given static function.
-        checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
-        new_model_scope="vqa_attention_baseline/body/",
-        old_model_scope="resnet_v1_152/",
-    )
-    return [restore_resnet_hook]
+  # @staticmethod
+  # def train_hooks():
+  #   restore_resnet_hook = restore_hook.RestoreHook(
+  #       # TODO(zichaoy): hard code the path given static function.
+  #       checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
+  #       new_model_scope="vqa_attention_baseline/body/",
+  #       old_model_scope="resnet_v1_152/",
+  #   )
+  #   return [restore_resnet_hook]
 
   def body(self, features):
     hp = self.hparams

@@ -24,7 +24,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import vqa_layers
 from tensor2tensor.models.research import vqa_attention
 from tensor2tensor.utils import registry
-from tensor2tensor.utils import restore_hook
+# from tensor2tensor.utils import restore_hook
 
 import tensorflow as tf
 
@@ -35,15 +35,15 @@ from tensorflow.contrib.layers.python.layers import utils
 class VqaSelfAttention(vqa_attention.VqaAttentionBaseline):
   """Self attention both on image and question."""
 
-  @staticmethod
-  def train_hooks():
-    restore_resnet_hook = restore_hook.RestoreHook(
-        # TODO(zichaoy): hard code the path given static function.
-        checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
-        new_model_scope="vqa_self_attention/body/",
-        old_model_scope="resnet_v1_152/",
-    )
-    return [restore_resnet_hook]
+  # @staticmethod
+  # def train_hooks():
+  #   restore_resnet_hook = restore_hook.RestoreHook(
+  #       # TODO(zichaoy): hard code the path given static function.
+  #       checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
+  #       new_model_scope="vqa_self_attention/body/",
+  #       old_model_scope="resnet_v1_152/",
+  #   )
+  #   return [restore_resnet_hook]
 
   def body(self, features):
     hp = self.hparams
@@ -129,15 +129,15 @@ class VqaSelfAttention(vqa_attention.VqaAttentionBaseline):
 class VqaCombinedSelfAttention(VqaSelfAttention):
   """Combined Self attention both on image and question."""
 
-  @staticmethod
-  def train_hooks():
-    restore_resnet_hook = restore_hook.RestoreHook(
-        # TODO(zichaoy): hard code the path given static function.
-        checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
-        new_model_scope="vqa_combined_self_attention/body/",
-        old_model_scope="resnet_v1_152/",
-    )
-    return [restore_resnet_hook]
+  # @staticmethod
+  # def train_hooks():
+  #   restore_resnet_hook = restore_hook.RestoreHook(
+  #       # TODO(zichaoy): hard code the path given static function.
+  #       checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
+  #       new_model_scope="vqa_combined_self_attention/body/",
+  #       old_model_scope="resnet_v1_152/",
+  #   )
+  #   return [restore_resnet_hook]
 
   def body(self, features):
     hp = self.hparams
@@ -194,15 +194,15 @@ class VqaCombinedSelfAttention(VqaSelfAttention):
 class VqaIterativeCombinedSelfAttention(VqaSelfAttention):
   """Combined Self attention both on image and question."""
 
-  @staticmethod
-  def train_hooks():
-    restore_resnet_hook = restore_hook.RestoreHook(
-        # TODO(zichaoy): hard code the path given static function.
-        checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
-        new_model_scope="vqa_combined_self_attention/body/",
-        old_model_scope="resnet_v1_152/",
-    )
-    return [restore_resnet_hook]
+  # @staticmethod
+  # def train_hooks():
+  #   restore_resnet_hook = restore_hook.RestoreHook(
+  #       # TODO(zichaoy): hard code the path given static function.
+  #       checkpoint_path="/home/zichaoy/resnet_v1_152.ckpt",
+  #       new_model_scope="vqa_combined_self_attention/body/",
+  #       old_model_scope="resnet_v1_152/",
+  #   )
+  #   return [restore_resnet_hook]
 
   def body(self, features):
     hp = self.hparams
