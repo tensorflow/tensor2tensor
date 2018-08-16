@@ -53,6 +53,7 @@ MODULES = [
     "tensor2tensor.data_generators.mrpc",
     "tensor2tensor.data_generators.mscoco",
     "tensor2tensor.data_generators.multinli",
+    "tensor2tensor.data_generators.paraphrase_ms_coco",
     "tensor2tensor.data_generators.program_search",
     "tensor2tensor.data_generators.ocr",
     "tensor2tensor.data_generators.pointer_generator_word",
