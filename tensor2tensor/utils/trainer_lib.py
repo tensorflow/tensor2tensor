@@ -461,9 +461,17 @@ def create_experiment(
                                                   hparams)
 
   # Export
+  exporter = None
   if export:
-    tf.logging.warn("Exporting from the trainer is deprecated. "
-                    "See serving/export.py.")
+    def compare_fn(best_eval_result, current_eval_result):
+      metric = eval_early_stopping_metric or "loss"
+      return current_eval_result[metric] < best_eval_result[metric]
+
+    exporter = tf.estimator.BestExporter(
+        name="best",
+        serving_input_receiver_fn=lambda: problem.serving_input_fn(hparams),
+        compare_fn=compare_fn,
+        assets_extra=problem.export_assets)
 
   # Hooks
   validation_monitor_kwargs = dict(
@@ -523,7 +531,8 @@ def create_experiment(
       steps=eval_steps,
       hooks=eval_hooks,
       start_delay_secs=0 if hparams.schedule == "evaluate" else 120,
-      throttle_secs=eval_throttle_seconds)
+      throttle_secs=eval_throttle_seconds,
+      exporters=exporter)
 
   if autotune:
     hooks_kwargs = {"train_monitors": train_hooks, "eval_hooks": eval_hooks}
