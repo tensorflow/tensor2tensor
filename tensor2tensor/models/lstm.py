@@ -165,13 +165,10 @@ def lstm_seq2seq_internal(inputs, targets, hparams, train):
     return tf.expand_dims(decoder_outputs, axis=2)
 
 
-def lstm_seq2seq_internal_attention(inputs, targets, hparams, train):
+def lstm_seq2seq_internal_attention(inputs, targets, hparams, train,
+                                    inputs_length, targets_length):
   """LSTM seq2seq model with attention, main step used for training."""
   with tf.variable_scope("lstm_seq2seq_attention"):
-    # This is a temporary fix for varying-length sequences within in a batch.
-    # A more complete fix should pass a length tensor from outside so that
-    # all the lstm variants can use it.
-    inputs_length = common_layers.length_from_embedding(inputs)
     # Flatten inputs.
     inputs = common_layers.flatten4d3d(inputs)
 
@@ -183,7 +180,7 @@ def lstm_seq2seq_internal_attention(inputs, targets, hparams, train):
     # LSTM decoder with attention.
     shifted_targets = common_layers.shift_right(targets)
     # Add 1 to account for the padding added to the left from shift_right
-    targets_length = common_layers.length_from_embedding(shifted_targets) + 1
+    targets_length = targets_length + 1
     decoder_outputs = lstm_attention_decoder(
         common_layers.flatten4d3d(shifted_targets), hparams, train, "decoder",
         final_encoder_state, encoder_outputs, inputs_length, targets_length)
@@ -323,14 +320,27 @@ class LSTMSeq2seq(t2t_model.T2TModel):
 
 @registry.register_model
 class LSTMSeq2seqAttention(t2t_model.T2TModel):
+  """Seq to seq LSTM with attention."""
 
   def body(self, features):
     # TODO(lukaszkaiser): investigate this issue and repair.
     if self._hparams.initializer == "orthogonal":
       raise ValueError("LSTM models fail with orthogonal initializer.")
     train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
+    # This is a temporary fix for varying-length sequences within in a batch.
+    # A more complete fix should pass a length tensor from outside so that
+    # all the lstm variants can use it.
+    input_shape = common_layers.shape_list(features["inputs_raw"])
+    flat_input = tf.reshape(features["inputs_raw"],
+                            [input_shape[0], input_shape[1]])
+    inputs_length = tf.reduce_sum(tf.minimum(flat_input, 1), -1)
+    target_shape = common_layers.shape_list(features["targets_raw"])
+    flat_target = tf.reshape(features["targets_raw"],
+                             [target_shape[0], target_shape[1]])
+    targets_length = tf.reduce_sum(tf.minimum(flat_target, 1), -1)
     return lstm_seq2seq_internal_attention(
-        features.get("inputs"), features["targets"], self._hparams, train)
+        features["inputs"], features["targets"], self._hparams, train,
+        inputs_length, targets_length)
 
 
 @registry.register_model
