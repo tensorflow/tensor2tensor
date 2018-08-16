@@ -21,7 +21,7 @@ bucket (`gs://...`) or a directory on a shared network filesystem.
 
 ## Utility to produce `TF_CONFIG` and flags
 
-[`t2t-make-tf-configs`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/t2t-make-tf-configs))
+[`t2t-make-tf-configs`](https://github.com/tensorflow/tensor2tensor/tree/master/tensor2tensor/bin/t2t-make-tf-configs)
 generates the `TF_CONFIG` json strings and the necessary command-line flags for
 the jobs.
 
