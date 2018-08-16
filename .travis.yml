@@ -58,9 +58,9 @@ script:
   #   * registry_test
   #   * trainer_lib_test
   #   * visualization_test
-  #   * model_rl_experiment_test
+  #   * trainer_model_based_test
   #   * allen_brain_test
-  #   * model_rl_experiment_stochastic_test
+  #   * trainer_model_based_stochastic_test
   #   * models/research
   # algorithmic_math_test: flaky
   # universal_transformer_test: requires new feature in tf.foldl (rm with TF 1.9)
@@ -71,9 +71,9 @@ script:
     --ignore=tensor2tensor/bin/t2t_trainer_test.py
     --ignore=tensor2tensor/data_generators/algorithmic_math_test.py
     --ignore=tensor2tensor/models/research/universal_transformer_test.py
-    --ignore=tensor2tensor/rl/model_rl_experiment_test.py
+    --ignore=tensor2tensor/rl/trainer_model_based_test.py
     --ignore=tensor2tensor/data_generators/allen_brain_test.py
-    --ignore=tensor2tensor/rl/model_rl_experiment_stochastic_test.py
+    --ignore=tensor2tensor/rl/trainer_model_based_stochastic_test.py
     --ignore=tensor2tensor/models/research
   - pytest tensor2tensor/utils/registry_test.py
   - pytest tensor2tensor/utils/trainer_lib_test.py
@@ -102,7 +102,7 @@ script:
         pylint -j 2 tensor2tensor;
     fi
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
-        pytest tensor2tensor/rl/model_rl_experiment_test.py;
+        pytest tensor2tensor/rl/trainer_model_based_test.py;
     fi
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]; then
         jupyter nbconvert --ExecutePreprocessor.timeout=600 --to notebook --execute tensor2tensor/notebooks/hello_t2t.ipynb;
