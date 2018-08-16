@@ -938,15 +938,6 @@ class Problem(object):
 
     return dataset
 
-  @property
-  def export_assets(self):
-    """Assets to export with the model.
-    
-    This property contains a dictionary of assets, such as vocabulary files,
-    that should be exported together with the model, or None if no assets
-    are needed."""
-    return None
-
   def serving_input_fn(self, hparams):
     """Input fn for serving export, starting from serialized example."""
     mode = tf.estimator.ModeKeys.PREDICT

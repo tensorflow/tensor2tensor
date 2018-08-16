@@ -578,7 +578,7 @@ def universal_transformer_basic(layer_inputs,
     layer_output:
          new_state: new state
   """
-  state, inputs, memory = tf.unstack(layer_inputs,num=None,axis=0,name="unstack")
+  state, inputs, memory = layer_inputs
   state = step_preprocess(state, step, hparams)
 
   new_state = ffn_unit(attention_unit(state))
