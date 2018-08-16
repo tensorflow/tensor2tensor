@@ -50,6 +50,19 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
       return [1 for _ in array]
     return array
 
+  def visualize_predictions(self, real_frames, gen_frames):
+    def concat_on_y_axis(x):
+      x = tf.unstack(x, axis=1)
+      x = tf.concat(x, axis=1)
+      return x
+
+    frames_gd = common_video.swap_time_and_batch_axes(real_frames)
+    frames_pd = common_video.swap_time_and_batch_axes(gen_frames)
+    frames_gd = concat_on_y_axis(frames_gd)
+    frames_pd = concat_on_y_axis(frames_pd)
+    side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
+    tf.summary.image("full_video", side_by_side_video)
+
   def get_gaussian_latent(self, latent_mean, latent_std):
     latent = tf.random_normal(tf.shape(latent_mean), 0, 1, dtype=tf.float32)
     latent = latent_mean + tf.exp(latent_std / 2.0) * latent
@@ -575,8 +588,7 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
 
   def body(self, features):
     hparams = self.hparams
-    input_shape = common_layers.shape_list(features["inputs"])
-    batch_size, _, _, frame_height, frame_channels = input_shape
+    batch_size = common_layers.shape_list(features["inputs"])[0]
 
     # Swap time and batch axes.
     input_frames = common_video.swap_time_and_batch_axes(features["inputs"])
@@ -616,17 +628,8 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
         latent_stds=latent_stds, beta=beta, true_frames=all_frames,
         gen_frames=gen_images)
 
-    # TODO(mbz): clean this up!
-    def fix_video_dims_and_concat_on_x_axis(x):
-      x = tf.transpose(x, [1, 3, 4, 0, 2])
-      x = tf.reshape(x, [batch_size, frame_height, frame_channels, -1])
-      x = tf.transpose(x, [0, 3, 1, 2])
-      return x
-
-    frames_gd = fix_video_dims_and_concat_on_x_axis(all_frames[1:])
-    frames_pd = fix_video_dims_and_concat_on_x_axis(gen_images)
-    side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
-    tf.summary.image("full_video", side_by_side_video)
+    # Visualize predictions in Tensorboard
+    self.visualize_predictions(all_frames[1:], gen_images)
 
     # Ignore the predictions from the input frames.
     # This is NOT the same as original paper/implementation.
