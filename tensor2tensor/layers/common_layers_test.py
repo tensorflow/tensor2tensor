@@ -417,6 +417,31 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
       actual = session.run(y)
     self.assertEqual(actual.shape, (5, 2, 1, 12))
 
+  def testNAC(self):
+    with self.test_session() as session:
+      x = np.random.rand(5, 2, 1, 12)
+      y = common_layers.nac(tf.constant(x, dtype=tf.float32), 14)
+      session.run(tf.global_variables_initializer())
+      actual = session.run(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 14))
+
+  def testNALU(self):
+    with self.test_session() as session:
+      x = np.random.rand(5, 2, 1, 12)
+      y = common_layers.nalu(tf.constant(x, dtype=tf.float32), 14)
+      session.run(tf.global_variables_initializer())
+      actual = session.run(y)
+    self.assertEqual(actual.shape, (5, 2, 1, 14))
+
+  def testNALUzeros(self):
+    with self.test_session() as session:
+      x = np.random.rand(5, 2, 1, 12)
+      y = common_layers.nalu(tf.zeros_like(x, dtype=tf.float32), 14)
+      session.run(tf.global_variables_initializer())
+      actual = session.run(y)
+    self.assertTrue(np.all(np.isfinite(actual)))
+    self.assertEqual(actual.shape, (5, 2, 1, 14))
+
   def testPaddingCrossEntropyFactored(self):
     vocab_size = 19
     rows = 5

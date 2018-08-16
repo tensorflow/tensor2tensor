@@ -3360,6 +3360,34 @@ def belu(x):
   return tf.reshape(tf.concat([y1, y2], axis=-1), x_shape)
 
 
+def nac(x, depth, name=None, reuse=None):
+  """NAC as in https://arxiv.org/abs/1808.00508."""
+  with tf.variable_scope(
+      name, default_name="nac", values=[x], reuse=reuse):
+    x_shape = shape_list(x)
+    w = tf.get_variable("w", [x_shape[-1], depth])
+    m = tf.get_variable("m", [x_shape[-1], depth])
+    w = tf.tanh(w) * tf.nn.sigmoid(m)
+    x_flat = tf.reshape(x, [-1, x_shape[-1]])
+    res_flat = tf.matmul(x_flat, w)
+    return tf.reshape(res_flat, x_shape[:-1] + [depth])
+
+
+def nalu(x, depth, epsilon=1e-30, name=None, reuse=None):
+  """NALU as in https://arxiv.org/abs/1808.00508."""
+  with tf.variable_scope(
+      name, default_name="nalu", values=[x], reuse=reuse):
+    x_shape = shape_list(x)
+    x_flat = tf.reshape(x, [-1, x_shape[-1]])
+    gw = tf.get_variable("w", [x_shape[-1], depth])
+    g = tf.nn.sigmoid(tf.matmul(x_flat, gw))
+    g = tf.reshape(g, x_shape[:-1] + [depth])
+    a = nac(x, depth, name="nac_lin")
+    log_x = tf.log(tf.abs(x) + epsilon)
+    m = nac(log_x, depth, name="nac_log")
+    return g * a + (1 - g) * tf.exp(m)
+
+
 def argmax_with_score(logits, axis=None):
   """Argmax along with the value."""
   axis = axis or len(logits.get_shape()) - 1
