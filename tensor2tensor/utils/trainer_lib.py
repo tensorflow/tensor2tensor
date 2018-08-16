@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import os
 import random
 import numpy as np
@@ -97,6 +98,11 @@ def create_hparams(hparams_set,
   return hparams
 
 
+def is_cloud_async_distributed():
+  return ("chief" in
+          json.loads(os.environ.get("TF_CONFIG", "{}")).get("cluster", {}))
+
+
 def create_run_config(master="",
                       model_dir=None,
                       warm_start_from=None,
@@ -156,9 +162,9 @@ def create_run_config(master="",
     del run_config_args["save_checkpoints_steps"]
   run_config_cls = tf.contrib.learn.RunConfig
 
-  # If using TPUEstimator, use TPU RunConfig, add TPUConfig, and add additional
-  # args.
   if use_tpu or use_tpu_estimator:
+    # If using TPUEstimator, use TPU RunConfig, add TPUConfig, and add
+    # additional args.
     tpu_config_kwargs = {
         "iterations_per_loop": iterations_per_loop,
         "num_shards": num_shards,
@@ -185,6 +191,10 @@ def create_run_config(master="",
       run_config_args["cluster"] = tpu_cluster_resolver
       del run_config_args["master"]
       del run_config_args["evaluation_master"]
+  elif is_cloud_async_distributed():
+    run_config_cls = tf.estimator.RunConfig
+    del run_config_args["master"]
+    del run_config_args["evaluation_master"]
 
   config = run_config_cls(**run_config_args)
   config.warm_start_from = warm_start_from
@@ -380,19 +390,11 @@ class T2TExperiment(object):
       ValueError: if not enough information is available in the estimator's
         config to create a server.
     """
-    config = self._estimator.config
-    if (not config.cluster_spec or not config.task_type or not config.master or
-        config.task_id is None):
-      raise ValueError("Could not start server; be sure to specify "
-                       "cluster_spec, task_type, master, and task in "
-                       "RunConfig or set the TF_CONFIG environment variable.")
+    config = tf.estimator.RunConfig()
     server = tf.train.Server(
         config.cluster_spec,
         job_name=config.task_type,
-        task_index=config.task_id,
-        config=config.tf_config,
-        start=False)
-    server.start()
+        task_index=config.task_id)
     server.join()
 
   def decode(self):

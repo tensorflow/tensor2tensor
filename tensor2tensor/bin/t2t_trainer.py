@@ -350,8 +350,15 @@ def maybe_cloud_tpu():
     yield
 
 
+def run_std_server():
+  exp = trainer_lib.T2TExperiment(*([None] * 5))
+  exp.run_std_server()
+
+
 def main(argv):
   tf.logging.set_verbosity(tf.logging.INFO)
+  if FLAGS.schedule == "run_std_server":
+    run_std_server()
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   maybe_log_registry_and_exit()

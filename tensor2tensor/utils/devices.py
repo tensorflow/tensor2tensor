@@ -130,10 +130,12 @@ def data_parallelism(daisy_chain_variables=True,
         ps_tasks=ps_replicas,
         ps_device=ps_job + "/GPU:0" if ps_gpu > 0 else ps_job)
 
+  is_single_machine = ps_replicas == 0 and worker_replicas == 1
+
   if no_data_parallelism:
     datashard_devices = [""]
     caching_devices = None
-  elif schedule in ["train_and_evaluate", "continuous_train_and_eval"]:
+  elif is_single_machine:
     assert not sync
     tf.logging.warn(
         "Schedule=%s. Assuming that training is running on a single machine.",
@@ -162,7 +164,6 @@ def data_parallelism(daisy_chain_variables=True,
           _replica_device_setter(worker_job + "/GPU:%d" % d)
           for d in _gpu_order(worker_gpu)
       ]
-      # caching_devices = [worker_job + "/GPU:0"] * worker_gpu
       caching_devices = None
     else:
       datashard_devices = [_replica_device_setter(worker_job)]

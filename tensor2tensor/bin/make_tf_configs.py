@@ -45,37 +45,64 @@ def main(_):
   masters = FLAGS.masters.split(",")
   ps = FLAGS.ps.split(",")
 
-  cluster = {"ps": ps, "master": masters}
+  is_sync = len(masters) == 1
+  if is_sync:
+    print("Assuming SYNC distributed training with a single master and %d "
+          "workers" % len(ps))
+    cluster = {"ps": ps, "master": masters}
+  else:
+    print("Assuming ASYNC distributed training with %d workers and %d "
+          "parameter servers" % (len(masters), len(ps)))
+    cluster = {"ps": ps, "chief": [masters[0]], "worker": masters[1:]}
 
-  for task_type, jobs in (("master", masters), ("ps", ps)):
-    for idx, job in enumerate(jobs):
-      if task_type == "master":
-        cmd_line_flags = " ".join([
-            "--master=grpc://%s" % job,
-            "--ps_replicas=%d" % len(ps),
-            "--worker_replicas=%d" % len(masters),
-            "--worker_gpu=1",
-            "--worker_id=%d" % idx,
-            "--worker_job='/job:master'",
-            "--ps_gpu=1",
-            "--schedule=train",
-            "--sync" if len(masters) == 1 else "",
-        ])
+  # Trainer configs
+  for idx, addr in enumerate(masters):
+    cmd_line_flags = [
+        "--master=grpc://%s" % addr,
+        "--ps_replicas=%d" % len(ps),
+        "--worker_replicas=%d" % len(masters),
+        "--worker_gpu=%d" % (0 if is_sync else 1),
+        "--worker_id=%d" % idx,
+        "--ps_gpu=%d" % (1 if is_sync else 0),
+        "--sync" if is_sync else "",
+        "--schedule=train",
+    ]
+    if is_sync:
+      task_type = "master"
+      cmd_line_flags.append("--worker_job='/job:master'")
+    else:
+      if idx == 0:
+        task_type = "chief"
+        idx = 0
+        cmd_line_flags.append("--worker_job='/job:chief'")
       else:
-        cmd_line_flags = " ".join([
-            "--master=grpc://%s" % job,
-            "--schedule=run_std_server",
-        ])
+        task_type = "worker"
+        idx -= 1
+        cmd_line_flags.append("--worker_job='/job:worker'")
 
-      tf_config = json.dumps({
-          "cluster": cluster,
-          "task": {
-              "type": task_type,
-              "index": idx
-          },
-          "environment": "cloud",
-      })
-      print("'%s'\t%s" % (tf_config, cmd_line_flags))
+    tf_config = json.dumps({
+        "cluster": cluster,
+        "task": {
+            "type": task_type,
+            "index": idx
+        },
+        "environment": "cloud",
+    })
+    cmd_line_flags = " ".join(cmd_line_flags)
+    print("'%s'\t%s" % (tf_config, cmd_line_flags))
+
+  # Std server configs
+  for idx, addr in enumerate(ps):
+    tf_config = json.dumps({
+        "cluster": cluster,
+        "task": {
+            "type": "ps",
+            "index": idx
+        },
+        "environment": "cloud",
+    })
+    cmd_line_flags = "--schedule=run_std_server"
+    print("'%s'\t%s" % (tf_config, cmd_line_flags))
 
 
 if __name__ == "__main__":
