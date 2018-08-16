@@ -40,7 +40,6 @@ setup(
         'gunicorn',
         'gym',
         'h5py',
-        'mock',
         'numpy',
         'oauth2client',
         'requests',

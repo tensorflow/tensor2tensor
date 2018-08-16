@@ -18,15 +18,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import json
-import io
 import collections
+import io
+import json
 import os
 import zipfile
 
 from tensor2tensor.data_generators import generator_utils
-from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import problem
+from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -39,8 +39,9 @@ _MS_COCO_DEV_FILE = "captions_val2014.json"
 
 
 def create_combination(list_of_sentences):
-  """ Generates all possible pair combinations for
-  the input list of sentences, for example:
+  """Generates all possible pair combinations for the input list of sentences.
+
+  For example:
 
   input = ["paraphrase1", "paraphrase2", "paraphrase3"]
 
@@ -55,7 +56,7 @@ def create_combination(list_of_sentences):
   """
   num_sentences = len(list_of_sentences) - 1
   combinations = []
-  for i, sentence in enumerate(list_of_sentences):
+  for i, _ in enumerate(list_of_sentences):
     if i == num_sentences:
       break
     num_pairs = num_sentences - i
@@ -66,10 +67,11 @@ def create_combination(list_of_sentences):
 
 
 class ParaphraseGenerationProblem(text_problems.Text2TextProblem):
+  """Paraphrase problem."""
 
   @property
   def bidirectional(self):
-    """If set to true, generates data in the following way:
+    """If set to true, generates data in the following way.
 
     sentence1 -> sentence2
     sentence2 -> sentence1
@@ -87,12 +89,13 @@ class ParaphraseGenerationProblem(text_problems.Text2TextProblem):
         caption_pairs += [(caption2, caption1)]
       for caption_pair in caption_pairs:
         yield {
-          'inputs': caption_pair[0],
-          'targets': caption_pair[1]
+            "inputs": caption_pair[0],
+            "targets": caption_pair[1]
         }
 
 
 class ParaphraseGenerationMsCocoProblem(ParaphraseGenerationProblem):
+  """Paraphrase problem."""
 
   @property
   def is_generate_per_split(self):
@@ -101,11 +104,11 @@ class ParaphraseGenerationMsCocoProblem(ParaphraseGenerationProblem):
   @property
   def dataset_splits(self):
     return [{
-      "split": problem.DatasetSplit.TRAIN,
-      "shards": 10,
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 10,
     }, {
-      "split": problem.DatasetSplit.EVAL,
-      "shards": 1,
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
     }]
 
   @property
@@ -158,7 +161,7 @@ class ParaphraseGenerationMsCocoProblem(ParaphraseGenerationProblem):
 
 @registry.register_problem
 class ParaphraseGenerationMsCocoProblem2d(
-  ParaphraseGenerationMsCocoProblem):
+    ParaphraseGenerationMsCocoProblem):
 
   @property
   def bidirectional(self):
@@ -167,7 +170,7 @@ class ParaphraseGenerationMsCocoProblem2d(
 
 @registry.register_problem
 class ParaphraseGenerationMsCocoProblem1d(
-  ParaphraseGenerationMsCocoProblem):
+    ParaphraseGenerationMsCocoProblem):
 
   @property
   def bidirectional(self):
@@ -176,7 +179,7 @@ class ParaphraseGenerationMsCocoProblem1d(
 
 @registry.register_problem
 class ParaphraseGenerationMsCocoProblem2dCharacters(
-  ParaphraseGenerationMsCocoProblem2d):
+    ParaphraseGenerationMsCocoProblem2d):
 
   @property
   def vocab_type(self):
@@ -185,7 +188,7 @@ class ParaphraseGenerationMsCocoProblem2dCharacters(
 
 @registry.register_problem
 class ParaphraseGenerationMsCocoProblem1dCharacters(
-  ParaphraseGenerationMsCocoProblem1d):
+    ParaphraseGenerationMsCocoProblem1d):
 
   @property
   def vocab_type(self):

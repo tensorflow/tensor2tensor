@@ -28,8 +28,8 @@ import tensorflow as tf
 class ParaphraseGenerationProblemTest(tf.test.TestCase):
 
   def testCombinationPairs(self):
-    inputs = ['A', 'B', 'C']
-    expected_combination = [('A', 'B'), ('A', 'C'), ('B', 'C')]
+    inputs = ["A", "B", "C"]
+    expected_combination = [("A", "B"), ("A", "C"), ("B", "C")]
     actual_combination = paraphrase_ms_coco.create_combination(inputs)
     self.assertEqual(actual_combination, expected_combination)
 
