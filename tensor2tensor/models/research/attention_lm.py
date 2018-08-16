@@ -14,6 +14,8 @@
 # limitations under the License.
 """Self-attention based language model.
 
+DEPRECATED. Use Transformer which supports running the decoder only.
+
 Like transformer.py, but no encoder
 
 decoder: [Self-Attention, Feed-forward] x n
@@ -34,6 +36,10 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 
+@tf.contrib.framework.deprecated(
+    "2018-09-15",
+    "Use Transformer, which supports decoder-only mode when "
+    "Transformer.has_input=False.")
 @registry.register_model
 class AttentionLM(t2t_model.T2TModel):
   """Attention net.  See file docstring."""
