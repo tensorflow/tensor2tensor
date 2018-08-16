@@ -231,9 +231,19 @@ class NextFrameStochastic(next_frame.NextFrameBasic):
 
     # Pass in action if exists.
     if action is not None:
-      emb_action = common_video.encode_to_shape(
-          action, enc2.get_shape(), "action_enc")
-      enc2 = tf.concat(values=[enc2, emb_action], axis=3)
+      if self.hparams.concatenate_actions:
+        emb_action = common_video.encode_to_shape(
+            action, enc2.get_shape(), "action_enc")
+        enc2 = tf.concat(values=[enc2, emb_action], axis=3)
+      else:
+        action_shape = common_layers.shape_list(action)
+        enc2_shape = common_layers.shape_list(enc2)
+        filters = enc2_shape[-1]
+        action_reshaped = tf.reshape(action, [-1, 1, 1, action_shape[-1]])
+        action_mask = tf.layers.dense(action_reshaped, filters)
+        zeros_mask = tf.zeros(enc2_shape, dtype=tf.float32)
+        action_broad = action_mask + zeros_mask
+        enc2 *= action_broad
 
     # Pass in reward if exists.
     if input_reward is not None:
